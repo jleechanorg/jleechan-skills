@@ -3,44 +3,29 @@ title: "Read a Gemini / ChatGPT / Google-Doc share link as the user"
 type: reference
 date: 2026-07-20
 verified_against: Gemini Flash share `Td7fA4pzuvMs` ("God of Murder Campaign Design")
+status: HARDENED 2026-08-09 — guarded lifecycle, no fixed /tmp paths, no screenshots, EXIT-trap cleanup. Background only; the canonical lifecycle is in `~/.claude/commands/browser.md` and `~/.claude/skills/browser-control/SKILL.md` and MUST NOT be overridden by the snippets below.
 ---
 
 # Reading auth-gated AI share links as the user
 
+> **Background reference only.** The canonical guarded lifecycle for /browser is in `~/.claude/commands/browser.md` (the **Auth-gated share links** section) and `~/.claude/skills/browser-control/SKILL.md` (**Authorized credential reuse**). The snippets below MUST NOT override that canonical lifecycle — they exist to document the verified end-to-end pattern, not to be copy-pasted as a competing instruction set.
+
 When the user gives you a `share.gemini.google/...`, `chatgpt.com/share/...`, or "anyone with the link" Google Doc URL and asks you to read the content, anonymous fetch (`curl`, `web_extract`, even headless `browser_navigate`) returns a **sign-in shell** with the conversation body loaded client-side only after Google / vendor auth.
 
-The wrong move is to declare the task blocked and ask the user to paste the content. The right move is to read the page *as the user* by decrypting their Chrome cookies and injecting them into a headless Chromium session.
+The wrong move is to declare the task blocked and ask the user to paste the content. The right move is to read the page *as the user* by decrypting their Chrome cookies and injecting them into a headless Chromium session, using the **canonical guarded lifecycle** referenced above. Key invariants the lifecycle enforces:
+
+- Cookie JSON + page text live only in **mktemp-generated private temp files** (`TMP_COOKIES`, `TMP_PAGE`), `chmod 600`, removed by EXIT trap on both success and failure. **No fixed predictable temp paths** — every credential-bearing write is a fresh `mktemp` file.
+- **No `--screenshot`** is written by default. Screenshots are only allowed when the user explicitly requested visual evidence AND the page is known not to display secrets.
+- **No HAR** is ever produced (the `browserclaw capture`/`learn`/`reverse` subcommands are banned for credential flows).
+- The decrypt, inject, and Python scripts propagate nonzero exit via `set -euo pipefail`; cleanup runs even on failure.
 
 This is what "use /browser or /browserclaw headless next time without asking" means — reach for the auth-aware recipe on the **first refusal**, not after being told.
 
-## Verified recipe (5 steps)
+## Verified recipe (background — see canonical lifecycle above)
 
-```bash
-# 1. Decrypt Chrome Default cookies for the target auth domain
-env -i HOME="$HOME" \
-  PATH="$HOME/.local/orch-venv/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
-  browserclaw cookies decrypt \
-    --db "$HOME/Library/Application Support/Google/Chrome/Default/Cookies" \
-    --output /tmp/google-cookies.json \
-    --domain-filter '%.google.com%' \
-    --summary
-# Expected: "Wrote 79 cookies to /tmp/google-cookies.json" (or similar)
+The canonical 5-step guarded lifecycle is in `~/.claude/commands/browser.md` § **Auth-gated share links** (the `# 1.` through `# 6.` blocks ending in `cleanup_browser_share`). It uses `$TMP_COOKIES` / `$TMP_PAGE` from `mktemp -t browserclaw-XXXXXX.json` and `mktemp -t browserclaw-page-XXXXXX.txt`, `chmod 600` them, traps `cleanup_browser_share EXIT`, and removes both on both success and failure. **Do not substitute the older fixed-path snippets that previously lived in this file.**
 
-# 2. Inject + navigate headless, dump the full page text
-env -i HOME="$HOME" \
-  PATH="$HOME/.local/orch-venv/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
-  browserclaw cookies inject \
-    --cookies /tmp/google-cookies.json \
-    --goto "https://gemini.google.com/share/<share-id>" \
-    --browser-channel chromium \
-    --headless \
-    --wait-after-load 12 \
-    --screenshot /tmp/share_authed.png \
-    --print-text 100000 > /tmp/share_page.txt
-# Expected: "cookies_injected: 79, page text captured"
-```
-
-The redirect (`/share/<id>` → `gemini.google.com/share/<daf9bcee379e>?skid=…`) is normal — the `skid` query parameter carries the conversation token. Pass the final redirected URL to `--goto` if you want to skip the redirect.
+The historical snippets in earlier versions of this file (using predictable cookie / page-text / screenshot paths) are RETIRED. If you see those fixed-path snippets anywhere else in the repo or in your own notes, replace them with the canonical guarded lifecycle — fixed predictable paths leak credentials across processes and survive long after the script exits.
 
 ## Why headless Chromium (not `channel=chrome`)
 
@@ -52,47 +37,25 @@ The redirect (`/share/<id>` → `gemini.google.com/share/<daf9bcee379e>?skid=…
 
 ## Truncation pitfall — scroll-to-bottom re-extraction
 
-Gemini's share UI lazy-loads conversation history as the user scrolls. `--print-text 100000` captures the visible viewport but can **truncate mid-sentence** for long conversations (verified 2026-07-20: v7 truncated at "replaced by somethi").
+Gemini's share UI lazy-loads conversation history as the user scrolls. The canonical lifecycle's `--print-text 100000` captures the visible viewport but can **truncate mid-sentence** for long conversations (verified 2026-07-20: v7 truncated at "replaced by somethi").
 
-**Fix:** re-extract with Playwright's scroll-to-bottom pattern, then grab the full `document.body.innerText`:
-
-```python
-from playwright.sync_api import sync_playwright
-import json, pathlib
-
-with open("/tmp/google-cookies.json") as f:
-    state = {"cookies": json.load(f)["cookies"], "origins": []}
-
-with sync_playwright() as p:
-    browser = p.chromium.launch(headless=True)
-    ctx = browser.new_context(storage_state=state, viewport={"width": 1280, "height": 900})
-    page = ctx.new_page()
-    page.goto("https://gemini.google.com/share/<id>", wait_until="domcontentloaded", timeout=30000)
-    page.wait_for_timeout(10000)
-    for _ in range(12):
-        page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-        page.wait_for_timeout(1000)
-    page.evaluate("window.scrollTo(0, 0)")
-    page.wait_for_timeout(1500)
-    full_text = page.evaluate("document.body.innerText")
-    pathlib.Path("/tmp/share_full.txt").write_text(full_text, encoding="utf-8")
-    print(f"len={len(full_text)}")
-    browser.close()
-```
-
-Use the orch-venv Python (has Playwright + browsers installed): `$HOME/.local/orch-venv/bin/python`. The system `python3` does NOT have Playwright browsers cached and will fail with `Executable doesn't exist at $HOME/Library/Caches/ms-playwright/chromium_headless_shell-1208/...`.
+**Fix:** re-extract with Playwright's scroll-to-bottom pattern, but write the result to a fresh `mktemp -t browserclaw-full-XXXXXX.txt` path, `chmod 600`, and trap-cleanup on EXIT. Use the orch-venv Python (has Playwright + browsers installed): `$HOME/.local/orch-venv/bin/python`. The system `python3` does NOT have Playwright browsers cached and will fail with `Executable doesn't exist at $HOME/Library/Caches/ms-playwright/chromium_headless_shell-1208/...`.
 
 ## Multi-turn conversation recovery (THE FINAL THING)
 
 Gemini share pages render the full back-and-forth between the user and Gemini as `You said` / response pairs. When the user asks "make sure the final thing didn't miss anything I asked," the **last `You said` block** is what they want captured — not any of the intermediate drafts.
 
-Detection recipe:
+Detection recipe (write to a fresh mktemp path, not a fixed /tmp file):
 
 ```bash
-grep -nE "^You said|^REVISED|^Campaign Design|^System:" /tmp/share_full.txt
+TMP_FULL="$(mktemp -t browserclaw-full-XXXXXX.txt)"
+chmod 600 "$TMP_FULL"
+cleanup_browser_share_full() { rm -f "$TMP_FULL"; }
+trap cleanup_browser_share_full EXIT INT TERM
+grep -nE "^You said|^REVISED|^Campaign Design|^System:" "$TMP_FULL"
 ```
 
-This prints every revision boundary. The final content to save is whatever comes **after the last `You said`** block in the file. Preserve intermediate drafts at `/tmp/share_full.txt` for archival; only the final state lands in the user's artifact (wiki, world_reference, etc.).
+This prints every revision boundary. The final content to save is whatever comes **after the last `You said`** block in the file. Preserve intermediate drafts at `$TMP_FULL` for archival; only the final state lands in the user's artifact (wiki, world_reference, etc.). Cleanup runs on EXIT.
 
 ## What this works for (verified or expected to work)
 
@@ -108,8 +71,9 @@ This prints every revision boundary. The final content to save is whatever comes
 ## What this DOES NOT bypass
 
 - **2FA / WebAuthn / passkey-only accounts** — the cookies decrypt, but the session might require re-prompt after N hours idle. Fix: user must have logged in within the cookie's lifetime.
-- **Cloudflare Turnstile / DataDome / fingerprint challenges** — these check JS-side fingerprint, not cookies. Sites that reject headless Chromium's fingerprint (LinkedIn, X/Twitter, Facebook — observed 2026-07-05) will still bounce even with valid session cookies.
+- **Cloudflare Turnstile / DataDome / fingerprint challenges** — these check JS-side fingerprint, not cookies. Sites that reject headless Chromium's fingerprint (LinkedIn, X/Twitter, Facebook — observed 2026-07-05) will still bounce even with valid session cookies. **For fingerprint-sensitive targets, the browser-control skill's Aside-only exception overrides this entire recipe** — post a ONE-LINE display blocker, do not run the lifecycle at all.
 - **MFA-gated Google accounts with no Chrome session** — if the user has never logged into Google in Chrome, there are no cookies to decrypt. Fall back to `gog`/`gws` CLI auth (separate Google OAuth flow) or ask the user to log into Chrome once.
+- **Secret-bearing pages** (API-key creation/rotation, token pages, password/banking/recovery-code pages) — the canonical lifecycle's secret-bearing branch applies: NO `--print-text`, NO screenshots, NO HAR, NO persisted DOM. Use a bare Playwright script that emits only a boolean/status result and persists nothing.
 
 ## Anti-pattern: declaring blocked and asking the user to paste
 
@@ -125,5 +89,6 @@ The failure mode this recipe prevents:
 
 - Parent skill: `~/.hermes/skills/browserclaw/SKILL.md` (cookies decrypt + inject + CDP v20 bypass recipes)
 - Sibling policy: `~/.hermes/skills/browser-headless-default/SKILL.md` (headless-only mandate; this recipe is the canonical "headless + auth" answer)
+- Canonical guarded lifecycle: `~/.claude/commands/browser.md` § **Auth-gated share links** and `~/.claude/skills/browser-control/SKILL.md` § **Authorized credential reuse** — these are authoritative.
 - `~/.claude/skills/google-credentials-fallback/SKILL.md` (fallback to `gog`/`gws` for Google Docs when the user has no Chrome session)
 - SOUL.md `## COMMIT: finish-the-job` — declaring blocked without trying the auth-aware recipe is a finish-the-job violation

@@ -1,4 +1,13 @@
+---
+title: "Multi-profile cookie scan — when the target site isn't in `Default`"
+type: reference
+date: 2026-07-14
+status: HARDENED 2026-08-09 — guarded mktemp lifecycle, no fixed /tmp paths, EXIT-trap cleanup. Background only; the canonical lifecycle is in `~/.claude/commands/browser.md` and `~/.claude/skills/browser-control/SKILL.md`.
+---
+
 # Multi-profile cookie scan — when the target site isn't in `Default`
+
+> **Background reference only.** The canonical guarded lifecycle for /browser is in `~/.claude/commands/browser.md` (the **Auth-gated share links** section) and `~/.claude/skills/browser-control/SKILL.md` (**Authorized credential reuse**). The snippets below MUST NOT override that canonical lifecycle — they document the verified multi-DB sweep pattern.
 
 When `browserclaw cookies decrypt --domain-filter '%target.com%'` returns `Wrote 0 cookies` against `~/Library/Application Support/Google/Chrome/Default/Cookies`, **do not stop**. The user may have the site logged into a different Chrome profile, a different browser (Brave, Aside), or a different default browser entirely. Always sweep all known profiles before concluding "no session exists."
 
@@ -10,7 +19,7 @@ When `browserclaw cookies decrypt --domain-filter '%target.com%'` returns `Wrote
 | Chrome Profile 1 | `~/Library/Application Support/Google/Chrome/Profile 1/Cookies` | `Chrome Safe Storage` | `Chrome` (same — Chrome uses one keychain entry per OS user) |
 | Chrome Profile N | `~/Library/Application Support/Google/Chrome/Profile N/Cookies` | `Chrome Safe Storage` | `Chrome` |
 | Brave | `~/Library/Application Support/BraveSoftware/Brave-Browser/Default/Cookies` | `Brave Safe Storage` | `Brave` |
-| Edge | `~/Library/Application Support/Edge/Default/Cookies` | `Microsoft Edge Safe Storage` | `Microsoft Edge` |
+| Edge | `~/Library/Application Support/Microsoft Edge/Default/Cookies` | `Microsoft Edge Safe Storage` | `Microsoft Edge` |
 | **Aside (2026-06-27+ default)** | `~/Library/Application Support/Aside/Default/Cookies` | `Aside Safe Storage` | `Aside` |
 | Codex | `~/Library/Application Support/Codex/Default/Cookies` | `Codex Safe Storage` (or similar) | `Codex` |
 
@@ -22,42 +31,87 @@ Don't guess. Before the sweep loop, list what's actually installed:
 ls -d ~/Library/Application\ Support/Google/Chrome/Profile*/Cookies \
        ~/Library/Application\ Support/Google/Chrome/Default/Cookies \
        ~/Library/Application\ Support/BraveSoftware/Brave-Browser/Default/Cookies \
-       ~/Library/Application\ Support/Edge/Default/Cookies \
+       ~/Library/Application\ Support/Microsoft\ Edge/Default/Cookies \
        ~/Library/Application\ Support/Aside/Default/Cookies \
        ~/Library/Application\ Support/Codex/Default/Cookies 2>/dev/null
 ```
 
-## Sweep loop
+## Sweep loop (background — see canonical lifecycle above)
+
+The canonical lifecycle uses `mktemp -t browserclaw-XXXXXX.json`, `chmod 600`, and `trap ... EXIT INT TERM` cleanup. **Do not use fixed `/tmp/<name>-cookies.json` paths** — those leak credentials across processes and survive long after the script exits. The hardened sweep loop is:
 
 ```bash
 TARGET='venmo.com'   # or whatever domain you're hunting
 
-for prof in "Default" "Profile 1" "Profile 2" "Profile 3"; do
-  DB="$HOME/Library/Application Support/Google/Chrome/$prof/Cookies"
-  [ -f "$DB" ] || continue
-  echo "=== $prof ==="
-  env -i HOME="$HOME" \
-    PATH="$HOME/.local/orch-venv/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
-    browserclaw cookies decrypt --db "$DB" \
-      --output "/tmp/${prof// /}-cookies.json" \
-      --domain-filter "%${TARGET}%" --summary 2>&1 | head -5
-done
+# One mktemp cookie file reused for the entire sweep; deleted before exit.
+set -euo pipefail
+umask 077
+TMP_COOKIES="$(mktemp -t browserclaw-sweep-XXXXXX.json)"
+chmod 600 "$TMP_COOKIES"
+trap 'rm -f "$TMP_COOKIES"' EXIT INT TERM HUP
 
-# Non-Chrome browsers
-for entry in \
-  "Aside:$HOME/Library/Application Support/Aside/Default/Cookies:Aside Safe Storage:Aside" \
-  "Brave:$HOME/Library/Application Support/BraveSoftware/Brave-Browser/Default/Cookies:Brave Safe Storage:Brave" \
-  "Edge:$HOME/Library/Application Support/Edge/Default/Cookies:Microsoft Edge Safe Storage:Microsoft Edge"; do
-  IFS=: read name db svc acct <<< "$entry"
-  [ -f "$db" ] || continue
-  echo "=== $name ==="
+# Iterate every Chromium-style profile you might have. Aside is
+# listed first because its signed-in session is the operator's
+# most common source of cookies. Each entry expands to
+# `<label>:<db-path>:<keychain-service>:<keychain-account>`.
+# use. The matching profile is logged for traceability.
+# The helper writes a fresh mktemp summary file (never a fixed /tmp
+# path), reads a non-empty summary via `jq -e` (set -e / pipefail
+# safe), and removes the summary in the same call before returning.
+# Bash $RANDOM is the seed that makes the summary unique so a
+# concurrent sweep on the same host cannot collide.
+match_profile() {
+  local label="$1" db="$2" svc="$3" acct="$4"
+  [ -f "$db" ] || return 0
+  local summary_file
+  summary_file="$(mktemp -t browserclaw-sweep-sum-XXXXXX.txt)"
+  chmod 600 "$summary_file"
   env -i HOME="$HOME" \
     PATH="$HOME/.local/orch-venv/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
     browserclaw cookies decrypt --db "$db" \
-      --output "/tmp/${name}-cookies.json" \
-      --keychain-service "$svc" --keychain-account "$acct" \
-      --domain-filter "%${TARGET}%" --summary 2>&1 | head -5
+      --output "$TMP_COOKIES" \
+      ${svc:+--keychain-service "$svc"} ${acct:+--keychain-account "$acct"} \
+      --domain-filter "%${TARGET}%" --summary >"$summary_file" 2>&1 || true
+  local count=0
+  if [ -s "$TMP_COOKIES" ]; then
+    count="$(jq -r '.cookies | length' "$TMP_COOKIES" 2>/dev/null || echo 0)"
+  fi
+  if [ "$count" -gt 0 ]; then
+    echo "MATCH: $label (${count} cookies) — stopping sweep"
+    rm -f "$summary_file"
+    return 1
+  fi
+  echo "=== $label === Wrote 0 cookies"
+  # Explicit summary reads (not `| head -5`) — pipefail-unsafe
+  # pipelines were the round-3 finding here.
+  if [ -s "$summary_file" ]; then
+    head -n 5 "$summary_file"
+  fi
+  rm -f "$summary_file"
+  return 0
+}
+
+# Chrome profiles — sweep in the order Aside-first then Chrome
+# Default, Profile 1, Profile 2, Profile 3. Aside is a real launchd
+# daemon and is the primary signed-in browser per the browser-control
+# skill, so it goes first.
+for entry in \
+  "Aside:$HOME/Library/Application Support/Aside/Default/Cookies:Aside Safe Storage:Aside" \
+  "Chrome-Default:$HOME/Library/Application Support/Google/Chrome/Default/Cookies:Chrome Safe Storage:Chrome" \
+  "Chrome-Profile1:$HOME/Library/Application Support/Google/Chrome/Profile 1/Cookies:Chrome Safe Storage:Chrome" \
+  "Chrome-Profile2:$HOME/Library/Application Support/Google/Chrome/Profile 2/Cookies:Chrome Safe Storage:Chrome" \
+  "Chrome-Profile3:$HOME/Library/Application Support/Google/Chrome/Profile 3/Cookies:Chrome Safe Storage:Chrome" \
+  "Brave:$HOME/Library/Application Support/BraveSoftware/Brave-Browser/Default/Cookies:Brave Safe Storage:Brave" \
+  "Edge:$HOME/Library/Application Support/Microsoft Edge/Default/Cookies:Microsoft Edge Safe Storage:Microsoft Edge"; do
+  IFS=: read label db svc acct <<< "$entry"
+  if ! match_profile "$label" "$db" "$svc" "$acct"; then
+    break
+  fi
 done
+
+# Cleanup runs on both success and failure (set -euo pipefail + EXIT trap).
+cleanup_sweep
+trap - EXIT INT TERM HUP
 ```
 
 **If ALL return `Wrote 0 cookies`:**
@@ -84,8 +138,11 @@ If the search finds the data, fetch and parse:
 gog gmail search "from:venmo.com subject:transaction history" --max 10
 # Get full message body for a specific ID
 gog gmail thread <thread_id> --select body
-# Or download the attachment if it's a CSV
-gog gmail attachment <msg_id> --output /tmp/venmo.csv
+# Or download the attachment if it's a CSV (use a guarded mktemp path, not a fixed /tmp path).
+VENMO_ATTACH="$(mktemp -t venmo-attach-XXXXXX.csv)"
+chmod 600 "$VENMO_ATTACH"
+gog gmail attachment <msg_id> --output "$VENMO_ATTACH"
+trap 'rm -f "$VENMO_ATTACH"' EXIT INT TERM
 ```
 
 The right order is:
@@ -122,6 +179,7 @@ Gmail sweep:
 
 ## Cross-references
 
+- Canonical guarded lifecycle: `~/.claude/commands/browser.md` § **Auth-gated share links** and `~/.claude/skills/browser-control/SKILL.md` § **Authorized credential reuse** — these are authoritative.
 - browserclaw SKILL.md "Edge cases / failure modes" — has the single-profile case; this file extends it for multi-profile
 - browserclaw SKILL.md "Poll-until-cookies-appear pattern" — what to do AFTER finding a profile with 0 cookies: register a 5-min poll cron
 - SOUL.md `## COMMIT: bashrc-profile-xapp-drift-blocks-launchd` — env -i wrapper rationale
