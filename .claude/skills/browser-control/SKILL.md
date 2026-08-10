@@ -12,7 +12,7 @@ The numbered **Routing order** below is the only authoritative sequence; these b
 - **Live websites, authenticated sessions, account settings, OAuth, existing tabs:** start at Aside MCP, then Aside CLI (the only signed-in path that does not copy session material).
 - **Authenticated fallback on fingerprint-TOLERANT sites:** use the guarded browserclaw decrypt → headless inject lifecycle only after both Aside paths fail to complete the authenticated task. **Fingerprint-sensitive sites (LinkedIn, banks/brokerages, Cloudflare/Akamai-protected, user-declared no-headless) NEVER advance past Aside.** When Aside is unavailable on a fingerprint-sensitive target, post a ONE-LINE display/input blocker; do not fall through to cookie injection, capture, learn, reverse, or Playwright.
 - **Deterministic local-app testing, CI, isolated profiles, traces, video, multi-browser:** use Playwright headless / `playwright-ui-testing` after the authenticated routes are inapplicable.
-- **Authorized API discovery (no credentials):** `browserclaw capture` is allowed only when no credentials, cookies, authorization headers, tokens, or secret pages can enter the capture. This is a separate, narrow escape hatch — it is NOT the headless-host fallback for the numbered routes above.
+- **Visible/headed browser:** only when the user explicitly asked for it in the current thread. Headed Chromium is the user's existing Chrome session; do not use it from a sandboxed Bash call unless the user opts in.
 
 ## Routing order (operational, in priority order)
 
@@ -23,6 +23,8 @@ Apply these in order; proceed only after the current route fails to complete the
 3. **browserclaw cookies decrypt → inject** — for fingerprint-tolerant sites where Aside is unavailable, not signed-in, or on a headless host. The fingerprint-sensitive Aside-only exception below overrides this fallback. Decrypt the user's existing cookies from the local Chromium profile, inject into Playwright Chromium headless, navigate. Profile sweep order: **Aside → Chrome Default → Chrome Profile 1 → Chrome Profile 2 → Brave → Microsoft Edge**. Chrome path: `~/Library/Application Support/Google/Chrome/<Profile>/Cookies`. Aside/Edge/Brave use the same shape with a different `--keychain-service`/`--keychain-account`. Discover profile locations from the installed browserclaw skill, but apply only the guarded lifecycle below; do not execute older fixed-path output snippets.
 4. **Playwright headless (no auth)** — for unauthenticated/deterministic flows, scraping public pages, scripted sweeps, or CI-style checks. Use `playwright-ui-testing` if the task is a real test (isolated profiles, traces, video).
 5. **Visible/headed browser** — only when the user explicitly asked for it in the current thread. Headed Chromium is the user's existing Chrome session; do not use it from a sandboxed Bash call unless the user opts in.
+
+> **Footnote — `browserclaw capture` / `learn` / `reverse` (NOT a route).** These subcommands persist full HTTP request/response traffic to a `capture.har` file on disk, which can contain the new secret in plaintext. They are allowed ONLY for tasks where no credentials, cookies, authorization headers, tokens, or secret pages can enter the capture — e.g. API documentation discovery against a public docs site. They are NOT the headless fallback for any of the numbered routes above; if you need an authenticated page, use route 3 (browserclaw `cookies decrypt` + `cookies inject`) instead.
 
 ## Live-browser workflow
 
@@ -141,12 +143,14 @@ env -i HOME="$HOME" PATH="$HOME/.local/orch-venv/bin:/opt/homebrew/bin:/usr/loca
     --wait-after-load 12 \
     --print-text 100000 > "$TMP_PAGE"
 
-# 4. Read only the fields needed for the task, then remove both the
-#    cookie file and the captured private text on both success and
-#    failure. The trap is the cleanup; this final call disarms it
-#    so a normal exit does not double-fire.
-cleanup_browser_creds
-trap - EXIT INT TERM HUP
+# 4. Read only the fields needed for the task, then trust the EXIT
+#    trap to remove both the cookie file and the captured private
+#    text on both success and failure. The trap is the cleanup;
+#    there is no disarm line and no explicit cleanup call here —
+#    keeping the trap armed is the fail-closed contract: any signal
+#    arriving after step 3 still removes both files. The trap's
+#    `rm -f` is idempotent, so a normal exit that fires the EXIT
+#    trap is the same as an explicit cleanup call.
 ```
 
 **Secret-bearing page branch:** API-key, token, password, recovery-code, banking, and similar pages MUST NOT execute the generic `--print-text` recipe above, MUST NOT capture screenshots, MUST NOT write a HAR, and MUST NOT persist DOM text. The branch must persist neither DOM text nor images. After injecting the guarded cookies, use a bare headless Playwright script that inspects only the minimum safe non-secret DOM state in memory, emits the boolean/status result to **stdout** (not a file), and persists nothing on disk. The lifecycle MUST be fail-closed: it owns combined cleanup of the cookie file and any per-branch scratch file, and INT/TERM/HUP also trigger cleanup:

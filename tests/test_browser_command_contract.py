@@ -257,6 +257,20 @@ class BrowserCommandContractTest(_BrowserFilesBase):
         assert '--screenshot' not in self.cmd_text, (
             "auth-gated private-content recipe must not persist screenshots by default"
         )
+        # Round-7 reviewer-required test: the canonical recipe in
+        # browser.md MUST NOT contain a `trap -` disarm line. The
+        # round-6 reviewer flagged that a disarm at the end of the
+        # recipe orphans the credential file if a signal arrives
+        # between the last cookie write and script exit.
+        canonical_block = self.cmd_text.split(
+            "## Auth-gated share links", 1)[1].split(
+            "## ", 1)[0]
+        assert "trap -" not in canonical_block, (
+            "browser.md canonical recipe must NOT disarm its trap; "
+            "the EXIT trap must stay armed until the script exits. "
+            "`rm -f` is idempotent so a normal exit firing the trap "
+            "is the same as an explicit cleanup call."
+        )
 
     def test_auth_gated_flow_preserves_global_routing_order(self) -> None:
         section = self.cmd_text.split("## Auth-gated share links", 1)[1]
@@ -464,8 +478,7 @@ class BrowserSkillContractTest(_BrowserFilesBase):
         cleanup + signal-handler traps, and never disarm them.
         """
         assert "set -euo pipefail" in self.skill_text, (
-            "browser-control/SKILL.md must declare `set -euo pipefail` so the "
-            "credential lifecycle fails closed on any nonzero exit"
+            "browser-control/SKILL.md must use 'set -euo pipefail'"
         )
         assert "exit_on_signal" in self.skill_text, (
             "browser-control/SKILL.md must install exit_on_signal "
@@ -482,6 +495,22 @@ class BrowserSkillContractTest(_BrowserFilesBase):
         )
         assert "trap cleanup_browser_creds EXIT" in self.skill_text, (
             "browser-control/SKILL.md must trap EXIT to cleanup_browser_creds"
+        )
+        # Round-7 reviewer-required test: the canonical recipe MUST
+        # NOT contain a `trap -` disarm line at the end. The EXIT
+        # trap is the cleanup; arming it once at the top of the
+        # recipe and never disarming it is the fail-closed contract.
+        # A `trap -` line at the end would mean a signal arriving
+        # between the last cookie write and the script exit could
+        # orphan the credential file (round-6 reviewer flag).
+        canonical_block = self.skill_text.split(
+            "## Authorized credential reuse", 1)[1].split(
+            "## Fingerprint-sensitive", 1)[0]
+        assert "trap -" not in canonical_block, (
+            "browser-control/SKILL.md canonical recipe must NOT disarm "
+            "its trap; the EXIT trap must stay armed until the script "
+            "exits. `rm -f` is idempotent so a normal exit firing the "
+            "trap is the same as an explicit cleanup call."
         )
 
     def test_no_screenshot_in_any_documented_bash_block(self) -> None:

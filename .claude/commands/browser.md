@@ -148,10 +148,12 @@ env -i HOME="$HOME" PATH="$HOME/.local/orch-venv/bin:/opt/homebrew/bin:/usr/loca
 # 5. Read only the captured fields needed for the task. Verify the expected
 #    first-user message appears, not the sign-in shell.
 
-# 6. Final cleanup runs the trap once on normal exit; failures abort
-#    via set -e and the EXIT trap removes both files.
-cleanup_browser_share
-trap - EXIT INT TERM HUP
+# 6. Cleanup is owned by the EXIT/INT/TERM/HUP trap (cleanup_browser_share),
+#    which is armed throughout the recipe. There is no disarm line —
+#    keeping the trap armed is the fail-closed contract: any signal
+#    arriving after step 5 still removes both files. The trap's
+#    `rm -f` is idempotent, so a normal exit that fires the EXIT
+#    trap is the same as an explicit cleanup call.
 ```
 
 **Why `--browser-channel chromium` (not `chrome`):** `channel=chrome` briefly opens a visible Chrome window before transitioning to headless — verified bug 2026-07-18. The bundled Chromium-for-Testing is always headless and never pollutes the user's existing Chrome session.
