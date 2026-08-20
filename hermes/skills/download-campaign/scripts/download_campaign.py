@@ -97,6 +97,18 @@ def slugify(text: str) -> str:
 
 
 def init_firebase():
+    """Initialize Firebase Admin SDK and return a Firestore client.
+
+    Idempotent: safe to call repeatedly. MUST always return a non-None
+    firestore.client() — even when firebase_admin._apps is already populated
+    (which happens after main()'s first init_firebase() call, or if another
+    module like clock_skew_credentials already initialized the SDK). Regression
+    2026-08-20: a deployed refactor moved `return firestore.client()` inside the
+    `if not firebase_admin._apps:` block — when _apps was already truthy, the
+    function fell through with no return value, so every query_candidates()
+    call hit `None.collection(...)` and the wiki-campaign-daily-ingest job
+    failed all 157 real users. See TestInitFirebaseReturnValue for the guard.
+    """
     os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(CREDENTIALS)
     os.environ["WORLDAI_DEV_MODE"] = "true"
     if not firebase_admin._apps:
