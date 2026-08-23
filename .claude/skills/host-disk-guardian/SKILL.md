@@ -1,6 +1,6 @@
 ---
-name: host-di[REDACTED_OPENAI_KEY]
-description: Alert when the Mac runner host's free disk drops below 50GB, auto-clean safe targets (evidence bundles, scratchpads, merged-PR worktrees) below 20GB. Closes the gap where mac-runner-di[REDACTED_OPENAI_KEY] (retired) and ezgha's own docker-daemon-view disk floor only ever saw CONTAINER-side disk, never true HOST free space. Use when user says "check host disk", "disk guardian stuck", or after a low-disk incident on the MacBook runner host.
+name: host-disk-guardian
+description: Alert when the Mac runner host's free disk drops below 50GB, auto-clean safe targets (evidence bundles, scratchpads, merged-PR worktrees) below 20GB. Closes the gap where mac-runner-disk-cleanup.sh (retired) and ezgha's own docker-daemon-view disk floor only ever saw CONTAINER-side disk, never true HOST free space. Use when user says "check host disk", "disk guardian stuck", or after a low-disk incident on the MacBook runner host.
 type: skill
 scope: repo
 owner: $USER
@@ -20,11 +20,11 @@ context:
   - "Mac-host-scoped only (uses macOS-specific `df -g`). The Linux fleet (jeff-ubuntu) has its own separate hardening tracked under bead rev-runn001, not this skill."
 ---
 
-# /host-di[REDACTED_OPENAI_KEY] — Mac runner host free-space alert + auto-clean
+# /host-disk-guardian — Mac runner host free-space alert + auto-clean
 
 ## The problem it solves
 
-`mac-runner-di[REDACTED_OPENAI_KEY]` (retired along with self-hosted-oss) and ezgha's
+`mac-runner-disk-cleanup.sh` (retired along with self-hosted-oss) and ezgha's
 own disk floor check (`docker_backend.rs`, `min_free_disk_gb`) both only ever
 see disk space from inside the container/docker-daemon view. Neither one sees
 or cleans host-side files that don't belong to a container: evidence bundles
@@ -36,8 +36,8 @@ disk to 285MB/926GB, corrupting colima's containerd content store mid-recovery.
 ## Usage
 
 ```bash
-bash .claude/skills/host-di[REDACTED_OPENAI_KEY]/scripts/host-di[REDACTED_OPENAI_KEY]                # check + clean if critical
-bash .claude/skills/host-di[REDACTED_OPENAI_KEY]/scripts/host-di[REDACTED_OPENAI_KEY] --dry-run       # report only, never delete
+bash .claude/skills/host-disk-guardian/scripts/host-disk-guardian                # check + clean if critical
+bash .claude/skills/host-disk-guardian/scripts/host-disk-guardian --dry-run       # report only, never delete
 ```
 
 ## Thresholds
@@ -51,7 +51,7 @@ bash .claude/skills/host-di[REDACTED_OPENAI_KEY]/scripts/host-di[REDACTED_OPENAI
 Override via `HOST_DISK_GUARDIAN_WARN_GB` / `HOST_DISK_GUARDIAN_CRITICAL_GB`. Slack alert reads
 `slack_webhook_url` from `~/.config/ezgha/config.toml` at runtime (override via
 `HOST_DISK_GUARDIAN_EZGHA_CONFIG`) -- never hardcoded, never git-tracked. Missing config, missing
-field, or a failed `curl` all degrade to a log line; the di[REDACTED_OPENAI_KEY]/auto-clean logic never
+field, or a failed `curl` all degrade to a log line; the host-disk-guardian/auto-clean logic never
 depends on the alert channel succeeding.
 
 ## Auto-clean targets (critical tier only), in order
@@ -73,15 +73,15 @@ All three directory roots and the worktree glob are overridable via
 sed -e "s|@HOME@|$HOME|g" \
     -e "s|@INSTALL_DIR@|<absolute-path-to-repo>|g" \
     -e "s|@LOG_DIR@|$HOME/Library/Logs|g" \
-  .claude/skills/host-di[REDACTED_OPENAI_KEY]/install/org.jleechanorg.host-di[REDACTED_OPENAI_KEY] \
-  > ~/Library/LaunchAgents/org.jleechanorg.host-di[REDACTED_OPENAI_KEY]
-launchctl load ~/Library/LaunchAgents/org.jleechanorg.host-di[REDACTED_OPENAI_KEY]
+  .claude/skills/host-disk-guardian/install/org.jleechanorg.host-disk-guardian \
+  > ~/Library/LaunchAgents/org.jleechanorg.host-disk-guardian
+launchctl load ~/Library/LaunchAgents/org.jleechanorg.host-disk-guardian
 ```
 
 Remove:
 ```bash
-launchctl unload ~/Library/LaunchAgents/org.jleechanorg.host-di[REDACTED_OPENAI_KEY]
-rm ~/Library/LaunchAgents/org.jleechanorg.host-di[REDACTED_OPENAI_KEY]
+launchctl unload ~/Library/LaunchAgents/org.jleechanorg.host-disk-guardian
+rm ~/Library/LaunchAgents/org.jleechanorg.host-disk-guardian
 ```
 
 ## Tests

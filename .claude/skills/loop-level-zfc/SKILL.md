@@ -7,7 +7,7 @@ description: Use when supervising the level-up ZFC migration loop in this repo, 
 
 ## Overview
 
-This is the ta[REDACTED_OPENAI_KEY] evolve loop for the level-up ZFC migration in this repo.
+This is the task-specific evolve loop for the level-up ZFC migration in this repo.
 It is not a generic observer. It must drive the cleanup-first roadmap, steer AO workers, record interventions, and keep the PR stack aligned with the canonical design.
 Run this loop on a 30-minute cadence by default unless the roadmap or operator explicitly requires a shorter interval.
 When `#6420` or `#6404` is active and not yet demonstrably on-track, treat them as fast-watch lanes and re-check their worker tmux panes and PR state every 5 minutes until they are either truly on-track or explicitly escalated out of AO.

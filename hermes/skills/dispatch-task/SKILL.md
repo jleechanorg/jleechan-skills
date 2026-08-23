@@ -332,7 +332,7 @@ Three patterns based on brief size — pick the right one for the size, do NOT d
 
 ```bash
 # A. SHORT brief (<2 KB) AND worker already running: ao send --file works
-ao send <session-name> --file /tmp/<project>-<phenotype>/ao-ta[REDACTED_OPENAI_KEY]
+ao send <session-name> --file /tmp/<project>-<phenotype>/ao-task-brief.md
 
 # B. LONG brief (>4 KB) on a FRESH spawn: ao send --file FAILS with
 #    "command too long" / "Argument list too long" because the brief is
@@ -345,14 +345,14 @@ ao send <session-name> --file /tmp/<project>-<phenotype>/ao-ta[REDACTED_OPENAI_K
 #    it (ao send's "auto-submit" claim does not hold for fresh spawns).
 WT=$(~/bin/ao status --project <project> 2>/dev/null | grep <session-name> | grep -oE 'wa-[0-9]+' | head -1)
 TMUX_NAME=$(tmux list-sessions -F '#{session_name}' 2>/dev/null | grep "$WT" | head -1)
-tmux load-buffer -t "$TMUX_NAME" /tmp/<project>-<phenotype>/ao-ta[REDACTED_OPENAI_KEY]
+tmux load-buffer -t "$TMUX_NAME" /tmp/<project>-<phenotype>/ao-task-brief.md
 tmux paste-buffer -t "$TMUX_NAME"
 tmux send-keys -t "$TMUX_NAME" Enter
 
 # C. ANY size on a FRESH spawn: ALWAYS copy the brief to the worktree
 #    root as AO-TASK-BRIEF.md regardless of the tmux path above. Worker
 #    can re-read from disk if the buffer paste fails or gets truncated.
-cp /tmp/<project>-<phenotype>/ao-ta[REDACTED_OPENAI_KEY] \
+cp /tmp/<project>-<phenotype>/ao-task-brief.md \
    "$WT/AO-TASK-BRIEF.md"
 ```
 
@@ -734,9 +734,9 @@ cd ~/.worktrees/<project>/<session-id> && \
 
 **The right pattern:**
 
-1. **Write the brief to `/tmp/<project>-<phenotype>/ao-ta[REDACTED_OPENAI_KEY]`** (NOT to a worktree, because you don't have one yet — the brief lives at `/tmp/` until AO makes the worktree).
+1. **Write the brief to `/tmp/<project>-<phenotype>/ao-task-brief.md`** (NOT to a worktree, because you don't have one yet — the brief lives at `/tmp/` until AO makes the worktree).
 2. **Spawn AO.** AO prints the worktree path + tmux name + auto-derived branch.
-3. **Copy the brief into the worker-created worktree root** (`cp /tmp/<project>/ao-ta[REDACTED_OPENAI_KEY] ~/.worktrees/<project>/<N>/AO-TASK-BRIEF.md`). Worker reads it from the worktree root.
+3. **Copy the brief into the worker-created worktree root** (`cp /tmp/<project>/ao-task-brief.md ~/.worktrees/<project>/<N>/AO-TASK-BRIEF.md`). Worker reads it from the worktree root.
 4. **Don't reset the branch unless the auto-derived name is genuinely unusable.** For bead IDs + issue numbers embedded in the slug, the auto-derived name is fine. For vague prose, reset to `fix/<bead>-<phenomenon>` (see `agento` skill "Spawn Output — Branch Name Auto-Derivation").
 
 **Exception — when pre-creating IS correct:** if you are operating in the same worktree an earlier session already used (e.g. bring-to-green on PR #N), the existing worktree IS the dispatch target and you should NOT pre-create. `ao spawn --claim-pr N` reuses the PR head branch.
@@ -781,7 +781,7 @@ TMUX_NAME="953501c04ccc-wa-2404"
 # 2. Copy the long task brief + any root-cause evidence into the worktree root
 #    (the worker reads these as ./AO-TASK-BRIEF.md and ./root-cause-evidence.md
 #     — make them visible from inside the worktree)
-cp /tmp/<project>-<phenotype>/ao-ta[REDACTED_OPENAI_KEY] "$WT/AO-TASK-BRIEF.md"
+cp /tmp/<project>-<phenotype>/ao-task-brief.md "$WT/AO-TASK-BRIEF.md"
 cp /tmp/<project>-<phenotype>/root-cause-evidence.md "$WT/root-cause-evidence.md"
 
 # 3. Reset the branch name BEFORE the worker commits (auto-derived slugs are

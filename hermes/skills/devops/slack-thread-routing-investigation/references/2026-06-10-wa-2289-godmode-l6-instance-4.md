@@ -1,7 +1,7 @@
 # 2026-06-10 — Instance #4 (wa-2289 godmode-l6 dispatch ack, C09GRLXF9GR)
 
 **Thread:** `C09GRLXF9GR/1781139255.231799` (Hermes/user channel, WorldArchitect context).
-**Trigger:** `ao spawn wa-2289` for godmode-l6 twin-copy repro investigation required posting a dispatch ack to the thread per the `dispatched-ta[REDACTED_OPENAI_KEY]` commitment in SOUL.md.
+**Trigger:** `ao spawn wa-2289` for godmode-l6 twin-copy repro investigation required posting a dispatch ack to the thread per the `dispatched-task-acks` commitment in SOUL.md.
 **Form attempted:** `send_message` with `target=slack:C09GRLXF9GR:1781139255.231799`
 **Where it landed:** `C0AJQ5M0A0Y` (home) as top-level. Tool response: `{"success": true, "platform": "slack", "chat_id": "C0AJQ5M0A0Y", "message_id": "1781145611.547459", "note": "Sent to slack home channel (chat_id: C0AJQ5M0A0Y)", "mirrored": true}`.
 **Recovery:** Path B (curl `chat.postMessage` with explicit `channel=C09GRLXF9GR, thread_ts=1781139255.231799`) → `{"ok": true, "ts": "1781145623.237729", "thread_ts": "1781139255.231799", ...}`. Verified via `mcp__slack__conversations_replies` — the new message appeared in the source thread with `ThreadTs=1781139255.231799` (correctly threaded, NOT self-rooted). Then `chat.delete` on the C0AJQ5M0A0Y duplicate (`ts=1781145611.547459`) → `ok:true`.
@@ -42,4 +42,4 @@ The recovery is fully recipe-ified. The recipe hasn't changed across 4 instances
 - `slack-messaging` skill — "send_message 3-part form" pitfall, now with 4 confirmed instances
 - `dispatch-task` skill — Step 4a "posting the in-thread ack" guidance, which this instance followed
 - `~/.hermes_prod/SOUL.md` — `## COMMIT: slack-reply-inherit-thread-ts` (the rule that triggered the failed 3-part attempt)
-- `~/.hermes_prod/SOUL.md` — `## COMMIT: dispatched-ta[REDACTED_OPENAI_KEY]` (the rule that required the dispatch ack in the first place)
+- `~/.hermes_prod/SOUL.md` — `## COMMIT: dispatched-task-acks` (the rule that required the dispatch ack in the first place)

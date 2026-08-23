@@ -59,10 +59,14 @@ Behavior contract (details in the skill):
    fallback in STATE.md — never fall back to tmux, never `-p`, never codex
    exec. Route codex work through AO / `/claw` instead.
 1. State file first — respawns never overwrite an existing STATE.md.
-2. One named teammate owns the mission; lanes are named teammates too
-   (`sidekick-<slug>-lane-<topic>`), each with an explicit `model` — never
-   anonymous `general-purpose` fire-and-forget subagents wearing sidekick
-   names.
+2. One named teammate owns the mission. Lanes the sidekick fans out CANNOT
+   be named teammates (`Agent({name: ...})` called from a teammate, not the
+   top-level session, is hard-rejected by the harness — "Teammates cannot
+   spawn other teammates, the team roster is flat"); lanes are anonymous
+   `general-purpose` subagents with an explicit `model` param instead. If a
+   lane's work needs to be user-visible, the sidekick asks the top-level
+   session to spawn it directly — only the top-level session can create
+   named teammates (confirmed 2026-07-21, see the `sidekick` skill).
 3. Commit-often discipline propagated verbatim to every sub-prompt.
 4. Never merge / never force-push; milestone reports are captured evidence
    (STATE.md excerpt, git log, PR/commit URL, test output) relayed to the

@@ -122,7 +122,7 @@ down its own auto-started server on exit — no manual teardown needed. (If you 
 
 ### agy reliability notes (why the test retries)
 
-The agy CLI intermittently prepends async ta[REDACTED_OPENAI_KEY] noise
+The agy CLI intermittently prepends async task-orchestration noise
 (`**SYSTEM NOTE:** Waiting for command execution completion…`) ahead of the gameplay
 JSON on character code-execution turns, which the provider's normalizer rejects
 (0 chunks, streaming transport error). The test recovers this with bounded retries

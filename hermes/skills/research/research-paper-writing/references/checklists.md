@@ -286,7 +286,7 @@ If applicable:
 
 ### Formatting (Strictest of All Venues)
 
-AAAI enforces formatting rules more strictly than any other major venue. Papers that deviate from the template are de[REDACTED_OPENAI_KEY]
+AAAI enforces formatting rules more strictly than any other major venue. Papers that deviate from the template are desk-rejected.
 
 - [ ] Use the **exact** AAAI style file without modification — no `\setlength`, no `\vspace` hacks, no font overrides
 - [ ] 7 pages main content (8 for camera-ready with author info)

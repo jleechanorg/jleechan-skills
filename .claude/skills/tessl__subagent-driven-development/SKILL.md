@@ -54,7 +54,7 @@ digraph process {
         "Implementer subagent asks questions?" [shape=diamond];
         "Answer questions, provide context" [shape=box];
         "Implementer subagent implements, tests, commits, self-reviews" [shape=box];
-        "Write diff file, dispatch task reviewer subagent (./ta[REDACTED_OPENAI_KEY])" [shape=box];
+        "Write diff file, dispatch task reviewer subagent (./task-reviewer-prompt.md)" [shape=box];
         "Task reviewer reports spec ✅ and quality approved?" [shape=diamond];
         "Dispatch fix subagent for Critical/Important findings" [shape=box];
         "Mark task complete in todo list and progress ledger" [shape=box];
@@ -70,10 +70,10 @@ digraph process {
     "Implementer subagent asks questions?" -> "Answer questions, provide context" [label="yes"];
     "Answer questions, provide context" -> "Dispatch implementer subagent (./implementer-prompt.md)";
     "Implementer subagent asks questions?" -> "Implementer subagent implements, tests, commits, self-reviews" [label="no"];
-    "Implementer subagent implements, tests, commits, self-reviews" -> "Write diff file, dispatch task reviewer subagent (./ta[REDACTED_OPENAI_KEY])";
+    "Implementer subagent implements, tests, commits, self-reviews" -> "Write diff file, dispatch task reviewer subagent (./task-reviewer-prompt.md)";
     "Write diff file, dispatch task reviewer subagent (./ta[REDACTED_OPENAI_KEY])" -> "Task reviewer reports spec ✅ and quality approved?";
     "Task reviewer reports spec ✅ and quality approved?" -> "Dispatch fix subagent for Critical/Important findings" [label="no"];
-    "Dispatch fix subagent for Critical/Important findings" -> "Write diff file, dispatch task reviewer subagent (./ta[REDACTED_OPENAI_KEY])" [label="re-review"];
+    "Dispatch fix subagent for Critical/Important findings" -> "Write diff file, dispatch task reviewer subagent (./task-reviewer-prompt.md)" [label="re-review"];
     "Task reviewer reports spec ✅ and quality approved?" -> "Mark task complete in todo list and progress ledger" [label="yes"];
     "Mark task complete in todo list and progress ledger" -> "More tasks remain?";
     "More tasks remain?" -> "Dispatch implementer subagent (./implementer-prompt.md)" [label="yes"];
@@ -158,11 +158,11 @@ review — send it back to the implementer and re-review.
 
 ## Constructing Reviewer Prompts
 
-Per-task reviews are ta[REDACTED_OPENAI_KEY] gates. The broad review happens once, at the
+Per-task reviews are task-scoped gates. The broad review happens once, at the
 final whole-branch review. When you fill a reviewer template:
 
 - Do not add open-ended directives like "check all uses" or "run race tests
-  if useful" without a concrete, ta[REDACTED_OPENAI_KEY] reason
+  if useful" without a concrete, task-specific reason
 - Do not ask a reviewer to re-run tests the implementer already ran on the
   same code — the implementer's report carries the test evidence
 - Do not pre-judge findings for the reviewer — never instruct a reviewer to
@@ -234,7 +234,7 @@ and is re-read on every later turn. Hand artifacts over as files:
   report contract. Exact values (numbers, magic strings, signatures, test
   cases) appear only in the brief.
 - **Report file:** name the implementer's report file after the brief
-  (brief `…/ta[REDACTED_OPENAI_KEY]` → report `…/ta[REDACTED_OPENAI_KEY]`) and put it in
+  (brief `…/task-N-brief.md` → report `…/task-N-report.md`) and put it in
   the dispatch prompt. The implementer writes the full report there and
   returns only status, commits, a one-line test summary, and concerns.
 - **Reviewer inputs:** the task reviewer gets three paths — the same brief
@@ -266,7 +266,7 @@ a ledger file, not only in todos.
 ## Prompt Templates
 
 - [implementer-prompt.md](implementer-prompt.md) - Dispatch implementer subagent
-- [ta[REDACTED_OPENAI_KEY]](ta[REDACTED_OPENAI_KEY]) - Dispatch task reviewer subagent (spec compliance + code quality)
+- [task-reviewer-prompt.md](task-reviewer-prompt.md) - Dispatch task reviewer subagent (spec compliance + code quality)
 - Final whole-branch review: use superpowers:requesting-code-review's [code-reviewer.md](../requesting-code-review/code-reviewer.md)
 
 ## Example Workflow

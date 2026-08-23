@@ -40,7 +40,7 @@ For each failure class, answer BEFORE proposing a fix:
   fi
   ```
 - Set `DISK_MIN_KB=5242880` (5GB, 5x the preflight threshold).
-- Belt-and-suspenders: add a periodic launchd script (`mac-runner-di[REDACTED_OPENAI_KEY]` style).
+- Belt-and-suspenders: add a periodic launchd script (`mac-runner-disk-cleanup.sh` style).
 - Deploy: `bash self-hosted-oss/install.sh` syncs to `~/.local/share/worldarchitect-runners/pre-job-hook.sh` (bind-mounted live — no restart needed).
 - VERIFY: `docker exec <runner> bash -c 'pgrep Runner.Worker'` returns empty (idle), then `df -Pk /` shows >=5GB.
 

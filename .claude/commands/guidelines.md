@@ -74,7 +74,7 @@ execution_mode: immediate
 **2. CLAUDE.md Reading** (MANDATORY):
 - Always read CLAUDE.md first to understand current rules and constraints
 - Apply meta-rules, critical implementation rules, and system understanding
-- Check for any ta[REDACTED_OPENAI_KEY] protocols or recent rule updates
+- Check for any task-specific protocols or recent rule updates
 
 **3. Base Guidelines Discovery**:
 - Read `docs/pr-guidelines/base-guidelines.md` for general patterns

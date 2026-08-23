@@ -1,9 +1,9 @@
 ---
-name: di[REDACTED_OPENAI_KEY]
+name: disk-root-cause
 description: Use when a user asks why a disk is filling, what uses its capacity, what grew over time, or what can be safely reclaimed.
 ---
 
-# di[REDACTED_OPENAI_KEY] — forensic attribution skill
+# disk-root-cause — forensic attribution skill
 
 When a user asks **why the disk filled up**, **what grew over a window**, or **where a specific bucket came from**, this skill is the entry point. It never assumes an answer; it pulls facts from this machine's snapshot history (`~/.disk_magician_backup`), never deletes anything without an explicit human OK, and prefers parallel-subagent fan-out to keep wall-clock bounded.
 
@@ -12,7 +12,7 @@ When a user asks **why the disk filled up**, **what grew over a window**, or **w
 Run this before chasing individual directories:
 
 ```bash
-di[REDACTED_OPENAI_KEY] audit
+disk-magician audit
 ```
 
 This is the mandatory three-lane diagnostic. It launches in parallel:
@@ -48,7 +48,7 @@ Do **not** use this skill for one-off size queries — `du -sh <path>` answers t
 1. **Never delete anything without explicit user OK.** Every deletion goes through `./disk_magician.sh <script> --clean`, `cleanup-ao-sessions.sh --drop-bak --days N`, etc. — never `rm -rf` directly. The repo's scripts encode mtime filters and the never-delete list.
 2. **Never-delete list** (hard-stop): `~/.codex/sessions*`, `~/.codex/state*.sqlite`, `~/.codex/log`, `~/.claude/projects`. Probe these paths only via `du -sh`, never with destructive verbs.
 3. **Symlink gotcha — always realpath-verify:** `~/.hermes_prod` and `~/.openclaw.bak` are symlinks to `~/.hermes`; `/tmp`, `/var`, `/etc` are volume-root symlinks to `/private/*`. Naive `du` over args triples-counts them. Use `du -P` (no-follow) and dedup by realpath when comparing totals.
-4. **No VACATE-without-name.** When a user says "vacate / pause / stop the CI runners", there is **no** `ez-mac-runner` launchd job on this host — `ez-mac-runner-b-{1,2,3}` are GitHub Actions runner **processes** under `~/actions-runner/`. Stopping the wrong thing (e.g. `com.jleechanorg.di[REDACTED_OPENAI_KEY]`) is harmless but accomplishes nothing; stopping the GH Actions runners pauses live CI. Always `launchctl list | grep <hint>` and `ps aux | grep <hint>` before any destructive action, and report the candidate names back to the user verbatim.
+4. **No VACATE-without-name.** When a user says "vacate / pause / stop the CI runners", there is **no** `ez-mac-runner` launchd job on this host — `ez-mac-runner-b-{1,2,3}` are GitHub Actions runner **processes** under `~/actions-runner/`. Stopping the wrong thing (e.g. `com.jleechanorg.disk-root-cause`) is harmless but accomplishes nothing; stopping the GH Actions runners pauses live CI. Always `launchctl list | grep <hint>` and `ps aux | grep <hint>` before any destructive action, and report the candidate names back to the user verbatim.
 5. **Read-first, deduce-later.** Do not assert "X grew 5 GB" from one `du`; cross-check against snapshot history (a committed git repo on disk) and the live `df -k /System/Volumes/Data`. If two sources disagree, attribute honestly.
 6. **Scope expansions are user-OK gates.** Tools like `bobthecow` style auto-remediators are NOT enabled. The skill recommends; the human runs.
 7. **Honest attribution in final report.** If disk improved mid-analysis for reasons outside this session (concurrent sweepers, OS reclaims), say so explicitly. Never claim a delta whose source you didn't observe.
@@ -57,7 +57,7 @@ Do **not** use this skill for one-off size queries — `du -sh <path>` answers t
 
 ```bash
 # Produce the default concurrent top-down + delta + quick-win report first.
-di[REDACTED_OPENAI_KEY] audit
+disk-magician audit
 
 # Authenticate the data source
 df -h /System/Volumes/Data
@@ -160,13 +160,13 @@ Fan-out rule: **single-writer per file**, `grep -n "agent(" <swarm-script>` cost
 ## What this skill is NOT
 
 - Not a cleaner (use `disk_magician` for cleanup; this skill explains why something grew).
-- Not a real-time monitor (left to `di[REDACTED_OPENAI_KEY]` + `pressure_sweep.sh`).
+- Not a real-time monitor (left to `disk-root-cause` + `pressure_sweep.sh`).
 - Not authorized to push commits or merge PRs (read-only forensics + typed recommendations only).
 
 ## Exit criteria for the skill
 
 A complete root-cause answer for this machine has:
-- [ ] Default `di[REDACTED_OPENAI_KEY] audit` three-lane report completed or its named limits were reported
+- [ ] Default `disk-magician audit` three-lane report completed or its named limits were reported
 - [ ] Every normal Data path bucket is at or below 5 GiB, without parent/child or symlink double counting
 - [ ] Every larger directory is recursively subdivided or named on the unfinished frontier; indivisible files above 5 GiB are labeled separately
 - [ ] Displayed Data equation reconciles bounded buckets + indivisible files + measured tail + purgeable estimate + residual = Data used from one accepted leaf ledger

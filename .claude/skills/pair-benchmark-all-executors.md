@@ -32,7 +32,7 @@ Run a small, named Amazon-style ecommerce preset:
 
 ```bash
 python .claude/pair/benchmark_pair_executors.py \
-  --ta[REDACTED_OPENAI_KEY] amazon_clone \
+  --task-preset amazon_clone \
   --pairv2-max-cycles 2 \
   --timeout-seconds 1200 \
   --artifact /tmp/{repo}/{branch}/pair/amazon_clone_benchmark.json
@@ -72,7 +72,7 @@ python .claude/pair/benchmark_pair_executors.py \
 - `--executor-set`: `pairv2-only`
 - `--coder-cli`: `minimax`
 - `--verifier-cli`: `minimax`
-- `--task`: hello world script + pytest test (default); overridden by `--ta[REDACTED_OPENAI_KEY]` when provided
+- `--task`: hello world script + pytest test (default); overridden by `--task-preset` when provided
 - `--timeout-seconds`: `600`
 
 Run with no args to use these defaults:

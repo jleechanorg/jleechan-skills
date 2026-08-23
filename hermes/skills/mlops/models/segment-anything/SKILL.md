@@ -19,7 +19,7 @@ Comprehensive guide to using Meta AI's Segment Anything Model for zero-shot imag
 ## When to use SAM
 
 **Use SAM when:**
-- Need to segment any object in images without ta[REDACTED_OPENAI_KEY] training
+- Need to segment any object in images without task-specific training
 - Building interactive annotation tools with point/box prompts
 - Generating training data for other vision models
 - Need zero-shot transfer to new image domains

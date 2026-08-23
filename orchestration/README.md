@@ -8,7 +8,7 @@ Python package and CLI for AI CLI task execution (passthrough and async tmux mod
 - [Verify Install and Version](#verify-install-and-version)
 - [CLI Entry Points](#cli-entry-points)
 - [Primary Usage: ai_orch](#primary-usage-ai_orch)
-- [Task Dispatcher Python Interface](#ta[REDACTED_OPENAI_KEY])
+- [Task Dispatcher Python Interface](#task-dispatcher-python-interface)
 - [Legacy: orchestrate_unified (deprecated)](#legacy-orchestrate_unified-deprecated)
 - [Design Summary](#design-summary)
 - [Tech Stack (Summary)](#tech-stack-summary)

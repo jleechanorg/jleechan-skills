@@ -58,7 +58,7 @@ Three documented root causes of "newer god campaigns feel less challenging":
 
 1. **Two conflicting three-layer framings** — production is "Mask (L0) / Persona (L1) / Source (L2)" (mortal-face outward); Aizen is "Ambiguous (L1) / Projected (L2) / Cover-story (L3)" (all deception layers). Numbering + semantics diverge. Pick one.
 2. **DPP (Divine Power Points) is overloaded** — finite pool in the ascension ceremony (5/5), "Dissonance IS the cost" (no pool) in the leverage rules, daily-replenishing 825/day in Aizen. Pick one.
-3. **No quantified divine stat table** — production uses Ri[REDACTED_OPENAI_KEY] formulas; Aizen has the DR/DAC/DPP/DAIR/DLR/Primary-Damage table. LLM combat output is better grounded by the table.
+3. **No quantified divine stat table** — production uses Risk-Multiplier formulas; Aizen has the DR/DAC/DPP/DAIR/DLR/Primary-Damage table. LLM combat output is better grounded by the table.
 
 ## Phase -1 — Open-PR preflight (always; takes <30s, runs BEFORE Phase 0)
 

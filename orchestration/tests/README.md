@@ -227,7 +227,7 @@ def test_agent_creation(self):
 
         # Check session details
         session_name = list(mock_tmux.sessions.keys())[0]
-        self.assertTrue(session_name.startswith('ta[REDACTED_OPENAI_KEY]'))
+        self.assertTrue(session_name.startswith('task-agent-'))
 ```
 
 ### Example: Using Claude fixture

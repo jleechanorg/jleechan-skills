@@ -14,6 +14,6 @@ For any PR that changes production code under `$PROJECT_ROOT/**`, CI gates, or Z
 Level-up or `rewards_engine` / `world_logic` work must also cite the canonical design + task-spec links:
 
 - [roadmap/zfc-level-up-model-computes-2026-04-19.md](https://github.com/$GITHUB_REPOSITORY/blob/main/roadmap/zfc-level-up-model-computes-2026-04-19.md)
-- [roadmap/zfc-pr-ta[REDACTED_OPENAI_KEY]](https://github.com/$GITHUB_REPOSITORY/blob/main/roadmap/zfc-pr-ta[REDACTED_OPENAI_KEY])
+- [roadmap/zfc-pr-task-specs-2026-04-22.md](https://github.com/$GITHUB_REPOSITORY/blob/main/roadmap/zfc-pr-task-specs-2026-04-22.md)
 
 Repo default template: `your-project.com` → `.github/pull_request_template.md`. **CI does not parse PR bodies** for these links; `design-doc-gate.yml` enforces code grep gates only—human and agent discipline fills the gap.

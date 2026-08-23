@@ -138,7 +138,7 @@ gh api "repos/<OWNER>/<REPO>/branches?per_page=100" \
 ### Step 2 — Clone to a scratch dir (NOT the user's home directory)
 
 ```bash
-SCRATCH=/tmp/<ta[REDACTED_OPENAI_KEY]>-<unix-ts>
+SCRATCH=/tmp/<task-prefix>-<unix-ts>
 mkdir -p "$SCRATCH"
 cd "$SCRATCH"
 git clone --quiet https://github.com/<OWNER>/<REPO>.git repo
@@ -229,7 +229,7 @@ un-indented if it was indented by the user):
   --base main \
   --head <branch-name> \
   --title "<exact title from instructions file>" \
-  --body-file /tmp/<ta[REDACTED_OPENAI_KEY]>/PR_BODY.md
+  --body-file /tmp/<task-prefix>/PR_BODY.md
 
 # Capture
 gh pr list --head <branch-name> --json number,title,url,state
@@ -262,8 +262,8 @@ follow-up only if CodeRabbit posts a verdict or the user comments.
 ### Step 8 — Cleanup
 
 ```bash
-rm -rf /tmp/<ta[REDACTED_OPENAI_KEY]>/repo /tmp/<ta[REDACTED_OPENAI_KEY]>/PR_BODY.md
-# Optional: preserve the patch itself at /tmp/<ta[REDACTED_OPENAI_KEY]>/<patch-file>
+rm -rf /tmp/<task-prefix>/repo /tmp/<task-prefix>/PR_BODY.md
+# Optional: preserve the patch itself at /tmp/<task-prefix>/<patch-file>
 # for re-application if the user wants to redo the PR
 ```
 
@@ -772,7 +772,7 @@ in <2s). The user explicitly stated the new patch supersedes the old — the
 ## Verified case
 
 2026-07-15, `jleechanorg/disk_magician` PR #17 — Slack message "Handle" +
-two attached files (`0001-feat-safety-machine-loca.di[REDACTED_OPENAI_KEY]`
+two attached files (`0001-feat-safety-machine-loca.disk-magician-findings-wiki.patch`
 41,016 B, and `UPSTREAM-PROMPT.md` 4,213 B / 71 lines). The instructions file
 listed:
 
@@ -793,7 +793,7 @@ v1.9.0).
 patch shape, refreshed version. Slack message body "Make sure these are
 handled or do the extra work as needed. use /ms and search slack history
 might already be in progress" + 2 file attachments:
-- `0001-feat-safety-machine-loca.di[REDACTED_OPENAI_KEY]` (64,987 B
+- `0001-feat-safety-machine-loca.disk-magician-findings-wiki.patch` (64,987 B
   — refreshed, supersedes the 2026-07-15 patch)
 - `UPSTREAM-PROMPT.md` (188,464 B / 71 lines — explicit "REFRESHED 2026-07-16,
   supersedes the 2026-07-15 patch" in opening paragraph)

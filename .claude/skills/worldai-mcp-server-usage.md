@@ -39,7 +39,7 @@ Use the `X-Test-User-ID` header for local testing without Firebase auth:
 
 **Finding the user ID:** Check server logs for `user=<uid>` entries:
 ```bash
-grep "user=" /tmp/your-project.com/*/fla[REDACTED_OPENAI_KEY] | tail -10
+grep "user=" /tmp/your-project.com/*/flask-server.log | tail -10
 ```
 
 ## Available Tools
@@ -122,13 +122,13 @@ curl -s -X POST http://localhost:8081/mcp \
 
 ```bash
 # Real-time log monitoring
-tail -f /tmp/your-project.com/*/fla[REDACTED_OPENAI_KEY]
+tail -f /tmp/your-project.com/*/flask-server.log
 
 # Check for dice roll processing
-grep -E "NATIVE|Phase|tool_call|dice" /tmp/your-project.com/*/fla[REDACTED_OPENAI_KEY] | tail -20
+grep -E "NATIVE|Phase|tool_call|dice" /tmp/your-project.com/*/flask-server.log | tail -20
 
 # Find user IDs for campaigns
-grep "user=" /tmp/your-project.com/*/fla[REDACTED_OPENAI_KEY] | tail -10
+grep "user=" /tmp/your-project.com/*/flask-server.log | tail -10
 ```
 
 ### GCP Preview Server Endpoints

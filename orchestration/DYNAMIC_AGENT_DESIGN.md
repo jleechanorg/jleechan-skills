@@ -17,7 +17,7 @@ This document describes the transformation of the orchestration system from stat
 ### After: Dynamic Agent System
 ```
 ├── opus-master (coordinator - optional)
-└── ta[REDACTED_OPENAI_KEY]* (created dynamically per task)
+└── task-agent-* (created dynamically per task)
 ```
 
 ## Key Design Principles
@@ -25,7 +25,7 @@ This document describes the transformation of the orchestration system from stat
 ### 1. Single Entry Point
 - **Command**: `python3 orchestration/orchestrate_unified.py "task description"`
 - **No predefined agent types** - agents understand tasks naturally
-- **Dynamic naming**: `ta[REDACTED_OPENAI_KEY]{timestamp}` for uniqueness
+- **Dynamic naming**: `task-agent-{timestamp}` for uniqueness
 
 ### 2. Task-Based Agent Creation
 ```python
@@ -33,7 +33,7 @@ This document describes the transformation of the orchestration system from stat
 "Fix all failing tests in the authentication module"
 
 # System creates appropriate agent
-ta[REDACTED_OPENAI_KEY]:
+task-agent-1234:
   - Understands task context
   - Has full development capabilities
   - Works in isolated environment
@@ -93,7 +93,7 @@ orchestrate_unified.py orchestrate(task_description)
 ```python
 # task_dispatcher.py analyzes task and creates agent spec
 agent_spec = {
-    "name": "ta[REDACTED_OPENAI_KEY]",  # Unique name from task content
+    "name": "task-agent-fix-tests-1234",  # Unique name from task content
     "type": "development",
     "focus": "Fix all failing tests",
     "cli": "claude",  # or "codex" based on detection
@@ -105,8 +105,8 @@ agent_spec = {
 **Phase 3: Workspace Isolation**
 ```python
 # Create git worktree in isolated directory
-worktree_path = "~/projects/orch_your-project.com/ta[REDACTED_OPENAI_KEY]/"
-branch_name = "ta[REDACTED_OPENAI_KEY]"
+worktree_path = "~/projects/orch_your-project.com/task-agent-fix-tests-1234/"
+branch_name = "task-agent-fix-tests-1234-work"
 
 subprocess.run([
     "git", "worktree", "add",
@@ -119,7 +119,7 @@ subprocess.run([
 **Phase 4: Prompt Engineering**
 ```python
 # Write comprehensive prompt to file
-prompt_file = "/tmp/agent_prompt_ta[REDACTED_OPENAI_KEY]"
+prompt_file = "/tmp/agent_prompt_task-agent-fix-tests-1234.txt"
 
 prompt_content = f"""
 Task: {task_description}
@@ -206,18 +206,18 @@ For **Claude CLI**:
 ```bash
 # Inside tmux session, bash script executes:
 claude --model sonnet \
-    -p @/tmp/agent_prompt_ta[REDACTED_OPENAI_KEY] \
+    -p @/tmp/agent_prompt_task-agent-fix-tests-1234.txt \
     --output-format stream-json \
     --verbose \
     --dangerously-skip-permissions \
-    2>&1 | tee -a /tmp/orchestration_logs/ta[REDACTED_OPENAI_KEY]
+    2>&1 | tee -a /tmp/orchestration_logs/task-agent-fix-tests-1234.log
 ```
 
 For **Codex CLI**:
 ```bash
 # Inside tmux session, bash script executes:
-codex exec --yolo < /tmp/agent_prompt_ta[REDACTED_OPENAI_KEY] \
-    2>&1 | tee -a /tmp/orchestration_logs/ta[REDACTED_OPENAI_KEY]
+codex exec --yolo < /tmp/agent_prompt_task-agent-fix-tests-1234.txt \
+    2>&1 | tee -a /tmp/orchestration_logs/task-agent-fix-tests-1234.log
 ```
 
 **Phase 8: Agent Execution**
@@ -285,10 +285,10 @@ class AgentMonitor:
 ```python
 # Agent writes result file
 result = {
-    "agent": "ta[REDACTED_OPENAI_KEY]",
+    "agent": "task-agent-fix-tests-1234",
     "status": "completed",
     "pr_url": "https://github.com/user/repo/pull/123",
-    "branch": "ta[REDACTED_OPENAI_KEY]",
+    "branch": "task-agent-fix-tests-1234-work",
     "completion_time": "2025-01-15T10:30:00Z"
 }
 

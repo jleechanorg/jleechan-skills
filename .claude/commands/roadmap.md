@@ -188,9 +188,9 @@ For each task, execute in sequence:
 - Update `roadmap/roadmap.md` with parallel task status:
   ```
   ## Active Parallel Tasks (Auto-Generated)
-  - **TASK-1234-AUTH** 🟡 [Agent: ta[REDACTED_OPENAI_KEY]] - Implementing authentication
-  - **TASK-1235-API** 🟡 [Agent: ta[REDACTED_OPENAI_KEY]] - Building REST endpoints
-  - **TASK-1236-UI** 🟢 [Agent: ta[REDACTED_OPENAI_KEY]] - Creating UI components
+  - **TASK-1234-AUTH** 🟡 [Agent: task-agent-1234] - Implementing authentication
+  - **TASK-1235-API** 🟡 [Agent: task-agent-1235] - Building REST endpoints
+  - **TASK-1236-UI** 🟢 [Agent: task-agent-1236] - Creating UI components
   ```
 - Status indicators:
   - 🟢 Ready/Completed
@@ -234,9 +234,9 @@ Now spawning parallel tasks:
 [Updates roadmap.md with parallel task tracking]
 
 You can monitor progress with:
-- `tmux attach -t ta[REDACTED_OPENAI_KEY]` (auth)
-- `tmux attach -t ta[REDACTED_OPENAI_KEY]` (docs)
-- `tmux attach -t ta[REDACTED_OPENAI_KEY]` (tests)
+- `tmux attach -t task-agent-1234` (auth)
+- `tmux attach -t task-agent-1235` (docs)
+- `tmux attach -t task-agent-1236` (tests)
 ```
 
 ## Implementation Flow

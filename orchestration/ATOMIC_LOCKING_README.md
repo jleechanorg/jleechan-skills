@@ -96,7 +96,7 @@ for task in tasks:
 ### Lock File Location
 - Lock files are created in the same directory as task files
 - Naming pattern: `{task_id}.lock`
-- Example: `/tmp/orchestration/a2a/tasks/available/ta[REDACTED_OPENAI_KEY]`
+- Example: `/tmp/orchestration/a2a/tasks/available/task-123.lock`
 
 ### Lock File Lifecycle
 1. **Creation**: Lock file created when claim attempt starts

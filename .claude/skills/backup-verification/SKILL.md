@@ -50,7 +50,7 @@ Override per-row via `_PER_SOURCE_TIMEOUT_OVERRIDES` associative array in `scrip
 
 - **Silent green**: `git push` succeeds (commit `1e1df25d2 → 7eb57a0f9 → 70940f08b`) while dropbox is wedged for hours. The 2026-07-27 → 2026-07-29 launchd log shows `result_dropbox=TIMEOUT` on 10+ consecutive ticks with the script's exit 0 — exactly this class.
 - **Stale process trust**: `gtimeout --kill-after` keeps the per-source timeout honest, but if the per-source timeout is dropped or falls back to bash builtin `timeout`, the openrsync orphan cascade wedges the next 2-h tick. Always probe `gtimeout --version` and verify ≥ `9.0` before relying on the wrapper.
-- **Di[REDACTED_OPENAI_KEY] wedge**: at `>=95%` used on `/System/Volumes/Data`, the macOS CloudStorage FileProvider returns `Interrupted system call` on every stat/read. The script's pre-run `df` check (added 2026-07-29) writes `result_dropbox=SKIP reason=DISK_PRESSURE` and skips; verify that, don't try to retry the source list.
+- **Disk wedge**: at `>=95%` used on `/System/Volumes/Data`, the macOS CloudStorage FileProvider returns `Interrupted system call` on every stat/read. The script's pre-run `df` check (added 2026-07-29) writes `result_dropbox=SKIP reason=DISK_PRESSURE` and skips; verify that, don't try to retry the source list.
 
 ## When NOT to use this skill
 

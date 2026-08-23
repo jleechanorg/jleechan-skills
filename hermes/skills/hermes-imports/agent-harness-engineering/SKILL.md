@@ -88,7 +88,7 @@ Do not turn `AGENTS.md` into a giant handbook.
 - keep it short
 - link outward to durable docs
 - update links when docs move
-- reserve `AGENTS.md` for ta[REDACTED_OPENAI_KEY] instructions and repo-specific operational constraints
+- reserve `AGENTS.md` for task-routing instructions and repo-specific operational constraints
 
 ### 2. Durable knowledge lives in docs
 

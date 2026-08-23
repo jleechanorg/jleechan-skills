@@ -180,5 +180,5 @@ If all four pass, the round-trip is proven. If any fails, the corresponding fail
 - `references/subprocess-vs-interactive-shell.md` — why `bash -lic` is the canonical non-interactive pattern
 - `references/bashrc-global-leak.md` — why the binary had to go and what the v1.5.0 cleanup changed
 - SKILL.md "Pattern — Round-trip dispatch proof" section — the concise summary that lives in the skill body
-- SOUL.md `dispatched-ta[REDACTED_OPENAI_KEY]` — the related 5-min progress-ping contract (for long-running tasks)
+- SOUL.md `dispatched-task-progress-5min` — the related 5-min progress-ping contract (for long-running tasks)
 - SOUL.md `slack-reply-inherit-thread-ts` — the related MCP thread-routing contract

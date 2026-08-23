@@ -388,7 +388,7 @@ Simple boundaries are applied consistently:
 /tmp/orchestration/a2a/
 ├── registry.json                    # Global agent registry
 ├── agents/                          # Agent-specific directories
-│   ├── ta[REDACTED_OPENAI_KEY]{id}/
+│   ├── task-agent-{id}/
 │   │   ├── info.json               # Agent information
 │   │   ├── heartbeat.json          # Last heartbeat timestamp
 │   │   ├── inbox/                  # Incoming messages
@@ -456,11 +456,11 @@ Simple boundaries are applied consistently:
 ```python
 # Agent registers with A2A system
 agent_info = AgentInfo(
-    agent_id="ta[REDACTED_OPENAI_KEY]",
+    agent_id="task-agent-1234567",
     agent_type="development",
     capabilities=["file_edit", "git_operations", "pr_create"],
     status="idle",
-    workspace="/tmp/agents/ta[REDACTED_OPENAI_KEY]",
+    workspace="/tmp/agents/task-agent-1234567",
     created_at=time.time(),
     last_heartbeat=time.time()
 )
@@ -704,10 +704,10 @@ prompt_constraints = format_constraints_for_prompt(constraints)
 3. **Agent Inspection**:
    ```bash
    # Attach to agent session
-   tmux attach -t ta[REDACTED_OPENAI_KEY]
+   tmux attach -t task-agent-1234567
 
    # View agent workspace
-   ls -la /tmp/agents/ta[REDACTED_OPENAI_KEY]/
+   ls -la /tmp/agents/task-agent-1234567/
    ```
 
 ### Debugging Techniques
@@ -721,7 +721,7 @@ prompt_constraints = format_constraints_for_prompt(constraints)
 
 ```bash
 # Agent activity monitoring
-grep "ta[REDACTED_OPENAI_KEY]" /tmp/orchestration_logs/agent_monitor.log
+grep "task-agent-" /tmp/orchestration_logs/agent_monitor.log
 
 # Constraint inference debugging
 grep "constraint" /tmp/worldarchitectai_logs/*.log

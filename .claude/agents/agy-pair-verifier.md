@@ -33,7 +33,7 @@ Adversarially verify this implementation. Try to REFUTE the claim that it works:
 - Execute the changed code paths with edge-case inputs
 - Check for scope creep beyond the stated task
 - Check the tests actually assert behavior (not tautologies)
-<ta[REDACTED_OPENAI_KEY] details here>
+<task-specific details here>
 PROMPT_EOF
 
 agy --dangerously-skip-permissions \

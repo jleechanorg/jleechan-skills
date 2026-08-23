@@ -156,7 +156,7 @@ Bad first turn after curl fails:
 Good first turn:
 > `browser_navigate(url)` (the call itself, with a 1-line summary)
 
-The `ta[REDACTED_OPENAI_KEY]` SOUL.md COMMIT already requires the first turn to contain a tool call. This pitfall reinforces: **after a tool fails, don't pivot to asking — pivot to the next tool.**
+The `task-ack-and-execute` SOUL.md COMMIT already requires the first turn to contain a tool call. This pitfall reinforces: **after a tool fails, don't pivot to asking — pivot to the next tool.**
 
 ### P2. README ≠ contract
 

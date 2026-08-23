@@ -123,7 +123,7 @@ The benchmark runs pairv2 (and optionally legacy pair executors) on a task and r
 
 ### Task presets
 
-Use `--ta[REDACTED_OPENAI_KEY]` when you want a common workload without re-typing the full prompt.
+Use `--task-preset` when you want a common workload without re-typing the full prompt.
 
 - `hello_world`: legacy default contract smoke task.
 - `amazon_clone`: Flask-based Amazon clone with browser test + video/screenshot evidence (11 expected files).
@@ -142,7 +142,7 @@ and `testing_llm/pair/run_pair_benchmark.py`).
 Show presets:
 
 ```bash
-./vpython .claude/pair/benchmark_pair_executors.py --list-ta[REDACTED_OPENAI_KEY]
+./vpython .claude/pair/benchmark_pair_executors.py --list-task-presets
 ```
 
 **Current defaults** (as of Feb 2026):
@@ -157,7 +157,7 @@ venv/bin/python3 .claude/pair/benchmark_pair_executors.py
 
 # Run the Amazon-style clone example
 venv/bin/python3 .claude/pair/benchmark_pair_executors.py \
-  --ta[REDACTED_OPENAI_KEY] amazon_clone \
+  --task-preset amazon_clone \
   --pairv2-max-cycles 2 \
   --timeout-seconds 1200
 
