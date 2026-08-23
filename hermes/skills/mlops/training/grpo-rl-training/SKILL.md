@@ -1,6 +1,6 @@
 ---
 name: grpo-rl-training
-description: Expert guidance for GRPO/RL fine-tuning with TRL for reasoning and ta[REDACTED_OPENAI_KEY] model training
+description: Expert guidance for GRPO/RL fine-tuning with TRL for reasoning and task-specific model training
 version: 1.0.0
 author: Orchestra Research
 license: MIT
@@ -558,7 +558,7 @@ When this skill is loaded:
 1. **Read this entire file** before implementing GRPO training
 2. **Start with the simplest reward function** (e.g., length-based) to validate setup
 3. **Use the templates** in `templates/` directory as starting points
-4. **Reference examples** in `examples/` for ta[REDACTED_OPENAI_KEY] implementations
+4. **Reference examples** in `examples/` for task-specific implementations
 5. **Follow the workflow** sequentially (don't skip steps)
 6. **Debug incrementally** - add one reward function at a time
 

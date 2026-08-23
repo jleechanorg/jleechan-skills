@@ -153,4 +153,4 @@ If items 1-3 pass, the round-trip is proven. If item 4 reveals a different state
 - `references/round-trip-dispatch-proof.md` — the single-ping shape (one PR, one in-thread reply)
 - SKILL.md "Pattern — No-silent-babysit multi-ping" section — the concise summary in the skill body
 - SKILL.md "Gotchas — Worker scope vs gateway scope" — why the gateway must own the cadence, not the worker
-- SOUL.md `dispatched-ta[REDACTED_OPENAI_KEY]` — the related 5-min progress-ping contract for cron-driven work
+- SOUL.md `dispatched-task-progress-5min` — the related 5-min progress-ping contract for cron-driven work

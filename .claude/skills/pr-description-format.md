@@ -30,7 +30,7 @@ Before filing or finalizing a PR, add a short block (see repo `.github/pull_requ
 
 - **Design doc:** Full `https://github.com/$GITHUB_REPOSITORY/blob/main/roadmap/...` (or `docs/design/...`) URL, or `N/A` with justification for true no-op doc-only changes.
 - **Bead:** `br` issue ID (e.g. `rev-xxxxx`) or `N/A`.
-- **ZFC / level-up:** If the branch touches `world_logic.py`, `rewards_engine.py`, level-up harness, or `design-doc-gate.yml`, cite the canonical [zfc-level-up-model-computes-2026-04-19.md](https://github.com/$GITHUB_REPOSITORY/blob/main/roadmap/zfc-level-up-model-computes-2026-04-19.md) and [zfc-pr-ta[REDACTED_OPENAI_KEY]](https://github.com/$GITHUB_REPOSITORY/blob/main/roadmap/zfc-pr-ta[REDACTED_OPENAI_KEY]).
+- **ZFC / level-up:** If the branch touches `world_logic.py`, `rewards_engine.py`, level-up harness, or `design-doc-gate.yml`, cite the canonical [zfc-level-up-model-computes-2026-04-19.md](https://github.com/$GITHUB_REPOSITORY/blob/main/roadmap/zfc-level-up-model-computes-2026-04-19.md) and [zfc-pr-task-specs-2026-04-22.md](https://github.com/$GITHUB_REPOSITORY/blob/main/roadmap/zfc-pr-task-specs-2026-04-22.md).
 
 CI enforces **code** invariants in `design-doc-gate.yml`; it does **not** fail PRs missing these links—this section is process enforcement.
 

@@ -214,7 +214,7 @@ for await (const message of query({
 }
 ```
 
-Ta[REDACTED_OPENAI_KEY] system messages are also emitted for subagent operations:
+Task system messages are also emitted for subagent operations:
 - `task_started` — emitted when a subagent task is registered
 - `task_progress` — real-time progress updates with cumulative usage metrics, tool counts, and duration (enable `agentProgressSummaries` option for periodic AI-generated summaries via the `summary` field)
 - `task_notification` — task completion notifications (includes `tool_use_id` for correlating with originating tool calls)

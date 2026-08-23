@@ -61,7 +61,7 @@ ModuleNotFoundError: No module named 'flask'
 
 Why `flask` and not the full `$PROJECT_ROOT/requirements.txt`: `$PROJECT_ROOT/__init__.py` uses lazy-import proxies (`_LazyModule` class) — `from mvp_site import (...)` doesn't actually execute the imports until first attribute access. Only the modules touched during the precompute's import chain are needed at runtime, and the chain transitively touches `flask` via `mvp_site.llm_providers.provider_gateway`. The precompute script does `from mvp_site import intent_classifier, prompt_rag` (line 37) — both are lazy proxies and don't trigger the chain until accessed. But `from mvp_site.agent_prompts import _load_instruction_file` (line 38) DOES trigger the chain.
 
-Tradeoff considered: install `pip install -r $PROJECT_ROOT/requirements.txt` would balloon the action from ~30s to ~3+ minutes (Flask-Cors, Fla[REDACTED_OPENAI_KEY], selenium, playwright, firebase_admin, google-cloud-firestore, fpdf2, etc.). The targeted `flask` install is ~5-10s on cold cache, ~1-2s on warm.
+Tradeoff considered: install `pip install -r $PROJECT_ROOT/requirements.txt` would balloon the action from ~30s to ~3+ minutes (Flask-Cors, Flask-Limiter, selenium, playwright, firebase_admin, google-cloud-firestore, fpdf2, etc.). The targeted `flask` install is ~5-10s on cold cache, ~1-2s on warm.
 
 ### 2. Reduce the probe to scope-match the install
 

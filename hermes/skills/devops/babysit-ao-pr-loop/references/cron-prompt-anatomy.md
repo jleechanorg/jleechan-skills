@@ -13,7 +13,7 @@ Invoked as:
       --session "$SESSION_ID" \
       --slack-channel "$CHANNEL" \
       --slack-thread-ts "$THREAD_TS" \
-      --ta[REDACTED_OPENAI_KEY] "$TASK_SUMMARY" \
+      --task-summary "$TASK_SUMMARY" \
       --cron-job-id "$CRON_JOB_ID"
 ```
 

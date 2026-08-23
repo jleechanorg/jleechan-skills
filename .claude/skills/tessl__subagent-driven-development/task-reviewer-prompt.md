@@ -14,7 +14,7 @@ Subagent (general-purpose):
          model silently inherits the session's most expensive one]
   prompt: |
     You are reviewing one task's implementation: first whether it matches its
-    requirements, then whether it is well-built. This is a ta[REDACTED_OPENAI_KEY] gate,
+    requirements, then whether it is well-built. This is a task-scoped gate,
     not a merge review — a broad whole-branch review happens separately after
     all tasks are complete.
 

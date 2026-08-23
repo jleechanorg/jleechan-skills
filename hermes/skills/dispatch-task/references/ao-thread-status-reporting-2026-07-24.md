@@ -120,7 +120,7 @@ The Hermes-side reporter (subscribes to AO's CDC stream) must:
 1. Translate AO events into Slack thread replies:
    - `session-start` → "🔭 Babysit armed for session `<name>`"
    - `activity`     → silent (or periodic 5-min heartbeat per SOUL.md
-     `dispatched-ta[REDACTED_OPENAI_KEY]`)
+     `dispatched-task-acks`)
    - `terminal`     → completion summary, PR URL if `claim-pr` known
    - `failure`      → explicit failure classification with one-line
      escalation; never silently re-try
@@ -136,7 +136,7 @@ The Hermes-side reporter (subscribes to AO's CDC stream) must:
    remote-reviewable" contract.
 
 4. During long runs, post a periodic in-thread progress ping at least every
-   5 minutes (per SOUL.md `dispatched-ta[REDACTED_OPENAI_KEY]`).
+   5 minutes (per SOUL.md `dispatched-task-acks`).
 
 5. Send MCP Agent Mail notification to Hermes (if MCP Mail is enabled —
    per SOUL.md `mcp-agent-mail-no-passive-slack-listening`, the Slack bridge

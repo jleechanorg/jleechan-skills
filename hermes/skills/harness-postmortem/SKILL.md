@@ -99,10 +99,10 @@ For each incident, classify into ONE of these working buckets (operationalized f
 
 | Working failure class | MAST mapping | ETCLOVG layer | Hermes symptom |
 |---|---|---|---|
-| **`mid-ta[REDACTED_OPENAI_KEY]`** | FC1 (specification ambiguity) + FC3 (premature termination) | Verification | Agent asks multi-option menu mid-stream after explicit user invocation. (`finish-the-job` Phase 0 fork-resolution not auto-applied.) |
+| **`mid-task-clarification-freeze`** | FC1 (specification ambiguity) + FC3 (premature termination) | Verification | Agent asks multi-option menu mid-stream after explicit user invocation. (`finish-the-job` Phase 0 fork-resolution not auto-applied.) |
 | **`local-commit-without-PR`** | FC3 (premature termination) | Verification | Agent `git commit`s locally then waits for "want me to push?" instead of running `git push origin <branch>`. (`push-pr-donot-stop-halfway` rule unenforced.) |
-| **`ta[REDACTED_OPENAI_KEY]`** | FC1 (role unclarity) + FC2 (state desynchronization) | Orchestration | User corrected scope mid-task ("now make a PR", "and run it"), agent did not pivot — kept reading files instead. |
-| **`capable-didn't-execute`** | FC3 (premature termination) | Verification | Agent had the tools, said it would, then narrated the plan without calling the tools. (`ta[REDACTED_OPENAI_KEY]` rule unenforced.) |
+| **`task-correction-pivot-refused`** | FC1 (role unclarity) + FC2 (state desynchronization) | Orchestration | User corrected scope mid-task ("now make a PR", "and run it"), agent did not pivot — kept reading files instead. |
+| **`capable-didn't-execute`** | FC3 (premature termination) | Verification | Agent had the tools, said it would, then narrated the plan without calling the tools. (`task-ack-and-execute` rule unenforced.) |
 | **`wrong-tool-discussed`** | FC1 (specification ambiguity) | Tool / Context | Agent talked about a stale tool/CLI/runtime after the user migrated (e.g., `openclaw cron` after migrating to `hermes cron`). |
 | **`fabricated-proof`** | FC3 (fabricated verification) | Verification | Agent claimed "PR is green / tests pass / push succeeded" without raw terminal output. (`proof-before-claim` rule unenforced.) |
 | **`missed-existing-skill`** | FC1 (missing constraints) | Context | Agent did work manually that an existing skill covers, because session_init did not load the skill. (`ms-on-new-task` rule unenforced.) |
@@ -290,7 +290,7 @@ Thread: `https://jleechanai.slack.com/archives/C0AH3RY3DK6/p1782941155305869` (`
 **Phase 0 — Classify:**
 - **MAST category:** FC1 (specification ambiguity — agent couldn't decide whether side effects were approval-required) + FC3 (premature termination — agent stopped at clarification instead of running the slash command).
 - **ETCLOVG layer:** Verification (the rule that should have verified "user invoked an action verb → execute, do not gate" lives in the Verification layer).
-- **Working class:** `mid-ta[REDACTED_OPENAI_KEY]`.
+- **Working class:** `mid-task-clarification-freeze`.
 
 **Phase 1 — Observe → Isolate → Simulate → Evaluate:**
 

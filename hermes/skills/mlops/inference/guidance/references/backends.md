@@ -516,7 +516,7 @@ lm = Transformers(model=model, tokenizer=tokenizer)
 
 ```bash
 # API keys
-export ANTHROPIC_API_KEY="[REDACTED_OPENAI_KEY]"
+export ANTHROPIC_API_KEY="sk-ant-..."
 export OPENAI_API_KEY="sk-..."
 
 # Transformers cache

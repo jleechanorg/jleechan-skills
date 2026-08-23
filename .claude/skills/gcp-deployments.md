@@ -64,7 +64,7 @@
 - **Duration**: ~2 months of CSS loading issues in production
 
 ### The Fix (Commit 2e881735d - Nov 11, 2025)
-- Removed default_limits from Fla[REDACTED_OPENAI_KEY] configuration
+- Removed default_limits from Flask-Limiter configuration
 - Static files and frontend routes completely unrate-limited
 - Added explicit rate limits only to API routes needing protection
 - **Status**: ✅ Deployed to stable, working correctly

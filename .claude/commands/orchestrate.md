@@ -130,7 +130,7 @@ execution_mode: immediate
 - **Backend Agent**: APIs, database, server logic (`backend-agent`)
 - **Testing Agent**: Tests, QA, validation (`testing-agent`)
 - **Opus Master**: Coordination and oversight (`opus-master`)
-- **Task Agents**: Dynamic agents with reuse optimization (`ta[REDACTED_OPENAI_KEY]*`)
+- **Task Agents**: Dynamic agents with reuse optimization (`task-agent-*`)
 
 **Examples**:
 ```bash
@@ -200,7 +200,7 @@ Agent tasks require TIME - wait for completion before ANY declaration:
 - ❌ NEVER make declarations based on quick checks (10s, 30s, 60s too soon)
 - ✅ ALWAYS check tmux output for "Task completed" message
 - ✅ ALWAYS verify PR creation in agent output before declaring results
-- 🔍 Evidence: Agent ta[REDACTED_OPENAI_KEY] succeeded with PR #851 after 270 seconds
+- 🔍 Evidence: Agent task-agent-5819 succeeded with PR #851 after 270 seconds
 - 📋 Proper verification: tmux output → "Task completed" → PR URL → verify PR exists
 - ⚠️ Status warnings like "agent may still be working" mean WAIT, don't declare
 

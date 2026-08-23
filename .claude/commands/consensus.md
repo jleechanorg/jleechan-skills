@@ -63,7 +63,7 @@ When scope is ambiguous, ask the user which mode they want via TodoWrite before 
 **Fast Multi-Agent Consensus**: Run 5 agents in parallel and calculate simple majority agreement. Pick the correct agent set for the selected mode:
 - **Code Review Mode (default)**: `code-review`, `codex-consultant`, `gemini-consultant`, `cursor-consultant`, `code-centralization-consultant`
 - **Documentation & Spec Mode**: `accuracy-reviewer`, `evidence-verifier`, `product-strategist`, `delivery-ops`, `clarity-editor`
-- **Operational Decision Mode**: `ri[REDACTED_OPENAI_KEY]`, `product-strategist`, `delivery-ops`, `customer-advocate`, `exec-synthesizer`
+- **Operational Decision Mode**: `risk-analyst`, `product-strategist`, `delivery-ops`, `customer-advocate`, `exec-synthesizer`
 
 **Success threshold**: 3+ of 5 agents PASS with average confidence ≥6
 
@@ -93,7 +93,7 @@ When scope is ambiguous, ask the user which mode they want via TodoWrite before 
   - **`delivery-ops`**: Checks operational feasibility, rollout risks, and support readiness
   - **`clarity-editor`**: Improves narrative flow, highlights ambiguous sections, ensures stakeholder readability
 - **Operational Decision Mode**:
-  - **`ri[REDACTED_OPENAI_KEY]`**: Identifies blockers, severity, and mitigation paths
+  - **`risk-analyst`**: Identifies blockers, severity, and mitigation paths
   - **`product-strategist`**: Confirms alignment with roadmap and KPIs
   - **`delivery-ops`**: Evaluates team capacity, timeline, and implementation complexity
   - **`customer-advocate`**: Represents user experience and support impact
@@ -479,7 +479,7 @@ DELIVERY OPERATIONS & EXECUTION analysis for consensus.
 **Solo MVP Lens**: Lightweight processes, but no hidden blockers
 ```
 
-#### **`ri[REDACTED_OPENAI_KEY]` Agent Context**:
+#### **`risk-analyst` Agent Context**:
 
 ```markdown
 RISK & MITIGATION analysis for operational decision consensus.

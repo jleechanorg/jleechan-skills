@@ -623,7 +623,7 @@ Feature is complete when:
 4. [System Design](#system-design)
 5. [Quality Assurance](#quality-assurance)
 6. [Testing Strategy](#testing-strategy)
-7. [Risk Assessment](#ri[REDACTED_OPENAI_KEY])
+7. [Risk Assessment](#risk-analyst)
 8. [Decision Records](#decision-records)
 9. [Rollout Plan](#rollout-plan)
 10. [Monitoring & Success Metrics](#monitoring--success-metrics)

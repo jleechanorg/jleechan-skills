@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document describes the current orchestration system where ta[REDACTED_OPENAI_KEY] agents are created on-demand from natural language instructions.
+This document describes the current orchestration system where task-specific agents are created on-demand from natural language instructions.
 
 ## Table of Contents
 
@@ -62,7 +62,7 @@ Task input -> analyze task -> build agent spec -> create worktree -> generate pr
 "Fix all failing tests in the authentication module"
 
 # System creates appropriate agent
-ta[REDACTED_OPENAI_KEY]:
+task-agent-1234:
   - Understands task context
   - Has full development capabilities
   - Works in isolated environment
@@ -129,7 +129,7 @@ ai_orch --async "Fix all failing tests"
 ```python
 # task_dispatcher.py analyzes task and creates agent spec
 agent_spec = {
-    "name": "ta[REDACTED_OPENAI_KEY]",  # Unique name from task content
+    "name": "task-agent-fix-tests-1234",  # Unique name from task content
     "type": "development",
     "focus": "Fix all failing tests",
     "cli": "claude",  # or "codex" based on detection
@@ -141,8 +141,8 @@ agent_spec = {
 **Phase 3: Workspace Isolation**
 ```python
 # Create git worktree in isolated directory
-worktree_path = "~/projects/orch_your-project.com/ta[REDACTED_OPENAI_KEY]/"
-branch_name = "ta[REDACTED_OPENAI_KEY]"
+worktree_path = "~/projects/orch_your-project.com/task-agent-fix-tests-1234/"
+branch_name = "task-agent-fix-tests-1234-work"
 
 subprocess.run([
     "git", "worktree", "add",
@@ -155,7 +155,7 @@ subprocess.run([
 **Phase 4: Prompt Engineering**
 ```python
 # Write comprehensive prompt to file
-prompt_file = "/tmp/agent_prompt_ta[REDACTED_OPENAI_KEY]"
+prompt_file = "/tmp/agent_prompt_task-agent-fix-tests-1234.txt"
 
 prompt_content = f"""
 Task: {task_description}
@@ -242,18 +242,18 @@ For **Claude CLI**:
 ```bash
 # Inside tmux session, bash script executes:
 claude --model sonnet \
-    -p @/tmp/agent_prompt_ta[REDACTED_OPENAI_KEY] \
+    -p @/tmp/agent_prompt_task-agent-fix-tests-1234.txt \
     --output-format stream-json \
     --verbose \
     --dangerously-skip-permissions \
-    2>&1 | tee -a /tmp/orchestration_logs/ta[REDACTED_OPENAI_KEY]
+    2>&1 | tee -a /tmp/orchestration_logs/task-agent-fix-tests-1234.log
 ```
 
 For **Codex CLI**:
 ```bash
 # Inside tmux session, bash script executes:
-codex exec --yolo < /tmp/agent_prompt_ta[REDACTED_OPENAI_KEY] \
-    2>&1 | tee -a /tmp/orchestration_logs/ta[REDACTED_OPENAI_KEY]
+codex exec --yolo < /tmp/agent_prompt_task-agent-fix-tests-1234.txt \
+    2>&1 | tee -a /tmp/orchestration_logs/task-agent-fix-tests-1234.log
 ```
 
 **Phase 8: Agent Execution**
@@ -321,10 +321,10 @@ class AgentMonitor:
 ```python
 # Agent writes result file
 result = {
-    "agent": "ta[REDACTED_OPENAI_KEY]",
+    "agent": "task-agent-fix-tests-1234",
     "status": "completed",
     "pr_url": "https://github.com/user/repo/pull/123",
-    "branch": "ta[REDACTED_OPENAI_KEY]",
+    "branch": "task-agent-fix-tests-1234-work",
     "completion_time": "2025-01-15T10:30:00Z"
 }
 
@@ -387,4 +387,4 @@ Future enhancement: Optional Redis layer for real-time updates while maintaining
 
 ## Summary
 
-The orchestration system operates as a ta[REDACTED_OPENAI_KEY] platform with dynamic agent creation, tmux-based process isolation, and file-backed coordination for robust execution and monitoring.
+The orchestration system operates as a task-driven platform with dynamic agent creation, tmux-based process isolation, and file-backed coordination for robust execution and monitoring.

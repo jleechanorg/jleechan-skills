@@ -108,7 +108,7 @@ done
 
 ### Option A — Top up the OpenRouter account (operator-side, no code change)
 
-Visit https://openrouter.ai/settings/credits and add credits to the account that owns the stored `[REDACTED_OPENAI_KEY]…` key. This is the smallest, fastest fix and unblocks the UI immediately. The error wording `visit https://openrouter.ai/settings/credits` is OpenRouter's own hint — they pre-tell you the remedy.
+Visit https://openrouter.ai/settings/credits and add credits to the account that owns the stored `sk-or-v1-…` key. This is the smallest, fastest fix and unblocks the UI immediately. The error wording `visit https://openrouter.ai/settings/credits` is OpenRouter's own hint — they pre-tell you the remedy.
 
 ### Option B — Repoint the proxy to direct Cerebras (requires code change)
 

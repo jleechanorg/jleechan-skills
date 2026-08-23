@@ -4,7 +4,7 @@ Verified 2026-07-24, $GITHUB_REPOSITORY PRs [#8462](https://github.com/$GITHUB_R
 
 ## (a) Test-budget-vs-lock-hold failure pattern
 
-**Symptom.** CI core-mvp-3 reports `test_bq_logging_schema_migration.py::test_startup_schema_migration_uses_shared_migration_lock` FAILED with `assert []` on `inserted_rows`. The PR's production code tightened `_PAYLOADS_SCHEMA_RETRY_BUDGET_S` to 0.5s so a degraded replica cannot hold a request-path insert for longer. The test holds `_migration_lock` for **5 seconds** (`release_migration.wait(timeout=5.0)`) to verify the request path *truly* blocks on the lock. After 0.5s, the request-path writer's `_lock_before_deadline(retry_deadline)` returns `not acquired`, the writer logs "wall-clock budget exceeded", and falls back to di[REDACTED_OPENAI_KEY] (no BQ insert). The test then asserts `inserted_rows` and fails.
+**Symptom.** CI core-mvp-3 reports `test_bq_logging_schema_migration.py::test_startup_schema_migration_uses_shared_migration_lock` FAILED with `assert []` on `inserted_rows`. The PR's production code tightened `_PAYLOADS_SCHEMA_RETRY_BUDGET_S` to 0.5s so a degraded replica cannot hold a request-path insert for longer. The test holds `_migration_lock` for **5 seconds** (`release_migration.wait(timeout=5.0)`) to verify the request path *truly* blocks on the lock. After 0.5s, the request-path writer's `_lock_before_deadline(retry_deadline)` returns `not acquired`, the writer logs "wall-clock budget exceeded", and falls back to disk-mirror (no BQ insert). The test then asserts `inserted_rows` and fails.
 
 **Same-test-name-rule check (verified locally in a clean worktree at PR head):**
 

@@ -118,7 +118,7 @@ print(f"Estimated cost: ${total_cost:.2f}")
 ### Setup
 
 ```bash
-export ANTHROPIC_API_KEY=[REDACTED_OPENAI_KEY]
+export ANTHROPIC_API_KEY=sk-ant-...
 ```
 
 ### Completion Models (Legacy)
@@ -415,7 +415,7 @@ lm_eval --model openai-chat-completions \
 Check API key:
 ```bash
 echo $OPENAI_API_KEY  # Should print sk-...
-echo $ANTHROPIC_API_KEY  # Should print [REDACTED_OPENAI_KEY]
+echo $ANTHROPIC_API_KEY  # Should print sk-ant-...
 ```
 
 ### "Rate limit exceeded"

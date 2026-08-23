@@ -75,7 +75,7 @@ Every campaign Act (1, 2, 3) MUST do at least one of:
   - ENFP under stress → scattered energy + emotional flooding
   - ENTP under stress → callous disruption + scattered arguments
   - ISFP under stress → shutdown + hypersensitive avoidance
-  - ISTP under stress → cold detachment + ri[REDACTED_OPENAI_KEY]
+  - ISTP under stress → cold detachment + risk-taking
   - ESFP under stress → chaos + emotional escalation
   - ESTP under stress → recklessness + boundary violations
 - **(c) Reframe a long-held Want** in light of new evidence. The character's explicit Want is re-evaluated when the campaign surfaces a reason it can no longer be pursued unchanged.

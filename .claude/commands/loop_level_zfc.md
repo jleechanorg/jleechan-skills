@@ -1,5 +1,5 @@
 ---
-description: Run the ta[REDACTED_OPENAI_KEY] level-up ZFC evolve loop for this repo
+description: Run the task-specific level-up ZFC evolve loop for this repo
 type: llm-orchestration
 execution_mode: immediate
 ---

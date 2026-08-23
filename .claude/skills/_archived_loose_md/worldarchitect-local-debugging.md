@@ -4,7 +4,7 @@
 
 **Flask server logs:**
 ```
-/tmp/your-project.com/<branch-name>/fla[REDACTED_OPENAI_KEY]
+/tmp/your-project.com/<branch-name>/flask-server.log
 ```
 
 **MCP server logs:**
@@ -16,13 +16,13 @@
 
 ```bash
 # Tail recent logs for current branch
-tail -100 /tmp/your-project.com/codex_integrate-gemini-and-openrouter-apis-czdlzo/fla[REDACTED_OPENAI_KEY]
+tail -100 /tmp/your-project.com/codex_integrate-gemini-and-openrouter-apis-czdlzo/flask-server.log
 
 # Search for errors
-grep -i "error\|cerebras\|400\|500" /tmp/your-project.com/*/fla[REDACTED_OPENAI_KEY] | tail -50
+grep -i "error\|cerebras\|400\|500" /tmp/your-project.com/*/flask-server.log | tail -50
 
 # Watch logs in real-time
-tail -f /tmp/your-project.com/*/fla[REDACTED_OPENAI_KEY]
+tail -f /tmp/your-project.com/*/flask-server.log
 ```
 
 ## When Server Restart is Required
@@ -51,11 +51,11 @@ Python caches modules, so restart needed after changing:
 
 ```bash
 # Find provider/model being used
-grep "MODEL_INFO\|Using provider" /tmp/your-project.com/*/fla[REDACTED_OPENAI_KEY] | tail -10
+grep "MODEL_INFO\|Using provider" /tmp/your-project.com/*/flask-server.log | tail -10
 
 # Find token/context errors
-grep "context_length\|token" /tmp/your-project.com/*/fla[REDACTED_OPENAI_KEY] | tail -10
+grep "context_length\|token" /tmp/your-project.com/*/flask-server.log | tail -10
 
 # Find API errors with response body
-grep -A2 "API error" /tmp/your-project.com/*/fla[REDACTED_OPENAI_KEY] | tail -20
+grep -A2 "API error" /tmp/your-project.com/*/flask-server.log | tail -20
 ```

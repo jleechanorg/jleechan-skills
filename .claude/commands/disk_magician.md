@@ -9,7 +9,7 @@ execution_mode: immediate
 
 ## Purpose
 
-Analyze disk usage, scan for blind spots, and run safe cleanups using the `di[REDACTED_OPENAI_KEY]` tool.
+Analyze disk usage, scan for blind spots, and run safe cleanups using the `disk-magician` tool.
 
 ## Skill Reference
 
@@ -17,12 +17,12 @@ Full integration guide and guidelines:
 - `~/.claude/skills/disk_magician/SKILL.md`
 
 ## Quick Commands:
-- **Audit**: `di[REDACTED_OPENAI_KEY] audit`
-- **Discover**: `di[REDACTED_OPENAI_KEY] discover`
-- **Clean (Safe)**: `di[REDACTED_OPENAI_KEY] clean`
-- **Clean All (Aggressive)**: `di[REDACTED_OPENAI_KEY] clean-all`
-- **History**: `di[REDACTED_OPENAI_KEY] history`
-- **Snapshot**: `di[REDACTED_OPENAI_KEY] snapshot`
+- **Audit**: `disk-magician audit`
+- **Discover**: `disk-magician discover`
+- **Clean (Safe)**: `disk-magician clean`
+- **Clean All (Aggressive)**: `disk-magician clean-all`
+- **History**: `disk-magician history`
+- **Snapshot**: `disk-magician snapshot`
 
 ## Safety Constraints & Guardrails
 - **Mtime Caution:** Worktrees and agent sessions with modification time < 14 days require explicit `WORKTREE APPROVED` confirmation from the user before deletion.
@@ -31,4 +31,4 @@ Full integration guide and guidelines:
 
 ## Execution
 
-When invoked with `$ARGUMENTS`, read `~/.claude/skills/disk_magician/SKILL.md` and execute the appropriate `di[REDACTED_OPENAI_KEY]` commands.
+When invoked with `$ARGUMENTS`, read `~/.claude/skills/disk_magician/SKILL.md` and execute the appropriate `disk-magician` commands.

@@ -94,7 +94,7 @@ and ask "Pick one: (a) save to wiki (b) deeper AO pull (c) LinkedIn draft." User
 4. Post a one-line summary back to the originating thread.
 
 **Do NOT ask "where should I save this?"** The vault is the answer. Default-doing-now
-applies. Volatile `/tmp` + a[REDACTED_OPENAI_KEY] is the failure mode. The user can always say
+applies. Volatile `/tmp` + ask-the-user is the failure mode. The user can always say
 "move it elsewhere," but `/tmp` is wrong by default.
 
 ### Failure Mode 3: Push to origin main with divergent history
