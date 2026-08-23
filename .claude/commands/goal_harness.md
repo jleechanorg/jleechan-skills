@@ -1,5 +1,5 @@
 ---
-description: "Goal Harness — work on a goal until /es, /er, /code_standards, and Independent Agent Review all pass via adversarial subagents"
+description: "Goal Harness — work on a goal until /es, /er, /code-standards, and Independent Agent Review all pass via adversarial subagents"
 type: quality
 execution_mode: immediate
 aliases: [h]
@@ -17,7 +17,7 @@ Read `~/.claude/skills/goal_harness/SKILL.md` and execute the full workflow.
 Policy: `~/.codex/rules/model-routing-policy.md`.
 Subagents for the 4 adversarial gates MUST be cost-routed across the Codex 5.6 spectrum (`luna` → `terra` → `sol` + `spark`):
 - **Gate 1 (`/es`)**: `gpt-5.3-codex-spark` (fast format scan)
-- **Gate 3 (`/code_standards`)**: `gpt-5.6-luna` (fast 5.6 standards scan)
+- **Gate 3 (`/code-standards`)**: `gpt-5.6-luna` (fast 5.6 standards scan)
 - **Gate 2 (`/er`)**: `gpt-5.6-terra` (mid 5.6 evidence review synthesis)
 - **Gate 4 (`Independent Agent Review`)**: `gpt-5.6-sol` (top 5.6 deep bug & security review)
 
@@ -43,7 +43,7 @@ If count > 0, **steer the existing thread** instead of launching a fresh harness
 | Gate | Checks | Model (Codex) |
 |------|--------|---------------|
 | `/es` | Evidence Standards (user-scope + project-scope) | `gpt-5.3-codex-spark` |
-| `/code_standards` | ZFC + ZFC-leveling + root-cause-first (3 parallel lanes) | `gpt-5.6-luna` |
+| `/code-standards` | ZFC + ZFC-leveling + root-cause-first (3 parallel lanes) | `gpt-5.6-luna` |
 | `/er` | Evidence Review (adversarial synthesis) | `gpt-5.6-terra` |
 | Independent Agent Review | Full-diff code review — bugs, anti-patterns, missing tests | `gpt-5.6-sol` |
 
@@ -54,6 +54,6 @@ Convergence requires **4/4 PASS** (after normalization). Max 10 iterations; stal
 - `/goal` — builtin Claude Code goal command (sets success criteria)
 - `/es` — Evidence Standards (reference/display)
 - `/er` — Evidence Review (adversarial synthesis)
-- `/code_standards` — Coding standards dispatch (ZFC + ZFC-leveling + root-cause-first)
+- `/code-standards` — Coding standards dispatch (ZFC + ZFC-leveling + root-cause-first)
 - `/converge` — Iterative goal achievement loop (formerly `/goalexec`)
 - `/converge_define` — Define-only variant (sets goal without execution)

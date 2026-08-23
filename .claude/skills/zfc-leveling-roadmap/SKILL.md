@@ -119,7 +119,7 @@ For each file you plan to modify, check the table above:
   - `agents._is_stale_level_up_pending()`
 
 ### 4. Scope check
-- [ ] Does a task spec exist in `~/roadmap/zfc-pr-ta[REDACTED_OPENAI_KEY]`?
+- [ ] Does a task spec exist in `~/roadmap/zfc-pr-task-specs-2026-04-22.md`?
 - [ ] If yes, is every file I'm touching in the "Likely files" list?
 - [ ] Am I adding unrelated features to this PR? → Open a separate PR.
 
@@ -229,7 +229,7 @@ For the full field registry, see `.claude/skills/field-ownership-contracts.md`.
 ## Canonical References
 
 - **Design doc**: `roadmap/zfc-level-up-model-computes-2026-04-19.md` (repo) / `~/roadmap/zfc-level-up-model-computes-2026-04-19.md` (local) (1,725 lines — read lines 219-241 for the file-responsibility table)
-- **Task specs**: `roadmap/zfc-pr-ta[REDACTED_OPENAI_KEY]` (repo) / `~/roadmap/zfc-pr-ta[REDACTED_OPENAI_KEY]` (local) (per-PR scope locks)
+- **Task specs**: `roadmap/zfc-pr-task-specs-2026-04-22.md` (repo) / `~/roadmap/zfc-pr-task-specs-2026-04-22.md` (local) (per-PR scope locks)
 - **Postmortem**: `roadmap/2026-04-21-level-up-zfc-loop-postmortem.md` (repo) / `~/roadmap/2026-04-21-level-up-zfc-loop-postmortem.md` (local)
 
 ---

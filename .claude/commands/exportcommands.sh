@@ -389,7 +389,7 @@ subs = [
   (re.compile(r'xox[bapors]-[a-zA-Z0-9_.-]{6,}'), r'[REDACTED_SLACK_TOKEN]'),
   (re.compile(r'gh[pousr]_[a-zA-Z0-9_-]{6,}'), r'[REDACTED_GITHUB_TOKEN]'),
   (re.compile(r'eyJhbGciOiJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+'), r'[REDACTED_JWT_TOKEN]'),
-  (re.compile(r'sk-[a-zA-Z0-9_.-]{6,}'), r'[REDACTED_OPENAI_KEY]'),
+  (re.compile(r'\bsk-[a-zA-Z0-9_.-]{6,}'), r'[REDACTED_OPENAI_KEY]'),
   (re.compile(r'token=[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', re.I), r'token=[REDACTED_UUID_TOKEN]'),
 ]
 mvp_sub = (re.compile(r'$PROJECT_ROOT/'), r'\$PROJECT_ROOT/')

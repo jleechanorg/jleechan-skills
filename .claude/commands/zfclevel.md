@@ -24,9 +24,9 @@ Load and follow this skill **first**:
 
 Canonical roadmap files (read in order):
 1. `~/roadmap/zfc-level-up-model-computes-2026-04-19.md`
-2. `~/roadmap/zfc-pr-ta[REDACTED_OPENAI_KEY]`
+2. `~/roadmap/zfc-pr-task-specs-2026-04-22.md`
 3. `roadmap/zfc-level-up-model-computes-2026-04-19.md` (repo-local copy — compare with ~/roadmap copy)
-4. `roadmap/zfc-pr-ta[REDACTED_OPENAI_KEY]` (repo-local copy)
+4. `roadmap/zfc-pr-task-specs-2026-04-22.md` (repo-local copy)
 5. `~/roadmap/2026-04-21-level-up-zfc-loop-postmortem.md`
 6. Any other `roadmap/*zfc*` or `roadmap/*level-up*` files relevant to the current PR or work item
 
@@ -65,8 +65,8 @@ Compare `~/roadmap/` and `roadmap/` for all ZFC-leveling-related files:
 ~/roadmap/zfc-level-up-model-computes-2026-04-19.md
 roadmap/zfc-level-up-model-computes-2026-04-19.md
 
-~/roadmap/zfc-pr-ta[REDACTED_OPENAI_KEY]
-roadmap/zfc-pr-ta[REDACTED_OPENAI_KEY]
+~/roadmap/zfc-pr-task-specs-2026-04-22.md
+roadmap/zfc-pr-task-specs-2026-04-22.md
 
 ~/roadmap/2026-04-21-level-up-zfc-loop-postmortem.md
 roadmap/2026-04-21-level-up-zfc-loop-postmortem.md

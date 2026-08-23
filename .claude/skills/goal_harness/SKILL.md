@@ -1,6 +1,6 @@
 ---
 name: goal_harness
-description: "Goal-driven harness loop — keep working on a goal until /es, /er, /code_standards, and Codex plugin review all pass. All gates use adversarial subagents. Alias: /h"
+description: "Goal-driven harness loop — keep working on a goal until /es, /er, /code-standards, and Codex plugin review all pass. All gates use adversarial subagents. Alias: /h"
 ---
 
 # /goal_harness Skill
@@ -15,7 +15,7 @@ Define a goal and iterate until 4 adversarial gates all pass:
 
 1. `/es` — Evidence Standards
 2. `/er` — Evidence Review
-3. `/code_standards` — ZFC + ZFC-leveling + root-cause-first (3 lanes)
+3. `/code-standards` — ZFC + ZFC-leveling + root-cause-first (3 lanes)
 4. Independent Agent review — independent diff review
 
 ## When to Use
@@ -32,7 +32,7 @@ When spawning subagents for harness gates, route by task complexity across the m
 - **Gate 1 `/es` (Evidence Format Check):**
   - Codex: `model: 'gpt-5.3-codex-spark'` (`reasoning_effort: medium`)
   - Claude: `model: 'haiku'`
-- **Gate 3 `/code_standards` (ZFC, ZFC-leveling, Root-Cause Scans):**
+- **Gate 3 `/code-standards` (ZFC, ZFC-leveling, Root-Cause Scans):**
   - Codex: `model: 'gpt-5.6-luna'` (Fast 5.6 Tier)
   - Claude: `model: 'haiku'` / `'sonnet'`
 - **Gate 2 `/er` (Evidence Review Synthesis):**
@@ -64,7 +64,7 @@ abort Gate 2 and emit a missing-skill error — do not continue synthesis.**
 
 Normalization rule: WARN → PASS (document warnings). PARTIAL → FAIL (gaps remain). INCONCLUSIVE → FAIL (cannot confirm).
 
-### Gate 3: /code_standards (3 parallel adversarial lanes)
+### Gate 3: /code-standards (3 parallel adversarial lanes)
 
 | Lane | Skill Path | Checks |
 |------|-----------|--------|
@@ -72,7 +72,7 @@ Normalization rule: WARN → PASS (document warnings). PARTIAL → FAIL (gaps re
 | ZFC-leveling | `~/.claude/skills/zfc-leveling-roadmap/SKILL.md` | Level-up fields, modal scoping, stale flag guards |
 | Root-cause-first | `~/.claude/skills/root-cause-first/SKILL.md` | Root cause documented before adding protections |
 
-Dispatch all 3 in parallel. Any lane FAIL → overall /code_standards FAIL.
+Dispatch all 3 in parallel. Any lane FAIL → overall /code-standards FAIL.
 WARN is acceptable but must be documented.
 
 ### Gate 4: Independent Agent Review
@@ -102,7 +102,7 @@ Returns PASS or FAIL with file:line evidence.
 - Never skip a gate
 - Never weaken a subagent's FAIL verdict
 - Subagents are adversarial: only standard + diff, no primary agent optimism
-- 3 /code_standards lanes run in parallel when possible
+- 3 /code-standards lanes run in parallel when possible
 - Independent review must not share context with primary agent's own review
 
 ## Environment Detection
@@ -118,6 +118,6 @@ When running in cmux (background/scheduled mode):
 - `/goal` — builtin Claude Code goal command
 - `/es` — Evidence Standards (reference/display)
 - `/er` — Evidence Review (adversarial synthesis)
-- `/code_standards` — Coding standards dispatch (ZFC + ZFC-leveling + root-cause-first)
+- `/code-standards` — Coding standards dispatch (ZFC + ZFC-leveling + root-cause-first)
 - `/converge` — Iterative goal achievement loop (formerly `/goalexec`)
 - `/converge_define` — Define-only variant
