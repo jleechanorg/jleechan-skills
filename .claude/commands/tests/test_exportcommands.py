@@ -1031,6 +1031,9 @@ class TestExportScriptIntegrity(unittest.TestCase):
             "Missing .claude/scripts/secondo-cli.sh — required by /secondo command",
         )
 
+    @unittest.skipIf(
+        ClaudeCommandsExporter is None, "ClaudeCommandsExporter not available"
+    )
     def test_claude_scripts_mjs_files_are_exported(self):
         """_export_claude_scripts must include *.mjs in its glob patterns.
 
@@ -1065,6 +1068,9 @@ class TestExportScriptIntegrity(unittest.TestCase):
                 f"secondo script listed in _export_scripts not found: scripts/{script_name}",
             )
 
+    @unittest.skipIf(
+        ClaudeCommandsExporter is None, "ClaudeCommandsExporter not available"
+    )
     def test_no_mjs_files_in_secondo_scripts_pointing_to_wrong_dir(self):
         """auth-cli.mjs must NOT be in the secondo_scripts list that looks in scripts/.
 

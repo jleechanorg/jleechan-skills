@@ -46,6 +46,18 @@ ROOT_DIRS=(orchestration automation ralph)
 HERMES_DIRS=(skills commands)
 HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
 
+# Codex CLI's own dot-prefixed config dir, mirroring ~/.claude/ -> .claude/.
+# Only `hooks` is exported: ~/.codex/commands and ~/.codex/skills are almost
+# entirely duplicate filenames already in .claude/commands, or symlinks into
+# .claude/skills, ~/.hermes/skills, other unrelated local projects, and
+# third-party .tessl plugin content (not this user's own IP to redistribute).
+# ~/.codex/hooks/ is genuinely unique, real Codex-specific hook scripts.
+# hooks.json (the hook registration config) is copied alongside as a single
+# file, not a directory, since it's small and directly documents how the
+# hooks/ scripts wire into Codex CLI's own hook system.
+CODEX_DIRS=(hooks)
+CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
+
 # Files to exclude from content filtering (contain literal regex patterns or are test files
 # that assert on the source strings and must not have them silently replaced)
 FILTER_SKIP=(exportcommands.py exportcommands.sh loc_simple.sh test_exportcommands.py)
@@ -347,6 +359,35 @@ for dir in "${HERMES_DIRS[@]}"; do
   echo "  ✅ hermes/$dir"
 done
 
+# ── Rsync ~/.codex/<dir> → .codex/<dir> at target repo root ──────────────────
+# Deliberately NOT -L (no symlink following): ~/.codex/skills is heavily
+# symlinked into .claude/skills, ~/.hermes/skills, unrelated local projects,
+# and third-party .tessl plugin content — following those would duplicate
+# already-exported content or redistribute someone else's IP. Missing dir =
+# soft skip (Codex may not be installed on every machine), not a hard failure.
+echo "▶ Syncing ~/.codex/ surfaces..."
+# shellcheck disable=SC2046
+for dir in "${CODEX_DIRS[@]}"; do
+  src="$CODEX_HOME/$dir/"
+  dst="./.codex/$dir/"
+  if [[ ! -d "$src" ]]; then
+    echo "  ⚠️ .codex/$dir not found at $src — skipping (Codex not installed?)"
+    continue
+  fi
+  mkdir -p "$dst"
+  rsync -a --exclude='*.bak*' --exclude='tests/' \
+    $(rsync_excludes "${COMMON_RSYNC_EXCLUDES[@]}") \
+    "$src" "$dst"
+  echo "  ✅ .codex/$dir"
+done
+# hooks.json documents how .codex/hooks/*.sh|py wire into Codex CLI's hook
+# system — copy it alongside hooks/ as a single file, not a directory member.
+if [[ -f "$CODEX_HOME/hooks.json" ]]; then
+  mkdir -p ".codex"
+  cp "$CODEX_HOME/hooks.json" ".codex/hooks.json"
+  echo "  ✅ .codex/hooks.json"
+fi
+
 
 # ── Remove files that must not be in the public template ─────────────────────
 # settings.json / settings.local.json: MCP auth tokens + bypassPermissions flags (never publish)
@@ -395,7 +436,7 @@ subs = [
 mvp_sub = (re.compile(r'$PROJECT_ROOT/'), r'\$PROJECT_ROOT/')
 
 allowed_exts = ('.md', '.py', '.sh', '.yml', '.yaml', '.json', '.cjs', '.js', '.mjs', '.ts', '.html', '.css', '.toml')
-dirs = ['.claude', 'orchestration', 'automation', 'ralph', 'workflows', 'hermes', 'scripts', 'agents', 'commands', 'skills', 'hooks']
+dirs = ['.claude', '.codex', 'orchestration', 'automation', 'ralph', 'workflows', 'hermes', 'scripts', 'agents', 'commands', 'skills', 'hooks']
 for d in dirs:
   if not os.path.exists(d): continue
   for root, dirs_list, files in os.walk(d, topdown=False):
