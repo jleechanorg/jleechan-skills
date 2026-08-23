@@ -1,0 +1,68 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "source ~/.profile 2>/dev/null; python3 ~/.codex/hooks/mem0_recall.py",
+            "timeoutSec": 15,
+            "statusMessage": "Recalling relevant memories..."
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.codex/hooks/rtk-hook-guard.sh",
+            "timeoutSec": 5
+          },
+          {
+            "type": "command",
+            "command": "python3 ~/.codex/hooks/path-deletion-guard.py",
+            "timeoutSec": 3
+          }
+        ]
+      },
+      {
+        "matcher": "apply_patch|Edit|Write|Delete",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.codex/hooks/path-deletion-guard.py",
+            "timeoutSec": 3
+          }
+        ]
+      },
+      {
+        "matcher": "^apply_patch$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash $HOME/.local/bin/conflict-warn-pre-tool.sh --runtime codex",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [],
+    "PreCompact": [],
+    "UserPromptSubmit": [],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.codex/stop-hook-dispatch.sh",
+            "timeoutSec": 30,
+            "statusMessage": "Running stop hook"
+          }
+        ]
+      }
+    ]
+  }
+}
