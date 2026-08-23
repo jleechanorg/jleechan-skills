@@ -28,4 +28,4 @@ This is a thin alias — all logic (evidence review + evidence standards + synth
 | PRODUCTION ($PROJECT_ROOT/**, prompts, CI, schema) | **PASS** |
 | NON_PRODUCTION (docs, tests, tooling, roadmap) | **PARTIAL** or better |
 
-See `~/.claude/commands/green.md` Step 2 for the tier classifier and `~/.claude/skills/evidence-review.md` for the verdict rubric. When `/er` is invoked via `gh pr comment N --body "/er"`, the response is one of: `PASS` / `PARTIAL` / `FAIL` / `INCONCLUSIVE` — parseable by `/green` directly.
+See `~/.claude/commands/green.md` Step 2 for the tier classifier and `~/.claude/skills/evidence-review/SKILL.md` for the verdict rubric. When `/er` is invoked via `gh pr comment N --body "/er"`, the response is one of: `PASS` / `PARTIAL` / `FAIL` / `INCONCLUSIVE` — parseable by `/green` directly.

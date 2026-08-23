@@ -1,0 +1,12 @@
+# Transient beads runtime state - never commit
+*.lock
+*.lock.*
+*-fsqlite-ns-gate
+*-fsqlite-ns-use
+*.vacuum-fsqlite-ns-gate
+*.vacuum-fsqlite-ns-use
+beads.db-shm
+beads.db-wal
+.sync.lock
+.br_history/
+.br_recovery/

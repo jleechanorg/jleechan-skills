@@ -96,10 +96,7 @@ execution_mode: immediate
    bash ~/.claude/commands/exportcommands.sh
    ```
 3. Report the PR URL printed by the script as the final output.
-4. If the shell script fails, fallback to Python:
-   ```bash
-   python3 .claude/commands/exportcommands.py
-   ```
+4. If the shell script fails, diagnose from its error output — there is no separate Python fallback implementation in this repo.
 
 ## 📋 REFERENCE DOCUMENTATION
 
@@ -1170,7 +1167,7 @@ print("✅ Comprehensive README with adaptation guide created")
 ```
 
 **🎯 SUCCESS CRITERIA**:
-1. ✅ PR URL printed (handled by Python implementation)
+1. ✅ PR URL printed (handled by exportcommands.sh)
 2. ✅ Repository safety maintained (no local changes)
 3. ✅ Complete workflow composition system exported
 4. ✅ Main README.md updated with COMMAND COMBINATION SUPERPOWERS
