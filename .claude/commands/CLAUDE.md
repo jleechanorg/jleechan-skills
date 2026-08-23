@@ -29,6 +29,8 @@ Commands without this header are considered invalid and should be updated before
 **Usage Example**: `/commands [filter]` (not an executable command in this file; shown for documentation)
 **Output**: Categorized command inventory with descriptions and file paths (for informational use)
 
+**Active/archive split (2026-08-23)**: This directory holds 239 active commands; 51 were moved to `../../archive/commands/`. Selection methodology: [README.md](README.md#v120-2026-08-23) in this directory, full detail in [archive/README.md](../../archive/README.md).
+
 ## 🚨 MODULE-SPECIFIC PROTOCOLS
 
 - Do not duplicate systematic protocols from other .md files; link instead

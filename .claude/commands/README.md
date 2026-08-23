@@ -210,6 +210,10 @@ pushl handles git operations
 
 ## 📚 Version History
 
+### v1.2.0 (2026-08-23)
+
+**Consolidation**: 51 zero-usage, zero-reference commands moved to `../../archive/commands/` (repo-root `archive/`) — see [archive/README.md](../../archive/README.md) for methodology. Active command count: 239.
+
 ### v1.1.0 (2025-08-09)
 
 **Export Statistics**:

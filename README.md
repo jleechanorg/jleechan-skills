@@ -53,6 +53,12 @@ See [INSTALL.md](INSTALL.md) for detailed setup, troubleshooting, and platform-s
 
 ## Changelog
 
+### v1.8.0 (2026-08-23)
+- **Command consolidation**: archived 51 commands to `archive/commands/` (see [archive/README.md](archive/README.md)) — files selected by empirically measuring invocations across Hermes, Claude Code, and Codex session logs (`/command-research`), then keeping any command with either measured usage or a live reference from a command that stays active (fixed-point dependency closure, not a single-pass check).
+- New command: `command-research.md` — dispatcher for the usage-mining skill and its bundled scanner (`count_command_usage_unified.py`).
+- Removed stale duplicate `.claude/skills/evidence-review.md` (superseded by `evidence-review/SKILL.md`) and fixed two dangling references to it.
+- Active command count: 239 (was 290).
+
 ### v1.7.0 (2026-07-07)
 - New commands: bashrc.md, callpath.md, crash.md, mac.md, meta.md, repro_developer.md, soak.md, social.md
 - New hooks: warn-default-branch-bypass.sh
@@ -95,17 +101,27 @@ See [INSTALL.md](INSTALL.md) for detailed setup, troubleshooting, and platform-s
 
 ## 🎯 What's Included
 
-**290 Commands** including powerful workflow orchestrators and cognitive tools:
+**239 active commands** (plus 51 archived for reference — see [archive/README.md](archive/README.md)) including powerful workflow orchestrators and cognitive tools:
 - **Workflow Orchestrators**: `/pr`, `/copilot`, `/execute`, `/orch`, `/f-pr`, `/factory-evolve`, `/hermes` - Complete multi-step automation
 - **Cognitive Commands**: `/think`, `/arch`, `/debug`, `/learn`, `/aar`, `/accept-adapt-reject` - Analysis and planning
 - **Infrastructure**: `/scaffold`, `/launchd`, `/linux` - Repository setup and development environment
-- **Testing**: `/test`, `/tdd`, `/testuif`, `/end2end-testing`, `/llm-testing` - Comprehensive testing workflows
+- **Testing**: `/test`, `/tdd`, `/end2end-testing`, `/llm-testing` - Comprehensive testing workflows
 - **Code Quality**: `/code-standards`, `/cs`, `/thermo`, `/archreview`, `/code-quality`, `/cq` - Standards enforcement and deep review
 - **Session Management**: `/cmux-backup`, `/cmux-restore`, `/factory`, `/goal_harness`, `/h` - Workflow tooling
-- **Evidence & Review**: `/es`, `/er`, `/er-node`, `/green` - Evidence standards and PR review
+- **Evidence & Review**: `/es`, `/er`, `/green` - Evidence standards and PR review
 - **Issue Tracking**: `/beads` - Bead-based issue tracking integration
 - **Wiki Tools**: `/wiki-assess`, `/wiki-bfs`, `/wiki-ingest`, `/wiki-evolve`, `/wiki-search` - Knowledge base ingestion and assessment
-- **Utilities**: `/disk-audit`, `/disk_magician`, `/diskm`, `/gmail`, `/slack-audit`, `/bq`, `/keychain_kill`, `/spicy_remove`, `/fable`, `/f`, `/fs`, `/factory-spec`, `/history_resume`, `/team-claude`, `/zfc-adjuster`, `/think-level-up-validation`, `/bashrc`, `/callpath`, `/crash`, `/mac`, `/meta`, `/repro_developer`, `/soak`, `/social` - System, inbox, and misc workflow tools
+- **Utilities**: `/disk_magician`, `/diskm`, `/slack-audit`, `/bq`, `/keychain_kill`, `/fable`, `/f`, `/fs`, `/factory-spec`, `/history_resume`, `/team-claude`, `/zfc-adjuster`, `/bashrc`, `/callpath`, `/mac`, `/meta`, `/social` - System, inbox, and misc workflow tools
+
+### Active Core (by measured usage)
+
+Ranked by empirical invocation counts mined from Hermes, Claude Code, and Codex session logs (`/command-research`) — the commands people actually type or that automation actually drives, not a guess:
+
+**Most human-typed**: `/advice`, `/green`, `/repro`, `/research`, `/ms`, `/history`, `/er`, `/linux`, `/f`, `/es`, `/web-advice`, `/browser`, `/skillify`, `/browserclaw`, `/auto`, `/wiki-search`, `/smoke`, `/roadmap`
+
+**Most agent-driven**: `/es`, `/er`, `/green`, `/advice`, `/repro`, `/smoke`, `/execute`, `/copilot`, `/ms`, `/fixpr`, `/f`, `/nextsteps`, `/history`, `/harness`, `/learn`, `/roadmap`, `/web-advice`, `/end2end-testing`
+
+Full methodology and reproducible scanner: `~/.claude/skills/command-research/SKILL.md`.
 
 **60 Hooks** for Claude Code automation and workflow optimization
 
