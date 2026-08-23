@@ -99,3 +99,7 @@ results/
 
 # home-config snapshots must NEVER be committed here (2026-07-12 public leak incident)
 backup/
+
+# local agent runtime state - conversation history, orchestrator config
+# (accidentally committed and removed 2026-08-23; same class of mistake as backup/ above)
+.agentloop/
