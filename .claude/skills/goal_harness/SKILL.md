@@ -59,7 +59,7 @@ Subagent reviews: Map claims → artifacts, rate STRONG/WEAK/MISSING.
 Verdict: PASS / WARN / PARTIAL / FAIL / INCONCLUSIVE.
 
 The evidence-review skill loads from the repo-root required path
-`.claude/skills/evidence-review.md`. **If that path is not present, immediately
+`.claude/skills/evidence-review/SKILL.md`. **If that path is not present, immediately
 abort Gate 2 and emit a missing-skill error — do not continue synthesis.**
 
 Normalization rule: WARN → PASS (document warnings). PARTIAL → FAIL (gaps remain). INCONCLUSIVE → FAIL (cannot confirm).
