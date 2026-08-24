@@ -115,7 +115,7 @@ Ask your coding agent to inspect the repo and install only what it needs:
 | Command | Full name / skill | One-line summary |
 |---|---|---|
 | [`/advice`](.claude/commands/advice.md) (alias `/smart-advisor`) | [`advice`](.claude/skills/advice/SKILL.md) | Token-efficient parallel second opinion — Opus subagent + `/research` + `/secondo` + `/web-advice`, synthesized into a verdict table. |
-| [`/repro`](.claude/commands/repro.md) | [`repro-twin-clone-evidence`](.claude/skills/repro-twin-clone-evidence/SKILL.md) | Clones a real campaign, replays the exact bug action against a real server, verdicts REPRO/RELATED/NON-REPRO. **WorldArchitect.ai-specific** — not portable as-is. |
+| [`/repro`](.claude/commands/repro.md) | [`repro-evidence`](.claude/skills/repro-evidence/SKILL.md) | Isolates state, replays the exact triggering action against a real (unmocked) target, verdicts REPRO/RELATED/NON-REPRO with red/green code provenance. Generic — works for any stack. |
 | [`/research`](.claude/commands/research.md) | [`research`](hermes/skills/research/SKILL.md) | Background agent investigates a question against primary sources only, cites everything, writes a Markdown note. |
 | [`/ms`](.claude/commands/ms.md) (full `/extended-library:memory_search`) | [`memory-search`](.claude/skills/memory-search/SKILL.md) | Parallel, cached search across ten memory stores (roadmap, beads, Claude/Codex history, Hermes, wiki, Slack). |
 | [`/er`](.claude/commands/er.md) (full `/extended-library:evidence_review`) | [`evidence-review`](.claude/skills/evidence-review/SKILL.md) | Judges an evidence bundle against evidence-standards; PASS/PARTIAL/FAIL/INCONCLUSIVE, gates `/green` on production PRs. |
@@ -145,11 +145,11 @@ Gets a fast, cheap second opinion at a decision point without shipping the whole
 /advice "Should we switch this cache from LRU to LFU eviction?"
 ```
 
-### [`repro-twin-clone-evidence`](.claude/skills/repro-twin-clone-evidence/SKILL.md) — `/repro`
+### [`repro-evidence`](.claude/skills/repro-evidence/SKILL.md) — `/repro`
 
-> **WorldArchitect.ai-specific — not generically portable.** Every mechanism here (Firestore "campaigns", `copy_campaign.py`/`download_campaign.py`, `WORLDAI_DEV_MODE`, `/game/<id>` URL parsing) is bespoke to that repo's D&D-style RPG platform. External adopters would need to fully replace the routing and data model before this does anything.
+Generic, domain-agnostic reproduction workflow: isolate the reported state into a safe test sandbox, replay only the exact triggering action against a real (never mocked) target, and enforce a strict same-symptom rule — a repro only counts if the identical user-visible phenotype reappears. Every RED/GREEN claim must record explicit code and environment provenance. Closes with a mandatory REPRO / RELATED / NON-REPRO verdict table and exported evidence (raw request/response, logs, state diffs).
 
-Given a campaign URL, clones the real production campaign into a test account, replays only the exact user action that triggers the bug against a real local server (real Firestore, real LLM — never mocked), and enforces a strict same-symptom rule: a repro only counts if the identical user-visible phenotype reappears. Closes with a mandatory REPRO / RELATED / NON-REPRO verdict and exported request/response/Firestore snapshots.
+A separate, WorldArchitect.ai-specific variant — [`repro-twin-clone-evidence`](.claude/skills/repro-twin-clone-evidence/SKILL.md) (Firestore "campaigns", `copy_campaign.py`, `WORLDAI_DEV_MODE`) — ships in this repo as reference material only; `/repro` in this repo does not call it.
 
 ```bash
 /repro "Checkout fails with 500 error when applying coupon code"
