@@ -105,10 +105,18 @@ class SwarmReferencesResolveTest(unittest.TestCase):
 
     def test_referenced_commands_exist(self):
         commands_dir = REPO_ROOT / ".claude" / "commands"
+        # Commands live flat when in the Active Core set, else under extended-library/.
+        extended_dir = commands_dir / "extended-library"
         missing = []
         for ref, filename in REFERENCED_COMMANDS.items():
-            if not (commands_dir / filename).is_file():
-                missing.append(f"{ref} -> .claude/commands/{filename}")
+            if not (
+                (commands_dir / filename).is_file()
+                or (extended_dir / filename).is_file()
+            ):
+                missing.append(
+                    f"{ref} -> .claude/commands/{filename} or "
+                    f".claude/commands/extended-library/{filename}"
+                )
         self.assertFalse(
             missing,
             "swarm/SKILL.md references commands with no matching file:\n"
