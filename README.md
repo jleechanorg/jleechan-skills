@@ -74,7 +74,7 @@ This is a genuine user-visible behavior change, not a seamless move. If you have
 
 A separate, older tier — `archive/commands/` (51 files, from PR #358) — is untouched by this change and uses a different criterion entirely. See [archive/README.md](archive/README.md).
 
-65 hook files, 27 top-level scripts, and 292 skill directories round out the library — browse `.claude/commands/`, `.claude/commands/extended-library/`, `.claude/hooks/`, and `.claude/skills/` directly for the full set.
+84 hooks, 19 top-level scripts, and 244 skill directories round out the library — browse `.claude/commands/`, `.claude/commands/extended-library/`, `.claude/hooks/`, and `.claude/skills/` directly for the full set.
 
 ## 🔍 Key Commands
 

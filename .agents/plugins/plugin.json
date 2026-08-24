@@ -1,0 +1,5 @@
+{
+  "name": "jleechan-skills",
+  "description": "LLM Capital Efficiency Framework: 145+ production-tested slash commands for autonomous development workflows, PR automation, and multi-agent orchestration",
+  "skills": ".claude/skills/"
+}
