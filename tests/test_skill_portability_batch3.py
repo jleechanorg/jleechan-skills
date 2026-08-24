@@ -1,8 +1,7 @@
 import importlib
 import sys
+import unittest
 from pathlib import Path
-
-import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
@@ -22,8 +21,14 @@ BATCH3 = (
 )
 
 
-@pytest.mark.parametrize("name", BATCH3)
-def test_batch3_skill_is_proper(name):
-    result = importlib.import_module("scripts.skill_portability_scan").scan(SKILLS_ROOT)
-    assert name in result["proper"]
-    assert name not in result["orphan"]
+class SkillPortabilityBatch3Test(unittest.TestCase):
+    def test_batch3_skill_is_proper(self):
+        result = importlib.import_module("scripts.skill_portability_scan").scan(SKILLS_ROOT)
+        for name in BATCH3:
+            with self.subTest(name=name):
+                self.assertIn(name, result["proper"])
+                self.assertNotIn(name, result["orphan"])
+
+
+if __name__ == "__main__":
+    unittest.main()
