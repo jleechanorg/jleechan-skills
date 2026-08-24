@@ -6,9 +6,9 @@ execution_mode: immediate
 scope: user
 ---
 
-# /evidence_review — Evidence Review + Evidence Standards
+# /evidence-review — Evidence Review + Evidence Standards
 
-**Usage**: `/evidence_review [subject or path]`
+**Usage**: `/evidence-review [subject or path]`
 
 Run an independent evidence review on the current conversation's claims, a
 specific file/directory, or a described subject, then check evidence-standards

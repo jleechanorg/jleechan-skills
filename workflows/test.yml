@@ -278,7 +278,7 @@ jobs:
       WORLDAI_GOOGLE_APPLICATION_CREDENTIALS: /dev/null
       WORLDAI_DEV_MODE: 'true'
       ENABLE_SEMANTIC_ROUTING: 'false'
-      PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/testing_utils:${{ github.workspace }}/mvp_site:${{ github.workspace }}/automation
+      PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/testing_utils:${{ github.workspace }}/mvp_site
       # PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION='python' is set specifically here
       # because the merge-commit validation job compiles a lightweight .ci-venv
       # environment on-the-fly under Python 3.12 without pre-built cached wheels,
@@ -735,7 +735,7 @@ jobs:
             fi
 
             case "${{ matrix.test-group }}" in
-              "core-mvp-1"|"core-mvp-2"|"core-mvp-3"|"core-tests"|"claude"|"orchestration"|"automation"|"scripts"|"mcp")
+              "core-mvp-1"|"core-mvp-2"|"core-mvp-3"|"core-tests"|"claude"|"scripts"|"mcp")
                 find . -name "requirements.txt" -not -path "./venv/*" -not -path "./mvp_site/requirements.txt" | while read req_file; do
                   echo "Installing $req_file (with 300s timeout)"
                   timeout 300 "$VENV_PIP" install -r "$req_file" || echo "Warning: Failed to install $req_file"
@@ -745,14 +745,6 @@ jobs:
                     echo "Installing moltbook_poster package for tests/ directory"
                     timeout 300 "$VENV_PIP" install -e "./moltbook_poster" || echo "Warning: Failed to install moltbook_poster"
                   fi
-                  if [ -f "orchestration/pyproject.toml" ]; then
-                    echo "Installing orchestration package for tests/ directory"
-                    timeout 300 "$VENV_PIP" install -e "./orchestration" || echo "Warning: Failed to install orchestration"
-                  fi
-                fi
-                if [ "${{ matrix.test-group }}" = "automation" ] && [ -f "automation/pyproject.toml" ]; then
-                  echo "Installing automation package in editable mode with dev dependencies"
-                  timeout 300 "$VENV_PIP" install -e "./automation[dev]"
                 fi
                 ;;
             esac
@@ -871,19 +863,13 @@ jobs:
         export ENABLE_BUILD_TESTS=0
         export ENABLE_NETWORK_TESTS=0
         export GITHUB_ACTIONS=true
-        export PYTHONPATH="${PYTHONPATH}:${PWD}:${PWD}/testing_utils:${PWD}/mvp_site:${PWD}/automation"
+        export PYTHONPATH="${PYTHONPATH}:${PWD}:${PWD}/testing_utils:${PWD}/mvp_site"
         export TEST_SHARD_INDEX="${{ matrix.shard-index }}"
         export TEST_SHARD_TOTAL="${{ matrix.shard-total }}"
 
         echo "🎯 Running tests for directory group: ${{ matrix.test-group }}"
         echo "📂 Test directories: ${{ matrix.test-dirs }}"
         echo "🧩 Shard: ${TEST_SHARD_INDEX}/${TEST_SHARD_TOTAL}"
-
-        if [ "${{ matrix.test-group }}" = "automation" ]; then
-          echo "🧪 Running automation shell regression tests"
-          bash automation/tests/test_install_cron_entries.sh
-          bash automation/tests/test_crontab_restore_safety.sh
-        fi
 
         chmod +x run_tests.sh
         IFS=',' read -ra SELECTED_DIRS <<< "${{ matrix.test-dirs }}"

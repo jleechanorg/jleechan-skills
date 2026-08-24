@@ -35,8 +35,6 @@ SRC_SCRIPTS_DIR="$PLUGIN_SRC_DIR/.claude/scripts"
 SRC_SKILLS_DIR="$PLUGIN_SRC_DIR/.claude/skills"
 
 # Legacy config
-ORCHESTRATION_DIR="orchestration"
-AUTOMATION_DIR="automation"
 CLAUDE_BOT_DIR="claude-bot-commands"
 INFRASTRUCTURE_DIR="infrastructure-scripts"
 
@@ -76,8 +74,6 @@ setup_directories() {
     mkdir -p "$CLAUDE_SKILLS_DIR"
 
     # Detect optional systems
-    [ -d "$PLUGIN_SRC_DIR/$ORCHESTRATION_DIR" ] && log_info "Orchestration system detected"
-    [ -d "$PLUGIN_SRC_DIR/$AUTOMATION_DIR" ] && log_info "Automation system detected"
     [ -d "$PLUGIN_SRC_DIR/$CLAUDE_BOT_DIR" ] && log_info "Claude Bot system detected"
     [ -d "$PLUGIN_SRC_DIR/$INFRASTRUCTURE_DIR" ] && log_info "Infrastructure scripts detected"
 
@@ -174,29 +170,16 @@ install_scripts() {
 
 # Copy skills to ~/.claude/skills/
 install_skills() {
-    install_component "$SRC_SKILLS_DIR" "$CLAUDE_SKILLS_DIR" "*.md" "skills" "false"
-
-    # Also copy nested <skill>/SKILL.md bodies (one directory per skill)
-    # Without this, subdir skills like swarm/SKILL.md and sidekick/SKILL.md
-    # never reach $CLAUDE_SKILLS_DIR.
-    log_info "Installing nested skill SKILL.md files..."
-    local nested_count=0
-    if [ -d "$SRC_SKILLS_DIR" ]; then
-        while IFS= read -r -d '' skill_md; do
-            # skill_md is e.g. $SRC_SKILLS_DIR/swarm/SKILL.md
-            local rel_dir
-            rel_dir="$(basename "$(dirname "$skill_md")")"
-            # Skip hidden / underscore dirs (_archive, _copilot_modules, etc.)
-            case "$rel_dir" in
-                _*|.*) continue ;;
-            esac
-            mkdir -p "$CLAUDE_SKILLS_DIR/$rel_dir"
-            cp -f "$skill_md" "$CLAUDE_SKILLS_DIR/$rel_dir/SKILL.md"
-            log_info "  Installed skill body: $rel_dir/SKILL.md"
-            nested_count=$((nested_count + 1))
-        done < <(find "$SRC_SKILLS_DIR" -mindepth 2 -maxdepth 2 -type f -name SKILL.md -print0)
+    if [ ! -d "$SRC_SKILLS_DIR" ]; then
+        log_warning "No skills source directory found at $SRC_SKILLS_DIR"
+        return 0
     fi
-    log_success "Installed $nested_count nested skill bodies"
+
+    log_info "Installing complete skill packages to $CLAUDE_SKILLS_DIR ..."
+    cp -a "$SRC_SKILLS_DIR/." "$CLAUDE_SKILLS_DIR/"
+    local skill_count
+    skill_count=$(find "$CLAUDE_SKILLS_DIR" -type f -name SKILL.md | wc -l | tr -d ' ')
+    log_success "Installed $skill_count skill packages"
 }
 
 # Infrastructure installation (root-level scripts, not copied to ~/.claude)
@@ -228,18 +211,6 @@ install_infrastructure() {
 # Optional system installation
 install_optional_systems() {
     log_info "Installing optional systems..."
-
-    if [ -d "$PLUGIN_SRC_DIR/$ORCHESTRATION_DIR" ]; then
-        log_info "  Orchestration system (WIP prototype)"
-        log_warning "    Requires: Redis, tmux, Python venv"
-        log_info "    See orchestration/README.md for setup instructions"
-    fi
-
-    if [ -d "$PLUGIN_SRC_DIR/$AUTOMATION_DIR" ]; then
-        log_info "  Automation system (production ready)"
-        log_warning "    Requires: cron access, email configuration"
-        log_info "    See automation/README.md for setup instructions"
-    fi
 
     if [ -d "$PLUGIN_SRC_DIR/$CLAUDE_BOT_DIR" ]; then
         log_info "  Claude Bot system (production ready)"
@@ -282,8 +253,6 @@ show_usage() {
     echo "1. Read CLAUDE.md for complete usage instructions"
     echo "2. Try basic commands: /help, /list, /execute"
     echo "3. Configure systems as needed:"
-    echo "   - Orchestration: See orchestration/README.md"
-    echo "   - Automation: See automation/README.md"
     echo "   - Claude Bot: See claude-bot-commands/README.md"
     echo "4. Start with cognitive commands: /think, /arch, /debug"
     echo

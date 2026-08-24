@@ -2,9 +2,10 @@
 description: Search across all memory systems — roadmap, beads, claude memories, mem0, hermes, openclaw, wiki, history, and slack
 type: llm-orchestration
 execution_mode: immediate
+aliases: [ms]
 ---
 
-# /memory_search [query] [--flags]
+# /memory-search [query] [--flags]
 
 Search all memory stores in parallel.
 

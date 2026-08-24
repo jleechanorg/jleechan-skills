@@ -1,6 +1,7 @@
 # Installation Guide - Claude Commands
 
-This guide covers installation methods for Claude Commands across different platforms.
+This guide covers installation across supported coding agents. Skills are the
+portable interface; commands are optional shortcuts.
 
 ## Claude Code (Plugin Marketplace)
 
@@ -26,13 +27,8 @@ This guide covers installation methods for Claude Commands across different plat
    ```bash
    /help
    ```
-   You should see 239 commands available (30 Active Core + 209 Extended Library), including:
-   - `/pr` - Complete PR lifecycle automation
-   - `/copilot` - Autonomous PR analysis and fixing
-   - `/orch` - Multi-agent orchestration
-   - `/execute` - Plan-approve-execute workflow
-   - `/test` - Comprehensive testing commands
-   - And many more...
+   You should see the installed skills and commands, including `/repro`,
+   `/evidence-review`, and `/parallel`.
 
 #### Option 2: Manual Installation
 
@@ -42,24 +38,20 @@ This guide covers installation methods for Claude Commands across different plat
    cd jleechan-skills
    ```
 
-2. **Copy commands to your project**:
+2. **Run the installer**:
    ```bash
-   # Copy entire command directory
-   cp -r .claude/commands/* /path/to/your/project/.claude/commands/
-
-   # Or link specific commands you need
-   ln -s $(pwd)/.claude/commands/pr.md /path/to/your/project/.claude/commands/pr.md
+   bash ./install-claude-commands.sh
    ```
 
 3. **Verify with Claude Code**:
    ```bash
    cd /path/to/your/project
-   /list
+   /help
    ```
 
 ## Other Platforms
 
-### Codex / OpenCode
+### Codex, Antigravity, and Cursor
 
 For platforms that support remote instruction fetching:
 
@@ -69,22 +61,27 @@ For platforms that support remote instruction fetching:
    https://raw.githubusercontent.com/jleechanorg/jleechan-skills/main/INSTALL.md
    ```
 
-2. **Manual setup** (if remote fetch not supported):
-   - Clone the repository
-   - Copy `.claude/commands/` directory to your project
-   - Reference CLAUDE.md for operating protocols
+2. **Manual setup** (if remote fetch is unavailable):
+   ```bash
+   git clone https://github.com/jleechanorg/jleechan-skills.git /tmp/jleechan-skills
+   bash /tmp/jleechan-skills/install-claude-commands.sh
+   ```
+
+   For project-local discovery, copy complete skill directories into your
+   target project's `.claude/skills/` directory. Do not copy standalone
+   `SKILL.md` files: some packages include helper files.
 
 ## GitHub CLI Setup (Required for GitHub Operations)
 
 Many commands require GitHub CLI. For detailed installation and usage instructions, see:
-- **Installation Guide**: [`.claude/skills/github-cli-reference.md`](.claude/skills/github-cli-reference.md)
+- **Installation Guide**: [`.claude/skills/github-cli-reference/SKILL.md`](.claude/skills/github-cli-reference/SKILL.md)
 - **Authentication**: Automatic via `GITHUB_TOKEN` environment variable
 - **Quick Check**: Run `~/.local/bin/gh auth status` to verify
 
 **Quick Install** (if not already installed):
 ```bash
-# See .claude/skills/github-cli-reference.md for full installation steps
-~/.local/bin/gh --version || echo "Run installation from .claude/skills/github-cli-reference.md"
+# See the skill for full installation steps
+gh --version
 ```
 
 ## Post-Installation
@@ -101,21 +98,17 @@ Many commands require GitHub CLI. For detailed installation and usage instructio
    /list
    ```
 
-3. **Try your first automation**:
+3. **Try a skill**:
    ```bash
-   /think "How do I use the PR automation workflow?"
+   /repro "describe a problem to reproduce"
    ```
 
 ### Key Commands to Explore
 
-- **`/pr`** - Complete PR lifecycle: analyze → fix → test → review
-- **`/copilot`** - Autonomous PR fixing and GitHub Copilot integration
-- **`/execute`** - Plan-approve-execute workflow for complex tasks
-- **`/orch`** - Multi-agent orchestration for parallel development
-- **`/test`** - Comprehensive testing (unit, integration, e2e)
-- **`/think`** - Enhanced reasoning with memory integration
-- **`/debug`** - Red-green debugging protocol
-- **`/arch`** - Architecture analysis and design
+- **`/repro`** - Reproduce a reported problem with evidence
+- **`/evidence-review`** (`/er`) - Review an evidence bundle
+- **`/parallel`** - Plan safe concurrent work
+- **`/redgreen`** (`/rg`) - Debug through RED, CODE, and GREEN
 
 ### Configuration
 
@@ -142,8 +135,8 @@ After installation, verify the system is working:
 # Test GitHub integration
 /gstatus
 
-# Test orchestration (if Redis available)
-/orch status
+# Inspect a skill
+/help
 ```
 
 ## Troubleshooting
@@ -161,12 +154,6 @@ After installation, verify the system is working:
 3. If not authenticated, run: `gh auth login` (see [gh auth login manual](https://cli.github.com/manual/gh_auth_login) for details)
 4. Ensure network connectivity to GitHub
 
-### Orchestration not working
-
-1. Check Redis installation: `redis-cli ping`
-2. Verify tmux is available: `which tmux`
-3. Review orchestration logs in `/tmp/orchestration/`
-
 ## Updating
 
 ### Marketplace Installation
@@ -180,7 +167,7 @@ After installation, verify the system is working:
 ```bash
 cd /path/to/jleechan-skills
 git pull origin main
-cp -r .claude/commands/* /path/to/your/project/.claude/commands/
+bash ./install-claude-commands.sh
 ```
 
 ## Uninstallation

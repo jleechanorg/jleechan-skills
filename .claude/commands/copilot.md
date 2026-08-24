@@ -145,13 +145,8 @@ Branch: <branch_name>
 
 **Step 5c: Launch /extended-library:pair with the task spec**
 
-Run `/extended-library:pair` with the task spec from Step 5b. `/extended-library:pair` routes to:
-
-```bash
-bash ralph/ralph-pair.sh run
-```
-
-This gives dual-agent coder+verifier: Claude implements, Codex verifies tests pass.
+Run `/extended-library:pair` with the task spec from Step 5b. It uses the
+platform's native coder and independent-verifier workflow.
 
 **Step 5d: Fix inline** (default path, or fallback if /extended-library:pair fails)
 

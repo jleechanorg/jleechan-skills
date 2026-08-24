@@ -1,13 +1,13 @@
 ---
-description: "/f — full Dark Factory loop; auto-routes to PR-mode when a PR is open on the current branch, otherwise feature-mode. DEFAULT: invoke the real dark-factory binary and echo proof metadata. Dynamic workflow/DOT generation is allowed only behind the binary."
+description: Alias for /factory.
 type: quality
 execution_mode: immediate
 aliases: [f]
 ---
 
-# /f — Full Dark Factory Loop (auto-routes PR vs feature)
+# /f — Alias for /factory
 
-Shortcut for `/extended-library:factory` oriented toward **full production loops**. The
+Shortcut for `/factory` oriented toward **full production loops**. The
 **default invocation path is the real `dark-factory` binary**. The binary may
 run a selected static DOT graph, or it may run a binary-owned graph builder /
 workflow that creates or selects a dynamic DOT graph. What is not allowed is an

@@ -2,7 +2,7 @@
 description: "/factory — run Dark Factory; auto-select pipeline when omitted"
 type: quality
 execution_mode: immediate
-aliases: [df]
+aliases: [f, df]
 ---
 
 # /factory — Dark Factory DOT Pipeline Runner

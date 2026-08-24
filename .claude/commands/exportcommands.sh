@@ -36,7 +36,7 @@ DRY_RUN=false
 CLAUDE_DIRS=(commands skills hooks agents scripts)
 
 # Dirs from project root → repo root in target repo
-ROOT_DIRS=(orchestration automation ralph)
+ROOT_DIRS=()
 
 # Hermes-managed surfaces — included as a SEPARATE top-level dir in the target repo
 # (./hermes/skills and ./hermes/commands) so the superset covers ~/.claude/ + ~/.hermes/
@@ -436,7 +436,7 @@ subs = [
 mvp_sub = (re.compile(r'$PROJECT_ROOT/'), r'\$PROJECT_ROOT/')
 
 allowed_exts = ('.md', '.py', '.sh', '.yml', '.yaml', '.json', '.cjs', '.js', '.mjs', '.ts', '.html', '.css', '.toml')
-dirs = ['.claude', '.codex', 'orchestration', 'automation', 'ralph', 'workflows', 'hermes', 'scripts', 'agents', 'commands', 'skills', 'hooks']
+dirs = ['.claude', '.codex', 'workflows', 'hermes', 'scripts', 'agents', 'commands', 'skills', 'hooks']
 for d in dirs:
   if not os.path.exists(d): continue
   for root, dirs_list, files in os.walk(d, topdown=False):
@@ -478,7 +478,7 @@ echo "▶ Scanning for leaked paths..."
 LEAKED=$(grep -rl \
   --include='*.md' --include='*.py' --include='*.sh' --include='*.yml' --include='*.yaml' \
   -e '$HOME' -e 'jleechantest@gmail' \
-  .claude orchestration automation ralph workflows hermes 2>/dev/null \
+  .claude workflows hermes 2>/dev/null \
   | grep -v exportcommands || true)
 if [[ -n "$LEAKED" ]]; then
   warn "Hardcoded paths found — check filter list:"
