@@ -110,7 +110,7 @@ Ask your coding agent to inspect the repo and install only what it needs:
 
 ## 📋 Skills at a Glance
 
-**28 Active Core commands** live flat in `.claude/commands/` (`/<name>`). The other **211 commands** live in `.claude/commands/extended-library/` (`/extended-library:<name>`) — still real and invocable, just namespaced. The 18 below are the highest-signal picks from that Active Core ranking, chosen manually from the empirical top-40.
+**30 Active Core commands** live flat in `.claude/commands/` (`/<name>`). The other **209 commands** live in `.claude/commands/extended-library/` (`/extended-library:<name>`) — still real and invocable, just namespaced. The 18 below are the highest-signal picks from that Active Core ranking, chosen manually from the empirical top-40.
 
 | Command | Full name / skill | One-line summary |
 |---|---|---|
@@ -287,11 +287,11 @@ Orchestrates a multi-agent swarm — either a deterministic Workflow-tool fan-ou
 
 ## 🗂️ Command Layout & Catalog
 
-The repository includes **28 Active Core commands** and **211 extended library commands**.
+The repository includes **30 Active Core commands** and **209 extended library commands** (239 total).
 
-**Active Core** (flat `/<name>`) is a hard top-20-human ∪ top-20-agent usage cutoff (27 union, plus `/innov` forced in = 28) — see [`archive/ARCHIVE-DECISION-2026-08-23.md`](archive/ARCHIVE-DECISION-2026-08-23.md) for the full methodology and its disclosed trade-offs.
+**Active Core** (flat `/<name>`) is a hard top-20-human ∪ top-20-agent usage cutoff (27 union, plus `/innov` forced in = 28), with `/sidekick` and `/swarm` manually promoted back from Extended Library per explicit selection = 30 — see [`archive/ARCHIVE-DECISION-2026-08-23.md`](archive/ARCHIVE-DECISION-2026-08-23.md) for the full methodology and its disclosed trade-offs.
 
-**Extended Library** (`/extended-library:<name>`) holds the other 211 — not deleted, not dead, just namespaced. See [`archive/extended-library-README.md`](archive/extended-library-README.md).
+**Extended Library** (`/extended-library:<name>`) holds the other 209 — not deleted, not dead, just namespaced. See [`archive/extended-library-README.md`](archive/extended-library-README.md).
 
 A separate, older tier — [`archive/commands/`](archive/commands/) (51 files, from an earlier zero-usage pass) — uses a different criterion entirely and is untouched by the two-tier split above.
 

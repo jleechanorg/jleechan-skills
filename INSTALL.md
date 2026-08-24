@@ -14,19 +14,19 @@ This guide covers installation methods for Claude Commands across different plat
 
 1. **Register the marketplace** (first-time setup):
    ```bash
-   /plugin marketplace add claude-commands-marketplace https://github.com/jleechanorg/claude-commands
+   /plugin marketplace add jleechanorg/jleechan-skills
    ```
 
 2. **Install the plugin**:
    ```bash
-   /plugin install claude-commands@claude-commands-marketplace
+   /plugin install jleechan-skills@jleechan-skills
    ```
 
 3. **Verify installation**:
    ```bash
    /help
    ```
-   You should see 151+ commands available, including:
+   You should see 239 commands available (30 Active Core + 209 Extended Library), including:
    - `/pr` - Complete PR lifecycle automation
    - `/copilot` - Autonomous PR analysis and fixing
    - `/orch` - Multi-agent orchestration
@@ -38,8 +38,8 @@ This guide covers installation methods for Claude Commands across different plat
 
 1. **Clone the repository**:
    ```bash
-   git clone https://github.com/jleechanorg/claude-commands.git
-   cd claude-commands
+   git clone https://github.com/jleechanorg/jleechan-skills.git
+   cd jleechan-skills
    ```
 
 2. **Copy commands to your project**:
@@ -66,7 +66,7 @@ For platforms that support remote instruction fetching:
 1. **Fetch and follow remote instructions**:
    ```text
    Please fetch and follow the installation instructions from:
-   https://raw.githubusercontent.com/jleechanorg/claude-commands/main/INSTALL.md
+   https://raw.githubusercontent.com/jleechanorg/jleechan-skills/main/INSTALL.md
    ```
 
 2. **Manual setup** (if remote fetch not supported):
@@ -172,13 +172,13 @@ After installation, verify the system is working:
 ### Marketplace Installation
 
 ```bash
-/plugin update claude-commands
+/plugin update jleechan-skills
 ```
 
 ### Manual Installation
 
 ```bash
-cd /path/to/claude-commands
+cd /path/to/jleechan-skills
 git pull origin main
 cp -r .claude/commands/* /path/to/your/project/.claude/commands/
 ```
@@ -188,7 +188,7 @@ cp -r .claude/commands/* /path/to/your/project/.claude/commands/
 ### Marketplace Installation
 
 ```bash
-/plugin uninstall claude-commands
+/plugin uninstall jleechan-skills
 ```
 
 ### Manual Installation
@@ -199,7 +199,7 @@ rm -rf /path/to/your/project/.claude/commands/
 
 ## Support
 
-- **Issues**: [GitHub Issues](https://github.com/jleechanorg/claude-commands/issues)
+- **Issues**: [GitHub Issues](https://github.com/jleechanorg/jleechan-skills/issues)
 - **Documentation**: See `.claude/commands/README.md` in your project after installation
 - **Examples**: See `.claude/commands/pair-examples.md` in your project after installation
 
