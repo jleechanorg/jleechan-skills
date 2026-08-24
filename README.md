@@ -110,7 +110,7 @@ Ask your coding agent to inspect the repo and install only what it needs:
 
 ## 📋 Skills at a Glance
 
-**30 Active Core commands** live flat in `.claude/commands/` (`/<name>`). The other **209 commands** live in `.claude/commands/extended-library/` (`/extended-library:<name>`) — still real and invocable, just namespaced. The 18 below are the highest-signal picks from that Active Core ranking, chosen manually from the empirical top-40.
+**30 Active Core commands** live flat in `.claude/commands/` (`/<name>`). The other **209 commands** live in `.claude/commands/extended-library/` (`/extended-library:<name>`) — still real and invocable, just namespaced. The 18 below are hand-picked from the empirical top-40 usage ranking across both tiers — most are Active Core, but `/4layer`, `/rg`, and `/parallel` were chosen from Extended Library because they're genuinely useful even though their raw usage counts didn't clear the automatic Active Core cutoff.
 
 | Command | Full name / skill | One-line summary |
 |---|---|---|
@@ -129,9 +129,9 @@ Ask your coding agent to inspect the repo and install only what it needs:
 | [`/4layer`](.claude/commands/extended-library/4layer.md) (`/extended-library:4layer`) | [`4layer`](.claude/skills/4layer/SKILL.md) | Four-tier minimal-repro ladder (unit → e2e → MCP/HTTP → browser); the layer that reproduces the bug tells you where to fix it. |
 | [`/rg`](.claude/commands/extended-library/rg.md) (`/extended-library:rg`, full `/redgreen`) | [`redgreen`](.claude/commands/extended-library/redgreen.md) | Strict RED→CODE→GREEN→CONSENSUS: a fresh real failing test must exist before any fix is written. |
 | [`/parallel`](.claude/commands/extended-library/parallel.md) (`/extended-library:parallel`) | [`parallelize-to-ceiling`](.claude/skills/parallelize-to-ceiling/SKILL.md) | Independent work always runs at its real resource ceiling — never an arbitrary worker count, never serial. |
-| [`/history`](.claude/commands/history.md) | [`conversation-history-sparse`](.claude/skills/conversation-history-sparse/SKILL.md) | Budget-capped sparse search across 5 agentic-coding history stores; `--deep` escalates to the full 7-source search. |
-| [`/sidekick`](.claude/commands/extended-library/sidekick.md) (`/extended-library:sidekick`) | [`sidekick`](.claude/skills/sidekick/SKILL.md) | Spawns a persistent, crash-recoverable, SendMessage-addressable teammate for long-running missions. |
-| [`/swarm`](.claude/commands/extended-library/swarm.md) (`/extended-library:swarm`) | [`swarm`](.claude/skills/swarm/SKILL.md) | Multi-agent swarm orchestration with adversarial verification, always durably wrapped in a sidekick. |
+| [`/history`](.claude/commands/history.md) | [`conversation-history-sparse`](.claude/skills/conversation-history-sparse/SKILL.md) | Budget-capped sparse search across the 3 canonical history stores (Claude Code, Codex, Hermes); `--deep` escalates to a 6-source search. |
+| [`/sidekick`](.claude/commands/sidekick.md) | [`sidekick`](.claude/skills/sidekick/SKILL.md) | Spawns a persistent, crash-recoverable, SendMessage-addressable teammate for long-running missions. |
+| [`/swarm`](.claude/commands/swarm.md) | [`swarm`](.claude/skills/swarm/SKILL.md) | Multi-agent swarm orchestration with adversarial verification, always durably wrapped in a sidekick. |
 
 ---
 
@@ -261,26 +261,26 @@ One law: for independent work, the speed ceiling is the real per-item resource b
 
 ### [`conversation-history-sparse`](.claude/skills/conversation-history-sparse/SKILL.md) — `/history`
 
-Sparse, budget-capped search across five history stores (Claude Code JSONL, Codex rollouts + SQLite, Hermes FTS5, agy CLI history, Cursor prompt history) with hard sampling limits — never `cat`s a full file. `--deep` escalates to the full 7-source search when sparse results aren't enough.
+Sparse, budget-capped search across the 3 canonical history stores (Claude Code JSONL, Codex SQLite threads, Hermes FTS5) with hard sampling limits — never `cat`s a full file. `--deep` escalates to a 6-source search (adds Antigravity, OpenCode, and Cursor history) when sparse results aren't enough.
 
 ```bash
 /history "why did the worktree cleanup script get deleted"
 ```
 
-### [`sidekick`](.claude/skills/sidekick/SKILL.md) — `/sidekick` (`/extended-library:sidekick`)
+### [`sidekick`](.claude/skills/sidekick/SKILL.md) — `/sidekick`
 
 Spawns a single named, in-session Claude Agent-Team teammate — visible in the panel, SendMessage-addressable — to own a long-running mission (PR fleets, research sweeps, migrations). Durability comes from disk state (a `STATE.md` + a priority-1 resumption bead, checkpointed every ≤5 minutes), not the running process, so a crashed session can respawn the same teammate with zero conversation context.
 
 ```bash
-/extended-library:sidekick "drive all open CI-red PRs to green overnight"
+/sidekick "drive all open CI-red PRs to green overnight"
 ```
 
-### [`swarm`](.claude/skills/swarm/SKILL.md) — `/swarm` (`/extended-library:swarm`)
+### [`swarm`](.claude/skills/swarm/SKILL.md) — `/swarm`
 
 Orchestrates a multi-agent swarm — either a deterministic Workflow-tool fan-out or named Agent-team lanes — with adversarial verification baked in (3-lens refute-by-default, ≥2/3 must survive). Always runs inside a sidekick for durability, regardless of engine. Every spawned agent must set its model tier explicitly; an unset model silently inheriting the session model is treated as a policy violation.
 
 ```bash
-/extended-library:swarm "audit code quality across the whole payments module" --shape review
+/swarm "audit code quality across the whole payments module" --shape review
 ```
 
 ---
