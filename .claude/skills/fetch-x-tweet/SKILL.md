@@ -1,3 +1,8 @@
+---
+name: fetch-x-tweet
+description: Fetch an X (Twitter) tweet that requires authentication by using alternative frontends instead of direct curl.
+---
+
 # Fetch X (Twitter) Tweet
 
 Fetch a tweet that may require authentication by using alternative frontends.

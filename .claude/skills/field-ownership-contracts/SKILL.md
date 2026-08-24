@@ -1,3 +1,8 @@
+---
+name: field-ownership-contracts
+description: Prevent the undefined field semantic failure mode where multiple writers assume different meanings for the same dict field.
+---
+
 # Field Ownership Contracts — Harness Skill
 
 **Purpose**: Prevent the "undefined field semantic" failure mode where multiple writers (agents, LLM, backend) assume different meanings for the same dict field, causing cascading fix-on-fix churn.

@@ -1,3 +1,8 @@
+---
+name: evidence-coverage
+description: Build a Logic x Evidence Matrix mapping every production logic change in a PR to its required testing layer and current evidence status.
+---
+
 # Evidence Coverage Analysis — Living World & PR Scope
 
 When invoked (via `/evidence-coverage`), build a **Logic × Evidence Matrix** that maps every

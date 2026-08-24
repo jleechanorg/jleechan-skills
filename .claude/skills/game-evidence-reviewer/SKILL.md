@@ -1,3 +1,8 @@
+---
+name: game-evidence-reviewer
+description: Review game/demo video evidence against Ragnarok Online quality standards.
+---
+
 # Game Evidence Reviewer Skill
 
 Review game/demo video evidence against Ragnarok Online quality standards.

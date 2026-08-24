@@ -1,3 +1,8 @@
+---
+name: harness-guardrails
+description: Harness guardrails derived from recent bug classes and regressions in the WorldArchitect engine.
+---
+
 # Harness Guardrails (Added from Bug Analysis)
 
 These guardrails are derived from recent bug classes and regressions in the WorldArchitect engine.
