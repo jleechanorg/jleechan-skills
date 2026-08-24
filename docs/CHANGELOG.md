@@ -3,7 +3,6 @@
 Full version history for [jleechan-skills](https://github.com/jleechanorg/jleechan-skills) (formerly `claude-commands`). Moved out of `README.md` 2026-08-23 to keep the README focused on current state.
 
 ## v1.8.0 (2026-08-23)
-- **Command consolidation**: archived 51 commands to `archive/commands/` (see [archive/README.md](../archive/README.md)) — files selected by empirically measuring invocations across Hermes, Claude Code, and Codex session logs (`/command-research`), then keeping any command with either measured usage or a live reference from a command that stays active (fixed-point dependency closure, not a single-pass check).
 - New command: `command-research.md` — dispatcher for the usage-mining skill and its bundled scanner (`count_command_usage_unified.py`).
 - Removed stale duplicate `.claude/skills/evidence-review.md` (superseded by `evidence-review/SKILL.md`) and fixed two dangling references to it.
 - Root-cause fixed a secret-redaction regex bug in `exportcommands.sh` (unanchored `sk-` pattern was corrupting words like `disk-`/`task-`/`risk-` mid-word) and restored 244 of 324 corrupted locations via per-file git-history verification (PR [#358](https://github.com/jleechanorg/jleechan-skills/pull/358), PR [#359](https://github.com/jleechanorg/jleechan-skills/pull/359)).
