@@ -1,44 +1,77 @@
 ---
-description: Claude Skills & Commands - Modular Agent Skills Library for Claude Code, Antigravity, and Codex
+description: Claude Skills & Commands - Modular Agent Skills Library for Claude Code, Antigravity, Codex, and Cursor
 type: llm-orchestration
 execution_mode: immediate
 ---
 
 # 🧠 Claude Skills & Commands
 
-> A battle-tested library of **245 skills** and ergonomic slash commands that supercharge **Claude Code**, **Google Antigravity**, and **OpenAI Codex** with advanced software engineering capabilities.
+## TL;DR
 
-Instead of generic prompts, this repository equips your AI coding assistant with production-grade engineering disciplines: empirical debugging, multi-model second opinion panels, multi-tier testing harnesses, autonomous PR management, and rigorous verification gates.
+This repo packages hard-won engineering discipline — empirical debugging, evidence-backed claims, multi-model review, autonomous PR pipelines, resource-ceiling parallelism — as portable **skills** (`SKILL.md` packages) with thin slash-command pointers on top. Skills are the source of truth; commands are just the typing shortcut. Because every skill follows the same YAML-frontmatter + Markdown spec, the same skill runs unmodified in **Claude Code**, **Google Antigravity**, **OpenAI Codex**, and **Cursor 2.4+**. Install once, use everywhere.
+
+The set below is not a guess — every command's usage count comes from mining real session logs (`/command-research`) across this machine's Claude Code, Hermes, and Codex history, then independently re-verified against the raw conversation files before being trusted.
 
 ---
 
-## ⚡ Quickstart (Install in 30 Seconds)
+## Table of Contents
 
-### Option 1: Claude Code Plugin (Recommended)
+- [Install](#-install)
+- [How It Works: Skills First, Thin Slash Pointers](#-how-it-works-skills-first-thin-slash-pointers)
+- [Skills at a Glance](#-skills-at-a-glance)
+- [Detailed Skill Reference](#-detailed-skill-reference)
+- [Command Layout & Catalog](#-command-layout--catalog)
+- [Chaining & Composition](#-chaining--composition)
+- [References](#-references--contributing)
 
-In your Claude Code CLI session, add the marketplace and install the package:
+---
+
+## 📦 Install
+
+### Claude Code
 
 ```bash
 /plugin marketplace add jleechanorg/jleechan-skills
 /plugin install jleechan-skills@jleechan-skills
 ```
 
-Restart your CLI session and run `/help` to see all available commands and skills.
+Restart your CLI session, then run `/help` to confirm commands and skills appear.
 
-### Option 2: Clone Directly into Your Project
+### Google Antigravity
 
-To use these skills and commands in any repository:
+This repo ships a plugin manifest at [`.agents/plugins/plugin.json`](.agents/plugins/plugin.json) and [`.agents/plugins/marketplace.json`](.agents/plugins/marketplace.json) (`skills: ".claude/skills/"`), intended for `agy plugin install`. That install path is structurally present but has not yet been proven with a live end-to-end run — until confirmed, the reliable path is manual:
 
 ```bash
 git clone https://github.com/jleechanorg/jleechan-skills.git /tmp/jleechan-skills
-mkdir -p .claude/commands .claude/skills
-cp -r /tmp/jleechan-skills/.claude/commands/* .claude/commands/
+mkdir -p .claude/skills
 cp -r /tmp/jleechan-skills/.claude/skills/* .claude/skills/
 ```
 
-### Option 3: Intelligent Self-Setup
+Antigravity's own IDE and `agy` CLI discover `SKILL.md` packages under `.claude/skills/` directly.
 
-Ask Claude Code to inspect this repo and install only what you need:
+### OpenAI Codex CLI
+
+Codex does not have a plugin marketplace equivalent yet. Copy the skills directory into your project (or `~/.codex/skills/` for a user-global install):
+
+```bash
+git clone https://github.com/jleechanorg/jleechan-skills.git /tmp/jleechan-skills
+mkdir -p .claude/skills
+cp -r /tmp/jleechan-skills/.claude/skills/* .claude/skills/
+```
+
+### Cursor (2.4+)
+
+Cursor's skill discovery scans `.claude/skills/` directly — no separate install step or format conversion needed:
+
+```bash
+git clone https://github.com/jleechanorg/jleechan-skills.git /tmp/jleechan-skills
+mkdir -p .claude/skills
+cp -r /tmp/jleechan-skills/.claude/skills/* .claude/skills/
+```
+
+### Intelligent self-setup (any platform)
+
+Ask your coding agent to inspect the repo and install only what it needs:
 
 ```text
 "Inspect https://github.com/jleechanorg/jleechan-skills and set up the skills most useful for my tech stack."
@@ -48,12 +81,10 @@ Ask Claude Code to inspect this repo and install only what you need:
 
 ## 🏛️ How It Works: Skills First, Thin Slash Pointers
 
-Every workflow in this repository follows a clean, single-source-of-truth architecture:
-
 ```
                   ┌──────────────────────────────────────────────┐
                   │                 Developer / AI               │
-                  │   types /repro, /es, /wa, /f, etc.           │
+                  │   types /repro, /es, /ms, /f, etc.           │
                   └──────────────────────┬───────────────────────┘
                                          │
                                          ▼
@@ -67,166 +98,210 @@ Every workflow in this repository follows a clean, single-source-of-truth archit
                   │     Skill Package (.claude/skills/<skill>/)  │
                   │   • Canonical reasoning logic & safety rails │
                   │   • Structured schemas, scripts & tool specs │
-                  │   • Portable: Claude Code, Antigravity, Codex│
+                  │   • Portable: Claude Code, Antigravity, Codex, Cursor │
                   └──────────────────────────────────────────────┘
 ```
 
-1. **Skills (`.claude/skills/`) are the source of truth**: Complex protocols, schemas, deterministic checklists, and bundled helper scripts live in standard `SKILL.md` folders.
-2. **Slash Commands (`.claude/commands/`) are thin pointers**: Slash commands do not contain separate code; they are ergonomic shortcuts that load and run the underlying skill.
-3. **Cross-Agent Portability**: Because all skills adhere to the standard `SKILL.md` specification (YAML frontmatter + markdown execution guide), they run natively in **Claude Code**, **Google Antigravity**, and **OpenAI Codex**.
+1. **Skills (`.claude/skills/`) are the source of truth** — protocols, schemas, checklists, and helper scripts live in standard `SKILL.md` folders.
+2. **Slash commands (`.claude/commands/`) are thin pointers** — no separate logic, just an ergonomic shortcut that loads and runs the skill.
+3. **Cross-agent portability** — because every skill follows the `SKILL.md` spec, it runs natively in Claude Code, Antigravity, Codex, and Cursor without translation.
 
 ---
 
-## 🚀 The Most Useful Skills (And How to Use Them)
+## 📋 Skills at a Glance
 
-Here are the most impactful skills you can use immediately in your daily development workflow:
+**28 Active Core commands** live flat in `.claude/commands/` (`/<name>`). The other **211 commands** live in `.claude/commands/extended-library/` (`/extended-library:<name>`) — still real and invocable, just namespaced. The 18 below are the highest-signal picks from that Active Core ranking, chosen manually from the empirical top-40.
+
+| Command | Full name / skill | One-line summary |
+|---|---|---|
+| [`/advice`](.claude/commands/advice.md) (alias `/smart-advisor`) | [`advice`](.claude/skills/advice/SKILL.md) | Token-efficient parallel second opinion — Opus subagent + `/research` + `/secondo` + `/web-advice`, synthesized into a verdict table. |
+| [`/repro`](.claude/commands/repro.md) | [`repro-twin-clone-evidence`](.claude/skills/repro-twin-clone-evidence/SKILL.md) | Clones a real campaign, replays the exact bug action against a real server, verdicts REPRO/RELATED/NON-REPRO. **WorldArchitect.ai-specific** — not portable as-is. |
+| [`/research`](.claude/commands/research.md) | [`research`](hermes/skills/research/SKILL.md) | Background agent investigates a question against primary sources only, cites everything, writes a Markdown note. |
+| [`/ms`](.claude/commands/ms.md) (full `/extended-library:memory_search`) | [`memory-search`](.claude/skills/memory-search/SKILL.md) | Parallel, cached search across ten memory stores (roadmap, beads, Claude/Codex history, Hermes, wiki, Slack). |
+| [`/er`](.claude/commands/er.md) (full `/extended-library:evidence_review`) | [`evidence-review`](.claude/skills/evidence-review/SKILL.md) | Judges an evidence bundle against evidence-standards; PASS/PARTIAL/FAIL/INCONCLUSIVE, gates `/green` on production PRs. |
+| [`/f`](.claude/commands/f.md) (full `/extended-library:factory`) | [`dark-factory`](.claude/skills/dark-factory/SKILL.md) | Runs a goal through the real `dark-factory` binary against sealed holdout evaluation — replayable, agent never sees the holdout. |
+| [`/es`](.claude/commands/es.md) | [`evidence-standards`](.claude/skills/evidence-standards/SKILL.md) | Evidence-strength policy: raw request/response beats mocked-at-boundary beats nothing; every claim needs a `[Layer N source]`. |
+| [`/web-advice`](.claude/commands/web-advice.md) (alias `/webadvice`) | [`web-advice`](.claude/skills/web-advice/SKILL.md) | Real, authenticated multi-model browser review (ChatGPT, Gemini, Grok, Perplexity) — no API substitution allowed. |
+| [`/browser`](.claude/commands/browser.md) | [`browser-control`](.claude/skills/browser-control/SKILL.md) | Live-browser task router — Aside first for authenticated sessions, Playwright for deterministic testing, browserclaw only for credential-free discovery. |
+| [`/skillify`](.claude/commands/skillify.md) | [`skillify`](.claude/skills/skillify/SKILL.md) | Turns any script/runbook into a properly-tested, auditable `SKILL.md` package. |
+| [`/harness`](.claude/commands/harness.md) | [`harness-engineering`](.claude/skills/harness-engineering/SKILL.md) | Diagnoses whether a failure is a harness-layer gap (instructions/skills/memory/tests/CI) and fixes at that durable layer. |
+| [`/learn`](.claude/commands/learn.md) | [`learn`](.claude/skills/learn/SKILL.md) | Captures a durable lesson into every persistent store — memory, roadmap, beads, wiki — not just a chat summary. |
+| [`/4layer`](.claude/commands/extended-library/4layer.md) (`/extended-library:4layer`) | [`4layer`](.claude/skills/4layer/SKILL.md) | Four-tier minimal-repro ladder (unit → e2e → MCP/HTTP → browser); the layer that reproduces the bug tells you where to fix it. |
+| [`/rg`](.claude/commands/extended-library/rg.md) (`/extended-library:rg`, full `/redgreen`) | [`redgreen`](.claude/commands/extended-library/redgreen.md) | Strict RED→CODE→GREEN→CONSENSUS: a fresh real failing test must exist before any fix is written. |
+| [`/parallel`](.claude/commands/extended-library/parallel.md) (`/extended-library:parallel`) | [`parallelize-to-ceiling`](.claude/skills/parallelize-to-ceiling/SKILL.md) | Independent work always runs at its real resource ceiling — never an arbitrary worker count, never serial. |
+| [`/history`](.claude/commands/history.md) | [`conversation-history-sparse`](.claude/skills/conversation-history-sparse/SKILL.md) | Budget-capped sparse search across 5 agentic-coding history stores; `--deep` escalates to the full 7-source search. |
+| [`/sidekick`](.claude/commands/extended-library/sidekick.md) (`/extended-library:sidekick`) | [`sidekick`](.claude/skills/sidekick/SKILL.md) | Spawns a persistent, crash-recoverable, SendMessage-addressable teammate for long-running missions. |
+| [`/swarm`](.claude/commands/extended-library/swarm.md) (`/extended-library:swarm`) | [`swarm`](.claude/skills/swarm/SKILL.md) | Multi-agent swarm orchestration with adversarial verification, always durably wrapped in a sidekick. |
 
 ---
 
-### 1. 🔍 Root-Cause First Debugging (`root-cause-first`)
-> **Slash Pointer**: [`/repro`](.claude/commands/repro.md) | **Skill**: [`.claude/skills/root-cause-first/SKILL.md`](.claude/skills/root-cause-first/SKILL.md)
+## 📖 Detailed Skill Reference
 
-**The Problem**: AI assistants often rush to modify code based on speculative theories without actually verifying why a bug happens.  
-**The Solution**: Enforces a strict empirical debugging protocol:
-1. Formulate testable hypotheses.
-2. Write a minimal reproduction test or capture runtime traces.
-3. Systematically falsify incorrect theories before touching any application code.
+### [`advice`](.claude/skills/advice/SKILL.md) — `/advice`, alias `/smart-advisor`
+
+Gets a fast, cheap second opinion at a decision point without shipping the whole conversation to another model. Extracts a tight decision (3-5 sentences) plus a ≤150-line artifact, then fans out to up to four reviewers concurrently: an Opus subagent (with a cursor→agy→`claude -p` fallback chain), `/research`, `/secondo`, and `/web-advice`. Results synthesize into a comparison table; inside the `draft-first-pr` lifecycle it ends with a binary, SHA-bound verdict (`VERDICT: APPROVED at <SHA>`) so a later commit invalidates a stale approval. Degrades gracefully if a reviewer CLI is missing rather than failing outright.
 
 ```bash
-# Example: Tell Claude to find and fix a bug with empirical discipline
+/advice "Should we switch this cache from LRU to LFU eviction?"
+```
+
+### [`repro-twin-clone-evidence`](.claude/skills/repro-twin-clone-evidence/SKILL.md) — `/repro`
+
+> **WorldArchitect.ai-specific — not generically portable.** Every mechanism here (Firestore "campaigns", `copy_campaign.py`/`download_campaign.py`, `WORLDAI_DEV_MODE`, `/game/<id>` URL parsing) is bespoke to that repo's D&D-style RPG platform. External adopters would need to fully replace the routing and data model before this does anything.
+
+Given a campaign URL, clones the real production campaign into a test account, replays only the exact user action that triggers the bug against a real local server (real Firestore, real LLM — never mocked), and enforces a strict same-symptom rule: a repro only counts if the identical user-visible phenotype reappears. Closes with a mandatory REPRO / RELATED / NON-REPRO verdict and exported request/response/Firestore snapshots.
+
+```bash
 /repro "Checkout fails with 500 error when applying coupon code"
 ```
 
----
+### [`research`](hermes/skills/research/SKILL.md) — `/research`
 
-### 2. 📊 Empirical Evidence Standards (`evidence-standards`)
-> **Slash Pointer**: [`/es`](.claude/commands/es.md) | **Skill**: [`.claude/skills/evidence-standards/SKILL.md`](.claude/skills/evidence-standards/SKILL.md)
-
-**The Problem**: Code changes claim performance gains, bug fixes, or UI fixes without verifiable runtime proof.  
-**The Solution**: Anti-speculation guardrails:
-- Requires real telemetry queries (Cloud Run logs, database traces, profiling metrics) before concluding root cause.
-- Mandates headless browser DOM measurements across mobile (375x812) and desktop (1440x900) viewports for UI changes.
-- Prohibits fabricated, mocked, or paraphrased test outputs.
+Spins up a background agent that investigates a question strictly against primary sources — official docs, source code, specs, first-party APIs — never secondary summaries. Every claim traces back to the source that owns it; findings land as a single cited Markdown file in whatever location the repo already uses for such notes. Runs async so the calling session keeps working.
 
 ```bash
-# Example: Generate verified evidence for a completed feature or bugfix
-/es "Verify API response latency reduction under 200 concurrent requests"
-```
-
----
-
-### 3. 🤖 Multi-Model Consensus & Advice Panel (`web-advice`)
-> **Slash Pointer**: [`/web-advice`](.claude/commands/web-advice.md), [`/advice`](.claude/commands/advice.md) | **Skill**: [`.claude/skills/web-advice/SKILL.md`](.claude/skills/web-advice/SKILL.md)
-
-**The Problem**: Single-model blind spots when designing complex architectures or reviewing critical pull requests.  
-**The Solution**: Queries a council of frontier LLMs (**Claude**, **Grok**, **Gemini**, **GPT**) in parallel to critique your design, identify edge cases, and provide second opinions before code is written or merged.
-
-```bash
-# Example: Run an architectural critique before implementing a major refactor
-/web-advice "Should we migrate auth session storage from Redis to DynamoDB with TTL?"
-```
-
----
-
-### 4. 🏭 Autonomous Dark Factory Loops (`dark-factory`)
-> **Slash Pointer**: [`/f`](.claude/commands/f.md), [`/factory`](.claude/commands/extended-library/factory.md) | **Skill**: [`.claude/skills/dark-factory/SKILL.md`](.claude/skills/dark-factory/SKILL.md)
-
-**The Problem**: Unstructured, multi-turn AI coding workflows easily drift off-course, lack rigorous validation gates, or produce code that passes only because tests were loosely written by the same model.  
-**The Solution**: An end-to-end autonomous factory loop:
-- Executes structured DOT workflow graphs via the `dark-factory` binary runner.
-- Grades implementation changes against **sealed holdout tests** that the coding agent cannot inspect or game.
-- Calibrates code review findings across a multi-model reviewer panel (Codex, Claude, MiniMax, Antigravity) with bounded repair loops before declaring victory.
-
-```bash
-# Example: Run an autonomous factory pipeline with holdout evaluation
-/f "Implement idempotent webhook signature validation with HMAC-SHA256"
-```
-
----
-
-### 5. 🔬 Deep Technical Research (`research`)
-> **Slash Pointer**: [`/research`](.claude/commands/research.md) | **Skill**: [`.claude/skills/research/SKILL.md`](.claude/skills/research/SKILL.md)
-
-**The Problem**: Shallow web searches return outdated or inaccurate developer documentation.  
-**The Solution**: Multi-engine research pipeline that combines ultra-depth reasoning with multi-source queries (Perplexity, DuckDuckGo, Grok, Gemini, Claude) with mandatory primary source verification.
-
-```bash
-# Example: Conduct thorough technical investigation with cited sources
 /research "PostgreSQL 17 logical replication improvements and zero-downtime schema upgrades"
 ```
 
----
+### [`memory-search`](.claude/skills/memory-search/SKILL.md) — `/ms`, full form `/extended-library:memory_search`
 
-### 6. 🧪 Multi-Tier Harness Engineering (`harness-engineering`)
-> **Slash Pointer**: [`/harness`](.claude/commands/harness.md), `/4layer` | **Skill**: [`.claude/skills/harness-engineering/SKILL.md`](.claude/skills/harness-engineering/SKILL.md)
-
-**The Problem**: Fragile unit tests mock everything, while slow end-to-end tests are flaky.  
-**The Solution**: Systematic 3-tier testing discipline:
-- **Layer 1**: Deterministic unit tests for pure logic.
-- **Layer 2**: Real-service callstacks (unmocked local dependencies, real sqlite/in-memory DBs).
-- **Layer 3**: Headless browser validation with live DOM assertions across responsive viewports.
+Fans a query out in parallel across ten distinct memory sources — roadmap, beads, Claude Code session memories, Hermes SQLite (FTS5), Hermes briefings, the Hermes memory index, OpenClaw memories, the local LLM wiki, raw conversation history, and Slack — instead of searching just one. Caches merged results by query hash with a 1-hour TTL so repeat lookups short-circuit.
 
 ```bash
-# Example: Build an automated verification harness for an endpoint
+/ms "hermes deploy failure last 7 days"
+```
+
+### [`evidence-review`](.claude/skills/evidence-review/SKILL.md) — `/er`, full form `/extended-library:evidence_review`
+
+The enforcement layer on top of `evidence-standards`' "what to produce" layer. Runs mandatory bundle-integrity checks (checksum verification) before judging, then returns PASS / PARTIAL / FAIL / INCONCLUSIVE with file:line-level artifact citations. PASS requires every claim backed by a STRONG-quality artifact and is mandatory for `/green` on production-tier PRs; its verdict is parsed directly into `/green`'s merge-gate table.
+
+```bash
+/er docs/evidence/checkout-latency-fix/
+```
+
+### [`dark-factory`](.claude/skills/dark-factory/SKILL.md) — `/f`, full form `/extended-library:factory`
+
+Runs a goal through the real external `dark-factory` binary and `.dot`-graph pipeline runner (StrongDM's Attractor pattern), recording every step in a SQLite CXDB rather than a conversation transcript, and grading against sealed holdout scenarios in a separate repo the agent is never allowed to read. Trades higher session cost for full replayability and a hard separation between the coding agent and the adversarial evaluator.
+
+```bash
+/f "Implement idempotent webhook signature validation with HMAC-SHA256"
+```
+
+### [`evidence-standards`](.claude/skills/evidence-standards/SKILL.md) — `/es`
+
+Cross-project evidence-strength policy: a raw request/response capture from the real production code path is the strongest proof; an isolated unit test with mocked internals proves nothing about real behavior. Requires an "Evidence Envelope Declaration" — a per-item ledger, not free narration — for any breadth claim ("all/every/across N"). Names mocking an SDK at the in-process boundary (instead of the real network boundary) as a specific fabricated-evidence anti-pattern.
+
+```bash
+/es "Verify API response latency reduction under 200 concurrent requests"
+```
+
+### [`web-advice`](.claude/skills/web-advice/SKILL.md) — `/web-advice`, alias `/webadvice`
+
+Multi-model adversarial review through real, authenticated browser sessions on ChatGPT, Gemini, Grok, and Perplexity Web — never a provider API or CLI substitute. Reserved for reviews needing genuine cross-model-family convergence or web-grounded fact-checking. Requires the PR/evidence bundle to already be ready before any browser session opens.
+
+```bash
+/web-advice "Should we migrate auth session storage from Redis to DynamoDB with TTL?"
+```
+
+### [`browser-control`](.claude/skills/browser-control/SKILL.md) — `/browser`
+
+General-purpose live-browser task router: Aside first for authenticated sessions/site settings/OAuth/existing tabs, `playwright-ui-testing` for deterministic app testing, `browserclaw` last and only for credential-free API discovery. Never bypasses login/MFA/consent and never copies cookies between profiles.
+
+```bash
+/browser "open the billing settings page and check the current plan tier"
+```
+
+### [`skillify`](.claude/skills/skillify/SKILL.md) — `/skillify`
+
+Audits a target script, feature, or workflow against a completeness checklist (SKILL.md frontmatter, tests, evals if it calls an LLM, resolver trigger, E2E test, memory filing) and generates whatever's missing, so useful procedures stop living only as ad-hoc scripts.
+
+```bash
+/skillify scripts/deploy-staging.sh
+```
+
+### [`harness-engineering`](.claude/skills/harness-engineering/SKILL.md) — `/harness`
+
+Diagnoses whether a mistake is a gap in the agent's own harness (instructions, skills, memory, tests, CI — ordered by durability) rather than a one-off bug, then drives a fix at the correct layer. Requires two separate 5-Whys drill-downs: one technical, one on why the agent's own reasoning let the failure through.
+
+```bash
 /harness "Test stripe webhook idempotency under concurrent retries"
 ```
 
----
+### [`learn`](.claude/skills/learn/SKILL.md) — `/learn`
 
-### 7. 🚦 Deterministic Green PR Gate (`pr-green-definition`)
-> **Slash Pointer**: [`/green`](.claude/commands/green.md) | **Skill**: [`.claude/skills/pr-green-definition/SKILL.md`](.claude/skills/pr-green-definition/SKILL.md)
-
-**The Problem**: PRs are merged while CI checks are still pending or merge conflicts exist.  
-**The Solution**: Defines an unambiguous 2-gate standard verified at the exact PR HEAD commit SHA:
-1. **CI Green**: All GitHub Actions / check runs pass cleanly.
-2. **Mergeable**: Zero merge conflicts with the base branch.
+Captures a durable lesson from a failure or correction and writes it into every persistent knowledge store — a Claude auto-memory file, an optional mem0 save, a monthly roadmap log, a closed/referenced bead, and an LLM wiki ingest — rather than leaving it as a one-off chat summary. Applies a "fix vs. document" rule: small blocking config fixes get fixed immediately, not just recorded.
 
 ```bash
-# Example: Verify PR merge readiness at HEAD
-/green
+/learn "we kept re-discovering the same env-var name mismatch — write it down"
 ```
 
----
+### [`4layer`](.claude/skills/4layer/SKILL.md) — `/4layer` (`/extended-library:4layer`)
 
-### 8. 🪄 Convert Any Procedure into a Reusable Skill (`skillify`)
-> **Slash Pointer**: [`/skillify`](.claude/commands/skillify.md) | **Skill**: [`.claude/skills/skillify/SKILL.md`](.claude/skills/skillify/SKILL.md)
-
-**The Problem**: Useful scripts and team runbooks remain buried in READMEs and ad-hoc shell files.  
-**The Solution**: Takes any bash script, runbook, or prompt and turns it into a structured, discoverable `SKILL.md` package with YAML frontmatter, execution rules, and automated validation tests.
+A four-tier minimal-repro escalation ladder for PR blockers — unit → end2end → MCP/HTTP API → browser — halted at the first layer that reproduces the bug. The reproducing layer itself tells you where the bug lives (unit failure implies backend logic, browser failure implies UI/frontend).
 
 ```bash
-# Example: Package an existing deployment script into a cross-agent skill
-/skillify scripts/deploy-staging.sh
+/extended-library:4layer "checkout button does nothing on mobile Safari"
+```
+
+### [`redgreen`](.claude/commands/extended-library/redgreen.md) — `/rg` (`/extended-library:rg`, full form `/redgreen`)
+
+Strict four-phase debugging: RED requires a fresh, real failing test reproducing the exact error in the current session (an old CI failure doesn't count); CODE requires a minimal targeted fix, no unrelated refactoring; GREEN confirms the test now passes and checks for regressions; CONSENSUS validates the whole flow was legitimately executed with evidence at each step. This skill has no separate `SKILL.md` — the full protocol lives directly in the command file.
+
+```bash
+/extended-library:rg "intermittent 500 on /api/checkout under load"
+```
+
+### [`parallelize-to-ceiling`](.claude/skills/parallelize-to-ceiling/SKILL.md) — `/parallel` (`/extended-library:parallel`)
+
+One law: for independent work, the speed ceiling is the real per-item resource bound, never an arbitrary worker count and never serial. Gives a five-step decision procedure (enumerate independent items, classify by resource profile, shard at the machine level first, scale the fleet to the workload, then prove concurrency by sampling live process counts — never trust a passed flag alone).
+
+```bash
+/extended-library:parallel "run these 12 independent lint fixes"
+```
+
+### [`conversation-history-sparse`](.claude/skills/conversation-history-sparse/SKILL.md) — `/history`
+
+Sparse, budget-capped search across five history stores (Claude Code JSONL, Codex rollouts + SQLite, Hermes FTS5, agy CLI history, Cursor prompt history) with hard sampling limits — never `cat`s a full file. `--deep` escalates to the full 7-source search when sparse results aren't enough.
+
+```bash
+/history "why did the worktree cleanup script get deleted"
+```
+
+### [`sidekick`](.claude/skills/sidekick/SKILL.md) — `/sidekick` (`/extended-library:sidekick`)
+
+Spawns a single named, in-session Claude Agent-Team teammate — visible in the panel, SendMessage-addressable — to own a long-running mission (PR fleets, research sweeps, migrations). Durability comes from disk state (a `STATE.md` + a priority-1 resumption bead, checkpointed every ≤5 minutes), not the running process, so a crashed session can respawn the same teammate with zero conversation context.
+
+```bash
+/extended-library:sidekick "drive all open CI-red PRs to green overnight"
+```
+
+### [`swarm`](.claude/skills/swarm/SKILL.md) — `/swarm` (`/extended-library:swarm`)
+
+Orchestrates a multi-agent swarm — either a deterministic Workflow-tool fan-out or named Agent-team lanes — with adversarial verification baked in (3-lens refute-by-default, ≥2/3 must survive). Always runs inside a sidekick for durability, regardless of engine. Every spawned agent must set its model tier explicitly; an unset model silently inheriting the session model is treated as a policy violation.
+
+```bash
+/extended-library:swarm "audit code quality across the whole payments module" --shape review
 ```
 
 ---
 
 ## 🗂️ Command Layout & Catalog
 
-The repository includes **28 Active Core commands** and **211 extended library commands**:
+The repository includes **28 Active Core commands** and **211 extended library commands**.
 
-### Active Core Commands (Flat `/<name>`)
-Ranked by empirical usage mined from real development sessions (`/command-research`):
-- **Core Engineering**: [`/execute`](.claude/commands/execute.md), [`/green`](.claude/commands/green.md), [`/repro`](.claude/commands/repro.md), [`/es`](.claude/commands/es.md), [`/er`](.claude/commands/er.md), [`/smoke`](.claude/commands/smoke.md), [`/harness`](.claude/commands/harness.md), [`/end2end-testing`](.claude/commands/end2end-testing.md)
-- **Review & Consensus**: [`/advice`](.claude/commands/advice.md), [`/web-advice`](.claude/commands/web-advice.md), [`/copilot`](.claude/commands/copilot.md), [`/fixpr`](.claude/commands/fixpr.md)
-- **Research & Discovery**: [`/research`](.claude/commands/research.md), [`/ms`](.claude/commands/ms.md), [`/wiki-search`](.claude/commands/wiki-search.md), [`/history`](.claude/commands/history.md), [`/learn`](.claude/commands/learn.md)
-- **Automation & Tools**: [`/f`](.claude/commands/f.md), [`/auto`](.claude/commands/auto.md), [`/browser`](.claude/commands/browser.md), [`/browserclaw`](.claude/commands/browserclaw.md), [`/claw`](.claude/commands/claw.md), [`/skillify`](.claude/commands/skillify.md), [`/roadmap`](.claude/commands/roadmap.md), [`/levelup`](.claude/commands/levelup.md), [`/nextsteps`](.claude/commands/nextsteps.md), [`/linux`](.claude/commands/linux.md), [`/innov`](.claude/commands/innov.md)
+**Active Core** (flat `/<name>`) is a hard top-20-human ∪ top-20-agent usage cutoff (27 union, plus `/innov` forced in = 28) — see [`archive/ARCHIVE-DECISION-2026-08-23.md`](archive/ARCHIVE-DECISION-2026-08-23.md) for the full methodology and its disclosed trade-offs.
 
-### Extended Command Library (`/extended-library:<name>`)
-All other **211 specialized commands** live in [`.claude/commands/extended-library/`](.claude/commands/extended-library/) and remain fully invocable with the `extended-library:` prefix:
-```bash
-/extended-library:cerebras     # High-speed code generation
-/extended-library:scaffold     # Scaffolds 17 development scripts for your tech stack
-/extended-library:ao           # Agent Orchestrator fleet control
-```
+**Extended Library** (`/extended-library:<name>`) holds the other 211 — not deleted, not dead, just namespaced. See [`archive/extended-library-README.md`](archive/extended-library-README.md).
 
-Browse [`.claude/skills/`](.claude/skills/) for the complete library of **245 skill directories** and [`.claude/commands/`](.claude/commands/) for all slash shortcuts.
+A separate, older tier — [`archive/commands/`](archive/commands/) (51 files, from an earlier zero-usage pass) — uses a different criterion entirely and is untouched by the two-tier split above.
+
+Browse [`.claude/skills/`](.claude/skills/) for the full skill library, [`.claude/commands/`](.claude/commands/) and [`.claude/commands/extended-library/`](.claude/commands/extended-library/) for all slash shortcuts.
 
 ---
 
 ## 🔗 Chaining & Composition
 
-Commands and skills are designed to compose naturally in single prompts:
+Commands and skills compose naturally in a single prompt:
 
 ```bash
 # Plan, review, and execute
@@ -243,11 +318,11 @@ Commands and skills are designed to compose naturally in single prompts:
 
 ## 📚 References & Contributing
 
-- [INSTALL.md](INSTALL.md) — Comprehensive installation guide and troubleshooting.
-- [archive/ARCHIVE-DECISION-2026-08-23.md](archive/ARCHIVE-DECISION-2026-08-23.md) — Command ranking and two-tier architecture decision record.
-- [archive/extended-library-README.md](archive/extended-library-README.md) — Guide for extended library commands and promotion mechanics.
-- [docs/CHANGELOG.md](docs/CHANGELOG.md) — Version history and release notes.
+- [INSTALL.md](INSTALL.md) — extended installation guide and troubleshooting.
+- [archive/ARCHIVE-DECISION-2026-08-23.md](archive/ARCHIVE-DECISION-2026-08-23.md) — command ranking and two-tier architecture decision record.
+- [archive/extended-library-README.md](archive/extended-library-README.md) — guide for extended library commands and promotion mechanics.
+- [docs/CHANGELOG.md](docs/CHANGELOG.md) — version history and release notes.
 
 ---
 
-🚀 **Built for modern AI-assisted engineering with [Claude Code](https://claude.ai/code)**
+🚀 **Built for modern AI-assisted engineering — portable across Claude Code, Antigravity, Codex, and Cursor.**
