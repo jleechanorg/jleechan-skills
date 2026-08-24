@@ -110,8 +110,8 @@ Ask your coding agent to inspect the repo and install only what it needs:
 
 "Portable" above means the **`SKILL.md` file format** — its YAML frontmatter + Markdown structure is read identically by all four agents. It does **not** mean every skill's *behavior* is self-contained out of the box. Of the 18 skills in the table below:
 
-- **Self-contained** — `advice` (degrades gracefully if a reviewer CLI is missing), `repro-evidence`, `evidence-review`, `evidence-standards`, `skillify`, `harness-engineering`, `4layer`, `redgreen`, `parallelize-to-ceiling`, `sidekick`, `swarm` — these run against only the target repo and standard CLI tooling.
-- **Depends on personal infrastructure not included in this repo** — `research` (external Hermes gateway), `memory-search` (Hermes SQLite/OpenClaw/Slack), `dark-factory` (an external `dark-factory` binary), `browser-control` (Aside/browserclaw local browser tooling), `learn` (mem0, roadmap, beads tracker), `conversation-history-sparse` (Hermes FTS5 store), `web-advice` (real logged-in browser sessions on each vendor's site).
+- **Self-contained** — `advice` (degrades gracefully if a reviewer CLI is missing), `research` (its `SKILL.md` is generic — cite-only, primary-sources research with no Hermes coupling; note the `/research` *command* additionally chains in `/extended-library:memory_search` and `/extended-library:thinku`, which do have the personal-infra caveat below), `repro-evidence`, `evidence-review`, `evidence-standards`, `skillify`, `harness-engineering`, `4layer`, `redgreen`, `parallelize-to-ceiling`, `sidekick`, `swarm` — these run against only the target repo and standard CLI tooling.
+- **Depends on personal infrastructure not included in this repo** — `memory-search` (Hermes SQLite/OpenClaw/Slack), `dark-factory` (an external `dark-factory` binary), `browser-control` (Aside/browserclaw local browser tooling), `learn` (mem0, roadmap, beads tracker), `conversation-history-sparse` (Hermes FTS5 store), `web-advice` (real logged-in browser sessions on each vendor's site).
 
 Installing the personal-infrastructure skills without their backing services will not crash anything — the skill's own instructions describe what it needs, so an agent following one should surface the missing dependency rather than silently failing — but they won't function as advertised until that infrastructure exists. Read a skill's own `SKILL.md` before relying on it.
 
@@ -136,7 +136,7 @@ Installing the personal-infrastructure skills without their backing services wil
 | [`/harness`](.claude/commands/harness.md) | [`harness-engineering`](.claude/skills/harness-engineering/SKILL.md) | Diagnoses whether a failure is a harness-layer gap (instructions/skills/memory/tests/CI) and fixes at that durable layer. |
 | [`/learn`](.claude/commands/learn.md) | [`learn`](.claude/skills/learn/SKILL.md) | Captures a durable lesson into every persistent store — memory, roadmap, beads, wiki — not just a chat summary. |
 | [`/4layer`](.claude/commands/extended-library/4layer.md) (`/extended-library:4layer`) | [`4layer`](.claude/skills/4layer/SKILL.md) | Four-tier minimal-repro ladder (unit → e2e → MCP/HTTP → browser); the layer that reproduces the bug tells you where to fix it. |
-| [`/rg`](.claude/commands/extended-library/rg.md) (`/extended-library:rg`, full `/redgreen`) | [`redgreen`](.claude/commands/extended-library/redgreen.md) | Strict RED→CODE→GREEN→CONSENSUS: a fresh real failing test must exist before any fix is written. |
+| [`/rg`](.claude/commands/extended-library/rg.md) (`/extended-library:rg`, full `/redgreen`) | [`redgreen`](.claude/skills/redgreen/SKILL.md) | Strict RED→CODE→GREEN→CONSENSUS: a fresh real failing test must exist before any fix is written. |
 | [`/parallel`](.claude/commands/extended-library/parallel.md) (`/extended-library:parallel`) | [`parallelize-to-ceiling`](.claude/skills/parallelize-to-ceiling/SKILL.md) | Independent work always runs at its real resource ceiling — never an arbitrary worker count, never serial. |
 | [`/history`](.claude/commands/history.md) | [`conversation-history-sparse`](.claude/skills/conversation-history-sparse/SKILL.md) | Budget-capped sparse search across the 3 canonical history stores (Claude Code, Codex, Hermes); `--deep` escalates to a 6-source search. |
 | [`/sidekick`](.claude/commands/sidekick.md) | [`sidekick`](.claude/skills/sidekick/SKILL.md) | Spawns a persistent, crash-recoverable, SendMessage-addressable teammate for long-running missions. |
@@ -252,9 +252,9 @@ A four-tier minimal-repro escalation ladder for PR blockers — unit → end2end
 /extended-library:4layer "checkout button does nothing on mobile Safari"
 ```
 
-### [`redgreen`](.claude/commands/extended-library/redgreen.md) — `/rg` (`/extended-library:rg`, full form `/redgreen`)
+### [`redgreen`](.claude/skills/redgreen/SKILL.md) — `/rg` (`/extended-library:rg`, full form `/redgreen`)
 
-Strict four-phase debugging: RED requires a fresh, real failing test reproducing the exact error in the current session (an old CI failure doesn't count); CODE requires a minimal targeted fix, no unrelated refactoring; GREEN confirms the test now passes and checks for regressions; CONSENSUS validates the whole flow was legitimately executed with evidence at each step. This skill has no separate `SKILL.md` — the full protocol lives directly in the command file.
+Strict four-phase debugging: RED requires a fresh, real failing test reproducing the exact error in the current session (an old CI failure doesn't count); CODE requires a minimal targeted fix, no unrelated refactoring; GREEN confirms the test now passes and checks for regressions; CONSENSUS validates the whole flow was legitimately executed with evidence at each step.
 
 ```bash
 /extended-library:rg "intermittent 500 on /api/checkout under load"
