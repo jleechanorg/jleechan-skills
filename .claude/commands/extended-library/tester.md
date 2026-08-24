@@ -4,16 +4,19 @@ type: llm-orchestration
 execution_mode: immediate
 ---
 ## ⚡ EXECUTION INSTRUCTIONS FOR CLAUDE
-**When this command is invoked, YOU (Claude) must execute these steps immediately:**
-**This is NOT documentation - these are COMMANDS to execute right now.**
-**Use TodoWrite to track progress through multi-phase workflows.**
+**Run only the installed wrapper from the target repository root.**
 
 ## 🚨 EXECUTION WORKFLOW
 
 ### Phase 1: Execute Documented Workflow
 
 **Action Steps:**
-1. Review the reference documentation below and execute the detailed steps sequentially.
+1. Change to the target repository root.
+2. Verify that `.claude/scripts/tester.sh` is executable; otherwise report that
+   the repository does not install the `/tester` wrapper.
+3. Run `.claude/scripts/tester.sh`. If an argument is supplied, the wrapper
+   reports that pattern filtering is not implemented and still runs the full
+   suite.
 
 ## 📋 REFERENCE DOCUMENTATION
 
@@ -23,7 +26,7 @@ execution_mode: immediate
 
 **Usage**: `/tester`
 
-**Script**: `./claude_command_scripts/tester.sh`
+**Script**: `.claude/scripts/tester.sh`
 
 ## Description
 
@@ -37,21 +40,21 @@ Runs the full end2end test suite using real services:
 
 **Required Environment Variables**:
 ```bash
-export REAL_FIREBASE_PROJECT=worldarchitect-test
-export REAL_GEMINI_API_KEY=your_test_api_key
+export GEMINI_API_KEY=your_test_api_key
+# Optional; the wrapper displays this project or worldarchitect-test by default.
+export TEST_FIRESTORE_PROJECT=worldarchitect-test
 ```
 
 **Test Firebase Project**:
-- Separate from production Firebase project
-- Dedicated for testing with cleanup policies
-- Same schema as production
+- `TEST_FIRESTORE_PROJECT` is optional and is only used to identify the test
+  project in the wrapper output.
+- If it is unset, the wrapper displays `worldarchitect-test`.
 
 ## Environment
 
 - `TEST_MODE=real`
-- `TESTING=true`
-- `FIREBASE_PROJECT_ID=$REAL_FIREBASE_PROJECT`
-- `GEMINI_API_KEY=$REAL_GEMINI_API_KEY`
+- `GEMINI_API_KEY` must already be set in the environment.
+- `TEST_FIRESTORE_PROJECT` is optional; the wrapper does not export it.
 
 ## Test Coverage
 
@@ -67,7 +70,7 @@ export REAL_GEMINI_API_KEY=your_test_api_key
 - ⚠️ Confirmation prompt before running (costs money)
 - 🧹 Automatic test data cleanup
 - ⏱️ Test duration tracking
-- 🔒 Requires explicit environment setup
+- 🔒 Requires `GEMINI_API_KEY`; exits safely before prompting when it is absent
 
 ## Benefits
 

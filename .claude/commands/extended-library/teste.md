@@ -4,16 +4,17 @@ type: llm-orchestration
 execution_mode: immediate
 ---
 ## ⚡ EXECUTION INSTRUCTIONS FOR CLAUDE
-**When this command is invoked, YOU (Claude) must execute these steps immediately:**
-**This is NOT documentation - these are COMMANDS to execute right now.**
-**Use TodoWrite to track progress through multi-phase workflows.**
+**Run only the installed wrapper from the target repository root.**
 
 ## 🚨 EXECUTION WORKFLOW
 
 ### Phase 1: Execute End-to-End Tests
 
 **Action Steps:**
-1. From the workspace root, run `./claude_command_scripts/teste.sh` (mock mode) to execute the end-to-end suite
+1. Change to the target repository root.
+2. Verify that `.claude/scripts/teste.sh` is executable; otherwise report that
+   the repository does not install the `/teste` wrapper.
+3. Run `.claude/scripts/teste.sh` with any requested arguments.
 2. Stream stdout/stderr and log progress and results in TodoWrite as each suite completes
 3. If any test fails, stop further steps, include the failing suite name plus the first error snippet in the command response, and request follow-up
 4. If all tests pass, report "All mock E2E tests passed" and list key validations covered (API contracts, response structure, mock behavior)
@@ -26,7 +27,7 @@ execution_mode: immediate
 
 **Usage**: `/teste`
 
-**Script**: `./claude_command_scripts/teste.sh`
+**Script**: `.claude/scripts/teste.sh`
 
 ## Description
 
@@ -39,7 +40,6 @@ Runs the full end2end test suite using fake/mocked services:
 ## Environment
 
 - `TEST_MODE=mock`
-- `TESTING=true`
 - Uses existing mock implementations
 
 ## Test Coverage

@@ -3,23 +3,14 @@ description: Push Lite Command - Enhanced Reliability with LLM Intelligence
 type: llm-orchestration
 execution_mode: immediate
 ---
-## ⚡ EXECUTION INSTRUCTIONS FOR CLAUDE
-**When this command is invoked, YOU (Claude) must execute these steps immediately:**
-**This is NOT documentation - these are COMMANDS to execute right now.**
-**Use TodoWrite to track progress through multi-phase workflows.**
+# /pushlite
 
-## 🚨 EXECUTION WORKFLOW
+`/pushlite` was backed by a repository-local script that is not exported with
+this package. Do not attempt to invoke a package-local push-lite launcher.
 
-### Phase 1: Execute Documented Workflow
+Use `/push` for the supported push workflow.
 
-**Action Steps:**
-1. Review the reference documentation below and execute the detailed steps sequentially.
-
-## 📋 REFERENCE DOCUMENTATION
-
-# Push Lite Command - Enhanced Reliability with LLM Intelligence
-
-**Purpose**: Enhanced reliable push to GitHub with LLM-powered PR intelligence, selective staging, error handling, and debugging capabilities
+<!-- Legacy details below are retained only for historical context. They are not executable instructions. -->
 
 **Action**: Push current branch to origin with comprehensive reliability improvements and optional smart PR creation
 
@@ -46,7 +37,8 @@ execution_mode: immediate
 - `/pushl force` - Force pushes current branch (use with caution)
 
 **Implementation**:
-Execute: `./claude_command_scripts/commands/pushlite.sh [arguments]`
+No package-local launcher is available. This historical feature list is not an
+execution contract.
 
 **Key Features**:
 - **Smart Untracked File Handling**: Interactive options for untracked files

@@ -225,7 +225,7 @@ For multi-phase functions, test each path:
 
 ```bash
 # All E2E tests (mock mode)
-./claude_command_scripts/teste.sh
+./.claude/scripts/teste.sh
 
 # Specific test file
 TESTING=true python3 -m pytest $PROJECT_ROOT/tests/test_code_execution_dice_rolls.py -v
