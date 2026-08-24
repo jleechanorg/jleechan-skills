@@ -73,11 +73,16 @@ cp -r /tmp/jleechan-skills/.claude/skills/* .claude/skills/
 
 Every command file in `.claude/commands/` tells the agent to read its skill from
 `~/.claude/skills/<name>/SKILL.md` — the maintainer's own home directory, not
-a path the install steps above actually populate. If you followed a manual
-install and a slash command doesn't resolve its skill content, the fix is to
-also copy skills to your own home directory:
+a path any of the install steps above actually populate, **including the
+Claude Code plugin install**: `.claude-plugin/plugin.json`'s declared
+`"skills": [".claude/skills/"]` path is relative to the installed plugin
+package, not literally `~/.claude/skills/`. If a slash command doesn't
+resolve its skill content — regardless of which install method you used —
+the fix is the same: clone the repo and also copy its skills to your own
+home directory:
 
 ```bash
+git clone https://github.com/jleechanorg/jleechan-skills.git /tmp/jleechan-skills
 mkdir -p ~/.claude/skills
 cp -r /tmp/jleechan-skills/.claude/skills/* ~/.claude/skills/
 ```
@@ -328,7 +333,7 @@ The repository includes **30 Active Core commands** and **209 extended library c
 
 A separate, older tier — [`archive/commands/`](archive/commands/) (51 files, from an earlier zero-usage pass) — uses a different criterion entirely and is untouched by the two-tier split above.
 
-Browse [`.claude/skills/`](.claude/skills/) for the full skill library, [`.claude/commands/`](.claude/commands/) and [`.claude/commands/extended-library/`](.claude/commands/extended-library/) for all slash shortcuts. 61 hooks and 28 top-level scripts round out the library — 247 skill directories with valid `SKILL.md` frontmatter (excludes legacy/archived entries) live under `.claude/skills/`, verified live via `scripts/skill_portability_scan.py`.
+Browse [`.claude/skills/`](.claude/skills/) for the full skill library, [`.claude/commands/`](.claude/commands/) and [`.claude/commands/extended-library/`](.claude/commands/extended-library/) for all slash shortcuts. 61 hooks and 28 top-level scripts round out the library — 248 skill directories with valid `SKILL.md` frontmatter (excludes legacy/archived entries) live under `.claude/skills/`, verified live via `scripts/skill_portability_scan.py`.
 
 ---
 
