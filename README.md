@@ -51,13 +51,30 @@ See [INSTALL.md](INSTALL.md) for detailed setup, troubleshooting, and platform-s
 
 ## 🎯 Active Core (by measured usage)
 
-**239 active commands** (51 archived for reference — see [archive/README.md](archive/README.md)). Ranked by empirical invocation counts mined from Hermes, Claude Code, and Codex session logs (`/command-research`) — the commands people actually type or that automation actually drives, not a guess. Full methodology and reproducible scanner: `~/.claude/skills/command-research/SKILL.md`.
+**28 Active Core commands** live flat in `.claude/commands/` and are invoked as `/<name>`. Ranked by empirical invocation counts mined from Hermes, Claude Code, and Codex session logs (`/command-research`) — the commands people actually type or that automation actually drives, not a guess. Full methodology and reproducible scanner: `~/.claude/skills/command-research/SKILL.md`.
 
-**Top 20 most human-typed**: `/advice`, `/green`, `/repro`, `/research`, `/ms`, `/history`, `/er`, `/linux`, `/f`, `/es`, `/web-advice`, `/browser`, `/skillify`, `/browserclaw`, `/auto`, `/wiki-search`, `/smoke`, `/roadmap`
+The cutoff is **top-20-human ∪ top-20-agent**. The two lists overlap by 13, so the union is 27; `/innov` is a forced 28th include. No dependency-closure expansion — this is a hard cutoff, and the trade-off is disclosed in [archive/ARCHIVE-DECISION-2026-08-23.md](archive/ARCHIVE-DECISION-2026-08-23.md).
 
-**Top 20 most agent-driven**: `/es`, `/er`, `/green`, `/advice`, `/repro`, `/smoke`, `/execute`, `/copilot`, `/ms`, `/fixpr`, `/f`, `/nextsteps`, `/history`, `/harness`, `/learn`, `/roadmap`, `/web-advice`, `/end2end-testing`
+**Top 20 most human-typed**: `/advice`, `/green`, `/repro`, `/research`, `/ms`, `/claw`, `/history`, `/er`, `/linux`, `/f`, `/es`, `/web-advice`, `/browser`, `/skillify`, `/browserclaw`, `/auto`, `/wiki-search`, `/smoke`, `/roadmap`, `/levelup`
 
-84 hooks, 19 top-level scripts, and 244 skill directories round out the library — browse `.claude/commands/`, `.claude/hooks/`, and `.claude/skills/` directly for the full set.
+**Top 20 most agent-driven**: `/es`, `/er`, `/green`, `/advice`, `/repro`, `/smoke`, `/execute`, `/copilot`, `/ms`, `/fixpr`, `/f`, `/nextsteps`, `/history`, `/harness`, `/learn`, `/claw`, `/roadmap`, `/web-advice`, `/skillify`, `/end2end-testing`
+
+**Forced include**: `/innov` — not in the union, kept active by explicit decision.
+
+### Extended library — 211 commands, still real, but renamed
+
+The other **211 commands** now live in `.claude/commands/extended-library/`. They are **not deleted and not dead** — Claude Code discovers subdirectories under `.claude/commands/` recursively and namespaces them. **The invocation syntax changes**:
+
+```bash
+/thermo               # ❌ no longer resolves
+/extended-library:thermo   # ✅ same command, namespaced name
+```
+
+This is a genuine user-visible behavior change, not a seamless move. If you have muscle memory, scripts, or command files that call one of these by its bare `/<name>`, they need the `extended-library:` prefix. Background, empirical verification, the selection criterion, and how to promote one back: [archive/extended-library-README.md](archive/extended-library-README.md).
+
+A separate, older tier — `archive/commands/` (51 files, from PR #358) — is untouched by this change and uses a different criterion entirely. See [archive/README.md](archive/README.md).
+
+84 hooks, 19 top-level scripts, and 244 skill directories round out the library — browse `.claude/commands/`, `.claude/commands/extended-library/`, `.claude/hooks/`, and `.claude/skills/` directly for the full set.
 
 ## 🔍 Key Commands
 

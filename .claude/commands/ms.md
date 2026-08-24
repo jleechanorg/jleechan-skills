@@ -1,18 +1,18 @@
 ---
-description: Alias for /memory_search — search across all memory systems
+description: Alias for /extended-library:memory_search — search across all memory systems
 type: llm-orchestration
 execution_mode: immediate
 ---
 
-# /ms — Alias for /memory_search
+# /ms — Alias for /extended-library:memory_search
 
-Invokes `/memory_search` with the provided arguments. See `~/.claude/commands/memory_search.md` for the full workflow, sources, flags, and cache semantics.
+Invokes `/extended-library:memory_search` with the provided arguments. See `~/.claude/commands/extended-library/memory_search.md` for the full workflow, sources, flags, and cache semantics.
 
 **Usage**: `/ms <query> [--flags]`
 
 ## Action
 
-Read `~/.claude/skills/memory-search/SKILL.md` and execute `/memory_search $ARGUMENTS` end-to-end.
+Read `~/.claude/skills/memory-search/SKILL.md` and execute `/extended-library:memory_search $ARGUMENTS` end-to-end.
 
 ## Common shortcuts
 

@@ -7,7 +7,7 @@ aliases: [f]
 
 # /f — Full Dark Factory Loop (auto-routes PR vs feature)
 
-Shortcut for `/factory` oriented toward **full production loops**. The
+Shortcut for `/extended-library:factory` oriented toward **full production loops**. The
 **default invocation path is the real `dark-factory` binary**. The binary may
 run a selected static DOT graph, or it may run a binary-owned graph builder /
 workflow that creates or selects a dynamic DOT graph. What is not allowed is an
@@ -180,7 +180,7 @@ binary-owned dynamic graph mode. The default static choices are:
 | `pipelines/factory/pr_gates.dot` | Code is on the branch and the LLM wants the 3 evidence gates without sealed holdout |
 | `pipelines/slim/minimal_pr.dot` | The LLM thinks the PR needs more implement/test work, not just gates |
 | `pipelines/bug_fix.dot` | The PR is a TDD bug fix with red/green discipline |
-| `pipelines/slim/spec_gen.dot` | The LLM has decided /fs is needed first — STOP and recommend running it before any /f pipeline |
+| `pipelines/slim/spec_gen.dot` | The LLM has decided /extended-library:fs is needed first — STOP and recommend running it before any /f pipeline |
 | `pipelines/factory/level5_feature.dot` | Full Level-5 reference pipeline with hard-tier gates wired in |
 | **dynamic DOT via binary** | A static graph cannot express the needed phase/fanout, but the binary will save/echo the generated graph |
 | **no /f pipeline** | Docs-only / test-only / config-only PRs have no behavioral surface for the holdout to grade. The LLM should say so and stop |
@@ -281,7 +281,7 @@ dark-factory \
 - Do not claim a factory run based on an in-Claude workflow, `Skill()` call,
   or prose summary. The only valid proof is an actual `dark-factory` binary
   invocation plus the required proof block from that run.
-- If the LLM decided /fs is needed first, **say so and stop** — do not
+- If the LLM decided /extended-library:fs is needed first, **say so and stop** — do not
   silently fall through to `gates.dot` and pretend the PR is green.
 - If the LLM decided no /f pipeline fits (e.g. docs-only PR), **say so and
   stop** — do not silently fall through to a holdout-bearing pipeline.
@@ -320,9 +320,9 @@ to it.
 
 ## See also
 
-- `/f-pr` — explicit PR-mode entry point.
-- `/factory` — alias for `/f` with identical behavior.
-- `/fs` — spec-generation entry point; default binary run of
+- `/extended-library:f-pr` — explicit PR-mode entry point.
+- `/extended-library:factory` — alias for `/f` with identical behavior.
+- `/extended-library:fs` — spec-generation entry point; default binary run of
   `pipelines/slim/spec_gen.dot` or a binary-owned dynamic spec graph.
 - `~/.claude/projects/-Users-$USER-projects-dark-factory/memory/feedback_2026-06-22_user_pivot_default_nodes_over_custom.md`
   — the architectural pivot that motivated this change.

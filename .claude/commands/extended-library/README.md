@@ -19,6 +19,14 @@ execution_mode: immediate
 
 # Claude Commands Directory
 
+> **Layout note (2026-08-24).** The command surface is now split in two, and **this index file itself moved** — it used to be `.claude/commands/README.md` and is now `.claude/commands/extended-library/README.md`, which means it is invoked as `/extended-library:README`, not `/README`.
+>
+> - **`.claude/commands/` — 28 Active Core commands**, invoked as `/<name>`. Selected by a hard top-20-human ∪ top-20-agent usage cutoff (union of 27) plus `/innov` as a forced 28th include.
+> - **`.claude/commands/extended-library/` — 211 commands**, invoked as **`/extended-library:<name>`**. Still live and still real; only the invocation name changed. Claude Code discovers subdirectories under `.claude/commands/` recursively and namespaces them as `<subdirectory>:<filename>`.
+> - **`archive/commands/` (repo root) — 51 commands**, from an older and unrelated 2026-08-23 pass. Reference-only and genuinely *not* invocable, unlike `extended-library/`.
+>
+> Full reasoning, empirical verification, and the selection criterion: [archive/extended-library-README.md](../../../archive/extended-library-README.md). Two-mechanism comparison: [archive/README.md](../../../archive/README.md).
+
 ## 🎯 Philosophy: Explicit > Implicit
 
 This directory contains Claude Code slash commands that follow the **explicit execution principle**:
@@ -210,9 +218,13 @@ pushl handles git operations
 
 ## 📚 Version History
 
+### v1.3.0 (2026-08-24)
+
+**Top-20/top-20 split**: 211 of the 239 active commands moved to `.claude/commands/extended-library/`, leaving 28 Active Core commands flat in `.claude/commands/`. Moved commands stay invocable as `/extended-library:<name>` — a rename, not a retirement. `archive/commands/` was untouched by this pass. See [archive/extended-library-README.md](../../../archive/extended-library-README.md).
+
 ### v1.2.0 (2026-08-23)
 
-**Consolidation**: 51 zero-usage, zero-reference commands moved to `../../archive/commands/` (repo-root `archive/`) — see [archive/README.md](../../archive/README.md) for methodology. Active command count: 239.
+**Consolidation**: 51 zero-usage, zero-reference commands moved to repo-root `archive/commands/` — see [archive/README.md](../../../archive/README.md) for methodology. Active command count at the time: 239.
 
 ### v1.1.0 (2025-08-09)
 

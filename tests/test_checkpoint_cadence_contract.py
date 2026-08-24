@@ -21,8 +21,17 @@ import unittest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-TEAM_CLAUDE = REPO_ROOT / ".claude" / "commands" / "team-claude.md"
-SIDEKICK_CMD = REPO_ROOT / ".claude" / "commands" / "sidekick.md"
+COMMANDS_DIR = REPO_ROOT / ".claude" / "commands"
+
+
+def _resolve_command(filename: str) -> Path:
+    # Commands live flat when in the Active Core set, else under extended-library/.
+    flat = COMMANDS_DIR / filename
+    return flat if flat.is_file() else COMMANDS_DIR / "extended-library" / filename
+
+
+TEAM_CLAUDE = _resolve_command("team-claude.md")
+SIDEKICK_CMD = _resolve_command("sidekick.md")
 SIDEKICK_SKILL = REPO_ROOT / ".claude" / "skills" / "sidekick" / "SKILL.md"
 SWARM_SKILL = REPO_ROOT / ".claude" / "skills" / "swarm" / "SKILL.md"
 

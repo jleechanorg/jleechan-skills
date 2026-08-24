@@ -8,7 +8,7 @@ execution_mode: immediate
 
 **When /copilot is invoked, YOU (Claude) must execute ALL steps below directly.**
 
-**Script policy:** Do not introduce new orchestration wrappers. Use `/pair` in Step 5c when its trigger criteria are met.
+**Script policy:** Do not introduce new orchestration wrappers. Use `/extended-library:pair` in Step 5c when its trigger criteria are met.
 
 **Usage:** `/copilot [PR_NUMBER]`
 
@@ -27,7 +27,7 @@ Store the PR number for all subsequent steps.
 
 ### Step 2: Fetch All Comments
 
-Run `/commentfetch <PR_NUMBER>` to get all PR comments (inline, general, review, bot).
+Run `/extended-library:commentfetch <PR_NUMBER>` to get all PR comments (inline, general, review, bot).
 
 ### Step 2b: Filter Previously Resolved Comments (Idempotency)
 
@@ -60,7 +60,7 @@ This count is MANDATORY and must be displayed before proceeding. This prevents s
 
 ### Step 3: Check CI Status
 
-Run `/gstatus` to check CI status, merge state, and identify failing checks.
+Run `/extended-library:gstatus` to check CI status, merge state, and identify failing checks.
 
 ### Step 4: Categorize Every Comment (REV-g9fbp + REV-3sc0t fix)
 
@@ -106,7 +106,7 @@ NOT_DONE (invalid): P comments
 
 ### Step 5: Fix Comments That Need Code Changes
 
-**Step 5a: Decide /pair vs inline fixing (MANDATORY LOG)**
+**Step 5a: Decide /extended-library:pair vs inline fixing (MANDATORY LOG)**
 
 Count the total in-scope CRITICAL + BLOCKING comments and log:
 ```
@@ -114,12 +114,12 @@ PAIR DECISION: X CRITICAL + Y BLOCKING = Z total
 ```
 
 Enforcement rules:
-- **Z >= 6**: You MUST use `/pair` (Step 5b-5c). STOP — do not proceed to inline fixing.
+- **Z >= 6**: You MUST use `/extended-library:pair` (Step 5b-5c). STOP — do not proceed to inline fixing.
 - **Z <= 5**: Fix inline directly (skip to Step 5d).
-- **Z >= 6 AND `/pair` is unavailable**: Log `PAIR UNAVAILABLE: falling back to inline for Z comments`. Fix inline but add `[PAIR_FALLBACK]` tag to each response in responses.json so the tracking table shows these were not dual-verified.
-- **If you skip /pair when Z >= 6 without logging PAIR UNAVAILABLE, the run is invalid.**
+- **Z >= 6 AND `/extended-library:pair` is unavailable**: Log `PAIR UNAVAILABLE: falling back to inline for Z comments`. Fix inline but add `[PAIR_FALLBACK]` tag to each response in responses.json so the tracking table shows these were not dual-verified.
+- **If you skip /extended-library:pair when Z >= 6 without logging PAIR UNAVAILABLE, the run is invalid.**
 
-**Step 5b: Collect CRITICAL/BLOCKING comments for /pair** (only if 6+ comments)
+**Step 5b: Collect CRITICAL/BLOCKING comments for /extended-library:pair** (only if 6+ comments)
 
 Gather all CRITICAL and BLOCKING comments into a single task spec:
 
@@ -143,9 +143,9 @@ Branch: <branch_name>
 - Do NOT defer - these are CRITICAL/BLOCKING and must be fixed
 ```
 
-**Step 5c: Launch /pair with the task spec**
+**Step 5c: Launch /extended-library:pair with the task spec**
 
-Run `/pair` with the task spec from Step 5b. `/pair` routes to:
+Run `/extended-library:pair` with the task spec from Step 5b. `/extended-library:pair` routes to:
 
 ```bash
 bash ralph/ralph-pair.sh run
@@ -153,9 +153,9 @@ bash ralph/ralph-pair.sh run
 
 This gives dual-agent coder+verifier: Claude implements, Codex verifies tests pass.
 
-**Step 5d: Fix inline** (default path, or fallback if /pair fails)
+**Step 5d: Fix inline** (default path, or fallback if /extended-library:pair fails)
 
-If 5 or fewer CRITICAL/BLOCKING comments, or `/pair` errors out, times out, or is unavailable:
+If 5 or fewer CRITICAL/BLOCKING comments, or `/extended-library:pair` errors out, times out, or is unavailable:
 1. Read the file referenced in the comment
 2. Understand the issue
 3. Implement the fix using Edit/MultiEdit tools
@@ -178,11 +178,11 @@ For STYLE comments: fix up to 5 quick wins (straightforward per above). ACKNOWLE
 - ACKNOWLEDGED = comment is valid feedback, but intentionally not fixing (style preference, out of scope, low priority)
 - NOT_DONE = comment is factually wrong, already handled, or based on misunderstanding. Include evidence.
 
-These do NOT go through `/pair` - fix them directly.
+These do NOT go through `/extended-library:pair` - fix them directly.
 
-**Step 5f: Post summary after /pair completes (CRITICAL - REV-j6i3d fix)**
+**Step 5f: Post summary after /extended-library:pair completes (CRITICAL - REV-j6i3d fix)**
 
-After `/pair` completes (success OR failure), you MUST still post a summary comment:
+After `/extended-library:pair` completes (success OR failure), you MUST still post a summary comment:
 
 1. Check session directory for responses.json:
    - `/tmp/<repo>/<branch>/pair-<session_id>/responses.json`
@@ -196,9 +196,9 @@ After `/pair` completes (success OR failure), you MUST still post a summary comm
      - **UNVERIFIED**: Fixes applied but verification timed out
 
 3. If responses.json does NOT exist:
-   - `/pair` failed to generate responses - handle as failure
+   - `/extended-library:pair` failed to generate responses - handle as failure
 
-**This step is MANDATORY regardless of `/pair` outcome.** The PR must always have a summary comment posted.
+**This step is MANDATORY regardless of `/extended-library:pair` outcome.** The PR must always have a summary comment posted.
 
 ### Step 6: Generate ACTION_ACCOUNTABILITY responses.json
 
@@ -243,7 +243,7 @@ If code changes were made, create the local commit(s) before Step 7 so consolida
 
 ### Step 7: Post Consolidated Reply (Direct - No External Scripts)
 
-**Do NOT use `/commentreply` or `commentreply.py`.** You (the LLM) build and post the reply directly.
+**Do NOT use `/extended-library:commentreply` or `commentreply.py`.** You (the LLM) build and post the reply directly.
 
 **Procedure:**
 1. Read `/tmp/<repo>/<branch>/copilot/responses.json` (created in Step 6)
@@ -343,7 +343,7 @@ Because GitHub's REST API does not support resolving PR review threads, you MUST
 
 ### Step 8: Verify Coverage (REV-g9fbp fix - severity-based)
 
-Run `/commentcheck` with severity-based coverage requirements:
+Run `/extended-library:commentcheck` with severity-based coverage requirements:
 
 | Severity | Required Coverage | Notes |
 |----------|------------------|-------|
@@ -367,7 +367,7 @@ This check prevents stale "all addressed" summaries when reviewers/bots post new
 
 ### Step 9: Push Changes
 
-If any code changes were made, run `/pushl` to push. (Commits were created in Step 6 before the consolidated reply was posted in Step 7)
+If any code changes were made, run `/extended-library:pushl` to push. (Commits were created in Step 6 before the consolidated reply was posted in Step 7)
 
 ### Step 9.5: Verify Run Quality (Blocking Gate)
 

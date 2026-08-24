@@ -10,14 +10,14 @@ execution_mode: immediate
 
 ## 🚨 EXECUTION WORKFLOW
 
-### Phase 1: Planning (/planexec)
+### Phase 1: Planning (/extended-library:planexec)
 
 **Action Steps:**
-**Executes `/planexec` command**: Follows the complete planning protocol documented in [`planexec.md`](./planexec.md)
-1. **Guidelines Consultation**: `/planexec` calls `/guidelines` directly for comprehensive consultation
+**Executes `/extended-library:planexec` command**: Follows the complete planning protocol documented in [`planexec.md`](./extended-library/planexec.md)
+1. **Guidelines Consultation**: `/extended-library:planexec` calls `/extended-library:guidelines` directly for comprehensive consultation
 2. **Comprehensive Context**: CLAUDE.md reading + base guidelines + PR/branch-specific guidelines via direct command composition
 3. Creates TodoWrite checklist with specific steps including guidelines validation
-4. Presents execution plan using the [Standard Plan Display Format](./planexec.md#📋-standard-plan-display-format)
+4. Presents execution plan using the [Standard Plan Display Format](./extended-library/planexec.md#📋-standard-plan-display-format)
 5. Shows complexity, execution method, tools, timeline, and parallelization strategy
 6. **Tool Selection**: Follows guidelines hierarchy (Serena MCP → Read tool → Bash commands)
 7. Provides full visibility into the execution approach before auto-approval
@@ -26,9 +26,9 @@ execution_mode: immediate
 
 **Action Steps:**
 **Full Approval Workflow**:
-1. **`/preapprove`**: Prepare approval context, validate plan completeness
-2. **`/autoapprove`**: Trigger automatic approval mechanism (proceeds silently)
-3. **Key difference from `/planexec`**: Built-in auto-approval eliminates manual approval requirement
+1. **`/extended-library:preapprove`**: Prepare approval context, validate plan completeness
+2. **`/extended-library:autoapprove`**: Trigger automatic approval mechanism (proceeds silently)
+3. **Key difference from `/extended-library:planexec`**: Built-in auto-approval eliminates manual approval requirement
 4. Proceed directly to execution phase with approval satisfied
 
 ### Phase 3: Implementation
@@ -54,22 +54,22 @@ execution_mode: immediate
 
 # Execute Command - Plan-Approve-Execute Composition
 
-> **Summary**: `/execute` runs `/planexec`, auto-approves the generated plan,
+> **Summary**: `/execute` runs `/extended-library:planexec`, auto-approves the generated plan,
 > then performs execution with TodoWrite progress tracking in a single
 > uninterrupted workflow.
 
-**Purpose**: Execute tasks by composing `/planexec` → auto-approve → execute workflow
+**Purpose**: Execute tasks by composing `/extended-library:planexec` → auto-approve → execute workflow
 
-**Usage**: `/execute` or `/e` - Plan, auto-approve, then execute immediately
+**Usage**: `/execute` (or `/extended-library:e`) - Plan, auto-approve, then execute immediately
 
 ## 🚨 COMPOSITION PROTOCOL
 
 ### Command Flow
 
 **The `/execute` command is a composition of**:
-1. **`/planexec`** - Create detailed implementation plan with TodoWrite
-2. **`/preapprove`** - Prepare approval context and validation
-3. **`/autoapprove`** - Automatic approval mechanism (proceeds silently with execution)
+1. **`/extended-library:planexec`** - Create detailed implementation plan with TodoWrite
+2. **`/extended-library:preapprove`** - Prepare approval context and validation
+3. **`/extended-library:autoapprove`** - Automatic approval mechanism (proceeds silently with execution)
 4. **Execute** - Proceed with planned implementation
 
 ## Example Flows
@@ -81,16 +81,16 @@ Assistant:
 Phase 0 - Context Assessment:
 Context Status: 65% remaining → Low context pressure
 
-Phase 1 - Planning (/planexec):
+Phase 1 - Planning (/extended-library:planexec):
 ✅ CLAUDE.md read: Current rules, constraints, and protocols understood
-✅ Guidelines consultation: `/guidelines` command completed - mistake prevention patterns applied
+✅ Guidelines consultation: `/extended-library:guidelines` command completed - mistake prevention patterns applied
 ✅ Anti-patterns avoided: Using Edit tool for existing files, no _v2 or _backup files
 Creating implementation plan with TodoWrite...
 [Creates checklist: Check styles, Update CSS, Test changes, Commit]
 Evaluating bead creation need...
 ⏭️ Skipping beads - Simple task with sufficient context (65% remaining > 35% threshold)
 
-[Displays execution plan using standard format from planexec.md]
+[Displays execution plan using standard format from extended-library/planexec.md]
 Execution Plan:
 - Task complexity: Simple (direct execution)
 - **Execution method: Direct execution** - Simple file edits, no parallelization needed
@@ -100,8 +100,8 @@ Execution Plan:
 - Expected timeline: ~10 minutes
 
 Phase 2 - Approval Chain:
-/preapprove - Validating plan completeness and context
-/autoapprove - Proceeding with execution
+/extended-library:preapprove - Validating plan completeness and context
+/extended-library:autoapprove - Proceeding with execution
 
 Phase 3 - Implementation:
 [Follows plan: Read current styles, Edit CSS, Test, Commit]
@@ -114,7 +114,7 @@ Assistant:
 Phase 0 - Context Assessment:
 Context Status: 32% remaining → High context pressure (< 35% threshold)
 
-Phase 1 - Planning (/planexec):
+Phase 1 - Planning (/extended-library:planexec):
 ✅ CLAUDE.md read: Current rules, constraints, and security protocols understood
 ✅ Guidelines consultation: Applied security patterns from docs/pr-guidelines/{current}/guidelines.md + docs/pr-guidelines/base-guidelines.md
 ✅ Anti-patterns avoided: No subprocess shell=True, proper timeout enforcement, explicit error handling
@@ -127,7 +127,7 @@ Evaluating bead creation need...
 ✅ Created bead: auth-session-management (priority 3)
 ✅ Created bead: auth-testing (priority 4)
 
-[Displays execution plan using standard format from planexec.md]
+[Displays execution plan using standard format from extended-library/planexec.md]
 Execution Plan:
 - Task complexity: Complex (coordination needed)
 - **Execution method: Sequential Tasks** - Security implementation requiring coordination
@@ -148,8 +148,8 @@ Sequential Task Plan:
 - Integration: Apply patterns to implementation with test validation
 
 Phase 2 - Approval Chain:
-/preapprove - Validating comprehensive plan and dependencies
-/autoapprove - Proceeding with implementation
+/extended-library:preapprove - Validating comprehensive plan and dependencies
+/extended-library:autoapprove - Proceeding with implementation
 
 Phase 3 - Implementation:
 [Updates bead auth-research-patterns to in_progress]
@@ -165,10 +165,10 @@ Phase 3 - Implementation:
 
 ## Key Characteristics
 
-- ✅ **Planned execution** - `/planexec` creates structured approach with detailed display
+- ✅ **Planned execution** - `/extended-library:planexec` creates structured approach with detailed display
 - ✅ **Plan presentation** - Shows complexity, execution method, tools, timeline, and strategy
 - ✅ **Parallelization strategy** - Displays parallel vs sequential decision with reasoning
-- ✅ **Full approval chain** - `/preapprove` + `/autoapprove` sequence
+- ✅ **Full approval chain** - `/extended-library:preapprove` + `/extended-library:autoapprove` sequence
 - ✅ **TodoWrite integration** - progress tracking built-in
 - ✅ **Composition pattern** - combines 3 commands seamlessly
 - ✅ **User approval message** - clear indication of auto-approval
@@ -176,9 +176,9 @@ Phase 3 - Implementation:
 
 ## Relationship to Other Commands
 
-- **`/planexec`** - Just planning, requires manual approval, defines standard plan display format
-- **`/execute`** - Planning + built-in auto-approval + execution (no manual approval needed), uses same display format as `/planexec`
-- **`/preapprove`** - Prepare approval context and validation
-- **`/autoapprove`** - Automatic approval mechanism that satisfies the approval requirement internally. When invoked, `/autoapprove` treats the plan as if the user explicitly approved it and proceeds directly to the execution phase. This command is integral to the `/execute` workflow, enabling seamless transitions from planning to implementation without user intervention.
+- **`/extended-library:planexec`** - Just planning, requires manual approval, defines standard plan display format
+- **`/execute`** - Planning + built-in auto-approval + execution (no manual approval needed), uses same display format as `/extended-library:planexec`
+- **`/extended-library:preapprove`** - Prepare approval context and validation
+- **`/extended-library:autoapprove`** - Automatic approval mechanism that satisfies the approval requirement internally. When invoked, `/extended-library:autoapprove` treats the plan as if the user explicitly approved it and proceeds directly to the execution phase. This command is integral to the `/execute` workflow, enabling seamless transitions from planning to implementation without user intervention.
 
-**Format Consistency**: Both `/planexec` and `/execute` use the centralized plan display format documented in `planexec.md` to ensure consistent presentation of execution strategies and parallelization decisions.
+**Format Consistency**: Both `/extended-library:planexec` and `/execute` use the centralized plan display format documented in `extended-library/planexec.md` to ensure consistent presentation of execution strategies and parallelization decisions.

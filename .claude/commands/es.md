@@ -17,7 +17,7 @@ Read and display both layers (agents must consult both):
 2. `.claude/skills/evidence-standards.md` — WorldArchitect-specific standards
 3. If the evidence claim mentions BigQuery, `llm_forensics`, raw LLM payloads,
    token counts, RAG shadow comparison, or BQ readback, also read
-   `.claude/skills/bq-evidence-reading.md` or run `/bq`.
+   `.claude/skills/bq-evidence-reading.md` or run `/extended-library:bq`.
 
 ## Publication (gist-first)
 

@@ -229,10 +229,10 @@ When user requests `/smoke`:
 - Test logs: `tmp/your-project.com/test/mcp-*.log`
 
 ## Related Commands
-- `/testhttp` - Run HTTP integration tests (mock mode)
-- `/testhttpf` - Run HTTP integration tests (full/real mode)
-- `/test` - Run full test suite
-- `/deploy` - Deploy to production/staging
+- `/extended-library:testhttp` - Run HTTP integration tests (mock mode)
+- `/extended-library:testhttpf` - Run HTTP integration tests (full/real mode)
+- `/extended-library:test` - Run full test suite
+- `/extended-library:deploy` - Deploy to production/staging
 
 ## Notes
 - Smoke tests are designed to be fast (< 2 minutes)
