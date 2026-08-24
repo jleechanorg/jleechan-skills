@@ -37,14 +37,26 @@ The set below is not a guess — every command's usage count comes from mining r
 
 Restart your CLI session, then run `/help` to confirm commands and skills appear.
 
+If the plugin install doesn't work for you, install manually:
+
+```bash
+git clone https://github.com/jleechanorg/jleechan-skills.git /tmp/jleechan-skills
+mkdir -p .claude/skills .claude/commands
+cp -r /tmp/jleechan-skills/.claude/skills/* .claude/skills/
+cp -r /tmp/jleechan-skills/.claude/commands/* .claude/commands/
+```
+
+See [INSTALL.md](INSTALL.md) for the full manual-install walkthrough, including how to link individual commands instead of copying everything.
+
 ### Google Antigravity
 
 This repo ships a plugin manifest at [`.agents/plugins/plugin.json`](.agents/plugins/plugin.json) and [`.agents/plugins/marketplace.json`](.agents/plugins/marketplace.json) (`skills: ".claude/skills/"`), intended for `agy plugin install`. That install path is structurally present but has not yet been proven with a live end-to-end run — until confirmed, the reliable path is manual:
 
 ```bash
 git clone https://github.com/jleechanorg/jleechan-skills.git /tmp/jleechan-skills
-mkdir -p .claude/skills
+mkdir -p .claude/skills .claude/commands
 cp -r /tmp/jleechan-skills/.claude/skills/* .claude/skills/
+cp -r /tmp/jleechan-skills/.claude/commands/* .claude/commands/
 ```
 
 Antigravity's own IDE and `agy` CLI discover `SKILL.md` packages under `.claude/skills/` directly.
@@ -55,8 +67,9 @@ Codex does not have a plugin marketplace equivalent yet. Copy the skills directo
 
 ```bash
 git clone https://github.com/jleechanorg/jleechan-skills.git /tmp/jleechan-skills
-mkdir -p .claude/skills
+mkdir -p .claude/skills .claude/commands
 cp -r /tmp/jleechan-skills/.claude/skills/* .claude/skills/
+cp -r /tmp/jleechan-skills/.claude/commands/* .claude/commands/
 ```
 
 ### Cursor (2.4+)
@@ -65,13 +78,17 @@ Cursor's skill discovery scans `.claude/skills/` directly — no separate instal
 
 ```bash
 git clone https://github.com/jleechanorg/jleechan-skills.git /tmp/jleechan-skills
-mkdir -p .claude/skills
+mkdir -p .claude/skills .claude/commands
 cp -r /tmp/jleechan-skills/.claude/skills/* .claude/skills/
+cp -r /tmp/jleechan-skills/.claude/commands/* .claude/commands/
 ```
 
 ### ⚠️ Known gap: slash commands currently reference `~/.claude/skills/`, not your project
 
-Every command file in `.claude/commands/` tells the agent to read its skill from
+Most command files in `.claude/commands/` (16 of the 18 featured here directly,
+17 functionally — `/rg` delegates to `/redgreen`, which has the same reference;
+`/f` is the one genuine exception, since it invokes an external binary rather
+than reading a `SKILL.md`) tell the agent to read their skill from
 `~/.claude/skills/<name>/SKILL.md` — the maintainer's own home directory, not
 a path any of the install steps above actually populate, **including the
 Claude Code plugin install**: `.claude-plugin/plugin.json`'s declared
