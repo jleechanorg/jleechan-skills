@@ -57,7 +57,7 @@ See [INSTALL.md](INSTALL.md) for detailed setup, troubleshooting, and platform-s
 
 **Top 20 most agent-driven**: `/es`, `/er`, `/green`, `/advice`, `/repro`, `/smoke`, `/execute`, `/copilot`, `/ms`, `/fixpr`, `/f`, `/nextsteps`, `/history`, `/harness`, `/learn`, `/roadmap`, `/web-advice`, `/end2end-testing`
 
-84 hooks, 19 top-level scripts, and 422 skill directories (plus 129 reference docs) round out the library — browse `.claude/commands/`, `.claude/hooks/`, and `.claude/skills/` directly for the full set.
+84 hooks, 19 top-level scripts, and 244 skill directories round out the library — browse `.claude/commands/`, `.claude/hooks/`, and `.claude/skills/` directly for the full set.
 
 ## 🔍 Key Commands
 

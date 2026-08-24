@@ -1,0 +1,16 @@
+{
+  "name": "jleechan-skills-marketplace",
+  "owner": {
+    "name": "jleechan",
+    "email": "team@worldarchitect.ai"
+  },
+  "plugins": [
+    {
+      "name": "jleechan-skills",
+      "source": {
+        "source": "github",
+        "repo": "jleechanorg/jleechan-skills"
+      }
+    }
+  ]
+}
