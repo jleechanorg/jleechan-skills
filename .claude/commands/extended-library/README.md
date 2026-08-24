@@ -22,7 +22,7 @@ execution_mode: immediate
 > **Layout note (2026-08-24).** The command surface is now split in two, and **this index file itself moved** — it used to be `.claude/commands/README.md` and is now `.claude/commands/extended-library/README.md`, which means it is invoked as `/extended-library:README`, not `/README`.
 >
 > - **`.claude/commands/` — 30 Active Core commands**, invoked as `/<name>`. Selected by a hard top-20-human ∪ top-20-agent usage cutoff (union of 27) plus `/innov` as a forced 28th include, plus `/sidekick` and `/swarm` promoted later as part of the 18-skill featured set.
-> - **`.claude/commands/extended-library/` — 211 commands**, invoked as **`/extended-library:<name>`**. Still live and still real; only the invocation name changed. Claude Code discovers subdirectories under `.claude/commands/` recursively and namespaces them as `<subdirectory>:<filename>`.
+> - **`.claude/commands/extended-library/` — 209 commands**, invoked as **`/extended-library:<name>`**. Still live and still real; only the invocation name changed. Claude Code discovers subdirectories under `.claude/commands/` recursively and namespaces them as `<subdirectory>:<filename>`.
 > - **`archive/commands/` (repo root) — 51 commands**, from an older and unrelated 2026-08-23 pass. Reference-only and genuinely *not* invocable, unlike `extended-library/`.
 >
 > Full reasoning, empirical verification, and the selection criterion: [archive/extended-library-README.md](../../../archive/extended-library-README.md). Two-mechanism comparison: [archive/README.md](../../../archive/README.md).
