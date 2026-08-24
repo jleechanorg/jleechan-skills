@@ -19,6 +19,9 @@ execution_mode: immediate
 
 # /headless - Enhanced Planning + Headless Development
 
+> Retired: this package does not export headless automation. The historical
+> implementation below must not be executed.
+
 **Purpose**: Combine `/handoff` planning with `/headless` automation - creates detailed analysis then generates copy-paste command for headless execution
 
 **Usage**: `/headless [prompt]`
@@ -94,34 +97,8 @@ fi
 echo "✅ Claude Code execution completed"
 echo "🔄 Creating pull request..."
 
-# Run /pr command to create PR
-
-if [ -f ".claude/commands/pr.md" ] && [ -x "./claude_command_scripts/pr.sh" ]; then
-    # Extract and run the PR creation logic
-    ./claude_command_scripts/pr.sh
-else
-    echo "⚠️ /pr command or script not found or not executable, creating PR manually..."
-
-    # Push the branch
-    git push -u origin "$BRANCH_NAME"
-
-    # Create PR using gh
-    gh pr create --title "Headless: $(echo "$PROMPT" | cut -c1-50)..." --body "$(cat <<EOF
-
-## Automated Headless Development
-
-**Prompt**: $PROMPT
-
-**Branch**: $BRANCH_NAME
-
-**Generated**: $(date)
-
-This PR was created automatically using the /headless command.
-
-🤖 Generated with [Claude Code](https://claude.ai/code)
-EOF
-)"
-fi
+# Historical implementation omitted: the package no longer exports a PR or
+# headless launcher.
 
 echo "🎉 Headless development completed!"
 echo "📂 Worktree location: $WORKTREE_DIR"

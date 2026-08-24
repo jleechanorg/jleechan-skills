@@ -21,16 +21,25 @@ Ask your coding agent to inspect the repository and install only what it needs:
 ```
 
 For a deterministic install, use the bundled installer. It installs complete
-skill packages (including their helper files) into the global Claude skill
-directory used by the command pointers:
+skill packages (including their helper files), commands, agents, and scripts
+under `CLAUDE_HOME` (default: `~/.claude`). It refuses a nonempty target by
+default; `--backup` preserves that target before installing and `--merge`
+updates it in place.
 
 ```bash
-git clone https://github.com/jleechanorg/jleechan-skills.git /tmp/jleechan-skills
-bash /tmp/jleechan-skills/install-claude-commands.sh
+INSTALL_ROOT=$(mktemp -d /tmp/jleechan-skills.XXXXXX)
+git clone https://github.com/jleechanorg/jleechan-skills.git "$INSTALL_ROOT/source"
+CLAUDE_HOME="$INSTALL_ROOT/claude" \
+  bash "$INSTALL_ROOT/source/install-claude-commands.sh"
 ```
 
-See [INSTALL.md](INSTALL.md) for Claude Code, Antigravity, Codex, and Cursor
-setup details.
+This is an isolated smoke test: inspect `"$INSTALL_ROOT/claude/skills"` and
+remove only that exact temporary directory when finished. For an install into
+your real `~/.claude`, first read the backup and rollback notes in
+[INSTALL.md](INSTALL.md).
+
+See [INSTALL.md](INSTALL.md) for target locations, isolated verification, and
+safe rollback.
 
 ## 🏛️ How It Works: Skills First, Thin Slash Pointers
 

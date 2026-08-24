@@ -1,0 +1,179 @@
+"""Public integration contracts for install-claude-commands.sh."""
+
+import os
+import shutil
+import subprocess
+import tempfile
+import unittest
+from pathlib import Path
+
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+INSTALLER = REPO_ROOT / "install-claude-commands.sh"
+
+
+class InstallerIntegrationTest(unittest.TestCase):
+    def make_fixture(self, temp_dir: Path) -> Path:
+        fixture = temp_dir / "fixture"
+        fixture.mkdir()
+        shutil.copy2(INSTALLER, fixture / INSTALLER.name)
+        source = fixture / ".claude"
+        files = {
+            "agents/nested/agent.md": "agent\n",
+            "commands/command.md": "command\n",
+            "commands/nested/helper.sh": "#!/bin/sh\n",
+            "scripts/nested/tool.py": "print('tool')\n",
+            "skills/example/SKILL.md": "# Skill\n",
+            "skills/example/scripts/helper.sh": "#!/bin/sh\n",
+            "skills/_archive/legacy/SKILL.md": "# Legacy\n",
+            "skills/_archived_loose_md/legacy.md": "legacy\n",
+            "skills/_archived_loose_md_2026-08-23/legacy.md": "legacy\n",
+        }
+        for relative, content in files.items():
+            path = source / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+        return fixture
+
+    def run_installer(
+        self, fixture: Path, target: Path, *args: str, extra_environment: dict[str, str] | None = None
+    ) -> subprocess.CompletedProcess[str]:
+        environment = os.environ | {"CLAUDE_HOME": str(target)}
+        if extra_environment:
+            environment |= extra_environment
+        return subprocess.run(
+            ["bash", str(fixture / INSTALLER.name), *args],
+            cwd=fixture,
+            env=environment,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+    def test_clean_install_copies_every_source_file_and_validates_manifest(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            target = temp_dir / "claude-home"
+
+            result = self.run_installer(fixture, target)
+
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertIn("Source-derived manifest validation passed", result.stdout)
+            self.assertIn("Start Claude Code to use the installed commands and skills.", result.stdout)
+            self.assertNotIn("/help, /list, /execute", result.stdout)
+            self.assertNotIn("claude-bot-commands/README.md", result.stdout)
+            self.assertNotIn("Checking prerequisites", result.stdout)
+            for source_file in (fixture / ".claude").rglob("*"):
+                if source_file.is_file() and not {
+                    "_archive",
+                    "_archived_loose_md",
+                    "_archived_loose_md_2026-08-23",
+                }.intersection(source_file.relative_to(fixture / ".claude").parts):
+                    installed = target / source_file.relative_to(fixture / ".claude")
+                    self.assertTrue(installed.is_file(), installed)
+                    self.assertEqual(installed.read_bytes(), source_file.read_bytes())
+            for archive_name in (
+                "_archive",
+                "_archived_loose_md",
+                "_archived_loose_md_2026-08-23",
+            ):
+                self.assertFalse((target / "skills" / archive_name).exists())
+
+    def test_second_default_run_refuses_to_overwrite_an_existing_install(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            target = temp_dir / "claude-home"
+            first = self.run_installer(fixture, target)
+            original = (target / "commands/command.md").read_text(encoding="utf-8")
+
+            second = self.run_installer(fixture, target)
+
+            self.assertEqual(first.returncode, 0, first.stderr + first.stdout)
+            self.assertNotEqual(second.returncode, 0)
+            self.assertIn("Refusing to modify nonempty target", second.stderr + second.stdout)
+            self.assertEqual((target / "commands/command.md").read_text(encoding="utf-8"), original)
+
+    def test_nonempty_target_requires_explicit_backup_mode(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            target = temp_dir / "claude-home"
+            target.mkdir()
+            (target / "user-file.txt").write_text("preserve me", encoding="utf-8")
+
+            refused = self.run_installer(fixture, target)
+            installed = self.run_installer(fixture, target, "--backup")
+
+            self.assertNotEqual(refused.returncode, 0)
+            self.assertEqual(installed.returncode, 0, installed.stderr + installed.stdout)
+            backups = list(temp_dir.glob("claude-home.backup-*"))
+            self.assertEqual(len(backups), 1)
+            self.assertEqual((backups[0] / "user-file.txt").read_text(encoding="utf-8"), "preserve me")
+            self.assertTrue((target / "skills/example/SKILL.md").is_file())
+            self.assertFalse((target / "skills/_archive").exists())
+
+    def test_backup_mode_stages_and_replaces_an_empty_target(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            target = temp_dir / "claude-home"
+            target.mkdir()
+
+            result = self.run_installer(fixture, target, "--backup")
+
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertTrue((target / "commands/command.md").is_file())
+            backups = list(temp_dir.glob("claude-home.backup-*"))
+            self.assertEqual(len(backups), 1)
+            self.assertFalse(list(temp_dir.glob("claude-home.staging-*")))
+
+    def test_merge_updates_managed_files_and_retains_unrelated_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            target = temp_dir / "claude-home"
+            target.mkdir()
+            managed_file = target / "commands/command.md"
+            managed_file.parent.mkdir()
+            managed_file.write_text("outdated command\n", encoding="utf-8")
+            user_file = target / "user-settings.txt"
+            user_file.write_text("retain me\n", encoding="utf-8")
+
+            result = self.run_installer(fixture, target, "--merge")
+
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertEqual(managed_file.read_text(encoding="utf-8"), "command\n")
+            self.assertEqual(user_file.read_text(encoding="utf-8"), "retain me\n")
+            self.assertFalse((target / "skills/_archive").exists())
+
+    def test_backup_failure_preserves_original_target(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            target = temp_dir / "claude-home"
+            target.mkdir()
+            original = target / "user-file.txt"
+            original.write_text("preserve me\n", encoding="utf-8")
+            fake_bin = temp_dir / "fake-bin"
+            fake_bin.mkdir()
+            fake_copy = fake_bin / "cp"
+            fake_copy.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+            fake_copy.chmod(0o755)
+
+            result = self.run_installer(
+                fixture,
+                target,
+                "--backup",
+                extra_environment={"PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}"},
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(original.read_text(encoding="utf-8"), "preserve me\n")
+            self.assertFalse(list(temp_dir.glob("claude-home.backup-*")))
+            self.assertFalse(list(temp_dir.glob("claude-home.staging-*")))
+
+
+if __name__ == "__main__":
+    unittest.main()

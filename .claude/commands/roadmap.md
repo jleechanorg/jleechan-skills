@@ -178,7 +178,7 @@ For each task, execute in sequence:
 
 ### 3. **Parallel Task Coordination**
 
-- Spawn dedicated tasks for each work item using `/extended-library:orchestrate`
+- Spawn dedicated tasks for each work item using `/swarm`
 - Create isolated worktrees for conflict-free parallel work
 - Each task works on its own feature branch
 - Tasks execute autonomously with progress tracking
@@ -246,7 +246,7 @@ You can monitor progress with:
    - Execute `/extended-library:think light` to analyze
    - Execute `/extended-library:planexec` to create strategy
    - Execute `/extended-library:handoff` to create work branch
-   - Spawn agent via `/extended-library:orchestrate`
+   - Spawn agent via `/swarm`
 3. **Update Roadmap**: Add parallel task section
 4. **Monitor Progress**: Track agent status
 5. **Merge Results**: As agents complete tasks
@@ -258,7 +258,7 @@ You can monitor progress with:
 When you use `/roadmap` with multiple tasks, Claude will:
 1. Parse the input according to the specifications above
 2. Execute the integrated workflow sequence naturally
-3. Spawn agents via `/extended-library:orchestrate` for parallel processing
+3. Spawn agents via `/swarm` for parallel processing
 4. Update roadmap.md with progress tracking
 
 This LLM-native approach provides flexibility while maintaining consistency through clear documentation.

@@ -472,12 +472,12 @@ done
 - Add compatibility warnings for project-specific commands
 - Organize by category: cognitive, operational, testing, development, meta
 
-**Scripts Export** (`claude_command_scripts/` → `scripts/`):
+**Scripts Export** (`.claude/scripts/` → `scripts/`):
 ```bash
 
 # Export scripts with comprehensive filtering
 
-for script in claude_command_scripts/*.sh claude_command_scripts/*.py; do
+for script in .claude/scripts/*.sh .claude/scripts/*.py; do
     if [[ -f "$script" ]]; then
         script_name=$(basename "$script")
 

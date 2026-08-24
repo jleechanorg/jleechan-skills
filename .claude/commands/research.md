@@ -17,7 +17,7 @@ the provided topic.
 
 | Phase | What runs |
 |-------|-----------|
-| 0 | Background `/extended-library:memory_search` for prior knowledge |
+| 0 | Background `/memory-search` for prior knowledge |
 | 1 | Execution standards (WebFetch-before-cite) |
 | 2 | Research planning (`/extended-library:thinku`) |
 | 3 | Multi-source gathering (`/extended-library:perp`: Claude, Perplexity, DuckDuckGo, Grok, Gemini) |

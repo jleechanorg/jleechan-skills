@@ -116,7 +116,7 @@ Hook test files located in `.claude/hooks/tests/`:
 
 - **Documentation** → `docs/`
 - **Tests** → `tests/` or `testing_*/`
-- **Scripts** → `claude_command_scripts/` or `scripts/`
+- **Scripts** → `.claude/scripts/` or `scripts/`
 - **Configs** → `configs/` or `.config/`
 - **Examples** → `examples/`
 - **Temporary** → `tmp/` or `temp/`
@@ -141,9 +141,9 @@ All hooks are properly located in the auto-recognized Claude directory:
 └── README.md                        # This documentation
 ```
 
-**Separate Command Scripts**:
+**Command Scripts**:
 ```
-claude_command_scripts/
-├── git-header.sh                    # Branch header generation
-└── other project scripts...         # General project automation
+.claude/scripts/
+├── teste.sh                          # Project-local E2E wrapper
+└── other installed helper scripts
 ```

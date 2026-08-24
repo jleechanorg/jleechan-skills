@@ -321,7 +321,7 @@ to it.
 ## See also
 
 - `/extended-library:f-pr` — explicit PR-mode entry point.
-- `/extended-library:factory` — alias for `/f` with identical behavior.
+- `/factory` — alias for `/f` with identical behavior.
 - `/extended-library:fs` — spec-generation entry point; default binary run of
   `pipelines/slim/spec_gen.dot` or a binary-owned dynamic spec graph.
 - `~/.claude/projects/-Users-$USER-projects-dark-factory/memory/feedback_2026-06-22_user_pivot_default_nodes_over_custom.md`

@@ -33,189 +33,170 @@ SRC_AGENTS_DIR="$PLUGIN_SRC_DIR/.claude/agents"
 SRC_COMMANDS_DIR="$PLUGIN_SRC_DIR/.claude/commands"
 SRC_SCRIPTS_DIR="$PLUGIN_SRC_DIR/.claude/scripts"
 SRC_SKILLS_DIR="$PLUGIN_SRC_DIR/.claude/skills"
+INSTALL_MODE="refuse"
+INSTALL_ROOT="$CLAUDE_HOME"
+STAGING_DIR=""
+BACKUP_PATH=""
 
-# Installation checks
-check_prerequisites() {
-    log_info "Checking prerequisites..."
+show_usage() {
+    cat <<EOF
+Usage: $(basename "$0") [--merge | --backup]
 
-    # Check for required tools
-    local missing_tools=()
-
-    command -v git >/dev/null 2>&1 || missing_tools+=("git")
-    command -v python3 >/dev/null 2>&1 || missing_tools+=("python3")
-    command -v pip >/dev/null 2>&1 || missing_tools+=("pip")
-
-    if [ ${#missing_tools[@]} -ne 0 ]; then
-        log_error "Missing required tools: ${missing_tools[*]}"
-        log_info "Please install the missing tools and run this script again."
-        exit 1
-    fi
-
-    # Check for Claude Code CLI
-    if ! command -v claude >/dev/null 2>&1; then
-        log_warning "Claude Code CLI not found. Install from: https://claude.ai/code"
-        log_info "The commands will still be installed but may require Claude Code CLI for full functionality."
-    fi
-
-    log_success "Prerequisites check completed"
+Installs into CLAUDE_HOME (default: ~/.claude). A nonempty target is refused
+by default. Use --merge to explicitly update source-managed files in place, or
+--backup to move the existing target aside before installing.
+EOF
 }
 
-# Directory setup
-setup_directories() {
-    log_info "Setting up $CLAUDE_HOME directory structure..."
-
-    mkdir -p "$CLAUDE_AGENTS_DIR"
-    mkdir -p "$CLAUDE_COMMANDS_DIR"
-    mkdir -p "$CLAUDE_SCRIPTS_DIR"
-    mkdir -p "$CLAUDE_SKILLS_DIR"
-
-    log_success "Directory structure ready"
+parse_arguments() {
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --merge) INSTALL_MODE="merge" ;;
+            --backup) INSTALL_MODE="backup" ;;
+            -h|--help) show_usage; exit 0 ;;
+            *) log_error "Unknown option: $1"; show_usage >&2; return 1 ;;
+        esac
+        shift
+    done
 }
 
-# Shared install function
+directory_is_nonempty() {
+    [ -d "$1" ] && [ -n "$(find "$1" -mindepth 1 -maxdepth 1 -print -quit)" ]
+}
+
+prepare_target() {
+    if [ -e "$CLAUDE_HOME" ] && [ ! -d "$CLAUDE_HOME" ]; then
+        log_error "Target exists but is not a directory: $CLAUDE_HOME"
+        return 1
+    fi
+
+    if directory_is_nonempty "$CLAUDE_HOME"; then
+        case "$INSTALL_MODE" in
+            refuse)
+                log_error "Refusing to modify nonempty target: $CLAUDE_HOME"
+                log_error "Re-run with --merge to update it or --backup to preserve it as a backup."
+                return 1
+                ;;
+            backup) ;;
+            merge)
+                log_warning "Merging source-managed files into explicit target: $CLAUDE_HOME"
+                ;;
+        esac
+    fi
+    if [ "$INSTALL_MODE" = "backup" ]; then
+        mkdir -p "$(dirname "$CLAUDE_HOME")"
+        STAGING_DIR="$(mktemp -d "${CLAUDE_HOME}.staging.XXXXXX")"
+        INSTALL_ROOT="$STAGING_DIR"
+        log_info "Staging backup installation in $STAGING_DIR"
+    else
+        mkdir -p "$CLAUDE_HOME"
+    fi
+}
+
+finalize_backup_install() {
+    [ "$INSTALL_MODE" = "backup" ] || return 0
+
+    if [ -e "$CLAUDE_HOME" ]; then
+        BACKUP_PATH="${CLAUDE_HOME}.backup-$(date +%Y%m%d%H%M%S)"
+        if [ -e "$BACKUP_PATH" ]; then
+            log_error "Backup path already exists: $BACKUP_PATH"
+            return 1
+        fi
+        mv "$CLAUDE_HOME" "$BACKUP_PATH"
+        if ! mv "$STAGING_DIR" "$CLAUDE_HOME"; then
+            log_error "Failed to activate staged installation; restoring original target."
+            mv "$BACKUP_PATH" "$CLAUDE_HOME" || log_error "Original target remains at $BACKUP_PATH"
+            return 1
+        fi
+        log_info "Moved existing target to $BACKUP_PATH"
+    else
+        mv "$STAGING_DIR" "$CLAUDE_HOME"
+    fi
+    STAGING_DIR=""
+}
+
+# Shared recursive install function
 install_component() {
     local src_dir="$1"
     local dest_dir="$2"
-    local pattern="$3"
-    local component_name="$4"
-    local make_executable="${5:-false}"
-
-    log_info "Installing $component_name to $dest_dir ..."
-    local count=0
+    local component_name="$3"
+    local relative
 
     if [ -d "$src_dir" ]; then
-        # Use find to match the pattern but avoid subdirectories initially for basic components
-        for file in "$src_dir"/$pattern; do
-            # The pattern might not match anything, which leaves the literal string with *
-            [ -e "$file" ] || continue
-            
-            if [ -f "$file" ]; then
-                cp -f "$file" "$dest_dir/"
-                
-                if [ "$make_executable" = "true" ]; then
-                    chmod +x "$dest_dir/$(basename "$file")" 2>/dev/null || true
-                fi
-                
-                log_info "  Installed: $(basename "$file")"
-                count=$((count + 1))
+        mkdir -p "$dest_dir"
+        while IFS= read -r -d '' relative; do
+            relative="${relative#./}"
+            mkdir -p "$(dirname "$dest_dir/$relative")"
+            cp -a "$src_dir/$relative" "$dest_dir/$relative"
+        done < <(
+            cd "$src_dir"
+            if [ "$component_name" = "skills" ]; then
+                find . -type d \( -name _archive -o -name _archived_loose_md -o -name _archived_loose_md_2026-08-23 \) -prune -o -type f -print0
+            else
+                find . -type f -print0
             fi
-        done
+        )
+        log_success "Installed recursive $component_name tree"
     else
         log_warning "No $component_name source directory found at $src_dir"
     fi
-
-    log_success "Installed $count $component_name"
-    return 0
 }
 
 # Copy agents to ~/.claude/agents/
 install_agents() {
-    install_component "$SRC_AGENTS_DIR" "$CLAUDE_AGENTS_DIR" "*.md" "agents" "false"
+    install_component "$SRC_AGENTS_DIR" "$INSTALL_ROOT/agents" "agents"
 }
 
 # Copy commands to ~/.claude/commands/
 install_commands() {
-    log_info "Installing commands to $CLAUDE_COMMANDS_DIR ..."
-
-    local command_count=0
-
-    if [ -d "$SRC_COMMANDS_DIR" ]; then
-        # Copy all top-level files (including scripts and extensionless files)
-        for file in "$SRC_COMMANDS_DIR"/*; do
-            [ -e "$file" ] || continue
-            if [ -f "$file" ]; then
-                cp -f "$file" "$CLAUDE_COMMANDS_DIR/"
-                # Set executable if it's a script or has no extension
-                if [[ "$file" == *.sh ]] || [[ "$file" == *.py ]] || [[ ! "$(basename "$file")" == *.* ]]; then
-                    chmod +x "$CLAUDE_COMMANDS_DIR/$(basename "$file")" 2>/dev/null || true
-                fi
-                log_info "  Installed: $(basename "$file")"
-                command_count=$((command_count + 1))
-            fi
-        done
-        
-        # Copy subdirectories (e.g. _copilot_modules, _shared, cerebras)
-        for subdir in "$SRC_COMMANDS_DIR"/*/; do
-            [ -e "$subdir" ] || continue
-            if [ -d "$subdir" ]; then
-                local subdir_name
-                subdir_name="$(basename "$subdir")"
-                mkdir -p "$CLAUDE_COMMANDS_DIR/$subdir_name"
-                if ! cp -a "$subdir." "$CLAUDE_COMMANDS_DIR/$subdir_name/" 2>/dev/null; then
-                    log_error "  Failed to install command subdir: $subdir_name"
-                    continue
-                fi
-                log_info "  Installed command subdir: $subdir_name"
-            fi
-        done
-    else
-        log_warning "No commands source directory found at $SRC_COMMANDS_DIR"
-    fi
-
-    log_success "Installed $command_count command files"
+    install_component "$SRC_COMMANDS_DIR" "$INSTALL_ROOT/commands" "commands"
 }
 
 # Copy scripts to ~/.claude/scripts/
 install_scripts() {
-    install_component "$SRC_SCRIPTS_DIR" "$CLAUDE_SCRIPTS_DIR" "*" "scripts" "true"
+    install_component "$SRC_SCRIPTS_DIR" "$INSTALL_ROOT/scripts" "scripts"
 }
 
 # Copy skills to ~/.claude/skills/
 install_skills() {
-    if [ ! -d "$SRC_SKILLS_DIR" ]; then
-        log_warning "No skills source directory found at $SRC_SKILLS_DIR"
-        return 0
-    fi
-
-    log_info "Installing complete skill packages to $CLAUDE_SKILLS_DIR ..."
-    cp -a "$SRC_SKILLS_DIR/." "$CLAUDE_SKILLS_DIR/"
-    local skill_count
-    skill_count=$(find "$CLAUDE_SKILLS_DIR" -type f -name SKILL.md | wc -l | tr -d ' ')
-    log_success "Installed $skill_count skill packages"
+    install_component "$SRC_SKILLS_DIR" "$INSTALL_ROOT/skills" "skills"
 }
 
 # Environment validation
 validate_installation() {
-    log_info "Validating installation..."
-
-    local agents_found=0
-    local commands_found=0
-    local scripts_found=0
-    local skills_found=0
-
-    [ -d "$CLAUDE_AGENTS_DIR" ] && agents_found=$(find "$CLAUDE_AGENTS_DIR" -name "*.md" | wc -l | tr -d ' ')
-    [ -d "$CLAUDE_COMMANDS_DIR" ] && commands_found=$(find "$CLAUDE_COMMANDS_DIR" -type f | wc -l | tr -d ' ')
-    [ -d "$CLAUDE_SCRIPTS_DIR" ] && scripts_found=$(find "$CLAUDE_SCRIPTS_DIR" -type f | wc -l | tr -d ' ')
-    [ -d "$CLAUDE_SKILLS_DIR" ] && skills_found=$(find "$CLAUDE_SKILLS_DIR" -name "*.md" | wc -l | tr -d ' ')
-
-    log_info "Installation summary:"
-    log_info "  Agents:   $agents_found  → $CLAUDE_AGENTS_DIR"
-    log_info "  Commands: $commands_found  → $CLAUDE_COMMANDS_DIR"
-    log_info "  Scripts:  $scripts_found  → $CLAUDE_SCRIPTS_DIR"
-    log_info "  Skills:   $skills_found  → $CLAUDE_SKILLS_DIR"
-
-    if [ "$agents_found" -gt 0 ] && [ "$commands_found" -gt 0 ] && [ "$scripts_found" -gt 0 ] && [ "$skills_found" -gt 0 ]; then
-        log_success "Claude Commands installation completed successfully!"
-    else
-        log_warning "Installation completed but some components may be missing"
-    fi
+    local component source_dir relative destination_file files_checked=0
+    for component in agents commands scripts skills; do
+        source_dir="$PLUGIN_SRC_DIR/.claude/$component"
+        [ -d "$source_dir" ] || continue
+        while IFS= read -r -d '' relative; do
+            relative="${relative#./}"
+            destination_file="$INSTALL_ROOT/$component/$relative"
+            if [ ! -f "$destination_file" ] || ! cmp -s "$source_dir/$relative" "$destination_file"; then
+                log_error "Manifest validation failed for $component/$relative"
+                return 1
+            fi
+            files_checked=$((files_checked + 1))
+        done < <(
+            cd "$source_dir"
+            if [ "$component" = "skills" ]; then
+                find . -type d \( -name _archive -o -name _archived_loose_md -o -name _archived_loose_md_2026-08-23 \) -prune -o -type f -print0
+            else
+                find . -type f -print0
+            fi
+        )
+    done
+    log_success "Source-derived manifest validation passed ($files_checked files)"
 }
 
-# Usage information
-show_usage() {
-    log_info "Next steps:"
-    echo
-    echo "1. Read CLAUDE.md for complete usage instructions"
-    echo "2. Try basic commands: /help, /list, /execute"
-    echo "3. Configure systems as needed:"
-    echo "   - Claude Bot: See claude-bot-commands/README.md"
-    echo "4. Start with cognitive commands: /think, /arch, /debug"
-    echo
-    log_info "For support, see: https://github.com/jleechanorg/claude-commands"
+# Post-install information
+show_next_steps() {
+    log_info "Start Claude Code to use the installed commands and skills."
+    log_info "Documentation: https://github.com/jleechanorg/claude-commands"
 }
 
 # Main installation flow
 main() {
+    parse_arguments "$@"
     echo
     log_info "Claude Commands Installation Script"
     log_info "Installing complete Claude Code command system..."
@@ -223,22 +204,29 @@ main() {
     log_info "Target: $CLAUDE_HOME"
     echo
 
-    check_prerequisites
-    setup_directories
+    prepare_target
     install_agents
     install_commands
     install_scripts
     install_skills
     validate_installation
+    finalize_backup_install
 
     echo
-    show_usage
+    show_next_steps
     echo
     log_success "Installation complete!"
 }
 
-# Error handling
-trap 'log_error "Installation failed at line $LINENO. Check the output above for details."; exit 1' ERR
+cleanup_failed_install() {
+    if [ -n "$STAGING_DIR" ] && [ -d "$STAGING_DIR" ]; then
+        rm -rf "$STAGING_DIR"
+    fi
+    log_error "Installation failed at line $LINENO. Check the output above for details."
+    exit 1
+}
+
+trap cleanup_failed_install ERR
 
 # Run main installation if script is executed directly
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then

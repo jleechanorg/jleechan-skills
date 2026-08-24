@@ -1,195 +1,106 @@
-# Installation Guide - Claude Commands
+# Installation
 
-This guide covers installation across supported coding agents. Skills are the
-portable interface; commands are optional shortcuts.
+This export is skills-first: every canonical package is under
+`.claude/skills/<skill>/SKILL.md`; slash-command files are optional pointers.
 
-## Claude Code (Plugin Marketplace)
+The bundled installer copies four component trees into `CLAUDE_HOME`:
 
-### Prerequisites
-- Claude Code CLI or Web interface
-- GitHub account
+| Source | Destination (when `CLAUDE_HOME` is unset) |
+| --- | --- |
+| `.claude/agents/` | `~/.claude/agents/` |
+| `.claude/commands/` | `~/.claude/commands/` |
+| `.claude/scripts/` | `~/.claude/scripts/` |
+| `.claude/skills/` | `~/.claude/skills/` |
 
-### Installation Steps
+Set `CLAUDE_HOME` to select a destination. The installer refuses a nonempty target by default; use
+`--backup` to move that target to a timestamped sibling directory before
+installing, or `--merge` only when you deliberately want source-managed files
+updated in place.
 
-#### Option 1: Marketplace Installation (Recommended)
+## Isolated install and verification
 
-1. **Register the marketplace** (first-time setup):
-   ```bash
-   /plugin marketplace add jleechanorg/jleechan-skills
-   ```
-
-2. **Install the plugin**:
-   ```bash
-   /plugin install jleechan-skills@jleechan-skills
-   ```
-
-3. **Verify installation**:
-   ```bash
-   /help
-   ```
-   You should see the installed skills and commands, including `/repro`,
-   `/evidence-review`, and `/parallel`.
-
-#### Option 2: Manual Installation
-
-1. **Clone the repository**:
-   ```bash
-   git clone https://github.com/jleechanorg/jleechan-skills.git
-   cd jleechan-skills
-   ```
-
-2. **Run the installer**:
-   ```bash
-   bash ./install-claude-commands.sh
-   ```
-
-3. **Verify with Claude Code**:
-   ```bash
-   cd /path/to/your/project
-   /help
-   ```
-
-## Other Platforms
-
-### Codex, Antigravity, and Cursor
-
-For platforms that support remote instruction fetching:
-
-1. **Fetch and follow remote instructions**:
-   ```text
-   Please fetch and follow the installation instructions from:
-   https://raw.githubusercontent.com/jleechanorg/jleechan-skills/main/INSTALL.md
-   ```
-
-2. **Manual setup** (if remote fetch is unavailable):
-   ```bash
-   git clone https://github.com/jleechanorg/jleechan-skills.git /tmp/jleechan-skills
-   bash /tmp/jleechan-skills/install-claude-commands.sh
-   ```
-
-   For project-local discovery, copy complete skill directories into your
-   target project's `.claude/skills/` directory. Do not copy standalone
-   `SKILL.md` files: some packages include helper files.
-
-## GitHub CLI Setup (Required for GitHub Operations)
-
-Many commands require GitHub CLI. For detailed installation and usage instructions, see:
-- **Installation Guide**: [`.claude/skills/github-cli-reference/SKILL.md`](.claude/skills/github-cli-reference/SKILL.md)
-- **Authentication**: Automatic via `GITHUB_TOKEN` environment variable
-- **Quick Check**: Run `~/.local/bin/gh auth status` to verify
-
-**Quick Install** (if not already installed):
-```bash
-# See the skill for full installation steps
-gh --version
-```
-
-## Post-Installation
-
-### First Steps
-
-1. **Review the command guide**:
-   ```bash
-   /README
-   ```
-
-2. **Check available commands**:
-   ```bash
-   /list
-   ```
-
-3. **Try a skill**:
-   ```bash
-   /repro "describe a problem to reproduce"
-   ```
-
-### Key Commands to Explore
-
-- **`/repro`** - Reproduce a reported problem with evidence
-- **`/evidence-review`** (`/er`) - Review an evidence bundle
-- **`/parallel`** - Plan safe concurrent work
-- **`/redgreen`** (`/rg`) - Debug through RED, CODE, and GREEN
-
-### Configuration
-
-1. **Review CLAUDE.md** for operating protocols and rules
-2. **Configure GitHub token** in your environment:
-   ```bash
-   export GITHUB_TOKEN="your_github_token"
-   ```
-
-3. **Set up Memory MCP** (optional, for enhanced /learn and /think):
-   - Follow instructions in `.claude/commands/MEMORY_INTEGRATION.md`
-
-## Verification
-
-After installation, verify the system is working:
+This runs the real installer without changing your normal agent configuration:
 
 ```bash
-# Check command availability
-/list
+INSTALL_ROOT=$(mktemp -d /tmp/jleechan-skills.XXXXXX)
+git clone https://github.com/jleechanorg/jleechan-skills.git "$INSTALL_ROOT/source"
+CLAUDE_HOME="$INSTALL_ROOT/claude" \
+  bash "$INSTALL_ROOT/source/install-claude-commands.sh"
 
-# Test basic command
-/help
-
-# Test GitHub integration
-/gstatus
-
-# Inspect a skill
-/help
+test -f "$INSTALL_ROOT/claude/skills/repro-evidence/SKILL.md"
+test -f "$INSTALL_ROOT/claude/commands/er.md"
 ```
 
-## Troubleshooting
-
-### Commands not showing up
-
-1. Ensure `.claude/commands/` directory exists in your project root
-2. Check file permissions (commands should be readable)
-3. Restart Claude Code session
-
-### GitHub operations failing
-
-1. Verify GitHub token is set: `echo $GITHUB_TOKEN`
-2. Check gh CLI authentication: `gh auth status`
-3. If not authenticated, run: `gh auth login` (see [gh auth login manual](https://cli.github.com/manual/gh_auth_login) for details)
-4. Ensure network connectivity to GitHub
-
-## Updating
-
-### Marketplace Installation
+The two `test` commands must exit zero. This verifies the installed skill and
+command files directly; it does not assume `/help` or `/list` is available in
+every host application. Inspect an installed skill with:
 
 ```bash
-/plugin update jleechan-skills
+sed -n '1,80p' "$INSTALL_ROOT/claude/skills/repro-evidence/SKILL.md"
 ```
 
-### Manual Installation
+When finished, remove only the exact temporary directory printed by your shell:
 
 ```bash
-cd /path/to/jleechan-skills
-git pull origin main
-bash ./install-claude-commands.sh
+rm -rf "$INSTALL_ROOT"
 ```
 
-## Uninstallation
+## Install into your normal Claude home
 
-### Marketplace Installation
+Only do this after an isolated run succeeds. `--backup` is the safe default for
+an existing Claude home: it moves the complete old target aside before writing
+the new one. Record the timestamped backup path printed by the installer.
 
 ```bash
-/plugin uninstall jleechan-skills
+CLAUDE_ROOT="${CLAUDE_HOME:-$HOME/.claude}"
+SOURCE_ROOT=$(mktemp -d /tmp/jleechan-skills-source.XXXXXX)
+git clone https://github.com/jleechanorg/jleechan-skills.git "$SOURCE_ROOT"
+CLAUDE_HOME="$CLAUDE_ROOT" bash "$SOURCE_ROOT/install-claude-commands.sh" --backup
 ```
 
-### Manual Installation
+To install into an empty target, omit the flag. To intentionally update an
+existing target without moving it aside, use `--merge`:
 
 ```bash
-rm -rf /path/to/your/project/.claude/commands/
+CLAUDE_HOME="$CLAUDE_ROOT" bash "$SOURCE_ROOT/install-claude-commands.sh" --merge
 ```
 
-## Support
+Restart the host application after installing if it only discovers skills and
+commands at startup. For project-local use, copy complete skill directories to
+your project's `.claude/skills/`; never copy an individual `SKILL.md`, because
+a package can include scripts and references.
 
-- **Issues**: [GitHub Issues](https://github.com/jleechanorg/jleechan-skills/issues)
-- **Documentation**: See `.claude/commands/README.md` in your project after installation
-- **Examples**: See `.claude/commands/pair-examples.md` in your project after installation
+## Rollback
 
-## License
+Do not delete `~/.claude/commands` or other shared directories to “uninstall”
+this export: they can contain unrelated user configuration. If you installed
+with `--backup`, move the post-install target aside and put the recorded backup
+path back in its place:
 
-MIT License - See LICENSE file for details
+```bash
+CLAUDE_ROOT="${CLAUDE_HOME:-$HOME/.claude}"
+BACKUP_ROOT="/absolute/path/reported-by-the-installer"
+RECOVERY_ROOT="${CLAUDE_ROOT}.after-jleechan-skills-$(date +%Y%m%d%H%M%S)"
+mv "$CLAUDE_ROOT" "$RECOVERY_ROOT"
+mv "$BACKUP_ROOT" "$CLAUDE_ROOT"
+```
+
+This preserves the post-install state in `RECOVERY_ROOT` for review. An
+in-place `--merge` install has no exact automatic rollback, because it may have
+replaced same-named files; restore a backup you made before merging.
+
+For an isolated install, rollback is simply removal of its exact
+`$INSTALL_ROOT` directory shown above.
+
+## Use the installed skills
+
+Read a skill before invoking it. Examples present in this export include
+`repro-evidence`, `evidence-review`, `parallelize-to-ceiling`, and `redgreen`.
+Their canonical instructions are respectively at:
+
+- [`.claude/skills/repro-evidence/SKILL.md`](.claude/skills/repro-evidence/SKILL.md)
+- [`.claude/skills/evidence-review/SKILL.md`](.claude/skills/evidence-review/SKILL.md)
+- [`.claude/skills/parallelize-to-ceiling/SKILL.md`](.claude/skills/parallelize-to-ceiling/SKILL.md)
+- [`.claude/skills/redgreen/SKILL.md`](.claude/skills/redgreen/SKILL.md)
+
+See [README.md](README.md) for the catalog and [GitHub Issues](https://github.com/jleechanorg/jleechan-skills/issues) for support.

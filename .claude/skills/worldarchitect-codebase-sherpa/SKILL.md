@@ -19,7 +19,7 @@ Equip Claude with a quick-start orientation for the WorldArchitect.ai repository
 - **Game content**: Narrative assets in `world/` and `world_reference/`. Campaign prompts live under `prompt_archive/`.
 - **Automation**: Scripts for local dev and CI under `scripts/` plus top-level `run_*.sh` helpers.
 - **Documentation**: `docs/`, `roadmap/`, `analysis/`, and `GENESIS.md` capture requirements, planning notes, and retros.
-- **Agent tooling**: `.claude/`, `claude_command_scripts/`, and `mcp_servers/` define MCP behaviors and bot orchestration.
+- **Agent tooling**: `.claude/` and `mcp_servers/` define MCP behaviors and bot orchestration.
 
 ## Quick spin-up checklist
 1. **Install deps**: `pip install -r requirements/base.txt`

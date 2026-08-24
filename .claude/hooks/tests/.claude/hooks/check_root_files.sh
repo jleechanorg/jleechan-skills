@@ -91,7 +91,7 @@ if [[ "$DIR_PATH" == "." ]] || [[ "$RELATIVE_PATH" == "$FILENAME" ]]; then
         cat <<EOF
 {
   "decision": "block",
-  "reason": "${RED}🚨 ROOT FILE POLLUTION DETECTED${NC}\\n\\nFile: $FILENAME\\nLocation: Project root\\n\\n${YELLOW}Files should be organized in proper directories:${NC}\\n• Documentation → docs/\\n• Tests → tests/ or testing_*/\\n• Scripts → scripts/ or claude_command_scripts/\\n• Configs → configs/ or .config/\\n• Hooks → hooks/\\n• Examples → examples/\\n• Temporary → tmp/ or temp/\\n\\n${GREEN}Allowed root files:${NC} $(printf '%s, ' \"${ALLOWED_ROOT_FILES[@]}\" | sed 's/, $//')\\n\\nPlease move this file to an appropriate subdirectory.",
+  "reason": "${RED}🚨 ROOT FILE POLLUTION DETECTED${NC}\\n\\nFile: $FILENAME\\nLocation: Project root\\n\\n${YELLOW}Files should be organized in proper directories:${NC}\\n• Documentation → docs/\\n• Tests → tests/ or testing_*/\\n• Scripts → scripts/ or .claude/scripts/\\n• Configs → configs/ or .config/\\n• Hooks → hooks/\\n• Examples → examples/\\n• Temporary → tmp/ or temp/\\n\\n${GREEN}Allowed root files:${NC} $(printf '%s, ' \"${ALLOWED_ROOT_FILES[@]}\" | sed 's/, $//')\\n\\nPlease move this file to an appropriate subdirectory.",
   "suppressOutput": false
 }
 EOF

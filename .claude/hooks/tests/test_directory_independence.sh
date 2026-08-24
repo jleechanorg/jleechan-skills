@@ -26,8 +26,8 @@ echo -e "\n📝 Test 1: From current directory ($(basename $PWD))"
 echo '{"tool_name": "Write", "tool_input": {"file_path": "bad_file.py", "content": "def test(): pass"}}' | $PROJECT_ROOT/.claude/hooks/check_root_files.sh | head -3
 
 # Test from subdirectory
-echo -e "\n📝 Test 2: From subdirectory (claude_command_scripts/)"
-cd claude_command_scripts
+echo -e "\n📝 Test 2: From subdirectory (.claude/scripts/)"
+cd .claude/scripts
 echo '{"tool_name": "Write", "tool_input": {"file_path": "bad_file.py", "content": "def test(): pass"}}' | $PROJECT_ROOT/.claude/hooks/check_root_files.sh | head -3
 
 # Test from parent directory
