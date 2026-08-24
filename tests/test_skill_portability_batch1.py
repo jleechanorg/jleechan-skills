@@ -6,6 +6,7 @@ is to track the real conversion state of these specific skills.
 
 import importlib
 import sys
+import unittest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -27,7 +28,12 @@ BATCH1 = (
 )
 
 
-def test_batch1_skills_are_proper():
-    result = importlib.import_module("scripts.skill_portability_scan").scan(SKILLS_ROOT)
-    unconverted = sorted(name for name in BATCH1 if name not in result["proper"])
-    assert unconverted == [], f"batch1 skills not yet converted to <name>/SKILL.md: {unconverted}"
+class SkillPortabilityBatch1Test(unittest.TestCase):
+    def test_batch1_skills_are_proper(self):
+        result = importlib.import_module("scripts.skill_portability_scan").scan(SKILLS_ROOT)
+        unconverted = sorted(name for name in BATCH1 if name not in result["proper"])
+        self.assertEqual(unconverted, [], f"batch1 skills not yet converted to <name>/SKILL.md: {unconverted}")
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -6,9 +6,8 @@ Each name below is still a loose <name>.md and must become a
 
 import importlib
 import sys
+import unittest
 from pathlib import Path
-
-import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
@@ -28,8 +27,14 @@ BATCH2 = (
 )
 
 
-@pytest.mark.parametrize("name", BATCH2)
-def test_batch2_skill_is_proper(name):
-    result = importlib.import_module("scripts.skill_portability_scan").scan(SKILLS_ROOT)
-    assert name in result["proper"]
-    assert name not in result["orphan"]
+class SkillPortabilityBatch2Test(unittest.TestCase):
+    def test_batch2_skill_is_proper(self):
+        result = importlib.import_module("scripts.skill_portability_scan").scan(SKILLS_ROOT)
+        for name in BATCH2:
+            with self.subTest(name=name):
+                self.assertIn(name, result["proper"])
+                self.assertNotIn(name, result["orphan"])
+
+
+if __name__ == "__main__":
+    unittest.main()
