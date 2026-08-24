@@ -71,14 +71,24 @@ def extract_references_from_text(text: str) -> set[str]:
 
 
 def compute_closure(repo_root: Path, seeds: Iterable[str]) -> dict:
+    seed_list = list(seeds)
     commands_dir = Path(repo_root) / ".claude" / "commands"
+    # Build a case-exact index of real command names from directory listing.
+    # macOS filesystem is case-insensitive, so path.is_file() returns True for
+    # uppercase phantom tokens like EXECUTE.md when execute.md exists. A set-membership
+    # check against actual directory entries prevents case-insensitive macOS vs
+    # case-sensitive Linux CI divergences.
+    available_commands: set[str] = (
+        {p.stem for p in commands_dir.glob("*.md")} if commands_dir.is_dir() else set()
+    )
+
     closure: set[str] = set()
     frontier: set[str] = set()
     rejected: dict[str, str] = {}
     edges: dict[str, list[str]] = {}
 
-    for s in seeds:
-        if (commands_dir / f"{s}.md").is_file():
+    for s in seed_list:
+        if s in available_commands:
             closure.add(s)
             frontier.add(s)
         else:
@@ -101,7 +111,7 @@ def compute_closure(repo_root: Path, seeds: Iterable[str]) -> dict:
             for cand in sorted(raw_candidates):
                 if cand in NON_COMMAND_TOKENS:
                     rejected[cand] = NON_COMMAND_TOKENS[cand]
-                elif (commands_dir / f"{cand}.md").is_file():
+                elif cand in available_commands:
                     kept.add(cand)
                 else:
                     rejected[cand] = f"no .claude/commands/{cand}.md in this repo"
@@ -115,7 +125,7 @@ def compute_closure(repo_root: Path, seeds: Iterable[str]) -> dict:
         frontier = next_frontier
 
     return {
-        "seeds": sorted(set(seeds)),
+        "seeds": sorted(set(seed_list)),
         "closure": sorted(closure),
         "closure_size": len(closure),
         "edges": {k: edges.get(k, []) for k in sorted(closure)},
