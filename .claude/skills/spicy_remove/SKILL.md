@@ -1,3 +1,8 @@
+---
+name: spicy_remove
+description: Remove egregious content from campaign story history and game state when model safety blocks cause empty responses or zero candidates
+---
+
 # Spicy Remove Skill
 
 Use this skill when a campaign's interaction streams fail with empty responses or zero candidates due to model safety blocks triggering on egregious content in the story history or game state.

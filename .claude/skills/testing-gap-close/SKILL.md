@@ -1,3 +1,8 @@
+---
+name: testing-gap-close
+description: Mandatory architectural and testing processes to get testing_mcp and testing_ui tests through the /es and /er evidence gates
+---
+
 # Testing Gap Close Strategy
 
 This skill codifies the mandatory architectural and testing processes required to get `testing_mcp` and `testing_ui` tests to pass `/es` (Evidence Standards) and `/er` (Evidence Review) verification gates.

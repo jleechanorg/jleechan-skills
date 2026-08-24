@@ -1,3 +1,8 @@
+---
+name: vibe-code-2d-game
+description: Ship 2D games fast using LLM assistance — rapid prototyping, iterate fast, don't perfect
+---
+
 # Vibe Code 2D Game Development
 
 Ship 2D games fast using LLM assistance. "Vibe coding" = rapid prototyping, iterate fast, don't perfect.

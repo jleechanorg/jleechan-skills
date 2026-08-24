@@ -1,3 +1,8 @@
+---
+name: soak
+description: Soak clock protocol — a timed stability test where the clock only counts uptime and a crash is recorded as data, not a reset
+---
+
 # Soak clock protocol
 
 A **soak** is a timed stability test. The clock only counts uptime. A crash IS data — record elapsed time, do not reset.
