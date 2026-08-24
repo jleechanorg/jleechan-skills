@@ -25,18 +25,23 @@ from scripts.compute_command_closure import closure_to_json, compute_closure
 
 COMMANDS_DIR = REPO_ROOT / ".claude" / "commands"
 
-# Fixture A (TRUE POSITIVE), real content of .claude/commands/f.md line 10:
-#   Shortcut for `/factory` oriented toward **full production loops**. The
-# Backtick-wrapped, prose delegation, and .claude/commands/factory.md exists.
-SEED = "f"
-GENUINE_TARGET = "factory"
+# Fixture A (TRUE POSITIVE), real content of .claude/commands/advice.md line 2:
+#   description: Token-efficient second opinion — fans out Opus subagent +
+#   /research + /secondo in parallel. ...
+# Prose delegation, and .claude/commands/research.md exists. Both /advice and
+# /research are in the Active Core set, so neither is reachable only through
+# .claude/commands/extended-library/, which the closure scanner does not scan.
+GENUINE_SEED = "advice"
+GENUINE_TARGET = "research"
 
-# Fixture B (FALSE POSITIVES), real content of .claude/commands/f.md:
+# Fixture B (FALSE POSITIVES), real content of .claude/commands/f.md, whose
+# phantom slash tokens are what this fixture exercises.
 #   line 22:  **Prerequisite:** `./install.sh` once; ...
 #   line 220: - a delegated reviewer/subagent outcome when available ...
 # Both match a naive single-segment slash-token regex. Neither is a command:
 # `/install` is a path fragment of `./install.sh`, `/reviewer` is `/` used as
 # an "or" separator. Neither has a file under .claude/commands/.
+PHANTOM_SEED = "f"
 PHANTOM_TOKENS = {
     "install": "path fragment of `./install.sh`, not a delegation",
     "reviewer": "`/` as or-separator in `reviewer/subagent`, not a delegation",
@@ -45,30 +50,32 @@ PHANTOM_TOKENS = {
 
 class CommandClosureTest(unittest.TestCase):
     def setUp(self):
-        seed_file = COMMANDS_DIR / f"{SEED}.md"
-        self.assertTrue(seed_file.is_file(), f"seed command missing: {seed_file}")
-        self.seed_text = seed_file.read_text(encoding="utf-8")
+        self.seed_text = {}
+        for seed in (GENUINE_SEED, PHANTOM_SEED):
+            seed_file = COMMANDS_DIR / f"{seed}.md"
+            self.assertTrue(seed_file.is_file(), f"seed command missing: {seed_file}")
+            self.seed_text[seed] = seed_file.read_text(encoding="utf-8")
 
     def test_seed_file_still_contains_the_fixture_lines(self):
-        # Guards the fixtures themselves: if f.md is edited so these lines are
-        # gone, this test must fail loudly rather than assert against content
-        # that no longer exists.
-        self.assertIn("`/factory`", self.seed_text)
-        self.assertIn("`./install.sh`", self.seed_text)
-        self.assertIn("reviewer/subagent", self.seed_text)
+        # Guards the fixtures themselves: if a seed file is edited so these
+        # lines are gone, this test must fail loudly rather than assert against
+        # content that no longer exists.
+        self.assertIn("/research", self.seed_text[GENUINE_SEED])
+        self.assertIn("`./install.sh`", self.seed_text[PHANTOM_SEED])
+        self.assertIn("reviewer/subagent", self.seed_text[PHANTOM_SEED])
 
     def test_genuine_reference_is_pulled_into_closure(self):
-        closure = compute_closure(REPO_ROOT, [SEED])["closure"]
-        self.assertIn(SEED, closure, "seed must be in its own closure")
+        closure = compute_closure(REPO_ROOT, [GENUINE_SEED])["closure"]
+        self.assertIn(GENUINE_SEED, closure, "seed must be in its own closure")
         self.assertIn(
             GENUINE_TARGET,
             closure,
-            f"/{SEED} genuinely delegates to `/{GENUINE_TARGET}` "
-            f"(.claude/commands/{SEED}.md), so closure must include it",
+            f"/{GENUINE_SEED} genuinely delegates to `/{GENUINE_TARGET}` "
+            f"(.claude/commands/{GENUINE_SEED}.md), so closure must include it",
         )
 
     def test_false_positive_tokens_are_not_pulled_into_closure(self):
-        closure = set(compute_closure(REPO_ROOT, [SEED])["closure"])
+        closure = set(compute_closure(REPO_ROOT, [PHANTOM_SEED])["closure"])
         leaked = sorted(PHANTOM_TOKENS.keys() & closure)
         self.assertFalse(
             leaked,
@@ -77,7 +84,7 @@ class CommandClosureTest(unittest.TestCase):
         )
 
     def test_every_closure_member_resolves_to_a_real_command_file(self):
-        closure = compute_closure(REPO_ROOT, [SEED])["closure"]
+        closure = compute_closure(REPO_ROOT, [GENUINE_SEED, PHANTOM_SEED])["closure"]
         missing = [n for n in closure if not (COMMANDS_DIR / f"{n}.md").is_file()]
         self.assertFalse(
             missing,
@@ -85,8 +92,9 @@ class CommandClosureTest(unittest.TestCase):
         )
 
     def test_closure_is_deterministic(self):
-        first = closure_to_json(compute_closure(REPO_ROOT, [SEED]))
-        second = closure_to_json(compute_closure(REPO_ROOT, [SEED]))
+        seeds = [GENUINE_SEED, PHANTOM_SEED]
+        first = closure_to_json(compute_closure(REPO_ROOT, seeds))
+        second = closure_to_json(compute_closure(REPO_ROOT, seeds))
         self.assertEqual(
             first.encode("utf-8"),
             second.encode("utf-8"),
