@@ -1,3 +1,8 @@
+---
+name: bq-evidence-reading
+description: Use this when reviewing WorldArchitect PR evidence that claims real LLM request/response logging, token counts, RAG/shadow comparison, or BigQuery provenance.
+---
+
 # BQ Evidence Reading
 
 Use this when reviewing WorldArchitect PR evidence that claims real LLM request/response

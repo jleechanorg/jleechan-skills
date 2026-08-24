@@ -1,3 +1,8 @@
+---
+name: distributed-caching
+description: Distributed system and caching architecture rules before adding any cache, memo, or in-memory store.
+---
+
 # Distributed System & Caching Architecture
 
 **Use this skill BEFORE adding any cache, memo, or in-memory store to `$PROJECT_ROOT/**`.** It exists because an agent shipped an in-process embedding cache (PR #7758) without first reasoning about pod locality — it happened to be correct (global/immutable data), but nothing in the harness forced that check.

@@ -1,3 +1,8 @@
+---
+name: domain-lock-standards
+description: Standard operating procedure for AI coding agents when encountering spawn-time or real-time domain lock collisions.
+---
+
 # Domain Lock Standards
 
 This skill defines the standard operating procedure (SOP) for all AI coding agents (Claude Code, Codex, Antigravity, OpenCode, wafer/agy) when encountering spawn-time or real-time domain lock collisions.

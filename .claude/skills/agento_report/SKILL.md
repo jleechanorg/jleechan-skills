@@ -1,5 +1,5 @@
 ---
-name: agento-report
+name: agento_report
 description: Compatibility pointer to the canonical Agent Orchestrator report skill.
 ---
 

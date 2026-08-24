@@ -1,4 +1,5 @@
 ---
+name: design-doc-backup-worldarchitect
 description: /design - Product & Engineering Design Documentation
 type: llm-orchestration
 execution_mode: immediate

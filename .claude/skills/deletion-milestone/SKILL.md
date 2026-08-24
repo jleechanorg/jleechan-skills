@@ -1,4 +1,5 @@
 ---
+name: deletion-milestone
 description: Generic discipline for any deletion or quarantine milestone PR — net LOC enforcement, scope verification, PR lifecycle guards
 type: skill
 scope: global

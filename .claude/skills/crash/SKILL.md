@@ -1,3 +1,8 @@
+---
+name: crash
+description: Canonical triage order for crash investigation reports to surface panic traces, rank variables, and propose next steps.
+---
+
 # Jeff-Ubuntu crash investigation recipe
 
 A canonical triage order for "the box crashed again" reports. Runs end-to-end in <2 min; surfaces the panic trace, ranks the new variables, and proposes a single concrete next step.

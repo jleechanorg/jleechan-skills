@@ -1,3 +1,8 @@
+---
+name: bypass-claims
+description: Bypass-claim evidence standards for any fast-path, short-circuit, LLM skip, template bypass, or cache hit claim in this repo.
+---
+
 # Bypass-claim evidence standards
 
 **Applies to**: any "fast-path", "short-circuit", "LLM skip", "template bypass", or "cache hit" claim in this repo.
