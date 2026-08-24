@@ -1,62 +1,80 @@
 # Archive decision — jleechan-skills top-20/top-20 (max-40) command archival
 
-**Bead:** `bd-cmdtop40-archive-decision-eo9` (decision bead, TDD-exempt)
-**Derived from:** `archive/CLOSURE-REPORT-2026-08-23.json` (committed at `a5dbd263`), mechanically, via set operations against the live `.claude/commands/*.md` file list — not eyeballed.
-**Reconciliation script:**
+## ⚠️ SUPERSEDED 2026-08-24T02:15:00Z — scope reversal, read this section first
 
-```python
-import json, glob, os
-closure = set(json.load(open('archive/CLOSURE-REPORT-2026-08-23.json'))['closure'])
-active = {os.path.splitext(os.path.basename(p))[0] for p in glob.glob('.claude/commands/*.md')}
-keep = sorted(active & closure)
-archive_list = sorted(active - closure)
-assert set(keep) == closure  # KEEP must set-equal the closure JSON exactly
-```
+The original version of this document (committed `1640dcc2`, preserved verbatim below under "Superseded version") proposed KEEP=94 via dependency-closure expansion, with overage disclosed rather than forced down to 40. **The user explicitly overrode that recommendation within the same session**, issuing a new binding decision:
 
-Ran live: `keep` set-equals `closure` (94 == 94, verified). `archive_list` = `active - closure` = 145.
+1. **Hard cutoff, no softening.** The promoted "Active Core" is the top-20-human ∪ top-20-agent union — no dependency-closure expansion. No "keep referenced-but-unpromoted commands in place" exception.
+2. **Force-included:** `/innov` (real file, `.claude/commands/innov.md`, confirmed not in the 27-command union) is added explicitly as a 28th member. `/web-advice` was already covered (already in the union) — no action needed for it.
+3. **Destination renamed.** Non-promoted commands move to `.claude/commands/extended-library/`, **not** `archive/commands/` — the existing `archive/commands/` (51 files from PR #358) is untouched and stays a separate, older-precedent directory. `extended-library/` reflects that these are still real, usable commands, just not curated "Active Core."
 
-## The literal ask vs. the computed result
+**This new decision is what downstream beads (`bd-cmdtop40-migration-test-dhi`, `bd-cmdtop40-archive-execute-710`, `bd-cmdtop40-docs-update-hkv`) must implement.** The 94-command closure computation (`archive/CLOSURE-REPORT-2026-08-23.md`) is retained as background context — it demonstrates that dependency references DO reach 94 commands, which is exactly why the "no closure expansion" choice below is a real trade-off, not a free one — but it is no longer the promotion criterion.
 
-User's literal words: **"i only want top 20 user initiated and top 20 agent initiatled skillsc/ommands aka max 40, lets archive the rest in the repo."**
+## New binding decision (authoritative)
 
-**Final keep set: 94 commands (54 over the literal max-40 ask).**
-**Final archive set: 145 commands** (= `239 - 94`, reconciles exactly against the current active count).
+**Final promoted "Active Core": 28 commands** = top-20-human ∪ top-20-agent (27, unchanged from the frozen snapshot) **+ 1 forced include (`/innov`)**.
 
-This deliberately does **not** force the count down to 40. Forcing it down would require either (a) dropping real top-20/top-20 seed commands (forbidden — see criterion below, all 27 seeds are in KEEP), or (b) severing genuine dependency-closure references (rejected — this repeats the exact failure mode of the already-rejected `bd-11g.3` hand-picked-22 proposal, whose own closure note is the origin of this epic's "don't do a raw top-N cutoff" warning). Per the overall contract's chosen approach: **accept the overage, compute it precisely, disclose it plainly — do not silently force compliance with the literal number.**
+Format per the user's own example: **"28: top-27 union by usage + 1 forced include."** (The union is naturally 27, not 40, because the top-20/top-20 lists overlap by 13 commands; the hard cutoff is a ceiling of ≤40, not a floor requiring exactly 40.)
 
-**This is the flag for the user to see at merge time:** the safe, reference-preserving keep set is 94, not 40. If a stricter 40-command surface is still wanted after seeing this number, that requires either explicit acceptance of some broken cross-references, or a follow-up decision to redesign lower-tier commands to route through wrapper aliases instead of direct delegation — both out of scope for this plan-micro and not decided here.
+**Final `extended-library/` set: 211 commands** (= `239 active − 28 promoted`).
 
-## KEEP list (94, verbatim, = `archive/CLOSURE-REPORT-2026-08-23.json`'s `closure` key)
+### Promoted list (28, verbatim)
 
-`advice`, `arch`, `archreview`, `auto`, `bq`, `browser`, `browserclaw`, `c`, `cereb`, `cerebras`, `claw`, `code-standards`, `commentcheck`, `commentfetch`, `commentreply`, `cons`, `consensus`, `converge`, `copilot`, `debug`, `deploy`, `e`, `end2end-testing`, `er`, `es`, `evidence_review`, `execute`, `exportcommands`, `f`, `f-pr`, `factory`, `factory-evolve`, `factory-spec`, `fake`, `fakel`, `fixpr`, `fs`, `goal_harness`, `goalexec`, `green`, `gstatus`, `guidelines`, `h`, `handoff`, `harness`, `header`, `history`, `integrate`, `learn`, `levelup`, `linux`, `localexportcommands`, `mac`, `memory`, `memory_search`, `ms`, `newbranch`, `nextsteps`, `orch`, `orchestrate`, `pair`, `parallel`, `perp`, `plan`, `planexec`, `pr`, `push`, `pushl`, `pushlite`, `qwen`, `r`, `repro`, `research`, `review-enhanced`, `reviewd`, `reviewdeep`, `reviewe`, `roadmap`, `second_opinion`, `secondo`, `skillify`, `smoke`, `status`, `test`, `testhttp`, `testhttpf`, `testserver`, `thermo`, `think`, `thinku`, `up`, `usage`, `web-advice`, `wiki-search`
+`advice`, `auto`, `browser`, `browserclaw`, `claw`, `copilot`, `end2end-testing`, `er`, `es`, `execute`, `f`, `fixpr`, `green`, `harness`, `history`, `innov`, `learn`, `levelup`, `linux`, `ms`, `nextsteps`, `repro`, `research`, `roadmap`, `skillify`, `smoke`, `web-advice`, `wiki-search`
 
-**All 27 seed (top-20 human ∪ top-20 agent) commands are present in KEEP** — verified by set-containment: `{advice, green, repro, research, ms, claw, history, er, linux, f, es, web-advice, browser, skillify, browserclaw, auto, wiki-search, smoke, roadmap, levelup, execute, copilot, fixpr, nextsteps, harness, learn, end2end-testing}.issubset(keep)` → `True`.
+Reconciliation: `sorted({top20_human} | {top20_agent} | {'innov'})`, computed against the frozen snapshot (`archive/usage_snapshot_frozen_2026-08-23.json`, `2026-08-24T010617Z`), verified 27 (union) + 1 (`innov`, confirmed absent from the union) = 28, no duplicates.
 
-## ARCHIVE list (145 = 239 active − 94 keep)
+### extended-library/ list (211 = 239 − 28)
 
-`4layer`, `CLAUDE`, `README`, `README_EXPORT_TEMPLATE`, `aar`, `accept-adapt-reject`, `adde2e`, `agento_report`, `agentor`, `antig`, `ao`, `automation`, `automation-audit`, `auton`, `babysit`, `bashrc`, `beads`, `benchg`, `benchg-ts`, `callpath`, `checkpoint`, `clonefix`, `cmux-backup`, `cmux-goal`, `cmux-restore`, `cmux-steer`, `code-quality`, `coderabbit`, `command-research`, `con`, `contexte`, `copilot-expanded`, `coverage`, `cq`, `cr`, `cs`, `debug-protocol`, `debugp`, `design`, `design-doc`, `disk_magician`, `diskm`, `efficiency`, `eloop`, `engplan`, `evidence-check`, `evidence-coverage`, `evolve_loop`, `fable`, `fake3`, `fe`, `feature-dev`, `gen`, `gene`, `generatetest`, `ghfixtests`, `goalexec_define`, `gst`, `headless`, `hermes`, `history_resume`, `idice`, `innov`, `innovate`, `investigatedice`, `ironclad`, `keychain_kill`, `launchd`, `list`, `llm-testing`, `localserver`, `loop_level_zfc`, `meta`, `mobile`, `newb`, `optimize`, `orchc`, `orchconverge`, `pair-examples`, `pairv2`, `parallel-vs-subagents`, `playwright`, `polish`, `pr-media`, `pr-report`, `pres`, `presentation`, `principalengineer`, `principalproductmanager`, `processmsgs`, `puppeteer`, `ralph`, `ralph_benchmark_parallel`, `ralph_iteration`, `ralph_pair_iteration`, `redgreen`, `replicate`, `repro_copy`, `requirements-list`, `requirements-start`, `requirements-status`, `reviewsuper`, `rg`, `roadmap_orch`, `roadmapo`, `runlocal`, `savetmp`, `scaffold`, `sidekick`, `sim`, `simulate`, `slack-audit`, `slide`, `smoke-local`, `social`, `statusline`, `suba`, `subagentvalidate`, `swarm`, `sync`, `tdd`, `team-claude`, `team-mini`, `teste`, `tester`, `testerc`, `testing-gap-close`, `testing-layers`, `testllm`, `testmcp`, `testui`, `testuif`, `timeout`, `topcampaigns`, `user-story`, `validate-e2e`, `wakebugbot`, `wiki-assess`, `wiki-bfs`, `wiki-evolve`, `wiki-ingest`, `worldai-usage-email`, `zfc`, `zfc-adjuster`, `zfclevel`
+`4layer`, `CLAUDE`, `README`, `README_EXPORT_TEMPLATE`, `aar`, `accept-adapt-reject`, `adde2e`, `agento_report`, `agentor`, `antig`, `ao`, `arch`, `archreview`, `automation`, `automation-audit`, `auton`, `babysit`, `bashrc`, `beads`, `benchg`, `benchg-ts`, `bq`, `c`, `callpath`, `cereb`, `cerebras`, `checkpoint`, `clonefix`, `cmux-backup`, `cmux-goal`, `cmux-restore`, `cmux-steer`, `code-quality`, `code-standards`, `coderabbit`, `command-research`, `commentcheck`, `commentfetch`, `commentreply`, `con`, `cons`, `consensus`, `contexte`, `converge`, `copilot-expanded`, `coverage`, `cq`, `cr`, `cs`, `debug`, `debug-protocol`, `debugp`, `deploy`, `design`, `design-doc`, `disk_magician`, `diskm`, `e`, `efficiency`, `eloop`, `engplan`, `evidence-check`, `evidence-coverage`, `evidence_review`, `evolve_loop`, `exportcommands`, `f-pr`, `fable`, `factory`, `factory-evolve`, `factory-spec`, `fake`, `fake3`, `fakel`, `fe`, `feature-dev`, `fs`, `gen`, `gene`, `generatetest`, `ghfixtests`, `goal_harness`, `goalexec`, `goalexec_define`, `gst`, `gstatus`, `guidelines`, `h`, `handoff`, `header`, `headless`, `hermes`, `history_resume`, `idice`, `innovate`, `integrate`, `investigatedice`, `ironclad`, `keychain_kill`, `launchd`, `list`, `llm-testing`, `localexportcommands`, `localserver`, `loop_level_zfc`, `mac`, `memory`, `memory_search`, `meta`, `mobile`, `newb`, `newbranch`, `optimize`, `orch`, `orchc`, `orchconverge`, `orchestrate`, `pair`, `pair-examples`, `pairv2`, `parallel`, `parallel-vs-subagents`, `perp`, `plan`, `planexec`, `playwright`, `polish`, `pr`, `pr-media`, `pr-report`, `pres`, `presentation`, `principalengineer`, `principalproductmanager`, `processmsgs`, `puppeteer`, `push`, `pushl`, `pushlite`, `qwen`, `r`, `ralph`, `ralph_benchmark_parallel`, `ralph_iteration`, `ralph_pair_iteration`, `redgreen`, `replicate`, `repro_copy`, `requirements-list`, `requirements-start`, `requirements-status`, `review-enhanced`, `reviewd`, `reviewdeep`, `reviewe`, `reviewsuper`, `rg`, `roadmap_orch`, `roadmapo`, `runlocal`, `savetmp`, `scaffold`, `second_opinion`, `secondo`, `sidekick`, `sim`, `simulate`, `slack-audit`, `slide`, `smoke-local`, `social`, `status`, `statusline`, `suba`, `subagentvalidate`, `swarm`, `sync`, `tdd`, `team-claude`, `team-mini`, `test`, `teste`, `tester`, `testerc`, `testhttp`, `testhttpf`, `testing-gap-close`, `testing-layers`, `testllm`, `testmcp`, `testserver`, `testui`, `testuif`, `thermo`, `think`, `thinku`, `timeout`, `topcampaigns`, `up`, `usage`, `user-story`, `validate-e2e`, `wakebugbot`, `wiki-assess`, `wiki-bfs`, `wiki-evolve`, `wiki-ingest`, `worldai-usage-email`, `zfc`, `zfc-adjuster`, `zfclevel`
 
-## Flagged disclosure: 3 non-command index/meta files are swept into ARCHIVE by the mechanical rule
+### Critical finding, verified empirically before any bulk move: `extended-library/` commands remain genuinely invocable, under a different name
 
-`.claude/commands/README.md`, `.claude/commands/CLAUDE.md`, and `.claude/commands/README_EXPORT_TEMPLATE.md` are structurally `.md` files inside `.claude/commands/` (same frontmatter shape as real commands, so they were included in the "239 active" count and the closure algorithm's candidate universe), but they are the **directory's own index/documentation**, not invokable slash commands — `.claude/commands/CLAUDE.md`'s own frontmatter says `execution_mode: none, type: documentation`.
+Investigated live, this session, before touching any files (per explicit instruction not to skip this check):
 
-Applying the mechanical rule literally (criterion: KEEP must set-equal the closure JSON exactly, no manual additions) puts all three in ARCHIVE, since the closure algorithm found no runtime delegation reference *to* them (nothing "calls" a README). **This is disclosed here rather than silently patched** so the downstream beads know: `bd-cmdtop40-archive-execute-710` should move these three like any other archive-list entry (no special-casing, per its own anti-gaming rule against selective re-interpretation), and `bd-cmdtop40-docs-update-hkv` — which already separately owns `.claude/commands/README.md` in its file list — must **write a fresh `.claude/commands/README.md`** post-migration as the new 94-command directory index, rather than assuming the old one survived in place. This is exactly the kind of doc-sync work that bead's ironclad contract already calls for (criterion 1: "README.md's Active Core section states the real post-migration active count").
+- **Official docs** (`code.claude.com/docs/en/slash-commands`, fetched live): "Custom commands have been merged into skills. A file at `.claude/commands/deploy.md` and a skill at `.claude/skills/deploy/SKILL.md` both create `/deploy`." The documented nested-directory namespacing rule for skills: a skill in a nested directory below the working directory "appears under a directory-qualified name" — e.g. `apps/web/.claude/skills/deploy/SKILL.md` → `/apps/web:deploy`.
+- **First-party empirical confirmation from this exact live session:** this repository already has real command `.md` files sitting inside `.claude/commands/` subdirectories — `.claude/commands/spec-kit/{clarify,implement-spec,plan-spec,spec,tasks-spec}.md` and `.claude/commands/backup-2026-06-27-team-claude-no-teamcreate/{team-claude,team-mini}.md`. This session's own live available-command listing shows them exposed as **`spec-kit:clarify`, `spec-kit:implement-spec`, `spec-kit:plan-spec`, `spec-kit:spec`, `spec-kit:tasks-spec`, `backup-2026-06-27-team-claude-no-teamcreate:team-claude`, `backup-2026-06-27-team-claude-no-teamcreate:team-mini`** — i.e. `<subdirectory>:<filename>`, not a bare `/<filename>` and not invisible. (Other existing subdirectories under `.claude/commands/` — `cerebras/`, `_copilot_modules/`, `tests/`, `_shared/` — hold only supporting scripts/partials, not command `.md` files, so they don't appear in the command listing; that's expected and consistent, not contrary evidence.)
 
-## Reconciliation check (must be scriptable, not eyeballed)
+**Conclusion: moving a command into `.claude/commands/extended-library/<name>.md` does NOT archive/deaden it — it remains invocable, but the invocation syntax changes from `/<name>` to `/extended-library:<name>`.** This is a real, user-visible behavior change and must be stated plainly (not glossed as "seamless") in the PR description and in `archive/extended-library-README.md` (owned by `bd-cmdtop40-docs-update-hkv`).
+
+### Reconciliation check (scriptable)
 
 ```bash
 python3 -c "
 import json, glob, os
-decision_keep = set('''advice arch archreview auto bq browser browserclaw c cereb cerebras claw code-standards commentcheck commentfetch commentreply cons consensus converge copilot debug deploy e end2end-testing er es evidence_review execute exportcommands f f-pr factory factory-evolve factory-spec fake fakel fixpr fs goal_harness goalexec green gstatus guidelines h handoff harness header history integrate learn levelup linux localexportcommands mac memory memory_search ms newbranch nextsteps orch orchestrate pair parallel perp plan planexec pr push pushl pushlite qwen r repro research review-enhanced reviewd reviewdeep reviewe roadmap second_opinion secondo skillify smoke status test testhttp testhttpf testserver thermo think thinku up usage web-advice wiki-search'''.split())
-closure = set(json.load(open('archive/CLOSURE-REPORT-2026-08-23.json'))['closure'])
-assert decision_keep == closure, (decision_keep - closure, closure - decision_keep)
-print('OK: decision KEEP set-equals closure JSON exactly,', len(decision_keep), 'entries')
+ranking = json.load(open('/tmp/ranking_frozen.json')) if os.path.exists('/tmp/ranking_frozen.json') else None
+# Re-derive from the frozen snapshot directly if the /tmp cache is gone:
+import subprocess
+out = subprocess.run(['python3','scripts/rank_commands_repo_scoped.py','--input','archive/usage_snapshot_frozen_2026-08-23.json','--json'], capture_output=True, text=True, check=True).stdout
+union = set(json.loads(out)['union'])
+promoted = sorted(union | {'innov'})
+active = {os.path.splitext(os.path.basename(p))[0] for p in glob.glob('.claude/commands/*.md')}
+extended = sorted(active - set(promoted))
+assert len(promoted) == 28, len(promoted)
+assert len(extended) == 211, len(extended)
+print('OK: promoted =', len(promoted), '| extended-library =', len(extended))
 "
 ```
 
-## Summary for PR description
+### Summary for PR description
 
-- Closure-adjusted final active set: **94 commands** (source: `archive/CLOSURE-REPORT-2026-08-23.md`, frozen-snapshot reproducible).
-- Literal ask was max 40 — **exceeded by 54**, disclosed and accepted per this epic's own prior rejected-hand-picked-list lesson.
-- All 27 measured top-20/top-20 seed commands preserved, zero real delegation references severed.
-- 145 commands move to `archive/commands/` (`239 − 94`), including 3 non-command index/meta files (`README.md`, `CLAUDE.md`, `README_EXPORT_TEMPLATE.md`) that the docs-update bead must regenerate fresh post-migration.
+- Promoted "Active Core": **28 commands** (top-20/top-20 union of 27 + 1 forced include, `/innov`). Hard cutoff, no dependency-closure softening — a deliberate, disclosed trade-off: the 94-command closure report shows real dependency references exist beyond these 28, and some of those references will now point at a renamed/namespaced location (see `extended-library/` finding above) rather than staying flat.
+- `extended-library/` set: **211 commands** (`239 − 28`), a rename/reframe of the archive-move destination — same move mechanics as PR #358's `archive/commands/` precedent, different directory, because these remain real, invocable (if renamed) commands, not dead ones.
+- The existing `archive/commands/` (51 files, PR #358) is untouched, kept as its own separate, older-precedent tier.
+- Invocation-syntax change (`/<name>` → `/extended-library:<name>`) is a genuine user-facing behavior change, verified via live documentation + this session's own empirical command listing — must be called out explicitly in the PR body and directory README, not framed as costless.
+- This reverses the prior 94-command closure-preserving recommendation in the same session; both versions are preserved in this file for provenance (see below).
+
+---
+
+## Superseded version (as originally committed `1640dcc2`, retained verbatim for provenance — do NOT implement this version)
+
+# Archive decision — jleechan-skills top-20/top-20 (max-40) command archival
+
+**Bead:** `bd-cmdtop40-archive-decision-eo9` (decision bead, TDD-exempt)
+**Derived from:** `archive/CLOSURE-REPORT-2026-08-23.json` (committed at `a5dbd263`), mechanically, via set operations against the live `.claude/commands/*.md` file list — not eyeballed.
+
+Ran live: `keep` set-equals `closure` (94 == 94, verified). `archive_list` = `active - closure` = 145.
+
+**Final keep set: 94 commands (54 over the literal max-40 ask).** **Final archive set: 145 commands** (`239 - 94`).
+
+This deliberately did not force the count down to 40, per the overall contract's chosen approach: accept the overage, compute it precisely, disclose it plainly. **The user reviewed this and explicitly rejected it in favor of the hard-cutoff decision above.** Full original KEEP/ARCHIVE lists and reasoning are preserved in git history at commit `1640dcc2` if needed; the operative decision for all downstream beads is the new binding decision at the top of this file.
