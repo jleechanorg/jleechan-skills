@@ -10,7 +10,7 @@ execution_mode: immediate
 
 This repo packages hard-won engineering discipline — empirical debugging, evidence-backed claims, multi-model review, autonomous PR pipelines, resource-ceiling parallelism — as portable **skills** (`SKILL.md` packages) with thin slash-command pointers on top. Skills are the source of truth; commands are just the typing shortcut. Because every skill follows the same YAML-frontmatter + Markdown spec, the same skill runs unmodified in **Claude Code**, **Google Antigravity**, **OpenAI Codex**, and **Cursor 2.4+**. Install once, use everywhere.
 
-The set below is not a guess — every command's usage count comes from mining real session logs (`/command-research`) across this machine's Claude Code, Hermes, and Codex history, then independently re-verified against the raw conversation files before being trusted.
+The set below is not a guess — every command's usage count comes from mining real session logs (`/command-research`) across this machine's Claude Code, Hermes (a personal multi-agent gateway/orchestrator, separate from this repo), and Codex history, then independently re-verified against the raw conversation files before being trusted.
 
 ---
 
@@ -149,7 +149,7 @@ Gets a fast, cheap second opinion at a decision point without shipping the whole
 
 Generic, domain-agnostic reproduction workflow: isolate the reported state into a safe test sandbox, replay only the exact triggering action against a real (never mocked) target, and enforce a strict same-symptom rule — a repro only counts if the identical user-visible phenotype reappears. Every RED/GREEN claim must record explicit code and environment provenance. Closes with a mandatory REPRO / RELATED / NON-REPRO verdict table and exported evidence (raw request/response, logs, state diffs).
 
-A separate, WorldArchitect.ai-specific variant — [`repro-twin-clone-evidence`](.claude/skills/repro-twin-clone-evidence/SKILL.md) (Firestore "campaigns", `copy_campaign.py`, `WORLDAI_DEV_MODE`) — ships in this repo as reference material only; `/repro` in this repo does not call it.
+A separate, WorldArchitect.ai-specific variant (WorldArchitect.ai is an unrelated personal project — a D&D-style RPG platform) — [`repro-twin-clone-evidence`](.claude/skills/repro-twin-clone-evidence/SKILL.md) (Firestore "campaigns", `copy_campaign.py`, `WORLDAI_DEV_MODE`) — ships in this repo as reference material only; `/repro` in this repo does not call it.
 
 ```bash
 /repro "Checkout fails with 500 error when applying coupon code"
