@@ -106,6 +106,15 @@ Ask your coding agent to inspect the repo and install only what it needs:
 2. **Slash commands (`.claude/commands/`) are thin pointers** — no separate logic, just an ergonomic shortcut that loads and runs the skill.
 3. **Cross-agent portability** — because every skill follows the `SKILL.md` spec, it runs natively in Claude Code, Antigravity, Codex, and Cursor without translation.
 
+### Portability honesty check
+
+"Portable" above means the **`SKILL.md` file format** — its YAML frontmatter + Markdown structure is read identically by all four agents. It does **not** mean every skill's *behavior* is self-contained out of the box. Of the 18 skills in the table below:
+
+- **Self-contained** — `advice` (degrades gracefully if a reviewer CLI is missing), `repro-evidence`, `evidence-review`, `evidence-standards`, `skillify`, `harness-engineering`, `4layer`, `redgreen`, `parallelize-to-ceiling`, `sidekick`, `swarm` — these run against only the target repo and standard CLI tooling.
+- **Depends on personal infrastructure not included in this repo** — `research` (external Hermes gateway), `memory-search` (Hermes SQLite/OpenClaw/Slack), `dark-factory` (an external `dark-factory` binary), `browser-control` (Aside/browserclaw local browser tooling), `learn` (mem0, roadmap, beads tracker), `conversation-history-sparse` (Hermes FTS5 store), `web-advice` (real logged-in browser sessions on each vendor's site).
+
+Installing the personal-infrastructure skills without their backing services will not crash anything — the skill's own instructions describe what it needs, so an agent following one should surface the missing dependency rather than silently failing — but they won't function as advertised until that infrastructure exists. Read a skill's own `SKILL.md` before relying on it.
+
 ---
 
 ## 📋 Skills at a Glance
