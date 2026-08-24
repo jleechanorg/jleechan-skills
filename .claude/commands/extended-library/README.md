@@ -21,7 +21,7 @@ execution_mode: immediate
 
 > **Layout note (2026-08-24).** The command surface is now split in two, and **this index file itself moved** — it used to be `.claude/commands/README.md` and is now `.claude/commands/extended-library/README.md`, which means it is invoked as `/extended-library:README`, not `/README`.
 >
-> - **`.claude/commands/` — 28 Active Core commands**, invoked as `/<name>`. Selected by a hard top-20-human ∪ top-20-agent usage cutoff (union of 27) plus `/innov` as a forced 28th include.
+> - **`.claude/commands/` — 30 Active Core commands**, invoked as `/<name>`. Selected by a hard top-20-human ∪ top-20-agent usage cutoff (union of 27) plus `/innov` as a forced 28th include, plus `/sidekick` and `/swarm` promoted later as part of the 18-skill featured set.
 > - **`.claude/commands/extended-library/` — 211 commands**, invoked as **`/extended-library:<name>`**. Still live and still real; only the invocation name changed. Claude Code discovers subdirectories under `.claude/commands/` recursively and namespaces them as `<subdirectory>:<filename>`.
 > - **`archive/commands/` (repo root) — 51 commands**, from an older and unrelated 2026-08-23 pass. Reference-only and genuinely *not* invocable, unlike `extended-library/`.
 >
@@ -220,7 +220,7 @@ pushl handles git operations
 
 ### v1.3.0 (2026-08-24)
 
-**Top-20/top-20 split**: 211 of the 239 active commands moved to `.claude/commands/extended-library/`, leaving 28 Active Core commands flat in `.claude/commands/`. Moved commands stay invocable as `/extended-library:<name>` — a rename, not a retirement. `archive/commands/` was untouched by this pass. See [archive/extended-library-README.md](../../../archive/extended-library-README.md).
+**Top-20/top-20 split**: 211 of the 239 active commands moved to `.claude/commands/extended-library/`, leaving 28 Active Core commands flat in `.claude/commands/`. Moved commands stay invocable as `/extended-library:<name>` — a rename, not a retirement. `archive/commands/` was untouched by this pass. `/sidekick` and `/swarm` were later promoted back to Active Core (now 30 flat, 209 extended-library) as part of the 18-skill featured set. See [archive/extended-library-README.md](../../../archive/extended-library-README.md).
 
 ### v1.2.0 (2026-08-23)
 

@@ -167,7 +167,7 @@ Self-hosted PR workflows should set checkout `ref: ${{ github.event.pull_request
 - `/loop` - Default wait time between iterations: **0s** (no wait). Run immediately back-to-back unless an interval is explicitly specified (e.g. `/loop 5m /cmd`).
 - `/fake3` - Runs pre-commit check pipeline
 - **Architecture:** `.claude/commands/*.md` = executable prompt templates
-- **Two tiers:** 28 Active Core commands sit flat in `.claude/commands/` and are invoked as `/<name>`. 211 more live in `.claude/commands/extended-library/` and are invoked as **`/extended-library:<name>`** — still real and invocable, only the name is namespaced. See `archive/extended-library-README.md`.
+- **Two tiers:** 30 Active Core commands sit flat in `.claude/commands/` and are invoked as `/<name>`. 209 more live in `.claude/commands/extended-library/` and are invoked as **`/extended-library:<name>`** — still real and invocable, only the name is namespaced. See `archive/extended-library-README.md`.
 
 ## Dangerous Command Safety
 
