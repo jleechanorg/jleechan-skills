@@ -34,10 +34,6 @@ SRC_COMMANDS_DIR="$PLUGIN_SRC_DIR/.claude/commands"
 SRC_SCRIPTS_DIR="$PLUGIN_SRC_DIR/.claude/scripts"
 SRC_SKILLS_DIR="$PLUGIN_SRC_DIR/.claude/skills"
 
-# Legacy config
-CLAUDE_BOT_DIR="claude-bot-commands"
-INFRASTRUCTURE_DIR="infrastructure-scripts"
-
 # Installation checks
 check_prerequisites() {
     log_info "Checking prerequisites..."
@@ -72,10 +68,6 @@ setup_directories() {
     mkdir -p "$CLAUDE_COMMANDS_DIR"
     mkdir -p "$CLAUDE_SCRIPTS_DIR"
     mkdir -p "$CLAUDE_SKILLS_DIR"
-
-    # Detect optional systems
-    [ -d "$PLUGIN_SRC_DIR/$CLAUDE_BOT_DIR" ] && log_info "Claude Bot system detected"
-    [ -d "$PLUGIN_SRC_DIR/$INFRASTRUCTURE_DIR" ] && log_info "Infrastructure scripts detected"
 
     log_success "Directory structure ready"
 }
@@ -182,43 +174,6 @@ install_skills() {
     log_success "Installed $skill_count skill packages"
 }
 
-# Infrastructure installation (root-level scripts, not copied to ~/.claude)
-install_infrastructure() {
-    log_info "Making infrastructure scripts executable..."
-
-    local infra_count=0
-
-    for script in claude_start.sh claude_mcp.sh start-claude-bot.sh integrate.sh resolve_conflicts.sh sync_branch.sh setup-github-runner.sh test_server_manager.sh; do
-        if [ -f "$PLUGIN_SRC_DIR/$script" ]; then
-            chmod +x "$PLUGIN_SRC_DIR/$script" 2>/dev/null || true
-            infra_count=$((infra_count + 1))
-        fi
-    done
-
-    if [ -d "$PLUGIN_SRC_DIR/$INFRASTRUCTURE_DIR" ]; then
-        for script in "$PLUGIN_SRC_DIR/$INFRASTRUCTURE_DIR"/*.sh; do
-            [ -e "$script" ] || continue
-            if [ -f "$script" ]; then
-                chmod +x "$script" 2>/dev/null || true
-                infra_count=$((infra_count + 1))
-            fi
-        done
-    fi
-
-    log_success "Made $infra_count infrastructure scripts executable"
-}
-
-# Optional system installation
-install_optional_systems() {
-    log_info "Installing optional systems..."
-
-    if [ -d "$PLUGIN_SRC_DIR/$CLAUDE_BOT_DIR" ]; then
-        log_info "  Claude Bot system (production ready)"
-        log_warning "    Requires: GitHub repository, self-hosted runner"
-        log_info "    See claude-bot-commands/README.md for setup instructions"
-    fi
-}
-
 # Environment validation
 validate_installation() {
     log_info "Validating installation..."
@@ -274,8 +229,6 @@ main() {
     install_commands
     install_scripts
     install_skills
-    install_infrastructure
-    install_optional_systems
     validate_installation
 
     echo
