@@ -295,7 +295,7 @@ The repository includes **30 Active Core commands** and **209 extended library c
 
 A separate, older tier — [`archive/commands/`](archive/commands/) (51 files, from an earlier zero-usage pass) — uses a different criterion entirely and is untouched by the two-tier split above.
 
-Browse [`.claude/skills/`](.claude/skills/) for the full skill library, [`.claude/commands/`](.claude/commands/) and [`.claude/commands/extended-library/`](.claude/commands/extended-library/) for all slash shortcuts. 61 hooks and 28 top-level scripts round out the library — 246 skill directories in total live under `.claude/skills/`.
+Browse [`.claude/skills/`](.claude/skills/) for the full skill library, [`.claude/commands/`](.claude/commands/) and [`.claude/commands/extended-library/`](.claude/commands/extended-library/) for all slash shortcuts. 61 hooks and 28 top-level scripts round out the library — 247 skill directories in total live under `.claude/skills/`.
 
 ---
 
