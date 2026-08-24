@@ -55,7 +55,9 @@ def scan(root) -> dict:
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser = argparse.ArgumentParser(
+        description="Classify skill entries as proper, orphan, or duplicate."
+    )
     parser.add_argument("root", nargs="?", default=DEFAULT_ROOT, type=Path)
     parser.add_argument("--check-orphans", action="store_true")
     parser.add_argument("--check-duplicates", action="store_true")
