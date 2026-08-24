@@ -69,6 +69,30 @@ mkdir -p .claude/skills
 cp -r /tmp/jleechan-skills/.claude/skills/* .claude/skills/
 ```
 
+### ⚠️ Known gap: slash commands currently reference `~/.claude/skills/`, not your project
+
+Every command file in `.claude/commands/` tells the agent to read its skill from
+`~/.claude/skills/<name>/SKILL.md` — the maintainer's own home directory, not
+a path the install steps above actually populate. If you followed a manual
+install and a slash command doesn't resolve its skill content, the fix is to
+also copy skills to your own home directory:
+
+```bash
+mkdir -p ~/.claude/skills
+cp -r /tmp/jleechan-skills/.claude/skills/* ~/.claude/skills/
+```
+
+Native skill-directory scanning (Antigravity, Cursor 2.4+, and Codex when
+configured to scan `.claude/skills/`) discovers skills directly by name and
+is not affected by this — it's specifically the `.claude/commands/*.md` thin
+pointers, and by extension the documented `/command` syntax throughout this
+README, that assume the home-directory path. This predates this PR (found
+while extending the same pattern to `/rg` during this session's changes) and
+affects most of the 239 commands in this repo, not just the 18 featured
+here — a proper fix means updating the command layer's skill-resolution
+convention repo-wide, which is out of scope for a single PR. Tracked as a
+follow-up.
+
 ### Intelligent self-setup (any platform)
 
 Ask your coding agent to inspect the repo and install only what it needs:
