@@ -1,6 +1,8 @@
-# `.claude/commands/extended-library/` — 211 namespaced commands
+# `.claude/commands/extended-library/` — 209 namespaced commands
 
 **Created 2026-08-24.** Not the same thing as `archive/commands/`. See [README.md](README.md) for the side-by-side comparison of the two mechanisms.
+
+**2026-08-24 amendment:** `/sidekick` and `/swarm` were promoted from here back to Active Core (`.claude/commands/`) as part of the manually-curated 18-skill featured set in `README.md` — they are orchestration primitives the user explicitly asked to keep at top level. Active Core is now **30**; this directory now holds **209**. The historical counts and lists below (211, "28 that stayed flat") describe the original 2026-08-24 split and are preserved for provenance — see `archive/ARCHIVE-DECISION-2026-08-23.md` for the current authoritative Promoted/extended-library lists.
 
 ## The one thing to know
 
@@ -48,4 +50,4 @@ The cost is real and was accepted knowingly: some cross-references from an Activ
 git mv .claude/commands/extended-library/<name>.md .claude/commands/<name>.md
 ```
 
-Note that `tests/test_command_archive_migration.py` asserts exact counts (28 flat, 211 nested) against the lists in the decision doc, so a promotion is not just a file move — update the decision doc's Promoted and extended-library lists in the same change, or the test will correctly go red.
+Note that `tests/test_command_archive_migration.py` asserts exact counts (currently 30 flat, 209 nested, kept in sync with the decision doc) against the lists in the decision doc, so a promotion is not just a file move — update the decision doc's Promoted and extended-library lists in the same change, or the test will correctly go red.

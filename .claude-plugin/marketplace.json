@@ -1,14 +1,14 @@
 {
-  "name": "claude-commands-marketplace",
-  "description": "Official marketplace for Claude Commands - LLM Capital Efficiency Framework with 145+ production-tested workflow automation commands",
+  "name": "jleechan-skills",
+  "description": "Official marketplace for jleechan-skills - 239 production-tested slash commands and portable SKILL.md packages",
   "owner": {
     "name": "jleechan",
     "email": "team@worldarchitect.ai"
   },
   "plugins": [
     {
-      "name": "claude-commands",
-      "description": "LLM Capital Efficiency Framework: 145+ production-tested slash commands for autonomous development workflows, PR automation, and multi-agent orchestration",
+      "name": "jleechan-skills",
+      "description": "Modular Agent Skills library: 239 slash commands (30 Active Core + 209 Extended Library) and portable SKILL.md packages for autonomous development workflows, PR automation, and multi-agent orchestration",
       "version": "1.0.1",
       "source": "./",
       "author": {

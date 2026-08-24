@@ -2,8 +2,8 @@
 
 Asserts the post-migration end state under the new binding decision (superseding
 the earlier 94-command closure version):
-1. Active core commands in .claude/commands/ match the 28-command Promoted list.
-2. Extended commands in .claude/commands/extended-library/ match the 211-command list.
+1. Active core commands in .claude/commands/ match the 30-command Promoted list.
+2. Extended commands in .claude/commands/extended-library/ match the 209-command list.
 3. Every cross-library reference from promoted to extended resolves in extended-library/.
 4. All 27 top-20 human / top-20 agent seed commands remain active, plus forced 'innov'.
 
@@ -64,11 +64,11 @@ class CommandArchiveMigrationTest(unittest.TestCase):
         doc_text = DECISION_DOC.read_text(encoding="utf-8")
         cls.promoted = _parse_decision_list(doc_text, "### Promoted list")
         cls.extended = _parse_decision_list(doc_text, "### extended-library/ list")
-        if len(cls.promoted) != 28:
-            raise ValueError(f"Expected 28 promoted commands, parsed {len(cls.promoted)}")
-        if len(cls.extended) != 211:
+        if len(cls.promoted) != 30:
+            raise ValueError(f"Expected 30 promoted commands, parsed {len(cls.promoted)}")
+        if len(cls.extended) != 209:
             raise ValueError(
-                f"Expected 211 extended-library commands, parsed {len(cls.extended)}"
+                f"Expected 209 extended-library commands, parsed {len(cls.extended)}"
             )
 
     def test_active_count_matches_decision(self):
