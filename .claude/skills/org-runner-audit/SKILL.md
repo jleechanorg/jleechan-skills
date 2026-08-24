@@ -1,4 +1,5 @@
 ---
+name: org-runner-audit
 description: Query org-level self-hosted runners to audit runner health, labels, and registration count
 type: skill
 scope: repo

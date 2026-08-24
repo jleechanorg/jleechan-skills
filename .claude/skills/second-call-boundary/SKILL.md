@@ -1,3 +1,8 @@
+---
+name: second-call-boundary
+description: Post-tool LLM calls are allowed when the first model response requested server-executed tools and the second call incorporates exact tool results
+---
+
 # Second-Call Boundary Protocol
 
 ## Policy Overview

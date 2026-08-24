@@ -1,3 +1,8 @@
+---
+name: pre-cr-checklist
+description: Pre-CR self-review checklist — run before promoting a PR from Draft → Ready (before first CodeRabbit review)
+---
+
 # Pre-CR Self-Review Checklist
 
 Run this before promoting a PR from Draft → Ready (before first CodeRabbit review).

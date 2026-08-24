@@ -1,3 +1,8 @@
+---
+name: no-second-llm-calls
+description: One LLM call per user action — include additional context in primary prompt rather than via followup call
+---
+
 # No Second LLM Calls
 
 **COMPACTNESS RULE**: Keep this file under 100 lines.

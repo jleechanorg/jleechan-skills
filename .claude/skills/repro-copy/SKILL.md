@@ -1,3 +1,8 @@
+---
+name: repro-copy
+description: Copy a real campaign to <your-email@gmail.com>, replay a reported issue against a real local server + real LLM, and capture evidence that can survive review
+---
+
 # Repro Copy Workflow
 
 Use this skill when you need to copy a real campaign to `<your-email@gmail.com>`,
