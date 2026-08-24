@@ -5,7 +5,7 @@ import sys
 from collections.abc import Iterable
 from pathlib import Path
 
-SLASH_TOKEN_RE = re.compile(r"(?<![\w/])/([A-Za-z][A-Za-z0-9_-]*)(?![\w/])")
+SLASH_TOKEN_RE = re.compile(r"(?<![\w/])/(?:extended-library:)?([A-Za-z][A-Za-z0-9_-]*)(?![\w/])")
 FILE_EXT_RE = re.compile(
     r"\.(sh|md|py|json|jsonl|ya?ml|dot|txt|log|toml|ts|js|html|png|mp4)\b"
 )

@@ -59,9 +59,9 @@ execution_mode: immediate
 
 **Action Steps:**
 For each task, execute in sequence:
-1. **`/think light`** - Quick analysis to understand task scope
-2. **`/planexec`** - Create detailed execution plan with optimal strategy
-3. **`/handoff`** - Generate handoff branches and coordinate parallel work
+1. **`/extended-library:think light`** - Quick analysis to understand task scope
+2. **`/extended-library:planexec`** - Create detailed execution plan with optimal strategy
+3. **`/extended-library:handoff`** - Generate handoff branches and coordinate parallel work
 
 ## 📋 REFERENCE DOCUMENTATION
 
@@ -72,7 +72,7 @@ For each task, execute in sequence:
 **Action**: Commit local changes, switch to main, update roadmap/*.md, push to origin, switch back
 
 **Usage**:
-- `/roadmap` or `/r` - Single task (traditional mode)
+- `/roadmap` (or `/extended-library:r`) - Single task (traditional mode)
 - `/roadmap task1, task2, task3` - **Multi-task parallel processing** (comma-separated)
 - `/roadmap "complex task 1" "simple task 2"` - **Multiple quoted tasks** for complex descriptions
 - `/roadmap task1 task2 task3` - **Space-separated multiple tasks** (alternative format)
@@ -178,7 +178,7 @@ For each task, execute in sequence:
 
 ### 3. **Parallel Task Coordination**
 
-- Spawn dedicated tasks for each work item using `/orchestrate`
+- Spawn dedicated tasks for each work item using `/extended-library:orchestrate`
 - Create isolated worktrees for conflict-free parallel work
 - Each task works on its own feature branch
 - Tasks execute autonomously with progress tracking
@@ -216,15 +216,15 @@ For each task, execute in sequence:
 User: /roadmap implement auth system, create API docs, add unit tests
 Assistant: I'll process these 3 tasks in parallel. Let me analyze each one:
 
-[Executes /think light for each task]
+[Executes /extended-library:think light for each task]
 
 Task 1: Implement auth system - Complex, needs design
 Task 2: Create API docs - Medium, documentation task
 Task 3: Add unit tests - Small, testing task
 
-[Executes /planexec for each task with optimal strategies]
+[Executes /extended-library:planexec for each task with optimal strategies]
 
-[Executes /handoff for each task, creating branches]
+[Executes /extended-library:handoff for each task, creating branches]
 
 Now spawning parallel tasks:
 - Task task-1234 → Implementing auth system
@@ -243,22 +243,22 @@ You can monitor progress with:
 
 1. **Parse Tasks**: Split by commas or process multiple args
 2. **For Each Task**:
-   - Execute `/think light` to analyze
-   - Execute `/planexec` to create strategy
-   - Execute `/handoff` to create work branch
-   - Spawn agent via `/orchestrate`
+   - Execute `/extended-library:think light` to analyze
+   - Execute `/extended-library:planexec` to create strategy
+   - Execute `/extended-library:handoff` to create work branch
+   - Spawn agent via `/extended-library:orchestrate`
 3. **Update Roadmap**: Add parallel task section
 4. **Monitor Progress**: Track agent status
 5. **Merge Results**: As agents complete tasks
 
 ## Implementation Approach
 
-**LLM-Native Design**: This enhanced roadmap command works through Claude's natural interpretation of the above specifications, similar to other slash commands like `/think`, `/planexec`, and `/handoff`.
+**LLM-Native Design**: This enhanced roadmap command works through Claude's natural interpretation of the above specifications, similar to other slash commands like `/extended-library:think`, `/extended-library:planexec`, and `/extended-library:handoff`.
 
 When you use `/roadmap` with multiple tasks, Claude will:
 1. Parse the input according to the specifications above
 2. Execute the integrated workflow sequence naturally
-3. Spawn agents via `/orchestrate` for parallel processing
+3. Spawn agents via `/extended-library:orchestrate` for parallel processing
 4. Update roadmap.md with progress tracking
 
 This LLM-native approach provides flexibility while maintaining consistency through clear documentation.

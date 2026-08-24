@@ -15,7 +15,7 @@ execution_mode: immediate
 
 If the `/claw` task dispatches or supervises AO workers, also follow:
 
-- `~/.claude/commands/ao.md`
+- `~/.claude/commands/extended-library/ao.md`
 - `~/.claude/skills/ao-operator-discipline/SKILL.md`
 
 ## Rules

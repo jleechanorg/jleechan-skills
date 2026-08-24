@@ -1,5 +1,5 @@
 ---
-description: Steer work on $USER's Ubuntu machine (jeff-ubuntu) via SSH (mirrors /mac but targets the Linux box). Auto-detects local-vs-remote and chains via the MacBook when needed.
+description: Steer work on $USER's Ubuntu machine (jeff-ubuntu) via SSH (mirrors /extended-library:mac but targets the Linux box). Auto-detects local-vs-remote and chains via the MacBook when needed.
 type: execution
 execution_mode: immediate
 ---
