@@ -125,7 +125,8 @@ query = os.environ.get("HIST_QUERY", "")
 # Broad recency is intentional on this developer machine: start with cwd-matched
 # files when available, then fill the bounded sample from other local projects.
 all_files = glob.glob(os.path.expanduser("~/.claude/projects/*/*.jsonl"))
-cwd_matches = [p for p in all_files if os.path.basename(os.getcwd()) in p]
+cwd_project_key = os.getcwd().replace("/", "-")
+cwd_matches = [p for p in all_files if cwd_project_key in os.path.dirname(p)]
 files = (
     sorted(cwd_matches, key=os.path.getmtime, reverse=True)
     + sorted([p for p in all_files if p not in cwd_matches], key=os.path.getmtime, reverse=True)

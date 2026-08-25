@@ -20,7 +20,8 @@ class ApprovalContractsTest(unittest.TestCase):
         self.assertIn("A verdict built on a truncated inline artifact may not be `APPROVED`.", advice)
         self.assertIn("VERDICT: WITHHELD at <SHA>", advice)
         self.assertIn("COVERAGE", advice)
-        self.assertIn("Independent reviewers that returned a verdict", advice)
+        self.assertIn("research-only output are not approval reviewers", advice)
+        self.assertIn("combined scope covers the whole declared change", advice)
 
     def test_evidence_review_separates_integrity_from_provenance(self) -> None:
         review = skill("evidence-review")
@@ -37,6 +38,15 @@ class ApprovalContractsTest(unittest.TestCase):
         self.assertIn("`WITHHELD at <SHA>`", draft_first)
         self.assertIn("does not satisfy the draft gate", draft_first)
         self.assertIn("SHA-binding rule", draft_first)
+
+    def test_portable_and_orchestration_contracts_disclose_actual_behavior(self) -> None:
+        history = skill("conversation-history-sparse")
+        factory = skill("dark-factory")
+        swarm = skill("swarm")
+
+        self.assertIn('cwd_project_key = os.getcwd().replace("/", "-")', history)
+        self.assertIn("skip auto-selection but not the\npre-run disclosure", factory)
+        self.assertIn("The top-level session owns named visible lanes", swarm)
 
 
 if __name__ == "__main__":

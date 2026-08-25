@@ -114,14 +114,17 @@ Present:
 ```
 
 - Give every reviewer a row, including the ones that failed — write `unavailable (<reason>)` in the Verdict column. Never drop a row; a missing row hides a missing opinion.
-- 2+ available reviewers agree → state the recommended path, proceed.
+- 2+ available reviewers may inform a recommendation. Only the full-coverage
+  reviewer quorum below may emit `APPROVED`.
 - Available reviewers diverge → surface the disagreement, ask user which axis matters most (speed / safety / cost).
 
 ## Quorum — what you are allowed to conclude (mandatory)
 
-**The orchestrating agent is not a reviewer.** It writes the table; it does not vote in it. Only A, B, C, and D count toward quorum.
+**The orchestrating agent and research-only output are not approval reviewers.**
+They write or inform the table; they do not vote. Only A, C, and D count toward
+approval quorum, and each must declare `COVERAGE` after reading the change.
 
-| Independent reviewers that returned a verdict | What you may emit |
+| Independent full-coverage reviewers that returned a verdict | What you may emit |
 |---|---|
 | 2 or more | `APPROVED` or `NOT APPROVED`, per the synthesis |
 | exactly 1 | `NOT APPROVED` allowed; `APPROVED` is **not** — emit `WITHHELD` |
@@ -129,7 +132,10 @@ Present:
 
 Below quorum a lone reviewer may still block — one competent objection is enough to stop — but may never approve. Never resolve unreachable reviewers into `APPROVED`: an unreachable reviewer is missing evidence, not assent.
 
-**Coverage gates approval too.** A reviewer whose `COVERAGE` says it could not read the change counts toward *blocking* but not toward *approving* — it is an opinion, not a review. If no reviewer read the actual change, the verdict is `WITHHELD` regardless of how many opinions came back agreeing.
+**Coverage gates approval too.** A reviewer whose `COVERAGE` does not cover the
+declared diff/scope counts toward *blocking* but not toward *approving* — it is
+an opinion, not a review. `APPROVED` requires two independent coverage declarations
+whose combined scope covers the whole declared change. Otherwise emit `WITHHELD`.
 
 ## Final verdict format — SHA-bound (mandatory)
 

@@ -73,7 +73,10 @@ directive 2026-07-18); durability comes from STATE.md + a P1 resumption bead
 + commit-often, not process persistence. See sidekick SKILL.md § "The one and
 only mode" and § "Banned patterns".**
 
-**ALL /swarm work runs inside the sidekick — always, no exceptions.** The main session does NOT own the fan-outs — it spawns a **sidekick** (see `~/.claude/skills/sidekick/SKILL.md`, command `/sidekick`) and the sidekick runs the swarm:
+**ALL /swarm work uses the sidekick for durable state — always, no exceptions.**
+The top-level session owns named visible lanes; it also spawns a **sidekick**
+(see `~/.claude/skills/sidekick/SKILL.md`, command `/sidekick`) for durable state
+and any anonymous subagent fan-out:
 
 - Main session: writes/updates `STATE.md`, creates TaskList lanes, spawns the sidekick, relays milestone messages. Nothing load-bearing stays only in conversation context.
 - Sidekick: reads STATE.md on start (never redoes logged steps), claims tasks, fans out anonymous cost-routed sub-agents when needed, appends to Progress Log + rewrites Next Actions after EVERY step, commits+pushes after every green unit (≤30 min uncommitted), and propagates the commit-often instruction verbatim into every sub-agent prompt. The top-level session creates any named, panel-visible lanes requested by the sidekick.

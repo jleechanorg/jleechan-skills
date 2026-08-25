@@ -60,7 +60,10 @@ the task (see **Pipeline selection** below) unless the user passed `--pipeline`.
 4. If brownfield replace/delete: encode delete-first rules in the goal; do not
    use a greenfield additive pipeline by default.
 
-If `$ARGUMENTS` already contains `--pipeline`, skip auto-selection.
+If `$ARGUMENTS` already contains `--pipeline`, skip auto-selection but not the
+pre-run disclosure: resolve the selected `.dot`, state whether it has a
+`holdout_eval` node, and disclose its possible service/install/seed/evaluator
+effects before execution.
 
 ### Short-name expansion
 
