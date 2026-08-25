@@ -72,6 +72,7 @@ VERDICT: APPROVED | APPROVED with notes | CHANGES REQUESTED | REJECTED
 REASONING: 3-4 sentences
 RISK: main risk, one sentence
 CONFIDENCE: high | medium | low
+COVERAGE: files, diff, evidence, or subject material actually read; write `none` if unavailable
 WEB SOURCES: 1-3 URLs with one-line summaries (if you cited any)
 ```
 
@@ -181,11 +182,13 @@ console.log('sent to Perplexity');
 // For each model, after the response finishes (look for the "regenerate" / "thumbs up" footer)
 const respSnap = await snapshot(modelPage);
 const respText = respSnap.tree;
-// Parse for VERDICT:, REASONING:, RISK:, CONFIDENCE:
+// Parse for VERDICT:, REASONING:, RISK:, CONFIDENCE:, COVERAGE:
 const verdictMatch = respText.match(/VERDICT:\s*([^\n]+)/);
 const reasoningMatch = respText.match(/REASONING:\s*([^\n]+(?:\n[^\n]+){0,3})/);
+const coverageMatch = respText.match(/COVERAGE:\s*([^\n]+)/);
 console.log('verdict:', verdictMatch?.[1]);
 console.log('reasoning:', reasoningMatch?.[1]);
+console.log('coverage:', coverageMatch?.[1]);
 ```
 
 Models don't always format in the exact section headers. If the regex misses, look for the verdict line in the visible response:
@@ -195,19 +198,19 @@ Models don't always format in the exact section headers. If the regex misses, lo
 - **ChatGPT**: Most conversational, may not return structured output unless explicitly reminded
 - **Perplexity**: Citation-rich, "Sources" accordion; "Helpful"/"Not helpful" footer; verdict usually at the end
 
-**Parser fallback** if structured regex fails — re-prompt the model with: *"Reply with ONLY this exact format (no other text): VERDICT: <one line> | REASONING: <one line> | RISK: <one line> | CONFIDENCE: high/med/low"*. This is the most reliable cross-model pattern.
+**Parser fallback** if structured regex fails — re-prompt the model with: *"Reply with ONLY this exact format (no other text): VERDICT: <one line> | REASONING: <one line> | RISK: <one line> | CONFIDENCE: high/med/low | COVERAGE: <material actually read, or none>"*. This is the most reliable cross-model pattern.
 
 ### Step 5 — Synthesize
 
 ```markdown
 ## /web-advice synthesis
 
-| Model | Verdict | Confidence | Key finding |
-|---|---|---|---|
-| ChatGPT | <verdict> | high/med/low | <one line> |
-| Gemini Pro | <verdict> | high/med/low | <one line> |
-| Grok | <verdict> | high/med/low | <one line> |
-| Perplexity | <verdict> | high/med/low | <one line> (note: web-grounded, citation-rich) |
+| Model | Verdict | Confidence | Coverage | Key finding |
+|---|---|---|---|---|
+| ChatGPT | <verdict> | high/med/low | <declared material read> | <one line> |
+| Gemini Pro | <verdict> | high/med/low | <declared material read> | <one line> |
+| Grok | <verdict> | high/med/low | <declared material read> | <one line> |
+| Perplexity | <verdict> | high/med/low | <declared material read> | <one line> (note: web-grounded, citation-rich) |
 
 **Convergence:** <3-of-4 agree / all 4 agree / 2-2 split / other>
 **Recommended action:** <APPROVE / approve with conditions / change requests>

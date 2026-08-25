@@ -22,6 +22,8 @@ class ApprovalContractsTest(unittest.TestCase):
         self.assertIn("COVERAGE", advice)
         self.assertIn("research-only output are not approval reviewers", advice)
         self.assertIn("combined scope covers the whole declared change", advice)
+        self.assertIn("`COVERAGE: <files/diff scope actually read>`", advice)
+        self.assertIn("COVERAGE: files, diff, evidence, or subject material actually read", skill("web-advice"))
 
     def test_evidence_review_separates_integrity_from_provenance(self) -> None:
         review = skill("evidence-review")

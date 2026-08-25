@@ -86,7 +86,12 @@ Invoke `/research [decision topic distilled to 6 words]`
 
 **Reviewer C — Secondo (optional — needs infrastructure):**
 
-Invoke `/secondo` with the decision, and let it gather its own context — it already captures `git diff origin/main...HEAD` under its own budget (`SECOND_OPINION_MAX_DIFF_CHARS`, default 32,000 chars). Do **not** hand it a ≤150-line extract instead; that throttles it to a fraction of the context it would have collected on its own.
+Invoke `/secondo` with the decision and declared review scope, and let it gather
+its own context — it already captures `git diff origin/main...HEAD` under its own
+budget (`SECOND_OPINION_MAX_DIFF_CHARS`, default 32,000 chars). Require
+`COVERAGE: <files/diff scope actually read>` in its response. Do **not** hand it
+a ≤150-line extract instead; that throttles it to a fraction of the context it
+would have collected on its own.
 
 Requires the AI-Universe MCP endpoint (`AI_UNIVERSE_MCP_ENDPOINT`) and its OAuth flow. `/secondo` bans substituting WebSearch or direct provider MCPs, so there is no portable fallback — if the endpoint is unreachable, mark **C unavailable** and continue.
 
@@ -94,7 +99,9 @@ Requires the AI-Universe MCP endpoint (`AI_UNIVERSE_MCP_ENDPOINT`) and its OAuth
 
 **Reviewer D — Web Advice (optional — needs infrastructure):**
 
-Invoke `/web-advice` (multi-model Web Chat review via `aside-mcp` across Gemini Web, ChatGPT, Grok, inspecting PR, evidence bundle, and video proof).
+Invoke `/web-advice` with the decision and declared review scope. Require its
+synthesis to report `COVERAGE: <files/diff scope actually read>` before it can
+vote in this approval quorum.
 
 Requires live authenticated browser sessions. `/web-advice` carries its own HARD-FAIL contract: with no live transport it STOPs rather than substituting. **That STOP is scoped to Reviewer D, not to `/advice`** — mark **D unavailable** and continue with the remaining reviewers. Never satisfy D with an API, CLI, or subagent: an unavailable D is correct, a faked D is a method-fidelity violation.
 
