@@ -105,7 +105,7 @@ pointers and are intentionally not the documentation target.
 
 ### [`advice`](.claude/skills/advice/SKILL.md) — `/advice`, alias `/smart-advisor`
 
-Use this when you need independent reasoning at a real decision point. Give it a concise question and a pointer to the actual subject—a PR number, `base...head` ref, or file list—rather than pasting a preselected diff. It fans out to up to four reviewers concurrently: an Opus subagent (with a cursor→agy→`claude -p` fallback chain), `/research`, `/secondo`, and `/web-advice`, then returns a comparison table and recommendation. In `draft-first-pr`, an `APPROVED at <SHA>` verdict requires two independent reviewers whose declared coverage together spans the whole change; a missing reviewer, partial coverage, or truncated inline fallback produces `WITHHELD`, not approval.
+Use this when you need independent reasoning at a real decision point. Give it a concise question and a pointer to the actual subject—a PR number, `base...head` ref, or file list—rather than pasting a preselected diff. It fans out to up to four reviewers concurrently: an Opus subagent (with a cursor→agy→`claude -p` fallback chain), `/research`, `/secondo`, and `/web-advice`, then returns a comparison table and recommendation. In `draft-first-pr`, an `APPROVED at <SHA>` verdict requires two independent reviewers whose declared coverage together spans the whole change; fewer than two such reviewers, partial coverage, or a truncated inline fallback produces `WITHHELD`, not approval.
 
 ```bash
 /advice "Should we switch this cache from LRU to LFU eviction?"
@@ -145,7 +145,7 @@ Use this after evidence has been captured, not as a substitute for capturing it.
 
 ### [`dark-factory`](.claude/skills/dark-factory/SKILL.md) — `/factory` (`/f`)
 
-Runs a goal through the real external `dark-factory` binary and `.dot`-graph pipeline runner (StrongDM's Attractor pattern), recording every step in a SQLite CXDB rather than a conversation transcript, and grading against sealed holdout scenarios in a separate repo the agent is never allowed to read. Trades higher session cost for full replayability and a hard separation between the coding agent and the adversarial evaluator.
+Runs a goal through the real external `dark-factory` binary and `.dot`-graph pipeline runner (StrongDM's Attractor pattern), recording every step in a SQLite CXDB rather than a conversation transcript, and grading against sealed holdout scenarios in a separate repo the agent is never allowed to read. It trades interactive in-session flexibility for replayability and a hard separation between the coding agent and adversarial evaluator, while generally reducing session-context cost to one CLI call per node.
 
 ```bash
 /factory "Implement idempotent webhook signature validation with HMAC-SHA256"
@@ -153,7 +153,7 @@ Runs a goal through the real external `dark-factory` binary and `.dot`-graph pip
 
 ### [`evidence-standards`](.claude/skills/evidence-standards/SKILL.md) — `/es`
 
-Cross-project evidence-strength policy: a raw request/response capture from the real production code path is the strongest proof; an isolated unit test with mocked internals proves nothing about real behavior. Requires an "Evidence Envelope Declaration" — a per-item ledger, not free narration — for any breadth claim ("all/every/across N"). Names mocking an SDK at the in-process boundary (instead of the real network boundary) as a specific fabricated-evidence anti-pattern.
+Cross-project evidence-strength policy: a raw request/response capture from the real production code path is the strongest proof; an isolated unit test with mocked internals proves nothing about real behavior. For any breadth claim ("all/every/across N"), first declare the requested and reachable sets plus expansion cost and get acceptance; then report from a per-item Evidence Envelope ledger, leading with any undelivered scope. Names mocking an SDK at the in-process boundary (instead of the real network boundary) as a specific fabricated-evidence anti-pattern.
 
 ```bash
 /es "Verify API response latency reduction under 200 concurrent requests"
@@ -177,7 +177,7 @@ General-purpose live-browser task router: Aside first for authenticated sessions
 
 ### [`skillify`](.claude/skills/skillify/SKILL.md) — `/skillify`
 
-Audits a target script, feature, or workflow against a completeness checklist (SKILL.md frontmatter, tests, evals if it calls an LLM, resolver trigger, E2E test, memory filing) and generates whatever's missing, so useful procedures stop living only as ad-hoc scripts.
+Audits a target script, feature, or workflow against a completeness checklist (SKILL.md frontmatter, tests, evals if it calls an LLM, resolver trigger, E2E test, memory filing) and generates whatever's missing, so useful procedures stop living only as ad-hoc scripts. If the result exposes a slash command, it also requires a thin pointer command so workflow logic lives only in `SKILL.md`.
 
 ```bash
 /skillify scripts/deploy-staging.sh
@@ -225,7 +225,7 @@ One law: for independent work, the speed ceiling is the real per-item resource b
 
 ### [`conversation-history-sparse`](.claude/skills/conversation-history-sparse/SKILL.md) — `/history`
 
-Sparse, budget-capped search across the 3 canonical history stores (Claude Code JSONL, Codex SQLite threads, Hermes FTS5) with hard sampling limits — never `cat`s a full file. `--deep` escalates to a 6-source search (adds Antigravity, OpenCode, and Cursor history) when sparse results aren't enough.
+Sparse, budget-capped search across the 3 canonical history stores (Claude Code JSONL, Codex SQLite threads, Hermes FTS5) with hard sampling limits — never `cat`s a full file. `--deep` escalates to the seven-source, larger-budget `history-search` pass when sparse results are not enough.
 
 ```bash
 /history "why did the worktree cleanup script get deleted"
