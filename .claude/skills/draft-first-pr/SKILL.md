@@ -31,13 +31,23 @@ While a PR is draft, run these in sequence — do not skip ahead:
 
 1. **`/es`** — evidence bundle passes (real evidence per `~/.claude/skills/evidence-standards/SKILL.md` + repo-specific extensions), verified at the PR's current HEAD SHA.
 2. **`/er`** — evidence review verdict is PASS (not PARTIAL/FAIL/INCONCLUSIVE), verified at the same current HEAD SHA — re-run if `/es` was earned at an older SHA.
-3. **`/advice`** — second-opinion approval on the change itself (binary `APPROVED at <SHA>` / `NOT APPROVED at <SHA>` — see `~/.claude/skills/advice/SKILL.md`), bound to the same current HEAD SHA.
+3. **`/advice`** — second-opinion approval on the change itself (`APPROVED at <SHA>` / `NOT APPROVED at <SHA>` / `WITHHELD at <SHA>` — see `~/.claude/skills/advice/SKILL.md`), bound to the same current HEAD SHA. `WITHHELD` does not satisfy the draft gate.
 
 Only after all three pass **at the same current SHA**: flip the PR from draft to ready-for-review (`gh pr ready <N>`).
 
 ## SHA-binding rule (critical — applies to every gate in this chain)
 
-`/es`, `/er`, `/advice`, and `/green` are each earned **at a specific commit SHA** — none of them carry forward across a HEAD move. If a new commit lands after a verdict (a nit fix, a rebase, a CI-requested change), that verdict is **STALE** and must be re-earned — or explicitly re-affirmed at the new SHA — before it counts toward the next gate in the chain. This applies uniformly:
+`/es`, `/er`, `/advice`, and `/green` gate verdicts are each earned **at a specific commit SHA** — none of the production-gate verdicts carry forward across a HEAD move. If a new commit lands after a verdict (a nit fix, a rebase, a CI-requested change), that verdict is **STALE** and must be re-earned — or explicitly re-affirmed at the new SHA — before it counts toward the next gate in the chain.
+
+**This is a verdict-binding rule, not an automatic evidence-capture rule.** Apply
+the evidence-staleness tolerance in `evidence-standards`: a docs, tests,
+skills, ordinary PR-policy, or other non-behavioral HEAD change does not
+require a fresh production-evidence run. The reviewer may re-affirm `/es` at
+the new SHA after documenting the non-production diff. A production behavior
+change still requires fresh evidence, then fresh SHA-bound `/es`, `/er`, and
+`/advice` verdicts.
+
+The verdict rule applies uniformly:
 
 - A stale `/es` PASS does not justify running `/er` against it.
 - A stale `/er` PASS does not justify running `/advice` against it.

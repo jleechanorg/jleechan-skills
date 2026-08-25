@@ -15,7 +15,7 @@ description: Control real websites and authenticated browser sessions, inspect p
 
 1. Check for usable existing tabs before opening a new one.
 2. Read the page with an accessibility snapshot before acting. Use current refs, not guessed selectors or coordinates.
-3. Treat login, consent, chooser, and MFA screens as recoverable states. Never bypass them, extract secrets, or copy cookies between browser profiles.
+3. Treat login, consent, chooser, and MFA screens as recoverable states. Never bypass them or extract secrets. When the user explicitly authorizes local cookie transfer for the requested authenticated-content task, it is permitted between local browser profiles; scope it to the minimum domains and task, do not reveal cookie values, and do not use it to bypass MFA, consent, or account-access controls.
 4. Confirm any side effect from the resulting page state. Before sending, submitting, deleting, installing, authorizing, or publishing, verify the target and requested scope.
 5. Close tabs opened solely for the task when they are no longer useful.
 

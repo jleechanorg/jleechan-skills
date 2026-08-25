@@ -48,6 +48,25 @@ class CommandArchiveMigrationTest(unittest.TestCase):
         missing_files = [s for s in sorted(SEED_COMMANDS) if not (COMMANDS_DIR / f"{s}.md").is_file()]
         self.assertEqual(missing_files, [], f"Seed files missing from {COMMANDS_DIR}: {missing_files}")
 
+    def test_web_advice_and_browser_authorization_contracts(self):
+        """Active command policies keep review scope broad and auth handling explicit."""
+        web_advice = (REPO_ROOT / ".claude/skills/web-advice/SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        browser_control = (REPO_ROOT / ".claude/skills/browser-control/SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        browser_command = (REPO_ROOT / ".claude/commands/browser.md").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("Evidence is not a universal `/web-advice` gate.", web_advice)
+        self.assertIn("only when an evidence bundle or production claim is in scope", web_advice)
+        self.assertIn("Invoke `/er <bundle path or PR>`", web_advice)
+        self.assertIn("explicitly authorizes local cookie transfer", browser_control)
+        self.assertIn("user has explicitly authorized access", browser_command)
+        self.assertIn("Do not put tokens in prompts", browser_control)
+
 
 if __name__ == "__main__":
     unittest.main()

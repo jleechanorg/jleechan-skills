@@ -109,14 +109,26 @@ Do not print full JSONL lines. Wrap each prompt line with `ansify("claude", ...)
 per-source label is blue and the matched query substring is yellow.
 
 ```python
-import json, glob, os, sys
-sys.path.insert(0, os.path.expanduser("~/.claude/skills/conversation-history-sparse"))
-from SKILL import ansify, head  # noqa — or paste the helper inline
+import json, glob, os, re, sys
+
+use_color = sys.stdout.isatty() and not os.environ.get("NO_COLOR")
+colors = {"claude": "\033[34m", "head": "\033[1;37m", "match": "\033[1;33m", "reset": "\033[0m"}
+def color(name, text):
+    return f"{colors[name]}{text}{colors['reset']}" if use_color else text
+def head(text): return color("head", text)
+def ansify(source, body, query=""):
+    if query and use_color:
+        body = re.sub(re.escape(query), lambda m: color("match", m.group(0)), body, flags=re.I)
+    return f"{color(source, '[' + source.title() + ']')} {body}"
 
 query = os.environ.get("HIST_QUERY", "")
-files = sorted(
-    glob.glob(os.path.expanduser("~/.claude/projects/*/*.jsonl")),
-    key=os.path.getmtime, reverse=True
+# Broad recency is intentional on this developer machine: start with cwd-matched
+# files when available, then fill the bounded sample from other local projects.
+all_files = glob.glob(os.path.expanduser("~/.claude/projects/*/*.jsonl"))
+cwd_matches = [p for p in all_files if os.path.basename(os.getcwd()) in p]
+files = (
+    sorted(cwd_matches, key=os.path.getmtime, reverse=True)
+    + sorted([p for p in all_files if p not in cwd_matches], key=os.path.getmtime, reverse=True)
 )[:3]
 shown = 0
 for path in files:

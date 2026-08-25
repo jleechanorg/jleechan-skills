@@ -1,58 +1,61 @@
 ---
 name: web-advice
-description: Browser-based multi-model review using ChatGPT, Gemini, Grok, and Perplexity Web via aside-mcp. Use when you need an independent multi-model adversarial pass over a PR, evidence bundle, or design doc — not for in-session reviews (use /advice for that).
+description: Browser-based multi-model advice and review using ChatGPT, Gemini, Grok, and Perplexity Web via aside-mcp. Use for an independent external perspective on any subject, including PRs, designs, docs, plans, and decisions.
 ---
 
 # /web-advice — Multi-Model Browser Review
 
-`/web-advice` queries **4 independent web LLMs** (ChatGPT, Gemini, Grok, Perplexity) through their web UIs in the user's authenticated browser, then synthesizes their verdicts. This is **different from `/advice`** (which is in-session and uses subagents + /secondo + /research).
+`/web-advice` queries independent web LLMs (ChatGPT, Gemini, Grok, and Perplexity when available) through their web UIs in the user's authenticated browser, then synthesizes their advice. It can review or advise on any user-supplied subject: code and PRs, designs, documents, plans, decisions, research questions, UX, and operational proposals. This is **different from `/advice`**, which is in-session and uses subagents + /secondo + /research.
 
 | Skill | Mechanism | When to use |
 |---|---|---|
 | `/advice` | In-session: subagent + /secondo + /research | Architectural reasoning, ZFC reviews, code-path analysis |
-| `/web-advice` | Browser: ChatGPT + Gemini + Grok + Perplexity Web via `aside-mcp` | Independent multi-model adversarial pass; visual/video evidence; web-search grounding |
+| `/web-advice` | Browser: ChatGPT + Gemini + Grok + Perplexity Web via `aside-mcp` | Independent external multi-model advice or review; visual/video context; web-search grounding |
 | `/er` | In-session: evidence-standards skill | Evidence bundle integrity (4-gate checksum/SHA/real-services) |
 
-Use `/web-advice` when you need at least 2 different model families to converge on a verdict, or when the review must include external web standards (e.g., D&D 5e SRD, Stately XState, industry patterns).
+Use `/web-advice` when an external multi-model perspective will help, especially when you want different model families to challenge a conclusion or when external web standards matter (e.g., D&D 5e SRD, Stately XState, industry patterns). Target four models, but synthesize the models that are available and disclose any coverage gap.
 
 ---
 
 ## Pre-Flight Checklist (run BEFORE opening any browser)
 
-### Step 0a — Verify the review subject is ready
+### Step 0a — Identify and ground the subject
 
 ```bash
-# 1. PR + HEAD
+# For a PR: identify the live head.
 gh pr view <N> --json number,title,headRefName,headRefOid,state,url
 
-# 2. Evidence bundle (if reviewing a PR with one)
+# For an evidence bundle or production claim: locate the evidence.
 ls -la docs/pr<N>-evidence/ 2>/dev/null
 cat docs/pr<N>-evidence/metadata.json 2>/dev/null | python3 -m json.tool
-
-# 3. /er 4-gate pre-flight (REQUIRED for PRs with evidence bundles)
-cd docs/pr<N>-evidence
-sha256sum -c SHA256SUMS.txt          # Gate 1: Checksum integrity
-test -f verification_report.json    # Gate 2: Verification report (N/A if absent)
-cat metadata.json | jq '.git_provenance.git_head' | xargs -I {} \
-  bash -c 'test {} = $(gh pr view <N> --json headRefOid -q .headRefOid) && echo Gate 4 PASS || echo Gate 4 FAIL'  # Gate 4: SHA matching
 ```
 
-**Stop here if any gate FAILs** — regenerate the bundle first; /web-advice is wasted on stale evidence.
+Use the evidence appropriate to the subject: current diff and tests for a PR, the actual document for a document review, or stated assumptions and constraints for a plan or decision. Evidence is not a universal `/web-advice` gate.
 
-### Step 0b — Build the review prompt
+### Step 0b — Verify evidence only when it is part of the request
 
-A `/web-advice` prompt has 4 mandatory sections. Build it BEFORE opening the browser so you can paste the same prompt to all 3 models in one shot.
+Run the `/er` 4-gate check **only when an evidence bundle or production claim is in scope**—for example, when the advice must assess real-service proof or decide whether a bundle supports a production conclusion.
+
+Invoke `/er <bundle path or PR>` and record its current-HEAD verdict. Do not
+replace `/er` with a partial checksum, file-existence, or metadata check: those
+checks do not establish the verifier verdict, claim coverage, or provenance.
+
+If that verification fails, fail closed for the evidence or production claim: do not present it as verified, and regenerate it or run `/er` before relying on it. The broader code, design, document, or plan review may still proceed if its scope is clearly separated from the unverified claim.
+
+### Step 0c — Build the review prompt
+
+Build a concise prompt before opening the browser so you can paste the same request to each model. Include only the sections that apply.
 
 ```markdown
-You are a Senior Staff Principal AI Systems Architect reviewing a [PR | evidence bundle | design doc].
+You are an independent expert advising on a [PR | patch | design | document | plan | decision | research question | other].
 
 **Subject**:
-- Type: [PR | bundle | doc]
-- Identifier: [<PR URL> | <bundle path> | <doc path>]
+- Type: [subject type]
+- Identifier: [URL | path | concise question]
 - Branch / Commit: [<branch> @ <sha>]
 - Working directory: <absolute path>
 
-**Context** (≤ 200 lines, paste from local files):
+**Context** (paste only relevant material):
 - <relevant code, file:line citations>
 - <relevant tests, file:line citations>
 - <relevant doc snippets>
@@ -60,7 +63,7 @@ You are a Senior Staff Principal AI Systems Architect reviewing a [PR | evidence
 **Review dimensions** (pick what applies):
 1. Architectural soundness (state-machine compliance, ZFC consumer split, layer isolation)
 2. Edge case safety (concurrent writes, time freeze, god mode, modal locks)
-3. Evidence bundle integrity (checksum validity, SHA alignment, real-service proof)
+3. Evidence integrity and production-claim support (only if an evidence bundle or production claim is in scope)
 4. Test coverage (structural vs rendered-text, multi-turn vs single-shot)
 5. Web standards alignment (cite external sources)
 
@@ -72,7 +75,7 @@ CONFIDENCE: high | medium | low
 WEB SOURCES: 1-3 URLs with one-line summaries (if you cited any)
 ```
 
-The prompt is the same for all 3 models. Don't customize per model.
+The prompt should be materially the same for each model; adapt only for a model's input limits or required UI format.
 
 ---
 
@@ -247,24 +250,23 @@ Recovery:
 3. Continue with the other models
 4. If only 1 model is logged in, that's a single-model review, not multi-model — note this in synthesis
 
-### Stale evidence (Gate 4 FAIL)
+### Stale evidence (verification FAIL)
 
 Symptom: `metadata.json:git_provenance.git_head` ≠ PR HEAD `headRefOid`.
 
 Recovery:
-1. **Stop /web-advice** — the verdict will be against stale evidence
-2. Regenerate the evidence bundle against current HEAD
-3. Re-run /er 4-gate
-4. Re-run /web-advice
+1. Mark the evidence or production claim unverified; do not use it to support a recommendation.
+2. Regenerate the evidence bundle against current HEAD.
+3. Re-run `/er` before making an evidence-backed or production conclusion.
+4. Continue or repeat the broader advice only if that is useful after the evidence is fresh.
 
 ---
 
-## When NOT to use /web-advice
+## Scope notes
 
-- **In-session code review** → use `/advice` (subagent + /secondo + /research)
-- **Evidence bundle integrity** → use `/er` (4-gate checksum/SHA/real-services)
-- **Triage plan review** → use `/advice` first; escalate to `/web-advice` only if the plan needs external validation
-- **Visual/video proof** → `/web-advice` IS the right tool (Gemini can watch video)
+- `/advice` remains useful when the work is best handled with in-session repository analysis.
+- `/er` remains the authoritative evidence-integrity workflow when a bundle or production claim must be verified.
+- `/web-advice` is appropriate for any subject when external, independent model input is wanted; it does not require a PR, evidence bundle, or video.
 
 ---
 

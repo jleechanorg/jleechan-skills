@@ -58,6 +58,16 @@ fi
 - No checksum files → **INCONCLUSIVE** for integrity; do not award PASS.
 - Check manifest has entries for every file listed in the claim map and every file covered by either `checksums.sha256` or the discovered per-file `*.sha256` files, resolving per-file checksum entries relative to each `.sha256` file's directory.
 
+**Checksums establish integrity, not provenance.** A matching digest proves only
+that the reviewed bytes match the manifest; it does not prove where they came
+from, which code path produced them, or that they demonstrate the claimed
+behavior. A checksum alone does not make a claim STRONG. For STRONG evidence,
+also resolve the primary raw artifact against its capture provenance (for
+example `metadata.json.provenance.git_head`, runtime/process metadata, and the
+raw request/response or test output that directly shows the claim). If the
+only support for a claim is a checksum or a manifest entry, rate that claim
+**MISSING**, not STRONG.
+
 ### 2. Verification report ceiling
 
 `verification_report.json` is optional unless the subject claims verifier output exists.
@@ -180,7 +190,7 @@ For each claim, identify the single primary artifact that proves it. Rate qualit
 
 | Quality | Meaning |
 |---------|---------|
-| **STRONG** | Claim directly observable in a raw artifact (log line, screenshot frame, test output, sha256-verified file) |
+| **STRONG** | Claim directly observable in a raw artifact (log line, screenshot frame, test output) with resolved capture provenance; checksum integrity is necessary but not sufficient |
 | **WEAK** | Claim is indirect — derived from self-reporting (evidence.md, summary.md) without raw backing |
 | **MISSING** | No artifact supports the claim |
 | **INVALID** | Artifact-quality label only: an artifact exists but contradicts the claim, or fails integrity check. Overall verdict remains **FAIL**. |

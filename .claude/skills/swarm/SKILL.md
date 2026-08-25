@@ -48,8 +48,8 @@ Run a goal as a **swarm**: a deterministic Workflow-tool fan-out (ultracode) or 
 | Engine | When | Mechanics |
 |--------|------|-----------|
 | **Workflow tool (ultracode)** — DEFAULT | Heavy analysis/verification fan-outs: mining, review, audit, design hardening | `agent()/parallel()/pipeline()` script; visible in /workflows; resumable via `resumeFromRunId` |
-| **Agent teams** | Interactive lanes that need mid-flight steering or shared task claims | Named teammates (`lane1-history`, `lane4-code`, `lane5-infra` style) + TaskCreate/TaskUpdate claims + SendMessage; shutdown_request when a lane completes. Owned by the sidekick's own lanes (see below) — the main session never spawns these directly |
-| **Sidekick (durability layer)** — ALWAYS ON, NO exceptions | ALL swarm work runs inside the sidekick (/swarm ALWAYS uses /sidekick); main session never owns fan-outs directly | ONE named in-session Agent-Team teammate per `~/.claude/skills/sidekick/SKILL.md` (team-only: tmux/codex/`-p` sidekicks are banned) owns the swarm — SendMessage-addressable, visible in the user's panel, explicit `model` on every spawn; its lanes are named teammates too; state checkpointed to `$CLAUDE_STATE_DIR/<project-slug>/sidekick/<branch-or-mission>/STATE.md` (defaults to `~/roadmap`; see sidekick skill for the env-var resolution and the one-time ask behavior) after every step (branch-scoped — MANDATORY, `/`→`-` in branch names); restart = `/sidekick` in any fresh session |
+| **Agent teams** | Interactive lanes that need mid-flight steering or shared task claims | The top-level session creates named teammates (`lane1-history`, `lane4-code`, `lane5-infra` style); the sidekick may fan out anonymous subagents only. Use TaskCreate/TaskUpdate claims + SendMessage; shutdown_request when a lane completes. |
+| **Sidekick (durability layer)** — ALWAYS ON, NO exceptions | ALL swarm work uses the sidekick for durable state | ONE named in-session teammate maintains state; the top-level session owns visible named lanes because the harness roster is flat. State is checkpointed to `$CLAUDE_STATE_DIR/<project-slug>/sidekick/<branch-or-mission>/STATE.md` after every step; restart = `/sidekick` in any fresh session. |
 
 "Ultracode" = the Workflow tool, never /team-claude teammates (user corrected this twice).
 
@@ -64,9 +64,10 @@ lead re-task idle lanes via SendMessage.
 
 ## Sidekick durability layer ([Devin Fusion](https://cognition.com/blog/devin-fusion) sidekick pattern)
 
-**The sidekick and its lanes ALWAYS run as named in-process teammates of the
-INVOKING session's Agent Team — visible in the user's panel,
-SendMessage-addressable, explicit `model` on every spawn. There is no tmux
+**The sidekick runs as a named in-process teammate of the INVOKING session's
+Agent Team. Visible work lanes are named teammates created by the top-level
+session; sidekick fan-outs are anonymous subagents because the roster is flat.
+There is no tmux
 mode (external tmux, codex-engine, and `-p` sidekicks are banned — user
 directive 2026-07-18); durability comes from STATE.md + a P1 resumption bead
 + commit-often, not process persistence. See sidekick SKILL.md § "The one and
@@ -75,7 +76,7 @@ only mode" and § "Banned patterns".**
 **ALL /swarm work runs inside the sidekick — always, no exceptions.** The main session does NOT own the fan-outs — it spawns a **sidekick** (see `~/.claude/skills/sidekick/SKILL.md`, command `/sidekick`) and the sidekick runs the swarm:
 
 - Main session: writes/updates `STATE.md`, creates TaskList lanes, spawns the sidekick, relays milestone messages. Nothing load-bearing stays only in conversation context.
-- Sidekick: reads STATE.md on start (never redoes logged steps), claims tasks, fans out cost-routed sub-agents per lane, appends to Progress Log + rewrites Next Actions after EVERY step, commits+pushes after every green unit (≤30 min uncommitted), and propagates the commit-often instruction verbatim into every sub-agent prompt.
+- Sidekick: reads STATE.md on start (never redoes logged steps), claims tasks, fans out anonymous cost-routed sub-agents when needed, appends to Progress Log + rewrites Next Actions after EVERY step, commits+pushes after every green unit (≤30 min uncommitted), and propagates the commit-often instruction verbatim into every sub-agent prompt. The top-level session creates any named, panel-visible lanes requested by the sidekick.
 - **Branch-scoped STATE.md (mandatory)**: every sidekick/swarm mission gets its OWN state file at `$CLAUDE_STATE_DIR/<project-slug>/sidekick/<branch-name>/STATE.md` (`CLAUDE_STATE_DIR` defaults to `~/roadmap`; override via env var; `<project-slug>` = repo name for repo missions, per the sidekick skill's derivation rules; `/`→`-` in branch names; mission slug for cross-branch missions). Parallel runs on different branches must never share a state file — sharing caused a 2026-07 clobber (retro sidekick overwrote the CI/fleet sidekick's live plan via the generic `## Next Actions` heading). If a legacy shared `$CLAUDE_STATE_DIR/<project-slug>/sidekick/STATE.md` exists (or a pre-migration `/tmp/<project-slug>/sidekick/STATE.md`): migrate only YOUR mission's sections to your branch-scoped path, leave a one-line pointer, treat everything else as read-only.
 - **5-minute checkpoint cadence (MANDATORY for the sidekick AND every lane):** at least once every ≤5 min, (1) append a timestamped heartbeat + current phase to STATE.md, (2) update the P1 mission bead body (`br` v0.2.16 has no native `--append` — read current notes via `br show <bead-id> --json`, concatenate the new heartbeat, write back with `br update <bead-id> --notes "<combined text>"`) then `br sync` (`br sync` alone only syncs DB↔JSONL — it does NOT update the bead body on its own), and (3) make a local commit of state — so any crash loses ≤5 min. Drive it with a background timer/loop or CronCreate; a chat-only status print is NOT a checkpoint.
 - **Operator status cadence (MANDATORY, user directive 2026-07-29):** in addition to the disk checkpoints above, the MAIN SESSION posts a status update to the operator in-conversation every ~5 minutes while a swarm/sidekick mission is active. Schedule it mechanically at mission start (`CronCreate` `*/5 * * * *`, session-only) — do not rely on remembering. Each update: what changed since last update, proven-working vs not-working (evidence-backed), what each lane is doing, blockers; ping any lane silent 10+ min and say so. Status checkpoints are status-only — never start new work from one. Cancel when the mission ends or the operator stops the cadence. **Commit-safety:** if the worktree carries unrelated staged/modified work (another actor's diff, a staged deletion), NEVER `git commit`/`git add -A` there — route to an isolated state repo (`git init` a `.tmp/<mission>-state-repo/`, copy state in, commit) or a WIP branch with path-scoped `git add -- <state paths>`; gitignored `.tmp/` state needs the isolated-repo (or `-f`) path.
@@ -140,5 +141,3 @@ A resume must be possible from the bead body ALONE: repo/branch, task list with 
 5. **On completion per lane**: commit+push artifacts, audit false kills, mark task complete.
 5.5. **Cross-model adversarial pass (mandatory, rule 12)**: for any lane whose deliverable is a merge-readiness/bug-fixed/evidence-PASS claim on real code, dispatch a genuinely different model (codex/gemini/cursor-agent) to adversarially attack the claim — reproduce, don't just read. Spot-check the most concrete finding yourself before accepting the rest.
 6. **Close**: /advice pass → PR comment with provenance (runIds, agent counts, token spend) → /learn.
-
-
