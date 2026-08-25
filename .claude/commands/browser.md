@@ -12,6 +12,8 @@ Use `~/.claude/skills/playwright-ui-testing/SKILL.md` only when the task is dete
 
 ## Auth-gated share links (Gemini / ChatGPT / Google Docs / Notion)
 
+Use the cookie-transfer recipe only when the user has explicitly authorized access to the requested authenticated content. Keep cookies local and task-scoped, never expose their values, and continue to follow the canonical skill's credential-handling limits.
+
 **If the task is "read / save / summarize / extract / ingest" the content of an auth-gated share URL** (`share.gemini.google/...`, `chatgpt.com/share/...`, `docs.google.com/document/d/.../edit` with restricted access, `notion.so/...` shared pages, vendor AI share dialogs) and an anonymous fetch returns the vendor's sign-in shell — **do NOT post an "unblock options" menu and do NOT ask the user to paste the content.** On the first refusal, pivot to **`browserclaw` headless** and read the page AS the user.
 
 Verified 5-step recipe (2026-07-20 on Gemini share `Td7fA4pzuvMs`, 79 Google cookies decrypted, full 169KB page text extracted, campaign module saved via PR $GITHUB_REPOSITORY#8483):

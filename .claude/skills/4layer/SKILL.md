@@ -9,35 +9,40 @@ execution_mode: immediate
 Runs the Four-Layer Minimal Repro ladder to reproduce PR blockers quickly with evidence-backed classification.
 
 Primary source is the existing command definition and protocol companion:
-- `.claude/commands/4layer.md`
-- `.claude/skills/pr-blocker-min-repro.md`
+- `.claude/commands/extended-library/4layer.md`
+- `.claude/skills/pr-blocker-min-repro/SKILL.md`
 
 ## Minimal Repro Ladder
 
 Run tests in this order and stop at the first layer that conclusively reproduces the blocker:
 
-1. Unit tests (`$PROJECT_ROOT/tests/`)
+First discover the target project's documented test runner (`AGENTS.md`, `README`,
+`package.json`, `pyproject.toml`, or `Makefile`). Do not assume `./vpython` exists.
+If no runnable test command or matching layer fixture exists, report
+`UNSUPPORTED ENVIRONMENT / NO REPRO` with the checked paths instead of inventing one.
+
+1. Unit tests (`$PROJECT_ROOT/tests/`, when present)
 
 ```bash
-./vpython -m pytest $PROJECT_ROOT/tests/test_[relevant].py -q
+python3 -m pytest $PROJECT_ROOT/tests/test_[relevant].py -q
 ```
 
 2. End-to-end tests (`$PROJECT_ROOT/tests/test_end2end/`)
 
 ```bash
-./vpython -m pytest $PROJECT_ROOT/tests/test_end2end/test_[feature]_end2end.py -q
+python3 -m pytest $PROJECT_ROOT/tests/test_end2end/test_[feature]_end2end.py -q
 ```
 
 3. MCP/HTTP API tests (`testing_mcp/`)
 
 ```bash
-./vpython testing_mcp/[domain]/test_[feature]_real.py
+python3 testing_mcp/[domain]/test_[feature]_real.py
 ```
 
 4. Browser tests (`testing_ui/`)
 
 ```bash
-./vpython testing_ui/[domain]/test_[feature]_browser.py
+python3 testing_ui/[domain]/test_[feature]_browser.py
 ```
 
 ## Execution Rules
@@ -63,5 +68,5 @@ After each test run, capture:
 
 ## References
 
-- `.claude/skills/pr-blocker-min-repro.md` for BYOK-specific starter commands and bead note patterns.
-- `.claude/skills/integration-verification.md` for minimum evidence completeness.
+- `.claude/skills/pr-blocker-min-repro/SKILL.md` for BYOK-specific starter commands and bead note patterns.
+- `.claude/skills/integration-verification/SKILL.md` for minimum evidence completeness.

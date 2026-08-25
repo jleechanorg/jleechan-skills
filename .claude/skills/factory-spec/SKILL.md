@@ -180,12 +180,12 @@ start ──▶ holdout_eval ──(success)──▶ gate_es ──(success)─
 
 **Use when:** already-implemented diff needs Attractor-style 4-gate validation (requires holdout).
 
-### 3.5 `pr_gates.dot` — 3-Gate PR Validation (No Holdout)
+### 3.5 `pr_gates.dot` — PR Validation with Holdout
 
 ```
-start ──▶ gate_es ──(success)──▶ gate_er ──(success)──▶ gate_cs ──▶ exit
-             │                      │
-             └──(fail)──▶ exit      └──(fail)──▶ exit
+start ──▶ holdout ──(success)──▶ gate_es ──(success)──▶ gate_er ──(success)──▶ gate_cs ──▶ exit
+              │
+              └──(fail)──▶ fix ──▶ holdout
 ```
 
 | Node | Type | Handler | What it does |
@@ -194,7 +194,7 @@ start ──▶ gate_es ──(success)──▶ gate_er ──(success)──�
 | `gate_er` | `gate_er` | `claude --print /er` | Evidence review check |
 | `gate_cs` | `gate_code_standards` | `claude --print /code_standards` | ZFC + leveling + root-cause-first |
 
-**Use when:** validating an in-flight PR diff (like gates.dot but bypasses holdout features).
+**Use when:** validating an in-flight PR diff with sealed behavioral holdouts.
 
 ### 4. `hello.dot` — Plan/Implement/Fix Loop
 
@@ -220,10 +220,10 @@ fix ──▶ test (loop)
 
 **Use when:** full production pipeline from scratch: test → review → holdout → evidence gates.
 
-### 6. `minimal_pr.dot` — Slim PR Iteration Factory (No Holdout)
+### 6. `minimal_pr.dot` — Slim PR Iteration Factory with Holdout
 
 ```
-start ──▶ plan ──▶ implement ──▶ test ──(success)──▶ review ──(success)──▶ gate_es ──(success)──▶ gate_er ──(success)──▶ exit
+start ──▶ plan ──▶ implement ──▶ test ──(success)──▶ review ──(success)──▶ holdout ──(success)──▶ gate_es ──(success)──▶ gate_er ──(success)──▶ exit
                                     │                  │                  │                  │
                                     └──(fail)──▶ fix ◀─┘                  │                  │
                                                           └──(fail)──▶ fix ┘                  │
@@ -232,7 +232,7 @@ start ──▶ plan ──▶ implement ──▶ test ──(success)──▶
 fix ──▶ test (loop)
 ```
 
-**Use when:** in-flight PR iteration loop with parameterized test commands (`--state slim.test_command="..."`) and evidence checks, bypassing behavioral holdout scenarios.
+**Use when:** in-flight PR iteration loop with parameterized test commands and sealed behavioral holdouts.
 
 ## Handler type registry
 

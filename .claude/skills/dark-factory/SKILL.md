@@ -37,9 +37,9 @@ pipeline; use `/h` when you want an interactive in-session loop.
 |-------------|------|-------------|
 | `pipelines/factory/hello.dot` | plan → implement → holdout → fix-loop → exit | Add a new feature with a holdout scenario |
 | `pipelines/factory/gates.dot` | start → holdout → /es → /er → /code_standards → exit | Validate an already-implemented diff (Attractor-style 4-gate harness as `.dot`) |
-| `pipelines/factory/pr_gates.dot` | start → /es → /er → /code_standards → exit | Validate an already-implemented in-flight PR diff (bypasses holdouts) |
+| `pipelines/factory/pr_gates.dot` | start → holdout → /es → /er → /code_standards → exit | Validate an already-implemented in-flight PR diff with sealed behavioral holdouts |
 | `pipelines/slim/minimal_feature.dot` | plan → implement → test → review → holdout → gates → exit | Full production pipeline from scratch with a holdout |
-| `pipelines/slim/minimal_pr.dot` | plan → implement → test → review → gates → exit | Slim in-flight PR iteration loop with parameterized tests (bypasses holdouts) |
+| `pipelines/slim/minimal_pr.dot` | plan → implement → test → review → holdout → gates → exit | Slim in-flight PR iteration loop with parameterized tests and sealed holdouts |
 
 You can also write your own `.dot` and pass it via `--pipeline`.
 
@@ -56,10 +56,14 @@ the task (see **Pipeline selection** below) unless the user passed `--pipeline`.
    `~/projects/dark-factory/docs/pipeline-selection.md` (or the table in
    **Available pipelines** below).
 3. **Tell the user** which pipeline you chose and why before running.
+   State whether it runs holdouts; holdouts may start target-repo services, install dependencies, seed data, and execute sealed evaluators.
 4. If brownfield replace/delete: encode delete-first rules in the goal; do not
    use a greenfield additive pipeline by default.
 
-If `$ARGUMENTS` already contains `--pipeline`, skip auto-selection.
+If `$ARGUMENTS` already contains `--pipeline`, skip auto-selection but not the
+pre-run disclosure: resolve the selected `.dot`, state whether it has a
+`holdout_eval` node, and disclose its possible service/install/seed/evaluator
+effects before execution.
 
 ### Short-name expansion
 

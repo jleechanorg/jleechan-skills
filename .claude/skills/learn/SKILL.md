@@ -104,16 +104,20 @@ require `OPENAI_API_KEY`. The real availability gates are:
    `OLLAMA_HOST`, etc., not what we hard-code here).
 
 **Verification step (mandatory before reporting "mem0 unavailable"):** Run the
-helper with a tiny Stop-hook fixture and confirm a Qdrant-side delta or markdown
-append. Example:
+existing read-only health check. Do not manufacture a learning message or require a
+Qdrant/markdown write merely to test availability:
 
 ```bash
-PAYLOAD='{"stop_hook_active": false, "last_assistant_message": "mem0_save smoke test message that is at least one hundred characters long to pass the MIN_RESPONSE_LEN guard and exercise the persistence path end-to-end.", "transcript_path": "'$(echo ~/.claude/projects/-Users-$USER-projects-worldarchitect-ai/ | sed "s|/$||")'/sessions/mem0-smoke.jsonl"}'
-echo "$PAYLOAD" | ~/.hermes/.venv/bin/python3 ~/.hermes/.claude/hooks/mem0_save.py
+~/.hermes/.venv/bin/python3 -c '
+import importlib.util
+from pathlib import Path
+assert importlib.util.find_spec("mem0")
+assert Path.home().joinpath(".hermes/.claude/hooks/mem0_save.py").is_file()
+'
 ```
 
 Only if this fails (or the helper/import probe fails) report `mem0 unavailable:
-<exact blocker>`. Otherwise report `mem0 saved (<N> facts to Qdrant+markdown)`.
+<exact blocker>`. Otherwise report `mem0 available` and save only the actual learning.
 **Never block learning capture on a mem0 error** — it is an optional target;
 continue to the remaining persistence steps regardless of outcome.
 

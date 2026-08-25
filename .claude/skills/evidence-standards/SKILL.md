@@ -52,7 +52,7 @@ Reachability is **computed, never a hardcoded list** (a frozen "X is unreachable
 
 **A moving HEAD does NOT invalidate evidence by itself.** Evidence captured at a prior SHA
 stays valid at HEAD as long as **no production-code change** landed between the evidence SHA
-and HEAD. Docs, tests, skills, CI-lint, type-hints, and comment-only commits stacked on top
+and HEAD. Docs, tests, skills, ordinary PR-policy changes, CI-lint, type-hints, and comment-only commits stacked on top
 do **not** require a fresh evidence run. Flagging evidence "stale" because the head SHA moved
 — without checking *what* moved — is an over-correction; check the diff, not the SHA equality.
 
