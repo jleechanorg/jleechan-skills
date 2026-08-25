@@ -169,7 +169,7 @@ Multi-model adversarial review through real, authenticated browser sessions on C
 
 ### [`browser-control`](.claude/skills/browser-control/SKILL.md) — `/browser`
 
-General-purpose live-browser task router: Aside first for authenticated sessions/site settings/OAuth/existing tabs, `playwright-ui-testing` for deterministic app testing, `browserclaw` last and only for credential-free API discovery. Never bypasses login/MFA/consent and never copies cookies between profiles.
+General-purpose live-browser task router: Aside first for authenticated sessions/site settings/OAuth/existing tabs, `playwright-ui-testing` for deterministic app testing, and `browserclaw` for headless fallback work. For an authenticated share flow, `browserclaw` may copy cookies from a locally authorized browser profile into its headless session; it does not bypass login, MFA, or consent.
 
 ```bash
 /browser "open the billing settings page and check the current plan tier"
