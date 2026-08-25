@@ -78,26 +78,26 @@ session, or integration that is not bundled with this export.
 The catalog below links to the canonical skills. Commands are convenience
 pointers and are intentionally not the documentation target.
 
-| Command | Full name / skill | One-line summary |
+| Command | Full name / skill | When to use it / expected outcome |
 |---|---|---|
-| `/advice` (`/smart-advisor`) | [`advice`](.claude/skills/advice/SKILL.md) | Parallel second opinion and synthesis. |
-| `/repro` | [`repro-evidence`](.claude/skills/repro-evidence/SKILL.md) | Reproduces a reported problem against a real target. |
-| `/research` | [`research`](.claude/skills/research/SKILL.md) | Primary-source research with citations. |
-| `/memory-search` (`/ms`) | [`memory-search`](.claude/skills/memory-search/SKILL.md) | Searches configured memory stores in parallel. |
-| `/evidence-review` (`/er`) | [`evidence-review`](.claude/skills/evidence-review/SKILL.md) | Reviews evidence against the evidence standard. |
-| `/factory` (`/f`) | [`dark-factory`](.claude/skills/dark-factory/SKILL.md) | Runs an external Dark Factory pipeline. |
-| `/es` | [`evidence-standards`](.claude/skills/evidence-standards/SKILL.md) | Defines evidence strength and required artifacts. |
-| `/web-advice` (`/webadvice`) | [`web-advice`](.claude/skills/web-advice/SKILL.md) | Authenticated browser-based multi-model review. |
-| `/browser` | [`browser-control`](.claude/skills/browser-control/SKILL.md) | Routes live-browser tasks to the right tool. |
-| `/skillify` | [`skillify`](.claude/skills/skillify/SKILL.md) | Turns a reusable procedure into a skill package. |
-| `/harness` | [`harness-engineering`](.claude/skills/harness-engineering/SKILL.md) | Finds and repairs durable harness gaps. |
-| `/learn` | [`learn`](.claude/skills/learn/SKILL.md) | Captures a reusable lesson in configured stores. |
-| `/4layer` | [`4layer`](.claude/skills/4layer/SKILL.md) | Escalates a minimal reproduction through four layers. |
-| `/redgreen` (`/rg`) | [`redgreen`](.claude/skills/redgreen/SKILL.md) | Requires RED, targeted CODE, GREEN, and consensus. |
-| `/parallel` | [`parallelize-to-ceiling`](.claude/skills/parallelize-to-ceiling/SKILL.md) | Sizes independent work to real resource limits. |
-| `/history` | [`conversation-history-sparse`](.claude/skills/conversation-history-sparse/SKILL.md) | Searches conversation history with bounded scope. |
-| `/sidekick` | [`sidekick`](.claude/skills/sidekick/SKILL.md) | Runs a persistent named teammate. |
-| `/swarm` | [`swarm`](.claude/skills/swarm/SKILL.md) | Coordinates multi-agent work with adversarial verification. |
+| `/advice` (`/smart-advisor`) | [`advice`](.claude/skills/advice/SKILL.md) | Use at a design or implementation decision. Give the question plus a PR, ref, or path; independent reviewers read the real scope and return a synthesized recommendation. For a PR gate, incomplete or truncated review context can only yield `WITHHELD`, never approval. |
+| `/repro` | [`repro-evidence`](.claude/skills/repro-evidence/SKILL.md) | Use before fixing a reported bug that needs proof. State the symptom and real target; it creates an isolated replay, captures provenance, and returns `REPRO`, `RELATED`, or `NON-REPRO` rather than guessing. |
+| `/research` | [`research`](.claude/skills/research/SKILL.md) | Use when a decision depends on facts rather than recollection. Ask a focused question; a background agent gathers primary sources and writes a cited Markdown finding in the repo’s established notes location. |
+| `/memory-search` (`/ms`) | [`memory-search`](.claude/skills/memory-search/SKILL.md) | Use to recover prior work, decisions, or incidents. Ask a specific query; it searches the configured roadmap, Beads, local memories, history, wiki, and Slack in parallel, then returns merged, cacheable leads. |
+| `/evidence-review` (`/er`) | [`evidence-review`](.claude/skills/evidence-review/SKILL.md) | Use after collecting evidence for a claim or PR, especially production behavior. Supply the bundle or subject; it checks integrity and provenance, maps artifacts to claims, and returns `PASS`, `PARTIAL`, `FAIL`, or `INCONCLUSIVE`. |
+| `/factory` (`/f`) | [`dark-factory`](.claude/skills/dark-factory/SKILL.md) | Use when you want a replayable external pipeline rather than an in-chat agent loop. Give it a concrete goal on a machine with Dark Factory installed; it records the graph run and evaluates against sealed holdouts. |
+| `/es` | [`evidence-standards`](.claude/skills/evidence-standards/SKILL.md) | Use before claiming a production behavior is fixed or before asking for `/er`. State the claim and its scope; it tells you which real-path artifacts are needed and what those artifacts can, and cannot, prove. |
+| `/web-advice` (`/webadvice`) | [`web-advice`](.claude/skills/web-advice/SKILL.md) | Use for an independent external perspective on code, plans, documents, designs, or decisions. Provide the review scope and relevant links/material; authenticated web models are compared with declared coverage and any unavailable-model gap is disclosed. |
+| `/browser` | [`browser-control`](.claude/skills/browser-control/SKILL.md) | Use to inspect or complete an approved live-browser task. Name the site, target state, and allowed side effect; it selects the right browser tool, works from current page state, and confirms the resulting UI state. |
+| `/skillify` | [`skillify`](.claude/skills/skillify/SKILL.md) | Use when a useful script, feature, or repeatable procedure should become a durable skill. Give the target path and purpose; it audits the completeness contract and identifies or creates the missing skill, test, resolver, and command pieces. |
+| `/harness` | [`harness-engineering`](.claude/skills/harness-engineering/SKILL.md) | Use after a recurring agent mistake, review escape, or workflow failure. Describe the incident; it traces the cause through instructions, skills, memory, tests, and automation, then fixes the most durable layer. |
+| `/learn` | [`learn`](.claude/skills/learn/SKILL.md) | Use to preserve a concrete correction or recovery pattern after it is understood. State the lesson and context; it files it in the configured durable stores and reports any persistence destination that is unavailable. |
+| `/4layer` | [`4layer`](.claude/skills/4layer/SKILL.md) | Use to locate a PR blocker with the smallest credible reproduction. Give the bug and target repo; it discovers the project’s runner, tries unit → end-to-end → API → browser, and stops at the first conclusive layer. |
+| `/redgreen` (`/rg`) | [`redgreen`](.claude/skills/redgreen/SKILL.md) | Use to repair one known defect test-first. Provide the current symptom; it requires a fresh failing reproduction, a minimal fix, a passing rerun, and evidence that the full RED → CODE → GREEN flow actually happened. |
+| `/parallel` | [`parallelize-to-ceiling`](.claude/skills/parallelize-to-ceiling/SKILL.md) | Use whenever work has independent files, tests, rows, jobs, or agent lanes. List the work and constraints; it identifies the real CPU, I/O, network, or shared-state limit and proposes safe shards instead of an arbitrary worker count. |
+| `/history` | [`conversation-history-sparse`](.claude/skills/conversation-history-sparse/SKILL.md) | Use for fast orientation on what the current repo or branch has been doing. Ask a focused question; it samples high-signal Claude, Codex, and Hermes history without loading full transcripts; add `--deep` only when the sparse pass is insufficient. |
+| `/sidekick` | [`sidekick`](.claude/skills/sidekick/SKILL.md) | Use for one long-running mission that must survive a session crash. Give a named outcome and success criteria; it assigns a persistent teammate and checkpoints durable state plus a resumption Bead. |
+| `/swarm` | [`swarm`](.claude/skills/swarm/SKILL.md) | Use when a goal decomposes into independent, adversarially reviewable lanes. State the goal and optional shape/engine; it sizes the fan-out, assigns explicit models and disjoint outputs, and requires multi-lens verification before synthesis. |
 
 ---
 
@@ -105,7 +105,7 @@ pointers and are intentionally not the documentation target.
 
 ### [`advice`](.claude/skills/advice/SKILL.md) — `/advice`, alias `/smart-advisor`
 
-Gets a fast, cheap second opinion at a decision point without shipping the whole conversation to another model. Extracts a tight decision (3-5 sentences) plus a ≤150-line artifact, then fans out to up to four reviewers concurrently: an Opus subagent (with a cursor→agy→`claude -p` fallback chain), `/research`, `/secondo`, and `/web-advice`. Results synthesize into a comparison table; inside the `draft-first-pr` lifecycle it ends with a binary, SHA-bound verdict (`VERDICT: APPROVED at <SHA>`) so a later commit invalidates a stale approval. Degrades gracefully if a reviewer CLI is missing rather than failing outright.
+Use this when you need independent reasoning at a real decision point. Give it a concise question and a pointer to the actual subject—a PR number, `base...head` ref, or file list—rather than pasting a preselected diff. It fans out to up to four reviewers concurrently: an Opus subagent (with a cursor→agy→`claude -p` fallback chain), `/research`, `/secondo`, and `/web-advice`, then returns a comparison table and recommendation. In `draft-first-pr`, an `APPROVED at <SHA>` verdict requires two independent reviewers whose declared coverage together spans the whole change; a missing reviewer, partial coverage, or truncated inline fallback produces `WITHHELD`, not approval.
 
 ```bash
 /advice "Should we switch this cache from LRU to LFU eviction?"
@@ -137,7 +137,7 @@ Fans a query out in parallel across ten distinct memory sources — roadmap, bea
 
 ### [`evidence-review`](.claude/skills/evidence-review/SKILL.md) — `/evidence-review` (`/er`)
 
-The enforcement layer on top of `evidence-standards`' "what to produce" layer. Runs mandatory bundle-integrity checks (checksum verification) before judging, then returns PASS / PARTIAL / FAIL / INCONCLUSIVE with file:line-level artifact citations. PASS requires every claim backed by a STRONG-quality artifact and is mandatory for `/green` on production-tier PRs; its verdict is parsed directly into `/green`'s merge-gate table.
+Use this after evidence has been captured, not as a substitute for capturing it. Point it at the evidence bundle or claim path; it checks artifact integrity and whether the claimed evidence has real execution provenance, then returns PASS / PARTIAL / FAIL / INCONCLUSIVE with file:line citations. Checksums protect an artifact’s integrity but do not establish its provenance. A production-tier `/green` requires PASS, while non-production work can use a disclosed PARTIAL waiver.
 
 ```bash
 /evidence-review docs/evidence/checkout-latency-fix/
@@ -161,7 +161,7 @@ Cross-project evidence-strength policy: a raw request/response capture from the 
 
 ### [`web-advice`](.claude/skills/web-advice/SKILL.md) — `/web-advice`, alias `/webadvice`
 
-Multi-model adversarial review through real, authenticated browser sessions on ChatGPT, Gemini, Grok, and Perplexity Web — never a provider API or CLI substitute. Reserved for reviews needing genuine cross-model-family convergence or web-grounded fact-checking. Requires the PR/evidence bundle to already be ready before any browser session opens.
+Use this when an external, web-grounded, multi-model perspective will improve a code review, design, document, plan, research question, or operational decision. Provide the subject, scope, and any relevant links or artifacts; it uses real authenticated browser sessions on ChatGPT, Gemini, Grok, and Perplexity Web—never a provider API or CLI substitute—and records each available model’s verdict and coverage. Run `/er` separately only when the subject includes an evidence bundle or production claim.
 
 ```bash
 /web-advice "Should we migrate auth session storage from Redis to DynamoDB with TTL?"
