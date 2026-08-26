@@ -14,7 +14,7 @@ This authorization covers planning decisions, not implementation, destructive ac
 
 ## Child-Contract Overrides
 
-For this invocation only, use the installed `superpowers:brainstorming` and `superpowers:writing-plans` skills when available; the bundled portable fallbacks are `~/.claude/skills/superpowers-brainstorming/SKILL.md` and `~/.claude/skills/superpowers-writing-plans/SKILL.md`. This wrapper overrides only their conflicting interactive and Git-side-effect instructions.
+For this invocation only, use the installed `superpowers:brainstorming` and `superpowers:writing-plans` skills when available; the bundled portable fallbacks are `~/.claude/skills/superpowers-brainstorming/SKILL.md` and `~/.claude/skills/superpowers-writing-plans/SKILL.md`. This wrapper takes precedence over every child instruction that would require interactive input, mutate Git, invoke implementation, create an external side effect, or continue past this wrapper's terminal condition.
 
 Do not pause for user review, approval, clarification, or checkpoint responses. Select and record recommended defaults as specified below. Do not offer the visual companion, open it, or wait for a response. Do not commit or push.
 
@@ -33,4 +33,4 @@ Complete the required architectural design, specification self-review, implement
 
 Finish only when both documents exist, cover the requested outcome, pass their respective self-reviews, and contain no `TBD`, `TODO`, or deferred decision.
 
-If a valid plan requires unavailable user-specific information or new authority, stop with the exact blocker. Ordinary ambiguity, an unseen design, or the normal brainstorming approval checkpoints are not blockers under this explicitly invoked wrapper.
+If implementation would require unavailable user-specific information or new authority, still write and self-review both documents. Record the exact unmet precondition under `Implementation Preconditions`, make every affected implementation step conditional on it, and do not treat the planning invocation as authorization to satisfy it. Ordinary ambiguity, an unseen design, or the normal brainstorming approval checkpoints never justify stopping before both documents exist.

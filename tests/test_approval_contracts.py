@@ -44,6 +44,9 @@ class ApprovalContractsTest(unittest.TestCase):
         self.assertIn("Do not commit or push", quick)
         self.assertIn("Skip its execution handoff", quick)
         self.assertIn("Terminate immediately after", quick)
+        self.assertIn("takes precedence over every child instruction", quick)
+        self.assertIn("still write and self-review both documents", quick)
+        self.assertNotIn("stop with the exact blocker", quick)
 
     def test_advice_reviews_repository_before_approving(self) -> None:
         advice = skill("advice")
