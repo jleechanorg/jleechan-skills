@@ -6,6 +6,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SKILLS = REPO_ROOT / ".claude" / "skills"
+COMMANDS = REPO_ROOT / ".claude" / "commands"
 
 
 def skill(name: str) -> str:
@@ -13,6 +14,22 @@ def skill(name: str) -> str:
 
 
 class ApprovalContractsTest(unittest.TestCase):
+    def test_superpowers_quick_delegates_recommended_choices_and_finishes_documents(self) -> None:
+        command = (COMMANDS / "superpowers-quick.md").read_text()
+        quick = skill("superpowers-quick")
+
+        self.assertIn("~/.claude/skills/superpowers-quick/SKILL.md", command)
+        self.assertNotIn("superpowers:brainstorming", command)
+        self.assertNotIn("superpowers:writing-plans", command)
+        self.assertIn("superpowers:brainstorming", quick)
+        self.assertIn("superpowers:writing-plans", quick)
+        self.assertIn("recommended", quick.lower())
+        self.assertIn("invocation is the user's explicit authorization", quick.lower())
+        self.assertIn("do not ask the user", quick.lower())
+        self.assertIn("docs/superpowers/specs/", quick)
+        self.assertIn("docs/superpowers/plans/", quick)
+        self.assertIn("terminal condition", quick.lower())
+
     def test_advice_reviews_repository_before_approving(self) -> None:
         advice = skill("advice")
         self.assertIn("**Pointer**", advice)
