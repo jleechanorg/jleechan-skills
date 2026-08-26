@@ -169,6 +169,7 @@ curl -fsSL https://releases.aside.com/install.sh | bash
 - ❌ Using `require('fs')` or `process.stdout` inside the REPL — only `Buffer` and the Aside functions are in scope. Save files by emitting base64 to stdout and decoding in the caller.
 - ❌ Calling `browser_click` / `browser_type` / `browser_fill` / `browser_press` from `aside repl` — **these primitives don't exist in the REPL** (verified v1.26.713.1911, 2026-07-13). Use `mcp__aside-mcp__*` from a runtime that exposes them, or drive the page via `page.evaluate(...)`. See Pattern `slack.getClient()` bypass below for Slack-specific shortcuts.
 - ❌ Passing multi-line JS with parens / curly braces / template literals directly as an `aside repl "..."` inline arg — bash tokenizes before Aside sees the code. Use `$(cat /tmp/script.js)` or a quoted heredoc instead. Wasted two REPL invocations on 2026-07-13 on `aside repl "lines.filter(l => /button \"/button '.+'/i.test(l)).slice(0, 60)..."`.
+- ❌ Using Aside inference (`aside "..."` NL agent, `aside --effort ultrabrowse`, `aside exec`, `aside exec -m`) for `/web-advice` — `/web-advice` must strictly use `aside-mcp` / `aside repl` Playwright API to navigate directly to web chat pages (`https://chatgpt.com/`, `https://gemini.google.com/app`, `https://grok.com/`, `https://www.perplexity.ai/`) to leverage the user's active web chat subscriptions. Aside inference consumes Aside's token quota and does not use the web chat subscriptions.
 
 ## Path / tool availability matrix (as of 2026-06-27)
 

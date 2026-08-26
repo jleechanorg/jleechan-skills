@@ -23,7 +23,33 @@ class ApprovalContractsTest(unittest.TestCase):
         self.assertIn("research-only output are not approval reviewers", advice)
         self.assertIn("combined scope covers the whole declared change", advice)
         self.assertIn("`COVERAGE: <files/diff scope actually read>`", advice)
-        self.assertIn("COVERAGE: files, diff, evidence, or subject material actually read", skill("web-advice"))
+
+    def test_web_advice_requires_real_browser_transport(self) -> None:
+        web_adv = skill("web-advice")
+        self.assertIn("COVERAGE: files, diff, evidence, or subject material actually read", web_adv)
+        self.assertIn("Zero Aside Inference Invariant", web_adv)
+        self.assertIn("NEVER use Aside inference", web_adv)
+        self.assertNotIn("fall back to a subagent", web_adv.lower())
+        self.assertNotIn("fall back to subagent", web_adv.lower())
+
+        workflow = (
+            REPO_ROOT
+            / "hermes"
+            / "skills"
+            / "workflow"
+            / "apply-supplied-patch-and-open-pr"
+            / "SKILL.md"
+        ).read_text()
+        self.assertNotIn("recorded CLI review via `codex exec`", workflow)
+        self.assertNotIn("/web-advice (Codex)", workflow)
+
+        evals = (
+            SKILLS / "web-advice" / "evals" / "web_advice_evals.md"
+        ).read_text()
+        self.assertIn("`aside-mcp` and `aside repl`", evals)
+        self.assertNotIn("the four ladder rungs", evals)
+        self.assertNotIn("--remote-debugging-port", evals)
+        self.assertNotIn("click Connect in the extension", evals)
 
     def test_evidence_review_separates_integrity_from_provenance(self) -> None:
         review = skill("evidence-review")

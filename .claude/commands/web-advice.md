@@ -22,7 +22,7 @@ When invoked, load and follow the canonical skill at `~/.claude/skills/web-advic
 1. **Load Skill**: Read `~/.claude/skills/web-advice/SKILL.md` via `view_file`.
 2. **Execute the canonical workflow**:
    - **Phase 1**: Context aggregation appropriate to the subject (for example: PR diff, design, document, plan, or video proof).
-   - **Phase 2**: Browser Session Connection via `aside-mcp` (`gemini.google.com`, `chatgpt.com`, `grok.com`).
+   - **Phase 2**: Follow the canonical skill's browser-only navigation and hard-fail transport contract; it prohibits Aside inference.
    - **Phase 3**: Structured prompt submission using applicable review dimensions.
    - **Phase 4**: Response Capture & Synthesis (multi-model verdicts table).
    - **Phase 5**: Synthesis and recommended next action; do not require universal model approval.

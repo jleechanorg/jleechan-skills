@@ -50,6 +50,13 @@ Routes user phrases to skill entries. Each section is a skill with its canonical
 **File:** `skills/browserclaw/SKILL.md`
 **Triggers:** browserclaw, capture browser traffic, playwright
 
+## web-advice — /web-advice, web advice, multi model review, ask chatgpt gemini grok perplexity, external model review, browser review
+
+**File:** `~/.claude/skills/web-advice/SKILL.md`
+**Mechanism:** Use only `aside-mcp` or `aside repl` browser automation on the
+real authenticated web-chat sites. Aside inference, provider APIs, CLI models,
+subagents, and WebSearch/WebFetch are not `/web-advice` transports.
+
 ## cmux
 
 **File:** `skills/cmux/SKILL.md`

@@ -13,6 +13,23 @@ description: Browser-based multi-model advice and review using ChatGPT, Gemini, 
 | `/web-advice` | Browser: ChatGPT + Gemini + Grok + Perplexity Web via `aside-mcp` | Independent external multi-model advice or review; visual/video context; web-search grounding |
 | `/er` | In-session: evidence-standards skill | Evidence bundle integrity (4-gate checksum/SHA/real-services) |
 
+## Hard-Fail Transport Contract: Aside Browser Only
+
+> [!IMPORTANT]
+> **Zero Aside Inference Invariant (Strict Hard-Fail Rule)**:
+> `/web-advice` MUST ONLY use `aside-mcp` (or `aside repl` Playwright API) for **browser navigation and DOM automation** (opening tabs, filling web textareas, clicking send, reading responses).
+>
+> **NEVER use Aside inference** (`aside "..."` NL agent, `aside --effort ultrabrowse`, `aside exec`, `aside exec -m <model>`, or Aside's backend AI models).
+> Aside inference consumes Aside's token quota / usage limits and does NOT use the operator's web chat subscriptions.
+> The entire purpose of `/web-advice` is to navigate to the web chat interfaces (`https://chatgpt.com/`, `https://gemini.google.com/app`, `https://grok.com/`, `https://www.perplexity.ai/`) to leverage the user's active web chat subscriptions (ChatGPT Plus/Team/Pro, Gemini Advanced, Grok/X Premium, Perplexity Pro) via the authenticated browser.
+>
+> **Banned Substitutes**: Provider APIs, CLI models (agy, codex CLI), Aside inference (`aside exec`, `aside "..."` NL agent), in-session subagents, and WebSearch/WebFetch synthesis are all strictly banned.
+> If no real browser seat remains reachable, report the observed transport failures and stop `/web-advice`; do not launch or relabel a substitute review.
+>
+> Before opening tabs and again before labeling captured output `/web-advice`, validate the selected transport:
+> `python3 ~/.claude/skills/web-advice/scripts/web_advice_transport.py assert-transport aside_mcp`
+> Use `aside_repl` instead of `aside_mcp` only when driving the same browser Playwright API through `aside repl`.
+
 Use `/web-advice` when an external multi-model perspective will help, especially when you want different model families to challenge a conclusion or when external web standards matter (e.g., D&D 5e SRD, Stately XState, industry patterns). Target four models, but synthesize the models that are available and disclose any coverage gap.
 
 ---
@@ -231,7 +248,7 @@ Recovery:
 1. Check that the Aside Browser app is still running (not crashed)
 2. Reopen any lost tabs: `await openTab('https://gemini.google.com/app')` etc.
 3. Re-snapshot before each fill (refs are NOT stable across `attachBrowserTab` cycles)
-4. If recovery fails 3 times, fall back to a subagent with WebSearch (this is /advice Reviewer A, not /web-advice — but better than nothing)
+4. If recovery fails 3 times, mark the affected seats unavailable and report the exact errors. Do not substitute another review mechanism.
 
 ### Captcha or rate limit
 
@@ -241,7 +258,7 @@ Recovery:
 1. Stop the affected model — don't retry
 2. Note the rate-limit in the synthesis
 3. Continue with the other 2 models
-4. If 2-of-3 already returned, synthesize and stop; if 1-of-3 only, fall back to subagent
+4. If 2-of-3 already returned, synthesize and stop; if only one seat returned, report a single-seat result and the coverage gap without substitution
 
 ### Login required
 
