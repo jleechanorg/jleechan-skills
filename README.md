@@ -22,7 +22,7 @@ shift right to locate failures, audit evidence, and prevent repeat escapes.
 
 | Shift left · before the code | Shift right · after the code |
 |---|---|
-| **[Superpowers brainstorming](https://github.com/obra/superpowers) (third-party)** — design before writing code. | **[`/4layer`](.claude/skills/4layer/SKILL.md)** — unit → end-to-end → MCP/HTTP → browser; the first reproducing layer owns the investigation. |
+| **[Superpowers brainstorm](https://github.com/obra/superpowers) (third-party)** — made by Jesse Vincent; design before writing code. | **[`/4layer`](.claude/skills/4layer/SKILL.md)** — unit → end-to-end → MCP/HTTP → browser; the first reproducing layer owns the investigation. |
 | **[`/advice`](.claude/skills/advice/SKILL.md) + [`/web-advice`](.claude/skills/web-advice/SKILL.md)** — fan out independent reviewers before committing to an approach. | **[`/evidence-review`](.claude/skills/evidence-review/SKILL.md)** — require every claim to resolve to a real, provenance-backed artifact. |
 | **[`/redgreen`](.claude/skills/redgreen/SKILL.md)** — require a test you watched fail before accepting the bug or its fix as real. | **[`/harness`](.claude/skills/harness-engineering/SKILL.md)** — when a failure repeats, fix the process that allowed it through. |
 
@@ -31,7 +31,7 @@ The six highlighted `jleechanorg` skills are `/advice`, `/web-advice`,
 prompts and packages that do not depend on WorldAI or private infrastructure.
 
 > **Third-party attribution:** [Superpowers](https://github.com/obra/superpowers)
-> is Jesse Vincent's project. It can complement the shift-left side of this
+> is made by Jesse Vincent. It can complement the shift-left side of this
 > strategy, but it is **not authored, owned, or maintained by Jeffrey Lee or
 > jleechanorg**, and it is not one of the six skills highlighted above.
 
