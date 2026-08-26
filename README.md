@@ -12,6 +12,42 @@ shortcuts.
 
 ---
 
+## Executive Summary
+
+Six portable skills form a quality loop around implementation. The first three
+**shift left**, challenging decisions and proving the problem before code is
+trusted. The last three **shift right**, locating failures in the running stack,
+auditing evidence, and strengthening the process after repeat escapes.
+
+| Skill | Control point | Expected outcome |
+|---|---|---|
+| [`/advice`](.claude/skills/advice/SKILL.md) | Before committing to an approach | Independent reviewers inspect the real scope and synthesize a recommendation. |
+| [`/web-advice`](.claude/skills/web-advice/SKILL.md) | Before committing to an approach | Authenticated web models provide an external perspective with coverage gaps disclosed. |
+| [`/redgreen`](.claude/skills/redgreen/SKILL.md) | Before trusting a fix | A fresh failing reproduction proves the defect; the same test then proves the minimal fix. |
+| [`/4layer`](.claude/skills/4layer/SKILL.md) | When debugging integrated behavior | Unit → end-to-end → MCP/HTTP → browser escalation stops at the first layer that reproduces the failure. |
+| [`/evidence-review`](.claude/skills/evidence-review/SKILL.md) | Before accepting a claim | Every claim is mapped to a real artifact and graded `PASS`, `PARTIAL`, `FAIL`, or `INCONCLUSIVE`. |
+| [`/harness`](.claude/skills/harness-engineering/SKILL.md) | After a recurring escape | The durable workflow, instruction, test, or automation gap is repaired so the mistake is harder to repeat. |
+
+These six skills are portable prompts and packages in this repository; they do
+not depend on WorldAI or any private infrastructure.
+
+## Left/Right Shift Strategy
+
+| Shift left · before and around the code | Shift right · through and after the code |
+|---|---|
+| **`/advice` + `/web-advice`** — fan out independent reviewers before committing to an approach. | **`/4layer`** — escalate from unit to end-to-end to MCP/HTTP to browser; the first reproducing layer owns the investigation. |
+| **`/redgreen`** — require a test you watched fail before accepting the bug or its fix as real. | **`/evidence-review`** — require claims to resolve to real, provenance-backed artifacts. |
+| Build the right thing and establish a trustworthy RED state. | **`/harness`** — when a failure repeats, fix the process that allowed it through. |
+
+> **Third-party attribution:** [Superpowers](https://github.com/obra/superpowers)
+> is Jesse Vincent's project. It can complement the shift-left side of this
+> strategy, but it is **not authored, owned, or maintained by Jeffrey Lee or
+> jleechanorg**, and it is not one of the six skills highlighted above.
+
+Strategy source: [“Shift left, shift right — a portable skill system”](https://docs.google.com/presentation/d/1rGk2ZUIlJw3AkVJmJbdVB5OqAixR6M_xp7lc6lP2awA/edit?slide=id.gogSlide1787597443235634000#slide=id.gogSlide1787597443235634000).
+
+---
+
 ## Intelligent self-setup (any platform)
 
 Ask your coding agent to inspect the repository and install only what it needs:
