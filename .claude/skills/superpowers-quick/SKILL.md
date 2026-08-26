@@ -1,6 +1,7 @@
 ---
 name: superpowers-quick
 description: Use when the user explicitly invokes /superpowers-quick and wants an idea turned into a complete design specification and implementation plan without interactive choice or review pauses.
+disable-model-invocation: true
 ---
 
 # Superpowers Quick
