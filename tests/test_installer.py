@@ -87,6 +87,32 @@ class InstallerIntegrationTest(unittest.TestCase):
             self.assertFalse((target / "skills/example/scripts/__pycache__").exists())
             self.assertFalse((target / "skills/example/scripts/.pytest_cache").exists())
 
+    def test_superpowers_quick_installs_with_bundled_subskills(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            relative_files = (
+                Path("commands/superpowers-quick.md"),
+                Path("skills/superpowers-quick/SKILL.md"),
+                Path("skills/superpowers-brainstorming/SKILL.md"),
+                Path("skills/superpowers-writing-plans/SKILL.md"),
+            )
+            for relative in relative_files:
+                source = REPO_ROOT / ".claude" / relative
+                destination = fixture / ".claude" / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, destination)
+
+            target = temp_dir / "claude-home"
+            result = self.run_installer(fixture, target)
+
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            quick = (target / "skills/superpowers-quick/SKILL.md").read_text()
+            for dependency in ("superpowers-brainstorming", "superpowers-writing-plans"):
+                installed_dependency = target / f"skills/{dependency}/SKILL.md"
+                self.assertTrue(installed_dependency.is_file(), installed_dependency)
+                self.assertIn(f"~/.claude/skills/{dependency}/SKILL.md", quick)
+
     def test_second_default_run_refuses_to_overwrite_an_existing_install(self):
         with tempfile.TemporaryDirectory() as directory:
             temp_dir = Path(directory)

@@ -31,6 +31,20 @@ class ApprovalContractsTest(unittest.TestCase):
         self.assertIn("docs/superpowers/plans/", quick)
         self.assertIn("terminal condition", quick.lower())
 
+    def test_superpowers_quick_resolves_portable_dependencies_and_overrides_child_pauses(self) -> None:
+        quick = skill("superpowers-quick")
+
+        for dependency in ("superpowers-brainstorming", "superpowers-writing-plans"):
+            dependency_path = SKILLS / dependency / "SKILL.md"
+            self.assertTrue(dependency_path.is_file(), dependency_path)
+            self.assertIn(f"~/.claude/skills/{dependency}/SKILL.md", quick)
+
+        self.assertIn("Do not offer the visual companion", quick)
+        self.assertIn("Do not pause for user review", quick)
+        self.assertIn("Do not commit or push", quick)
+        self.assertIn("Skip its execution handoff", quick)
+        self.assertIn("Terminate immediately after", quick)
+
     def test_advice_reviews_repository_before_approving(self) -> None:
         advice = skill("advice")
         self.assertIn("**Pointer**", advice)
