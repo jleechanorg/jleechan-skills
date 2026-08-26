@@ -97,6 +97,10 @@ results/
 # Claude Code runtime files
 .claude/scheduled_tasks.lock
 
+# Agent runtime worktrees (created by Agent Orchestrator under .claude/worktrees/agent-*
+# — runtime state, not source. 4 stale entries seen 2026-08-26 on this branch, see bead bd-m7n.)
+.claude/worktrees/
+
 # home-config snapshots must NEVER be committed here (2026-07-12 public leak incident)
 backup/
 
