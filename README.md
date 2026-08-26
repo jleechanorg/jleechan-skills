@@ -14,30 +14,21 @@ shortcuts.
 
 ## Executive Summary
 
-Six portable skills form a quality loop around implementation. The first three
-**shift left**, challenging decisions and proving the problem before code is
-trusted. The last three **shift right**, locating failures in the running stack,
-auditing evidence, and strengthening the process after repeat escapes.
+Six highlighted skills form a portable quality loop around implementation.
+Shift left to challenge decisions and prove the problem before code is trusted;
+shift right to locate failures, audit evidence, and prevent repeat escapes.
 
-| Skill | Control point | Expected outcome |
-|---|---|---|
-| [`/advice`](.claude/skills/advice/SKILL.md) | Before committing to an approach | Independent reviewers inspect the real scope and synthesize a recommendation. |
-| [`/web-advice`](.claude/skills/web-advice/SKILL.md) | Before committing to an approach | Authenticated web models provide an external perspective with coverage gaps disclosed. |
-| [`/redgreen`](.claude/skills/redgreen/SKILL.md) | Before trusting a fix | A fresh failing reproduction proves the defect; the same test then proves the minimal fix. |
-| [`/4layer`](.claude/skills/4layer/SKILL.md) | When debugging integrated behavior | Unit → end-to-end → MCP/HTTP → browser escalation stops at the first layer that reproduces the failure. |
-| [`/evidence-review`](.claude/skills/evidence-review/SKILL.md) | Before accepting a claim | Every claim is mapped to a real artifact and graded `PASS`, `PARTIAL`, `FAIL`, or `INCONCLUSIVE`. |
-| [`/harness`](.claude/skills/harness-engineering/SKILL.md) | After a recurring escape | The durable workflow, instruction, test, or automation gap is repaired so the mistake is harder to repeat. |
+### Highlighted skills · left/right shift strategy
 
-These six skills are portable prompts and packages in this repository; they do
-not depend on WorldAI or any private infrastructure.
-
-## Left/Right Shift Strategy
-
-| Shift left · before and around the code | Shift right · through and after the code |
+| Shift left · before the code | Shift right · after the code |
 |---|---|
-| **`/advice` + `/web-advice`** — fan out independent reviewers before committing to an approach. | **`/4layer`** — escalate from unit to end-to-end to MCP/HTTP to browser; the first reproducing layer owns the investigation. |
-| **`/redgreen`** — require a test you watched fail before accepting the bug or its fix as real. | **`/evidence-review`** — require claims to resolve to real, provenance-backed artifacts. |
-| Build the right thing and establish a trustworthy RED state. | **`/harness`** — when a failure repeats, fix the process that allowed it through. |
+| **[Superpowers brainstorming](https://github.com/obra/superpowers) (third-party)** — design before writing code. | **[`/4layer`](.claude/skills/4layer/SKILL.md)** — unit → end-to-end → MCP/HTTP → browser; the first reproducing layer owns the investigation. |
+| **[`/advice`](.claude/skills/advice/SKILL.md) + [`/web-advice`](.claude/skills/web-advice/SKILL.md)** — fan out independent reviewers before committing to an approach. | **[`/evidence-review`](.claude/skills/evidence-review/SKILL.md)** — require every claim to resolve to a real, provenance-backed artifact. |
+| **[`/redgreen`](.claude/skills/redgreen/SKILL.md)** — require a test you watched fail before accepting the bug or its fix as real. | **[`/harness`](.claude/skills/harness-engineering/SKILL.md)** — when a failure repeats, fix the process that allowed it through. |
+
+The six highlighted `jleechanorg` skills are `/advice`, `/web-advice`,
+`/redgreen`, `/4layer`, `/evidence-review`, and `/harness`. They are portable
+prompts and packages that do not depend on WorldAI or private infrastructure.
 
 > **Third-party attribution:** [Superpowers](https://github.com/obra/superpowers)
 > is Jesse Vincent's project. It can complement the shift-left side of this
