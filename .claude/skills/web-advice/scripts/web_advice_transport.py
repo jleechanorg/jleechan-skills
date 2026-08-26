@@ -17,8 +17,9 @@ CONTRACT section for full provenance):
    sites. Provider APIs, CLI models, subagents, and WebSearch are BANNED
    substitutes even with disclosure. If no transport is live: STOP.
    -> WebAdviceHardFail + resolve_transport_ladder()
-2. TRANSPORT LADDER, in order: aside-mcp repl -> aside CLI repl. Both drive
-   real web-chat sessions without invoking Aside inference.
+2. TRANSPORT LADDER, in order: Aside browser automation first, then verified
+   real-browser fallbacks. Every rung drives the vendor web UI; none invokes
+   model inference outside that UI.
    -> resolve_transport_ladder()
 6. Seats must be accounted for honestly: never present a partial panel as full.
    -> seat_accounting()
@@ -67,11 +68,17 @@ class WebAdviceHardFail(Exception):
     """
 
 
-# Ladder order matters: the MCP transport is preferred over the equivalent
-# CLI REPL fallback when both are live.
+# Ladder order matters. Aside remains primary. The Chrome-cookie rung is the
+# first backup because a 2026-08-25 live probe proved an authenticated Gemini
+# response through system Chrome headless; portable Playwright and the more
+# operator-dependent CDP/extension routes follow.
 _LADDER = (
     ("aside_mcp", "aside_mcp"),
     ("aside_repl", "aside_repl"),
+    ("chrome_headless_cookies", "chrome_headless_cookies"),
+    ("playwright_mcp", "playwright_mcp"),
+    ("chrome_headless_cdp", "chrome_headless_cdp"),
+    ("chrome_extension", "chrome_extension"),
 )
 
 
@@ -80,11 +87,12 @@ def resolve_transport_ladder(probe_results: dict) -> str:
 
     Args:
         probe_results: dict with any subset of the boolean keys
-            {aside_mcp, aside_repl}.
+            {aside_mcp, aside_repl, chrome_headless_cookies, playwright_mcp,
+            chrome_headless_cdp, chrome_extension}.
             Missing keys are treated as False (probe not run / not live).
 
     Returns:
-        One of: "aside_mcp", "aside_repl".
+        The highest-priority live real-browser transport from ``_LADDER``.
 
     Raises:
         WebAdviceHardFail: when every probe is false/missing. Per the
@@ -102,7 +110,7 @@ def resolve_transport_ladder(probe_results: dict) -> str:
         "sessions on the real sites only. Do NOT substitute provider APIs, "
         "CLI models, in-session subagents, or WebSearch/WebFetch and call "
         "the result /web-advice. Stop and ask the user to fix/reconnect the "
-        "Aside browser or REPL transport."
+        "authenticated browser transport."
     )
 
 
@@ -151,7 +159,17 @@ _BANNED_SUBSTITUTES = frozenset(
     }
 )
 
-_ALLOWED_TRANSPORTS = frozenset({"aside_mcp", "aside_repl"})
+_PRIMARY_TRANSPORTS = frozenset({"aside_mcp", "aside_repl"})
+_BROWSER_BACKUP_TRANSPORTS = frozenset(
+    {
+        "chrome_headless_cookies",
+        "playwright_mcp",
+        "chrome_headless_cdp",
+        "chrome_extension",
+    }
+)
+_ALLOWED_TRANSPORTS = _PRIMARY_TRANSPORTS | _BROWSER_BACKUP_TRANSPORTS
+_FALLBACK_REASONS = frozenset({"aside_unavailable", "unsupported_platform"})
 
 
 def _normalize_mechanism(mechanism: str) -> str:
@@ -165,20 +183,36 @@ def is_banned_substitute(mechanism: str) -> bool:
     Files API / generateContent, OpenAI API, xAI API), CLI models (agy,
     codex, gemini CLI), Aside inference (aside_exec, aside_nl_agent,
     aside_ultrabrowse), in-session subagents, and WebSearch/WebFetch
-    synthesis. The separate allowlist accepts only aside_mcp and aside_repl.
+    synthesis. The separate allowlist accepts primary Aside transports and
+    conditionally eligible real-browser fallbacks.
     """
     return _normalize_mechanism(mechanism) in _BANNED_SUBSTITUTES
 
 
-def assert_allowed_transport(mechanism: str) -> None:
-    """Raise unless `mechanism` is an approved Aside browser transport."""
+def assert_allowed_transport(
+    mechanism: str, fallback_reason: str | None = None
+) -> None:
+    """Raise unless ``mechanism`` is an eligible real-browser transport.
+
+    Aside transports are always eligible and remain preferred. Browser backup
+    transports require an explicit, deterministic reason so they cannot
+    silently displace a working Aside route.
+    """
     normalized = _normalize_mechanism(mechanism)
     if is_banned_substitute(mechanism) or normalized not in _ALLOWED_TRANSPORTS:
         raise WebAdviceHardFail(
             f"Unsupported /web-advice transport: {mechanism!r}. "
-            "Use aside-mcp or aside repl browser automation only; "
-            "Aside inference and substitute review mechanisms are forbidden."
+            "Use an approved real-browser transport; Aside inference and "
+            "substitute review mechanisms are forbidden."
         )
+    if normalized in _BROWSER_BACKUP_TRANSPORTS:
+        normalized_reason = _normalize_mechanism(fallback_reason or "")
+        if normalized_reason not in _FALLBACK_REASONS:
+            raise WebAdviceHardFail(
+                f"Browser backup transport {mechanism!r} requires "
+                "fallback_reason=aside_unavailable or unsupported_platform. "
+                "Probe and prefer aside-mcp/aside repl when they are usable."
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -879,15 +913,23 @@ def main(argv: list[str] | None = None) -> int:
     subparsers = parser.add_subparsers(dest="command", required=True)
     transport_parser = subparsers.add_parser("assert-transport")
     transport_parser.add_argument("mechanism")
+    transport_parser.add_argument(
+        "--fallback-reason",
+        choices=sorted(_FALLBACK_REASONS),
+    )
     args = parser.parse_args(argv)
 
     try:
-        assert_allowed_transport(args.mechanism)
+        assert_allowed_transport(args.mechanism, args.fallback_reason)
     except WebAdviceHardFail as exc:
         print(str(exc), file=sys.stderr)
         return 2
 
-    print(f"allowed /web-advice transport: {_normalize_mechanism(args.mechanism)}")
+    reason = f" fallback_reason={args.fallback_reason}" if args.fallback_reason else ""
+    print(
+        f"allowed /web-advice transport: {_normalize_mechanism(args.mechanism)}"
+        f"{reason}"
+    )
     return 0
 
 

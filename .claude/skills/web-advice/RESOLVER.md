@@ -20,10 +20,11 @@ line**, not in a sub-line below it. This file follows that fix.
 
 **File:** `~/.claude/skills/web-advice/SKILL.md`
 **Command:** `/web-advice`
-**Mechanism:** real browser sessions driven through `aside-mcp` or the
-`aside repl` Playwright API on the actual ChatGPT/Gemini/Grok/Perplexity
-websites in the user's authenticated browser. Provider APIs, CLI models,
-Aside inference (`aside exec`, `aside "..."` NL agent),
+**Mechanism:** real browser sessions on the actual
+ChatGPT/Gemini/Grok/Perplexity websites. Prefer `aside-mcp` or `aside repl`;
+when Aside is unavailable or unsupported, use the approved Playwright/Chrome
+browser fallbacks after proving vendor auth and a writable composer. Provider
+APIs, CLI models, Aside inference (`aside exec`, `aside "..."` NL agent),
 subagents, and WebSearch/WebFetch synthesis are BANNED substitutes — see the HARD-FAIL CONTRACT in SKILL.md.
 **Distinct from:** `/advice` (in-session subagent + `/secondo` + `/research`
 — see `~/.claude/skills/advice/SKILL.md`) and `/er` (evidence-standards
@@ -34,4 +35,5 @@ reasoning and not evidence-bundle integrity checking.
 honest-accounting, substitution, attachment, retrieval, and share-proof cases).
 **Resolver trigger eval:** `evals/test_resolver_trigger.py` (skillify item 7).
 **E2E transport smoke:** `scripts/e2e_smoke.sh` (skillify item 9, diagnostic
-probe of the Aside REPL route; probe `aside-mcp` through its MCP tool).
+probe of Aside REPL first and clean Chrome headless when Aside is unavailable;
+probe `aside-mcp` through its MCP tool and qualify vendor auth separately).

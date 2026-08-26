@@ -1,6 +1,6 @@
 ---
 name: web-advice
-description: Browser-based multi-model advice and review using ChatGPT, Gemini, Grok, and Perplexity Web via aside-mcp. Use for an independent external perspective on any subject, including PRs, designs, docs, plans, and decisions.
+description: Browser-based multi-model advice and review using ChatGPT, Gemini, Grok, and Perplexity Web. Use for an independent external perspective on any subject, including PRs, designs, docs, plans, and decisions.
 ---
 
 # /web-advice — Multi-Model Browser Review
@@ -10,25 +10,43 @@ description: Browser-based multi-model advice and review using ChatGPT, Gemini, 
 | Skill | Mechanism | When to use |
 |---|---|---|
 | `/advice` | In-session: subagent + /secondo + /research | Architectural reasoning, ZFC reviews, code-path analysis |
-| `/web-advice` | Browser: ChatGPT + Gemini + Grok + Perplexity Web via `aside-mcp` | Independent external multi-model advice or review; visual/video context; web-search grounding |
+| `/web-advice` | Browser: ChatGPT + Gemini + Grok + Perplexity Web; Aside preferred, browser fallbacks supported | Independent external multi-model advice or review; visual/video context; web-search grounding |
 | `/er` | In-session: evidence-standards skill | Evidence bundle integrity (4-gate checksum/SHA/real-services) |
 
-## Hard-Fail Transport Contract: Aside Browser Only
+## Real-Browser Transport Contract: Aside Preferred
 
 > [!IMPORTANT]
 > **Zero Aside Inference Invariant (Strict Hard-Fail Rule)**:
-> `/web-advice` MUST ONLY use `aside-mcp` (or `aside repl` Playwright API) for **browser navigation and DOM automation** (opening tabs, filling web textareas, clicking send, reading responses).
+> `/web-advice` MUST use browser navigation and DOM automation against the real
+> vendor web-chat sites. Prefer `aside-mcp`, then `aside repl`. When Aside is
+> unavailable, unsupported on the host, or both Aside browser probes fail, use
+> an approved real-browser fallback instead of stopping solely because Aside is
+> absent.
 >
 > **NEVER use Aside inference** (`aside "..."` NL agent, `aside --effort ultrabrowse`, `aside exec`, `aside exec -m <model>`, or Aside's backend AI models).
 > Aside inference consumes Aside's token quota / usage limits and does NOT use the operator's web chat subscriptions.
 > The entire purpose of `/web-advice` is to navigate to the web chat interfaces (`https://chatgpt.com/`, `https://gemini.google.com/app`, `https://grok.com/`, `https://www.perplexity.ai/`) to leverage the user's active web chat subscriptions (ChatGPT Plus/Team/Pro, Gemini Advanced, Grok/X Premium, Perplexity Pro) via the authenticated browser.
 >
-> **Banned Substitutes**: Provider APIs, CLI models (agy, codex CLI), Aside inference (`aside exec`, `aside "..."` NL agent), in-session subagents, and WebSearch/WebFetch synthesis are all strictly banned.
-> If no real browser seat remains reachable, report the observed transport failures and stop `/web-advice`; do not launch or relabel a substitute review.
+> **Approved transport ladder**:
+> 1. `aside_mcp`
+> 2. `aside_repl`
+> 3. `chrome_headless_cookies` (system Chrome + locally decrypted browser cookies)
+> 4. `playwright_mcp` (portable fallback, especially on non-macOS hosts)
+> 5. `chrome_headless_cdp`
+> 6. `chrome_extension`
+>
+> Each fallback must prove the affected vendor is authenticated, exposes a
+> writable composer, returns the submitted prompt's real response, and supports
+> the normal response/share evidence gates. A basic page render is not enough.
+>
+> **Banned substitutes**: Provider APIs, CLI models (agy, codex CLI), Aside inference (`aside exec`, `aside "..."` NL agent), in-session subagents, and WebSearch/WebFetch synthesis remain strictly banned.
+> If no approved real-browser seat remains reachable, report every observed transport failure and stop `/web-advice`; do not launch or relabel an inference substitute.
 >
 > Before opening tabs and again before labeling captured output `/web-advice`, validate the selected transport:
 > `python3 ~/.claude/skills/web-advice/scripts/web_advice_transport.py assert-transport aside_mcp`
-> Use `aside_repl` instead of `aside_mcp` only when driving the same browser Playwright API through `aside repl`.
+> Use `aside_repl` instead of `aside_mcp` when driving the browser API through
+> `aside repl`. For a fallback, pass the observed reason, for example:
+> `python3 ~/.claude/skills/web-advice/scripts/web_advice_transport.py assert-transport chrome_headless_cookies --fallback-reason aside_unavailable`.
 
 Use `/web-advice` when an external multi-model perspective will help, especially when you want different model families to challenge a conclusion or when external web standards matter (e.g., D&D 5e SRD, Stately XState, industry patterns). Target four models, but synthesize the models that are available and disclose any coverage gap.
 
@@ -99,6 +117,12 @@ The prompt should be materially the same for each model; adapt only for a model'
 
 ## Browser Execution Protocol
 
+First resolve the transport ladder. On macOS, probe Aside first. On non-macOS
+hosts, or after both Aside routes are unavailable, continue through the
+approved browser fallbacks. The examples below use Aside's Playwright-shaped
+API; apply the same selectors and evidence checks to a Playwright `Page` when a
+fallback is selected.
+
 ### Step 1 — Open 4 tabs
 
 ```javascript
@@ -113,7 +137,9 @@ console.log('opened:', allTabs.length, 'tabs');
 for (const t of allTabs) console.log(' -', t.title, '(', t.url, ')');
 ```
 
-Expected output: 5 tabs (your existing tab + 4 new). Logged-in users will see "Ask Gemini", "ChatGPT", "Grok", "Perplexity" titles.
+For Aside, expected output is 5 tabs (your existing tab + 4 new). A fallback
+may use separate pages or contexts, but must report the selected transport and
+the per-vendor authentication result.
 
 ### Step 2 — Verify auth state (CRITICAL)
 
@@ -248,7 +274,9 @@ Recovery:
 1. Check that the Aside Browser app is still running (not crashed)
 2. Reopen any lost tabs: `await openTab('https://gemini.google.com/app')` etc.
 3. Re-snapshot before each fill (refs are NOT stable across `attachBrowserTab` cycles)
-4. If recovery fails 3 times, mark the affected seats unavailable and report the exact errors. Do not substitute another review mechanism.
+4. If recovery fails 3 times, probe the approved browser fallbacks. Mark a seat
+   unavailable only after its eligible browser routes fail, and report the
+   exact errors for each attempted route.
 
 ### Captcha or rate limit
 
@@ -308,5 +336,6 @@ Recovery:
 
 - Provenance: artifact `~/roadmap/2026-08-01-web-advice-and-evidence-review-guide.md` (Antigravity Genesis Coder, 2026-08-01)
 - 4-gate pre-flight: `~/.claude/skills/evidence-standards/SKILL.md`
-- Browser automation: `aside-mcp` (`mcp__aside-mcp__repl` tool)
+- Browser automation: Aside first; approved Playwright/Chrome fallbacks when
+  Aside is unavailable or unsupported
 - Companion skill: `/advice` (in-session multi-reviewer)

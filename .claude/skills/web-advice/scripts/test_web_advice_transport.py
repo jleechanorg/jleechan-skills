@@ -148,10 +148,28 @@ class TestResolveTransportLadder:
         }
         assert resolve_transport_ladder(probes) == "aside_repl"
 
-    @pytest.mark.parametrize("probe", ["chrome_extension", "cdp_port", "chrome_cookies"])
-    def test_non_aside_browser_probe_does_not_satisfy_ladder(self, probe):
-        with pytest.raises(WebAdviceHardFail):
-            resolve_transport_ladder({probe: True})
+    def test_prefers_verified_chrome_headless_cookie_fallback_when_aside_is_down(self):
+        probes = {
+            "aside_mcp": False,
+            "aside_repl": False,
+            "chrome_headless_cookies": True,
+            "playwright_mcp": True,
+            "chrome_headless_cdp": True,
+            "chrome_extension": True,
+        }
+        assert resolve_transport_ladder(probes) == "chrome_headless_cookies"
+
+    @pytest.mark.parametrize(
+        "probe",
+        [
+            "chrome_headless_cookies",
+            "playwright_mcp",
+            "chrome_headless_cdp",
+            "chrome_extension",
+        ],
+    )
+    def test_real_browser_backup_satisfies_ladder_when_aside_is_down(self, probe):
+        assert resolve_transport_ladder({probe: True}) == probe
 
     def test_missing_keys_with_no_live_transport_still_hard_fails(self):
         probes = {"chrome_cookies": False}
@@ -231,11 +249,41 @@ class TestAssertAllowedTransport:
 
     @pytest.mark.parametrize(
         "mechanism",
-        ["aside exec -m", "aside --effort ultrabrowse", "chrome_extension", "codex"],
+        [
+            "chrome_headless_cookies",
+            "playwright_mcp",
+            "chrome_headless_cdp",
+            "chrome_extension",
+        ],
     )
-    def test_rejects_inference_and_non_aside_transports(self, mechanism):
+    def test_accepts_browser_backup_when_aside_is_unavailable(self, mechanism):
+        assert_allowed_transport(mechanism, fallback_reason="aside_unavailable")
+
+    def test_accepts_browser_backup_on_unsupported_platform(self):
+        assert_allowed_transport(
+            "playwright_mcp", fallback_reason="unsupported_platform"
+        )
+
+    @pytest.mark.parametrize(
+        "mechanism",
+        [
+            "chrome_headless_cookies",
+            "playwright_mcp",
+            "chrome_headless_cdp",
+            "chrome_extension",
+        ],
+    )
+    def test_rejects_browser_backup_without_fallback_reason(self, mechanism):
         with pytest.raises(WebAdviceHardFail):
             assert_allowed_transport(mechanism)
+
+    @pytest.mark.parametrize(
+        "mechanism",
+        ["aside exec -m", "aside --effort ultrabrowse", "codex", "openai_api"],
+    )
+    def test_rejects_non_browser_substitutes_even_with_fallback_reason(self, mechanism):
+        with pytest.raises(WebAdviceHardFail):
+            assert_allowed_transport(mechanism, fallback_reason="aside_unavailable")
 
     def test_cli_guard_enforces_transport_before_labeling(self):
         script = Path(__file__).with_name("web_advice_transport.py")
@@ -249,8 +297,21 @@ class TestAssertAllowedTransport:
             capture_output=True,
             text=True,
         )
+        fallback = subprocess.run(
+            [
+                sys.executable,
+                str(script),
+                "assert-transport",
+                "chrome_headless_cookies",
+                "--fallback-reason",
+                "aside_unavailable",
+            ],
+            capture_output=True,
+            text=True,
+        )
 
         assert allowed.returncode == 0
+        assert fallback.returncode == 0
         assert rejected.returncode != 0
         assert "forbidden" in rejected.stderr.lower()
 
@@ -273,6 +334,30 @@ class TestE2ESmoke:
         assert "Aside REPL browser" in result.stdout
         assert "Chrome" not in result.stdout
         assert "cookie" not in result.stdout.lower()
+
+    def test_falls_back_to_portable_chrome_headless_probe_when_aside_is_missing(
+        self, tmp_path
+    ):
+        fake_bin = tmp_path / "bin"
+        fake_bin.mkdir()
+        chrome = fake_bin / "google-chrome"
+        chrome.write_text(
+            "#!/usr/bin/env bash\n"
+            "printf '<html><title>Example Domain</title></html>\\n'\n"
+        )
+        chrome.chmod(0o755)
+
+        script = Path(__file__).with_name("e2e_smoke.sh")
+        env = os.environ.copy()
+        env["HOME"] = str(tmp_path)
+        env["PATH"] = f"{fake_bin}:/usr/bin:/bin"
+        result = subprocess.run(
+            ["bash", str(script)], capture_output=True, text=True, env=env
+        )
+
+        assert result.returncode == 0
+        assert "Aside REPL browser: DOWN" in result.stdout
+        assert "Chrome headless browser: UP" in result.stdout
 
 
 # ---------------------------------------------------------------------------

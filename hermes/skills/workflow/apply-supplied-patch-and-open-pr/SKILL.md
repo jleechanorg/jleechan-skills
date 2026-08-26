@@ -509,12 +509,14 @@ The pattern is:
      modes for directives, orphan references, conflict with other recent
      changes.
    - **/web-advice is the cross-model independent review** — it does NOT
-      share the prior context. Use `aside-mcp` (or `aside repl` Playwright API)
+      share the prior context. Prefer `aside-mcp` (or `aside repl` Playwright API)
       to navigate directly to ChatGPT Web, Gemini Web, Grok Web, and Perplexity Web
-      in the authenticated browser to utilize the user's web chat subscriptions.
+      in the authenticated browser. If Aside is unavailable or unsupported, use
+      the canonical skill's approved Playwright/Chrome browser fallbacks.
       NEVER use Aside inference (`aside exec`, `aside "..."` NL agent, `aside exec -m`).
-      If browser tabs are genuinely auth-walled/unavailable, report the available
-      seats or mark `/web-advice` unavailable; do not substitute another mechanism.
+      If every approved browser route is genuinely auth-walled/unavailable,
+      report the available seats or mark `/web-advice` unavailable; do not
+      substitute an inference mechanism.
 3. **Convergence signal:** when 2 of 3 /advice reviewers and the available
    `/web-advice` browser panel agree
    on a finding, the finding is real — fix it. Don't fix reviewer-unique
@@ -622,9 +624,9 @@ via `diff -q`), wired into narrative + combat + narrative_lite, all
 3 lighter agents (DialogAgent, LiteDialogAgent via narrative_lite,
 StoryModeAgent via mandatory narrative injection) now see the rules.
 
-#### P13c — `/web-advice` browser navigation vs Aside inference
+#### P13c — `/web-advice` browser navigation vs inference
 
-The `/web-advice` skill drives real browser sessions via `aside-mcp` (or `aside repl` Playwright API) to navigate directly to ChatGPT Web (`chatgpt.com`), Gemini Web (`gemini.google.com/app`), Grok Web (`grok.com`), and Perplexity Web (`perplexity.ai`). This uses the user's active web chat subscriptions directly instead of Aside inference or provider APIs.
+The `/web-advice` skill drives real browser sessions to ChatGPT Web (`chatgpt.com`), Gemini Web (`gemini.google.com/app`), Grok Web (`grok.com`), and Perplexity Web (`perplexity.ai`). Prefer `aside-mcp` or `aside repl`; when Aside is unavailable or unsupported, use the canonical approved Playwright/Chrome fallbacks. Every route uses the user's web chat subscriptions directly instead of Aside inference or provider APIs.
 
 **Do NOT use Aside inference (`aside exec`, `aside "..."` NL agent, `aside --effort ultrabrowse`, `aside exec -m <model>`).**
 `aside exec -m <model>` invokes Aside's internal model inference backend (which consumes Aside credits and rate limits) rather than automating browser tabs to the web chat interfaces.

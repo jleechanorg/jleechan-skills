@@ -53,9 +53,11 @@ Routes user phrases to skill entries. Each section is a skill with its canonical
 ## web-advice — /web-advice, web advice, multi model review, ask chatgpt gemini grok perplexity, external model review, browser review
 
 **File:** `~/.claude/skills/web-advice/SKILL.md`
-**Mechanism:** Use only `aside-mcp` or `aside repl` browser automation on the
-real authenticated web-chat sites. Aside inference, provider APIs, CLI models,
-subagents, and WebSearch/WebFetch are not `/web-advice` transports.
+**Mechanism:** Use real authenticated web-chat sites. Prefer `aside-mcp` or
+`aside repl`; when Aside is unavailable or unsupported, use the canonical
+skill's approved Playwright/Chrome browser fallbacks after proving auth and a
+writable composer. Aside inference, provider APIs, CLI models, subagents, and
+WebSearch/WebFetch are not `/web-advice` transports.
 
 ## cmux
 

@@ -29,6 +29,8 @@ class ApprovalContractsTest(unittest.TestCase):
         self.assertIn("COVERAGE: files, diff, evidence, or subject material actually read", web_adv)
         self.assertIn("Zero Aside Inference Invariant", web_adv)
         self.assertIn("NEVER use Aside inference", web_adv)
+        self.assertIn("chrome_headless_cookies", web_adv)
+        self.assertIn("playwright_mcp", web_adv)
         self.assertNotIn("fall back to a subagent", web_adv.lower())
         self.assertNotIn("fall back to subagent", web_adv.lower())
 
@@ -46,10 +48,9 @@ class ApprovalContractsTest(unittest.TestCase):
         evals = (
             SKILLS / "web-advice" / "evals" / "web_advice_evals.md"
         ).read_text()
-        self.assertIn("`aside-mcp` and `aside repl`", evals)
+        self.assertIn("authenticated Playwright fallback", evals)
+        self.assertIn("Chrome cookie headless", evals)
         self.assertNotIn("the four ladder rungs", evals)
-        self.assertNotIn("--remote-debugging-port", evals)
-        self.assertNotIn("click Connect in the extension", evals)
 
     def test_evidence_review_separates_integrity_from_provenance(self) -> None:
         review = skill("evidence-review")
