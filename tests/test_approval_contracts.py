@@ -45,6 +45,7 @@ class ApprovalContractsTest(unittest.TestCase):
         self.assertIn("Skip its execution handoff", quick)
         self.assertIn("Terminate immediately after", quick)
         self.assertIn("takes precedence over every child instruction", quick)
+        self.assertIn("write either artifact to a different path", quick)
         self.assertIn("still write and self-review both documents", quick)
         self.assertNotIn("stop with the exact blocker", quick)
 
