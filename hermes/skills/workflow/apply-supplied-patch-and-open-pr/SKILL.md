@@ -509,14 +509,16 @@ The pattern is:
      modes for directives, orphan references, conflict with other recent
      changes.
    - **/web-advice is the cross-model independent review** — it does NOT
-     share the prior context. Use `codex exec` (Codex CLI) as the
-     recorded second-opinion if Aside-side Web LLM tabs (ChatGPT/Grok)
-     are not available on the active account (Aside CLI on a Google-only
-     account returns "model not available" for openai/gpt-5, gpt-5.x,
-     anthropic/claude-sonnet-4.5, google/gemini-2.5-pro). Codex CLI is
-     always available. Pull the diff into `evidence/<pr>.diff` and feed
-     it as the prompt.
-3. **Convergence signal:** when 2 of 3 /advice reviewers + Codex agree
+      share the prior context. Prefer `aside-mcp` (or `aside repl` Playwright API)
+      to navigate directly to ChatGPT Web, Gemini Web, Grok Web, and Perplexity Web
+      in the authenticated browser. If Aside is unavailable or unsupported, use
+      the canonical skill's approved Playwright/Chrome browser fallbacks.
+      NEVER use Aside inference (`aside exec`, `aside "..."` NL agent, `aside exec -m`).
+      If every approved browser route is genuinely auth-walled/unavailable,
+      report the available seats or mark `/web-advice` unavailable; do not
+      substitute an inference mechanism.
+3. **Convergence signal:** when 2 of 3 /advice reviewers and the available
+   `/web-advice` browser panel agree
    on a finding, the finding is real — fix it. Don't fix reviewer-unique
    nits unless they fall in the user's destructive scope.
 4. **Re-run after fix.** Don't compose a one-shot pass — the iteration
@@ -526,7 +528,7 @@ The pattern is:
 5. **Final-state acceptance requires:**
    - All reviewer APPROVED-as-is verdicts collected (or only the
      deferred-to-PR-A items remaining).
-   - Codex APPROVE.
+   - The `/web-advice` browser panel reaches the required verdict.
    - 4-lane (ponytail/ZFC/root-cause-first) all PASS for the diff.
    - Test suite green on the rebased branch.
    - Diff is `N files / +X / -Y` with no MBTI/alignment player-facing
@@ -622,46 +624,18 @@ via `diff -q`), wired into narrative + combat + narrative_lite, all
 3 lighter agents (DialogAgent, LiteDialogAgent via narrative_lite,
 StoryModeAgent via mandatory narrative injection) now see the rules.
 
-#### P13c — `/web-advice` fallback when ChatGPT Web / Grok Web are unavailable
+#### P13c — `/web-advice` browser navigation vs inference
 
-The `/web-advice` skill assumes multi-model access via `aside-mcp` or
-browser tabs to ChatGPT Web + Grok Web + Gemini Web. On a Google-only
-Aside account, the model list returns "not available" for all three
-official Web LLM providers:
+The `/web-advice` skill drives real browser sessions to ChatGPT Web (`chatgpt.com`), Gemini Web (`gemini.google.com/app`), Grok Web (`grok.com`), and Perplexity Web (`perplexity.ai`). Prefer `aside-mcp` or `aside repl`; when Aside is unavailable or unsupported, use the canonical approved Playwright/Chrome fallbacks. Every route uses the user's web chat subscriptions directly instead of Aside inference or provider APIs.
 
-```
-$ aside exec -m openai/gpt-5 "test"
-Error: Requested model openai/gpt-5 is not available for this account.
-$ aside exec -m anthropic/claude-sonnet-4-5 "test"
-Error: Requested model anthropic/claude-sonnet-4-5 is not available for this account.
-$ aside exec -m google/gemini-2.5-pro "test"
-Error: Requested model google/gemini-2.5-pro is not available for this account.
-```
+**Do NOT use Aside inference (`aside exec`, `aside "..."` NL agent, `aside --effort ultrabrowse`, `aside exec -m <model>`).**
+`aside exec -m <model>` invokes Aside's internal model inference backend (which consumes Aside credits and rate limits) rather than automating browser tabs to the web chat interfaces.
 
-The fallback when this happens:
+If browser-based web LLM tabs are auth-walled or unreachable in the browser:
 
-1. **Use `codex exec` (CLI)** as the recorded multi-model second-opinion.
-   It runs on `gpt-5.3-codex-spark` by default and has its own quota.
-   Build the prompt + diff, save to `evidence/<pr>-prompt.md` and
-   `evidence/<pr>.diff`, pass via `codex exec --cd <worktree> -m <model>`.
-2. **Post the synthesis as a PR comment** with a transparency note
-   explaining which models were queried. The Green Gate accept
-   criterion is "independent adversarial review recorded on the PR",
-   not "specifically ChatGPT Web + Grok Web".
-3. **In the Slack reply**, state the constraint explicitly: "ChatGPT Web
-   + Grok Web tabs were not queryable from this account (Aside-side
-   model list does not include them on the active Google-only
-   account). Codex is the multi-model second-opinion of record."
-
-The Codex-as-second-opinion pattern is durable across the broader PR
-review workflow — it's not specific to P13. Documented here so that
-when a future session hits the same "Aside model not available" wall,
-the fallback is one tool call away.
-
-Verified 2026-08-01 on PR #8661: Codex review found the same DialogAgent
-coverage gap that /advice Reviewer C found (independent convergence =
-strong signal). Pre-fix verdict: CHANGES REQUESTED. Post-fix verdict:
-APPROVE. The Codex approval was the deciding factor for shipping.
+1. **Follow honest panel accounting** in `/web-advice` and synthesize the available reachable seats (e.g. 2-of-4 or 3-of-4).
+2. **If all web LLM tabs are auth-walled/unreachable**, mark `/web-advice` unavailable and stop that review. Any non-browser review is a separate workflow and cannot satisfy `/web-advice`.
+3. **Post the synthesis as a PR comment** with a transparency note explaining which models were queried and why any seats were unavailable.
 
 #### P13d — The "iterate until /advice and /web-advice approve" user directive
 
@@ -669,7 +643,7 @@ When the user types "keep iterating until PR comments are handled and
 /advice and /web-advice approve" (or equivalent), this is a
 **completion criterion**, not a vibe. The work is not done until:
 
-1. Both /advice (3 reviewers) /web-advice (Codex) return APPROVED.
+1. Both /advice (3 reviewers) and the `/web-advice` browser panel return APPROVED.
 2. The diff passes the 4-lane (/document-standards) check.
 3. Tests pass.
 4. The PR comment is posted with the full per-comment fix map.
@@ -687,7 +661,7 @@ Verified 2026-08-01 on PR #8661: the user-typed phrase "Keep iterating
 until PR comments are handled and /advice and /web-advice approve"
 drove 3 rounds of reviewer fan-out (initial → fix DialogAgent gap →
 re-run) before the convergence signal was strong enough to ship. The
-post-fix `/advice` Reviewer C re-run and the `/web-advice` Codex re-run
+post-fix `/advice` Reviewer C re-run and browser-based `/web-advice` re-run
 both returned APPROVED, which is the ship criteria.
 
 ### P13 checklist — when the user types "iterate until reviews approve"
@@ -703,11 +677,12 @@ the PR has multiple review items from a destructive cleanup):
    specific → delete. Duplicated localization → extract to one shared.
 3. **Verify the existing tests pass** on the rebased branch
    (`cd <worktree> && $HOME/projects/your-project.com/venv/bin/python -m unittest <module>`).
-4. **Run /advice (3 reviewers) + /web-advice (Codex) in parallel.**
-   Use `delegate_task` for the /advice fan-out. Use `codex exec` for
-   the /web-advice fallback when ChatGPT/Grok Web tabs are unavailable.
-5. **Convergence signal:** 2/3 /advice reviewers + Codex all agree on
-   a finding → fix it. Re-run only the disagreeing reviewers.
+4. **Run /advice (3 reviewers) + browser-based /web-advice in parallel.**
+   Use `delegate_task` for the /advice fan-out and real authenticated web-chat
+   tabs for `/web-advice`; unavailable browser seats remain unavailable.
+5. **Convergence signal:** 2/3 /advice reviewers and the available
+   `/web-advice` browser panel agree on a finding → fix it. Re-run only the
+   disagreeing reviewers.
 6. **Apply the fix.** Verify tests still pass. Force-push only after
    the convergence signal is strong.
 7. **Post the PR comment** with the full per-comment fix map + review

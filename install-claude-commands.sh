@@ -115,6 +115,22 @@ finalize_backup_install() {
     STAGING_DIR=""
 }
 
+list_installable_files() {
+    local component_name="$1"
+    if [ "$component_name" = "skills" ]; then
+        find . -type d \( \
+            -name _archive -o \
+            -name _archived_loose_md -o \
+            -name _archived_loose_md_2026-08-23 -o \
+            -name __pycache__ -o \
+            -name .pytest_cache \
+        \) -prune -o -type f ! -name '*.py[co]' ! -name '.DS_Store' -print0
+    else
+        find . -type d \( -name __pycache__ -o -name .pytest_cache \) -prune \
+            -o -type f ! -name '*.py[co]' ! -name '.DS_Store' -print0
+    fi
+}
+
 # Shared recursive install function
 install_component() {
     local src_dir="$1"
@@ -130,11 +146,7 @@ install_component() {
             cp -a "$src_dir/$relative" "$dest_dir/$relative"
         done < <(
             cd "$src_dir"
-            if [ "$component_name" = "skills" ]; then
-                find . -type d \( -name _archive -o -name _archived_loose_md -o -name _archived_loose_md_2026-08-23 \) -prune -o -type f -print0
-            else
-                find . -type f -print0
-            fi
+            list_installable_files "$component_name"
         )
         log_success "Installed recursive $component_name tree"
     else
@@ -178,11 +190,7 @@ validate_installation() {
             files_checked=$((files_checked + 1))
         done < <(
             cd "$source_dir"
-            if [ "$component" = "skills" ]; then
-                find . -type d \( -name _archive -o -name _archived_loose_md -o -name _archived_loose_md_2026-08-23 \) -prune -o -type f -print0
-            else
-                find . -type f -print0
-            fi
+            list_installable_files "$component"
         )
     done
     log_success "Source-derived manifest validation passed ($files_checked files)"

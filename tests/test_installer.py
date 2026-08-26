@@ -25,6 +25,8 @@ class InstallerIntegrationTest(unittest.TestCase):
             "scripts/nested/tool.py": "print('tool')\n",
             "skills/example/SKILL.md": "# Skill\n",
             "skills/example/scripts/helper.sh": "#!/bin/sh\n",
+            "skills/example/scripts/__pycache__/helper.cpython-313.pyc": "compiled\n",
+            "skills/example/scripts/.pytest_cache/CACHEDIR.TAG": "cache\n",
             "skills/_archive/legacy/SKILL.md": "# Legacy\n",
             "skills/_archived_loose_md/legacy.md": "legacy\n",
             "skills/_archived_loose_md_2026-08-23/legacy.md": "legacy\n",
@@ -65,11 +67,14 @@ class InstallerIntegrationTest(unittest.TestCase):
             self.assertNotIn("claude-bot-commands/README.md", result.stdout)
             self.assertNotIn("Checking prerequisites", result.stdout)
             for source_file in (fixture / ".claude").rglob("*"):
+                relative_parts = source_file.relative_to(fixture / ".claude").parts
                 if source_file.is_file() and not {
                     "_archive",
                     "_archived_loose_md",
                     "_archived_loose_md_2026-08-23",
-                }.intersection(source_file.relative_to(fixture / ".claude").parts):
+                    "__pycache__",
+                    ".pytest_cache",
+                }.intersection(relative_parts):
                     installed = target / source_file.relative_to(fixture / ".claude")
                     self.assertTrue(installed.is_file(), installed)
                     self.assertEqual(installed.read_bytes(), source_file.read_bytes())
@@ -79,6 +84,8 @@ class InstallerIntegrationTest(unittest.TestCase):
                 "_archived_loose_md_2026-08-23",
             ):
                 self.assertFalse((target / "skills" / archive_name).exists())
+            self.assertFalse((target / "skills/example/scripts/__pycache__").exists())
+            self.assertFalse((target / "skills/example/scripts/.pytest_cache").exists())
 
     def test_second_default_run_refuses_to_overwrite_an_existing_install(self):
         with tempfile.TemporaryDirectory() as directory:
