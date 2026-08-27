@@ -22,16 +22,22 @@ description: Enforcement rules for reviewing evidence artifacts against the evid
 | **FAIL** | A claim is contradicted by an artifact, or integrity is broken (sha256 mismatch, dirty capture producing the claim, scope exclusion). |
 | **INCONCLUSIVE** | Not enough artifact data exists to decide. Request more. |
 
-## Two-Tier Integration with `/green` (added 2026-07-02)
+## Draft-lifecycle integration
 
-`/er` verdicts are now consumed by `/green` to gate the merge:
+The canonical lifecycle and its changed-path classification live in
+`draft-first-pr`; apply that policy before invoking this skill:
 
 - **PRODUCTION PRs** (changes to `$PROJECT_ROOT/**` production code, prompts, CI, schema): require `/er` = **PASS**.
-- **NON_PRODUCTION PRs** (docs, tests, tooling, roadmap, repo-hygiene): require `/er` ≥ **PARTIAL** (PARTIAL with explicit waiver from the operator is acceptable).
+- **NON_PRODUCTION PRs** (tests, tooling, roadmap, repo-hygiene): require `/er` ≥ **PARTIAL** (PARTIAL with explicit waiver from the operator is acceptable).
+- **Documentation-only exception**: when the complete PR diff matches the exact
+  documentation allowlist in `draft-first-pr`, `/er` is not run. Record
+  `/er: NOT REQUIRED (documentation-only)` at the reviewed SHA. Mixed diffs and
+  every path outside that allowlist follow the applicable rule above.
 
-When invoked via `gh pr comment N --body "/er"`, the evidence-review-bot
-returns the verdict as a structured comment with one of the four values
-above. `/green` parses this and includes it in the gate table.
+When `/er` is required and invoked via `gh pr comment N --body "/er"`, the
+evidence-review-bot returns the verdict as a structured comment with one of the
+four values above. Evidence review is a draft-phase quality gate; `/green`
+itself remains the separate two-gate check defined by `pr-green-definition`.
 
 ---
 
