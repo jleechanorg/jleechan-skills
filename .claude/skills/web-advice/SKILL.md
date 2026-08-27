@@ -77,7 +77,16 @@ checks do not establish the verifier verdict, claim coverage, or provenance.
 
 If that verification fails, fail closed for the evidence or production claim: do not present it as verified, and regenerate it or run `/er` before relying on it. The broader code, design, document, or plan review may still proceed if its scope is clearly separated from the unverified claim.
 
-### Step 0c — Build the review prompt
+### Step 0c — Build the review prompt & context packet (MANDATORY)
+
+For code, patch, and PR reviews, you **MUST** generate and upload the complete lossless review packet:
+1. **Raw Git Diff**: Exact unified diff against base branch (`git diff origin/main...HEAD > raw_git_diff.patch` or `build_review_packets.py`).
+2. **Full Changed Files**: Complete source files at HEAD for every touched file (`full_changed_files.txt` or `build_review_packets.py` output).
+3. **Full Evidence Manifest**: Test results, telemetry logs, or evidence bundles when applicable.
+
+> [!CAUTION]
+> **Private Repository Anti-Guesswork Invariant**:
+> Never submit a bare PR URL or a 5-line summary for private repositories. Web models operate in external sandboxes without repository credentials, receive HTTP 404, and will fail or fabricate assumptions. You **MUST attach or upload the raw diff patch and full source files** so the models perform genuine line-by-line AST and concurrency analysis.
 
 Build a concise prompt before opening the browser so you can paste the same request to each model. Include only the sections that apply.
 
@@ -90,10 +99,10 @@ You are an independent expert advising on a [PR | patch | design | document | pl
 - Branch / Commit: [<branch> @ <sha>]
 - Working directory: <absolute path>
 
-**Context** (paste only relevant material):
-- <relevant code, file:line citations>
-- <relevant tests, file:line citations>
-- <relevant doc snippets>
+**Attached Files / Context** (upload full files; do not truncate):
+- `raw_git_diff.patch`: Exact unified diff of the PR against base branch.
+- `full_changed_files.txt`: Complete source text for all changed files at HEAD.
+- <relevant tests and evidence manifests>
 
 **Review dimensions** (pick what applies):
 1. Architectural soundness (state-machine compliance, ZFC consumer split, layer isolation)
@@ -104,10 +113,10 @@ You are an independent expert advising on a [PR | patch | design | document | pl
 
 **Required output format** (verbatim):
 VERDICT: APPROVED | APPROVED with notes | CHANGES REQUESTED | REJECTED
-REASONING: 3-4 sentences
+REASONING: 3-4 sentences quoting specific files and lines from the attachments
 RISK: main risk, one sentence
 CONFIDENCE: high | medium | low
-COVERAGE: files, diff, evidence, or subject material actually read; write `none` if unavailable
+COVERAGE: exact filenames from the attached packet actually read; write `none` if unavailable
 WEB SOURCES: 1-3 URLs with one-line summaries (if you cited any)
 ```
 
@@ -242,6 +251,15 @@ Models don't always format in the exact section headers. If the regex misses, lo
 - **Perplexity**: Citation-rich, "Sources" accordion; "Helpful"/"Not helpful" footer; verdict usually at the end
 
 **Parser fallback** if structured regex fails — re-prompt the model with: *"Reply with ONLY this exact format (no other text): VERDICT: <one line> | REASONING: <one line> | RISK: <one line> | CONFIDENCE: high/med/low | COVERAGE: <material actually read, or none>"*. This is the most reliable cross-model pattern.
+
+### Step 4b — Interactive Follow-up & Clarification Loop (MANDATORY)
+
+Web chat LLM review sessions are stateful and interactive, not single-turn scripts:
+- If a model responds with questions, requests additional files, or asks for clarification on an unattached caller or dependency:
+  1. **Do NOT terminate early or report an inconclusive verdict**: The review is still actively in flight.
+  2. **Locate the requested context**: Extract the relevant files, function definitions, or caller paths from the workspace.
+  3. **Reply in the active chat thread**: Type/upload the requested code or explanation directly into the existing browser tab session.
+  4. **Wait for re-evaluation**: Allow the model to re-analyze the updated context and render its finalized, fully grounded verdict.
 
 ### Step 5 — Synthesize
 
