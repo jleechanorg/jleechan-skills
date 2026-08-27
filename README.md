@@ -22,20 +22,20 @@ shift right to locate failures, audit evidence, and prevent repeat escapes.
 
 | Shift left · before the code | Shift right · after the code |
 |---|---|
-| **[`/superpowers-quick`](.claude/skills/superpowers-quick/SKILL.md)** — autonomous wrapper around [Superpowers](https://github.com/obra/superpowers) by Jesse Vincent; design before writing code. | **[`/4layer`](.claude/skills/4layer/SKILL.md)** — unit → end-to-end → MCP/HTTP → browser; the first reproducing layer owns the investigation. |
+| **[`/superpowers-quick`](.claude/skills/superpowers-quick/SKILL.md)** — `jleechanorg`'s autonomous wrapper around [Superpowers](https://github.com/obra/superpowers) by Jesse Vincent; design before writing code. | **[`/4layer`](.claude/skills/4layer/SKILL.md)** — unit → end-to-end → MCP/HTTP → browser; the first reproducing layer owns the investigation. |
 | **[`/advice`](.claude/skills/advice/SKILL.md) + [`/web-advice`](.claude/skills/web-advice/SKILL.md)** — fan out independent reviewers before committing to an approach. | **[`/evidence-review`](.claude/skills/evidence-review/SKILL.md)** — require every claim to resolve to a real, provenance-backed artifact. |
 | **[`/redgreen`](.claude/skills/redgreen/SKILL.md)** — require a test you watched fail before accepting the bug or its fix as real. | **[`/harness`](.claude/skills/harness-engineering/SKILL.md)** — when a failure repeats, fix the process that allowed it through. |
 
-The six highlighted workflow entries are `/superpowers-quick`, `/advice` +
-`/web-advice`, `/redgreen`, `/4layer`, `/evidence-review`, and `/harness`. These
-`jleechanorg` prompts and packages are portable and do not depend on WorldAI or
-private infrastructure.
+The six highlighted workflow entries are the `jleechanorg` `/superpowers-quick`
+wrapper, `/advice` + `/web-advice`, `/redgreen`, `/4layer`, `/evidence-review`,
+and `/harness`. These prompts and packages are portable and do not depend on
+WorldAI or private infrastructure.
 
 > **Third-party attribution:** [`/superpowers-quick`](.claude/skills/superpowers-quick/SKILL.md)
-> is an autonomous wrapper around [Superpowers](https://github.com/obra/superpowers),
-> which is made by Jesse Vincent. [Superpowers](https://github.com/obra/superpowers)
-> itself is **not authored, owned, or maintained by Jeffrey Lee or
-> jleechanorg**.
+> is a `jleechanorg`-authored autonomous wrapper around
+> [Superpowers](https://github.com/obra/superpowers), which is made by Jesse
+> Vincent. [Superpowers](https://github.com/obra/superpowers) itself is **not
+> authored, owned, or maintained by Jeffrey Lee or jleechanorg**.
 
 Strategy source: [“Shift left, shift right — a portable skill system”](https://docs.google.com/presentation/d/1rGk2ZUIlJw3AkVJmJbdVB5OqAixR6M_xp7lc6lP2awA/edit?slide=id.gogSlide1787597443235634000#slide=id.gogSlide1787597443235634000).
 
@@ -255,7 +255,7 @@ One law: for independent work, the speed ceiling is the real per-item resource b
 
 ### [`superpowers-quick`](.claude/skills/superpowers-quick/SKILL.md) — `/superpowers-quick`
 
-An opt-in autonomous wrapper around [Superpowers](https://github.com/obra/superpowers) by Jesse Vincent (`superpowers:brainstorming` and `superpowers:writing-plans`). It inspects the project, selects and records its recommended answers, completes the architectural design path, and then invokes `superpowers:writing-plans`. The terminal result is a self-reviewed specification under `docs/superpowers/specs/` and an executable plan under `docs/superpowers/plans/`; it does not start implementation.
+A `jleechanorg`-authored, opt-in autonomous wrapper around [Superpowers](https://github.com/obra/superpowers) by Jesse Vincent (`superpowers:brainstorming` and `superpowers:writing-plans`). It inspects the project, selects and records its recommended answers, completes the architectural design path, and then invokes `superpowers:writing-plans`. The terminal result is a self-reviewed specification under `docs/superpowers/specs/` and an executable plan under `docs/superpowers/plans/`; it does not start implementation.
 
 ```bash
 /superpowers-quick "add offline-first notes sync"
