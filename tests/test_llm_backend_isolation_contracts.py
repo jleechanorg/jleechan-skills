@@ -32,7 +32,14 @@ def read_frontmatter(text: str) -> dict:
 
 class LLMBackendIsolationContractsTest(unittest.TestCase):
     def test_all_affected_skills_have_portable_frontmatter(self):
-        allowed_keys = {"name", "description", "license", "allowed-tools", "metadata"}
+        allowed_keys = {
+            "name",
+            "description",
+            "license",
+            "compatibility",
+            "allowed-tools",
+            "metadata",
+        }
         for name in (
             "root-cause-first",
             "llm-first",
@@ -63,11 +70,50 @@ class LLMBackendIsolationContractsTest(unittest.TestCase):
         self.assertIn("prompt/schema-insufficient with raw-path proof", skill_text)
         self.assertIn("unproven fallback", skill_text)
         self.assertIn("model-ownership violation candidate", skill_text)
+        self.assertIn("ZFC violation candidate", skill_text)
 
         self.assertIn(
             "${CLAUDE_HOME:-$HOME/.claude}/skills/root-cause-first/SKILL.md",
             command_text,
         )
+
+    def test_root_cause_first_review_consumers_are_fail_closed(self):
+        root_skill = read_skill("root-cause-first")
+        command_text = read_command("root-cause-first")
+        review_consumers = (
+            SKILLS_DIR / "code-standards" / "SKILL.md",
+            SKILLS_DIR / "zero-framework-cognition" / "SKILL.md",
+            COMMANDS_DIR / "extended-library" / "zfc.md",
+        )
+
+        self.assertIn("Direct diagnostic mode", root_skill)
+        self.assertIn("Review-only mode", root_skill)
+        self.assertIn("loaded by another review", root_skill)
+        self.assertIn("stop before executing `/llm-first` or `/backend-first`", root_skill)
+        self.assertIn("direct diagnostic mode", command_text)
+
+        for consumer_path in review_consumers:
+            with self.subTest(consumer=consumer_path.relative_to(REPO_ROOT)):
+                consumer_text = consumer_path.read_text(encoding="utf-8")
+                self.assertIn("review-only mode", consumer_text)
+
+    def test_all_isolation_skills_exclude_project_specific_contracts(self):
+        for name in (
+            "root-cause-first",
+            "llm-first",
+            "backend-first",
+            "isolate-llm-vs-backend",
+            "end2end-testing",
+        ):
+            skill_text = read_skill(name)
+            with self.subTest(skill=name):
+                for project_specific_token in (
+                    "mvp_site",
+                    "WORLDAI_",
+                    "test_god_mode",
+                    "worldarchitect.ai",
+                ):
+                    self.assertNotIn(project_specific_token, skill_text)
 
     def test_llm_first_enforces_frozen_backend_and_attributable_ablation(self):
         skill_text = read_skill("llm-first")

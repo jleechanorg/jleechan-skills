@@ -146,11 +146,14 @@ prompt/schema layer. The first fix attempt should be upstream: selected agent,
 prompt wording, schema shape, or tool-result feedback. Backend guards are the
 last resort, not the primary design.
 
-Use `.claude/skills/root-cause-first/SKILL.md` for the required proof standard.
+Use `.claude/skills/root-cause-first/SKILL.md` in review-only mode for the
+required proof standard. Stop after classification and findings; do not launch
+its owner skills, experiments, or edits from a ZFC review.
 For every backend guard, fallback, clamp, sanitizer, scrubber, suppression, or
 server-injected choice, classify whether it is a server-owned invariant,
 prompt/schema-insufficient with raw proof, a backend-transformation bug, an
-unproven fallback, or a ZFC violation candidate.
+unproven fallback, or a model-ownership violation candidate (ZFC violation
+candidate).
 
 Allowed guards:
 

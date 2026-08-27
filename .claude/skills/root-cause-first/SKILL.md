@@ -10,6 +10,19 @@ description: Use when a bug may cross an LLM/backend boundary or tempts changes 
 Diagnose before editing. This skill locates the first divergence and chooses one
 causal lane. It does not tune prompts or change backend behavior itself.
 
+## Modes
+
+- **Direct diagnostic mode** applies only when this skill is invoked directly
+  to diagnose a concrete failure and the active task authorizes investigation
+  or fixes. After the route verdict, it may execute the selected owner skill.
+- **Review-only mode** applies automatically when loaded by another review or
+  audit workflow, or when the subject is a code diff, PR, proposed guard, or
+  proof classification. Emit the evidence-backed verdict and findings, then
+  stop before executing `/llm-first` or `/backend-first`.
+
+If the invocation mode is unclear or the active task does not authorize
+changes, use review-only mode.
+
 ## Boundary trace
 
 Capture the same failing turn across these checkpoints:
@@ -49,7 +62,7 @@ Emit exactly one route label with the first divergent artifact:
 - `ROOT CAUSE ROUTE: BACKEND`
 - `ROOT CAUSE ROUTE: UNDER-INSTRUMENTED`
 
-Then execute only the selected owner skill:
+In direct diagnostic mode, execute only the selected owner skill:
 
 - LLM route: execute `/llm-first`.
 - Backend route: execute `/backend-first`.
@@ -57,8 +70,8 @@ Then execute only the selected owner skill:
   requires a separately authorized follow-up that changes no prompt/schema or
   backend semantics; rerun this diagnostic after that evidence exists.
 
-If invoked in review-only mode, stop after the evidence-backed verdict and
-findings. Do not launch provider experiments or edit code.
+In review-only mode, stop after the evidence-backed verdict and findings. Do
+not launch owner skills, provider experiments, or edits.
 
 ## Protection review
 
@@ -69,7 +82,7 @@ suppression, classify it as one of:
 - backend-transformation fix;
 - prompt/schema-insufficient with raw-path proof;
 - unproven fallback;
-- model-ownership violation candidate.
+- model-ownership violation candidate (the ZFC workflow calls this a `ZFC violation candidate`).
 
 Do not call backend protection necessary without server ownership or raw-path
 proof. Retain any domain-specific approval gates from the active repository
