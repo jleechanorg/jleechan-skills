@@ -135,7 +135,14 @@ class ApprovalContractsTest(unittest.TestCase):
         receipt = "`/er: NOT REQUIRED — documentation-only (<changed paths>)`"
         self.assertIn(receipt, draft_first)
         self.assertIn(receipt, evidence_review)
-        self.assertIn("Mixed diffs", evidence_review)
+        self.assertRegex(
+            draft_first,
+            r"Any\s+mixed diff uses the normal `/er` gate",
+        )
+        self.assertRegex(
+            evidence_review,
+            r"Mixed diffs and every path outside that allowlist follow the normal gate",
+        )
         self.assertIn("Every PR outside that exception requires `/er` = **PASS**", evidence_review)
         self.assertNotIn("Acceptable for `/green` on NON_PRODUCTION", evidence_review)
         self.assertIn("when `/er` is required by that lifecycle", green)
