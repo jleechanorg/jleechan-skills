@@ -28,6 +28,7 @@ class InstallerIntegrationTest(unittest.TestCase):
             "skills/example/scripts/__pycache__/helper.cpython-313.pyc": "compiled\n",
             "skills/example/scripts/.pytest_cache/CACHEDIR.TAG": "cache\n",
             "skills/_archive/legacy/SKILL.md": "# Legacy\n",
+            "skills/_archive/2026-08-27-historical-zero-use/README.md": "archive rationale\n",
             "skills/_archived_loose_md/legacy.md": "legacy\n",
             "skills/_archived_loose_md_2026-08-23/legacy.md": "legacy\n",
         }
