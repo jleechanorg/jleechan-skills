@@ -111,6 +111,7 @@ class ApprovalContractsTest(unittest.TestCase):
         draft_first = skill("draft-first-pr")
         evidence_review = skill("evidence-review")
         green = skill("pr-green-definition")
+        readme = (REPO_ROOT / "README.md").read_text()
 
         self.assertIn("Documentation-only exception", draft_first)
         self.assertIn("do not run `/er`", draft_first)
@@ -120,8 +121,13 @@ class ApprovalContractsTest(unittest.TestCase):
         self.assertIn("still require `/es` and `/advice`", draft_first)
         self.assertIn("Documentation-only exception", evidence_review)
         self.assertIn("`/er` is not run", evidence_review)
+        self.assertIn("Every PR outside that exception requires `/er` = **PASS**", evidence_review)
+        self.assertNotIn("Acceptable for `/green` on NON_PRODUCTION", evidence_review)
         self.assertIn("when `/er` is required by that lifecycle", green)
         self.assertNotIn("DRAFT → `/es` → `/er` → `/advice`", green)
+        self.assertIn("draft-phase gate", readme)
+        self.assertIn("Documentation-only PRs skip `/er`", readme)
+        self.assertNotIn("production-tier `/green` requires PASS", readme)
 
     def test_portable_and_orchestration_contracts_disclose_actual_behavior(self) -> None:
         history = skill("conversation-history-sparse")

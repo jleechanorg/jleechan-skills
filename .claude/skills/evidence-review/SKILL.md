@@ -17,8 +17,8 @@ description: Enforcement rules for reviewing evidence artifacts against the evid
 
 | Verdict | Meaning |
 |---------|---------|
-| **PASS** | Every claim has a matching artifact of STRONG quality and every mandatory check below passes. **Required for `/green` on PRODUCTION tier PRs.** |
-| **PARTIAL** | Claims are supported but one or more mandatory checks soft-warn (e.g., WARN in an optional verification_report.json, missing downloadable MP4). A PR at PARTIAL is not merge-ready for production. **Acceptable for `/green` on NON_PRODUCTION tier PRs (with explicit waiver).** |
+| **PASS** | Every claim has a matching artifact of STRONG quality and every mandatory check below passes. Satisfies the draft-phase `/er` gate when `/er` is applicable. |
+| **PARTIAL** | Claims are supported but one or more mandatory checks soft-warn (e.g., WARN in an optional verification_report.json, missing downloadable MP4). Does not satisfy the draft-phase `/er` gate. |
 | **FAIL** | A claim is contradicted by an artifact, or integrity is broken (sha256 mismatch, dirty capture producing the claim, scope exclusion). |
 | **INCONCLUSIVE** | Not enough artifact data exists to decide. Request more. |
 
@@ -27,12 +27,14 @@ description: Enforcement rules for reviewing evidence artifacts against the evid
 The canonical lifecycle and its changed-path classification live in
 `draft-first-pr`; apply that policy before invoking this skill:
 
-- **PRODUCTION PRs** (changes to `$PROJECT_ROOT/**` production code, prompts, CI, schema): require `/er` = **PASS**.
-- **NON_PRODUCTION PRs** (tests, tooling, roadmap, repo-hygiene): require `/er` ≥ **PARTIAL** (PARTIAL with explicit waiver from the operator is acceptable).
 - **Documentation-only exception**: when the complete PR diff matches the exact
   documentation allowlist in `draft-first-pr`, `/er` is not run. Record
   `/er: NOT REQUIRED (documentation-only)` at the reviewed SHA. Mixed diffs and
-  every path outside that allowlist follow the applicable rule above.
+  every path outside that allowlist follow the normal gate.
+
+Every PR outside that exception requires `/er` = **PASS** at the current SHA
+before `/advice`. PARTIAL, FAIL, or INCONCLUSIVE remains informative reviewer
+output but does not satisfy the gate.
 
 When `/er` is required and invoked via `gh pr comment N --body "/er"`, the
 evidence-review-bot returns the verdict as a structured comment with one of the

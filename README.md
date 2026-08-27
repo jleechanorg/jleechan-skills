@@ -167,7 +167,7 @@ Fans a query out in parallel across ten distinct memory sources — roadmap, bea
 
 ### [`evidence-review`](.claude/skills/evidence-review/SKILL.md) — `/evidence-review` (`/er`)
 
-Use this after evidence has been captured, not as a substitute for capturing it. Point it at the evidence bundle or claim path; it checks artifact integrity and whether the claimed evidence has real execution provenance, then returns PASS / PARTIAL / FAIL / INCONCLUSIVE with file:line citations. Checksums protect an artifact’s integrity but do not establish its provenance. A production-tier `/green` requires PASS, while non-production work can use a disclosed PARTIAL waiver.
+Use this after evidence has been captured, not as a substitute for capturing it. Point it at the evidence bundle or claim path; it checks artifact integrity and whether the claimed evidence has real execution provenance, then returns PASS / PARTIAL / FAIL / INCONCLUSIVE with file:line citations. Checksums protect an artifact’s integrity but do not establish its provenance. It is a draft-phase gate when required by the canonical PR lifecycle, and only PASS satisfies it. Documentation-only PRs skip `/er` when their complete diff matches the lifecycle’s exact allowlist.
 
 ```bash
 /evidence-review docs/evidence/checkout-latency-fix/
