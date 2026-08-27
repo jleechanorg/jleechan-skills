@@ -62,7 +62,10 @@ class ApprovalContractsTest(unittest.TestCase):
 
     def test_web_advice_requires_real_browser_transport(self) -> None:
         web_adv = skill("web-advice")
-        self.assertIn("COVERAGE: files, diff, evidence, or subject material actually read", web_adv)
+        self.assertIn(
+            "COVERAGE: exact filenames from the attached packet actually read",
+            web_adv,
+        )
         self.assertIn("Zero Aside Inference Invariant", web_adv)
         self.assertIn("NEVER use Aside inference", web_adv)
         self.assertIn("chrome_headless_cookies", web_adv)

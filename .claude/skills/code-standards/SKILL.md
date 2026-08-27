@@ -34,9 +34,10 @@ The same skill is mirrored at `~/.codex/skills/ponytail/SKILL.md` for Codex.
    semantic decisions to a model.
 3. **ZFC leveling** — for level-up work, the model picks the target level (do
    not derive primary availability from XP thresholds).
-4. **Root-cause-first** — patch the upstream prompt/schema/agent first; only
-   add backend enforcement as a narrow, logged invariant after documenting
-   why prompt correction is insufficient.
+4. **Root-cause-first** — run the skill in review-only mode: check that the
+   upstream prompt/schema/agent was considered first and accept backend
+   enforcement only as a narrow, logged invariant with proof. Report findings;
+   do not launch `/llm-first`, `/backend-first`, experiments, or edits.
 
 ## Workflow
 
@@ -51,9 +52,10 @@ current diff/PR):
 3. **Load the four source skills** by path and treat them as authoritative.
    Do not duplicate the standards into the command file — this skill file is
    the only place the standards content should live.
-4. **Dispatch or emulate the four independent review lanes.** Each lane must
-   return either PASS with file/line evidence or FAIL with the exact
-   location and required fix. Rationalizations are not evidence.
+4. **Dispatch or emulate the four independent review lanes.** Invoke the
+   root-cause-first lane in review-only mode. Each lane must return either PASS
+   with file/line evidence or FAIL with the exact location and required fix.
+   Rationalizations are not evidence.
 5. **Reconcile** the lane results into the report format below.
 6. **Do not mark any lane skipped** unless this is the explicit `smoke-test`
    mode (see below). A repo-local command may add its own `smoke-test`

@@ -17,7 +17,7 @@ Backend guard proof standard: `.claude/skills/root-cause-first/SKILL.md`
 
 ## Execution Steps
 
-1. **Load skills** — read `.claude/skills/zero-framework-cognition/SKILL.md` and `.claude/skills/root-cause-first/SKILL.md` in full
+1. **Load skills** — read `.claude/skills/zero-framework-cognition/SKILL.md` and `.claude/skills/root-cause-first/SKILL.md` in full. Root-cause-first is loaded in review-only mode as a proof standard; do not launch its owner skills or edits.
 2. **Identify scope** — if an argument is given (`/zfc <file or description>`), focus there; otherwise review the current diff or most recently discussed code
 3. **Run banned-pattern scan** — check for:
    - Keyword/substring routing for user intent (`if text.contains(...)`)
@@ -33,7 +33,7 @@ Backend guard proof standard: `.claude/skills/root-cause-first/SKILL.md`
    - Prompt/schema-insufficient, proven by raw real-path request/response
    - Backend-transformation bug
    - Unproven fallback
-   - ZFC violation candidate
+   - Model-ownership violation candidate (ZFC violation candidate)
 6. **Recommend fixes** — for each violation found:
    - Name the banned pattern
    - Quote the offending code
