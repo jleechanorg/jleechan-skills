@@ -1,7 +1,9 @@
 # Historical zero-use archive — 2026-08-27
 
-These skills were removed from the installable catalog, not deleted. Restore a
-package with `git mv` if a live workflow needs it again.
+These skills were removed from the installable catalog, not deleted. This
+directory is a sibling of `skills/`, so the installer never copies it and no
+archived package participates in skill discovery. Restore a package with
+`git mv` if a live workflow needs it again.
 
 ## Evidence
 
@@ -29,6 +31,8 @@ explicitly marked as a deleted system in its own historical content.
 
 ## Scope
 
-This is a deliberately narrow first tranche. It does not imply that any other
-zero-observation skill is unused. Archive candidates require both a structured
-usage check and a dependency check before they move here.
+This archive contains 159 packages. The broader tranche applies the same
+evidence rule to the active catalog: no structured Skill call in 30 days and
+no reference from an observed-used skill. Explicit repository contracts remain
+active even when they have no recent call, including `superpowers-quick`,
+`command-research`, and portability-test members.

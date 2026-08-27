@@ -31,6 +31,7 @@ class InstallerIntegrationTest(unittest.TestCase):
             "skills/_archive/2026-08-27-historical-zero-use/README.md": "archive rationale\n",
             "skills/_archived_loose_md/legacy.md": "legacy\n",
             "skills/_archived_loose_md_2026-08-23/legacy.md": "legacy\n",
+            "skills_archive/historical/SKILL.md": "archive rationale\n",
         }
         for relative, content in files.items():
             path = source / relative
@@ -73,6 +74,7 @@ class InstallerIntegrationTest(unittest.TestCase):
                     "_archive",
                     "_archived_loose_md",
                     "_archived_loose_md_2026-08-23",
+                    "skills_archive",
                     "__pycache__",
                     ".pytest_cache",
                 }.intersection(relative_parts):
@@ -87,6 +89,7 @@ class InstallerIntegrationTest(unittest.TestCase):
                 self.assertFalse((target / "skills" / archive_name).exists())
             self.assertFalse((target / "skills/example/scripts/__pycache__").exists())
             self.assertFalse((target / "skills/example/scripts/.pytest_cache").exists())
+            self.assertFalse((target / "skills_archive").exists())
 
     def test_superpowers_quick_installs_with_bundled_subskills(self):
         with tempfile.TemporaryDirectory() as directory:
