@@ -29,8 +29,8 @@ The canonical lifecycle and its changed-path classification live in
 
 - **Documentation-only exception**: when the complete PR diff matches the exact
   documentation allowlist in `draft-first-pr`, `/er` is not run. Record
-  `/er: NOT REQUIRED (documentation-only)` at the reviewed SHA. Mixed diffs and
-  every path outside that allowlist follow the normal gate.
+  `/er: NOT REQUIRED — documentation-only (<changed paths>)` at the reviewed
+  SHA. Mixed diffs and every path outside that allowlist follow the normal gate.
 
 Every PR outside that exception requires `/er` = **PASS** at the current SHA
 before `/advice`. PARTIAL, FAIL, or INCONCLUSIVE remains informative reviewer

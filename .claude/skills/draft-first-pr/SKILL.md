@@ -45,10 +45,11 @@ is documentation-only only when every changed path is one of:
 - `CONTRIBUTING.md`
 - `docs/**`
 
-For that class, do not run `/er`. Record `/er: NOT REQUIRED —
-documentation-only (<changed paths>)` on the PR, then continue directly to
-`/advice`. Documentation-only PRs still require `/es` and `/advice` at the
-current SHA, followed by `/green` and separate merge authorization.
+For that class, do not run `/er`. Record
+`/er: NOT REQUIRED — documentation-only (<changed paths>)` on the PR, then
+continue directly to `/advice`. Documentation-only PRs still require `/es` and
+`/advice` at the current SHA, followed by `/green` and separate merge
+authorization.
 
 This is an exact allowlist, not a file-extension heuristic. Changes under
 `.claude/**`, `.codex/**`, `.github/**`, prompts, tests, scripts, configuration,

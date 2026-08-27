@@ -1,5 +1,6 @@
 """Regression contracts for portable approval and evidence-gate skills."""
 
+import re
 import unittest
 from pathlib import Path
 
@@ -118,9 +119,23 @@ class ApprovalContractsTest(unittest.TestCase):
         self.assertIn("`README.md`", draft_first)
         self.assertIn("`docs/**`", draft_first)
         self.assertIn("`.claude/**`", draft_first)
-        self.assertIn("still require `/es` and `/advice`", draft_first)
+        self.assertRegex(draft_first, r"still require `/es` and\s+`/advice`")
+        allowlist = re.search(
+            r"is documentation-only only when every changed path is one of:\n\n"
+            r"(?P<paths>(?:- `[^`]+`\n)+)",
+            draft_first,
+        )
+        self.assertIsNotNone(allowlist)
+        self.assertEqual(
+            re.findall(r"- `([^`]+)`", allowlist.group("paths")),
+            ["README.md", "CHANGELOG.md", "CONTRIBUTING.md", "docs/**"],
+        )
         self.assertIn("Documentation-only exception", evidence_review)
         self.assertIn("`/er` is not run", evidence_review)
+        receipt = "`/er: NOT REQUIRED — documentation-only (<changed paths>)`"
+        self.assertIn(receipt, draft_first)
+        self.assertIn(receipt, evidence_review)
+        self.assertIn("Mixed diffs", evidence_review)
         self.assertIn("Every PR outside that exception requires `/er` = **PASS**", evidence_review)
         self.assertNotIn("Acceptable for `/green` on NON_PRODUCTION", evidence_review)
         self.assertIn("when `/er` is required by that lifecycle", green)
