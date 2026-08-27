@@ -21,7 +21,6 @@ BATCH1 = (
     "bypass-claims",
     "crash",
     "deletion-milestone",
-    "design-doc-backup-worldarchitect",
     "distributed-caching",
     "domain-lock-standards",
     "engplan",

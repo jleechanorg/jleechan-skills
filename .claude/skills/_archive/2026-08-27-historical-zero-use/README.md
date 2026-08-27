@@ -13,6 +13,15 @@ zero calls for each archived package:
 - `codex-evolve-loop`
 - `skeptic-agent`
 
+The following packages also have a canonical active counterpart and are visibly
+historical copies by name. They have zero structured calls and no active
+project caller:
+
+- `dark-factory.bak.1784359965` → `dark-factory`
+- `factory-spec.bak.1784359965` → `factory-spec`
+- `fix-completion-deploy.pre-user-scope-20260727T035804Z` → `fix-completion-deploy`
+- `design-doc-backup-worldarchitect` → `design-doc`
+
 Raw-name records were intentionally ignored: they are dominated by skill
 catalogues and documentation, and are not invocation evidence. The three
 packages also have no project slash-command pointer. `skeptic-agent` is
