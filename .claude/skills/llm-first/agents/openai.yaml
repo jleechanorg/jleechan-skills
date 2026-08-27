@@ -1,0 +1,4 @@
+interface:
+  display_name: "LLM First"
+  short_description: "Prove model contract compliance with the backend frozen"
+  default_prompt: "Use $llm-first to prove a raw model contract while backend behavior stays frozen."

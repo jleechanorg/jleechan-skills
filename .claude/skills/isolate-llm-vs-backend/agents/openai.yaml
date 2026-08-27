@@ -1,0 +1,4 @@
+interface:
+  display_name: "Root Cause First (Compatibility Alias)"
+  short_description: "Route LLM versus backend failures through root-cause-first"
+  default_prompt: "Use $isolate-llm-vs-backend to route the first LLM/backend divergence to its owning workflow."

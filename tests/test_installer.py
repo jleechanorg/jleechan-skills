@@ -113,6 +113,42 @@ class InstallerIntegrationTest(unittest.TestCase):
                 self.assertTrue(installed_dependency.is_file(), installed_dependency)
                 self.assertIn(f"~/.claude/skills/{dependency}/SKILL.md", quick)
 
+    def test_boundary_commands_resolve_skills_under_nondefault_claude_home(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            skill_names = (
+                "root-cause-first",
+                "llm-first",
+                "backend-first",
+                "end2end-testing",
+            )
+            for name in skill_names:
+                for relative in (
+                    Path(f"commands/{name}.md"),
+                    Path(f"skills/{name}/SKILL.md"),
+                ):
+                    source = REPO_ROOT / ".claude" / relative
+                    destination = fixture / ".claude" / relative
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(source, destination)
+
+            target = temp_dir / "nondefault-claude-home"
+            result = self.run_installer(fixture, target)
+
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            home_expression = "${CLAUDE_HOME:-$HOME/.claude}"
+            for name in skill_names:
+                with self.subTest(command=name):
+                    command = (target / f"commands/{name}.md").read_text(
+                        encoding="utf-8"
+                    )
+                    self.assertIn(home_expression, command)
+                    resolved = command.replace(home_expression, str(target))
+                    installed_skill = target / f"skills/{name}/SKILL.md"
+                    self.assertIn(str(installed_skill), resolved)
+                    self.assertTrue(installed_skill.is_file(), installed_skill)
+
     def test_second_default_run_refuses_to_overwrite_an_existing_install(self):
         with tempfile.TemporaryDirectory() as directory:
             temp_dir = Path(directory)
