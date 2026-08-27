@@ -107,6 +107,16 @@ class ApprovalContractsTest(unittest.TestCase):
         self.assertIn("does not satisfy the draft gate", draft_first)
         self.assertIn("SHA-binding rule", draft_first)
 
+    def test_documentation_only_draft_gate_skips_evidence_review(self) -> None:
+        draft_first = skill("draft-first-pr")
+
+        self.assertIn("Documentation-only exception", draft_first)
+        self.assertIn("do not run `/er`", draft_first)
+        self.assertIn("`README.md`", draft_first)
+        self.assertIn("`docs/**`", draft_first)
+        self.assertIn("`.claude/**`", draft_first)
+        self.assertIn("still require `/es` and `/advice`", draft_first)
+
     def test_portable_and_orchestration_contracts_disclose_actual_behavior(self) -> None:
         history = skill("conversation-history-sparse")
         factory = skill("dark-factory")
