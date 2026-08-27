@@ -1,5 +1,6 @@
 """Regression contracts for portable approval and evidence-gate skills."""
 
+import re
 import unittest
 from pathlib import Path
 
@@ -106,6 +107,49 @@ class ApprovalContractsTest(unittest.TestCase):
         self.assertIn("`WITHHELD at <SHA>`", draft_first)
         self.assertIn("does not satisfy the draft gate", draft_first)
         self.assertIn("SHA-binding rule", draft_first)
+
+    def test_documentation_only_draft_gate_skips_evidence_review(self) -> None:
+        draft_first = skill("draft-first-pr")
+        evidence_review = skill("evidence-review")
+        green = skill("pr-green-definition")
+        readme = (REPO_ROOT / "README.md").read_text()
+
+        self.assertIn("Documentation-only exception", draft_first)
+        self.assertIn("do not run `/er`", draft_first)
+        self.assertIn("`README.md`", draft_first)
+        self.assertIn("`docs/**`", draft_first)
+        self.assertIn("`.claude/**`", draft_first)
+        self.assertRegex(draft_first, r"still require `/es` and\s+`/advice`")
+        allowlist = re.search(
+            r"is documentation-only only when every changed path is one of:\n\n"
+            r"(?P<paths>(?:- `[^`]+`\n)+)",
+            draft_first,
+        )
+        self.assertIsNotNone(allowlist)
+        self.assertEqual(
+            re.findall(r"- `([^`]+)`", allowlist.group("paths")),
+            ["README.md", "CHANGELOG.md", "CONTRIBUTING.md", "docs/**"],
+        )
+        self.assertIn("Documentation-only exception", evidence_review)
+        self.assertIn("`/er` is not run", evidence_review)
+        receipt = "`/er: NOT REQUIRED — documentation-only (<changed paths>)`"
+        self.assertIn(receipt, draft_first)
+        self.assertIn(receipt, evidence_review)
+        self.assertRegex(
+            draft_first,
+            r"Any\s+mixed diff uses the normal `/er` gate",
+        )
+        self.assertRegex(
+            evidence_review,
+            r"Mixed diffs and every path outside that allowlist follow the normal gate",
+        )
+        self.assertIn("Every PR outside that exception requires `/er` = **PASS**", evidence_review)
+        self.assertNotIn("Acceptable for `/green` on NON_PRODUCTION", evidence_review)
+        self.assertIn("when `/er` is required by that lifecycle", green)
+        self.assertNotIn("DRAFT → `/es` → `/er` → `/advice`", green)
+        self.assertIn("draft-phase gate", readme)
+        self.assertIn("Documentation-only PRs skip `/er`", readme)
+        self.assertNotIn("production-tier `/green` requires PASS", readme)
 
     def test_portable_and_orchestration_contracts_disclose_actual_behavior(self) -> None:
         history = skill("conversation-history-sparse")

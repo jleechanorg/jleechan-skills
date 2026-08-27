@@ -13,7 +13,7 @@ type: policy
 | 1 | **CI green** | Every CI check at HEAD passes (no FAILURE/ERROR/pending-stale) |
 | 2 | **No merge conflicts** | `mergeable == MERGEABLE` (retry while `UNKNOWN`; `CONFLICTING` is a hard FAIL) |
 
-**Nothing else gates `/green`.** Inline-comment resolution (`resolveReviewThread`), the evidence-link gate, the PR-description gate, and the old "6-green" numbering are **not** `/green` gates anymore (operator directive, 2026-07-28). Those quality checks happen in the **draft phase**, before a PR is marked ready for review — the full canonical lifecycle (DRAFT → `/es` → `/er` → `/advice` → mark ready → `/green` → separate merge authorization) and its **SHA-binding rule** (every gate verdict, including `/green`, expires the moment PR HEAD moves and must be re-earned at the new SHA) live in `~/.claude/skills/draft-first-pr/SKILL.md` — do not restate that chain here, just apply it.
+**Nothing else gates `/green`.** Inline-comment resolution (`resolveReviewThread`), the evidence-link gate, the PR-description gate, and the old "6-green" numbering are **not** `/green` gates anymore (operator directive, 2026-07-28). Those quality checks happen in the **draft phase**, before a PR is marked ready for review. The full canonical lifecycle, including when `/er` is required by that lifecycle, and its **SHA-binding rule** (every gate verdict, including `/green`, expires the moment PR HEAD moves and must be re-earned at the new SHA) live in `~/.claude/skills/draft-first-pr/SKILL.md` — do not restate that chain here, just apply it.
 
 **CodeRabbit/Bugbot: optional advisory reviewers** — read their feedback, take what's useful; never a gate, never a wait, at any phase of the PR lifecycle. Human `MERGE APPROVED` remains the only merge gate.
 
@@ -66,5 +66,5 @@ If a CI check is pending or backlogged **>10 minutes past its normal runtime**, 
 
 ## Related
 
-- `~/.claude/skills/draft-first-pr/SKILL.md` — the pre-green quality gate (`/es`, `/er`, `/advice`) that now lives in the draft phase, not in `/green`
+- `~/.claude/skills/draft-first-pr/SKILL.md` — the pre-green quality gates that now live in the draft phase, not in `/green`
 - `~/.claude/skills/github-cli-reference.md` — REST ↔ GraphQL dual-bucket procedure
