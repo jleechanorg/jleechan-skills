@@ -122,6 +122,7 @@ pointers and are intentionally not the documentation target.
 | `/4layer` | [`4layer`](.claude/skills/4layer/SKILL.md) | Use to locate a PR blocker with the smallest credible reproduction. Give the bug and target repo; it discovers the project’s runner, tries unit → end-to-end → API → browser, and stops at the first conclusive layer. |
 | `/redgreen` (`/rg`) | [`redgreen`](.claude/skills/redgreen/SKILL.md) | Use to repair one known defect test-first. Provide the current symptom; it requires a fresh failing reproduction, a minimal fix, a passing rerun, and evidence that the full RED → CODE → GREEN flow actually happened. |
 | `/parallel` | [`parallelize-to-ceiling`](.claude/skills/parallelize-to-ceiling/SKILL.md) | Use whenever work has independent files, tests, rows, jobs, or agent lanes. List the work and constraints; it identifies the real CPU, I/O, network, or shared-state limit and proposes safe shards instead of an arbitrary worker count. |
+| `/superpowers-quick` | [`superpowers-quick`](.claude/skills/superpowers-quick/SKILL.md) | Use when you want the normal Superpowers design process to select its recommended defaults autonomously. Give it the idea or requested change; it writes a self-reviewed design specification and implementation plan without pausing for preference or approval questions. |
 | `/history` | [`conversation-history-sparse`](.claude/skills/conversation-history-sparse/SKILL.md) | Use for fast orientation on what the current repo or branch has been doing. Ask a focused question; it samples high-signal Claude, Codex, and Hermes history without loading full transcripts; add `--deep` only when the sparse pass is insufficient. |
 | `/sidekick` | [`sidekick`](.claude/skills/sidekick/SKILL.md) | Use for one long-running mission that must survive a session crash. Give a named outcome and success criteria; it assigns a persistent teammate and checkpoints durable state plus a resumption Bead. |
 | `/swarm` | [`swarm`](.claude/skills/swarm/SKILL.md) | Use when a goal decomposes into independent, adversarially reviewable lanes. State the goal and optional shape/engine; it sizes the fan-out, assigns explicit models and disjoint outputs, and requires multi-lens verification before synthesis. |
@@ -248,6 +249,14 @@ One law: for independent work, the speed ceiling is the real per-item resource b
 
 ```bash
 /extended-library:parallel "run these 12 independent lint fixes"
+```
+
+### [`superpowers-quick`](.claude/skills/superpowers-quick/SKILL.md) — `/superpowers-quick`
+
+An opt-in autonomous wrapper around `superpowers:brainstorming`. It inspects the project, selects and records its recommended answers, completes the architectural design path, and then invokes `superpowers:writing-plans`. The terminal result is a self-reviewed specification under `docs/superpowers/specs/` and an executable plan under `docs/superpowers/plans/`; it does not start implementation.
+
+```bash
+/superpowers-quick "add offline-first notes sync"
 ```
 
 ### [`conversation-history-sparse`](.claude/skills/conversation-history-sparse/SKILL.md) — `/history`
