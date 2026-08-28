@@ -45,4 +45,3 @@ If a PR does not satisfy these, MAKE it satisfy them (fix lanes, evidence
 publication, gate reruns), then re-verify. Merges remain human-authorized:
 report READY state and merge only under an explicit or standing conditional
 approval that names these gates.
-

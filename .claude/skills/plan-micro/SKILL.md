@@ -151,4 +151,3 @@ per-bead contracts. List only true blockers that require human authority.
 
 The three-day baseline that informed these rules is in
 [references/history-baseline-2026-08-04-06.md](references/history-baseline-2026-08-04-06.md).
-

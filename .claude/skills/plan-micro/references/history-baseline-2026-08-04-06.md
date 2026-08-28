@@ -148,4 +148,3 @@ assistant-message records, and 2,132 Claude JSONL files with target-date
 timestamps. Structural filtering and semantic classification did not finish,
 so this reference reports no session planning-episode frequency. These counts
 describe archive discovery only; they are not planning rates.
-

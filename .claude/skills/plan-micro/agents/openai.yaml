@@ -2,4 +2,3 @@ interface:
   display_name: "Plan Micro"
   short_description: "Ironclad overall and per-bead TDD planning"
   default_prompt: "Use $plan-micro to write the overall Ironclad contract, then create an executable TDD micro-bead plan with a full Ironclad contract for every bead."
-
