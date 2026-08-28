@@ -5,13 +5,32 @@ import unittest
 from pathlib import Path
 
 from count_command_usage_unified import (
+    load_known_skills,
     scan_claude_skill_invocations,
     scan_codex_skill_invocations,
     scan_hermes_skill_invocations,
+    scan_skill_usage,
 )
 
 
 class SkillUsageMeasurementTest(unittest.TestCase):
+    def test_skill_roots_include_codex_and_deduplicate_symlinked_entries(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            claude_skill = root / ".claude" / "skills" / "shared" / "SKILL.md"
+            codex_skill = root / ".codex" / "skills" / "codex-only" / "SKILL.md"
+            claude_skill.parent.mkdir(parents=True)
+            codex_skill.parent.mkdir(parents=True)
+            claude_skill.write_text("---\nname: shared\n---\n", encoding="utf-8")
+            codex_skill.write_text("---\nname: codex-only\n---\n", encoding="utf-8")
+            link = root / ".codex" / "skills" / "shared" / "SKILL.md"
+            link.parent.mkdir()
+            link.symlink_to(claude_skill)
+
+            skills = load_known_skills([root / ".claude", root / ".codex"])
+
+            self.assertEqual(skills, {"shared", "codex-only"})
+
     def test_claude_counts_only_explicit_skill_tool_calls(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             session = Path(tmpdir) / "session.jsonl"
@@ -127,6 +146,35 @@ class SkillUsageMeasurementTest(unittest.TestCase):
             self.assertEqual(result["agent"]["alpha"], 0)
             self.assertEqual(result["record_types"]["response_item.custom_tool_call.Skill"], 1)
 
+    def test_codex_unsupported_schema_returns_diagnostic(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            database = Path(tmpdir) / "state.sqlite"
+            connection = sqlite3.connect(database)
+            connection.commit()
+            connection.close()
+
+            result = scan_codex_skill_invocations(
+                {"alpha"}, cutoff=0, db_path=database
+            )
+
+            self.assertFalse(result["supported"])
+            self.assertIn("threads", result["diagnostic"])
+
+    def test_codex_missing_provenance_column_returns_diagnostic(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            database = Path(tmpdir) / "state.sqlite"
+            connection = sqlite3.connect(database)
+            connection.execute("CREATE TABLE threads (rollout_path TEXT)")
+            connection.commit()
+            connection.close()
+
+            result = scan_codex_skill_invocations(
+                {"alpha"}, cutoff=0, db_path=database
+            )
+
+            self.assertFalse(result["supported"])
+            self.assertIn("provenance", result["diagnostic"])
+
     def test_hermes_counts_tool_name_not_slash_text(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             database = Path(tmpdir) / "state.db"
@@ -176,6 +224,41 @@ class SkillUsageMeasurementTest(unittest.TestCase):
             self.assertEqual(result["agent"]["alpha"], 1)
             self.assertEqual(result["record_types"]["messages.tool_name.Skill"], 1)
             self.assertEqual(result["record_types"]["messages.tool_calls.Skill"], 1)
+
+    def test_hermes_unsupported_schema_returns_diagnostic(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            database = Path(tmpdir) / "state.db"
+            connection = sqlite3.connect(database)
+            connection.execute("CREATE TABLE sessions (id TEXT PRIMARY KEY)")
+            connection.commit()
+            connection.close()
+
+            result = scan_hermes_skill_invocations(
+                {"alpha"}, cutoff=0, db_path=database
+            )
+
+            self.assertFalse(result["supported"])
+            self.assertIn("messages", result["diagnostic"])
+
+    def test_aggregate_preserves_store_schema_diagnostics(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            codex_db = Path(tmpdir) / "codex.sqlite"
+            hermes_db = Path(tmpdir) / "hermes.db"
+            sqlite3.connect(codex_db).close()
+            sqlite3.connect(hermes_db).close()
+
+            result = scan_skill_usage(
+                {"alpha"},
+                cutoff=0,
+                claude_projects_dir=str(Path(tmpdir) / "missing-claude"),
+                codex_db_path=codex_db,
+                hermes_db_path=hermes_db,
+            )
+
+            self.assertFalse(result["stores"]["codex"]["supported"])
+            self.assertFalse(result["stores"]["hermes"]["supported"])
+            self.assertTrue(result["stores"]["codex"]["diagnostic"])
+            self.assertTrue(result["stores"]["hermes"]["diagnostic"])
 
 
 if __name__ == "__main__":

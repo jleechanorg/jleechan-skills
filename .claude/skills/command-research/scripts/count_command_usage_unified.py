@@ -79,6 +79,7 @@ def _skill_scan_result() -> dict[str, object]:
         "record_types": Counter(),
         "records_scanned": 0,
         "supported": True,
+        "diagnostic": None,
     }
 
 
@@ -214,15 +215,22 @@ def scan_codex_skill_invocations(
     db_path = Path(db_path or os.path.expanduser("~/.codex/state_5.sqlite"))
     if not db_path.exists():
         result["supported"] = False
+        result["diagnostic"] = f"database not found: {db_path}"
         return result
     try:
         conn = sqlite3.connect(str(db_path))
         columns = {row[1] for row in conn.execute("PRAGMA table_info(threads)")}
         if "rollout_path" not in columns:
-            raise RuntimeError("Codex threads table lacks rollout_path")
+            result["supported"] = False
+            result["diagnostic"] = "missing required table: threads"
+            conn.close()
+            return result
         source_column = "thread_source" if "thread_source" in columns else "source"
         if source_column not in columns:
-            raise RuntimeError("Codex threads table lacks thread provenance")
+            result["supported"] = False
+            result["diagnostic"] = "missing required thread provenance column"
+            conn.close()
+            return result
         where = "rollout_path IS NOT NULL AND rollout_path != ''"
         params: tuple[float, ...] = ()
         if cutoff and "updated_at_ms" in columns:
@@ -259,8 +267,10 @@ def scan_codex_skill_invocations(
             except OSError:
                 continue
         conn.close()
-    except Exception as exc:
-        raise RuntimeError(f"Failed to scan Codex skill history database: {db_path}") from exc
+    except sqlite3.Error as exc:
+        result["supported"] = False
+        result["diagnostic"] = f"unsupported Codex history schema: {exc}"
+        return result
     return result
 
 
@@ -310,6 +320,7 @@ def scan_hermes_skill_invocations(
     db_path = Path(db_path or os.path.expanduser("~/.hermes/state.db"))
     if not db_path.exists():
         result["supported"] = False
+        result["diagnostic"] = f"database not found: {db_path}"
         return result
     try:
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
@@ -347,7 +358,9 @@ def scan_hermes_skill_invocations(
                 result["record_types"][label] += 1
         conn.close()
     except sqlite3.Error as exc:
-        raise RuntimeError(f"Failed to scan Hermes skill history database: {db_path}") from exc
+        result["supported"] = False
+        result["diagnostic"] = f"unsupported Hermes history schema: {exc}"
+        return result
     return result
 
 
@@ -387,7 +400,7 @@ def scan_skill_usage(
         "limitations": [
             "Only explicit Skill tool-call records count; slash text, prompt prose, and SKILL.md reads do not.",
             "Claude provenance uses the record-level isSidechain flag; missing flags remain unknown.",
-            "Codex and Hermes report zero until their durable history contains an explicit Skill tool-call record.",
+            "Codex and Hermes report zero when no explicit Skill tool-call record exists; schema errors are surfaced per store.",
         ],
     }
 
@@ -395,11 +408,20 @@ def scan_skill_usage(
 def load_known_skills(search_roots: list[Path] | None = None) -> set[str]:
     skills = set()
     if search_roots is None:
-        search_roots = [Path.home() / ".claude", Path(__file__).resolve().parents[3]]
+        search_roots = [
+            Path.home() / ".claude",
+            Path.home() / ".codex",
+            Path(__file__).resolve().parents[3],
+        ]
+    seen_paths = set()
     for root in search_roots:
         if not root.exists():
             continue
         for path in root.rglob("SKILL.md"):
+            canonical_path = path.resolve()
+            if canonical_path in seen_paths:
+                continue
+            seen_paths.add(canonical_path)
             if any(part in {"skills", "skills_archive"} for part in path.relative_to(root).parts):
                 name = path.parent.name
                 if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", name):
@@ -749,6 +771,8 @@ def main():
             print("--- Store support ---")
             for store, store_payload in payload["stores"].items():
                 print(f"{store:<8} supported={store_payload['supported']} records={store_payload['records_scanned']}")
+                if store_payload["diagnostic"]:
+                    print(f"         diagnostic={store_payload['diagnostic']}")
             print("--- Limitations ---")
             for limitation in payload["limitations"]:
                 print(f"- {limitation}")
