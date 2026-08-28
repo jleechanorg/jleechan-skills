@@ -15,7 +15,9 @@ The bundled installer copies four component trees into `CLAUDE_HOME`:
 Set `CLAUDE_HOME` to select a destination. The installer refuses a nonempty target by default; use
 `--backup` to move that target to a timestamped sibling directory before
 installing, or `--merge` only when you deliberately want source-managed files
-updated in place.
+updated in place. A routine merge reports but preserves active files whose
+names collide with archived packages. Add `--migrate-archives` only after
+reviewing those collisions and deciding they are the retired managed copies.
 
 ## Isolated install and verification
 
@@ -63,6 +65,14 @@ existing target without moving it aside, use `--merge`:
 
 ```bash
 CLAUDE_HOME="$CLAUDE_ROOT" bash "$SOURCE_ROOT/install-claude-commands.sh" --merge
+```
+
+If that command reports archive collisions, review each path. To move those
+specific same-named active packages into the sibling archive roots, rerun with:
+
+```bash
+CLAUDE_HOME="$CLAUDE_ROOT" \
+  bash "$SOURCE_ROOT/install-claude-commands.sh" --merge --migrate-archives
 ```
 
 Restart the host application after installing if it only discovers skills and

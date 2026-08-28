@@ -39,14 +39,17 @@ STAGING_DIR=""
 BACKUP_PATH=""
 MIGRATION_LOCK_DIR=""
 MIGRATION_LOCK_HELD=false
+MIGRATE_ARCHIVES=false
 
 show_usage() {
     cat <<EOF
-Usage: $(basename "$0") [--merge | --backup]
+Usage: $(basename "$0") [--merge [--migrate-archives] | --backup]
 
 Installs into CLAUDE_HOME (default: ~/.claude). A nonempty target is refused
 by default. Use --merge to explicitly update source-managed files in place, or
---backup to move the existing target aside before installing.
+--backup to move the existing target aside before installing. Archive migration
+is separate because matching names may be user-authored; combine --merge with
+--migrate-archives only after reviewing the reported collisions.
 EOF
 }
 
@@ -54,12 +57,17 @@ parse_arguments() {
     while [ "$#" -gt 0 ]; do
         case "$1" in
             --merge) INSTALL_MODE="merge" ;;
+            --migrate-archives) MIGRATE_ARCHIVES=true ;;
             --backup) INSTALL_MODE="backup" ;;
             -h|--help) show_usage; exit 0 ;;
             *) log_error "Unknown option: $1"; show_usage >&2; return 1 ;;
         esac
         shift
     done
+    if [ "$MIGRATE_ARCHIVES" = true ] && [ "$INSTALL_MODE" != "merge" ]; then
+        log_error "--migrate-archives requires --merge"
+        return 1
+    fi
 }
 
 directory_is_nonempty() {
@@ -117,6 +125,33 @@ migrate_archived_packages_on_merge() {
     local -a source_identities=()
 
     [ "$INSTALL_MODE" = "merge" ] || return 0
+    if [ "$MIGRATE_ARCHIVES" != true ]; then
+        for archive_group in "$PLUGIN_SRC_DIR/.claude/skills_archive"/*; do
+            [ -d "$archive_group" ] || continue
+            for package_path in "$archive_group"/*; do
+                [ -d "$package_path" ] || continue
+                [ -f "$package_path/SKILL.md" ] || continue
+                active_path="$CLAUDE_HOME/skills/$(basename "$package_path")"
+                path_exists "$active_path" && log_warning \
+                    "Archive collision preserved; migration requires --migrate-archives: $active_path"
+            done
+        done
+        for archive_group in "$PLUGIN_SRC_DIR/.claude/commands_archive"/*; do
+            [ -d "$archive_group" ] || continue
+            for command_path in "$archive_group"/*.md; do
+                [ -f "$command_path" ] || continue
+                [ "$(basename "$command_path")" = "README.md" ] && continue
+                package_name="$(basename "$command_path")"
+                for active_path in \
+                    "$CLAUDE_HOME/commands/$package_name" \
+                    "$CLAUDE_HOME/commands/extended-library/$package_name"; do
+                    path_exists "$active_path" && log_warning \
+                        "Archive collision preserved; migration requires --migrate-archives: $active_path"
+                done
+            done
+        done
+        return 0
+    fi
     MIGRATION_LOCK_DIR="$CLAUDE_HOME/.archive-migration.lock"
     if ! mkdir "$MIGRATION_LOCK_DIR"; then
         log_error "Another archive migration is active or left a lock: $MIGRATION_LOCK_DIR"

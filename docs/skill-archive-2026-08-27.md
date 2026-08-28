@@ -7,7 +7,7 @@ PR [#376](https://github.com/jleechanorg/jleechan-skills/pull/376) moves 110 rec
 - Skills move from `.claude/skills/` to `.claude/skills_archive/2026-08-27-historical-zero-use/`.
 - Commands move from `.claude/commands/extended-library/` to `.claude/commands_archive/2026-08-27-historical-zero-use/`.
 - The installer copies only `.claude/skills/` and `.claude/commands/`, so sibling archive directories are neither installed nor discovered.
-- During `--merge`, formerly installed archived packages move into matching sibling archives under the target Claude home.
+- During routine `--merge`, same-named active packages are preserved and reported because they may be user-authored. Explicit `--merge --migrate-archives` moves reviewed collisions into matching sibling archives under the target Claude home.
 - Existing archive destinations are never overwritten; a collision fails closed.
 - Every move is recoverable. No skill or command body is deleted.
 
@@ -54,7 +54,9 @@ Repository changes do not automatically modify `~/.claude/`. The real home was s
 - Zero names from the final skill archive remain active in `~/.claude/skills/`.
 - 10 real-home command copies representing the 7 archived commands remain in `~/.claude/commands_archive/2026-08-27-historical-zero-use/`. Three commands have both top-level and extended-library copies.
 
-Future `--merge` installs perform this migration automatically. Clean and backup installs never copy sibling archive roots.
+Future `--merge` installs report these collisions without moving them. After
+review, `--merge --migrate-archives` performs the migration. Clean and backup
+installs never copy sibling archive roots.
 
 ## Follow-up discovery cleanup
 

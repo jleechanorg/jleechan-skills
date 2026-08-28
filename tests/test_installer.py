@@ -238,7 +238,9 @@ class InstallerIntegrationTest(unittest.TestCase):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(f"installed {path.name}\n", encoding="utf-8")
 
-            result = self.run_installer(fixture, target, "--merge")
+            result = self.run_installer(
+                fixture, target, "--merge", "--migrate-archives"
+            )
 
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
             self.assertFalse(active_skill.exists())
@@ -255,6 +257,38 @@ class InstallerIntegrationTest(unittest.TestCase):
                     target
                     / "commands_archive/2026-retired/extended-library/retired-command.md"
                 ).is_file()
+            )
+
+    def test_merge_preserves_ambiguous_archived_names_without_explicit_migration(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            target = temp_dir / "claude-home"
+            custom_skill = target / "skills/retired-skill/SKILL.md"
+            custom_command = target / "commands/retired-command.md"
+            custom_extended = target / "commands/extended-library/retired-command.md"
+            for path in (custom_skill, custom_command, custom_extended):
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(f"custom {path.name}\n", encoding="utf-8")
+
+            result = self.run_installer(fixture, target, "--merge")
+
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            for path in (custom_skill, custom_command, custom_extended):
+                self.assertEqual(path.read_text(encoding="utf-8"), f"custom {path.name}\n")
+            self.assertIn("requires --migrate-archives", result.stderr + result.stdout)
+
+    def test_archive_migration_requires_merge_mode(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            target = temp_dir / "claude-home"
+
+            result = self.run_installer(fixture, target, "--migrate-archives")
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(
+                "--migrate-archives requires --merge", result.stderr + result.stdout
             )
 
     def test_merge_does_not_treat_archive_category_as_a_skill_name(self):
@@ -291,7 +325,9 @@ class InstallerIntegrationTest(unittest.TestCase):
             later_active.write_text("later active\n", encoding="utf-8")
             later_archived.write_text("existing archive\n", encoding="utf-8")
 
-            result = self.run_installer(fixture, target, "--merge")
+            result = self.run_installer(
+                fixture, target, "--merge", "--migrate-archives"
+            )
 
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("Refusing to overwrite existing archive target", result.stderr + result.stdout)
@@ -311,7 +347,9 @@ class InstallerIntegrationTest(unittest.TestCase):
             active.write_text("active\n", encoding="utf-8")
             archived.symlink_to("missing-command.md")
 
-            result = self.run_installer(fixture, target, "--merge")
+            result = self.run_installer(
+                fixture, target, "--merge", "--migrate-archives"
+            )
 
             self.assertNotEqual(result.returncode, 0)
             self.assertEqual(active.read_text(encoding="utf-8"), "active\n")
@@ -327,7 +365,9 @@ class InstallerIntegrationTest(unittest.TestCase):
             active.parent.mkdir(parents=True, exist_ok=True)
             active.symlink_to("missing-skill")
 
-            result = self.run_installer(fixture, target, "--merge")
+            result = self.run_installer(
+                fixture, target, "--merge", "--migrate-archives"
+            )
 
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
             self.assertFalse(active.is_symlink())
@@ -348,7 +388,9 @@ class InstallerIntegrationTest(unittest.TestCase):
             later_active.write_text("later active\n", encoding="utf-8")
             blocked_parent.write_text("not a directory\n", encoding="utf-8")
 
-            result = self.run_installer(fixture, target, "--merge")
+            result = self.run_installer(
+                fixture, target, "--merge", "--migrate-archives"
+            )
 
             self.assertNotEqual(result.returncode, 0)
             self.assertEqual(earlier_active.read_text(encoding="utf-8"), "earlier active\n")
@@ -379,6 +421,7 @@ class InstallerIntegrationTest(unittest.TestCase):
                 fixture,
                 target,
                 "--merge",
+                "--migrate-archives",
                 extra_environment={"PATH": f"{fake_bin}:{os.environ['PATH']}"},
             )
 
@@ -413,6 +456,7 @@ class InstallerIntegrationTest(unittest.TestCase):
                 fixture,
                 target,
                 "--merge",
+                "--migrate-archives",
                 extra_environment={"PATH": f"{fake_bin}:{os.environ['PATH']}"},
             )
 
@@ -450,6 +494,7 @@ class InstallerIntegrationTest(unittest.TestCase):
                 fixture,
                 target,
                 "--merge",
+                "--migrate-archives",
                 extra_environment={"PATH": f"{fake_bin}:{os.environ['PATH']}"},
             )
 
