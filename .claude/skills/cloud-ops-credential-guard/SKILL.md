@@ -1,4 +1,5 @@
 ---
+name: cloud-ops-credential-guard
 description: Securely guide teammates through cloud configuration, secrets management, and incident triage
 type: usage
 scope: project

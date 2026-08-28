@@ -4,6 +4,8 @@ import re
 import unittest
 from pathlib import Path
 
+from scripts.skill_portability_scan import parse_frontmatter
+
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 ACTIVE_SKILLS = REPO_ROOT / ".claude" / "skills"
@@ -26,14 +28,16 @@ RETAINED_DEPENDENCIES = {
 
 class ArchiveDependencyContractTest(unittest.TestCase):
     def test_active_skills_have_discovery_frontmatter(self):
-        missing = []
+        invalid = []
         for skill_file in ACTIVE_SKILLS.glob("*/SKILL.md"):
-            header = skill_file.read_text(encoding="utf-8", errors="ignore")[:1024]
-            if not header.startswith("---\n") or not re.search(
-                r"^description:\s*\S", header, re.MULTILINE
+            fields = parse_frontmatter(
+                skill_file.read_text(encoding="utf-8", errors="ignore")
+            )
+            if fields.get("name") != skill_file.parent.name or not fields.get(
+                "description"
             ):
-                missing.append(skill_file.parent.name)
-        self.assertEqual(missing, [])
+                invalid.append(skill_file.parent.name)
+        self.assertEqual(invalid, [])
 
     def test_active_skill_tree_contains_no_archive_containers(self):
         archive_containers = {

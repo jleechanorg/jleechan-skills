@@ -1,5 +1,5 @@
 ---
-name: agento_report
+name: agento-report
 description: Generate a full agento PR status report — draft readiness, canonical /green, zero-touch rate, inline display, and Slack summary.
 type: skill
 ---

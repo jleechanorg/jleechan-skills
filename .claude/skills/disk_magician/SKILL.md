@@ -1,5 +1,5 @@
 ---
-name: disk-magician
+name: disk_magician
 description: Use when diagnosing disk capacity or growth and when previewing repository-gated cache, temp, or worktree cleanup.
 ---
 

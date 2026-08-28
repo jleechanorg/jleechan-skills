@@ -165,7 +165,14 @@ The recoverable user-home cleanup then:
   browser, GitHub, and artifact tooling; and
 - added complete discovery frontmatter to all active repository skill
   packages. Eighteen matching user-home canonicals were synchronized, leaving
-  zero active Claude skills without a description.
+  zero active Claude skills without valid `name` and `description` metadata.
+
+The active Claude set is not an assertion that all 145 packages were selected
+recently. A timestamp-bounded scan on 2026-08-28 observed structured Claude
+`Skill` tool calls for 82 of the 145 active names during the preceding 30 days;
+63 had no matching structured event. Those 63 remain active because this event
+is positive evidence only: slash-command routing, direct skill reads, Codex or
+Hermes execution, auto-routing, and dependency-only use may not emit it.
 
 The final live roots contain 145 Claude canonicals, nine Agents entries, and 20
 Codex pointers, with zero broken links or archive containers under active
