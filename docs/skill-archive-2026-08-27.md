@@ -1,6 +1,6 @@
 # Skill and command archive report — 2026-08-27
 
-PR [#376](https://github.com/jleechanorg/jleechan-skills/pull/376) moves 110 recoverable skill packages and 10 command packages outside their discovery roots.
+PR [#376](https://github.com/jleechanorg/jleechan-skills/pull/376) moves 110 recoverable skill packages and 7 command packages outside their discovery roots.
 
 ## What changes
 
@@ -11,7 +11,7 @@ PR [#376](https://github.com/jleechanorg/jleechan-skills/pull/376) moves 110 rec
 - Existing archive destinations are never overwritten; a collision fails closed.
 - Every move is recoverable. No skill or command body is deleted.
 
-After dependency corrections, the repository contains 219 active skill packages, 110 archived skill packages in this tranche, and 10 archived command packages.
+After dependency corrections, the repository contains 219 active skill packages, 110 archived skill packages in this tranche, and 7 archived command packages.
 
 ## Skill selection rule
 
@@ -21,7 +21,10 @@ A skill was archived only when all of these checks passed:
 2. No retained active skill requires it as a workflow dependency.
 3. No active repository or home slash command references it.
 4. No repository or global operating contract references it.
-5. No explicit repository test contract requires it to remain active.
+5. No current repository test contract requires it to remain active. The retired
+   `design-doc-backup-worldarchitect` entry was explicitly removed from the Batch 1
+   portability tuple, whose contract now accurately identifies its eight retained
+   conversion fixtures.
 
 Raw text mentions were not counted as usage because catalogues, documentation, file extensions, and system reminders repeat package names without invoking them. This is an evidence-based inactivity estimate, not proof that a workflow was never useful. Codex and Hermes do not expose the same structured Claude `Skill` event, so dependency, command, and contract references are additional safety gates.
 
@@ -29,8 +32,11 @@ Raw text mentions were not counted as usage because catalogues, documentation, f
 
 The command tranche comes from the existing authenticated 30-day command audit. A command moved only when it had zero authenticated invocation and no active command caller.
 
-Four zero-use candidates were retained because callers still exist:
+Seven zero-use candidates were retained because callers still exist:
 
+- `efficiency`, invoked by `pr-quantity-control` and `pr-efficiency-audit`.
+- `engplan`, exposed by the active `engplan` skill.
+- `evidence-coverage`, exposed by the active `evidence-coverage` skill.
 - `gene`, called by Genesis/composition commands.
 - `header`, called by status and list commands.
 - `investigatedice`, called by `idice`.
@@ -46,7 +52,7 @@ Repository changes do not automatically modify `~/.claude/`. The real home was s
 - The other 99 final repository-archived skills were already absent from the active home catalogue.
 - Five packages found to be required by retained active skills were restored to both repository and real home.
 - Zero names from the final skill archive remain active in `~/.claude/skills/`.
-- 13 real-home command copies representing the 10 archived commands moved to `~/.claude/commands_archive/2026-08-27-historical-zero-use/`. Three commands had both top-level and extended-library copies.
+- 10 real-home command copies representing the 7 archived commands remain in `~/.claude/commands_archive/2026-08-27-historical-zero-use/`. Three commands have both top-level and extended-library copies.
 
 Future `--merge` installs perform this migration automatically. Clean and backup installs never copy sibling archive roots.
 
@@ -170,9 +176,6 @@ Future `--merge` installs perform this migration automatically. Clean and backup
 | Command | What it does |
 |---|---|
 | `benchg-ts` | /benchg-ts - TypeScript Migration Benchmark: Genesis vs Ralph (your-project.com only — hardcoded to worldai_genesis2 / worldai_ralph2 target paths under worktree_ralph/) |
-| `efficiency` | Audit PR merge rate, LOC efficiency, and duplicate detection |
-| `engplan` | /engplan - Generic engineering plan with stage-PR file-exclusive ownership, TDD, /4layer, beads, and 100-300 LOC commit caps |
-| `evidence-coverage` | Historical package. |
 | `feature-dev` | Guided feature development with systematic codebase understanding and architecture focus (your-project.com only — defaults to $PROJECT_ROOT/ layouts and Flask/Firebase/Gemini patterns) |
 | `loop_level_zfc` | Run the task-specific level-up ZFC evolve loop for this repo |
 | `mobile` | /mobile - run the mobile-browser investigation workflow |

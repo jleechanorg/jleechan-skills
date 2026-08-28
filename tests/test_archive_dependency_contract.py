@@ -31,19 +31,24 @@ class ArchiveDependencyContractTest(unittest.TestCase):
                 self.assertTrue((ACTIVE_SKILLS / name / "SKILL.md").is_file())
                 self.assertFalse((SKILL_ARCHIVE / name).exists())
 
-    def test_archived_commands_have_no_active_command_callers(self):
+    def test_archived_commands_have_no_active_workflow_callers(self):
         archived = {
             path.stem for path in COMMAND_ARCHIVE.glob("*.md") if path.name != "README.md"
         }
-        active_text = "\n".join(
+        active_command_text = "\n".join(
             path.read_text(encoding="utf-8", errors="ignore")
             for path in ACTIVE_COMMANDS.rglob("*.md")
         )
+        active_skill_text = "\n".join(
+            path.read_text(encoding="utf-8", errors="ignore")
+            for path in ACTIVE_SKILLS.glob("*/SKILL.md")
+        )
+        active_text = f"{active_command_text}\n{active_skill_text}"
         called = {
             name
             for name in archived
             if re.search(
-                rf"/(?:extended-library:)?{re.escape(name)}(?![A-Za-z0-9_-])",
+                rf"(?<![A-Za-z0-9_.-])/(?:extended-library:)?{re.escape(name)}(?![A-Za-z0-9_-])",
                 active_text,
             )
         }

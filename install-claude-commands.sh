@@ -64,6 +64,10 @@ directory_is_nonempty() {
     [ -d "$1" ] && [ -n "$(find "$1" -mindepth 1 -maxdepth 1 -print -quit)" ]
 }
 
+path_exists() {
+    [ -e "$1" ] || [ -L "$1" ]
+}
+
 prepare_target() {
     if [ -e "$CLAUDE_HOME" ] && [ ! -d "$CLAUDE_HOME" ]; then
         log_error "Target exists but is not a directory: $CLAUDE_HOME"
@@ -93,22 +97,10 @@ prepare_target() {
     fi
 }
 
-archive_existing_path() {
-    local active_path="$1"
-    local archive_path="$2"
-
-    [ -e "$active_path" ] || return 0
-    if [ -e "$archive_path" ]; then
-        log_error "Refusing to overwrite existing archive target: $archive_path"
-        return 1
-    fi
-    mkdir -p "$(dirname "$archive_path")"
-    mv "$active_path" "$archive_path"
-    log_info "Archived retired installation path: $active_path"
-}
-
 migrate_archived_packages_on_merge() {
-    local archive_group archive_name package_path package_name command_path
+    local archive_group archive_name package_path package_name command_path active_path archive_path index
+    local -a active_paths=()
+    local -a archive_paths=()
 
     [ "$INSTALL_MODE" = "merge" ] || return 0
 
@@ -118,9 +110,10 @@ migrate_archived_packages_on_merge() {
         for package_path in "$archive_group"/*; do
             [ -d "$package_path" ] || continue
             package_name="$(basename "$package_path")"
-            archive_existing_path \
-                "$CLAUDE_HOME/skills/$package_name" \
-                "$CLAUDE_HOME/skills_archive/$archive_name/$package_name"
+            active_path="$CLAUDE_HOME/skills/$package_name"
+            path_exists "$active_path" || continue
+            active_paths+=("$active_path")
+            archive_paths+=("$CLAUDE_HOME/skills_archive/$archive_name/$package_name")
         done
     done
 
@@ -131,13 +124,41 @@ migrate_archived_packages_on_merge() {
             [ -f "$command_path" ] || continue
             [ "$(basename "$command_path")" = "README.md" ] && continue
             package_name="$(basename "$command_path")"
-            archive_existing_path \
-                "$CLAUDE_HOME/commands/$package_name" \
-                "$CLAUDE_HOME/commands_archive/$archive_name/top-level/$package_name"
-            archive_existing_path \
-                "$CLAUDE_HOME/commands/extended-library/$package_name" \
-                "$CLAUDE_HOME/commands_archive/$archive_name/extended-library/$package_name"
+            active_path="$CLAUDE_HOME/commands/$package_name"
+            if path_exists "$active_path"; then
+                active_paths+=("$active_path")
+                archive_paths+=("$CLAUDE_HOME/commands_archive/$archive_name/top-level/$package_name")
+            fi
+            active_path="$CLAUDE_HOME/commands/extended-library/$package_name"
+            if path_exists "$active_path"; then
+                active_paths+=("$active_path")
+                archive_paths+=("$CLAUDE_HOME/commands_archive/$archive_name/extended-library/$package_name")
+            fi
         done
+    done
+
+    for index in "${!active_paths[@]}"; do
+        archive_path="${archive_paths[$index]}"
+        if path_exists "$archive_path"; then
+            log_error "Refusing to overwrite existing archive target: $archive_path"
+            return 1
+        fi
+    done
+
+    for index in "${!active_paths[@]}"; do
+        active_path="${active_paths[$index]}"
+        archive_path="${archive_paths[$index]}"
+        mkdir -p "$(dirname "$archive_path")"
+        if ! mv "$active_path" "$archive_path"; then
+            log_error "Failed to archive retired installation path: $active_path"
+            while [ "$index" -gt 0 ]; do
+                index=$((index - 1))
+                mv "${archive_paths[$index]}" "${active_paths[$index]}" || \
+                    log_error "Failed to restore migration path: ${active_paths[$index]}"
+            done
+            return 1
+        fi
+        log_info "Archived retired installation path: $active_path"
     done
 }
 

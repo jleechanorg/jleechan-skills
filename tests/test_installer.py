@@ -260,19 +260,59 @@ class InstallerIntegrationTest(unittest.TestCase):
             temp_dir = Path(directory)
             fixture = self.make_fixture(temp_dir)
             target = temp_dir / "claude-home"
-            active = target / "skills/retired-skill/SKILL.md"
-            archived = target / "skills_archive/2026-retired/retired-skill/SKILL.md"
-            active.parent.mkdir(parents=True, exist_ok=True)
-            archived.parent.mkdir(parents=True, exist_ok=True)
-            active.write_text("active\n", encoding="utf-8")
-            archived.write_text("existing archive\n", encoding="utf-8")
+            earlier_active = target / "skills/retired-skill/SKILL.md"
+            later_active = target / "commands/retired-command.md"
+            later_archived = (
+                target / "commands_archive/2026-retired/top-level/retired-command.md"
+            )
+            earlier_active.parent.mkdir(parents=True, exist_ok=True)
+            later_active.parent.mkdir(parents=True, exist_ok=True)
+            later_archived.parent.mkdir(parents=True, exist_ok=True)
+            earlier_active.write_text("earlier active\n", encoding="utf-8")
+            later_active.write_text("later active\n", encoding="utf-8")
+            later_archived.write_text("existing archive\n", encoding="utf-8")
 
             result = self.run_installer(fixture, target, "--merge")
 
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("Refusing to overwrite existing archive target", result.stderr + result.stdout)
+            self.assertEqual(earlier_active.read_text(encoding="utf-8"), "earlier active\n")
+            self.assertEqual(later_active.read_text(encoding="utf-8"), "later active\n")
+            self.assertEqual(later_archived.read_text(encoding="utf-8"), "existing archive\n")
+
+    def test_merge_treats_dangling_symlinks_as_existing_paths(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            target = temp_dir / "claude-home"
+            active = target / "commands/retired-command.md"
+            archived = target / "commands_archive/2026-retired/top-level/retired-command.md"
+            active.parent.mkdir(parents=True, exist_ok=True)
+            archived.parent.mkdir(parents=True, exist_ok=True)
+            active.write_text("active\n", encoding="utf-8")
+            archived.symlink_to("missing-command.md")
+
+            result = self.run_installer(fixture, target, "--merge")
+
+            self.assertNotEqual(result.returncode, 0)
             self.assertEqual(active.read_text(encoding="utf-8"), "active\n")
-            self.assertEqual(archived.read_text(encoding="utf-8"), "existing archive\n")
+            self.assertTrue(archived.is_symlink())
+
+    def test_merge_migrates_a_dangling_active_symlink(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            target = temp_dir / "claude-home"
+            active = target / "skills/retired-skill"
+            archived = target / "skills_archive/2026-retired/retired-skill"
+            active.parent.mkdir(parents=True, exist_ok=True)
+            active.symlink_to("missing-skill")
+
+            result = self.run_installer(fixture, target, "--merge")
+
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertFalse(active.is_symlink())
+            self.assertTrue(archived.is_symlink())
 
     def test_backup_failure_preserves_original_target(self):
         with tempfile.TemporaryDirectory() as directory:
