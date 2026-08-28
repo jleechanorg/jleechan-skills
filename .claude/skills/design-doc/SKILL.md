@@ -432,7 +432,9 @@ The `/design` command succeeds when:
 ## Source
 
 Generalized from `your-project.com/.claude/commands/design.md` (1140 lines, 35KB).
-Original repo-specific backup preserved at `~/.claude/skills/design-doc-backup-worldarchitect.md`.
+Original repo-specific backup is preserved in the repository archive at
+`.claude/skills_archive/2026-08-27-historical-zero-use/design-doc-backup-worldarchitect/SKILL.md`;
+clean installs intentionally omit it.
 
 ---
 

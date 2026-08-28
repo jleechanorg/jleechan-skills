@@ -1,4 +1,4 @@
-"""Batch1 conversion contract: these 9 skills must be <name>/SKILL.md directories.
+"""Batch1 conversion contract: these 8 skills must be <name>/SKILL.md directories.
 
 Integration test against the live .claude/skills/ tree, not a fixture — the point
 is to track the real conversion state of these specific skills.
@@ -21,7 +21,6 @@ BATCH1 = (
     "bypass-claims",
     "crash",
     "deletion-milestone",
-    "design-doc-backup-worldarchitect",
     "distributed-caching",
     "domain-lock-standards",
     "engplan",

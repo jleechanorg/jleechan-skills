@@ -37,6 +37,8 @@ INSTALL_MODE="refuse"
 INSTALL_ROOT="$CLAUDE_HOME"
 STAGING_DIR=""
 BACKUP_PATH=""
+MIGRATION_LOCK_DIR=""
+MIGRATION_LOCK_HELD=false
 
 show_usage() {
     cat <<EOF
@@ -62,6 +64,20 @@ parse_arguments() {
 
 directory_is_nonempty() {
     [ -d "$1" ] && [ -n "$(find "$1" -mindepth 1 -maxdepth 1 -print -quit)" ]
+}
+
+path_exists() {
+    [ -e "$1" ] || [ -L "$1" ]
+}
+
+path_identity() {
+    stat -c '%d:%i' "$1" 2>/dev/null || stat -f '%d:%i' "$1"
+}
+
+release_migration_lock() {
+    [ "$MIGRATION_LOCK_HELD" = true ] || return 0
+    rmdir "$MIGRATION_LOCK_DIR" || log_warning "Could not remove migration lock: $MIGRATION_LOCK_DIR"
+    MIGRATION_LOCK_HELD=false
 }
 
 prepare_target() {
@@ -91,6 +107,107 @@ prepare_target() {
     else
         mkdir -p "$CLAUDE_HOME"
     fi
+}
+
+migrate_archived_packages_on_merge() {
+    local archive_group archive_name package_path package_name command_path active_path archive_path index
+    local rollback_index moved_path nested_path migration_ok
+    local -a active_paths=()
+    local -a archive_paths=()
+    local -a source_identities=()
+
+    [ "$INSTALL_MODE" = "merge" ] || return 0
+    MIGRATION_LOCK_DIR="$CLAUDE_HOME/.archive-migration.lock"
+    if ! mkdir "$MIGRATION_LOCK_DIR"; then
+        log_error "Another archive migration is active or left a lock: $MIGRATION_LOCK_DIR"
+        return 1
+    fi
+    MIGRATION_LOCK_HELD=true
+
+    for archive_group in "$PLUGIN_SRC_DIR/.claude/skills_archive"/*; do
+        [ -d "$archive_group" ] || continue
+        archive_name="$(basename "$archive_group")"
+        for package_path in "$archive_group"/*; do
+            [ -d "$package_path" ] || continue
+            package_name="$(basename "$package_path")"
+            active_path="$CLAUDE_HOME/skills/$package_name"
+            path_exists "$active_path" || continue
+            active_paths+=("$active_path")
+            archive_paths+=("$CLAUDE_HOME/skills_archive/$archive_name/$package_name")
+            source_identities+=("$(path_identity "$active_path")")
+        done
+    done
+
+    for archive_group in "$PLUGIN_SRC_DIR/.claude/commands_archive"/*; do
+        [ -d "$archive_group" ] || continue
+        archive_name="$(basename "$archive_group")"
+        for command_path in "$archive_group"/*.md; do
+            [ -f "$command_path" ] || continue
+            [ "$(basename "$command_path")" = "README.md" ] && continue
+            package_name="$(basename "$command_path")"
+            active_path="$CLAUDE_HOME/commands/$package_name"
+            if path_exists "$active_path"; then
+                active_paths+=("$active_path")
+                archive_paths+=("$CLAUDE_HOME/commands_archive/$archive_name/top-level/$package_name")
+                source_identities+=("$(path_identity "$active_path")")
+            fi
+            active_path="$CLAUDE_HOME/commands/extended-library/$package_name"
+            if path_exists "$active_path"; then
+                active_paths+=("$active_path")
+                archive_paths+=("$CLAUDE_HOME/commands_archive/$archive_name/extended-library/$package_name")
+                source_identities+=("$(path_identity "$active_path")")
+            fi
+        done
+    done
+
+    for index in "${!active_paths[@]}"; do
+        archive_path="${archive_paths[$index]}"
+        if path_exists "$archive_path"; then
+            log_error "Refusing to overwrite existing archive target: $archive_path"
+            return 1
+        fi
+    done
+
+    for archive_path in "${archive_paths[@]}"; do
+        if ! mkdir -p "$(dirname "$archive_path")"; then
+            log_error "Cannot prepare archive parent for: $archive_path"
+            return 1
+        fi
+    done
+
+    for index in "${!active_paths[@]}"; do
+        active_path="${active_paths[$index]}"
+        archive_path="${archive_paths[$index]}"
+        migration_ok=false
+        if mv -n "$active_path" "$archive_path" && ! path_exists "$active_path"; then
+            if [ "$(path_identity "$archive_path")" = "${source_identities[$index]}" ]; then
+                migration_ok=true
+            fi
+        fi
+        if [ "$migration_ok" != true ]; then
+            log_error "Failed to archive retired installation path: $active_path"
+            rollback_index="$index"
+            while [ "$rollback_index" -ge 0 ]; do
+                active_path="${active_paths[$rollback_index]}"
+                archive_path="${archive_paths[$rollback_index]}"
+                if ! path_exists "$active_path"; then
+                    nested_path="$archive_path/$(basename "$active_path")"
+                    if path_exists "$nested_path"; then
+                        moved_path="$nested_path"
+                    else
+                        moved_path="$archive_path"
+                    fi
+                    mkdir -p "$(dirname "$active_path")"
+                    mv "$moved_path" "$active_path" || \
+                        log_error "Failed to restore migration path: $active_path"
+                fi
+                rollback_index=$((rollback_index - 1))
+            done
+            return 1
+        fi
+        log_info "Archived retired installation path: $active_path"
+    done
+    release_migration_lock
 }
 
 finalize_backup_install() {
@@ -213,6 +330,7 @@ main() {
     echo
 
     prepare_target
+    migrate_archived_packages_on_merge
     install_agents
     install_commands
     install_scripts
@@ -227,6 +345,7 @@ main() {
 }
 
 cleanup_failed_install() {
+    release_migration_lock
     if [ -n "$STAGING_DIR" ] && [ -d "$STAGING_DIR" ]; then
         rm -rf "$STAGING_DIR"
     fi
@@ -235,6 +354,9 @@ cleanup_failed_install() {
 }
 
 trap cleanup_failed_install ERR
+trap release_migration_lock EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # Run main installation if script is executed directly
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
