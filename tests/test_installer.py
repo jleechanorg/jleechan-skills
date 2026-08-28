@@ -359,6 +359,40 @@ class InstallerIntegrationTest(unittest.TestCase):
                 archived.read_text(encoding="utf-8"), "active legacy skill\n"
             )
 
+    def test_merge_rejects_duplicate_archive_mappings_before_copy(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            duplicate = (
+                fixture
+                / ".claude/skills_archive/other-retired/packages/retired-skill/SKILL.md"
+            )
+            duplicate.parent.mkdir(parents=True, exist_ok=True)
+            duplicate.write_text("different archived skill\n", encoding="utf-8")
+            target = temp_dir / "claude-home"
+            active = target / "skills/retired-skill/SKILL.md"
+            managed_file = target / "commands/command.md"
+            active.parent.mkdir(parents=True, exist_ok=True)
+            managed_file.parent.mkdir(parents=True, exist_ok=True)
+            active.write_text("active skill\n", encoding="utf-8")
+            managed_file.write_text("outdated command\n", encoding="utf-8")
+
+            result = self.run_installer(
+                fixture, target, "--merge", "--migrate-archives"
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(
+                "Ambiguous archive migration for active path",
+                result.stderr + result.stdout,
+            )
+            self.assertEqual(active.read_text(encoding="utf-8"), "active skill\n")
+            self.assertEqual(
+                managed_file.read_text(encoding="utf-8"), "outdated command\n"
+            )
+            self.assertFalse((target / "skills_archive/2026-retired").exists())
+            self.assertFalse((target / "skills_archive/other-retired").exists())
+
     def test_merge_refuses_to_overwrite_existing_archive_target(self):
         with tempfile.TemporaryDirectory() as directory:
             temp_dir = Path(directory)

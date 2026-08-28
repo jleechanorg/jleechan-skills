@@ -121,6 +121,25 @@ prepare_target() {
     fi
 }
 
+add_archive_migration_plan() {
+    local active_path="$1"
+    local archive_path="$2"
+    local index
+
+    for index in "${!MIGRATION_ACTIVE_PATHS[@]}"; do
+        if [ "${MIGRATION_ACTIVE_PATHS[$index]}" = "$active_path" ]; then
+            log_error "Ambiguous archive migration for active path: $active_path"
+            log_error "First archive target: ${MIGRATION_ARCHIVE_PATHS[$index]}"
+            log_error "Second archive target: $archive_path"
+            return 1
+        fi
+    done
+
+    MIGRATION_ACTIVE_PATHS+=("$active_path")
+    MIGRATION_ARCHIVE_PATHS+=("$archive_path")
+    MIGRATION_SOURCE_IDENTITIES+=("$(path_identity "$active_path")")
+}
+
 prepare_archive_migration_on_merge() {
     local archive_group archive_name package_path relative_package package_name
     local command_path active_path archive_path index
@@ -166,9 +185,8 @@ prepare_archive_migration_on_merge() {
             package_name="$(basename "$package_path")"
             active_path="$CLAUDE_HOME/skills/$package_name"
             path_exists "$active_path" || continue
-            MIGRATION_ACTIVE_PATHS+=("$active_path")
-            MIGRATION_ARCHIVE_PATHS+=("$CLAUDE_HOME/skills_archive/$archive_name/$relative_package")
-            MIGRATION_SOURCE_IDENTITIES+=("$(path_identity "$active_path")")
+            archive_path="$CLAUDE_HOME/skills_archive/$archive_name/$relative_package"
+            add_archive_migration_plan "$active_path" "$archive_path" || return 1
         done < <(find "$archive_group" -mindepth 2 -type f -name SKILL.md -print0)
     done
 
@@ -181,15 +199,13 @@ prepare_archive_migration_on_merge() {
             package_name="$(basename "$command_path")"
             active_path="$CLAUDE_HOME/commands/$package_name"
             if path_exists "$active_path"; then
-                MIGRATION_ACTIVE_PATHS+=("$active_path")
-                MIGRATION_ARCHIVE_PATHS+=("$CLAUDE_HOME/commands_archive/$archive_name/top-level/$package_name")
-                MIGRATION_SOURCE_IDENTITIES+=("$(path_identity "$active_path")")
+                archive_path="$CLAUDE_HOME/commands_archive/$archive_name/top-level/$package_name"
+                add_archive_migration_plan "$active_path" "$archive_path" || return 1
             fi
             active_path="$CLAUDE_HOME/commands/extended-library/$package_name"
             if path_exists "$active_path"; then
-                MIGRATION_ACTIVE_PATHS+=("$active_path")
-                MIGRATION_ARCHIVE_PATHS+=("$CLAUDE_HOME/commands_archive/$archive_name/extended-library/$package_name")
-                MIGRATION_SOURCE_IDENTITIES+=("$(path_identity "$active_path")")
+                archive_path="$CLAUDE_HOME/commands_archive/$archive_name/extended-library/$package_name"
+                add_archive_migration_plan "$active_path" "$archive_path" || return 1
             fi
         done
     done
