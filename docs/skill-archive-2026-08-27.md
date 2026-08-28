@@ -135,34 +135,28 @@ missing Claude canonical.
 
 ## Post-merge discovery-budget closure — 2026-08-28
 
-A fresh `/history` and `/ms` pass treated structured selections as supporting
-signals rather than a complete use meter. The exact-head evidence for this PR
-reproduces the current 30-day Claude `Skill` event scan and current filesystem
-closure; it does not claim to reproduce every historical classification input.
-Name absence alone was not treated as proof of non-use.
+The exact-head evidence for this PR reproduces the current 30-day Claude
+`Skill` event scan and current filesystem closure. Structured selections are a
+supporting signal, not a complete use meter, and name absence is not proof of
+non-use.
 
-The recoverable user-home cleanup then:
+The verified current user-home state is:
 
-- moved 92 `~/.agents/skills` entries recoverably into the sibling
-  `~/.agents/skills_archive/2026-08-28-context-budget/` directory after
-  reviewing redundant Claude pointers, workflow references, and superseded
-  mirrors;
-- retained nine unique Agents capabilities with observed use or active
-  workflow references: `code-review`, `design-an-interface`,
+- the sibling `~/.agents/skills_archive/2026-08-28-context-budget/` contains 92
+  recoverable entries;
+- the active Agents root contains nine capabilities: `code-review`, `design-an-interface`,
   `diagnosing-bugs`, `disk-audit`, `disk-root-cause`, `handoff`,
   `resolving-merge-conflicts`, `tdd`, and `triage`;
-- reduced `~/.codex/skills` from 27 explicit user pointers to the reviewed
-  22-pointer projection by archiving `babysit`, `skillify`, `social-poster`,
+- the active Codex root contains 22 explicit pointers, while its sibling
+  archive contains `babysit`, `skillify`, `social-poster`,
   `tmux-video-evidence`, and `write-goal`; `generalized-testing` and `solid`
-  remain explicit pointers because an active cross-repository testing and
-  evidence workflow requires them;
-- disabled the duplicate curated Superpowers provider and four uncorroborated
-  skill plugins (Cloud Build, Sites, Visualize, and Template Creator), while
-  retaining the used Google Drive/Gmail paths and conservative document,
-  browser, GitHub, and artifact tooling; and
-- added complete discovery frontmatter to all active repository skill
-  packages. Eighteen matching user-home canonicals were synchronized, leaving
-  zero active Claude skills without valid `name` and `description` metadata.
+  remain active because a current cross-repository testing and evidence
+  workflow requires them;
+- plugin configuration has nine enabled and six disabled entries, including
+  disabled curated Superpowers, Cloud Build, Sites, Visualize, and Template
+  Creator providers; and
+- every active repository package and all 145 active Claude-home packages have
+  valid `name` and `description` discovery frontmatter.
 
 The active Claude set is not an assertion that all 145 packages were selected
 recently. A timestamp-bounded scan on 2026-08-28 observed structured Claude
