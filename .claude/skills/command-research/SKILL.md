@@ -34,7 +34,9 @@ The supported record classes are:
 Slash text, prompt prose, skill-file reads, and command catalogs are excluded.
 When a store has no explicit Skill records, the JSON report says so instead of
 turning slash-token mentions into inferred usage. Missing provenance is kept in
-the `unknown` bucket.
+the `unknown` bucket. Unsupported stores report `supported=false` with a
+diagnostic; malformed Hermes timestamps or JSON are counted and diagnosed while
+valid records continue to be measured when the lookback permits it.
 
 ---
 

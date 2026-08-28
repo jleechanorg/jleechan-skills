@@ -17,6 +17,7 @@ Usage:
 
 import argparse
 import json
+import math
 import os
 import re
 import sqlite3
@@ -77,6 +78,7 @@ def _skill_scan_result() -> dict[str, object]:
         "agent": Counter(),
         "unknown": Counter(),
         "record_types": Counter(),
+        "malformed": Counter(),
         "records_scanned": 0,
         "supported": True,
         "diagnostic": None,
@@ -93,6 +95,13 @@ def _skill_from_value(value) -> str | None:
     if not isinstance(value, dict):
         return None
     skill = value.get("skill")
+    if not isinstance(skill, str):
+        for key in ("arguments", "input", "parameters"):
+            nested = value.get(key)
+            if isinstance(nested, dict):
+                skill = nested.get("skill")
+                if isinstance(skill, str):
+                    break
     if not isinstance(skill, str):
         return None
     skill = skill.strip()
@@ -132,6 +141,38 @@ def _record_skill_call(record: dict, known_skills: set[str]) -> tuple[str, str] 
     return skill, label
 
 
+def _record_skill_calls(record: dict, known_skills: set[str]) -> list[tuple[str, str, dict]]:
+    """Find explicit Skill calls nested in Codex response/event records."""
+    found = []
+
+    def walk(value):
+        if isinstance(value, dict):
+            name = value.get("name") or value.get("tool_name")
+            is_skill_item = str(value.get("type", "")).lower() == "skill"
+            is_skill_tool = str(name).lower() == "skill"
+            if is_skill_item or is_skill_tool:
+                candidate = {"type": record.get("type"), "payload": value}
+                parsed = _record_skill_call(candidate, known_skills)
+                if parsed is not None:
+                    found.append((parsed[0], parsed[1], value))
+            for child in value.values():
+                walk(child)
+        elif isinstance(value, list):
+            for child in value:
+                walk(child)
+
+    walk(record)
+    return found
+
+
+def _call_identity(value: dict, *, origin: str, timestamp=None, fallback_id=None) -> tuple:
+    """Build a stable key for duplicate durable call records."""
+    call_id = value.get("call_id") or value.get("tool_call_id") or value.get("id") or fallback_id
+    if call_id:
+        return origin, "id", str(call_id)
+    return origin, "record", timestamp, json.dumps(value, sort_keys=True, default=str)
+
+
 def _classify_skill_destination(*, human: bool | None) -> str:
     if human is True:
         return "human"
@@ -153,8 +194,11 @@ def scan_claude_skill_invocations(
     if projects_dir is None:
         projects_dir = os.path.expanduser("~/.claude/projects")
     if not os.path.exists(projects_dir):
+        result["supported"] = False
+        result["diagnostic"] = f"projects directory not found: {projects_dir}"
         return result
 
+    seen_calls = set()
     for root, _, files in os.walk(projects_dir):
         for fname in files:
             if not fname.endswith(".jsonl"):
@@ -190,6 +234,14 @@ def scan_claude_skill_invocations(
                             parsed = _record_skill_call(candidate, known_skills)
                             if parsed is None:
                                 continue
+                            key = _call_identity(
+                                block,
+                                origin=os.path.realpath(os.path.join(root, fname)),
+                                timestamp=record.get("timestamp"),
+                            )
+                            if key in seen_calls:
+                                continue
+                            seen_calls.add(key)
                             skill, label = parsed
                             destination = _classify_skill_destination(
                                 human=(False if record.get("isSidechain") is True else
@@ -217,6 +269,8 @@ def scan_codex_skill_invocations(
         result["supported"] = False
         result["diagnostic"] = f"database not found: {db_path}"
         return result
+    seen_calls = set()
+    conn = None
     try:
         conn = sqlite3.connect(str(db_path))
         columns = {row[1] for row in conn.execute("PRAGMA table_info(threads)")}
@@ -257,25 +311,44 @@ def scan_codex_skill_invocations(
                             event_time = timestamp_seconds(record.get("timestamp"))
                             if event_time is None or event_time < cutoff:
                                 continue
-                        parsed = _record_skill_call(record, known_skills)
-                        if parsed is None:
-                            continue
-                        skill, label = parsed
-                        destination = _classify_skill_destination(human=human)
-                        result[destination][skill] += 1
-                        result["record_types"][label] += 1
+                        for skill, label, call in _record_skill_calls(record, known_skills):
+                            key = _call_identity(
+                                call,
+                                origin=os.path.realpath(path),
+                                timestamp=record.get("timestamp"),
+                                fallback_id=(record.get("call_id") or record.get("tool_call_id")),
+                            )
+                            if key in seen_calls:
+                                continue
+                            seen_calls.add(key)
+                            destination = _classify_skill_destination(human=human)
+                            result[destination][skill] += 1
+                            result["record_types"][label] += 1
             except OSError:
                 continue
-        conn.close()
     except sqlite3.Error as exc:
         result["supported"] = False
         result["diagnostic"] = f"unsupported Codex history schema: {exc}"
         return result
+    finally:
+        if conn is not None:
+            conn.close()
     return result
 
 
-def _hermes_skill_calls(tool_calls, tool_name) -> list[tuple[str, str]]:
+def _hermes_skill_calls(tool_calls, tool_name) -> tuple[list[tuple[str, str]], bool]:
     calls = []
+    malformed_json = False
+
+    def arguments_for(function):
+        value = function.get("arguments") or function.get("input") or function
+        call_id = function.get("call_id") or function.get("tool_call_id") or function.get("id")
+        if call_id and isinstance(value, dict) and not any(
+            value.get(key) for key in ("call_id", "tool_call_id", "id")
+        ):
+            return {**value, "call_id": call_id}
+        return value
+
     if tool_name and str(tool_name).lower() == "skill":
         # Hermes stores the tool identity separately from its arguments in
         # some versions. Attribute that row to tool_name when an argument
@@ -284,32 +357,34 @@ def _hermes_skill_calls(tool_calls, tool_name) -> list[tuple[str, str]]:
             try:
                 tool_calls = json.loads(tool_calls)
             except json.JSONDecodeError:
+                malformed_json = True
                 tool_calls = None
         if isinstance(tool_calls, list):
             for call in tool_calls:
                 if isinstance(call, dict):
                     function = call.get("function") if isinstance(call.get("function"), dict) else call
-                    calls.append(("tool_name", function.get("arguments") or function.get("input") or function))
+                    calls.append(("tool_name", arguments_for(function)))
         elif tool_calls:
             calls.append(("tool_name", tool_calls))
-        return calls
+        return calls, malformed_json
     if isinstance(tool_calls, str):
         try:
             tool_calls = json.loads(tool_calls)
         except json.JSONDecodeError:
+            malformed_json = True
             tool_calls = None
     if isinstance(tool_calls, dict):
         tool_calls = [tool_calls]
     if not isinstance(tool_calls, list):
-        return calls
+        return calls, malformed_json
     for call in tool_calls:
         if not isinstance(call, dict):
             continue
         function = call.get("function") if isinstance(call.get("function"), dict) else call
         name = function.get("name") or function.get("tool_name")
         if str(name).lower() == "skill":
-            calls.append(("tool_calls", function.get("arguments") or function.get("input") or function))
-    return calls
+            calls.append(("tool_calls", arguments_for(function)))
+    return calls, malformed_json
 
 
 def scan_hermes_skill_invocations(
@@ -322,6 +397,8 @@ def scan_hermes_skill_invocations(
         result["supported"] = False
         result["diagnostic"] = f"database not found: {db_path}"
         return result
+    seen_calls = set()
+    conn = None
     try:
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
         rows = conn.execute(
@@ -331,7 +408,12 @@ def scan_hermes_skill_invocations(
         )
         for session_id, tool_name, tool_calls, timestamp, source, user_id, parent_id in rows:
             result["records_scanned"] += 1
-            if cutoff and (timestamp is None or float(timestamp) < cutoff):
+            timestamp_value = timestamp_seconds(timestamp)
+            if timestamp is not None and (
+                timestamp_value is None or not math.isfinite(timestamp_value)
+            ):
+                result["malformed"]["timestamp"] += 1
+            if cutoff and (timestamp_value is None or timestamp_value < cutoff):
                 continue
             source_text = str(source or "").lower()
             uid_text = str(user_id or "").lower()
@@ -340,7 +422,10 @@ def scan_hermes_skill_invocations(
                 for marker in ("bot", "daemon", "subagent", "cron", "workflow", "automation")
             )
             human = False if automated else True if source_text in {"slack", "cli", "telegram", "api_server"} else None
-            for kind, value in _hermes_skill_calls(tool_calls, tool_name):
+            calls, malformed_json = _hermes_skill_calls(tool_calls, tool_name)
+            if malformed_json:
+                result["malformed"]["json"] += 1
+            for kind, value in calls:
                 if kind == "tool_name":
                     skill = _skill_from_value(value)
                     if skill is None:
@@ -353,14 +438,29 @@ def scan_hermes_skill_invocations(
                     label = "messages.tool_calls.Skill"
                 if skill not in known_skills:
                     continue
+                key = _call_identity(
+                    value,
+                    origin=f"{session_id}:{kind}",
+                    timestamp=timestamp,
+                )
+                if key in seen_calls:
+                    continue
+                seen_calls.add(key)
                 destination = _classify_skill_destination(human=human)
                 result[destination][skill] += 1
                 result["record_types"][label] += 1
-        conn.close()
     except sqlite3.Error as exc:
         result["supported"] = False
         result["diagnostic"] = f"unsupported Hermes history schema: {exc}"
         return result
+    finally:
+        if conn is not None:
+            conn.close()
+    if result["malformed"]:
+        details = ", ".join(
+            f"{kind}={count}" for kind, count in sorted(result["malformed"].items())
+        )
+        result["diagnostic"] = f"malformed Hermes records: {details}"
     return result
 
 
@@ -385,6 +485,7 @@ def scan_skill_usage(
             "agent": dict(sorted(raw_store["agent"].items())),
             "unknown": dict(sorted(raw_store["unknown"].items())),
             "record_types": dict(sorted(raw_store["record_types"].items())),
+            "malformed": dict(sorted(raw_store["malformed"].items())),
         }
         store = raw_store
         human.update(store["human"])
@@ -400,7 +501,7 @@ def scan_skill_usage(
         "limitations": [
             "Only explicit Skill tool-call records count; slash text, prompt prose, and SKILL.md reads do not.",
             "Claude provenance uses the record-level isSidechain flag; missing flags remain unknown.",
-            "Codex and Hermes report zero when no explicit Skill tool-call record exists; schema errors are surfaced per store.",
+            "Codex and Hermes report zero when no explicit Skill tool-call record exists; schema errors and malformed Hermes data are surfaced per store.",
         ],
     }
 

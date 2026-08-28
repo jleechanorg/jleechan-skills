@@ -89,6 +89,15 @@ class SkillUsageMeasurementTest(unittest.TestCase):
             self.assertEqual(result["unknown"]["alpha"], 0)
             self.assertEqual(result["record_types"]["assistant.tool_use.Skill"], 2)
 
+    def test_claude_missing_projects_directory_returns_diagnostic(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = scan_claude_skill_invocations(
+                {"alpha"}, cutoff=0, projects_dir=Path(tmpdir) / "missing"
+            )
+
+            self.assertFalse(result["supported"])
+            self.assertIn("projects directory", result["diagnostic"])
+
     def test_codex_ignores_slash_text_and_counts_explicit_skill_call(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -120,6 +129,35 @@ class SkillUsageMeasurementTest(unittest.TestCase):
                                 "timestamp": "2026-08-28T00:00:01Z",
                             }
                         ),
+                        json.dumps(
+                            {
+                                "type": "response_item",
+                                "payload": {
+                                    "type": "message",
+                                    "content": [
+                                        {
+                                            "type": "tool_call",
+                                            "function": {
+                                                "name": "Skill",
+                                                "arguments": {"skill": "alpha"},
+                                            },
+                                        }
+                                    ],
+                                },
+                                "timestamp": "2026-08-28T00:00:02Z",
+                            }
+                        ),
+                        json.dumps(
+                            {
+                                "type": "response_item",
+                                "payload": {
+                                    "type": "custom_tool_call",
+                                    "name": "Skill",
+                                    "input": {"skill": "alpha"},
+                                },
+                                "timestamp": "2026-08-28T00:00:01Z",
+                            }
+                        ),
                     ]
                 )
                 + "\n",
@@ -135,6 +173,10 @@ class SkillUsageMeasurementTest(unittest.TestCase):
                 "INSERT INTO threads VALUES (?, ?, ?)",
                 (str(human_rollout), "user", 1_800_000_000_000),
             )
+            connection.execute(
+                "INSERT INTO threads VALUES (?, ?, ?)",
+                (str(human_rollout), "user", 1_800_000_000_000),
+            )
             connection.commit()
             connection.close()
 
@@ -142,7 +184,7 @@ class SkillUsageMeasurementTest(unittest.TestCase):
                 {"alpha"}, cutoff=0, db_path=database
             )
 
-            self.assertEqual(result["human"]["alpha"], 1)
+            self.assertEqual(result["human"]["alpha"], 2)
             self.assertEqual(result["agent"]["alpha"], 0)
             self.assertEqual(result["record_types"]["response_item.custom_tool_call.Skill"], 1)
 
@@ -211,7 +253,23 @@ class SkillUsageMeasurementTest(unittest.TestCase):
                         None,
                         1_800_000_002,
                     ),
+                    (
+                        "human",
+                        "assistant",
+                        "",
+                        json.dumps({"arguments": {"skill": "alpha"}}),
+                        "Skill",
+                        1_800_000_003,
+                    ),
                 ],
+            )
+            connection.execute(
+                "INSERT INTO messages VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    "human", "assistant", "",
+                    json.dumps([{"arguments": {"skill": "alpha"}}]),
+                    "Skill", 1_800_000_001,
+                ),
             )
             connection.commit()
             connection.close()
@@ -220,9 +278,9 @@ class SkillUsageMeasurementTest(unittest.TestCase):
                 {"alpha"}, cutoff=0, db_path=database
             )
 
-            self.assertEqual(result["human"]["alpha"], 1)
+            self.assertEqual(result["human"]["alpha"], 2)
             self.assertEqual(result["agent"]["alpha"], 1)
-            self.assertEqual(result["record_types"]["messages.tool_name.Skill"], 1)
+            self.assertEqual(result["record_types"]["messages.tool_name.Skill"], 2)
             self.assertEqual(result["record_types"]["messages.tool_calls.Skill"], 1)
 
     def test_hermes_unsupported_schema_returns_diagnostic(self):
@@ -239,6 +297,49 @@ class SkillUsageMeasurementTest(unittest.TestCase):
 
             self.assertFalse(result["supported"])
             self.assertIn("messages", result["diagnostic"])
+
+    def test_hermes_malformed_data_reports_counters_and_keeps_safe_records(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            database = Path(tmpdir) / "state.db"
+            connection = sqlite3.connect(database)
+            connection.execute(
+                "CREATE TABLE sessions (id TEXT PRIMARY KEY, source TEXT, user_id TEXT, "
+                "parent_session_id TEXT)"
+            )
+            connection.execute(
+                "CREATE TABLE messages (session_id TEXT, role TEXT, content TEXT, "
+                "tool_calls TEXT, tool_name TEXT, timestamp REAL)"
+            )
+            connection.execute(
+                "INSERT INTO sessions VALUES (?, ?, ?, ?)",
+                ("human", "cli", "operator", None),
+            )
+            connection.executemany(
+                "INSERT INTO messages VALUES (?, ?, ?, ?, ?, ?)",
+                [
+                    (
+                        "human", "assistant", "", json.dumps({"skill": "alpha"}),
+                        "Skill", 1_800_000_000,
+                    ),
+                    (
+                        "human", "assistant", "", "{not-json", "Skill", "not-a-time",
+                    ),
+                    (
+                        "human", "assistant", "", "{not-json", None, 1_800_000_002,
+                    ),
+                ],
+            )
+            connection.commit()
+            connection.close()
+
+            result = scan_hermes_skill_invocations(
+                {"alpha"}, cutoff=0, db_path=database
+            )
+
+            self.assertEqual(result["human"]["alpha"], 1)
+            self.assertEqual(result["malformed"]["json"], 2)
+            self.assertEqual(result["malformed"]["timestamp"], 1)
+            self.assertIn("malformed", result["diagnostic"])
 
     def test_aggregate_preserves_store_schema_diagnostics(self):
         with tempfile.TemporaryDirectory() as tmpdir:
