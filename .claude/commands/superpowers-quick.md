@@ -1,6 +1,7 @@
 ---
 description: Autonomously turn an idea into a complete design specification and implementation plan using recommended defaults
-disable-model-invocation: true
+type: skill
+execution_mode: immediate
 ---
 
-Read `~/.claude/skills/superpowers-quick/SKILL.md` completely, then execute it with `$ARGUMENTS`.
+Read `${CLAUDE_HOME:-$HOME/.claude}/skills/superpowers-quick/SKILL.md` completely, then execute it with `$ARGUMENTS`.

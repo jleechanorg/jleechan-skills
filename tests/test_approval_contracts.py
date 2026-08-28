@@ -19,7 +19,7 @@ class ApprovalContractsTest(unittest.TestCase):
         command = (COMMANDS / "superpowers-quick.md").read_text()
         quick = skill("superpowers-quick")
 
-        self.assertIn("~/.claude/skills/superpowers-quick/SKILL.md", command)
+        self.assertIn("/skills/superpowers-quick/SKILL.md", command)
         self.assertNotIn("superpowers:brainstorming", command)
         self.assertNotIn("superpowers:writing-plans", command)
         self.assertIn("superpowers:brainstorming", quick)

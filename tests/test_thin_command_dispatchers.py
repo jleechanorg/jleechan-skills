@@ -1,0 +1,35 @@
+"""Conformance tests for exported Claude slash-command dispatchers."""
+
+import unittest
+from pathlib import Path
+
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+COMMANDS = REPO_ROOT / ".claude" / "commands"
+
+
+class ThinCommandDispatchersTest(unittest.TestCase):
+    def test_inventory_resolves_to_local_skills_with_argument_forwarding(self):
+        from scripts.validate_thin_commands import validate_commands
+
+        result = validate_commands(COMMANDS, REPO_ROOT / ".claude" / "skills")
+        self.assertEqual([], result.errors, "\n".join(result.errors))
+        self.assertEqual(43, result.command_count)
+        self.assertEqual(43, result.dispatcher_count)
+
+    def test_dispatchers_preserve_empty_quoted_positional_and_stacked_arguments(self):
+        from scripts.validate_thin_commands import render_arguments
+
+        cases = {
+            "": "",
+            '"two words"': '"two words"',
+            "PR-42": "PR-42",
+            "one two --mode=real": "one two --mode=real",
+        }
+        for supplied, expected in cases.items():
+            with self.subTest(arguments=supplied):
+                self.assertEqual(expected, render_arguments("$ARGUMENTS", supplied))
+
+
+if __name__ == "__main__":
+    unittest.main()

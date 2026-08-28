@@ -4,8 +4,4 @@ type: skill
 execution_mode: immediate
 ---
 
-# /p [task]
-
-Load and follow
-`${CLAUDE_HOME:-$HOME/.claude}/skills/parallelize-to-ceiling/SKILL.md` with
-`$ARGUMENTS`.
+Read `${CLAUDE_HOME:-$HOME/.claude}/skills/parallelize-to-ceiling/SKILL.md` completely, then execute it with `$ARGUMENTS`.

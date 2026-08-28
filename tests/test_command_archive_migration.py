@@ -64,7 +64,8 @@ class CommandArchiveMigrationTest(unittest.TestCase):
         self.assertIn("only when an evidence bundle or production claim is in scope", web_advice)
         self.assertIn("Invoke `/er <bundle path or PR>`", web_advice)
         self.assertIn("explicitly authorizes local cookie transfer", browser_control)
-        self.assertIn("user has explicitly authorized access", browser_command)
+        self.assertIn("user explicitly authorizes local cookie transfer", browser_control)
+        self.assertIn("/skills/browser-control/SKILL.md", browser_command)
         self.assertIn("Do not put tokens in prompts", browser_control)
 
 

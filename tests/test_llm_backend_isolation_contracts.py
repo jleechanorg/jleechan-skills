@@ -90,7 +90,7 @@ class LLMBackendIsolationContractsTest(unittest.TestCase):
         self.assertIn("Review-only mode", root_skill)
         self.assertIn("loaded by another review", root_skill)
         self.assertIn("stop before executing `/llm-first` or `/backend-first`", root_skill)
-        self.assertIn("direct diagnostic mode", command_text)
+        self.assertIn("/skills/root-cause-first/SKILL.md", command_text)
 
         for consumer_path in review_consumers:
             with self.subTest(consumer=consumer_path.relative_to(REPO_ROOT)):

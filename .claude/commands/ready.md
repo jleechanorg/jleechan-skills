@@ -1,11 +1,7 @@
-# /ready — drive PR(s) to merge-ready
+---
+description: /ready command dispatcher
+type: skill
+execution_mode: immediate
+---
 
-Load and follow `${CLAUDE_HOME:-$HOME/.claude}/skills/ready/SKILL.md` (Skill tool: `ready`).
-
-PRs should satisfy — or be made to satisfy — ALL of: /es, /er, /advice
-approved, then /green, with all comments and merge conflicts handled, verified
-at the current head SHA. Then report READY (and merge only under explicit or
-standing approval).
-
-ARGUMENTS: optional PR numbers/repo; default = the PRs in the current working
-context.
+Read `${CLAUDE_HOME:-$HOME/.claude}/skills/ready/SKILL.md` completely, then execute it with `$ARGUMENTS`.

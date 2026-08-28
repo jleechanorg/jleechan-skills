@@ -21,7 +21,11 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from scripts.compute_command_closure import closure_to_json, compute_closure
+from scripts.compute_command_closure import (
+    closure_to_json,
+    compute_closure,
+    extract_references_from_text,
+)
 
 COMMANDS_DIR = REPO_ROOT / ".claude" / "commands"
 
@@ -34,13 +38,9 @@ COMMANDS_DIR = REPO_ROOT / ".claude" / "commands"
 GENUINE_SEED = "advice"
 GENUINE_TARGET = "research"
 
-# Fixture B (FALSE POSITIVES), real content of .claude/commands/f.md, whose
-# phantom slash tokens are what this fixture exercises.
-#   line 22:  **Prerequisite:** `./install.sh` once; ...
-#   line 220: - a delegated reviewer/subagent outcome when available ...
-# Both match a naive single-segment slash-token regex. Neither is a command:
-# `/install` is a path fragment of `./install.sh`, `/reviewer` is `/` used as
-# an "or" separator. Neither has a file under .claude/commands/.
+# Fixture B (FALSE POSITIVES). The slash-command files are intentionally thin,
+# so these parser fixtures stay local to this scanner test rather than forcing
+# implementation prose back into a dispatcher.
 PHANTOM_SEED = "f"
 PHANTOM_TOKENS = {
     "install": "path fragment of `./install.sh`, not a delegation",
@@ -61,8 +61,12 @@ class CommandClosureTest(unittest.TestCase):
         # lines are gone, this test must fail loudly rather than assert against
         # content that no longer exists.
         self.assertIn("/research", self.seed_text[GENUINE_SEED])
-        self.assertIn("`./install.sh`", self.seed_text[PHANTOM_SEED])
-        self.assertIn("reviewer/subagent", self.seed_text[PHANTOM_SEED])
+        self.assertIn("/skills/dark-factory/SKILL.md", self.seed_text[PHANTOM_SEED])
+        candidates = extract_references_from_text(
+            "Prerequisite: `./install.sh`; delegated reviewer/subagent outcome."
+        )
+        self.assertNotIn("install", candidates)
+        self.assertNotIn("reviewer", candidates)
 
     def test_genuine_reference_is_pulled_into_closure(self):
         closure = compute_closure(REPO_ROOT, [GENUINE_SEED])["closure"]

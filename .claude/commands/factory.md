@@ -1,33 +1,7 @@
 ---
 description: "/factory — run Dark Factory; auto-select pipeline when omitted"
-type: quality
+type: skill
 execution_mode: immediate
-aliases: [f, df]
 ---
 
-# /factory — Dark Factory DOT Pipeline Runner
-
-Dispatches to the `dark-factory` skill → **`dark-factory` binary**
-(`~/projects/dark-factory/install.sh` → `~/.local/bin/dark-factory`).
-
-Unlike `/h` (in-Claude subagent dispatch), `/factory` runs the external
-`.dot`-driven pipeline. Install once; run from any target repo cwd.
-
-**Usage**:
-
-```
-/factory <goal>                          # auto-select pipeline
-/factory --pipeline gates <goal>
-/factory --pipeline minimal_pr <goal>
-/factory --backend echo <goal>
-/factory --feature hello <goal>
-```
-
-## Action
-
-Run the `dark-factory` skill with `$ARGUMENTS`. When `--pipeline` is omitted,
-the skill **must** classify the task (factory-spec Step 0) and pick a graph from
-`~/projects/dark-factory/docs/pipeline-selection.md` — do not default to
-`gates.dot`, `minimal_feature.dot`, or any single file for every run.
-
-Uses `dark-factory` on PATH — not `python -m runner` from source.
+Read `${CLAUDE_HOME:-$HOME/.claude}/skills/dark-factory/SKILL.md` completely, then execute it with `$ARGUMENTS`.
