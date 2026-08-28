@@ -71,7 +71,7 @@ path_exists() {
 }
 
 path_identity() {
-    stat -f '%d:%i' "$1" 2>/dev/null || stat -c '%d:%i' "$1"
+    stat -c '%d:%i' "$1" 2>/dev/null || stat -f '%d:%i' "$1"
 }
 
 release_migration_lock() {
