@@ -34,6 +34,7 @@ class InstallerIntegrationTest(unittest.TestCase):
             "skills/_archived_loose_md/legacy.md": "legacy\n",
             "skills/_archived_loose_md_2026-08-23/legacy.md": "legacy\n",
             "skills_archive/2026-retired/retired-skill/SKILL.md": "archive rationale\n",
+            "skills_archive/legacy-pre/packages/retired-legacy/SKILL.md": "legacy\n",
         }
         for relative, content in files.items():
             path = source / relative
@@ -254,6 +255,23 @@ class InstallerIntegrationTest(unittest.TestCase):
                     target
                     / "commands_archive/2026-retired/extended-library/retired-command.md"
                 ).is_file()
+            )
+
+    def test_merge_does_not_treat_archive_category_as_a_skill_name(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            target = temp_dir / "claude-home"
+            active = target / "skills/packages/SKILL.md"
+            active.parent.mkdir(parents=True, exist_ok=True)
+            active.write_text("active user skill\n", encoding="utf-8")
+
+            result = self.run_installer(fixture, target, "--merge")
+
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertEqual(active.read_text(encoding="utf-8"), "active user skill\n")
+            self.assertFalse(
+                (target / "skills_archive/legacy-pre/packages/SKILL.md").exists()
             )
 
     def test_merge_refuses_to_overwrite_existing_archive_target(self):

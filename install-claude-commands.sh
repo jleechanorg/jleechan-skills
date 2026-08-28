@@ -129,6 +129,7 @@ migrate_archived_packages_on_merge() {
         archive_name="$(basename "$archive_group")"
         for package_path in "$archive_group"/*; do
             [ -d "$package_path" ] || continue
+            [ -f "$package_path/SKILL.md" ] || continue
             package_name="$(basename "$package_path")"
             active_path="$CLAUDE_HOME/skills/$package_name"
             path_exists "$active_path" || continue

@@ -50,7 +50,7 @@ class ArchiveDependencyContractTest(unittest.TestCase):
         )
         active_skill_text = "\n".join(
             path.read_text(encoding="utf-8", errors="ignore")
-            for path in ACTIVE_SKILLS.glob("*/SKILL.md")
+            for path in ACTIVE_SKILLS.rglob("SKILL.md")
         )
         active_text = f"{active_command_text}\n{active_skill_text}"
         called = {
