@@ -1,6 +1,6 @@
 # Skill and command archive report — 2026-08-27
 
-PR [#376](https://github.com/jleechanorg/jleechan-skills/pull/376) moves 110 recoverable skill packages and 7 command packages outside their discovery roots.
+PR [#376](https://github.com/jleechanorg/jleechan-skills/pull/376) moves 110 recoverable skill packages and 7 command packages outside their discovery roots. A follow-up pass also relocates the repository's pre-existing nested archives and removes stale home-only discovery entries.
 
 ## What changes
 
@@ -55,6 +55,42 @@ Repository changes do not automatically modify `~/.claude/`. The real home was s
 - 10 real-home command copies representing the 7 archived commands remain in `~/.claude/commands_archive/2026-08-27-historical-zero-use/`. Three commands have both top-level and extended-library copies.
 
 Future `--merge` installs perform this migration automatically. Clean and backup installs never copy sibling archive roots.
+
+## Follow-up discovery cleanup
+
+The second pass closes two gaps that remained after PR #376:
+
+- Three legacy archive containers under `.claude/skills/` moved to
+  `.claude/skills_archive/legacy-pre-2026-08-27/`. They contain 52 historical
+  `SKILL.md` packages and 474 total files. No `_archive` or `_archived_*`
+  container remains under the active repository skill root.
+- Five broken `~/.agents/skills` pointers were repaired. The referenced
+  canonicals for `streaming-evidence-standards`, `design`, `ao-spawn-gate`,
+  `bead-followup-templates`, and `reviewer-calibration` now live in
+  `~/.claude/skills`; the stale `reviewer-calibration` worktree pointer remains
+  recoverable in the dated Agents archive.
+
+The home-only dependency closure began with 161 valid unique packages. Exact
+Claude `Skill` events observed 77 names in the 30-day window. Active commands
+and global contracts added 31 seeds, and transitive active-skill references
+expanded the retained set to 119. Of the 42 names outside that closure, 14 are
+still canonical repository packages and remain installed because the repository
+installer and its dependency contract retain them. The remaining 28 home-only
+packages moved recoverably to each runtime's
+`skills_archive/2026-08-27-zero-use-closure/` directory:
+
+`ask-matt`, `batch-grill-me`, `claude-handoff`, `cmux-browser`,
+`copilot-pr-processing`, `edit-article`, `gh-address-comments`, `gh-fix-ci`,
+`git-guardrails-claude-code`, `grill-me`, `grill-with-docs`, `loop-me`,
+`migrate-to-shoehorn`, `obsidian-vault`,
+`pr-green-definition.bak-20260729`, `request-refactor-plan`,
+`scaffold-exercises`, `setup-org-runners`, `setup-pre-commit`,
+`setup-ts-deep-modules`, `teach`, `to-questionnaire`, `ubiquitous-language`,
+`wayfinder`, `writing-beats`, `writing-fragments`, `writing-great-skills`, and
+`writing-shape`.
+
+The result is 138 valid unique home packages and zero broken top-level skill
+symlinks across `~/.claude`, `~/.agents`, and `~/.codex`.
 
 ## Archived skill manifest
 
@@ -199,6 +235,12 @@ Repository skill:
 
 ```bash
 git mv .claude/skills_archive/2026-08-27-historical-zero-use/<name> .claude/skills/<name>
+```
+
+Legacy repository package:
+
+```bash
+git mv .claude/skills_archive/legacy-pre-2026-08-27/packages/<name> .claude/skills/<name>
 ```
 
 Repository command:
