@@ -10,7 +10,7 @@ SKILLS = REPO_ROOT / ".claude" / "skills"
 
 
 class WorkflowCommandPairTest(unittest.TestCase):
-    def test_nextsteps_and_plan_micro_export_complete_packages(self):
+    def test_core_workflows_export_complete_packages(self):
         for name in ("nextsteps", "plan-micro", "ready"):
             with self.subTest(workflow=name):
                 command = COMMANDS / f"{name}.md"

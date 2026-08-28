@@ -11,7 +11,9 @@ PR [#376](https://github.com/jleechanorg/jleechan-skills/pull/376) moves 110 rec
 - Existing archive destinations are never overwritten; a collision fails closed.
 - Every move is recoverable. No skill or command body is deleted.
 
-After dependency corrections, the repository contains 219 active skill packages, 110 archived skill packages in this tranche, and 7 archived command packages.
+After dependency corrections and final workflow restoration, the repository
+contains 221 active skill packages, 110 archived skill packages in this
+tranche, and 7 archived command packages.
 
 ## Skill selection rule
 
@@ -72,9 +74,10 @@ The second pass closes two gaps that remained after PR #376:
   `~/.claude/skills`; the stale `reviewer-calibration` worktree pointer remains
   recoverable in the dated Agents archive.
 
-The post-cleanup home catalogue is directly reconstructible as 166 unique
-packages: 138 active plus the 28 packages in the dated closure archive. A scan
-of structured Claude `Skill` tool calls from 2026-07-28T00:00:00Z through
+Before the final command-pointer repair, the post-cleanup home snapshot was
+directly reconstructible as 166 unique packages: 138 active plus the 28
+packages in the dated closure archive. A scan of structured Claude `Skill`
+tool calls from 2026-07-28T00:00:00Z through
 2026-08-28T00:00:00Z observes 74 of those names and no invocation of any of the
 28 archived names. Zero observed use alone was not enough to archive a package:
 active command, global-contract, repository-test, and transitive skill
@@ -92,8 +95,39 @@ gate moved recoverably to each runtime's
 `wayfinder`, `writing-beats`, `writing-fragments`, `writing-great-skills`, and
 `writing-shape`.
 
-The result is 138 valid unique home packages and zero broken top-level skill
-symlinks across `~/.claude`, `~/.agents`, and `~/.codex`.
+That snapshot had 138 valid unique home packages and zero broken top-level
+skill symlinks across `~/.claude`, `~/.agents`, and `~/.codex`.
+
+## Final command-pointer closure
+
+The follow-up audit checked every literal
+`~/.claude/skills/<name>/SKILL.md` reference under the active real-home command
+tree. It initially found 90 occurrences across 44 missing targets. The final
+state has zero missing occurrences.
+
+- A safe `--merge` restored the repository-backed canonicals, including the
+  already-exported `/nextsteps` package.
+- `/plan-micro` and `/ready` were restored as complete exported packages,
+  including `/plan-micro` references and agent metadata. Their thin commands
+  now honor `CLAUDE_HOME`.
+- Recent-use home-only packages for document standards, Google Workspace, and
+  tax coordination were restored from the dated backup rather than exported
+  with personal assumptions.
+- Four launchers with no authenticated human invocation in the 30-day scan
+  (`/ablation`, `/abal`, `/automation-audit`, and `/velocity`) moved to
+  `~/.claude/commands_archive/2026-08-28-orphan-closure/top-level/`.
+- The broad merge briefly activated 83 unreferenced Claude-home copies. They
+  moved recoverably to
+  `~/.claude/skills_archive/2026-08-28-accidental-full-install/` instead of
+  remaining in discovery.
+- Explicit Codex pointers for `nextsteps`, `plan-micro`, and `ready` resolve to
+  the Claude canonicals. The former `.agents/skills/nextsteps` metadata stub
+  moved to the Agents archive to avoid duplicate discovery.
+
+After this closure, the real home has 168 unique active package names across
+Claude, Agents, and Codex roots (142, 101, and 23 packages by root before name
+deduplication), with zero active command, Agents, or Codex pointers to a
+missing Claude canonical.
 
 ## Archived skill manifest
 
