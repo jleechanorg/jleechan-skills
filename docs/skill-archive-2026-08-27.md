@@ -70,13 +70,14 @@ The second pass closes two gaps that remained after PR #376:
   `~/.claude/skills`; the stale `reviewer-calibration` worktree pointer remains
   recoverable in the dated Agents archive.
 
-The home-only dependency closure began with 161 valid unique packages. Exact
-Claude `Skill` events observed 77 names in the 30-day window. Active commands
-and global contracts added 31 seeds, and transitive active-skill references
-expanded the retained set to 119. Of the 42 names outside that closure, 14 are
-still canonical repository packages and remain installed because the repository
-installer and its dependency contract retain them. The remaining 28 home-only
-packages moved recoverably to each runtime's
+The post-cleanup home catalogue is directly reconstructible as 166 unique
+packages: 138 active plus the 28 packages in the dated closure archive. A scan
+of structured Claude `Skill` tool calls from 2026-07-28T00:00:00Z through
+2026-08-28T00:00:00Z observes 74 of those names and no invocation of any of the
+28 archived names. Zero observed use alone was not enough to archive a package:
+active command, global-contract, repository-test, and transitive skill
+dependencies were also retained. The 28 home-only packages that cleared every
+gate moved recoverably to each runtime's
 `skills_archive/2026-08-27-zero-use-closure/` directory:
 
 `ask-matt`, `batch-grill-me`, `claude-handoff`, `cmux-browser`,
