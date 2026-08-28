@@ -467,6 +467,48 @@ class SkillUsageMeasurementTest(unittest.TestCase):
             self.assertEqual(result["status"], "unsupported")
             self.assertIn("messages", result["diagnostic"])
 
+    def test_hermes_unreadable_directory_reports_error(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            unreadable_path = Path(tmpdir) / "state.db"
+            unreadable_path.mkdir()
+
+            result = scan_hermes_skill_invocations(
+                {"alpha"}, cutoff=0, db_path=unreadable_path
+            )
+
+            self.assertFalse(result["supported"])
+            self.assertEqual(result["status"], "error")
+            self.assertIn("Hermes history read error", result["diagnostic"])
+
+    def test_hermes_unreadable_db_reports_error(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            database = Path(tmpdir) / "state.db"
+            database.touch()
+            with patch(
+                "sqlite3.connect",
+                side_effect=sqlite3.OperationalError("unable to open database file"),
+            ):
+                result = scan_hermes_skill_invocations(
+                    {"alpha"}, cutoff=0, db_path=database
+                )
+
+            self.assertFalse(result["supported"])
+            self.assertEqual(result["status"], "error")
+            self.assertIn("Hermes history read error", result["diagnostic"])
+
+    def test_hermes_corrupt_db_reports_error(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            database = Path(tmpdir) / "state.db"
+            database.write_bytes(b"not a sqlite database")
+
+            result = scan_hermes_skill_invocations(
+                {"alpha"}, cutoff=0, db_path=database
+            )
+
+            self.assertFalse(result["supported"])
+            self.assertEqual(result["status"], "error")
+            self.assertIn("Hermes history read error", result["diagnostic"])
+
     def test_hermes_malformed_data_reports_counters_and_keeps_safe_records(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             database = Path(tmpdir) / "state.db"

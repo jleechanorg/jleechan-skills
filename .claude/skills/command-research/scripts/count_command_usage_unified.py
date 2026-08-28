@@ -113,6 +113,14 @@ def _mark_store_error(result: dict[str, object], store_name: str, exc) -> None:
     _add_diagnostic(result, f"{store_name} history read error: {exc}")
 
 
+def _is_schema_incompatibility(exc) -> bool:
+    message = str(exc).lower()
+    return any(
+        marker in message
+        for marker in ("no such table", "no such column", "has no column named")
+    )
+
+
 def _finish_skill_scan(result: dict[str, object], store_name: str) -> dict[str, object]:
     if result["status"] in {"invalid-input", "error"}:
         return result
@@ -591,9 +599,13 @@ def scan_hermes_skill_invocations(
                 destination = _classify_skill_destination(human=human)
                 result[destination][skill] += 1
                 result["record_types"][label] += 1
-    except sqlite3.Error as exc:
+    except (sqlite3.Error, OSError) as exc:
         result["supported"] = False
-        result["diagnostic"] = f"unsupported Hermes history schema: {exc}"
+        if _is_schema_incompatibility(exc):
+            result["status"] = "unsupported"
+            result["diagnostic"] = f"unsupported Hermes history schema: {exc}"
+        else:
+            _mark_store_error(result, "Hermes", exc)
         return _finish_skill_scan(result, "Hermes")
     finally:
         if conn is not None:
