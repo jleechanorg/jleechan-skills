@@ -1,27 +1,29 @@
 # Skill and command archive report — 2026-08-27
 
-PR [#376](https://github.com/jleechanorg/jleechan-skills/pull/376) moves 115 recoverable skill packages and 10 command packages outside their discovery roots.
+PR [#376](https://github.com/jleechanorg/jleechan-skills/pull/376) moves 110 recoverable skill packages and 10 command packages outside their discovery roots.
 
 ## What changes
 
 - Skills move from `.claude/skills/` to `.claude/skills_archive/2026-08-27-historical-zero-use/`.
 - Commands move from `.claude/commands/extended-library/` to `.claude/commands_archive/2026-08-27-historical-zero-use/`.
 - The installer copies only `.claude/skills/` and `.claude/commands/`, so sibling archive directories are neither installed nor discovered.
+- During `--merge`, formerly installed archived packages move into matching sibling archives under the target Claude home.
+- Existing archive destinations are never overwritten; a collision fails closed.
 - Every move is recoverable. No skill or command body is deleted.
 
-After dependency corrections, the repository contains 214 active skill packages, 115 archived skill packages in this tranche, and 10 archived command packages.
+After dependency corrections, the repository contains 219 active skill packages, 110 archived skill packages in this tranche, and 10 archived command packages.
 
 ## Skill selection rule
 
 A skill was archived only when all of these checks passed:
 
 1. No structured Claude `Skill` tool call was observed during the 30-day window from 2026-07-28 through 2026-08-27.
-2. No skill with observed use referenced it.
-3. No active repository or home slash command referenced it.
-4. No repository or global operating contract referenced it.
-5. No explicit repository test contract required it to remain active.
+2. No retained active skill requires it as a workflow dependency.
+3. No active repository or home slash command references it.
+4. No repository or global operating contract references it.
+5. No explicit repository test contract requires it to remain active.
 
-Raw text mentions were not counted as usage because catalogues, documentation, and system reminders repeat package names without invoking them. This is an evidence-based inactivity estimate, not proof that a workflow was never useful. Codex and Hermes do not expose the same structured Claude `Skill` event, so active command and contract references are an additional safety gate.
+Raw text mentions were not counted as usage because catalogues, documentation, file extensions, and system reminders repeat package names without invoking them. This is an evidence-based inactivity estimate, not proof that a workflow was never useful. Codex and Hermes do not expose the same structured Claude `Skill` event, so dependency, command, and contract references are additional safety gates.
 
 ## Command selection rule
 
@@ -40,12 +42,13 @@ Archiving `loop_level_zfc` removed the only live caller of the zero-use `loop-le
 
 Repository changes do not automatically modify `~/.claude/`. The real home was synchronized explicitly:
 
-- 11 of the repository-archived skills were still active in `~/.claude/skills/`; they moved to `~/.claude/skills_archive/2026-08-27-historical-zero-use/`.
-- The other 104 repository-archived skills were already absent from the active home catalogue.
-- Zero names from this skill archive remain active in `~/.claude/skills/`.
+- 11 of the final repository-archived skills were still active in `~/.claude/skills/`; they moved to `~/.claude/skills_archive/2026-08-27-historical-zero-use/`.
+- The other 99 final repository-archived skills were already absent from the active home catalogue.
+- Five packages found to be required by retained active skills were restored to both repository and real home.
+- Zero names from the final skill archive remain active in `~/.claude/skills/`.
 - 13 real-home command copies representing the 10 archived commands moved to `~/.claude/commands_archive/2026-08-27-historical-zero-use/`. Three commands had both top-level and extended-library copies.
 
-The 11 home skills moved were nine unused extended Superpowers packages plus `worldai-browser-login` and `xlsx`.
+Future `--merge` installs perform this migration automatically. Clean and backup installs never copy sibling archive roots.
 
 ## Archived skill manifest
 
@@ -59,7 +62,6 @@ The 11 home skills moved were nine unused extended Superpowers packages plus `wo
 | `autonomous-execution` | Guidelines for autonomous execution in automation/orchestration contexts |
 | `autor-bench-eloop` | Historical package. |
 | `autor-n15-loop` | Historical package. |
-| `babysit-openclaw` | Historical package. |
 | `bashrc-credential-guard` | Always check ~/.bashrc for credentials, API keys, passwords, and configuration values before asking user |
 | `branch-upstream` | Use when creating a new branch or entering a worktree. Sets upstream immediately via `git branch --set-upstream-to=origin/<branch>` after first checkout. |
 | `brand-guidelines` | Applies Anthropic's official brand colors and typography to any sort of artifact that may benefit from having Anthropic's look-and-feel. Use it when brand colors or style guidelines, visual formatting, or company design standards apply. |
@@ -69,7 +71,6 @@ The 11 home skills moved were nine unused extended Superpowers packages plus `wo
 | `chrome-localhost3000-usage` | Historical package. |
 | `chrome-superpowers-reference` | Historical package. |
 | `claude-api` | Build apps with the Claude API or Anthropic SDK. TRIGGER when: code imports `anthropic`/`@anthropic-ai/sdk`/`claude_agent_sdk`, or user asks to use Claude API, Anthropic SDKs, or Agent SDK. DO NOT TRIGGER when: code imports `openai`/other AI SDK, general programming, or ML/data-science tasks. |
-| `claude-code-computer-use` | Use Claude Code to run computer-use style UI automation loops with screenshot → decide → act cycles, safety guardrails, and step-bounded execution. Trigger when the user asks to make agents do Claude computer-use behavior, desktop/browser UI control, click/type/scroll automation, or iterative visual task execution in Claude Code. |
 | `claude-code-schema-validation` | Historical package. |
 | `claude-code-settings-maintenance` | Historical package. |
 | `cli-secrets` | Use when debugging unauthorized/fallback errors. Flags redacted placeholders (e.g. __OPENCLAW_REDACTED__) as invalid tokens; checks env overrides first. |
@@ -112,12 +113,10 @@ The 11 home skills moved were nine unused extended Superpowers packages plus `wo
 | `openclaw-models` | OpenClaw agent model configs — which work, which are broken/quota-limited, and how to switch |
 | `optimization-baseline-fidelity` | Use BEFORE any cost/latency optimization. A/B control MUST be deployed prod config; gate code-start on stated $X/mo savings; reject forced-OFF controls. |
 | `oracle-browser-usage` | Use Oracle CLI in browser mode (no API key) for context bundling and analysis |
-| `pair-benchmark-all-executors` | Run one benchmark script that compares pairv2, pair via Claude Teams, and pair via direct Python |
 | `pairv2-llm-driven-philosophy` | Historical package. |
 | `playwright-mcp-manual-interaction` | Historical package. |
 | `pr-automation-workflows` | Historical package. |
 | `pr-body-design-doc` | Use for production-code PRs ($PROJECT_ROOT/**, gates, ZFC). Requires full GitHub URL to governing roadmap/design doc and a `br` bead ID in the body. |
-| `pr-quantity-control` | Use BEFORE creating a new PR. Checks existing open PRs in same scope; stops at ≥3; rebase/cherry-pick from closed PRs instead of duplicating. |
 | `runtime-mirror-sync` | RETIRED — self-hosted-oss/install.sh and its runtime mirror sync flow no longer exist. Historical reference only; see runner-health and ezgha-watchdog for the current mechanism. |
 | `shadow-execution-gate` | Run a Shadow Execution Gate for high-risk changes using isolated replay, objective evidence, and promotion criteria |
 | `skeptic-agent` | Define and run skeptic exit criteria for non-trivial tasks — independent verification agent with inverted incentive to find gaps |
@@ -154,7 +153,6 @@ The 11 home skills moved were nine unused extended Superpowers packages plus `wo
 | `theme-factory` | Toolkit for styling artifacts with a theme. These artifacts can be slides, docs, reportings, HTML landing pages, etc. There are 10 pre-set themes with colors/fonts that you can apply to any artifact that has been creating, or can generate a new theme on-the-fly. |
 | `thinclaw` | Use thinclaw MCP server — thin inference-less bridge to OpenClaw Gateway for executing tools |
 | `unified-logging` | Historical package. |
-| `user-story-worldai` | your-project.com-specific practice for the no-code visual user-story spec — where the docset lives, which evidence sources settle which claim, the traps that have produced false claims here, and the claims already refuted. Use with (not instead of) the user-scope user-story skill. |
 | `validation-gate` | Pre-report gate — verifies all planned evidence artifacts exist before writing comparison/validation reports |
 | `verify-secrets-backup` | Historical package. |
 | `video-edit-letterbox-caption` | Historical package. |
@@ -184,14 +182,13 @@ The 11 home skills moved were nine unused extended Superpowers packages plus `wo
 
 ## Important retained skill exceptions
 
-Forty-five skills initially caught by the usage filter were restored after the command/global-contract audit. Examples include:
+Fifty skills initially caught by the usage filter were restored after command, global-contract, repository-test, and all-active-skill dependency audits. Examples include:
 
 - `agent-orchestrator` and AO operator/session/spawn skills required by `/ao`, `/claw`, and global policy.
+- `claude-code-computer-use`, `babysit-openclaw`, `pair-benchmark-all-executors`, `pr-quantity-control`, and `user-story-worldai`, required by retained active skills.
 - `agento-report`, `repro-evidence`, `pr-babysit`, `mcp-agent-mail`, and other slash-command targets.
 - `superpowers-quick`, `command-research`, and portability-test members protected by repository contracts.
 - `pptx`, `write-goal`, `wiki-bfs`, and other packages with active command pointers.
-
-The final static audit reports zero archived skills referenced by active repository commands, home commands, repository contracts, or `~/.claude/CLAUDE.md`.
 
 ## Restore a package
 
@@ -224,4 +221,4 @@ bash -n install-claude-commands.sh
 git diff --check
 ```
 
-The installer fixture proves that neither `.claude/skills_archive/` nor `.claude/commands_archive/` is copied into the target Claude home.
+The installer fixture proves that sibling archive roots are omitted on clean installs, stale active packages migrate during `--merge`, and existing archive targets fail closed instead of being overwritten.

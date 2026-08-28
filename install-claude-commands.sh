@@ -93,6 +93,54 @@ prepare_target() {
     fi
 }
 
+archive_existing_path() {
+    local active_path="$1"
+    local archive_path="$2"
+
+    [ -e "$active_path" ] || return 0
+    if [ -e "$archive_path" ]; then
+        log_error "Refusing to overwrite existing archive target: $archive_path"
+        return 1
+    fi
+    mkdir -p "$(dirname "$archive_path")"
+    mv "$active_path" "$archive_path"
+    log_info "Archived retired installation path: $active_path"
+}
+
+migrate_archived_packages_on_merge() {
+    local archive_group archive_name package_path package_name command_path
+
+    [ "$INSTALL_MODE" = "merge" ] || return 0
+
+    for archive_group in "$PLUGIN_SRC_DIR/.claude/skills_archive"/*; do
+        [ -d "$archive_group" ] || continue
+        archive_name="$(basename "$archive_group")"
+        for package_path in "$archive_group"/*; do
+            [ -d "$package_path" ] || continue
+            package_name="$(basename "$package_path")"
+            archive_existing_path \
+                "$CLAUDE_HOME/skills/$package_name" \
+                "$CLAUDE_HOME/skills_archive/$archive_name/$package_name"
+        done
+    done
+
+    for archive_group in "$PLUGIN_SRC_DIR/.claude/commands_archive"/*; do
+        [ -d "$archive_group" ] || continue
+        archive_name="$(basename "$archive_group")"
+        for command_path in "$archive_group"/*.md; do
+            [ -f "$command_path" ] || continue
+            [ "$(basename "$command_path")" = "README.md" ] && continue
+            package_name="$(basename "$command_path")"
+            archive_existing_path \
+                "$CLAUDE_HOME/commands/$package_name" \
+                "$CLAUDE_HOME/commands_archive/$archive_name/top-level/$package_name"
+            archive_existing_path \
+                "$CLAUDE_HOME/commands/extended-library/$package_name" \
+                "$CLAUDE_HOME/commands_archive/$archive_name/extended-library/$package_name"
+        done
+    done
+}
+
 finalize_backup_install() {
     [ "$INSTALL_MODE" = "backup" ] || return 0
 
@@ -213,6 +261,7 @@ main() {
     echo
 
     prepare_target
+    migrate_archived_packages_on_merge
     install_agents
     install_commands
     install_scripts

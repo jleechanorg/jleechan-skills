@@ -22,7 +22,7 @@ class InstallerIntegrationTest(unittest.TestCase):
             "agents/nested/agent.md": "agent\n",
             "commands/command.md": "command\n",
             "commands/nested/helper.sh": "#!/bin/sh\n",
-            "commands_archive/historical/command.md": "archived command\n",
+            "commands_archive/2026-retired/retired-command.md": "archived command\n",
             "scripts/nested/tool.py": "print('tool')\n",
             "skills/example/SKILL.md": "# Skill\n",
             "skills/example/scripts/helper.sh": "#!/bin/sh\n",
@@ -32,7 +32,7 @@ class InstallerIntegrationTest(unittest.TestCase):
             "skills/_archive/2026-08-27-historical-zero-use/README.md": "archive rationale\n",
             "skills/_archived_loose_md/legacy.md": "legacy\n",
             "skills/_archived_loose_md_2026-08-23/legacy.md": "legacy\n",
-            "skills_archive/historical/SKILL.md": "archive rationale\n",
+            "skills_archive/2026-retired/retired-skill/SKILL.md": "archive rationale\n",
         }
         for relative, content in files.items():
             path = source / relative
@@ -223,6 +223,56 @@ class InstallerIntegrationTest(unittest.TestCase):
             self.assertEqual(managed_file.read_text(encoding="utf-8"), "command\n")
             self.assertEqual(user_file.read_text(encoding="utf-8"), "retain me\n")
             self.assertFalse((target / "skills/_archive").exists())
+
+    def test_merge_migrates_retired_packages_out_of_discovery(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            target = temp_dir / "claude-home"
+            active_skill = target / "skills/retired-skill/SKILL.md"
+            active_top_command = target / "commands/retired-command.md"
+            active_extended_command = target / "commands/extended-library/retired-command.md"
+            for path in (active_skill, active_top_command, active_extended_command):
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(f"installed {path.name}\n", encoding="utf-8")
+
+            result = self.run_installer(fixture, target, "--merge")
+
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertFalse(active_skill.exists())
+            self.assertFalse(active_top_command.exists())
+            self.assertFalse(active_extended_command.exists())
+            self.assertTrue(
+                (target / "skills_archive/2026-retired/retired-skill/SKILL.md").is_file()
+            )
+            self.assertTrue(
+                (target / "commands_archive/2026-retired/top-level/retired-command.md").is_file()
+            )
+            self.assertTrue(
+                (
+                    target
+                    / "commands_archive/2026-retired/extended-library/retired-command.md"
+                ).is_file()
+            )
+
+    def test_merge_refuses_to_overwrite_existing_archive_target(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            target = temp_dir / "claude-home"
+            active = target / "skills/retired-skill/SKILL.md"
+            archived = target / "skills_archive/2026-retired/retired-skill/SKILL.md"
+            active.parent.mkdir(parents=True, exist_ok=True)
+            archived.parent.mkdir(parents=True, exist_ok=True)
+            active.write_text("active\n", encoding="utf-8")
+            archived.write_text("existing archive\n", encoding="utf-8")
+
+            result = self.run_installer(fixture, target, "--merge")
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Refusing to overwrite existing archive target", result.stderr + result.stdout)
+            self.assertEqual(active.read_text(encoding="utf-8"), "active\n")
+            self.assertEqual(archived.read_text(encoding="utf-8"), "existing archive\n")
 
     def test_backup_failure_preserves_original_target(self):
         with tempfile.TemporaryDirectory() as directory:

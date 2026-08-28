@@ -31,7 +31,7 @@ explicitly marked as a deleted system in its own historical content.
 
 ## Scope
 
-This archive contains 115 packages. The broader tranche applies the same
+This archive contains 110 packages. The broader tranche applies the same
 evidence rule to the active catalog: no structured Skill call in 30 days and
 no reference from an observed-used skill, active slash command, or global
 operating contract. Explicit repository contracts remain active even when they
@@ -40,3 +40,8 @@ workflow skills, and portability-test members.
 
 `loop-level-zfc` joined this archive after its zero-use, no-caller command
 `loop_level_zfc` moved to the sibling command archive.
+
+Five initially selected packages were restored after the all-active-skill
+dependency audit: `babysit-openclaw`, `claude-code-computer-use`,
+`pair-benchmark-all-executors`, `pr-quantity-control`, and
+`user-story-worldai`.
