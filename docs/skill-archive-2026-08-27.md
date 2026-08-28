@@ -156,9 +156,10 @@ The recoverable user-home cleanup then:
   `diagnosing-bugs`, `disk-audit`, `disk-root-cause`, `handoff`,
   `resolving-merge-conflicts`, `tdd`, and `triage`;
 - reduced `~/.codex/skills` from 27 explicit user pointers to the reviewed
-  20-pointer projection by archiving `babysit`, `generalized-testing`,
-  `skillify`, `social-poster`, `solid`, `tmux-video-evidence`, and
-  `write-goal`; the Claude canonicals remain available;
+  22-pointer projection by archiving `babysit`, `skillify`, `social-poster`,
+  `tmux-video-evidence`, and `write-goal`; `generalized-testing` and `solid`
+  remain explicit pointers because an active cross-repository testing and
+  evidence workflow requires them;
 - disabled the duplicate curated Superpowers provider and four uncorroborated
   skill plugins (Cloud Build, Sites, Visualize, and Template Creator), while
   retaining the used Google Drive/Gmail paths and conservative document,
@@ -174,7 +175,7 @@ recently. A timestamp-bounded scan on 2026-08-28 observed structured Claude
 is positive evidence only: slash-command routing, direct skill reads, Codex or
 Hermes execution, auto-routing, and dependency-only use may not emit it.
 
-The final live roots contain 145 Claude canonicals, nine Agents entries, and 20
+The final live roots contain 145 Claude canonicals, nine Agents entries, and 22
 Codex pointers, with zero broken links or archive containers under active
 discovery roots. Fresh Claude and Codex startup probes completed without the
 skills-context-budget warning.
