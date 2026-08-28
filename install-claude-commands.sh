@@ -40,6 +40,10 @@ BACKUP_PATH=""
 MIGRATION_LOCK_DIR=""
 MIGRATION_LOCK_HELD=false
 MIGRATE_ARCHIVES=false
+MIGRATION_PREPARED=false
+MIGRATION_ACTIVE_PATHS=()
+MIGRATION_ARCHIVE_PATHS=()
+MIGRATION_SOURCE_IDENTITIES=()
 
 show_usage() {
     cat <<EOF
@@ -117,29 +121,23 @@ prepare_target() {
     fi
 }
 
-migrate_archived_packages_on_merge() {
-    local archive_group archive_name package_path package_name command_path active_path archive_path index
-    local rollback_index moved_path nested_path migration_ok
-    local -a active_paths=()
-    local -a archive_paths=()
-    local -a source_identities=()
-
+prepare_archive_migration_on_merge() {
+    local archive_group archive_name package_path relative_package package_name
+    local command_path active_path archive_path index
     [ "$INSTALL_MODE" = "merge" ] || return 0
     if [ "$MIGRATE_ARCHIVES" != true ]; then
         for archive_group in "$PLUGIN_SRC_DIR/.claude/skills_archive"/*; do
             [ -d "$archive_group" ] || continue
-            for package_path in "$archive_group"/*; do
-                [ -d "$package_path" ] || continue
-                [ -f "$package_path/SKILL.md" ] || continue
+            while IFS= read -r -d '' package_path; do
+                package_path="$(dirname "$package_path")"
                 active_path="$CLAUDE_HOME/skills/$(basename "$package_path")"
                 path_exists "$active_path" && log_warning \
                     "Archive collision preserved; migration requires --migrate-archives: $active_path"
-            done
+            done < <(find "$archive_group" -mindepth 2 -type f -name SKILL.md -print0)
         done
         for archive_group in "$PLUGIN_SRC_DIR/.claude/commands_archive"/*; do
             [ -d "$archive_group" ] || continue
-            for command_path in "$archive_group"/*.md; do
-                [ -f "$command_path" ] || continue
+            while IFS= read -r -d '' command_path; do
                 [ "$(basename "$command_path")" = "README.md" ] && continue
                 package_name="$(basename "$command_path")"
                 for active_path in \
@@ -148,7 +146,7 @@ migrate_archived_packages_on_merge() {
                     path_exists "$active_path" && log_warning \
                         "Archive collision preserved; migration requires --migrate-archives: $active_path"
                 done
-            done
+            done < <(find "$archive_group" -type f -name '*.md' -print0)
         done
         return 0
     fi
@@ -162,16 +160,16 @@ migrate_archived_packages_on_merge() {
     for archive_group in "$PLUGIN_SRC_DIR/.claude/skills_archive"/*; do
         [ -d "$archive_group" ] || continue
         archive_name="$(basename "$archive_group")"
-        for package_path in "$archive_group"/*; do
-            [ -d "$package_path" ] || continue
-            [ -f "$package_path/SKILL.md" ] || continue
+        while IFS= read -r -d '' package_path; do
+            package_path="$(dirname "$package_path")"
+            relative_package="${package_path#"$archive_group"/}"
             package_name="$(basename "$package_path")"
             active_path="$CLAUDE_HOME/skills/$package_name"
             path_exists "$active_path" || continue
-            active_paths+=("$active_path")
-            archive_paths+=("$CLAUDE_HOME/skills_archive/$archive_name/$package_name")
-            source_identities+=("$(path_identity "$active_path")")
-        done
+            MIGRATION_ACTIVE_PATHS+=("$active_path")
+            MIGRATION_ARCHIVE_PATHS+=("$CLAUDE_HOME/skills_archive/$archive_name/$relative_package")
+            MIGRATION_SOURCE_IDENTITIES+=("$(path_identity "$active_path")")
+        done < <(find "$archive_group" -mindepth 2 -type f -name SKILL.md -print0)
     done
 
     for archive_group in "$PLUGIN_SRC_DIR/.claude/commands_archive"/*; do
@@ -183,40 +181,47 @@ migrate_archived_packages_on_merge() {
             package_name="$(basename "$command_path")"
             active_path="$CLAUDE_HOME/commands/$package_name"
             if path_exists "$active_path"; then
-                active_paths+=("$active_path")
-                archive_paths+=("$CLAUDE_HOME/commands_archive/$archive_name/top-level/$package_name")
-                source_identities+=("$(path_identity "$active_path")")
+                MIGRATION_ACTIVE_PATHS+=("$active_path")
+                MIGRATION_ARCHIVE_PATHS+=("$CLAUDE_HOME/commands_archive/$archive_name/top-level/$package_name")
+                MIGRATION_SOURCE_IDENTITIES+=("$(path_identity "$active_path")")
             fi
             active_path="$CLAUDE_HOME/commands/extended-library/$package_name"
             if path_exists "$active_path"; then
-                active_paths+=("$active_path")
-                archive_paths+=("$CLAUDE_HOME/commands_archive/$archive_name/extended-library/$package_name")
-                source_identities+=("$(path_identity "$active_path")")
+                MIGRATION_ACTIVE_PATHS+=("$active_path")
+                MIGRATION_ARCHIVE_PATHS+=("$CLAUDE_HOME/commands_archive/$archive_name/extended-library/$package_name")
+                MIGRATION_SOURCE_IDENTITIES+=("$(path_identity "$active_path")")
             fi
         done
     done
 
-    for index in "${!active_paths[@]}"; do
-        archive_path="${archive_paths[$index]}"
+    for index in "${!MIGRATION_ACTIVE_PATHS[@]}"; do
+        archive_path="${MIGRATION_ARCHIVE_PATHS[$index]}"
         if path_exists "$archive_path"; then
             log_error "Refusing to overwrite existing archive target: $archive_path"
             return 1
         fi
     done
 
-    for archive_path in "${archive_paths[@]}"; do
+    for archive_path in "${MIGRATION_ARCHIVE_PATHS[@]}"; do
         if ! mkdir -p "$(dirname "$archive_path")"; then
             log_error "Cannot prepare archive parent for: $archive_path"
             return 1
         fi
     done
+    MIGRATION_PREPARED=true
+}
 
-    for index in "${!active_paths[@]}"; do
-        active_path="${active_paths[$index]}"
-        archive_path="${archive_paths[$index]}"
+execute_archive_migration_on_merge() {
+    local active_path archive_path index rollback_index moved_path nested_path migration_ok
+
+    [ "$MIGRATION_PREPARED" = true ] || return 0
+
+    for index in "${!MIGRATION_ACTIVE_PATHS[@]}"; do
+        active_path="${MIGRATION_ACTIVE_PATHS[$index]}"
+        archive_path="${MIGRATION_ARCHIVE_PATHS[$index]}"
         migration_ok=false
         if mv -n "$active_path" "$archive_path" && ! path_exists "$active_path"; then
-            if [ "$(path_identity "$archive_path")" = "${source_identities[$index]}" ]; then
+            if [ "$(path_identity "$archive_path")" = "${MIGRATION_SOURCE_IDENTITIES[$index]}" ]; then
                 migration_ok=true
             fi
         fi
@@ -224,8 +229,8 @@ migrate_archived_packages_on_merge() {
             log_error "Failed to archive retired installation path: $active_path"
             rollback_index="$index"
             while [ "$rollback_index" -ge 0 ]; do
-                active_path="${active_paths[$rollback_index]}"
-                archive_path="${archive_paths[$rollback_index]}"
+                active_path="${MIGRATION_ACTIVE_PATHS[$rollback_index]}"
+                archive_path="${MIGRATION_ARCHIVE_PATHS[$rollback_index]}"
                 if ! path_exists "$active_path"; then
                     nested_path="$archive_path/$(basename "$active_path")"
                     if path_exists "$nested_path"; then
@@ -243,6 +248,7 @@ migrate_archived_packages_on_merge() {
         fi
         log_info "Archived retired installation path: $active_path"
     done
+    MIGRATION_PREPARED=false
     release_migration_lock
 }
 
@@ -365,12 +371,13 @@ main() {
     echo
 
     prepare_target
+    prepare_archive_migration_on_merge
     install_agents
     install_commands
     install_scripts
     install_skills
     validate_installation
-    migrate_archived_packages_on_merge
+    execute_archive_migration_on_merge
     finalize_backup_install
 
     echo

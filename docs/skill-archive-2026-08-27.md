@@ -19,7 +19,9 @@ tranche, and 7 archived command packages.
 
 A skill was archived only when all of these checks passed:
 
-1. No structured Claude `Skill` tool call was observed during the 30-day window from 2026-07-28 through 2026-08-27.
+1. No structured Claude `Skill` tool call was observed during the half-open
+   31-day snapshot window from 2026-07-28T00:00Z through
+   2026-08-28T00:00Z.
 2. No retained active skill requires it as a workflow dependency.
 3. No active repository or home slash command references it.
 4. No repository or global operating contract references it.

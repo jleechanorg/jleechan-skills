@@ -201,28 +201,78 @@ class TestCountCommandUsageUnified(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
+            subagent_rollout = Path(tmpdir) / "subagent-rollout.jsonl"
+            subagent_rollout.write_text(
+                json.dumps(
+                    {
+                        "timestamp": "2026-08-20T00:00:00Z",
+                        "type": "event_msg",
+                        "payload": {
+                            "type": "item_completed",
+                            "item": {
+                                "type": "UserMessage",
+                                "content": [
+                                    {"type": "text", "text": "/velocity delegated"}
+                                ],
+                            },
+                        },
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
             connection = sqlite3.connect(database)
             connection.execute(
                 "CREATE TABLE threads (rollout_path TEXT, first_user_message TEXT, "
-                "has_user_event INTEGER, created_at_ms INTEGER, updated_at_ms INTEGER)"
+                "has_user_event INTEGER, thread_source TEXT, created_at_ms INTEGER, "
+                "updated_at_ms INTEGER)"
             )
-            connection.execute(
-                "INSERT INTO threads VALUES (?, ?, ?, ?, ?)",
-                (
-                    str(rollout),
-                    "/velocity old",
-                    1,
-                    1_700_000_000_000,
-                    1_800_000_000_000,
-                ),
+            connection.executemany(
+                "INSERT INTO threads VALUES (?, ?, ?, ?, ?, ?)",
+                [
+                    (
+                        str(rollout),
+                        "/velocity old",
+                        0,
+                        "user",
+                        1_700_000_000_000,
+                        1_800_000_000_000,
+                    ),
+                    (
+                        str(subagent_rollout),
+                        "/velocity delegated",
+                        0,
+                        "subagent",
+                        1_800_000_000_000,
+                        1_800_000_000_000,
+                    ),
+                ],
             )
             connection.commit()
             connection.close()
 
             cutoff = datetime(2026, 8, 1, tzinfo=UTC).timestamp()
-            human, _ = scan_codex({"velocity"}, cutoff=cutoff, db_path=database)
+            human, agent, unknown, sources = scan_codex(
+                {"velocity"}, cutoff=cutoff, db_path=database
+            )
 
             self.assertEqual(human["velocity"], 1)
+            self.assertEqual(agent["velocity"], 1)
+            self.assertEqual(unknown["velocity"], 0)
+            self.assertEqual(sources, {"user": 1, "subagent": 1})
+
+    def test_scan_codex_fails_closed_without_thread_source(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            database = Path(tmpdir) / "state.sqlite"
+            connection = sqlite3.connect(database)
+            connection.execute("CREATE TABLE threads (rollout_path TEXT)")
+            connection.commit()
+            connection.close()
+
+            with self.assertRaisesRegex(
+                RuntimeError, "Failed to scan Codex history database"
+            ):
+                scan_codex({"velocity"}, cutoff=0, db_path=database)
 
 
 if __name__ == "__main__":

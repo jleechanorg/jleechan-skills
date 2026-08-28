@@ -336,6 +336,29 @@ class InstallerIntegrationTest(unittest.TestCase):
                 (target / "skills_archive/legacy-pre/packages/SKILL.md").exists()
             )
 
+    def test_merge_migrates_nested_archived_skill_package(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            target = temp_dir / "claude-home"
+            active = target / "skills/retired-legacy/SKILL.md"
+            active.parent.mkdir(parents=True, exist_ok=True)
+            active.write_text("active legacy skill\n", encoding="utf-8")
+
+            result = self.run_installer(
+                fixture, target, "--merge", "--migrate-archives"
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertFalse(active.exists())
+            archived = (
+                target
+                / "skills_archive/legacy-pre/packages/retired-legacy/SKILL.md"
+            )
+            self.assertEqual(
+                archived.read_text(encoding="utf-8"), "active legacy skill\n"
+            )
+
     def test_merge_refuses_to_overwrite_existing_archive_target(self):
         with tempfile.TemporaryDirectory() as directory:
             temp_dir = Path(directory)
@@ -352,6 +375,9 @@ class InstallerIntegrationTest(unittest.TestCase):
             earlier_active.write_text("earlier active\n", encoding="utf-8")
             later_active.write_text("later active\n", encoding="utf-8")
             later_archived.write_text("existing archive\n", encoding="utf-8")
+            managed_file = target / "commands/command.md"
+            managed_file.parent.mkdir(parents=True, exist_ok=True)
+            managed_file.write_text("outdated command\n", encoding="utf-8")
 
             result = self.run_installer(
                 fixture, target, "--merge", "--migrate-archives"
@@ -362,6 +388,9 @@ class InstallerIntegrationTest(unittest.TestCase):
             self.assertEqual(earlier_active.read_text(encoding="utf-8"), "earlier active\n")
             self.assertEqual(later_active.read_text(encoding="utf-8"), "later active\n")
             self.assertEqual(later_archived.read_text(encoding="utf-8"), "existing archive\n")
+            self.assertEqual(
+                managed_file.read_text(encoding="utf-8"), "outdated command\n"
+            )
 
     def test_merge_treats_dangling_symlinks_as_existing_paths(self):
         with tempfile.TemporaryDirectory() as directory:

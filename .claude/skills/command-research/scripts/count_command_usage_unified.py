@@ -295,33 +295,45 @@ def scan_claude(known_cmds: set[str], cutoff: float, projects_dir: str | None = 
 
 def scan_codex(
     known_cmds: set[str], cutoff: float, db_path: Path | str | None = None
-) -> tuple[Counter, Counter]:
+) -> tuple[Counter, Counter, Counter, Counter]:
     human_counts = Counter()
     agent_counts = Counter()
+    unknown_counts = Counter()
+    source_counts = Counter()
     db_path = Path(db_path or os.path.expanduser("~/.codex/state_5.sqlite"))
     if not db_path.exists():
-        return human_counts, agent_counts
+        return human_counts, agent_counts, unknown_counts, source_counts
 
     try:
         conn = sqlite3.connect(str(db_path))
         cur = conn.cursor()
         columns = {row[1] for row in cur.execute("PRAGMA table_info(threads)")}
-        if "rollout_path" not in columns:
-            raise RuntimeError("Codex threads table has no rollout_path column")
+        required_columns = {"rollout_path", "thread_source"}
+        if not required_columns.issubset(columns):
+            raise RuntimeError(
+                "Codex threads table lacks rollout_path or thread_source"
+            )
         where = "rollout_path IS NOT NULL AND rollout_path != ''"
         parameters: tuple[float, ...] = ()
         if cutoff and "updated_at_ms" in columns:
             where += " AND updated_at_ms >= ?"
             parameters = (cutoff * 1000,)
         cur.execute(
-            "SELECT rollout_path, has_user_event FROM threads WHERE " + where,
+            "SELECT rollout_path, thread_source FROM threads WHERE " + where,
             parameters,
         )
-        for rollout_path, has_user_event in cur.fetchall():
+        for rollout_path, thread_source in cur.fetchall():
             path = Path(rollout_path)
             if not path.is_file():
                 continue
-            is_human = bool(has_user_event)
+            source = thread_source or "unknown"
+            source_counts[source] += 1
+            if source == "user":
+                destination = human_counts
+            elif source in {"subagent", "automation"}:
+                destination = agent_counts
+            else:
+                destination = unknown_counts
             try:
                 with path.open("r", encoding="utf-8", errors="ignore") as handle:
                     for line in handle:
@@ -353,20 +365,22 @@ def scan_codex(
                                 cmd = resolve_cmd(match.group(1), known_cmds)
                                 if not cmd:
                                     continue
-                                if is_human:
-                                    human_counts[cmd] += 1
-                                else:
+                                if destination is human_counts:
+                                    destination[cmd] += 1
+                                elif destination is agent_counts:
                                     slash_pos = match.start(1) - 1
                                     if is_imperative_invocation(text, slash_pos):
-                                        agent_counts[cmd] += 1
+                                        destination[cmd] += 1
+                                else:
+                                    destination[cmd] += 1
                         except (json.JSONDecodeError, OSError, TypeError):
                             continue
             except OSError:
                 continue
         conn.close()
-    except Exception:
-        pass
-    return human_counts, agent_counts
+    except Exception as exc:
+        raise RuntimeError(f"Failed to scan Codex history database: {db_path}") from exc
+    return human_counts, agent_counts, unknown_counts, source_counts
 
 
 def main():
@@ -383,18 +397,23 @@ def main():
 
     h_hermes, a_hermes = scan_hermes(known_cmds, cutoff)
     h_claude, a_claude = scan_claude(known_cmds, cutoff)
-    h_codex, a_codex = scan_codex(known_cmds, cutoff)
+    h_codex, a_codex, u_codex, codex_source_counts = scan_codex(
+        known_cmds, cutoff
+    )
 
     total_human = h_hermes + h_claude + h_codex
     total_agent = a_hermes + a_claude + a_codex
-    total_all = total_human + total_agent
+    total_unknown = u_codex
+    total_all = total_human + total_agent + total_unknown
 
     if args.json:
         result = {
             "window": {"days": args.days, "cutoff_epoch": cutoff},
             "known_commands": sorted(known_cmds),
+            "codex_thread_sources": dict(sorted(codex_source_counts.items())),
             "human": {name: total_human[name] for name in sorted(known_cmds)},
             "agent": {name: total_agent[name] for name in sorted(known_cmds)},
+            "unknown": {name: total_unknown[name] for name in sorted(known_cmds)},
             "total": {name: total_all[name] for name in sorted(known_cmds)},
         }
         print(json.dumps(result, indent=2))
@@ -418,6 +437,12 @@ def main():
             pct = (count / tot * 100) if tot > 0 else 0
             print(f"{r:2d}. /{cmd:<20} {count:>6d} agent ({pct:>5.1f}% of {tot:>6d} total)")
         print()
+
+        if total_unknown:
+            print("--- Codex Commands With Unknown Thread Provenance ---")
+            for cmd, count in total_unknown.most_common(args.top):
+                print(f"   /{cmd:<20} {count:>6d} unknown")
+            print()
 
 
 if __name__ == "__main__":
