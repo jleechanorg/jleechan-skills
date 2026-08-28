@@ -70,6 +70,333 @@ ALIAS_MAP = {
 }
 
 
+def _skill_scan_result() -> dict[str, object]:
+    """Create the stable result shape used by the explicit skill scanners."""
+    return {
+        "human": Counter(),
+        "agent": Counter(),
+        "unknown": Counter(),
+        "record_types": Counter(),
+        "records_scanned": 0,
+        "supported": True,
+    }
+
+
+def _skill_from_value(value) -> str | None:
+    """Extract a skill name from a tool input without treating prose as use."""
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError:
+            return None
+    if not isinstance(value, dict):
+        return None
+    skill = value.get("skill")
+    if not isinstance(skill, str):
+        return None
+    skill = skill.strip()
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", skill):
+        return None
+    return skill
+
+
+def _record_skill_call(record: dict, known_skills: set[str]) -> tuple[str, str] | None:
+    """Return (skill, record type) for one explicit Skill tool-call record."""
+    payload = record.get("payload") or {}
+    item = payload.get("item") if isinstance(payload, dict) else None
+    if not isinstance(item, dict):
+        item = payload if isinstance(payload, dict) else {}
+    record_type = record.get("type")
+    payload_type = payload.get("type") if isinstance(payload, dict) else None
+
+    name = item.get("name") or item.get("tool_name")
+    is_skill_item = str(item.get("type", "")).lower() == "skill"
+    is_skill_tool = str(name).lower() == "skill"
+    if not (is_skill_item or is_skill_tool):
+        return None
+
+    value = item.get("input")
+    if value is None:
+        value = item.get("arguments")
+    if value is None:
+        value = item
+    skill = _skill_from_value(value)
+    if skill is None or skill not in known_skills:
+        return None
+    label = ".".join(
+        str(part)
+        for part in (record_type, payload_type, name if is_skill_tool else "Skill")
+        if part
+    )
+    return skill, label
+
+
+def _classify_skill_destination(*, human: bool | None) -> str:
+    if human is True:
+        return "human"
+    if human is False:
+        return "agent"
+    return "unknown"
+
+
+def scan_claude_skill_invocations(
+    known_skills: set[str], cutoff: float, projects_dir: str | None = None
+) -> dict[str, object]:
+    """Count Claude's explicit ``assistant.tool_use(name=Skill)`` records.
+
+    Slash text, SKILL.md contents, and assistant prose are intentionally not
+    inputs to this scanner. A missing ``isSidechain`` flag remains unknown so
+    the human/agent split does not silently invent provenance.
+    """
+    result = _skill_scan_result()
+    if projects_dir is None:
+        projects_dir = os.path.expanduser("~/.claude/projects")
+    if not os.path.exists(projects_dir):
+        return result
+
+    for root, _, files in os.walk(projects_dir):
+        for fname in files:
+            if not fname.endswith(".jsonl"):
+                continue
+            try:
+                with open(os.path.join(root, fname), encoding="utf-8", errors="ignore") as handle:
+                    for line in handle:
+                        try:
+                            record = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        result["records_scanned"] += 1
+                        if cutoff:
+                            event_time = timestamp_seconds(record.get("timestamp"))
+                            if event_time is None or event_time < cutoff:
+                                continue
+                        if record.get("type") != "assistant":
+                            continue
+                        message = record.get("message") or {}
+                        content = message.get("content") if isinstance(message, dict) else None
+                        if not isinstance(content, list):
+                            continue
+                        for block in content:
+                            if not isinstance(block, dict) or block.get("type") != "tool_use":
+                                continue
+                            candidate = {
+                                "type": "assistant",
+                                "payload": {
+                                    "type": "tool_use",
+                                    "item": block,
+                                },
+                            }
+                            parsed = _record_skill_call(candidate, known_skills)
+                            if parsed is None:
+                                continue
+                            skill, label = parsed
+                            destination = _classify_skill_destination(
+                                human=(False if record.get("isSidechain") is True else
+                                       True if record.get("isSidechain") is False else None)
+                            )
+                            result[destination][skill] += 1
+                            result["record_types"][f"assistant.{label.split('.', 1)[-1]}"] += 1
+            except OSError:
+                continue
+    return result
+
+
+def scan_codex_skill_invocations(
+    known_skills: set[str], cutoff: float, db_path: Path | str | None = None
+) -> dict[str, object]:
+    """Count Codex records that explicitly identify a Skill tool call.
+
+    Codex user messages containing ``/foo`` are not evidence here. Current
+    Codex rollouts generally have no Skill tool record, in which case this
+    returns an empty supported result and the report states that limitation.
+    """
+    result = _skill_scan_result()
+    db_path = Path(db_path or os.path.expanduser("~/.codex/state_5.sqlite"))
+    if not db_path.exists():
+        result["supported"] = False
+        return result
+    try:
+        conn = sqlite3.connect(str(db_path))
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(threads)")}
+        if "rollout_path" not in columns:
+            raise RuntimeError("Codex threads table lacks rollout_path")
+        source_column = "thread_source" if "thread_source" in columns else "source"
+        if source_column not in columns:
+            raise RuntimeError("Codex threads table lacks thread provenance")
+        where = "rollout_path IS NOT NULL AND rollout_path != ''"
+        params: tuple[float, ...] = ()
+        if cutoff and "updated_at_ms" in columns:
+            where += " AND updated_at_ms >= ?"
+            params = (cutoff * 1000,)
+        rows = conn.execute(
+            f"SELECT rollout_path, {source_column} FROM threads WHERE {where}", params
+        ).fetchall()
+        for rollout_path, source in rows:
+            path = Path(rollout_path)
+            if not path.is_file():
+                continue
+            source_text = str(source or "").lower()
+            human = True if source_text == "user" else False if source_text in {"subagent", "automation"} else None
+            try:
+                with path.open("r", encoding="utf-8", errors="ignore") as handle:
+                    for line in handle:
+                        try:
+                            record = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        result["records_scanned"] += 1
+                        if cutoff:
+                            event_time = timestamp_seconds(record.get("timestamp"))
+                            if event_time is None or event_time < cutoff:
+                                continue
+                        parsed = _record_skill_call(record, known_skills)
+                        if parsed is None:
+                            continue
+                        skill, label = parsed
+                        destination = _classify_skill_destination(human=human)
+                        result[destination][skill] += 1
+                        result["record_types"][label] += 1
+            except OSError:
+                continue
+        conn.close()
+    except Exception as exc:
+        raise RuntimeError(f"Failed to scan Codex skill history database: {db_path}") from exc
+    return result
+
+
+def _hermes_skill_calls(tool_calls, tool_name) -> list[tuple[str, str]]:
+    calls = []
+    if tool_name and str(tool_name).lower() == "skill":
+        # Hermes stores the tool identity separately from its arguments in
+        # some versions. Attribute that row to tool_name when an argument
+        # payload is present, and avoid counting the same call twice below.
+        if tool_calls:
+            calls.append(("tool_name", tool_calls))
+        return calls
+    if isinstance(tool_calls, str):
+        try:
+            tool_calls = json.loads(tool_calls)
+        except json.JSONDecodeError:
+            tool_calls = None
+    if isinstance(tool_calls, dict):
+        tool_calls = [tool_calls]
+    if not isinstance(tool_calls, list):
+        return calls
+    for call in tool_calls:
+        if not isinstance(call, dict):
+            continue
+        function = call.get("function") if isinstance(call.get("function"), dict) else call
+        name = function.get("name") or function.get("tool_name")
+        if str(name).lower() == "skill":
+            calls.append(("tool_calls", function.get("arguments") or function.get("input") or function))
+    return calls
+
+
+def scan_hermes_skill_invocations(
+    known_skills: set[str], cutoff: float, db_path: Path | str | None = None
+) -> dict[str, object]:
+    """Count Hermes ``tool_name``/``tool_calls`` Skill records only."""
+    result = _skill_scan_result()
+    db_path = Path(db_path or os.path.expanduser("~/.hermes/state.db"))
+    if not db_path.exists():
+        result["supported"] = False
+        return result
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        rows = conn.execute(
+            "SELECT m.session_id, m.tool_name, m.tool_calls, m.timestamp, "
+            "s.source, s.user_id, s.parent_session_id "
+            "FROM messages m LEFT JOIN sessions s ON m.session_id = s.id"
+        )
+        for session_id, tool_name, tool_calls, timestamp, source, user_id, parent_id in rows:
+            result["records_scanned"] += 1
+            if cutoff and (timestamp is None or float(timestamp) < cutoff):
+                continue
+            source_text = str(source or "").lower()
+            uid_text = str(user_id or "").lower()
+            automated = bool(parent_id) or any(
+                marker in source_text or marker in uid_text
+                for marker in ("bot", "daemon", "subagent", "cron", "workflow", "automation")
+            )
+            human = False if automated else True if source_text in {"slack", "cli", "telegram", "api_server"} else None
+            for kind, value in _hermes_skill_calls(tool_calls, tool_name):
+                if kind == "tool_name":
+                    skill = _skill_from_value(value)
+                    if skill is None:
+                        continue
+                    label = "messages.tool_name.Skill"
+                else:
+                    skill = _skill_from_value(value)
+                    if skill is None or skill not in known_skills:
+                        continue
+                    label = "messages.tool_calls.Skill"
+                if skill not in known_skills:
+                    continue
+                destination = _classify_skill_destination(human=human)
+                result[destination][skill] += 1
+                result["record_types"][label] += 1
+        conn.close()
+    except sqlite3.Error as exc:
+        raise RuntimeError(f"Failed to scan Hermes skill history database: {db_path}") from exc
+    return result
+
+
+def scan_skill_usage(
+    known_skills: set[str], cutoff: float, *, claude_projects_dir: str | None = None,
+    codex_db_path: Path | str | None = None, hermes_db_path: Path | str | None = None,
+) -> dict[str, object]:
+    """Aggregate explicit skill-tool measurements from the three stores."""
+    raw_stores = {
+        "claude": scan_claude_skill_invocations(known_skills, cutoff, claude_projects_dir),
+        "codex": scan_codex_skill_invocations(known_skills, cutoff, codex_db_path),
+        "hermes": scan_hermes_skill_invocations(known_skills, cutoff, hermes_db_path),
+    }
+    human = Counter()
+    agent = Counter()
+    unknown = Counter()
+    stores = {}
+    for name, raw_store in raw_stores.items():
+        stores[name] = {
+            **raw_store,
+            "human": dict(sorted(raw_store["human"].items())),
+            "agent": dict(sorted(raw_store["agent"].items())),
+            "unknown": dict(sorted(raw_store["unknown"].items())),
+            "record_types": dict(sorted(raw_store["record_types"].items())),
+        }
+        store = raw_store
+        human.update(store["human"])
+        agent.update(store["agent"])
+        unknown.update(store["unknown"])
+    return {
+        "human": dict(sorted(human.items())),
+        "agent": dict(sorted(agent.items())),
+        "unknown": dict(sorted(unknown.items())),
+        "total": dict(sorted((human + agent + unknown).items())),
+        "known_skills": sorted(known_skills),
+        "stores": stores,
+        "limitations": [
+            "Only explicit Skill tool-call records count; slash text, prompt prose, and SKILL.md reads do not.",
+            "Claude provenance uses the record-level isSidechain flag; missing flags remain unknown.",
+            "Codex and Hermes report zero until their durable history contains an explicit Skill tool-call record.",
+        ],
+    }
+
+
+def load_known_skills(search_roots: list[Path] | None = None) -> set[str]:
+    skills = set()
+    if search_roots is None:
+        search_roots = [Path.home() / ".claude", Path(__file__).resolve().parents[3]]
+    for root in search_roots:
+        if not root.exists():
+            continue
+        for path in root.rglob("SKILL.md"):
+            if any(part in {"skills", "skills_archive"} for part in path.relative_to(root).parts):
+                name = path.parent.name
+                if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", name):
+                    skills.add(name)
+    return skills
+
+
 def load_known_commands(search_roots: list[Path] | None = None) -> set[str]:
     cmds = set()
     if search_roots is None:
@@ -389,10 +716,34 @@ def main():
     parser.add_argument("--top", type=int, default=20, help="Top N commands to display")
     parser.add_argument("--human-only", action="store_true", help="Show only human-typed rankings")
     parser.add_argument("--agent-only", action="store_true", help="Show only agentic rankings")
+    parser.add_argument(
+        "--skills",
+        action="store_true",
+        help="Measure explicit Skill tool calls across Claude, Codex, and Hermes",
+    )
     parser.add_argument("--json", action="store_true", help="Output results as JSON")
     args = parser.parse_args()
 
     cutoff = (time.time() - args.days * 86400) if args.days > 0 else 0
+    if args.skills:
+        payload = scan_skill_usage(load_known_skills(), cutoff)
+        payload["window"] = {"days": args.days, "cutoff_epoch": cutoff}
+        if args.json:
+            print(json.dumps(payload, indent=2))
+        else:
+            print(f"=== EXPLICIT SKILL USAGE AUDIT ({'Last ' + str(args.days) + ' Days' if args.days else 'All Time'}) ===")
+            for destination in ("human", "agent", "unknown"):
+                print(f"--- {destination.title()} ---")
+                for skill, count in sorted(payload[destination].items(), key=lambda item: (-item[1], item[0]))[:args.top]:
+                    print(f"/{skill:<32} {count:>6d}")
+            print("--- Store support ---")
+            for store, store_payload in payload["stores"].items():
+                print(f"{store:<8} supported={store_payload['supported']} records={store_payload['records_scanned']}")
+            print("--- Limitations ---")
+            for limitation in payload["limitations"]:
+                print(f"- {limitation}")
+        return
+
     known_cmds = load_known_commands()
 
     h_hermes, a_hermes = scan_hermes(known_cmds, cutoff)

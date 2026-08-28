@@ -13,6 +13,29 @@ Measure and rank actual slash command and skill invocations across all primary a
 
 Provides strict filtering to eliminate the **system-reminder substring noise trap** and categorizes invocations into **Human-Typed** vs. **Agentic/Subagent**.
 
+## Explicit Skill-Usage Measurement
+
+Command-token counts are not skill-usage counts. To measure skills, pass
+`--skills`; this mode only accepts durable tool-call records that identify the
+`Skill` tool and its `skill` argument:
+
+```bash
+python3 .claude/skills/command-research/scripts/count_command_usage_unified.py --skills --days 30 --json
+```
+
+The supported record classes are:
+
+| Store | Accepted record | Provenance |
+| --- | --- | --- |
+| Claude Code | `assistant` message content block `type=tool_use`, `name=Skill` | record-level `isSidechain` |
+| Codex | `response_item`/`event_msg` explicit Skill tool-call records | `threads.thread_source` |
+| Hermes | `messages.tool_name` or `messages.tool_calls` explicit Skill records | session source and parent session |
+
+Slash text, prompt prose, skill-file reads, and command catalogs are excluded.
+When a store has no explicit Skill records, the JSON report says so instead of
+turning slash-token mentions into inferred usage. Missing provenance is kept in
+the `unknown` bucket.
+
 ---
 
 ## 🚨 Anti-Noise Rules (Mandatory)
