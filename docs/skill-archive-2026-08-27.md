@@ -135,22 +135,18 @@ missing Claude canonical.
 
 ## Post-merge discovery-budget closure — 2026-08-28
 
-A fresh `/history` and `/ms` pass separated genuine human entrypoints from
-automation-injected messages and catalog echoes. The 30-day scan contained 216
-direct Claude CLI events versus 15,980 SDK-originated records, and 124 direct
-Codex CLI threads versus 665 automation `exec` threads. Skill archival also
-used a 90-day structured `Skill`-call window plus command, dependency, global
-contract, and test references; name absence alone was not treated as proof of
-non-use.
+A fresh `/history` and `/ms` pass treated structured selections as supporting
+signals rather than a complete use meter. The exact-head evidence for this PR
+reproduces the current 30-day Claude `Skill` event scan and current filesystem
+closure; it does not claim to reproduce every historical classification input.
+Name absence alone was not treated as proof of non-use.
 
 The recoverable user-home cleanup then:
 
-- moved 75 redundant `~/.agents/skills` entries with retained Claude
-  canonicals into the sibling
-  `~/.agents/skills_archive/2026-08-28-context-budget/` directory;
-- moved 11 unique Agents entries with zero 30/90-day structured selection and
-  no strong workflow gate, plus six superseded Tessl mirrors, into the same
-  sibling archive;
+- moved 92 `~/.agents/skills` entries recoverably into the sibling
+  `~/.agents/skills_archive/2026-08-28-context-budget/` directory after
+  reviewing redundant Claude pointers, workflow references, and superseded
+  mirrors;
 - retained nine unique Agents capabilities with observed use or active
   workflow references: `code-review`, `design-an-interface`,
   `diagnosing-bugs`, `disk-audit`, `disk-root-cause`, `handoff`,
