@@ -26,9 +26,10 @@ python3 .claude/skills/command-research/scripts/count_command_usage_unified.py -
 In `--skills` mode, `--human-only` and `--agent-only` select one report
 destination (the flags are mutually exclusive); JSON output also recomputes
 `total` for the selected destination and includes `selected_destinations`.
-Each store reports `status=supported`, `supported-empty`, or `unsupported` so
-an empty store is not mistaken for unavailable history. Malformed records are
-counted in the store's `malformed` object and described by its diagnostic.
+Each store reports `status=supported`, `supported-empty`, `unsupported`, or
+`error` so an empty store, unavailable schema, and unreadable history are not
+ambiguous. Malformed records are counted in the store's `malformed` object and
+described by its diagnostic.
 
 The supported record classes are:
 

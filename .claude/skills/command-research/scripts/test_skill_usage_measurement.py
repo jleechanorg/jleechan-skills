@@ -3,6 +3,7 @@ import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from count_command_usage_unified import (
     load_known_skills,
@@ -101,6 +102,29 @@ class SkillUsageMeasurementTest(unittest.TestCase):
             self.assertFalse(result["supported"])
             self.assertEqual(result["status"], "unsupported")
             self.assertIn("projects directory", result["diagnostic"])
+
+    def test_claude_existing_empty_store_is_distinct_from_missing(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = scan_claude_skill_invocations(
+                {"alpha"}, cutoff=0, projects_dir=tmpdir
+            )
+
+            self.assertTrue(result["supported"])
+            self.assertEqual(result["status"], "supported-empty")
+            self.assertIn("no explicit Skill", result["diagnostic"])
+
+    def test_claude_unreadable_record_reports_error(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            session = Path(tmpdir) / "session.jsonl"
+            session.write_text("{}\n", encoding="utf-8")
+            with patch("builtins.open", side_effect=PermissionError("denied")):
+                result = scan_claude_skill_invocations(
+                    {"alpha"}, cutoff=0, projects_dir=tmpdir
+                )
+
+            self.assertFalse(result["supported"])
+            self.assertEqual(result["status"], "error")
+            self.assertIn("Claude history read error", result["diagnostic"])
 
     def test_claude_malformed_records_are_counted_and_empty_store_is_explicit(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -246,6 +270,37 @@ class SkillUsageMeasurementTest(unittest.TestCase):
             self.assertFalse(result["supported"])
             self.assertEqual(result["status"], "unsupported")
             self.assertIn("provenance", result["diagnostic"])
+
+    def test_codex_existing_empty_store_is_distinct_from_missing(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            database = Path(tmpdir) / "state.sqlite"
+            connection = sqlite3.connect(database)
+            connection.execute(
+                "CREATE TABLE threads (rollout_path TEXT, thread_source TEXT)"
+            )
+            connection.commit()
+            connection.close()
+
+            result = scan_codex_skill_invocations(
+                {"alpha"}, cutoff=0, db_path=database
+            )
+
+            self.assertTrue(result["supported"])
+            self.assertEqual(result["status"], "supported-empty")
+            self.assertIn("no explicit Skill", result["diagnostic"])
+
+    def test_codex_unreadable_store_reports_error(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            unreadable_path = Path(tmpdir) / "state.sqlite"
+            unreadable_path.mkdir()
+
+            result = scan_codex_skill_invocations(
+                {"alpha"}, cutoff=0, db_path=unreadable_path
+            )
+
+            self.assertFalse(result["supported"])
+            self.assertEqual(result["status"], "error")
+            self.assertIn("Codex history read error", result["diagnostic"])
 
     def test_codex_recent_event_is_not_hidden_by_stale_thread_updated_at(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -519,6 +574,47 @@ class SkillUsageMeasurementTest(unittest.TestCase):
                 [
                     ("human", "assistant", "", payload, None, 1_800_000_000),
                     ("human", "assistant", "", payload, "Skill", 1_800_000_000),
+                ],
+            )
+            connection.commit()
+            connection.close()
+
+            result = scan_hermes_skill_invocations(
+                {"alpha"}, cutoff=0, db_path=database
+            )
+
+            self.assertEqual(result["human"]["alpha"], 1)
+
+    def test_hermes_preserves_id_through_nested_stringified_arguments_and_timestamps(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            database = Path(tmpdir) / "state.db"
+            connection = sqlite3.connect(database)
+            connection.execute(
+                "CREATE TABLE sessions (id TEXT PRIMARY KEY, source TEXT, user_id TEXT, "
+                "parent_session_id TEXT)"
+            )
+            connection.execute(
+                "CREATE TABLE messages (session_id TEXT, role TEXT, content TEXT, "
+                "tool_calls TEXT, tool_name TEXT, timestamp REAL)"
+            )
+            connection.execute(
+                "INSERT INTO sessions VALUES (?, ?, ?, ?)",
+                ("human", "cli", "operator", None),
+            )
+            payload = json.dumps(
+                [{
+                    "id": "durable-call",
+                    "function": {
+                        "name": "Skill",
+                        "arguments": json.dumps({"input": json.dumps({"skill": "alpha"})}),
+                    },
+                }]
+            )
+            connection.executemany(
+                "INSERT INTO messages VALUES (?, ?, ?, ?, ?, ?)",
+                [
+                    ("human", "assistant", "", payload, None, 1_800_000_000),
+                    ("human", "assistant", "", payload, None, 1_800_000_001),
                 ],
             )
             connection.commit()

@@ -107,8 +107,14 @@ def _add_diagnostic(result: dict[str, object], message: str) -> None:
         result["diagnostic"] = message
 
 
+def _mark_store_error(result: dict[str, object], store_name: str, exc) -> None:
+    result["supported"] = False
+    result["status"] = "error"
+    _add_diagnostic(result, f"{store_name} history read error: {exc}")
+
+
 def _finish_skill_scan(result: dict[str, object], store_name: str) -> dict[str, object]:
-    if result["status"] == "invalid-input":
+    if result["status"] in {"invalid-input", "error"}:
         return result
     if not result["supported"]:
         result["status"] = "unsupported"
@@ -245,9 +251,16 @@ def scan_claude_skill_invocations(
         result["supported"] = False
         result["diagnostic"] = f"projects directory not found: {projects_dir}"
         return _finish_skill_scan(result, "Claude")
+    if not os.path.isdir(projects_dir):
+        result["supported"] = False
+        result["diagnostic"] = f"projects path is not a directory: {projects_dir}"
+        return _finish_skill_scan(result, "Claude")
 
     seen_calls = set()
-    for root, _, files in os.walk(projects_dir):
+    def on_walk_error(exc):
+        _mark_store_error(result, "Claude", exc)
+
+    for root, _, files in os.walk(projects_dir, onerror=on_walk_error):
         for fname in files:
             if not fname.endswith(".jsonl"):
                 continue
@@ -305,7 +318,8 @@ def scan_claude_skill_invocations(
                             )
                             result[destination][skill] += 1
                             result["record_types"][f"assistant.{label.split('.', 1)[-1]}"] += 1
-            except OSError:
+            except OSError as exc:
+                _mark_store_error(result, "Claude", exc)
                 continue
     if result["malformed"]:
         details = ", ".join(
@@ -361,6 +375,7 @@ def scan_codex_skill_invocations(
                 continue
             path = Path(rollout_path)
             if not path.is_file():
+                _mark_store_error(result, "Codex", f"rollout not readable: {path}")
                 continue
             source_text = str(source or "").lower()
             human = True if source_text == "user" else False if source_text in {"subagent", "automation"} else None
@@ -397,11 +412,16 @@ def scan_codex_skill_invocations(
                             destination = _classify_skill_destination(human=human)
                             result[destination][skill] += 1
                             result["record_types"][label] += 1
-            except OSError:
+            except OSError as exc:
+                _mark_store_error(result, "Codex", exc)
                 continue
     except sqlite3.Error as exc:
         result["supported"] = False
-        result["diagnostic"] = f"unsupported Codex history schema: {exc}"
+        if "no such table" in str(exc).lower():
+            result["diagnostic"] = f"unsupported Codex history schema: {exc}"
+            result["status"] = "unsupported"
+        else:
+            _mark_store_error(result, "Codex", exc)
         return _finish_skill_scan(result, "Codex")
     finally:
         if conn is not None:
@@ -414,9 +434,32 @@ def scan_codex_skill_invocations(
     return _finish_skill_scan(result, "Codex")
 
 
-def _hermes_skill_calls(tool_calls, tool_name) -> tuple[list[tuple[str, str]], bool]:
+def _decode_json_layers(value) -> tuple[object, bool]:
+    """Decode nested JSON strings, returning whether any layer was malformed."""
+    malformed = False
+    while isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except (TypeError, json.JSONDecodeError):
+            malformed = True
+            break
+    return value, malformed
+
+
+def _hermes_skill_calls(tool_calls, tool_name) -> tuple[list[tuple[str, object]], bool]:
     calls = []
-    malformed_json = False
+    tool_calls, malformed_json = _decode_json_layers(tool_calls)
+
+    def function_for(call):
+        function = call.get("function") if isinstance(call.get("function"), dict) else call
+        if function is call:
+            return function
+        enclosing_id = {
+            key: call[key]
+            for key in ("call_id", "tool_call_id", "id")
+            if key in call and key not in function
+        }
+        return {**enclosing_id, **function}
 
     def arguments_for(function):
         if "arguments" in function:
@@ -426,36 +469,46 @@ def _hermes_skill_calls(tool_calls, tool_name) -> tuple[list[tuple[str, str]], b
         else:
             value = function
         call_id = function.get("call_id") or function.get("tool_call_id") or function.get("id")
+        for _ in range(20):
+            value, nested_malformed = _decode_json_layers(value)
+            if nested_malformed:
+                return value, True
+            if not isinstance(value, dict):
+                break
+            nested = None
+            if "skill" not in value:
+                if "arguments" in value:
+                    nested = value["arguments"]
+                elif "input" in value:
+                    nested = value["input"]
+            if nested is None:
+                break
+            value = nested
         if call_id and isinstance(value, dict) and not any(
             value.get(key) for key in ("call_id", "tool_call_id", "id")
         ):
-            return {**value, "call_id": call_id}
-        return value
+            value = {**value, "call_id": call_id}
+        return value, False
 
     if tool_name and str(tool_name).lower() == "skill":
         # Hermes stores the tool identity separately from its arguments in
         # some versions. Attribute that row to tool_name when an argument
         # payload is present, and avoid counting the same call twice below.
-        if isinstance(tool_calls, str):
-            try:
-                tool_calls = json.loads(tool_calls)
-            except json.JSONDecodeError:
-                malformed_json = True
-                tool_calls = None
         if isinstance(tool_calls, list):
             for call in tool_calls:
                 if isinstance(call, dict):
-                    function = call.get("function") if isinstance(call.get("function"), dict) else call
-                    calls.append(("tool_name", arguments_for(function)))
+                    function = function_for(call)
+                    value, malformed = arguments_for(function)
+                    malformed_json |= malformed
+                    calls.append(("tool_name", value))
         elif tool_calls:
-            calls.append(("tool_name", tool_calls))
+            if isinstance(tool_calls, dict):
+                value, malformed = arguments_for(tool_calls)
+                malformed_json |= malformed
+                calls.append(("tool_name", value))
+            else:
+                calls.append(("tool_name", tool_calls))
         return calls, malformed_json
-    if isinstance(tool_calls, str):
-        try:
-            tool_calls = json.loads(tool_calls)
-        except json.JSONDecodeError:
-            malformed_json = True
-            tool_calls = None
     if isinstance(tool_calls, dict):
         tool_calls = [tool_calls]
     if not isinstance(tool_calls, list):
@@ -463,10 +516,12 @@ def _hermes_skill_calls(tool_calls, tool_name) -> tuple[list[tuple[str, str]], b
     for call in tool_calls:
         if not isinstance(call, dict):
             continue
-        function = call.get("function") if isinstance(call.get("function"), dict) else call
+        function = function_for(call)
         name = function.get("name") or function.get("tool_name")
         if str(name).lower() == "skill":
-            calls.append(("tool_calls", arguments_for(function)))
+            value, malformed = arguments_for(function)
+            malformed_json |= malformed
+            calls.append(("tool_calls", value))
     return calls, malformed_json
 
 
@@ -513,12 +568,6 @@ def scan_hermes_skill_invocations(
             if malformed_json:
                 result["malformed"]["json"] += 1
             for kind, value in calls:
-                if isinstance(value, str):
-                    try:
-                        value = json.loads(value)
-                    except (TypeError, json.JSONDecodeError):
-                        result["malformed"]["json"] += 1
-                        continue
                 if kind == "tool_name":
                     skill = _skill_from_value(value)
                     if skill is None:
