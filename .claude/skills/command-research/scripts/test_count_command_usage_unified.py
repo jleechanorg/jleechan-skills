@@ -168,24 +168,59 @@ class TestCountCommandUsageUnified(unittest.TestCase):
     def test_codex_scan_applies_cutoff_to_thread_timestamp(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             database = Path(tmpdir) / "state.sqlite"
+            rollout = Path(tmpdir) / "rollout.jsonl"
+            rollout.write_text(
+                "".join(
+                    json.dumps(record) + "\n"
+                    for record in [
+                        {
+                            "timestamp": "2026-07-01T00:00:00Z",
+                            "type": "event_msg",
+                            "payload": {
+                                "type": "item_completed",
+                                "item": {
+                                    "type": "UserMessage",
+                                    "content": [{"type": "text", "text": "/velocity old"}],
+                                },
+                            },
+                        },
+                        {
+                            "timestamp": "2026-08-20T00:00:00Z",
+                            "type": "event_msg",
+                            "payload": {
+                                "type": "item_completed",
+                                "item": {
+                                    "type": "UserMessage",
+                                    "content": [
+                                        {"type": "text", "text": "/velocity recent"}
+                                    ],
+                                },
+                            },
+                        },
+                    ]
+                ),
+                encoding="utf-8",
+            )
             connection = sqlite3.connect(database)
             connection.execute(
-                "CREATE TABLE threads (first_user_message TEXT, "
-                "has_user_event INTEGER, created_at_ms INTEGER)"
+                "CREATE TABLE threads (rollout_path TEXT, first_user_message TEXT, "
+                "has_user_event INTEGER, created_at_ms INTEGER, updated_at_ms INTEGER)"
             )
-            connection.executemany(
-                "INSERT INTO threads VALUES (?, ?, ?)",
-                [
-                    ("/velocity old", 1, 1_700_000_000_000),
-                    ("/velocity recent", 1, 1_800_000_000_000),
-                ],
+            connection.execute(
+                "INSERT INTO threads VALUES (?, ?, ?, ?, ?)",
+                (
+                    str(rollout),
+                    "/velocity old",
+                    1,
+                    1_700_000_000_000,
+                    1_800_000_000_000,
+                ),
             )
             connection.commit()
             connection.close()
 
-            human, _ = scan_codex(
-                {"velocity"}, cutoff=1_750_000_000, db_path=database
-            )
+            cutoff = datetime(2026, 8, 1, tzinfo=UTC).timestamp()
+            human, _ = scan_codex({"velocity"}, cutoff=cutoff, db_path=database)
 
             self.assertEqual(human["velocity"], 1)
 

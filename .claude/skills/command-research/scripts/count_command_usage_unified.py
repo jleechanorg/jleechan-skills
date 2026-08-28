@@ -306,29 +306,63 @@ def scan_codex(
         conn = sqlite3.connect(str(db_path))
         cur = conn.cursor()
         columns = {row[1] for row in cur.execute("PRAGMA table_info(threads)")}
-        if "created_at_ms" in columns:
-            timestamp_expression = "created_at_ms / 1000.0"
-        elif "created_at" in columns:
-            timestamp_expression = "created_at"
-        else:
-            raise RuntimeError("Codex threads table has no supported timestamp column")
+        if "rollout_path" not in columns:
+            raise RuntimeError("Codex threads table has no rollout_path column")
+        where = "rollout_path IS NOT NULL AND rollout_path != ''"
+        parameters: tuple[float, ...] = ()
+        if cutoff and "updated_at_ms" in columns:
+            where += " AND updated_at_ms >= ?"
+            parameters = (cutoff * 1000,)
         cur.execute(
-            "SELECT first_user_message, has_user_event FROM threads "
-            "WHERE first_user_message IS NOT NULL "
-            f"AND {timestamp_expression} >= ?",
-            (cutoff,),
+            "SELECT rollout_path, has_user_event FROM threads WHERE " + where,
+            parameters,
         )
-        for msg, has_user_event in cur.fetchall():
-            if not msg:
+        for rollout_path, has_user_event in cur.fetchall():
+            path = Path(rollout_path)
+            if not path.is_file():
                 continue
             is_human = bool(has_user_event)
-            for m in re.findall(r'(?:^|\s)/([a-zA-Z0-9_\-]+)', msg):
-                cmd = resolve_cmd(m, known_cmds)
-                if cmd:
-                    if is_human:
-                        human_counts[cmd] += 1
-                    else:
-                        agent_counts[cmd] += 1
+            try:
+                with path.open("r", encoding="utf-8", errors="ignore") as handle:
+                    for line in handle:
+                        try:
+                            record = json.loads(line)
+                            if record.get("type") != "event_msg":
+                                continue
+                            payload = record.get("payload") or {}
+                            item = payload.get("item") or {}
+                            if (
+                                payload.get("type") != "item_completed"
+                                or item.get("type") != "UserMessage"
+                            ):
+                                continue
+                            event_time = timestamp_seconds(record.get("timestamp"))
+                            if cutoff and (event_time is None or event_time < cutoff):
+                                continue
+                            content = item.get("content") or []
+                            text = " ".join(
+                                part.get("text", "")
+                                for part in content
+                                if isinstance(part, dict)
+                            )
+                            if not text or is_listing_or_report(text, known_cmds):
+                                continue
+                            for match in re.finditer(
+                                r'(?:^|\s)/([a-zA-Z0-9_\-]+)', text
+                            ):
+                                cmd = resolve_cmd(match.group(1), known_cmds)
+                                if not cmd:
+                                    continue
+                                if is_human:
+                                    human_counts[cmd] += 1
+                                else:
+                                    slash_pos = match.start(1) - 1
+                                    if is_imperative_invocation(text, slash_pos):
+                                        agent_counts[cmd] += 1
+                        except (json.JSONDecodeError, OSError, TypeError):
+                            continue
+            except OSError:
+                continue
         conn.close()
     except Exception:
         pass
