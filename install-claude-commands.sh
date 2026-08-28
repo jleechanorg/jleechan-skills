@@ -107,8 +107,10 @@ prepare_target() {
 
 migrate_archived_packages_on_merge() {
     local archive_group archive_name package_path package_name command_path active_path archive_path index
+    local rollback_index moved_path nested_path migration_ok
     local -a active_paths=()
     local -a archive_paths=()
+    local -a archive_kinds=()
 
     [ "$INSTALL_MODE" = "merge" ] || return 0
     MIGRATION_LOCK_DIR="$CLAUDE_HOME/.archive-migration.lock"
@@ -128,6 +130,7 @@ migrate_archived_packages_on_merge() {
             path_exists "$active_path" || continue
             active_paths+=("$active_path")
             archive_paths+=("$CLAUDE_HOME/skills_archive/$archive_name/$package_name")
+            archive_kinds+=("skill")
         done
     done
 
@@ -142,11 +145,13 @@ migrate_archived_packages_on_merge() {
             if path_exists "$active_path"; then
                 active_paths+=("$active_path")
                 archive_paths+=("$CLAUDE_HOME/commands_archive/$archive_name/top-level/$package_name")
+                archive_kinds+=("command")
             fi
             active_path="$CLAUDE_HOME/commands/extended-library/$package_name"
             if path_exists "$active_path"; then
                 active_paths+=("$active_path")
                 archive_paths+=("$CLAUDE_HOME/commands_archive/$archive_name/extended-library/$package_name")
+                archive_kinds+=("command")
             fi
         done
     done
@@ -169,12 +174,31 @@ migrate_archived_packages_on_merge() {
     for index in "${!active_paths[@]}"; do
         active_path="${active_paths[$index]}"
         archive_path="${archive_paths[$index]}"
-        if ! mv -n "$active_path" "$archive_path" || path_exists "$active_path"; then
+        migration_ok=false
+        if mv -n "$active_path" "$archive_path" && ! path_exists "$active_path"; then
+            case "${archive_kinds[$index]}" in
+                skill) [ -f "$archive_path/SKILL.md" ] || [ -L "$archive_path" ] && migration_ok=true ;;
+                command) [ -f "$archive_path" ] || [ -L "$archive_path" ] && migration_ok=true ;;
+            esac
+        fi
+        if [ "$migration_ok" != true ]; then
             log_error "Failed to archive retired installation path: $active_path"
-            while [ "$index" -gt 0 ]; do
-                index=$((index - 1))
-                mv "${archive_paths[$index]}" "${active_paths[$index]}" || \
-                    log_error "Failed to restore migration path: ${active_paths[$index]}"
+            rollback_index="$index"
+            while [ "$rollback_index" -ge 0 ]; do
+                active_path="${active_paths[$rollback_index]}"
+                archive_path="${archive_paths[$rollback_index]}"
+                if ! path_exists "$active_path"; then
+                    nested_path="$archive_path/$(basename "$active_path")"
+                    if path_exists "$nested_path"; then
+                        moved_path="$nested_path"
+                    else
+                        moved_path="$archive_path"
+                    fi
+                    mkdir -p "$(dirname "$active_path")"
+                    mv "$moved_path" "$active_path" || \
+                        log_error "Failed to restore migration path: $active_path"
+                fi
+                rollback_index=$((rollback_index - 1))
             done
             return 1
         fi
@@ -327,6 +351,9 @@ cleanup_failed_install() {
 }
 
 trap cleanup_failed_install ERR
+trap release_migration_lock EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # Run main installation if script is executed directly
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then

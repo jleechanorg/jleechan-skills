@@ -368,6 +368,70 @@ class InstallerIntegrationTest(unittest.TestCase):
             self.assertEqual(active.read_text(encoding="utf-8"), "active\n")
             self.assertEqual(archived.read_text(encoding="utf-8"), "concurrent-writer\n")
 
+    def test_merge_rolls_back_when_competing_directory_nests_package(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            target = temp_dir / "claude-home"
+            active = target / "skills/retired-skill/SKILL.md"
+            active.parent.mkdir(parents=True, exist_ok=True)
+            active.write_text("active\n", encoding="utf-8")
+            fake_bin = temp_dir / "fake-bin"
+            fake_bin.mkdir()
+            fake_move = fake_bin / "mv"
+            fake_move.write_text(
+                "#!/bin/sh\n"
+                "if [ \"$1\" = -n ] && [ ! -e \"$3\" ]; then\n"
+                "  mkdir \"$3\"\n"
+                "fi\n"
+                "exec /bin/mv \"$@\"\n",
+                encoding="utf-8",
+            )
+            fake_move.chmod(0o755)
+
+            result = self.run_installer(
+                fixture,
+                target,
+                "--merge",
+                extra_environment={"PATH": f"{fake_bin}:{os.environ['PATH']}"},
+            )
+
+            archived = target / "skills_archive/2026-retired/retired-skill"
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(active.read_text(encoding="utf-8"), "active\n")
+            self.assertTrue(archived.is_dir())
+            self.assertFalse((archived / "retired-skill").exists())
+
+    def test_merge_releases_lock_when_interrupted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            target = temp_dir / "claude-home"
+            active = target / "skills/retired-skill/SKILL.md"
+            active.parent.mkdir(parents=True, exist_ok=True)
+            active.write_text("active\n", encoding="utf-8")
+            fake_bin = temp_dir / "fake-bin"
+            fake_bin.mkdir()
+            fake_move = fake_bin / "mv"
+            fake_move.write_text(
+                "#!/bin/sh\n"
+                "kill -TERM \"$PPID\"\n"
+                "sleep 1\n"
+                "exit 1\n",
+                encoding="utf-8",
+            )
+            fake_move.chmod(0o755)
+
+            result = self.run_installer(
+                fixture,
+                target,
+                "--merge",
+                extra_environment={"PATH": f"{fake_bin}:{os.environ['PATH']}"},
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse((target / ".archive-migration.lock").exists())
+
     def test_backup_failure_preserves_original_target(self):
         with tempfile.TemporaryDirectory() as directory:
             temp_dir = Path(directory)
