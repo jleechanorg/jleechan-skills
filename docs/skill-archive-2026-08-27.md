@@ -116,16 +116,17 @@ state has zero missing occurrences.
 - Four launchers with no authenticated human invocation in the 30-day scan
   (`/ablation`, `/abal`, `/automation-audit`, and `/velocity`) moved to
   `~/.claude/commands_archive/2026-08-28-orphan-closure/top-level/`.
-- The broad merge briefly activated 83 unreferenced Claude-home copies. They
-  moved recoverably to
+- The broad merge briefly activated 83 repository-backed Claude-home copies.
+  A transitive-pointer audit restored the required `backend-first` and
+  `llm-first` packages; the other 81 moved recoverably to
   `~/.claude/skills_archive/2026-08-28-accidental-full-install/` instead of
   remaining in discovery.
 - Explicit Codex pointers for `nextsteps`, `plan-micro`, and `ready` resolve to
   the Claude canonicals. The former `.agents/skills/nextsteps` metadata stub
   moved to the Agents archive to avoid duplicate discovery.
 
-After this closure, the real home has 168 unique active package names across
-Claude, Agents, and Codex roots (142, 101, and 23 packages by root before name
+After this closure, the real home has 170 unique active package names across
+Claude, Agents, and Codex roots (144, 101, and 23 packages by root before name
 deduplication), with zero active command, Agents, or Codex pointers to a
 missing Claude canonical.
 
