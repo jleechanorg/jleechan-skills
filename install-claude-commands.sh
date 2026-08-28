@@ -37,6 +37,8 @@ INSTALL_MODE="refuse"
 INSTALL_ROOT="$CLAUDE_HOME"
 STAGING_DIR=""
 BACKUP_PATH=""
+MIGRATION_LOCK_DIR=""
+MIGRATION_LOCK_HELD=false
 
 show_usage() {
     cat <<EOF
@@ -66,6 +68,12 @@ directory_is_nonempty() {
 
 path_exists() {
     [ -e "$1" ] || [ -L "$1" ]
+}
+
+release_migration_lock() {
+    [ "$MIGRATION_LOCK_HELD" = true ] || return 0
+    rmdir "$MIGRATION_LOCK_DIR" || log_warning "Could not remove migration lock: $MIGRATION_LOCK_DIR"
+    MIGRATION_LOCK_HELD=false
 }
 
 prepare_target() {
@@ -103,6 +111,12 @@ migrate_archived_packages_on_merge() {
     local -a archive_paths=()
 
     [ "$INSTALL_MODE" = "merge" ] || return 0
+    MIGRATION_LOCK_DIR="$CLAUDE_HOME/.archive-migration.lock"
+    if ! mkdir "$MIGRATION_LOCK_DIR"; then
+        log_error "Another archive migration is active or left a lock: $MIGRATION_LOCK_DIR"
+        return 1
+    fi
+    MIGRATION_LOCK_HELD=true
 
     for archive_group in "$PLUGIN_SRC_DIR/.claude/skills_archive"/*; do
         [ -d "$archive_group" ] || continue
@@ -145,11 +159,17 @@ migrate_archived_packages_on_merge() {
         fi
     done
 
+    for archive_path in "${archive_paths[@]}"; do
+        if ! mkdir -p "$(dirname "$archive_path")"; then
+            log_error "Cannot prepare archive parent for: $archive_path"
+            return 1
+        fi
+    done
+
     for index in "${!active_paths[@]}"; do
         active_path="${active_paths[$index]}"
         archive_path="${archive_paths[$index]}"
-        mkdir -p "$(dirname "$archive_path")"
-        if ! mv "$active_path" "$archive_path"; then
+        if ! mv -n "$active_path" "$archive_path" || path_exists "$active_path"; then
             log_error "Failed to archive retired installation path: $active_path"
             while [ "$index" -gt 0 ]; do
                 index=$((index - 1))
@@ -160,6 +180,7 @@ migrate_archived_packages_on_merge() {
         fi
         log_info "Archived retired installation path: $active_path"
     done
+    release_migration_lock
 }
 
 finalize_backup_install() {
@@ -297,6 +318,7 @@ main() {
 }
 
 cleanup_failed_install() {
+    release_migration_lock
     if [ -n "$STAGING_DIR" ] && [ -d "$STAGING_DIR" ]; then
         rm -rf "$STAGING_DIR"
     fi

@@ -314,6 +314,60 @@ class InstallerIntegrationTest(unittest.TestCase):
             self.assertFalse(active.is_symlink())
             self.assertTrue(archived.is_symlink())
 
+    def test_merge_validates_all_archive_parents_before_moving(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            target = temp_dir / "claude-home"
+            earlier_active = target / "skills/retired-skill/SKILL.md"
+            later_active = target / "commands/retired-command.md"
+            blocked_parent = target / "commands_archive/2026-retired"
+            earlier_active.parent.mkdir(parents=True, exist_ok=True)
+            later_active.parent.mkdir(parents=True, exist_ok=True)
+            blocked_parent.parent.mkdir(parents=True, exist_ok=True)
+            earlier_active.write_text("earlier active\n", encoding="utf-8")
+            later_active.write_text("later active\n", encoding="utf-8")
+            blocked_parent.write_text("not a directory\n", encoding="utf-8")
+
+            result = self.run_installer(fixture, target, "--merge")
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(earlier_active.read_text(encoding="utf-8"), "earlier active\n")
+            self.assertEqual(later_active.read_text(encoding="utf-8"), "later active\n")
+
+    def test_merge_no_clobber_detects_destination_created_after_preflight(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            target = temp_dir / "claude-home"
+            active = target / "skills/retired-skill/SKILL.md"
+            active.parent.mkdir(parents=True, exist_ok=True)
+            active.write_text("active\n", encoding="utf-8")
+            fake_bin = temp_dir / "fake-bin"
+            fake_bin.mkdir()
+            fake_move = fake_bin / "mv"
+            fake_move.write_text(
+                "#!/bin/sh\n"
+                "if [ \"$1\" = -n ] && [ ! -e \"$3\" ]; then\n"
+                "  echo concurrent-writer > \"$3\"\n"
+                "fi\n"
+                "exec /bin/mv \"$@\"\n",
+                encoding="utf-8",
+            )
+            fake_move.chmod(0o755)
+
+            result = self.run_installer(
+                fixture,
+                target,
+                "--merge",
+                extra_environment={"PATH": f"{fake_bin}:{os.environ['PATH']}"},
+            )
+
+            archived = target / "skills_archive/2026-retired/retired-skill"
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(active.read_text(encoding="utf-8"), "active\n")
+            self.assertEqual(archived.read_text(encoding="utf-8"), "concurrent-writer\n")
+
     def test_backup_failure_preserves_original_target(self):
         with tempfile.TemporaryDirectory() as directory:
             temp_dir = Path(directory)
