@@ -81,8 +81,51 @@ def _skill_scan_result() -> dict[str, object]:
         "malformed": Counter(),
         "records_scanned": 0,
         "supported": True,
+        "status": "supported",
         "diagnostic": None,
     }
+
+
+def _begin_skill_scan(cutoff, result: dict[str, object]) -> float | None:
+    """Validate query bounds before reading a store; invalid bounds fail closed."""
+    try:
+        normalized = float(cutoff)
+    except (TypeError, ValueError):
+        normalized = math.nan
+    if not math.isfinite(normalized):
+        result["malformed"]["cutoff"] += 1
+        result["status"] = "invalid-input"
+        result["diagnostic"] = "invalid non-finite cutoff; scan skipped"
+        return None
+    return normalized
+
+
+def _add_diagnostic(result: dict[str, object], message: str) -> None:
+    if result["diagnostic"]:
+        result["diagnostic"] += f"; {message}"
+    else:
+        result["diagnostic"] = message
+
+
+def _finish_skill_scan(result: dict[str, object], store_name: str) -> dict[str, object]:
+    if result["status"] == "invalid-input":
+        return result
+    if not result["supported"]:
+        result["status"] = "unsupported"
+        return result
+    total = sum(
+        sum(bucket.values())
+        for bucket in (result["human"], result["agent"], result["unknown"])
+    )
+    if total == 0:
+        result["status"] = "supported-empty"
+        _add_diagnostic(
+            result,
+            f"supported {store_name} store scanned; no explicit Skill tool calls found",
+        )
+    else:
+        result["status"] = "supported"
+    return result
 
 
 def _skill_from_value(value) -> str | None:
@@ -165,8 +208,10 @@ def _record_skill_calls(record: dict, known_skills: set[str]) -> list[tuple[str,
     return found
 
 
-def _call_identity(value: dict, *, origin: str, timestamp=None, fallback_id=None) -> tuple:
+def _call_identity(value, *, origin: str, timestamp=None, fallback_id=None) -> tuple:
     """Build a stable key for duplicate durable call records."""
+    if not isinstance(value, dict):
+        return origin, "record", timestamp, repr(value)
     call_id = value.get("call_id") or value.get("tool_call_id") or value.get("id") or fallback_id
     if call_id:
         return origin, "id", str(call_id)
@@ -191,12 +236,15 @@ def scan_claude_skill_invocations(
     the human/agent split does not silently invent provenance.
     """
     result = _skill_scan_result()
+    cutoff = _begin_skill_scan(cutoff, result)
+    if cutoff is None:
+        return result
     if projects_dir is None:
         projects_dir = os.path.expanduser("~/.claude/projects")
     if not os.path.exists(projects_dir):
         result["supported"] = False
         result["diagnostic"] = f"projects directory not found: {projects_dir}"
-        return result
+        return _finish_skill_scan(result, "Claude")
 
     seen_calls = set()
     for root, _, files in os.walk(projects_dir):
@@ -209,12 +257,20 @@ def scan_claude_skill_invocations(
                         try:
                             record = json.loads(line)
                         except json.JSONDecodeError:
+                            result["malformed"]["json"] += 1
+                            continue
+                        if not isinstance(record, dict):
+                            result["malformed"]["record"] += 1
                             continue
                         result["records_scanned"] += 1
-                        if cutoff:
-                            event_time = timestamp_seconds(record.get("timestamp"))
-                            if event_time is None or event_time < cutoff:
-                                continue
+                        event_time = timestamp_seconds(record.get("timestamp"))
+                        if "timestamp" in record and event_time is None:
+                            result["malformed"]["timestamp"] += 1
+                            continue
+                        if cutoff and (event_time is None or event_time < cutoff):
+                            if event_time is None:
+                                result["malformed"]["timestamp"] += 1
+                            continue
                         if record.get("type") != "assistant":
                             continue
                         message = record.get("message") or {}
@@ -251,7 +307,12 @@ def scan_claude_skill_invocations(
                             result["record_types"][f"assistant.{label.split('.', 1)[-1]}"] += 1
             except OSError:
                 continue
-    return result
+    if result["malformed"]:
+        details = ", ".join(
+            f"{kind}={count}" for kind, count in sorted(result["malformed"].items())
+        )
+        _add_diagnostic(result, f"malformed Claude records: {details}")
+    return _finish_skill_scan(result, "Claude")
 
 
 def scan_codex_skill_invocations(
@@ -264,11 +325,14 @@ def scan_codex_skill_invocations(
     returns an empty supported result and the report states that limitation.
     """
     result = _skill_scan_result()
+    cutoff = _begin_skill_scan(cutoff, result)
+    if cutoff is None:
+        return result
     db_path = Path(db_path or os.path.expanduser("~/.codex/state_5.sqlite"))
     if not db_path.exists():
         result["supported"] = False
         result["diagnostic"] = f"database not found: {db_path}"
-        return result
+        return _finish_skill_scan(result, "Codex")
     seen_calls = set()
     conn = None
     try:
@@ -278,22 +342,23 @@ def scan_codex_skill_invocations(
             result["supported"] = False
             result["diagnostic"] = "missing required table: threads"
             conn.close()
-            return result
+            return _finish_skill_scan(result, "Codex")
         source_column = "thread_source" if "thread_source" in columns else "source"
         if source_column not in columns:
             result["supported"] = False
             result["diagnostic"] = "missing required thread provenance column"
             conn.close()
-            return result
+            return _finish_skill_scan(result, "Codex")
+        # Thread updated_at is a mutable summary and can lag event timestamps.
+        # Apply the lookback to each durable rollout event instead.
         where = "rollout_path IS NOT NULL AND rollout_path != ''"
-        params: tuple[float, ...] = ()
-        if cutoff and "updated_at_ms" in columns:
-            where += " AND updated_at_ms >= ?"
-            params = (cutoff * 1000,)
         rows = conn.execute(
-            f"SELECT rollout_path, {source_column} FROM threads WHERE {where}", params
+            f"SELECT rollout_path, {source_column} FROM threads WHERE {where}"
         ).fetchall()
         for rollout_path, source in rows:
+            if not isinstance(rollout_path, str):
+                result["malformed"]["record"] += 1
+                continue
             path = Path(rollout_path)
             if not path.is_file():
                 continue
@@ -305,12 +370,20 @@ def scan_codex_skill_invocations(
                         try:
                             record = json.loads(line)
                         except json.JSONDecodeError:
+                            result["malformed"]["json"] += 1
+                            continue
+                        if not isinstance(record, dict):
+                            result["malformed"]["record"] += 1
                             continue
                         result["records_scanned"] += 1
-                        if cutoff:
-                            event_time = timestamp_seconds(record.get("timestamp"))
-                            if event_time is None or event_time < cutoff:
-                                continue
+                        event_time = timestamp_seconds(record.get("timestamp"))
+                        if "timestamp" in record and event_time is None:
+                            result["malformed"]["timestamp"] += 1
+                            continue
+                        if cutoff and (event_time is None or event_time < cutoff):
+                            if event_time is None:
+                                result["malformed"]["timestamp"] += 1
+                            continue
                         for skill, label, call in _record_skill_calls(record, known_skills):
                             key = _call_identity(
                                 call,
@@ -329,11 +402,16 @@ def scan_codex_skill_invocations(
     except sqlite3.Error as exc:
         result["supported"] = False
         result["diagnostic"] = f"unsupported Codex history schema: {exc}"
-        return result
+        return _finish_skill_scan(result, "Codex")
     finally:
         if conn is not None:
             conn.close()
-    return result
+    if result["malformed"]:
+        details = ", ".join(
+            f"{kind}={count}" for kind, count in sorted(result["malformed"].items())
+        )
+        _add_diagnostic(result, f"malformed Codex records: {details}")
+    return _finish_skill_scan(result, "Codex")
 
 
 def _hermes_skill_calls(tool_calls, tool_name) -> tuple[list[tuple[str, str]], bool]:
@@ -341,7 +419,12 @@ def _hermes_skill_calls(tool_calls, tool_name) -> tuple[list[tuple[str, str]], b
     malformed_json = False
 
     def arguments_for(function):
-        value = function.get("arguments") or function.get("input") or function
+        if "arguments" in function:
+            value = function["arguments"]
+        elif "input" in function:
+            value = function["input"]
+        else:
+            value = function
         call_id = function.get("call_id") or function.get("tool_call_id") or function.get("id")
         if call_id and isinstance(value, dict) and not any(
             value.get(key) for key in ("call_id", "tool_call_id", "id")
@@ -392,11 +475,14 @@ def scan_hermes_skill_invocations(
 ) -> dict[str, object]:
     """Count Hermes ``tool_name``/``tool_calls`` Skill records only."""
     result = _skill_scan_result()
+    cutoff = _begin_skill_scan(cutoff, result)
+    if cutoff is None:
+        return result
     db_path = Path(db_path or os.path.expanduser("~/.hermes/state.db"))
     if not db_path.exists():
         result["supported"] = False
         result["diagnostic"] = f"database not found: {db_path}"
-        return result
+        return _finish_skill_scan(result, "Hermes")
     seen_calls = set()
     conn = None
     try:
@@ -409,11 +495,12 @@ def scan_hermes_skill_invocations(
         for session_id, tool_name, tool_calls, timestamp, source, user_id, parent_id in rows:
             result["records_scanned"] += 1
             timestamp_value = timestamp_seconds(timestamp)
-            if timestamp is not None and (
-                timestamp_value is None or not math.isfinite(timestamp_value)
-            ):
+            if timestamp is not None and timestamp_value is None:
                 result["malformed"]["timestamp"] += 1
+                continue
             if cutoff and (timestamp_value is None or timestamp_value < cutoff):
+                if timestamp_value is None:
+                    result["malformed"]["timestamp"] += 1
                 continue
             source_text = str(source or "").lower()
             uid_text = str(user_id or "").lower()
@@ -426,6 +513,12 @@ def scan_hermes_skill_invocations(
             if malformed_json:
                 result["malformed"]["json"] += 1
             for kind, value in calls:
+                if isinstance(value, str):
+                    try:
+                        value = json.loads(value)
+                    except (TypeError, json.JSONDecodeError):
+                        result["malformed"]["json"] += 1
+                        continue
                 if kind == "tool_name":
                     skill = _skill_from_value(value)
                     if skill is None:
@@ -440,7 +533,7 @@ def scan_hermes_skill_invocations(
                     continue
                 key = _call_identity(
                     value,
-                    origin=f"{session_id}:{kind}",
+                    origin=str(session_id),
                     timestamp=timestamp,
                 )
                 if key in seen_calls:
@@ -452,7 +545,7 @@ def scan_hermes_skill_invocations(
     except sqlite3.Error as exc:
         result["supported"] = False
         result["diagnostic"] = f"unsupported Hermes history schema: {exc}"
-        return result
+        return _finish_skill_scan(result, "Hermes")
     finally:
         if conn is not None:
             conn.close()
@@ -461,7 +554,12 @@ def scan_hermes_skill_invocations(
             f"{kind}={count}" for kind, count in sorted(result["malformed"].items())
         )
         result["diagnostic"] = f"malformed Hermes records: {details}"
-    return result
+    if result["malformed"]:
+        details = ", ".join(
+            f"{kind}={count}" for kind, count in sorted(result["malformed"].items())
+        )
+        _add_diagnostic(result, f"malformed Hermes records: {details}")
+    return _finish_skill_scan(result, "Hermes")
 
 
 def scan_skill_usage(
@@ -504,6 +602,35 @@ def scan_skill_usage(
             "Codex and Hermes report zero when no explicit Skill tool-call record exists; schema errors and malformed Hermes data are surfaced per store.",
         ],
     }
+
+
+def _skill_destinations(*, human_only: bool = False, agent_only: bool = False) -> tuple[str, ...]:
+    """Return the report buckets selected by the mutually exclusive CLI flags."""
+    if human_only and agent_only:
+        raise ValueError("--human-only and --agent-only are mutually exclusive")
+    if human_only:
+        return ("human",)
+    if agent_only:
+        return ("agent",)
+    return ("human", "agent", "unknown")
+
+
+def _filter_skill_payload(payload: dict[str, object], destinations: tuple[str, ...]) -> dict[str, object]:
+    """Filter skill-mode JSON consistently while preserving per-store diagnostics."""
+    selected = set(destinations)
+    for name in ("human", "agent", "unknown"):
+        if name not in selected:
+            payload[name] = {}
+    totals = Counter()
+    for name in destinations:
+        totals.update(payload[name])
+    payload["total"] = dict(sorted(totals.items()))
+    payload["selected_destinations"] = list(destinations)
+    for store in payload["stores"].values():
+        for name in ("human", "agent", "unknown"):
+            if name not in selected:
+                store[name] = {}
+    return payload
 
 
 def load_known_skills(search_roots: list[Path] | None = None) -> set[str]:
@@ -561,7 +688,8 @@ def load_known_commands(search_roots: list[Path] | None = None) -> set[str]:
 
 def timestamp_seconds(value) -> float | None:
     if isinstance(value, (int, float)):
-        return float(value) / 1000 if value > 10_000_000_000 else float(value)
+        timestamp = float(value) / 1000 if value > 10_000_000_000 else float(value)
+        return timestamp if math.isfinite(timestamp) else None
     if not isinstance(value, str) or not value:
         return None
     try:
@@ -847,8 +975,13 @@ def main():
     parser = argparse.ArgumentParser(description="Unified Command Usage & Invocation Research Scanner")
     parser.add_argument("--days", type=int, default=0, help="Lookback days (0 = all time)")
     parser.add_argument("--top", type=int, default=20, help="Top N commands to display")
-    parser.add_argument("--human-only", action="store_true", help="Show only human-typed rankings")
-    parser.add_argument("--agent-only", action="store_true", help="Show only agentic rankings")
+    destination_group = parser.add_mutually_exclusive_group()
+    destination_group.add_argument(
+        "--human-only", action="store_true", help="Show only human-typed rankings"
+    )
+    destination_group.add_argument(
+        "--agent-only", action="store_true", help="Show only agentic rankings"
+    )
     parser.add_argument(
         "--skills",
         action="store_true",
@@ -861,11 +994,15 @@ def main():
     if args.skills:
         payload = scan_skill_usage(load_known_skills(), cutoff)
         payload["window"] = {"days": args.days, "cutoff_epoch": cutoff}
+        destinations = _skill_destinations(
+            human_only=args.human_only, agent_only=args.agent_only
+        )
+        _filter_skill_payload(payload, destinations)
         if args.json:
             print(json.dumps(payload, indent=2))
         else:
             print(f"=== EXPLICIT SKILL USAGE AUDIT ({'Last ' + str(args.days) + ' Days' if args.days else 'All Time'}) ===")
-            for destination in ("human", "agent", "unknown"):
+            for destination in destinations:
                 print(f"--- {destination.title()} ---")
                 for skill, count in sorted(payload[destination].items(), key=lambda item: (-item[1], item[0]))[:args.top]:
                     print(f"/{skill:<32} {count:>6d}")

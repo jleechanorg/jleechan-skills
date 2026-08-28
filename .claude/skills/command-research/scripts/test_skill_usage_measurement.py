@@ -10,6 +10,9 @@ from count_command_usage_unified import (
     scan_codex_skill_invocations,
     scan_hermes_skill_invocations,
     scan_skill_usage,
+    _filter_skill_payload,
+    _skill_destinations,
+    timestamp_seconds,
 )
 
 
@@ -96,7 +99,32 @@ class SkillUsageMeasurementTest(unittest.TestCase):
             )
 
             self.assertFalse(result["supported"])
+            self.assertEqual(result["status"], "unsupported")
             self.assertIn("projects directory", result["diagnostic"])
+
+    def test_claude_malformed_records_are_counted_and_empty_store_is_explicit(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            session = Path(tmpdir) / "session.jsonl"
+            session.write_text(
+                "\n".join(
+                    [
+                        "{not-json",
+                        json.dumps({"type": "assistant", "timestamp": "NaN"}),
+                        json.dumps({"type": "assistant", "timestamp": "2026-08-28T00:00:00Z"}),
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            result = scan_claude_skill_invocations(
+                {"alpha"}, cutoff=0, projects_dir=tmpdir
+            )
+
+            self.assertEqual(result["malformed"]["json"], 1)
+            self.assertEqual(result["malformed"]["timestamp"], 1)
+            self.assertEqual(result["status"], "supported-empty")
+            self.assertIn("malformed Claude", result["diagnostic"])
 
     def test_codex_ignores_slash_text_and_counts_explicit_skill_call(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -200,6 +228,7 @@ class SkillUsageMeasurementTest(unittest.TestCase):
             )
 
             self.assertFalse(result["supported"])
+            self.assertEqual(result["status"], "unsupported")
             self.assertIn("threads", result["diagnostic"])
 
     def test_codex_missing_provenance_column_returns_diagnostic(self):
@@ -215,7 +244,91 @@ class SkillUsageMeasurementTest(unittest.TestCase):
             )
 
             self.assertFalse(result["supported"])
+            self.assertEqual(result["status"], "unsupported")
             self.assertIn("provenance", result["diagnostic"])
+
+    def test_codex_recent_event_is_not_hidden_by_stale_thread_updated_at(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            rollout = root / "recent.jsonl"
+            rollout.write_text(
+                json.dumps(
+                    {
+                        "type": "response_item",
+                        "payload": {
+                            "type": "custom_tool_call",
+                            "name": "Skill",
+                            "input": {"skill": "alpha"},
+                        },
+                        "timestamp": "2026-08-28T00:00:01Z",
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            database = root / "state.sqlite"
+            connection = sqlite3.connect(database)
+            connection.execute(
+                "CREATE TABLE threads (rollout_path TEXT, thread_source TEXT, updated_at_ms INTEGER)"
+            )
+            connection.execute(
+                "INSERT INTO threads VALUES (?, ?, ?)",
+                (str(rollout), "user", 1),
+            )
+            connection.commit()
+            connection.close()
+
+            result = scan_codex_skill_invocations(
+                {"alpha"}, cutoff=1_700_000_000, db_path=database
+            )
+
+            self.assertEqual(result["human"]["alpha"], 1)
+
+    def test_codex_malformed_records_are_counted_and_empty_store_is_explicit(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            rollout = root / "malformed.jsonl"
+            rollout.write_text(
+                "\n".join(
+                    [
+                        "{not-json",
+                        json.dumps({"type": "response_item", "timestamp": "NaN"}),
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            database = root / "state.sqlite"
+            connection = sqlite3.connect(database)
+            connection.execute(
+                "CREATE TABLE threads (rollout_path TEXT, thread_source TEXT)"
+            )
+            connection.execute(
+                "INSERT INTO threads VALUES (?, ?)", (str(rollout), "user")
+            )
+            connection.commit()
+            connection.close()
+
+            result = scan_codex_skill_invocations(
+                {"alpha"}, cutoff=0, db_path=database
+            )
+
+            self.assertEqual(result["malformed"]["json"], 1)
+            self.assertEqual(result["malformed"]["timestamp"], 1)
+            self.assertEqual(result["status"], "supported-empty")
+            self.assertIn("malformed Codex", result["diagnostic"])
+
+    def test_non_finite_cutoff_and_timestamp_fail_closed_diagnostically(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = scan_claude_skill_invocations(
+                {"alpha"}, cutoff=float("nan"), projects_dir=tmpdir
+            )
+
+            self.assertEqual(result["malformed"]["cutoff"], 1)
+            self.assertEqual(result["status"], "invalid-input")
+            self.assertIn("cutoff", result["diagnostic"])
+            self.assertIsNone(timestamp_seconds(float("nan")))
+            self.assertIsNone(timestamp_seconds(float("inf")))
 
     def test_hermes_counts_tool_name_not_slash_text(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -296,6 +409,7 @@ class SkillUsageMeasurementTest(unittest.TestCase):
             )
 
             self.assertFalse(result["supported"])
+            self.assertEqual(result["status"], "unsupported")
             self.assertIn("messages", result["diagnostic"])
 
     def test_hermes_malformed_data_reports_counters_and_keeps_safe_records(self):
@@ -337,9 +451,81 @@ class SkillUsageMeasurementTest(unittest.TestCase):
             )
 
             self.assertEqual(result["human"]["alpha"], 1)
-            self.assertEqual(result["malformed"]["json"], 2)
+            # The malformed timestamp row fails closed before its malformed
+            # JSON payload is inspected.
+            self.assertEqual(result["malformed"]["json"], 1)
             self.assertEqual(result["malformed"]["timestamp"], 1)
             self.assertIn("malformed", result["diagnostic"])
+
+    def test_hermes_stringified_malformed_arguments_are_safe_and_diagnosed(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            database = Path(tmpdir) / "state.db"
+            connection = sqlite3.connect(database)
+            connection.execute(
+                "CREATE TABLE sessions (id TEXT PRIMARY KEY, source TEXT, user_id TEXT, "
+                "parent_session_id TEXT)"
+            )
+            connection.execute(
+                "CREATE TABLE messages (session_id TEXT, role TEXT, content TEXT, "
+                "tool_calls TEXT, tool_name TEXT, timestamp REAL)"
+            )
+            connection.execute(
+                "INSERT INTO sessions VALUES (?, ?, ?, ?)",
+                ("human", "cli", "operator", None),
+            )
+            connection.execute(
+                "INSERT INTO messages VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    "human", "assistant", "", json.dumps(
+                        [{"id": "bad", "name": "Skill", "arguments": "{not-json"}]
+                    ), None, 1_800_000_000,
+                ),
+            )
+            connection.commit()
+            connection.close()
+
+            result = scan_hermes_skill_invocations(
+                {"alpha"}, cutoff=0, db_path=database
+            )
+
+            self.assertEqual(result["human"], {})
+            self.assertEqual(result["malformed"]["json"], 1)
+            self.assertIn("malformed Hermes", result["diagnostic"])
+
+    def test_hermes_duplicate_rows_with_same_call_id_count_once(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            database = Path(tmpdir) / "state.db"
+            connection = sqlite3.connect(database)
+            connection.execute(
+                "CREATE TABLE sessions (id TEXT PRIMARY KEY, source TEXT, user_id TEXT, "
+                "parent_session_id TEXT)"
+            )
+            connection.execute(
+                "CREATE TABLE messages (session_id TEXT, role TEXT, content TEXT, "
+                "tool_calls TEXT, tool_name TEXT, timestamp REAL)"
+            )
+            connection.execute(
+                "INSERT INTO sessions VALUES (?, ?, ?, ?)",
+                ("human", "cli", "operator", None),
+            )
+            payload = json.dumps(
+                [{"id": "same-call", "name": "Skill", "arguments": {"skill": "alpha"}}]
+            )
+            connection.executemany(
+                "INSERT INTO messages VALUES (?, ?, ?, ?, ?, ?)",
+                [
+                    ("human", "assistant", "", payload, None, 1_800_000_000),
+                    ("human", "assistant", "", payload, "Skill", 1_800_000_000),
+                ],
+            )
+            connection.commit()
+            connection.close()
+
+            result = scan_hermes_skill_invocations(
+                {"alpha"}, cutoff=0, db_path=database
+            )
+
+            self.assertEqual(result["human"]["alpha"], 1)
 
     def test_aggregate_preserves_store_schema_diagnostics(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -360,6 +546,27 @@ class SkillUsageMeasurementTest(unittest.TestCase):
             self.assertFalse(result["stores"]["hermes"]["supported"])
             self.assertTrue(result["stores"]["codex"]["diagnostic"])
             self.assertTrue(result["stores"]["hermes"]["diagnostic"])
+
+    def test_skill_mode_destination_filtering_is_explicit(self):
+        payload = {
+            "human": {"alpha": 2},
+            "agent": {"alpha": 1},
+            "unknown": {"beta": 3},
+            "total": {"alpha": 3, "beta": 3},
+            "stores": {
+                "claude": {"human": {"alpha": 2}, "agent": {"alpha": 1}, "unknown": {}}
+            },
+        }
+        _filter_skill_payload(payload, _skill_destinations(human_only=True))
+
+        self.assertEqual(payload["human"], {"alpha": 2})
+        self.assertEqual(payload["agent"], {})
+        self.assertEqual(payload["unknown"], {})
+        self.assertEqual(payload["total"], {"alpha": 2})
+        self.assertEqual(payload["selected_destinations"], ["human"])
+        self.assertEqual(payload["stores"]["claude"]["agent"], {})
+        with self.assertRaises(ValueError):
+            _skill_destinations(human_only=True, agent_only=True)
 
 
 if __name__ == "__main__":
