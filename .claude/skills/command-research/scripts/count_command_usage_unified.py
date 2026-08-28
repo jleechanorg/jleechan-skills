@@ -16,7 +16,6 @@ Usage:
 """
 
 import argparse
-import glob
 import json
 import os
 import re
@@ -71,23 +70,44 @@ ALIAS_MAP = {
 }
 
 
-def load_known_commands() -> set[str]:
+def load_known_commands(search_roots: list[Path] | None = None) -> set[str]:
     cmds = set()
-    patterns = [
-        os.path.expanduser("~/.claude/commands/*.md"),
-        os.path.expanduser("~/.claude/skills/*/SKILL.md"),
-        "/Users/jleechan/projects_other/claude-commands/.claude/commands/*.md",
-        "/Users/jleechan/projects_other/claude-commands/.claude/skills/*/SKILL.md",
-    ]
-    for pattern in patterns:
-        for f in glob.glob(pattern):
-            if f.endswith("SKILL.md"):
-                name = os.path.basename(os.path.dirname(f))
+    if search_roots is None:
+        search_roots = [
+            Path.home() / ".claude",
+            Path(__file__).resolve().parents[3],
+        ]
+    for root in search_roots:
+        if not root.exists():
+            continue
+        for path in root.rglob("*.md"):
+            parts = path.relative_to(root).parts
+            if path.name == "SKILL.md" and any(
+                part in {"skills", "skills_archive"} for part in parts
+            ):
+                name = path.parent.name
+            elif any(
+                part in {"commands", "commands_archive"} for part in parts
+            ):
+                if path.name == "README.md":
+                    continue
+                name = path.stem
             else:
-                name = Path(f).stem
+                continue
             if not name.startswith("_") and name.upper() != name:
                 cmds.add(name)
     return cmds
+
+
+def timestamp_seconds(value) -> float | None:
+    if isinstance(value, (int, float)):
+        return float(value) / 1000 if value > 10_000_000_000 else float(value)
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
 
 
 def scan_hermes(known_cmds: set[str], cutoff: float) -> tuple[Counter, Counter]:
@@ -216,6 +236,10 @@ def scan_claude(known_cmds: set[str], cutoff: float, projects_dir: str | None = 
                 for line in lines:
                     try:
                         obj = json.loads(line)
+                        if cutoff:
+                            event_time = timestamp_seconds(obj.get("timestamp"))
+                            if event_time is None or event_time < cutoff:
+                                continue
                         t = obj.get("type")
                         role = obj.get("role")
                         content = ""
@@ -269,24 +293,38 @@ def scan_claude(known_cmds: set[str], cutoff: float, projects_dir: str | None = 
 
 
 
-def scan_codex(known_cmds: set[str], cutoff: float) -> tuple[Counter, Counter]:
+def scan_codex(
+    known_cmds: set[str], cutoff: float, db_path: Path | str | None = None
+) -> tuple[Counter, Counter]:
     human_counts = Counter()
     agent_counts = Counter()
-    db_path = os.path.expanduser("~/.codex/state_5.sqlite")
-    if not os.path.exists(db_path):
+    db_path = Path(db_path or os.path.expanduser("~/.codex/state_5.sqlite"))
+    if not db_path.exists():
         return human_counts, agent_counts
 
     try:
-        conn = sqlite3.connect(db_path)
+        conn = sqlite3.connect(str(db_path))
         cur = conn.cursor()
-        cur.execute("SELECT first_user_message, has_user_event FROM threads WHERE first_user_message IS NOT NULL;")
+        columns = {row[1] for row in cur.execute("PRAGMA table_info(threads)")}
+        if "created_at_ms" in columns:
+            timestamp_expression = "created_at_ms / 1000.0"
+        elif "created_at" in columns:
+            timestamp_expression = "created_at"
+        else:
+            raise RuntimeError("Codex threads table has no supported timestamp column")
+        cur.execute(
+            "SELECT first_user_message, has_user_event FROM threads "
+            "WHERE first_user_message IS NOT NULL "
+            f"AND {timestamp_expression} >= ?",
+            (cutoff,),
+        )
         for msg, has_user_event in cur.fetchall():
             if not msg:
                 continue
             is_human = bool(has_user_event)
             for m in re.findall(r'(?:^|\s)/([a-zA-Z0-9_\-]+)', msg):
-                cmd = ALIAS_MAP.get(m, m)
-                if cmd in known_cmds:
+                cmd = resolve_cmd(m, known_cmds)
+                if cmd:
                     if is_human:
                         human_counts[cmd] += 1
                     else:
@@ -319,9 +357,11 @@ def main():
 
     if args.json:
         result = {
-            "human": dict(total_human.most_common()),
-            "agent": dict(total_agent.most_common()),
-            "total": dict(total_all.most_common()),
+            "window": {"days": args.days, "cutoff_epoch": cutoff},
+            "known_commands": sorted(known_cmds),
+            "human": {name: total_human[name] for name in sorted(known_cmds)},
+            "agent": {name: total_agent[name] for name in sorted(known_cmds)},
+            "total": {name: total_all[name] for name in sorted(known_cmds)},
         }
         print(json.dumps(result, indent=2))
         return

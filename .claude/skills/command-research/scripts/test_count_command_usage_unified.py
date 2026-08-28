@@ -1,12 +1,17 @@
 import json
 import os
+import sqlite3
 import tempfile
 import unittest
+from datetime import UTC, datetime
+from pathlib import Path
 
 from count_command_usage_unified import (
     is_imperative_invocation,
     is_listing_or_report,
+    load_known_commands,
     scan_claude,
+    scan_codex,
 )
 
 
@@ -118,6 +123,71 @@ class TestCountCommandUsageUnified(unittest.TestCase):
         msg = "/copilot review this branch"
         h, a = self._write_session_and_scan(msg, is_subagent=True)
         self.assertEqual(a["copilot"], 1)
+
+    def test_archived_commands_are_known_scan_targets(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            command = root / "commands_archive/2026-retired/velocity.md"
+            command.parent.mkdir(parents=True)
+            command.write_text("# /velocity\n", encoding="utf-8")
+
+            known = load_known_commands([root])
+
+            self.assertIn("velocity", known)
+
+    def test_claude_scan_applies_cutoff_to_event_timestamp(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project = Path(tmpdir) / "project"
+            project.mkdir()
+            session = project / "session.jsonl"
+            records = [
+                {"type": "system", "timestamp": "2026-07-01T00:00:00Z"},
+                {
+                    "type": "user",
+                    "message": {"content": "/velocity old"},
+                    "promptSource": "typed",
+                    "timestamp": "2026-07-01T00:00:00Z",
+                },
+                {
+                    "type": "user",
+                    "message": {"content": "/velocity recent"},
+                    "promptSource": "typed",
+                    "timestamp": "2026-08-20T00:00:00Z",
+                },
+            ]
+            session.write_text(
+                "".join(json.dumps(record) + "\n" for record in records),
+                encoding="utf-8",
+            )
+            cutoff = datetime(2026, 8, 1, tzinfo=UTC).timestamp()
+
+            human, _ = scan_claude({"velocity"}, cutoff, tmpdir)
+
+            self.assertEqual(human["velocity"], 1)
+
+    def test_codex_scan_applies_cutoff_to_thread_timestamp(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            database = Path(tmpdir) / "state.sqlite"
+            connection = sqlite3.connect(database)
+            connection.execute(
+                "CREATE TABLE threads (first_user_message TEXT, "
+                "has_user_event INTEGER, created_at_ms INTEGER)"
+            )
+            connection.executemany(
+                "INSERT INTO threads VALUES (?, ?, ?)",
+                [
+                    ("/velocity old", 1, 1_700_000_000_000),
+                    ("/velocity recent", 1, 1_800_000_000_000),
+                ],
+            )
+            connection.commit()
+            connection.close()
+
+            human, _ = scan_codex(
+                {"velocity"}, cutoff=1_750_000_000, db_path=database
+            )
+
+            self.assertEqual(human["velocity"], 1)
 
 
 if __name__ == "__main__":
