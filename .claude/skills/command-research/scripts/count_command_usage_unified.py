@@ -270,7 +270,17 @@ def _hermes_skill_calls(tool_calls, tool_name) -> list[tuple[str, str]]:
         # Hermes stores the tool identity separately from its arguments in
         # some versions. Attribute that row to tool_name when an argument
         # payload is present, and avoid counting the same call twice below.
-        if tool_calls:
+        if isinstance(tool_calls, str):
+            try:
+                tool_calls = json.loads(tool_calls)
+            except json.JSONDecodeError:
+                tool_calls = None
+        if isinstance(tool_calls, list):
+            for call in tool_calls:
+                if isinstance(call, dict):
+                    function = call.get("function") if isinstance(call.get("function"), dict) else call
+                    calls.append(("tool_name", function.get("arguments") or function.get("input") or function))
+        elif tool_calls:
             calls.append(("tool_name", tool_calls))
         return calls
     if isinstance(tool_calls, str):

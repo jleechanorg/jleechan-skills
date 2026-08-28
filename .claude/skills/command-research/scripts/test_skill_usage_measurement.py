@@ -151,7 +151,7 @@ class SkillUsageMeasurementTest(unittest.TestCase):
                         "human",
                         "assistant",
                         "",
-                        json.dumps({"skill": "alpha"}),
+                        json.dumps([{"arguments": {"skill": "alpha"}}]),
                         "Skill",
                         1_800_000_001,
                     ),
