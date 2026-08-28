@@ -42,6 +42,8 @@ FILE_SUFFIXES = (
     ".txt", ".log", ".html", ".css", ".go", ".rs",
 )
 
+CODEX_SKILL_RECORD_TYPES = frozenset({"response_item", "event_msg"})
+
 AUTOMATION_MARKERS = (
     "Files touched in the latest Write operation",
     "You are an AI coding agent managed by",
@@ -399,6 +401,9 @@ def scan_codex_skill_invocations(
                             result["malformed"]["record"] += 1
                             continue
                         result["records_scanned"] += 1
+                        if record.get("type") not in CODEX_SKILL_RECORD_TYPES:
+                            result["malformed"]["record_type"] += 1
+                            continue
                         event_time = timestamp_seconds(record.get("timestamp"))
                         if "timestamp" in record and event_time is None:
                             result["malformed"]["timestamp"] += 1

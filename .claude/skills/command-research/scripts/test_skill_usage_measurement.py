@@ -339,6 +339,73 @@ class SkillUsageMeasurementTest(unittest.TestCase):
 
             self.assertEqual(result["human"]["alpha"], 1)
 
+    def test_codex_restricts_skill_records_to_durable_top_level_classes(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            rollout = root / "mixed.jsonl"
+            skill_payload = {
+                "type": "custom_tool_call",
+                "name": "Skill",
+                "input": {"skill": "alpha"},
+            }
+            rollout.write_text(
+                "\n".join(
+                    [
+                        json.dumps(
+                            {
+                                "type": "turn_context",
+                                "payload": skill_payload,
+                                "timestamp": "2026-08-28T00:00:01Z",
+                            }
+                        ),
+                        json.dumps(
+                            {
+                                "type": "session_meta",
+                                "payload": {"nested": skill_payload},
+                                "timestamp": "2026-08-28T00:00:02Z",
+                            }
+                        ),
+                        json.dumps(
+                            {
+                                "type": "response_item",
+                                "payload": skill_payload,
+                                "timestamp": "2026-08-28T00:00:03Z",
+                            }
+                        ),
+                        json.dumps(
+                            {
+                                "type": "event_msg",
+                                "payload": {
+                                    "type": "item_completed",
+                                    "item": skill_payload,
+                                },
+                                "timestamp": "2026-08-28T00:00:04Z",
+                            }
+                        ),
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            database = root / "state.sqlite"
+            connection = sqlite3.connect(database)
+            connection.execute(
+                "CREATE TABLE threads (rollout_path TEXT, thread_source TEXT)"
+            )
+            connection.execute(
+                "INSERT INTO threads VALUES (?, ?)", (str(rollout), "user")
+            )
+            connection.commit()
+            connection.close()
+
+            result = scan_codex_skill_invocations(
+                {"alpha"}, cutoff=0, db_path=database
+            )
+
+            self.assertEqual(result["human"]["alpha"], 2)
+            self.assertEqual(result["malformed"]["record_type"], 2)
+            self.assertIn("record_type=2", result["diagnostic"])
+
     def test_codex_malformed_records_are_counted_and_empty_store_is_explicit(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
