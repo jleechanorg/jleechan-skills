@@ -22,6 +22,7 @@ class InstallerIntegrationTest(unittest.TestCase):
             "agents/nested/agent.md": "agent\n",
             "commands/command.md": "command\n",
             "commands/nested/helper.sh": "#!/bin/sh\n",
+            "commands_archive/historical/command.md": "archived command\n",
             "scripts/nested/tool.py": "print('tool')\n",
             "skills/example/SKILL.md": "# Skill\n",
             "skills/example/scripts/helper.sh": "#!/bin/sh\n",
@@ -75,6 +76,7 @@ class InstallerIntegrationTest(unittest.TestCase):
                     "_archived_loose_md",
                     "_archived_loose_md_2026-08-23",
                     "skills_archive",
+                    "commands_archive",
                     "__pycache__",
                     ".pytest_cache",
                 }.intersection(relative_parts):
@@ -90,6 +92,7 @@ class InstallerIntegrationTest(unittest.TestCase):
             self.assertFalse((target / "skills/example/scripts/__pycache__").exists())
             self.assertFalse((target / "skills/example/scripts/.pytest_cache").exists())
             self.assertFalse((target / "skills_archive").exists())
+            self.assertFalse((target / "commands_archive").exists())
 
     def test_superpowers_quick_installs_with_bundled_subskills(self):
         with tempfile.TemporaryDirectory() as directory:
