@@ -1,3 +1,8 @@
+---
+name: launchd
+description: Create, install, and operate reliable macOS launchd jobs with safe environment handling.
+---
+
 # macOS launchd Job Installation Standards
 
 ## Purpose

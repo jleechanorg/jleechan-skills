@@ -1,3 +1,8 @@
+---
+name: firebase-prod-campaigns
+description: Query and reason about production Firestore campaign and user data for WorldArchitect.AI.
+---
+
 # Firebase Production Campaign Database Access
 
 ## Overview

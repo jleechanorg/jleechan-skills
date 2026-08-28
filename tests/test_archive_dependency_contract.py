@@ -25,6 +25,16 @@ RETAINED_DEPENDENCIES = {
 
 
 class ArchiveDependencyContractTest(unittest.TestCase):
+    def test_active_skills_have_discovery_frontmatter(self):
+        missing = []
+        for skill_file in ACTIVE_SKILLS.glob("*/SKILL.md"):
+            header = skill_file.read_text(encoding="utf-8", errors="ignore")[:1024]
+            if not header.startswith("---\n") or not re.search(
+                r"^description:\s*\S", header, re.MULTILINE
+            ):
+                missing.append(skill_file.parent.name)
+        self.assertEqual(missing, [])
+
     def test_active_skill_tree_contains_no_archive_containers(self):
         archive_containers = {
             path.name

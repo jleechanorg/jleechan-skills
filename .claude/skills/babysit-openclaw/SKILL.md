@@ -1,3 +1,8 @@
+---
+name: babysit-openclaw
+description: Monitor OpenClaw Slack tasks for stalls or fabricated progress and nudge them safely.
+---
+
 # babysit-openclaw
 
 Monitor an openclaw task in a Slack thread, detect fabrication and stalls, and nudge via Slack when needed.

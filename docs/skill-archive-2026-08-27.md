@@ -133,6 +133,45 @@ Claude, Agents, and Codex roots (145, 101, and 23 packages by root before name
 deduplication), with zero active command, Agents, or Codex pointers to a
 missing Claude canonical.
 
+## Post-merge discovery-budget closure — 2026-08-28
+
+A fresh `/history` and `/ms` pass separated genuine human entrypoints from
+automation-injected messages and catalog echoes. The 30-day scan contained 216
+direct Claude CLI events versus 15,980 SDK-originated records, and 124 direct
+Codex CLI threads versus 665 automation `exec` threads. Skill archival also
+used a 90-day structured `Skill`-call window plus command, dependency, global
+contract, and test references; name absence alone was not treated as proof of
+non-use.
+
+The recoverable user-home cleanup then:
+
+- moved 75 redundant `~/.agents/skills` entries with retained Claude
+  canonicals into the sibling
+  `~/.agents/skills_archive/2026-08-28-context-budget/` directory;
+- moved 11 unique Agents entries with zero 30/90-day structured selection and
+  no strong workflow gate, plus six superseded Tessl mirrors, into the same
+  sibling archive;
+- retained nine unique Agents capabilities with observed use or active
+  workflow references: `code-review`, `design-an-interface`,
+  `diagnosing-bugs`, `disk-audit`, `disk-root-cause`, `handoff`,
+  `resolving-merge-conflicts`, `tdd`, and `triage`;
+- reduced `~/.codex/skills` from 27 explicit user pointers to the reviewed
+  20-pointer projection by archiving `babysit`, `generalized-testing`,
+  `skillify`, `social-poster`, `solid`, `tmux-video-evidence`, and
+  `write-goal`; the Claude canonicals remain available;
+- disabled the duplicate curated Superpowers provider and four uncorroborated
+  skill plugins (Cloud Build, Sites, Visualize, and Template Creator), while
+  retaining the used Google Drive/Gmail paths and conservative document,
+  browser, GitHub, and artifact tooling; and
+- added complete discovery frontmatter to all active repository skill
+  packages. Eighteen matching user-home canonicals were synchronized, leaving
+  zero active Claude skills without a description.
+
+The final live roots contain 145 Claude canonicals, nine Agents entries, and 20
+Codex pointers, with zero broken links or archive containers under active
+discovery roots. Fresh Claude and Codex startup probes completed without the
+skills-context-budget warning.
+
 ## Archived skill manifest
 
 | Skill | What it does |

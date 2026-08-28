@@ -1,3 +1,8 @@
+---
+name: cmux-steer
+description: Resolve, inspect, and safely steer named cmux workspaces, tabs, and surfaces.
+---
+
 ## ⚠️ Submit Discipline (MANDATORY — read this before every cmux steer)
 
 `cmux send` does **NOT** press Enter. This is the #1 recurring cmux failure mode

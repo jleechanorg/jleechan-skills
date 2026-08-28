@@ -1,3 +1,8 @@
+---
+name: testing-infrastructure
+description: Use shared testing utilities, debug protocols, and CI/local parity for WorldArchitect.AI.
+---
+
 # Testing Infrastructure
 
 **Purpose**: Centralized testing utilities, debug protocols, and CI/local parity guidelines.

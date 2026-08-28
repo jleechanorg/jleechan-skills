@@ -1,3 +1,8 @@
+---
+name: karpathy-wiki
+description: Build, ingest, query, and lint an LLM wiki using the Karpathy knowledge-graph pattern.
+---
+
 # karpathy-wiki Skill
 
 ## When to use

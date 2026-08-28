@@ -1,3 +1,8 @@
+---
+name: visual-verification
+description: Verify images, sprites, screenshots, and videos with tools that can inspect visual content reliably.
+---
+
 # Visual Verification Skill
 
 ## Purpose

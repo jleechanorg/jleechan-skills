@@ -1,3 +1,8 @@
+---
+name: code-centralization
+description: Investigate existing utilities before adding code to avoid duplication and centralize shared behavior.
+---
+
 # Code Centralization - Mandatory Investigation Protocol
 
 **Purpose**: Before writing ANY new code, you MUST investigate existing code to prevent duplication. This is not optional.

@@ -1,3 +1,8 @@
+---
+name: git-branch-tracking
+description: Verify remote tracking, upstream configuration, and push status for PR branches.
+---
+
 # Git Branch Tracking & PR Workflow
 
 **Purpose**: Ensure proper remote branch tracking after creating PRs to avoid "no remote" and "no upstream" status issues.

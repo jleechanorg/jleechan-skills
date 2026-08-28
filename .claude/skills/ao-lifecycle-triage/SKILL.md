@@ -1,3 +1,8 @@
+---
+name: ao-lifecycle-triage
+description: Triage AO lifecycle backfill claim failures and ghost worktree fetch errors.
+---
+
 # AO Lifecycle Backfill Claim Failure Triage
 
 ## When to use

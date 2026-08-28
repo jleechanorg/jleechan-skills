@@ -1,3 +1,8 @@
+---
+name: dice-authenticity-standards
+description: Review dice authenticity, RNG behavior, and statistical dice evidence in WorldArchitect.AI.
+---
+
 # Dice Roll Authenticity Standards
 
 ## Overview
