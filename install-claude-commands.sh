@@ -70,6 +70,10 @@ path_exists() {
     [ -e "$1" ] || [ -L "$1" ]
 }
 
+path_identity() {
+    stat -f '%d:%i' "$1" 2>/dev/null || stat -c '%d:%i' "$1"
+}
+
 release_migration_lock() {
     [ "$MIGRATION_LOCK_HELD" = true ] || return 0
     rmdir "$MIGRATION_LOCK_DIR" || log_warning "Could not remove migration lock: $MIGRATION_LOCK_DIR"
@@ -110,7 +114,7 @@ migrate_archived_packages_on_merge() {
     local rollback_index moved_path nested_path migration_ok
     local -a active_paths=()
     local -a archive_paths=()
-    local -a archive_kinds=()
+    local -a source_identities=()
 
     [ "$INSTALL_MODE" = "merge" ] || return 0
     MIGRATION_LOCK_DIR="$CLAUDE_HOME/.archive-migration.lock"
@@ -130,7 +134,7 @@ migrate_archived_packages_on_merge() {
             path_exists "$active_path" || continue
             active_paths+=("$active_path")
             archive_paths+=("$CLAUDE_HOME/skills_archive/$archive_name/$package_name")
-            archive_kinds+=("skill")
+            source_identities+=("$(path_identity "$active_path")")
         done
     done
 
@@ -145,13 +149,13 @@ migrate_archived_packages_on_merge() {
             if path_exists "$active_path"; then
                 active_paths+=("$active_path")
                 archive_paths+=("$CLAUDE_HOME/commands_archive/$archive_name/top-level/$package_name")
-                archive_kinds+=("command")
+                source_identities+=("$(path_identity "$active_path")")
             fi
             active_path="$CLAUDE_HOME/commands/extended-library/$package_name"
             if path_exists "$active_path"; then
                 active_paths+=("$active_path")
                 archive_paths+=("$CLAUDE_HOME/commands_archive/$archive_name/extended-library/$package_name")
-                archive_kinds+=("command")
+                source_identities+=("$(path_identity "$active_path")")
             fi
         done
     done
@@ -176,10 +180,9 @@ migrate_archived_packages_on_merge() {
         archive_path="${archive_paths[$index]}"
         migration_ok=false
         if mv -n "$active_path" "$archive_path" && ! path_exists "$active_path"; then
-            case "${archive_kinds[$index]}" in
-                skill) [ -f "$archive_path/SKILL.md" ] || [ -L "$archive_path" ] && migration_ok=true ;;
-                command) [ -f "$archive_path" ] || [ -L "$archive_path" ] && migration_ok=true ;;
-            esac
+            if [ "$(path_identity "$archive_path")" = "${source_identities[$index]}" ]; then
+                migration_ok=true
+            fi
         fi
         if [ "$migration_ok" != true ]; then
             log_error "Failed to archive retired installation path: $active_path"

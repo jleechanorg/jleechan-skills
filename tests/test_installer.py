@@ -383,6 +383,7 @@ class InstallerIntegrationTest(unittest.TestCase):
                 "#!/bin/sh\n"
                 "if [ \"$1\" = -n ] && [ ! -e \"$3\" ]; then\n"
                 "  mkdir \"$3\"\n"
+                "  echo competing-skill > \"$3/SKILL.md\"\n"
                 "fi\n"
                 "exec /bin/mv \"$@\"\n",
                 encoding="utf-8",
@@ -400,6 +401,10 @@ class InstallerIntegrationTest(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertEqual(active.read_text(encoding="utf-8"), "active\n")
             self.assertTrue(archived.is_dir())
+            self.assertEqual(
+                (archived / "SKILL.md").read_text(encoding="utf-8"),
+                "competing-skill\n",
+            )
             self.assertFalse((archived / "retired-skill").exists())
 
     def test_merge_releases_lock_when_interrupted(self):
