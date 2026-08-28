@@ -455,7 +455,10 @@ class SkillUsageMeasurementTest(unittest.TestCase):
             # JSON payload is inspected.
             self.assertEqual(result["malformed"]["json"], 1)
             self.assertEqual(result["malformed"]["timestamp"], 1)
-            self.assertIn("malformed", result["diagnostic"])
+            self.assertEqual(
+                result["diagnostic"],
+                "malformed Hermes records: json=1, timestamp=1",
+            )
 
     def test_hermes_stringified_malformed_arguments_are_safe_and_diagnosed(self):
         with tempfile.TemporaryDirectory() as tmpdir:

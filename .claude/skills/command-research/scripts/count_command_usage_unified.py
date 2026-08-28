@@ -553,11 +553,6 @@ def scan_hermes_skill_invocations(
         details = ", ".join(
             f"{kind}={count}" for kind, count in sorted(result["malformed"].items())
         )
-        result["diagnostic"] = f"malformed Hermes records: {details}"
-    if result["malformed"]:
-        details = ", ".join(
-            f"{kind}={count}" for kind, count in sorted(result["malformed"].items())
-        )
         _add_diagnostic(result, f"malformed Hermes records: {details}")
     return _finish_skill_scan(result, "Hermes")
 
