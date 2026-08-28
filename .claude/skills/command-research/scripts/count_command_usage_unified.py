@@ -16,7 +16,6 @@ Usage:
 """
 
 import argparse
-import glob
 import json
 import os
 import re
@@ -71,23 +70,44 @@ ALIAS_MAP = {
 }
 
 
-def load_known_commands() -> set[str]:
+def load_known_commands(search_roots: list[Path] | None = None) -> set[str]:
     cmds = set()
-    patterns = [
-        os.path.expanduser("~/.claude/commands/*.md"),
-        os.path.expanduser("~/.claude/skills/*/SKILL.md"),
-        "/Users/jleechan/projects_other/claude-commands/.claude/commands/*.md",
-        "/Users/jleechan/projects_other/claude-commands/.claude/skills/*/SKILL.md",
-    ]
-    for pattern in patterns:
-        for f in glob.glob(pattern):
-            if f.endswith("SKILL.md"):
-                name = os.path.basename(os.path.dirname(f))
+    if search_roots is None:
+        search_roots = [
+            Path.home() / ".claude",
+            Path(__file__).resolve().parents[3],
+        ]
+    for root in search_roots:
+        if not root.exists():
+            continue
+        for path in root.rglob("*.md"):
+            parts = path.relative_to(root).parts
+            if path.name == "SKILL.md" and any(
+                part in {"skills", "skills_archive"} for part in parts
+            ):
+                name = path.parent.name
+            elif any(
+                part in {"commands", "commands_archive"} for part in parts
+            ):
+                if path.name == "README.md":
+                    continue
+                name = path.stem
             else:
-                name = Path(f).stem
+                continue
             if not name.startswith("_") and name.upper() != name:
                 cmds.add(name)
     return cmds
+
+
+def timestamp_seconds(value) -> float | None:
+    if isinstance(value, (int, float)):
+        return float(value) / 1000 if value > 10_000_000_000 else float(value)
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
 
 
 def scan_hermes(known_cmds: set[str], cutoff: float) -> tuple[Counter, Counter]:
@@ -216,6 +236,10 @@ def scan_claude(known_cmds: set[str], cutoff: float, projects_dir: str | None = 
                 for line in lines:
                     try:
                         obj = json.loads(line)
+                        if cutoff:
+                            event_time = timestamp_seconds(obj.get("timestamp"))
+                            if event_time is None or event_time < cutoff:
+                                continue
                         t = obj.get("type")
                         role = obj.get("role")
                         content = ""
@@ -269,32 +293,94 @@ def scan_claude(known_cmds: set[str], cutoff: float, projects_dir: str | None = 
 
 
 
-def scan_codex(known_cmds: set[str], cutoff: float) -> tuple[Counter, Counter]:
+def scan_codex(
+    known_cmds: set[str], cutoff: float, db_path: Path | str | None = None
+) -> tuple[Counter, Counter, Counter, Counter]:
     human_counts = Counter()
     agent_counts = Counter()
-    db_path = os.path.expanduser("~/.codex/state_5.sqlite")
-    if not os.path.exists(db_path):
-        return human_counts, agent_counts
+    unknown_counts = Counter()
+    source_counts = Counter()
+    db_path = Path(db_path or os.path.expanduser("~/.codex/state_5.sqlite"))
+    if not db_path.exists():
+        return human_counts, agent_counts, unknown_counts, source_counts
 
     try:
-        conn = sqlite3.connect(db_path)
+        conn = sqlite3.connect(str(db_path))
         cur = conn.cursor()
-        cur.execute("SELECT first_user_message, has_user_event FROM threads WHERE first_user_message IS NOT NULL;")
-        for msg, has_user_event in cur.fetchall():
-            if not msg:
+        columns = {row[1] for row in cur.execute("PRAGMA table_info(threads)")}
+        required_columns = {"rollout_path", "thread_source"}
+        if not required_columns.issubset(columns):
+            raise RuntimeError(
+                "Codex threads table lacks rollout_path or thread_source"
+            )
+        where = "rollout_path IS NOT NULL AND rollout_path != ''"
+        parameters: tuple[float, ...] = ()
+        if cutoff and "updated_at_ms" in columns:
+            where += " AND updated_at_ms >= ?"
+            parameters = (cutoff * 1000,)
+        cur.execute(
+            "SELECT rollout_path, thread_source FROM threads WHERE " + where,
+            parameters,
+        )
+        for rollout_path, thread_source in cur.fetchall():
+            path = Path(rollout_path)
+            if not path.is_file():
                 continue
-            is_human = bool(has_user_event)
-            for m in re.findall(r'(?:^|\s)/([a-zA-Z0-9_\-]+)', msg):
-                cmd = ALIAS_MAP.get(m, m)
-                if cmd in known_cmds:
-                    if is_human:
-                        human_counts[cmd] += 1
-                    else:
-                        agent_counts[cmd] += 1
+            source = thread_source or "unknown"
+            source_counts[source] += 1
+            if source == "user":
+                destination = human_counts
+            elif source in {"subagent", "automation"}:
+                destination = agent_counts
+            else:
+                destination = unknown_counts
+            try:
+                with path.open("r", encoding="utf-8", errors="ignore") as handle:
+                    for line in handle:
+                        try:
+                            record = json.loads(line)
+                            if record.get("type") != "event_msg":
+                                continue
+                            payload = record.get("payload") or {}
+                            item = payload.get("item") or {}
+                            if (
+                                payload.get("type") != "item_completed"
+                                or item.get("type") != "UserMessage"
+                            ):
+                                continue
+                            event_time = timestamp_seconds(record.get("timestamp"))
+                            if cutoff and (event_time is None or event_time < cutoff):
+                                continue
+                            content = item.get("content") or []
+                            text = " ".join(
+                                part.get("text", "")
+                                for part in content
+                                if isinstance(part, dict)
+                            )
+                            if not text or is_listing_or_report(text, known_cmds):
+                                continue
+                            for match in re.finditer(
+                                r'(?:^|\s)/([a-zA-Z0-9_\-]+)', text
+                            ):
+                                cmd = resolve_cmd(match.group(1), known_cmds)
+                                if not cmd:
+                                    continue
+                                if destination is human_counts:
+                                    destination[cmd] += 1
+                                elif destination is agent_counts:
+                                    slash_pos = match.start(1) - 1
+                                    if is_imperative_invocation(text, slash_pos):
+                                        destination[cmd] += 1
+                                else:
+                                    destination[cmd] += 1
+                        except (json.JSONDecodeError, OSError, TypeError):
+                            continue
+            except OSError:
+                continue
         conn.close()
-    except Exception:
-        pass
-    return human_counts, agent_counts
+    except Exception as exc:
+        raise RuntimeError(f"Failed to scan Codex history database: {db_path}") from exc
+    return human_counts, agent_counts, unknown_counts, source_counts
 
 
 def main():
@@ -311,17 +397,24 @@ def main():
 
     h_hermes, a_hermes = scan_hermes(known_cmds, cutoff)
     h_claude, a_claude = scan_claude(known_cmds, cutoff)
-    h_codex, a_codex = scan_codex(known_cmds, cutoff)
+    h_codex, a_codex, u_codex, codex_source_counts = scan_codex(
+        known_cmds, cutoff
+    )
 
     total_human = h_hermes + h_claude + h_codex
     total_agent = a_hermes + a_claude + a_codex
-    total_all = total_human + total_agent
+    total_unknown = u_codex
+    total_all = total_human + total_agent + total_unknown
 
     if args.json:
         result = {
-            "human": dict(total_human.most_common()),
-            "agent": dict(total_agent.most_common()),
-            "total": dict(total_all.most_common()),
+            "window": {"days": args.days, "cutoff_epoch": cutoff},
+            "known_commands": sorted(known_cmds),
+            "codex_thread_sources": dict(sorted(codex_source_counts.items())),
+            "human": {name: total_human[name] for name in sorted(known_cmds)},
+            "agent": {name: total_agent[name] for name in sorted(known_cmds)},
+            "unknown": {name: total_unknown[name] for name in sorted(known_cmds)},
+            "total": {name: total_all[name] for name in sorted(known_cmds)},
         }
         print(json.dumps(result, indent=2))
         return
@@ -344,6 +437,12 @@ def main():
             pct = (count / tot * 100) if tot > 0 else 0
             print(f"{r:2d}. /{cmd:<20} {count:>6d} agent ({pct:>5.1f}% of {tot:>6d} total)")
         print()
+
+        if total_unknown:
+            print("--- Codex Commands With Unknown Thread Provenance ---")
+            for cmd, count in total_unknown.most_common(args.top):
+                print(f"   /{cmd:<20} {count:>6d} unknown")
+            print()
 
 
 if __name__ == "__main__":

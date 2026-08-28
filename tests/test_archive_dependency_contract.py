@@ -25,6 +25,15 @@ RETAINED_DEPENDENCIES = {
 
 
 class ArchiveDependencyContractTest(unittest.TestCase):
+    def test_active_skill_tree_contains_no_archive_containers(self):
+        archive_containers = {
+            path.name
+            for path in ACTIVE_SKILLS.rglob("*")
+            if path.is_dir()
+            if path.name == "_archive" or path.name.startswith("_archived_")
+        }
+        self.assertEqual(archive_containers, set())
+
     def test_required_active_skill_dependencies_are_not_archived(self):
         for name in RETAINED_DEPENDENCIES:
             with self.subTest(skill=name):
@@ -41,7 +50,7 @@ class ArchiveDependencyContractTest(unittest.TestCase):
         )
         active_skill_text = "\n".join(
             path.read_text(encoding="utf-8", errors="ignore")
-            for path in ACTIVE_SKILLS.glob("*/SKILL.md")
+            for path in ACTIVE_SKILLS.rglob("SKILL.md")
         )
         active_text = f"{active_command_text}\n{active_skill_text}"
         called = {

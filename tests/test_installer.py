@@ -28,11 +28,13 @@ class InstallerIntegrationTest(unittest.TestCase):
             "skills/example/scripts/helper.sh": "#!/bin/sh\n",
             "skills/example/scripts/__pycache__/helper.cpython-313.pyc": "compiled\n",
             "skills/example/scripts/.pytest_cache/CACHEDIR.TAG": "cache\n",
+            "skills/example/_archived_future/legacy/SKILL.md": "# Nested legacy\n",
             "skills/_archive/legacy/SKILL.md": "# Legacy\n",
             "skills/_archive/2026-08-27-historical-zero-use/README.md": "archive rationale\n",
             "skills/_archived_loose_md/legacy.md": "legacy\n",
             "skills/_archived_loose_md_2026-08-23/legacy.md": "legacy\n",
             "skills_archive/2026-retired/retired-skill/SKILL.md": "archive rationale\n",
+            "skills_archive/legacy-pre/packages/retired-legacy/SKILL.md": "legacy\n",
         }
         for relative, content in files.items():
             path = source / relative
@@ -71,15 +73,14 @@ class InstallerIntegrationTest(unittest.TestCase):
             self.assertNotIn("Checking prerequisites", result.stdout)
             for source_file in (fixture / ".claude").rglob("*"):
                 relative_parts = source_file.relative_to(fixture / ".claude").parts
-                if source_file.is_file() and not {
-                    "_archive",
-                    "_archived_loose_md",
-                    "_archived_loose_md_2026-08-23",
-                    "skills_archive",
-                    "commands_archive",
-                    "__pycache__",
-                    ".pytest_cache",
-                }.intersection(relative_parts):
+                in_archive_container = any(
+                    part == "_archive" or part.startswith("_archived_")
+                    for part in relative_parts
+                )
+                excluded_component = {
+                    "skills_archive", "commands_archive", "__pycache__", ".pytest_cache"
+                }.intersection(relative_parts)
+                if source_file.is_file() and not in_archive_container and not excluded_component:
                     installed = target / source_file.relative_to(fixture / ".claude")
                     self.assertTrue(installed.is_file(), installed)
                     self.assertEqual(installed.read_bytes(), source_file.read_bytes())
@@ -89,6 +90,7 @@ class InstallerIntegrationTest(unittest.TestCase):
                 "_archived_loose_md_2026-08-23",
             ):
                 self.assertFalse((target / "skills" / archive_name).exists())
+            self.assertFalse((target / "skills/example/_archived_future").exists())
             self.assertFalse((target / "skills/example/scripts/__pycache__").exists())
             self.assertFalse((target / "skills/example/scripts/.pytest_cache").exists())
             self.assertFalse((target / "skills_archive").exists())
@@ -236,7 +238,9 @@ class InstallerIntegrationTest(unittest.TestCase):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(f"installed {path.name}\n", encoding="utf-8")
 
-            result = self.run_installer(fixture, target, "--merge")
+            result = self.run_installer(
+                fixture, target, "--merge", "--migrate-archives"
+            )
 
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
             self.assertFalse(active_skill.exists())
@@ -255,6 +259,140 @@ class InstallerIntegrationTest(unittest.TestCase):
                 ).is_file()
             )
 
+    def test_failed_merge_does_not_migrate_retired_packages(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            target = temp_dir / "claude-home"
+            active = target / "skills/retired-skill/SKILL.md"
+            active.parent.mkdir(parents=True, exist_ok=True)
+            active.write_text("active\n", encoding="utf-8")
+            fake_bin = temp_dir / "fake-bin"
+            fake_bin.mkdir()
+            fake_copy = fake_bin / "cp"
+            fake_copy.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+            fake_copy.chmod(0o755)
+
+            result = self.run_installer(
+                fixture,
+                target,
+                "--merge",
+                "--migrate-archives",
+                extra_environment={"PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}"},
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(active.read_text(encoding="utf-8"), "active\n")
+            self.assertFalse(
+                (target / "skills_archive/2026-retired/retired-skill").exists()
+            )
+
+    def test_merge_preserves_ambiguous_archived_names_without_explicit_migration(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            target = temp_dir / "claude-home"
+            custom_skill = target / "skills/retired-skill/SKILL.md"
+            custom_command = target / "commands/retired-command.md"
+            custom_extended = target / "commands/extended-library/retired-command.md"
+            for path in (custom_skill, custom_command, custom_extended):
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(f"custom {path.name}\n", encoding="utf-8")
+
+            result = self.run_installer(fixture, target, "--merge")
+
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            for path in (custom_skill, custom_command, custom_extended):
+                self.assertEqual(path.read_text(encoding="utf-8"), f"custom {path.name}\n")
+            self.assertIn("requires --migrate-archives", result.stderr + result.stdout)
+
+    def test_archive_migration_requires_merge_mode(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            target = temp_dir / "claude-home"
+
+            result = self.run_installer(fixture, target, "--migrate-archives")
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(
+                "--migrate-archives requires --merge", result.stderr + result.stdout
+            )
+
+    def test_merge_does_not_treat_archive_category_as_a_skill_name(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            target = temp_dir / "claude-home"
+            active = target / "skills/packages/SKILL.md"
+            active.parent.mkdir(parents=True, exist_ok=True)
+            active.write_text("active user skill\n", encoding="utf-8")
+
+            result = self.run_installer(fixture, target, "--merge")
+
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertEqual(active.read_text(encoding="utf-8"), "active user skill\n")
+            self.assertFalse(
+                (target / "skills_archive/legacy-pre/packages/SKILL.md").exists()
+            )
+
+    def test_merge_migrates_nested_archived_skill_package(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            target = temp_dir / "claude-home"
+            active = target / "skills/retired-legacy/SKILL.md"
+            active.parent.mkdir(parents=True, exist_ok=True)
+            active.write_text("active legacy skill\n", encoding="utf-8")
+
+            result = self.run_installer(
+                fixture, target, "--merge", "--migrate-archives"
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertFalse(active.exists())
+            archived = (
+                target
+                / "skills_archive/legacy-pre/packages/retired-legacy/SKILL.md"
+            )
+            self.assertEqual(
+                archived.read_text(encoding="utf-8"), "active legacy skill\n"
+            )
+
+    def test_merge_rejects_duplicate_archive_mappings_before_copy(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            duplicate = (
+                fixture
+                / ".claude/skills_archive/other-retired/packages/retired-skill/SKILL.md"
+            )
+            duplicate.parent.mkdir(parents=True, exist_ok=True)
+            duplicate.write_text("different archived skill\n", encoding="utf-8")
+            target = temp_dir / "claude-home"
+            active = target / "skills/retired-skill/SKILL.md"
+            managed_file = target / "commands/command.md"
+            active.parent.mkdir(parents=True, exist_ok=True)
+            managed_file.parent.mkdir(parents=True, exist_ok=True)
+            active.write_text("active skill\n", encoding="utf-8")
+            managed_file.write_text("outdated command\n", encoding="utf-8")
+
+            result = self.run_installer(
+                fixture, target, "--merge", "--migrate-archives"
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(
+                "Ambiguous archive migration for active path",
+                result.stderr + result.stdout,
+            )
+            self.assertEqual(active.read_text(encoding="utf-8"), "active skill\n")
+            self.assertEqual(
+                managed_file.read_text(encoding="utf-8"), "outdated command\n"
+            )
+            self.assertFalse((target / "skills_archive/2026-retired").exists())
+            self.assertFalse((target / "skills_archive/other-retired").exists())
+
     def test_merge_refuses_to_overwrite_existing_archive_target(self):
         with tempfile.TemporaryDirectory() as directory:
             temp_dir = Path(directory)
@@ -271,14 +409,22 @@ class InstallerIntegrationTest(unittest.TestCase):
             earlier_active.write_text("earlier active\n", encoding="utf-8")
             later_active.write_text("later active\n", encoding="utf-8")
             later_archived.write_text("existing archive\n", encoding="utf-8")
+            managed_file = target / "commands/command.md"
+            managed_file.parent.mkdir(parents=True, exist_ok=True)
+            managed_file.write_text("outdated command\n", encoding="utf-8")
 
-            result = self.run_installer(fixture, target, "--merge")
+            result = self.run_installer(
+                fixture, target, "--merge", "--migrate-archives"
+            )
 
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("Refusing to overwrite existing archive target", result.stderr + result.stdout)
             self.assertEqual(earlier_active.read_text(encoding="utf-8"), "earlier active\n")
             self.assertEqual(later_active.read_text(encoding="utf-8"), "later active\n")
             self.assertEqual(later_archived.read_text(encoding="utf-8"), "existing archive\n")
+            self.assertEqual(
+                managed_file.read_text(encoding="utf-8"), "outdated command\n"
+            )
 
     def test_merge_treats_dangling_symlinks_as_existing_paths(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -292,7 +438,9 @@ class InstallerIntegrationTest(unittest.TestCase):
             active.write_text("active\n", encoding="utf-8")
             archived.symlink_to("missing-command.md")
 
-            result = self.run_installer(fixture, target, "--merge")
+            result = self.run_installer(
+                fixture, target, "--merge", "--migrate-archives"
+            )
 
             self.assertNotEqual(result.returncode, 0)
             self.assertEqual(active.read_text(encoding="utf-8"), "active\n")
@@ -308,7 +456,9 @@ class InstallerIntegrationTest(unittest.TestCase):
             active.parent.mkdir(parents=True, exist_ok=True)
             active.symlink_to("missing-skill")
 
-            result = self.run_installer(fixture, target, "--merge")
+            result = self.run_installer(
+                fixture, target, "--merge", "--migrate-archives"
+            )
 
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
             self.assertFalse(active.is_symlink())
@@ -329,7 +479,9 @@ class InstallerIntegrationTest(unittest.TestCase):
             later_active.write_text("later active\n", encoding="utf-8")
             blocked_parent.write_text("not a directory\n", encoding="utf-8")
 
-            result = self.run_installer(fixture, target, "--merge")
+            result = self.run_installer(
+                fixture, target, "--merge", "--migrate-archives"
+            )
 
             self.assertNotEqual(result.returncode, 0)
             self.assertEqual(earlier_active.read_text(encoding="utf-8"), "earlier active\n")
@@ -360,6 +512,7 @@ class InstallerIntegrationTest(unittest.TestCase):
                 fixture,
                 target,
                 "--merge",
+                "--migrate-archives",
                 extra_environment={"PATH": f"{fake_bin}:{os.environ['PATH']}"},
             )
 
@@ -394,6 +547,7 @@ class InstallerIntegrationTest(unittest.TestCase):
                 fixture,
                 target,
                 "--merge",
+                "--migrate-archives",
                 extra_environment={"PATH": f"{fake_bin}:{os.environ['PATH']}"},
             )
 
@@ -431,6 +585,7 @@ class InstallerIntegrationTest(unittest.TestCase):
                 fixture,
                 target,
                 "--merge",
+                "--migrate-archives",
                 extra_environment={"PATH": f"{fake_bin}:{os.environ['PATH']}"},
             )
 

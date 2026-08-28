@@ -1,7 +1,7 @@
 """Group B reconciliation: every duplicate loose .md is archived, never hard-deleted.
 
 "Zero duplicates" is satisfiable by `git rm`, which destroys recoverable content.
-These tests close that loophole: files must land in _archived_loose_md_2026-08-23/
+These tests close that loophole: files must land outside the active skill tree
 and stay reachable via `git log --all --follow` under their original path.
 """
 
@@ -11,7 +11,13 @@ import unittest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-ARCHIVE = REPO_ROOT / ".claude" / "skills" / "_archived_loose_md_2026-08-23"
+ARCHIVE = (
+    REPO_ROOT
+    / ".claude"
+    / "skills_archive"
+    / "legacy-pre-2026-08-27"
+    / "loose-md-2026-08-23"
+)
 
 
 def run(*argv):

@@ -8,7 +8,8 @@ execution_mode: immediate
 
 Situational assessment and roadmap sync after a work block.
 
-Read `~/.claude/skills/nextsteps/SKILL.md` and execute the full workflow with the provided context.
+Read `${CLAUDE_HOME:-$HOME/.claude}/skills/nextsteps/SKILL.md` and execute the
+full workflow with the provided context.
 
 ## Quick summary
 
