@@ -20,8 +20,12 @@ A PR is READY when ALL of the following hold, verified at the CURRENT head SHA
    Evidence Gate fail).
 2. **/er** — adversarial evidence review verdict PASS at the current head
    (re-run after every head move; findings fixed RED-first).
-3. **/advice** — independent external review (agy CLI or equivalent)
-   APPROVE, or all REQUEST_CHANGES findings fixed and delta-verified.
+3. **/advice** — at least two independent full-coverage approval reviewers
+   among the canonical A, C, and D reviewer lanes approve the exact head, or
+   every REQUEST_CHANGES finding is fixed and the two-reviewer quorum is rerun
+   and approves. Research and the orchestrating agent do not vote. One approval
+   can block but cannot approve; unavailable or partial-coverage reviewers do
+   not satisfy the approval quorum.
 4. **/green** — every current-head CI check green (rerun infra-signature
    failures: SIGKILL-during-rustc, Set-up-Python, sqlite3-amalgamation;
    diagnose real failures instead of rerunning) AND mergeable with no

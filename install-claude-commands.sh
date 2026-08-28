@@ -365,12 +365,12 @@ main() {
     echo
 
     prepare_target
-    migrate_archived_packages_on_merge
     install_agents
     install_commands
     install_scripts
     install_skills
     validate_installation
+    migrate_archived_packages_on_merge
     finalize_backup_install
 
     echo

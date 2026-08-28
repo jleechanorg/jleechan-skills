@@ -31,6 +31,20 @@ class WorkflowCommandPairTest(unittest.TestCase):
             ).is_file()
         )
 
+    def test_plan_micro_exports_its_required_command_dependencies(self):
+        plan_micro = (SKILLS / "plan-micro" / "SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        for name in ("e", "ironclad", "p"):
+            with self.subTest(command=name):
+                self.assertIn(f"/{name}", plan_micro)
+                self.assertTrue((COMMANDS / f"{name}.md").is_file())
+
+        self.assertTrue((SKILLS / "ironclad" / "SKILL.md").is_file())
+        self.assertTrue(
+            (SKILLS / "parallelize-to-ceiling" / "SKILL.md").is_file()
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
