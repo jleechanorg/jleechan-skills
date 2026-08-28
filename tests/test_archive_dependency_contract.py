@@ -28,7 +28,8 @@ class ArchiveDependencyContractTest(unittest.TestCase):
     def test_active_skill_tree_contains_no_archive_containers(self):
         archive_containers = {
             path.name
-            for path in ACTIVE_SKILLS.iterdir()
+            for path in ACTIVE_SKILLS.rglob("*")
+            if path.is_dir()
             if path.name == "_archive" or path.name.startswith("_archived_")
         }
         self.assertEqual(archive_containers, set())

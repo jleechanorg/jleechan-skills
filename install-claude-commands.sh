@@ -237,8 +237,7 @@ list_installable_files() {
     if [ "$component_name" = "skills" ]; then
         find . -type d \( \
             -name _archive -o \
-            -name _archived_loose_md -o \
-            -name _archived_loose_md_2026-08-23 -o \
+            -name '_archived_*' -o \
             -name __pycache__ -o \
             -name .pytest_cache \
         \) -prune -o -type f ! -name '*.py[co]' ! -name '.DS_Store' -print0
