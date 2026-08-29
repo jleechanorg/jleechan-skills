@@ -939,7 +939,7 @@ When Antigravity shows "Too much traffic — please try again in a few minutes."
 
 **Priority order**: Claude Opus 4.6 → Gemini 3.1 Pro (High) → Gemini 3.1 Pro (Low) → Gemini 3 Flash → Claude Sonnet 4.6
 
-### Conversation monitoring loop (for /eloop)
+### Conversation monitoring loop
 
 When monitoring active Antigravity conversations:
 1. **Scan all conversations** — capture Manager screenshot, identify active (spinner) vs idle

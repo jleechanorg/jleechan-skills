@@ -16,7 +16,7 @@ if str(REPO_ROOT) not in sys.path:
 SKILLS_ROOT = REPO_ROOT / ".claude" / "skills"
 
 BATCH1 = (
-    "agento_report",
+    "agento-report",
     "bq-evidence-reading",
     "bypass-claims",
     "crash",

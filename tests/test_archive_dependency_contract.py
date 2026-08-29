@@ -13,9 +13,7 @@ SKILL_ARCHIVE = (
     REPO_ROOT / ".claude" / "skills_archive" / "2026-08-27-historical-zero-use"
 )
 ACTIVE_COMMANDS = REPO_ROOT / ".claude" / "commands"
-COMMAND_ARCHIVE = (
-    REPO_ROOT / ".claude" / "commands_archive" / "2026-08-27-historical-zero-use"
-)
+COMMAND_ARCHIVES = REPO_ROOT / ".claude" / "commands_archive"
 
 RETAINED_DEPENDENCIES = {
     "babysit-openclaw",
@@ -33,8 +31,11 @@ class ArchiveDependencyContractTest(unittest.TestCase):
             fields = parse_frontmatter(
                 skill_file.read_text(encoding="utf-8", errors="ignore")
             )
-            if fields.get("name") != skill_file.parent.name or not fields.get(
-                "description"
+            name = fields.get("name", "")
+            if (
+                name != skill_file.parent.name
+                or re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", name) is None
+                or not fields.get("description")
             ):
                 invalid.append(skill_file.parent.name)
         self.assertEqual(invalid, [])
@@ -56,7 +57,9 @@ class ArchiveDependencyContractTest(unittest.TestCase):
 
     def test_archived_commands_have_no_active_workflow_callers(self):
         archived = {
-            path.stem for path in COMMAND_ARCHIVE.glob("*.md") if path.name != "README.md"
+            path.stem
+            for path in COMMAND_ARCHIVES.glob("*/*.md")
+            if path.name != "README.md"
         }
         active_command_text = "\n".join(
             path.read_text(encoding="utf-8", errors="ignore")

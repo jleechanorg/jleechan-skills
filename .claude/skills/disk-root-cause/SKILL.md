@@ -29,7 +29,7 @@ The displayed Data equation must use one accepted leaf ledger: `<=5 GiB bounded 
 
 The top-down scanner prefers one NUL-delimited, multi-root GNU `gdu` inventory process. Never sum independent per-shard `du` processes: hardlink deduplication is process-local. The one pass preserves hardlink dedup across logical top-level shards and supplies the complete postorder directory tree used to select non-overlapping <=5 GiB display rows without rescanning descendants. Allocation held directly by a large directory is shown as <=5 GiB `direct files + directory metadata` segments; unique-link indivisible files above 5 GiB are named separately. Localized permission/TCC errors taint their subtree and every ancestor, so partial ancestor totals are rejected while clean siblings remain attributable. Unknown diagnostics, malformed output, or timeout fail closed to the bounded frontier fallback (`gdu`, then `dua`, then macOS `du`). Fast backends must not be wrapped in `taskpolicy -b`, which can starve them under host I/O pressure. Symlink leaves never pull their targets into the ledger.
 
-**Pair with** `disk_magician` skill (measurement + safe cleanup) and the `CLAUDE.md` / `AGENTS.md` in this repo (cross-repo authorization + never-delete list).
+**Pair with** `disk-magician` skill (measurement + safe cleanup) and the `CLAUDE.md` / `AGENTS.md` in this repo (cross-repo authorization + never-delete list).
 
 ## When to use
 
@@ -159,7 +159,7 @@ Fan-out rule: **single-writer per file**, `grep -n "agent(" <swarm-script>` cost
 
 ## What this skill is NOT
 
-- Not a cleaner (use `disk_magician` for cleanup; this skill explains why something grew).
+- Not a cleaner (use `disk-magician` for cleanup; this skill explains why something grew).
 - Not a real-time monitor (left to `disk-root-cause` + `pressure_sweep.sh`).
 - Not authorized to push commits or merge PRs (read-only forensics + typed recommendations only).
 

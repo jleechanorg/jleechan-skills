@@ -1,5 +1,5 @@
 ---
-name: goal_harness
+name: goal-harness
 description: "Goal-driven harness loop — keep working on a goal until /es, /er, /code-standards, and Codex plugin review all pass. All gates use adversarial subagents. Alias: /h"
 ---
 

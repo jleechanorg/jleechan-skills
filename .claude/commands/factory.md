@@ -10,7 +10,7 @@ aliases: [f, df]
 Dispatches to the `dark-factory` skill → **`dark-factory` binary**
 (`~/projects/dark-factory/install.sh` → `~/.local/bin/dark-factory`).
 
-Unlike `/h` (in-Claude subagent dispatch), `/factory` runs the external
+Unlike an in-Claude subagent harness, `/factory` runs the external
 `.dot`-driven pipeline. Install once; run from any target repo cwd.
 
 **Usage**:

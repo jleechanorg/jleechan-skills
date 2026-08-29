@@ -1,5 +1,5 @@
 ---
-description: Antigravity computer use via Peekaboo — interact with the Antigravity macOS app. Also used by /eloop to babysit the Antigravity IDE and self-improve this skill.
+description: Antigravity computer use via Peekaboo — interact with the Antigravity macOS app and support monitoring-loop self-improvement.
 ---
 
 Use the `antigravity-computer-use` skill to complete the following task in Antigravity:
@@ -8,7 +8,7 @@ $ARGUMENTS
 
 ---
 
-## Self-improvement protocol (for /eloop and monitoring loops)
+## Self-improvement protocol for monitoring loops
 
 When you encounter a new failure mode or workaround while using Antigravity:
 
