@@ -168,8 +168,10 @@ Hermes execution, auto-routing, and dependency-only use may not emit it.
 
 The final live roots contain 141 Claude canonicals, nine Agents entries, and 22
 Codex pointers, with zero broken links or archive containers under active
-discovery roots. Fresh Claude and Codex startup probes completed without the
-skills-context-budget warning.
+discovery roots. Fresh Claude and Codex startup output contained no
+skills-context-budget warning. Codex completed its marker response; Claude
+reached the account's weekly quota after startup instead of returning a model
+response.
 
 ## Portable-name and explicit non-use follow-up — 2026-08-29
 
