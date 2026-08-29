@@ -269,7 +269,7 @@ Do not cite a percentage saving — none has ever been measured here. And do not
 |---|---|---|
 | A1 | `codexs` (or `codex exec --yolo -m gpt-5.6-terra --config model_reasoning_effort=high`) | Primary — runs IN PARALLEL with A2 |
 | A2 | Opus Claude subagent | Primary — runs IN PARALLEL with A1 |
-| A3.1 | `claude -p --dangerously-skip-permissions` | Fallback if BOTH A1 and A2 error (outside Claude Code) |
+| A3.1 | `claude -p --dangerously-skip-permissions` | Fallback when no primary leg produced a verdict (outside Claude Code) |
 | A3.2 | `cursor agent -p --force` | Fallback if A3.1 errors |
 | A3.3 | `agy --print --dangerously-skip-permissions` | Fallback if A3.2 errors |
 
