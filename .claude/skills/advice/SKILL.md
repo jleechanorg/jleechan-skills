@@ -115,11 +115,15 @@ Spawn a Claude subagent in the same turn as A1. Do NOT wait for Codex to finish
 before spawning the subagent — both reviewers should be in-flight at once.
 Both verdicts land in the synthesis table independently.
 
-**A3 — Fallback chain (only if A1 AND A2 are both unavailable OR both error):**
+**A3 — Fallback chain (whenever neither primary leg produces a verdict):**
 
-If Codex CLI is unavailable (binary missing) AND the Opus subagent is unavailable
-(model not exposed / subagent dispatch failed), OR if both dispatched and both
-errored, fall through this chain in order, stopping at the first success:
+A3 activates whenever Reviewer A cannot return a verdict. That covers:
+- BOTH A1 (Codex) and A2 (Opus) are unavailable (binary / model missing)
+- BOTH A1 and A2 dispatched and both errored
+- A1 unavailable AND A2 errored (mixed failure — still no primary verdict)
+- A1 errored AND A2 unavailable (mixed failure — still no primary verdict)
+
+In all of the above, fall through this chain in order, stopping at the first success:
 
 **A3.1 — `claude -p` (first-class fallback when invoked outside Claude Code):**
 ```bash
@@ -271,7 +275,7 @@ Do not cite a percentage saving — none has ever been measured here. And do not
 
 Notes:
 - Codex + Opus are the primary PAIR, not a fallback chain. Both are fired in the same turn whenever both are available. A reviewer quorum table needs BOTH rows; mark missing partner `unavailable (<reason>)` per the solo-mode rule.
-- The A3.x fallback chain activates if BOTH A1 and A2 are unavailable OR both error — Codex alone being unavailable or alone failing does NOT drop to A3 (the surviving Opus or Codex leg still counts). This keeps `/advice` productive on hosts where only one of {codex, opus} is installed.
+- The A3.x fallback chain activates whenever no primary leg produces a verdict — Codex alone being unavailable or alone failing does NOT drop to A3 (the surviving leg still counts as the A verdict). The gate is "neither primary succeeded," not "both errored," so hosts with mixed failure modes (one unavailable, one errored) still get a verdict. This keeps `/advice` productive on hosts where only one of {codex, opus} is installed OR only one dispatched cleanly.
 - Check a CLI is on `PATH` before counting it as a rung. An absent CLI is an unavailable rung, not a failed reviewer — drop to the next rung without recording a failure.
 - `agy --print-timeout` defaults to 5m. Pass a longer value for a full 150-line artifact, or the review dies as an opaque timeout that looks like an error.
 - `codexs` is the `gpt-5.3-codex-spark` wrapper at `~/.local/bin/codexs` (also aliased in `~/.bashrc`). On machines where it is not installed, the inline `codex exec` form is the equivalent — pick the model tier per the lane (`gpt-5.6-terra` is the default for /advice reviews per `~/.codex/config.toml` model-tiering policy). If the configured model errors with `usage limit` or similar, retry the next-tier-up — do not silently mark Reviewer A unavailable. Codex was re-added to the chain on 2026-08-29 (previously dropped 2026-06-24 because `gpt-4.5` was unsupported on the ChatGPT account — that reason is obsolete).
