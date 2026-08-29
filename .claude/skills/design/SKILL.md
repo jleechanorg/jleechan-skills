@@ -1,4 +1,5 @@
 ---
+name: design
 description: Generate HTML + MD design docs for a feature or PR, matching the repo's existing design doc style. Always produces both formats in parallel.
 ---
 

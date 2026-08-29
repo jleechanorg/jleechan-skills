@@ -1,5 +1,6 @@
 ---
 name: social-poster
+description: Route draft-only social-post workflows to the canonical Hermes social-poster skill.
 version: 0.1.0
 summary: Local shim for the canonical Hermes social-poster skill.
 ---

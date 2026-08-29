@@ -1,5 +1,5 @@
 ---
-name: evolve_loop
+name: evolve-loop
 description: Generic autonomous improvement loop — observe, measure, diagnose, fix, repeat. System-agnostic framework; configure a system profile to target any repo/agent/IDE ecosystem.
 type: skill
 ---

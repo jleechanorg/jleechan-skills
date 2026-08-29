@@ -1,3 +1,8 @@
+---
+name: character-creation-modal-exit
+description: Enforce the WorldArchitect.AI character-creation modal exit protocol and routing lock.
+---
+
 # Character Creation Modal Exit Protocol
 
 ## Overview

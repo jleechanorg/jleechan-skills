@@ -1,4 +1,5 @@
 ---
+name: build-test-lint-autopilot
 description: Turnkey workflow for running tests, lint, and quality automation
 type: usage
 scope: project

@@ -11,9 +11,9 @@ PR [#376](https://github.com/jleechanorg/jleechan-skills/pull/376) moves 110 rec
 - Existing archive destinations are never overwritten; a collision fails closed.
 - Every move is recoverable. No skill or command body is deleted.
 
-After dependency corrections and final workflow restoration, the repository
-contains 221 active skill packages, 110 archived skill packages in this
-tranche, and 7 archived command packages.
+At completion of that tranche, the repository contained 221 active skill
+packages, 110 archived skill packages in that tranche, and 7 archived command
+packages. Later dated sections record subsequent reductions.
 
 ## Skill selection rule
 
@@ -132,6 +132,74 @@ After this closure, the real home has 171 unique active package names across
 Claude, Agents, and Codex roots (145, 101, and 23 packages by root before name
 deduplication), with zero active command, Agents, or Codex pointers to a
 missing Claude canonical.
+
+## Post-merge discovery-budget closure — 2026-08-28
+
+The exact-head evidence for this PR reproduces the current 30-day Claude
+`Skill` event scan and current filesystem closure. Structured selections are a
+supporting signal, not a complete use meter, and name absence is not proof of
+non-use.
+
+The verified current user-home state is:
+
+- the sibling `~/.agents/skills_archive/2026-08-28-context-budget/` contains 92
+  recoverable entries;
+- the active Agents root contains nine capabilities: `code-review`, `design-an-interface`,
+  `diagnosing-bugs`, `disk-audit`, `disk-root-cause`, `handoff`,
+  `resolving-merge-conflicts`, `tdd`, and `triage`;
+- the active Codex root contains 22 explicit pointers, while its sibling
+  archive contains seven entries, including `babysit`, `skillify`,
+  `social-poster`, `tmux-video-evidence`, and `write-goal`;
+  `generalized-testing` and `solid`
+  remain active because a current cross-repository testing and evidence
+  workflow requires them;
+- plugin configuration has nine enabled and six disabled entries, including
+  disabled curated Superpowers, Cloud Build, Sites, Visualize, and Template
+  Creator providers; and
+- every active repository package and all 141 active Claude-home packages have
+  valid `name` and `description` discovery frontmatter.
+
+The active Claude set is not an assertion that all 141 packages were selected
+recently. A timestamp-bounded scan on 2026-08-28 observed structured Claude
+`Skill` tool calls for 82 of the 141 active names during the preceding 30 days;
+59 had no matching structured event. Those 59 remain active because this event
+is positive evidence only: slash-command routing, direct skill reads, Codex or
+Hermes execution, auto-routing, and dependency-only use may not emit it.
+
+The final live roots contain 141 Claude canonicals, nine Agents entries, and 22
+Codex pointers, with zero broken links or archive containers under active
+discovery roots. Fresh Claude and Codex startup output contained no
+skills-context-budget warning. Codex completed its marker response; Claude
+reached the account's weekly quota after startup instead of returning a model
+response.
+
+## Portable-name and explicit non-use follow-up — 2026-08-29
+
+The active repository now contains 208 skill packages. Every active package
+uses a portable lowercase hyphenated directory and matching frontmatter name.
+Two redundant underscore compatibility copies (`agento_report` and
+`evolve_loop`) moved to `skills_archive/2026-08-29-nonportable-duplicates/`.
+
+The `/history` and `/ms` follow-up separated structured selection, genuine
+human requests, dependency references, and catalog echoes:
+
+- `disk-magician` remains active because recent August disk workflows and the
+  active `disk-root-cause` capability depend on it;
+- `agento-report` remains active because a July 31 operational report lane is
+  within the measured window;
+- `evolve-loop`, `eloop`, `goal_harness`, `write-goal`, and `spicy_remove`
+  moved recoverably to `skills_archive/2026-08-29-unused-and-redundant/` after
+  zero structured selections, no qualifying human invocation, and caller
+  closure; and
+- the six `tessl__*` mirrors moved to the same sibling archive because the
+  user explicitly retired Tessl and the active Superpowers plugin supplies the
+  corresponding capabilities. Seven structured legacy Tessl selections were
+  observed, so this is replacement-backed consolidation, not a zero-use claim.
+
+The four accompanying launchers (`eloop`, `evolve_loop`, `goal_harness`, and
+`h`) moved to the matching command archive after active caller references were
+removed. The same four unused Claude-home packages and launchers moved to
+sibling home archives, reducing the active Claude catalog from 145 to 141.
 
 ## Archived skill manifest
 

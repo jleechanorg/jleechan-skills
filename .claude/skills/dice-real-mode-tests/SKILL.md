@@ -1,3 +1,8 @@
+---
+name: dice-real-mode-tests
+description: Validate dice integrity end to end with real services through the MCP dice test suite.
+---
+
 # Dice Real-Mode Tests (MCP)
 
 Use this when validating **dice integrity** end-to-end with real services.

@@ -1,4 +1,5 @@
 ---
+name: conversation-history-sparse
 description: Sparse conversation history triage across Claude Code, Codex, and Hermes with strict context budgets. Default for `/history`; covers all three canonical sources.
 type: analysis
 scope: project

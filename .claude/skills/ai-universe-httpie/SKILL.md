@@ -1,4 +1,5 @@
 ---
+name: ai-universe-httpie
 description: Use HTTPie to call AI Universe MCP server for multi-model analysis
 type: usage
 scope: project

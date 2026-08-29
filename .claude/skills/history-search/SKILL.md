@@ -1,4 +1,5 @@
 ---
+name: history-search
 description: Multi-source conversation history search across Claude Code, Codex, and Hermes — runs all three in parallel.
 type: search
 scope: user

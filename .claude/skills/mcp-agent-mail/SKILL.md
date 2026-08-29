@@ -1,4 +1,5 @@
 ---
+name: mcp-agent-mail
 description: MCP Agent Mail - Inter-Agent Messaging and Coordination System
 type: setup
 scope: project

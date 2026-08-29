@@ -1,4 +1,5 @@
 ---
+name: secondo-dependencies
 description: Dependencies required for /secondo command
 type: setup
 scope: project

@@ -10,7 +10,7 @@ aliases: [h]
 Define a goal (via builtin `/goal`), then iterate until **4 adversarial gates** all pass —
 each dispatched to an isolated subagent that receives only the diff and its standard.
 
-Read `~/.claude/skills/goal_harness/SKILL.md` and execute the full workflow.
+Read `~/.claude/skills/goal-harness/SKILL.md` and execute the full workflow.
 
 ## 🚨 CODEX MODEL ROUTING (mandatory for Codex sessions)
 

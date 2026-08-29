@@ -1,5 +1,5 @@
 ---
-name: AO Session Monitor
+name: ao-session-monitor
 description: Properly inspect AO worker tmux sessions to detect working vs idle state
 ---
 

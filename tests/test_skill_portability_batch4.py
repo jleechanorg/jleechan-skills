@@ -19,7 +19,6 @@ BATCH4 = (
     "slack-identity",
     "slash-command-translation",
     "soak",
-    "spicy_remove",
     "test-classification",
     "testing-gap-close",
     "vibe-code-2d-game",

@@ -1,4 +1,5 @@
 ---
+name: ai-universe-auth
 description: Authenticate with AI Universe MCP server for multi-model commands
 type: setup
 scope: project

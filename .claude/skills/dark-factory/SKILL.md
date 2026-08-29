@@ -1,6 +1,6 @@
 ---
 name: dark-factory
-description: "Run the Dark Factory DOT pipeline runner against a goal. Slash command: /factory. Implements StrongDM's Attractor pattern as an external Python runner — .dot files are the versioned artifact, sealed holdouts live in a separate repo, every step is recorded to CXDB, and the Healer clusters failures into diagnoses. Use when you want the goal_harness idea executed as a reproducible external pipeline instead of in-Claude subagent dispatch."
+description: "Run the Dark Factory DOT pipeline runner against a goal. Slash command: /factory. Implements StrongDM's Attractor pattern as an external Python runner — .dot files are the versioned artifact, sealed holdouts live in a separate repo, every step is recorded to CXDB, and the Healer clusters failures into diagnoses. Use when you want a goal harness executed as a reproducible external pipeline instead of in-Claude subagent dispatch."
 ---
 
 # /factory — Dark Factory Pipeline Runner
@@ -11,9 +11,9 @@ Run a goal through the Dark Factory `.dot` pipeline runner at
 `~/projects/dark-factory/`. The runner is the Python implementation of
 StrongDM's Attractor pattern (cf. brynary/attractor, strongdm/attractor).
 
-Versus `/h` / `/goal_harness`:
+Versus an in-Claude goal harness:
 
-| Aspect | `/h` (goal_harness) | `/factory` (this skill) |
+| Aspect | In-Claude goal harness | `/factory` (this skill) |
 |--------|---------------------|-------------------------|
 | Engine | Claude session dispatches subagents | **`dark-factory` binary** (uv install) |
 | Artifact | Skill prose + tool calls | `.dot` graphviz file |
@@ -22,8 +22,8 @@ Versus `/h` / `/goal_harness`:
 | Reuse | Tied to this session | Replayable from `.dot` alone |
 | Cost | High (multi-agent context) | Low (one CLI per node) |
 
-Use `/factory` when you want the goal_harness idea as a reproducible external
-pipeline; use `/h` when you want an interactive in-session loop.
+Use `/factory` when you want the goal-harness idea as a reproducible external
+pipeline; use an interactive planning workflow for an in-session loop.
 
 ## Repos
 
@@ -192,7 +192,7 @@ To add a new sealed-holdout feature `foo`:
 
 - The `claude` backend shells out to `claude --print
   --dangerously-skip-permissions` — each node is a fresh non-interactive
-  session. Long agentic loops should use `/h` instead.
+  session. Long agentic loops should use a dedicated goal runner instead.
 - `_parse_verdict` falls back to scanning the tail for a standalone PASS/FAIL
   token; if the gate command emits a debug line with just "PASS" the runner
   will trust it. For high-stakes gates require explicit `VERDICT:` markers.
