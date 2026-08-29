@@ -1,6 +1,6 @@
 ---
 name: advice
-description: "Token-efficient second opinion slash command /advice. Extracts the decision point plus a pointer to the change (PR / ref / paths) so each reviewer reads the code itself, then fans out in parallel to up to four reviewers: (1) Codex + Opus subagent fired IN PARALLEL as the primary pair (codex via codexs/codex exec, opus as a Claude subagent), (2) fallback chain cursor→agy→claude -p if both primary reviewers error, (3) /research on the decision topic, (4) /secondo multi-model opinion, (5) /web-advice browser review. Reviewers A and B are the portable core; C and D need personal infrastructure and are skipped when unavailable. Use instead of advisor() which ships the full conversation uncached."
+description: "Token-efficient second opinion slash command /advice. Extracts the decision point plus a pointer to the change (PR / ref / paths) so each reviewer reads the code itself, then fans out in parallel to up to five reviewers: (1) Codex + Opus subagent fired IN PARALLEL as the primary pair (codex via codexs/codex exec, opus as a Claude subagent), (2) fallback chain claude -p→cursor→agy if BOTH primary reviewers are unavailable OR error, (3) /research on the decision topic, (4) /secondo multi-model opinion, (5) /web-advice browser review. Reviewers A and B are the portable core; C and D need personal infrastructure and are skipped when unavailable. Use instead of advisor() which ships the full conversation uncached."
 ---
 
 # /advice — Token-Efficient Second Opinion
@@ -83,10 +83,10 @@ Read the change yourself. Return VERDICT, REASONING (3-4 sentences), RISK, COVER
 EOF
 )"
 else
-  # Use the top-tier gpt-5.6-terra for adversarial review when bypassing codexs
+  # Use the mid-tier gpt-5.6-terra for adversarial review when bypassing codexs
   # (the senior-engineer verdict lane maps to "Multi-file feature work, /er
   # evidence review, swarm verifiers/miners, bug fixing" per the model-tiering
-  # policy in ~/.codex/config.toml).
+  # policy in ~/.codex/config.toml — `terra` is the mid tier, `sol` is top).
   codex exec --yolo -m gpt-5.6-terra --config model_reasoning_effort=high "$(cat <<'EOF'
 Senior engineer second opinion.
 
@@ -115,10 +115,11 @@ Spawn a Claude subagent in the same turn as A1. Do NOT wait for Codex to finish
 before spawning the subagent — both reviewers should be in-flight at once.
 Both verdicts land in the synthesis table independently.
 
-**A3 — Fallback chain (only if A1 AND A2 both error):**
+**A3 — Fallback chain (only if A1 AND A2 are both unavailable OR both error):**
 
-If Codex CLI errors AND the Opus subagent errors, fall through this chain in order,
-stopping at the first success:
+If Codex CLI is unavailable (binary missing) AND the Opus subagent is unavailable
+(model not exposed / subagent dispatch failed), OR if both dispatched and both
+errored, fall through this chain in order, stopping at the first success:
 
 **A3.1 — `claude -p` (first-class fallback when invoked outside Claude Code):**
 ```bash
@@ -138,6 +139,14 @@ agy --print --dangerously-skip-permissions "Senior engineer second opinion.\n\nD
 Note: agy is the Antigravity CLI (reads CLAUDE.md on startup like any CC session, but starts fresh — no current conversation history). Independent perspective, slightly slower than cursor.
 
 If all options fail, note "Reviewer A unavailable" in the synthesis table.
+
+**No-verdict guarantee:** A host that lacks BOTH Codex (no codex binary) AND the
+Opus subagent (e.g. invoked outside Claude Code) MUST still emit at least one
+A-leg verdict if any of A3.1 / A3.2 / A3.3 is on PATH. The fallback chain is
+gated on "unavailable OR error" — not error alone — so a fully bare host with
+just `claude -p` installed still produces a verdict. If every leg (A1 + A2 +
+A3.1 + A3.2 + A3.3) is unavailable, mark **A unavailable (no agent binary on
+host)** and continue with B / C / D.
 
 **A — solo-mode rule:** If only ONE of {Codex, Opus} is available (the other
 binary / model is missing or errors immediately at dispatch), run whichever
@@ -262,7 +271,7 @@ Do not cite a percentage saving — none has ever been measured here. And do not
 
 Notes:
 - Codex + Opus are the primary PAIR, not a fallback chain. Both are fired in the same turn whenever both are available. A reviewer quorum table needs BOTH rows; mark missing partner `unavailable (<reason>)` per the solo-mode rule.
-- The A3.x fallback chain only activates if BOTH A1 and A2 error — Codex alone failing does not drop to A3 (the Opus verdict still counts).
+- The A3.x fallback chain activates if BOTH A1 and A2 are unavailable OR both error — Codex alone being unavailable or alone failing does NOT drop to A3 (the surviving Opus or Codex leg still counts). This keeps `/advice` productive on hosts where only one of {codex, opus} is installed.
 - Check a CLI is on `PATH` before counting it as a rung. An absent CLI is an unavailable rung, not a failed reviewer — drop to the next rung without recording a failure.
 - `agy --print-timeout` defaults to 5m. Pass a longer value for a full 150-line artifact, or the review dies as an opaque timeout that looks like an error.
 - `codexs` is the `gpt-5.3-codex-spark` wrapper at `~/.local/bin/codexs` (also aliased in `~/.bashrc`). On machines where it is not installed, the inline `codex exec` form is the equivalent — pick the model tier per the lane (`gpt-5.6-terra` is the default for /advice reviews per `~/.codex/config.toml` model-tiering policy). If the configured model errors with `usage limit` or similar, retry the next-tier-up — do not silently mark Reviewer A unavailable. Codex was re-added to the chain on 2026-08-29 (previously dropped 2026-06-24 because `gpt-4.5` was unsupported on the ChatGPT account — that reason is obsolete).
