@@ -1,6 +1,6 @@
 ---
 name: advice
-description: "Token-efficient second opinion slash command /advice. Extracts the decision point plus a pointer to the change (PR / ref / paths) so each reviewer reads the code itself, then fans out in parallel to up to four reviewers: (1) Opus subagent with a cursor→agy→claude -p CLI fallback chain, (2) /research on the decision topic, (3) /secondo multi-model opinion, (4) /web-advice browser review. Reviewers A and B are the portable core; C and D need personal infrastructure and are skipped when unavailable. Use instead of advisor() which ships the full conversation uncached."
+description: "Token-efficient second opinion slash command /advice. Extracts the decision point plus a pointer to the change (PR / ref / paths) so each reviewer reads the code itself, then fans out in parallel to up to four reviewers: (1) Codex + Opus subagent fired IN PARALLEL as the primary pair (codex via codexs/codex exec, opus as a Claude subagent), (2) fallback chain cursor→agy→claude -p if both primary reviewers error, (3) /research on the decision topic, (4) /secondo multi-model opinion, (5) /web-advice browser review. Reviewers A and B are the portable core; C and D need personal infrastructure and are skipped when unavailable. Use instead of advisor() which ships the full conversation uncached."
 ---
 
 # /advice — Token-Efficient Second Opinion
@@ -33,9 +33,16 @@ Spawn every available reviewer in a single message. **A and B are the portable c
 
 ---
 
-**Reviewer A — Fallback chain (try in order, stop at first success):**
+**Reviewer A — Primary pair fired IN PARALLEL:**
 
-**A1 — Opus subagent (primary):** Spawn an Agent:
+**Codex + Opus run in parallel when both are available.** Each reviewer reads the
+change independently and returns its own verdict. Codex is fastest (CLI, no
+subagent overhead) and runs first via shell; the Opus subagent is spawned in
+the same turn as a child agent. Do NOT serialize them as a fallback chain —
+both get the same decision packet and we compare verdicts.
+
+Use the same review packet for both reviewers:
+
 ```
 You are a senior engineer giving a focused second opinion.
 
@@ -57,24 +64,86 @@ COVERAGE: [what you actually read; note anything you could not reach]
 CONFIDENCE: [high / medium / low]
 ```
 
-**A2 — cursor (fallback if A1 errors):**
+**A1 — Codex CLI (primary, runs in parallel with A2):**
 ```bash
-cursor agent -p --force "Senior engineer second opinion.\n\nDECISION:\n[decision]\n\nWHAT TO REVIEW:\n[PR / ref / paths]\n\nRead the change yourself. Return VERDICT, REASONING (3-4 sentences), RISK, COVERAGE, CONFIDENCE."
-```
+# Prefer `codexs` if available (gpt-5.3-codex-spark wrapper — fast tier,
+# default for small lookups per ~/.codex/config.toml).
+# Fall back to `codex exec` directly if `codexs` is missing.
+if command -v codexs >/dev/null 2>&1; then
+  codexs "$(cat <<'EOF'
+Senior engineer second opinion.
 
-**A3 — agy (fallback if A2 errors):**
-```bash
-agy --print --dangerously-skip-permissions "Senior engineer second opinion.\n\nDECISION:\n[decision]\n\nWHAT TO REVIEW:\n[PR / ref / paths]\n\nRead the change yourself. Return VERDICT, REASONING (3-4 sentences), RISK, COVERAGE, CONFIDENCE."
-```
-Note: agy is the Antigravity CLI (reads CLAUDE.md on startup like any CC session, but starts fresh — no current conversation history). Independent perspective, slightly slower than cursor.
+DECISION:
+[decision]
 
-**A1.1 — `claude -p` (first-class choice when invoked outside Claude Code; fallback if A3 errors):**
+WHAT TO REVIEW:
+[PR / ref / paths]
+
+Read the change yourself. Return VERDICT, REASONING (3-4 sentences), RISK, COVERAGE, CONFIDENCE.
+EOF
+)"
+else
+  # Use the top-tier gpt-5.6-terra for adversarial review when bypassing codexs
+  # (the senior-engineer verdict lane maps to "Multi-file feature work, /er
+  # evidence review, swarm verifiers/miners, bug fixing" per the model-tiering
+  # policy in ~/.codex/config.toml).
+  codex exec --yolo -m gpt-5.6-terra --config model_reasoning_effort=high "$(cat <<'EOF'
+Senior engineer second opinion.
+
+DECISION:
+[decision]
+
+WHAT TO REVIEW:
+[PR / ref / paths]
+
+Read the change yourself. Return VERDICT, REASONING (3-4 sentences), RISK, COVERAGE, CONFIDENCE.
+EOF
+)"
+fi
+```
+Note: `codexs` is the `gpt-5.3-codex-spark` wrapper (defined in `~/.bashrc` and at `~/.local/bin/codexs`); the wrapper sets `--yolo`, the model, and `model_reasoning_effort=high`. Use it on machines where it's installed (default on /linux + the MacBook). Where it isn't, fall back to `codex exec` with explicit flags — and pick the model tier by lane:
+- `gpt-5.6-sol` (top tier) — adversarial architectural design, deep adversarial reviews
+- `gpt-5.6-terra` (mid tier) — multi-file feature work, /er evidence review, bug fixing **← default for /advice second-opinion reviews**
+- `gpt-5.6-luna` (fast 5.6 tier) — routine coding, conventional refactors
+- `gpt-5.6-spark` / `gpt-5.3-codex-spark` (cheapest) — fast lookups, mechanical scans
+
+If the configured model is rate-limited or errors (e.g. `usage limit for GPT-5.3-Codex-Spark`), retry the failed run with the next-tier-up model — do NOT silently mark Reviewer A unavailable just because the cheapest tier exhausted. Codex was previously dropped from the chain on 2026-06-24 because `gpt-4.5` was unsupported; that reason is obsolete — Codex is back as a first-class primary.
+
+**A2 — Opus subagent (primary, runs in parallel with A1):**
+
+Spawn a Claude subagent in the same turn as A1. Do NOT wait for Codex to finish
+before spawning the subagent — both reviewers should be in-flight at once.
+Both verdicts land in the synthesis table independently.
+
+**A3 — Fallback chain (only if A1 AND A2 both error):**
+
+If Codex CLI errors AND the Opus subagent errors, fall through this chain in order,
+stopping at the first success:
+
+**A3.1 — `claude -p` (first-class fallback when invoked outside Claude Code):**
 ```bash
 claude -p --dangerously-skip-permissions "Senior engineer second opinion.\n\nDECISION:\n[decision]\n\nWHAT TO REVIEW:\n[PR / ref / paths]\n\nRead the change yourself. Return VERDICT, REASONING (3-4 sentences), RISK, COVERAGE, CONFIDENCE."
 ```
 Note: Same Claude Code context inheritance as agy. For a cleaner isolated call: add `--cwd /tmp`.
 
+**A3.2 — `cursor agent -p` (fallback if claude -p errors):**
+```bash
+cursor agent -p --force "Senior engineer second opinion.\n\nDECISION:\n[decision]\n\nWHAT TO REVIEW:\n[PR / ref / paths]\n\nRead the change yourself. Return VERDICT, REASONING (3-4 sentences), RISK, COVERAGE, CONFIDENCE."
+```
+
+**A3.3 — `agy` (fallback if cursor errors):**
+```bash
+agy --print --dangerously-skip-permissions "Senior engineer second opinion.\n\nDECISION:\n[decision]\n\nWHAT TO REVIEW:\n[PR / ref / paths]\n\nRead the change yourself. Return VERDICT, REASONING (3-4 sentences), RISK, COVERAGE, CONFIDENCE."
+```
+Note: agy is the Antigravity CLI (reads CLAUDE.md on startup like any CC session, but starts fresh — no current conversation history). Independent perspective, slightly slower than cursor.
+
 If all options fail, note "Reviewer A unavailable" in the synthesis table.
+
+**A — solo-mode rule:** If only ONE of {Codex, Opus} is available (the other
+binary / model is missing or errors immediately at dispatch), run whichever
+survives as the sole A reviewer — do NOT synthesize a "pair" from a single
+verdict. Mark the missing partner `unavailable (<reason>)` in the synthesis
+table so the reader sees we did not silently drop a leg.
 
 ---
 
@@ -114,10 +183,11 @@ Present:
 ```
 | Reviewer    | Verdict              | Key concern         | Confidence |
 |-------------|----------------------|---------------------|------------|
-| A (source)  | ...                  | ...                 | high/med/low |
-| Research    | [consensus finding]  | [main caveat]       | —          |
-| Secondo     | ...                  | ...                 | —          |
-| Web Advice  | ...                  | ...                 | —          |
+| A1 Codex    | ...                  | ...                 | high/med/low |
+| A2 Opus     | ...                  | ...                 | high/med/low |
+| B Research  | [consensus finding]  | [main caveat]       | —          |
+| C Secondo   | ...                  | ...                 | —          |
+| D Web Advice| ...                  | ...                 | —          |
 ```
 
 - Give every reviewer a row, including the ones that failed — write `unavailable (<reason>)` in the Verdict column. Never drop a row; a missing row hides a missing opinion.
@@ -172,7 +242,8 @@ What `/advice` saves is **the conversation**, not the change. `advisor()` ships 
 
 | Reviewer | What you send |
 |---|---|
-| A — subagent / CLI | Decision + pointer (reviewer fetches the rest) |
+| A1 Codex | Decision + pointer (reviewer fetches the rest) |
+| A2 Opus subagent / CLI | Decision + pointer (reviewer fetches the rest) |
 | B — /research | Web queries only |
 | C — /secondo | Decision; it gathers its own diff under its own budget |
 | D — /web-advice | Decision + PR reference, per its own budget |
@@ -183,12 +254,15 @@ Do not cite a percentage saving — none has ever been measured here. And do not
 
 | Priority | CLI | When |
 |---|---|---|
-| A1 | Claude subagent (Opus) | Primary (inside Claude Code) |
-| A1.1 | `claude -p --dangerously-skip-permissions` | First-class choice when invoked outside Claude Code; fallback if A3/agy errors |
-| A2 | `cursor agent -p --force` | Opus unavailable |
-| A3 | `agy --print --dangerously-skip-permissions` | cursor errors |
+| A1 | `codexs` (or `codex exec --yolo -m gpt-5.6-terra --config model_reasoning_effort=high`) | Primary — runs IN PARALLEL with A2 |
+| A2 | Opus Claude subagent | Primary — runs IN PARALLEL with A1 |
+| A3.1 | `claude -p --dangerously-skip-permissions` | Fallback if BOTH A1 and A2 error (outside Claude Code) |
+| A3.2 | `cursor agent -p --force` | Fallback if A3.1 errors |
+| A3.3 | `agy --print --dangerously-skip-permissions` | Fallback if A3.2 errors |
 
 Notes:
+- Codex + Opus are the primary PAIR, not a fallback chain. Both are fired in the same turn whenever both are available. A reviewer quorum table needs BOTH rows; mark missing partner `unavailable (<reason>)` per the solo-mode rule.
+- The A3.x fallback chain only activates if BOTH A1 and A2 error — Codex alone failing does not drop to A3 (the Opus verdict still counts).
 - Check a CLI is on `PATH` before counting it as a rung. An absent CLI is an unavailable rung, not a failed reviewer — drop to the next rung without recording a failure.
 - `agy --print-timeout` defaults to 5m. Pass a longer value for a full 150-line artifact, or the review dies as an opaque timeout that looks like an error.
-- codex was dropped from the chain 2026-06-24 (gpt-4.5 unsupported on the ChatGPT account, quota exhausted). **That reason is now obsolete** — `codex` is installed and `codexs` (gpt-5.3-codex-spark) is the delegation target named in `~/.claude/CLAUDE.md`. Re-adding it as a rung is a live option; the 2026-06-24 removal is not still-binding evidence against it.
+- `codexs` is the `gpt-5.3-codex-spark` wrapper at `~/.local/bin/codexs` (also aliased in `~/.bashrc`). On machines where it is not installed, the inline `codex exec` form is the equivalent — pick the model tier per the lane (`gpt-5.6-terra` is the default for /advice reviews per `~/.codex/config.toml` model-tiering policy). If the configured model errors with `usage limit` or similar, retry the next-tier-up — do not silently mark Reviewer A unavailable. Codex was re-added to the chain on 2026-08-29 (previously dropped 2026-06-24 because `gpt-4.5` was unsupported on the ChatGPT account — that reason is obsolete).
