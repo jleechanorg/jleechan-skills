@@ -292,7 +292,7 @@ have the methodology inlined into its prompt.
 
 **Two-source verdict synthesis.** `/er` combines this skill's verdict (evidence
 review) with the separate evidence-standards compliance verdict into one raw
-overall verdict. Harnesses (e.g. `/goal_harness`) own final normalization
+overall verdict. Goal-driving harnesses own final normalization
 (collapsing PARTIAL/INCONCLUSIVE to FAIL, WARN to PASS, per their own convergence
 policy) — `/er` itself returns the raw, unnormalized verdict:
 

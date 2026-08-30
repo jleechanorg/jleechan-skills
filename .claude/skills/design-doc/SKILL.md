@@ -1,4 +1,5 @@
 ---
+name: design-doc
 description: Generate comprehensive product spec, engineering design, and TDD implementation plan documents for any feature or project. Consolidated 2026-07-11 from the retired /design command (whose newer Phase-0 exit-criteria-first + batch-decision contract is authoritative — see the AUTHORITATIVE ENTRY CONTRACT section) and the retired design HTML skill.
 ---
 

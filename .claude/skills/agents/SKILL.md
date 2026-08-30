@@ -1,3 +1,8 @@
+---
+name: agents
+description: Apply WorldArchitect.AI agent-routing priority, modal-lock, and stale-state guard patterns.
+---
+
 # Agent Routing & Modal Lock Patterns
 
 **COMPACTNESS RULE**: Keep this file under 200 lines. Link to code instead of duplicating implementation details.

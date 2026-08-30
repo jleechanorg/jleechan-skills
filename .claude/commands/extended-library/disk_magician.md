@@ -14,7 +14,7 @@ Analyze disk usage, scan for blind spots, and run safe cleanups using the `disk-
 ## Skill Reference
 
 Full integration guide and guidelines:
-- `~/.claude/skills/disk_magician/SKILL.md`
+- `~/.claude/skills/disk-magician/SKILL.md`
 
 ## Quick Commands:
 - **Audit**: `disk-magician audit`
@@ -31,4 +31,4 @@ Full integration guide and guidelines:
 
 ## Execution
 
-When invoked with `$ARGUMENTS`, read `~/.claude/skills/disk_magician/SKILL.md` and execute the appropriate `disk-magician` commands.
+When invoked with `$ARGUMENTS`, read `~/.claude/skills/disk-magician/SKILL.md` and execute the appropriate `disk-magician` commands.

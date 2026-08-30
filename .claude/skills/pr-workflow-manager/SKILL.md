@@ -1,4 +1,5 @@
 ---
+name: pr-workflow-manager
 description: Best practices and automation helpers for creating and maintaining high-quality pull requests
 type: usage
 scope: project

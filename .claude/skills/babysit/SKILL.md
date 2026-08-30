@@ -155,7 +155,7 @@ The bash one-liner runs every 60s. Each iteration:
 
 - Watch loop exits on: user `stop`, `--max-min` reached, DEAD state, COMPLETED + PR merged
 - One-shot snapshot always exits after one pass
-- If the user is also running `/auton` or `/eloop`, babysit must not stack — exit cleanly and let those drive the system-level state
+- If the user is also running another autonomous system-level loop, babysit must not stack — exit cleanly and let that loop drive the system state
 
 ## Output format (snapshot)
 
@@ -227,7 +227,7 @@ Verify: <command to run before pushing> (e.g., pnpm -C packages/cli test)"
 - Do not send a generic "keep working" or "fix CI" message — that is the failure pattern. If you cannot extract a specific file:line, push-notify the user instead of sending a vague driver message.
 - Do not send `ao send` with raw `gh run` output pasted in. Distill to one specific actionable instruction.
 - Do not auto-fix the worker's code (babysit does not have write access; it only steers).
-- Do not stack DRIVER sends with `/auton` or `/eloop` — those are system-level drivers; let them run or stop babysit.
+- Do not stack DRIVER sends with another autonomous system-level driver; let it run or stop babysit.
 
 **Why this exists:** babysit's success metric was "status posted" not "failure fixed." Generic nudges do not move workers that have already tried and failed — they need exact file:line fix instructions. Observed in PR #7618 (rate-limit) over 4+ hours with 15+ babysit status updates and zero progress. Memory: [[babysit-not-a-driver]]. See also [[pr-driver-loop-contract]] in `~/.claude/CLAUDE.md`.
 
@@ -260,4 +260,3 @@ Verify: <command to run before pushing> (e.g., pnpm -C packages/cli test)"
 - `/babysit-openclaw` — Slack-thread-based, single-shot, different model
 - `/auton` — system-level autonomy diagnostic
 - `/ao-lifecycle-triage` — log-driven deep triage of a single stuck worker
-- `/evolve-loop` / `/eloop` — autonomous loop; babysit is intentionally NOT autonomous (always opt-in)

@@ -1,3 +1,8 @@
+---
+name: smoke-test-local
+description: Reproduce WorldArchitect.AI CI smoke-test failures in a clean local environment.
+---
+
 # Running Smoke Tests Locally
 
 **Purpose**: Reproduce CI smoke test failures locally, especially for `mcp_smoke_test.sh` / SCENARIO 7 streaming contracts.

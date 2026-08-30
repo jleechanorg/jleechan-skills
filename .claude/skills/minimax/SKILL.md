@@ -1,3 +1,8 @@
+---
+name: minimax
+description: Run PR automation jobs with the MiniMax API provider.
+---
+
 # MiniMax Automation Runner
 
 **Usage**: Run jleechanorg-pr-monitor automation jobs using MiniMax API provider.

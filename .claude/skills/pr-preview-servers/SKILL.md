@@ -1,3 +1,8 @@
+---
+name: pr-preview-servers
+description: Find and validate rotating GCP Cloud Run preview servers for PR branches.
+---
+
 # PR Preview Servers — GCP Cloud Run Pool
 
 Reference for the rotating preview server pool used to deploy PR branches.

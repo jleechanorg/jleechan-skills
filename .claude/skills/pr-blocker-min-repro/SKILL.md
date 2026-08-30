@@ -1,4 +1,5 @@
 ---
+name: pr-blocker-min-repro
 description: "PR blocker minimal repro ladder for BYOK and related regressions"
 type: "workflow"
 scope: "github"
@@ -81,4 +82,3 @@ Use this pattern in bead notes:
 - `Classification:` backend, mcp, ui, or external-provider.
 - `Evidence:` absolute path(s) + key log line(s).
 - `Decision:` keep open, close, or downgrade priority.
-

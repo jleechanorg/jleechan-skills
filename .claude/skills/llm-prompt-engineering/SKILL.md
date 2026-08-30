@@ -1,3 +1,8 @@
+---
+name: llm-prompt-engineering
+description: Write and debug system prompts, agent instructions, and LLM behavior contracts.
+---
+
 # LLM Prompt Engineering - System Instruction Best Practices
 
 **Purpose**: Guidelines for writing effective system instructions that LLMs actually follow, based on real debugging experiences.

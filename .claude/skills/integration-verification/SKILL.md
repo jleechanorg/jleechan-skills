@@ -1,3 +1,8 @@
+---
+name: integration-verification
+description: Prove integrations work automatically with concrete evidence rather than manual claims alone.
+---
+
 # Integration Verification Protocol
 
 **Purpose**: When claiming ANY integration works, you MUST provide the Three Evidence Rule to prove automatic behavior, not just manual testing.

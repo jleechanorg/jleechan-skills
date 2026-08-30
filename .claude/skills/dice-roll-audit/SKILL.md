@@ -1,3 +1,8 @@
+---
+name: dice-roll-audit
+description: Audit campaign dice rolls for fairness, anomalies, mechanics validation, and evidence.
+---
+
 # Dice Roll Audit - Campaign Analysis
 
 ## Overview

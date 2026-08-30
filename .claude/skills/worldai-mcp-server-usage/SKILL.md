@@ -1,3 +1,8 @@
+---
+name: worldai-mcp-server-usage
+description: Use WorldArchitect.AI MCP server JSON-RPC endpoints, request formats, and server workflows.
+---
+
 # Your Project MCP Server Usage
 
 ## Overview

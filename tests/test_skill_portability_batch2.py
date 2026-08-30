@@ -17,7 +17,6 @@ SKILLS_ROOT = REPO_ROOT / ".claude" / "skills"
 
 BATCH2 = (
     "evidence-coverage",
-    "evolve_loop",
     "fetch-x-tweet",
     "field-ownership-contracts",
     "game-evidence-reviewer",

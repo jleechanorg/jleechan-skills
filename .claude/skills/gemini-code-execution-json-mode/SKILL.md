@@ -1,3 +1,8 @@
+---
+name: gemini-code-execution-json-mode
+description: Handle model-specific compatibility between Gemini code execution and structured JSON output.
+---
+
 # Gemini Code Execution + JSON Mode Compatibility
 
 ## CRITICAL: Model-Specific Behavior

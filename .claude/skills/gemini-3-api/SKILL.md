@@ -1,3 +1,8 @@
+---
+name: gemini-3-api
+description: Use current google-genai parameters and thinking configuration for Gemini 3 models.
+---
+
 # Gemini 3 API (google-genai) - Usage Notes
 
 Use this when wiring Gemini 3 models in the Python SDK to avoid outdated params.

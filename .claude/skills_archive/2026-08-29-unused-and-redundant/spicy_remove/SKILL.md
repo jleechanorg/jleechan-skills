@@ -1,5 +1,5 @@
 ---
-name: spicy_remove
+name: spicy-remove
 description: Remove egregious content from campaign story history and game state when model safety blocks cause empty responses or zero candidates
 ---
 

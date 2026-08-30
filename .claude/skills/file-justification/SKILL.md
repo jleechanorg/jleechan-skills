@@ -1,3 +1,8 @@
+---
+name: file-justification
+description: Justify file changes by documenting their goal, necessity, integration, and correct ownership.
+---
+
 # File Justification Protocol
 
 **Purpose**: Before creating or modifying ANY file, you MUST document the justification to prevent unnecessary file creation and ensure changes are well-reasoned.
