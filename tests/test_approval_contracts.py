@@ -88,6 +88,18 @@ class ApprovalContractsTest(unittest.TestCase):
             "When no external attempt occurred and explicit authorization is absent",
             quick,
         )
+        self.assertIn(
+            "Retry the whole `/advice` invocation only when it failed before any reviewer launched",
+            quick,
+        )
+        self.assertIn(
+            "Any Reviewer D attempt consumes the single `/web-advice` run",
+            quick,
+        )
+        self.assertIn(
+            "Only when `/advice` did not attempt Reviewer D",
+            quick,
+        )
         self.assertIn("`/advice`: `RAN | FAILED`", quick)
         self.assertIn(
             "`/web-advice`: `RAN | SKIPPED | UNAVAILABLE | FAILED`",
