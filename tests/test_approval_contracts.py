@@ -64,6 +64,22 @@ class ApprovalContractsTest(unittest.TestCase):
         )
         self.assertIn("Do not run a second standalone `/web-advice`", quick)
         self.assertIn("Do not pause or ask the user to log in", quick)
+        self.assertIn(
+            "Reviewer D /web-advice is disabled; do not invoke it or any external browser transport",
+            quick,
+        )
+        self.assertIn(
+            "lists Reviewer D as `unavailable (disabled by parent authorization boundary)`",
+            quick,
+        )
+        self.assertIn(
+            "Retry `/advice` once only for a transient transport or reviewer-launch failure",
+            quick,
+        )
+        self.assertIn(
+            "permits the terminal report but prohibits claiming that advice passed or approved the documents",
+            quick,
+        )
         self.assertIn("`/advice`: `RAN | FAILED`", quick)
         self.assertIn(
             "`/web-advice`: `RAN | SKIPPED | UNAVAILABLE | FAILED`",
