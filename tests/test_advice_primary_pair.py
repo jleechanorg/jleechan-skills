@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import importlib.util
+import io
 import os
 import subprocess
 import tempfile
@@ -12,6 +13,7 @@ import time
 import unittest
 from pathlib import Path
 from unittest import mock
+from contextlib import redirect_stderr
 
 
 SCRIPT = (
@@ -321,6 +323,57 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         self.assertEqual(cleanup["success"], False)
         self.assertIn("fixture denied", cleanup["error"])
         self.assertEqual(cleanup["path"], str(disposable))
+
+    def test_operation_and_cleanup_failure_records_both_and_cleanup_exit_wins(self) -> None:
+        runner = load_runner_module()
+        argv = [
+            "--repo", str(self.repo), "--ref", self.sha,
+            "--packet-file", str(self.packet), "--output-dir", str(self.output),
+        ]
+        cleanup = {"success": False, "error": "cleanup denied", "path": "/fixture"}
+        def cleanup_failure(path):
+            runner.cleanup_directory(path)
+            return cleanup
+        stderr = io.StringIO()
+
+        with redirect_stderr(stderr):
+            code = runner.main(
+                argv,
+                create_clone_fn=mock.Mock(side_effect=RuntimeError("clone setup failed")),
+                cleanup_fn=mock.Mock(side_effect=cleanup_failure),
+            )
+
+        self.assertEqual(code, 5)
+        receipt = json.loads((self.output / "receipt.json").read_text())
+        self.assertEqual(receipt["operation"]["success"], False)
+        self.assertIn("clone setup failed", receipt["operation"]["error"])
+        self.assertEqual(receipt["cleanup"], cleanup)
+        self.assertIn("failed to clean disposable clones", stderr.getvalue())
+
+    def test_operation_failure_with_successful_cleanup_has_distinct_exit_and_receipt(self) -> None:
+        runner = load_runner_module()
+        argv = [
+            "--repo", str(self.repo), "--ref", self.sha,
+            "--packet-file", str(self.packet), "--output-dir", str(self.output),
+        ]
+        cleanup = {"success": True, "error": None, "path": "/fixture"}
+        def cleanup_success(path):
+            runner.cleanup_directory(path)
+            return cleanup
+        stderr = io.StringIO()
+
+        with redirect_stderr(stderr):
+            code = runner.main(
+                argv,
+                create_clone_fn=mock.Mock(side_effect=RuntimeError("clone setup failed")),
+                cleanup_fn=mock.Mock(side_effect=cleanup_success),
+            )
+
+        self.assertEqual(code, 6)
+        receipt = json.loads((self.output / "receipt.json").read_text())
+        self.assertEqual(receipt["operation"]["success"], False)
+        self.assertEqual(receipt["cleanup"], cleanup)
+        self.assertIn("primary reviewer operation failed", stderr.getvalue())
 
 
 if __name__ == "__main__":

@@ -102,7 +102,10 @@ lane as `error` with `failure: timeout`; the peer may still supply the sole
 primary verdict. If both time out, the runner exits 4 and A3 applies. Clone
 cleanup and receipt writing still run after timeouts. Cleanup itself is a gate:
 failure is recorded in `receipt.json` and the runner exits 5 rather than hiding
-leftover full-permission checkouts.
+leftover full-permission checkouts. Setup, reviewer, and result-output exceptions
+are captured under `operation` instead of escaping as traceback-only failures;
+after successful cleanup they exit 6. If operation and cleanup both fail,
+`receipt.json` records both and cleanup exit 5 takes precedence.
 
 Ignored regular files may contain credentials, so the fingerprint never opens
 or hashes their contents. It records each ignored relative path plus `lstat`

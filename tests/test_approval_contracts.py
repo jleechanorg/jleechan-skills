@@ -64,9 +64,10 @@ class ApprovalContractsTest(unittest.TestCase):
         self.assertIn("`COVERAGE: <files/diff scope actually read>`", advice)
         self.assertIn("Codex + Opus CLI", command)
         self.assertIn("/research", command)
-        self.assertIn("/secondo", command)
+        self.assertIn("/extended-library:secondo", command)
         self.assertIn("/web-advice", command)
         self.assertIn("up to five reviewers concurrently", readme)
+        self.assertIn("`/extended-library:secondo`", readme)
         self.assertNotIn("up to four reviewers concurrently: an Opus subagent", readme)
 
     def test_web_advice_requires_real_browser_transport(self) -> None:

@@ -262,7 +262,7 @@ def opus_lane(
     }
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo", required=True, type=Path)
     parser.add_argument("--ref", required=True)
@@ -274,7 +274,7 @@ def parse_args() -> argparse.Namespace:
         default=1200.0,
         help="maximum runtime for each primary reviewer (default: 1200)",
     )
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def cleanup_directory(path: Path) -> dict[str, Any]:
@@ -287,8 +287,32 @@ def cleanup_directory(path: Path) -> dict[str, Any]:
     return {"success": True, "error": None, "path": str(path)}
 
 
-def main() -> int:
-    args = parse_args()
+def create_clone(source: Path, destination: Path, sha: str) -> None:
+    subprocess.run(
+        [
+            "git",
+            "clone",
+            "--quiet",
+            "--no-local",
+            "--no-checkout",
+            str(source),
+            str(destination),
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=True,
+    )
+    git(destination, "remote", "remove", "origin")
+    git(destination, "checkout", "--quiet", "--detach", sha)
+
+
+def main(
+    argv: list[str] | None = None,
+    *,
+    create_clone_fn=create_clone,
+    cleanup_fn=cleanup_directory,
+) -> int:
+    args = parse_args(argv)
     if args.timeout_seconds <= 0:
         print("--timeout-seconds must be greater than zero", file=sys.stderr)
         return 2
@@ -316,17 +340,12 @@ def main() -> int:
         "parallel_dispatch": True,
         "checkout_kind": "independent_clone_no_local",
         "timeout_seconds": args.timeout_seconds,
+        "operation": {"success": False, "error": "operation did not complete"},
     }
+    operational_error: str | None = None
     try:
         for path in clones.values():
-            subprocess.run(
-                ["git", "clone", "--quiet", "--no-local", "--no-checkout", str(repo), str(path)],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                check=True,
-            )
-            git(path, "remote", "remove", "origin")
-            git(path, "checkout", "--quiet", "--detach", sha)
+            create_clone_fn(repo, path, sha)
         receipt["clone_shas"] = {
             name: git(path, "rev-parse", "HEAD").stdout.decode().strip()
             for name, path in clones.items()
@@ -350,19 +369,40 @@ def main() -> int:
         receipt["overlap_proven"] = max(r["started_ns"] for r in results.values()) <= min(
             r["ended_ns"] for r in results.values()
         )
+        receipt["operation"] = {"success": True, "error": None}
+    except Exception as error:
+        operational_error = f"{type(error).__name__}: {error}"
+        receipt["operation"] = {"success": False, "error": operational_error}
     finally:
-        receipt["cleanup"] = cleanup_directory(temp_root)
-        after = repository_snapshot(repo)
-        receipt["original_changed_components"] = sorted(
-            component for component in before if before[component] != after[component]
-        )
-        receipt["original_repository_unchanged"] = not receipt["original_changed_components"]
-        receipt["original_checkout_unchanged"] = receipt["original_repository_unchanged"]
-        (output_dir / "receipt.json").write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+        receipt["cleanup"] = cleanup_fn(temp_root)
+        try:
+            after = repository_snapshot(repo)
+            receipt["original_changed_components"] = sorted(
+                component for component in before if before[component] != after[component]
+            )
+            receipt["original_repository_unchanged"] = not receipt["original_changed_components"]
+            receipt["original_checkout_unchanged"] = receipt["original_repository_unchanged"]
+        except Exception as error:
+            if operational_error is None:
+                operational_error = f"{type(error).__name__}: {error}"
+                receipt["operation"] = {"success": False, "error": operational_error}
+            receipt["original_repository_unchanged"] = False
+            receipt["original_checkout_unchanged"] = False
+            receipt["original_changed_components"] = ["fingerprint_error"]
+        try:
+            (output_dir / "receipt.json").write_text(
+                json.dumps(receipt, indent=2, sort_keys=True) + "\n"
+            )
+        except Exception as error:
+            if operational_error is None:
+                operational_error = f"{type(error).__name__}: {error}"
 
     if not receipt["cleanup"]["success"]:
         print(f"failed to clean disposable clones: {receipt['cleanup']['error']}", file=sys.stderr)
         return 5
+    if operational_error is not None:
+        print(f"primary reviewer operation failed: {operational_error}", file=sys.stderr)
+        return 6
     if not receipt["original_repository_unchanged"]:
         print("original checkout or repository metadata changed while reviewers were running", file=sys.stderr)
         return 3
