@@ -130,6 +130,8 @@ class LLMBackendIsolationContractsTest(unittest.TestCase):
         self.assertIn("loaded every prompt file", skill_text)
         self.assertIn("numeric PII", skill_text)
         self.assertIn("campaign or equivalent entity IDs when applicable", skill_text)
+        self.assertNotIn("`llm_payloads`", skill_text)
+        self.assertIn("active project's canonical telemetry owner", skill_text)
         self.assertNotIn("`.claude/skills/", skill_text)
 
         self.assertIn(

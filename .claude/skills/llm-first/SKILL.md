@@ -23,9 +23,11 @@ For an existing behavior or incident, the primary causal input is an exact
 provider-boundary capture of the request and response, not a request
 reconstructed from current backend source.
 
-1. Query an authoritative provider-boundary capture. BigQuery raw LLM request
-   telemetry from the active project's `llm_payloads` table is one storage
-   option, not a prerequisite. Use one exact non-test request and its response.
+1. Query an authoritative provider-boundary capture.
+   Resolve the active project's canonical telemetry owner and its actual table
+   or capture schema;
+   BigQuery raw LLM request telemetry is one storage option, not a prerequisite.
+   Use one exact non-test request and its response.
    Record an immutable source-row locator, query/export identity, request ID,
    campaign or equivalent entity IDs when applicable, timestamps, agent,
    model/revision, schemas, MIME settings, generation parameters, cache
