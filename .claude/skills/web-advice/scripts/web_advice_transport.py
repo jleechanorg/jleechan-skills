@@ -32,21 +32,23 @@ CONTRACT section for full provenance):
    bold labels, plain colon-separated labels, and leading '>' blockquote
    markers (models sometimes quote their own structured answer back).
    -> parse_verdict()
-12. ATTACHMENT VERIFICATION (bead wc-kjny, 2026-08-02 Grok incident): an
-   upload call that throws no exception and logs "files set" is NOT proof
-   of a successful attachment -- grok.com has six file inputs and a naive
-   `.first()` locator can silently grab the wrong one, attaching zero
-   images while the model fabricates a confident, fully-formatted verdict
-   for content that was never uploaded (a "9:41" status bar, a "hooded
-   figure", "the scent of ozone" -- none of it real, zero exceptions
-   raised). -> AttachmentNotVerifiedError + assert_attachment_verified()
+12. ATTACHMENT VERIFICATION (bead wc-kjny, 2026-08-02 multi-vendor incident):
+   an upload call that throws no exception and logs "files set" is NOT
+   proof of a successful attachment -- a vendor page can expose multiple
+   `input[type="file"]` elements and a naive `.first()` locator can
+   silently grab the wrong one, attaching zero images while the model
+   fabricates a confident, fully-formatted verdict for content that was
+   never uploaded (a "9:41" status bar, a "hooded figure", "the scent of
+   ozone" -- none of it real, zero exceptions raised). This pattern is
+   not vendor-specific; it applies to any chat UI with multiple file
+   inputs. -> AttachmentNotVerifiedError + assert_attachment_verified()
 13. FRAME ORDER VERIFICATION (bead wc-kjny, Perplexity 2026-08-02): a model
    can read every frame's pixels correctly and still discuss them in the
    wrong sequence, which measurably weakens its verdict even though
    nothing it said was individually false (Perplexity's own "Frame 1/2/3"
    labels didn't match upload order, scrambling its causal narrative and
-   landing it on PARTIALLY SUPPORTED where Gemini/Grok reached SUPPORTED
-   on identical evidence). -> verify_frame_order()
+   landing it on PARTIALLY SUPPORTED where the remaining vendors reached
+   SUPPORTED on identical evidence). -> verify_frame_order()
 """
 
 from __future__ import annotations
@@ -132,7 +134,6 @@ _BANNED_SUBSTITUTES = frozenset(
         "openai_api",
         "chatgpt_api",
         "xai_api",
-        "grok_api",
         # CLI models
         "cli_model",
         "agy",
@@ -469,7 +470,6 @@ def assert_public_share_verified(probe: dict) -> None:
     url = probe.get("url") or ""
     allowed_share_patterns = (
         r"https://chatgpt\.com/share/[A-Za-z0-9_-]+",
-        r"https://grok\.com/share/[A-Za-z0-9_-]+",
         r"https://(?:g\.co/gemini/share|gemini\.google\.com/share)/[A-Za-z0-9_-]+(?:\?.*)?",
         r"https://(?:www\.)?perplexity\.ai/search/[A-Za-z0-9_-]+(?:\?.*)?",
     )
@@ -617,7 +617,7 @@ def seat_accounting(seats: dict) -> str:
         A single-line honest accounting string, e.g.:
         "3-of-4, missing chatgpt because cloudflare+cookie-hardening"
         or, when every seat answered:
-        "4-of-4: full panel (gemini, grok, perplexity, chatgpt)"
+        "3-of-3: full panel (gemini, perplexity, chatgpt)"
     """
     total = len(seats)
     ok_seats = [name for name, status in seats.items() if status == "ok"]
@@ -646,7 +646,7 @@ def seat_accounting(seats: dict) -> str:
 def build_visual_prompt(claim: str, frame_names: list) -> str:
     """Build the description-FIRST visual-evidence review prompt (lesson 6).
 
-    Models that cannot ingest video (Grok, Perplexity) CAN ingest images.
+    Models that cannot ingest video (Perplexity) CAN ingest images.
     The correct prompt shape demands, in this fixed order:
       1. literal pixel description of each frame (before any verdict)
       2. what changed between frames
@@ -702,26 +702,26 @@ frame-to-frame delta)."""
 
 
 # ---------------------------------------------------------------------------
-# Lesson 12: ATTACHMENT VERIFICATION (bead wc-kjny, 2026-08-02 Grok incident)
+# Lesson 12: ATTACHMENT VERIFICATION (bead wc-kjny, 2026-08-02 multi-vendor incident)
 # ---------------------------------------------------------------------------
 
 
 class AttachmentNotVerifiedError(Exception):
     """Raised when an upload action produced no affirmative proof of attachment.
 
-    Fixes the 2026-08-02 Grok incident (bead wc-kjny): a
-    `page.locator('input[type="file"]').first()` call on grok.com -- which
-    has SIX `input[type="file"]` elements -- silently matched the wrong one.
-    `set_input_files()` threw no exception and the caller logged "files
-    set", but `document.querySelectorAll('img')` afterward showed zero
-    uploaded images (only Grok's profile avatar and a cookie-consent-banner
-    logo). Grok then produced a fully-formatted DESCRIPTION and
-    `VERDICT: NOT SUPPORTED` for content that does not exist anywhere in
-    the app (a "9:41" status bar, a "hooded figure", "the scent of ozone
-    lingering", a "Roll Initiative" button) and claimed 2 frames were
-    pixel-identical although 3 were referenced -- a complete, confident,
-    internally-consistent fabrication with no signal from the outside that
-    anything was wrong.
+    Fixes the 2026-08-02 multi-vendor incident (bead wc-kjny): a
+    `page.locator('input[type="file"]').first()` call against a vendor page
+    that exposes MULTIPLE `input[type="file"]` elements silently matched
+    the wrong one. `set_input_files()` threw no exception and the caller
+    logged "files set", but `document.querySelectorAll('img')` afterward
+    showed zero uploaded images (only the vendor's profile avatar and a
+    cookie-consent-banner logo). The model then produced a fully-formatted
+    DESCRIPTION and `VERDICT: NOT SUPPORTED` for content that does not
+    exist anywhere in the app (a "9:41" status bar, a "hooded figure", "the
+    scent of ozone lingering", a "Roll Initiative" button) and claimed 2
+    frames were pixel-identical although 3 were referenced -- a complete,
+    confident, internally-consistent fabrication with no signal from the
+    outside that anything was wrong.
 
     "No exception was thrown" and "the call logged success" are NEVER
     sufficient proof of a successful upload. This exception is the gate:
@@ -738,8 +738,6 @@ class AttachmentNotVerifiedError(Exception):
 # avatar URL is intentionally excluded -- an avatar existing is not proof of
 # an attachment). Extend this list as more providers are verified.
 _ATTACHMENT_CDN_HOST_PATTERNS = (
-    "assets.grok.com",
-    "assets.x.ai",
     "oaiusercontent.com",
     "files.oaiusercontent.com",
     "pplx-res.cloudinary.com",
@@ -790,8 +788,7 @@ def assert_attachment_verified(dom_probe_result: dict) -> None:
               - "attachment_cdn_urls": list[str] of any URLs observed (img
                 src or network requests) after the upload action. Matched
                 against known provider attachment-CDN host patterns
-                (assets.grok.com, oaiusercontent.com,
-                pplx-res.cloudinary.com, ...).
+                (oaiusercontent.com, pplx-res.cloudinary.com, ...).
               - "attachment_indicator_text": str -- text scraped near the
                 composer, e.g. Perplexity's "3 attachments" pill. Checked
                 for an explicit positive "N attachment(s)"/"N file(s)
@@ -823,11 +820,11 @@ def assert_attachment_verified(dom_probe_result: dict) -> None:
         "message, a page.locator(...).first() that grabbed the wrong one "
         "of multiple file inputs) is INDISTINGUISHABLE from a working one "
         "at every layer except this check -- see "
-        "AttachmentNotVerifiedError.__doc__ for the exact 2026-08-02 Grok "
-        "incident this prevents. DISCARD any response obtained without a "
-        "passing assert_attachment_verified() call; do not record its "
-        "verdict, and do not submit a prompt referencing image content "
-        "until this passes."
+        "AttachmentNotVerifiedError.__doc__ for the exact 2026-08-02 "
+        "multi-vendor incident this prevents. DISCARD any response "
+        "obtained without a passing assert_attachment_verified() call; "
+        "do not record its verdict, and do not submit a prompt referencing "
+        "image content until this passes."
     )
 
 
@@ -845,8 +842,8 @@ def verify_frame_order(prompt_frame_names: list, model_reported_order: list) -> 
     (2026-08-02: Perplexity's own "Frame 1/2/3" labels did not match the
     upload order `[presend, thinking, resolved]` -- it labeled `thinking`
     as "Frame 1" and `presend` as "Frame 2" -- which scrambled its causal
-    narrative and landed it on `VERDICT: PARTIALLY SUPPORTED` where
-    Gemini/Grok reached `VERDICT: SUPPORTED` on the identical underlying
+    narrative and landed it on `VERDICT: PARTIALLY SUPPORTED` where the
+    other vendors reached `VERDICT: SUPPORTED` on the identical underlying
     evidence, read in the correct order). Call this after scraping a
     model's per-frame description labels and before trusting its "what
     changed between frames" narrative.

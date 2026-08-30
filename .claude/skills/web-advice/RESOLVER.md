@@ -16,12 +16,12 @@ line**, not in a sub-line below it. This file follows that fix.
 
 ---
 
-## web-advice — web advice, multi model review, ask chatgpt gemini grok perplexity, external model review, browser review, second opinion from the web
+## web-advice — web advice, multi model review, ask chatgpt gemini perplexity, external model review, browser review, second opinion from the web
 
 **File:** `~/.claude/skills/web-advice/SKILL.md`
 **Command:** `/web-advice`
 **Mechanism:** real browser sessions on the actual
-ChatGPT/Gemini/Grok/Perplexity websites. Prefer `aside-mcp` or `aside repl`;
+ChatGPT/Gemini/Perplexity websites. Prefer `aside-mcp` or `aside repl`;
 when Aside is unavailable or unsupported, use the approved Playwright/Chrome
 browser fallbacks after proving vendor auth and a writable composer. Provider
 APIs, CLI models, Aside inference (`aside exec`, `aside "..."` NL agent),

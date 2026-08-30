@@ -1,16 +1,16 @@
 ---
 name: web-advice
-description: Browser-based multi-model advice and review using ChatGPT, Gemini, Grok, and Perplexity Web. Use for an independent external perspective on any subject, including PRs, designs, docs, plans, and decisions.
+description: Browser-based multi-model advice and review using ChatGPT, Gemini, and Perplexity Web. Use for an independent external perspective on any subject, including PRs, designs, docs, plans, and decisions.
 ---
 
 # /web-advice — Multi-Model Browser Review
 
-`/web-advice` queries independent web LLMs (ChatGPT, Gemini, Grok, and Perplexity when available) through their web UIs in the user's authenticated browser, then synthesizes their advice. It can review or advise on any user-supplied subject: code and PRs, designs, documents, plans, decisions, research questions, UX, and operational proposals. This is **different from `/advice`**, which is in-session and uses subagents + /secondo + /research.
+`/web-advice` queries independent web LLMs (ChatGPT, Gemini, and Perplexity when available) through their web UIs in the user's authenticated browser, then synthesizes their advice. It can review or advise on any user-supplied subject: code and PRs, designs, documents, plans, decisions, research questions, UX, and operational proposals. This is **different from `/advice`**, which is in-session and uses subagents + /secondo + /research.
 
 | Skill | Mechanism | When to use |
 |---|---|---|
 | `/advice` | In-session: subagent + /secondo + /research | Architectural reasoning, ZFC reviews, code-path analysis |
-| `/web-advice` | Browser: ChatGPT + Gemini + Grok + Perplexity Web; Aside preferred, browser fallbacks supported | Independent external multi-model advice or review; visual/video context; web-search grounding |
+| `/web-advice` | Browser: ChatGPT + Gemini + Perplexity Web; Aside preferred, browser fallbacks supported | Independent external multi-model advice or review; visual/video context; web-search grounding |
 | `/er` | In-session: evidence-standards skill | Evidence bundle integrity (4-gate checksum/SHA/real-services) |
 
 ## Real-Browser Transport Contract: Aside Preferred
@@ -25,7 +25,7 @@ description: Browser-based multi-model advice and review using ChatGPT, Gemini, 
 >
 > **NEVER use Aside inference** (`aside "..."` NL agent, `aside --effort ultrabrowse`, `aside exec`, `aside exec -m <model>`, or Aside's backend AI models).
 > Aside inference consumes Aside's token quota / usage limits and does NOT use the operator's web chat subscriptions.
-> The entire purpose of `/web-advice` is to navigate to the web chat interfaces (`https://chatgpt.com/`, `https://gemini.google.com/app`, `https://grok.com/`, `https://www.perplexity.ai/`) to leverage the user's active web chat subscriptions (ChatGPT Plus/Team/Pro, Gemini Advanced, Grok/X Premium, Perplexity Pro) via the authenticated browser.
+> The entire purpose of `/web-advice` is to navigate to the web chat interfaces (`https://chatgpt.com/`, `https://gemini.google.com/app`, `https://www.perplexity.ai/`) to leverage the user's active web chat subscriptions (ChatGPT Plus/Team/Pro, Gemini Advanced, Perplexity Pro) via the authenticated browser.
 >
 > **Approved transport ladder**:
 > 1. `aside_mcp`
@@ -138,7 +138,6 @@ fallback is selected.
 // In aside-mcp repl (mcp__aside-mcp__repl tool)
 await openTab('https://gemini.google.com/app');
 await openTab('https://chatgpt.com/');
-await openTab('https://grok.com/');
 await openTab('https://www.perplexity.ai/');
 
 const allTabs = await listBrowserTabs();
@@ -146,7 +145,7 @@ console.log('opened:', allTabs.length, 'tabs');
 for (const t of allTabs) console.log(' -', t.title, '(', t.url, ')');
 ```
 
-For Aside, expected output is 5 tabs (your existing tab + 4 new). A fallback
+For Aside, expected output is 4 tabs (your existing tab + 3 new). A fallback
 may use separate pages or contexts, but must report the selected transport and
 the per-vendor authentication result.
 
@@ -162,14 +161,13 @@ const geminiLoggedIn = !gemSnap.tree.includes('Sign in') && !gemSnap.tree.includ
 console.log('gemini logged in:', geminiLoggedIn);
 ```
 
-**Repeat for ChatGPT, Grok, and Perplexity.** If any model is not logged in, **stop and ask the user to log in** — do NOT try to log in for them (no credentials, no auth cookies, no OAuth flow). Login state per model:
+**Repeat for ChatGPT and Perplexity.** If any model is not logged in, **stop and ask the user to log in** — do NOT try to log in for them (no credentials, no auth cookies, no OAuth flow). Login state per model:
 
 - **Gemini**: Logged in shows "Google Account: <email>" in the sidebar
 - **ChatGPT**: Logged in shows "Log in" button HIDDEN; prompt textbox visible. **Heads up:** ChatGPT may show the marketing landing page ("Where should we begin?") with a "Log in" button even when a session cookie exists, depending on cookie state. If the textbox is missing OR the page shows "Sign up for free", the session is genuinely gone — ask the user to log in. Try navigating to `chat.openai.com` as a fallback URL.
-- **Grok**: Logged in shows chat history in sidebar; "New Chat" button enabled
 - **Perplexity**: Logged in shows username in the top-right corner (e.g., "jleechan77861") AND a "Sessions" sidebar with prior chats
 
-If the user can't log in to one model, run /web-advice with the others (3-of-4 still satisfies the multi-model adversarial requirement) and note the gap in the synthesis.
+If the user can't log in to one model, run /web-advice with the others (2-of-3 still satisfies the multi-model adversarial requirement when the two models are from different families) and note the gap in the synthesis.
 
 ### Step 3 — Submit prompt to each model (sequentially, not parallel)
 
@@ -246,7 +244,6 @@ console.log('coverage:', coverageMatch?.[1]);
 Models don't always format in the exact section headers. If the regex misses, look for the verdict line in the visible response:
 
 - **Gemini Pro**: Structured output, "Copy code" button visible, response in dedicated region
-- **Grok**: Conversational, "Like"/"Dislike" footer; verdict may be a single line near the end
 - **ChatGPT**: Most conversational, may not return structured output unless explicitly reminded
 - **Perplexity**: Citation-rich, "Sources" accordion; "Helpful"/"Not helpful" footer; verdict usually at the end
 
@@ -270,15 +267,14 @@ Web chat LLM review sessions are stateful and interactive, not single-turn scrip
 |---|---|---|---|---|
 | ChatGPT | <verdict> | high/med/low | <declared material read> | <one line> |
 | Gemini Pro | <verdict> | high/med/low | <declared material read> | <one line> |
-| Grok | <verdict> | high/med/low | <declared material read> | <one line> |
 | Perplexity | <verdict> | high/med/low | <declared material read> | <one line> (note: web-grounded, citation-rich) |
 
-**Convergence:** <3-of-4 agree / all 4 agree / 2-2 split / other>
+**Convergence:** <3-of-3 agree / all 3 agree / 2-1 split / other>
 **Recommended action:** <APPROVE / approve with conditions / change requests>
 **Open web sources cited:** <list URLs from Perplexity + any model that cited external standards>
 ```
 
-**Decision rule:** 3-of-4 agreement is sufficient (or 2-of-4 if both verdict strongly converge). 2-of-4 is acceptable when the two models are from different model families. If all 4 diverge, surface the disagreement to the user and ask which axis (speed / safety / cost) matters most. Perplexity's web grounding often breaks ties by surfacing external standards (D&D 5e SRD, RFC, etc.) that the other models lack.
+**Decision rule:** 3-of-3 agreement is sufficient (or 2-of-3 if both verdicts strongly converge). 2-of-3 is acceptable when the two models are from different model families. If all 3 diverge, surface the disagreement to the user and ask which axis (speed / safety / cost) matters most. Perplexity's web grounding often breaks ties by surfacing external standards (D&D 5e SRD, RFC, etc.) that the other models lack.
 
 ---
 
@@ -308,7 +304,7 @@ Recovery:
 
 ### Login required
 
-Symptom: ChatGPT shows "Log in" button; Grok shows "Sign in" page; Gemini shows "Sign in to continue".
+Symptom: ChatGPT shows "Log in" button; Gemini shows "Sign in to continue"; Perplexity shows "Sign in" page.
 
 Recovery:
 1. **Do NOT attempt login** — no credentials, no OAuth flow
@@ -341,7 +337,7 @@ Recovery:
 | Step | Tokens |
 |---|---|
 | Pre-flight + prompt build | ~2K |
-| Browser session (3 tabs) | ~5K (state management) |
+| Browser session | ~5K (state management) |
 | Per-model response | ~2-3K |
 | Synthesis | ~500 |
 | **Total** | **~13K** vs ~50-100K for full advisor() |

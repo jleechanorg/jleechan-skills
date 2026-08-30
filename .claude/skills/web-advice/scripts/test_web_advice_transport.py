@@ -191,7 +191,6 @@ class TestIsBannedSubstitute:
             "xai_api",
             "provider_api",
             "chatgpt_api",
-            "grok_api",
         ],
     )
     def test_provider_apis_are_banned(self, mechanism):
@@ -468,9 +467,9 @@ class TestParseVerdict:
 
 class TestSeatAccounting:
     def test_full_panel_all_ok(self):
-        seats = {"gemini": "ok", "grok": "ok", "perplexity": "ok", "chatgpt": "ok"}
+        seats = {"gemini": "ok", "perplexity": "ok", "chatgpt": "ok"}
         result = seat_accounting(seats)
-        assert result.startswith("4-of-4")
+        assert result.startswith("3-of-3")
         assert "full panel" in result
         for name in seats:
             assert name in result
@@ -478,12 +477,11 @@ class TestSeatAccounting:
     def test_missing_one_seat_names_it_and_the_reason(self):
         seats = {
             "gemini": "ok",
-            "grok": "ok",
             "perplexity": "ok",
             "chatgpt": "unavailable: cloudflare+cookie-hardening",
         }
         result = seat_accounting(seats)
-        assert result.startswith("3-of-4")
+        assert result.startswith("2-of-3")
         assert "chatgpt" in result
         assert "cloudflare+cookie-hardening" in result
         assert "because" in result
@@ -500,18 +498,16 @@ class TestSeatAccounting:
     def test_missing_multiple_seats_all_named(self):
         seats = {
             "gemini": "ok",
-            "grok": "unavailable: rate limited",
             "perplexity": "unavailable: captcha",
             "chatgpt": "unavailable: cloudflare+cookie-hardening",
         }
         result = seat_accounting(seats)
-        assert result.startswith("1-of-4")
-        assert "grok because rate limited" in result
+        assert result.startswith("1-of-3")
         assert "perplexity because captcha" in result
         assert "chatgpt because cloudflare+cookie-hardening" in result
 
     def test_zero_seats_available(self):
-        seats = {"gemini": "unavailable: down", "grok": "unavailable: down"}
+        seats = {"gemini": "unavailable: down", "perplexity": "unavailable: down"}
         result = seat_accounting(seats)
         assert result.startswith("0-of-2")
 
@@ -564,7 +560,7 @@ class TestBuildVisualPrompt:
 
 
 # ---------------------------------------------------------------------------
-# assert_attachment_verified (bead wc-kjny — 2026-08-02 Grok incident)
+# assert_attachment_verified (bead wc-kjny — 2026-08-02 attachment-verification incident)
 # ---------------------------------------------------------------------------
 
 
@@ -588,7 +584,7 @@ class TestAssertAttachmentVerified:
         probe = {
             "new_img_urls": [],
             "attachment_cdn_urls": [
-                "https://grok.com/static/avatar.png",
+                "https://chatgpt.com/static/avatar.png",
                 "https://consent.cookiebot.com/logo.svg",
             ],
             "attachment_indicator_text": "",
@@ -597,21 +593,19 @@ class TestAssertAttachmentVerified:
             assert_attachment_verified(probe)
 
     def test_passes_when_new_img_url_present(self):
-        probe = {"new_img_urls": ["https://assets.grok.com/uploads/abc123.png"]}
+        probe = {"new_img_urls": ["https://files.oaiusercontent.com/abc123.png"]}
         assert assert_attachment_verified(probe) is None
 
     def test_passes_when_provider_cdn_url_present(self):
         probe = {
             "new_img_urls": [],
-            "attachment_cdn_urls": ["https://assets.grok.com/uploads/frame1.png"],
+            "attachment_cdn_urls": ["https://oaiusercontent.com/uploads/frame1.png"],
         }
         assert assert_attachment_verified(probe) is None
 
     @pytest.mark.parametrize(
         "cdn_url",
         [
-            "https://assets.grok.com/uploads/frame1.png",
-            "https://assets.x.ai/media/xyz.png",
             "https://files.oaiusercontent.com/abc",
             "https://oaiusercontent.com/abc",
             "https://pplx-res.cloudinary.com/image/upload/frame2.jpg",
@@ -624,7 +618,7 @@ class TestAssertAttachmentVerified:
     def test_raises_when_cdn_urls_present_but_none_match_known_hosts(self):
         probe = {
             "attachment_cdn_urls": [
-                "https://grok.com/static/avatar.png",
+                "https://chatgpt.com/static/avatar.png",
                 "https://example.com/unrelated.png",
             ]
         }
@@ -670,21 +664,24 @@ class TestAssertAttachmentVerified:
         message = str(exc_info.value).lower()
         assert "no exception" in message or "files set" in message
 
-    def test_pins_the_exact_grok_incident_failure_shape(self):
-        # Reproduces the real 2026-08-02 probe state verbatim: Grok's
-        # first upload attempt used page.locator('input[type="file"]')
+    def test_pins_the_attachment_verification_failure_shape(self):
+        # Reproduces the real 2026-08-02 probe state verbatim: a vendor
+        # page's first upload attempt used page.locator('input[type="file"]')
         # .first() against a page with SIX file inputs, grabbed the wrong
         # one, set_input_files() threw no exception and logged "files
         # set", and document.querySelectorAll('img') afterward showed
-        # only Grok's own avatar + a cookie-consent-banner logo — zero
-        # uploaded images. Grok still returned a confident, fully
+        # only the vendor's own avatar + a cookie-consent-banner logo —
+        # zero uploaded images. The model still returned a confident, fully
         # formatted VERDICT: NOT SUPPORTED describing a "9:41" status
         # bar, a "hooded figure", and a "Roll Initiative" button — none
-        # of which exist in the app or the source frames.
-        grok_incident_probe = {
+        # of which exist in the app or the source frames. The lesson is
+        # vendor-agnostic — any chat UI with multiple file inputs can
+        # reproduce it — so this pin uses a generic vendor URL rather than
+        # a real one.
+        attachment_failure_probe = {
             "new_img_urls": [],
             "attachment_cdn_urls": [
-                "https://grok.com/static/profile-avatar.png",
+                "https://vendor.example.com/static/profile-avatar.png",
                 "https://consent.cookiebot.com/uc.js",
             ],
             "attachment_indicator_text": "",
@@ -696,7 +693,7 @@ class TestAssertAttachmentVerified:
             "log_message": "files set",
         }
         with pytest.raises(AttachmentNotVerifiedError):
-            assert_attachment_verified(grok_incident_probe)
+            assert_attachment_verified(attachment_failure_probe)
 
 
 # ---------------------------------------------------------------------------
@@ -720,7 +717,7 @@ class TestVerifyFrameOrder:
         # `presend` as its "Frame 2" — every frame present, none
         # hallucinated, just discussed out of order. This measurably
         # weakened its verdict to PARTIALLY SUPPORTED vs. the SUPPORTED
-        # that Gemini/Grok reached reading the same evidence in order.
+        # that the other vendors reached reading the same evidence in order.
         prompt_order = [
             "US-017_frame_presend.png",
             "US-017_frame_thinking.png",

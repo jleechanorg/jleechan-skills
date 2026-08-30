@@ -46,11 +46,11 @@ STOPWORDS = {
 # "some word matched by accident".
 TRIGGER_PHRASES: list[tuple[str, list[str]]] = [
     ("use /web-advice", ["web-advice"]),
-    ("get chatgpt gemini grok to review", ["chatgpt", "gemini", "grok", "review"]),
+    ("get chatgpt gemini perplexity to review", ["chatgpt", "gemini", "perplexity", "review"]),
     ("have them visually review", ["review"]),
     ("external review of this evidence", ["external", "review"]),
     ("run a multi model review", ["multi", "model", "review"]),
-    ("ask chatgpt gemini grok and perplexity", ["ask", "chatgpt", "gemini", "grok", "perplexity"]),
+    ("ask chatgpt gemini and perplexity", ["ask", "chatgpt", "gemini", "perplexity"]),
     ("get a second opinion from the web", ["second", "opinion", "from", "web"]),
     ("do a browser review of this PR", ["browser", "review"]),
 ]
