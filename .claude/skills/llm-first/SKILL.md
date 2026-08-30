@@ -26,10 +26,10 @@ reconstructed from current backend source.
 1. Query an authoritative provider-boundary capture. BigQuery raw LLM request
    telemetry from the active project's `llm_payloads` table is one storage
    option, not a prerequisite. Use one exact non-test request and its response.
-   Record an immutable source-row locator, query/export identity, request and
-   campaign IDs, timestamps, agent, model/revision, schemas, MIME settings,
-   generation parameters, cache provenance, finish reason, usage, and a source
-   hash.
+   Record an immutable source-row locator, query/export identity, request ID,
+   campaign or equivalent entity IDs when applicable, timestamps, agent,
+   model/revision, schemas, MIME settings, generation parameters, cache
+   provenance, finish reason, usage, and a source hash.
 2. Keep literal `request_json`, unredacted response parts, and original
    substitution values inside authorized access-controlled telemetry.
    Never commit, publish, log, or hand off unredacted values. This prohibition
@@ -65,11 +65,11 @@ fields is itself the one declared mutation. Replay the protected baseline and
 its one-variable mutation with every other semantic held constant. Drift means
 undeclared variance beyond approved redaction and the one declared mutation. A
 content or provider/model/transport change that is itself the one declared
-mutation is not drift. Any actual drift must downgrade the evidence: when
-content changes, downgrade to `SANITIZED SURROGATE`; otherwise classify as
-`DRIFTED REPLAY (NON-CAUSAL)` or another clearly weaker non-causal class, and
-never retain captured-family causal claims after drift. Direct provider
-submission is allowed only when an immutable
+mutation is not drift. Approved containment or shareability redaction that
+changes content requires `SANITIZED SURROGATE`. Any undeclared content,
+provider, model, or transport variance requires `DRIFTED REPLAY (NON-CAUSAL)`
+or another clearly weaker non-causal class; never retain captured-family causal
+claims after drift. Direct provider submission is allowed only when an immutable
 source-row locator, source hash, sanitized-baseline hash, redaction ledger, and
 canonical mutation diff prove that every source difference is an approved
 redaction or the one declared mutation. Absent that proof, classify the request
@@ -84,20 +84,20 @@ declared experimental mutation. Structure-preserving same-type PII replacement
 remains semantic when model-visible and requires `SANITIZED SURROGATE`.
 
 Classify evidence fail-closed in this order: missing or unverified
-provider-boundary provenance first; verified capture with semantic redaction
-next; verified exact capture with no semantic redaction and no drift next;
-verified capture with provider, model, or transport drift last. Missing or
-unverified provenance cannot be classified as `SANITIZED SURROGATE`; no
-overlapping condition may retain a stronger class.
+provider-boundary provenance first; verified capture with any undeclared drift
+next; verified capture with approved semantic redaction and no undeclared drift
+next; verified exact capture with no semantic redaction and no undeclared drift
+last. Missing or unverified provenance cannot be classified as `SANITIZED
+SURROGATE`; no overlapping condition may retain a stronger class.
 
 Evidence classes are mutually exclusive:
 
 | Input | Evidence class | Causal scope |
 |---|---|---|
-| Verbatim BigQuery provider-boundary request/response row; no semantic redaction | `BQ WIRE REPLAY` | Captured request family |
-| Non-BigQuery provider-boundary capture; no semantic redaction | `CAPTURED WIRE REPLAY` | Captured request family |
-| Verified capture with semantic redaction | `SANITIZED SURROGATE` | Sanitized pair only |
-| Verified capture with provider/model/transport drift and no content change | `DRIFTED REPLAY (NON-CAUSAL)` | No causal scope |
+| Verbatim BigQuery provider-boundary request/response row; no semantic redaction or undeclared drift | `BQ WIRE REPLAY` | Captured request family |
+| Non-BigQuery provider-boundary capture; no semantic redaction or undeclared drift | `CAPTURED WIRE REPLAY` | Captured request family |
+| Verified capture with approved semantic redaction and no undeclared drift | `SANITIZED SURROGATE` | Sanitized pair only |
+| Verified capture with undeclared content/provider/model/transport drift | `DRIFTED REPLAY (NON-CAUSAL)` | No causal scope |
 | Missing capture provenance | `RECONSTRUCTED FALLBACK` or `FRESH CONSTRUCTION` | Exact constructed request only |
 
 Keep the original capture system in a separate provenance field; BigQuery

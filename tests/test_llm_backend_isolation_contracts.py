@@ -129,6 +129,7 @@ class LLMBackendIsolationContractsTest(unittest.TestCase):
         self.assertIn("deliberate bundle", skill_text)
         self.assertIn("loaded every prompt file", skill_text)
         self.assertIn("numeric PII", skill_text)
+        self.assertIn("campaign or equivalent entity IDs when applicable", skill_text)
         self.assertNotIn("`.claude/skills/", skill_text)
 
         self.assertIn(
@@ -180,7 +181,10 @@ class LLMBackendIsolationContractsTest(unittest.TestCase):
         self.assertIn(
             "Non-BigQuery provider-boundary capture", normalized_skill_text
         )
-        self.assertIn("Verified capture with semantic redaction", normalized_skill_text)
+        self.assertIn(
+            "Verified capture with approved semantic redaction",
+            normalized_skill_text,
+        )
         self.assertNotIn(
             "Label this experiment `BQ WIRE REPLAY`", normalized_skill_text
         )
@@ -245,12 +249,23 @@ class LLMBackendIsolationContractsTest(unittest.TestCase):
         )
         self.assertLess(
             replay_text.index("missing or unverified provider-boundary provenance first"),
-            replay_text.index("verified capture with semantic redaction next"),
+            replay_text.index("verified capture with any undeclared drift next"),
         )
         self.assertLess(
-            replay_text.index("verified capture with semantic redaction next"),
+            replay_text.index("verified capture with any undeclared drift next"),
             replay_text.index(
-                "verified exact capture with no semantic redaction and no drift next"
+                "verified capture with approved semantic redaction and no "
+                "undeclared drift next"
+            ),
+        )
+        self.assertLess(
+            replay_text.index(
+                "verified capture with approved semantic redaction and no "
+                "undeclared drift next"
+            ),
+            replay_text.index(
+                "verified exact capture with no semantic redaction and no "
+                "undeclared drift last"
             ),
         )
         self.assertIn(
@@ -264,9 +279,17 @@ class LLMBackendIsolationContractsTest(unittest.TestCase):
             replay_text,
         )
         self.assertIn(
-            "content changes, downgrade to `SANITIZED SURROGATE`; otherwise "
-            "classify as `DRIFTED REPLAY (NON-CAUSAL)` or another clearly weaker "
-            "non-causal class",
+            "Approved containment or shareability redaction that changes content "
+            "requires `SANITIZED SURROGATE`",
+            replay_text,
+        )
+        self.assertIn(
+            "Any undeclared content, provider, model, or transport variance requires "
+            "`DRIFTED REPLAY (NON-CAUSAL)`",
+            replay_text,
+        )
+        self.assertNotIn(
+            "when content changes, downgrade to `SANITIZED SURROGATE`",
             replay_text,
         )
         self.assertIn(
@@ -289,8 +312,17 @@ class LLMBackendIsolationContractsTest(unittest.TestCase):
             replay_text,
         )
         self.assertIn(
-            "Verified capture with provider/model/transport drift and no content "
-            "change",
+            "Verbatim BigQuery provider-boundary request/response row; no semantic "
+            "redaction or undeclared drift",
+            replay_text,
+        )
+        self.assertIn(
+            "Non-BigQuery provider-boundary capture; no semantic redaction or "
+            "undeclared drift",
+            replay_text,
+        )
+        self.assertIn(
+            "Verified capture with undeclared content/provider/model/transport drift",
             replay_text,
         )
         self.assertIn("`DRIFTED REPLAY (NON-CAUSAL)`", replay_text)
