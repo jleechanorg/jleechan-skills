@@ -205,6 +205,46 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         receipt = json.loads((self.output / "receipt.json").read_text())
         self.assertEqual(receipt["original_checkout_unchanged"], False)
 
+    def test_fails_closed_when_an_ignored_file_changes_without_reading_its_content(self) -> None:
+        (self.repo / ".gitignore").write_text(".env\n")
+        run("git", "add", ".gitignore", cwd=self.repo)
+        run("git", "commit", "-qm", "ignore local environment", cwd=self.repo)
+        self.sha = run("git", "rev-parse", "HEAD", cwd=self.repo).stdout.strip()
+        ignored = self.repo / ".env"
+        ignored.write_text("SECRET=do-not-read\n")
+        self.env["ADVICE_TEST_IGNORED_FILE"] = str(ignored)
+        self.executable(
+            "codex",
+            "printf 'ordinary ignored-file mutation with a new size\\n' > \"$ADVICE_TEST_IGNORED_FILE\"\n"
+            "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n",
+        )
+        self.executable("claude", "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
+
+        result = self.invoke()
+
+        self.assertEqual(result.returncode, 3)
+        self.assertIn("original checkout or repository metadata changed", result.stderr.lower())
+        receipt = json.loads((self.output / "receipt.json").read_text())
+        self.assertEqual(receipt["original_repository_unchanged"], False)
+
+    def test_ignored_file_fingerprint_does_not_require_content_access(self) -> None:
+        (self.repo / ".gitignore").write_text(".env\n")
+        run("git", "add", ".gitignore", cwd=self.repo)
+        run("git", "commit", "-qm", "ignore local environment", cwd=self.repo)
+        self.sha = run("git", "rev-parse", "HEAD", cwd=self.repo).stdout.strip()
+        ignored = self.repo / ".env"
+        ignored.write_text("SECRET=do-not-read\n")
+        ignored.chmod(0)
+        self.executable("codex", "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
+        self.executable("claude", "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
+
+        try:
+            result = self.invoke()
+        finally:
+            ignored.chmod(0o600)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

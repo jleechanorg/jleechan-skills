@@ -34,7 +34,7 @@ def git(repo: Path, *args: str, check: bool = True) -> subprocess.CompletedProce
 
 
 def checkout_fingerprint(repo: Path) -> str:
-    """Hash HEAD plus all tracked changes and untracked file content."""
+    """Hash HEAD, tracked state, and nonignored untracked file content."""
     digest = hashlib.sha256()
     digest.update(git(repo, "rev-parse", "HEAD").stdout)
     digest.update(git(repo, "diff", "--binary", "HEAD", "--").stdout)
@@ -49,10 +49,42 @@ def checkout_fingerprint(repo: Path) -> str:
     return digest.hexdigest()
 
 
+def ignored_path_metadata(repo: Path) -> bytes:
+    """Serialize ignored-path metadata without opening regular-file content."""
+    serialized = bytearray()
+    ignored = git(
+        repo,
+        "ls-files",
+        "--others",
+        "--ignored",
+        "--exclude-standard",
+        "-z",
+    ).stdout
+    for raw_path in sorted(filter(None, ignored.split(b"\0"))):
+        path = repo / os.fsdecode(raw_path)
+        serialized.extend(raw_path)
+        serialized.extend(b"\0")
+        try:
+            metadata = path.lstat()
+        except FileNotFoundError:
+            serialized.extend(b"missing\0")
+            continue
+        serialized.extend(
+            f"{metadata.st_mode}:{metadata.st_size}:{metadata.st_mtime_ns}".encode()
+        )
+        serialized.extend(b"\0")
+        if path.is_symlink():
+            serialized.extend(b"symlink-target\0")
+            serialized.extend(os.fsencode(os.readlink(path)))
+            serialized.extend(b"\0")
+    return bytes(serialized)
+
+
 def repository_fingerprint(repo: Path) -> str:
     """Hash checkout state plus local configuration and refs."""
     digest = hashlib.sha256()
     digest.update(checkout_fingerprint(repo).encode())
+    digest.update(ignored_path_metadata(repo))
     digest.update(git(repo, "config", "--local", "--null", "--list").stdout)
     digest.update(git(repo, "show-ref", "--head", check=False).stdout)
     common_dir_raw = git(repo, "rev-parse", "--git-common-dir").stdout.decode().strip()

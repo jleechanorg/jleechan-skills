@@ -94,6 +94,15 @@ original repository's `.git` state; they are deliberately **not** an OS security
 sandbox. If the original checkout, refs, local config, or hooks change, the
 runner fails closed and its verdicts may not be used.
 
+Ignored regular files may contain credentials, so the fingerprint never opens
+or hashes their contents. It records each ignored relative path plus `lstat`
+mode, size, and nanosecond modification time; for a symlink it additionally
+records the link target without following it. This detects ordinary ignored-file
+creation, deletion, replacement, and modification while keeping secret content
+unread. It is a mutation tripwire, not a defense against an adversarial process
+that deliberately restores identical metadata, and it does not change the
+runner's non-sandbox boundary.
+
 An exit code of zero is not enough: each successful lane must return a nonempty
 line beginning with `VERDICT:`. Empty or malformed output records
 `missing_verdict` and counts as an errored lane. If neither primary lane returns
