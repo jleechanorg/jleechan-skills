@@ -291,6 +291,10 @@ class LLMBackendIsolationContractsTest(unittest.TestCase):
             replay_text,
         )
         self.assertNotIn(
+            "or another clearly weaker non-causal class",
+            replay_text,
+        )
+        self.assertNotIn(
             "when content changes, downgrade to `SANITIZED SURROGATE`",
             replay_text,
         )

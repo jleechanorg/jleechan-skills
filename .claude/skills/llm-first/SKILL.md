@@ -70,8 +70,8 @@ content or provider/model/transport change that is itself the one declared
 mutation is not drift. Approved containment or shareability redaction that
 changes content requires `SANITIZED SURROGATE`. Any undeclared content,
 provider, model, or transport variance requires `DRIFTED REPLAY (NON-CAUSAL)`
-or another clearly weaker non-causal class; never retain captured-family causal
-claims after drift. Direct provider submission is allowed only when an immutable
+and may use no other evidence class; never retain captured-family causal claims
+after drift. Direct provider submission is allowed only when an immutable
 source-row locator, source hash, sanitized-baseline hash, redaction ledger, and
 canonical mutation diff prove that every source difference is an approved
 redaction or the one declared mutation. Absent that proof, classify the request
