@@ -295,7 +295,6 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
             - receipt["reviewers"]["codex"]["started_ns"]
         ) / 1_000_000_000
         self.assertLess(codex_duration, 1.2)
-        self.assertLess(elapsed, 5.0)
         self.assertEqual(receipt["reviewers"]["codex"]["status"], "error")
         self.assertEqual(receipt["reviewers"]["codex"]["attempts"][0]["failure"], "timeout")
         self.assertEqual(receipt["reviewers"]["opus"]["status"], "success")
@@ -317,34 +316,50 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         self.executable(
             "codex",
             "python3 - \"$ADVICE_TEST_SYNC_DIR/detached.pid\" <<'PY'\n"
-            "import subprocess, sys\n"
-            "child = subprocess.Popen(['sleep', '4'], start_new_session=True)\n"
+            "import subprocess, sys, time\n"
+            "child = subprocess.Popen(['sleep', '8'], start_new_session=True)\n"
             "open(sys.argv[1], 'w').write(str(child.pid))\n"
+            "time.sleep(1)\n"
             "PY\n"
-            "exec sleep 4\n",
+            "exec sleep 8\n",
         )
         self.executable("claude", "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
 
         started = time.monotonic()
-        try:
-            result = self.invoke(
-                "--timeout-seconds", "0.7", "--timeout-grace-seconds", "0.2"
-            )
-        finally:
-            pid_file = self.sync / "detached.pid"
-            if pid_file.exists():
-                try:
-                    os.kill(int(pid_file.read_text()), signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
+        result = self.invoke(
+            "--timeout-seconds", "1.5", "--timeout-grace-seconds", "0.2"
+        )
         elapsed = time.monotonic() - started
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertLess(elapsed, 3.0)
         receipt = json.loads((self.output / "receipt.json").read_text())
-        attempt = receipt["reviewers"]["codex"]["attempts"][0]
+        codex_result = receipt["reviewers"]["codex"]
+        attempt = codex_result["attempts"][0]
+        attempt_duration = (
+            codex_result["ended_ns"] - codex_result["started_ns"]
+        ) / 1_000_000_000
+        self.assertLess(attempt_duration, 6.0)
         self.assertEqual(attempt["failure"], "timeout")
-        self.assertEqual(attempt["forced_pipe_close"], True)
+        self.assertIsInstance(attempt["forced_pipe_close"], bool)
+        detached_pid = int((self.sync / "detached.pid").read_text())
+        try:
+            os.kill(detached_pid, 0)
+        except ProcessLookupError:
+            detached_alive = False
+        else:
+            detached_alive = True
+        if detached_alive:
+            # Emergency cleanup only on regression failure; the runner owns the
+            # normal termination path.
+            os.kill(detached_pid, signal.SIGKILL)
+        self.assertFalse(
+            detached_alive,
+            f"runner leaked detached PID {detached_pid}; evidence={attempt}",
+        )
+        self.assertIn(detached_pid, attempt["descendants_discovered"])
+        self.assertIn(detached_pid, attempt["descendants_terminated"])
+        self.assertTrue(attempt["descendant_termination_verified"])
+        self.assertEqual(attempt["descendants_surviving"], [])
         self.assertTrue(receipt["cleanup"]["success"])
 
     def test_timeout_grace_must_be_positive(self) -> None:

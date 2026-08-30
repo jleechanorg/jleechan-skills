@@ -97,11 +97,20 @@ original repository's `.git` state; they are deliberately **not** an OS security
 sandbox. If the original checkout, refs, local config, or hooks change, the
 runner fails closed and its verdicts may not be used.
 
-The bounded drain guarantees that a detached descendant cannot hold the
-runner's stdout/stderr pipes open indefinitely. Because full-permission mode is
-intentional and this is not an OS sandbox, a process that deliberately creates
-a new session may outlive its reviewer lane; forced pipe closure bounds runner
-return and clone cleanup but is not process-containment proof.
+While each reviewer root is alive, the runner samples the macOS/Linux process
+tree, retains PID plus process-start identity for discovered descendants even
+after reparenting, and on timeout terminates those descendants before/with the
+root process group. The receipt lists discovered, signaled, and surviving PIDs
+plus whether termination was verified. Bounded drain then guarantees that a
+remaining inherited pipe cannot block runner return or clone cleanup.
+
+This lifecycle supervision does not change full-permission mode and is not an
+OS sandbox: it does not restrict network, environment, or process creation. An
+arbitrary daemon that forks, reparents, and disappears from the sampled lineage
+before the first observation can evade user-space process-tree tracking. For
+descendants observed while the reviewer root is alive, a surviving verified PID
+is recorded as a termination failure rather than silently treated as contained;
+after successful cleanup the runner exits 7 even if the peer returned a verdict.
 
 Each primary reviewer has a bounded runtime. `--timeout-seconds` sets the
 per-lane limit and defaults to 1200 seconds (20 minutes).
