@@ -19,15 +19,17 @@ modify backend behavior.
 
 ## Capture the real request first
 
-For an existing behavior or incident, the primary causal input is the raw
-production request captured at the provider boundary, not a request
+For an existing behavior or incident, the primary causal input is an exact
+provider-boundary capture of the request and response, not a request
 reconstructed from current backend source.
 
-1. Query BigQuery raw LLM request telemetry, such as the active project's
-   `llm_payloads` table, for one exact non-test request and its response. Record
-   an immutable source-row locator, query/export identity, request and campaign
-   IDs, timestamps, agent, model/revision, schemas, MIME settings, generation
-   parameters, cache provenance, finish reason, usage, and a source hash.
+1. Query an authoritative provider-boundary capture. BigQuery raw LLM request
+   telemetry from the active project's `llm_payloads` table is one storage
+   option, not a prerequisite. Use one exact non-test request and its response.
+   Record an immutable source-row locator, query/export identity, request and
+   campaign IDs, timestamps, agent, model/revision, schemas, MIME settings,
+   generation parameters, cache provenance, finish reason, usage, and a source
+   hash.
 2. Keep literal `request_json`, unredacted response parts, and original
    substitution values inside authorized access-controlled telemetry.
    Never commit, publish, log, or hand off unredacted values. This prohibition
@@ -51,23 +53,46 @@ capture follows the same rules under the label `CAPTURED WIRE REPLAY`.
 
 ## Replay the captured wire request
 
-Replay the protected baseline and its one-variable mutation through the same
-provider API, model/revision, and transport semantics when available. Direct
-provider submission is allowed only when an immutable source-row locator,
-source hash, sanitized-baseline hash, redaction ledger, and canonical mutation
-diff prove that every source difference is an approved redaction or the one
-declared mutation. Absent that proof, classify the request as `RECONSTRUCTED
-FALLBACK` or `FRESH CONSTRUCTION`, never captured-wire evidence. A handcrafted
-or source-reconstructed direct SDK request remains synthetic exploratory
-evidence.
+An exact provider-boundary capture is required; BigQuery is one possible storage
+source. Label `BQ WIRE REPLAY` only when the BigQuery row itself is the verbatim
+provider-boundary request/response payload; transformed, reconstructed, or
+backend telemetry does not qualify. A verified non-BigQuery provider-boundary
+capture may use `CAPTURED WIRE REPLAY`.
+
+Captured-wire causal attribution requires the same provider API, resolved
+model/revision, and transport semantics/configuration. Replay the protected
+baseline and its one-variable mutation through those exact semantics. Any drift
+must downgrade the evidence: when content changes, downgrade to `SANITIZED
+SURROGATE`; otherwise classify as `DRIFTED REPLAY (NON-CAUSAL)` or another
+clearly weaker non-causal class, and never retain captured-family causal claims
+after drift. Direct provider submission is allowed only when an immutable
+source-row locator, source hash, sanitized-baseline hash, redaction ledger, and
+canonical mutation diff prove that every source difference is an approved
+redaction or the one declared mutation. Absent that proof, classify the request
+as `RECONSTRUCTED FALLBACK` or `FRESH CONSTRUCTION`, never captured-wire
+evidence. A handcrafted or source-reconstructed direct SDK request remains
+synthetic exploratory evidence.
+
+Semantic redaction means any model-visible content or value substitution or
+transformation that can change model behavior or meaning. Structure-preserving
+same-type PII replacement remains semantic when model-visible and requires
+`SANITIZED SURROGATE`.
+
+Classify evidence fail-closed in this order: missing or unverified
+provider-boundary provenance first; verified capture with semantic redaction
+next; verified exact capture with no semantic redaction and no drift next;
+verified capture with provider, model, or transport drift last. Missing or
+unverified provenance cannot be classified as `SANITIZED SURROGATE`; no
+overlapping condition may retain a stronger class.
 
 Evidence classes are mutually exclusive:
 
 | Input | Evidence class | Causal scope |
 |---|---|---|
-| BigQuery row; no semantic redaction | `BQ WIRE REPLAY` | Captured request family |
+| Verbatim BigQuery provider-boundary request/response row; no semantic redaction | `BQ WIRE REPLAY` | Captured request family |
 | Non-BigQuery provider-boundary capture; no semantic redaction | `CAPTURED WIRE REPLAY` | Captured request family |
-| Any capture with semantic redaction | `SANITIZED SURROGATE` | Sanitized pair only |
+| Verified capture with semantic redaction | `SANITIZED SURROGATE` | Sanitized pair only |
+| Verified capture with provider/model/transport drift and no content change | `DRIFTED REPLAY (NON-CAUSAL)` | No causal scope |
 | Missing capture provenance | `RECONSTRUCTED FALLBACK` or `FRESH CONSTRUCTION` | Exact constructed request only |
 
 Keep the original capture system in a separate provenance field; BigQuery
@@ -85,13 +110,13 @@ end-to-end behavior, or production reliability.
 
 After wire-level causality is acceptable:
 
-Require a separate backend confirmation through the active project's canonical
-clone/reproduction and normal production entrypoint. Compare the emitted request
-with the expected patched capture and verify routing, prompt ordering, schema
-attachment, cache policy, generation parameters, provider gateway, and streaming
-behavior. This confirmation is required before `/es`, `/er`, merge-readiness, or
-a "production fixed" claim; deterministic parsing and state changes remain owned
-by `/backend-first`.
+Require a separate deterministic backend confirmation under the active project's
+canonical integration/E2E owner and normal production entrypoint. Compare the
+emitted request with the expected patched capture and verify routing, prompt
+ordering, schema attachment, cache policy, generation parameters, provider
+gateway, and streaming behavior. This confirmation is required before `/es`,
+`/er`, merge-readiness, or a "production fixed" claim; deterministic parsing
+and state changes remain in the backend lane.
 
 ## One-variable discipline
 
@@ -116,8 +141,9 @@ schema and instruction needed to express the target contract:
 
 ## Real-provider proof
 
-Use the same real provider and transport configuration as the failed or intended
-path.
+Use the same real provider API, resolved model/revision, and transport
+semantics/configuration as the failed or intended path. This is mandatory for
+captured-wire causal attribution; any drift follows the downgrade rule above.
 Preserve every attempt, including failures; never retry until a single success
 and discard the rest. Do not start real-provider testing until the user
 authorizes that phase. Honor any additional project gate, such as deterministic
@@ -154,9 +180,11 @@ compensate with backend fallbacks in this lane.
 
 After an acceptable response exists, keep complete raw request/response pairs
 in access-controlled telemetry and reference them only by safe locator and
-hash. Hand `/backend-first` the sanitized baseline, mutation diff, sanitized
-outputs, redaction ledger without original values, provenance, and
-backend-confirmation result for deterministic execution proof.
+hash. Hand the active project's canonical integration/E2E owner the sanitized
+baseline, mutation diff, sanitized outputs, redaction ledger without original
+values, provenance, and backend-confirmation result for deterministic execution
+proof. `/backend-first` remains for incidents routed BACKEND and is not a
+follow-on step for an LLM-routed incident.
 
 Completion report:
 
@@ -165,7 +193,8 @@ LLM CONTRACT GREEN or RED
 Request IDs: <ids>
 Agent/model/revision: <values>
 Evidence class: BQ WIRE REPLAY / CAPTURED WIRE REPLAY /
-  SANITIZED SURROGATE / RECONSTRUCTED FALLBACK / FRESH CONSTRUCTION
+  SANITIZED SURROGATE / DRIFTED REPLAY (NON-CAUSAL) /
+  RECONSTRUCTED FALLBACK / FRESH CONSTRUCTION
 Capture and mutation hashes: <values>
 Ablation/construction: <changed variables and rationale>
 Raw contract result: <exact fields>
