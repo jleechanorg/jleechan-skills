@@ -172,7 +172,7 @@ def process_snapshot() -> dict[int, tuple[int, str]]:
 class ProcessTreeSupervisor:
     """Best-effort descendant tracker that retains identities after reparenting."""
 
-    def __init__(self, root_pid: int, interval_seconds: float = 0.02) -> None:
+    def __init__(self, root_pid: int, interval_seconds: float = 0.25) -> None:
         self.root_pid = root_pid
         self.interval_seconds = interval_seconds
         self.discovered: dict[int, str] = {}
