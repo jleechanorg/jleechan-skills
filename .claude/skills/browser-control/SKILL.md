@@ -11,6 +11,18 @@ description: Control real websites and authenticated browser sessions, inspect p
 2. **Deterministic local-app testing, CI, isolated profiles, traces, video, or multi-browser coverage**: load `playwright-ui-testing`.
 3. **Authorized API discovery only**: use `browserclaw`. Do not use it for Slack app settings, OAuth flows, or any capture likely to retain credentials, cookies, authorization headers, or tokens.
 
+## Authorized share links
+
+When the user asks to read, save, summarize, extract, or ingest an authorized
+Gemini, ChatGPT, Google Docs, Notion, or similar share URL and anonymous access
+returns a sign-in shell, do not ask the user to paste the content. On the first
+refusal, use `browserclaw cookies decrypt` for the minimum vendor domain, then
+`browserclaw cookies inject` into headless Chromium to read the page as the
+user. Keep cookie values local and never bypass MFA, consent, or access
+controls. Follow the verified recipe in
+`hermes/skills/browserclaw/references/gemini-share-link-as-user.md` (installed
+as `~/.hermes/skills/browserclaw/references/gemini-share-link-as-user.md`).
+
 ## Live-browser workflow
 
 1. Check for usable existing tabs before opening a new one.

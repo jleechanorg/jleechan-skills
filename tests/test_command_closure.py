@@ -104,10 +104,11 @@ class CommandClosureTest(unittest.TestCase):
 
     def test_every_closure_member_resolves_to_a_real_command_file(self):
         closure = compute_closure(REPO_ROOT, [GENUINE_SEED, PHANTOM_SEED])["closure"]
-        missing = [n for n in closure if not (COMMANDS_DIR / f"{n}.md").is_file()]
+        inventory = {path.stem for path in COMMANDS_DIR.rglob("*.md")}
+        missing = [name for name in closure if name not in inventory]
         self.assertFalse(
             missing,
-            f"closure emitted names with no .claude/commands/<name>.md: {missing}",
+            f"closure emitted names absent from recursive command inventory: {missing}",
         )
 
     def test_closure_is_deterministic(self):

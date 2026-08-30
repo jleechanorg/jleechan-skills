@@ -10,6 +10,7 @@ FILE_EXT_RE = re.compile(
     r"\.(sh|md|py|json|jsonl|ya?ml|dot|txt|log|toml|ts|js|html|png|mp4)\b"
 )
 SKILL_REF_RE = re.compile(r"skills/([A-Za-z0-9_-]+)/SKILL\.md")
+COMPATIBILITY_REF_RE = re.compile(r"references/([^\s`'\"]+\.md)")
 
 NON_COMMAND_TOKENS: dict[str, str] = {
     "tmp": "filesystem path prefix (/tmp/<project-slug>/...), not a command",
@@ -70,17 +71,56 @@ def extract_references_from_text(text: str) -> set[str]:
     return candidates
 
 
+def _safe_existing_file(root: Path, candidate: Path) -> Path | None:
+    """Return a resolved file only when it remains inside ``root``."""
+    try:
+        resolved_root = root.resolve(strict=True)
+        resolved = candidate.resolve(strict=True)
+        resolved.relative_to(resolved_root)
+    except (FileNotFoundError, ValueError):
+        return None
+    return resolved if resolved.is_file() else None
+
+
+def _dispatcher_source_texts(command_file: Path, skills_dir: Path) -> list[str]:
+    """Load a thin dispatcher plus its local skill and compatibility reference."""
+    command_text = command_file.read_text(encoding="utf-8")
+    texts = [command_text]
+    for skill_name in sorted(SKILL_REF_RE.findall(command_text)):
+        skill_dir = skills_dir / skill_name
+        skill_file = _safe_existing_file(skills_dir, skill_dir / "SKILL.md")
+        if skill_file is None:
+            continue
+        skill_text = skill_file.read_text(encoding="utf-8")
+        texts.append(skill_text)
+        for source_text in (command_text, skill_text):
+            for reference in sorted(COMPATIBILITY_REF_RE.findall(source_text)):
+                reference_file = _safe_existing_file(
+                    skills_dir, skill_dir / "references" / reference
+                )
+                if reference_file is not None:
+                    texts.append(reference_file.read_text(encoding="utf-8"))
+    return texts
+
+
 def compute_closure(repo_root: Path, seeds: Iterable[str]) -> dict:
     seed_list = list(seeds)
     commands_dir = Path(repo_root) / ".claude" / "commands"
+    skills_dir = Path(repo_root) / ".claude" / "skills"
     # Build a case-exact index of real command names from directory listing.
     # macOS filesystem is case-insensitive, so path.is_file() returns True for
     # uppercase phantom tokens like EXECUTE.md when execute.md exists. A set-membership
     # check against actual directory entries prevents case-insensitive macOS vs
     # case-sensitive Linux CI divergences.
-    available_commands: set[str] = (
-        {p.stem for p in commands_dir.glob("*.md")} if commands_dir.is_dir() else set()
-    )
+    command_files: dict[str, Path] = {}
+    if commands_dir.is_dir():
+        for path in sorted(commands_dir.rglob("*.md")):
+            current = command_files.get(path.stem)
+            if current is None or len(path.relative_to(commands_dir).parts) < len(
+                current.relative_to(commands_dir).parts
+            ):
+                command_files[path.stem] = path
+    available_commands = set(command_files)
 
     closure: set[str] = set()
     frontier: set[str] = set()
@@ -100,17 +140,20 @@ def compute_closure(repo_root: Path, seeds: Iterable[str]) -> dict:
         next_frontier: set[str] = set()
 
         for cmd in sorted(frontier):
-            cmd_file = commands_dir / f"{cmd}.md"
-            if not cmd_file.is_file():
+            cmd_file = command_files.get(cmd)
+            if cmd_file is None:
                 continue
 
-            text = cmd_file.read_text(encoding="utf-8")
-            raw_candidates = extract_references_from_text(text)
+            raw_candidates: set[str] = set()
+            for text in _dispatcher_source_texts(cmd_file, skills_dir):
+                raw_candidates.update(extract_references_from_text(text))
 
             kept: set[str] = set()
             for cand in sorted(raw_candidates):
                 if cand in NON_COMMAND_TOKENS:
                     rejected[cand] = NON_COMMAND_TOKENS[cand]
+                elif cand == cmd:
+                    continue
                 elif cand in available_commands:
                     kept.add(cand)
                 else:

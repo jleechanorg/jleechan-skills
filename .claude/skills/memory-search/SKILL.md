@@ -31,6 +31,12 @@ Cache dir: `~/llm_wiki/.cache/memory-search/`
 
 Note: Mem0 (Qdrant at localhost:6333) not directly searchable — skip.
 
+## Codex model routing
+
+In Codex sessions, every memory-search subagent and search task MUST set
+`model: gpt-5.3-codex-spark` and `reasoning_effort: medium` explicitly.
+Never spin up Sol for memory search; this fan-out is lookup and scan work.
+
 ## Execution
 
 Run all searches in parallel via `/e` subagents:

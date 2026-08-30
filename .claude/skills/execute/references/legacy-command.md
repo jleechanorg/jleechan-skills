@@ -13,11 +13,11 @@ execution_mode: immediate
 ### Phase 1: Planning (/extended-library:planexec)
 
 **Action Steps:**
-**Executes `/extended-library:planexec` command**: Follows the complete planning protocol documented in [`planexec.md`](./extended-library/planexec.md)
+**Executes `/extended-library:planexec` command**: Follows the complete planning protocol documented in [`planexec.md`](../../extended-library/references/extended-library/planexec.md)
 1. **Guidelines Consultation**: `/extended-library:planexec` calls `/extended-library:guidelines` directly for comprehensive consultation
 2. **Comprehensive Context**: CLAUDE.md reading + base guidelines + PR/branch-specific guidelines via direct command composition
 3. Creates TodoWrite checklist with specific steps including guidelines validation
-4. Presents execution plan using the [Standard Plan Display Format](./extended-library/planexec.md#📋-standard-plan-display-format)
+4. Presents execution plan using the [Standard Plan Display Format](../../extended-library/references/extended-library/planexec.md#📋-standard-plan-display-format)
 5. Shows complexity, execution method, tools, timeline, and parallelization strategy
 6. **Tool Selection**: Follows guidelines hierarchy (Serena MCP → Read tool → Bash commands)
 7. Provides full visibility into the execution approach before auto-approval
