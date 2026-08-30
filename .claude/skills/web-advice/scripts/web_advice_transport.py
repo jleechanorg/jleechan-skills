@@ -615,7 +615,7 @@ def seat_accounting(seats: dict) -> str:
 
     Returns:
         A single-line honest accounting string, e.g.:
-        "3-of-4, missing chatgpt because cloudflare+cookie-hardening"
+        "3-of-3: full panel (gemini, perplexity, chatgpt)"
         or, when every seat answered:
         "3-of-3: full panel (gemini, perplexity, chatgpt)"
     """

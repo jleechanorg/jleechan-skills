@@ -507,9 +507,9 @@ class TestSeatAccounting:
         assert "chatgpt because cloudflare+cookie-hardening" in result
 
     def test_zero_seats_available(self):
-        seats = {"gemini": "unavailable: down", "perplexity": "unavailable: down"}
+        seats = {"gemini": "unavailable: down", "perplexity": "unavailable: down", "chatgpt": "unavailable: down"}
         result = seat_accounting(seats)
-        assert result.startswith("0-of-2")
+        assert result.startswith("0-of-3")
 
 
 # ---------------------------------------------------------------------------
