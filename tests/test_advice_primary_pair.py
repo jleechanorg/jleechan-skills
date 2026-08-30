@@ -4,11 +4,14 @@
 from __future__ import annotations
 
 import json
+import importlib.util
 import os
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 SCRIPT = (
@@ -19,6 +22,14 @@ SCRIPT = (
     / "scripts"
     / "run_primary_pair.py"
 )
+
+
+def load_runner_module():
+    spec = importlib.util.spec_from_file_location("advice_primary_pair_runner", SCRIPT)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def run(*args: str, cwd: Path | None = None, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
@@ -56,7 +67,7 @@ class PrimaryPairTest(unittest.TestCase):
         path.write_text("#!/bin/sh\nset -eu\n" + body)
         path.chmod(0o755)
 
-    def invoke(self) -> subprocess.CompletedProcess[str]:
+    def invoke(self, *extra: str) -> subprocess.CompletedProcess[str]:
         return run(
             "python3",
             str(SCRIPT),
@@ -68,6 +79,7 @@ class PrimaryPairTest(unittest.TestCase):
             str(self.packet),
             "--output-dir",
             str(self.output),
+            *extra,
             env=self.env,
         )
 
@@ -244,6 +256,71 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
             ignored.chmod(0o600)
 
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_effective_hooks_path_detects_dangling_symlink_target_change(self) -> None:
+        hooks = self.root / "configured-hooks"
+        hooks.mkdir()
+        hook = hooks / "pre-commit"
+        hook.symlink_to("missing-hook-v1")
+        run("git", "config", "core.hooksPath", str(hooks), cwd=self.repo)
+        self.env["ADVICE_TEST_HOOK"] = str(hook)
+        self.executable(
+            "codex",
+            "rm \"$ADVICE_TEST_HOOK\"\n"
+            "ln -s missing-hook-v2 \"$ADVICE_TEST_HOOK\"\n"
+            "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n",
+        )
+        self.executable("claude", "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
+
+        result = self.invoke()
+
+        self.assertEqual(result.returncode, 3)
+        self.assertIn("repository metadata changed", result.stderr)
+
+    def test_one_timed_out_lane_is_error_while_peer_succeeds(self) -> None:
+        self.executable("codex", "exec sleep 2\n")
+        self.executable("claude", "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
+
+        started = time.monotonic()
+        result = self.invoke("--timeout-seconds", "0.5")
+        elapsed = time.monotonic() - started
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        receipt = json.loads((self.output / "receipt.json").read_text())
+        codex_duration = (
+            receipt["reviewers"]["codex"]["ended_ns"]
+            - receipt["reviewers"]["codex"]["started_ns"]
+        ) / 1_000_000_000
+        self.assertLess(codex_duration, 1.2)
+        self.assertLess(elapsed, 5.0)
+        self.assertEqual(receipt["reviewers"]["codex"]["status"], "error")
+        self.assertEqual(receipt["reviewers"]["codex"]["attempts"][0]["failure"], "timeout")
+        self.assertEqual(receipt["reviewers"]["opus"]["status"], "success")
+        self.assertTrue(receipt["cleanup"]["success"])
+
+    def test_both_timed_out_lanes_exit_four_and_still_cleanup(self) -> None:
+        self.executable("codex", "exec sleep 2\n")
+        self.executable("claude", "exec sleep 2\n")
+
+        result = self.invoke("--timeout-seconds", "0.5")
+
+        self.assertEqual(result.returncode, 4)
+        receipt = json.loads((self.output / "receipt.json").read_text())
+        self.assertEqual(receipt["reviewers"]["codex"]["attempts"][0]["failure"], "timeout")
+        self.assertEqual(receipt["reviewers"]["opus"]["attempts"][0]["failure"], "timeout")
+        self.assertTrue(receipt["cleanup"]["success"])
+
+    def test_cleanup_helper_reports_failure_instead_of_ignoring_it(self) -> None:
+        runner = load_runner_module()
+        disposable = self.root / "disposable"
+        disposable.mkdir()
+
+        with mock.patch.object(runner.shutil, "rmtree", side_effect=OSError("fixture denied")):
+            cleanup = runner.cleanup_directory(disposable)
+
+        self.assertEqual(cleanup["success"], False)
+        self.assertIn("fixture denied", cleanup["error"])
+        self.assertEqual(cleanup["path"], str(disposable))
 
 
 if __name__ == "__main__":

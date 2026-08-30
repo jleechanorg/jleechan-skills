@@ -52,6 +52,8 @@ class ApprovalContractsTest(unittest.TestCase):
 
     def test_advice_reviews_repository_before_approving(self) -> None:
         advice = skill("advice")
+        command = (COMMANDS / "advice.md").read_text()
+        readme = (REPO_ROOT / "README.md").read_text()
         self.assertIn("**Pointer**", advice)
         self.assertIn("Send the pointer, not a transcription.", advice)
         self.assertIn("A verdict built on a truncated inline artifact may not be `APPROVED`.", advice)
@@ -60,6 +62,12 @@ class ApprovalContractsTest(unittest.TestCase):
         self.assertIn("research-only output are not approval reviewers", advice)
         self.assertIn("combined scope covers the whole declared change", advice)
         self.assertIn("`COVERAGE: <files/diff scope actually read>`", advice)
+        self.assertIn("Codex + Opus CLI", command)
+        self.assertIn("/research", command)
+        self.assertIn("/secondo", command)
+        self.assertIn("/web-advice", command)
+        self.assertIn("up to five reviewers concurrently", readme)
+        self.assertNotIn("up to four reviewers concurrently: an Opus subagent", readme)
 
     def test_web_advice_requires_real_browser_transport(self) -> None:
         web_adv = skill("web-advice")

@@ -73,13 +73,15 @@ python3 "$ADVICE_RUNNER" \
   --repo "$(git rev-parse --show-toplevel)" \
   --ref "$REVIEW_SHA" \
   --packet-file "$ADVICE_TMP/review-packet.txt" \
-  --output-dir "$ADVICE_TMP/results"
+  --output-dir "$ADVICE_TMP/results" \
+  --timeout-seconds 1200
 ```
 
 Create `$ADVICE_TMP/review-packet.txt` before invoking the runner. The output
 directory is deliberately outside the repository. Read `codex.txt`, `opus.txt`,
 and `receipt.json`; the receipt records the resolved SHA, each transport, launch
-times, each clone SHA, and the post-run original-repository fingerprint. The
+times, each clone SHA, cleanup status, and any changed original-repository
+fingerprint components. The
 input checkout must be clean, including untracked files. The runner refuses a
 dirty checkout because those changes are not represented by the requested SHA.
 
@@ -94,6 +96,14 @@ original repository's `.git` state; they are deliberately **not** an OS security
 sandbox. If the original checkout, refs, local config, or hooks change, the
 runner fails closed and its verdicts may not be used.
 
+Each primary reviewer has a bounded runtime. `--timeout-seconds` sets the
+per-lane limit and defaults to 1200 seconds (20 minutes). A timeout records that
+lane as `error` with `failure: timeout`; the peer may still supply the sole
+primary verdict. If both time out, the runner exits 4 and A3 applies. Clone
+cleanup and receipt writing still run after timeouts. Cleanup itself is a gate:
+failure is recorded in `receipt.json` and the runner exits 5 rather than hiding
+leftover full-permission checkouts.
+
 Ignored regular files may contain credentials, so the fingerprint never opens
 or hashes their contents. It records each ignored relative path plus `lstat`
 mode, size, and nanosecond modification time; for a symlink it additionally
@@ -102,6 +112,12 @@ creation, deletion, replacement, and modification while keeping secret content
 unread. It is a mutation tripwire, not a defense against an adversarial process
 that deliberately restores identical metadata, and it does not change the
 runner's non-sandbox boundary.
+
+Hook coverage follows Git's effective `core.hooksPath`, including configured
+absolute or relative hook locations. The fingerprint includes ordinary hook
+content and `lstat` metadata; symlinks, including dangling ones, contribute
+their link target without being followed. This avoids unsafe traversal while
+detecting hook-path and dangling-link mutations.
 
 An exit code of zero is not enough: each successful lane must return a nonempty
 line beginning with `VERDICT:`. Empty or malformed output records

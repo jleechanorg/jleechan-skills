@@ -14,7 +14,9 @@ import hashlib
 import json
 import os
 import re
+import signal
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -80,52 +82,106 @@ def ignored_path_metadata(repo: Path) -> bytes:
     return bytes(serialized)
 
 
-def repository_fingerprint(repo: Path) -> str:
-    """Hash checkout state plus local configuration and refs."""
+def digest_bytes(value: bytes) -> str:
+    return hashlib.sha256(value).hexdigest()
+
+
+def hook_tree_fingerprint(hooks: Path) -> str:
+    """Hash an effective hook tree without following symlinks."""
     digest = hashlib.sha256()
-    digest.update(checkout_fingerprint(repo).encode())
-    digest.update(ignored_path_metadata(repo))
-    digest.update(git(repo, "config", "--local", "--null", "--list").stdout)
-    digest.update(git(repo, "show-ref", "--head", check=False).stdout)
-    common_dir_raw = git(repo, "rev-parse", "--git-common-dir").stdout.decode().strip()
-    common_dir = Path(common_dir_raw)
-    if not common_dir.is_absolute():
-        common_dir = repo / common_dir
-    hooks = common_dir.resolve() / "hooks"
-    if hooks.is_dir():
-        for path in sorted(item for item in hooks.rglob("*") if item.is_file()):
-            digest.update(str(path.relative_to(hooks)).encode())
+    digest.update(os.fsencode(hooks))
+
+    def visit(path: Path, relative: Path) -> None:
+        digest.update(os.fsencode(relative))
+        try:
+            metadata = path.lstat()
+        except FileNotFoundError:
+            digest.update(b"\0missing\0")
+            return
+        digest.update(
+            f"\0{metadata.st_mode}:{metadata.st_size}:{metadata.st_mtime_ns}\0".encode()
+        )
+        if stat.S_ISLNK(metadata.st_mode):
+            digest.update(b"symlink-target\0")
+            digest.update(os.fsencode(os.readlink(path)))
+            return
+        if stat.S_ISREG(metadata.st_mode):
+            digest.update(b"regular-content\0")
             digest.update(path.read_bytes())
+            return
+        if stat.S_ISDIR(metadata.st_mode):
+            try:
+                children = sorted(path.iterdir(), key=lambda child: os.fsencode(child.name))
+            except FileNotFoundError:
+                digest.update(b"directory-disappeared\0")
+                return
+            for child in children:
+                visit(child, relative / child.name)
+
+    visit(hooks, Path("."))
     return digest.hexdigest()
+
+
+def repository_snapshot(repo: Path) -> dict[str, str]:
+    """Return component hashes for mutation detection and useful diagnostics."""
+    effective_hooks = Path(
+        git(
+            repo,
+            "rev-parse",
+            "--path-format=absolute",
+            "--git-path",
+            "hooks",
+        ).stdout.decode().strip()
+    )
+    return {
+        "checkout": checkout_fingerprint(repo),
+        "ignored_metadata": digest_bytes(ignored_path_metadata(repo)),
+        "local_config": digest_bytes(git(repo, "config", "--local", "--null", "--list").stdout),
+        "refs": digest_bytes(git(repo, "show-ref", "--head", check=False).stdout),
+        "effective_hooks": hook_tree_fingerprint(effective_hooks),
+    }
 
 
 def command_path(name: str) -> str | None:
     return shutil.which(name)
 
 
-def execute(command: list[str], cwd: Path, prompt: str) -> tuple[int, str, str]:
-    completed = subprocess.run(
+def execute(
+    command: list[str], cwd: Path, prompt: str, timeout_seconds: float
+) -> tuple[int, str, str, bool]:
+    process = subprocess.Popen(
         [*command, prompt],
         cwd=cwd,
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        check=False,
+        start_new_session=True,
     )
-    return completed.returncode, completed.stdout, completed.stderr
+    try:
+        stdout, stderr = process.communicate(timeout=timeout_seconds)
+        return process.returncode, stdout, stderr, False
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        stdout, stderr = process.communicate()
+        return -signal.SIGKILL, stdout, stderr, True
 
 
 def has_verdict(output: str) -> bool:
     return re.search(r"(?m)^VERDICT:[ \t]+\S.*$", output) is not None
 
 
-def codex_lane(cwd: Path, prompt: str, barrier: threading.Barrier) -> dict[str, Any]:
+def codex_lane(
+    cwd: Path, prompt: str, barrier: threading.Barrier, timeout_seconds: float
+) -> dict[str, Any]:
     barrier.wait()
     started = time.time_ns()
     attempts: list[dict[str, Any]] = []
     codex = command_path("codex")
     if codex:
-        code, stdout, stderr = execute(
+        code, stdout, stderr, timed_out = execute(
             [
                 codex,
                 "exec",
@@ -137,8 +193,9 @@ def codex_lane(cwd: Path, prompt: str, barrier: threading.Barrier) -> dict[str, 
             ],
             cwd,
             prompt,
+            timeout_seconds,
         )
-        failure = "nonzero_exit" if code != 0 else None
+        failure = "timeout" if timed_out else ("nonzero_exit" if code != 0 else None)
         if code == 0 and not has_verdict(stdout):
             failure = "missing_verdict"
         attempts.append(
@@ -168,7 +225,9 @@ def codex_lane(cwd: Path, prompt: str, barrier: threading.Barrier) -> dict[str, 
     }
 
 
-def opus_lane(cwd: Path, prompt: str, barrier: threading.Barrier) -> dict[str, Any]:
+def opus_lane(
+    cwd: Path, prompt: str, barrier: threading.Barrier, timeout_seconds: float
+) -> dict[str, Any]:
     barrier.wait()
     started = time.time_ns()
     claude = command_path("claude")
@@ -182,8 +241,8 @@ def opus_lane(cwd: Path, prompt: str, barrier: threading.Barrier) -> dict[str, A
             "ended_ns": time.time_ns(),
         }
     command = [claude, "-p", "--model", "opus", "--dangerously-skip-permissions"]
-    code, stdout, stderr = execute(command, cwd, prompt)
-    failure = "nonzero_exit" if code != 0 else None
+    code, stdout, stderr, timed_out = execute(command, cwd, prompt, timeout_seconds)
+    failure = "timeout" if timed_out else ("nonzero_exit" if code != 0 else None)
     if code == 0 and not has_verdict(stdout):
         failure = "missing_verdict"
     return {
@@ -209,11 +268,30 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ref", required=True)
     parser.add_argument("--packet-file", required=True, type=Path)
     parser.add_argument("--output-dir", required=True, type=Path)
+    parser.add_argument(
+        "--timeout-seconds",
+        type=float,
+        default=1200.0,
+        help="maximum runtime for each primary reviewer (default: 1200)",
+    )
     return parser.parse_args()
+
+
+def cleanup_directory(path: Path) -> dict[str, Any]:
+    try:
+        shutil.rmtree(path)
+    except FileNotFoundError:
+        return {"success": True, "error": None, "path": str(path)}
+    except OSError as error:
+        return {"success": False, "error": str(error), "path": str(path)}
+    return {"success": True, "error": None, "path": str(path)}
 
 
 def main() -> int:
     args = parse_args()
+    if args.timeout_seconds <= 0:
+        print("--timeout-seconds must be greater than zero", file=sys.stderr)
+        return 2
     repo = Path(git(args.repo.resolve(), "rev-parse", "--show-toplevel").stdout.decode().strip())
     output_dir = args.output_dir.resolve()
     if output_dir == repo or repo in output_dir.parents:
@@ -223,7 +301,7 @@ def main() -> int:
         print("input checkout must be clean; dirty state is not represented by an exact SHA", file=sys.stderr)
         return 2
     sha = git(repo, "rev-parse", f"{args.ref}^{{commit}}").stdout.decode().strip()
-    before = repository_fingerprint(repo)
+    before = repository_snapshot(repo)
     packet = args.packet_file.read_text()
     prompt = (
         f"EXACT REVIEW SHA: {sha}\n"
@@ -237,6 +315,7 @@ def main() -> int:
         "sha": sha,
         "parallel_dispatch": True,
         "checkout_kind": "independent_clone_no_local",
+        "timeout_seconds": args.timeout_seconds,
     }
     try:
         for path in clones.values():
@@ -257,8 +336,12 @@ def main() -> int:
         barrier = threading.Barrier(2)
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
             futures = {
-                "codex": executor.submit(codex_lane, clones["codex"], prompt, barrier),
-                "opus": executor.submit(opus_lane, clones["opus"], prompt, barrier),
+                "codex": executor.submit(
+                    codex_lane, clones["codex"], prompt, barrier, args.timeout_seconds
+                ),
+                "opus": executor.submit(
+                    opus_lane, clones["opus"], prompt, barrier, args.timeout_seconds
+                ),
             }
             results = {name: future.result() for name, future in futures.items()}
         for name, result in results.items():
@@ -268,11 +351,18 @@ def main() -> int:
             r["ended_ns"] for r in results.values()
         )
     finally:
-        shutil.rmtree(temp_root, ignore_errors=True)
-        receipt["original_repository_unchanged"] = repository_fingerprint(repo) == before
+        receipt["cleanup"] = cleanup_directory(temp_root)
+        after = repository_snapshot(repo)
+        receipt["original_changed_components"] = sorted(
+            component for component in before if before[component] != after[component]
+        )
+        receipt["original_repository_unchanged"] = not receipt["original_changed_components"]
         receipt["original_checkout_unchanged"] = receipt["original_repository_unchanged"]
         (output_dir / "receipt.json").write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
 
+    if not receipt["cleanup"]["success"]:
+        print(f"failed to clean disposable clones: {receipt['cleanup']['error']}", file=sys.stderr)
+        return 5
     if not receipt["original_repository_unchanged"]:
         print("original checkout or repository metadata changed while reviewers were running", file=sys.stderr)
         return 3

@@ -26,8 +26,8 @@ from scripts.compute_command_closure import closure_to_json, compute_closure
 COMMANDS_DIR = REPO_ROOT / ".claude" / "commands"
 
 # Fixture A (TRUE POSITIVE), real content of .claude/commands/advice.md line 2:
-#   description: Token-efficient second opinion — fans out Opus subagent +
-#   /research + /secondo in parallel. ...
+#   description: Token-efficient second opinion — fans out a concurrent Codex
+#   + Opus CLI primary pair plus /research, /secondo, and /web-advice. ...
 # Prose delegation, and .claude/commands/research.md exists. Both /advice and
 # /research are in the Active Core set, so neither is reachable only through
 # .claude/commands/extended-library/, which the closure scanner does not scan.
