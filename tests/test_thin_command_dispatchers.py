@@ -52,6 +52,31 @@ class ThinCommandDispatchersTest(unittest.TestCase):
                 self.assertIn("$ARGUMENTS", command)
                 self.assertLessEqual(len(command.splitlines()), 15)
 
+    def test_dispatcher_count_counts_valid_commands_not_errors(self):
+        from tempfile import TemporaryDirectory
+
+        from scripts.validate_thin_commands import validate_commands
+
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            commands = root / "commands"
+            skills = root / "skills" / "dark-factory"
+            commands.mkdir()
+            skills.mkdir(parents=True)
+            (skills / "SKILL.md").write_text("skill\n", encoding="utf-8")
+            (commands / "valid.md").write_text(
+                "---\ndescription: valid\n---\n"
+                "Read ~/.claude/skills/dark-factory/SKILL.md with $ARGUMENTS.\n",
+                encoding="utf-8",
+            )
+            (commands / "invalid.md").write_text(
+                "---\ndescription: invalid\n---\n" + "extra\n" * 16,
+                encoding="utf-8",
+            )
+            result = validate_commands(commands, root / "skills")
+
+        self.assertEqual((2, 1, 2), (result.command_count, result.dispatcher_count, len(result.errors)))
+
 
 if __name__ == "__main__":
     unittest.main()
