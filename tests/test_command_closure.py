@@ -87,6 +87,21 @@ class CommandClosureTest(unittest.TestCase):
             + "; ".join(f"{t}: {PHANTOM_TOKENS[t]}" for t in leaked),
         )
 
+    def test_roadmap_dispatcher_closure_follows_skill_and_compatibility_reference(self):
+        result = compute_closure(REPO_ROOT, ["roadmap"])
+
+        self.assertTrue(
+            {"roadmap", "think", "planexec", "handoff", "r", "swarm"}
+            <= set(result["closure"]),
+            "roadmap closure must include commands delegated by its canonical "
+            "compatibility reference, including nested command inventory",
+        )
+        self.assertNotIn(
+            "roadmap",
+            result["edges"]["roadmap"],
+            "a dispatcher's pointer to its own skill is not a command dependency",
+        )
+
     def test_every_closure_member_resolves_to_a_real_command_file(self):
         closure = compute_closure(REPO_ROOT, [GENUINE_SEED, PHANTOM_SEED])["closure"]
         missing = [n for n in closure if not (COMMANDS_DIR / f"{n}.md").is_file()]
