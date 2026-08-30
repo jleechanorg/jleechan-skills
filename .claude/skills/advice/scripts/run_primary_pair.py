@@ -2,7 +2,7 @@
 """Run the /advice Codex and Opus reviewers concurrently at one exact SHA.
 
 The reviewers intentionally retain their full-permission flags. Repository
-mutation risk is reduced by giving each process its own detached worktree; this
+mutation risk is reduced by giving each process its own independent clone; this
 is not an operating-system sandbox.
 """
 
@@ -13,6 +13,7 @@ import concurrent.futures
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -48,6 +49,24 @@ def checkout_fingerprint(repo: Path) -> str:
     return digest.hexdigest()
 
 
+def repository_fingerprint(repo: Path) -> str:
+    """Hash checkout state plus local configuration and refs."""
+    digest = hashlib.sha256()
+    digest.update(checkout_fingerprint(repo).encode())
+    digest.update(git(repo, "config", "--local", "--null", "--list").stdout)
+    digest.update(git(repo, "show-ref", "--head", check=False).stdout)
+    common_dir_raw = git(repo, "rev-parse", "--git-common-dir").stdout.decode().strip()
+    common_dir = Path(common_dir_raw)
+    if not common_dir.is_absolute():
+        common_dir = repo / common_dir
+    hooks = common_dir.resolve() / "hooks"
+    if hooks.is_dir():
+        for path in sorted(item for item in hooks.rglob("*") if item.is_file()):
+            digest.update(str(path.relative_to(hooks)).encode())
+            digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
 def command_path(name: str) -> str | None:
     return shutil.which(name)
 
@@ -64,23 +83,14 @@ def execute(command: list[str], cwd: Path, prompt: str) -> tuple[int, str, str]:
     return completed.returncode, completed.stdout, completed.stderr
 
 
+def has_verdict(output: str) -> bool:
+    return re.search(r"(?m)^VERDICT:[ \t]+\S.*$", output) is not None
+
+
 def codex_lane(cwd: Path, prompt: str, barrier: threading.Barrier) -> dict[str, Any]:
     barrier.wait()
     started = time.time_ns()
     attempts: list[dict[str, Any]] = []
-    codexs = command_path("codexs")
-    if codexs:
-        code, stdout, stderr = execute([codexs], cwd, prompt)
-        attempts.append({"transport": "codexs", "exit_code": code, "stderr": stderr})
-        if code == 0:
-            return {
-                "status": "success",
-                "transport": "codexs",
-                "stdout": stdout,
-                "attempts": attempts,
-                "started_ns": started,
-                "ended_ns": time.time_ns(),
-            }
     codex = command_path("codex")
     if codex:
         code, stdout, stderr = execute(
@@ -96,8 +106,18 @@ def codex_lane(cwd: Path, prompt: str, barrier: threading.Barrier) -> dict[str, 
             cwd,
             prompt,
         )
-        attempts.append({"transport": "codex exec --yolo", "exit_code": code, "stderr": stderr})
-        if code == 0:
+        failure = "nonzero_exit" if code != 0 else None
+        if code == 0 and not has_verdict(stdout):
+            failure = "missing_verdict"
+        attempts.append(
+            {
+                "transport": "codex exec --yolo",
+                "exit_code": code,
+                "stderr": stderr,
+                "failure": failure,
+            }
+        )
+        if code == 0 and has_verdict(stdout):
             return {
                 "status": "success",
                 "transport": "codex exec --yolo",
@@ -109,7 +129,7 @@ def codex_lane(cwd: Path, prompt: str, barrier: threading.Barrier) -> dict[str, 
     return {
         "status": "unavailable" if not attempts else "error",
         "transport": None,
-        "stdout": "",
+        "stdout": stdout if attempts else "",
         "attempts": attempts,
         "started_ns": started,
         "ended_ns": time.time_ns(),
@@ -131,11 +151,21 @@ def opus_lane(cwd: Path, prompt: str, barrier: threading.Barrier) -> dict[str, A
         }
     command = [claude, "-p", "--model", "opus", "--dangerously-skip-permissions"]
     code, stdout, stderr = execute(command, cwd, prompt)
+    failure = "nonzero_exit" if code != 0 else None
+    if code == 0 and not has_verdict(stdout):
+        failure = "missing_verdict"
     return {
-        "status": "success" if code == 0 else "error",
+        "status": "success" if code == 0 and has_verdict(stdout) else "error",
         "transport": "claude -p --model opus --dangerously-skip-permissions",
         "stdout": stdout,
-        "attempts": [{"transport": "claude -p", "exit_code": code, "stderr": stderr}],
+        "attempts": [
+            {
+                "transport": "claude -p",
+                "exit_code": code,
+                "stderr": stderr,
+                "failure": failure,
+            }
+        ],
         "started_ns": started,
         "ended_ns": time.time_ns(),
     }
@@ -157,32 +187,46 @@ def main() -> int:
     if output_dir == repo or repo in output_dir.parents:
         print("output directory must be outside the original checkout", file=sys.stderr)
         return 2
+    if git(repo, "status", "--porcelain=v1", "--untracked-files=all").stdout:
+        print("input checkout must be clean; dirty state is not represented by an exact SHA", file=sys.stderr)
+        return 2
     sha = git(repo, "rev-parse", f"{args.ref}^{{commit}}").stdout.decode().strip()
-    before = checkout_fingerprint(repo)
+    before = repository_fingerprint(repo)
     packet = args.packet_file.read_text()
     prompt = (
         f"EXACT REVIEW SHA: {sha}\n"
-        "The current directory is a detached worktree at that SHA. Review only this checkout.\n\n"
+        "The current directory is an independent detached clone at that SHA. Review only this checkout.\n\n"
         f"{packet}"
     )
     output_dir.mkdir(parents=True, exist_ok=True)
     temp_root = Path(tempfile.mkdtemp(prefix="advice-primary-pair-"))
-    worktrees = {"codex": temp_root / "codex", "opus": temp_root / "opus"}
-    receipt: dict[str, Any] = {"sha": sha, "parallel_dispatch": True}
+    clones = {"codex": temp_root / "codex", "opus": temp_root / "opus"}
+    receipt: dict[str, Any] = {
+        "sha": sha,
+        "parallel_dispatch": True,
+        "checkout_kind": "independent_clone_no_local",
+    }
     try:
-        for path in worktrees.values():
-            git(repo, "worktree", "add", "--detach", str(path), sha)
-        receipt["worktree_shas"] = {
+        for path in clones.values():
+            subprocess.run(
+                ["git", "clone", "--quiet", "--no-local", "--no-checkout", str(repo), str(path)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=True,
+            )
+            git(path, "remote", "remove", "origin")
+            git(path, "checkout", "--quiet", "--detach", sha)
+        receipt["clone_shas"] = {
             name: git(path, "rev-parse", "HEAD").stdout.decode().strip()
-            for name, path in worktrees.items()
+            for name, path in clones.items()
         }
-        if any(worktree_sha != sha for worktree_sha in receipt["worktree_shas"].values()):
-            raise RuntimeError("review worktree did not resolve to the requested SHA")
+        if any(clone_sha != sha for clone_sha in receipt["clone_shas"].values()):
+            raise RuntimeError("review clone did not resolve to the requested SHA")
         barrier = threading.Barrier(2)
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
             futures = {
-                "codex": executor.submit(codex_lane, worktrees["codex"], prompt, barrier),
-                "opus": executor.submit(opus_lane, worktrees["opus"], prompt, barrier),
+                "codex": executor.submit(codex_lane, clones["codex"], prompt, barrier),
+                "opus": executor.submit(opus_lane, clones["opus"], prompt, barrier),
             }
             results = {name: future.result() for name, future in futures.items()}
         for name, result in results.items():
@@ -192,15 +236,13 @@ def main() -> int:
             r["ended_ns"] for r in results.values()
         )
     finally:
-        for path in worktrees.values():
-            git(repo, "worktree", "remove", "--force", str(path), check=False)
-        git(repo, "worktree", "prune", check=False)
         shutil.rmtree(temp_root, ignore_errors=True)
-        receipt["original_checkout_unchanged"] = checkout_fingerprint(repo) == before
+        receipt["original_repository_unchanged"] = repository_fingerprint(repo) == before
+        receipt["original_checkout_unchanged"] = receipt["original_repository_unchanged"]
         (output_dir / "receipt.json").write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
 
-    if not receipt["original_checkout_unchanged"]:
-        print("original checkout changed while reviewers were running", file=sys.stderr)
+    if not receipt["original_repository_unchanged"]:
+        print("original checkout or repository metadata changed while reviewers were running", file=sys.stderr)
         return 3
     if not any(result["status"] == "success" for result in receipt["reviewers"].values()):
         print("neither primary reviewer returned a verdict", file=sys.stderr)

@@ -19,7 +19,7 @@ From the current conversation, extract:
 
 If no specific question was passed, infer from most recent context.
 
-**Send the pointer, not a transcription.** Every reviewer transport in Step 2 is an *agent* that can read the repo for itself — Codex and Opus run in exact-SHA worktrees, `cursor -p` has access to write and shell tools, `agy`/`claude -p` run with permissions pre-approved, `/secondo` gathers its own `git diff origin/main...HEAD`, and `/web-advice` inspects the PR directly. Handing them a pre-chewed excerpt does not save them a fetch; it *removes* their ability to look. Give the pointer and let each one pull the context it decides it needs.
+**Send the pointer, not a transcription.** Every reviewer transport in Step 2 is an *agent* that can read the repo for itself — Codex and Opus run in independent exact-SHA clones, `cursor -p` has access to write and shell tools, `agy`/`claude -p` run with permissions pre-approved, `/secondo` gathers its own `git diff origin/main...HEAD`, and `/web-advice` inspects the PR directly. Handing them a pre-chewed excerpt does not save them a fetch; it *removes* their ability to look. Give the pointer and let each one pull the context it decides it needs.
 
 ### The inline-artifact fallback (≤150 lines) — narrow, and it caps the verdict
 
@@ -79,21 +79,29 @@ python3 "$ADVICE_RUNNER" \
 Create `$ADVICE_TMP/review-packet.txt` before invoking the runner. The output
 directory is deliberately outside the repository. Read `codex.txt`, `opus.txt`,
 and `receipt.json`; the receipt records the resolved SHA, each transport, launch
-times, and the post-run original-checkout fingerprint.
+times, each clone SHA, and the post-run original-repository fingerprint. The
+input checkout must be clean, including untracked files. The runner refuses a
+dirty checkout because those changes are not represented by the requested SHA.
 
-The runner creates two detached disposable worktrees at the exact same SHA,
+The runner creates two independent disposable clones with `git clone --no-local`,
+removes their `origin` remotes, and detaches both at the exact same SHA. It then
 starts A1 and A2 behind one concurrency barrier, gives them disjoint output
-files, and removes the worktrees afterward. It preserves the requested
-full-permission transports: `codexs` (whose wrapper supplies `--yolo`) with
-`codex exec --yolo` as its retry, and
-`claude -p --model opus --dangerously-skip-permissions` for A2. These worktrees
-isolate repository writes; they are deliberately **not** an OS security sandbox.
-If the original checkout fingerprint changes, the runner fails closed and its
-verdicts may not be used.
+files, and removes the clones afterward. It preserves the requested
+full-permission transports explicitly: `codex exec --yolo` for A1 and
+`claude -p --model opus --dangerously-skip-permissions` for A2. Independent
+clones prevent reviewer writes to refs, config, or hooks from sharing the
+original repository's `.git` state; they are deliberately **not** an OS security
+sandbox. If the original checkout, refs, local config, or hooks change, the
+runner fails closed and its verdicts may not be used.
 
-**A1 — Codex CLI (primary):** `codexs` when installed; if it exits nonzero,
-retry once with `codex exec --yolo -m gpt-5.6-terra --config
-model_reasoning_effort=high`.
+An exit code of zero is not enough: each successful lane must return a nonempty
+line beginning with `VERDICT:`. Empty or malformed output records
+`missing_verdict` and counts as an errored lane. If neither primary lane returns
+a recognizable verdict, invoke A3.
+
+**A1 — Codex CLI (primary):** `codex exec --yolo -m gpt-5.6-terra --config
+model_reasoning_effort=high`. The explicit command guarantees full-permission
+mode without relying on wrapper internals.
 
 **A2 — Opus CLI (primary):** `claude -p --model opus
 --dangerously-skip-permissions`. It is dispatched concurrently with A1, not
@@ -262,7 +270,7 @@ VERDICT: WITHHELD at <SHA> — <quorum or availability reason>
 
 **Capturing `<SHA>`:**
 - Reviewing a PR — `gh pr view <N> --json headRefOid --jq '.headRefOid'`
-- Reviewing the working tree — `git rev-parse HEAD`, **but HEAD does not identify uncommitted changes.** If `git status --porcelain` is non-empty, that SHA does not name the tree you reviewed. Either commit first, or mark it: `VERDICT: APPROVED at <SHA>+dirty (mvp_site/foo.py, tests/bar.py)`.
+- Reviewing the working tree — `git rev-parse HEAD`, **but HEAD does not identify uncommitted changes.** If `git status --porcelain` is non-empty, that SHA does not name the tree you reviewed. Commit the intended state before review; the primary-pair runner refuses dirty input and no approval verdict may be emitted for it.
 
 This verdict is valid only for that exact state — per the SHA-binding rule in `draft-first-pr/SKILL.md`, a new commit invalidates it and `/advice` must be re-run at the new SHA before the PR can be marked ready. Do not emit a bare "APPROVED"/"looks good" without the SHA — an unbound verdict cannot be checked for staleness later.
 
@@ -284,7 +292,7 @@ Do not cite a percentage saving — none has ever been measured here. And do not
 
 | Priority | CLI | When |
 |---|---|---|
-| A1 | `codexs` (or `codex exec --yolo -m gpt-5.6-terra --config model_reasoning_effort=high`) | Primary — runs IN PARALLEL with A2 |
+| A1 | `codex exec --yolo -m gpt-5.6-terra --config model_reasoning_effort=high` | Primary — runs IN PARALLEL with A2 |
 | A2 | `claude -p --model opus --dangerously-skip-permissions` | Primary — runs IN PARALLEL with A1 |
 | A3.1 | `claude -p --dangerously-skip-permissions` | Fallback when no primary leg produced a verdict (outside Claude Code) |
 | A3.2 | `cursor agent -p --force` | Fallback if A3.1 errors |
@@ -295,4 +303,4 @@ Notes:
 - The A3.x fallback chain activates whenever no primary leg produces a verdict — Codex alone being unavailable or alone failing does NOT drop to A3 (the surviving leg still counts as the A verdict). The gate is "neither primary succeeded," not "both errored," so hosts with mixed failure modes (one unavailable, one errored) still get a verdict. This keeps `/advice` productive on hosts where only one of {codex, opus} is installed OR only one dispatched cleanly.
 - Check a CLI is on `PATH` before counting it as a rung. An absent CLI is an unavailable rung, not a failed reviewer — drop to the next rung without recording a failure.
 - `agy --print-timeout` defaults to 5m. Pass a longer value for a full 150-line artifact, or the review dies as an opaque timeout that looks like an error.
-- When `codexs` is absent or exits nonzero, the runner uses the explicit `codex exec --yolo` form. Do not silently mark Reviewer A unavailable before that retry.
+- A primary process counts as successful only when it exits zero and emits a nonempty `VERDICT:` line. Otherwise preserve its failure in `receipt.json` and apply the solo/fallback rules above.

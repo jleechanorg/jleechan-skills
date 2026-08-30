@@ -71,7 +71,7 @@ class PrimaryPairTest(unittest.TestCase):
             env=self.env,
         )
 
-    def test_runs_codex_and_opus_concurrently_in_distinct_exact_sha_worktrees(self) -> None:
+    def test_runs_codex_and_opus_concurrently_in_independent_exact_sha_clones(self) -> None:
         peer_wait = """
 touch "$ADVICE_TEST_SYNC_DIR/%s.started"
 i=0
@@ -83,7 +83,7 @@ done
 pwd > "$ADVICE_TEST_SYNC_DIR/%s.cwd"
 printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
 """
-        self.executable("codexs", peer_wait % ("codex", "opus", "opus", "codex"))
+        self.executable("codex", peer_wait % ("codex", "opus", "opus", "codex"))
         self.executable("claude", peer_wait % ("opus", "codex", "codex", "opus"))
 
         result = self.invoke()
@@ -91,14 +91,14 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         self.assertEqual(result.returncode, 0, result.stderr)
         receipt = json.loads((self.output / "receipt.json").read_text())
         self.assertTrue(receipt["overlap_proven"])
-        self.assertEqual(receipt["worktree_shas"], {"codex": self.sha, "opus": self.sha})
+        self.assertEqual(receipt["clone_shas"], {"codex": self.sha, "opus": self.sha})
+        self.assertEqual(receipt["checkout_kind"], "independent_clone_no_local")
         self.assertEqual(receipt["reviewers"]["codex"]["status"], "success")
         self.assertEqual(receipt["reviewers"]["opus"]["status"], "success")
         self.assertNotEqual((self.sync / "codex.cwd").read_text(), (self.sync / "opus.cwd").read_text())
         self.assertEqual(receipt["original_checkout_unchanged"], True)
 
-    def test_preserves_full_permission_flags_on_codex_fallback_and_opus(self) -> None:
-        self.executable("codexs", "exit 17\n")
+    def test_preserves_explicit_full_permission_flags_on_codex_and_opus(self) -> None:
         self.executable(
             "codex",
             "printf '%s\\n' \"$@\" > \"$ADVICE_TEST_SYNC_DIR/codex.args\"\n"
@@ -120,10 +120,79 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         self.assertIn("--dangerously-skip-permissions", opus_args)
         self.assertIn("opus", opus_args)
 
+    def test_exit_zero_without_a_verdict_is_an_error_and_other_lane_can_succeed(self) -> None:
+        self.executable("codex", "printf 'no structured verdict\\n'\n")
+        self.executable("claude", "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
+
+        result = self.invoke()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        receipt = json.loads((self.output / "receipt.json").read_text())
+        self.assertEqual(receipt["reviewers"]["codex"]["status"], "error")
+        self.assertEqual(receipt["reviewers"]["codex"]["attempts"][0]["failure"], "missing_verdict")
+        self.assertEqual(receipt["reviewers"]["opus"]["status"], "success")
+
+    def test_fails_when_both_lanes_return_empty_or_malformed_output(self) -> None:
+        self.executable("codex", "printf ''\n")
+        self.executable("claude", "printf 'VERDICT:   \\n'\n")
+
+        result = self.invoke()
+
+        self.assertEqual(result.returncode, 4)
+        self.assertIn("neither primary reviewer returned a verdict", result.stderr)
+        receipt = json.loads((self.output / "receipt.json").read_text())
+        self.assertEqual(receipt["reviewers"]["codex"]["status"], "error")
+        self.assertEqual(receipt["reviewers"]["opus"]["status"], "error")
+
+    def test_independent_clones_isolate_ref_and_config_mutations(self) -> None:
+        mutation = (
+            "git config reviewer.evil true\n"
+            "git update-ref refs/heads/reviewer-evil HEAD\n"
+            "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n"
+        )
+        self.executable("codex", mutation)
+        self.executable("claude", mutation)
+
+        result = self.invoke()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotEqual(
+            run("git", "config", "--get", "reviewer.evil", cwd=self.repo).returncode,
+            0,
+        )
+        self.assertNotEqual(
+            run("git", "show-ref", "--verify", "--quiet", "refs/heads/reviewer-evil", cwd=self.repo).returncode,
+            0,
+        )
+
+    def test_refuses_dirty_input_checkout_before_dispatch(self) -> None:
+        (self.repo / "untracked.txt").write_text("not represented by the SHA\n")
+        self.executable("codex", "touch \"$ADVICE_TEST_SYNC_DIR/codex.ran\"\n")
+        self.executable("claude", "touch \"$ADVICE_TEST_SYNC_DIR/opus.ran\"\n")
+
+        result = self.invoke()
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("input checkout must be clean", result.stderr.lower())
+        self.assertFalse((self.sync / "codex.ran").exists())
+        self.assertFalse((self.sync / "opus.ran").exists())
+
+    def test_refuses_tracked_input_changes_before_dispatch(self) -> None:
+        (self.repo / "tracked.txt").write_text("dirty tracked state\n")
+        self.executable("codex", "touch \"$ADVICE_TEST_SYNC_DIR/codex.ran\"\n")
+        self.executable("claude", "touch \"$ADVICE_TEST_SYNC_DIR/opus.ran\"\n")
+
+        result = self.invoke()
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("input checkout must be clean", result.stderr.lower())
+        self.assertFalse((self.sync / "codex.ran").exists())
+        self.assertFalse((self.sync / "opus.ran").exists())
+
     def test_fails_closed_when_original_checkout_changes(self) -> None:
         self.env["ADVICE_TEST_ORIGINAL_REPO"] = str(self.repo)
         self.executable(
-            "codexs",
+            "codex",
             "printf 'mutated\\n' >> \"$ADVICE_TEST_ORIGINAL_REPO/tracked.txt\"\n"
             "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n",
         )
@@ -132,7 +201,7 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         result = self.invoke()
 
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("original checkout changed", result.stderr.lower())
+        self.assertIn("original checkout or repository metadata changed", result.stderr.lower())
         receipt = json.loads((self.output / "receipt.json").read_text())
         self.assertEqual(receipt["original_checkout_unchanged"], False)
 
