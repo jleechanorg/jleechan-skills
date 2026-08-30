@@ -37,6 +37,21 @@ class ThinCommandDispatchersTest(unittest.TestCase):
         self.assertLessEqual(len(command.splitlines()), 15)
         self.assertIn("$ARGUMENTS", command)
 
+    def test_legacy_aliases_use_native_thin_dispatcher_metadata(self):
+        aliases = {
+            "smart-advisor": ("advice.md", "advice"),
+            "webadvice": ("web-advice.md", "web-advice"),
+            "df": ("factory.md", "dark-factory"),
+        }
+        for alias, (command_name, skill_name) in aliases.items():
+            with self.subTest(alias=alias):
+                command = (COMMANDS / command_name).read_text(encoding="utf-8")
+                frontmatter = command.split("---", 2)[1]
+                self.assertIn(f"aliases: [{alias}]", frontmatter)
+                self.assertIn(f"/skills/{skill_name}/SKILL.md", command)
+                self.assertIn("$ARGUMENTS", command)
+                self.assertLessEqual(len(command.splitlines()), 15)
+
 
 if __name__ == "__main__":
     unittest.main()
