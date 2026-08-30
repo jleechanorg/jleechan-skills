@@ -19,7 +19,7 @@ Source of the lessons encoded here: 2026-08-02 real /web-advice runs, captured i
 
 ---
 
-## Case 1 — HAPPY: Aside browser transport live, four-seat PR bundle review
+## Case 1 — HAPPY: Aside browser transport live, three-seat PR bundle review
 
 **Given**
 - `aside-mcp` or `aside repl` returns a real browser-tab count and can attach to

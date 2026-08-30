@@ -48,7 +48,7 @@ description: Browser-based multi-model advice and review using ChatGPT, Gemini, 
 > `aside repl`. For a fallback, pass the observed reason, for example:
 > `python3 ~/.claude/skills/web-advice/scripts/web_advice_transport.py assert-transport chrome_headless_cookies --fallback-reason aside_unavailable`.
 
-Use `/web-advice` when an external multi-model perspective will help, especially when you want different model families to challenge a conclusion or when external web standards matter (e.g., D&D 5e SRD, Stately XState, industry patterns). Target four models, but synthesize the models that are available and disclose any coverage gap.
+Use `/web-advice` when an external multi-model perspective will help, especially when you want different model families to challenge a conclusion or when external web standards matter (e.g., D&D 5e SRD, Stately XState, industry patterns). Target three models (ChatGPT, Gemini, Perplexity), but synthesize the models that are available and disclose any coverage gap.
 
 ---
 
@@ -132,7 +132,7 @@ approved browser fallbacks. The examples below use Aside's Playwright-shaped
 API; apply the same selectors and evidence checks to a Playwright `Page` when a
 fallback is selected.
 
-### Step 1 — Open 4 tabs
+### Step 1 — Open 3 tabs
 
 ```javascript
 // In aside-mcp repl (mcp__aside-mcp__repl tool)
@@ -145,7 +145,7 @@ console.log('opened:', allTabs.length, 'tabs');
 for (const t of allTabs) console.log(' -', t.title, '(', t.url, ')');
 ```
 
-For Aside, expected output is 4 tabs (your existing tab + 3 new). A fallback
+For Aside, expected output is 4 tabs (your existing tab + 3 new vendor tabs). A fallback
 may use separate pages or contexts, but must report the selected transport and
 the per-vendor authentication result.
 
