@@ -1,0 +1,23 @@
+{
+  "schema": "pr-review-evidence.v1",
+  "provenance": {
+    "git_head": "c3a0d86bf8ac54335fd904e7e718db309774cfc7",
+    "git_base": "8cf552467d5896a29be85a1a1b14fca40fa4d173",
+    "branch": "feat/web-advice-title-convos",
+    "pr": 390
+  },
+  "scope": "PR #390 [web advice] conversation titling invariant and multi-model web review evidence",
+  "claims": [
+    {
+      "claim": "All web advice prompts start with [web advice] prefix and instruct models to title conversations starting with [web advice]",
+      "artifacts": [
+        "gemini_convo_title.png",
+        "chatgpt_convo_title.png",
+        "grok_convo_title.png",
+        "perplexity_convo_title.png",
+        "review_synthesis.md",
+        "test_results.txt"
+      ]
+    }
+  ]
+}
