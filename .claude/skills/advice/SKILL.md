@@ -74,7 +74,8 @@ python3 "$ADVICE_RUNNER" \
   --ref "$REVIEW_SHA" \
   --packet-file "$ADVICE_TMP/review-packet.txt" \
   --output-dir "$ADVICE_TMP/results" \
-  --timeout-seconds 1200
+  --timeout-seconds 1200 \
+  --timeout-grace-seconds 2
 ```
 
 Create `$ADVICE_TMP/review-packet.txt` before invoking the runner. The output
@@ -96,11 +97,21 @@ original repository's `.git` state; they are deliberately **not** an OS security
 sandbox. If the original checkout, refs, local config, or hooks change, the
 runner fails closed and its verdicts may not be used.
 
+The bounded drain guarantees that a detached descendant cannot hold the
+runner's stdout/stderr pipes open indefinitely. Because full-permission mode is
+intentional and this is not an OS sandbox, a process that deliberately creates
+a new session may outlive its reviewer lane; forced pipe closure bounds runner
+return and clone cleanup but is not process-containment proof.
+
 Each primary reviewer has a bounded runtime. `--timeout-seconds` sets the
-per-lane limit and defaults to 1200 seconds (20 minutes). A timeout records that
-lane as `error` with `failure: timeout`; the peer may still supply the sole
-primary verdict. If both time out, the runner exits 4 and A3 applies. Clone
-cleanup and receipt writing still run after timeouts. Cleanup itself is a gate:
+per-lane limit and defaults to 1200 seconds (20 minutes).
+`--timeout-grace-seconds` sets the bounded post-kill output-drain grace and
+defaults to 2 seconds; both values must be positive. A timeout kills the primary
+process group, drains output only for that grace, then closes inherited output
+pipes if they remain open. The attempt records `failure: timeout` and
+`forced_pipe_close`; the peer may still supply the sole primary verdict. If both
+time out, the runner exits 4 and A3 applies. Clone cleanup and receipt writing
+still run after timeouts. Cleanup itself is a gate:
 failure is recorded in `receipt.json` and the runner exits 5 rather than hiding
 leftover full-permission checkouts. Setup, reviewer, and result-output exceptions
 are captured under `operation` instead of escaping as traceback-only failures;

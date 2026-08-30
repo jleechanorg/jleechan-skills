@@ -7,6 +7,7 @@ import json
 import importlib.util
 import io
 import os
+import signal
 import subprocess
 import tempfile
 import time
@@ -311,6 +312,46 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         self.assertEqual(receipt["reviewers"]["codex"]["attempts"][0]["failure"], "timeout")
         self.assertEqual(receipt["reviewers"]["opus"]["attempts"][0]["failure"], "timeout")
         self.assertTrue(receipt["cleanup"]["success"])
+
+    def test_detached_descendant_pipe_cannot_extend_timeout_beyond_bounded_grace(self) -> None:
+        self.executable(
+            "codex",
+            "python3 - \"$ADVICE_TEST_SYNC_DIR/detached.pid\" <<'PY'\n"
+            "import subprocess, sys\n"
+            "child = subprocess.Popen(['sleep', '4'], start_new_session=True)\n"
+            "open(sys.argv[1], 'w').write(str(child.pid))\n"
+            "PY\n"
+            "exec sleep 4\n",
+        )
+        self.executable("claude", "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
+
+        started = time.monotonic()
+        try:
+            result = self.invoke(
+                "--timeout-seconds", "0.7", "--timeout-grace-seconds", "0.2"
+            )
+        finally:
+            pid_file = self.sync / "detached.pid"
+            if pid_file.exists():
+                try:
+                    os.kill(int(pid_file.read_text()), signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+        elapsed = time.monotonic() - started
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertLess(elapsed, 3.0)
+        receipt = json.loads((self.output / "receipt.json").read_text())
+        attempt = receipt["reviewers"]["codex"]["attempts"][0]
+        self.assertEqual(attempt["failure"], "timeout")
+        self.assertEqual(attempt["forced_pipe_close"], True)
+        self.assertTrue(receipt["cleanup"]["success"])
+
+    def test_timeout_grace_must_be_positive(self) -> None:
+        result = self.invoke("--timeout-grace-seconds", "0")
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("--timeout-grace-seconds must be greater than zero", result.stderr)
 
     def test_cleanup_helper_reports_failure_instead_of_ignoring_it(self) -> None:
         runner = load_runner_module()

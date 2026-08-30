@@ -147,8 +147,12 @@ def command_path(name: str) -> str | None:
 
 
 def execute(
-    command: list[str], cwd: Path, prompt: str, timeout_seconds: float
-) -> tuple[int, str, str, bool]:
+    command: list[str],
+    cwd: Path,
+    prompt: str,
+    timeout_seconds: float,
+    timeout_grace_seconds: float,
+) -> tuple[int, str, str, bool, bool]:
     process = subprocess.Popen(
         [*command, prompt],
         cwd=cwd,
@@ -159,14 +163,39 @@ def execute(
     )
     try:
         stdout, stderr = process.communicate(timeout=timeout_seconds)
-        return process.returncode, stdout, stderr, False
+        return process.returncode, stdout, stderr, False, False
     except subprocess.TimeoutExpired:
         try:
             os.killpg(process.pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
-        stdout, stderr = process.communicate()
-        return -signal.SIGKILL, stdout, stderr, True
+        forced_pipe_close = False
+        try:
+            stdout, stderr = process.communicate(timeout=timeout_grace_seconds)
+        except subprocess.TimeoutExpired as drain_timeout:
+            forced_pipe_close = True
+
+            def partial_text(value: str | bytes | None) -> str:
+                if value is None:
+                    return ""
+                if isinstance(value, bytes):
+                    return value.decode(errors="replace")
+                return value
+
+            stdout = partial_text(drain_timeout.output)
+            stderr = partial_text(drain_timeout.stderr)
+            for pipe in (process.stdout, process.stderr):
+                if pipe is not None:
+                    pipe.close()
+        try:
+            process.wait(timeout=timeout_grace_seconds)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            try:
+                process.wait(timeout=timeout_grace_seconds)
+            except subprocess.TimeoutExpired:
+                pass
+        return process.returncode or -signal.SIGKILL, stdout, stderr, True, forced_pipe_close
 
 
 def has_verdict(output: str) -> bool:
@@ -174,14 +203,18 @@ def has_verdict(output: str) -> bool:
 
 
 def codex_lane(
-    cwd: Path, prompt: str, barrier: threading.Barrier, timeout_seconds: float
+    cwd: Path,
+    prompt: str,
+    barrier: threading.Barrier,
+    timeout_seconds: float,
+    timeout_grace_seconds: float,
 ) -> dict[str, Any]:
     barrier.wait()
     started = time.time_ns()
     attempts: list[dict[str, Any]] = []
     codex = command_path("codex")
     if codex:
-        code, stdout, stderr, timed_out = execute(
+        code, stdout, stderr, timed_out, forced_pipe_close = execute(
             [
                 codex,
                 "exec",
@@ -194,6 +227,7 @@ def codex_lane(
             cwd,
             prompt,
             timeout_seconds,
+            timeout_grace_seconds,
         )
         failure = "timeout" if timed_out else ("nonzero_exit" if code != 0 else None)
         if code == 0 and not has_verdict(stdout):
@@ -204,6 +238,7 @@ def codex_lane(
                 "exit_code": code,
                 "stderr": stderr,
                 "failure": failure,
+                "forced_pipe_close": forced_pipe_close,
             }
         )
         if code == 0 and has_verdict(stdout):
@@ -226,7 +261,11 @@ def codex_lane(
 
 
 def opus_lane(
-    cwd: Path, prompt: str, barrier: threading.Barrier, timeout_seconds: float
+    cwd: Path,
+    prompt: str,
+    barrier: threading.Barrier,
+    timeout_seconds: float,
+    timeout_grace_seconds: float,
 ) -> dict[str, Any]:
     barrier.wait()
     started = time.time_ns()
@@ -241,7 +280,9 @@ def opus_lane(
             "ended_ns": time.time_ns(),
         }
     command = [claude, "-p", "--model", "opus", "--dangerously-skip-permissions"]
-    code, stdout, stderr, timed_out = execute(command, cwd, prompt, timeout_seconds)
+    code, stdout, stderr, timed_out, forced_pipe_close = execute(
+        command, cwd, prompt, timeout_seconds, timeout_grace_seconds
+    )
     failure = "timeout" if timed_out else ("nonzero_exit" if code != 0 else None)
     if code == 0 and not has_verdict(stdout):
         failure = "missing_verdict"
@@ -255,6 +296,7 @@ def opus_lane(
                 "exit_code": code,
                 "stderr": stderr,
                 "failure": failure,
+                "forced_pipe_close": forced_pipe_close,
             }
         ],
         "started_ns": started,
@@ -273,6 +315,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=float,
         default=1200.0,
         help="maximum runtime for each primary reviewer (default: 1200)",
+    )
+    parser.add_argument(
+        "--timeout-grace-seconds",
+        type=float,
+        default=2.0,
+        help="bounded output-drain grace after a timeout (default: 2)",
     )
     return parser.parse_args(argv)
 
@@ -316,6 +364,9 @@ def main(
     if args.timeout_seconds <= 0:
         print("--timeout-seconds must be greater than zero", file=sys.stderr)
         return 2
+    if args.timeout_grace_seconds <= 0:
+        print("--timeout-grace-seconds must be greater than zero", file=sys.stderr)
+        return 2
     repo = Path(git(args.repo.resolve(), "rev-parse", "--show-toplevel").stdout.decode().strip())
     output_dir = args.output_dir.resolve()
     if output_dir == repo or repo in output_dir.parents:
@@ -340,6 +391,7 @@ def main(
         "parallel_dispatch": True,
         "checkout_kind": "independent_clone_no_local",
         "timeout_seconds": args.timeout_seconds,
+        "timeout_grace_seconds": args.timeout_grace_seconds,
         "operation": {"success": False, "error": "operation did not complete"},
     }
     operational_error: str | None = None
@@ -356,10 +408,20 @@ def main(
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
             futures = {
                 "codex": executor.submit(
-                    codex_lane, clones["codex"], prompt, barrier, args.timeout_seconds
+                    codex_lane,
+                    clones["codex"],
+                    prompt,
+                    barrier,
+                    args.timeout_seconds,
+                    args.timeout_grace_seconds,
                 ),
                 "opus": executor.submit(
-                    opus_lane, clones["opus"], prompt, barrier, args.timeout_seconds
+                    opus_lane,
+                    clones["opus"],
+                    prompt,
+                    barrier,
+                    args.timeout_seconds,
+                    args.timeout_grace_seconds,
                 ),
             }
             results = {name: future.result() for name, future in futures.items()}
