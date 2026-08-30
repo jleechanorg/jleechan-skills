@@ -90,10 +90,13 @@ For code, patch, and PR reviews, you **MUST** generate and upload the complete l
 
 Build a concise prompt before opening the browser so you can paste the same request to each model. Include only the sections that apply.
 
-```markdown
-You are an independent expert advising on a [PR | patch | design | document | plan | decision | research question | other].
+**Conversation Titling Invariant**:
+Every `/web-advice` review prompt and follow-up MUST start with the prefix `[web advice]` and instruct the model to title the conversation with `[web advice] <Subject>` so automated review threads in ChatGPT, Gemini, Grok, and Perplexity sidebar histories are clearly titled and distinguishable from normal personal conversations.
 
-**Subject**:
+```markdown
+[web advice] You are an independent expert advising on a [PR | patch | design | document | plan | decision | research question | other]. Title this conversation starting with "[web advice] <Subject>".
+
+**Subject**: [web advice] [subject description]
 - Type: [subject type]
 - Identifier: [URL | path | concise question]
 - Branch / Commit: [<branch> @ <sha>]
@@ -179,7 +182,7 @@ Submit one model at a time. Submitting in parallel can hit rate limits or trigge
 
 ```javascript
 // For Gemini (the locator ref varies — use aria-label selector)
-const gemPrompt = `<your 4-section review prompt>`;
+const gemPrompt = `[web advice] <your 4-section review prompt>`;
 const gemTabs2 = await listBrowserTabs();
 const gemT = gemTabs2.find(t => t.title === 'Google Gemini');
 const gemP = await attachBrowserTab(gemT.targetId);
@@ -212,12 +215,13 @@ await new Promise(r => setTimeout(r, 500));
 ```javascript
 // Perplexity textbox is a DIV with role="textbox" — NOT a <textarea>
 // Selector that works: [role="textbox"]
+const perpPrompt = `[web advice] <your 4-section review prompt>`;
 const perpTabs = await listBrowserTabs();
 const perpTab = perpTabs.find(t => t.title === 'Perplexity');
 const perpPage = await attachBrowserTab(perpTab.targetId);
 const textbox = await perpPage.locator('[role="textbox"]').first();
 await textbox.click();
-await perpPage.keyboard.type(reviewPrompt, {delay: 3});
+await perpPage.keyboard.type(perpPrompt, {delay: 3});
 await perpPage.keyboard.press('Enter');  // Enter submits; no separate button click
 console.log('sent to Perplexity');
 ```

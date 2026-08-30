@@ -647,6 +647,8 @@ def build_visual_prompt(claim: str, frame_names: list) -> str:
     """Build the description-FIRST visual-evidence review prompt (lesson 6).
 
     Models that cannot ingest video (Grok, Perplexity) CAN ingest images.
+    The prompt starts with the `[web advice]` conversation title prefix so
+    browser chat histories remain distinguishable from normal conversations.
     The correct prompt shape demands, in this fixed order:
       1. literal pixel description of each frame (before any verdict)
       2. what changed between frames
@@ -666,7 +668,7 @@ def build_visual_prompt(claim: str, frame_names: list) -> str:
     """
     frame_list = "\n".join(f"- {name}" for name in frame_names)
 
-    return f"""You are reviewing frames of visual evidence for the following claim:
+    return f"""[web advice] You are reviewing frames of visual evidence for the following claim:
 
 CLAIM: {claim}
 

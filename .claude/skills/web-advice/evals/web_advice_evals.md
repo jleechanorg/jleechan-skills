@@ -33,8 +33,9 @@ Source of the lessons encoded here: 2026-08-02 real /web-advice runs, captured i
 **Then (PASS criteria — ALL required)**
 1. The agent opens real tabs to ChatGPT, Gemini, Grok, and Perplexity — not
    API calls, not CLI models, not subagents (per the HARD-FAIL CONTRACT).
-2. All 4 models receive the identical 4-section review prompt (not
-   per-model-customized).
+2. All 4 models receive the identical 4-section review prompt starting with
+   `[web advice]` (not per-model-customized, and titled with `[web advice]` so
+   web conversation histories are clearly distinguishable).
 3. The synthesis table has 4 rows, one per model, each with a real
    VERDICT/CONFIDENCE/finding scraped from that model's actual response —
    not a placeholder or an inferred value.

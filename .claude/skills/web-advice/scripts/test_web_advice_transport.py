@@ -562,6 +562,10 @@ class TestBuildVisualPrompt:
         assert "CLAIM: claim with no frames" in prompt
         assert "DESCRIBE" in prompt
 
+    def test_starts_with_web_advice_title_prefix(self):
+        prompt = build_visual_prompt("claim", ["frame1.png"])
+        assert prompt.startswith("[web advice]")
+
 
 # ---------------------------------------------------------------------------
 # assert_attachment_verified (bead wc-kjny — 2026-08-02 Grok incident)

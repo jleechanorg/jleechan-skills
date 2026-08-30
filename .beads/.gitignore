@@ -7,6 +7,9 @@
 *.vacuum-fsqlite-ns-use
 beads.db-shm
 beads.db-wal
+beads.db-wal-cert*
+*.fsqlite-migration-state
+*.pre-migration-bak*
 .sync.lock
 .br_history/
 .br_recovery/
