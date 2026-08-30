@@ -26,16 +26,20 @@ def render_arguments(template: str, arguments: str) -> str:
 
 def validate_commands(commands_dir: Path, skills_dir: Path) -> ValidationResult:
     errors: list[str] = []
+    dispatcher_count = 0
     commands = sorted(commands_dir.glob("*.md"))
     for command in commands:
+        valid = True
         text = command.read_text(encoding="utf-8")
         lines = text.splitlines()
         if not text.startswith("---\n"):
             errors.append(f"{command.name}: missing YAML frontmatter")
+            valid = False
         if len(lines) > MAX_DISPATCHER_LINES:
             errors.append(
                 f"{command.name}: {len(lines)} lines exceeds {MAX_DISPATCHER_LINES}"
             )
+            valid = False
         matches = SKILL_REFERENCE.findall(text)
         if len(matches) != 1:
             errors.append(f"{command.name}: needs exactly one local SKILL.md target")
@@ -43,6 +47,10 @@ def validate_commands(commands_dir: Path, skills_dir: Path) -> ValidationResult:
         target = skills_dir / matches[0] / "SKILL.md"
         if not target.is_file():
             errors.append(f"{command.name}: unresolved target {target.relative_to(skills_dir)}")
+            valid = False
         if "$ARGUMENTS" not in text:
             errors.append(f"{command.name}: does not forward $ARGUMENTS")
-    return ValidationResult(len(commands), len(commands) - len(errors), errors)
+            valid = False
+        if valid:
+            dispatcher_count += 1
+    return ValidationResult(len(commands), dispatcher_count, errors)
