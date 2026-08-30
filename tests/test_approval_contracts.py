@@ -80,6 +80,14 @@ class ApprovalContractsTest(unittest.TestCase):
             "permits the terminal report but prohibits claiming that advice passed or approved the documents",
             quick,
         )
+        self.assertIn(
+            "record `/web-advice` as `FAILED` with the attempted-submission reason",
+            quick,
+        )
+        self.assertIn(
+            "When no external attempt occurred and explicit authorization is absent",
+            quick,
+        )
         self.assertIn("`/advice`: `RAN | FAILED`", quick)
         self.assertIn(
             "`/web-advice`: `RAN | SKIPPED | UNAVAILABLE | FAILED`",
