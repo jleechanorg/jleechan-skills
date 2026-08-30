@@ -83,11 +83,12 @@ Read the change yourself. Return VERDICT, REASONING (3-4 sentences), RISK, COVER
 EOF
 )"
 else
-  # Use the mid-tier gpt-5.6-terra for adversarial review when bypassing codexs
-  # (the senior-engineer verdict lane maps to "Multi-file feature work, /er
-  # evidence review, swarm verifiers/miners, bug fixing" per the model-tiering
-  # policy in ~/.codex/config.toml — `terra` is the mid tier, `sol` is top).
-  codex exec --yolo -m gpt-5.6-terra --config model_reasoning_effort=high "$(cat <<'EOF'
+  if command -v codex >/dev/null 2>&1; then
+    # Use the mid-tier gpt-5.6-terra for adversarial review when bypassing codexs
+    # (the senior-engineer verdict lane maps to "Multi-file feature work, /er
+    # evidence review, swarm verifiers/miners, bug fixing" per the model-tiering
+    # policy in ~/.codex/config.toml — `terra` is the mid tier, `sol` is top).
+    codex exec --yolo -m gpt-5.6-terra --config model_reasoning_effort=high "$(cat <<'EOF'
 Senior engineer second opinion.
 
 DECISION:
@@ -99,6 +100,9 @@ WHAT TO REVIEW:
 Read the change yourself. Return VERDICT, REASONING (3-4 sentences), RISK, COVERAGE, CONFIDENCE.
 EOF
 )"
+  else
+    echo "A1 (Codex) unavailable: neither codexs nor codex is on PATH." >&2
+  fi
 fi
 ```
 Note: `codexs` is the `gpt-5.3-codex-spark` wrapper (defined in `~/.bashrc` and at `~/.local/bin/codexs`); the wrapper sets `--yolo`, the model, and `model_reasoning_effort=high`. Use it on machines where it's installed (default on /linux + the MacBook). Where it isn't, fall back to `codex exec` with explicit flags — and pick the model tier by lane:
@@ -127,18 +131,51 @@ In all of the above, fall through this chain in order, stopping at the first suc
 
 **A3.1 — `claude -p` (first-class fallback when invoked outside Claude Code):**
 ```bash
-claude -p --dangerously-skip-permissions "Senior engineer second opinion.\n\nDECISION:\n[decision]\n\nWHAT TO REVIEW:\n[PR / ref / paths]\n\nRead the change yourself. Return VERDICT, REASONING (3-4 sentences), RISK, COVERAGE, CONFIDENCE."
+claude -p --dangerously-skip-permissions "$(cat <<'EOF'
+Senior engineer second opinion.
+
+DECISION:
+[decision]
+
+WHAT TO REVIEW:
+[PR / ref / paths]
+
+Read the change yourself. Return VERDICT, REASONING (3-4 sentences), RISK, COVERAGE, CONFIDENCE.
+EOF
+)"
 ```
 Note: Same Claude Code context inheritance as agy. For a cleaner isolated call: add `--cwd /tmp`.
 
 **A3.2 — `cursor agent -p` (fallback if claude -p errors):**
 ```bash
-cursor agent -p --force "Senior engineer second opinion.\n\nDECISION:\n[decision]\n\nWHAT TO REVIEW:\n[PR / ref / paths]\n\nRead the change yourself. Return VERDICT, REASONING (3-4 sentences), RISK, COVERAGE, CONFIDENCE."
+cursor agent -p --force "$(cat <<'EOF'
+Senior engineer second opinion.
+
+DECISION:
+[decision]
+
+WHAT TO REVIEW:
+[PR / ref / paths]
+
+Read the change yourself. Return VERDICT, REASONING (3-4 sentences), RISK, COVERAGE, CONFIDENCE.
+EOF
+)"
 ```
 
 **A3.3 — `agy` (fallback if cursor errors):**
 ```bash
-agy --print --dangerously-skip-permissions "Senior engineer second opinion.\n\nDECISION:\n[decision]\n\nWHAT TO REVIEW:\n[PR / ref / paths]\n\nRead the change yourself. Return VERDICT, REASONING (3-4 sentences), RISK, COVERAGE, CONFIDENCE."
+agy --print --dangerously-skip-permissions "$(cat <<'EOF'
+Senior engineer second opinion.
+
+DECISION:
+[decision]
+
+WHAT TO REVIEW:
+[PR / ref / paths]
+
+Read the change yourself. Return VERDICT, REASONING (3-4 sentences), RISK, COVERAGE, CONFIDENCE.
+EOF
+)"
 ```
 Note: agy is the Antigravity CLI (reads CLAUDE.md on startup like any CC session, but starts fresh — no current conversation history). Independent perspective, slightly slower than cursor.
 
