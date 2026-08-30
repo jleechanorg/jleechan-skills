@@ -30,6 +30,13 @@ class ThinCommandDispatchersTest(unittest.TestCase):
             with self.subTest(arguments=supplied):
                 self.assertEqual(expected, render_arguments("$ARGUMENTS", supplied))
 
+    def test_factory_is_a_thin_local_dispatcher(self):
+        command = (COMMANDS / "factory.md").read_text(encoding="utf-8")
+        self.assertEqual(1, command.count("/skills/dark-factory/SKILL.md"))
+        self.assertTrue((REPO_ROOT / ".claude/skills/dark-factory/SKILL.md").is_file())
+        self.assertLessEqual(len(command.splitlines()), 15)
+        self.assertIn("$ARGUMENTS", command)
+
 
 if __name__ == "__main__":
     unittest.main()
