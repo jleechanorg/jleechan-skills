@@ -565,6 +565,7 @@ class TestBuildVisualPrompt:
     def test_starts_with_web_advice_title_prefix(self):
         prompt = build_visual_prompt("claim", ["frame1.png"])
         assert prompt.startswith("[web advice]")
+        assert 'Title this conversation starting with "[web advice] claim"' in prompt
 
 
 # ---------------------------------------------------------------------------

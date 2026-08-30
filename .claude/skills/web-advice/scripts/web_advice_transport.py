@@ -668,7 +668,7 @@ def build_visual_prompt(claim: str, frame_names: list) -> str:
     """
     frame_list = "\n".join(f"- {name}" for name in frame_names)
 
-    return f"""[web advice] You are reviewing frames of visual evidence for the following claim:
+    return f"""[web advice] You are reviewing frames of visual evidence for the following claim. Title this conversation starting with "[web advice] {claim}".
 
 CLAIM: {claim}
 
