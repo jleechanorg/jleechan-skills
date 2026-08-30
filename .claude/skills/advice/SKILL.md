@@ -70,7 +70,19 @@ CONFIDENCE: [high / medium / low]
 # default for small lookups per ~/.codex/config.toml).
 # Fall back to `codex exec` directly if `codexs` is missing.
 if command -v codexs >/dev/null 2>&1; then
-  codexs "$(cat <<'EOF'
+  if ! codexs "$(cat <<'EOF'
+Senior engineer second opinion.
+
+DECISION:
+[decision]
+
+WHAT TO REVIEW:
+[PR / ref / paths]
+
+Read the change yourself. Return VERDICT, REASONING (3-4 sentences), RISK, COVERAGE, CONFIDENCE.
+EOF
+)"; then
+    codex exec --yolo -m gpt-5.6-terra --config model_reasoning_effort=high "$(cat <<'EOF'
 Senior engineer second opinion.
 
 DECISION:
@@ -82,6 +94,7 @@ WHAT TO REVIEW:
 Read the change yourself. Return VERDICT, REASONING (3-4 sentences), RISK, COVERAGE, CONFIDENCE.
 EOF
 )"
+  fi
 else
   if command -v codex >/dev/null 2>&1; then
     # Use the mid-tier gpt-5.6-terra for adversarial review when bypassing codexs
@@ -111,7 +124,7 @@ Note: `codexs` is the `gpt-5.3-codex-spark` wrapper (defined in `~/.bashrc` and 
 - `gpt-5.6-luna` (fast 5.6 tier) — routine coding, conventional refactors
 - `gpt-5.6-spark` / `gpt-5.3-codex-spark` (cheapest) — fast lookups, mechanical scans
 
-If the configured model is rate-limited or errors (e.g. `usage limit for GPT-5.3-Codex-Spark`), retry the failed run with the next-tier-up model — do NOT silently mark Reviewer A unavailable just because the cheapest tier exhausted. Codex was previously dropped from the chain on 2026-06-24 because `gpt-4.5` was unsupported; that reason is obsolete — Codex is back as a first-class primary.
+If `codexs` running `gpt-5.3-codex-spark` exits nonzero (for example, because it is rate-limited), retry once with `codex exec` running `gpt-5.6-terra`; do NOT silently mark Reviewer A unavailable just because the cheapest tier exhausted. Codex was previously dropped from the chain on 2026-06-24 because `gpt-4.5` was unsupported; that reason is obsolete — Codex is back as a first-class primary.
 
 **A2 — Opus subagent (primary, runs in parallel with A1):**
 
