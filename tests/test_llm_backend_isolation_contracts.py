@@ -140,6 +140,39 @@ class LLMBackendIsolationContractsTest(unittest.TestCase):
         self.assertEqual(agent_data["interface"]["display_name"], "LLM First")
         self.assertIn("$llm-first", agent_data["interface"]["default_prompt"])
 
+    def test_llm_first_prefers_captured_bq_wire_replay_before_backend_confirmation(self):
+        skill_text = read_skill("llm-first")
+        command_text = read_command("llm-first")
+
+        self.assertIn("BigQuery raw LLM request telemetry", skill_text)
+        self.assertIn("request_json", skill_text)
+        self.assertIn("BQ WIRE REPLAY", skill_text)
+        self.assertIn("NOT-YET-CAPTURED", skill_text)
+        self.assertIn("backend-generated reconstruction", skill_text)
+        self.assertLess(
+            skill_text.index("BigQuery raw LLM request telemetry"),
+            skill_text.index("backend-generated reconstruction"),
+        )
+        self.assertIn("must not be pooled", skill_text)
+        self.assertIn("separate backend confirmation", skill_text)
+        self.assertIn("BQ-wire replay", command_text)
+
+        for provenance_boundary in (
+            "immutable source-row locator",
+            "access-controlled telemetry",
+            "approved redaction",
+            "SANITIZED SURROGATE",
+            "RECONSTRUCTED FALLBACK",
+        ):
+            self.assertIn(provenance_boundary, skill_text)
+        self.assertIn("Never commit, publish, log, or hand off", skill_text)
+        self.assertIn("cannot support a causal claim about the original", skill_text)
+        self.assertIn("Evidence classes are mutually exclusive", skill_text)
+        self.assertIn("BigQuery row; no semantic redaction", skill_text)
+        self.assertIn("Non-BigQuery provider-boundary capture", skill_text)
+        self.assertIn("Any capture with semantic redaction", skill_text)
+        self.assertNotIn("Label this experiment `BQ WIRE REPLAY`", skill_text)
+
     def test_backend_first_enforces_frozen_model_and_telemetry_fixtures(self):
         skill_text = read_skill("backend-first")
         command_text = read_command("backend-first")
