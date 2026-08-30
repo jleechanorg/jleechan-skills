@@ -1,0 +1,212 @@
+#!/usr/bin/env python3
+"""Run the /advice Codex and Opus reviewers concurrently at one exact SHA.
+
+The reviewers intentionally retain their full-permission flags. Repository
+mutation risk is reduced by giving each process its own detached worktree; this
+is not an operating-system sandbox.
+"""
+
+from __future__ import annotations
+
+import argparse
+import concurrent.futures
+import hashlib
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+from pathlib import Path
+from typing import Any
+
+
+def git(repo: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[bytes]:
+    return subprocess.run(
+        ["git", "-C", str(repo), *args],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=check,
+    )
+
+
+def checkout_fingerprint(repo: Path) -> str:
+    """Hash HEAD plus all tracked changes and untracked file content."""
+    digest = hashlib.sha256()
+    digest.update(git(repo, "rev-parse", "HEAD").stdout)
+    digest.update(git(repo, "diff", "--binary", "HEAD", "--").stdout)
+    untracked = git(repo, "ls-files", "--others", "--exclude-standard", "-z").stdout
+    for raw_path in sorted(filter(None, untracked.split(b"\0"))):
+        digest.update(raw_path)
+        path = repo / os.fsdecode(raw_path)
+        if path.is_symlink():
+            digest.update(b"symlink\0" + os.fsencode(os.readlink(path)))
+        elif path.is_file():
+            digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
+def command_path(name: str) -> str | None:
+    return shutil.which(name)
+
+
+def execute(command: list[str], cwd: Path, prompt: str) -> tuple[int, str, str]:
+    completed = subprocess.run(
+        [*command, prompt],
+        cwd=cwd,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    return completed.returncode, completed.stdout, completed.stderr
+
+
+def codex_lane(cwd: Path, prompt: str, barrier: threading.Barrier) -> dict[str, Any]:
+    barrier.wait()
+    started = time.time_ns()
+    attempts: list[dict[str, Any]] = []
+    codexs = command_path("codexs")
+    if codexs:
+        code, stdout, stderr = execute([codexs], cwd, prompt)
+        attempts.append({"transport": "codexs", "exit_code": code, "stderr": stderr})
+        if code == 0:
+            return {
+                "status": "success",
+                "transport": "codexs",
+                "stdout": stdout,
+                "attempts": attempts,
+                "started_ns": started,
+                "ended_ns": time.time_ns(),
+            }
+    codex = command_path("codex")
+    if codex:
+        code, stdout, stderr = execute(
+            [
+                codex,
+                "exec",
+                "--yolo",
+                "-m",
+                "gpt-5.6-terra",
+                "--config",
+                "model_reasoning_effort=high",
+            ],
+            cwd,
+            prompt,
+        )
+        attempts.append({"transport": "codex exec --yolo", "exit_code": code, "stderr": stderr})
+        if code == 0:
+            return {
+                "status": "success",
+                "transport": "codex exec --yolo",
+                "stdout": stdout,
+                "attempts": attempts,
+                "started_ns": started,
+                "ended_ns": time.time_ns(),
+            }
+    return {
+        "status": "unavailable" if not attempts else "error",
+        "transport": None,
+        "stdout": "",
+        "attempts": attempts,
+        "started_ns": started,
+        "ended_ns": time.time_ns(),
+    }
+
+
+def opus_lane(cwd: Path, prompt: str, barrier: threading.Barrier) -> dict[str, Any]:
+    barrier.wait()
+    started = time.time_ns()
+    claude = command_path("claude")
+    if not claude:
+        return {
+            "status": "unavailable",
+            "transport": None,
+            "stdout": "",
+            "attempts": [],
+            "started_ns": started,
+            "ended_ns": time.time_ns(),
+        }
+    command = [claude, "-p", "--model", "opus", "--dangerously-skip-permissions"]
+    code, stdout, stderr = execute(command, cwd, prompt)
+    return {
+        "status": "success" if code == 0 else "error",
+        "transport": "claude -p --model opus --dangerously-skip-permissions",
+        "stdout": stdout,
+        "attempts": [{"transport": "claude -p", "exit_code": code, "stderr": stderr}],
+        "started_ns": started,
+        "ended_ns": time.time_ns(),
+    }
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--repo", required=True, type=Path)
+    parser.add_argument("--ref", required=True)
+    parser.add_argument("--packet-file", required=True, type=Path)
+    parser.add_argument("--output-dir", required=True, type=Path)
+    return parser.parse_args()
+
+
+def main() -> int:
+    args = parse_args()
+    repo = Path(git(args.repo.resolve(), "rev-parse", "--show-toplevel").stdout.decode().strip())
+    output_dir = args.output_dir.resolve()
+    if output_dir == repo or repo in output_dir.parents:
+        print("output directory must be outside the original checkout", file=sys.stderr)
+        return 2
+    sha = git(repo, "rev-parse", f"{args.ref}^{{commit}}").stdout.decode().strip()
+    before = checkout_fingerprint(repo)
+    packet = args.packet_file.read_text()
+    prompt = (
+        f"EXACT REVIEW SHA: {sha}\n"
+        "The current directory is a detached worktree at that SHA. Review only this checkout.\n\n"
+        f"{packet}"
+    )
+    output_dir.mkdir(parents=True, exist_ok=True)
+    temp_root = Path(tempfile.mkdtemp(prefix="advice-primary-pair-"))
+    worktrees = {"codex": temp_root / "codex", "opus": temp_root / "opus"}
+    receipt: dict[str, Any] = {"sha": sha, "parallel_dispatch": True}
+    try:
+        for path in worktrees.values():
+            git(repo, "worktree", "add", "--detach", str(path), sha)
+        receipt["worktree_shas"] = {
+            name: git(path, "rev-parse", "HEAD").stdout.decode().strip()
+            for name, path in worktrees.items()
+        }
+        if any(worktree_sha != sha for worktree_sha in receipt["worktree_shas"].values()):
+            raise RuntimeError("review worktree did not resolve to the requested SHA")
+        barrier = threading.Barrier(2)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            futures = {
+                "codex": executor.submit(codex_lane, worktrees["codex"], prompt, barrier),
+                "opus": executor.submit(opus_lane, worktrees["opus"], prompt, barrier),
+            }
+            results = {name: future.result() for name, future in futures.items()}
+        for name, result in results.items():
+            (output_dir / f"{name}.txt").write_text(result.pop("stdout"))
+        receipt["reviewers"] = results
+        receipt["overlap_proven"] = max(r["started_ns"] for r in results.values()) <= min(
+            r["ended_ns"] for r in results.values()
+        )
+    finally:
+        for path in worktrees.values():
+            git(repo, "worktree", "remove", "--force", str(path), check=False)
+        git(repo, "worktree", "prune", check=False)
+        shutil.rmtree(temp_root, ignore_errors=True)
+        receipt["original_checkout_unchanged"] = checkout_fingerprint(repo) == before
+        (output_dir / "receipt.json").write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+
+    if not receipt["original_checkout_unchanged"]:
+        print("original checkout changed while reviewers were running", file=sys.stderr)
+        return 3
+    if not any(result["status"] == "success" for result in receipt["reviewers"].values()):
+        print("neither primary reviewer returned a verdict", file=sys.stderr)
+        return 4
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
