@@ -1,6 +1,6 @@
 ---
 name: advice
-description: "Token-efficient second opinion slash command /advice. Extracts the decision point plus a pointer to the change (PR / ref / paths) so each reviewer reads the code itself, then fans out in parallel to up to four reviewers: (1) Opus subagent with a cursor→agy→claude -p CLI fallback chain, (2) /research on the decision topic, (3) /secondo multi-model opinion, (4) /web-advice browser review. Reviewers A and B are the portable core; C and D need personal infrastructure and are skipped when unavailable. Use instead of advisor() which ships the full conversation uncached."
+description: "Token-efficient second opinion slash command /advice. Extracts the decision point plus a pointer to the change (PR / ref / paths) so each reviewer reads the code itself, then fans out in parallel to up to five reviewers: (1) Codex + Opus CLI reviewers launched concurrently as the primary pair, (2) fallback chain claude -p→cursor→agy if neither primary reviewer returns a verdict, (3) /research on the decision topic, (4) /secondo multi-model opinion, (5) /web-advice browser review. Reviewers A and B are the portable core; C and D need personal infrastructure and are skipped when unavailable. Use instead of advisor() which ships the full conversation uncached."
 ---
 
 # /advice — Token-Efficient Second Opinion
@@ -19,7 +19,7 @@ From the current conversation, extract:
 
 If no specific question was passed, infer from most recent context.
 
-**Send the pointer, not a transcription.** Every reviewer transport in Step 2 is an *agent* that can read the repo for itself — the Opus subagent has Read/Grep/Bash, `cursor -p` has "access to all tools, including write and shell", `agy`/`claude -p` run with permissions pre-approved, `/secondo` gathers its own `git diff origin/main...HEAD`, and `/web-advice` inspects the PR directly. Handing them a pre-chewed excerpt does not save them a fetch; it *removes* their ability to look. Give the pointer and let each one pull the context it decides it needs.
+**Send the pointer, not a transcription.** Every reviewer transport in Step 2 is an *agent* that can read the repo for itself — Codex and Opus run in independent exact-SHA clones, `cursor -p` has access to write and shell tools, `agy`/`claude -p` run with permissions pre-approved, `/secondo` gathers its own `git diff origin/main...HEAD`, and `/web-advice` inspects the PR directly. Handing them a pre-chewed excerpt does not save them a fetch; it *removes* their ability to look. Give the pointer and let each one pull the context it decides it needs.
 
 ### The inline-artifact fallback (≤150 lines) — narrow, and it caps the verdict
 
@@ -33,9 +33,15 @@ Spawn every available reviewer in a single message. **A and B are the portable c
 
 ---
 
-**Reviewer A — Fallback chain (try in order, stop at first success):**
+**Reviewer A — Primary pair fired IN PARALLEL:**
 
-**A1 — Opus subagent (primary):** Spawn an Agent:
+**Codex + Opus run concurrently when both are available.** Each reviewer reads
+the change independently and returns its own verdict. Use the executable runner
+below: descriptive prose or a foreground Codex call followed by an Opus spawn
+does not satisfy this contract.
+
+Use the same review packet for both reviewers:
+
 ```
 You are a senior engineer giving a focused second opinion.
 
@@ -57,24 +63,173 @@ COVERAGE: [what you actually read; note anything you could not reach]
 CONFIDENCE: [high / medium / low]
 ```
 
-**A2 — cursor (fallback if A1 errors):**
+Write that packet to a temporary file, capture the exact review SHA, and invoke:
+
 ```bash
-cursor agent -p --force "Senior engineer second opinion.\n\nDECISION:\n[decision]\n\nWHAT TO REVIEW:\n[PR / ref / paths]\n\nRead the change yourself. Return VERDICT, REASONING (3-4 sentences), RISK, COVERAGE, CONFIDENCE."
+REVIEW_SHA="$(git rev-parse HEAD)"
+ADVICE_TMP="$(mktemp -d)"
+ADVICE_RUNNER="${CLAUDE_HOME:-$HOME/.claude}/skills/advice/scripts/run_primary_pair.py"
+python3 "$ADVICE_RUNNER" \
+  --repo "$(git rev-parse --show-toplevel)" \
+  --ref "$REVIEW_SHA" \
+  --packet-file "$ADVICE_TMP/review-packet.txt" \
+  --output-dir "$ADVICE_TMP/results" \
+  --timeout-seconds 1200 \
+  --timeout-grace-seconds 2
 ```
 
-**A3 — agy (fallback if A2 errors):**
-```bash
-agy --print --dangerously-skip-permissions "Senior engineer second opinion.\n\nDECISION:\n[decision]\n\nWHAT TO REVIEW:\n[PR / ref / paths]\n\nRead the change yourself. Return VERDICT, REASONING (3-4 sentences), RISK, COVERAGE, CONFIDENCE."
-```
-Note: agy is the Antigravity CLI (reads CLAUDE.md on startup like any CC session, but starts fresh — no current conversation history). Independent perspective, slightly slower than cursor.
+Create `$ADVICE_TMP/review-packet.txt` before invoking the runner. The output
+directory is deliberately outside the repository. Read `codex.txt`, `opus.txt`,
+and `receipt.json`; the receipt records the resolved SHA, each transport, launch
+times, each clone SHA, cleanup status, and any changed original-repository
+fingerprint components. The
+input checkout must be clean, including untracked files. The runner refuses a
+dirty checkout because those changes are not represented by the requested SHA.
 
-**A1.1 — `claude -p` (first-class choice when invoked outside Claude Code; fallback if A3 errors):**
+The runner creates two independent disposable clones with `git clone --no-local`,
+removes their `origin` remotes, and detaches both at the exact same SHA. It then
+starts A1 and A2 behind one concurrency barrier, gives them disjoint output
+files, and removes the clones afterward. It preserves the requested
+full-permission transports explicitly: `codex exec --yolo` for A1 and
+`claude -p --model opus --dangerously-skip-permissions` for A2. Independent
+clones prevent reviewer writes to refs, config, or hooks from sharing the
+original repository's `.git` state; they are deliberately **not** an OS security
+sandbox. If the original checkout, refs, local config, or hooks change, the
+runner fails closed and its verdicts may not be used.
+
+While each reviewer root is alive, the runner samples the macOS/Linux process
+tree, retains PID plus process-start identity for discovered descendants even
+after reparenting, and on timeout terminates those descendants before/with the
+root process group. The receipt lists discovered, signaled, and surviving PIDs
+plus whether termination was verified. Bounded drain then guarantees that a
+remaining inherited pipe cannot block runner return or clone cleanup.
+
+This lifecycle supervision does not change full-permission mode and is not an
+OS sandbox: it does not restrict network, environment, or process creation. An
+arbitrary daemon that forks, reparents, and disappears from the sampled lineage
+before the first observation can evade user-space process-tree tracking. For
+descendants observed while the reviewer root is alive, a surviving verified PID
+is recorded as a termination failure rather than silently treated as contained;
+after successful cleanup the runner exits 7 even if the peer returned a verdict.
+
+Each primary reviewer has a bounded runtime. `--timeout-seconds` sets the
+per-lane limit and defaults to 1200 seconds (20 minutes).
+`--timeout-grace-seconds` sets the bounded post-kill output-drain grace and
+defaults to 2 seconds; both values must be positive. A timeout kills the primary
+process group, drains output only for that grace, then closes inherited output
+pipes if they remain open. The attempt records `failure: timeout` and
+`forced_pipe_close`; the peer may still supply the sole primary verdict. If both
+time out, the runner exits 4 and A3 applies. Clone cleanup and receipt writing
+still run after timeouts. Cleanup itself is a gate:
+failure is recorded in `receipt.json` and the runner exits 5 rather than hiding
+leftover full-permission checkouts. Setup, reviewer, and result-output exceptions
+are captured under `operation` instead of escaping as traceback-only failures;
+after successful cleanup they exit 6. If operation and cleanup both fail,
+`receipt.json` records both and cleanup exit 5 takes precedence.
+
+Ignored regular files may contain credentials, so the fingerprint never opens
+or hashes their contents. It records each ignored relative path plus `lstat`
+mode, size, and nanosecond modification time; for a symlink it additionally
+records the link target without following it. This detects ordinary ignored-file
+creation, deletion, replacement, and modification while keeping secret content
+unread. It is a mutation tripwire, not a defense against an adversarial process
+that deliberately restores identical metadata, and it does not change the
+runner's non-sandbox boundary.
+
+Hook coverage follows Git's effective `core.hooksPath`, including configured
+absolute or relative hook locations. The fingerprint includes ordinary hook
+content and `lstat` metadata; symlinks, including dangling ones, contribute
+their link target without being followed. This avoids unsafe traversal while
+detecting hook-path and dangling-link mutations.
+
+An exit code of zero is not enough: each successful lane must return a nonempty
+line beginning with `VERDICT:`. Empty or malformed output records
+`missing_verdict` and counts as an errored lane. If neither primary lane returns
+a recognizable verdict, invoke A3.
+
+**A1 — Codex CLI (primary):** `codex exec --yolo -m gpt-5.6-terra --config
+model_reasoning_effort=high`. The explicit command guarantees full-permission
+mode without relying on wrapper internals.
+
+**A2 — Opus CLI (primary):** `claude -p --model opus
+--dangerously-skip-permissions`. It is dispatched concurrently with A1, not
+after A1 returns.
+
+**A3 — Fallback chain (whenever neither primary leg produces a verdict):**
+
+A3 activates whenever Reviewer A cannot return a verdict. That covers:
+- BOTH A1 (Codex) and A2 (Opus) are unavailable (binary / model missing)
+- BOTH A1 and A2 dispatched and both errored
+- A1 unavailable AND A2 errored (mixed failure — still no primary verdict)
+- A1 errored AND A2 unavailable (mixed failure — still no primary verdict)
+
+In all of the above, fall through this chain in order, stopping at the first success:
+
+**A3.1 — `claude -p` (first-class fallback when invoked outside Claude Code):**
 ```bash
-claude -p --dangerously-skip-permissions "Senior engineer second opinion.\n\nDECISION:\n[decision]\n\nWHAT TO REVIEW:\n[PR / ref / paths]\n\nRead the change yourself. Return VERDICT, REASONING (3-4 sentences), RISK, COVERAGE, CONFIDENCE."
+claude -p --dangerously-skip-permissions "$(cat <<'EOF'
+Senior engineer second opinion.
+
+DECISION:
+[decision]
+
+WHAT TO REVIEW:
+[PR / ref / paths]
+
+Read the change yourself. Return VERDICT, REASONING (3-4 sentences), RISK, COVERAGE, CONFIDENCE.
+EOF
+)"
 ```
 Note: Same Claude Code context inheritance as agy. For a cleaner isolated call: add `--cwd /tmp`.
 
+**A3.2 — `cursor agent -p` (fallback if claude -p errors):**
+```bash
+cursor agent -p --force "$(cat <<'EOF'
+Senior engineer second opinion.
+
+DECISION:
+[decision]
+
+WHAT TO REVIEW:
+[PR / ref / paths]
+
+Read the change yourself. Return VERDICT, REASONING (3-4 sentences), RISK, COVERAGE, CONFIDENCE.
+EOF
+)"
+```
+
+**A3.3 — `agy` (fallback if cursor errors):**
+```bash
+agy --print --dangerously-skip-permissions "$(cat <<'EOF'
+Senior engineer second opinion.
+
+DECISION:
+[decision]
+
+WHAT TO REVIEW:
+[PR / ref / paths]
+
+Read the change yourself. Return VERDICT, REASONING (3-4 sentences), RISK, COVERAGE, CONFIDENCE.
+EOF
+)"
+```
+Note: agy is the Antigravity CLI (reads CLAUDE.md on startup like any CC session, but starts fresh — no current conversation history). Independent perspective, slightly slower than cursor.
+
 If all options fail, note "Reviewer A unavailable" in the synthesis table.
+
+**No-verdict guarantee:** A host that lacks BOTH Codex (no codex binary) AND the
+Opus CLI MUST still emit at least one
+A-leg verdict if any of A3.1 / A3.2 / A3.3 is on PATH. The fallback chain is
+gated on "unavailable OR error" — not error alone — so a fully bare host with
+just `claude -p` installed still produces a verdict. If every leg (A1 + A2 +
+A3.1 + A3.2 + A3.3) is unavailable, mark **A unavailable (no agent binary on
+host)** and continue with B / C / D.
+
+**A — solo-mode rule:** If only ONE of {Codex, Opus} is available (the other
+binary / model is missing or errors immediately at dispatch), run whichever
+survives as the sole A reviewer — do NOT synthesize a "pair" from a single
+verdict. Mark the missing partner `unavailable (<reason>)` in the synthesis
+table so the reader sees we did not silently drop a leg.
 
 ---
 
@@ -114,10 +269,11 @@ Present:
 ```
 | Reviewer    | Verdict              | Key concern         | Confidence |
 |-------------|----------------------|---------------------|------------|
-| A (source)  | ...                  | ...                 | high/med/low |
-| Research    | [consensus finding]  | [main caveat]       | —          |
-| Secondo     | ...                  | ...                 | —          |
-| Web Advice  | ...                  | ...                 | —          |
+| A1 Codex    | ...                  | ...                 | high/med/low |
+| A2 Opus     | ...                  | ...                 | high/med/low |
+| B Research  | [consensus finding]  | [main caveat]       | —          |
+| C Secondo   | ...                  | ...                 | —          |
+| D Web Advice| ...                  | ...                 | —          |
 ```
 
 - Give every reviewer a row, including the ones that failed — write `unavailable (<reason>)` in the Verdict column. Never drop a row; a missing row hides a missing opinion.
@@ -162,7 +318,7 @@ VERDICT: WITHHELD at <SHA> — <quorum or availability reason>
 
 **Capturing `<SHA>`:**
 - Reviewing a PR — `gh pr view <N> --json headRefOid --jq '.headRefOid'`
-- Reviewing the working tree — `git rev-parse HEAD`, **but HEAD does not identify uncommitted changes.** If `git status --porcelain` is non-empty, that SHA does not name the tree you reviewed. Either commit first, or mark it: `VERDICT: APPROVED at <SHA>+dirty (mvp_site/foo.py, tests/bar.py)`.
+- Reviewing the working tree — `git rev-parse HEAD`, **but HEAD does not identify uncommitted changes.** If `git status --porcelain` is non-empty, that SHA does not name the tree you reviewed. Commit the intended state before review; the primary-pair runner refuses dirty input and no approval verdict may be emitted for it.
 
 This verdict is valid only for that exact state — per the SHA-binding rule in `draft-first-pr/SKILL.md`, a new commit invalidates it and `/advice` must be re-run at the new SHA before the PR can be marked ready. Do not emit a bare "APPROVED"/"looks good" without the SHA — an unbound verdict cannot be checked for staleness later.
 
@@ -172,7 +328,8 @@ What `/advice` saves is **the conversation**, not the change. `advisor()` ships 
 
 | Reviewer | What you send |
 |---|---|
-| A — subagent / CLI | Decision + pointer (reviewer fetches the rest) |
+| A1 Codex | Decision + pointer (reviewer fetches the rest) |
+| A2 Opus CLI | Decision + pointer (reviewer fetches the rest) |
 | B — /research | Web queries only |
 | C — /secondo | Decision; it gathers its own diff under its own budget |
 | D — /web-advice | Decision + PR reference, per its own budget |
@@ -183,12 +340,15 @@ Do not cite a percentage saving — none has ever been measured here. And do not
 
 | Priority | CLI | When |
 |---|---|---|
-| A1 | Claude subagent (Opus) | Primary (inside Claude Code) |
-| A1.1 | `claude -p --dangerously-skip-permissions` | First-class choice when invoked outside Claude Code; fallback if A3/agy errors |
-| A2 | `cursor agent -p --force` | Opus unavailable |
-| A3 | `agy --print --dangerously-skip-permissions` | cursor errors |
+| A1 | `codex exec --yolo -m gpt-5.6-terra --config model_reasoning_effort=high` | Primary — runs IN PARALLEL with A2 |
+| A2 | `claude -p --model opus --dangerously-skip-permissions` | Primary — runs IN PARALLEL with A1 |
+| A3.1 | `claude -p --dangerously-skip-permissions` | Fallback when no primary leg produced a verdict (outside Claude Code) |
+| A3.2 | `cursor agent -p --force` | Fallback if A3.1 errors |
+| A3.3 | `agy --print --dangerously-skip-permissions` | Fallback if A3.2 errors |
 
 Notes:
+- Codex + Opus are the primary PAIR, not a fallback chain. Both are fired in the same turn whenever both are available. A reviewer quorum table needs BOTH rows; mark missing partner `unavailable (<reason>)` per the solo-mode rule.
+- The A3.x fallback chain activates whenever no primary leg produces a verdict — Codex alone being unavailable or alone failing does NOT drop to A3 (the surviving leg still counts as the A verdict). The gate is "neither primary succeeded," not "both errored," so hosts with mixed failure modes (one unavailable, one errored) still get a verdict. This keeps `/advice` productive on hosts where only one of {codex, opus} is installed OR only one dispatched cleanly.
 - Check a CLI is on `PATH` before counting it as a rung. An absent CLI is an unavailable rung, not a failed reviewer — drop to the next rung without recording a failure.
 - `agy --print-timeout` defaults to 5m. Pass a longer value for a full 150-line artifact, or the review dies as an opaque timeout that looks like an error.
-- codex was dropped from the chain 2026-06-24 (gpt-4.5 unsupported on the ChatGPT account, quota exhausted). **That reason is now obsolete** — `codex` is installed and `codexs` (gpt-5.3-codex-spark) is the delegation target named in `~/.claude/CLAUDE.md`. Re-adding it as a rung is a live option; the 2026-06-24 removal is not still-binding evidence against it.
+- A primary process counts as successful only when it exits zero and emits a nonempty `VERDICT:` line. Otherwise preserve its failure in `receipt.json` and apply the solo/fallback rules above.

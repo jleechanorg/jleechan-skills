@@ -5,7 +5,9 @@ import sys
 from collections.abc import Iterable
 from pathlib import Path
 
-SLASH_TOKEN_RE = re.compile(r"(?<![\w/])/(?:extended-library:)?([A-Za-z][A-Za-z0-9_-]*)(?![\w/])")
+SLASH_TOKEN_RE = re.compile(
+    r"(?<![\w/])/((?:extended-library:)?[A-Za-z][A-Za-z0-9_-]*)(?![\w/])"
+)
 FILE_EXT_RE = re.compile(
     r"\.(sh|md|py|json|jsonl|ya?ml|dot|txt|log|toml|ts|js|html|png|mp4)\b"
 )
@@ -81,6 +83,16 @@ def compute_closure(repo_root: Path, seeds: Iterable[str]) -> dict:
     available_commands: set[str] = (
         {p.stem for p in commands_dir.glob("*.md")} if commands_dir.is_dir() else set()
     )
+    extended_dir = commands_dir / "extended-library"
+    if extended_dir.is_dir():
+        available_commands.update(
+            f"extended-library:{path.stem}" for path in extended_dir.glob("*.md")
+        )
+
+    def command_file(name: str) -> Path:
+        if name.startswith("extended-library:"):
+            return extended_dir / f"{name.split(':', 1)[1]}.md"
+        return commands_dir / f"{name}.md"
 
     closure: set[str] = set()
     frontier: set[str] = set()
@@ -100,7 +112,7 @@ def compute_closure(repo_root: Path, seeds: Iterable[str]) -> dict:
         next_frontier: set[str] = set()
 
         for cmd in sorted(frontier):
-            cmd_file = commands_dir / f"{cmd}.md"
+            cmd_file = command_file(cmd)
             if not cmd_file.is_file():
                 continue
 

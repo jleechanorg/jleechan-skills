@@ -1,0 +1,442 @@
+#!/usr/bin/env python3
+"""Executable regression tests for the isolated /advice primary pair."""
+
+from __future__ import annotations
+
+import json
+import importlib.util
+import io
+import os
+import signal
+import subprocess
+import tempfile
+import time
+import unittest
+from pathlib import Path
+from unittest import mock
+from contextlib import redirect_stderr
+
+
+SCRIPT = (
+    Path(__file__).resolve().parent.parent
+    / ".claude"
+    / "skills"
+    / "advice"
+    / "scripts"
+    / "run_primary_pair.py"
+)
+
+
+def load_runner_module():
+    spec = importlib.util.spec_from_file_location("advice_primary_pair_runner", SCRIPT)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def run(*args: str, cwd: Path | None = None, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(args, cwd=cwd, env=env, text=True, capture_output=True, check=False)
+
+
+class PrimaryPairTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        self.repo = self.root / "repo"
+        self.bin = self.root / "bin"
+        self.sync = self.root / "sync"
+        self.output = self.root / "out"
+        self.bin.mkdir()
+        self.sync.mkdir()
+        run("git", "init", "-q", str(self.repo))
+        run("git", "config", "user.email", "jleechan2015@users.noreply.github.com", cwd=self.repo)
+        run("git", "config", "user.name", "Test", cwd=self.repo)
+        (self.repo / "tracked.txt").write_text("original\n")
+        run("git", "add", "tracked.txt", cwd=self.repo)
+        run("git", "commit", "-qm", "fixture", cwd=self.repo)
+        self.sha = run("git", "rev-parse", "HEAD", cwd=self.repo).stdout.strip()
+        self.packet = self.root / "packet.txt"
+        self.packet.write_text("DECISION:\nReview exact target.\n")
+        self.env = os.environ.copy()
+        self.env["PATH"] = f"{self.bin}:{self.env['PATH']}"
+        self.env["ADVICE_TEST_SYNC_DIR"] = str(self.sync)
+
+    def tearDown(self) -> None:
+        self.temp.cleanup()
+
+    def executable(self, name: str, body: str) -> None:
+        path = self.bin / name
+        path.write_text("#!/bin/sh\nset -eu\n" + body)
+        path.chmod(0o755)
+
+    def invoke(self, *extra: str) -> subprocess.CompletedProcess[str]:
+        return run(
+            "python3",
+            str(SCRIPT),
+            "--repo",
+            str(self.repo),
+            "--ref",
+            self.sha,
+            "--packet-file",
+            str(self.packet),
+            "--output-dir",
+            str(self.output),
+            *extra,
+            env=self.env,
+        )
+
+    def test_runs_codex_and_opus_concurrently_in_independent_exact_sha_clones(self) -> None:
+        peer_wait = """
+touch "$ADVICE_TEST_SYNC_DIR/%s.started"
+i=0
+while [ ! -e "$ADVICE_TEST_SYNC_DIR/%s.started" ] && [ "$i" -lt 100 ]; do
+  sleep 0.01
+  i=$((i + 1))
+done
+[ -e "$ADVICE_TEST_SYNC_DIR/%s.started" ]
+pwd > "$ADVICE_TEST_SYNC_DIR/%s.cwd"
+printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
+"""
+        self.executable("codex", peer_wait % ("codex", "opus", "opus", "codex"))
+        self.executable("claude", peer_wait % ("opus", "codex", "codex", "opus"))
+
+        result = self.invoke()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        receipt = json.loads((self.output / "receipt.json").read_text())
+        self.assertTrue(receipt["overlap_proven"])
+        self.assertEqual(receipt["clone_shas"], {"codex": self.sha, "opus": self.sha})
+        self.assertEqual(receipt["checkout_kind"], "independent_clone_no_local")
+        self.assertEqual(receipt["reviewers"]["codex"]["status"], "success")
+        self.assertEqual(receipt["reviewers"]["opus"]["status"], "success")
+        self.assertNotEqual((self.sync / "codex.cwd").read_text(), (self.sync / "opus.cwd").read_text())
+        self.assertEqual(receipt["original_checkout_unchanged"], True)
+
+    def test_preserves_explicit_full_permission_flags_on_codex_and_opus(self) -> None:
+        self.executable(
+            "codex",
+            "printf '%s\\n' \"$@\" > \"$ADVICE_TEST_SYNC_DIR/codex.args\"\n"
+            "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n",
+        )
+        self.executable(
+            "claude",
+            "printf '%s\\n' \"$@\" > \"$ADVICE_TEST_SYNC_DIR/opus.args\"\n"
+            "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n",
+        )
+
+        result = self.invoke()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        codex_args = (self.sync / "codex.args").read_text().splitlines()
+        opus_args = (self.sync / "opus.args").read_text().splitlines()
+        self.assertIn("--yolo", codex_args)
+        self.assertIn("gpt-5.6-terra", codex_args)
+        self.assertIn("--dangerously-skip-permissions", opus_args)
+        self.assertIn("opus", opus_args)
+
+    def test_exit_zero_without_a_verdict_is_an_error_and_other_lane_can_succeed(self) -> None:
+        self.executable("codex", "printf 'no structured verdict\\n'\n")
+        self.executable("claude", "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
+
+        result = self.invoke()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        receipt = json.loads((self.output / "receipt.json").read_text())
+        self.assertEqual(receipt["reviewers"]["codex"]["status"], "error")
+        self.assertEqual(receipt["reviewers"]["codex"]["attempts"][0]["failure"], "missing_verdict")
+        self.assertEqual(receipt["reviewers"]["opus"]["status"], "success")
+
+    def test_fails_when_both_lanes_return_empty_or_malformed_output(self) -> None:
+        self.executable("codex", "printf ''\n")
+        self.executable("claude", "printf 'VERDICT:   \\n'\n")
+
+        result = self.invoke()
+
+        self.assertEqual(result.returncode, 4)
+        self.assertIn("neither primary reviewer returned a verdict", result.stderr)
+        receipt = json.loads((self.output / "receipt.json").read_text())
+        self.assertEqual(receipt["reviewers"]["codex"]["status"], "error")
+        self.assertEqual(receipt["reviewers"]["opus"]["status"], "error")
+
+    def test_independent_clones_isolate_ref_and_config_mutations(self) -> None:
+        mutation = (
+            "git config reviewer.evil true\n"
+            "git update-ref refs/heads/reviewer-evil HEAD\n"
+            "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n"
+        )
+        self.executable("codex", mutation)
+        self.executable("claude", mutation)
+
+        result = self.invoke()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotEqual(
+            run("git", "config", "--get", "reviewer.evil", cwd=self.repo).returncode,
+            0,
+        )
+        self.assertNotEqual(
+            run("git", "show-ref", "--verify", "--quiet", "refs/heads/reviewer-evil", cwd=self.repo).returncode,
+            0,
+        )
+
+    def test_refuses_dirty_input_checkout_before_dispatch(self) -> None:
+        (self.repo / "untracked.txt").write_text("not represented by the SHA\n")
+        self.executable("codex", "touch \"$ADVICE_TEST_SYNC_DIR/codex.ran\"\n")
+        self.executable("claude", "touch \"$ADVICE_TEST_SYNC_DIR/opus.ran\"\n")
+
+        result = self.invoke()
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("input checkout must be clean", result.stderr.lower())
+        self.assertFalse((self.sync / "codex.ran").exists())
+        self.assertFalse((self.sync / "opus.ran").exists())
+
+    def test_refuses_tracked_input_changes_before_dispatch(self) -> None:
+        (self.repo / "tracked.txt").write_text("dirty tracked state\n")
+        self.executable("codex", "touch \"$ADVICE_TEST_SYNC_DIR/codex.ran\"\n")
+        self.executable("claude", "touch \"$ADVICE_TEST_SYNC_DIR/opus.ran\"\n")
+
+        result = self.invoke()
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("input checkout must be clean", result.stderr.lower())
+        self.assertFalse((self.sync / "codex.ran").exists())
+        self.assertFalse((self.sync / "opus.ran").exists())
+
+    def test_fails_closed_when_original_checkout_changes(self) -> None:
+        self.env["ADVICE_TEST_ORIGINAL_REPO"] = str(self.repo)
+        self.executable(
+            "codex",
+            "printf 'mutated\\n' >> \"$ADVICE_TEST_ORIGINAL_REPO/tracked.txt\"\n"
+            "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n",
+        )
+        self.executable("claude", "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
+
+        result = self.invoke()
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("original checkout or repository metadata changed", result.stderr.lower())
+        receipt = json.loads((self.output / "receipt.json").read_text())
+        self.assertEqual(receipt["original_checkout_unchanged"], False)
+
+    def test_fails_closed_when_an_ignored_file_changes_without_reading_its_content(self) -> None:
+        (self.repo / ".gitignore").write_text(".env\n")
+        run("git", "add", ".gitignore", cwd=self.repo)
+        run("git", "commit", "-qm", "ignore local environment", cwd=self.repo)
+        self.sha = run("git", "rev-parse", "HEAD", cwd=self.repo).stdout.strip()
+        ignored = self.repo / ".env"
+        ignored.write_text("SECRET=do-not-read\n")
+        self.env["ADVICE_TEST_IGNORED_FILE"] = str(ignored)
+        self.executable(
+            "codex",
+            "printf 'ordinary ignored-file mutation with a new size\\n' > \"$ADVICE_TEST_IGNORED_FILE\"\n"
+            "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n",
+        )
+        self.executable("claude", "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
+
+        result = self.invoke()
+
+        self.assertEqual(result.returncode, 3)
+        self.assertIn("original checkout or repository metadata changed", result.stderr.lower())
+        receipt = json.loads((self.output / "receipt.json").read_text())
+        self.assertEqual(receipt["original_repository_unchanged"], False)
+
+    def test_ignored_file_fingerprint_does_not_require_content_access(self) -> None:
+        (self.repo / ".gitignore").write_text(".env\n")
+        run("git", "add", ".gitignore", cwd=self.repo)
+        run("git", "commit", "-qm", "ignore local environment", cwd=self.repo)
+        self.sha = run("git", "rev-parse", "HEAD", cwd=self.repo).stdout.strip()
+        ignored = self.repo / ".env"
+        ignored.write_text("SECRET=do-not-read\n")
+        ignored.chmod(0)
+        self.executable("codex", "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
+        self.executable("claude", "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
+
+        try:
+            result = self.invoke()
+        finally:
+            ignored.chmod(0o600)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_effective_hooks_path_detects_dangling_symlink_target_change(self) -> None:
+        hooks = self.root / "configured-hooks"
+        hooks.mkdir()
+        hook = hooks / "pre-commit"
+        hook.symlink_to("missing-hook-v1")
+        run("git", "config", "core.hooksPath", str(hooks), cwd=self.repo)
+        self.env["ADVICE_TEST_HOOK"] = str(hook)
+        self.executable(
+            "codex",
+            "rm \"$ADVICE_TEST_HOOK\"\n"
+            "ln -s missing-hook-v2 \"$ADVICE_TEST_HOOK\"\n"
+            "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n",
+        )
+        self.executable("claude", "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
+
+        result = self.invoke()
+
+        self.assertEqual(result.returncode, 3)
+        self.assertIn("repository metadata changed", result.stderr)
+
+    def test_one_timed_out_lane_is_error_while_peer_succeeds(self) -> None:
+        self.executable("codex", "exec sleep 2\n")
+        self.executable("claude", "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
+
+        started = time.monotonic()
+        result = self.invoke("--timeout-seconds", "0.5")
+        elapsed = time.monotonic() - started
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        receipt = json.loads((self.output / "receipt.json").read_text())
+        codex_duration = (
+            receipt["reviewers"]["codex"]["ended_ns"]
+            - receipt["reviewers"]["codex"]["started_ns"]
+        ) / 1_000_000_000
+        self.assertLess(codex_duration, 1.2)
+        self.assertEqual(receipt["reviewers"]["codex"]["status"], "error")
+        self.assertEqual(receipt["reviewers"]["codex"]["attempts"][0]["failure"], "timeout")
+        self.assertEqual(receipt["reviewers"]["opus"]["status"], "success")
+        self.assertTrue(receipt["cleanup"]["success"])
+
+    def test_both_timed_out_lanes_exit_four_and_still_cleanup(self) -> None:
+        self.executable("codex", "exec sleep 2\n")
+        self.executable("claude", "exec sleep 2\n")
+
+        result = self.invoke("--timeout-seconds", "0.5")
+
+        self.assertEqual(result.returncode, 4)
+        receipt = json.loads((self.output / "receipt.json").read_text())
+        self.assertEqual(receipt["reviewers"]["codex"]["attempts"][0]["failure"], "timeout")
+        self.assertEqual(receipt["reviewers"]["opus"]["attempts"][0]["failure"], "timeout")
+        self.assertTrue(receipt["cleanup"]["success"])
+
+    def test_detached_descendant_pipe_cannot_extend_timeout_beyond_bounded_grace(self) -> None:
+        self.executable(
+            "codex",
+            "python3 - \"$ADVICE_TEST_SYNC_DIR/detached.pid\" <<'PY'\n"
+            "import subprocess, sys, time\n"
+            "child = subprocess.Popen(['sleep', '8'], start_new_session=True)\n"
+            "open(sys.argv[1], 'w').write(str(child.pid))\n"
+            "time.sleep(1)\n"
+            "PY\n"
+            "exec sleep 8\n",
+        )
+        self.executable("claude", "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
+
+        started = time.monotonic()
+        result = self.invoke(
+            "--timeout-seconds", "1.5", "--timeout-grace-seconds", "0.2"
+        )
+        elapsed = time.monotonic() - started
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        receipt = json.loads((self.output / "receipt.json").read_text())
+        codex_result = receipt["reviewers"]["codex"]
+        attempt = codex_result["attempts"][0]
+        attempt_duration = (
+            codex_result["ended_ns"] - codex_result["started_ns"]
+        ) / 1_000_000_000
+        self.assertLess(attempt_duration, 6.0)
+        self.assertEqual(attempt["failure"], "timeout")
+        self.assertIsInstance(attempt["forced_pipe_close"], bool)
+        detached_pid = int((self.sync / "detached.pid").read_text())
+        try:
+            os.kill(detached_pid, 0)
+        except ProcessLookupError:
+            detached_alive = False
+        else:
+            detached_alive = True
+        if detached_alive:
+            # Emergency cleanup only on regression failure; the runner owns the
+            # normal termination path.
+            os.kill(detached_pid, signal.SIGKILL)
+        self.assertFalse(
+            detached_alive,
+            f"runner leaked detached PID {detached_pid}; evidence={attempt}",
+        )
+        self.assertIn(detached_pid, attempt["descendants_discovered"])
+        self.assertIn(detached_pid, attempt["descendants_terminated"])
+        self.assertTrue(attempt["descendant_termination_verified"])
+        self.assertEqual(attempt["descendants_surviving"], [])
+        self.assertTrue(receipt["cleanup"]["success"])
+
+    def test_timeout_grace_must_be_positive(self) -> None:
+        result = self.invoke("--timeout-grace-seconds", "0")
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("--timeout-grace-seconds must be greater than zero", result.stderr)
+
+    def test_verdict_value_does_not_require_separator_whitespace(self) -> None:
+        runner = load_runner_module()
+
+        self.assertTrue(runner.has_verdict("VERDICT:APPROVED\n"))
+        self.assertFalse(runner.has_verdict("VERDICT:   \n"))
+
+    def test_cleanup_helper_reports_failure_instead_of_ignoring_it(self) -> None:
+        runner = load_runner_module()
+        disposable = self.root / "disposable"
+        disposable.mkdir()
+
+        with mock.patch.object(runner.shutil, "rmtree", side_effect=OSError("fixture denied")):
+            cleanup = runner.cleanup_directory(disposable)
+
+        self.assertEqual(cleanup["success"], False)
+        self.assertIn("fixture denied", cleanup["error"])
+        self.assertEqual(cleanup["path"], str(disposable))
+
+    def test_operation_and_cleanup_failure_records_both_and_cleanup_exit_wins(self) -> None:
+        runner = load_runner_module()
+        argv = [
+            "--repo", str(self.repo), "--ref", self.sha,
+            "--packet-file", str(self.packet), "--output-dir", str(self.output),
+        ]
+        cleanup = {"success": False, "error": "cleanup denied", "path": "/fixture"}
+        def cleanup_failure(path):
+            runner.cleanup_directory(path)
+            return cleanup
+        stderr = io.StringIO()
+
+        with redirect_stderr(stderr):
+            code = runner.main(
+                argv,
+                create_clone_fn=mock.Mock(side_effect=RuntimeError("clone setup failed")),
+                cleanup_fn=mock.Mock(side_effect=cleanup_failure),
+            )
+
+        self.assertEqual(code, 5)
+        receipt = json.loads((self.output / "receipt.json").read_text())
+        self.assertEqual(receipt["operation"]["success"], False)
+        self.assertIn("clone setup failed", receipt["operation"]["error"])
+        self.assertEqual(receipt["cleanup"], cleanup)
+        self.assertIn("failed to clean disposable clones", stderr.getvalue())
+
+    def test_operation_failure_with_successful_cleanup_has_distinct_exit_and_receipt(self) -> None:
+        runner = load_runner_module()
+        argv = [
+            "--repo", str(self.repo), "--ref", self.sha,
+            "--packet-file", str(self.packet), "--output-dir", str(self.output),
+        ]
+        cleanup = {"success": True, "error": None, "path": "/fixture"}
+        def cleanup_success(path):
+            runner.cleanup_directory(path)
+            return cleanup
+        stderr = io.StringIO()
+
+        with redirect_stderr(stderr):
+            code = runner.main(
+                argv,
+                create_clone_fn=mock.Mock(side_effect=RuntimeError("clone setup failed")),
+                cleanup_fn=mock.Mock(side_effect=cleanup_success),
+            )
+
+        self.assertEqual(code, 6)
+        receipt = json.loads((self.output / "receipt.json").read_text())
+        self.assertEqual(receipt["operation"]["success"], False)
+        self.assertEqual(receipt["cleanup"], cleanup)
+        self.assertIn("primary reviewer operation failed", stderr.getvalue())
+
+
+if __name__ == "__main__":
+    unittest.main()
