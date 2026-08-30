@@ -1,5 +1,6 @@
 ---
 description: Get independent multi-model Web Chat advice or review for any subject, including PRs, designs, docs, plans, and evidence when applicable, via authenticated browser
+aliases: [webadvice]
 type: skill
 execution_mode: immediate
 ---

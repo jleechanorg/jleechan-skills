@@ -1,5 +1,6 @@
 ---
 description: "/factory — run Dark Factory; auto-select pipeline when omitted"
+aliases: [f, df]
 type: skill
 execution_mode: immediate
 ---
