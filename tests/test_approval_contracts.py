@@ -50,6 +50,29 @@ class ApprovalContractsTest(unittest.TestCase):
         self.assertIn("still write and self-review both documents", quick)
         self.assertNotIn("stop with the exact blocker", quick)
 
+    def test_superpowers_quick_reports_autopicks_and_advice_without_unapproved_disclosure(self) -> None:
+        quick = skill("superpowers-quick")
+
+        self.assertIn(
+            "question, the auto-picked answer, and the underlying rationale",
+            quick,
+        )
+        self.assertIn("both the design specification and implementation plan", quick)
+        self.assertIn(
+            "A bare `/superpowers-quick` invocation does not authorize external browser review",
+            quick,
+        )
+        self.assertIn("Do not run a second standalone `/web-advice`", quick)
+        self.assertIn("Do not pause or ask the user to log in", quick)
+        self.assertIn("`/advice`: `RAN | FAILED`", quick)
+        self.assertIn(
+            "`/web-advice`: `RAN | SKIPPED | UNAVAILABLE | FAILED`",
+            quick,
+        )
+        self.assertIn("<repo-root>/docs/superpowers/specs/", quick)
+        self.assertIn("<repo-root>/docs/superpowers/plans/", quick)
+        self.assertIn("advice attempts and required status records are complete", quick)
+
     def test_advice_reviews_repository_before_approving(self) -> None:
         advice = skill("advice")
         self.assertIn("**Pointer**", advice)
