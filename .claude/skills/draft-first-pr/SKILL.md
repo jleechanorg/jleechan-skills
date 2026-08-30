@@ -37,8 +37,33 @@ Only after every applicable gate passes **at the same current SHA**: flip the PR
 
 ### Documentation-only exception
 
-After `/es`, classify the complete `origin/main...HEAD` changed-path set. A PR
-is documentation-only only when every changed path is one of:
+After `/es`, resolve the PR number (safe fallback `PR_NUMBER=$(gh pr view --json number --jq '.number')` if `<N>` is not known), query the PR's base branch and base repository with `gh pr view "$PR_NUMBER" --json baseRefName,baseRepository`, map the repository to an existing Git remote, fetch it, and classify the complete changed-path set against that base:
+
+```bash
+PR_NUMBER=${1:-$(gh pr view --json number --jq '.number')}
+BASE_BRANCH=$(gh pr view "$PR_NUMBER" --json baseRefName --jq '.baseRefName')
+BASE_REPO=$(gh pr view "$PR_NUMBER" --json baseRepository --jq '.baseRepository.nameWithOwner')
+
+BASE_REMOTE=""
+for remote in $(git remote); do
+  url=$(git remote get-url "$remote" 2>/dev/null || git config "remote.${remote}.url")
+  normalized=$(echo "$url" | sed -E -e 's#\.git$##' -e 's#^.*[:/]([^/]+/[^/]+)$#\1#')
+  if [[ "$normalized" == "$BASE_REPO" ]]; then
+    BASE_REMOTE="$remote"
+    break
+  fi
+done
+
+if [[ -z "$BASE_REMOTE" ]]; then
+  echo "Error: no matching git remote found for base repository '$BASE_REPO'" >&2
+  exit 1
+fi
+
+git fetch "$BASE_REMOTE" "$BASE_BRANCH"
+git diff --name-only "${BASE_REMOTE}/${BASE_BRANCH}...HEAD"
+```
+
+A PR is documentation-only only when every changed path is one of:
 
 - `README.md`
 - `CHANGELOG.md`

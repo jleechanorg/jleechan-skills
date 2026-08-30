@@ -152,11 +152,41 @@ class RealSkillsRootValidityContractTest(unittest.TestCase):
         # reason -- it must never be silently dropped. The count itself is not
         # asserted here: it legitimately reaches zero once every active package
         # is repaired (see acceptance criteria for bd-skill-catalog-optimization-tsg.3).
+        # Prove the universal contract invariant: tolerates zero improper packages
+        # (empty mapping) as well as any populated mapping of string reasons.
+        def assert_improper_mapping_contract(mapping: dict) -> None:
+            self.assertIsInstance(mapping, dict)
+            for name, reason in mapping.items():
+                self.assertIsInstance(reason, str)
+                self.assertTrue(reason, msg=f"{name} improper reason must not be empty")
+
+        with tempfile.TemporaryDirectory() as empty_dir:
+            empty_result = scan(Path(empty_dir))
+            self.assertEqual(empty_result["improper"], {})
+            assert_improper_mapping_contract(empty_result["improper"])
+
         real_root = REPO_ROOT / ".claude" / "skills"
         result = scan(real_root)
-        for name, reason in result["improper"].items():
-            self.assertIsInstance(reason, str)
-            self.assertTrue(reason, msg=f"{name} improper reason must not be empty")
+        assert_improper_mapping_contract(result["improper"])
+
+
+class PolicyFilesContractTest(unittest.TestCase):
+    """Regression test for command and skill policy files."""
+
+    def test_er_command_and_draft_first_pr_skill_contracts(self):
+        er_path = REPO_ROOT / ".claude" / "commands" / "er.md"
+        er_content = er_path.read_text(encoding="utf-8")
+        self.assertIn("evidence-review/SKILL.md", er_content)
+        self.assertIn("draft-first-pr/SKILL.md", er_content)
+        self.assertNotIn("Two-Tier Verdicts", er_content)
+
+        draft_pr_path = REPO_ROOT / ".claude" / "skills" / "draft-first-pr" / "SKILL.md"
+        draft_pr_content = draft_pr_path.read_text(encoding="utf-8")
+        self.assertIn("baseRepository", draft_pr_content)
+        self.assertIn("${BASE_REMOTE}/${BASE_BRANCH}...HEAD", draft_pr_content)
+        self.assertNotIn("origin/$BASE_BRANCH...HEAD", draft_pr_content)
+        self.assertNotIn("origin/${BASE_BRANCH}...HEAD", draft_pr_content)
+        self.assertNotIn("origin/main...HEAD", draft_pr_content)
 
 
 if __name__ == "__main__":
