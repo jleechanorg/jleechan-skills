@@ -50,6 +50,65 @@ class ApprovalContractsTest(unittest.TestCase):
         self.assertIn("still write and self-review both documents", quick)
         self.assertNotIn("stop with the exact blocker", quick)
 
+    def test_superpowers_quick_reports_autopicks_and_advice_without_unapproved_disclosure(self) -> None:
+        quick = skill("superpowers-quick")
+
+        self.assertIn(
+            "question, the auto-picked answer, and the underlying rationale",
+            quick,
+        )
+        self.assertIn("both the design specification and implementation plan", quick)
+        self.assertIn(
+            "A bare `/superpowers-quick` invocation does not authorize external browser review",
+            quick,
+        )
+        self.assertIn("Do not run a second standalone `/web-advice`", quick)
+        self.assertIn("Do not pause or ask the user to log in", quick)
+        self.assertIn(
+            "Reviewer D /web-advice is disabled; do not invoke it or any external browser transport",
+            quick,
+        )
+        self.assertIn(
+            "lists Reviewer D as `unavailable (disabled by parent authorization boundary)`",
+            quick,
+        )
+        self.assertIn(
+            "Retry `/advice` once only for a transient transport or reviewer-launch failure",
+            quick,
+        )
+        self.assertIn(
+            "permits the terminal report but prohibits claiming that advice passed or approved the documents",
+            quick,
+        )
+        self.assertIn(
+            "record `/web-advice` as `FAILED` with the attempted-submission reason",
+            quick,
+        )
+        self.assertIn(
+            "When no external attempt occurred and explicit authorization is absent",
+            quick,
+        )
+        self.assertIn(
+            "Retry the whole `/advice` invocation only when it failed before any reviewer launched",
+            quick,
+        )
+        self.assertIn(
+            "Any Reviewer D attempt consumes the single `/web-advice` run",
+            quick,
+        )
+        self.assertIn(
+            "Only when `/advice` did not attempt Reviewer D",
+            quick,
+        )
+        self.assertIn("`/advice`: `RAN | FAILED`", quick)
+        self.assertIn(
+            "`/web-advice`: `RAN | SKIPPED | UNAVAILABLE | FAILED`",
+            quick,
+        )
+        self.assertIn("<repo-root>/docs/superpowers/specs/", quick)
+        self.assertIn("<repo-root>/docs/superpowers/plans/", quick)
+        self.assertIn("advice attempts and required status records are complete", quick)
+
     def test_advice_reviews_repository_before_approving(self) -> None:
         advice = skill("advice")
         self.assertIn("**Pointer**", advice)
