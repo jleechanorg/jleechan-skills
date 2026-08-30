@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
-"""Classify entries under a skills root as proper, orphan, or duplicate.
+"""Classify entries under a skills root as proper, improper, orphan, or duplicate.
 
 proper    - directory holding SKILL.md with name/description frontmatter
+improper  - directory holding SKILL.md with invalid/missing name or description
+            frontmatter, mapped to a reason string (never silently dropped)
 orphan    - loose <name>.md with no sibling directory of the same name
 duplicate - loose <name>.md shadowed by a sibling directory of the same name
 """
@@ -30,12 +32,23 @@ def parse_frontmatter(text: str) -> dict:
     return {}
 
 
+def frontmatter_issue(fields: dict) -> str:
+    """Return a reason string if required frontmatter keys are missing/empty, else ""."""
+    issues = []
+    for key in REQUIRED_KEYS:
+        if key not in fields:
+            issues.append(f"missing {key}")
+        elif not fields[key]:
+            issues.append(f"empty {key}")
+    return ", ".join(issues)
+
+
 def is_proper(directory: Path) -> bool:
     skill_file = directory / "SKILL.md"
     if not skill_file.is_file():
         return False
     fields = parse_frontmatter(skill_file.read_text(encoding="utf-8", errors="replace"))
-    return all(fields.get(key) for key in REQUIRED_KEYS)
+    return not frontmatter_issue(fields)
 
 
 def scan(root) -> dict:
@@ -47,8 +60,23 @@ def scan(root) -> dict:
             directories.add(entry.name)
         elif entry.suffix == ".md":
             loose.add(entry.stem)
+
+    proper = []
+    improper = {}
+    for name in sorted(directories):
+        skill_file = root / name / "SKILL.md"
+        if not skill_file.is_file():
+            continue
+        fields = parse_frontmatter(skill_file.read_text(encoding="utf-8", errors="replace"))
+        issue = frontmatter_issue(fields)
+        if issue:
+            improper[name] = issue
+        else:
+            proper.append(name)
+
     return {
-        "proper": sorted(name for name in directories if is_proper(root / name)),
+        "proper": proper,
+        "improper": improper,
         "orphan": sorted(loose - directories),
         "duplicate": sorted(loose & directories),
     }
@@ -56,25 +84,27 @@ def scan(root) -> dict:
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
-        description="Classify skill entries as proper, orphan, or duplicate."
+        description="Classify skill entries as proper, improper, orphan, or duplicate."
     )
     parser.add_argument("root", nargs="?", default=DEFAULT_ROOT, type=Path)
     parser.add_argument("--check-orphans", action="store_true")
     parser.add_argument("--check-duplicates", action="store_true")
+    parser.add_argument("--check-improper", action="store_true")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
 
     if not args.root.is_dir():
         parser.error(f"not a directory: {args.root}")
     result = scan(args.root)
+    checks_requested = args.check_orphans or args.check_duplicates or args.check_improper
 
     if args.json:
         report = {"root": str(args.root), "counts": {k: len(v) for k, v in result.items()}}
         report.update(result)
         print(json.dumps(report, indent=2, sort_keys=True))
-    elif not (args.check_orphans or args.check_duplicates):
+    elif not checks_requested:
         print(f"root: {args.root}")
-        for bucket in ("proper", "orphan", "duplicate"):
+        for bucket in ("proper", "improper", "orphan", "duplicate"):
             print(f"{bucket}: {len(result[bucket])}")
 
     if args.check_orphans and result["orphan"]:
@@ -82,6 +112,9 @@ def main(argv=None) -> int:
         return 1
     if args.check_duplicates and result["duplicate"]:
         print(f"{len(result['duplicate'])} duplicate skill file(s)", file=sys.stderr)
+        return 1
+    if args.check_improper and result["improper"]:
+        print(f"{len(result['improper'])} improper skill package(s)", file=sys.stderr)
         return 1
     return 0
 

@@ -134,6 +134,9 @@ class LLMBackendIsolationContractsTest(unittest.TestCase):
         self.assertIn("deliberate bundle", skill_text)
         self.assertIn("loaded every prompt file", skill_text)
         self.assertIn("numeric PII", skill_text)
+        self.assertIn("campaign or equivalent entity IDs when applicable", skill_text)
+        self.assertNotIn("`llm_payloads`", skill_text)
+        self.assertIn("active project's canonical telemetry owner", skill_text)
         self.assertNotIn("`.claude/skills/", skill_text)
 
         self.assertIn(
@@ -144,6 +147,224 @@ class LLMBackendIsolationContractsTest(unittest.TestCase):
         agent_data = yaml.safe_load(agent_path.read_text(encoding="utf-8"))
         self.assertEqual(agent_data["interface"]["display_name"], "LLM First")
         self.assertIn("$llm-first", agent_data["interface"]["default_prompt"])
+
+    def test_llm_first_prefers_captured_bq_wire_replay_before_backend_confirmation(self):
+        skill_text = read_skill("llm-first")
+        command_text = read_command("llm-first")
+        normalized_skill_text = " ".join(skill_text.split())
+
+        self.assertIn(
+            "authoritative provider-boundary capture", normalized_skill_text
+        )
+        self.assertNotIn("request_json", normalized_skill_text)
+        self.assertIn("literal provider request payload", normalized_skill_text)
+        self.assertIn("BQ WIRE REPLAY", normalized_skill_text)
+        self.assertIn("NOT-YET-CAPTURED", normalized_skill_text)
+        self.assertIn("backend-generated reconstruction", normalized_skill_text)
+        self.assertLess(
+            normalized_skill_text.index("authoritative provider-boundary capture"),
+            normalized_skill_text.index("backend-generated reconstruction"),
+        )
+        self.assertIn("must not be pooled", normalized_skill_text)
+        self.assertIn(
+            "separate deterministic backend confirmation", normalized_skill_text
+        )
+        for provenance_boundary in (
+            "immutable source-row locator",
+            "access-controlled telemetry",
+            "approved redaction",
+            "SANITIZED SURROGATE",
+            "RECONSTRUCTED FALLBACK",
+        ):
+            self.assertIn(provenance_boundary, normalized_skill_text)
+        self.assertIn("Never commit, publish, log, or hand off", normalized_skill_text)
+        self.assertIn(
+            "cannot support a causal claim about the original", normalized_skill_text
+        )
+        self.assertIn("Evidence classes are mutually exclusive", normalized_skill_text)
+        self.assertIn(
+            "Verbatim BigQuery provider-boundary request/response row; no semantic redaction",
+            normalized_skill_text,
+        )
+        self.assertIn(
+            "Non-BigQuery provider-boundary capture", normalized_skill_text
+        )
+        self.assertIn(
+            "Verified capture with approved semantic redaction",
+            normalized_skill_text,
+        )
+        self.assertNotIn(
+            "Label this experiment `BQ WIRE REPLAY`", normalized_skill_text
+        )
+
+    def test_llm_first_bq_replay_requires_verbatim_boundary_and_semantic_redaction(self):
+        skill_text = read_skill("llm-first")
+        replay_section = skill_text[
+            skill_text.index("## Replay the captured wire request") : skill_text.index(
+                "## One-variable discipline"
+            )
+        ]
+        replay_text = " ".join(replay_section.split())
+
+        self.assertIn(
+            "`BQ WIRE REPLAY` only when the BigQuery row itself is the verbatim "
+            "provider-boundary request/response payload",
+            replay_text,
+        )
+        self.assertIn(
+            "transformed, reconstructed, or backend telemetry does not qualify",
+            replay_text,
+        )
+        self.assertIn(
+            "Semantic redaction means any model-visible content or value "
+            "substitution or transformation that can change model behavior or "
+            "meaning",
+            replay_text,
+        )
+        self.assertIn(
+            "Structure-preserving same-type PII replacement remains semantic when "
+            "model-visible and requires `SANITIZED SURROGATE`",
+            replay_text,
+        )
+
+    def test_llm_first_capture_precedence_drift_and_backend_handoff_fail_closed(self):
+        skill_text = read_skill("llm-first")
+        replay_section = skill_text[
+            skill_text.index("## Replay the captured wire request") : skill_text.index(
+                "## One-variable discipline"
+            )
+        ]
+        handoff_section = skill_text[
+            skill_text.index("After an acceptable response exists") : skill_text.index(
+                "Completion report:"
+            )
+        ]
+        replay_text = " ".join(replay_section.split())
+        handoff_text = " ".join(handoff_section.split())
+        completion_text = " ".join(
+            skill_text[skill_text.index("Completion report:") :].split()
+        )
+
+        self.assertIn(
+            "An exact provider-boundary capture is required; BigQuery is one "
+            "possible storage source",
+            replay_text,
+        )
+        self.assertIn(
+            "Classify evidence fail-closed in this order: missing or unverified "
+            "provider-boundary provenance first",
+            replay_text,
+        )
+        self.assertLess(
+            replay_text.index("missing or unverified provider-boundary provenance first"),
+            replay_text.index("verified capture with any undeclared drift next"),
+        )
+        self.assertLess(
+            replay_text.index("verified capture with any undeclared drift next"),
+            replay_text.index(
+                "verified capture with approved semantic redaction and no "
+                "undeclared drift next"
+            ),
+        )
+        self.assertLess(
+            replay_text.index(
+                "verified capture with approved semantic redaction and no "
+                "undeclared drift next"
+            ),
+            replay_text.index(
+                "verified exact capture with no semantic redaction and no "
+                "undeclared drift last"
+            ),
+        )
+        self.assertIn(
+            "Missing or unverified provenance cannot be classified as "
+            "`SANITIZED SURROGATE`",
+            replay_text,
+        )
+        self.assertIn(
+            "Captured-wire causal attribution requires the same provider API, "
+            "resolved model/revision, and transport semantics/configuration",
+            replay_text,
+        )
+        self.assertIn(
+            "Approved containment or shareability redaction that changes content "
+            "requires `SANITIZED SURROGATE`",
+            replay_text,
+        )
+        self.assertIn(
+            "Any undeclared content, provider, model, or transport variance requires "
+            "`DRIFTED REPLAY (NON-CAUSAL)`",
+            replay_text,
+        )
+        self.assertNotIn(
+            "or another clearly weaker non-causal class",
+            replay_text,
+        )
+        self.assertNotIn(
+            "when content changes, downgrade to `SANITIZED SURROGATE`",
+            replay_text,
+        )
+        self.assertIn(
+            "never retain captured-family causal claims after drift",
+            replay_text,
+        )
+        self.assertIn(
+            "Drift means undeclared variance beyond approved redaction and the "
+            "one declared mutation",
+            replay_text,
+        )
+        self.assertIn(
+            "A content or provider/model/transport change that is itself the one "
+            "declared mutation is not drift",
+            replay_text,
+        )
+        self.assertIn(
+            "Semantic redaction is a containment or shareability transformation "
+            "of the captured baseline, not the declared experimental mutation",
+            replay_text,
+        )
+        self.assertIn(
+            "Verbatim BigQuery provider-boundary request/response row; no semantic "
+            "redaction or undeclared drift",
+            replay_text,
+        )
+        self.assertIn(
+            "Non-BigQuery provider-boundary capture; no semantic redaction or "
+            "undeclared drift",
+            replay_text,
+        )
+        self.assertIn(
+            "Verified capture with undeclared content/provider/model/transport drift",
+            replay_text,
+        )
+        self.assertIn("`DRIFTED REPLAY (NON-CAUSAL)`", replay_text)
+        self.assertIn(
+            "Evidence class: BQ WIRE REPLAY / CAPTURED WIRE REPLAY / SANITIZED "
+            "SURROGATE / DRIFTED REPLAY (NON-CAUSAL) / RECONSTRUCTED FALLBACK / "
+            "FRESH CONSTRUCTION",
+            completion_text,
+        )
+        self.assertIn(
+            "active project's canonical integration/E2E owner",
+            handoff_text,
+        )
+        self.assertIn(
+            "`/backend-first` remains for incidents routed BACKEND and is not a "
+            "follow-on step for an LLM-routed incident",
+            handoff_text,
+        )
+        self.assertNotIn("Hand `/backend-first`", handoff_section)
+
+    def test_llm_first_command_remains_a_thin_skill_pointer(self):
+        command_text = read_command("llm-first")
+        normalized_command_text = " ".join(command_text.split())
+
+        self.assertIn(
+            "Read **`${CLAUDE_HOME:-$HOME/.claude}/skills/llm-first/SKILL.md`**",
+            normalized_command_text,
+        )
+        self.assertNotIn("capture-first BQ-wire replay", command_text)
+        self.assertNotIn("owns capture", command_text)
 
     def test_backend_first_enforces_frozen_model_and_telemetry_fixtures(self):
         skill_text = read_skill("backend-first")

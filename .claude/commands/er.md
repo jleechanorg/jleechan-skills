@@ -1,5 +1,6 @@
 ---
-description: Alias for /evidence-review.
+description: Alias for /evidence-review. Runs canonical evidence-review workflow with lifecycle authority in draft-first-pr/SKILL.md.
+aliases: []
 type: skill
 execution_mode: immediate
 ---
