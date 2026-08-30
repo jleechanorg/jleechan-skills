@@ -353,6 +353,12 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         self.assertEqual(result.returncode, 2)
         self.assertIn("--timeout-grace-seconds must be greater than zero", result.stderr)
 
+    def test_verdict_value_does_not_require_separator_whitespace(self) -> None:
+        runner = load_runner_module()
+
+        self.assertTrue(runner.has_verdict("VERDICT:APPROVED\n"))
+        self.assertFalse(runner.has_verdict("VERDICT:   \n"))
+
     def test_cleanup_helper_reports_failure_instead_of_ignoring_it(self) -> None:
         runner = load_runner_module()
         disposable = self.root / "disposable"

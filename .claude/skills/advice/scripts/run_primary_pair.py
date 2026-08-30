@@ -199,7 +199,7 @@ def execute(
 
 
 def has_verdict(output: str) -> bool:
-    return re.search(r"(?m)^VERDICT:[ \t]+\S.*$", output) is not None
+    return re.search(r"(?m)^VERDICT:[ \t]*\S.*$", output) is not None
 
 
 def codex_lane(
