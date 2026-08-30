@@ -147,10 +147,13 @@ class RealSkillsRootValidityContractTest(unittest.TestCase):
             msg="every directory with a SKILL.md must classify as proper or improper",
         )
 
-    def test_improper_packages_are_observable_with_reasons(self):
+    def test_improper_packages_carry_nonempty_reasons_when_present(self):
+        # Any package the scanner marks improper must have an explicit, non-empty
+        # reason -- it must never be silently dropped. The count itself is not
+        # asserted here: it legitimately reaches zero once every active package
+        # is repaired (see acceptance criteria for bd-skill-catalog-optimization-tsg.3).
         real_root = REPO_ROOT / ".claude" / "skills"
         result = scan(real_root)
-        self.assertGreater(len(result["improper"]), 0)
         for name, reason in result["improper"].items():
             self.assertIsInstance(reason, str)
             self.assertTrue(reason, msg=f"{name} improper reason must not be empty")
