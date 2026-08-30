@@ -4,16 +4,4 @@ type: orchestration
 execution_mode: immediate
 ---
 
-# /slack-audit
-
-Read **`~/.claude/skills/slack-audit/SKILL.md`** and execute it according to `$ARGUMENTS`.
-
-All channel selection, dry-run vs. --fix mode, GH tracking checks, and Slack posting logic live **only** in that skill — not in this file.
-
-Default: `--channel worldai --hours 24 --dry-run`
-
-## Example
-
-```
-/slack-audit --channel worldai --hours 48 --fix
-```
+Read `${CLAUDE_HOME:-$HOME/.claude}/skills/extended-library/SKILL.md` and `references/extended-library/slack-audit.md` completely, then execute it with `$ARGUMENTS`.

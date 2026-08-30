@@ -4,6 +4,5 @@ type: ai
 execution_mode: immediate
 credit: "@doodlestein (https://x.com/doodlestein/status/2025645582782480827?s=46)"
 ---
-What's the single smartest and most radically innovative and accretive and useful and compelling addition you could make to the plan at this point?
 
-<!-- Prompt credit: @doodlestein — https://x.com/doodlestein/status/2025645582782480827?s=46 -->
+Read `${CLAUDE_HOME:-$HOME/.claude}/skills/extended-library/SKILL.md` and `references/extended-library/innovate.md` completely, then execute it with `$ARGUMENTS`.

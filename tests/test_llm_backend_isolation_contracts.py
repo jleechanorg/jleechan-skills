@@ -95,6 +95,11 @@ class LLMBackendIsolationContractsTest(unittest.TestCase):
         for consumer_path in review_consumers:
             with self.subTest(consumer=consumer_path.relative_to(REPO_ROOT)):
                 consumer_text = consumer_path.read_text(encoding="utf-8")
+                if consumer_path == COMMANDS_DIR / "extended-library" / "zfc.md":
+                    consumer_text = (
+                        SKILLS_DIR
+                        / "extended-library/references/extended-library/zfc.md"
+                    ).read_text(encoding="utf-8")
                 self.assertIn("review-only mode", consumer_text)
 
     def test_all_isolation_skills_exclude_project_specific_contracts(self):

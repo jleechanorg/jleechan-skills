@@ -1,4 +1,7 @@
 ---
 description: /arch Command (Alias)
+type: skill
+execution_mode: immediate
 ---
-Execute `/archreview` with all provided arguments. MVP-focused architecture review for solo developers.
+
+Read `${CLAUDE_HOME:-$HOME/.claude}/skills/extended-library/SKILL.md` and `references/extended-library/arch.md` completely, then execute it with `$ARGUMENTS`.

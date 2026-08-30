@@ -3,7 +3,5 @@ description: Alias for /coderabbit - Post "@coderabbitai all good?" on the curre
 type: git
 execution_mode: immediate
 ---
-## ⚡ EXECUTION INSTRUCTIONS FOR CLAUDE
-**When this command is invoked, execute `/coderabbit` immediately.**
 
-This is an alias. Delegate all functionality to `/coderabbit`.
+Read `${CLAUDE_HOME:-$HOME/.claude}/skills/extended-library/SKILL.md` and `references/extended-library/cr.md` completely, then execute it with `$ARGUMENTS`.

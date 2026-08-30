@@ -22,6 +22,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 COMMANDS_DIR = REPO_ROOT / ".claude" / "commands"
+COMMAND_REFERENCES_DIR = REPO_ROOT / ".claude" / "skills" / "extended-library" / "references"
 
 
 def _resolve_command(filename: str) -> Path:
@@ -31,6 +32,7 @@ def _resolve_command(filename: str) -> Path:
 
 
 TEAM_CLAUDE = _resolve_command("team-claude.md")
+TEAM_CLAUDE_REFERENCE = COMMAND_REFERENCES_DIR / "extended-library" / "team-claude.md"
 SIDEKICK_CMD = _resolve_command("sidekick.md")
 SIDEKICK_SKILL = REPO_ROOT / ".claude" / "skills" / "sidekick" / "SKILL.md"
 SWARM_SKILL = REPO_ROOT / ".claude" / "skills" / "swarm" / "SKILL.md"
@@ -88,7 +90,11 @@ class CheckpointCadenceContractTest(unittest.TestCase):
         self.assertTrue(any(k in skill_text for k in COMMIT_SAFETY_KEYWORDS))
 
     def test_team_claude_command_carries_cadence_contract(self):
-        text = read(TEAM_CLAUDE)
+        dispatcher = read(TEAM_CLAUDE)
+        text = read(TEAM_CLAUDE_REFERENCE)
+        self.assertIn("/skills/extended-library/SKILL.md", dispatcher)
+        self.assertIn("references/extended-library/team-claude.md", dispatcher)
+        self.assertIn("$ARGUMENTS", dispatcher)
         self.assertRegex(text, CHECKPOINT_CADENCE_RE)
         self.assertRegex(text, CADENCE_TIME_RE)
         self.assertTrue(any(k in text for k in COMMIT_SAFETY_KEYWORDS))

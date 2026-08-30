@@ -1,10 +1,8 @@
 ---
 description: Pair a coder with an independent verifier.
 argument-hint: '[task]'
+type: skill
+execution_mode: immediate
 ---
 
-# /pair — Coder + verifier
-
-Read `~/.claude/skills/pairv2-usage/SKILL.md` and execute it with
-`$ARGUMENTS`. Use the platform's native agent-team facilities; this export no
-longer ships a local runner.
+Read `${CLAUDE_HOME:-$HOME/.claude}/skills/extended-library/SKILL.md` and `references/extended-library/pair.md` completely, then execute it with `$ARGUMENTS`.

@@ -3,5 +3,5 @@ description: /goalexec_define - Define goal criteria without executing
 type: llm-orchestration
 execution_mode: immediate
 ---
-## ⚡ EXECUTION INSTRUCTIONS
-When invoked, read `.claude/skills/goalexec-define/SKILL.md` and execute the workflow described there.
+
+Read `${CLAUDE_HOME:-$HOME/.claude}/skills/extended-library/SKILL.md` and `references/extended-library/goalexec_define.md` completely, then execute it with `$ARGUMENTS`.

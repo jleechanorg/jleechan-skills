@@ -1,4 +1,7 @@
 ---
 description: /slide
+type: skill
+execution_mode: immediate
 ---
-Execute `/presentation` with all provided arguments.
+
+Read `${CLAUDE_HOME:-$HOME/.claude}/skills/extended-library/SKILL.md` and `references/extended-library/slide.md` completely, then execute it with `$ARGUMENTS`.

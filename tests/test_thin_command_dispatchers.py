@@ -23,8 +23,8 @@ class ThinCommandDispatchersTest(unittest.TestCase):
 
         result = validate_commands(COMMANDS, REPO_ROOT / ".claude" / "skills")
         self.assertEqual([], result.errors, "\n".join(result.errors))
-        self.assertEqual(43, result.command_count)
-        self.assertEqual(43, result.dispatcher_count)
+        self.assertEqual(237, result.command_count)
+        self.assertEqual(232, result.dispatcher_count)
 
     def test_dispatchers_preserve_empty_quoted_positional_and_stacked_arguments(self):
         from scripts.validate_thin_commands import render_arguments
@@ -91,10 +91,10 @@ class ThinCommandDispatchersTest(unittest.TestCase):
 
         result = validate_commands(COMMANDS, SKILLS)
 
-        self.assertEqual(234, result.command_count)
-        self.assertEqual(229, result.routable_count)
+        self.assertEqual(237, result.command_count)
+        self.assertEqual(232, result.routable_count)
         self.assertEqual(5, result.ignored_count)
-        self.assertEqual(229, result.dispatcher_count)
+        self.assertEqual(232, result.dispatcher_count)
         self.assertEqual([], result.errors, "\n".join(result.errors))
         self.assertEqual(
             sorted(IGNORED_NESTED_COMMAND_DOCS),
@@ -166,6 +166,15 @@ class ThinCommandDispatchersTest(unittest.TestCase):
                 frontmatter = text.split("---", 2)[1]
                 for declaration in declarations:
                     self.assertIn(declaration, frontmatter)
+
+    def test_top_level_aliases_have_native_command_files(self):
+        for alias in ("smart-advisor", "webadvice", "df", "f"):
+            with self.subTest(alias=alias):
+                command = COMMANDS / f"{alias}.md"
+                self.assertTrue(command.is_file())
+                text = command.read_text(encoding="utf-8")
+                self.assertLessEqual(len(text.splitlines()), 15)
+                self.assertIn("$ARGUMENTS", text)
 
 
 if __name__ == "__main__":

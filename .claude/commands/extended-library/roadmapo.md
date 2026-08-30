@@ -3,6 +3,5 @@ description: Alias for /roadmap_orch — captures session ideas, checks upstream
 type: llm-orchestration
 execution_mode: immediate
 ---
-Alias for `/roadmap_orch`. See `roadmap_orch.md` for full documentation.
 
-When invoked, execute all steps from `/roadmap_orch` immediately.
+Read `${CLAUDE_HOME:-$HOME/.claude}/skills/extended-library/SKILL.md` and `references/extended-library/roadmapo.md` completely, then execute it with `$ARGUMENTS`.

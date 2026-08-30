@@ -3,9 +3,5 @@ description: Alias for /investigatedice - Investigate dice integrity warnings fo
 type: llm-orchestration
 execution_mode: immediate
 ---
-## EXECUTION INSTRUCTIONS FOR CLAUDE
-**This is an alias for `/investigatedice`.**
 
-Execute the `/investigatedice` command with the same arguments passed to `/idice`.
-
-See `.claude/commands/investigatedice.md` for the full workflow.
+Read `${CLAUDE_HOME:-$HOME/.claude}/skills/extended-library/SKILL.md` and `references/extended-library/idice.md` completely, then execute it with `$ARGUMENTS`.

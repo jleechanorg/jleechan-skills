@@ -18,12 +18,17 @@ class LegacyE2ERunnerPathTests(unittest.TestCase):
             installed_script = SCRIPTS_DIR / f"{command}.sh"
             legacy_script = LEGACY_DIR / f"{command}.sh"
             command_doc = (COMMANDS_DIR / f"{command}.md").read_text(encoding="utf-8")
+            command_reference = (
+                REPO_ROOT / ".claude/skills/extended-library/references/extended-library"
+                / f"{command}.md"
+            ).read_text(encoding="utf-8")
 
             self.assertTrue(installed_script.is_file(), installed_script)
             self.assertTrue(os.access(installed_script, os.X_OK), installed_script)
             self.assertFalse(legacy_script.exists(), legacy_script)
-            self.assertIn(f".claude/scripts/{command}.sh", command_doc)
-            self.assertNotIn(f"claude_command_scripts/{command}.sh", command_doc)
+            self.assertIn(f"references/extended-library/{command}.md", command_doc)
+            self.assertIn(f".claude/scripts/{command}.sh", command_reference)
+            self.assertNotIn(f"claude_command_scripts/{command}.sh", command_reference)
 
     def test_real_wrappers_fail_before_prompt_when_required_key_is_missing(self):
         cases = (
@@ -72,9 +77,10 @@ class LegacyE2ERunnerPathTests(unittest.TestCase):
         self.assertIn("Capture mode testing cancelled", result.stdout)
 
     def test_docs_match_wrapper_environment_contracts(self):
-        teste_doc = (COMMANDS_DIR / "teste.md").read_text(encoding="utf-8")
-        tester_doc = (COMMANDS_DIR / "tester.md").read_text(encoding="utf-8")
-        testerc_doc = (COMMANDS_DIR / "testerc.md").read_text(encoding="utf-8")
+        reference_dir = REPO_ROOT / ".claude/skills/extended-library/references/extended-library"
+        teste_doc = (reference_dir / "teste.md").read_text(encoding="utf-8")
+        tester_doc = (reference_dir / "tester.md").read_text(encoding="utf-8")
+        testerc_doc = (reference_dir / "testerc.md").read_text(encoding="utf-8")
 
         self.assertIn("TEST_MODE=mock", teste_doc)
         self.assertNotIn("TESTING=true", teste_doc)

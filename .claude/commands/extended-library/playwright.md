@@ -4,8 +4,4 @@ type: skill
 execution_mode: immediate
 ---
 
-# /playwright [task]
-
-Read `~/.claude/skills/playwright-ui-testing/SKILL.md` and execute the workflow for `$ARGUMENTS`.
-
-For live authenticated browser work, Slack app settings, or OAuth consent, route to `/browser` instead.
+Read `${CLAUDE_HOME:-$HOME/.claude}/skills/extended-library/SKILL.md` and `references/extended-library/playwright.md` completely, then execute it with `$ARGUMENTS`.

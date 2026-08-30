@@ -4,8 +4,4 @@ type: skill
 execution_mode: immediate
 ---
 
-# /agentor
-
-Generate a full agento PR status report: 6-point green checks per PR, zero-touch-by-operator rate analysis, display inline, and post summary to Slack #ai-slack-test.
-
-Read `~/.claude/skills/agento-report/SKILL.md` and execute the full workflow.
+Read `${CLAUDE_HOME:-$HOME/.claude}/skills/extended-library/SKILL.md` and `references/extended-library/agentor.md` completely, then execute it with `$ARGUMENTS`.

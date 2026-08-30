@@ -1,0 +1,2 @@
+# Compatibility references preserve legacy bytes, including intentional spacing.
+.claude/skills/extended-library/references/** -whitespace
