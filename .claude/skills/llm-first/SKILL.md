@@ -60,12 +60,16 @@ backend telemetry does not qualify. A verified non-BigQuery provider-boundary
 capture may use `CAPTURED WIRE REPLAY`.
 
 Captured-wire causal attribution requires the same provider API, resolved
-model/revision, and transport semantics/configuration. Replay the protected
-baseline and its one-variable mutation through those exact semantics. Any drift
-must downgrade the evidence: when content changes, downgrade to `SANITIZED
-SURROGATE`; otherwise classify as `DRIFTED REPLAY (NON-CAUSAL)` or another
-clearly weaker non-causal class, and never retain captured-family causal claims
-after drift. Direct provider submission is allowed only when an immutable
+model/revision, and transport semantics/configuration except where one of those
+fields is itself the one declared mutation. Replay the protected baseline and
+its one-variable mutation with every other semantic held constant. Drift means
+undeclared variance beyond approved redaction and the one declared mutation. A
+content or provider/model/transport change that is itself the one declared
+mutation is not drift. Any actual drift must downgrade the evidence: when
+content changes, downgrade to `SANITIZED SURROGATE`; otherwise classify as
+`DRIFTED REPLAY (NON-CAUSAL)` or another clearly weaker non-causal class, and
+never retain captured-family causal claims after drift. Direct provider
+submission is allowed only when an immutable
 source-row locator, source hash, sanitized-baseline hash, redaction ledger, and
 canonical mutation diff prove that every source difference is an approved
 redaction or the one declared mutation. Absent that proof, classify the request
@@ -74,9 +78,10 @@ evidence. A handcrafted or source-reconstructed direct SDK request remains
 synthetic exploratory evidence.
 
 Semantic redaction means any model-visible content or value substitution or
-transformation that can change model behavior or meaning. Structure-preserving
-same-type PII replacement remains semantic when model-visible and requires
-`SANITIZED SURROGATE`.
+transformation that can change model behavior or meaning. Semantic redaction is
+a containment or shareability transformation of the captured baseline, not the
+declared experimental mutation. Structure-preserving same-type PII replacement
+remains semantic when model-visible and requires `SANITIZED SURROGATE`.
 
 Classify evidence fail-closed in this order: missing or unverified
 provider-boundary provenance first; verified capture with semantic redaction

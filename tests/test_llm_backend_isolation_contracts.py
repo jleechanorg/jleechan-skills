@@ -274,6 +274,21 @@ class LLMBackendIsolationContractsTest(unittest.TestCase):
             replay_text,
         )
         self.assertIn(
+            "Drift means undeclared variance beyond approved redaction and the "
+            "one declared mutation",
+            replay_text,
+        )
+        self.assertIn(
+            "A content or provider/model/transport change that is itself the one "
+            "declared mutation is not drift",
+            replay_text,
+        )
+        self.assertIn(
+            "Semantic redaction is a containment or shareability transformation "
+            "of the captured baseline, not the declared experimental mutation",
+            replay_text,
+        )
+        self.assertIn(
             "Verified capture with provider/model/transport drift and no content "
             "change",
             replay_text,
