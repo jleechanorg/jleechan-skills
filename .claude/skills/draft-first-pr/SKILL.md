@@ -37,27 +37,68 @@ Only after every applicable gate passes **at the same current SHA**: flip the PR
 
 ### Documentation-only exception
 
-After `/es`, resolve the PR number (safe fallback `PR_NUMBER=$(gh pr view --json number --jq '.number')` if `<N>` is not known), query the PR's base branch and base repository with `gh pr view "$PR_NUMBER" --json baseRefName,baseRepository`, map the repository to an existing Git remote, fetch it, and classify the complete changed-path set against that base:
+After `/es`, resolve the PR number (safe fallback `PR_NUMBER=$(gh pr view --json number --jq '.number')` if `<N>` is not known), query the supported pull-request API for the base branch and canonical repository URLs, require exactly one matching Git remote, fetch it, and classify the complete changed-path set against that base. Match the full host and repository path; an owner/repository suffix alone is ambiguous across hosts.
 
 ```bash
 PR_NUMBER=${1:-$(gh pr view --json number --jq '.number')}
-BASE_BRANCH=$(gh pr view "$PR_NUMBER" --json baseRefName --jq '.baseRefName')
-BASE_REPO=$(gh pr view "$PR_NUMBER" --json baseRepository --jq '.baseRepository.nameWithOwner')
-
-BASE_REMOTE=""
-for remote in $(git remote); do
-  url=$(git remote get-url "$remote" 2>/dev/null || git config "remote.${remote}.url")
-  normalized=$(echo "$url" | sed -E -e 's#\.git$##' -e 's#^.*[:/]([^/]+/[^/]+)$#\1#')
-  if [[ "$normalized" == "$BASE_REPO" ]]; then
-    BASE_REMOTE="$remote"
-    break
-  fi
-done
-
-if [[ -z "$BASE_REMOTE" ]]; then
-  echo "Error: no matching git remote found for base repository '$BASE_REPO'" >&2
+if ! BASE_DATA=$(gh api "repos/{owner}/{repo}/pulls/${PR_NUMBER}" \
+  --jq '[.base.ref, .base.repo.clone_url, .base.repo.ssh_url] | @tsv'); then
+  echo "Error: could not resolve PR base through the GitHub API" >&2
   exit 1
 fi
+IFS=$'\t' read -r BASE_BRANCH BASE_CLONE_URL BASE_SSH_URL <<<"$BASE_DATA"
+EXPECTED_BASE_DATA="${BASE_BRANCH}"$'\t'"${BASE_CLONE_URL}"$'\t'"${BASE_SSH_URL}"
+if [[ "$BASE_DATA" != "$EXPECTED_BASE_DATA" ||
+      -z "$BASE_BRANCH" || -z "$BASE_CLONE_URL" || -z "$BASE_SSH_URL" ||
+      "$BASE_CLONE_URL" == "null" || "$BASE_SSH_URL" == "null" ]]; then
+  echo "Error: GitHub API returned an incomplete PR base" >&2
+  exit 1
+fi
+
+normalize_repo_url() {
+  python3 - "$1" <<'PY'
+import re
+import sys
+from urllib.parse import urlsplit
+
+raw = sys.argv[1].strip().rstrip("/")
+scp = re.fullmatch(r"(?:[^@/]+@)?([^:]+):(.+)", raw)
+if scp and "://" not in raw:
+    normalized = f"{scp.group(1).lower()}/{scp.group(2)}"
+elif "://" in raw:
+    parsed = urlsplit(raw)
+    if parsed.scheme == "file":
+        normalized = parsed.path
+    elif not parsed.hostname:
+        raise SystemExit(1)
+    else:
+        normalized = f"{parsed.hostname.lower()}/{parsed.path.lstrip('/')}"
+else:
+    normalized = raw
+print(re.sub(r"\.git$", "", normalized.rstrip("/")))
+PY
+}
+
+if ! BASE_CLONE_ID=$(normalize_repo_url "$BASE_CLONE_URL") ||
+   ! BASE_SSH_ID=$(normalize_repo_url "$BASE_SSH_URL"); then
+  echo "Error: could not normalize canonical base repository URLs" >&2
+  exit 1
+fi
+
+MATCHING_REMOTES=()
+while IFS= read -r remote; do
+  url=$(git config --get "remote.${remote}.url") || continue
+  remote_id=$(normalize_repo_url "$url") || continue
+  if [[ "$remote_id" == "$BASE_CLONE_ID" || "$remote_id" == "$BASE_SSH_ID" ]]; then
+    MATCHING_REMOTES+=("$remote")
+  fi
+done < <(git remote)
+
+if [[ ${#MATCHING_REMOTES[@]} -ne 1 ]]; then
+  echo "Error: expected exactly one remote for '$BASE_CLONE_URL'; found ${#MATCHING_REMOTES[@]}" >&2
+  exit 1
+fi
+BASE_REMOTE=${MATCHING_REMOTES[0]}
 
 git fetch "$BASE_REMOTE" "$BASE_BRANCH"
 git diff --name-only "${BASE_REMOTE}/${BASE_BRANCH}...HEAD"

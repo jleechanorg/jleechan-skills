@@ -184,7 +184,8 @@ class PolicyFilesContractTest(unittest.TestCase):
 
         draft_pr_path = REPO_ROOT / ".claude" / "skills" / "draft-first-pr" / "SKILL.md"
         draft_pr_content = draft_pr_path.read_text(encoding="utf-8")
-        self.assertIn("baseRepository", draft_pr_content)
+        self.assertIn("gh api", draft_pr_content)
+        self.assertIn("clone_url", draft_pr_content)
         self.assertIn("${BASE_REMOTE}/${BASE_BRANCH}...HEAD", draft_pr_content)
         self.assertNotIn("origin/$BASE_BRANCH...HEAD", draft_pr_content)
         self.assertNotIn("origin/${BASE_BRANCH}...HEAD", draft_pr_content)
@@ -220,8 +221,77 @@ class PolicyFilesContractTest(unittest.TestCase):
             fake_gh.write_text(
                 "#!/usr/bin/env bash\n"
                 "case \"$*\" in\n"
-                "  *baseRefName*) printf 'release\\n' ;;\n"
-                "  *baseRepository*) printf 'example/skills\\n' ;;\n"
+                "  *baseRepository*) exit 64 ;;\n"
+                f"  api\\ *) printf 'release\\t{remote_path}\\t{remote_path}\\n' ;;\n"
+                "  *) printf '42\\n' ;;\n"
+                "esac\n",
+                encoding="utf-8",
+            )
+            fake_gh.chmod(0o755)
+            env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"}
+            result = subprocess.run(
+                ["bash", "-c", script, "base-resolution", "42"],
+                cwd=repo,
+                env=env,
+                text=True,
+                capture_output=True,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "README.md")
+
+    def test_documented_base_resolution_rejects_same_repo_on_foreign_host(self):
+        skill_path = REPO_ROOT / ".claude" / "skills" / "draft-first-pr" / "SKILL.md"
+        skill_content = skill_path.read_text(encoding="utf-8")
+        section = skill_content.split("### Documentation-only exception", 1)[1]
+        script = section.split("```bash\n", 1)[1].split("\n```", 1)[0]
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            approved_root = root / "approved.example"
+            foreign_root = root / "foreign.example"
+            approved_bare = approved_root / "example" / "skills.git"
+            foreign_bare = foreign_root / "example" / "skills.git"
+            approved_bare.parent.mkdir(parents=True)
+            foreign_bare.parent.mkdir(parents=True)
+            subprocess.run(["git", "init", "--bare", approved_bare], check=True, capture_output=True)
+            subprocess.run(["git", "init", "--bare", foreign_bare], check=True, capture_output=True)
+
+            repo = root / "repo"
+            subprocess.run(["git", "init", repo], check=True, capture_output=True)
+            for key, value in (
+                ("user.email", "fixture@localhost"),
+                ("user.name", "Test User"),
+                (f"url.file://{approved_root}/.insteadOf", "https://approved.example/"),
+                (f"url.file://{foreign_root}/.insteadOf", "https://foreign.example/"),
+            ):
+                subprocess.run(["git", "-C", repo, "config", key, value], check=True, capture_output=True)
+            (repo / "README.md").write_text("base\n", encoding="utf-8")
+            subprocess.run(["git", "-C", repo, "add", "README.md"], check=True, capture_output=True)
+            subprocess.run(["git", "-C", repo, "commit", "-m", "base"], check=True, capture_output=True)
+            subprocess.run(
+                ["git", "-C", repo, "remote", "add", "a-foreign", "https://foreign.example/example/skills.git"],
+                check=True,
+                capture_output=True,
+            )
+            subprocess.run(
+                ["git", "-C", repo, "remote", "add", "z-upstream", "https://approved.example/example/skills.git"],
+                check=True,
+                capture_output=True,
+            )
+            subprocess.run(["git", "-C", repo, "push", "z-upstream", "HEAD:release"], check=True, capture_output=True)
+            (repo / "README.md").write_text("feature\n", encoding="utf-8")
+            subprocess.run(["git", "-C", repo, "commit", "-am", "feature"], check=True, capture_output=True)
+
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            fake_gh = bin_dir / "gh"
+            fake_gh.write_text(
+                "#!/usr/bin/env bash\n"
+                "case \"$*\" in\n"
+                "  *baseRepository*) exit 64 ;;\n"
+                "  api\\ *) printf 'release\\thttps://approved.example/example/skills.git"
+                "\\tgit@approved.example:example/skills.git\\n' ;;\n"
                 "  *) printf '42\\n' ;;\n"
                 "esac\n",
                 encoding="utf-8",
