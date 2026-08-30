@@ -6,6 +6,15 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 COMMANDS = REPO_ROOT / ".claude" / "commands"
+SKILLS = REPO_ROOT / ".claude" / "skills"
+
+IGNORED_NESTED_COMMAND_DOCS = {
+    "_shared/header.md",
+    "backup-2026-06-27-team-claude-no-teamcreate/team-claude.md",
+    "backup-2026-06-27-team-claude-no-teamcreate/team-mini.md",
+    "extended-library/README_EXPORT_TEMPLATE.md",
+    "extended-library/pair-examples.md",
+}
 
 
 class ThinCommandDispatchersTest(unittest.TestCase):
@@ -76,6 +85,87 @@ class ThinCommandDispatchersTest(unittest.TestCase):
             result = validate_commands(commands, root / "skills")
 
         self.assertEqual((2, 1, 2), (result.command_count, result.dispatcher_count, len(result.errors)))
+
+    def test_recursive_inventory_covers_routable_nested_commands(self):
+        from scripts.validate_thin_commands import validate_commands
+
+        result = validate_commands(COMMANDS, SKILLS)
+
+        self.assertEqual(234, result.command_count)
+        self.assertEqual(229, result.routable_count)
+        self.assertEqual(5, result.ignored_count)
+        self.assertEqual(229, result.dispatcher_count)
+        self.assertEqual([], result.errors, "\n".join(result.errors))
+        self.assertEqual(
+            sorted(IGNORED_NESTED_COMMAND_DOCS),
+            sorted(result.ignored_paths),
+        )
+
+    def test_nested_dispatchers_use_exact_local_skill_and_compatibility_reference(self):
+        from scripts.validate_thin_commands import validate_commands
+
+        result = validate_commands(COMMANDS, SKILLS)
+
+        self.assertEqual([], result.errors, "\n".join(result.errors))
+        for path in sorted(COMMANDS.rglob("*.md")):
+            relative = path.relative_to(COMMANDS).as_posix()
+            if relative in IGNORED_NESTED_COMMAND_DOCS or "/" not in relative:
+                continue
+            text = path.read_text(encoding="utf-8")
+            self.assertIn(
+                "${CLAUDE_HOME:-$HOME/.claude}/skills/extended-library/SKILL.md",
+                text,
+                relative,
+            )
+            reference = f"references/{relative}"
+            self.assertIn(reference, text, relative)
+            self.assertIn("$ARGUMENTS", text, relative)
+
+    def test_recursive_validator_rejects_missing_or_unsafe_compatibility_reference(self):
+        from tempfile import TemporaryDirectory
+
+        from scripts.validate_thin_commands import validate_commands
+
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            commands = root / "commands"
+            skills = root / "skills" / "extended-library"
+            commands.mkdir()
+            skills.mkdir(parents=True)
+            (skills / "SKILL.md").write_text("---\nname: extended-library\ndescription: x\n---\n", encoding="utf-8")
+            (commands / "missing.md").write_text(
+                "---\ndescription: missing\n---\n"
+                "Read ~/.claude/skills/extended-library/SKILL.md and "
+                "references/missing.md with $ARGUMENTS.\n",
+                encoding="utf-8",
+            )
+            (commands / "unsafe.md").write_text(
+                "---\ndescription: unsafe\n---\n"
+                "Read ~/.claude/skills/extended-library/SKILL.md and "
+                "references/../unsafe.md with $ARGUMENTS.\n",
+                encoding="utf-8",
+            )
+
+            result = validate_commands(commands, root / "skills")
+
+        self.assertEqual(2, result.command_count)
+        self.assertEqual(0, result.dispatcher_count)
+        self.assertTrue(any("missing.md" in error for error in result.errors))
+        self.assertTrue(any("unsafe.md" in error for error in result.errors))
+
+    def test_nested_alias_frontmatter_remains_available(self):
+        for filename, declarations in {
+            "agento_report.md": ("name: agento_report", "- agentor"),
+            "agentor.md": ("description: Alias for /agento_report",),
+            "fs.md": ("aliases: [fs]",),
+        }.items():
+            with self.subTest(command=filename):
+                text = (COMMANDS / "extended-library" / filename).read_text(
+                    encoding="utf-8"
+                )
+                frontmatter = text.split("---", 2)[1]
+                for declaration in declarations:
+                    self.assertIn(declaration, frontmatter)
 
 
 if __name__ == "__main__":
