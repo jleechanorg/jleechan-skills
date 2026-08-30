@@ -151,7 +151,8 @@ class LLMBackendIsolationContractsTest(unittest.TestCase):
         self.assertIn(
             "authoritative provider-boundary capture", normalized_skill_text
         )
-        self.assertIn("request_json", normalized_skill_text)
+        self.assertNotIn("request_json", normalized_skill_text)
+        self.assertIn("literal provider request payload", normalized_skill_text)
         self.assertIn("BQ WIRE REPLAY", normalized_skill_text)
         self.assertIn("NOT-YET-CAPTURED", normalized_skill_text)
         self.assertIn("backend-generated reconstruction", normalized_skill_text)

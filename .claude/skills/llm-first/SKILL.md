@@ -32,8 +32,8 @@ reconstructed from current backend source.
    campaign or equivalent entity IDs when applicable, timestamps, agent,
    model/revision, schemas, MIME settings, generation parameters, cache
    provenance, finish reason, usage, and a source hash.
-2. Keep literal `request_json`, unredacted response parts, and original
-   substitution values inside authorized access-controlled telemetry.
+2. Keep the literal provider request payload, unredacted response parts, and
+   original substitution values inside authorized access-controlled telemetry.
    Never commit, publish, log, or hand off unredacted values. This prohibition
    covers fixtures, test output, PRs, agent responses, and evidence bundles,
    including numeric PII such as phone or account identifiers.
