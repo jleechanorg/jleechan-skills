@@ -96,6 +96,18 @@ class WorkflowCommandPairTest(unittest.TestCase):
         )
         self.assertIn(expected_codex_routing, skill)
 
+    def test_retry_isolation_covers_every_attempt_and_prior_attempts(self):
+        skill = (SKILLS / "parallelize-to-ceiling" / "SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        normalized_skill = " ".join(skill.split())
+        self.assertIn(
+            "Every attempt, including initial execution and each retry, uses a "
+            "fresh workspace and output disjoint from both coder and verifier "
+            "lanes and from all previous attempts.",
+            normalized_skill,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -146,9 +146,11 @@ The `FALLBACK` template above is governed by this order:
 
 ## Isolation contract
 
-Coder and verifier remain distinct lanes and contexts. Every retry uses a
-disjoint workspace/output from the other lane, and the verifier must
-independently rerun focused checks before signaling completion.
+Coder and verifier remain distinct lanes and contexts. Every attempt,
+including initial execution and each retry, uses a fresh workspace and output
+disjoint from both coder and verifier lanes and from all previous attempts.
+Attempts must not read or reuse partial files, logs, or outputs from another
+attempt, and the verifier must independently rerun focused checks before signaling completion.
 
 ## Codex model routing
 
