@@ -45,6 +45,21 @@ class WorkflowCommandPairTest(unittest.TestCase):
             (SKILLS / "parallelize-to-ceiling" / "SKILL.md").is_file()
         )
 
+    def test_parallel_command_preserves_lane_routing_contract(self):
+        parallel = (COMMANDS / "extended-library" / "parallel.md").read_text(
+            encoding="utf-8"
+        )
+        for required in (
+            "## Coding and verification lane routing",
+            "~/.claude/agents/agy-pair-coder.md",
+            "~/.claude/agents/agy-pair-verifier.md",
+            "## Codex model routing",
+            "gpt-5.3-codex-spark` → `gpt-5.6-luna",
+            "skip directly from Spark to Sol.",
+        ):
+            with self.subTest(required=required):
+                self.assertIn(required, parallel)
+
 
 if __name__ == "__main__":
     unittest.main()
