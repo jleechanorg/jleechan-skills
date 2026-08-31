@@ -82,8 +82,21 @@ MUST include verbatim snippets from it:
    `tool_result` / `text` blocks (each JSONL line holds
    `message.content[]`); print timestamp + tool name + truncated
    input/output.
-3. **Quote verbatim in the status update**: each report to the operator
-   includes 1-3 raw snippet lines PER ACTIVE AGENT (timestamped CALL/
+3. **Redact before quoting**: snippets are operator-visible and end up in
+   retained chat logs, so sanitize them. Allowlist safe fields (tool name,
+   exit code, byte count, elapsed ms, file path basename) and redact
+   anything that looks like a secret:
+   - `KEY=VAL` (≥16-char `VAL`) and `.env`-style assignments → `KEY=***`
+   - `https://user:pass@host` or `://token@host` URLs → `://***@host`
+   - bearer/JWT/HMAC-looking strings (≥24 char base64/hex runs) → `***`
+   - `--token`, `--api-key`, `Authorization: *** flag values → `***`
+   Keep the filter minimal — it must NOT block the operator's ability to
+   see *what* the agent is doing, only the secret bits. Mirror the
+   sidekick skill's redaction rule (`.claude/skills/sidekick/SKILL.md` §
+   "Redact before quoting") so swarm and sidekick produce consistent
+   output.
+4. **Quote verbatim in the status update**: each report to the operator
+   includes 1-3 redacted snippet lines PER ACTIVE AGENT (timestamped CALL/
    RESULT/TEXT), proving what each agent is actually doing right now — not
    a paraphrase, not "still running".
 4. **Stall verdict rule**: an agent is stalled only when its TRANSCRIPT

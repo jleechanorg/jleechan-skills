@@ -48,13 +48,21 @@ PROMPT_EOF
 # Allocate AGY_OUT in the INVOKING shell BEFORE the background call —
 # `mktemp` returns a path only inside the shell that runs it, so assigning
 # AGY_OUT inside the background task leaves the parent unable to expand
-# $AGY_OUT after the task notification fires. Allocate first in a Bash
-# call (foreground OK), then embed the printed path as the literal redirect
-# target inside the background command below.
-#   AGY_OUT="$(mktemp -t agy_out.XXXXXX)"
-#   agy --dangerously-skip-permissions \
-#       --print-timeout 20m \
-#       --print "$(cat "$PROMPT_FILE")" > "$AGY_OUT" 2>&1
+# $AGY_OUT after the task notification fires. Allocate in one Bash call,
+# ECHO the literal path so the agent's next Bash call can copy/paste it,
+# then issue a SEPARATE background Bash call with that literal path
+# substituted as the redirect target. Each Bash tool call runs in its own
+# fresh shell, so exporting / assigning inside one is invisible to the next
+# — the only bridge between them is the literal path string the model
+# substitutes by hand. Example literal: `/tmp/agy_out.AbCdEf.log`.
+#   Bash call 1 (foreground, mktemp + print):
+#     AGY_OUT="$(mktemp -t agy_out.XXXXXX)"
+#     echo "$AGY_OUT"
+#   Bash call 2 (run_in_background: true, paste the echoed path):
+#     agy --dangerously-skip-permissions \
+#         --print-timeout 20m \
+#         --print "$(cat "$PROMPT_FILE")" \
+#         > /tmp/agy_out.AbCdEf.log 2>&1
 
 agy --dangerously-skip-permissions \
     --print-timeout 20m \

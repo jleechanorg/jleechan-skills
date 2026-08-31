@@ -257,7 +257,7 @@ The sidekick and every lane it owns checkpoint at a ≤5 min cadence:
        ```bash
        case "$(uname -s)" in
          Darwin) sysctl vm.swapusage; sysctl kern.memorystatus_vm_pressure_level ;;
-         Linux)  free | awk '/^Swap/{print "swap used="$3/$2*100"%"}'; \
+         Linux)  free | awk '/^Swap/{ if ($2==0) print "swap used=0%"; else printf "swap used=%.0f%%\n", $3/$2*100 }'; \
                  awk '{print $2}' /proc/pressure/memory 2>/dev/null || true ;;
        esac
        ```
@@ -323,8 +323,9 @@ MUST include verbatim snippets from it:
    `agent-<id>.jsonl` (teammates: `agent-a<name>-<hash>.jsonl`) under the
    session dir `~/.claude*/projects/<project-slug>/<session-id>/subagents/`;
    background Bash tasks write `<task-id>.output` under
-   `/private/tmp/claude-*/<project>/<session>/tasks/`. Sort by mtime to find
-   the live ones.
+   `${TMPDIR:-/tmp}/claude-*/<project>/<session>/tasks/` (macOS sets
+   `TMPDIR=/private/tmp` by default; Linux uses `/tmp` directly — the
+   glob resolves either way). Sort by mtime to find the live ones.
 2. **Parse, don't tail blindly**: extract the last few `tool_use` /
    `tool_result` / `text` blocks (each JSONL line holds
    `message.content[]`); print timestamp + tool name + truncated
