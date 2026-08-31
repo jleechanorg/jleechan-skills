@@ -54,11 +54,24 @@ class WorkflowCommandPairTest(unittest.TestCase):
             "~/.claude/agents/agy-pair-coder.md",
             "~/.claude/agents/agy-pair-verifier.md",
             "## Codex model routing",
-            "gpt-5.3-codex-spark` → `gpt-5.6-luna",
-            "skip directly from Spark to Sol.",
         ):
             with self.subTest(required=required):
                 self.assertIn(required, parallel)
+
+        expected_codex_routing = (
+            "\nFor Codex parallel lanes, use this ordered fallback and advance "
+            "only after a\n"
+            "concrete per-lane failure:\n\n"
+            "`gpt-5.3-codex-spark` → `gpt-5.6-luna` → "
+            "`gpt-5.6-terra` → `gpt-5.6-sol`\n\n"
+            "Record the rejection and retry the same bounded lane on the next "
+            "model. Never\n"
+            "skip directly from Spark to Sol.\n"
+        )
+        codex_routing = parallel.split("## Codex model routing\n", 1)[1].split(
+            "\n## Input", 1
+        )[0]
+        self.assertEqual(codex_routing, expected_codex_routing)
 
 
 if __name__ == "__main__":
