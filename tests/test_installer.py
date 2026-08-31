@@ -618,6 +618,31 @@ class InstallerIntegrationTest(unittest.TestCase):
             self.assertFalse(list(temp_dir.glob("claude-home.backup-*")))
             self.assertFalse(list(temp_dir.glob("claude-home.staging-*")))
 
+    def test_merge_replaces_symlinked_skill_directory_to_readonly_target(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            target = temp_dir / "claude-home"
+            target.mkdir()
+            readonly_release = temp_dir / "readonly-release" / "example"
+            readonly_release.mkdir(parents=True)
+            readonly_file = readonly_release / "SKILL.md"
+            readonly_file.write_text("# Readonly Skill\n", encoding="utf-8")
+            readonly_file.chmod(0o444)
+            readonly_release.chmod(0o555)
+
+            skills_target = target / "skills"
+            skills_target.mkdir()
+            (skills_target / "example").symlink_to(readonly_release)
+
+            result = self.run_installer(fixture, target, "--merge")
+
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            installed_skill = skills_target / "example" / "SKILL.md"
+            self.assertTrue(installed_skill.is_file())
+            self.assertFalse((skills_target / "example").is_symlink())
+            self.assertEqual(installed_skill.read_text(encoding="utf-8"), "# Skill\n")
+
 
 if __name__ == "__main__":
     unittest.main()

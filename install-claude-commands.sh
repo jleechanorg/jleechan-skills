@@ -316,6 +316,20 @@ install_component() {
         mkdir -p "$dest_dir"
         while IFS= read -r -d '' relative; do
             relative="${relative#./}"
+            local cur_dir="$dest_dir"
+            local part
+            local parent_rel; parent_rel="$(dirname "$relative")"
+            if [ "$parent_rel" != "." ]; then
+                local old_ifs="$IFS"
+                IFS='/' read -ra PARTS <<< "$parent_rel"
+                IFS="$old_ifs"
+                for part in "${PARTS[@]}"; do
+                    cur_dir="$cur_dir/$part"
+                    if [ -L "$cur_dir" ]; then
+                        rm -f "$cur_dir"
+                    fi
+                done
+            fi
             mkdir -p "$(dirname "$dest_dir/$relative")"
             rm -f "$dest_dir/$relative"
             cp -a "$src_dir/$relative" "$dest_dir/$relative"
