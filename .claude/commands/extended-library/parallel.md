@@ -28,6 +28,20 @@ VERIFIER: follow ~/.claude/agents/agy-pair-verifier.md; independently execute fo
 FALLBACK: if an AGY lane concretely fails, retry that lane with codexs, claudem, or an own cheap agent while preserving isolation and independent verification.
 ```
 
+## Fallback precedence
+
+The `FALLBACK` template above is governed by this order:
+
+1. Start with the AGY pair as the primary implementation and verification lanes.
+2. After a concrete AGY lane failure, retry the same bounded lane with `codexs`, starting at Spark, then advance to Luna, Terra, Sol only after concrete failure in that lane.
+3. Use `claudem` or an own cheap agent only when the ordered Codex route is unavailable; preserve the same bounded scope and verification requirements.
+
+## Isolation contract
+
+Coder and verifier remain distinct lanes and contexts. Every retry uses a
+disjoint workspace/output from the other lane, and the verifier must
+independently rerun focused checks before signaling completion.
+
 ## Codex model routing
 
 For Codex parallel lanes, use this ordered fallback and advance only after a

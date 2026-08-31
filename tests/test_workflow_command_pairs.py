@@ -59,6 +59,22 @@ class WorkflowCommandPairTest(unittest.TestCase):
                 "isolation and independent verification."
             ),
             "## Codex model routing",
+            "## Fallback precedence",
+            "`FALLBACK` template above is governed by this order:",
+            (
+                "retry the same bounded lane with `codexs`, starting at Spark, "
+                "then advance to Luna, Terra, Sol only after concrete failure in "
+                "that lane."
+            ),
+            (
+                "Use `claudem` or an own cheap agent only when the ordered Codex "
+                "route is unavailable"
+            ),
+            "## Isolation contract",
+            "distinct lanes and contexts",
+            "disjoint workspace/output",
+            "verifier must",
+            "independently rerun focused checks before signaling completion",
         ):
             with self.subTest(required=required):
                 self.assertIn(required, parallel)
