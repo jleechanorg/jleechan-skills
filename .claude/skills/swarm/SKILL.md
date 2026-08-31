@@ -75,8 +75,9 @@ MUST include verbatim snippets from it:
    `agent-<id>.jsonl` (teammates: `agent-a<name>-<hash>.jsonl`) under the
    session dir `~/.claude*/projects/<project-slug>/<session-id>/subagents/`;
    background Bash tasks write `<task-id>.output` under
-   `/private/tmp/claude-*/<project>/<session>/tasks/`. Sort by mtime to find
-   the live ones.
+   `${TMPDIR:-/tmp}/claude-*/<project>/<session>/tasks/` (macOS sets
+   `TMPDIR=/private/tmp` by default; Linux uses `/tmp` directly — the
+   glob resolves either way). Sort by mtime to find the live ones.
 2. **Parse, don't tail blindly**: extract the last few `tool_use` /
    `tool_result` / `text` blocks (each JSONL line holds
    `message.content[]`); print timestamp + tool name + truncated
@@ -90,8 +91,19 @@ MUST include verbatim snippets from it:
    (`ps`) backs its last dispatched command. Zero file-diff growth or a
    stale STATE.md alone is NEVER a stall verdict — a full-suite test run
    produces no visible change for minutes while being completely healthy.
-5. Only after a transcript-confirmed stall: ping once, then take over or
-   respawn per the recovery discipline.
+   **Third branch — live-but-modal-blocked**: if `ps`/`pgrep` shows a live
+   tool child (cursor/codex/`claude` claude process) but the transcript has
+   zero events for two consecutive checks AND the child is in a known
+   blocked state (modal markers like `cursor.com/docs/bugbot`,
+   `Rate limit reached`, `quota`, or `pro quota` in the latest stdout or
+   window title), this is **stalled-with-modal** — trigger the same
+   recovery as a transcript-confirmed stall (dismiss the modal in the
+   parent session, then re-task the lane via SendMessage). This is an
+   ADDITIONAL branch, not a relaxation — both checks (zero events + live
+   child + modal marker) must hold before recovery.
+5. Only after a transcript-confirmed stall (or live-but-modal-blocked
+   branch): ping once, then take over or respawn per the recovery
+   discipline.
 
 ## Sidekick durability layer ([Devin Fusion](https://cognition.com/blog/devin-fusion) sidekick pattern)
 

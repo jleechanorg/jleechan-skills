@@ -247,10 +247,20 @@ The sidekick and every lane it owns checkpoint at a ≤5 min cadence:
      (`parallelize-to-ceiling` skill) and prove concurrency by sampling live
      (`ps` / load), not by trusting a worker flag alone.
    - Resource admission gate (crash 2026-08-30): before spawning any lane
-     or CLI delegation, probe `sysctl vm.swapusage` and
-     `sysctl kern.memorystatus_vm_pressure_level`; DEFER spawns when swap
-     >80% used or pressure >=2 (WARNING) — spawning into starvation can
-     silently kill the parent session and every lane with it.
+     or CLI delegation, probe swap and memory pressure; DEFER spawns when
+     swap >80% used or pressure >=2 (WARNING) — spawning into starvation
+     can silently kill the parent session and every lane with it.
+     - macOS: `sysctl vm.swapusage` + `sysctl kern.memorystatus_vm_pressure_level`
+     - Linux: `free`/`vmstat` (swap used %) + `/proc/pressure/memory` PSI
+       `some` line (avg10); gate the same thresholds.
+     - Cross-platform one-liner:
+       ```bash
+       case "$(uname -s)" in
+         Darwin) sysctl vm.swapusage; sysctl kern.memorystatus_vm_pressure_level ;;
+         Linux)  free | awk '/^Swap/{print "swap used="$3/$2*100"%"}'; \
+                 awk '{print $2}' /proc/pressure/memory 2>/dev/null || true ;;
+       esac
+       ```
    - Never fork a multi-minute CLI delegation (agy, codex, claude -p) as a
      foreground Bash call — always run_in_background + explicit timeout,
      then read the output file on the task notification. A foreground fork
@@ -319,8 +329,17 @@ MUST include verbatim snippets from it:
    `tool_result` / `text` blocks (each JSONL line holds
    `message.content[]`); print timestamp + tool name + truncated
    input/output.
-3. **Quote verbatim in the status update**: each report to the operator
-   includes 1-3 raw snippet lines PER ACTIVE AGENT (timestamped CALL/
+3. **Redact before quoting**: snippets are operator-visible, so sanitize
+   them. Allowlist safe fields (tool name, exit code, byte count, elapsed
+   ms, file path basename) and redact anything that looks like a secret:
+   - `KEY=VAL` (≥16-char `VAL`) and `.env`-style assignments → `KEY=***`
+   - `https://user:pass@host` or `://token@host` URLs → `://***@host`
+   - bearer/JWT/HMAC-looking strings (≥24 char base64/hex runs) → `***`
+   - `--token`, `--api-key`, `Authorization: …` flag values → `***`
+   Keep the filter minimal — it must NOT block the operator's ability to
+   see *what* the agent is doing, only the secret bits.
+4. **Quote verbatim in the status update**: each report to the operator
+   includes 1-3 redacted snippet lines PER ACTIVE AGENT (timestamped CALL/
    RESULT/TEXT), proving what each agent is actually doing right now — not
    a paraphrase, not "still running".
 4. **Stall verdict rule**: an agent is stalled only when its TRANSCRIPT
@@ -328,8 +347,19 @@ MUST include verbatim snippets from it:
    (`ps`) backs its last dispatched command. Zero file-diff growth or a
    stale STATE.md alone is NEVER a stall verdict — a full-suite test run
    produces no visible change for minutes while being completely healthy.
-5. Only after a transcript-confirmed stall: ping once, then take over or
-   respawn per the recovery discipline.
+   **Third branch — live-but-modal-blocked**: if `ps`/`pgrep` shows a live
+   tool child (cursor/codex/`claude` claude process) but the transcript has
+   zero events for two consecutive checks AND the child is in a known
+   blocked state (modal markers like `cursor.com/docs/bugbot`,
+   `Rate limit reached`, `quota`, or `pro quota` in the latest stdout or
+   window title), this is **stalled-with-modal** — trigger the same
+   recovery as a transcript-confirmed stall (dismiss the modal in the
+   parent session, then re-task the lane via SendMessage). This is an
+   ADDITIONAL branch, not a relaxation — both checks (zero events + live
+   child + modal marker) must hold before recovery.
+5. Only after a transcript-confirmed stall (or live-but-modal-blocked
+   branch): ping once, then take over or respawn per the recovery
+   discipline.
 
 ## Why this beats plain fan-outs
 

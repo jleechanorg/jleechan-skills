@@ -44,7 +44,18 @@ PROMPT_EOF
 # an output file, then poll the file; and pre-check resources first:
 # defer if `sysctl vm.swapusage` shows >80% used or
 # `sysctl kern.memorystatus_vm_pressure_level` >= 2.
-AGY_OUT=$(mktemp /tmp/agy_coder_out.XXXXXX.log)
+
+# Allocate AGY_OUT in the INVOKING shell BEFORE the background call —
+# `mktemp` returns a path only inside the shell that runs it, so assigning
+# AGY_OUT inside the background task leaves the parent unable to expand
+# $AGY_OUT after the task notification fires. Allocate first in a Bash
+# call (foreground OK), then embed the printed path as the literal redirect
+# target inside the background command below.
+#   AGY_OUT="$(mktemp -t agy_out.XXXXXX)"
+#   agy --dangerously-skip-permissions \
+#       --print-timeout 20m \
+#       --print "$(cat "$PROMPT_FILE")" > "$AGY_OUT" 2>&1
+
 agy --dangerously-skip-permissions \
     --print-timeout 20m \
     --print "$(cat "$PROMPT_FILE")" > "$AGY_OUT" 2>&1
@@ -52,8 +63,8 @@ agy --dangerously-skip-permissions \
 rm -f "$PROMPT_FILE"
 ```
 (Issue the command above with `run_in_background: true` and a timeout; read
-`$AGY_OUT` when the task notification fires. Never block the agent's only
-thread on it.)
+`$AGY_OUT` — the literal path you embedded from the foreground allocation —
+when the task notification fires. Never block the agent's only thread on it.)
 
 **Flag reference (agy 1.1.1):**
 - `--dangerously-skip-permissions` — auto-approve all tool permission requests (full execution mode)
