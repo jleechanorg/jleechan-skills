@@ -45,10 +45,20 @@ class WorkflowCommandPairTest(unittest.TestCase):
             (SKILLS / "parallelize-to-ceiling" / "SKILL.md").is_file()
         )
 
-    def test_parallel_command_preserves_lane_routing_contract(self):
+    def test_parallel_command_points_to_canonical_lane_routing_contract(self):
         parallel = (COMMANDS / "extended-library" / "parallel.md").read_text(
             encoding="utf-8"
         )
+        skill = (SKILLS / "parallelize-to-ceiling" / "SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            "~/.claude/skills/parallelize-to-ceiling/SKILL.md",
+            parallel,
+        )
+        self.assertNotIn("## Coding and verification lane routing", parallel)
+        self.assertNotIn("## Fallback precedence", parallel)
+        self.assertNotIn("## Isolation contract", parallel)
         for required in (
             "## Coding and verification lane routing",
             "~/.claude/agents/agy-pair-coder.md",
@@ -61,15 +71,10 @@ class WorkflowCommandPairTest(unittest.TestCase):
             "## Codex model routing",
             "## Fallback precedence",
             "`FALLBACK` template above is governed by this order:",
-            (
-                "retry the same bounded lane with `codexs`, starting at Spark, "
-                "then advance to Luna, Terra, Sol only after concrete failure in "
-                "that lane."
-            ),
-            (
-                "Use `claudem` or an own cheap agent only when the ordered Codex "
-                "route is unavailable"
-            ),
+            "retry the same bounded lane with",
+            "`codexs`, starting at Spark, then advance to Luna, Terra, Sol",
+            "Use `claudem` or an own cheap agent only when the ordered Codex",
+            "unavailable; preserve the same bounded scope",
             "## Isolation contract",
             "distinct lanes and contexts",
             "disjoint workspace/output",
@@ -77,7 +82,7 @@ class WorkflowCommandPairTest(unittest.TestCase):
             "independently rerun focused checks before signaling completion",
         ):
             with self.subTest(required=required):
-                self.assertIn(required, parallel)
+                self.assertIn(required, skill)
 
         expected_codex_routing = (
             "\nFor Codex parallel lanes, use this ordered fallback and advance "
@@ -89,10 +94,7 @@ class WorkflowCommandPairTest(unittest.TestCase):
             "model. Never\n"
             "skip directly from Spark to Sol.\n"
         )
-        codex_routing = parallel.split("## Codex model routing\n", 1)[1].split(
-            "\n## Input", 1
-        )[0]
-        self.assertEqual(codex_routing, expected_codex_routing)
+        self.assertIn(expected_codex_routing, skill)
 
 
 if __name__ == "__main__":
