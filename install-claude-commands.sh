@@ -317,6 +317,7 @@ install_component() {
         while IFS= read -r -d '' relative; do
             relative="${relative#./}"
             mkdir -p "$(dirname "$dest_dir/$relative")"
+            rm -f "$dest_dir/$relative"
             cp -a "$src_dir/$relative" "$dest_dir/$relative"
         done < <(
             cd "$src_dir"
