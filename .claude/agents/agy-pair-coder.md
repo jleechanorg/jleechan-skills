@@ -42,26 +42,37 @@ PROMPT_EOF
 # a foreground fork of a multi-minute agy run killed the parent harness
 # under memory pressure. Run it via the Bash tool's run_in_background with
 # an output file, then poll the file; and pre-check resources first:
-# defer if `sysctl vm.swapusage` shows >80% used or
-# `sysctl kern.memorystatus_vm_pressure_level` >= 2.
+# defer if swap >80% used or memory pressure >=2 (WARNING). The pre-check
+# must branch on OS so the gate works on Linux too:
+#   macOS: `sysctl vm.swapusage` + `sysctl kern.memorystatus_vm_pressure_level`
+#   Linux: `free` (swap used %) + `/proc/pressure/memory` PSI `some` line (avg10)
+# Cross-platform one-liner:
+#   case "$(uname -s)" in
+#     Darwin) sysctl vm.swapusage; sysctl kern.memorystatus_vm_pressure_level ;;
+#     Linux)  free | awk '/^Swap/{ if ($2==0) print "swap used=0%"; else printf "swap used=%.0f%%\n", $3/$2*100 }'; \
+#             awk '{print $2}' /proc/pressure/memory 2>/dev/null || true ;;
+#   esac
 
-# Allocate AGY_OUT in the INVOKING shell BEFORE the background call —
-# `mktemp` returns a path only inside the shell that runs it, so assigning
-# AGY_OUT inside the background task leaves the parent unable to expand
-# $AGY_OUT after the task notification fires. Allocate in one Bash call,
-# ECHO the literal path so the agent's next Bash call can copy/paste it,
-# then issue a SEPARATE background Bash call with that literal path
-# substituted as the redirect target. Each Bash tool call runs in its own
-# fresh shell, so exporting / assigning inside one is invisible to the next
-# — the only bridge between them is the literal path string the model
-# substitutes by hand. Example literal: `/tmp/agy_out.AbCdEf.log`.
-#   Bash call 1 (foreground, mktemp + print):
+# Allocate BOTH $AGY_OUT and $PROMPT_FILE in the INVOKING shell BEFORE the
+# background call, then ECHO their literal paths so the agent's next Bash
+# call can substitute them by hand. Each Bash tool call runs in its own
+# fresh shell, so any variable assigned in one is invisible to the next —
+# the only bridge between them is the literal path string the model
+# substitutes. Example literals: `/tmp/agy_out.AbCdEf.log`,
+# `/tmp/agy_prompt.XyZ123.md`. Allocate and echo in a single foreground
+# Bash call so you can copy both into the next background invocation:
+#   Bash call 1 (foreground, allocate + echo):
 #     AGY_OUT="$(mktemp -t agy_out.XXXXXX)"
-#     echo "$AGY_OUT"
-#   Bash call 2 (run_in_background: true, paste the echoed path):
+#     PROMPT_FILE="$(mktemp -t agy_prompt.XXXXXX)"
+#     cat > "$PROMPT_FILE" <<'PROMPT_EOF'
+#     ...implementation prompt body...
+#     PROMPT_EOF
+#     echo "AGY_OUT=$AGY_OUT"
+#     echo "PROMPT_FILE=$PROMPT_FILE"
+#   Bash call 2 (run_in_background: true, paste the echoed literals):
 #     agy --dangerously-skip-permissions \
 #         --print-timeout 20m \
-#         --print "$(cat "$PROMPT_FILE")" \
+#         --print "$(cat /tmp/agy_prompt.XyZ123.md)" \
 #         > /tmp/agy_out.AbCdEf.log 2>&1
 
 agy --dangerously-skip-permissions \
