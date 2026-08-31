@@ -74,6 +74,8 @@ MUST include verbatim snippets from it:
 1. **Locate transcripts**: named teammates and anonymous subagents write
    `agent-<id>.jsonl` (teammates: `agent-a<name>-<hash>.jsonl`) under the
    session dir `~/.claude*/projects/<project-slug>/<session-id>/subagents/`;
+   Workflow tool runs write journals under
+   `~/.claude*/projects/<project-slug>/<session-id>/workflows/*.json`;
    background Bash tasks write `<task-id>.output` under
    `${TMPDIR:-/tmp}/claude-*/<project>/<session>/tasks/` (macOS sets
    `TMPDIR=/private/tmp` by default; Linux uses `/tmp` directly — the
@@ -99,7 +101,7 @@ MUST include verbatim snippets from it:
    includes 1-3 redacted snippet lines PER ACTIVE AGENT (timestamped CALL/
    RESULT/TEXT), proving what each agent is actually doing right now — not
    a paraphrase, not "still running".
-4. **Stall verdict rule**: an agent is stalled only when its TRANSCRIPT
+5. **Stall verdict rule**: an agent is stalled only when its TRANSCRIPT
    shows no new events across two consecutive checks AND no live OS process
    (`ps`) backs its last dispatched command. Zero file-diff growth or a
    stale STATE.md alone is NEVER a stall verdict — a full-suite test run
@@ -114,7 +116,7 @@ MUST include verbatim snippets from it:
    parent session, then re-task the lane via SendMessage). This is an
    ADDITIONAL branch, not a relaxation — both checks (zero events + live
    child + modal marker) must hold before recovery.
-5. Only after a transcript-confirmed stall (or live-but-modal-blocked
+6. Only after a transcript-confirmed stall (or live-but-modal-blocked
    branch): ping once, then take over or respawn per the recovery
    discipline.
 
@@ -138,7 +140,7 @@ and any anonymous subagent fan-out:
 - Sidekick: reads STATE.md on start (never redoes logged steps), claims tasks, fans out anonymous cost-routed sub-agents when needed, appends to Progress Log + rewrites Next Actions after EVERY step, commits+pushes after every green unit (≤30 min uncommitted), and propagates the commit-often instruction verbatim into every sub-agent prompt. The top-level session creates any named, panel-visible lanes requested by the sidekick.
 - **Branch-scoped STATE.md (mandatory)**: every sidekick/swarm mission gets its OWN state file at `$CLAUDE_STATE_DIR/<project-slug>/sidekick/<branch-name>/STATE.md` (`CLAUDE_STATE_DIR` defaults to `~/roadmap`; override via env var; `<project-slug>` = repo name for repo missions, per the sidekick skill's derivation rules; `/`→`-` in branch names; mission slug for cross-branch missions). Parallel runs on different branches must never share a state file — sharing caused a 2026-07 clobber (retro sidekick overwrote the CI/fleet sidekick's live plan via the generic `## Next Actions` heading). If a legacy shared `$CLAUDE_STATE_DIR/<project-slug>/sidekick/STATE.md` exists (or a pre-migration `/tmp/<project-slug>/sidekick/STATE.md`): migrate only YOUR mission's sections to your branch-scoped path, leave a one-line pointer, treat everything else as read-only.
 - **5-minute checkpoint cadence (MANDATORY for the sidekick AND every lane):** at least once every ≤5 min, (1) append a timestamped heartbeat + current phase to STATE.md, (2) update the P1 mission bead body (`br` v0.2.16 has no native `--append` — read current notes via `br show <bead-id> --json`, concatenate the new heartbeat, write back with `br update <bead-id> --notes "<combined text>"`) then `br sync` (`br sync` alone only syncs DB↔JSONL — it does NOT update the bead body on its own), and (3) make a local commit of state — so any crash loses ≤5 min. Drive it with a background timer/loop or CronCreate; a chat-only status print is NOT a checkpoint.
-- **Operator status cadence (MANDATORY, user directive 2026-07-29):** in addition to the disk checkpoints above, the MAIN SESSION posts a status update to the operator in-conversation every ~5 minutes while a swarm/sidekick mission is active. Schedule it mechanically at mission start (`CronCreate` `*/5 * * * *`, session-only) — do not rely on remembering. Each update: what changed since last update, proven-working vs not-working (evidence-backed), what each lane is doing, blockers; ping any lane silent 10+ min and say so. Status checkpoints are status-only — never start new work from one. Cancel when the mission ends or the operator stops the cadence. **Commit-safety:** if the worktree carries unrelated staged/modified work (another actor's diff, a staged deletion), NEVER `git commit`/`git add -A` there — route to an isolated state repo (`git init` a `.tmp/<mission>-state-repo/`, copy state in, commit) or a WIP branch with path-scoped `git add -- <state paths>`; gitignored `.tmp/` state needs the isolated-repo (or `-f`) path.
+- **Operator status cadence (MANDATORY, user directive 2026-07-29):** in addition to the disk checkpoints above, the MAIN SESSION posts a status update to the operator in-conversation every ~5 minutes while a swarm/sidekick mission is active. Schedule it mechanically at mission start (`CronCreate` `*/5 * * * *`, session-only) — do not rely on remembering. Each update: what changed since last update, proven-working vs not-working (evidence-backed), what each lane is doing, blockers; ping any lane silent 10+ min and say so (after verifying transcript stall per § "Transcript-proof liveness" above). Status checkpoints are status-only — never start new work from one. Cancel when the mission ends or the operator stops the cadence. **Commit-safety:** if the worktree carries unrelated staged/modified work (another actor's diff, a staged deletion), NEVER `git commit`/`git add -A` there — route to an isolated state repo (`git init` a `.tmp/<mission>-state-repo/`, copy state in, commit) or a WIP branch with path-scoped `git add -- <state paths>`; gitignored `.tmp/` state needs the isolated-repo (or `-f`) path.
 - Crash recovery: `/sidekick [model]` in any new session — one spawn, zero context re-derivation. Workflow-tool `resumeFromRunId` journals are same-session only; the sidekick's disk+git checkpoints are what survive.
 - **Durability boundary.** The sidekick is an in-session teammate — it dies with the invoking conversation, by design. What survives: STATE.md + the tracking `br` bead (below) + pushed commits. What it does NOT survive as state: host reboots or `/tmp` cleanup (the bead + git remain). The teammate is always respawnable from STATE.md/bead via `/sidekick` in any fresh session.
 - Model choice: the sidekick is sonnet by default (explicit `model` param mandatory); `--sidekick fable` is an explicit user approval for a fable sidekick (orchestration/diagnosis only, token-economy block required); its sub-agents are always sonnet/haiku. Codex-engine sidekicks are banned — route codex work through AO / `/claw`.
