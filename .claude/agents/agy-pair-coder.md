@@ -37,12 +37,53 @@ PROMPT_EOF
 # Full execution mode: auto-approve all tool permissions, non-interactive print run.
 # --print-timeout must exceed the expected task length (default is only 5m).
 # Add the repo with --add-dir if agy's project root differs from cwd.
+#
+# MANDATORY (crash 2026-08-30): NEVER run this as a foreground Bash call —
+# a foreground fork of a multi-minute agy run killed the parent harness
+# under memory pressure. Run it via the Bash tool's run_in_background with
+# an output file, then poll the file; and pre-check resources first:
+# defer if swap >80% used or memory pressure >=2 (WARNING). The pre-check
+# must branch on OS so the gate works on Linux too:
+#   macOS: `sysctl vm.swapusage` + `sysctl kern.memorystatus_vm_pressure_level`
+#   Linux: `free` (swap used %) + `/proc/pressure/memory` PSI `some` line (avg10)
+# Cross-platform one-liner:
+#   case "$(uname -s)" in
+#     Darwin) sysctl vm.swapusage; sysctl kern.memorystatus_vm_pressure_level ;;
+#     Linux)  free | awk '/^Swap/{ if ($2==0) print "swap used=0%"; else printf "swap used=%.0f%%\n", $3/$2*100 }'; \
+#             awk '{print $2}' /proc/pressure/memory 2>/dev/null || true ;;
+#   esac
+
+# Allocate BOTH $AGY_OUT and $PROMPT_FILE in the INVOKING shell BEFORE the
+# background call, then ECHO their literal paths so the agent's next Bash
+# call can substitute them by hand. Each Bash tool call runs in its own
+# fresh shell, so any variable assigned in one is invisible to the next —
+# the only bridge between them is the literal path string the model
+# substitutes. Example literals: `/tmp/agy_out.AbCdEf.log`,
+# `/tmp/agy_prompt.XyZ123.md`. Allocate and echo in a single foreground
+# Bash call so you can copy both into the next background invocation:
+#   Bash call 1 (foreground, allocate + echo):
+#     AGY_OUT="$(mktemp -t agy_out.XXXXXX)"
+#     PROMPT_FILE="$(mktemp -t agy_prompt.XXXXXX)"
+#     cat > "$PROMPT_FILE" <<'PROMPT_EOF'
+#     ...implementation prompt body...
+#     PROMPT_EOF
+#     echo "AGY_OUT=$AGY_OUT"
+#     echo "PROMPT_FILE=$PROMPT_FILE"
+#   Bash call 2 (run_in_background: true, paste the echoed literals):
+#     agy --dangerously-skip-permissions \
+#         --print-timeout 20m \
+#         --print "$(cat /tmp/agy_prompt.XyZ123.md)" \
+#         > /tmp/agy_out.AbCdEf.log 2>&1
+
 agy --dangerously-skip-permissions \
     --print-timeout 20m \
-    --print "$(cat "$PROMPT_FILE")"
+    --print "$(cat "$PROMPT_FILE")" > "$AGY_OUT" 2>&1
 
 rm -f "$PROMPT_FILE"
 ```
+(Issue the command above with `run_in_background: true` and a timeout; read
+`$AGY_OUT` — the literal path you embedded from the foreground allocation —
+when the task notification fires. Never block the agent's only thread on it.)
 
 **Flag reference (agy 1.1.1):**
 - `--dangerously-skip-permissions` — auto-approve all tool permission requests (full execution mode)

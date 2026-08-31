@@ -86,6 +86,7 @@ NON_COMMAND_TOKENS = {
     "/parallel": "`/` used as an 'or' separator in `agent()/parallel()/pipeline()` "
     "Workflow-tool API notation, not a command",
     "/pipeline": "same `agent()/parallel()/pipeline()` API notation as /parallel above",
+    "/claude-": "project dir prefix from `${TMPDIR:-/tmp}/claude-*/...`, not a command",
 }
 
 # Regex: single path segment (no further `/` before or after), starts with a

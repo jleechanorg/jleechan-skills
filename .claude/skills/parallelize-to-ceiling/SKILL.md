@@ -81,6 +81,31 @@ one-off scripts and to production pipelines alike.
   each worker a disjoint workspace/output; single-writer for any merged
   artifact; order-deterministic results (sort by id, not completion order).
 
+## Resource admission gate (mandatory — crash 2026-08-30)
+
+Memory is a first-class resource bound. A harness process died silently at
+the instant it forked a 20-minute foreground CLI delegate on a host at 92%
+swap / memory-pressure WARNING / ~64MB free — the spawn itself was the kill
+site, and silent self-exits leave no OS trace.
+
+Before spawning any new lane, subprocess fleet, or CLI delegation:
+
+1. **Probe:** `sysctl vm.swapusage` and
+   `sysctl kern.memorystatus_vm_pressure_level` (macOS; on Linux check
+   `free`/`vmstat` swap + PSI). Takes one second.
+2. **Defer, don't spawn,** when swap >80% used or pressure level ≥2
+   (WARNING). Finish or kill existing heavy children first; spawning into
+   starvation risks killing the *parent* session, losing all lanes at once.
+3. **Never fork a multi-minute CLI delegation (agy, codex, claude -p) as a
+   foreground Bash call.** Always `run_in_background` + explicit timeout —
+   a foreground fork pins the parent at the worst possible moment.
+4. **Cap concurrent pytest lanes** in gRPC-loaded repos (macOS
+   fork-unsafety: "multi-threaded process forked" SIGTRAP storms). 2-3
+   lanes max per host unless measured safe; prefer sharding across
+   machines.
+5. **Watch delegate RSS.** A CLI delegate above ~2-3GB RSS is itself a
+   heavy item — one per machine, per the resource-bound table.
+
 ## Isolation invariants (always, when parallelizing)
 
 - Disjoint per-worker workspaces / output files.
