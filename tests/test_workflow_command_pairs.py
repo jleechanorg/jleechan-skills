@@ -53,6 +53,11 @@ class WorkflowCommandPairTest(unittest.TestCase):
             "## Coding and verification lane routing",
             "~/.claude/agents/agy-pair-coder.md",
             "~/.claude/agents/agy-pair-verifier.md",
+            (
+                "FALLBACK: if an AGY lane concretely fails, retry that lane with "
+                "codexs, claudem, or an own cheap agent while preserving "
+                "isolation and independent verification."
+            ),
             "## Codex model routing",
         ):
             with self.subTest(required=required):
