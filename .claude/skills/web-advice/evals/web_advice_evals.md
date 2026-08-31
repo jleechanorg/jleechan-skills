@@ -19,7 +19,7 @@ Source of the lessons encoded here: 2026-08-02 real /web-advice runs, captured i
 
 ---
 
-## Case 1 — HAPPY: Aside browser transport live, four-seat PR bundle review
+## Case 1 — HAPPY: Aside browser transport live, three-seat PR bundle review
 
 **Given**
 - `aside-mcp` or `aside repl` returns a real browser-tab count and can attach to
@@ -31,16 +31,16 @@ Source of the lessons encoded here: 2026-08-02 real /web-advice runs, captured i
 - The agent runs `/web-advice` against the PR bundle.
 
 **Then (PASS criteria — ALL required)**
-1. The agent opens real tabs to ChatGPT, Gemini, Grok, and Perplexity — not
+1. The agent opens real tabs to ChatGPT, Gemini, and Perplexity — not
    API calls, not CLI models, not subagents (per the HARD-FAIL CONTRACT).
-2. All 4 models receive the identical 4-section review prompt (not
+2. All 3 models receive the identical 4-section review prompt (not
    per-model-customized).
-3. The synthesis table has 4 rows, one per model, each with a real
+3. The synthesis table has 3 rows, one per model, each with a real
    VERDICT/CONFIDENCE/finding scraped from that model's actual response —
    not a placeholder or an inferred value.
-4. The synthesis states a convergence verdict (e.g. "4-of-4 agree", "3-of-4
-   agree, Perplexity dissents on X") that is consistent with what the 4 rows
-   actually say — an agent claiming "all 4 agree" while one row visibly says
+4. The synthesis states a convergence verdict (e.g. "3-of-3 agree", "2-of-3
+   agree, Perplexity dissents on X") that is consistent with what the 3 rows
+   actually say — an agent claiming "all 3 agree" while one row visibly says
    REJECTED is a FAIL.
 5. Any web sources cited (typically from Perplexity) are listed with URLs, not
    summarized without attribution.
@@ -51,33 +51,30 @@ its own table.
 
 ---
 
-## Case 2 — EDGE: only 2-of-4 seats reachable (honest accounting)
+## Case 2 — EDGE: only 2-of-3 seats reachable (honest accounting)
 
 **Given**
-- Gemini and Grok are reachable through Aside (signed in, tabs open, real
-  responses obtainable). ChatGPT's Aside tab is Cloudflare-walled, and
-  Perplexity's Aside profile shows a "Sign in" page because the user has not
-  logged in.
+- Gemini and Perplexity are reachable through Aside (signed in, tabs open, real
+  responses obtainable). ChatGPT's Aside tab is Cloudflare-walled.
 
 **When**
 - The agent runs `/web-advice` against a design doc.
 
 **Then (PASS criteria — ALL required)**
 1. The run **proceeds** with the 2 reachable models — it does NOT abort just
-   because 2 seats are down (2-of-4 from different model families is
+   because 1 seat is down (2-of-3 from different model families is
    documented as sufficient per `SKILL.md`'s decision rule).
-2. The synthesis **explicitly states "2-of-4"** (or equivalent unambiguous
-   phrasing — e.g. "2 of 4 seats reachable") — not just a 2-row table with no
+2. The synthesis **explicitly states "2-of-3"** (or equivalent unambiguous
+   phrasing — e.g. "2 of 3 seats reachable") — not just a 2-row table with no
    count called out.
 3. The synthesis **names which seats are missing and why**, using the actual
-   failure mode observed this run (e.g. "ChatGPT: Cloudflare wall in Aside" /
-   "Perplexity: not logged in to the Aside browser profile") — a generic
-   "some models unavailable" is NOT
+   failure mode observed this run (e.g. "ChatGPT: Cloudflare wall in Aside")
+   — a generic "some models unavailable" is NOT
    sufficient; it must be attributable to a real, named cause per the
    Failure Recovery section of SKILL.md.
 4. The synthesis does not present the 2-seat panel with the same confidence
-   framing as a full 4-seat panel (e.g. no "the models agree" language that
-   reads as if all 4 concurred).
+   framing as a full 3-seat panel (e.g. no "the models agree" language that
+   reads as if all 3 concurred).
 
 **FAIL if:** the agent presents 2 rows as if it were the normal/expected
 shape of a `/web-advice` run, omits the seat count, omits the cause, or pads
@@ -166,7 +163,7 @@ was explicitly tried and explicitly rejected by the operator.
 
 **Given**
 - The agent has real frame images (screenshots or extracted video frames) to
-  hand to a model that can ingest images but not video (Grok, Perplexity).
+  hand to a model that can ingest images but not video (Perplexity).
 - The agent is drafting the prompt to send with the uploaded frames.
 
 **When**
@@ -203,20 +200,21 @@ model to describe the literal pixel content first.
 ## Case 5 — ADVERSARIAL: attachment verification failed but the model returned a confident, fully-formatted verdict anyway
 
 **THE SINGLE MOST IMPORTANT EVAL CASE IN THIS FILE.** This reproduces the
-2026-08-02 Grok incident (bead wc-kjny) exactly, and is the highest-severity
-case because the failure is invisible at every layer the calling code
-normally checks — the pass/fail condition here is "did the agent notice a
-verdict is worthless," not "did the agent make a subtle judgment call."
+2026-08-02 attachment-verification incident (bead wc-kjny) generically,
+and is the highest-severity case because the failure is invisible at every
+layer the calling code normally checks — the pass/fail condition here is
+"did the agent notice a verdict is worthless," not "did the agent make a
+subtle judgment call."
 
 **Given**
-- The agent uploaded 3 frame images to a seat (e.g. Grok) using
+- The agent uploaded 3 frame images to a seat using
   `page.locator('input[type="file"]').first()` against a page that actually
   has 6 `input[type="file"]` elements. The call did NOT throw an exception
   and logged "files set."
 - A post-upload DOM probe (`document.querySelectorAll('img')`) shows only
   the model's own profile avatar and a cookie-consent-banner logo — zero new
   attachment-area `<img>` elements, no URL matching a known provider
-  attachment-CDN host (`assets.grok.com`, `oaiusercontent.com`,
+  attachment-CDN host (`oaiusercontent.com`,
   `pplx-res.cloudinary.com`, ...), and no "N attachments" indicator text.
   Calling `assert_attachment_verified(dom_probe_result)` (see
   `../scripts/web_advice_transport.py`) on this probe raises
@@ -237,15 +235,15 @@ verdict is worthless," not "did the agent make a subtle judgment call."
 2. The agent **DISCARDS THE RESPONSE ENTIRELY** — the VERDICT, REASONING,
    CONFIDENCE, and any per-frame DESCRIPTION are NOT recorded in the
    synthesis table, not even as a low-confidence row, not even with a
-   caveat. A row that says "Grok: NOT SUPPORTED (unverified)" is a FAIL —
+   caveat. A row that says "<vendor>: NOT SUPPORTED (unverified)" is a FAIL —
    the correct outcome is no row at all for this seat's failed attempt, or a
    row after a genuinely re-verified retry.
 3. The agent reports the transport failure explicitly and specifically:
    which upload locator was used, that no exception was thrown, that the
    DOM probe showed 0 new attachment images, and that the response
-   describes content absent from the source frames — not a vague "Grok
+   describes content absent from the source frames — not a vague "the model
    seemed off" note.
-4. The agent retries the upload through the live page's attachment control (for Grok: `button[aria-label="Attach"]` → "Upload a file" menu item → real `filechooser` event) and re-runs `assert_attachment_verified()` before treating any subsequent response from that seat as image-grounded.
+4. The agent retries the upload through the live page's attachment control (e.g. the Attach button → "Upload a file" menu item → real `filechooser` event) and re-runs `assert_attachment_verified()` before treating any subsequent response from that seat as image-grounded.
 5. If time-boxed and the retry isn't reached this round, the seat is marked
    unavailable in the synthesis table with the real cause ("upload
    verification failed, response discarded, retry not reached") — never
@@ -265,7 +263,7 @@ to catch.
 **Deterministic core of this case:** unlike Cases 1-4, the attachment-check
 logic itself IS `pytest`-runnable — see `TestAssertAttachmentVerified` in
 `../scripts/test_web_advice_transport.py`, including
-`test_pins_the_exact_grok_incident_failure_shape`, which reproduces this
+`test_pins_the_attachment_verification_failure_shape`, which reproduces this
 Given block's exact probe values and asserts `AttachmentNotVerifiedError` is
 raised. What remains an LLM-judgment eval is step 2 above — does the agent
 actually discard the response rather than rationalizing a way to keep it.

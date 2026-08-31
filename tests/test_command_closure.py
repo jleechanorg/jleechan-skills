@@ -21,18 +21,24 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from scripts.compute_command_closure import closure_to_json, compute_closure
+from scripts.compute_command_closure import (
+    closure_to_json,
+    compute_closure,
+    extract_references_from_text,
+)
 
 COMMANDS_DIR = REPO_ROOT / ".claude" / "commands"
 
 # Fixture A (TRUE POSITIVE), real content of .claude/commands/advice.md line 2:
-#   description: Token-efficient second opinion — fans out Opus subagent +
-#   /research + /secondo in parallel. ...
+#   description: Token-efficient second opinion — fans out a concurrent Codex
+#   + Opus CLI primary pair plus /research, /extended-library:secondo, and
+#   /web-advice. ...
 # Prose delegation, and .claude/commands/research.md exists. Both /advice and
 # /research are in the Active Core set, so neither is reachable only through
 # .claude/commands/extended-library/, which the closure scanner does not scan.
 GENUINE_SEED = "advice"
 GENUINE_TARGET = "research"
+NAMESPACED_TARGET = "extended-library:secondo"
 
 # Fixture B (FALSE POSITIVES), real content of .claude/commands/f.md, whose
 # phantom slash tokens are what this fixture exercises.
@@ -65,7 +71,8 @@ class CommandClosureTest(unittest.TestCase):
         self.assertIn("reviewer/subagent", self.seed_text[PHANTOM_SEED])
 
     def test_genuine_reference_is_pulled_into_closure(self):
-        closure = compute_closure(REPO_ROOT, [GENUINE_SEED])["closure"]
+        result = compute_closure(REPO_ROOT, [GENUINE_SEED])
+        closure = result["closure"]
         self.assertIn(GENUINE_SEED, closure, "seed must be in its own closure")
         self.assertIn(
             GENUINE_TARGET,
@@ -73,6 +80,26 @@ class CommandClosureTest(unittest.TestCase):
             f"/{GENUINE_SEED} genuinely delegates to `/{GENUINE_TARGET}` "
             f"(.claude/commands/{GENUINE_SEED}.md), so closure must include it",
         )
+        self.assertIn(NAMESPACED_TARGET, closure)
+        self.assertNotIn("secondo", result["rejected"])
+        self.assertTrue(
+            (COMMANDS_DIR / "extended-library" / "secondo.md").is_file()
+        )
+
+    def test_advice_direct_references_all_resolve_and_secondo_stays_namespaced(self):
+        references = extract_references_from_text(self.seed_text[GENUINE_SEED])
+        unresolved = []
+        for name in sorted(references):
+            if name.startswith("extended-library:"):
+                path = COMMANDS_DIR / "extended-library" / f"{name.split(':', 1)[1]}.md"
+            else:
+                path = COMMANDS_DIR / f"{name}.md"
+            if not path.is_file():
+                unresolved.append(name)
+
+        self.assertFalse(unresolved)
+        self.assertIn(NAMESPACED_TARGET, references)
+        self.assertFalse((COMMANDS_DIR / "secondo.md").exists())
 
     def test_false_positive_tokens_are_not_pulled_into_closure(self):
         closure = set(compute_closure(REPO_ROOT, [PHANTOM_SEED])["closure"])
@@ -85,7 +112,14 @@ class CommandClosureTest(unittest.TestCase):
 
     def test_every_closure_member_resolves_to_a_real_command_file(self):
         closure = compute_closure(REPO_ROOT, [GENUINE_SEED, PHANTOM_SEED])["closure"]
-        missing = [n for n in closure if not (COMMANDS_DIR / f"{n}.md").is_file()]
+        missing = []
+        for name in closure:
+            if name.startswith("extended-library:"):
+                path = COMMANDS_DIR / "extended-library" / f"{name.split(':', 1)[1]}.md"
+            else:
+                path = COMMANDS_DIR / f"{name}.md"
+            if not path.is_file():
+                missing.append(name)
         self.assertFalse(
             missing,
             f"closure emitted names with no .claude/commands/<name>.md: {missing}",

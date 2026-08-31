@@ -7,7 +7,7 @@ execution_mode: immediate
 
 # `/web-advice`
 
-Thin command pointer for independent multi-model Web LLM advice or review (ChatGPT, Grok, Gemini Web, and other available providers) on any subject. Evidence verification is used only when an evidence bundle or production claim is part of the request.
+Thin command pointer for independent multi-model Web LLM advice or review (ChatGPT, Gemini Web, Perplexity, and other available providers) on any subject. Evidence verification is used only when an evidence bundle or production claim is part of the request.
 
 ## Usage
 
