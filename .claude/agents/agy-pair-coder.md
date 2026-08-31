@@ -37,12 +37,23 @@ PROMPT_EOF
 # Full execution mode: auto-approve all tool permissions, non-interactive print run.
 # --print-timeout must exceed the expected task length (default is only 5m).
 # Add the repo with --add-dir if agy's project root differs from cwd.
+#
+# MANDATORY (crash 2026-08-30): NEVER run this as a foreground Bash call —
+# a foreground fork of a multi-minute agy run killed the parent harness
+# under memory pressure. Run it via the Bash tool's run_in_background with
+# an output file, then poll the file; and pre-check resources first:
+# defer if `sysctl vm.swapusage` shows >80% used or
+# `sysctl kern.memorystatus_vm_pressure_level` >= 2.
+AGY_OUT=$(mktemp /tmp/agy_coder_out.XXXXXX.log)
 agy --dangerously-skip-permissions \
     --print-timeout 20m \
-    --print "$(cat "$PROMPT_FILE")"
+    --print "$(cat "$PROMPT_FILE")" > "$AGY_OUT" 2>&1
 
 rm -f "$PROMPT_FILE"
 ```
+(Issue the command above with `run_in_background: true` and a timeout; read
+`$AGY_OUT` when the task notification fires. Never block the agent's only
+thread on it.)
 
 **Flag reference (agy 1.1.1):**
 - `--dangerously-skip-permissions` — auto-approve all tool permission requests (full execution mode)

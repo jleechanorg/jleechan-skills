@@ -246,6 +246,16 @@ The sidekick and every lane it owns checkpoint at a ≤5 min cadence:
    - Before any multi-lane fan-out: load `/parallel`
      (`parallelize-to-ceiling` skill) and prove concurrency by sampling live
      (`ps` / load), not by trusting a worker flag alone.
+   - Resource admission gate (crash 2026-08-30): before spawning any lane
+     or CLI delegation, probe `sysctl vm.swapusage` and
+     `sysctl kern.memorystatus_vm_pressure_level`; DEFER spawns when swap
+     >80% used or pressure >=2 (WARNING) — spawning into starvation can
+     silently kill the parent session and every lane with it.
+   - Never fork a multi-minute CLI delegation (agy, codex, claude -p) as a
+     foreground Bash call — always run_in_background + explicit timeout,
+     then read the output file on the task notification. A foreground fork
+     of a 20-minute agy run was the exact death site of the 2026-08-30
+     session crash.
 
    Mission:
    <mission text>
@@ -285,10 +295,41 @@ spawn time (`CronCreate` with `*/5 * * * *`, session-only, or `ScheduleWakeup`
 when in /loop dynamic mode); do not rely on remembering. Each update states:
 what changed since the last one, what is proven working vs not working
 (evidence-backed, not aspirational), what the sidekick/lanes are doing right
-now, and blockers. If the sidekick has no STATE.md heartbeat for 10+
-minutes, ping it and say so in the update. Status checkpoints are
+now, and blockers. Every update MUST include verbatim transcript snippets per active
+agent per § "Transcript-proof liveness" — heartbeat gaps alone are not
+evidence of a stall and not grounds to ping. Status checkpoints are
 status-only — never start new work from one. Cancel the cron when the
 mission completes or the operator says to stop.
+
+## Transcript-proof liveness (mandatory, user directive 2026-08-30)
+
+File mtimes, STATE.md heartbeat gaps, and roster status strings CANNOT
+distinguish a hang from a long synchronous tool call — every one of them
+produced false stall alarms on 2026-08-30. The ONLY valid liveness/progress
+evidence is the agent's actual transcript, and every operator status update
+MUST include verbatim snippets from it:
+
+1. **Locate transcripts**: named teammates and anonymous subagents write
+   `agent-<id>.jsonl` (teammates: `agent-a<name>-<hash>.jsonl`) under the
+   session dir `~/.claude*/projects/<project-slug>/<session-id>/subagents/`;
+   background Bash tasks write `<task-id>.output` under
+   `/private/tmp/claude-*/<project>/<session>/tasks/`. Sort by mtime to find
+   the live ones.
+2. **Parse, don't tail blindly**: extract the last few `tool_use` /
+   `tool_result` / `text` blocks (each JSONL line holds
+   `message.content[]`); print timestamp + tool name + truncated
+   input/output.
+3. **Quote verbatim in the status update**: each report to the operator
+   includes 1-3 raw snippet lines PER ACTIVE AGENT (timestamped CALL/
+   RESULT/TEXT), proving what each agent is actually doing right now — not
+   a paraphrase, not "still running".
+4. **Stall verdict rule**: an agent is stalled only when its TRANSCRIPT
+   shows no new events across two consecutive checks AND no live OS process
+   (`ps`) backs its last dispatched command. Zero file-diff growth or a
+   stale STATE.md alone is NEVER a stall verdict — a full-suite test run
+   produces no visible change for minutes while being completely healthy.
+5. Only after a transcript-confirmed stall: ping once, then take over or
+   respawn per the recovery discipline.
 
 ## Why this beats plain fan-outs
 

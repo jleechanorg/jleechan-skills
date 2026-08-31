@@ -58,9 +58,40 @@ Run a goal as a **swarm**: a deterministic Workflow-tool fan-out (ultracode) or 
 The invoking session AND every teammate lane stall SIMULTANEOUSLY on the
 per-account session-limit modal (`/rate-limit-options`), which never
 auto-dismisses after the quota window resets. Liveness+progress monitors miss it
-(process alive, no events). Supervisors MUST watch STATE.md **staleness** (~15
-min alarm); on recovery, dismiss the modal in the parent session and have the
+(process alive, no events). Supervisors MUST verify via the agent transcript per § "Transcript-proof
+liveness" below (STATE.md staleness is a trigger to READ THE TRANSCRIPT,
+never a stall verdict by itself); on recovery, dismiss the modal in the parent session and have the
 lead re-task idle lanes via SendMessage.
+
+## Transcript-proof liveness (mandatory, user directive 2026-08-30)
+
+File mtimes, STATE.md heartbeat gaps, and roster status strings CANNOT
+distinguish a hang from a long synchronous tool call — every one of them
+produced false stall alarms on 2026-08-30. The ONLY valid liveness/progress
+evidence is the agent's actual transcript, and every operator status update
+MUST include verbatim snippets from it:
+
+1. **Locate transcripts**: named teammates and anonymous subagents write
+   `agent-<id>.jsonl` (teammates: `agent-a<name>-<hash>.jsonl`) under the
+   session dir `~/.claude*/projects/<project-slug>/<session-id>/subagents/`;
+   background Bash tasks write `<task-id>.output` under
+   `/private/tmp/claude-*/<project>/<session>/tasks/`. Sort by mtime to find
+   the live ones.
+2. **Parse, don't tail blindly**: extract the last few `tool_use` /
+   `tool_result` / `text` blocks (each JSONL line holds
+   `message.content[]`); print timestamp + tool name + truncated
+   input/output.
+3. **Quote verbatim in the status update**: each report to the operator
+   includes 1-3 raw snippet lines PER ACTIVE AGENT (timestamped CALL/
+   RESULT/TEXT), proving what each agent is actually doing right now — not
+   a paraphrase, not "still running".
+4. **Stall verdict rule**: an agent is stalled only when its TRANSCRIPT
+   shows no new events across two consecutive checks AND no live OS process
+   (`ps`) backs its last dispatched command. Zero file-diff growth or a
+   stale STATE.md alone is NEVER a stall verdict — a full-suite test run
+   produces no visible change for minutes while being completely healthy.
+5. Only after a transcript-confirmed stall: ping once, then take over or
+   respawn per the recovery discipline.
 
 ## Sidekick durability layer ([Devin Fusion](https://cognition.com/blog/devin-fusion) sidekick pattern)
 
@@ -109,6 +140,25 @@ A resume must be possible from the bead body ALONE: repo/branch, task list with 
 | code-quality | Review → Verify → Innovate → Docs | rubric×module-cluster pairs (standards + thermo lenses) → dedup → verify → innovation per problem class → doc per class |
 | innov | Innovate → Challenge | one "smartest addition" per finding → adversarial challenge kills weak ideas |
 | fleet-triage | single fan-out | one triage agent per PR/lane, structured verdicts (19 agents) |
+
+## Resource admission gate (mandatory, crash 2026-08-30)
+
+A harness process died silently at the instant a lane forked a 20-minute
+FOREGROUND `agy` CLI call on a host at 92% swap / memory-pressure WARNING /
+~64MB free — the spawn was the kill site; silent self-exits leave no OS
+trace, and the whole swarm died with the parent. Therefore, before any
+fan-out, lane spawn, or CLI delegation:
+
+1. Probe `sysctl vm.swapusage` + `sysctl kern.memorystatus_vm_pressure_level`
+   (Linux: `free` + PSI). DEFER spawns when swap >80% used or pressure >=2
+   (WARNING); finish or kill existing heavy children first.
+2. NEVER fork multi-minute CLI delegations (agy / codex / claude -p) as
+   foreground Bash — always `run_in_background` + explicit timeout, read
+   the output file on the task notification.
+3. Cap concurrent pytest lanes at 2-3 per host in gRPC-loaded repos (macOS
+   fork-unsafety SIGTRAP storms degrade the host before the crash).
+4. Treat any delegate above ~2-3GB RSS as a heavy item per /parallel — one
+   per machine; watchdog or restart it.
 
 ## Hard rules (each one cost a failure to learn)
 
