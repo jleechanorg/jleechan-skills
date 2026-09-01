@@ -37,18 +37,23 @@ Adversarially verify this implementation. Try to REFUTE the claim that it works:
 PROMPT_EOF
 
 agy --dangerously-skip-permissions \
+    --new-project \
     --print-timeout 20m \
     --print "$(cat "$PROMPT_FILE")"
 
 rm -f "$PROMPT_FILE"
 ```
 
-Use `--continue` for iterative re-verification rounds on the same task.
+For every verification attempt, allocate a fresh worktree, prompt, output, and
+log path. Start a new `agy --new-project` invocation; never pass a
+conversation-resume option or use an equivalent conversation-reuse mechanism.
 Do NOT use `--sandbox` (terminal restrictions break test execution).
 
 ## Verification Protocol
 
-1. On IMPLEMENTATION_READY: read the claimed summary, files, tests
+1. On IMPLEMENTATION_READY: read the claimed summary, files, tests, exact
+   `Revision`, and absolute `Worktree`; verify `git rev-parse HEAD` matches
+   the handed-off revision before running checks
 2. Delegate adversarial verification to agy CLI (above)
 3. Independently run the test suite yourself and diff against the coder's claim
 4. Verdict:

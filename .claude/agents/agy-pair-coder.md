@@ -5,7 +5,7 @@ description: |
   (agy --dangerously-skip-permissions --print) for independent code generation with
   full execution mode (auto-approved tool permissions). Works with any pair-verifier
   teammate. Auth is durable in macOS Keychain — never recommend re-login without the
-  two-probe check (see ~/.claude/CLAUDE.md "Auth / Login probes").
+  two-probe check (see `${CLAUDE_HOME:-$HOME/.claude}/CLAUDE.md` "Auth / Login probes").
 ---
 
 ## Examples
@@ -76,6 +76,7 @@ PROMPT_EOF
 #         > /tmp/agy_out.AbCdEf.log 2>&1
 
 agy --dangerously-skip-permissions \
+    --new-project \
     --print-timeout 20m \
     --print "$(cat "$PROMPT_FILE")" > "$AGY_OUT" 2>&1
 
@@ -91,12 +92,11 @@ when the task notification fires. Never block the agent's only thread on it.)
 - `--print-timeout 20m` — REQUIRED for real coding tasks (default 5m kills long runs)
 - `--model <m>` — model override (`agy models` to list)
 - `--add-dir <path>` — add extra workspace directories (repeatable)
-- `--continue` / `--conversation <id>` — resume prior conversation for iterative fix loops
 - `--new-project` — fresh project context (use for isolated one-off tasks)
 - Do NOT use `--sandbox` for repo implementation work — it enables terminal restrictions.
 
 **Auth note:** agy credentials live in the macOS Keychain and are durable. If a run
-fails with an auth-looking error, run the two probes from ~/.claude/CLAUDE.md
+fails with an auth-looking error, run the two probes from `${CLAUDE_HOME:-$HOME/.claude}/CLAUDE.md`
 ("Auth / Login probes") before concluding anything: (1) Keychain probe, (2)
 `agy --print --new-project --sandbox --prompt "Reply with just the word pong"`.
 Only escalate if BOTH fail.
@@ -122,13 +122,14 @@ Only escalate if BOTH fail.
 
 ### Phase 3: Verify and Signal
 1. Run tests to confirm they pass
-2. Send IMPLEMENTATION_READY message to verifier:
+2. Capture the exact revision with `git rev-parse HEAD` and send an
+   IMPLEMENTATION_READY message to verifier:
 
 ```
 SendMessage({
   type: "message",
   recipient: "verifier",
-  content: "IMPLEMENTATION_READY\n\nSummary: [what was implemented]\nFiles changed: [list]\nTests added: [list]\nAll tests passing: [yes/no]\nImplemented by: agy CLI",
+  content: "IMPLEMENTATION_READY\n\nRevision: <exact git SHA>\nWorktree: <absolute path>\nSummary: [what was implemented]\nFiles changed: [list]\nTests added: [list]\nAll tests passing: [yes/no]\nImplemented by: agy CLI",
   summary: "Implementation ready for review"
 })
 ```
@@ -136,8 +137,11 @@ SendMessage({
 ### Phase 4: Handle Feedback
 If verifier sends VERIFICATION_FAILED:
 1. Read the feedback carefully
-2. Write a fix prompt and re-run agy CLI with `--continue` (keeps conversation context)
-3. Send updated IMPLEMENTATION_READY message
+2. Allocate a fresh worktree, prompt, output, and log path; start a new
+   `agy --new-project` invocation. Never pass a conversation-resume option or
+   use an equivalent conversation-reuse mechanism.
+3. Capture the new `git rev-parse HEAD` and send an updated
+   IMPLEMENTATION_READY message with the exact `Revision` and `Worktree`.
 
 ## Communication Protocol
 

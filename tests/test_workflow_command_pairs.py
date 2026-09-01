@@ -53,7 +53,7 @@ class WorkflowCommandPairTest(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn(
-            "~/.claude/skills/parallelize-to-ceiling/SKILL.md",
+            "${CLAUDE_HOME:-$HOME/.claude}/skills/parallelize-to-ceiling/SKILL.md",
             parallel,
         )
         self.assertNotIn("## Coding and verification lane routing", parallel)
@@ -61,8 +61,8 @@ class WorkflowCommandPairTest(unittest.TestCase):
         self.assertNotIn("## Isolation contract", parallel)
         for required in (
             "## Coding and verification lane routing",
-            "~/.claude/agents/agy-pair-coder.md",
-            "~/.claude/agents/agy-pair-verifier.md",
+            "${CLAUDE_HOME:-$HOME/.claude}/agents/agy-pair-coder.md",
+            "${CLAUDE_HOME:-$HOME/.claude}/agents/agy-pair-verifier.md",
             (
                 "FALLBACK: if an AGY lane concretely fails, retry that lane with "
                 "codexs, claudem, or an own cheap agent while preserving "
@@ -72,7 +72,7 @@ class WorkflowCommandPairTest(unittest.TestCase):
             "## Fallback precedence",
             "`FALLBACK` template above is governed by this order:",
             "retry the same bounded lane with",
-            "`codexs`, starting at Spark, then advance to Luna, Terra, Sol",
+            "invoke the Codex CLI explicitly with `-m gpt-5.6-luna`, then",
             "Use `claudem` or an own cheap agent only when the ordered Codex",
             "unavailable; preserve the same bounded scope",
             "## Isolation contract",
@@ -84,17 +84,20 @@ class WorkflowCommandPairTest(unittest.TestCase):
             with self.subTest(required=required):
                 self.assertIn(required, skill)
 
-        expected_codex_routing = (
-            "\nFor Codex parallel lanes, use this ordered fallback and advance "
-            "only after a\n"
-            "concrete per-lane failure:\n\n"
-            "`gpt-5.3-codex-spark` → `gpt-5.6-luna` → "
-            "`gpt-5.6-terra` → `gpt-5.6-sol`\n\n"
-            "Record the rejection and retry the same bounded lane on the next "
-            "model. Never\n"
-            "skip directly from Spark to Sol.\n"
+        normalized_skill = " ".join(skill.split())
+        self.assertIn(
+            "`codexs` as the Spark fallback; codexs is not a multi-model router",
+            normalized_skill,
         )
-        self.assertIn(expected_codex_routing, skill)
+        self.assertIn(
+            "`gpt-5.3-codex-spark` → `gpt-5.6-luna` → "
+            "`gpt-5.6-terra` → `gpt-5.6-sol`",
+            skill,
+        )
+        self.assertIn(
+            "retry the same bounded lane with the next explicit model",
+            normalized_skill,
+        )
 
     def test_retry_isolation_covers_every_attempt_and_prior_attempts(self):
         skill = (SKILLS / "parallelize-to-ceiling" / "SKILL.md").read_text(
@@ -105,6 +108,77 @@ class WorkflowCommandPairTest(unittest.TestCase):
             "Every attempt, including initial execution and each retry, uses a "
             "fresh workspace and output disjoint from both coder and verifier "
             "lanes and from all previous attempts.",
+            normalized_skill,
+        )
+
+    def test_parallel_contract_uses_configurable_claude_home(self):
+        paths = (
+            COMMANDS / "extended-library" / "parallel.md",
+            COMMANDS / "p.md",
+            SKILLS / "parallelize-to-ceiling" / "SKILL.md",
+            REPO_ROOT / ".claude" / "agents" / "agy-pair-coder.md",
+            REPO_ROOT / ".claude" / "agents" / "agy-pair-verifier.md",
+        )
+        for path in paths:
+            content = path.read_text(encoding="utf-8")
+            with self.subTest(path=path):
+                self.assertNotIn("~/.claude/", content)
+        for path in paths[:3]:
+            self.assertIn(
+                "${CLAUDE_HOME:-$HOME/.claude}",
+                path.read_text(encoding="utf-8"),
+            )
+
+    def test_retry_contract_forbids_conversation_reuse(self):
+        skill = (SKILLS / "parallelize-to-ceiling" / "SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        coder = (REPO_ROOT / ".claude" / "agents" / "agy-pair-coder.md").read_text(
+            encoding="utf-8"
+        )
+        verifier = (
+            REPO_ROOT / ".claude" / "agents" / "agy-pair-verifier.md"
+        ).read_text(encoding="utf-8")
+        for name, content in (
+            ("skill", skill),
+            ("coder", coder),
+            ("verifier", verifier),
+        ):
+            with self.subTest(document=name):
+                self.assertNotIn("--continue", content)
+                self.assertNotIn("--conversation", content)
+        normalized_skill = " ".join(skill.split())
+        self.assertIn(
+            "Every retry uses a fresh worktree and unique output/log paths",
+            normalized_skill,
+        )
+        self.assertIn("fresh `agy --new-project`", normalized_skill)
+
+    def test_implementation_ready_carries_exact_revision_handoff(self):
+        skill = (SKILLS / "parallelize-to-ceiling" / "SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        coder = (REPO_ROOT / ".claude" / "agents" / "agy-pair-coder.md").read_text(
+            encoding="utf-8"
+        )
+        for name, content in (("skill", skill), ("coder", coder)):
+            with self.subTest(document=name):
+                self.assertIn("Revision: <exact git SHA>", content)
+                self.assertIn("Worktree: <absolute path>", content)
+        self.assertIn("git rev-parse HEAD", coder)
+
+    def test_codexs_fallback_does_not_claim_multi_model_routing(self):
+        skill = (SKILLS / "parallelize-to-ceiling" / "SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        normalized_skill = " ".join(skill.split())
+        self.assertIn(
+            "`codexs` as the Spark fallback; codexs is not a multi-model router.",
+            normalized_skill,
+        )
+        self.assertIn(
+            "invoke the Codex CLI explicitly with `-m gpt-5.6-luna`, then "
+            "`-m gpt-5.6-terra`, then `-m gpt-5.6-sol`",
             normalized_skill,
         )
 

@@ -5,7 +5,7 @@ description: Use when designing, debugging, reviewing, or scripting any work tha
 
 # Parallelize to Ceiling
 
-**Slash command:** `/parallel` → `~/.claude/skills/parallelize-to-ceiling/SKILL.md`
+**Slash command:** `/parallel` → `${CLAUDE_HOME:-$HOME/.claude}/skills/parallelize-to-ceiling/SKILL.md`
 
 ## Core law
 
@@ -121,15 +121,15 @@ For implementation and review lanes, prefer the installed AGY CLI pair. Use
 the canonical profiles for the complete launch, logging, isolation, and
 signaling contracts:
 
-- Coder: `~/.claude/agents/agy-pair-coder.md`
-- Verifier: `~/.claude/agents/agy-pair-verifier.md`
+- Coder: `${CLAUDE_HOME:-$HOME/.claude}/agents/agy-pair-coder.md`
+- Verifier: `${CLAUDE_HOME:-$HOME/.claude}/agents/agy-pair-verifier.md`
 
 ### Two-agent pair template
 
 ```text
 PAIR TASK: <bounded task and explicit file scope>
-CODER: follow ~/.claude/agents/agy-pair-coder.md; implement and signal IMPLEMENTATION_READY.
-VERIFIER: follow ~/.claude/agents/agy-pair-verifier.md; independently execute focused checks and signal VERIFICATION_COMPLETE or VERIFICATION_FAILED.
+CODER: follow `${CLAUDE_HOME:-$HOME/.claude}/agents/agy-pair-coder.md`; implement and signal IMPLEMENTATION_READY with `Revision: <exact git SHA>` and `Worktree: <absolute path>`.
+VERIFIER: follow `${CLAUDE_HOME:-$HOME/.claude}/agents/agy-pair-verifier.md`; independently verify the handed-off revision and signal VERIFICATION_COMPLETE or VERIFICATION_FAILED.
 FALLBACK: if an AGY lane concretely fails, retry that lane with codexs, claudem, or an own cheap agent while preserving isolation and independent verification.
 ```
 
@@ -138,9 +138,11 @@ FALLBACK: if an AGY lane concretely fails, retry that lane with codexs, claudem,
 The `FALLBACK` template above is governed by this order:
 
 1. Start with the AGY pair as the primary implementation and verification lanes.
-2. After a concrete AGY lane failure, retry the same bounded lane with
-   `codexs`, starting at Spark, then advance to Luna, Terra, Sol only after
-   concrete failure in that lane.
+2. After a concrete AGY lane failure, retry the same bounded lane with `codexs`
+   as the Spark fallback; codexs is not a multi-model router. If that lane
+   also fails, invoke the Codex CLI explicitly with `-m gpt-5.6-luna`, then
+   `-m gpt-5.6-terra`, then `-m gpt-5.6-sol`, advancing only after a concrete
+   failure in that lane.
 3. Use `claudem` or an own cheap agent only when the ordered Codex route is
    unavailable; preserve the same bounded scope and verification requirements.
 
@@ -151,16 +153,20 @@ including initial execution and each retry, uses a fresh workspace and output
 disjoint from both coder and verifier lanes and from all previous attempts.
 Attempts must not read or reuse partial files, logs, or outputs from another
 attempt, and the verifier must independently rerun focused checks before signaling completion.
+Every retry uses a fresh worktree and unique output/log paths. Start a fresh
+`agy --new-project` invocation for every attempt; never pass a conversation-
+resume option or use an equivalent conversation-reuse mechanism.
 
 ## Codex model routing
 
 For Codex parallel lanes, use this ordered fallback and advance only after a
-concrete per-lane failure:
+concrete per-lane failure. Invoke `codexs` as the Spark fallback; codexs is
+not a multi-model router:
 
 `gpt-5.3-codex-spark` → `gpt-5.6-luna` → `gpt-5.6-terra` → `gpt-5.6-sol`
 
-Record the rejection and retry the same bounded lane on the next model. Never
-skip directly from Spark to Sol.
+Record the rejection and retry the same bounded lane with the next explicit
+model. Never skip directly from Spark to Sol.
 
 ## One-line form (for config files)
 
