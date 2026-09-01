@@ -5,6 +5,6 @@ argument-hint: '[task]'
 
 # /pair — Coder + verifier
 
-Read `~/.claude/skills/pairv2-usage/SKILL.md` and execute it with
+Read `~/.claude/skills/parallelize-to-ceiling/SKILL.md` and execute it with
 `$ARGUMENTS`. Use the platform's native agent-team facilities; this export no
 longer ships a local runner.

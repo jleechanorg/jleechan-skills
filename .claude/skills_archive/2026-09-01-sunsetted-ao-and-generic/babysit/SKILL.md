@@ -16,22 +16,9 @@ type: skill
 - A worker is queued (lifecycle-worker sent it a message) but not acting
 
 **Do NOT use when:**
-- The system-level reaction loop is broken (use `/auton` — it diagnoses the jleechanclaw + AO autonomy chain end-to-end)
-- A specific worker has a known error (use `/ao-lifecycle-triage` for log-driven triage)
-- You want to spawn a worker (use `/ao-worker-dispatch`)
-- You want to detect the state of a single pane once (use `/ao-session-monitor` — babysit uses it internally for one-pane detection but is multi-worker / multi-cycle)
+- You are debugging an agent directly in the current session.
 
-## Cross-references
-
-| Skill | When to use instead |
-|---|---|
-| `/ao-session-monitor` | Single pane, one-shot classification (babysit embeds the same one-liner) |
-| `/babysit-openclaw` | Slack-thread-based openclaw monitoring (different model — openclaw posts to Slack; AO workers use tmux) |
-| `/auton` | System-level: why is the autonomous chain not driving PRs to N-green? |
-| `/ao-lifecycle-triage` | One stuck worker, deep log dive |
-| `/ao-spawn-gate` | Pre-spawn resource check |
-
-## State classification (from `ao-session-monitor`)
+## State classification
 
 | Indicator | State | Babysit action |
 |---|---|---|
@@ -233,7 +220,6 @@ Verify: <command to run before pushing> (e.g., pnpm -C packages/cli test)"
 
 ## Anti-patterns
 
-- **Do not run `/babysit` and `/auton` simultaneously** — they overlap and produce duplicate push-notifications
 - **Do not auto-respawn dead workers** — the spawn parameters (PR, branch, claim, model override) are not recoverable from a dead tmux pane; user must re-spawn explicitly
 - **Do not send Enter on a `❯` prompt without verifying a question is being asked** — Enter on an empty prompt submits a blank, which is harmless but noise
 - **Do not babysit more than 8 workers at once** — the polling loop is bash, not parallel, and the user attention budget caps out fast
@@ -256,7 +242,4 @@ Verify: <command to run before pushing> (e.g., pnpm -C packages/cli test)"
 
 ## Related skills
 
-- `/ao-session-monitor` — single-pane one-shot detection (babysit embeds its one-liner)
-- `/babysit-openclaw` — Slack-thread-based, single-shot, different model
-- `/auton` — system-level autonomy diagnostic
-- `/ao-lifecycle-triage` — log-driven deep triage of a single stuck worker
+- `/babysit-openclaw` — Slack-thread-based, single-shot monitoring

@@ -85,7 +85,7 @@ xp_gained = rewards_pending.get("xp_gained", 0)  # always means "the delta"
 
 ## Related Skills
 
-- `/solid` — SRP: each field has one reason to change (one writer)
+- Single Responsibility (SRP): each field has one reason to change (one writer)
 - `code-centralization/SKILL.md` — duplicate logic across writers is a centralization gap
 - `code-smells.md` — "Shotgun Surgery" (one change touches many writers)
 

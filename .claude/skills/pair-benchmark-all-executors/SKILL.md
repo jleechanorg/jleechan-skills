@@ -81,7 +81,4 @@ venv/bin/python .claude/pair/benchmark_pair_executors.py
 ```
 
 ## Notes
-- `pairv2` is LangGraph-based (`.claude/pair/pair_execute_v2.py`).
-- Artifacts default to `/tmp/{repo}/{branch}/pair/<timestamp>/pair_executor_benchmark.json` when `--artifact` is omitted.
-- Use `--coder-cli` and `--verifier-cli` to align model/runtime choices across runs.
-- **`minimax` is not a CLI binary** — it runs `claude` with MiniMax API endpoint. See `pairv2-usage.md` for details.
+- **`minimax` is not a CLI binary** — it runs `claude` with MiniMax API endpoint.
