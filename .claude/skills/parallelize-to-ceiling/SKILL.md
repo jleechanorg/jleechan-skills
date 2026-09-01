@@ -5,7 +5,7 @@ description: Use when designing, debugging, reviewing, or scripting any work tha
 
 # Parallelize to Ceiling
 
-**Slash command:** `/parallel` → `~/.claude/skills/parallelize-to-ceiling/SKILL.md`
+**Slash command:** `/parallel` → `${CLAUDE_HOME:-$HOME/.claude}/skills/parallelize-to-ceiling/SKILL.md`
 
 ## Core law
 
@@ -114,6 +114,74 @@ Before spawning any new lane, subprocess fleet, or CLI delegation:
 - Instance-scoped container/process names so concurrent workers can't collide.
 - Never relax a correctness/validation contract for speed — if a result's
   determinism can't be preserved, THAT is the written justification for serial.
+
+## Coding and verification lane routing
+
+For implementation and review lanes, prefer the installed AGY CLI pair. Use
+the canonical profiles for the complete launch, logging, isolation, and
+signaling contracts:
+
+- Coder: `${CLAUDE_HOME:-$HOME/.claude}/agents/agy-pair-coder.md`
+- Verifier: `${CLAUDE_HOME:-$HOME/.claude}/agents/agy-pair-verifier.md`
+
+### Two-agent pair template
+
+```text
+PAIR TASK: <bounded task and explicit file scope>
+CODER: follow `${CLAUDE_HOME:-$HOME/.claude}/agents/agy-pair-coder.md`; implement and signal IMPLEMENTATION_READY with `Revision: <exact git SHA>` and `Worktree: <absolute path>`.
+VERIFIER: follow `${CLAUDE_HOME:-$HOME/.claude}/agents/agy-pair-verifier.md`; independently verify the handed-off revision and signal VERIFICATION_COMPLETE or VERIFICATION_FAILED.
+FALLBACK: if an AGY lane concretely fails, retry that lane with codexs, claudem, or an own cheap agent while preserving isolation and independent verification.
+```
+
+## Fallback precedence
+
+The `FALLBACK` template above is governed by this order:
+
+1. Start with the AGY pair as the primary implementation and verification lanes.
+2. After a concrete AGY lane failure, retry the same bounded lane with `codexs`
+   as the Spark fallback; codexs is not a multi-model router. If that lane
+   also fails, invoke the Codex CLI explicitly with `-m gpt-5.6-luna`, then
+   `-m gpt-5.6-terra`, then `-m gpt-5.6-sol`, advancing only after a concrete
+   failure in that lane.
+3. Use `claudem` or an own cheap agent only when the ordered Codex route is
+   unavailable; preserve the same bounded scope and verification requirements.
+
+## Isolation contract
+
+Coder and verifier remain distinct lanes and contexts. The orchestrating caller
+decides whether each lane and retry operates in an allocated detached worktree
+or directly within the caller's workspace. Every attempt, including initial
+execution and each retry, uses a fresh workspace (either an allocated detached
+worktree or caller-provided clean workspace) and unique output/log paths disjoint
+from both coder and verifier lanes and from all previous attempts.
+Attempts must not read or reuse partial files, logs, or outputs from another
+attempt, and the verifier must independently rerun focused checks before signaling completion.
+When worktree isolation is used, every retry uses a fresh detached worktree and
+unique output/log paths. Start a fresh `agy --new-project` invocation for every
+attempt; never pass a conversation-resume option or use an equivalent conversation-reuse mechanism.
+Each coder retry must carry the exact prior `Revision`, pin its workspace to
+that revision before making changes, rerun focused checks, and finish with an
+explicit scoped commit plus an empty status before sending the next handoff.
+Verifier retries must carry the exact handed-off `Revision`, pin their workspace
+to that revision, rerun focused checks read-only, and never modify files or create a commit.
+When worktree isolation is allocated, coder and verifier attempts enter fresh,
+per-lane worktrees and unique per-attempt output paths before invoking AGY;
+each worktree and output path must be disjoint from the other lane and all
+previous attempts. `Revision` is the committed clean implementation revision:
+the coder must make a final scoped commit and confirm its worktree is clean
+before sending IMPLEMENTATION_READY. The verifier must reject dirty inherited
+state and verify against `Revision`.
+
+## Codex model routing
+
+For Codex parallel lanes, use this ordered fallback and advance only after a
+concrete per-lane failure. Invoke `codexs` as the Spark fallback; codexs is
+not a multi-model router:
+
+`gpt-5.3-codex-spark` → `gpt-5.6-luna` → `gpt-5.6-terra` → `gpt-5.6-sol`
+
+Record the rejection and retry the same bounded lane with the next explicit
+model. Never skip directly from Spark to Sol.
 
 ## One-line form (for config files)
 
