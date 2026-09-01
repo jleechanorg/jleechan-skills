@@ -260,6 +260,11 @@ vote in this approval quorum.
 
 Requires live authenticated browser sessions. `/web-advice` carries its own HARD-FAIL contract: with no live transport it STOPs rather than substituting. **That STOP is scoped to Reviewer D, not to `/advice`** — mark **D unavailable** and continue with the remaining reviewers. Never satisfy D with an API, CLI, or subagent: an unavailable D is correct, a faked D is a method-fidelity violation.
 
+An unavailable Reviewer D must never by itself make a `/ready`-gated `/advice`
+run fail or become `WITHHELD`. Keep the D row as unavailable and decide the
+normal approval quorum only from the other reviewers' independent, full-scope
+verdicts.
+
 ---
 
 ## Step 3: Synthesize

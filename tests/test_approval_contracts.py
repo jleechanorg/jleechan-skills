@@ -129,6 +129,21 @@ class ApprovalContractsTest(unittest.TestCase):
         self.assertIn("`/extended-library:secondo`", readme)
         self.assertNotIn("up to four reviewers concurrently: an Opus subagent", readme)
 
+    def test_web_advice_is_optional_inside_the_required_advice_gate(self) -> None:
+        ready = skill("ready")
+        draft_first = skill("draft-first-pr")
+        advice = skill("advice")
+
+        self.assertIn("/advice\napproved", (COMMANDS / "ready.md").read_text())
+        self.assertIn("**/advice**", ready)
+        self.assertIn("→ /advice APPROVED @ SHA", draft_first)
+        self.assertIn("Reviewer D — Web Advice (optional", advice)
+        self.assertIn("That STOP is scoped to Reviewer D, not to `/advice`", advice)
+        self.assertIn(
+            "An unavailable Reviewer D must never by itself make a `/ready`-gated `/advice`\nrun fail or become `WITHHELD`.",
+            advice,
+        )
+
     def test_web_advice_requires_real_browser_transport(self) -> None:
         web_adv = skill("web-advice")
         self.assertIn(
@@ -170,37 +185,11 @@ class ApprovalContractsTest(unittest.TestCase):
         self.assertIn("only PRODUCTION changes stale evidence", standards)
         self.assertIn("A moving HEAD does NOT invalidate evidence by itself.", standards)
 
-    def test_draft_gate_requires_sha_bound_evidence_review(self) -> None:
+    def test_draft_gate_requires_sha_bound_approval_not_withheld(self) -> None:
         draft_first = skill("draft-first-pr")
-        self.assertIn("→ /es PASS @ SHA", draft_first)
-        self.assertIn("→ /er PASS @ SHA", draft_first)
-        self.assertNotIn("WITHHELD", draft_first)
+        self.assertIn("`WITHHELD at <SHA>`", draft_first)
+        self.assertIn("does not satisfy the draft gate", draft_first)
         self.assertIn("SHA-binding rule", draft_first)
-
-    def test_ready_does_not_require_optional_advice(self) -> None:
-        command = (COMMANDS / "ready.md").read_text()
-        ready = skill("ready")
-        draft_first = skill("draft-first-pr")
-        green = (COMMANDS / "green.md").read_text()
-        green_workflow = (REPO_ROOT / "workflows" / "green-gate.yml").read_text()
-
-        self.assertIn("ALL of: /es, /er, then /green", command)
-        self.assertNotIn("/advice approved", command.lower())
-        self.assertIn("`/advice` remains available as an optional second opinion", ready)
-        self.assertIn("not a draft or readiness gate", ready)
-        self.assertIn("gates 1–2 (/es, /er)", ready)
-        self.assertNotIn("gates 1–3", ready)
-        self.assertRegex(
-            draft_first,
-            r"DRAFT\s+→ /es PASS @ SHA\s+→ /er PASS @ SHA .*?\s+→ mark ready",
-        )
-        self.assertNotIn("→ /advice APPROVED", draft_first)
-        self.assertIn("/advice` remains available as an optional second opinion", draft_first)
-        self.assertIn("not a draft or readiness gate", draft_first)
-        self.assertIn("(`/es` → `/er` → mark ready → `/green` → merge authorization)", green)
-        self.assertIn("`/advice` remains optional", green)
-        self.assertIn("until /es and /er pass", green_workflow)
-        self.assertNotIn("/es, /er, and /advice pass", green_workflow)
 
     def test_documentation_only_draft_gate_skips_evidence_review(self) -> None:
         draft_first = skill("draft-first-pr")
@@ -213,8 +202,7 @@ class ApprovalContractsTest(unittest.TestCase):
         self.assertIn("`README.md`", draft_first)
         self.assertIn("`docs/**`", draft_first)
         self.assertIn("`.claude/**`", draft_first)
-        self.assertIn("still require `/es`", draft_first)
-        self.assertNotIn("still require `/advice`", draft_first)
+        self.assertRegex(draft_first, r"still require `/es` and\s+`/advice`")
         allowlist = re.search(
             r"is documentation-only only when every changed path is one of:\n\n"
             r"(?P<paths>(?:- `[^`]+`\n)+)",
