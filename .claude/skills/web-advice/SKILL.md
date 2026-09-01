@@ -169,27 +169,42 @@ console.log('gemini logged in:', geminiLoggedIn);
 
 If the user can't log in to one model, run /web-advice with the others as long as at least two providers remain authenticated (2-of-3 still satisfies the multi-model adversarial requirement when the two models are from different families) and note the gap in the synthesis. If fewer than two providers are authenticated, **stop and ask the user to log in** — do NOT try to log in for them (no credentials, no auth cookies, no OAuth flow).
 
-### Step 3 — Submit prompt to each model (sequentially, not parallel)
+### Step 3 — Attach full-context packets & submit prompt to each model (sequentially, not parallel)
 
 Submit one model at a time. Submitting in parallel can hit rate limits or trigger captchas. Wait for each response before submitting the next.
 
-**Pattern (proven to work):**
+> [!IMPORTANT]
+> **Mandatory File Attachment Pattern (Zero Diff-Only Inlining)**:
+> For any PR or code review, you MUST attach both `raw_git_diff.patch` and `full_changed_files.txt` via `page.locator('input[type="file"]').first().setInputFiles(...)` before submitting the prompt. Never substitute an inlined diff summary in the prompt text for the actual full source files.
+
+**Pattern (proven to work across all 3 providers):**
 
 ```javascript
-// For Gemini (the locator ref varies — use aria-label selector)
-const gemPrompt = `<your 4-section review prompt>`;
-const gemTabs2 = await listBrowserTabs();
-const gemT = gemTabs2.find(t => t.title === 'Google Gemini');
-const gemP = await attachBrowserTab(gemT.targetId);
-const textbox = await gemP.locator('div[aria-label="Enter a prompt for Gemini"]');
+// 1. For each model tab (Gemini, ChatGPT, Perplexity):
+// Step 3a: Attach lossless review packets via file input
+const fileInput = await modelPage.locator('input[type="file"]').first();
+if (fileInput) {
+  await fileInput.setInputFiles([
+    '/tmp/wa_packets/pr<N>/raw_git_diff.patch',
+    '/tmp/wa_packets/pr<N>/full_changed_files.txt'
+  ]);
+  // Allow UI to process and stage the file attachments
+  await new Promise(r => setTimeout(r, 2500));
+}
+
+// Step 3b: Type structured prompt into the composer
+const reviewPrompt = `<your review prompt citing the attached files>`;
+const textbox = await modelPage.locator('div[aria-label="Enter a prompt for Gemini"], #prompt-textarea, [role="textbox"]').first();
 await textbox.click();
-await gemP.keyboard.type(gemPrompt, {delay: 3});  // 3ms per char, real typing
-await gemP.keyboard.press('Enter');
-console.log('sent to Gemini, waiting...');
-// Wait for response — Gemini Pro typically takes 15-45 seconds
-await new Promise(r => setTimeout(r, 30000));
-const gemResp = await snapshot(gemP);
-console.log(gemResp.tree);
+await modelPage.keyboard.type(reviewPrompt, {delay: 1});
+
+// Step 3c: Submit (Click Send button for ChatGPT/Gemini, or Press Enter for Perplexity)
+const sendBtn = await modelPage.locator('button[aria-label="Send prompt"], button[data-testid="send-button"]').first();
+if (sendBtn) {
+  await sendBtn.click();
+} else {
+  await modelPage.keyboard.press('Enter');
+}
 ```
 
 **Gotcha — duplicated text:** If a prior prompt was inserted via `el.innerText = ...`, the textbox may show duplicated content. Always clear with `Cmd+A` + `Backspace` BEFORE typing the new prompt:
@@ -204,21 +219,6 @@ await new Promise(r => setTimeout(r, 500));
 **Gotcha — TrustedHTML errors:** Don't use `el.innerHTML = ...`; Gemini's textbox uses Trusted Types. Use `el.innerText = ...` (which works) OR use `keyboard.type()` (which always works).
 
 **Gotcha — ChatGPT send:** ChatGPT requires clicking the "Send message" button, NOT pressing Enter. After typing, locate and click it.
-
-**Perplexity (proven working pattern):**
-
-```javascript
-// Perplexity textbox is a DIV with role="textbox" — NOT a <textarea>
-// Selector that works: [role="textbox"]
-const perpTabs = await listBrowserTabs();
-const perpTab = perpTabs.find(t => t.title === 'Perplexity');
-const perpPage = await attachBrowserTab(perpTab.targetId);
-const textbox = await perpPage.locator('[role="textbox"]').first();
-await textbox.click();
-await perpPage.keyboard.type(reviewPrompt, {delay: 3});
-await perpPage.keyboard.press('Enter');  // Enter submits; no separate button click
-console.log('sent to Perplexity');
-```
 
 **Perplexity quirks:**
 - Textbox is a `DIV` with `role="textbox"` and no `aria-label` — use the role selector, not the aria-label pattern
