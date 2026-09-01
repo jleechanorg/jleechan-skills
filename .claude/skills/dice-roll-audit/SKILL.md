@@ -126,7 +126,7 @@ The audit now includes chi-squared testing for dice authenticity:
 
 **Reference case**: PR #2551 detected fabrication with chi-squared = 411.81
 
-See `dice-authenticity-standards.md` for full chi-squared methodology and RNG verification standards.
+Full chi-squared methodology and RNG verification standards previously lived in a now-archived skill (historical 2025 WorldAI content).
 
 ## Troubleshooting
 
@@ -171,7 +171,4 @@ gcloud logging read "textPayload:DICE_TOOL_EXEC" --limit=50
 `scripts/audit_dice_rolls.py`
 
 ## Related Skills
-- `dice-authenticity-standards.md` - Chi-squared testing and RNG verification
-- `dice-real-mode-tests.md` - MCP real-mode testing
 - `firebase-prod-campaigns.md` - Querying campaign data
-- `worldai-mcp-server-usage.md` - MCP server interaction

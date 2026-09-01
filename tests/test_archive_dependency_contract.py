@@ -59,8 +59,13 @@ class ArchiveDependencyContractTest(unittest.TestCase):
 
         broken_skills = {}
         for skill_name in sorted(archived_skills):
-            pattern = rf"(?:(?:\.claude|~/\.claude)?/skills/){re.escape(skill_name)}(?:/|/SKILL\.md|\b)"
-            matches = re.findall(pattern, active_text)
+            path_pattern = rf"(?:(?:\.claude|~/\.claude)?/skills/){re.escape(skill_name)}(?:/|/SKILL\.md|\b)"
+            # Bare filename prose mentions (e.g. "Related Skills" bullets: `dice-authenticity-standards.md`)
+            # don't include a /skills/ path prefix, so they slip past path_pattern above.
+            bare_filename_pattern = rf"`{re.escape(skill_name)}\.md`"
+            matches = re.findall(path_pattern, active_text) + re.findall(
+                bare_filename_pattern, active_text
+            )
             if matches:
                 broken_skills[skill_name] = len(matches)
 
