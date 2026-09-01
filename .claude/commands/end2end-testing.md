@@ -1,11 +1,7 @@
 ---
-description: /end2end-testing - Show end-to-end testing principles and patterns
-type: documentation
+description: /end2end-testing - isolate and prove end-to-end integration contracts
+type: skill
 execution_mode: immediate
 ---
 
-# /end2end-testing
-
-Resolve Claude home as `${CLAUDE_HOME:-$HOME/.claude}`. Read
-**`${CLAUDE_HOME:-$HOME/.claude}/skills/end2end-testing/SKILL.md`** completely
-and execute it according to `$ARGUMENTS`.
+Read `${CLAUDE_HOME:-$HOME/.claude}/skills/end2end-testing/SKILL.md` completely, then execute it with `$ARGUMENTS`.

@@ -67,8 +67,12 @@ class CommandClosureTest(unittest.TestCase):
         # lines are gone, this test must fail loudly rather than assert against
         # content that no longer exists.
         self.assertIn("/research", self.seed_text[GENUINE_SEED])
-        self.assertIn("`./install.sh`", self.seed_text[PHANTOM_SEED])
-        self.assertIn("reviewer/subagent", self.seed_text[PHANTOM_SEED])
+        self.assertIn("/skills/dark-factory/SKILL.md", self.seed_text[PHANTOM_SEED])
+        candidates = extract_references_from_text(
+            "Prerequisite: `./install.sh`; delegated reviewer/subagent outcome."
+        )
+        self.assertNotIn("install", candidates)
+        self.assertNotIn("reviewer", candidates)
 
     def test_genuine_reference_is_pulled_into_closure(self):
         result = compute_closure(REPO_ROOT, [GENUINE_SEED])

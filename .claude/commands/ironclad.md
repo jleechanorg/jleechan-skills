@@ -1,10 +1,7 @@
 ---
 description: Write a document-only verification contract with independently reproducible exit criteria
-type: llm-orchestration
+type: skill
 execution_mode: immediate
 ---
 
-# /ironclad [objective text | bead-id | current]
-
-Read `${CLAUDE_HOME:-$HOME/.claude}/skills/ironclad/SKILL.md` and execute its
-complete document-only workflow with `$ARGUMENTS`.
+Read `${CLAUDE_HOME:-$HOME/.claude}/skills/ironclad/SKILL.md` completely, then execute it with `$ARGUMENTS`.

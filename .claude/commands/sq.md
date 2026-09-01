@@ -1,6 +1,7 @@
 ---
 description: Alias for /superpowers-quick — autonomous idea-to-design-spec-and-plan workflow, ending in a required /advice review
-disable-model-invocation: false
+type: skill
+execution_mode: immediate
 ---
 
-Read `~/.claude/commands/superpowers-quick.md` and execute it with `$ARGUMENTS`.
+Read `${CLAUDE_HOME:-$HOME/.claude}/skills/superpowers-quick/SKILL.md` completely, then execute it with `$ARGUMENTS`.
