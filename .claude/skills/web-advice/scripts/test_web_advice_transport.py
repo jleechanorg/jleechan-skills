@@ -24,6 +24,7 @@ from web_advice_transport import (
     assert_retrieval_verified,
     assert_review_packet_complete,
     build_visual_prompt,
+    format_conversation_title,
     is_banned_substitute,
     parse_verdict,
     resolve_transport_ladder,
@@ -105,6 +106,45 @@ def _complete_pr_packet():
 
 
 class TestResolveTransportLadder:
+    def test_prefers_owned_builtin_browser_in_app_runtime(self):
+        probes = {
+            "builtin_browser": True,
+            "aside_mcp": True,
+            "chrome_headless_cookies": True,
+        }
+        assert resolve_transport_ladder(probes, runtime="app") == "builtin_browser"
+
+    def test_prefers_isolated_headless_chrome_in_cli_runtime(self):
+        probes = {
+            "builtin_browser": True,
+            "aside_mcp": True,
+            "chrome_headless_cookies": True,
+        }
+        assert (
+            resolve_transport_ladder(probes, runtime="cli")
+            == "chrome_headless_cookies"
+        )
+
+    def test_cli_ladder_falls_back_to_playwright_mcp(self):
+        probes = {
+            "chrome_headless_cookies": False,
+            "playwright_mcp": True,
+            "chrome_headless_cdp": True,
+        }
+        assert resolve_transport_ladder(probes, runtime="cli") == "playwright_mcp"
+
+    def test_cli_ladder_falls_back_to_chrome_headless_cdp(self):
+        probes = {
+            "chrome_headless_cookies": False,
+            "playwright_mcp": False,
+            "chrome_headless_cdp": True,
+        }
+        assert resolve_transport_ladder(probes, runtime="cli") == "chrome_headless_cdp"
+
+    def test_unsupported_runtime_raises_value_error(self):
+        with pytest.raises(ValueError, match="Unsupported /web-advice runtime"):
+            resolve_transport_ladder({"aside_mcp": True}, runtime="invalid_runtime")
+
     def test_hard_fail_when_all_probes_false(self):
         probes = {
             "aside_mcp": False,
@@ -257,6 +297,14 @@ class TestAssertAllowedTransport:
     )
     def test_accepts_browser_backup_when_aside_is_unavailable(self, mechanism):
         assert_allowed_transport(mechanism, fallback_reason="aside_unavailable")
+
+    def test_aside_upload_unavailable_reason_is_accepted_for_browser_backups(self):
+        assert (
+            assert_allowed_transport(
+                "chrome_headless_cookies", fallback_reason="aside_upload_unavailable"
+            )
+            is None
+        )
 
     def test_accepts_browser_backup_on_unsupported_platform(self):
         assert_allowed_transport(
@@ -558,6 +606,23 @@ class TestBuildVisualPrompt:
         assert "CLAIM: claim with no frames" in prompt
         assert "DESCRIBE" in prompt
 
+    def test_starts_with_web_advice_title_prefix(self):
+        prompt = build_visual_prompt("claim", ["frame1.png"])
+        assert prompt.startswith("[web advice]")
+        assert 'Title this conversation starting with "[web advice] claim"' in prompt
+
+
+class TestFormatConversationTitle:
+    def test_adds_prefix_when_missing(self):
+        assert format_conversation_title("PR 123 Review") == "[web advice] PR 123 Review"
+
+    def test_preserves_prefix_when_present(self):
+        assert format_conversation_title("[web advice] PR 123 Review") == "[web advice] PR 123 Review"
+
+    def test_handles_whitespace(self):
+        assert format_conversation_title("  PR 123 Review  ") == "[web advice] PR 123 Review"
+
+
 
 # ---------------------------------------------------------------------------
 # assert_attachment_verified (bead wc-kjny — 2026-08-02 attachment-verification incident)
@@ -843,7 +908,11 @@ class TestAssertPacketAttachmentsVerified:
         assert (
             assert_packet_attachments_verified(
                 {"packet_attachments": inventory},
-                {"packet_attachments": inventory},
+                {
+                    "packet_attachments": inventory,
+                    "visible_attachment_names": ["FULL_CODE.txt", "FULL_ES.txt"],
+                    "upload_verified": True,
+                },
             )
             is None
         )
@@ -853,6 +922,38 @@ class TestAssertPacketAttachmentsVerified:
             assert_packet_attachments_verified(
                 {"packet_attachments": {"FULL_CODE.txt": 100, "FULL_ES.txt": 200}},
                 {"packet_attachments": {"FULL_CODE.txt": 100}},
+            )
+
+    def test_local_sizes_without_visible_browser_filenames_fail_closed(self):
+        inventory = {"FULL_CODE.txt": 100, "FULL_ES.txt": 200}
+        with pytest.raises(PacketAttachmentsNotVerifiedError, match="visible"):
+            assert_packet_attachments_verified(
+                {"packet_attachments": inventory},
+                {"packet_attachments": inventory, "upload_verified": True},
+            )
+
+    def test_missing_upload_verified_fails_closed(self):
+        inventory = {"FULL_CODE.txt": 100, "FULL_ES.txt": 200}
+        with pytest.raises(PacketAttachmentsNotVerifiedError, match="visible"):
+            assert_packet_attachments_verified(
+                {"packet_attachments": inventory},
+                {
+                    "packet_attachments": inventory,
+                    "visible_attachment_names": ["FULL_CODE.txt", "FULL_ES.txt"],
+                    "upload_verified": False,
+                },
+            )
+
+    def test_mismatched_visible_attachment_names_fails_closed(self):
+        inventory = {"FULL_CODE.txt": 100, "FULL_ES.txt": 200}
+        with pytest.raises(PacketAttachmentsNotVerifiedError, match="visible"):
+            assert_packet_attachments_verified(
+                {"packet_attachments": inventory},
+                {
+                    "packet_attachments": inventory,
+                    "visible_attachment_names": ["FULL_CODE.txt", "OTHER.txt"],
+                    "upload_verified": True,
+                },
             )
 
 

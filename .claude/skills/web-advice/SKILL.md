@@ -13,27 +13,25 @@ description: Browser-based multi-model advice and review using ChatGPT, Gemini, 
 | `/web-advice` | Browser: ChatGPT + Gemini + Perplexity Web; Aside preferred, browser fallbacks supported | Independent external multi-model advice or review; visual/video context; web-search grounding |
 | `/er` | In-session: evidence-standards skill | Evidence bundle integrity (4-gate checksum/SHA/real-services) |
 
-## Real-Browser Transport Contract: Aside Preferred
+## Real-Browser Transport Contract: Runtime-Specific
 
 > [!IMPORTANT]
 > **Zero Aside Inference Invariant (Strict Hard-Fail Rule)**:
 > `/web-advice` MUST use browser navigation and DOM automation against the real
-> vendor web-chat sites. Prefer `aside-mcp`, then `aside repl`. When Aside is
-> unavailable, unsupported on the host, or both Aside browser probes fail, use
-> an approved real-browser fallback instead of stopping solely because Aside is
-> absent.
+> vendor web-chat sites. In an interactive chat app, prefer that app's owned
+> built-in browser and create a new vendor chat. In a coding CLI or Bash run,
+> launch an isolated system-Chrome process through Playwright in strict
+> headless mode, with freshly decrypted local browser cookies. Do not reuse a
+> shared GUI tab as a CLI review transport.
 >
 > **NEVER use Aside inference** (`aside "..."` NL agent, `aside --effort ultrabrowse`, `aside exec`, `aside exec -m <model>`, or Aside's backend AI models).
 > Aside inference consumes Aside's token quota / usage limits and does NOT use the operator's web chat subscriptions.
 > The entire purpose of `/web-advice` is to navigate to the web chat interfaces (`https://chatgpt.com/`, `https://gemini.google.com/app`, `https://www.perplexity.ai/`) to leverage the user's active web chat subscriptions (ChatGPT Plus/Team/Pro, Gemini Advanced, Perplexity Pro) via the authenticated browser.
 >
-> **Approved transport ladder**:
-> 1. `aside_mcp`
-> 2. `aside_repl`
-> 3. `chrome_headless_cookies` (system Chrome + locally decrypted browser cookies)
-> 4. `playwright_mcp` (portable fallback, especially on non-macOS hosts)
-> 5. `chrome_headless_cdp`
-> 6. `chrome_extension`
+> **Approved transport ladders**:
+> - **Interactive app:** `builtin_browser`, then `aside_mcp`, then `aside_repl`.
+> - **Coding CLI/Bash:** `chrome_headless_cookies`, then `playwright_mcp`, then
+>   `chrome_headless_cdp`.
 >
 > Each fallback must prove the affected vendor is authenticated, exposes a
 > writable composer, returns the submitted prompt's real response, and supports
@@ -47,6 +45,13 @@ description: Browser-based multi-model advice and review using ChatGPT, Gemini, 
 > Use `aside_repl` instead of `aside_mcp` when driving the browser API through
 > `aside repl`. For a fallback, pass the observed reason, for example:
 > `python3 ~/.claude/skills/web-advice/scripts/web_advice_transport.py assert-transport chrome_headless_cookies --fallback-reason aside_unavailable`.
+> If Aside can browse but cannot visibly attach the packet after one clean-chat
+> retry, use the literal fallback reason `aside_upload_unavailable`.
+
+For CLI/Bash execution, the direct runner starts a clean Chrome context and
+uses vendor-specific upload controls. It records authentication, attachment
+chips, submission, packet echo, and response separately; a response missing
+the requested head SHA or any requested filename is not a completed seat.
 
 Use `/web-advice` when an external multi-model perspective will help, especially when you want different model families to challenge a conclusion or when external web standards matter (e.g., D&D 5e SRD, Stately XState, industry patterns). Target three models (ChatGPT, Gemini, Perplexity), but synthesize the models that are available and disclose any coverage gap.
 
@@ -90,10 +95,13 @@ For code, patch, and PR reviews, you **MUST** generate and upload the complete l
 
 Build a concise prompt before opening the browser so you can paste the same request to each model. Include only the sections that apply.
 
-```markdown
-You are an independent expert advising on a [PR | patch | design | document | plan | decision | research question | other].
+**Conversation Titling Invariant**:
+Every `/web-advice` review prompt and follow-up MUST start with the prefix `[web advice]` and instruct the model to title the conversation with `[web advice] <Subject>` so automated review threads in ChatGPT, Gemini, and Perplexity sidebar histories are clearly titled and distinguishable from normal personal conversations.
 
-**Subject**:
+```markdown
+[web advice] You are an independent expert advising on a [PR | patch | design | document | plan | decision | research question | other]. Title this conversation starting with "[web advice] <Subject>".
+
+**Subject**: [web advice] [subject description]
 - Type: [subject type]
 - Identifier: [URL | path | concise question]
 - Branch / Commit: [<branch> @ <sha>]
@@ -169,6 +177,33 @@ console.log('gemini logged in:', geminiLoggedIn);
 
 If the user can't log in to one model, run /web-advice with the others as long as at least two providers remain authenticated (2-of-3 still satisfies the multi-model adversarial requirement when the two models are from different families) and note the gap in the synthesis. If fewer than two providers are authenticated, **stop and ask the user to log in** — do NOT try to log in for them (no credentials, no auth cookies, no OAuth flow).
 
+### Step 2b — Create a clean chat and prove packet attachment (MANDATORY)
+
+Create a new or temporary chat for each seat. Inspect the composer before the
+chooser opens: a stale draft or unrelated attachment invalidates the attempt.
+For `aside repl`, stage files inside that Aside session before opening its file
+chooser; it rejects paths outside the session directory. Never replace a
+failed upload with a bare URL.
+
+The only successful upload state is every exact packet filename rendered by
+the composer. A no-exception `set_input_files()` result, local file size, a
+thumbnail, or truncated body text is not proof. The headless cookie fallback
+has a report-producing runner:
+
+```bash
+python3 ~/.claude/skills/web-advice/scripts/playwright_cookie_driver.py \
+  --site chatgpt --storage-state /tmp/chatgpt-storage.json \
+  --prompt-file /tmp/review-prompt.md \
+  --attachment /tmp/web-advice-packets/PR_<N>_FULL_CODE_FILES.txt \
+  --attachment /tmp/web-advice-packets/PR_<N>_BASE_CODE_FILES_AND_DIFF.txt \
+  --output /tmp/chatgpt-review-report.json
+```
+
+Require `assert_packet_attachments_verified(manifest, report)` to pass before
+sending or recording a verdict. If the UI disables uploads, requests an
+upgrade, or the rendered-name set is incomplete, retain the literal vendor
+reason and retry only once in a clean chat.
+
 ### Step 3 — Attach full-context packets & submit prompt to each model (sequentially, not parallel)
 
 Submit one model at a time. Submitting in parallel can hit rate limits or trigger captchas. Wait for each response before submitting the next.
@@ -192,8 +227,8 @@ if (fileInput) {
   await new Promise(r => setTimeout(r, 2500));
 }
 
-// Step 3b: Type structured prompt into the composer
-const reviewPrompt = `<your review prompt citing the attached files>`;
+// Step 3b: Type structured prompt into the composer with [web advice] title prefix
+const reviewPrompt = `[web advice] <your review prompt citing the attached files>`;
 const textbox = await modelPage.locator('div[aria-label="Enter a prompt for Gemini"], #prompt-textarea, [role="textbox"]').first();
 await textbox.click();
 await modelPage.keyboard.type(reviewPrompt, {delay: 1});
@@ -220,6 +255,24 @@ await new Promise(r => setTimeout(r, 500));
 
 **Gotcha — ChatGPT send:** ChatGPT requires clicking the "Send message" button, NOT pressing Enter. After typing, locate and click it.
 
+**Perplexity (proven working pattern):**
+
+```javascript
+// Perplexity textbox is a DIV with role="textbox" — NOT a <textarea>
+// Selector that works: [role="textbox"]
+const perpPrompt = `[web advice] <your 4-section review prompt>`;
+const perpTabs = await listBrowserTabs();
+const perpTab = perpTabs.find(t => t.title === 'Perplexity');
+const perpPage = await attachBrowserTab(perpTab.targetId);
+const textbox = await perpPage.locator('[role="textbox"]').first();
+await textbox.click();
+await perpPage.keyboard.type(perpPrompt, {delay: 3});
+await perpPage.keyboard.press('Enter');  // Enter submits; no separate button click
+```
+console.log('sent to Perplexity');
+```
+
+>>>>>>> 8f0b2940 (gemini/gemini-3.7-flash: feat(web-advice): isolate browser transport and enforce title provenance [gemini][gemini-3.7-flash])
 **Perplexity quirks:**
 - Textbox is a `DIV` with `role="textbox"` and no `aria-label` — use the role selector, not the aria-label pattern
 - After response, the new textbox ref changes (Perplexity regenerates the textbox element); always re-snapshot to get the fresh ref before the next prompt
@@ -312,6 +365,17 @@ Recovery:
 3. Continue with the other models
 4. If only 1 model is logged in, that's a single-model review, not multi-model — note this in synthesis
 
+### Packet upload unavailable
+
+Symptoms: the chooser is disabled, the vendor asks for an upgrade, a file path
+is rejected, or the composer does not render every exact packet filename.
+
+1. Start one clean temporary/new chat and retry once.
+2. For an Aside session-path rejection, stage the files in that session directory.
+3. If still unavailable, do not submit a prompt or accept a verdict from that
+   seat. Record the vendor condition; when switching from Aside to a browser
+   fallback, use `aside_upload_unavailable`.
+
 ### Stale evidence (verification FAIL)
 
 Symptom: `metadata.json:git_provenance.git_head` ≠ PR HEAD `headRefOid`.
@@ -350,6 +414,6 @@ Recovery:
 
 - Provenance: artifact `~/roadmap/2026-08-01-web-advice-and-evidence-review-guide.md` (Antigravity Genesis Coder, 2026-08-01)
 - 4-gate pre-flight: `~/.claude/skills/evidence-standards/SKILL.md`
-- Browser automation: Aside first; approved Playwright/Chrome fallbacks when
-  Aside is unavailable or unsupported
+- Browser automation: `references/browser-transports.md` (Aside first in app;
+  isolated Playwright/Chrome in CLI/Bash)
 - Companion skill: `/advice` (in-session multi-reviewer)
