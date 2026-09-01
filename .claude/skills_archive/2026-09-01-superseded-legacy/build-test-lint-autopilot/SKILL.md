@@ -27,7 +27,7 @@ Provide Claude with a turnkey workflow for orchestrating the project's automated
 ## Automation helper
 Use the bundled script to run tests followed by linting in one step:
 ```bash
-skills/build_test_lint_autopilot/scripts/run_quality_suite.sh [<run_tests.sh flags>]
+skills/build-test-lint-autopilot/scripts/run_quality_suite.sh [<run_tests.sh flags>]
 ```
 The script executes from repo root, forwards any `run_tests.sh` options (e.g., `--integration`, `--full`), and stops on the first failure.
 

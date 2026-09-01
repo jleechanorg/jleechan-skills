@@ -179,7 +179,7 @@ fi
 
 ### Step 1: Gather PR Context *(now automated)*
 
-`skills/second_opinion_workflow/scripts/request_second_opinion.sh` calls
+`skills/ai-universe-second-opinion-workflow/scripts/request_second_opinion.sh` calls
 `build_second_opinion_request.py` to harvest the full PR delta. The helper:
 
 - Resolves the comparison base (env override `SECOND_OPINION_BASE_REF`, then `origin/main` → `main` → `master`, finally `HEAD^`).
@@ -190,7 +190,7 @@ fi
 Manual usage if you want to inspect the payload directly:
 
 ```bash
-python3 skills/second_opinion_workflow/scripts/build_second_opinion_request.py \
+python3 skills/ai-universe-second-opinion-workflow/scripts/build_second_opinion_request.py \
   /tmp/secondo_request.json \
   "What should I double-check before merging?" \
   3 \

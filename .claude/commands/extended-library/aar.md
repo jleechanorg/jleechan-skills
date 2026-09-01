@@ -25,7 +25,7 @@ Shortcut alias for `/accept-adapt-reject`. See `~/.claude/commands/accept-adapt-
 The full AAR algorithm and output template live in the `accept-adapt-reject` skill:
 
 ```
-~/.hermes/skills/accept-adapt-reject/SKILL.md
+~/.claude/skills/accept-adapt-reject/SKILL.md
 ```
 
 This command loads that skill and runs the triage.

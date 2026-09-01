@@ -49,7 +49,7 @@ A slash command that wraps the `accept-adapt-reject` skill. Pass any incoming fe
 For the complete algorithm, priority rules, anti-patterns, and worked examples, see the canonical skill at:
 
 ```
-~/.hermes/skills/accept-adapt-reject/SKILL.md
+~/.claude/skills/accept-adapt-reject/SKILL.md
 ```
 
 The skill is the source of truth. This command is a thin launcher.
