@@ -77,6 +77,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as _dt
+import fcntl
 import json
 import os
 import shutil
@@ -93,7 +94,16 @@ HOME = Path(os.environ.get("HOME") or str(Path.home()))
 STATE_DIR = HOME / ".claude" / "var" / "cross_cli_status"
 LAST_PATH = STATE_DIR / "last.json"
 HISTORY_PATH = STATE_DIR / "history.jsonl"
-HISTORY_MAX = int(os.environ.get("CROSS_CLI_STATUS_HISTORY_MAX", "500"))
+
+
+def _int_env(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
+HISTORY_MAX = _int_env("CROSS_CLI_STATUS_HISTORY_MAX", 500)
 
 
 # ---------------------------------------------------------------------------
@@ -152,6 +162,11 @@ def detect_cli(payload: Mapping[str, Any]) -> str:
             return "codex"
     if "conversation_id" in payload and "generation_id" in payload:
         return "cursor"
+    # Antigravity (Gemini CLI) AfterAgent payload: {cwd, session_id, model,
+    # decision}. No published Stop payload; `decision` is the only field
+    # unique to this shape among the CLIs covered here.
+    if "decision" in payload:
+        return "antigravity"
     # Claude v2.1.220 Stop payload: {cwd, session_id, prompt_id, transcript_path,
     # last_assistant_message, stop_hook_active, session_crons, effort,
     # background_tasks, permission_mode, hook_event_name}. Note: no top-level
@@ -222,8 +237,10 @@ def extract_claude(payload: Mapping[str, Any]) -> dict[str, Any]:
         ))),
         "rate_limit_pct": _coerce_int(
             five.get("used_percentage")
-            or seven.get("used_percentage")
-            or _resolve(payload, ("rate_limit_pct",))
+            if five.get("used_percentage") is not None
+            else seven.get("used_percentage")
+            if seven.get("used_percentage") is not None
+            else _resolve(payload, ("rate_limit_pct",))
         ),
         "rate_limit_window": (
             "5h" if five.get("used_percentage") is not None
@@ -231,7 +248,9 @@ def extract_claude(payload: Mapping[str, Any]) -> dict[str, Any]:
             else None
         ),
         "rate_limit_reset_at": _coerce_int(
-            five.get("resets_at") or seven.get("resets_at")
+            five.get("resets_at")
+            if five.get("resets_at") is not None
+            else seven.get("resets_at")
         ),
         "session_id": payload.get("session_id"),
         "version": payload.get("version"),
@@ -363,15 +382,18 @@ def _capture_git_header(cwd: str) -> tuple[str | None, str | None]:
             continue
         try:
             proc = subprocess.run(
-                ["bash", script, "--status-only"],
+                [shutil.which("bash") or "bash", script, "--status-only"],
                 cwd=cwd,
                 capture_output=True,
                 text=True,
-                timeout=8,
+                timeout=30,
                 check=False,
+                shell=False,
                 env={**os.environ, "COLUMNS": "500"},
             )
-        except Exception:
+        except (subprocess.SubprocessError, OSError) as exc:
+            print(f"cross_cli_status: git-header capture failed for {script}: {exc}",
+                  file=sys.stderr)
             continue
         out = (proc.stdout or "").strip()
         if not out:
@@ -403,28 +425,23 @@ def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
 def _append_history(payload: dict[str, Any]) -> None:
     HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
     line = json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n"
-    with tempfile.NamedTemporaryFile(
-        mode="a", dir=str(HISTORY_PATH.parent),
-        prefix=HISTORY_PATH.name + ".", suffix=".tmp",
-        delete=False, encoding="utf-8",
-    ) as fh:
-        tmp = Path(fh.name)
-        fh.write(line)
-    # Append into main log then trim.
-    with HISTORY_PATH.open("a", encoding="utf-8") as fh:
-        with tmp.open("r", encoding="utf-8") as src:
-            shutil.copyfileobj(src, fh)
-    tmp.unlink(missing_ok=True)
-    if HISTORY_MAX > 0:
+    # Append and trim under a single exclusive lock so a concurrent hook
+    # invocation (a realistic scenario — this is a multi-CLI Stop hook)
+    # can never read-modify-write over this one's just-appended entry.
+    with HISTORY_PATH.open("a+", encoding="utf-8") as fh:
+        fcntl.flock(fh, fcntl.LOCK_EX)
         try:
-            lines = HISTORY_PATH.read_text(encoding="utf-8").splitlines()
-        except FileNotFoundError:
-            return
-        if len(lines) > HISTORY_MAX:
-            HISTORY_PATH.write_text(
-                "\n".join(lines[-HISTORY_MAX:]) + "\n",
-                encoding="utf-8",
-            )
+            fh.write(line)
+            fh.flush()
+            if HISTORY_MAX > 0:
+                fh.seek(0)
+                lines = fh.read().splitlines()
+                if len(lines) > HISTORY_MAX:
+                    fh.seek(0)
+                    fh.truncate()
+                    fh.write("\n".join(lines[-HISTORY_MAX:]) + "\n")
+        finally:
+            fcntl.flock(fh, fcntl.LOCK_UN)
 
 
 # ---------------------------------------------------------------------------
@@ -477,10 +494,10 @@ def main(argv: list[str] | None = None) -> int:
         record["error"] = "unknown_cli_payload"
     else:
         record.update(extractor(payload))
-        record["cwd"] = (
-            record.get("cwd")
-            or _resolve(payload, ("cwd", "workspace.current_dir", "working_dir"))
-        )
+    record["cwd"] = (
+        record.get("cwd")
+        or _resolve(payload, ("cwd", "workspace.current_dir", "working_dir"))
+    )
 
     if not args.no_header and record.get("cwd"):
         status_line, pr_url = _capture_git_header(str(record["cwd"]))
