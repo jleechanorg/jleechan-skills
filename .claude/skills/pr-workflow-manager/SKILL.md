@@ -30,7 +30,7 @@ Provide Claude with best practices for creating and managing pull requests with 
 ## Automation helper
 Use the bundled script for complete PR creation with all best practices:
 ```bash
-skills/pr_workflow_manager/scripts/create_pr_with_upstream.sh [--title "PR Title"] [--body "PR Description"]
+skills/pr-workflow-manager/scripts/create_pr_with_upstream.sh [--title "PR Title"] [--body "PR Description"]
 ```
 The script:
 1. Validates current branch is not main/master
