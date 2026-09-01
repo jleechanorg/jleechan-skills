@@ -1,5 +1,5 @@
 ---
-description: Check PR green status — CI green + no merge conflicts, both verified at current PR HEAD SHA. Quality gates (evidence, review, comments) belong to the draft phase, not /green.
+description: Check PR green status — CI green + no merge conflicts, both verified at current PR HEAD SHA. Evidence and review are pre-ready checks; comments and cross-thread checks belong to /ready, not /green.
 type: verification
 execution_mode: immediate
 ---
@@ -13,9 +13,9 @@ execution_mode: immediate
 | 1 | CI green — every check at HEAD passes |
 | 2 | No merge conflicts — `mergeable == MERGEABLE` |
 
-Nothing else gates `/green`. Comment-thread resolution and evidence-link/PR-description gates are draft-phase quality checks (`~/.claude/skills/draft-first-pr/SKILL.md`), not `/green` gates. **CodeRabbit/Bugbot: optional advisory reviewers** — read their feedback, take what's useful; never a gate, never a wait, at any phase. Reaching `/green` is NOT merge authorization — merging still requires literal `MERGE APPROVED` from the human in the most recent live message.
+Nothing else gates `/green`. Evidence-link and PR-description checks happen before a PR is marked ready; comment-thread resolution and cross-thread regression checks are `/ready` completion checks, not `/green` gates. **CodeRabbit/Bugbot: optional advisory reviewers** — read their feedback, take what's useful; never a gate, never a wait, at any phase. Reaching `/green` is NOT merge authorization — merging still requires literal `MERGE APPROVED` from the human in the most recent live message.
 
-**SHA-binding:** `/green`'s two gates, like every gate in the full lifecycle (`/es` → `/er` → `/advice` → mark ready → `/green` → merge authorization), are only valid at the exact HEAD SHA they were checked against — a new commit invalidates a prior `/green` verdict. Full lifecycle and the SHA-binding rule: `~/.claude/skills/draft-first-pr/SKILL.md`.
+**SHA-binding:** `/green`'s two gates, like every gate in the full lifecycle (`/es` → `/er` → mark ready → `/green` → merge authorization), are only valid at the exact HEAD SHA they were checked against — a new commit invalidates a prior `/green` verdict. Full lifecycle and the SHA-binding rule: `~/.claude/skills/draft-first-pr/SKILL.md`. `/advice` remains optional and is not part of this lifecycle gate.
 
 ## EXECUTION INSTRUCTIONS
 
@@ -75,10 +75,10 @@ GREEN is not merge authorization. Report readiness and stop; merging requires li
 
 ### Where the quality gates went
 
-Evidence (`/es`), review (`/er`), and second-opinion (`/advice`) checks now run in the **draft phase**, before a PR flips from draft to ready-for-review. See `~/.claude/skills/draft-first-pr/SKILL.md`. `/green` no longer waits on or reports these.
+Evidence (`/es`) and review (`/er`) checks now run in the **draft phase**, before a PR flips from draft to ready-for-review. Comments and cross-thread regression checks remain `/ready` completion checks. See `~/.claude/skills/draft-first-pr/SKILL.md`. `/green` no longer waits on or reports these.
 
 ## Where this rule lives
 
 - `~/.claude/skills/pr-green-definition/SKILL.md` — canonical 2-gate definition, stale-data mechanics
-- `~/.claude/skills/draft-first-pr/SKILL.md` — draft-phase quality gates (`/es`, `/er`, `/advice`)
+- `~/.claude/skills/draft-first-pr/SKILL.md` — draft-phase quality gates (`/es`, `/er`); `/advice` is optional
 - `~/.claude/skills/github-cli-reference.md` — REST ↔ GraphQL dual-bucket procedure

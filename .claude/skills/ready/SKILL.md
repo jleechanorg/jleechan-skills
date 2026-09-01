@@ -1,15 +1,18 @@
 ---
 name: ready
-description: Drive PR(s) to merge-ready — /es /er /advice approved, then /green, all comments and merge conflicts handled. Use for /ready or /r.
+description: Drive PR(s) to merge-ready — /es and /er, then /green, with comments and merge conflicts handled. Use for /ready or /r.
 ---
 
 # /ready — PR merge-readiness gate
 
 **Order matters (draft-first):** if the PR is a DRAFT, keep it draft while
-driving gates 1–3 (/es, /er, /advice) to approved; only THEN undraft, then
-drive gate 4 (/green) and gate 5 to done. If the PR is ALREADY non-draft,
+driving gates 1–2 (/es, /er) to approved; only THEN undraft, then drive gate 3
+(/green) and the remaining readiness checks to done. If the PR is ALREADY non-draft,
 leave it non-draft — never convert an open non-draft PR back to draft; just
 run the gates in the same order.
+
+`/advice` remains available as an optional second opinion. It can inform fixes
+or review discussion, but its verdict is not a draft or readiness gate.
 
 A PR is READY when ALL of the following hold, verified at the CURRENT head SHA
 (newest check-run attempt per name; REST when GraphQL quota is low):
@@ -20,20 +23,14 @@ A PR is READY when ALL of the following hold, verified at the CURRENT head SHA
    Evidence Gate fail).
 2. **/er** — adversarial evidence review verdict PASS at the current head
    (re-run after every head move; findings fixed RED-first).
-3. **/advice** — at least two independent full-coverage approval reviewers
-   among the canonical A, C, and D reviewer lanes approve the exact head, or
-   every REQUEST_CHANGES finding is fixed and the two-reviewer quorum is rerun
-   and approves. Research and the orchestrating agent do not vote. One approval
-   can block but cannot approve; unavailable or partial-coverage reviewers do
-   not satisfy the approval quorum.
-4. **/green** — every current-head CI check green (rerun infra-signature
+3. **/green** — every current-head CI check green (rerun infra-signature
    failures: SIGKILL-during-rustc, Set-up-Python, sqlite3-amalgamation;
    diagnose real failures instead of rerunning) AND mergeable with no
    conflicts.
-5. **Comments handled** — every unresolved review thread and actionable bot
+4. **Comments handled** — every unresolved review thread and actionable bot
    comment addressed (fix or reasoned reply); merge conflicts resolved by
    rebase.
-6. **Cross-thread regression check** — before treating gate 5 as satisfied,
+5. **Cross-thread regression check** — before treating gate 4 as satisfied,
    check whether any OPEN bead — filed by this session, a sidekick, or any
    OTHER concurrent investigation running in parallel (e.g. a live-bug
    `/repro` thread) — shares root cause or a touched file with this PR's

@@ -18,9 +18,10 @@ name: Green Gate
 #
 # Everything else that used to gate merge here (CodeRabbit/Bugbot approval,
 # comment-thread resolution, evidence-link checks, PR-description checks, the
-# old "6-green" numbering) moved to the DRAFT phase: PRs are opened as draft
-# and stay draft until /es, /er, and /advice pass; only then do they flip to
-# ready-for-review and get driven through this two-gate check.
+# old "6-green" numbering) is outside this workflow. PRs are opened as draft
+# and stay draft until /es and /er pass; only then do they flip to
+# ready-for-review and get driven through this two-gate check. `/advice` remains
+# an optional second opinion and is not a readiness or Green Gate requirement.
 #
 # The job id and display name below ("green_gate" / "Green Gate") are kept
 # identical to the pre-downscope workflow so branch protection's required
