@@ -1,7 +1,7 @@
-# /r — alias for /ready
+---
+description: /r command dispatcher
+type: skill
+execution_mode: immediate
+---
 
-Alias for `/ready` (repointed from the old /roadmap alias 2026-08-09 by
-operator direction; use /roadmap directly for roadmap work).
-
-Load and follow `${CLAUDE_HOME:-$HOME/.claude}/skills/ready/SKILL.md` (Skill tool: `ready`) and
-apply it to the arguments: $ARGUMENTS
+Read `${CLAUDE_HOME:-$HOME/.claude}/skills/ready/SKILL.md` completely, then execute it with `$ARGUMENTS`.

@@ -76,13 +76,16 @@ class CheckpointCadenceContractTest(unittest.TestCase):
 
     def test_sidekick_command_carries_cadence_contract(self):
         text = read(SIDEKICK_CMD)
-        self.assertRegex(text, CHECKPOINT_CADENCE_RE)
-        self.assertRegex(text, CADENCE_TIME_RE)
-        self.assertRegex(text, SINGLE_WRITER_RE)
-        self.assertIn("STATE.md", text)
-        self.assertIn("br update", text)
-        self.assertIn("br sync", text)
-        self.assertTrue(any(k in text for k in COMMIT_SAFETY_KEYWORDS))
+        self.assertIn("/skills/sidekick/SKILL.md", text)
+        self.assertIn("", text)
+        skill_text = read(SIDEKICK_SKILL)
+        self.assertRegex(skill_text, CHECKPOINT_CADENCE_RE)
+        self.assertRegex(skill_text, CADENCE_TIME_RE)
+        self.assertRegex(skill_text, SINGLE_WRITER_RE)
+        self.assertIn("STATE.md", skill_text)
+        self.assertIn("br update", skill_text)
+        self.assertIn("br sync", skill_text)
+        self.assertTrue(any(k in skill_text for k in COMMIT_SAFETY_KEYWORDS))
 
     def test_team_claude_command_carries_cadence_contract(self):
         text = read(TEAM_CLAUDE)

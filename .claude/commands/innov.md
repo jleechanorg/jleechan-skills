@@ -1,9 +1,7 @@
 ---
 description: Alias for /extended-library:innovate - Single smartest innovative addition to the current plan
-type: ai
+type: skill
 execution_mode: immediate
 ---
-## EXECUTION INSTRUCTIONS FOR CLAUDE
-**This is an alias for `/extended-library:innovate`.** Execute the `/extended-library:innovate` command with all provided arguments.
 
-ARGUMENTS: $ARGUMENTS
+Read `${CLAUDE_HOME:-$HOME/.claude}/skills/innovation/SKILL.md` completely, then execute it with `$ARGUMENTS`.
