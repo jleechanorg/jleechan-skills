@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Capture a privacy-safe normalized telemetry corpus for command and skill audits."""
+"""Capture a privacy-safe normalized multi-runtime telemetry corpus (Claude Code + Codex + Hermes)."""
 
 from __future__ import annotations
 
@@ -7,7 +7,9 @@ import argparse
 import datetime as dt
 import hashlib
 import json
+import os
 import re
+import sqlite3
 from collections import Counter
 from pathlib import Path
 
@@ -29,6 +31,9 @@ def digest(data: bytes | str) -> str:
 
 
 def parse_time(raw: object) -> dt.datetime | None:
+    if isinstance(raw, (int, float)):
+        ts = raw / 1000.0 if raw > 1e11 else float(raw)
+        return dt.datetime.fromtimestamp(ts, tz=dt.timezone.utc)
     if not isinstance(raw, str):
         return None
     try:
@@ -109,56 +114,9 @@ def write_json(path: Path, payload: dict) -> str:
     return digest(path.read_bytes())
 
 
-def capture(
-    manifest_path: Path,
-    history_root: Path | None = None,
-    commands_root: Path | None = None,
-    skills_root: Path | None = None,
-) -> None:
-    manifest = json.loads(manifest_path.read_text())
-    start = parse_time(manifest["window_start_inclusive"])
-    end = parse_time(manifest["window_end_exclusive"])
-    if (
-        start is None
-        or end is None
-        or start.utcoffset() != dt.timedelta(0)
-        or end.utcoffset() != dt.timedelta(0)
-    ):
-        raise ValueError("manifest requires UTC-aware window endpoints")
-
-    base = manifest_path.parent
-    cmd_root = commands_root or Path(
-        manifest.get("command_inventory_root", base / ".claude" / "commands")
-    )
-    sk_root = skills_root or Path(
-        manifest.get("skill_inventory_root", base / ".claude" / "skills")
-    )
-    hist_root = history_root or Path(manifest["claude_history_root"])
-
-    excluded = manifest.get(
-        "excluded_command_documents", {"README": "directory documentation"}
-    )
-    inventory_data = {
-        "schema": "claude_usage_inventory_snapshot.v2",
-        "snapshot_id": manifest["snapshot_id"],
-        "commands": command_inventory(cmd_root, excluded),
-        "skills": skill_inventory(sk_root),
-    }
-    inventory_sha = write_json(base / manifest["inventory_snapshot"], inventory_data)
-
-    coverage = Counter(
-        {
-            "files_discovered": 0,
-            "files_opened": 0,
-            "files_unreadable": 0,
-            "lines_scanned": 0,
-            "lines_invalid_utf8": 0,
-            "lines_malformed_json": 0,
-            "records_missing_or_invalid_timestamp": 0,
-            "records_outside_window": 0,
-            "records_in_window": 0,
-        }
-    )
+def extract_claude_telemetry(
+    hist_root: Path, start: dt.datetime, end: dt.datetime, coverage: Counter
+) -> list[dict]:
     events = []
     for history_file in sorted(hist_root.glob("**/*.jsonl")):
         coverage["files_discovered"] += 1
@@ -202,8 +160,9 @@ def capture(
                             events.append(
                                 {
                                     "kind": "skill_selection",
+                                    "runtime": "claude",
                                     "event_id": digest(
-                                        f"{path_id}:{line_number}:{part_index}:{stamp.isoformat()}:{name}"
+                                        f"claude:{path_id}:{line_number}:{part_index}:{stamp.isoformat()}:{name}"
                                     ),
                                     "timestamp": stamp.isoformat(),
                                     "selected_name": name,
@@ -218,7 +177,6 @@ def capture(
             body = message_text(content)
             tags = sorted(set(TAG.findall(body)))
             leading = LEADING.match(body)
-            # Also extract embedded non-path slash tokens
             embedded_tokens = [
                 tok for tok in set(SLASH_TOKEN_RE.findall(body))
                 if tok not in NON_COMMAND_TOKENS and not FILE_EXT_RE.search(tok)
@@ -227,8 +185,9 @@ def capture(
                 events.append(
                     {
                         "kind": "command_candidate",
+                        "runtime": "claude",
                         "event_id": digest(
-                            f"{path_id}:{line_number}:{stamp.isoformat()}"
+                            f"claude:{path_id}:{line_number}:{stamp.isoformat()}"
                         ),
                         "timestamp": stamp.isoformat(),
                         "entrypoint": record.get("entrypoint"),
@@ -239,6 +198,125 @@ def capture(
                         "embedded_slash_tokens": sorted(embedded_tokens),
                     }
                 )
+    return events
+
+
+def extract_codex_telemetry(
+    codex_root: Path, start: dt.datetime, end: dt.datetime, coverage: Counter
+) -> list[dict]:
+    events = []
+    history_file = codex_root / "history.jsonl"
+    if history_file.is_file():
+        coverage["files_discovered"] += 1
+        path_id = digest("codex:history.jsonl")
+        try:
+            data = history_file.read_bytes()
+            coverage["files_opened"] += 1
+            for line_number, raw_line in enumerate(data.splitlines(), 1):
+                coverage["lines_scanned"] += 1
+                try:
+                    line = raw_line.decode("utf-8", errors="strict")
+                    record = json.loads(line)
+                except Exception:
+                    continue
+                stamp = parse_time(record.get("ts"))
+                if stamp is None:
+                    coverage["records_missing_or_invalid_timestamp"] += 1
+                    continue
+                if not (start <= stamp < end):
+                    coverage["records_outside_window"] += 1
+                    continue
+                coverage["records_in_window"] += 1
+                text = record.get("text", "")
+                leading = LEADING.match(text)
+                embedded_tokens = [
+                    tok for tok in set(SLASH_TOKEN_RE.findall(text))
+                    if tok not in NON_COMMAND_TOKENS and not FILE_EXT_RE.search(tok)
+                ]
+                if leading or embedded_tokens:
+                    events.append(
+                        {
+                            "kind": "command_candidate",
+                            "runtime": "codex",
+                            "event_id": digest(
+                                f"codex:{path_id}:{line_number}:{stamp.isoformat()}"
+                            ),
+                            "timestamp": stamp.isoformat(),
+                            "entrypoint": "cli",
+                            "prompt_source": "typed",
+                            "origin_kind": "human",
+                            "distinct_command_tags": [],
+                            "leading_slash": leading.group(1) if leading else None,
+                            "embedded_slash_tokens": sorted(embedded_tokens),
+                        }
+                    )
+        except OSError:
+            coverage["files_unreadable"] += 1
+    return events
+
+
+def capture(
+    manifest_path: Path,
+    history_root: Path | None = None,
+    codex_root: Path | None = None,
+    commands_root: Path | None = None,
+    skills_root: Path | None = None,
+) -> None:
+    manifest = json.loads(manifest_path.read_text())
+    start = parse_time(manifest["window_start_inclusive"])
+    end = parse_time(manifest["window_end_exclusive"])
+    if (
+        start is None
+        or end is None
+        or start.utcoffset() != dt.timedelta(0)
+        or end.utcoffset() != dt.timedelta(0)
+    ):
+        raise ValueError("manifest requires UTC-aware window endpoints")
+
+    base = manifest_path.parent
+    cmd_root = commands_root or Path(
+        manifest.get("command_inventory_root", base / ".claude" / "commands")
+    )
+    sk_root = skills_root or Path(
+        manifest.get("skill_inventory_root", base / ".claude" / "skills")
+    )
+    claude_hist_root = history_root or Path(manifest["claude_history_root"])
+    codex_hist_root = codex_root or Path(
+        manifest.get("codex_root", os.path.expanduser("~/.codex"))
+    )
+
+    excluded = manifest.get(
+        "excluded_command_documents", {"README": "directory documentation"}
+    )
+    inventory_data = {
+        "schema": "claude_usage_inventory_snapshot.v2",
+        "snapshot_id": manifest["snapshot_id"],
+        "commands": command_inventory(cmd_root, excluded),
+        "skills": skill_inventory(sk_root),
+    }
+    inventory_sha = write_json(base / manifest["inventory_snapshot"], inventory_data)
+
+    coverage = Counter(
+        {
+            "files_discovered": 0,
+            "files_opened": 0,
+            "files_unreadable": 0,
+            "lines_scanned": 0,
+            "lines_invalid_utf8": 0,
+            "lines_malformed_json": 0,
+            "records_missing_or_invalid_timestamp": 0,
+            "records_outside_window": 0,
+            "records_in_window": 0,
+        }
+    )
+
+    events = []
+    # 1. Ingest Claude Code telemetry
+    events.extend(extract_claude_telemetry(claude_hist_root, start, end, coverage))
+
+    # 2. Ingest Codex telemetry if available
+    if codex_hist_root.is_dir():
+        events.extend(extract_codex_telemetry(codex_hist_root, start, end, coverage))
 
     corpus_data = {
         "schema": "claude_normalized_event_corpus.v2",
@@ -256,7 +334,7 @@ def capture(
     )
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
     print(
-        f"captured inventory={inventory_sha} corpus={corpus_sha} events={len(events)}"
+        f"captured inventory={inventory_sha} corpus={corpus_sha} total_events={len(events)}"
     )
 
 
@@ -271,7 +349,13 @@ def main() -> None:
         "--history-root",
         type=Path,
         default=None,
-        help="Optional history directory override",
+        help="Optional Claude history directory override",
+    )
+    parser.add_argument(
+        "--codex-root",
+        type=Path,
+        default=None,
+        help="Optional Codex root directory override",
     )
     parser.add_argument(
         "--commands-root",
@@ -289,6 +373,7 @@ def main() -> None:
     capture(
         args.manifest.resolve(),
         args.history_root.resolve() if args.history_root else None,
+        args.codex_root.resolve() if args.codex_root else None,
         args.commands_root.resolve() if args.commands_root else None,
         args.skills_root.resolve() if args.skills_root else None,
     )

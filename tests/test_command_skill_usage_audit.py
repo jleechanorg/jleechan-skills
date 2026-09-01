@@ -266,3 +266,21 @@ def test_deterministic_replay(tmp_path: Path) -> None:
 
     for fname in ["strict-claude-command-usage-30d.json", "skill-usage-30d.json", "active-commands-30d.csv", "active-skills-30d.csv", "all-observed-skill-names-30d.csv"]:
         assert (out1 / fname).read_bytes() == (out2 / fname).read_bytes()
+
+
+def test_codex_and_multi_runtime_provenance(tmp_path: Path) -> None:
+    """Validate that Codex and multi-runtime events are correctly attributed."""
+    events = [
+        {"event_id": "codex_1", "timestamp": "2026-08-10T12:00:00Z", "kind": "command_candidate", "runtime": "codex", "prompt_source": "typed", "origin_kind": "human", "leading_slash": "f"},
+        {"event_id": "codex_2", "timestamp": "2026-08-11T12:00:00Z", "kind": "command_candidate", "runtime": "codex", "prompt_source": "typed", "origin_kind": "human", "embedded_slash_tokens": ["callpath"]},
+    ]
+    manifest = build_audit_fixture(tmp_path, events=events)
+    out_dir = tmp_path / "out"
+    audit(manifest, out_dir, repo_root=tmp_path, ignore_scanner_hash=True)
+
+    cmds_res = json.loads((out_dir / "strict-claude-command-usage-30d.json").read_text())
+    cmds_map = {r["command"]: r for r in cmds_res["commands"]}
+    assert cmds_map["f"]["canonical_direct_events"] == 1
+    assert cmds_map["f"]["positive_evidence"] is True
+    assert cmds_map["extended-library:callpath"]["canonical_direct_events"] == 1
+    assert cmds_map["extended-library:callpath"]["positive_evidence"] is True
