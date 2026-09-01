@@ -13,12 +13,12 @@ description: Harden a stated goal into ironclad exit criteria (stronger than ask
 
 ## What "ironclad" means (all six required per criterion)
 
-1. **Stronger than asked** — the user's literal condition is the FLOOR. Each criterion must close a loophole the literal ask leaves open (ask "how could I technically satisfy the words while betraying the intent?" — then ban that).
+1. **Stronger than asked — bounded** — the user's literal condition is the FLOOR. Each criterion must close a loophole the literal ask leaves open (ask "how could I technically satisfy the words while betraying the intent?" — then ban that). **Bounding rule (2026-09-01, from the PR #9604/#9640 24h incident):** closing loopholes NEVER adds new deliverables, surfaces, gates, or evidence classes beyond the ask's scope. If a loophole fix would materially expand scope, record it as a proposed follow-up for the operator, not as a criterion.
 2. **Binary** — pass/fail, no "mostly"/"improved"/"should".
 3. **Executable** — a stated command or observable check anyone can run verbatim (quote it in the criterion).
 4. **Externally anchored** — verified at the layer users experience (real system-of-record: merged PR state, live HTTP response, on-camera DOM, CI conclusion at head SHA) — never implementer logs/telemetry alone.
 5. **Anti-gaming** — self-report insufficient; independent reproduction required (different agent/model than the author — adversarial verifier, cross-model review, or the human). Mock/dry-run/dev-mode satisfaction = FAIL. Serving-context matters (dev server ≠ vite preview ≠ backend-served SPA — the wc-1nli/wc-vs19 lesson: validate the SAME bundle/context the claim is about, and prove bundle identity by content hash).
-6. **Iterate-until** — the goal stays open until ALL criteria hold simultaneously at the same HEAD/state; a criterion that regresses reopens the goal.
+6. **Iterate-until, capped** — the goal stays open until ALL criteria hold simultaneously at the same HEAD/state, subject to the Gate-cycle cap in § "Termination and proportionality" below (2 full cycles / 3h time-box — the cap binds this criterion; reading only this list does not exempt you from it); a criterion that regresses reopens the goal but does not reset the cap.
 
 ## Procedure
 
@@ -28,6 +28,16 @@ description: Harden a stated goal into ironclad exit criteria (stronger than ask
 4. Log to the mission STATE.md if a sidekick mission is active; add a memory pointer if the goal spans sessions.
 5. Execute. Route work through the active orchestration model (/sidekick, /swarm lanes) — do not implement directly if the mission delegates.
 6. On each claimed completion: run the check commands, cite outputs, get the independent verification, and only then mark the criterion. Default verdict is FAIL.
+
+## Termination and proportionality (mandatory — PR #9604/#9640 incident, 2026-09-01)
+
+An ironclad contract without a termination rule is a divergent loop: adversarial review finds fixes, fixes move the HEAD, a moved HEAD resets every gate. Every ironclad goal MUST include:
+
+- **Gate-cycle cap**: after 2 full gate cycles on the same goal, or the 3-hour autonomy time-box, STOP — post a status snapshot and escalate the scope question to the operator. Paraphrased self-permission to continue is not authorization.
+- **Evidence sequencing**: expensive evidence (real-LLM RED/GREEN, browser/video, bundles) runs ONCE, LAST, after code is complete and all review findings are resolved or deferred. Canonical: `~/.claude/skills/evidence-standards/SKILL.md` § Evidence Sequencing.
+- **Materiality on reruns**: "all criteria at one HEAD" binds the FINAL head only. Intermediate iteration uses cheap checks; whether a HEAD move voids evidence is decided by the staleness-tolerance diff test, never by SHA inequality alone.
+- **Proportionality**: criteria count stays 3–7 and gate depth scales with the production diff's size/risk. A one-file low-risk change does not get the maximal gate stack.
+- **Finding triage**: findings that block correct behavior — correctness, security, or data-integrity defects, regardless of priority label — reset the evidence head; style/nit/doc/wording feedback becomes a tracked follow-up instead. Batch all pending fixes into ONE new SHA before any expensive rerun.
 
 ## Anti-patterns (ban list — each caught at least once in real missions)
 

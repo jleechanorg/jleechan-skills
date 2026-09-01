@@ -29,7 +29,9 @@ Inline an artifact only when the reviewer genuinely cannot fetch: no repo access
 
 ## Step 2: Fan out the reviewers in parallel
 
-Spawn every available reviewer in a single message. **A and B are the portable core** — they work on any machine. **C depends on personal infrastructure** and is skipped, not faked, when unavailable.
+**Size/risk gate first.** For low-risk diffs (docs/tests/config-only, or under ~100 changed production lines with no schema/security/prompt-contract surface), Reviewer A alone (Codex + Opus — two independent verdicts, so the ≥2-reviewer quorum for `APPROVED` still holds) satisfies the gate; skip B/C. Reserve the full A+B+C fan-out for diffs touching production behavior, schemas, security, or above that threshold. The quorum, coverage, and inline-artifact rules below apply unchanged regardless of which lanes run.
+
+Spawn every selected reviewer in a single message. **A and B are the portable core** — they work on any machine. **C depends on personal infrastructure** and is skipped, not faked, when unavailable.
 
 ---
 

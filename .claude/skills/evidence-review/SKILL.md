@@ -11,6 +11,8 @@ description: Enforcement rules for reviewing evidence artifacts against the evid
 
 **Standards source**: `evidence-standards` skill (`/es`). When in doubt about a requirement, read the standards first.
 
+**Repo overlay (always check)**: this is the **user-scope (global)** `/er` policy — the floor. Before judging, look for repo-level versions and read them too: `<repo>/.claude/skills/evidence-review.md` and `<repo>/.claude/skills/evidence-standards.md` add project-specific enforcement (e.g. worldarchitect.ai adds BQ/streaming/dice modes) and take precedence on conflict.
+
 ---
 
 ## Verdict Rubric
@@ -24,8 +26,13 @@ description: Enforcement rules for reviewing evidence artifacts against the evid
 
 ## Draft-lifecycle integration
 
-The canonical lifecycle and its changed-path classification live in
-`draft-first-pr`; apply that policy before invoking this skill:
+The canonical lifecycle, its changed-path classification, and the SHA-binding /
+staleness-tolerance rule (`draft-first-pr` § "SHA-binding rule") live in
+`draft-first-pr`; apply that policy — including the staleness-tolerance diff
+test — before invoking this skill. Do not run a fresh `/er` pass on a HEAD
+move the staleness-tolerance test classifies as non-behavioral; re-affirm the
+prior verdict at the new SHA instead (see `evidence-standards` §
+"Evidence Sequencing"):
 
 - **Documentation-only exception**: when the complete PR diff matches the exact
   documentation allowlist in `draft-first-pr`, `/er` is not run. Record
@@ -149,7 +156,7 @@ A PASS verdict requires the PR to meet the "clean computer" standard from `evide
 
 ### 7. Anti-Fabrication & Telemetry Verification (Bead rev-wghca)
 
-- [ ] **BQ Record Resolution**: Any cited BigQuery timestamp or query payload MUST be verified against `worldarchitecture-ai.llm_forensics.llm_payloads`. If the record does not exist or model/content differs → **FAIL**.
+- [ ] **BQ Record Resolution**: Any cited BigQuery/telemetry timestamp or query payload MUST be verified against the repo's canonical LLM-forensics store (named in the repo-level `/er`//`/es` overlay — e.g. a BigQuery `llm_payloads` table). If the record does not exist or model/content differs → **FAIL**.
 - [ ] **Harness & Provenance Disambiguation**: Inspect provenance commit subjects and test user IDs for mock markers (`RealisticFakeLLMResponse`, `mock`, `fake`). Evidence driven by test harnesses or mock LLMs MUST be labeled as *Test-Harness Evidence*, NEVER as "Real Production LLM Evidence". Mislabeling → **FAIL**.
 - [ ] **Traceback Code Alignment**: Any cited `file:line` in a stack trace MUST match the exact source code AST at that line. Synthetic line numbers or non-matching code → **FAIL**.
 - [ ] **No Paraphrased / Synthesized Payloads**: Reject evidence files produced by custom scripts that construct payload dictionaries or text strings in memory. Evidence MUST be untrimmed raw trace outputs (`llm_request_responses.jsonl`) backed by `.sha256` checksums.
@@ -186,6 +193,20 @@ A PASS verdict requires the PR to meet the "clean computer" standard from `evide
 ---
 
 ## Review Procedure
+
+### Phase 0 — Staleness gate (run before anything else)
+
+Resolve the SHA of the last posted `ER-VERDICT:` comment's `HEAD=` value and
+compare to the subject's current HEAD. If they match, skip to the verdict phase
+and re-emit the prior verdict. If they differ, run `git diff --name-only
+<prior-verdict-sha> <current-sha>` per the staleness-tolerance test in
+`evidence-standards`: a non-behavioral diff lets you re-affirm the prior
+verdict at the new SHA without rerunning the later phases; only a material
+production-behavior diff requires a full rerun. Never rerun once per finding —
+if fixes are still landing, wait until they are batched into one new SHA
+(`evidence-standards` § "Evidence Sequencing") before spending a full pass.
+The 2-gate-cycle cap applies: a third full `/er` cycle on the same PR requires
+operator escalation, not a self-authorized rerun.
 
 ### Phase 1 — Inventory
 
@@ -284,11 +305,13 @@ have the methodology inlined into its prompt.
 2. On codex failure/no-log, fall back to the `evidence-reviewer` subagent, which
    must load this skill file itself (per the guard above) rather than receive an
    inlined summary.
-3. Regardless of which path produced the evidence-review result, always continue
-   to a separate manual `evidence-standards` compliance pass (read both the
+3. Regardless of which path produced the evidence-review result, continue to a
+   separate manual `evidence-standards` compliance pass (read both the
    user-scope and any repo-scope `evidence-standards` skill, then judge the
    collected evidence against them) — the standards check is not optional and is
-   not skipped just because codex succeeded.
+   not skipped just because codex succeeded. This full two-pass cost is paid
+   ONCE per Phase-0-cleared SHA, never per push; a Phase 0 re-affirmation does
+   not re-trigger it.
 
 **Two-source verdict synthesis.** `/er` combines this skill's verdict (evidence
 review) with the separate evidence-standards compliance verdict into one raw
