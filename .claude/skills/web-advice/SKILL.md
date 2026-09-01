@@ -268,11 +268,9 @@ const textbox = await perpPage.locator('[role="textbox"]').first();
 await textbox.click();
 await perpPage.keyboard.type(perpPrompt, {delay: 3});
 await perpPage.keyboard.press('Enter');  // Enter submits; no separate button click
-```
 console.log('sent to Perplexity');
 ```
 
->>>>>>> 8f0b2940 (gemini/gemini-3.7-flash: feat(web-advice): isolate browser transport and enforce title provenance [gemini][gemini-3.7-flash])
 **Perplexity quirks:**
 - Textbox is a `DIV` with `role="textbox"` and no `aria-label` — use the role selector, not the aria-label pattern
 - After response, the new textbox ref changes (Perplexity regenerates the textbox element); always re-snapshot to get the fresh ref before the next prompt
