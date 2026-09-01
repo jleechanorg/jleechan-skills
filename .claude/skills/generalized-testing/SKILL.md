@@ -243,7 +243,6 @@ def test_decision_points_agree():
 
 ## Integration with Other Skills
 
-- Use `/tdd` for test-first development
+- Use test-driven development for test-first implementation
 - Use `/review-enhanced` to validate test coverage
-- Use `/fake3` to detect test quality issues
-- Use `/solid` to ensure testable code design
+- Apply clean code architecture to ensure testable design

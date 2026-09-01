@@ -5,9 +5,11 @@
 
 ---
 
-## Inventory of Archived Commands (11 Total)
+## Inventory of Archived Commands (13 Total)
 
 ### 1. Sunsetted AO / OpenClaw Daemon Commands
+- `/ao`: Old AO launcher
+- `/auton`: Auton diagnostic command
 - `/agentor`: Old AO launcher alias
 - `/roadmap_orch`: Roadmap orchestrator
 - `/roadmapo`: Roadmap orchestrator alias

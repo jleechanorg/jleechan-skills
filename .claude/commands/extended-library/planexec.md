@@ -35,12 +35,11 @@ aliases: [plan]
 3. **Integration Verification** (`.claude/skills/integration-verification.md`):
    - For any integration claims, provide Three Evidence Rule
    - Configuration + Trigger + Log evidence required
-4. **SOLID Skills** (`.claude/skills/solid/SKILL.md`):
+4. **Harness Engineering** (`.claude/skills/harness-engineering/SKILL.md`):
    - Apply TDD Red-Green-Refactor cycle for all code changes
-   - Verify SOLID principles (SRP, OCP, LSP, ISP, DIP) during design
-   - Use pre-code, during-code, and post-code checklists
+   - Verify architectural boundaries and fail-closed contracts during design
    - Ensure clean code standards (naming, structure, readability)
-   - Detect and refactor code smells before completion
+   - Detect and refactor regressions before completion
 
 **Tool Selection Hierarchy** (Context-Optimized):
 1. **Serena MCP** - Semantic analysis for efficient context usage

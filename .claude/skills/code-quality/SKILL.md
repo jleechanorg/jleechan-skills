@@ -247,6 +247,5 @@ If a model returns a Short variant that contains Long-variant headings (or vice 
 ## Cross-references
 
 - `.claude/skills/code-standards/SKILL.md` — dispatches `code-quality` alongside `/zfc`, `/zfclevel`, `/root-cause-first`, and `/thermo`
-- `.claude/skills/solid/SKILL.md` — SOLID / TDD / clean-code companion
 - `.claude/skills/root-cause-first/SKILL.md` — for fixes, not for code-quality findings
 - `.claude/skills/evidence-standards.md` — required for `$PROJECT_ROOT/` production PRs (this skill is supporting evidence, not primary)
