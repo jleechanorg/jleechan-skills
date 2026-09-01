@@ -346,7 +346,6 @@ $GH workflow list --repo $REPO
 
 ## Related Skills
 - `pr-workflow-manager.md` - PR creation and management best practices
-- `build-test-lint-autopilot.md` - Pre-PR validation
 - `cloud-ops-credential-guard.md` - Token and credential management
 
 ## Reporting Expectations
