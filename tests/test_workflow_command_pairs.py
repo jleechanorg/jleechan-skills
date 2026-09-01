@@ -249,6 +249,89 @@ class WorkflowCommandPairTest(unittest.TestCase):
         self.assertIn("> \"$AGY_OUT\" 2>&1", verifier)
         self.assertIn("AGY_OUT=", verifier)
 
+    def test_retry_handoff_repeats_checks_and_pins_prior_revision(self):
+        coder = (REPO_ROOT / ".claude" / "agents" / "agy-pair-coder.md").read_text(
+            encoding="utf-8"
+        )
+        retry = coder.split("If verifier sends VERIFICATION_FAILED:", 1)[1]
+        normalized = " ".join(retry.split())
+        self.assertIn("exact prior `Revision`", normalized)
+        self.assertIn(
+            'git worktree add --detach "$CODER_WORKTREE" "$PRIOR_REVISION"',
+            retry,
+        )
+        self.assertIn("git rev-parse HEAD", retry)
+        self.assertIn("Run the focused tests again", normalized)
+        self.assertIn("git add <explicit scoped paths>", retry)
+        self.assertIn("git commit", retry)
+        self.assertIn("git status --porcelain", normalized)
+        self.assertIn("must be empty", normalized)
+
+        skill = (SKILLS / "parallelize-to-ceiling" / "SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        normalized_skill = " ".join(skill.split())
+        self.assertIn(
+            "retry must carry the exact prior `Revision`",
+            normalized_skill,
+        )
+        self.assertIn("rerun focused checks", normalized_skill)
+        self.assertIn("final scoped commit", normalized_skill)
+
+    def test_verifier_launch_is_background_and_surfaces_unique_output(self):
+        verifier = (
+            REPO_ROOT / ".claude" / "agents" / "agy-pair-verifier.md"
+        ).read_text(encoding="utf-8")
+        normalized = " ".join(verifier.split())
+        self.assertIn("run_in_background: true", normalized)
+        self.assertIn("agy --dangerously-skip-permissions", verifier)
+        self.assertIn("--new-project", verifier)
+        self.assertIn("&", verifier)
+        self.assertIn("AGY_PID=$!", verifier)
+        self.assertIn('wait "$AGY_PID"', verifier)
+        self.assertIn('echo "AGY_OUT=$AGY_OUT"', verifier)
+        self.assertIn('cat "$AGY_OUT"', verifier)
+
+    def test_every_copyable_agy_launch_starts_a_new_project(self):
+        for path in (
+            REPO_ROOT / ".claude" / "agents" / "agy-pair-coder.md",
+            REPO_ROOT / ".claude" / "agents" / "agy-pair-verifier.md",
+        ):
+            content = path.read_text(encoding="utf-8")
+            lines = content.splitlines()
+            launches = []
+            for index, line in enumerate(lines):
+                if not line.startswith("agy --dangerously-skip-permissions \\"):
+                    continue
+                launch = [line]
+                while (
+                    launch[-1].endswith("\\")
+                    and index + len(launch) < len(lines)
+                ):
+                    launch.append(lines[index + len(launch)])
+                launches.append("\n".join(launch))
+            launches.extend(
+                line.strip("`")
+                for line in lines
+                if line.strip().startswith("agy --print --new-project --sandbox")
+            )
+            self.assertTrue(launches, path)
+            for launch in launches:
+                with self.subTest(path=path, launch=launch):
+                    self.assertIn("--new-project", launch)
+
+    def test_coder_and_verifier_logs_are_unique_per_attempt(self):
+        coder = (REPO_ROOT / ".claude" / "agents" / "agy-pair-coder.md").read_text(
+            encoding="utf-8"
+        )
+        verifier = (
+            REPO_ROOT / ".claude" / "agents" / "agy-pair-verifier.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn('mktemp "$LOG_DIR/coder-attempt.XXXXXX.log"', coder)
+        self.assertIn('mktemp "$LOG_DIR/verifier-attempt.XXXXXX.log"', verifier)
+        self.assertNotIn("LOG=$LOG_DIR/coder.log", coder)
+        self.assertNotIn("LOG=$LOG_DIR/verifier.log", verifier)
+
 
 if __name__ == "__main__":
     unittest.main()

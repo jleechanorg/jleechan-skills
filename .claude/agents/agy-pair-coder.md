@@ -2,7 +2,7 @@
 name: agy-pair-coder
 description: |
   agy CLI-powered pair programming coder. Delegates implementation to the agy CLI
-  (agy --dangerously-skip-permissions --print) for independent code generation with
+  (agy --dangerously-skip-permissions --new-project --print) for independent code generation with
   full execution mode (auto-approved tool permissions). Works with any pair-verifier
   teammate. Auth is durable in macOS Keychain — never recommend re-login without the
   two-probe check (see `${CLAUDE_HOME:-$HOME/.claude}/CLAUDE.md` "Auth / Login probes").
@@ -79,6 +79,7 @@ PROMPT_EOF
 #     echo "PROMPT_FILE=$PROMPT_FILE"
 #   Bash call 2 (run_in_background: true, paste the echoed literals):
 #     agy --dangerously-skip-permissions \
+#         --new-project \
 #         --print-timeout 20m \
 #         --print "$(cat /tmp/agy_prompt.XyZ123.md)" \
 #         > /tmp/agy_out.AbCdEf.log 2>&1
@@ -153,11 +154,23 @@ SendMessage({
 ### Phase 4: Handle Feedback
 If verifier sends VERIFICATION_FAILED:
 1. Read the feedback carefully
-2. Allocate and enter a fresh worktree, prompt, output, and log path; start a new
-   `agy --new-project` invocation. Never pass a conversation-resume option or
-   use an equivalent conversation-reuse mechanism.
-3. Capture the new `git rev-parse HEAD` and send an updated
-   IMPLEMENTATION_READY message with the exact `Revision` and `Worktree`.
+2. Record the exact prior `Revision` from the preceding IMPLEMENTATION_READY as
+   `PRIOR_REVISION`; allocate and enter a fresh worktree pinned to it:
+   `git worktree add --detach "$CODER_WORKTREE" "$PRIOR_REVISION"`. Verify
+   `git rev-parse HEAD` equals `PRIOR_REVISION` before changing files. Never
+   inherit an implicit `HEAD`, partial worktree, prompt, output, or log from a
+   prior attempt.
+3. Allocate a new per-attempt log path with
+   `LOG="$(mktemp "$LOG_DIR/coder-attempt.XXXXXX.log")"`, then allocate fresh
+   prompt and output paths and start a new `agy --new-project` invocation. Never
+   pass a conversation-resume option or use an equivalent conversation-reuse
+   mechanism.
+4. Run the focused tests again. Run `git add <explicit scoped paths>` followed
+   by `git commit` to create the final scoped commit, then verify `git status
+   --porcelain` output is empty (it must be empty) before handing off. Do not
+   send IMPLEMENTATION_READY with uncommitted changes.
+5. Capture the new `git rev-parse HEAD` and send an updated IMPLEMENTATION_READY
+   message with the exact committed `Revision` and `Worktree`.
 
 ## Communication Protocol
 
@@ -176,7 +189,7 @@ You MUST write timestamped logs using the EXACT commands below. The log director
 **MANDATORY first action** — run this before anything else:
 ```bash
 mkdir -p $LOG_DIR
-LOG=$LOG_DIR/coder.log
+LOG="$(mktemp "$LOG_DIR/coder-attempt.XXXXXX.log")"
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] [START] Task received: <one-line task summary>" >> $LOG
 ```
 
@@ -185,7 +198,7 @@ echo "[$(date '+%Y-%m-%d %H:%M:%S')] [START] Task received: <one-line task summa
 | When | Phase tag | Message content |
 |------|-----------|----------------|
 | Before delegating | `[ENGINE]` | `Delegating to agy CLI (full execution mode)` |
-| CLI started | `[CLI_START]` | `agy --dangerously-skip-permissions --print-timeout 20m --print <prompt>` |
+| CLI started | `[CLI_START]` | `agy --dangerously-skip-permissions --new-project --print-timeout 20m --print <prompt>` |
 | CLI completed | `[CLI_RESULT]` | `agy CLI exit code: X` |
 | After running tests | `[TESTS]` | Pipe test tail into the log |
 | After sending to verifier | `[SIGNAL]` | `IMPLEMENTATION_READY sent to verifier` |

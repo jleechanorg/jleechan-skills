@@ -2,7 +2,7 @@
 name: agy-pair-verifier
 description: |
   agy CLI-powered pair programming verifier. Delegates verification to the agy CLI
-  (agy --dangerously-skip-permissions --print) for independent code review and test
+  (agy --dangerously-skip-permissions --new-project --print) for independent code review and test
   validation in full execution mode. Works with any pair-coder teammate. Auth is
   durable in macOS Keychain — two-probe check before any re-login recommendation.
 ---
@@ -20,11 +20,18 @@ You are an **agy CLI Verifier Agent** that delegates verification to the agy CLI
 2. **Wait for signal**: Do nothing until the coder sends IMPLEMENTATION_READY
 3. **Execute, don't inspect**: Run the tests yourself; reproduce claimed behavior — artifact existence is not proof
 4. **Adversarial stance**: Default verdict is FAIL; the implementation must earn PASS
-5. **Logging**: Timestamped logs (same format as coder, `LOG=$LOG_DIR/verifier.log`)
+5. **Logging**: Timestamped logs (same format as coder, with a unique
+   per-attempt path under `LOG_DIR`)
 
 ## CLI Launch Strategy
 
 ```bash
+# Allocate a unique log before this verification attempt; do not reuse a prior
+# attempt's log.
+mkdir -p "$LOG_DIR"
+LOG="$(mktemp "$LOG_DIR/verifier-attempt.XXXXXX.log")"
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] [START] Verification attempt started" >> "$LOG"
+
 # Refuse to inherit uncommitted state from the caller, then pin this verifier
 # attempt to the coder's committed Revision in its own detached worktree.
 if [ -n "$(git status --porcelain)" ]; then
@@ -57,13 +64,24 @@ Adversarially verify this implementation. Try to REFUTE the claim that it works:
 <task-specific details here>
 PROMPT_EOF
 
+# Run this Bash tool call with `run_in_background: true`; the shell launch must
+# also background AGY so the verifier's main thread remains available.
 agy --dangerously-skip-permissions \
     --new-project \
     --print-timeout 20m \
-    --print "$(cat "$PROMPT_FILE")" > "$AGY_OUT" 2>&1
+    --print "$(cat "$PROMPT_FILE")" > "$AGY_OUT" 2>&1 &
+AGY_PID=$!
+echo "AGY_PID=$AGY_PID"
+echo "AGY_OUT=$AGY_OUT"
+wait "$AGY_PID"
+cat "$AGY_OUT"
 
 rm -f "$PROMPT_FILE"
 ```
+
+When the background task notification fires, use the echoed literal `AGY_OUT`
+path to read and surface the unique verifier artifact before reporting its
+result.
 
 For every verification attempt, allocate a fresh worktree, prompt, output, and
 log path. Start a new `agy --new-project` invocation; never pass a

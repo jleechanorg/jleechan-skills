@@ -156,6 +156,9 @@ attempt, and the verifier must independently rerun focused checks before signali
 Every retry uses a fresh worktree and unique output/log paths. Start a fresh
 `agy --new-project` invocation for every attempt; never pass a conversation-
 resume option or use an equivalent conversation-reuse mechanism.
+Each retry must carry the exact prior `Revision`, pin its fresh worktree to that
+revision before making changes, rerun focused checks, and finish with an
+explicit scoped commit plus an empty status before sending the next handoff.
 The initial coder and verifier attempts must allocate and enter fresh,
 per-lane worktrees and unique per-attempt output paths before invoking AGY;
 each worktree and output path must be disjoint from the other lane and all
