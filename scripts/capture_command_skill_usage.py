@@ -258,6 +258,112 @@ def extract_codex_telemetry(
                     )
         except OSError:
             coverage["files_unreadable"] += 1
+
+    # Ingest Codex SQLite thread items if available
+    db_file = codex_root / "thread_history_1.sqlite"
+    if db_file.is_file():
+        coverage["files_discovered"] += 1
+        path_id = digest("codex:thread_history_1.sqlite")
+        try:
+            conn = sqlite3.connect(f"file:{db_file}?mode=ro", uri=True)
+            coverage["files_opened"] += 1
+            start_ms = int(start.timestamp() * 1000)
+            end_ms = int(end.timestamp() * 1000)
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT item_id, created_at_ms, item_json FROM thread_items "
+                "WHERE item_type = 'userMessage' AND created_at_ms >= ? AND created_at_ms < ?",
+                (start_ms, end_ms),
+            )
+            for item_id, created_at_ms, item_json in cursor.fetchall():
+                coverage["lines_scanned"] += 1
+                try:
+                    data = json.loads(item_json)
+                    text = data.get("text") or data.get("content") or ""
+                    if isinstance(text, list):
+                        text = " ".join(t.get("text", "") for t in text if isinstance(t, dict))
+                except Exception:
+                    continue
+                stamp = parse_time(created_at_ms)
+                if stamp is None or not (start <= stamp < end):
+                    continue
+                coverage["records_in_window"] += 1
+                leading = LEADING.match(text)
+                embedded_tokens = [
+                    tok for tok in set(SLASH_TOKEN_RE.findall(text))
+                    if tok not in NON_COMMAND_TOKENS and not FILE_EXT_RE.search(tok)
+                ]
+                if leading or embedded_tokens:
+                    events.append(
+                        {
+                            "kind": "command_candidate",
+                            "runtime": "codex",
+                            "event_id": digest(
+                                f"codex_sqlite:{path_id}:{item_id}:{stamp.isoformat()}"
+                            ),
+                            "timestamp": stamp.isoformat(),
+                            "entrypoint": "cli",
+                            "prompt_source": "typed",
+                            "origin_kind": "human",
+                            "distinct_command_tags": [],
+                            "leading_slash": leading.group(1) if leading else None,
+                            "embedded_slash_tokens": sorted(embedded_tokens),
+                        }
+                    )
+            conn.close()
+        except Exception:
+            coverage["files_unreadable"] += 1
+    return events
+
+
+def extract_hermes_telemetry(
+    hermes_root: Path, start: dt.datetime, end: dt.datetime, coverage: Counter
+) -> list[dict]:
+    events = []
+    if not hermes_root.is_dir():
+        return events
+    for history_file in sorted(hermes_root.glob("**/*.jsonl")):
+        coverage["files_discovered"] += 1
+        path_id = digest(str(history_file.relative_to(hermes_root)))
+        try:
+            data = history_file.read_bytes()
+            coverage["files_opened"] += 1
+            for line_number, raw_line in enumerate(data.splitlines(), 1):
+                coverage["lines_scanned"] += 1
+                try:
+                    line = raw_line.decode("utf-8", errors="strict")
+                    record = json.loads(line)
+                except Exception:
+                    continue
+                stamp = parse_time(record.get("timestamp") or record.get("ts"))
+                if stamp is None or not (start <= stamp < end):
+                    continue
+                coverage["records_in_window"] += 1
+                text = record.get("text") or message_text(record.get("message") or {})
+                leading = LEADING.match(text)
+                embedded_tokens = [
+                    tok for tok in set(SLASH_TOKEN_RE.findall(text))
+                    if tok not in NON_COMMAND_TOKENS and not FILE_EXT_RE.search(tok)
+                ]
+                if leading or embedded_tokens:
+                    events.append(
+                        {
+                            "kind": "command_candidate",
+                            "runtime": "hermes",
+                            "event_id": digest(
+                                f"hermes:{path_id}:{line_number}:{stamp.isoformat()}"
+                            ),
+                            "timestamp": stamp.isoformat(),
+                            "entrypoint": "cli",
+                            "prompt_source": "typed",
+                            "origin_kind": "human",
+                            "distinct_command_tags": [],
+                            "leading_slash": leading.group(1) if leading else None,
+                            "embedded_slash_tokens": sorted(embedded_tokens),
+                        }
+                    )
+        except OSError:
+            coverage["files_unreadable"] += 1
     return events
 
 
@@ -289,6 +395,9 @@ def capture(
     claude_hist_root = history_root or Path(manifest["claude_history_root"])
     codex_hist_root = codex_root or Path(
         manifest.get("codex_root", os.path.expanduser("~/.codex"))
+    )
+    hermes_hist_root = Path(
+        manifest.get("hermes_root", os.path.expanduser("~/.hermes"))
     )
 
     excluded = manifest.get(
@@ -323,6 +432,10 @@ def capture(
     # 2. Ingest Codex telemetry if available
     if codex_hist_root.is_dir():
         events.extend(extract_codex_telemetry(codex_hist_root, start, end, coverage))
+
+    # 3. Ingest Hermes telemetry if available
+    if hermes_hist_root.is_dir():
+        events.extend(extract_hermes_telemetry(hermes_hist_root, start, end, coverage))
 
     corpus_data = {
         "schema": "claude_normalized_event_corpus.v2",

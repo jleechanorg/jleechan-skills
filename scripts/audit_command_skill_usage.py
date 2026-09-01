@@ -660,6 +660,8 @@ def audit(
                 "canonical_direct_events",
                 "alias_resolved_events",
                 "total_observed_events",
+                "claude_direct_events",
+                "codex_direct_events",
                 "bfs_reachable",
                 "reachability_reasons",
                 "operator_confirmed_use",
@@ -678,6 +680,8 @@ def audit(
             fieldnames=[
                 "skill",
                 "explicit_skill_selections",
+                "claude_direct_events",
+                "codex_direct_events",
                 "bfs_reachable",
                 "reachability_reasons",
                 "reachability_only",
