@@ -15,14 +15,20 @@ from pathlib import Path
 
 TAG = re.compile(r"<command-name>/([a-zA-Z0-9_-]+)</command-name>")
 LEADING = re.compile(r"^\s*/([a-zA-Z0-9_-]+(?::[a-zA-Z0-9_-]+)?)(?:\s|$)")
-SLASH_TOKEN_RE = re.compile(r"(?<![\w/])/((?:extended-library:)?[a-zA-Z0-9_-]+)(?![\w/])")
-FILE_EXT_RE = re.compile(r"\.(sh|md|py|json|jsonl|ya?ml|dot|txt|log|toml|ts|js|html|png|mp4)\b")
+SLASH_TOKEN_RE = re.compile(
+    r"(?<![\w/])/((?:extended-library:)?[A-Za-z][A-Za-z0-9_-]*)(?![\w/])"
+)
+FILE_EXT_RE = re.compile(
+    r"\.(sh|md|py|json|jsonl|ya?ml|dot|txt|log|toml|ts|js|html|png|mp4)\b"
+)
 
 NON_COMMAND_TOKENS = {
     "tmp", "dev", "null", "api", "src", "lib", "bin", "etc", "var", "usr", "opt",
     "home", "root", "proc", "sys", "boot", "projects", "backend", "frontend",
     "tests", "test", "docs", "scripts", "config", "utils", "services", "agents",
     "models", "tools", "hooks", "commands", "github", "v1", "v2", "venv", "json",
+    "rate-limit-options", "STATE", "workflows", "code", "no", "install", "reviewer",
+    "pipeline", "Users", "Applications", "Library", "System", "Volumes",
 }
 
 
