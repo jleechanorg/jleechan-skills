@@ -124,10 +124,25 @@ class ApprovalContractsTest(unittest.TestCase):
         self.assertIn("Codex + Opus CLI", command)
         self.assertIn("/research", command)
         self.assertIn("/extended-library:secondo", command)
-        self.assertIn("/web-advice", command)
-        self.assertIn("up to five reviewers concurrently", readme)
+        self.assertNotIn("/web-advice", command)
+        self.assertNotIn("/web-advice", advice)
+        self.assertNotIn("Reviewer D", advice)
+        self.assertIn("up to four reviewers concurrently", readme)
         self.assertIn("`/extended-library:secondo`", readme)
         self.assertNotIn("up to four reviewers concurrently: an Opus subagent", readme)
+
+    def test_ready_requires_advice_without_web_advice_fanout(self) -> None:
+        ready = skill("ready")
+        draft_first = skill("draft-first-pr")
+        advice = skill("advice")
+        web_advice_command = (COMMANDS / "web-advice.md").read_text()
+
+        self.assertIn("/advice\napproved", (COMMANDS / "ready.md").read_text())
+        self.assertIn("**/advice**", ready)
+        self.assertIn("→ /advice APPROVED @ SHA", draft_first)
+        self.assertNotIn("/web-advice", advice)
+        self.assertNotIn("Reviewer D", advice)
+        self.assertIn("canonical skill", web_advice_command)
 
     def test_web_advice_requires_real_browser_transport(self) -> None:
         web_adv = skill("web-advice")

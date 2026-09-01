@@ -1,6 +1,6 @@
 ---
 name: advice
-description: "Token-efficient second opinion slash command /advice. Extracts the decision point plus a pointer to the change (PR / ref / paths) so each reviewer reads the code itself, then fans out in parallel to up to five reviewers: (1) Codex + Opus CLI reviewers launched concurrently as the primary pair, (2) fallback chain claude -p→cursor→agy if neither primary reviewer returns a verdict, (3) /research on the decision topic, (4) /secondo multi-model opinion, (5) /web-advice browser review. Reviewers A and B are the portable core; C and D need personal infrastructure and are skipped when unavailable. Use instead of advisor() which ships the full conversation uncached."
+description: "Token-efficient second opinion slash command /advice. Extracts the decision point plus a pointer to the change (PR / ref / paths) so each reviewer reads the code itself, then fans out in parallel to up to four reviewers: (1) Codex + Opus CLI reviewers launched concurrently as the primary pair, (2) fallback chain claude -p→cursor→agy if neither primary reviewer returns a verdict, (3) /research on the decision topic, (4) /secondo multi-model opinion. Reviewers A and B are the portable core; C needs personal infrastructure and is skipped when unavailable. Use instead of advisor() which ships the full conversation uncached."
 ---
 
 # /advice — Token-Efficient Second Opinion
@@ -19,7 +19,7 @@ From the current conversation, extract:
 
 If no specific question was passed, infer from most recent context.
 
-**Send the pointer, not a transcription.** Every reviewer transport in Step 2 is an *agent* that can read the repo for itself — Codex and Opus run in independent exact-SHA clones, `cursor -p` has access to write and shell tools, `agy`/`claude -p` run with permissions pre-approved, `/secondo` gathers its own `git diff origin/main...HEAD`, and `/web-advice` inspects the PR directly. Handing them a pre-chewed excerpt does not save them a fetch; it *removes* their ability to look. Give the pointer and let each one pull the context it decides it needs.
+**Send the pointer, not a transcription.** Every reviewer transport in Step 2 is an *agent* that can read the repo for itself — Codex and Opus run in independent exact-SHA clones, `cursor -p` has access to write and shell tools, `agy`/`claude -p` run with permissions pre-approved, and `/secondo` gathers its own `git diff origin/main...HEAD`. Handing them a pre-chewed excerpt does not save them a fetch; it *removes* their ability to look. Give the pointer and let each one pull the context it decides it needs.
 
 ### The inline-artifact fallback (≤150 lines) — narrow, and it caps the verdict
 
@@ -29,7 +29,7 @@ Inline an artifact only when the reviewer genuinely cannot fetch: no repo access
 
 ## Step 2: Fan out the reviewers in parallel
 
-Spawn every available reviewer in a single message. **A and B are the portable core** — they work on any machine. **C and D depend on personal infrastructure** and are skipped, not faked, when unavailable.
+Spawn every available reviewer in a single message. **A and B are the portable core** — they work on any machine. **C depends on personal infrastructure** and is skipped, not faked, when unavailable.
 
 ---
 
@@ -223,7 +223,7 @@ A-leg verdict if any of A3.1 / A3.2 / A3.3 is on PATH. The fallback chain is
 gated on "unavailable OR error" — not error alone — so a fully bare host with
 just `claude -p` installed still produces a verdict. If every leg (A1 + A2 +
 A3.1 + A3.2 + A3.3) is unavailable, mark **A unavailable (no agent binary on
-host)** and continue with B / C / D.
+host)** and continue with B / C.
 
 **A — solo-mode rule:** If only ONE of {Codex, Opus} is available (the other
 binary / model is missing or errors immediately at dispatch), run whichever
@@ -252,16 +252,6 @@ Requires the AI-Universe MCP endpoint (`AI_UNIVERSE_MCP_ENDPOINT`) and its OAuth
 
 ---
 
-**Reviewer D — Web Advice (optional — needs infrastructure):**
-
-Invoke `/web-advice` with the decision and declared review scope. Require its
-synthesis to report `COVERAGE: <files/diff scope actually read>` before it can
-vote in this approval quorum.
-
-Requires live authenticated browser sessions. `/web-advice` carries its own HARD-FAIL contract: with no live transport it STOPs rather than substituting. **That STOP is scoped to Reviewer D, not to `/advice`** — mark **D unavailable** and continue with the remaining reviewers. Never satisfy D with an API, CLI, or subagent: an unavailable D is correct, a faked D is a method-fidelity violation.
-
----
-
 ## Step 3: Synthesize
 
 Present:
@@ -273,7 +263,6 @@ Present:
 | A2 Opus     | ...                  | ...                 | high/med/low |
 | B Research  | [consensus finding]  | [main caveat]       | —          |
 | C Secondo   | ...                  | ...                 | —          |
-| D Web Advice| ...                  | ...                 | —          |
 ```
 
 - Give every reviewer a row, including the ones that failed — write `unavailable (<reason>)` in the Verdict column. Never drop a row; a missing row hides a missing opinion.
@@ -284,7 +273,7 @@ Present:
 ## Quorum — what you are allowed to conclude (mandatory)
 
 **The orchestrating agent and research-only output are not approval reviewers.**
-They write or inform the table; they do not vote. Only A, C, and D count toward
+They write or inform the table; they do not vote. Only A and C count toward
 approval quorum, and each must declare `COVERAGE` after reading the change.
 
 | Independent full-coverage reviewers that returned a verdict | What you may emit |
@@ -332,7 +321,6 @@ What `/advice` saves is **the conversation**, not the change. `advisor()` ships 
 | A2 Opus CLI | Decision + pointer (reviewer fetches the rest) |
 | B — /research | Web queries only |
 | C — /secondo | Decision; it gathers its own diff under its own budget |
-| D — /web-advice | Decision + PR reference, per its own budget |
 
 Do not cite a percentage saving — none has ever been measured here. And do not shrink the pointer to buy tokens: sending a 349-line diff is nothing like sending an 80K-token transcript, so trading review coverage for that margin is a bad trade in the only direction that matters.
 
