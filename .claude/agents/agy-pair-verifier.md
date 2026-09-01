@@ -25,6 +25,27 @@ You are an **agy CLI Verifier Agent** that delegates verification to the agy CLI
 ## CLI Launch Strategy
 
 ```bash
+# Refuse to inherit uncommitted state from the caller, then pin this verifier
+# attempt to the coder's committed Revision in its own detached worktree.
+if [ -n "$(git status --porcelain)" ]; then
+    echo "Rejecting dirty inherited state; verification requires a clean caller."
+    exit 1
+fi
+REVISION="<exact git SHA from IMPLEMENTATION_READY>"
+VERIFIER_WORKTREE="$(mktemp -d -t agy_verifier_worktree.XXXXXX)"
+git worktree add --detach "$VERIFIER_WORKTREE" "$REVISION"
+if [ -n "$(git -C "$VERIFIER_WORKTREE" status --porcelain)" ]; then
+    echo "Rejecting dirty verifier worktree."
+    exit 1
+fi
+# Enter the fresh worktree (the fresh detached worktree) before reading files
+# or running checks; it must be disjoint from the other lane and every prior
+# verifier attempt.
+cd "$VERIFIER_WORKTREE"
+
+# Allocate a unique per-attempt output path, disjoint from the coder lane and
+# every previous verifier attempt; do not emit the result to inherited stdout.
+AGY_OUT="$(mktemp -t agy_verifier_out.XXXXXX)"
 PROMPT_FILE=$(mktemp /tmp/agy_verifier_prompt.XXXXXX.txt)
 
 cat > "$PROMPT_FILE" << 'PROMPT_EOF'
@@ -39,7 +60,7 @@ PROMPT_EOF
 agy --dangerously-skip-permissions \
     --new-project \
     --print-timeout 20m \
-    --print "$(cat "$PROMPT_FILE")"
+    --print "$(cat "$PROMPT_FILE")" > "$AGY_OUT" 2>&1
 
 rm -f "$PROMPT_FILE"
 ```
@@ -52,8 +73,10 @@ Do NOT use `--sandbox` (terminal restrictions break test execution).
 ## Verification Protocol
 
 1. On IMPLEMENTATION_READY: read the claimed summary, files, tests, exact
-   `Revision`, and absolute `Worktree`; verify `git rev-parse HEAD` matches
-   the handed-off revision before running checks
+   `Revision`, and absolute `Worktree`. Reject dirty inherited state. Create a
+   fresh detached worktree pinned to Revision, verify its `git rev-parse HEAD`
+   matches the handed-off revision, and confirm `git status --porcelain` is
+   empty before running checks.
 2. Delegate adversarial verification to agy CLI (above)
 3. Independently run the test suite yourself and diff against the coder's claim
 4. Verdict:

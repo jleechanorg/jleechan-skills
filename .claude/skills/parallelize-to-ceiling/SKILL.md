@@ -156,6 +156,13 @@ attempt, and the verifier must independently rerun focused checks before signali
 Every retry uses a fresh worktree and unique output/log paths. Start a fresh
 `agy --new-project` invocation for every attempt; never pass a conversation-
 resume option or use an equivalent conversation-reuse mechanism.
+The initial coder and verifier attempts must allocate and enter fresh,
+per-lane worktrees and unique per-attempt output paths before invoking AGY;
+each worktree and output path must be disjoint from the other lane and all
+previous attempts. `Revision` is the committed clean implementation revision:
+the coder must make a final scoped commit and confirm its worktree is clean
+before sending IMPLEMENTATION_READY. The verifier must reject dirty inherited
+state and verify in a fresh detached worktree pinned to `Revision`.
 
 ## Codex model routing
 
