@@ -1,12 +1,42 @@
-# Transient beads runtime state - never commit
-*.lock
-*.lock.*
+# Database
+*.db
+*.db-journal
+*.db-shm
+# -wal plus fsqlite 0.2+'s -wal-cert / -wal-cert-head durability sidecars
+*.db-wal*
+# fsqlite multi-process namespace sidecars (-fsqlite-ns-gate / -fsqlite-ns-use),
+# including the `.<db>.schema-migration-<run>.vacuum-*` copies left by
+# `br doctor migrate-schema` (#427)
 *-fsqlite-ns-gate
 *-fsqlite-ns-use
+*.vacuum-wal-cert*
 *.vacuum-fsqlite-ns-gate
 *.vacuum-fsqlite-ns-use
-beads.db-shm
-beads.db-wal
-.sync.lock
+# fsqlite 0.3.6+ engine-upgrade bookkeeping written beside the database
+*.fsqlite-migration-state
+*.pre-migration-bak*
+# Lock files
+.write.lock
+*.lock
+*.lock.*
+# Temporary
+last-touched
+*.tmp
+# Local history backups
 .br_history/
+# DB-family recovery artifacts (truncated WAL/SHM, quarantined sidecars)
 .br_recovery/
+# Sync state (local-only, per-machine)
+.sync.lock
+sync_base.jsonl
+# Merge artifacts (temporary files from 3-way merge)
+beads.base.jsonl
+beads.base.meta.json
+beads.left.jsonl
+beads.left.meta.json
+beads.right.jsonl
+beads.right.meta.json
+# Daemon runtime files
+daemon.lock
+daemon.log
+daemon.pid
