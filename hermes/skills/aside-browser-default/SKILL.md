@@ -18,7 +18,7 @@ context: hermes
 | `mcp__playwright-mcp` | Fallback | Only when Aside CLI is unavailable, or for Playwright-specific fixtures (trace viewer, `--isolated` profile mode, video recording) |
 | `mcp__plugin-superpowers-chrome__chrome_use_browser` | Fallback | Only when Chrome-specific behavior is required (e.g., you need Chrome's exact `--user-data-dir` semantics for a particular test) |
 
-**Explicit opt-in phrases only:** Jeffrey says *"show browser"*, *"headed mode"*, *"visible browser"*, or *"I want to see the window"* in the **current thread**. Aside supports both headed and headless modes; the agent picks based on the opt-in.
+**Explicit opt-in phrases only:** Jeffrey says *"show browser"*, *"headed mode"*, *"visible browser"*, or *"I want to see the window"* in the **current thread**. Aside drives a real GUI browser session and is not headless. Without opt-in, use Aside only when its existing session can be driven without surfacing a new window; otherwise use the guarded Playwright Chromium headless fallback.
 
 ## Why Aside
 
@@ -158,7 +158,7 @@ curl -fsSL https://releases.aside.com/install.sh | bash
 ## Anti-patterns (BANNED)
 
 - ❌ Calling `mcp__playwright-mcp__*` as a first resort without checking Aside first
-- ❌ Calling `show_browser` / headed mode without explicit opt-in (Aside supports both, but the headless-only default still applies)
+- ❌ Calling `show_browser` / headed mode without explicit opt-in (Aside is a real GUI browser — not headless — and the headless-only default applies only when falling back to Playwright or `browserclaw`)
 - ❌ Spawning a fresh Playwright Chromium per agent call (Aside's persistent daemon is faster + more stateful)
 - ❌ Using `mcp__claude-in-chrome__*` for any browser work (requires extension, fails headless/CI)
 - ❌ Assuming Chrome Default cookies reflect the user's actual session — **Aside and Chrome have INDEPENDENT cookie DBs** (different Safe Storage keychains, different file paths). A user logged into `app.monarch.com` via Aside may have ZERO cookies for it in Chrome's `Default/Cookies`, yet the full session lives in `~/Library/Application Support/Aside/Default/Cookies`. Before declaring "no auth," sweep `browserclaw cookies decrypt --db <aside-db> --keychain-service 'Aside Safe Storage' --keychain-account 'Aside'` (verified 2026-07-22: 10 valid `.api.monarch.com` cookies including `session_id` + `csrftoken` lived in Aside's DB; Chrome's profile had zero). See `references/aside-cookie-portability.md` for the full multi-DB sweep pattern.
