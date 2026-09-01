@@ -5,7 +5,7 @@
 
 ---
 
-## Inventory of Archived Commands (11 Total)
+## Inventory of Archived Commands (12 Total)
 
 ### 1. Sunsetted Roadmap/Subagent Launcher Commands
 - `/agentor`: alias entry — see `.claude/commands/extended-library/agento_report.md` frontmatter, unrelated to AO
@@ -23,6 +23,9 @@
 - `/idice`: Legacy WorldAI dice campaign inspector
 - `/investigatedice`: Legacy WorldAI dice campaign inspector
 - `/topcampaigns`: Legacy WorldAI campaign rankings
+
+### 4. Superseded Test-Quality Tooling
+- `/fake3`: Branch-focused iterative fake code detection, superseded by `/fake`/`/fakel`. Verified zero repo callers on 2026-09-02.
 
 ---
 
