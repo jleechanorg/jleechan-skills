@@ -367,6 +367,14 @@ mv ~/.claude/commands_archive/2026-08-27-historical-zero-use/extended-library/<n
 
 Start a fresh client session after restoration so discovery is recomputed.
 
+## Archive dependency and migration closure lesson
+
+PR [#376](https://github.com/jleechanorg/jleechan-skills/pull/376) and bead `bd-7nx` capture critical lessons for skill and command lifecycle management:
+
+1. **Dependency and Caller Closure Scan**: Archive selection must not rely purely on observed inactivity or tool usage logs. It must rigorously audit active skill-to-command references, inter-skill dependencies, global operating contracts, and test contracts.
+2. **Transactional and Race-Safe Migration**: Home directory migration during `--merge --migrate-archives` must operate transactionally using an exclusive directory lock with trap-based cleanup, preflight collision checks that fail closed without overwriting existing archive targets, and rollback on partial failure.
+3. **Cross-Platform Filesystem Node Identity**: Filesystem node identity checks must account for differences between GNU and BSD utilities (`stat -c '%d:%i'` on Linux vs `stat -f '%d:%i'` on macOS/BSD), encapsulated in the installer's `path_identity` helper.
+
 ## Verification
 
 ```bash
