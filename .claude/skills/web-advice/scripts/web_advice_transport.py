@@ -70,11 +70,11 @@ class WebAdviceHardFail(Exception):
     """
 
 
-# Ladder order matters. Aside remains primary. The Chrome-cookie rung is the
-# first backup because a 2026-08-25 live probe proved an authenticated Gemini
-# response through system Chrome headless; portable Playwright and the more
-# operator-dependent CDP/extension routes follow.
-_LADDER = (
+# Ladder order is runtime-specific. An interactive app owns its browser state;
+# a CLI run gets a new direct system-Chrome headless context so a shared GUI
+# conversation cannot contaminate its review provenance.
+_APP_LADDER = (
+    ("builtin_browser", "builtin_browser"),
     ("aside_mcp", "aside_mcp"),
     ("aside_repl", "aside_repl"),
     ("chrome_headless_cookies", "chrome_headless_cookies"),
@@ -83,29 +83,42 @@ _LADDER = (
     ("chrome_extension", "chrome_extension"),
 )
 
+_CLI_LADDER = (
+    ("chrome_headless_cookies", "chrome_headless_cookies"),
+    ("playwright_mcp", "playwright_mcp"),
+    ("chrome_headless_cdp", "chrome_headless_cdp"),
+)
 
-def resolve_transport_ladder(probe_results: dict) -> str:
+
+def resolve_transport_ladder(probe_results: dict, runtime: str = "app") -> str:
     """Return the highest-priority live transport, or hard-fail.
 
     Args:
-        probe_results: dict with any subset of the boolean keys
-            {aside_mcp, aside_repl, chrome_headless_cookies, playwright_mcp,
-            chrome_headless_cdp, chrome_extension}.
+        probe_results: dict with any subset of the approved transport keys.
             Missing keys are treated as False (probe not run / not live).
+        runtime: ``app`` prefers an owned built-in browser; ``cli`` selects an
+            isolated direct headless-Chrome route.
 
     Returns:
-        The highest-priority live real-browser transport from ``_LADDER``.
+        The highest-priority live real-browser transport from the runtime's
+        approved ladder.
 
     Raises:
+        ValueError: when ``runtime`` is not 'app' or 'cli'.
         WebAdviceHardFail: when every probe is false/missing. Per the
         HARD-FAIL CONTRACT this must stop the review, not fall back to a
         banned substitute (provider API / CLI model / subagent / WebSearch).
     """
-    for probe_key, transport_name in _LADDER:
+    ladders = {"app": _APP_LADDER, "cli": _CLI_LADDER}
+    if runtime not in ladders:
+        raise ValueError(f"Unsupported /web-advice runtime: {runtime!r}")
+
+    ladder = ladders[runtime]
+    for probe_key, transport_name in ladder:
         if probe_results.get(probe_key):
             return transport_name
 
-    probed = ", ".join(f"{k}={probe_results.get(k, False)}" for k, _ in _LADDER)
+    probed = ", ".join(f"{k}={probe_results.get(k, False)}" for k, _ in ladder)
     raise WebAdviceHardFail(
         "No live /web-advice transport ("
         f"{probed}). HARD FAIL per the /web-advice contract: real browser "
@@ -160,7 +173,7 @@ _BANNED_SUBSTITUTES = frozenset(
     }
 )
 
-_PRIMARY_TRANSPORTS = frozenset({"aside_mcp", "aside_repl"})
+_PRIMARY_TRANSPORTS = frozenset({"builtin_browser", "aside_mcp", "aside_repl"})
 _BROWSER_BACKUP_TRANSPORTS = frozenset(
     {
         "chrome_headless_cookies",
@@ -170,7 +183,9 @@ _BROWSER_BACKUP_TRANSPORTS = frozenset(
     }
 )
 _ALLOWED_TRANSPORTS = _PRIMARY_TRANSPORTS | _BROWSER_BACKUP_TRANSPORTS
-_FALLBACK_REASONS = frozenset({"aside_unavailable", "unsupported_platform"})
+_FALLBACK_REASONS = frozenset(
+    {"aside_unavailable", "unsupported_platform", "aside_upload_unavailable"}
+)
 
 
 def _normalize_mechanism(mechanism: str) -> str:
@@ -211,7 +226,8 @@ def assert_allowed_transport(
         if normalized_reason not in _FALLBACK_REASONS:
             raise WebAdviceHardFail(
                 f"Browser backup transport {mechanism!r} requires "
-                "fallback_reason=aside_unavailable or unsupported_platform. "
+                "fallback_reason=aside_unavailable, unsupported_platform, or "
+                "aside_upload_unavailable. "
                 "Probe and prefer aside-mcp/aside repl when they are usable."
             )
 
@@ -399,10 +415,22 @@ def assert_packet_attachments_verified(expected: dict, reported: dict) -> None:
     reported = reported or {}
     expected_attachments = expected.get("packet_attachments") or {}
     reported_attachments = reported.get("packet_attachments") or {}
+    visible_names = reported.get("visible_attachment_names") or []
     if not expected_attachments or reported_attachments != expected_attachments:
         raise PacketAttachmentsNotVerifiedError(
             "Browser packet attachment inventory mismatch: "
             f"expected={expected_attachments!r}, reported={reported_attachments!r}"
+        )
+    if (
+        reported.get("upload_verified") is not True
+        or set(visible_names) != set(expected_attachments)
+        or len(visible_names) != len(expected_attachments)
+    ):
+        raise PacketAttachmentsNotVerifiedError(
+            "Browser packet attachment names were not visibly verified: "
+            f"expected={sorted(expected_attachments)!r}, "
+            f"visible={visible_names!r}, "
+            f"upload_verified={reported.get('upload_verified')!r}"
         )
 
 
@@ -643,10 +671,20 @@ def seat_accounting(seats: dict) -> str:
 # ---------------------------------------------------------------------------
 
 
+def format_conversation_title(subject: str) -> str:
+    """Format a web chat conversation title with the [web advice] prefix."""
+    cleaned = subject.strip()
+    if cleaned.startswith("[web advice]"):
+        return cleaned
+    return f"[web advice] {cleaned}"
+
+
 def build_visual_prompt(claim: str, frame_names: list) -> str:
     """Build the description-FIRST visual-evidence review prompt (lesson 6).
 
     Models that cannot ingest video (Perplexity) CAN ingest images.
+    The prompt starts with the `[web advice]` conversation title prefix so
+    browser chat histories remain distinguishable from normal conversations.
     The correct prompt shape demands, in this fixed order:
       1. literal pixel description of each frame (before any verdict)
       2. what changed between frames
@@ -666,7 +704,7 @@ def build_visual_prompt(claim: str, frame_names: list) -> str:
     """
     frame_list = "\n".join(f"- {name}" for name in frame_names)
 
-    return f"""You are reviewing frames of visual evidence for the following claim:
+    return f"""[web advice] You are reviewing frames of visual evidence for the following claim. Title this conversation starting with "[web advice] {claim}".
 
 CLAIM: {claim}
 
