@@ -148,27 +148,29 @@ The `FALLBACK` template above is governed by this order:
 
 ## Isolation contract
 
-Coder and verifier remain distinct lanes and contexts. Every attempt,
-including initial execution and each retry, uses a fresh workspace and output
-disjoint from both coder and verifier lanes and from all previous attempts.
+Coder and verifier remain distinct lanes and contexts. The orchestrating caller
+decides whether each lane and retry operates in an allocated detached worktree
+or directly within the caller's workspace. Every attempt, including initial
+execution and each retry, uses a fresh workspace (either an allocated detached
+worktree or caller-provided clean workspace) and unique output/log paths disjoint
+from both coder and verifier lanes and from all previous attempts.
 Attempts must not read or reuse partial files, logs, or outputs from another
 attempt, and the verifier must independently rerun focused checks before signaling completion.
-Every retry uses a fresh worktree and unique output/log paths. Start a fresh
-`agy --new-project` invocation for every attempt; never pass a conversation-
-resume option or use an equivalent conversation-reuse mechanism.
-Each coder retry must carry the exact prior `Revision`, pin a newly allocated
-fresh worktree to that revision before making changes, rerun focused checks,
-and finish with an explicit scoped commit plus an empty status before sending
-the next handoff. Verifier retries must carry the exact handed-off `Revision`,
-allocate a fresh detached worktree pinned to that revision, rerun focused
-checks read-only, and never modify files or create a commit.
-The initial coder and verifier attempts must allocate and enter fresh,
+When worktree isolation is used, every retry uses a fresh detached worktree and
+unique output/log paths. Start a fresh `agy --new-project` invocation for every
+attempt; never pass a conversation-resume option or use an equivalent conversation-reuse mechanism.
+Each coder retry must carry the exact prior `Revision`, pin its workspace to
+that revision before making changes, rerun focused checks, and finish with an
+explicit scoped commit plus an empty status before sending the next handoff.
+Verifier retries must carry the exact handed-off `Revision`, pin their workspace
+to that revision, rerun focused checks read-only, and never modify files or create a commit.
+When worktree isolation is allocated, coder and verifier attempts enter fresh,
 per-lane worktrees and unique per-attempt output paths before invoking AGY;
 each worktree and output path must be disjoint from the other lane and all
 previous attempts. `Revision` is the committed clean implementation revision:
 the coder must make a final scoped commit and confirm its worktree is clean
 before sending IMPLEMENTATION_READY. The verifier must reject dirty inherited
-state and verify in a fresh detached worktree pinned to `Revision`.
+state and verify against `Revision`.
 
 ## Codex model routing
 

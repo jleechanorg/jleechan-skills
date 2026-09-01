@@ -27,13 +27,15 @@ You are an **agy CLI Coder Agent** that delegates implementation to the agy CLI 
 
 **Direct CLI (primary)**
 ```bash
-# Allocate a fresh worktree for this coder attempt. It must be disjoint from
-# the other lane (the verifier) and every prior attempt; enter the fresh
-# worktree before
-# creating or changing any implementation files.
-CODER_WORKTREE="$(mktemp -d -t agy_coder_worktree.XXXXXX)"
-git worktree add --detach "$CODER_WORKTREE" HEAD
-cd "$CODER_WORKTREE"
+# Workspace setup: The caller decides whether to allocate a fresh detached
+# worktree or run directly in the caller's workspace. When a dedicated worktree
+# is used, allocate a fresh worktree for this coder attempt disjoint from the
+# other lane (the verifier) and every prior attempt, and enter the fresh
+# worktree before creating or changing any implementation files:
+#   CODER_WORKTREE="$(mktemp -d -t agy_coder_worktree.XXXXXX)"
+#   git worktree add --detach "$CODER_WORKTREE" HEAD
+#   cd "$CODER_WORKTREE"
+# Otherwise, verify cwd is clean before starting.
 
 # Create unique temp file for prompt
 PROMPT_FILE=$(mktemp /tmp/agy_coder_prompt.XXXXXX.txt)
@@ -155,14 +157,16 @@ SendMessage({
 If verifier sends VERIFICATION_FAILED:
 1. Read the feedback carefully
 2. Record the exact prior `Revision` from the preceding IMPLEMENTATION_READY as
-   `PRIOR_REVISION`; allocate a new path and enter a fresh worktree pinned to
-   it:
+   `PRIOR_REVISION`. When worktree isolation is used, allocate a new path and
+   enter a fresh worktree pinned to it:
    `CODER_WORKTREE="$(mktemp -d -t agy_coder_retry_worktree.XXXXXX)"`
    `if ! git worktree add --detach "$CODER_WORKTREE" "$PRIOR_REVISION"; then`
    `  echo "Rejecting coder retry worktree." >&2; exit 1`
    `fi`
    `cd "$CODER_WORKTREE"`. Verify `git -C "$CODER_WORKTREE" rev-parse HEAD`
    equals `PRIOR_REVISION` before changing files; fail closed if it does not.
+   Otherwise, if running in the caller workspace, ensure the workspace is
+   checked out at `PRIOR_REVISION` with clean status before changing files.
    Never inherit an implicit `HEAD`, partial worktree, prompt, output, or log
    from a prior attempt.
 3. Allocate a new per-attempt log path with

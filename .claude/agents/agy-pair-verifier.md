@@ -32,8 +32,7 @@ mkdir -p "$LOG_DIR"
 LOG="$(mktemp "$LOG_DIR/verifier-attempt.XXXXXX.log")"
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] [START] Verification attempt started" >> "$LOG"
 
-# Refuse to inherit uncommitted state from the caller, then pin this verifier
-# attempt to the coder's committed Revision in its own detached worktree.
+# Refuse to inherit uncommitted state from the caller.
 if ! INHERITED_STATUS="$(git status --porcelain)"; then
     echo "Rejecting unreadable inherited state; verification requires a readable status."
     exit 1
@@ -43,6 +42,11 @@ if [ -n "$INHERITED_STATUS" ]; then
     exit 1
 fi
 REVISION="<exact git SHA from IMPLEMENTATION_READY>"
+
+# Workspace setup: The caller decides whether to allocate a dedicated detached
+# worktree or verify directly in the caller's workspace.
+# When worktree isolation is used, pin this verifier attempt to Revision in its
+# own fresh detached worktree:
 VERIFIER_WORKTREE="$(mktemp -d -t agy_verifier_worktree.XXXXXX)"
 if ! git worktree add --detach "$VERIFIER_WORKTREE" "$REVISION"; then
     echo "Rejecting verifier worktree creation."
@@ -110,10 +114,10 @@ Do NOT use `--sandbox` (terminal restrictions break test execution).
 ## Verification Protocol
 
 1. On IMPLEMENTATION_READY: read the claimed summary, files, tests, exact
-   `Revision`, and absolute `Worktree`. Reject dirty inherited state. Create a
-   fresh detached worktree pinned to Revision, verify its `git rev-parse HEAD`
-   must equal `$REVISION`, and confirm `git status --porcelain` is
-   empty before running checks.
+   `Revision`, and absolute `Worktree`. Reject dirty inherited state. When
+   worktree isolation is used, create a fresh detached worktree pinned to
+   Revision, verify its `git rev-parse HEAD` must equal `$REVISION`, and
+   confirm `git status --porcelain` is empty before running checks.
 2. Delegate adversarial verification to agy CLI (above)
 3. Independently run the test suite yourself and diff against the coder's claim
 4. Verdict:
@@ -123,10 +127,11 @@ Do NOT use `--sandbox` (terminal restrictions break test execution).
 
 ### Retry handling
 
-Every verifier retry must allocate a fresh detached worktree pinned to the
-handed-off `Revision`, verify that checked-out revision, and rerun focused
-checks read-only. Never modify files or create a commit during verifier
-retries; only the coder retry may commit a revised implementation.
+Every verifier retry carries the handed-off `Revision`, verifies that
+checked-out revision (allocating a fresh detached worktree pinned to Revision
+when worktree isolation is used), and reruns focused checks read-only. Never
+modify files or create a commit during verifier retries; only the coder retry
+may commit a revised implementation.
 
 ## Communication Protocol
 

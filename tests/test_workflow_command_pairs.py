@@ -113,8 +113,10 @@ class WorkflowCommandPairTest(unittest.TestCase):
         normalized_skill = " ".join(skill.split())
         self.assertIn(
             "Every attempt, including initial execution and each retry, uses a "
-            "fresh workspace and output disjoint from both coder and verifier "
-            "lanes and from all previous attempts.",
+            "fresh workspace (either an allocated detached worktree or "
+            "caller-provided clean workspace) and unique output/log paths "
+            "disjoint from both coder and verifier lanes and from all previous "
+            "attempts.",
             normalized_skill,
         )
 
@@ -156,7 +158,7 @@ class WorkflowCommandPairTest(unittest.TestCase):
                 self.assertNotIn("--conversation", content)
         normalized_skill = " ".join(skill.split())
         self.assertIn(
-            "Every retry uses a fresh worktree and unique output/log paths",
+            "every retry uses a fresh detached worktree and unique output/log paths",
             normalized_skill,
         )
         self.assertIn("fresh `agy --new-project`", normalized_skill)
@@ -355,11 +357,11 @@ class WorkflowCommandPairTest(unittest.TestCase):
         ).read_text(encoding="utf-8")
         normalized_verifier = " ".join(verifier.split())
         self.assertIn(
-            "Every verifier retry must allocate a fresh detached worktree pinned to the handed-off `Revision`",
+            "Every verifier retry carries the handed-off `Revision`",
             normalized_verifier,
         )
         self.assertIn(
-            "rerun focused checks read-only",
+            "reruns focused checks read-only",
             normalized_verifier,
         )
         self.assertIn(
