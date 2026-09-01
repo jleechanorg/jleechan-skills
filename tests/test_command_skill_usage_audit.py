@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import json
+import tempfile
+import unittest
 from pathlib import Path
-
-import pytest
 
 from scripts.audit_command_skill_usage import audit, digest
 
@@ -106,181 +106,196 @@ def build_audit_fixture(
     return man_file
 
 
-def test_reachability_and_closure_fixtures(tmp_path: Path) -> None:
-    """Validate reachability discovery for /af, /4layer, browserclaw, aar, repro, backend-first, and callpath."""
-    manifest = build_audit_fixture(tmp_path, events=[])
-    out_dir = tmp_path / "out"
-    audit(manifest, out_dir, repo_root=tmp_path, ignore_scanner_hash=True)
+class CommandSkillUsageAuditTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.tmp_path = Path(self.temp_dir.name)
 
-    skills_res = json.loads((out_dir / "skill-usage-30d.json").read_text())
-    skills_map = {r["skill"]: r for r in skills_res["skills"]}
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
 
-    # Verify command-to-skill reachability links
-    assert "dark-factory" in skills_map
-    assert "f" in skills_map["dark-factory"]["reachable_from_commands"]
+    def test_reachability_and_closure_fixtures(self) -> None:
+        """Validate reachability discovery for /af, /4layer, browserclaw, aar, repro, backend-first, and callpath."""
+        manifest = build_audit_fixture(self.tmp_path, events=[])
+        out_dir = self.tmp_path / "out"
+        audit(manifest, out_dir, repo_root=self.tmp_path, ignore_scanner_hash=True)
 
-    assert "4layer" in skills_map
-    assert "extended-library:4layer" in skills_map["4layer"]["reachable_from_commands"]
-    assert "extended-library:4layer" in skills_map["pr-blocker-min-repro"]["reachable_from_commands"]
-    assert "extended-library:4layer" in skills_map["integration-verification"]["reachable_from_commands"]
+        skills_res = json.loads((out_dir / "skill-usage-30d.json").read_text())
+        skills_map = {r["skill"]: r for r in skills_res["skills"]}
 
-    assert "browserclaw" in skills_map
-    assert "browserclaw" in skills_map["browserclaw"]["reachable_from_commands"]
+        # Verify command-to-skill reachability links
+        self.assertIn("dark-factory", skills_map)
+        self.assertIn("f", skills_map["dark-factory"]["reachable_from_commands"])
 
-    assert "repro-evidence" in skills_map
-    assert "repro" in skills_map["repro-evidence"]["reachable_from_commands"]
+        self.assertIn("4layer", skills_map)
+        self.assertIn("extended-library:4layer", skills_map["4layer"]["reachable_from_commands"])
+        self.assertIn("extended-library:4layer", skills_map["pr-blocker-min-repro"]["reachable_from_commands"])
+        self.assertIn("extended-library:4layer", skills_map["integration-verification"]["reachable_from_commands"])
 
-    assert "backend-first" in skills_map
-    assert "backend-first" in skills_map["backend-first"]["reachable_from_commands"]
+        self.assertIn("browserclaw", skills_map)
+        self.assertIn("browserclaw", skills_map["browserclaw"]["reachable_from_commands"])
 
-    assert "callpath" in skills_map
-    assert "extended-library:callpath" in skills_map["callpath"]["reachable_from_commands"]
+        self.assertIn("repro-evidence", skills_map)
+        self.assertIn("repro", skills_map["repro-evidence"]["reachable_from_commands"])
 
-    assert "accept-adapt-reject" in skills_map
-    assert "extended-library:aar" in skills_map["accept-adapt-reject"]["reachable_from_commands"]
+        self.assertIn("backend-first", skills_map)
+        self.assertIn("backend-first", skills_map["backend-first"]["reachable_from_commands"])
+
+        self.assertIn("callpath", skills_map)
+        self.assertIn("extended-library:callpath", skills_map["callpath"]["reachable_from_commands"])
+
+        self.assertIn("accept-adapt-reject", skills_map)
+        self.assertIn("extended-library:aar", skills_map["accept-adapt-reject"]["reachable_from_commands"])
+
+    def test_static_reachability_never_claims_execution(self) -> None:
+        """Static reachability must classify as reachability_only, NOT as positive execution evidence."""
+        manifest = build_audit_fixture(self.tmp_path, events=[])
+        out_dir = self.tmp_path / "out"
+        audit(manifest, out_dir, repo_root=self.tmp_path, ignore_scanner_hash=True)
+
+        skills_res = json.loads((out_dir / "skill-usage-30d.json").read_text())
+        skills_map = {r["skill"]: r for r in skills_res["skills"]}
+
+        layer_skill = skills_map["4layer"]
+        self.assertEqual(layer_skill["explicit_skill_selections"], 0)
+        self.assertTrue(layer_skill["reachability_only"])
+        self.assertFalse(layer_skill["positive_evidence"])
+        self.assertFalse(layer_skill["archive_eligible_from_usage_alone"])
+
+        unreached = skills_map["unreached-skill"]
+        self.assertEqual(unreached["explicit_skill_selections"], 0)
+        self.assertFalse(unreached["reachability_only"])
+        self.assertTrue(unreached["no_evidence_in_source"])
+        self.assertFalse(unreached["positive_evidence"])
+        self.assertFalse(unreached["archive_eligible_from_usage_alone"])
+
+    def test_alias_resolution_and_provenance(self) -> None:
+        """Validate that invocations via aliases (/af, /aar) resolve to canonical targets with alias attribution."""
+        events = [
+            {
+                "event_id": "e1",
+                "timestamp": "2026-08-01T12:00:00Z",
+                "kind": "command_candidate",
+                "prompt_source": "typed",
+                "origin_kind": "human",
+                "leading_slash": "af",
+            },
+            {
+                "event_id": "e2",
+                "timestamp": "2026-08-02T12:00:00Z",
+                "kind": "command_candidate",
+                "prompt_source": "typed",
+                "origin_kind": "human",
+                "leading_slash": "aar",
+            },
+        ]
+        manifest = build_audit_fixture(self.tmp_path, events=events)
+        out_dir = self.tmp_path / "out"
+        audit(manifest, out_dir, repo_root=self.tmp_path, ignore_scanner_hash=True)
+
+        cmds_res = json.loads((out_dir / "strict-claude-command-usage-30d.json").read_text())
+        cmds_map = {r["command"]: r for r in cmds_res["commands"]}
+
+        self.assertEqual(cmds_map["af"]["total_observed_events"], 1)
+        self.assertTrue(cmds_map["af"]["positive_evidence"])
+        self.assertFalse(cmds_map["af"]["archive_eligible_from_usage_alone"])
+
+    def test_operator_confirmation_tier(self) -> None:
+        """Operator confirmations must set operator_confirmed_use and positive_evidence without inventing telemetry."""
+        manifest = build_audit_fixture(
+            self.tmp_path,
+            events=[],
+            manifest_overrides={
+                "operator_confirmations": {
+                    "extended-library:4layer": "Used weekly during multi-tier repro investigations",
+                    "callpath": "Used in incident triage",
+                }
+            },
+        )
+        out_dir = self.tmp_path / "out"
+        audit(manifest, out_dir, repo_root=self.tmp_path, ignore_scanner_hash=True)
+
+        cmds_res = json.loads((out_dir / "strict-claude-command-usage-30d.json").read_text())
+        cmds_map = {r["command"]: r for r in cmds_res["commands"]}
+        self.assertTrue(cmds_map["extended-library:4layer"]["operator_confirmed_use"])
+        self.assertTrue(cmds_map["extended-library:4layer"]["positive_evidence"])
+        self.assertEqual(cmds_map["extended-library:4layer"]["canonical_direct_events"], 0)
+
+        skills_res = json.loads((out_dir / "skill-usage-30d.json").read_text())
+        skills_map = {r["skill"]: r for r in skills_res["skills"]}
+        self.assertTrue(skills_map["callpath"]["operator_confirmed_use"])
+        self.assertTrue(skills_map["callpath"]["positive_evidence"])
+
+    def test_half_open_window_and_fail_closed(self) -> None:
+        """Validate half-open start <= t < end boundaries and fail-closed corrupt hashes."""
+        valid_events = [
+            {"event_id": "e_start", "timestamp": START_UTC, "kind": "skill_selection", "selected_name": "4layer"},
+        ]
+        manifest = build_audit_fixture(self.tmp_path, events=valid_events)
+        out_dir = self.tmp_path / "out"
+        audit(manifest, out_dir, repo_root=self.tmp_path, ignore_scanner_hash=True)
+
+        res = json.loads((out_dir / "skill-usage-30d.json").read_text())
+        self.assertEqual(res["total_structured_skill_selections"], 1)
+
+        # Event on exclusive boundary must raise ValueError
+        invalid_events = [
+            {"event_id": "e_end", "timestamp": END_UTC, "kind": "skill_selection", "selected_name": "4layer"},
+        ]
+        bad_manifest = build_audit_fixture(self.tmp_path / "sub_invalid", events=invalid_events)
+        with self.assertRaises(ValueError):
+            audit(bad_manifest, self.tmp_path / "out2", repo_root=self.tmp_path / "sub_invalid", ignore_scanner_hash=True)
+
+        # Tampered inventory hash fails closed
+        corrupt_inv = build_audit_fixture(self.tmp_path / "sub_corrupt", events=valid_events, corrupt_inventory=True)
+        with self.assertRaises(ValueError):
+            audit(corrupt_inv, self.tmp_path / "out3", repo_root=self.tmp_path / "sub_corrupt", ignore_scanner_hash=True)
+
+    def test_deterministic_replay(self) -> None:
+        """Replaying audit on the same fixture produces identical file outputs."""
+        events = [
+            {"event_id": "e1", "timestamp": "2026-08-05T00:00:00Z", "kind": "skill_selection", "selected_name": "browserclaw"},
+            {"event_id": "e2", "timestamp": "2026-08-06T00:00:00Z", "kind": "command_candidate", "prompt_source": "typed", "origin_kind": "human", "leading_slash": "repro"},
+        ]
+        manifest = build_audit_fixture(self.tmp_path, events=events)
+        out1 = self.tmp_path / "run1"
+        out2 = self.tmp_path / "run2"
+        audit(manifest, out1, repo_root=self.tmp_path, ignore_scanner_hash=True)
+        audit(manifest, out2, repo_root=self.tmp_path, ignore_scanner_hash=True)
+
+        for fname in ["strict-claude-command-usage-30d.json", "skill-usage-30d.json", "active-commands-30d.csv", "active-skills-30d.csv", "all-observed-skill-names-30d.csv"]:
+            self.assertEqual((out1 / fname).read_bytes(), (out2 / fname).read_bytes())
+
+    def test_codex_and_multi_runtime_provenance(self) -> None:
+        """Validate that Codex and multi-runtime events are correctly attributed in JSON and CSV outputs."""
+        events = [
+            {"event_id": "codex_1", "timestamp": "2026-08-10T12:00:00Z", "kind": "command_candidate", "runtime": "codex", "prompt_source": "typed", "origin_kind": "human", "leading_slash": "f"},
+            {"event_id": "codex_2", "timestamp": "2026-08-11T12:00:00Z", "kind": "command_candidate", "runtime": "codex", "prompt_source": "typed", "origin_kind": "human", "embedded_slash_tokens": ["callpath"]},
+        ]
+        manifest = build_audit_fixture(self.tmp_path, events=events)
+        out_dir = self.tmp_path / "out"
+        audit(manifest, out_dir, repo_root=self.tmp_path, ignore_scanner_hash=True)
+
+        cmds_res = json.loads((out_dir / "strict-claude-command-usage-30d.json").read_text())
+        cmds_map = {r["command"]: r for r in cmds_res["commands"]}
+        self.assertEqual(cmds_map["f"]["canonical_direct_events"], 1)
+        self.assertEqual(cmds_map["f"]["codex_direct_events"], 1)
+        self.assertEqual(cmds_map["f"]["claude_direct_events"], 0)
+        self.assertTrue(cmds_map["f"]["positive_evidence"])
+        self.assertEqual(cmds_map["extended-library:callpath"]["canonical_direct_events"], 1)
+        self.assertEqual(cmds_map["extended-library:callpath"]["codex_direct_events"], 1)
+        self.assertEqual(cmds_map["extended-library:callpath"]["claude_direct_events"], 0)
+        self.assertTrue(cmds_map["extended-library:callpath"]["positive_evidence"])
+
+        # Assert CSV outputs include runtime breakdown headers
+        cmd_csv = (out_dir / "active-commands-30d.csv").read_text().splitlines()[0]
+        self.assertIn("claude_direct_events", cmd_csv)
+        self.assertIn("codex_direct_events", cmd_csv)
+
+        skill_csv = (out_dir / "active-skills-30d.csv").read_text().splitlines()[0]
+        self.assertIn("claude_direct_events", skill_csv)
+        self.assertIn("codex_direct_events", skill_csv)
 
 
-def test_static_reachability_never_claims_execution(tmp_path: Path) -> None:
-    """Static reachability must classify as reachability_only, NOT as positive execution evidence."""
-    # No events in corpus
-    manifest = build_audit_fixture(tmp_path, events=[])
-    out_dir = tmp_path / "out"
-    audit(manifest, out_dir, repo_root=tmp_path, ignore_scanner_hash=True)
-
-    skills_res = json.loads((out_dir / "skill-usage-30d.json").read_text())
-    skills_map = {r["skill"]: r for r in skills_res["skills"]}
-
-    # 4layer is reachable via extended-library:4layer, but has 0 explicit selections
-    layer_skill = skills_map["4layer"]
-    assert layer_skill["explicit_skill_selections"] == 0
-    assert layer_skill["reachability_only"] is True
-    assert layer_skill["positive_evidence"] is False
-    assert layer_skill["archive_eligible_from_usage_alone"] is False
-
-    # unreached skill has 0 selections and 0 reachability
-    unreached = skills_map["unreached-skill"]
-    assert unreached["explicit_skill_selections"] == 0
-    assert unreached["reachability_only"] is False
-    assert unreached["no_evidence_in_source"] is True
-    assert unreached["positive_evidence"] is False
-    assert unreached["archive_eligible_from_usage_alone"] is False
-
-
-def test_alias_resolution_and_provenance(tmp_path: Path) -> None:
-    """Validate that invocations via aliases (/af, /aar) resolve to canonical targets with alias attribution."""
-    events = [
-        {
-            "event_id": "e1",
-            "timestamp": "2026-08-01T12:00:00Z",
-            "kind": "command_candidate",
-            "prompt_source": "typed",
-            "origin_kind": "human",
-            "leading_slash": "af",
-        },
-        {
-            "event_id": "e2",
-            "timestamp": "2026-08-02T12:00:00Z",
-            "kind": "command_candidate",
-            "prompt_source": "typed",
-            "origin_kind": "human",
-            "leading_slash": "aar",
-        },
-    ]
-    manifest = build_audit_fixture(tmp_path, events=events)
-    out_dir = tmp_path / "out"
-    audit(manifest, out_dir, repo_root=tmp_path, ignore_scanner_hash=True)
-
-    cmds_res = json.loads((out_dir / "strict-claude-command-usage-30d.json").read_text())
-    cmds_map = {r["command"]: r for r in cmds_res["commands"]}
-
-    # /af resolved to /af command and tracked
-    assert cmds_map["af"]["total_observed_events"] == 1
-    assert cmds_map["af"]["positive_evidence"] is True
-    assert cmds_map["af"]["archive_eligible_from_usage_alone"] is False
-
-
-def test_operator_confirmation_tier(tmp_path: Path) -> None:
-    """Operator confirmations must set operator_confirmed_use and positive_evidence without inventing telemetry."""
-    manifest = build_audit_fixture(
-        tmp_path,
-        events=[],
-        manifest_overrides={
-            "operator_confirmations": {
-                "extended-library:4layer": "Used weekly during multi-tier repro investigations",
-                "callpath": "Used in incident triage",
-            }
-        },
-    )
-    out_dir = tmp_path / "out"
-    audit(manifest, out_dir, repo_root=tmp_path, ignore_scanner_hash=True)
-
-    cmds_res = json.loads((out_dir / "strict-claude-command-usage-30d.json").read_text())
-    cmds_map = {r["command"]: r for r in cmds_res["commands"]}
-    assert cmds_map["extended-library:4layer"]["operator_confirmed_use"] is True
-    assert cmds_map["extended-library:4layer"]["positive_evidence"] is True
-    assert cmds_map["extended-library:4layer"]["canonical_direct_events"] == 0
-
-    skills_res = json.loads((out_dir / "skill-usage-30d.json").read_text())
-    skills_map = {r["skill"]: r for r in skills_res["skills"]}
-    assert skills_map["callpath"]["operator_confirmed_use"] is True
-    assert skills_map["callpath"]["positive_evidence"] is True
-
-
-def test_half_open_window_and_fail_closed(tmp_path: Path) -> None:
-    """Validate half-open start <= t < end boundaries and fail-closed corrupt hashes."""
-    valid_events = [
-        {"event_id": "e_start", "timestamp": START_UTC, "kind": "skill_selection", "selected_name": "4layer"},
-    ]
-    manifest = build_audit_fixture(tmp_path, events=valid_events)
-    out_dir = tmp_path / "out"
-    audit(manifest, out_dir, repo_root=tmp_path, ignore_scanner_hash=True)
-
-    res = json.loads((out_dir / "skill-usage-30d.json").read_text())
-    assert res["total_structured_skill_selections"] == 1
-
-    # Event on exclusive boundary must raise ValueError
-    invalid_events = [
-        {"event_id": "e_end", "timestamp": END_UTC, "kind": "skill_selection", "selected_name": "4layer"},
-    ]
-    bad_manifest = build_audit_fixture(tmp_path / "sub_invalid", events=invalid_events)
-    with pytest.raises(ValueError, match="outside bound window"):
-        audit(bad_manifest, tmp_path / "out2", repo_root=tmp_path / "sub_invalid", ignore_scanner_hash=True)
-
-    # Tampered inventory hash fails closed
-    corrupt_inv = build_audit_fixture(tmp_path / "sub_corrupt", events=valid_events, corrupt_inventory=True)
-    with pytest.raises(ValueError, match="frozen input hash mismatch"):
-        audit(corrupt_inv, tmp_path / "out3", repo_root=tmp_path / "sub_corrupt", ignore_scanner_hash=True)
-
-
-def test_deterministic_replay(tmp_path: Path) -> None:
-    """Replaying audit on the same fixture produces identical file outputs."""
-    events = [
-        {"event_id": "e1", "timestamp": "2026-08-05T00:00:00Z", "kind": "skill_selection", "selected_name": "browserclaw"},
-        {"event_id": "e2", "timestamp": "2026-08-06T00:00:00Z", "kind": "command_candidate", "prompt_source": "typed", "origin_kind": "human", "leading_slash": "repro"},
-    ]
-    manifest = build_audit_fixture(tmp_path, events=events)
-    out1 = tmp_path / "run1"
-    out2 = tmp_path / "run2"
-    audit(manifest, out1, repo_root=tmp_path, ignore_scanner_hash=True)
-    audit(manifest, out2, repo_root=tmp_path, ignore_scanner_hash=True)
-
-    for fname in ["strict-claude-command-usage-30d.json", "skill-usage-30d.json", "active-commands-30d.csv", "active-skills-30d.csv", "all-observed-skill-names-30d.csv"]:
-        assert (out1 / fname).read_bytes() == (out2 / fname).read_bytes()
-
-
-def test_codex_and_multi_runtime_provenance(tmp_path: Path) -> None:
-    """Validate that Codex and multi-runtime events are correctly attributed."""
-    events = [
-        {"event_id": "codex_1", "timestamp": "2026-08-10T12:00:00Z", "kind": "command_candidate", "runtime": "codex", "prompt_source": "typed", "origin_kind": "human", "leading_slash": "f"},
-        {"event_id": "codex_2", "timestamp": "2026-08-11T12:00:00Z", "kind": "command_candidate", "runtime": "codex", "prompt_source": "typed", "origin_kind": "human", "embedded_slash_tokens": ["callpath"]},
-    ]
-    manifest = build_audit_fixture(tmp_path, events=events)
-    out_dir = tmp_path / "out"
-    audit(manifest, out_dir, repo_root=tmp_path, ignore_scanner_hash=True)
-
-    cmds_res = json.loads((out_dir / "strict-claude-command-usage-30d.json").read_text())
-    cmds_map = {r["command"]: r for r in cmds_res["commands"]}
-    assert cmds_map["f"]["canonical_direct_events"] == 1
-    assert cmds_map["f"]["positive_evidence"] is True
-    assert cmds_map["extended-library:callpath"]["canonical_direct_events"] == 1
-    assert cmds_map["extended-library:callpath"]["positive_evidence"] is True
+if __name__ == "__main__":
+    unittest.main()
