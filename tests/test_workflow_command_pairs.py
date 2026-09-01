@@ -1,5 +1,8 @@
 """Contracts for exported workflow command and skill pairs."""
 
+import os
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -315,6 +318,36 @@ class WorkflowCommandPairTest(unittest.TestCase):
             verifier,
         )
         self.assertIn("must equal `$REVISION`", verifier)
+
+    def test_verifier_rejects_inherited_status_failure(self):
+        verifier = (
+            REPO_ROOT / ".claude" / "agents" / "agy-pair-verifier.md"
+        ).read_text(encoding="utf-8")
+        setup = verifier.split(
+            "# Refuse to inherit uncommitted state", 1
+        )[1].split('REVISION="<exact git SHA from IMPLEMENTATION_READY>"', 1)[0]
+        self.assertIn(
+            'if ! INHERITED_STATUS="$(git status --porcelain)"; then',
+            setup,
+        )
+        self.assertIn('if [ -n "$INHERITED_STATUS" ]; then', setup)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            fake_git = Path(temp_dir) / "git"
+            fake_git.write_text("#!/bin/sh\nexit 17\n", encoding="utf-8")
+            fake_git.chmod(0o755)
+            env = os.environ.copy()
+            env["PATH"] = f"{temp_dir}:/usr/bin:/bin"
+            env["LOG_DIR"] = temp_dir
+            result = subprocess.run(
+                ["/bin/bash", "-c", setup],
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertNotEqual(result.returncode, 0)
 
     def test_verifier_retries_are_read_only_and_do_not_commit(self):
         verifier = (

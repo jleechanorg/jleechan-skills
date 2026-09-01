@@ -34,7 +34,11 @@ echo "[$(date '+%Y-%m-%d %H:%M:%S')] [START] Verification attempt started" >> "$
 
 # Refuse to inherit uncommitted state from the caller, then pin this verifier
 # attempt to the coder's committed Revision in its own detached worktree.
-if [ -n "$(git status --porcelain)" ]; then
+if ! INHERITED_STATUS="$(git status --porcelain)"; then
+    echo "Rejecting unreadable inherited state; verification requires a readable status."
+    exit 1
+fi
+if [ -n "$INHERITED_STATUS" ]; then
     echo "Rejecting dirty inherited state; verification requires a clean caller."
     exit 1
 fi
