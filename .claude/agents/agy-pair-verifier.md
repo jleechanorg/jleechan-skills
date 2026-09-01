@@ -40,8 +40,23 @@ if [ -n "$(git status --porcelain)" ]; then
 fi
 REVISION="<exact git SHA from IMPLEMENTATION_READY>"
 VERIFIER_WORKTREE="$(mktemp -d -t agy_verifier_worktree.XXXXXX)"
-git worktree add --detach "$VERIFIER_WORKTREE" "$REVISION"
-if [ -n "$(git -C "$VERIFIER_WORKTREE" status --porcelain)" ]; then
+if ! git worktree add --detach "$VERIFIER_WORKTREE" "$REVISION"; then
+    echo "Rejecting verifier worktree creation."
+    exit 1
+fi
+if ! VERIFIER_HEAD="$(git -C "$VERIFIER_WORKTREE" rev-parse HEAD)"; then
+    echo "Rejecting verifier worktree without a readable revision."
+    exit 1
+fi
+if [ "$VERIFIER_HEAD" != "$REVISION" ]; then
+    echo "Rejecting verifier worktree at an unexpected revision."
+    exit 1
+fi
+if ! VERIFIER_STATUS="$(git -C "$VERIFIER_WORKTREE" status --porcelain)"; then
+    echo "Rejecting verifier worktree with an unreadable status."
+    exit 1
+fi
+if [ -n "$VERIFIER_STATUS" ]; then
     echo "Rejecting dirty verifier worktree."
     exit 1
 fi
@@ -93,7 +108,7 @@ Do NOT use `--sandbox` (terminal restrictions break test execution).
 1. On IMPLEMENTATION_READY: read the claimed summary, files, tests, exact
    `Revision`, and absolute `Worktree`. Reject dirty inherited state. Create a
    fresh detached worktree pinned to Revision, verify its `git rev-parse HEAD`
-   matches the handed-off revision, and confirm `git status --porcelain` is
+   must equal `$REVISION`, and confirm `git status --porcelain` is
    empty before running checks.
 2. Delegate adversarial verification to agy CLI (above)
 3. Independently run the test suite yourself and diff against the coder's claim
@@ -101,6 +116,13 @@ Do NOT use `--sandbox` (terminal restrictions break test execution).
    - PASS → SendMessage coder `VERIFICATION_COMPLETE` + summary of what was verified BY EXECUTION
    - FAIL → SendMessage coder `VERIFICATION_FAILED` + specific, reproducible findings (file:line, command, expected vs actual)
 5. Report the final verdict to the team lead with evidence (test output, exit codes)
+
+### Retry handling
+
+Every verifier retry must allocate a fresh detached worktree pinned to the
+handed-off `Revision`, verify that checked-out revision, and rerun focused
+checks read-only. Never modify files or create a commit during verifier
+retries; only the coder retry may commit a revised implementation.
 
 ## Communication Protocol
 

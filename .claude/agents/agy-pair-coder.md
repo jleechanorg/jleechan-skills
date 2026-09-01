@@ -155,11 +155,16 @@ SendMessage({
 If verifier sends VERIFICATION_FAILED:
 1. Read the feedback carefully
 2. Record the exact prior `Revision` from the preceding IMPLEMENTATION_READY as
-   `PRIOR_REVISION`; allocate and enter a fresh worktree pinned to it:
-   `git worktree add --detach "$CODER_WORKTREE" "$PRIOR_REVISION"`. Verify
-   `git rev-parse HEAD` equals `PRIOR_REVISION` before changing files. Never
-   inherit an implicit `HEAD`, partial worktree, prompt, output, or log from a
-   prior attempt.
+   `PRIOR_REVISION`; allocate a new path and enter a fresh worktree pinned to
+   it:
+   `CODER_WORKTREE="$(mktemp -d -t agy_coder_retry_worktree.XXXXXX)"`
+   `if ! git worktree add --detach "$CODER_WORKTREE" "$PRIOR_REVISION"; then`
+   `  echo "Rejecting coder retry worktree." >&2; exit 1`
+   `fi`
+   `cd "$CODER_WORKTREE"`. Verify `git -C "$CODER_WORKTREE" rev-parse HEAD`
+   equals `PRIOR_REVISION` before changing files; fail closed if it does not.
+   Never inherit an implicit `HEAD`, partial worktree, prompt, output, or log
+   from a prior attempt.
 3. Allocate a new per-attempt log path with
    `LOG="$(mktemp "$LOG_DIR/coder-attempt.XXXXXX.log")"`, then allocate fresh
    prompt and output paths and start a new `agy --new-project` invocation. Never

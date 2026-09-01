@@ -278,6 +278,70 @@ class WorkflowCommandPairTest(unittest.TestCase):
         self.assertIn("rerun focused checks", normalized_skill)
         self.assertIn("final scoped commit", normalized_skill)
 
+    def test_coder_retry_allocates_and_enters_a_unique_pinned_worktree(self):
+        coder = (REPO_ROOT / ".claude" / "agents" / "agy-pair-coder.md").read_text(
+            encoding="utf-8"
+        )
+        retry = coder.split("If verifier sends VERIFICATION_FAILED:", 1)[1]
+        self.assertIn(
+            'CODER_WORKTREE="$(mktemp -d -t agy_coder_retry_worktree.XXXXXX)"',
+            retry,
+        )
+        self.assertIn(
+            'if ! git worktree add --detach "$CODER_WORKTREE" "$PRIOR_REVISION";',
+            retry,
+        )
+        self.assertIn('cd "$CODER_WORKTREE"', retry)
+        self.assertIn(
+            'git -C "$CODER_WORKTREE" rev-parse HEAD',
+            retry,
+        )
+        self.assertIn("equals `PRIOR_REVISION`", retry)
+
+    def test_verifier_worktree_setup_fails_closed_and_checks_revision(self):
+        verifier = (
+            REPO_ROOT / ".claude" / "agents" / "agy-pair-verifier.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            'if ! git worktree add --detach "$VERIFIER_WORKTREE" "$REVISION";',
+            verifier,
+        )
+        self.assertIn(
+            'if ! VERIFIER_STATUS="$(git -C "$VERIFIER_WORKTREE" status --porcelain)";',
+            verifier,
+        )
+        self.assertIn(
+            'git -C "$VERIFIER_WORKTREE" rev-parse HEAD',
+            verifier,
+        )
+        self.assertIn("must equal `$REVISION`", verifier)
+
+    def test_verifier_retries_are_read_only_and_do_not_commit(self):
+        verifier = (
+            REPO_ROOT / ".claude" / "agents" / "agy-pair-verifier.md"
+        ).read_text(encoding="utf-8")
+        normalized_verifier = " ".join(verifier.split())
+        self.assertIn(
+            "Every verifier retry must allocate a fresh detached worktree pinned to the handed-off `Revision`",
+            normalized_verifier,
+        )
+        self.assertIn(
+            "rerun focused checks read-only",
+            normalized_verifier,
+        )
+        self.assertIn(
+            "Never modify files or create a commit",
+            normalized_verifier,
+        )
+        skill = (SKILLS / "parallelize-to-ceiling" / "SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        normalized_skill = " ".join(skill.split())
+        self.assertIn("Each coder retry must carry", normalized_skill)
+        self.assertIn("Verifier retries must carry", normalized_skill)
+        self.assertIn("rerun focused checks read-only", normalized_skill)
+        self.assertIn("never modify files or create a commit", normalized_skill)
+
     def test_verifier_launch_is_background_and_surfaces_unique_output(self):
         verifier = (
             REPO_ROOT / ".claude" / "agents" / "agy-pair-verifier.md"
