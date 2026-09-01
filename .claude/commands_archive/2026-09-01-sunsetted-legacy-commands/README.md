@@ -25,7 +25,7 @@
 - `/topcampaigns`: Legacy WorldAI campaign rankings
 
 ### 4. Superseded Test-Quality Tooling
-- `/fake3`: Branch-focused iterative fake code detection, superseded by `/fake`/`/fakel`. Verified zero repo callers on 2026-09-02.
+- `/fake3`: Branch-focused iterative fake code detection, superseded by `/fake`/`/fakel`. Verified zero repo callers on 2026-09-01.
 
 ---
 

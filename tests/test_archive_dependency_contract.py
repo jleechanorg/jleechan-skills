@@ -42,11 +42,19 @@ class ArchiveDependencyContractTest(unittest.TestCase):
 
     def test_archived_skills_have_no_active_path_callers(self) -> None:
         """Dynamic contract: no active skill or command may reference an archived skill by path."""
+        # Recursive: archive batches nest at varying depths (e.g.
+        # legacy-pre-2026-08-27/packages/<name>/SKILL.md is 3 levels deep), so a
+        # fixed "*/*" glob silently misses deeper archives and would also treat
+        # an intermediate container dir like "packages" as a bogus skill name.
+        active_skill_names = {path.parent.name for path in ACTIVE_SKILLS.glob("*/SKILL.md")}
+        # A name can appear in an old archive snapshot (e.g. a superseded
+        # duplicate under legacy-pre-2026-08-27/packages/) while ALSO being
+        # currently active under .claude/skills/ today. The active copy wins;
+        # only flag names with no active counterpart as "archived."
         archived_skills = {
-            path.name
-            for path in SKILL_ARCHIVES.glob("*/*")
-            if path.is_dir()
-        }
+            skill_md.parent.name
+            for skill_md in SKILL_ARCHIVES.rglob("SKILL.md")
+        } - active_skill_names
         active_command_text = "\n".join(
             path.read_text(encoding="utf-8", errors="ignore")
             for path in ACTIVE_COMMANDS.rglob("*.md")
@@ -60,9 +68,16 @@ class ArchiveDependencyContractTest(unittest.TestCase):
         broken_skills = {}
         for skill_name in sorted(archived_skills):
             path_pattern = rf"(?:(?:\.claude|~/\.claude)?/skills/){re.escape(skill_name)}(?:/|/SKILL\.md|\b)"
-            # Bare filename prose mentions (e.g. "Related Skills" bullets: `dice-authenticity-standards.md`)
-            # don't include a /skills/ path prefix, so they slip past path_pattern above.
-            bare_filename_pattern = rf"`{re.escape(skill_name)}\.md`"
+            # Bare filename prose mentions (e.g. "Related Skills" bullets:
+            # `dice-authenticity-standards.md`, See dice-authenticity-standards.md,
+            # or a markdown link [x](dice-authenticity-standards.md)) don't
+            # include a /skills/ path prefix, so they slip past path_pattern
+            # above. Match the filename with or without backticks/markdown-link
+            # parens, requiring a non-identifier boundary on both sides so we
+            # don't match a longer skill/file name that merely contains this one.
+            bare_filename_pattern = (
+                rf"(?<![A-Za-z0-9_-]){re.escape(skill_name)}\.md(?![A-Za-z0-9_-])"
+            )
             matches = re.findall(path_pattern, active_text) + re.findall(
                 bare_filename_pattern, active_text
             )
