@@ -105,6 +105,27 @@ def _complete_pr_packet():
 
 
 class TestResolveTransportLadder:
+    def test_prefers_owned_builtin_browser_in_app_runtime(self):
+        probes = {
+            "builtin_browser": True,
+            "aside_mcp": True,
+            "chrome_headless_cookies": True,
+        }
+
+        assert resolve_transport_ladder(probes, runtime="app") == "builtin_browser"
+
+    def test_prefers_isolated_headless_chrome_in_cli_runtime(self):
+        probes = {
+            "builtin_browser": True,
+            "aside_mcp": True,
+            "chrome_headless_cookies": True,
+        }
+
+        assert (
+            resolve_transport_ladder(probes, runtime="cli")
+            == "chrome_headless_cookies"
+        )
+
     def test_hard_fail_when_all_probes_false(self):
         probes = {
             "aside_mcp": False,
@@ -843,7 +864,11 @@ class TestAssertPacketAttachmentsVerified:
         assert (
             assert_packet_attachments_verified(
                 {"packet_attachments": inventory},
-                {"packet_attachments": inventory},
+                {
+                    "packet_attachments": inventory,
+                    "visible_attachment_names": ["FULL_CODE.txt", "FULL_ES.txt"],
+                    "upload_verified": True,
+                },
             )
             is None
         )
@@ -853,6 +878,14 @@ class TestAssertPacketAttachmentsVerified:
             assert_packet_attachments_verified(
                 {"packet_attachments": {"FULL_CODE.txt": 100, "FULL_ES.txt": 200}},
                 {"packet_attachments": {"FULL_CODE.txt": 100}},
+            )
+
+    def test_local_sizes_without_visible_browser_filenames_fail_closed(self):
+        inventory = {"FULL_CODE.txt": 100, "FULL_ES.txt": 200}
+        with pytest.raises(PacketAttachmentsNotVerifiedError, match="visible"):
+            assert_packet_attachments_verified(
+                {"packet_attachments": inventory},
+                {"packet_attachments": inventory, "upload_verified": True},
             )
 
 

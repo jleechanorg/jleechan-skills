@@ -13,27 +13,25 @@ description: Browser-based multi-model advice and review using ChatGPT, Gemini, 
 | `/web-advice` | Browser: ChatGPT + Gemini + Perplexity Web; Aside preferred, browser fallbacks supported | Independent external multi-model advice or review; visual/video context; web-search grounding |
 | `/er` | In-session: evidence-standards skill | Evidence bundle integrity (4-gate checksum/SHA/real-services) |
 
-## Real-Browser Transport Contract: Aside Preferred
+## Real-Browser Transport Contract: Runtime-Specific
 
 > [!IMPORTANT]
 > **Zero Aside Inference Invariant (Strict Hard-Fail Rule)**:
 > `/web-advice` MUST use browser navigation and DOM automation against the real
-> vendor web-chat sites. Prefer `aside-mcp`, then `aside repl`. When Aside is
-> unavailable, unsupported on the host, or both Aside browser probes fail, use
-> an approved real-browser fallback instead of stopping solely because Aside is
-> absent.
+> vendor web-chat sites. In an interactive chat app, prefer that app's owned
+> built-in browser and create a new vendor chat. In a coding CLI or Bash run,
+> launch an isolated system-Chrome process through Playwright in strict
+> headless mode, with freshly decrypted local browser cookies. Do not reuse a
+> shared GUI tab as a CLI review transport.
 >
 > **NEVER use Aside inference** (`aside "..."` NL agent, `aside --effort ultrabrowse`, `aside exec`, `aside exec -m <model>`, or Aside's backend AI models).
 > Aside inference consumes Aside's token quota / usage limits and does NOT use the operator's web chat subscriptions.
 > The entire purpose of `/web-advice` is to navigate to the web chat interfaces (`https://chatgpt.com/`, `https://gemini.google.com/app`, `https://www.perplexity.ai/`) to leverage the user's active web chat subscriptions (ChatGPT Plus/Team/Pro, Gemini Advanced, Perplexity Pro) via the authenticated browser.
 >
-> **Approved transport ladder**:
-> 1. `aside_mcp`
-> 2. `aside_repl`
-> 3. `chrome_headless_cookies` (system Chrome + locally decrypted browser cookies)
-> 4. `playwright_mcp` (portable fallback, especially on non-macOS hosts)
-> 5. `chrome_headless_cdp`
-> 6. `chrome_extension`
+> **Approved transport ladders**:
+> - **Interactive app:** `builtin_browser`, then `aside_mcp`, then `aside_repl`.
+> - **Coding CLI/Bash:** `chrome_headless_cookies`, then `playwright_mcp`, then
+>   `chrome_headless_cdp`.
 >
 > Each fallback must prove the affected vendor is authenticated, exposes a
 > writable composer, returns the submitted prompt's real response, and supports
@@ -47,6 +45,13 @@ description: Browser-based multi-model advice and review using ChatGPT, Gemini, 
 > Use `aside_repl` instead of `aside_mcp` when driving the browser API through
 > `aside repl`. For a fallback, pass the observed reason, for example:
 > `python3 ~/.claude/skills/web-advice/scripts/web_advice_transport.py assert-transport chrome_headless_cookies --fallback-reason aside_unavailable`.
+> If Aside can browse but cannot visibly attach the packet after one clean-chat
+> retry, use the literal fallback reason `aside_upload_unavailable`.
+
+For CLI/Bash execution, the direct runner starts a clean Chrome context and
+uses vendor-specific upload controls. It records authentication, attachment
+chips, submission, packet echo, and response separately; a response missing
+the requested head SHA or any requested filename is not a completed seat.
 
 Use `/web-advice` when an external multi-model perspective will help, especially when you want different model families to challenge a conclusion or when external web standards matter (e.g., D&D 5e SRD, Stately XState, industry patterns). Target three models (ChatGPT, Gemini, Perplexity), but synthesize the models that are available and disclose any coverage gap.
 
@@ -168,6 +173,33 @@ console.log('gemini logged in:', geminiLoggedIn);
 - **Perplexity**: Logged in shows username in the top-right corner (e.g., "jleechan77861") AND a "Sessions" sidebar with prior chats
 
 If the user can't log in to one model, run /web-advice with the others as long as at least two providers remain authenticated (2-of-3 still satisfies the multi-model adversarial requirement when the two models are from different families) and note the gap in the synthesis. If fewer than two providers are authenticated, **stop and ask the user to log in** — do NOT try to log in for them (no credentials, no auth cookies, no OAuth flow).
+
+### Step 2b — Create a clean chat and prove packet attachment (MANDATORY)
+
+Create a new or temporary chat for each seat. Inspect the composer before the
+chooser opens: a stale draft or unrelated attachment invalidates the attempt.
+For `aside repl`, stage files inside that Aside session before opening its file
+chooser; it rejects paths outside the session directory. Never replace a
+failed upload with a bare URL.
+
+The only successful upload state is every exact packet filename rendered by
+the composer. A no-exception `set_input_files()` result, local file size, a
+thumbnail, or truncated body text is not proof. The headless cookie fallback
+has a report-producing runner:
+
+```bash
+python3 ~/.claude/skills/web-advice/scripts/playwright_cookie_driver.py \
+  --site chatgpt --storage-state /tmp/chatgpt-storage.json \
+  --prompt-file /tmp/review-prompt.md \
+  --attachment /tmp/web-advice-packets/PR_<N>_FULL_CODE_FILES.txt \
+  --attachment /tmp/web-advice-packets/PR_<N>_BASE_CODE_FILES_AND_DIFF.txt \
+  --output /tmp/chatgpt-review-report.json
+```
+
+Require `assert_packet_attachments_verified(manifest, report)` to pass before
+sending or recording a verdict. If the UI disables uploads, requests an
+upgrade, or the rendered-name set is incomplete, retain the literal vendor
+reason and retry only once in a clean chat.
 
 ### Step 3 — Submit prompt to each model (sequentially, not parallel)
 
@@ -311,6 +343,17 @@ Recovery:
 2. Stop and ask the user to log in manually
 3. Continue with the other models
 4. If only 1 model is logged in, that's a single-model review, not multi-model — note this in synthesis
+
+### Packet upload unavailable
+
+Symptoms: the chooser is disabled, the vendor asks for an upgrade, a file path
+is rejected, or the composer does not render every exact packet filename.
+
+1. Start one clean temporary/new chat and retry once.
+2. For an Aside session-path rejection, stage the files in that session directory.
+3. If still unavailable, do not submit a prompt or accept a verdict from that
+   seat. Record the vendor condition; when switching from Aside to a browser
+   fallback, use `aside_upload_unavailable`.
 
 ### Stale evidence (verification FAIL)
 
