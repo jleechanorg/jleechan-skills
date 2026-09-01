@@ -27,6 +27,14 @@ You are an **agy CLI Coder Agent** that delegates implementation to the agy CLI 
 
 **Direct CLI (primary)**
 ```bash
+# Allocate a fresh worktree for this coder attempt. It must be disjoint from
+# the other lane (the verifier) and every prior attempt; enter the fresh
+# worktree before
+# creating or changing any implementation files.
+CODER_WORKTREE="$(mktemp -d -t agy_coder_worktree.XXXXXX)"
+git worktree add --detach "$CODER_WORKTREE" HEAD
+cd "$CODER_WORKTREE"
+
 # Create unique temp file for prompt
 PROMPT_FILE=$(mktemp /tmp/agy_coder_prompt.XXXXXX.txt)
 
@@ -75,6 +83,10 @@ PROMPT_EOF
 #         --print "$(cat /tmp/agy_prompt.XyZ123.md)" \
 #         > /tmp/agy_out.AbCdEf.log 2>&1
 
+# Allocate a unique per-attempt output path disjoint from the verifier lane and
+# every previous coder attempt.
+AGY_OUT="$(mktemp -t agy_coder_out.XXXXXX)"
+
 agy --dangerously-skip-permissions \
     --new-project \
     --print-timeout 20m \
@@ -122,10 +134,14 @@ Only escalate if BOTH fail.
 
 ### Phase 3: Verify and Signal
 1. Run tests to confirm they pass
-2. Capture the exact revision with `git rev-parse HEAD` and send an
+2. Run `git add <explicit scoped paths>` followed by `git commit` to create the
+   final scoped commit, then verify that `git status --porcelain` output is
+   empty (it must be empty). Do not send IMPLEMENTATION_READY while any tracked
+   or untracked change remains.
+3. Capture the exact revision with `git rev-parse HEAD` and send an
    IMPLEMENTATION_READY message to verifier:
 
-```
+```text
 SendMessage({
   type: "message",
   recipient: "verifier",
@@ -137,7 +153,7 @@ SendMessage({
 ### Phase 4: Handle Feedback
 If verifier sends VERIFICATION_FAILED:
 1. Read the feedback carefully
-2. Allocate a fresh worktree, prompt, output, and log path; start a new
+2. Allocate and enter a fresh worktree, prompt, output, and log path; start a new
    `agy --new-project` invocation. Never pass a conversation-resume option or
    use an equivalent conversation-reuse mechanism.
 3. Capture the new `git rev-parse HEAD` and send an updated

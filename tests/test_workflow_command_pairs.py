@@ -92,10 +92,14 @@ class WorkflowCommandPairTest(unittest.TestCase):
         self.assertIn(
             "`gpt-5.3-codex-spark` → `gpt-5.6-luna` → "
             "`gpt-5.6-terra` → `gpt-5.6-sol`",
-            skill,
+            normalized_skill,
         )
         self.assertIn(
             "retry the same bounded lane with the next explicit model",
+            normalized_skill,
+        )
+        self.assertIn(
+            "advancing only after a concrete failure in that lane",
             normalized_skill,
         )
 
@@ -181,6 +185,69 @@ class WorkflowCommandPairTest(unittest.TestCase):
             "`-m gpt-5.6-terra`, then `-m gpt-5.6-sol`",
             normalized_skill,
         )
+
+    def test_initial_pair_attempts_enter_fresh_disjoint_worktrees(self):
+        coder = (REPO_ROOT / ".claude" / "agents" / "agy-pair-coder.md").read_text(
+            encoding="utf-8"
+        )
+        verifier = (
+            REPO_ROOT / ".claude" / "agents" / "agy-pair-verifier.md"
+        ).read_text(encoding="utf-8")
+        for name, content in (("coder", coder), ("verifier", verifier)):
+            normalized = " ".join(content.split())
+            with self.subTest(document=name):
+                self.assertIn("allocate a fresh worktree", normalized.lower())
+                self.assertIn("enter the fresh", normalized.lower())
+                self.assertIn("before", normalized.lower())
+                if name == "coder":
+                    self.assertIn("creating or changing", normalized.lower())
+                else:
+                    self.assertIn("before reading files", normalized.lower())
+                self.assertIn("unique per-attempt output", normalized.lower())
+                self.assertIn("disjoint from", normalized.lower())
+                self.assertIn("other lane", normalized.lower())
+
+    def test_coder_handoff_requires_scoped_committed_clean_revision(self):
+        coder = (REPO_ROOT / ".claude" / "agents" / "agy-pair-coder.md").read_text(
+            encoding="utf-8"
+        )
+        skill = (SKILLS / "parallelize-to-ceiling" / "SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        normalized_coder = " ".join(coder.split())
+        normalized_skill = " ".join(skill.split())
+        self.assertIn("stage explicit file paths only", normalized_coder.lower())
+        self.assertIn("git status --porcelain", coder)
+        self.assertIn("git commit", coder)
+        self.assertIn("must be empty", normalized_coder.lower())
+        self.assertIn("final scoped commit", normalized_coder.lower())
+        self.assertIn(
+            "`Revision` is the committed clean implementation revision",
+            normalized_skill,
+        )
+
+    def test_verifier_rejects_dirty_state_and_pins_clean_detached_revision(self):
+        verifier = (
+            REPO_ROOT / ".claude" / "agents" / "agy-pair-verifier.md"
+        ).read_text(encoding="utf-8")
+        normalized = " ".join(verifier.split())
+        self.assertIn("reject dirty inherited state", normalized.lower())
+        self.assertIn("fresh detached worktree pinned to", normalized.lower())
+        self.assertIn("git worktree add", verifier)
+        self.assertIn("--detach", verifier)
+        self.assertIn("git status --porcelain", verifier)
+
+    def test_verifier_captures_each_attempt_to_unique_output_path(self):
+        verifier = (
+            REPO_ROOT / ".claude" / "agents" / "agy-pair-verifier.md"
+        ).read_text(encoding="utf-8")
+        normalized = " ".join(verifier.split())
+        self.assertIn(
+            "allocate a unique per-attempt output path",
+            normalized.lower(),
+        )
+        self.assertIn("> \"$AGY_OUT\" 2>&1", verifier)
+        self.assertIn("AGY_OUT=", verifier)
 
 
 if __name__ == "__main__":
