@@ -13,6 +13,15 @@ from pathlib import Path
 
 TAG = re.compile(r"<command-name>/([a-zA-Z0-9_-]+)</command-name>")
 LEADING = re.compile(r"^\s*/([a-zA-Z0-9_-]+(?::[a-zA-Z0-9_-]+)?)(?:\s|$)")
+SLASH_TOKEN_RE = re.compile(r"(?<![\w/])/((?:extended-library:)?[a-zA-Z0-9_-]+)(?![\w/])")
+FILE_EXT_RE = re.compile(r"\.(sh|md|py|json|jsonl|ya?ml|dot|txt|log|toml|ts|js|html|png|mp4)\b")
+
+NON_COMMAND_TOKENS = {
+    "tmp", "dev", "null", "api", "src", "lib", "bin", "etc", "var", "usr", "opt",
+    "home", "root", "proc", "sys", "boot", "projects", "backend", "frontend",
+    "tests", "test", "docs", "scripts", "config", "utils", "services", "agents",
+    "models", "tools", "hooks", "commands", "github", "v1", "v2", "venv", "json",
+}
 
 
 def digest(data: bytes | str) -> str:
@@ -46,7 +55,6 @@ def command_inventory(
     if excluded_docs is None:
         excluded_docs = {"README": "directory documentation"}
     rows = []
-    # Include both root commands and extended-library commands
     paths = sorted(commands_root.glob("*.md"))
     extended_dir = commands_root / "extended-library"
     if extended_dir.is_dir():
@@ -210,7 +218,12 @@ def capture(
             body = message_text(content)
             tags = sorted(set(TAG.findall(body)))
             leading = LEADING.match(body)
-            if tags or leading:
+            # Also extract embedded non-path slash tokens
+            embedded_tokens = [
+                tok for tok in set(SLASH_TOKEN_RE.findall(body))
+                if tok not in NON_COMMAND_TOKENS and not FILE_EXT_RE.search(tok)
+            ]
+            if tags or leading or embedded_tokens:
                 events.append(
                     {
                         "kind": "command_candidate",
@@ -223,6 +236,7 @@ def capture(
                         "origin_kind": (record.get("origin") or {}).get("kind"),
                         "distinct_command_tags": tags,
                         "leading_slash": leading.group(1) if leading else None,
+                        "embedded_slash_tokens": sorted(embedded_tokens),
                     }
                 )
 

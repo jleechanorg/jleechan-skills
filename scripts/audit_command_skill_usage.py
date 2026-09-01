@@ -468,6 +468,20 @@ def audit(
                 elif target in base_to_canonical:
                     matches.append((base_to_canonical[target], "alias_resolved_human_leading_slash", leading))
 
+        # Check embedded slash tokens if no tag or leading slash matched
+        if not matches and event.get("prompt_source") in {"typed", "queued"} and event.get("origin_kind") == "human":
+            for tok in (event.get("embedded_slash_tokens") or []):
+                if tok in callable_names:
+                    matches.append((tok, "typed_or_queued_human_embedded_slash", tok))
+                elif tok in base_to_canonical:
+                    matches.append((base_to_canonical[tok], "typed_or_queued_human_embedded_slash", tok))
+                elif tok in alias_map:
+                    target = alias_map[tok]
+                    if target in callable_names:
+                        matches.append((target, "alias_resolved_human_embedded_slash", tok))
+                    elif target in base_to_canonical:
+                        matches.append((base_to_canonical[target], "alias_resolved_human_embedded_slash", tok))
+
         matched_targets = {target for target, _, _ in matches}
         if len(matched_targets) > 1:
             analysis["ambiguous_cross_branch_command_records_suppressed"] += 1
@@ -530,10 +544,14 @@ def audit(
     for name in sorted(callable_names):
         row = dict(command_by_name[name])
         direct_cli = command_counts[name]["canonical_tag_direct_cli"]
-        human_slash = command_counts[name]["typed_or_queued_human_leading_slash"]
+        human_slash = (
+            command_counts[name]["typed_or_queued_human_leading_slash"]
+            + command_counts[name]["typed_or_queued_human_embedded_slash"]
+        )
         alias_events = (
             command_counts[name]["alias_tag_direct_cli"]
             + command_counts[name]["alias_resolved_human_leading_slash"]
+            + command_counts[name]["alias_resolved_human_embedded_slash"]
         )
         unique_events = command_counts[name]["unique_events"]
         op_confirmed = name in operator_notes
