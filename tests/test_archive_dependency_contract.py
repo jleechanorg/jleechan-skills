@@ -15,6 +15,24 @@ ACTIVE_COMMANDS = REPO_ROOT / ".claude" / "commands"
 COMMAND_ARCHIVES = REPO_ROOT / ".claude" / "commands_archive"
 
 
+def _active_caller_text() -> str:
+    """Concatenated text of every active command/skill markdown file.
+
+    Scans *.md under .claude/skills (not just SKILL.md) so dangling
+    references living in reference/doc files alongside a skill's SKILL.md
+    are caught, not just references inside SKILL.md itself.
+    """
+    active_command_text = "\n".join(
+        path.read_text(encoding="utf-8", errors="ignore")
+        for path in ACTIVE_COMMANDS.rglob("*.md")
+    )
+    active_skill_text = "\n".join(
+        path.read_text(encoding="utf-8", errors="ignore")
+        for path in ACTIVE_SKILLS.rglob("*.md")
+    )
+    return f"{active_command_text}\n{active_skill_text}"
+
+
 class ArchiveDependencyContractTest(unittest.TestCase):
     def test_active_skills_have_discovery_frontmatter(self) -> None:
         invalid = []
@@ -55,19 +73,14 @@ class ArchiveDependencyContractTest(unittest.TestCase):
             skill_md.parent.name
             for skill_md in SKILL_ARCHIVES.rglob("SKILL.md")
         } - active_skill_names
-        active_command_text = "\n".join(
-            path.read_text(encoding="utf-8", errors="ignore")
-            for path in ACTIVE_COMMANDS.rglob("*.md")
-        )
-        active_skill_text = "\n".join(
-            path.read_text(encoding="utf-8", errors="ignore")
-            for path in ACTIVE_SKILLS.rglob("SKILL.md")
-        )
-        active_text = f"{active_command_text}\n{active_skill_text}"
+        active_text = _active_caller_text()
 
         broken_skills = {}
         for skill_name in sorted(archived_skills):
-            path_pattern = rf"(?:(?:\.claude|~/\.claude)?/skills/){re.escape(skill_name)}(?:/|/SKILL\.md|\b)"
+            path_pattern = (
+                rf"(?:(?:\.claude|~/\.claude)?/skills/){re.escape(skill_name)}"
+                rf"(?:/|/SKILL\.md(?![A-Za-z0-9_-])|(?![A-Za-z0-9_-]))"
+            )
             # Bare filename prose mentions (e.g. "Related Skills" bullets:
             # `dice-authenticity-standards.md`, See dice-authenticity-standards.md,
             # or a markdown link [x](dice-authenticity-standards.md)) don't
@@ -97,15 +110,7 @@ class ArchiveDependencyContractTest(unittest.TestCase):
             for path in COMMAND_ARCHIVES.glob("*/*.md")
             if path.name != "README.md"
         }
-        active_command_text = "\n".join(
-            path.read_text(encoding="utf-8", errors="ignore")
-            for path in ACTIVE_COMMANDS.rglob("*.md")
-        )
-        active_skill_text = "\n".join(
-            path.read_text(encoding="utf-8", errors="ignore")
-            for path in ACTIVE_SKILLS.rglob("SKILL.md")
-        )
-        active_text = f"{active_command_text}\n{active_skill_text}"
+        active_text = _active_caller_text()
 
         broken_commands = {}
         for name in sorted(archived):
