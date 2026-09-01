@@ -5,7 +5,7 @@
 
 ---
 
-## Inventory of Archived Commands (12 Total)
+## Inventory of Archived Commands (11 Total)
 
 ### 1. Sunsetted AO / OpenClaw Daemon Commands
 - `/agentor`: Old AO launcher alias
@@ -18,7 +18,6 @@
 - `/copilot-expanded`: Historical pre-subagent copilot prompt
 - `/pairv2`: Historical dual executor launcher v2
 - `/pair-examples`: Dual executor examples
-- `/parallel-vs-subagents`: Historical architectural comparison
 
 ### 3. Legacy WorldAI Campaign Tools
 - `/idice`: Legacy WorldAI dice campaign inspector
