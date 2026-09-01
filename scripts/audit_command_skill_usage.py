@@ -400,8 +400,11 @@ def audit(
             "alias_resolved_events_attributed": 0,
         }
     )
+    command_runtime_counts: dict[str, Counter] = defaultdict(Counter)
+    skill_runtime_counts: dict[str, Counter] = defaultdict(Counter)
 
     for event in corpus["events"]:
+        rt = event.get("runtime", "claude")
         stamp = parse_time(event.get("timestamp"))
         if stamp is None or not (start <= stamp < end):
             raise ValueError(f"normalized event outside bound window: {event.get('event_id')}")
@@ -425,6 +428,7 @@ def audit(
             }
             if canonical_skill in active_skills:
                 skill_counts[canonical_skill] += 1
+                skill_runtime_counts[canonical_skill][rt] += 1
             else:
                 skill_alias_counts[name] += 1
             continue
@@ -495,6 +499,7 @@ def audit(
                     "event_id": event["event_id"],
                     "timestamp": event["timestamp"],
                     "command": target_cmd,
+                    "runtime": rt,
                     "branches": [],
                     "original_tokens": [],
                 },
@@ -505,6 +510,7 @@ def audit(
             selected["branches"].append(branch)
             selected["original_tokens"].append(orig_tok)
             command_counts[target_cmd][branch] += 1
+            command_runtime_counts[target_cmd][rt] += 1
             if "alias" in branch:
                 analysis["alias_resolved_events_attributed"] += 1
 
@@ -561,6 +567,8 @@ def audit(
         row["canonical_direct_events"] = direct_cli + human_slash
         row["alias_resolved_events"] = alias_events
         row["total_observed_events"] = unique_events
+        row["claude_direct_events"] = command_runtime_counts[name]["claude"]
+        row["codex_direct_events"] = command_runtime_counts[name]["codex"]
         row["reachable_skills"] = statically_reachable_skills
         row["bfs_reachable"] = is_bfs_reachable
         row["reachability_reasons"] = cmd_reasons.get(name, [])
@@ -581,6 +589,8 @@ def audit(
         reached_by_cmds = sorted(skill_to_static_cmds.get(name, set()))
 
         row["explicit_skill_selections"] = direct_selections
+        row["claude_direct_events"] = skill_runtime_counts[name]["claude"]
+        row["codex_direct_events"] = skill_runtime_counts[name]["codex"]
         row["reachable_from_commands"] = reached_by_cmds
         row["bfs_reachable"] = is_bfs_reachable
         row["reachability_reasons"] = skill_reasons.get(name, [])
