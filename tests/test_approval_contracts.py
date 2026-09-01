@@ -24,7 +24,7 @@ class ApprovalContractsTest(unittest.TestCase):
         self.assertNotIn("superpowers:writing-plans", command)
         self.assertIn("superpowers:brainstorming", quick)
         self.assertIn("superpowers:writing-plans", quick)
-        self.assertIn("disable-model-invocation: true", quick)
+        self.assertIn("disable-model-invocation: false", quick)
         self.assertIn("recommended", quick.lower())
         self.assertIn("invocation is the user's explicit authorization", quick.lower())
         self.assertIn("do not ask the user", quick.lower())
