@@ -309,16 +309,29 @@ Web chat LLM review sessions are stateful and interactive, not single-turn scrip
   3. **Reply in the active chat thread**: Type/upload the requested code or explanation directly into the existing browser tab session.
   4. **Wait for re-evaluation**: Allow the model to re-analyze the updated context and render its finalized, fully grounded verdict.
 
-### Step 5 — Synthesize
+### Step 5 — Synthesize & Report Share URLs / Snippets (MANDATORY)
+
+> [!IMPORTANT]
+> **Mandatory Share URL & Verbatim Conversation Snippet Invariant (Strict Hard-Fail Rule)**:
+> Every `/web-advice` run MUST output:
+> 1. **File Upload Confirmation**: Confirm that full files, diff patches, or real video/image assets were uploaded via file chooser (`setInputFiles`) into composer chips (zero ungrounded diff-only inlining for code reviews).
+> 2. **Public Conversation Share URLs**: The exact, clickable public permalink / share URL for each evaluated model (`https://chatgpt.com/share/...` or `/c/...`, `https://gemini.google.com/share/...`, `https://www.perplexity.ai/search/...`).
+> 3. **Verbatim Conversation Snippets per PR / Subject**: Exact blockquotes of the model's verdict and analysis per reviewed PR or artifact to provide undeniable proof of review execution.
 
 ```markdown
 ## /web-advice synthesis
 
-| Model | Verdict | Confidence | Coverage | Key finding |
-|---|---|---|---|---|
-| ChatGPT | <verdict> | high/med/low | <declared material read> | <one line> |
-| Gemini Pro | <verdict> | high/med/low | <declared material read> | <one line> |
-| Perplexity | <verdict> | high/med/low | <declared material read> | <one line> (note: web-grounded, citation-rich) |
+| Model | Verdict | Confidence | Share URL | Coverage & Upload Confirmation | Key finding |
+|---|---|---|---|---|---|
+| ChatGPT | <verdict> | high/med/low | <share URL> | Files uploaded & confirmed | <one line> |
+| Gemini Pro | <verdict> | high/med/low | <share URL> | Files uploaded & confirmed | <one line> |
+| Perplexity | <verdict> | high/med/low | <share URL> | Files uploaded & confirmed | <one line> (note: web-grounded) |
+
+### Verbatim Conversation Snippets per PR / Subject:
+#### 1. [Subject / PR #N]
+- **ChatGPT**: `<verbatim quote of verdict & key findings>`
+- **Gemini**: `<verbatim quote of verdict & key findings>`
+- **Perplexity**: `<verbatim quote of verdict & key findings>`
 
 **Convergence:** <3-of-3 agree / all 3 agree / 2-1 split / other>
 **Recommended action:** <APPROVE / approve with conditions / change requests>
