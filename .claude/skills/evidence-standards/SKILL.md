@@ -67,7 +67,7 @@ do **not** require a fresh evidence run. Flagging evidence "stale" because the h
    (`git diff <evidence-sha> HEAD -- <file>`) — `--name-only` can't tell a comment edit from a behavior edit.
 
 **Fresh evidence IS required only when a production change exists** between the SHAs:
-production code (in this repo: `$PROJECT_ROOT/` excluding `$PROJECT_ROOT/tests/`, **including** `$PROJECT_ROOT/prompts/**`),
+production code (the repo's source tree excluding its test dirs, **including** prompt/template surfaces — the repo-level /es file names the exact paths),
 API/endpoints/game logic/agent routing, runtime config (env vars, feature flags), DB schema/migrations,
 or a deploy/preview workflow — or any **mixed** diff containing at least one such file.
 
@@ -76,6 +76,35 @@ hours of LLM time for zero added confidence. The evidence proves a *behavior*; i
 code is byte-identical at HEAD, the proof is byte-valid at HEAD. Repo-level files may add
 path-specific context (e.g. `<repo>/.claude/skills/evidence-standards.md` §"Evidence Staleness
 Tolerance for Test/Docs-Only Changes") and take precedence on conflict.
+
+## Evidence Sequencing — expensive evidence runs LAST, once
+
+Cheap gates (unit/focused tests, lint, compile) iterate freely per commit.
+Adversarial code-review rounds are cheap per-pass but still subject to the
+2-gate-cycle cap below — "cheap" is not license for unlimited review rounds. Expensive evidence (real-server + real-LLM runs, RED/GREEN pairs,
+browser/video capture, bundle assembly) runs ONCE, at the END: only after code is
+complete — all review findings resolved or explicitly deferred, focused tests
+green, no known remaining code work. Freeze the HEAD, then run the expensive
+stack against it. Running expensive evidence mid-iteration guarantees it is
+voided by the next fix (PR #9604/#9640, 2026-09-01: ~40 of 50 commits were
+evidence churn; the RED/GREEN pair and bundle had to be scheduled for a full
+rerun anyway).
+
+Rerun expensive evidence ONLY on a material change per the Staleness Tolerance
+diff test above: a production-behavior file in the evidenced path changed, or
+the artifact producer changed in a way that alters captured bytes. When review
+findings arrive after evidence, classify materiality FIRST; batch ALL pending
+fixes into ONE new SHA before any rerun — never a rerun per finding.
+
+**Cap: 2 gate-review cycles per PR** (initial pass + one batched fix-and-reverify
+pass). Only a finding that blocks correct behavior (not style/nit/doc/wording
+feedback) may trigger cycle 2. If a third cycle would be required, STOP and
+escalate to the operator instead of rerunning — never self-authorize a third
+expensive-evidence pass.
+
+Evidence harness/infra code is not the feature: building or hardening capture
+harnesses inside the feature PR moves the HEAD and voids gates. Land harness
+changes in their own PR first, then freeze the feature head.
 
 ## Evidence class table
 
@@ -235,7 +264,7 @@ standards, always read both this skill and the relevant repo-level file:
 1. **Master policy** — `~/.claude/CLAUDE.md` § "Evidence — match proof to the claim" (the
    `Evidence-first` rule, the `Unit-only proof is NOT sufficient` rule with its
    three-exception wording, the UI-video requirement, and the PR-touching
-   trigger list: `$PROJECT_ROOT/*.py`, `world_logic.py`, `rewards_engine.py`).
+   trigger list — the repo-level /es file names the repo's exact trigger paths).
 2. **Repo-level /es** — most repos mirror this skill at
    `<repo>/.claude/skills/evidence-standards.md` with project-specific
    extensions (e.g. `your-project.com` has dice-claim, campaign-isolation,
