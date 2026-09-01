@@ -1,16 +1,14 @@
-# Archived Commands: Sunsetted AO, Copilot, & Legacy Experiments
+# Archived Commands: Legacy Experiments
 
-**Archival Date**: 2026-09-01  
-**Reason**: Superseded by modern subagent delegation, Dark Factory (`/f`), Codex parallel lanes (`/parallel`), and repo harness engineering. Zero callers across all active skills/commands and 0 invocations in 30-day telemetry audit.
+**Archival Date**: 2026-09-01 (`/ao`, `/auton` restored 2026-09-01 — AO tooling is still actively used)
+**Reason**: Zero callers across all active skills/commands and 0 invocations in 30-day telemetry audit.
 
 ---
 
-## Inventory of Archived Commands (13 Total)
+## Inventory of Archived Commands (11 Total)
 
-### 1. Sunsetted AO / OpenClaw Daemon Commands
-- `/ao`: Old AO launcher
-- `/auton`: Auton diagnostic command
-- `/agentor`: Old AO launcher alias
+### 1. Sunsetted Roadmap/Subagent Launcher Commands
+- `/agentor`: alias entry — see `.claude/commands/extended-library/agento_report.md` frontmatter, unrelated to AO
 - `/roadmap_orch`: Roadmap orchestrator
 - `/roadmapo`: Roadmap orchestrator alias
 - `/suba`: Legacy subagent launcher

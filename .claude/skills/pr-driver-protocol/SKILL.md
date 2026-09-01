@@ -107,11 +107,10 @@ One commit, one push, then immediately back to step 1 (the loop continues). Whil
 
 ## Pairing with babysit DRIVER mode
 
-When running babysit against a worker that is using this protocol:
-
-- Babysit observes the protocol's step 1-5 cycle in the worker's logs
-- If the worker is stuck between steps (e.g., step 3 partial, did not advance to step 4), babysit's DRIVER mode fires and sends the next step's specific instruction
-- The protocol is **worker-side** (this file); DRIVER mode is **observer-side** (`~/.claude/skills/babysit/SKILL.md`)
+The AO worker-monitoring `babysit` skill is archived and unused as of 2026-09-01
+(`.claude/skills_archive/2026-09-01-sunsetted-ao-and-generic/babysit/`). This
+protocol remains standalone and worker-side; the observer-side DRIVER-mode pairing
+described here is currently inactive.
 
 ## Origin and evidence
 

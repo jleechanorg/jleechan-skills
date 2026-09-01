@@ -24,7 +24,11 @@ description: Use when dispatching work through the Hermes gateway with /claw, es
 
 ## Overview
 
-`/claw` routes work to configured autonomous backend workers.
+`/claw` routes work to AO workers by default. Use:
+- `~/.claude/commands/ao.md`
+- `~/.claude/skills/ao-operator-discipline/SKILL.md`
+
+User-specified AO parameters remain mandatory.
 
 ## Requirements
 
