@@ -1,0 +1,296 @@
+# CLAUDE.md — Public Example
+
+This is a **sanitized example** of a personal `~/.claude/CLAUDE.md`, adapted for
+public reference. It shows the **shape, voice, and rule categories** that a
+well-organized Claude Code user-scope policy file can take.
+
+Placeholders are wrapped in `<angle brackets>` and are easy to grep for:
+
+```bash
+rg '<[A-Z_]+>' -n CLAUDE.md.example
+```
+
+To adapt this file for your own machine:
+
+1. Replace every `<PLACEHOLDER>` with your real value (paths, org, IDs).
+2. Remove any section that does not apply to your stack.
+3. Move detailed procedures to `~/.claude/skills/<name>/SKILL.md` and link them.
+4. Keep the file under ~200 lines — that is the compactness rule.
+
+---
+
+## File location and layering
+
+- **User-scope policy lives at `~/.claude/CLAUDE.md`.** Do not create a
+  `~/AGENTS.md` for Claude policy; if you find one, integrate any useful
+  content here.
+- **Repo-scope policy lives at `<repo>/CLAUDE.md`** and inherits from the
+  user-scope file. Repo files override user-scope when they conflict — but
+  document the override, do not silently override.
+- **Skill files live under `~/.claude/skills/<name>/SKILL.md`.** Each skill has
+  YAML frontmatter and is loaded with the `skill_view` tool or by name in a
+  slash command.
+
+---
+
+## Core behavior
+
+- **Show full absolute paths.** Use the `file://` scheme in links and outputs.
+  Never abbreviate with `...` or relative paths.
+- **State the primary deliverable first.** Before writing code, name the file
+  and behavior you are producing. CI gate time-box: ~30 minutes per unit of work.
+- **Verify before reporting.** When you observe a discrepancy, resolve it
+  immediately with a tool call. Never surface "you may want to check X" when
+  you can check X yourself.
+- **Treat tool success strings as hypotheses.** A green status string is not
+  proof. Verify with a different command from a different layer (re-list
+  state, re-query the API, re-read the file) before trusting or relaying it.
+
+---
+
+## Zero-framework cognition
+
+Never implement keyword routing, heuristic scoring, or `if/else` chains that
+guess user intent in application code. Delegate all such judgment to the model
+API. Forbidden patterns: `if text.contains("fix")`, regex intent detection,
+hand-tuned scoring tables, hardcoded routing.
+
+**When:** building any feature that needs to interpret natural language.
+**Why:** hand-rolled intent classifiers rot, the model already does this
+better, and the maintenance burden compounds.
+
+---
+
+## Working directory lock
+
+Only edit files inside the directory the session started in (the
+`primaryWorkingDirectory`). Do not `cd` into another repo or worktree
+without explicit user approval (`APPROVE DIR SWITCH`) in the current message.
+
+Read-only commands against other paths (`git log -C /other`) are fine. File
+writes, branch operations, and PR creation are not — they silently diverge
+from the editor's in-memory state and "succeed" without persisting.
+
+---
+
+## Large file read discipline
+
+Never read a file wholesale when it could be large.
+
+- Unknown size → `wc -l` or grep first, then read with `offset`/`limit`.
+- Log files → `tail -n 50` or grep the error first.
+- Large directories → `find . -name pattern` with depth limits.
+- JSONL/append-only data → use the project's CLI (`br`, `sqlite3`,
+  custom tool). Never read the raw file into context.
+
+Reading a >100 KB file fills context immediately after compaction and
+triggers a thrash loop that wastes tokens.
+
+---
+
+## Proactive issue tracking
+
+When a session surfaces work the user did not explicitly request but is
+clearly part of the same effort — a follow-up bug, a flaky test, a missing
+doc, a TODO comment — **create an issue immediately** rather than silently
+dropping it. Cite the source (file:line, log line, PR comment, test name)
+in the description so future agents can verify without re-investigating.
+
+Close the issue when the work lands. Reopen if a fix attempt actually fails.
+Do **not** create issues for trivial <2-minute tasks already in flight or for
+ideas with zero provenance.
+
+**Example CLI invocation** (adapt the prefix to your tool):
+
+```bash
+<issue-tracker> create "<title>" --type task|bug|chore \
+    --priority 0..4 \
+    --description "<provenance: file:line, repro, link>"
+```
+
+---
+
+## Parallel subagents
+
+When several independent tasks can run concurrently (different files,
+different repos, different PRs), spawn them as **parallel subagents in a
+single message**. Sequential execution of independent work is a performance
+anti-pattern.
+
+**Independence is a checkable artifact.** Before fanning out agents onto
+multiple branches, compute file overlap (`git diff --name-only <base>...
+<branch>` per lane). Lanes sharing any mutable file are not independent.
+
+When a stack of PRs all share a file (e.g., a new module every PR builds
+on), that file gets exactly **one** owning PR. Downstream lanes needing to
+edit the shared file is a stop-the-line event — halt, converge, then resume.
+
+---
+
+## Subagent model routing — set `model` explicitly
+
+Every subagent spawn must set its model tier explicitly. A spawn with no
+`model` field silently inherits the session model, which is usually the
+most expensive tier — that is a policy violation, not a neutral default.
+
+- **mini / haiku-class** — pollers, monitors, log greps, mechanical transforms.
+- **mid-tier (sonnet-class)** — standard fix lanes, gate drives, evidence
+  packaging, docs.
+- **top tier (opus-class)** — adversarial design judgment, ambiguous-conflict
+  decisions, or after a cheaper tier demonstrably failed (state which).
+
+The lane prompt or spawn call must name the model tier; a fan-out where every
+lane runs the session model is presumed wrong.
+
+---
+
+## Git workflow
+
+- **Branch from `<base>`** (usually `origin/main`). Never start a new branch
+  from another feature branch's tip — that pollutes the diff with unrelated
+  history.
+- **One logical commit per PR** unless the user asked otherwise.
+- **Verify before push.** `git log --oneline origin/<base>..HEAD` must show
+  only the commits the PR body describes. If it shows merges, unrelated
+  cherry-picks, or stale work, stop and replay.
+- **Always set upstream tracking** immediately after creating a branch:
+  `git branch --set-upstream-to=origin/<branch> <branch>`.
+- **Set `user.name`/`user.email` per worktree.** Worktrees silently override
+  global git config — verify before the first commit.
+
+---
+
+## Force-push safety
+
+No `git push --force` or `--force-with-lease` without explicit human
+approval in the current thread, naming the target branch and the reason.
+Ask exactly: "I need to force-push `<local_ref>` to `<remote>/<branch>`
+because `<reason>`. Approve force-push?" If approved, restate the command,
+run the safest lease form, and report old SHA → new SHA immediately.
+
+Ambiguous approval ("go ahead", "ship it", "yes") is not authorization for
+force-push. Offer non-destructive alternatives.
+
+---
+
+## Browser automation default
+
+Choose the headless browser tool that fits the task and **stay headless by
+default** unless the user explicitly asked for a visible window.
+
+- For most web automation (scraping, screenshots, localhost UI checks,
+  public-data lookups): use your primary browser CLI.
+- For localhost dev-server testing: use Playwright headless. Never launch
+  the user's GUI browser (`open`, `webbrowser.open`, headed Chromium).
+- For iOS Simulator: boot via `xcrun simctl boot <UDID>` (no `open -a
+  Simulator`). Interact only via simctl IPC, never the GUI.
+
+OAuth and workspace admin UI flows: when the relevant account is signed in
+to your browser profile, drive the UI directly with the CLI — do not punt
+manual clicks to the user.
+
+---
+
+## Commit often
+
+Commit and push after every green unit of work. Do not hold more than ~30
+minutes of uncommitted changes. Uncommitted work dies with the session.
+
+Propagate this rule into every sub-agent prompt you write. Workers that
+"finished" but did not push are not finished.
+
+---
+
+## PR description — required sections
+
+Use a consistent PR body structure so reviewers and CI can find what they
+need. A canonical order:
+
+1. **Background** — what is the problem and why does this PR exist.
+2. **Goals** — the user-visible outcomes this PR produces.
+3. **Tenets** — the design principles that shaped the implementation.
+4. **High-level description** — the architecture and main code paths.
+5. **Testing** — what was tested, how, and what evidence was captured.
+6. **Low-level details** — non-obvious decisions, gotchas, migration notes.
+
+For user-visible changes, add **User Stories** (actor + action + outcome) or
+`N/A` with a one-line justification.
+
+---
+
+## Merge safety
+
+Never merge a PR or push directly to `<protected-branch>` without explicit
+human approval in the most recent user message. Paraphrases ("ship it", "go
+ahead", "looks good", "yes") are not authorization. Require the literal
+approval phrase, or have the user run the merge command themselves.
+
+When a PR is ready, summarize readiness (CI green, review approved, head
+SHA, evidence captured) and stop.
+
+---
+
+## Disk and resource discipline
+
+For disk-growth diagnosis, default to three concurrent lanes: (1) top-down
+reconciliation at coarse granularity with an explicit unattributed residual,
+(2) coverage-validated snapshot deltas, and (3) safety-gated quick wins.
+Never present quick-cleanup findings as the full disk-usage explanation.
+
+For long-running optimization or reclaim loops, verify the structural
+precondition holds at goal-met time, not just at tool time. If a producer
+is refilling the resource faster than you can reclaim, the goal is
+structurally unreachable — ask the user to pause the producer or extend
+your authority, do not grind for hours.
+
+---
+
+## Time-boxing autonomous work
+
+Any long-running autonomous flow must time-box to **3 hours wall-clock per
+session/worker**. Past the limit: pause, post a status snapshot, and
+require explicit re-approval (literal `CONTINUE <N> HOURS` or equivalent)
+in the most recent user message. Paraphrases like "keep going" or "ship
+it" are not authorization.
+
+---
+
+## Skill discovery and creation
+
+- Before starting non-trivial work, scan the skill list and load any
+  matching skill with `skill_view(name=<skill>)`. Skills contain pitfalls,
+  exact commands, and conventions you would otherwise rediscover the hard
+  way.
+- After a non-trivial task (>5 tool calls, multi-step implementation, or
+  novel workflow), turn the workflow into a skill with `skill_manage`. One
+  ad-hoc fix that solves a real problem should become a reusable recipe.
+- Patch a skill immediately with `skill_manage(action='patch')` when you
+  find it outdated, incomplete, or wrong during use.
+
+---
+
+## Sanitization checklist for public examples
+
+When you fork this file to publish your own example:
+
+- [ ] Replace every `<PLACEHOLDER>` with the real value or remove the section.
+- [ ] Remove personal paths (`~/...`), user identifiers, and machine names.
+- [ ] Remove private channel IDs, repo names, and bot tokens.
+- [ ] Remove internal memory entries (they reference session-local evidence).
+- [ ] Remove references to private skill names that are not in the public
+      catalog.
+- [ ] Strip Slack/Discord thread IDs, PR numbers, and bead IDs that point
+      to private work.
+- [ ] Keep universal rules (zero-framework cognition, large-file read
+      discipline, proactive issue creation, model routing, force-push
+      safety, merge safety, time-boxing).
+- [ ] Keep the file under ~200 lines. Move procedures to skills.
+
+---
+
+## See also
+
+- `~/.claude/skills/<skill-name>/SKILL.md` — your private skill library.
+- `<repo>/CLAUDE.md` — per-repo policy that overrides this file.
+- `~/.claude/CLAUDE-policy-layering.md` — how user/repo/runtime files
+  combine (if you maintain such a doc).
