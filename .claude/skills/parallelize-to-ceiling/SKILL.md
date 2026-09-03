@@ -86,24 +86,59 @@ one-off scripts and to production pipelines alike.
 Memory is a first-class resource bound. A harness process died silently at
 the instant it forked a 20-minute foreground CLI delegate on a host at 92%
 swap / memory-pressure WARNING / ~64MB free — the spawn itself was the kill
-site, and silent self-exits leave no OS trace.
+site, and silent self-exits leave no OS trace. That failure is real and this
+gate stays mandatory. But **a false stop is also a failure**: refusing to
+parallelize on a healthy machine costs real throughput and tempts reporting
+a serial run as if the ceiling were zero.
+
+**Do not gate on swap used/total ratio.** macOS sizes the swapfile
+dynamically, so `vm.swapusage` used-vs-current-size can read >80% "full" on
+a perfectly healthy machine indefinitely — used/total is not a saturation
+metric. `kern.memorystatus_vm_pressure_level = 2` is WARNING/amber, not
+critical (critical is 4); treating 2 as a hard stop over-triggers. (Observed
+2026-09-02: 8.9GB/10.24GB swap + pressure=2 read as "stop" under the old
+wording, while real available memory was 12.9GB and the pressure source was
+a steady-state 11GB Virtualization.framework VM — a constant that doesn't
+change whether you spawn 0 or 3 lanes. That was a false stop.)
 
 Before spawning any new lane, subprocess fleet, or CLI delegation:
 
-1. **Probe:** `sysctl vm.swapusage` and
-   `sysctl kern.memorystatus_vm_pressure_level` (macOS; on Linux check
-   `free`/`vmstat` swap + PSI). Takes one second.
-2. **Defer, don't spawn,** when swap >80% used or pressure level ≥2
-   (WARNING). Finish or kill existing heavy children first; spawning into
-   starvation risks killing the *parent* session, losing all lanes at once.
-3. **Never fork a multi-minute CLI delegation (agy, codex, claude -p) as a
+1. **Probe available memory — the primary signal.**
+   - macOS: `vm_stat | awk -v ps=$(sysctl -n hw.pagesize) '/Pages free/{f=$3}
+     /Pages inactive/{i=$3} /Pages purgeable/{p=$3} /Pages speculative/{s=$3}
+     END{gsub(/\./,"",f);gsub(/\./,"",i);gsub(/\./,"",p);gsub(/\./,"",s);
+     printf "%.1f GB available\n",(f+i+p+s)*ps/1073741824}'` — available =
+     free + inactive + purgeable + speculative, not free alone.
+   - Read `sysctl kern.memorystatus_vm_pressure_level` as a secondary signal
+     (1=normal, 2=warning, 3=urgent, 4=critical).
+   - Linux: `free -g` available column, or `/proc/pressure/memory` (PSI).
+   - Takes one second.
+2. **Attribute the pressure before reacting.** `ps -Ao rss,comm -r | head`
+   to find the top-RSS consumer. If it's a steady-state VM/daemon
+   (Virtualization.framework, colima, docker, qemu, lima), the pressure is
+   structural — it won't improve by refusing to spawn, and it barely moves
+   whether you spawn 0 or a few lanes.
+3. **Apply graduated thresholds, not a binary stop** (heuristics, not
+   physics — recalibrate per host):
+   - Available >8GB **and** pressure ≤2 → spawn normally.
+   - Available 4-8GB **or** pressure = 3 → reduce lane count / prefer
+     cheaper models, rather than deferring entirely.
+   - Available <4GB **or** pressure = 4 → defer. Finish or kill existing
+     heavy children first; spawning into genuine starvation risks killing
+     the *parent* session, losing all lanes at once.
+4. **Swap is a stop signal only when it's actively growing**, not from a
+   static used/total ratio. Sample twice, seconds apart
+   (`sysctl vm.swapusage; sleep 5; sysctl vm.swapusage`), and compare
+   `used`. Flat-but-high used/total is not evidence of saturation; `used`
+   climbing between samples while available memory is also low is.
+5. **Never fork a multi-minute CLI delegation (agy, codex, claude -p) as a
    foreground Bash call.** Always `run_in_background` + explicit timeout —
    a foreground fork pins the parent at the worst possible moment.
-4. **Cap concurrent pytest lanes** in gRPC-loaded repos (macOS
+6. **Cap concurrent pytest lanes** in gRPC-loaded repos (macOS
    fork-unsafety: "multi-threaded process forked" SIGTRAP storms). 2-3
    lanes max per host unless measured safe; prefer sharding across
    machines.
-5. **Watch delegate RSS.** A CLI delegate above ~2-3GB RSS is itself a
+7. **Watch delegate RSS.** A CLI delegate above ~2-3GB RSS is itself a
    heavy item — one per machine, per the resource-bound table.
 
 ## Isolation invariants (always, when parallelizing)
