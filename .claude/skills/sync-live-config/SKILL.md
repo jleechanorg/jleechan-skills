@@ -26,7 +26,9 @@ has two subcommands:
   is the exact shape of the `hermes/skills` rename/delete drift below). Remote
   targets get the same per-file commit/diff enrichment as local, but **not**
   the `live_only` directory walk yet — see "Remote targets" below for the
-  exact gap.
+  exact gap. A remote path with a symlinked component anywhere in it (leaf
+  or parent directory) reports status **`symlink`** instead, with hash/size/
+  commit/diff all withheld — see "Remote targets" for why.
 - `apply --direction {repo-to-live,live-to-repo} --paths PATH [PATH ...] [--remote HOST]`
   — mechanically copies exactly the paths you name, in exactly the
   direction you name. No inference, no batch-wide default. Every path is
@@ -83,6 +85,10 @@ has two subcommands:
      leftover junk?) and from context (test caches and `.pytest_cache/`
      artifacts are pre-filtered out, but skill-specific scratch files still
      show up and need a real look).
+   - A `symlink` row (remote only) is not a direction decision at all —
+     nothing is known about it beyond "this path has a symlinked component."
+     Never guess a direction for it; tell the user it needs manual
+     investigation on that host before it can be judged.
 
 3. **`hermes/skills/` and `.claude/skills_archive/` are known inversion
    risks** (confirmed 2026-09-06: this repo's `hermes/skills/` snapshot
@@ -125,7 +131,8 @@ delete drift (the `hermes/skills` incident shape) would currently be invisible
 to `report --remote`. Treat a clean `report --remote` result as "no drift in
 the tracked-file scope," not as "definitely no drift at all," until that gap
 is closed. `apply --remote HOST` transfers only the files you named:
-`tar`+`scp`+remote-extract for repo-to-live, or `ssh ... cat` for live-to-repo.
+`tar`+`scp`+remote-extract for repo-to-live, or a guard-checked remote `cat`
+for live-to-repo (see below — this is not a bare `ssh ... cat`).
 Destination paths are always fully resolved in Python before being sent to
 the remote shell — never left for the remote side to expand a `$HOME`-style
 variable itself. The remote batch script uses portable primitives: a
@@ -134,9 +141,25 @@ variable itself. The remote batch script uses portable primitives: a
 for the commit lookup instead of manually reconstructing a relative path —
 both an earlier `realpath --relative-to` version (GNU-only) and its
 replacement prefix-strip silently dropped commit metadata whenever `$HOME` or
-any path component was a symlink. Every write, local or remote, also refuses
-to follow a pre-existing symlink anywhere between the allowed root and the
-destination — not just at the final path component.
+any path component was a symlink.
+
+**Symlink handling is asymmetric between local and remote, by design and
+verified in review, not accidentally uniform:**
+- **Remote** (both `report`'s evidence gathering and both `apply`
+  directions) walks every path component between the mapped root and the
+  target through a shared bash function and refuses the operation entirely
+  if *any* component is a symlink — including the leaf. A symlinked remote
+  path shows up in `report` as status `symlink`, with hash/size/commit/diff
+  all withheld (an earlier version withheld only file content, which still
+  let a symlinked path's exact hash and size leak as a confirmation oracle
+  for an arbitrary file elsewhere on the host).
+- **Local** (`live_abs_for`/`repo_abs_for`) resolves the full path and checks
+  that the result stays within the *specific* mapped root (e.g.
+  `home/.claude`), which blocks escaping that root but does **not** walk
+  component-by-component — a symlink whose target is still inside the same
+  mapped root (e.g. `.claude/skills/foo/SKILL.md -> .claude/settings.json`)
+  is allowed through. This is intentionally less strict locally than
+  remotely; see "Accepted residual risks" below.
 
 ## Bootstrapping on a machine that has never run this before
 

@@ -2,6 +2,7 @@
 PR #419 (path containment, the --local-only inversion, and the find_command_files_for_skill
 substring over-match), plus core evidence/mapping logic."""
 
+import shlex
 import subprocess
 import unittest
 from pathlib import Path
@@ -12,6 +13,7 @@ from scripts.sync_live_config import (
     GS,
     RS,
     FileEvidence,
+    _SYMLINK_GUARD_FN,
     _validate_host,
     evidence_remote,
     find_command_files_for_skill,
@@ -286,6 +288,29 @@ class EvidenceRemoteTest(unittest.TestCase):
 
             self.assertEqual(results[0].status, "new")
 
+    def test_symlinked_path_withholds_all_metadata_not_just_content(self):
+        """Regression test: an earlier version only gated content_b64, so a
+        symlinked remote path's exact hash/size/commit metadata still leaked
+        as a confirmation oracle. The SYMLINK record kind must withhold
+        everything -- the parsed evidence should carry no hash-derived status,
+        no live_repo_root, no live_last_commit, no diff_snippet."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as root_dir:
+            root = Path(root_dir)
+            (root / ".claude" / "commands").mkdir(parents=True)
+            (root / ".claude" / "commands" / "foo.md").write_text("x\n")
+            batch_stdout = "SYMLINK" + RS
+
+            with patch("scripts.sync_live_config.subprocess.run", side_effect=self._fake_run("/home/testuser", batch_stdout)):
+                results = evidence_remote(root, [".claude/commands/foo.md"], "testhost")
+
+            ev = results[0]
+            self.assertEqual(ev.status, "symlink")
+            self.assertIsNone(ev.live_repo_root)
+            self.assertIsNone(ev.live_last_commit)
+            self.assertIsNone(ev.diff_snippet)
+
     def test_malformed_record_raises_instead_of_silently_misparsing(self):
         """A field count other than 5 must fail loudly, not guess."""
         import tempfile
@@ -317,6 +342,57 @@ class ValidateHostTest(unittest.TestCase):
         for h in ("-oProxyCommand=touch /tmp/pwned", "-x", "--", ""):
             with self.assertRaises(ValueError):
                 _validate_host(h)
+
+
+class SymlinkGuardFnTest(unittest.TestCase):
+    """Executes `_SYMLINK_GUARD_FN` for real via `bash -c`, not a mock.
+
+    Every remote code path in this file is exercised through mocked
+    `subprocess.run`, which means the bash function that actually performs
+    the security-critical check (path_has_symlink_component) has zero
+    coverage from the LLM's/test's perspective — a future edit to that
+    function could silently reopen the exact exfiltration bug this file's
+    other tests were written to catch, while every mocked test stays green.
+    This test runs the real bash source against a real symlink tree."""
+
+    def _run_guard(self, base: str, target: str) -> int:
+        script = _SYMLINK_GUARD_FN + f'\npath_has_symlink_component {shlex.quote(base)} {shlex.quote(target)}\n'
+        result = subprocess.run(["bash", "-c", script])
+        return result.returncode
+
+    def test_plain_in_scope_path_is_allowed(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as base:
+            target = f"{base}/skills/foo/SKILL.md"
+            Path(target).parent.mkdir(parents=True)
+            Path(target).write_text("x")
+            # returncode 1 == function returned 1 (false) == no symlink found == safe
+            self.assertEqual(self._run_guard(base, target), 1)
+
+    def test_symlinked_leaf_is_rejected(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as base, tempfile.TemporaryDirectory() as outside:
+            Path(f"{base}/skills/foo").mkdir(parents=True)
+            secret = Path(outside) / "secret.txt"
+            secret.write_text("secret")
+            target = f"{base}/skills/foo/SKILL.md"
+            Path(target).symlink_to(secret)
+            # returncode 0 == function returned 0 (true) == symlink found == refuse
+            self.assertEqual(self._run_guard(base, target), 0)
+
+    def test_symlinked_parent_directory_is_rejected(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as base, tempfile.TemporaryDirectory() as outside:
+            Path(f"{base}/skills").mkdir(parents=True)
+            Path(f"{base}/skills/foo").symlink_to(outside)
+            target = f"{base}/skills/foo/SKILL.md"
+            Path(f"{outside}/SKILL.md").write_text("x")
+            self.assertEqual(self._run_guard(base, target), 0)
+
+    def test_target_outside_base_entirely_is_rejected(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as base, tempfile.TemporaryDirectory() as outside:
+            self.assertEqual(self._run_guard(base, f"{outside}/whatever.md"), 0)
 
 
 if __name__ == "__main__":

@@ -250,7 +250,7 @@ def unified_diff_snippet(repo_abs: Path, live_abs: Path) -> str | None:
 class FileEvidence:
     repo_rel: str
     live_rel: str
-    status: str  # "new" | "modified" | "ok" | "live_only"
+    status: str  # "new" | "modified" | "ok" | "live_only" | "symlink"
     repo_last_commit: dict | None = None
     live_last_commit: dict | None = None
     live_repo_root: str | None = None  # set if live path lives inside its own distinct git repo
@@ -338,6 +338,16 @@ while IFS= read -r p; do
     printf 'MISSING%s' "$RS"
     continue
   fi
+  # Check for a symlinked path component BEFORE any inspection at all -- an
+  # earlier version only gated the base64 content read here, which still let
+  # a symlinked path's exact sha256/size/commit metadata through as a
+  # confirmation oracle for an arbitrary file elsewhere on the remote host
+  # (reproduced in review: hash+size of a symlinked ~/.ssh/id_rsa-equivalent
+  # were still reported even though content_b64 was correctly withheld).
+  if path_has_symlink_component "$REMOTE_HOME" "$p"; then
+    printf 'SYMLINK%s' "$RS"
+    continue
+  fi
   # sha256sum is GNU-coreutils-only; `shasum -a 256` is the macOS/BSD equivalent.
   if command -v sha256sum >/dev/null 2>&1; then
     hash=$(sha256sum "$p" | cut -d' ' -f1)
@@ -365,14 +375,7 @@ while IFS= read -r p; do
     commit=$(git -C "$dir" log -1 --format="%H${GS}%aI${GS}%an${GS}%s" -- "$p" 2>/dev/null || true)
   fi
   content_b64=""
-  # Refuse to read file CONTENT through a symlink -- a hash/commit-metadata
-  # mismatch is informational, but base64-encoding a symlinked file's bytes
-  # into content_b64 (and from there into a diff_snippet) is a real
-  # exfiltration vector for a read-only `report --remote` (reproduced in
-  # review: a remote path symlinked to a private key leaked its content into
-  # the JSON evidence). Hash/commit lookup above are left as-is since neither
-  # leaks raw content.
-  if [ "$size" -le 200000 ] && ! path_has_symlink_component "$REMOTE_HOME" "$p"; then
+  if [ "$size" -le 200000 ]; then
     content_b64=$(base64 < "$p" | tr -d '\n')
   fi
   printf 'FOUND%s%s%s%s%s%s%s%s%s' \
@@ -417,6 +420,13 @@ def evidence_remote(root: Path, files: list[str], host: str) -> list[FileEvidenc
         kind = fields[0]
         if kind == "MISSING":
             results.append(FileEvidence(f, live_rel_for(f), "new", repo_last_commit=last_commit(root, f)))
+            continue
+        if kind == "SYMLINK":
+            # No hash, size, commit, or content is computed remotely for this
+            # path at all -- even metadata like an exact hash/size is a
+            # confirmation oracle for an arbitrary file elsewhere on the
+            # remote host if the path is symlinked outside its mapped root.
+            results.append(FileEvidence(f, live_rel_for(f), "symlink", repo_last_commit=last_commit(root, f)))
             continue
         if len(fields) != 5:
             # Fail loud, not silently-misparsed: a field-count mismatch here means
@@ -475,8 +485,9 @@ def cmd_report(args: argparse.Namespace) -> int:
         mod_ = [e for e in evs if e.status == "modified"]
         ok_ = [e for e in evs if e.status == "ok"]
         live_only_ = [e for e in evs if e.status == "live_only"]
+        symlink_ = [e for e in evs if e.status == "symlink"]
         print(f"\n=== {name}: {len(evs)} evidence rows — {len(new_)} new, {len(mod_)} modified, "
-              f"{len(ok_)} in sync, {len(live_only_)} live-only ===")
+              f"{len(ok_)} in sync, {len(live_only_)} live-only, {len(symlink_)} symlinked (withheld) ===")
         for e in new_:
             print(f"  NEW       {e.live_rel}  (repo: {e.repo_last_commit})")
         for e in mod_:
@@ -485,6 +496,8 @@ def cmd_report(args: argparse.Namespace) -> int:
         for e in live_only_:
             note = f" [live tracked in {e.live_repo_root}, last: {e.live_last_commit}]" if e.live_repo_root else " [not in any repo]"
             print(f"  LIVE-ONLY {e.live_rel}{note}")
+        for e in symlink_:
+            print(f"  SYMLINK   {e.live_rel}  [path has a symlinked component; hash/size/content withheld — inspect manually]")
     print("\nThis is evidence only — nothing was written. Use `apply` with an explicit --direction to write.")
     return 0
 
