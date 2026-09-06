@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import ast
 import datetime as dt
 import hashlib
 import json
@@ -106,6 +105,22 @@ def _shell_read_paths(command: object) -> list[str]:
             segment = []
         else:
             segment.append(token)
+    cwd_builtins = {"cd", "pushd", "popd"}
+    if any(
+        segment
+        and (
+            Path(segment[0]).name in cwd_builtins
+            or (
+                Path(segment[0]).name in {"builtin", "command"}
+                and len(segment) > 1
+                and Path(segment[1]).name in cwd_builtins
+            )
+        )
+        for segment in segments
+    ):
+        # Relative operands depend on shell state that this parser does not
+        # execute.  Drop the whole compound command rather than misattribute.
+        return []
     for segment in segments:
         if not segment or any("<" in token or ">" in token for token in segment):
             continue
@@ -216,20 +231,30 @@ def _iter_structured_calls(value: object, path: tuple[str, ...] = ()):
 JS_TOKEN = re.compile(
     r"""//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`|[A-Za-z_$][\w$]*|[^\s]"""
 )
+JS_IDENTIFIER = re.compile(r"^[A-Za-z_$][A-Za-z0-9_$]*$")
 
 
 def _literal_string(token):
     if not token.startswith(("'", '"')):
         return None
-    try:
-        value = ast.literal_eval(token)
+    if token.startswith('"'):
+        try:
+            value = json.loads(token)
+        except json.JSONDecodeError:
+            return None
         return value if isinstance(value, str) else None
-    except (SyntaxError, ValueError):
+    if "\\" in token:
         return None
+    return token[1:-1]
 
 
 def _orchestration_calls(arguments):
-    """Read literal argument objects; strings, comments and expressions stay opaque."""
+    """Read only direct literal ``tools.exec_command`` statements.
+
+    The accepted subset is an optional ``await`` followed by one direct call,
+    with literal object fields, and optional semicolon-separated repetitions.
+    Any other program syntax is opaque and produces no calls.
+    """
     if not isinstance(arguments, str):
         return []
     tokens = [
@@ -237,33 +262,81 @@ def _orchestration_calls(arguments):
         for m in JS_TOKEN.finditer(arguments)
         if not m.group().startswith(("//", "/*"))
     ]
-    calls = []
-    for index in range(len(tokens) - 5):
-        if tokens[index : index + 5] != ["tools", ".", "exec_command", "(", "{"]:
-            continue
-        fields, depth, invalid = {}, 1, False
-        cursor = index + 5
-        while cursor < len(tokens) and depth:
-            token = tokens[cursor]
-            key = _literal_string(token) or token
-            if depth == 1 and key in {"cmd", "command", "cwd", "workdir"}:
-                if (
-                    cursor + 3 >= len(tokens)
-                    or tokens[cursor + 1] != ":"
-                    or tokens[cursor + 3] not in {",", "}"}
-                ):
-                    invalid = True
-                else:
-                    value = _literal_string(tokens[cursor + 2])
-                    invalid |= value is None or key in fields
-                    fields[key] = value
-            if token in {"{", "[", "("}:
-                depth += 1
-            elif token in {"}", "]", ")"}:
-                depth -= 1
+    if not tokens:
+        return []
+
+    unset = object()
+
+    def literal(token):
+        value = _literal_string(token)
+        if value is not None:
+            return value
+        return {"true": True, "false": False, "null": None}.get(token, unset)
+
+    def literal_object(cursor):
+        if cursor >= len(tokens) or tokens[cursor] != "{":
+            return None
+        cursor += 1
+        fields = {}
+        while cursor < len(tokens):
+            if tokens[cursor] == "}":
+                return fields, cursor + 1
+            key_literal = _literal_string(tokens[cursor])
+            key = key_literal if key_literal is not None else tokens[cursor]
+            if (
+                not isinstance(key, str)
+                or (key_literal is None and not JS_IDENTIFIER.fullmatch(key))
+                or cursor + 2 >= len(tokens)
+            ):
+                return None
+            if tokens[cursor + 1] != ":" or key in fields:
+                return None
+            value = literal(tokens[cursor + 2])
+            if value is unset:
+                return None
+            fields[key] = value
+            cursor += 3
+            if cursor >= len(tokens):
+                return None
+            if tokens[cursor] == "}":
+                return fields, cursor + 1
+            if tokens[cursor] != ",":
+                return None
             cursor += 1
-        if not depth and not invalid and (fields.get("cmd") or fields.get("command")):
-            calls.append(fields)
+            if cursor < len(tokens) and tokens[cursor] == "}":
+                return fields, cursor + 1
+        return None
+
+    calls = []
+    cursor = 0
+    while cursor < len(tokens):
+        if tokens[cursor] == "await":
+            cursor += 1
+        if tokens[cursor : cursor + 4] != [
+            "tools",
+            ".",
+            "exec_command",
+            "(",
+        ]:
+            return []
+        parsed = literal_object(cursor + 4)
+        if parsed is None:
+            return []
+        fields, cursor = parsed
+        if cursor >= len(tokens) or tokens[cursor] != ")":
+            return []
+        cursor += 1
+        for key in ("cmd", "command", "cwd", "workdir"):
+            if key in fields and not isinstance(fields[key], str):
+                return []
+        if not (fields.get("cmd") or fields.get("command")):
+            return []
+        calls.append(fields)
+        if cursor == len(tokens):
+            break
+        if tokens[cursor] != ";":
+            return []
+        cursor += 1
     return calls
 
 

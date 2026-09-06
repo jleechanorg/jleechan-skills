@@ -332,6 +332,23 @@ def inventory_text(row: dict) -> str:
     return content.decode("utf-8", errors="replace")
 
 
+def verify_source_hashes(
+    manifest: dict, key: str, source_root: Path, label: str
+) -> None:
+    for relative, expected in manifest.get(key, {}).items():
+        candidate = (source_root / relative).resolve(strict=False)
+        if not candidate.is_relative_to(source_root):
+            raise ValueError(
+                f"{label} source hash path escapes source root: {relative}"
+            )
+        try:
+            actual = digest(candidate.read_bytes())
+        except OSError as exc:
+            raise ValueError(f"{label} source is unavailable: {relative}") from exc
+        if actual != expected:
+            raise ValueError(f"{label} source hash does not match manifest: {relative}")
+
+
 def audit(
     manifest_path: Path,
     output_dir: Path,
@@ -359,10 +376,12 @@ def audit(
         raise ValueError("scanner hash does not match manifest")
     if not ignore_scanner_hash:
         source_root = Path(__file__).resolve().parents[1]
-        for relative, expected in manifest.get("scanner_source_sha256", {}).items():
-            source = (source_root / relative).resolve()
-            if not source.is_relative_to(source_root) or digest(source.read_bytes()) != expected:
-                raise ValueError(f"scanner source hash does not match manifest: {relative}")
+        verify_source_hashes(
+            manifest, "scanner_source_sha256", source_root, "scanner"
+        )
+        verify_source_hashes(
+            manifest, "capture_source_sha256", source_root, "capture"
+        )
 
     base = manifest_path.parent
     root = repo_root or base

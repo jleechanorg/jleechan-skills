@@ -675,7 +675,6 @@ def capture(
             "events_excluded_by_manifest": 0,
             "structured_read_calls_seen": 0,
             "skill_read_candidates_rejected": 0,
-            "rollout_jsonl_skipped_for_sqlite_precedence": 0,
             "codex_sqlite_partial_unknown": 0,
             "inventory_roots_missing": 0,
         }

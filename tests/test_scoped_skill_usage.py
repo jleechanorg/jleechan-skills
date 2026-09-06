@@ -175,6 +175,50 @@ class ScopedSkillUsageTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "scanner source hash"):
                 audit(manifest, root / "out")
 
+    def test_capture_source_hash_is_verified(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest = build_audit_fixture(
+                root,
+                events=[],
+                manifest_overrides={
+                    "capture_source_sha256": {
+                        "scripts/skill_read_telemetry.py": "not-the-source-hash"
+                    }
+                },
+            )
+            with self.assertRaisesRegex(ValueError, "capture source hash"):
+                audit(manifest, root / "out")
+
+    def test_capture_source_hash_path_must_stay_in_source_root(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest = build_audit_fixture(
+                root,
+                events=[],
+                manifest_overrides={
+                    "capture_source_sha256": {
+                        "../../outside.py": "not-the-source-hash"
+                    }
+                },
+            )
+            with self.assertRaisesRegex(ValueError, "capture source hash path"):
+                audit(manifest, root / "out")
+
+    def test_capture_source_hash_is_ignored_only_with_explicit_flag(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest = build_audit_fixture(
+                root,
+                events=[],
+                manifest_overrides={
+                    "capture_source_sha256": {
+                        "scripts/skill_read_telemetry.py": "not-the-source-hash"
+                    }
+                },
+            )
+            audit(manifest, root / "out", ignore_scanner_hash=True)
+
 
 if __name__ == "__main__":
     unittest.main()

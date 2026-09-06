@@ -65,6 +65,73 @@ class SkillUsageCaptureTest(unittest.TestCase):
             )
             self.assertEqual(events, [])
 
+    def test_orchestration_opaque_javascript_is_not_emitted(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            skill = root / ".claude" / "skills" / "x.md"
+            skill.parent.mkdir(parents=True)
+            skill.write_text("# x\n")
+            command = f'tools.exec_command({{"cmd": "cat {skill}"}})'
+            for source in (
+                f"const pattern = /{command}/;",
+                f"if (false) {command};",
+                f"function read() {{ return {command}; }}",
+                f"items.map(() => {command})",
+                f"false && await {command}",
+                f"/{command}/",
+                command[:-1],
+                f"{command} ? true : false",
+                "({ get x() { return " + command + "; } })",
+                f'tools.exec_command({{@: true, cmd: "cat {skill}"}})',
+                f'tools.exec_command({{cmd: "cat {skill.parent / "x"}\\x2emd"}})',
+            ):
+                with self.subTest(source=source):
+                    events = extract_skill_read_events(
+                        {
+                            "type": "function_call",
+                            "name": "functions.exec",
+                            "arguments": source,
+                        },
+                        runtime="codex",
+                        timestamp=STAMP,
+                        source_path_id="source",
+                        cwd=str(root),
+                        coverage=Counter(),
+                    )
+                    self.assertEqual(events, [])
+
+    def test_shell_compound_cwd_change_is_not_emitted(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            skill = root / "repo" / ".claude" / "skills" / "x.md"
+            skill.parent.mkdir(parents=True)
+            skill.write_text("# x\n")
+            for command in (
+                "cd /repo && cat .claude/skills/x.md",
+                "builtin cd /repo && cat .claude/skills/x.md",
+                "command cd /repo && cat .claude/skills/x.md",
+                "pushd /repo && cat .claude/skills/x.md",
+                "command pushd /repo && cat .claude/skills/x.md",
+                "popd && cat .claude/skills/x.md",
+            ):
+                with self.subTest(command=command):
+                    self.assertEqual(_shell_read_paths(command), [])
+                    self.assertEqual(
+                        extract_skill_read_events(
+                            {
+                                "type": "function_call",
+                                "name": "exec_command",
+                                "arguments": {"cmd": command, "workdir": str(root)},
+                            },
+                            runtime="codex",
+                            timestamp=STAMP,
+                            source_path_id="source",
+                            cwd=str(root / "other"),
+                            coverage=Counter(),
+                        ),
+                        [],
+                    )
+
     def test_recursive_inventory_uses_frontmatter_and_avoids_symlink_cycle(
         self,
     ) -> None:
