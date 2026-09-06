@@ -39,6 +39,15 @@ class ThinCommandDispatchersTest(unittest.TestCase):
         self.assertLessEqual(len(command.splitlines()), 15)
         self.assertIn("$ARGUMENTS", command)
 
+    def test_ablation_and_alias_are_thin_local_dispatchers(self):
+        for name in ("ablation.md", "abal.md"):
+            with self.subTest(command=name):
+                command = (COMMANDS / name).read_text(encoding="utf-8")
+                self.assertIn("/skills/ablation/SKILL.md", command)
+                self.assertTrue((SKILLS / "ablation" / "SKILL.md").is_file())
+                self.assertLessEqual(len(command.splitlines()), 15)
+                self.assertIn("$ARGUMENTS", command)
+
     def test_legacy_aliases_use_native_thin_dispatcher_metadata(self):
         aliases = {
             "smart-advisor": ("advice.md", "advice", "aliases: [smart-advisor]"),

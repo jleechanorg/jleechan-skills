@@ -110,7 +110,9 @@ Rules of thumb:
   not proven to have zero effect."
 - Candidate fixes need **N in the high teens per arm** before a low-failure result is
   trustworthy.
-- Binomial math assumes i.i.d. trials. Shared caching, seeds, or upstream state shrink
+- Binomial math assumes i.i.d. trials and a fixed base rate. For small two-arm comparisons
+  (e.g. 4/5 control vs 0/5 treatment), Fisher's exact test accounts for variance in both arms
+  (two-sided p≈0.048, one-sided p≈0.024). Shared caching, seeds, or upstream state shrink
   effective N — note it.
 
 ## Failure modes this kills
