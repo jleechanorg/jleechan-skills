@@ -77,6 +77,7 @@ def _arguments(value: object) -> dict:
 
 
 def _shell_read_paths(command: object) -> list[str]:
+    """Return literal read operands only when the whole shell command is static."""
     if not isinstance(command, str) or "\n" in command:
         return []
     try:
@@ -93,6 +94,8 @@ def _shell_read_paths(command: object) -> list[str]:
         return _shell_read_paths(
             tokens[2] if len(tokens) == 3 else " ".join(tokens[2:])
         )
+    if _contains_unquoted_shell_dynamic(command):
+        return []
     paths: list[str] = []
     segment: list[str] = []
     segments: list[list[str]] = []
@@ -116,6 +119,34 @@ def _shell_read_paths(command: object) -> list[str]:
             operands = operands[1:]
         paths.extend(operands)
     return paths
+
+
+def _contains_unquoted_shell_dynamic(command: str) -> bool:
+    """Return whether unquoted shell expansion, substitution, or glob syntax exists."""
+    quote: str | None = None
+    escaped = False
+    for character in command:
+        if escaped:
+            escaped = False
+            continue
+        if quote == "'":
+            if character == "'":
+                quote = None
+            continue
+        if character == "\\":
+            escaped = True
+            continue
+        if quote == '"':
+            if character == '"':
+                quote = None
+            elif character in "$`":
+                return True
+            continue
+        if character in "'\"":
+            quote = character
+        elif character in "$`*?[]{}":
+            return True
+    return False
 
 
 def _tool_read_paths(name: object, arguments: object) -> list[str]:

@@ -17,6 +17,7 @@ from scripts.capture_command_skill_usage import (
     extract_skill_read_events,
     skill_inventory,
 )
+from scripts.skill_read_telemetry import _shell_read_paths
 
 STAMP = dt.datetime(2026, 9, 1, tzinfo=dt.timezone.utc)
 WINDOW_START = STAMP - dt.timedelta(days=1)
@@ -24,6 +25,46 @@ WINDOW_END = STAMP + dt.timedelta(days=1)
 
 
 class SkillUsageCaptureTest(unittest.TestCase):
+    def test_shell_read_paths_reject_expansion_and_glob_operands(self) -> None:
+        for command in (
+            'cat "$HOME/.claude/skills/x.md"',
+            "cat ${ROOT}/.claude/skills/x.md",
+            "cat $(pwd)/.claude/skills/x.md",
+            "cat `pwd`/.claude/skills/x.md",
+            "cat /repo/.claude/skills/*.md",
+            "cat /repo/.claude/skills/{a,b}.md",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(_shell_read_paths(command), [])
+
+        self.assertEqual(
+            _shell_read_paths("cat '/repo/.claude/skills/$HOME.md'"),
+            ["/repo/.claude/skills/$HOME.md"],
+        )
+        self.assertEqual(
+            _shell_read_paths(r"cat /repo/.claude/skills/\*.md"),
+            ["/repo/.claude/skills/*.md"],
+        )
+
+    def test_structured_dynamic_shell_read_is_not_emitted(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            events = extract_skill_read_events(
+                {
+                    "type": "function_call",
+                    "name": "exec_command",
+                    "arguments": json.dumps(
+                        {"cmd": 'cat "$HOME/.claude/skills/x.md"'}
+                    ),
+                },
+                runtime="codex",
+                timestamp=STAMP,
+                source_path_id="source",
+                cwd=str(root),
+                coverage=Counter(),
+            )
+            self.assertEqual(events, [])
+
     def test_recursive_inventory_uses_frontmatter_and_avoids_symlink_cycle(
         self,
     ) -> None:
