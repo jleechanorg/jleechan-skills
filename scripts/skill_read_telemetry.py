@@ -14,6 +14,8 @@ from pathlib import Path
 READ_TOOL_NAMES = {"Read", "read", "read_file", "ReadFile"}
 SHELL_TOOL_NAMES = {"Bash", "bash", "exec_command"}
 LOOSE_SKILL_PATH_RE = re.compile(r"(?:^|/)\.claude/skills/[^/]+\.md$")
+HEAD_TAIL_COUNT_RE = re.compile(r"^-?\d+$")
+SED_PRINT_PROGRAM_RE = re.compile(r"^(?:\d+|\$)(?:,(?:\d+|\$))?p$")
 
 
 class _RecordLocalReceipt:
@@ -28,9 +30,13 @@ def digest(data: bytes | str) -> str:
 def normalize_path(raw: object, cwd: object = None) -> str | None:
     if not isinstance(raw, str) or not raw.strip():
         return None
-    value = raw.strip()
-    if value.startswith("~"):
-        path = Path(value).expanduser()
+    if not raw.strip():
+        return None
+    value = raw
+    if value.startswith(("~", r"\~", "'~", '"~', "'\\~", '"\\~')):
+        # The capture host is not evidence for a historical user's home.
+        # Keep tilde-prefixed operands unresolved rather than expanding them.
+        return None
     elif os.path.isabs(value):
         path = Path(value)
     elif isinstance(cwd, str) and os.path.isabs(cwd):
@@ -90,50 +96,93 @@ def _shell_read_paths(command: object) -> list[str]:
         and Path(tokens[0]).name in {"bash", "sh", "zsh", "dash"}
         and tokens[1] in {"-c", "-lc"}
     ):
-        return _shell_read_paths(
-            tokens[2] if len(tokens) == 3 else " ".join(tokens[2:])
-        )
+        return _shell_read_paths(tokens[2]) if len(tokens) == 3 else []
     if _contains_unquoted_shell_dynamic(command):
         return []
     paths: list[str] = []
     segment: list[str] = []
     segments: list[list[str]] = []
+    if tokens and tokens[-1] == ";":
+        tokens = tokens[:-1]
+    if not tokens:
+        return []
     for token in tokens + [";"]:
         if token in {";", "&&", "||", "|"}:
-            if segment:
-                segments.append(segment)
+            if not segment:
+                return []
+            segments.append(segment)
             segment = []
         else:
             segment.append(token)
-    cwd_builtins = {"cd", "pushd", "popd"}
-    if any(
-        segment
-        and (
-            Path(segment[0]).name in cwd_builtins
-            or (
-                Path(segment[0]).name in {"builtin", "command"}
-                and len(segment) > 1
-                and Path(segment[1]).name in cwd_builtins
-            )
-        )
-        for segment in segments
-    ):
-        # Relative operands depend on shell state that this parser does not
-        # execute.  Drop the whole compound command rather than misattribute.
-        return []
     for segment in segments:
         if not segment or any("<" in token or ">" in token for token in segment):
-            continue
+            return []
         executable = Path(segment[0]).name
         if executable not in {"cat", "sed", "head", "tail"}:
-            continue
-        operands = [
-            token for token in segment[1:] if token != "-" and not token.startswith("-")
-        ]
-        if executable == "sed" and operands:
-            operands = operands[1:]
+            return []
+        operands = _literal_reader_operands(executable, segment[1:])
+        if operands is None:
+            return []
         paths.extend(operands)
     return paths
+
+
+def _literal_reader_operands(executable: str, arguments: list[str]) -> list[str] | None:
+    """Parse the small option subset whose operands are provably file paths."""
+    if executable == "cat":
+        if "--" in arguments:
+            marker = arguments.index("--")
+            if any(token.startswith("-") and token != "-" for token in arguments[:marker]):
+                return None
+            arguments = arguments[marker + 1 :]
+        elif any(token.startswith("-") and token != "-" for token in arguments):
+            return None
+        return [token for token in arguments if token != "-"]
+
+    if executable in {"head", "tail"}:
+        operands: list[str] = []
+        cursor = 0
+        while cursor < len(arguments):
+            token = arguments[cursor]
+            if token == "--":
+                operands.extend(
+                    path for path in arguments[cursor + 1 :] if path != "-"
+                )
+                break
+            if token in {"-n", "--lines"}:
+                if (
+                    cursor + 1 >= len(arguments)
+                    or not HEAD_TAIL_COUNT_RE.fullmatch(arguments[cursor + 1])
+                ):
+                    return None
+                cursor += 2
+                continue
+            if token.startswith("-n") and HEAD_TAIL_COUNT_RE.fullmatch(token[2:]):
+                cursor += 1
+                continue
+            if token.startswith("--lines=") and HEAD_TAIL_COUNT_RE.fullmatch(
+                token.split("=", 1)[1]
+            ):
+                cursor += 1
+                continue
+            if re.fullmatch(r"-\d+", token):
+                cursor += 1
+                continue
+            if token.startswith("-"):
+                return None
+            operands.append(token)
+            cursor += 1
+        return operands
+
+    # Only a literal print program is accepted for sed.  This excludes -e,
+    # scripts that execute commands, and all other option/program forms.
+    cursor = 1 if arguments and arguments[0] == "-n" else 0
+    if cursor >= len(arguments) or not SED_PRINT_PROGRAM_RE.fullmatch(arguments[cursor]):
+        return None
+    cursor += 1
+    if any(token.startswith("-") and token != "-" for token in arguments[cursor:]):
+        return None
+    return [token for token in arguments[cursor:] if token != "-"]
 
 
 def _contains_unquoted_shell_dynamic(command: str) -> bool:
@@ -159,7 +208,7 @@ def _contains_unquoted_shell_dynamic(command: str) -> bool:
             continue
         if character in "'\"":
             quote = character
-        elif character in "$`*?[]{}":
+        elif character in "$`*?[]{}()":
             return True
     return False
 

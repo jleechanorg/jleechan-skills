@@ -17,7 +17,7 @@ from scripts.capture_command_skill_usage import (
     extract_skill_read_events,
     skill_inventory,
 )
-from scripts.skill_read_telemetry import _shell_read_paths
+from scripts.skill_read_telemetry import _shell_read_paths, _skill_path_observation
 
 STAMP = dt.datetime(2026, 9, 1, tzinfo=dt.timezone.utc)
 WINDOW_START = STAMP - dt.timedelta(days=1)
@@ -45,6 +45,38 @@ class SkillUsageCaptureTest(unittest.TestCase):
             _shell_read_paths(r"cat /repo/.claude/skills/\*.md"),
             ["/repo/.claude/skills/*.md"],
         )
+
+    def test_shell_reader_options_are_bounded(self) -> None:
+        for command in (
+            "head -n .claude/skills/x.md",
+            "cat --help .claude/skills/x.md",
+            "sed -e .claude/skills/x.md",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(_shell_read_paths(command), [])
+        self.assertEqual(
+            _shell_read_paths("head -n20 .claude/skills/x.md"),
+            [".claude/skills/x.md"],
+        )
+        self.assertEqual(
+            _shell_read_paths("sed -n '1,80p' .claude/skills/x.md"),
+            [".claude/skills/x.md"],
+        )
+        self.assertEqual(
+            _shell_read_paths("cat -- .claude/skills/x.md"),
+            [".claude/skills/x.md"],
+        )
+
+    def test_path_observation_preserves_literal_trailing_space(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            skill = root / ".claude" / "skills" / "x.md"
+            skill.parent.mkdir(parents=True)
+            skill.write_text("# x\n")
+            inventory = [{"name": "x", "path": str(skill)}]
+            self.assertIsNone(
+                _skill_path_observation(str(skill) + " ", str(root), inventory)
+            )
 
     def test_structured_dynamic_shell_read_is_not_emitted(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -131,6 +163,34 @@ class SkillUsageCaptureTest(unittest.TestCase):
                         ),
                         [],
                     )
+
+    def test_shell_unknown_commands_and_subshells_are_not_emitted(self) -> None:
+        for command in (
+            "eval 'cd /repo' && cat .claude/skills/x.md",
+            "source helper && cat .claude/skills/x.md",
+            ". helper && cat .claude/skills/x.md",
+            "env cat .claude/skills/x.md",
+            "cat /tmp/log && unknown-tool /repo/.claude/skills/x.md",
+            "( cd /repo && cat .claude/skills/x.md )",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(_shell_read_paths(command), [])
+
+    def test_tilde_paths_remain_unresolved(self) -> None:
+        inventory = [
+            {
+                "name": "x",
+                "path": str(Path.home() / ".claude/skills/x.md"),
+            }
+        ]
+        self.assertEqual(
+            _skill_path_observation("~/.claude/skills/x.md", "/repo", inventory),
+            None,
+        )
+        self.assertEqual(
+            _skill_path_observation(r"\~/.claude/skills/x.md", "/repo", inventory),
+            None,
+        )
 
     def test_recursive_inventory_uses_frontmatter_and_avoids_symlink_cycle(
         self,

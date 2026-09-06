@@ -218,6 +218,41 @@ class ScopedSkillUsageTest(unittest.TestCase):
                 },
             )
             audit(manifest, root / "out", ignore_scanner_hash=True)
+            payload = json.loads((root / "out/skill-usage-30d.json").read_text())
+            self.assertEqual(payload["provenance_status"], "unverified_explicit_override")
+            self.assertFalse(payload["provenance_verified"])
+
+    def test_legacy_missing_source_hashes_are_marked_unverified(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest = build_audit_fixture(root, events=[])
+            audit(manifest, root / "out")
+            payload = json.loads((root / "out/skill-usage-30d.json").read_text())
+            self.assertEqual(
+                payload["provenance_status"],
+                "unverified_legacy_missing_source_hashes",
+            )
+            self.assertFalse(payload["provenance_verified"])
+
+    def test_standard_manifest_requires_complete_source_hash_maps(self):
+        for overrides in (
+            {"schema": "claude_usage_audit_manifest.v3"},
+            {
+                "schema": "claude_usage_audit_manifest.v3",
+                "scanner_source_sha256": {
+                    "scripts/audit_command_skill_usage.py": digest(
+                        (Path(__file__).parents[1] / "scripts/audit_command_skill_usage.py").read_bytes()
+                    )
+                },
+            },
+        ):
+            with self.subTest(overrides=overrides), TemporaryDirectory() as directory:
+                root = Path(directory)
+                manifest = build_audit_fixture(
+                    root, events=[], manifest_overrides=overrides
+                )
+                with self.assertRaisesRegex(ValueError, "complete source hash"):
+                    audit(manifest, root / "out")
 
 
 if __name__ == "__main__":

@@ -32,6 +32,22 @@ ALIAS_PROSE_RE = re.compile(
     re.IGNORECASE,
 )
 
+REQUIRED_SCANNER_SOURCE_HASHES = frozenset(
+    {
+        "scripts/audit_command_skill_usage.py",
+        "scripts/capture_command_skill_usage.py",
+        "scripts/scoped_skill_usage.py",
+        "scripts/skill_read_telemetry.py",
+    }
+)
+REQUIRED_CAPTURE_SOURCE_HASHES = frozenset(
+    {
+        "scripts/capture_command_skill_usage.py",
+        "scripts/scoped_skill_usage.py",
+        "scripts/skill_read_telemetry.py",
+    }
+)
+
 NON_COMMAND_TOKENS: dict[str, str] = {
     "tmp": "filesystem path prefix (/tmp/<project-slug>/...), not a command",
     "rate-limit-options": "Claude Code built-in TUI modal, not a repo command",
@@ -335,7 +351,10 @@ def inventory_text(row: dict) -> str:
 def verify_source_hashes(
     manifest: dict, key: str, source_root: Path, label: str
 ) -> None:
-    for relative, expected in manifest.get(key, {}).items():
+    values = manifest.get(key, {})
+    if not isinstance(values, dict):
+        raise TypeError(f"{label} source hashes must be a mapping")
+    for relative, expected in values.items():
         candidate = (source_root / relative).resolve(strict=False)
         if not candidate.is_relative_to(source_root):
             raise ValueError(
@@ -347,6 +366,34 @@ def verify_source_hashes(
             raise ValueError(f"{label} source is unavailable: {relative}") from exc
         if actual != expected:
             raise ValueError(f"{label} source hash does not match manifest: {relative}")
+
+
+def source_provenance_status(
+    manifest: dict, source_root: Path, ignore_scanner_hash: bool
+) -> str:
+    """Verify source bindings and return an explicit status for the output."""
+    if ignore_scanner_hash:
+        return "unverified_explicit_override"
+
+    verify_source_hashes(manifest, "scanner_source_sha256", source_root, "scanner")
+    verify_source_hashes(manifest, "capture_source_sha256", source_root, "capture")
+    scanner_hashes = manifest.get("scanner_source_sha256", {})
+    capture_hashes = manifest.get("capture_source_sha256", {})
+    scanner_keys = set(scanner_hashes) if isinstance(scanner_hashes, dict) else set()
+    capture_keys = set(capture_hashes) if isinstance(capture_hashes, dict) else set()
+    complete = (
+        scanner_keys == REQUIRED_SCANNER_SOURCE_HASHES
+        and capture_keys == REQUIRED_CAPTURE_SOURCE_HASHES
+    )
+    if manifest.get("schema") == "claude_usage_audit_manifest.v3":
+        if not complete:
+            raise ValueError("complete source hash maps are required for manifest v3")
+        return "verified"
+    if complete:
+        return "verified"
+    if not scanner_keys and not capture_keys and not manifest.get("scanner_sha256"):
+        return "unverified_legacy_missing_source_hashes"
+    return "unverified_legacy_incomplete_source_hashes"
 
 
 def audit(
@@ -374,14 +421,10 @@ def audit(
         and digest(Path(__file__).read_bytes()) != manifest.get("scanner_sha256")
     ):
         raise ValueError("scanner hash does not match manifest")
-    if not ignore_scanner_hash:
-        source_root = Path(__file__).resolve().parents[1]
-        verify_source_hashes(
-            manifest, "scanner_source_sha256", source_root, "scanner"
-        )
-        verify_source_hashes(
-            manifest, "capture_source_sha256", source_root, "capture"
-        )
+    source_root = Path(__file__).resolve().parents[1]
+    provenance_status = source_provenance_status(
+        manifest, source_root, ignore_scanner_hash
+    )
 
     base = manifest_path.parent
     root = repo_root or base
@@ -680,6 +723,8 @@ def audit(
         "normalized_event_corpus_sha256": manifest["normalized_event_corpus_sha256"],
         "capture_coverage": corpus["coverage"],
         "analysis_counters": dict(analysis),
+        "provenance_status": provenance_status,
+        "provenance_verified": provenance_status == "verified",
     }
 
     command_payload = {
@@ -842,7 +887,7 @@ def main() -> None:
     parser.add_argument(
         "--ignore-scanner-hash",
         action="store_true",
-        help="Skip scanner script SHA256 validation against manifest",
+        help="Bypass scanner/capture source validation (marks output unverified)",
     )
     args = parser.parse_args()
     res = audit(

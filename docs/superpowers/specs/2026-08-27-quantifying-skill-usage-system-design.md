@@ -35,6 +35,19 @@ and `scripts/audit_command_skill_usage.py`. Capture takes `--manifest`; audit ta
   inventory content/targets and configured scanner source hashes before building
   its name-level reference graph. That graph is supporting evidence, not a
   scope-resolved execution trace.
+- Shell read telemetry accepts only a complete literal grammar: an optional
+  exact three-token `bash|sh|zsh|dash -c|-lc <command>` wrapper, and every
+  command segment must be a literal `cat`, `sed`, `head`, or `tail` read.
+  Unknown commands, cwd-changing commands, redirections, unquoted control or
+  subshell syntax, and shell expansion make the whole command unknown. Tilde
+  operands are unresolved rather than expanded on the auditing host.
+- Orchestration telemetry accepts only direct optional-`await`
+  `tools.exec_command({...})` expression statements with literal string,
+  boolean, or null fields. Expressions, numeric values, unsupported escapes,
+  callbacks, and other JavaScript syntax are unknown. A v3 manifest must bind
+  the complete scanner and capture source-hash sets; legacy manifests are
+  explicitly marked unverified when those maps are absent or partial, as are
+  outputs produced with `--ignore-scanner-hash`.
 - Missing or unsupported logs keep coverage **partial**. No observed use means
   **unknown**, never unused. `archive_eligible_from_usage_alone` is always false;
   no weighted score or zero-count list authorizes archival.
