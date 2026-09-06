@@ -88,8 +88,14 @@ def _shell_read_paths(command: object) -> list[str]:
     try:
         lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|<>")
         lexer.whitespace_split = True
+        # shlex's default comment handling strips ``#`` from any position in
+        # a word.  Preserve it so the quote-aware grammar can distinguish
+        # literal ``name.md#suffix`` from a comment boundary.
+        lexer.commenters = ""
         tokens = list(lexer)
     except ValueError:
+        return []
+    if _contains_unquoted_shell_dynamic(command):
         return []
     if (
         len(tokens) >= 3
@@ -97,8 +103,6 @@ def _shell_read_paths(command: object) -> list[str]:
         and tokens[1] in {"-c", "-lc"}
     ):
         return _shell_read_paths(tokens[2]) if len(tokens) == 3 else []
-    if _contains_unquoted_shell_dynamic(command):
-        return []
     paths: list[str] = []
     segment: list[str] = []
     segments: list[list[str]] = []
@@ -186,30 +190,59 @@ def _literal_reader_operands(executable: str, arguments: list[str]) -> list[str]
 
 
 def _contains_unquoted_shell_dynamic(command: str) -> bool:
-    """Return whether unquoted shell expansion, substitution, or glob syntax exists."""
+    """Return whether shell syntax is dynamic or outside the static grammar."""
     quote: str | None = None
     escaped = False
-    for character in command:
+    index = 0
+    while index < len(command):
+        character = command[index]
         if escaped:
             escaped = False
+            index += 1
             continue
         if quote == "'":
             if character == "'":
                 quote = None
+            index += 1
             continue
         if character == "\\":
             escaped = True
+            index += 1
             continue
         if quote == '"':
             if character == '"':
                 quote = None
             elif character in "$`":
                 return True
+            index += 1
             continue
         if character in "'\"":
             quote = character
-        elif character in "$`*?[]{}()":
+            index += 1
+            continue
+        if character == "#" and (index == 0 or command[index - 1].isspace()):
+            # Comment truncation would leave preceding operands looking like
+            # a complete static command while retaining comment tokens could
+            # turn a skill path in prose into a read.  Reject the command.
             return True
+        if character in "$`*?[]{}()<>":
+            return True
+        if character == "&":
+            if index + 1 < len(command) and command[index + 1] == "&":
+                index += 2
+                continue
+            return True
+        if character == ";":
+            if index + 1 < len(command) and command[index + 1] in ";&":
+                return True
+            index += 1
+            continue
+        if character == "|":
+            if index + 1 < len(command) and command[index + 1] == "&":
+                return True
+            index += 2 if index + 1 < len(command) and command[index + 1] == "|" else 1
+            continue
+        index += 1
     return False
 
 

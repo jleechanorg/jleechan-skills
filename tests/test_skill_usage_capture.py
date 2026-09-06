@@ -36,6 +36,38 @@ class SkillUsageCaptureTest(unittest.TestCase):
         ):
             with self.subTest(command=command):
                 self.assertEqual(_shell_read_paths(command), [])
+                self.assertEqual(
+                    extract_skill_read_events(
+                        {
+                            "type": "function_call",
+                            "name": "exec_command",
+                            "arguments": {"cmd": command},
+                        },
+                        runtime="codex",
+                        timestamp=STAMP,
+                        source_path_id="source",
+                        cwd="/repo",
+                        coverage=Counter(),
+                    ),
+                    [],
+                )
+        self.assertEqual(
+            extract_skill_read_events(
+                {
+                    "type": "function_call",
+                    "name": "exec_command",
+                    "arguments": {
+                        "cmd": "cat /repo/.claude/skills/x.md & grep x /repo/.claude/skills/y.md"
+                    },
+                },
+                runtime="codex",
+                timestamp=STAMP,
+                source_path_id="source",
+                cwd="/repo",
+                coverage=Counter(),
+            ),
+            [],
+        )
 
         self.assertEqual(
             _shell_read_paths("cat '/repo/.claude/skills/$HOME.md'"),
@@ -65,6 +97,75 @@ class SkillUsageCaptureTest(unittest.TestCase):
         self.assertEqual(
             _shell_read_paths("cat -- .claude/skills/x.md"),
             [".claude/skills/x.md"],
+        )
+
+    def test_shell_control_operators_are_bounded(self) -> None:
+        for command in (
+            "cat /repo/.claude/skills/x.md & grep x /repo/.claude/skills/y.md",
+            "cat /repo/.claude/skills/x.md &",
+            "cat /repo/.claude/skills/x.md |& grep x",
+            "cat /repo/.claude/skills/x.md &&& cat /repo/.claude/skills/y.md",
+            "cat /repo/.claude/skills/x.md > /tmp/out",
+            "cat /repo/.claude/skills/x.md < /tmp/in",
+            "cat /repo/.claude/skills/x.md >> /tmp/out",
+            "cat /repo/.claude/skills/x.md ;& cat /repo/.claude/skills/y.md",
+            "cat /repo/.claude/skills/x.md ;; cat /repo/.claude/skills/y.md",
+            "( cat /repo/.claude/skills/x.md )",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(_shell_read_paths(command), [])
+        self.assertEqual(
+            _shell_read_paths("cat /repo/.claude/skills/x.md && cat /repo/.claude/skills/y.md"),
+            [
+                "/repo/.claude/skills/x.md",
+                "/repo/.claude/skills/y.md",
+            ],
+        )
+        self.assertEqual(
+            _shell_read_paths("cat '/repo/.claude/skills/a&b.md'"),
+            ["/repo/.claude/skills/a&b.md"],
+        )
+        self.assertEqual(
+            _shell_read_paths(r"cat /repo/.claude/skills/a\&b.md"),
+            ["/repo/.claude/skills/a&b.md"],
+        )
+
+    def test_shell_wrappers_validate_outer_syntax_and_inline_hashes(self) -> None:
+        for command in (
+            'bash -c "cat \'/repo/.claude/skills/$SKILL_ROOT/x.md\'"',
+            'bash -lc "cat \'/repo/.claude/skills/$(pwd)/x.md\'"',
+            "cat /tmp/log # /repo/skills/x/SKILL.md",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(_shell_read_paths(command), [])
+        for command in (
+            "cat /repo/.claude/skills/x.md#notes",
+            "cat /repo/skills/x/SKILL.md#notes",
+        ):
+            with self.subTest(command=command):
+                # Preserve the literal operand; the skill-path matcher must
+                # refuse the suffix rather than crediting the underlying file.
+                self.assertEqual(
+                    _shell_read_paths(command), [command.removeprefix("cat ")]
+                )
+                self.assertEqual(
+                    extract_skill_read_events(
+                        {
+                            "type": "function_call",
+                            "name": "exec_command",
+                            "arguments": {"cmd": command},
+                        },
+                        runtime="codex",
+                        timestamp=STAMP,
+                        source_path_id="source",
+                        cwd="/repo",
+                        coverage=Counter(),
+                    ),
+                    [],
+                )
+        self.assertEqual(
+            _shell_read_paths("bash -c 'cat \"/repo/.claude/skills/x.md\"'"),
+            ["/repo/.claude/skills/x.md"],
         )
 
     def test_path_observation_preserves_literal_trailing_space(self) -> None:
