@@ -17,6 +17,11 @@ SHELL_TOOL_NAMES = {"Bash", "bash", "exec_command"}
 LOOSE_SKILL_PATH_RE = re.compile(r"(?:^|/)\.claude/skills/[^/]+\.md$")
 
 
+class _RecordLocalReceipt:
+    def __init__(self, path: tuple[str, ...]):
+        self.path = path
+
+
 def digest(data: bytes | str) -> str:
     return hashlib.sha256(data.encode() if isinstance(data, str) else data).hexdigest()
 
@@ -128,7 +133,7 @@ def _tool_read_paths(name: object, arguments: object) -> list[str]:
     return []
 
 
-def _iter_structured_calls(value: object):
+def _iter_structured_calls(value: object, path: tuple[str, ...] = ()):
     if isinstance(value, dict):
         record_type = value.get("type")
         name = value.get("name")
@@ -139,7 +144,11 @@ def _iter_structured_calls(value: object):
             "commandExecution",
         ):
             if record_type == "commandExecution":
-                receipt = value.get("id") or "command-execution"
+                receipt = value.get("id")
+                if not receipt:
+                    # A no-ID record has no cross-source identity.  This
+                    # receipt only joins commandActions to its own command.
+                    receipt = _RecordLocalReceipt(path)
                 yield (
                     "exec_command",
                     {"command": value.get("command", ""), "cwd": value.get("cwd")},
@@ -167,10 +176,10 @@ def _iter_structured_calls(value: object):
         for key, child in value.items():
             if key in {"text", "content", "aggregatedOutput", "output", "summary"}:
                 continue
-            yield from _iter_structured_calls(child)
+            yield from _iter_structured_calls(child, path + (str(key),))
     elif isinstance(value, list):
-        for child in value:
-            yield from _iter_structured_calls(child)
+        for index, child in enumerate(value):
+            yield from _iter_structured_calls(child, path + (str(index),))
 
 
 JS_TOKEN = re.compile(
@@ -251,6 +260,7 @@ def extract_skill_read_events(
     source_path_id: str,
     session_id: str | None = None,
     cwd: str | None = None,
+    record_position: object = None,
     inventory: list[dict] | None = None,
     coverage: Counter | None = None,
 ) -> list[dict]:
@@ -285,11 +295,29 @@ def extract_skill_read_events(
                     coverage["skill_read_candidates_rejected"] += 1
                 continue
             selected_path, selected_name = observed
-            stable = (
-                f"{runtime}:{session_id}:call:{call_id}:{selected_path}"
-                if call_id
-                else f"{runtime}:{source_path_id}:{timestamp.isoformat()}:{index}:{selected_path}"
-            )
+            if isinstance(call_id, _RecordLocalReceipt):
+                record_path = json.dumps(call_id.path, separators=(",", ":"))
+                position = (
+                    str(record_position)
+                    if record_position is not None
+                    else record_path
+                )
+                stable = (
+                    f"{runtime}:{source_path_id}:{timestamp.isoformat()}:record:"
+                    f"{position}:{record_path}:{selected_path}"
+                )
+            elif call_id:
+                stable = f"{runtime}:{session_id}:call:{call_id}:{selected_path}"
+            else:
+                position = (
+                    str(record_position)
+                    if record_position is not None
+                    else "record"
+                )
+                stable = (
+                    f"{runtime}:{source_path_id}:{timestamp.isoformat()}:"
+                    f"{position}:{index}:{selected_path}"
+                )
             event = {
                 "kind": "skill_read",
                 "runtime": runtime,

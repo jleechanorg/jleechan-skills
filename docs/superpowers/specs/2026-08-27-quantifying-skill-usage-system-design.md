@@ -19,10 +19,15 @@ and `scripts/audit_command_skill_usage.py`. Capture takes `--manifest`; audit ta
   from proof that the runtime has enabled those skills.
 - Set `excluded_session_ids` and `excluded_cwds` explicitly to exclude known audit
   sessions. These are operator-declared exclusions, not inferred session purposes.
+  New captures bind this policy inside the hashed corpus; audit rejects later
+  policy changes. Recapture to apply different exclusions.
 - `skill-usage-30d.json` separates structured selections, file-read attempts,
   unresolved name observations, and static reachability. A file-read call does
   not prove the tool succeeded or that its workflow ran. Name-only selections
   cannot identify the installed scope, even if only one scope was inventoried.
+  Explicit call IDs deduplicate receipts across sources. Without one, identity
+  is source-record-local; repeated source observations are not proven distinct
+  workflow executions.
 - `observed-skill-paths-30d.csv` retains paths outside the current inventory,
   including other worktrees; ambiguous shared symlink targets are not credited
   to multiple installations. Alias resolution preserves the original observation.

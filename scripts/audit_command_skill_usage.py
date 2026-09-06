@@ -373,6 +373,24 @@ def audit(
         or corpus.get("window_end_exclusive") != manifest["window_end_exclusive"]
     ):
         raise ValueError("normalized corpus window does not match manifest")
+    if "exclusions" in corpus:
+        current_exclusions = {
+            "excluded_session_ids": sorted(
+                {str(item) for item in manifest.get("excluded_session_ids", [])}
+            ),
+            "excluded_cwds": sorted(
+                {
+                    str(Path(item).expanduser().resolve(strict=False))
+                    for item in manifest.get("excluded_cwds", [])
+                    if isinstance(item, str)
+                }
+            ),
+        }
+        if any(
+            corpus["exclusions"].get(key, []) != value
+            for key, value in current_exclusions.items()
+        ):
+            raise ValueError("normalized corpus exclusions do not match manifest")
 
     commands = inventory["commands"]
     skills = inventory["skills"]

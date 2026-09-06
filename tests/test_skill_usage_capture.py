@@ -204,6 +204,187 @@ class SkillUsageCaptureTest(unittest.TestCase):
             self.assertEqual(len(events), 1)
             self.assertEqual(events[0]["selected_path"], str(lexical))
 
+    def test_no_id_command_executions_are_distinct_but_actions_deduplicate(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            skill = root / "skills" / "x" / "SKILL.md"
+            skill.parent.mkdir(parents=True)
+            skill.write_text("# x\n")
+            payload = [
+                {
+                    "type": "commandExecution",
+                    "command": f"/bin/bash -lc 'cat {skill}'",
+                    "commandActions": [{"type": "read", "path": str(skill)}],
+                },
+                {
+                    "type": "commandExecution",
+                    "command": f"/bin/bash -lc 'cat {skill}'",
+                    "commandActions": [{"type": "read", "path": str(skill)}],
+                },
+            ]
+            events = extract_skill_read_events(
+                payload,
+                runtime="codex",
+                timestamp=STAMP,
+                source_path_id="source",
+                session_id="session",
+                cwd=str(root),
+                coverage=Counter(),
+            )
+            self.assertEqual(len(events), 2)
+            self.assertEqual(len({event["event_id"] for event in events}), 2)
+            repeated = extract_skill_read_events(
+                payload,
+                runtime="codex",
+                timestamp=STAMP,
+                source_path_id="source",
+                session_id="session",
+                cwd=str(root),
+                coverage=Counter(),
+            )
+            self.assertEqual(
+                [event["event_id"] for event in events],
+                [event["event_id"] for event in repeated],
+            )
+            other_source = extract_skill_read_events(
+                payload,
+                runtime="codex",
+                timestamp=STAMP,
+                source_path_id="other-source",
+                session_id="session",
+                cwd=str(root),
+                coverage=Counter(),
+            )
+            self.assertNotEqual(
+                {event["event_id"] for event in events},
+                {event["event_id"] for event in other_source},
+            )
+
+    def test_no_id_records_keep_jsonl_and_sqlite_positions(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            skill = root / "skills" / "x" / "SKILL.md"
+            skill.parent.mkdir(parents=True)
+            skill.write_text("# x\n")
+            item = {
+                "type": "commandExecution",
+                "command": f"/bin/bash -lc 'cat {skill}'",
+            }
+            rollout = root / "session.jsonl"
+            rollout.write_text(
+                "".join(
+                    json.dumps(
+                        {
+                            "timestamp": STAMP.isoformat(),
+                            "type": "response_item",
+                            "payload": item,
+                        }
+                    )
+                    + "\n"
+                    for _ in range(2)
+                )
+            )
+            events = _extract_codex_jsonl(
+                rollout,
+                WINDOW_START,
+                WINDOW_END,
+                Counter(),
+                [],
+            )
+            jsonl_reads = [e for e in events if e["kind"] == "skill_read"]
+            self.assertEqual(len(jsonl_reads), 2)
+            self.assertEqual(len({e["event_id"] for e in jsonl_reads}), 2)
+            repeated = _extract_codex_jsonl(
+                rollout,
+                WINDOW_START,
+                WINDOW_END,
+                Counter(),
+                [],
+            )
+            self.assertEqual(
+                [e["event_id"] for e in events],
+                [e["event_id"] for e in repeated],
+            )
+
+            db = root / "thread_history_1.sqlite"
+            conn = sqlite3.connect(db)
+            conn.execute(
+                "CREATE TABLE thread_items (thread_id TEXT, item_id TEXT, "
+                "created_at_ms INTEGER, item_json TEXT, item_type TEXT)"
+            )
+            for item_id in ("row-1", "row-2"):
+                conn.execute(
+                    "INSERT INTO thread_items VALUES (?, ?, ?, ?, ?)",
+                    (
+                        "thread",
+                        item_id,
+                        int(STAMP.timestamp() * 1000),
+                        json.dumps(item),
+                        "",
+                    ),
+                )
+            conn.commit()
+            conn.close()
+            first = extract_codex_telemetry(root, WINDOW_START, WINDOW_END, Counter())
+            second = extract_codex_telemetry(root, WINDOW_START, WINDOW_END, Counter())
+            first_reads = [e for e in first if e["kind"] == "skill_read"]
+            second_reads = [e for e in second if e["kind"] == "skill_read"]
+            self.assertEqual(len(first_reads), 2)
+            self.assertEqual(
+                [e["event_id"] for e in first_reads],
+                [e["event_id"] for e in second_reads],
+            )
+
+    def test_no_id_generic_reads_keep_jsonl_positions(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            skill = root / "skills" / "x" / "SKILL.md"
+            skill.parent.mkdir(parents=True)
+            skill.write_text("# x\n")
+            item = {
+                "type": "function_call",
+                "name": "Read",
+                "arguments": json.dumps({"file_path": str(skill)}),
+            }
+            rollout = root / "session.jsonl"
+            rollout.write_text(
+                "".join(
+                    json.dumps(
+                        {
+                            "timestamp": STAMP.isoformat(),
+                            "type": "response_item",
+                            "payload": item,
+                        }
+                    )
+                    + "\n"
+                    for _ in range(2)
+                )
+            )
+            first = _extract_codex_jsonl(
+                rollout,
+                WINDOW_START,
+                WINDOW_END,
+                Counter(),
+                [],
+            )
+            second = _extract_codex_jsonl(
+                rollout,
+                WINDOW_START,
+                WINDOW_END,
+                Counter(),
+                [],
+            )
+            first_reads = [e for e in first if e["kind"] == "skill_read"]
+            second_reads = [e for e in second if e["kind"] == "skill_read"]
+            self.assertEqual(len(first_reads), 2)
+            self.assertEqual(len({e["event_id"] for e in first_reads}), 2)
+            self.assertEqual(
+                [e["event_id"] for e in first_reads],
+                [e["event_id"] for e in second_reads],
+            )
+
     def test_codex_rollout_metadata_and_bash_lc_workdir_are_carried_forward(
         self,
     ) -> None:

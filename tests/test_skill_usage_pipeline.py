@@ -10,9 +10,38 @@ from tempfile import TemporaryDirectory
 from scripts.audit_command_skill_usage import audit
 from scripts.capture_command_skill_usage import _extract_codex_jsonl, capture
 from scripts.skill_read_telemetry import extract_skill_read_events
+from tests.test_command_skill_usage_audit import build_audit_fixture, digest
 
 
 class SkillUsagePipelineTest(unittest.TestCase):
+    def test_audit_rejects_changed_capture_exclusions(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            manifest_path = build_audit_fixture(root, events=[])
+            manifest = json.loads(manifest_path.read_text())
+            corpus_path = root / manifest["normalized_event_corpus"]
+            corpus = json.loads(corpus_path.read_text())
+            corpus["exclusions"] = {
+                "excluded_session_ids": ["audit-session"],
+                "excluded_cwds": [str(root / "audit")],
+            }
+            corpus_path.write_text(json.dumps(corpus))
+            manifest["normalized_event_corpus_sha256"] = digest(corpus_path.read_bytes())
+            manifest.update(corpus["exclusions"])
+            manifest_path.write_text(json.dumps(manifest))
+            audit(manifest_path, root / "baseline")
+            for key, value in (
+                ("excluded_session_ids", []),
+                ("excluded_session_ids", ["other-session"]),
+                ("excluded_cwds", []),
+                ("excluded_cwds", [str(root / "other")]),
+            ):
+                with self.subTest(key=key, value=value):
+                    changed = {**manifest, key: value}
+                    manifest_path.write_text(json.dumps(changed))
+                    with self.assertRaisesRegex(ValueError, "exclusions.*manifest"):
+                        audit(manifest_path, root / "changed")
+
     def test_non_string_record_discriminators_are_not_tool_calls(self):
         self.assertEqual(self.read_events({"type": {"type": "string"}}), [])
         self.assertEqual(self.read_events({"type": ["function_call"]}), [])

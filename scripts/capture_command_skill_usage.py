@@ -283,6 +283,7 @@ def extract_claude_telemetry(
                             source_path_id=path_id,
                             session_id=str(session_id) if session_id else None,
                             cwd=cwd,
+                            record_position=f"claude:{line_number}",
                             inventory=inventory,
                             coverage=coverage,
                         )
@@ -354,6 +355,7 @@ def _codex_structured_events(
     source_path_id: str,
     session_id: str | None,
     cwd: str | None,
+    record_position: object,
     inventory: list[dict] | None,
     coverage: Counter,
 ) -> list[dict]:
@@ -364,6 +366,7 @@ def _codex_structured_events(
         source_path_id=source_path_id,
         session_id=session_id,
         cwd=cwd,
+        record_position=record_position,
         inventory=inventory,
         coverage=coverage,
     )
@@ -422,6 +425,7 @@ def _extract_codex_jsonl(
                     source_path_id=path_id,
                     session_id=str(event_session_id) if event_session_id else None,
                     cwd=event_cwd,
+                    record_position=f"jsonl:{line_number}",
                     inventory=inventory,
                     coverage=coverage,
                 )
@@ -495,10 +499,17 @@ def extract_codex_telemetry(
         cursor = conn.cursor()
         cursor.execute(
             "SELECT thread_id, item_id, created_at_ms, item_json, item_type FROM thread_items "
-            "WHERE created_at_ms >= ? AND created_at_ms < ?",
+            "WHERE created_at_ms >= ? AND created_at_ms < "
+            "? ORDER BY created_at_ms, thread_id, item_id",
             (start_ms, end_ms),
         )
-        for thread_id, item_id, created_at_ms, item_json, item_type in cursor:
+        for row_number, (
+            thread_id,
+            item_id,
+            created_at_ms,
+            item_json,
+            item_type,
+        ) in enumerate(cursor, 1):
             coverage["lines_scanned"] += 1
             try:
                 record = json.loads(item_json)
@@ -525,6 +536,7 @@ def extract_codex_telemetry(
                     source_path_id=path_id,
                     session_id=str(thread_id) if thread_id else None,
                     cwd=cwd,
+                    record_position=f"sqlite:{row_number}:{thread_id}:{item_id}",
                     inventory=inventory,
                     coverage=coverage,
                 )
