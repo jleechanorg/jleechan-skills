@@ -132,12 +132,12 @@ def _iter_structured_calls(value: object):
     if isinstance(value, dict):
         record_type = value.get("type")
         name = value.get("name")
-        if record_type in {
+        if record_type in (
             "function_call",
             "custom_tool_call",
             "tool_use",
             "commandExecution",
-        }:
+        ):
             if record_type == "commandExecution":
                 receipt = value.get("id") or "command-execution"
                 yield (
@@ -145,11 +145,12 @@ def _iter_structured_calls(value: object):
                     {"command": value.get("command", ""), "cwd": value.get("cwd")},
                     receipt,
                 )
-                for action in value.get("commandActions", []):
-                    if isinstance(action, dict) and action.get("type") in {
+                actions = value.get("commandActions")
+                for action in actions if isinstance(actions, list) else []:
+                    if isinstance(action, dict) and action.get("type") in (
                         "read",
                         "Read",
-                    }:
+                    ):
                         yield (
                             "Read",
                             {"path": action.get("path"), "cwd": value.get("cwd")},

@@ -13,6 +13,28 @@ from scripts.skill_read_telemetry import extract_skill_read_events
 
 
 class SkillUsagePipelineTest(unittest.TestCase):
+    def test_non_string_record_discriminators_are_not_tool_calls(self):
+        self.assertEqual(self.read_events({"type": {"type": "string"}}), [])
+        self.assertEqual(self.read_events({"type": ["function_call"]}), [])
+        self.assertEqual(
+            self.read_events(
+                {
+                    "type": "commandExecution",
+                    "commandActions": [{"type": {}}],
+                }
+            ),
+            [],
+        )
+        self.assertEqual(
+            self.read_events(
+                {
+                    "type": "commandExecution",
+                    "commandActions": None,
+                }
+            ),
+            [],
+        )
+
     def read_events(self, payload):
         return extract_skill_read_events(
             payload,
