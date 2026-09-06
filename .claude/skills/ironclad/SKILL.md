@@ -41,7 +41,7 @@ Reuse the active tracker and goal state. Create a new bead, roadmap file, STATE 
 
 An ironclad contract must terminate. Apply all of these limits:
 
-- **Gate-cycle cap:** after two full gate cycles on the same goal or three hours of autonomous work, stop the loop, publish the exact failing criteria and evidence, and surface the scope or authority blocker to the user. Paraphrased self-permission does not extend the cap.
+- **Autonomy time-box:** after eight hours of autonomous work, stop the loop, publish the exact failing criteria and evidence, and surface the scope or authority blocker to the user. Paraphrased self-permission does not extend the time-box.
 - **Delivery checkpoint:** the shorter 30-minute implementation-or-executable-verification checkpoint in `~/.claude/CLAUDE.md` still applies throughout the task.
 - **Evidence sequencing:** run expensive evidence such as real-model calls, browser/video capture, or bundle production once and last, after implementation and blocker triage. Use cheap targeted checks during iteration.
 - **Materiality:** a changed HEAD invalidates prior evidence only when the changed files or behavior intersect that evidence. SHA inequality alone is not a reason to rerun every gate.

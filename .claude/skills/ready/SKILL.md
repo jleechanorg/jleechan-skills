@@ -9,7 +9,13 @@ description: Drive PR(s) to merge-ready — /es /er /advice approved, then /gree
 driving gates 1–3 (/es, /er, /advice) to approved; only THEN undraft, then
 drive gate 4 (/green) and gate 5 to done. If the PR is ALREADY non-draft,
 leave it non-draft — never convert an open non-draft PR back to draft; just
-run the gates in the same order.
+apply the same final gate requirements.
+
+These are final acceptance gates, not a serial work schedule. Follow
+`draft-first-pr/SKILL.md`: run independent code reviews and cheap focused checks
+early in parallel, resolve or explicitly defer findings, then freeze the change
+before expensive evidence. Final acceptance remains /es → /er → /advice at
+the current SHA; do not postpone the first code review until after evidence.
 
 A PR is READY when ALL of the following hold, verified at the CURRENT head SHA
 (newest check-run attempt per name; REST when GraphQL quota is low):
@@ -21,7 +27,7 @@ A PR is READY when ALL of the following hold, verified at the CURRENT head SHA
 2. **/er** — adversarial evidence review verdict PASS at the current head
    (re-run after every head move; findings fixed RED-first).
 3. **/advice** — at least two independent full-coverage approval reviewers
-   among the canonical A, C, and D reviewer lanes approve the exact head, or
+   from the canonical `advice/SKILL.md` approval lanes approve the exact head, or
    every REQUEST_CHANGES finding is fixed and the two-reviewer quorum is rerun
    and approves. Research and the orchestrating agent do not vote. One approval
    can block but cannot approve; unavailable or partial-coverage reviewers do

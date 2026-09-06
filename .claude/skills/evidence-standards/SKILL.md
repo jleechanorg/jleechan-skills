@@ -33,6 +33,14 @@ Ordered by strength, for a production behavior claim:
 Real beats fast. A 30-second test against the real local server beats a 200-test
 mock suite for proving "the server behaves like X."
 
+### Strict UI Evidence Invariant: Mocks Forbidden — Real Server UI Required
+
+Synthetic mock JSON, DOM fixture injection, or invoking frontend rendering functions
+with hand-crafted JSON objects in the browser console is **strictly forbidden for UI evidence**.
+Only UI driven by a **real running server** (local development server or live deployed preview instance)
+rendering real backend responses counts as valid Layer 2 UI evidence. Unit and mocked-fixture
+captures are supporting evidence only and do NOT prove UI integration correctness.
+
 ## Evidence Envelope Declaration (breadth claims: "all / per / each / every / across N")
 
 Before producing evidence for a claim that covers a **set** (all 14 agents, every mode, each class), FIRST declare the **envelope** and get acceptance:
@@ -80,8 +88,8 @@ Tolerance for Test/Docs-Only Changes") and take precedence on conflict.
 ## Evidence Sequencing — expensive evidence runs LAST, once
 
 Cheap gates (unit/focused tests, lint, compile) iterate freely per commit.
-Adversarial code-review rounds are cheap per-pass but still subject to the
-2-gate-cycle cap below — "cheap" is not license for unlimited review rounds. Expensive evidence (real-server + real-LLM runs, RED/GREEN pairs,
+Adversarial code-review rounds are cheap per-pass, but must continue to enforce
+the required correctness and evidence checks. Expensive evidence (real-server + real-LLM runs, RED/GREEN pairs,
 browser/video capture, bundle assembly) runs ONCE, at the END: only after code is
 complete — all review findings resolved or explicitly deferred, focused tests
 green, no known remaining code work. Freeze the HEAD, then run the expensive
@@ -96,11 +104,10 @@ the artifact producer changed in a way that alters captured bytes. When review
 findings arrive after evidence, classify materiality FIRST; batch ALL pending
 fixes into ONE new SHA before any rerun — never a rerun per finding.
 
-**Cap: 2 gate-review cycles per PR** (initial pass + one batched fix-and-reverify
-pass). Only a finding that blocks correct behavior (not style/nit/doc/wording
-feedback) may trigger cycle 2. If a third cycle would be required, STOP and
-escalate to the operator instead of rerunning — never self-authorize a third
-expensive-evidence pass.
+Review findings are triaged by materiality. Findings that block correct
+behavior must be fixed and reverified; style, nit, doc, or wording feedback
+may be tracked without weakening the required correctness gates. Batch pending
+behavioral fixes into one new SHA before rerunning affected evidence.
 
 Evidence harness/infra code is not the feature: building or hardening capture
 harnesses inside the feature PR moves the HEAD and voids gates. Land harness
