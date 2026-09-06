@@ -15,15 +15,25 @@ the stale one (confirmed for `hermes/skills/` on 2026-09-06 — see below).
 **The script never decides direction. You do.** `scripts/sync_live_config.py`
 has two subcommands:
 
-- `report [--full] [--remote HOST]... [--json] [--local-only]` — gathers
-  evidence only, writes nothing. For every file in scope: NEW/MODIFIED/OK
-  status, the repo's last commit touching that path, and — if the live path
-  turns out to live inside its *own* distinct git repo (e.g. `~/.hermes` is
-  `jleechanorg/jleechanclaw`) — that repo's last commit on the same path,
-  plus a capped unified diff for small text files.
+- `report [--full] [--remote HOST]... [--json] [--remote-only]` — gathers
+  evidence only, writes nothing. For every scoped file: `new` (missing live),
+  `modified`, or `ok`, plus the repo's last commit touching that path, and —
+  if the live path turns out to live inside its *own* distinct git repo (e.g.
+  `~/.hermes` is `jleechanorg/jleechanclaw`) — that repo's last commit on the
+  same path, plus a capped unified diff for small text files. It also reports
+  a **`live_only`** status: files present live but absent from the repo's
+  tracked scope, which a repo-only file scan would otherwise never see (this
+  is the exact shape of the `hermes/skills` rename/delete drift below). All
+  of this works identically for `--remote HOST` — evidence there is not a
+  degraded subset of local.
 - `apply --direction {repo-to-live,live-to-repo} --paths PATH [PATH ...] [--remote HOST]`
   — mechanically copies exactly the paths you name, in exactly the
-  direction you name. No inference, no batch-wide default.
+  direction you name. No inference, no batch-wide default. Every path is
+  validated to resolve inside one of the allowed roots (`.claude/`,
+  `.codex/hooks/`, `hermes/skills/` and their live counterparts) before
+  anything is touched — traversal, absolute paths, and symlink escapes are
+  rejected, since the paths applied here come from your own judgment calls
+  and should be checked like any other trust boundary.
 
 ## Default vs full scope
 
@@ -66,6 +76,12 @@ has two subcommands:
      substantive, divergent changes to the same file — **do not apply
      either direction.** Report it to the user as a real conflict instead
      of guessing.
+   - A `live_only` row has no repo commit to compare against by definition —
+     judge it from `live_repo_root`/`live_last_commit` alone (was this
+     intentionally created/renamed live and never exported, or is it
+     leftover junk?) and from context (test caches and `.pytest_cache/`
+     artifacts are pre-filtered out, but skill-specific scratch files still
+     show up and need a real look).
 
 3. **`hermes/skills/` and `.claude/skills_archive/` are known inversion
    risks** (confirmed 2026-09-06: this repo's `hermes/skills/` snapshot
@@ -97,7 +113,23 @@ has two subcommands:
 
 ## Remote targets
 
-`report --remote HOST` compares against a host over a single batched
-`ssh ... sha256sum` round trip (no full file transfer). `apply --remote HOST`
-transfers only the files you named: `tar`+`scp`+remote-extract for
-repo-to-live, or `ssh ... cat` for live-to-repo.
+`report --remote HOST` resolves the remote `$HOME` once, then runs a single
+batched script over SSH that returns, per path, its hash, enclosing-repo last
+commit, and (for files under the diff-snippet size cap) base64 content so a
+real unified diff can be computed locally — feature parity with the local
+target, not a degraded subset. `apply --remote HOST` transfers only the files
+you named: `tar`+`scp`+remote-extract for repo-to-live, or `ssh ... cat` for
+live-to-repo. Destination paths are always fully resolved in Python before
+being sent to the remote shell — never left for the remote side to expand a
+`$HOME`-style variable itself.
+
+## Bootstrapping on a machine that has never run this before
+
+`/sync-live-config` is a thin dispatcher pointing at
+`${CLAUDE_HOME:-$HOME/.claude}/skills/sync-live-config/SKILL.md` — on a
+machine where this skill has never been synced, that path doesn't exist yet
+and the slash command can't resolve. The first sync on a new machine must be
+done by running the script directly from a repo checkout:
+`python3 scripts/sync_live_config.py report` — once this skill itself is
+included in whatever scope you sync, the slash command becomes available for
+every subsequent run.
