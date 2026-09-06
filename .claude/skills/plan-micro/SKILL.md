@@ -1,6 +1,6 @@
 ---
 name: plan-micro
-description: Create or revise an executable engineering plan by writing one full Ironclad contract for the overall objective, decomposing it into TDD micro-beads, and writing a full Ironclad contract for every bead. Use for /plan-micro, granular planning, or work needing integration-first TDD pairs and independently verifiable evidence. Plan only; do not implement or activate session state.
+description: Create or revise an executable engineering plan by writing one full Ironclad contract for the overall objective, decomposing it into TDD micro-beads, and writing a full Ironclad contract for every bead, then refreshing the hand-off with /nextsteps. Use for /plan-micro, granular planning, or work needing integration-first TDD pairs and independently verifiable evidence. Plan only; do not implement or activate session state.
 ---
 
 # Plan micro
@@ -141,13 +141,25 @@ and explains any overrun, and every bead has a full ironclad contract and
 dedicated document. A line-count
 overrun alone is never a blocker.
 
+## Run /nextsteps before reporting
+
+After the beads and plan are written and re-read, run `/nextsteps` (default
+mode) so the hand-off state is refreshed in the same pass: update the newest
+relevant nextsteps doc rather than creating one, point its work queue at the
+new bead DAG and plan path, add the roadmap activity entry and README date
+link, and append a learnings entry only if the planning surfaced a new lesson.
+Planning is not complete until the nextsteps artifacts name the plan path and
+the first bead a coder should pick up. This step is document-only; it must not
+start execution.
+
 ## Completion report
 
 Return the roadmap path and a compact table of bead IDs, TEST or IMPL type,
 goal, dependency, files, line budget, and proof command. Report counts for
 beads created, beads reused, TDD pairs, integration tests, unit-test exceptions,
 and ironclad contracts, distinguishing the one overall contract from the
-per-bead contracts. List only true blockers that require human authority.
+per-bead contracts. Name the nextsteps doc that was updated. List only true
+blockers that require human authority.
 
 The three-day baseline that informed these rules is in
 [references/history-baseline-2026-08-04-06.md](references/history-baseline-2026-08-04-06.md).

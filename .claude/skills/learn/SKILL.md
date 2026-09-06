@@ -14,7 +14,7 @@ records that future agents and reviewers will actually find.
 Every confirmed learning must produce or update all of these:
 
 1. Claude auto-memory under `~/.claude/projects/<project-key>/memory/`.
-2. Optional mem0 save when the configured helper and API key are available.
+2. Optional mem0 save when the configured helper and mem0 package are available (see step 3 gates).
 3. Monthly roadmap log at `~/roadmap/learnings-YYYY-MM.md`.
 4. A closed or referenced bead in `.beads/issues.jsonl` when the current repo has beads.
 5. LLM wiki ingest under `~/llm_wiki`: raw source copy, source page, index entry, log entry, and relevant concept/entity updates.
@@ -99,7 +99,7 @@ require `OPENAI_API_KEY`. The real availability gates are:
 2. The helper script exists:
    - `~/.hermes/.claude/hooks/mem0_save.py` (Hermes state dir — used on this machine), OR
    - `$(git rev-parse --show-toplevel)/.claude/hooks/mem0_save.py` (repo-local fallback)
-3. `~/.hermes/.claude/hooks/mem0_config.py:mem0_hooks_enabled()` returns `True`
+3. `~/.hermes/.claude/hooks/mem0_config.py` exists and its `mem0_hooks_enabled()` returns `True`
    (this is the helper's own gate — it inspects `OPENAI_API_KEY`, `GROQ_API_KEY`,
    `OLLAMA_HOST`, etc., not what we hard-code here).
 
@@ -108,16 +108,30 @@ existing read-only health check. Do not manufacture a learning message or requir
 Qdrant/markdown write merely to test availability:
 
 ```bash
-~/.hermes/.venv/bin/python3 -c '
-import importlib.util
+~/.hermes/.venv/bin/python3 - <<'EOF'
+import subprocess, sys
 from pathlib import Path
-assert importlib.util.find_spec("mem0")
-assert Path.home().joinpath(".hermes/.claude/hooks/mem0_save.py").is_file()
-'
+try:
+    from mem0 import Memory  # noqa: F401
+except ImportError as e:
+    raise AssertionError(f"mem0 package missing: {e}")
+hooks = Path.home() / ".hermes/.claude/hooks"
+repo = Path(subprocess.check_output(["git", "rev-parse", "--show-toplevel"], text=True).strip())
+helpers = [hooks / "mem0_save.py", repo / ".claude/hooks/mem0_save.py"]
+assert any(h.is_file() for h in helpers), f"mem0_save.py missing: {helpers}"
+assert (hooks / "mem0_config.py").is_file(), f"mem0_config.py missing: {hooks}"
+sys.path.insert(0, str(hooks))
+import mem0_config
+assert mem0_config.mem0_hooks_enabled(), "mem0_hooks_enabled() is False"
+print("mem0 available")
+EOF
 ```
 
-Only if this fails (or the helper/import probe fails) report `mem0 unavailable:
-<exact blocker>`. Otherwise report `mem0 available` and save only the actual learning.
+This checks all three gates above (the real `Memory` import, either helper
+path, and the helper's own `mem0_hooks_enabled()` — asserting `mem0_config.py`
+exists first so a missing Hermes dir yields an assertion, not a traceback),
+never writes anything, and prints the failing assertion. If it fails report `mem0 unavailable: <exact assertion
+message>`; otherwise report `mem0 available` and save only the actual learning.
 **Never block learning capture on a mem0 error** — it is an optional target;
 continue to the remaining persistence steps regardless of outcome.
 

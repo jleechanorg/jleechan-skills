@@ -194,7 +194,7 @@ class PolicyFilesContractTest(unittest.TestCase):
     def test_documented_base_resolution_works_without_origin_or_main(self):
         skill_path = REPO_ROOT / ".claude" / "skills" / "draft-first-pr" / "SKILL.md"
         skill_content = skill_path.read_text(encoding="utf-8")
-        section = skill_content.split("### Documentation-only exception", 1)[1]
+        section = skill_content.split("### Documentation-only `/er` exception", 1)[1]
         script = section.split("```bash\n", 1)[1].split("\n```", 1)[0]
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -243,7 +243,7 @@ class PolicyFilesContractTest(unittest.TestCase):
     def test_documented_base_resolution_rejects_same_repo_on_foreign_host(self):
         skill_path = REPO_ROOT / ".claude" / "skills" / "draft-first-pr" / "SKILL.md"
         skill_content = skill_path.read_text(encoding="utf-8")
-        section = skill_content.split("### Documentation-only exception", 1)[1]
+        section = skill_content.split("### Documentation-only `/er` exception", 1)[1]
         script = section.split("```bash\n", 1)[1].split("\n```", 1)[0]
 
         with tempfile.TemporaryDirectory() as temp_dir:

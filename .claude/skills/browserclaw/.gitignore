@@ -1,0 +1,12 @@
+__pycache__/
+.pytest_cache/
+.venv/
+dist/
+build/
+*.pyc
+*.pyo
+*.pyd
+*.har
+*.jsonl
+generated/
+

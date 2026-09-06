@@ -1,0 +1,7 @@
+# Pre-existing leaks in commit 45836c8 (author jleechan@example.com, same class
+# as the leak investigation in jleechan-claw bead #93). The actual GCP API
+# keys are already in public origin/main history — proper fix is a history
+# rewrite + key revocation, tracked in bead #93. This ignore file unblocks
+# fork PRs in the meantime.
+45836c8d8504af008f8c7ed1c4d375ee8f65b872:examples/mvp-site-test/catalog.json:gcp-api-key:11
+45836c8d8504af008f8c7ed1c4d375ee8f65b872:examples/mvp-site-test/README.md:gcp-api-key:30
