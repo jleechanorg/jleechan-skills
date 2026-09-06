@@ -12,6 +12,11 @@ import re
 from collections import Counter, defaultdict, deque
 from pathlib import Path
 
+try:
+    from scripts.scoped_skill_usage import event_excluded, scoped_rows
+except ModuleNotFoundError:
+    from scoped_skill_usage import event_excluded, scoped_rows
+
 SLASH_TOKEN_RE = re.compile(
     r"(?<![\w/])/((?:extended-library:)?[A-Za-z][A-Za-z0-9_-]*)(?![\w/])"
 )
@@ -143,10 +148,7 @@ def build_full_reachability_graph(
 
     for row in commands:
         cmd_name = row["command"]
-        cmd_path = Path(row["path"])
-        if not cmd_path.is_file():
-            continue
-        text = cmd_path.read_text(encoding="utf-8", errors="replace")
+        text = inventory_text(row)
         fm = parse_frontmatter(text)
 
         # Parse frontmatter aliases
@@ -182,10 +184,7 @@ def build_full_reachability_graph(
 
     for row in skills:
         skill_name = row["skill"]
-        skill_path = Path(row["path"])
-        if not skill_path.is_file():
-            continue
-        text = skill_path.read_text(encoding="utf-8", errors="replace")
+        text = inventory_text(row)
         for s in extract_skill_references_from_text(text):
             if s in known_skills and s != skill_name:
                 skill_to_skills[skill_name].add(s)
@@ -317,6 +316,22 @@ def load_bound_json(base: Path, manifest: dict, path_key: str, hash_key: str) ->
     return payload
 
 
+def inventory_text(row: dict) -> str:
+    path = Path(row["path"])
+    expected = row.get("content_sha256")
+    try:
+        content = path.read_bytes()
+    except OSError:
+        if expected:
+            raise ValueError(f"inventory content drift: missing {path}")
+        return ""
+    if expected and digest(content) != expected:
+        raise ValueError(f"inventory content drift: {path}")
+    if row.get("resolved_target") and str(path.resolve()) != row["resolved_target"]:
+        raise ValueError(f"inventory target drift: {path}")
+    return content.decode("utf-8", errors="replace")
+
+
 def audit(
     manifest_path: Path,
     output_dir: Path,
@@ -342,6 +357,12 @@ def audit(
         and digest(Path(__file__).read_bytes()) != manifest.get("scanner_sha256")
     ):
         raise ValueError("scanner hash does not match manifest")
+    if not ignore_scanner_hash:
+        source_root = Path(__file__).resolve().parents[1]
+        for relative, expected in manifest.get("scanner_source_sha256", {}).items():
+            source = (source_root / relative).resolve()
+            if not source.is_relative_to(source_root) or digest(source.read_bytes()) != expected:
+                raise ValueError(f"scanner source hash does not match manifest: {relative}")
 
     base = manifest_path.parent
     root = repo_root or base
@@ -356,7 +377,7 @@ def audit(
     commands = inventory["commands"]
     skills = inventory["skills"]
     command_names = [row["command"] for row in commands]
-    skill_names = [row["skill"] for row in skills]
+    skill_names = [row.get("skill_id", row["skill"]) for row in skills]
     if len(command_names) != len(set(command_names)) or len(skill_names) != len(set(skill_names)):
         raise ValueError("duplicate identity in inventory snapshot")
 
@@ -403,16 +424,21 @@ def audit(
     command_runtime_counts: dict[str, Counter] = defaultdict(Counter)
     skill_runtime_counts: dict[str, Counter] = defaultdict(Counter)
 
-    for event in corpus["events"]:
+    retained_events = [event for event in corpus["events"] if not event_excluded(event, manifest)]
+    analysis["excluded_observations"] = len(corpus["events"]) - len(retained_events)
+    for event in retained_events:
         rt = event.get("runtime", "claude")
         stamp = parse_time(event.get("timestamp"))
         if stamp is None or not (start <= stamp < end):
             raise ValueError(f"normalized event outside bound window: {event.get('event_id')}")
 
+        if event.get("kind") == "skill_read":
+            continue  # Path-qualified read attempts are attributed separately below.
+
         # Explicit Skill Selection
         if event.get("kind") == "skill_selection":
             name = event["selected_name"]
-            key = (event["event_id"], name)
+            key = (rt, event["event_id"], name)
             if key in skill_events:
                 analysis["duplicate_skill_events_suppressed"] += 1
                 continue
@@ -603,6 +629,10 @@ def audit(
         row["archive_eligible_from_usage_alone"] = False
         skill_rows.append(row)
 
+    skill_rows, skill_observations = scoped_rows(
+        skills, [*skill_events.values(), *(event for event in retained_events
+                 if event.get("kind") == "skill_read")],
+        {row["skill"]: row for row in skill_rows}, operator_notes)
     output_dir.mkdir(parents=True, exist_ok=True)
     common = {
         "snapshot_id": manifest["snapshot_id"],
@@ -631,16 +661,25 @@ def audit(
     }
 
     skill_payload = {
-        "schema": "hardened_claude_skill_usage.v2",
+        "schema": "scoped_skill_usage.v3",
         **common,
         "active_skill_count": len(skill_rows),
         "observed_direct_skill_count": sum(r["explicit_skill_selections"] > 0 for r in skill_rows),
         "bfs_reachable_total_skill_count": sum(r["bfs_reachable"] for r in skill_rows),
         "workflow_reachable_only_skill_count": sum(r["reachability_only"] for r in skill_rows),
         "no_evidence_skill_count": sum(r["no_evidence_in_source"] for r in skill_rows),
-        "total_structured_skill_selections": sum(skill_counts.values()),
+        "total_structured_skill_selections": sum(e["kind"] == "skill_selection" for e in skill_observations),
+        "scope_attributed_selections": sum(r["explicit_skill_selections"] for r in skill_rows),
+        "total_file_read_attempts": sum(e["kind"] == "skill_read" for e in skill_observations),
+        "scope_attributed_read_attempts": sum(r["file_read_attempts"] for r in skill_rows),
+        "unresolved_scope_observations": sum(e["attributed_skill_id"] is None for e in skill_observations),
+        "coverage_status": "partial",
+        "limitations": ["File reads are attempts, not proof of successful workflow execution.",
+                        "Name-only invocations cannot identify an installed scope.",
+                        "Static reachability is name-level supporting evidence, not execution.",
+                        "Missing logs, dynamic shell reads, and uninstrumented runtimes prevent unused classification."],
         "skills": skill_rows,
-        "events": sorted(skill_events.values(), key=lambda r: (r["timestamp"], r["selected_name"])),
+        "events": skill_observations,
     }
 
     (output_dir / "strict-claude-command-usage-30d.json").write_text(
@@ -679,6 +718,15 @@ def audit(
             handle,
             fieldnames=[
                 "skill",
+                "skill_id",
+                "scope",
+                "path",
+                "usage_status",
+                "coverage_status",
+                "file_read_attempts",
+                "claude_file_read_attempts",
+                "codex_file_read_attempts",
+                "name_only_selection_events",
                 "explicit_skill_selections",
                 "claude_direct_events",
                 "codex_direct_events",
@@ -711,6 +759,14 @@ def audit(
             for name, count in sorted(all_skill_counts.items())
         )
 
+    with (output_dir / "observed-skill-paths-30d.csv").open("w", newline="") as handle:
+        path_counts = Counter((event.get("runtime", "claude"), event["selected_path"],
+                               event.get("attributed_skill_id") or "")
+                              for event in skill_observations if event.get("selected_path"))
+        writer = csv.writer(handle)
+        writer.writerow(["runtime", "selected_path", "attributed_skill_id", "read_or_selection_attempts"])
+        writer.writerows((*key, count) for key, count in sorted(path_counts.items()))
+
     return {
         "command_summary": {
             "total": len(command_rows),
@@ -721,6 +777,8 @@ def audit(
         "skill_summary": {
             "total": len(skill_rows),
             "direct_selections": sum(r["explicit_skill_selections"] > 0 for r in skill_rows),
+            "observed_read_attempts": sum(r["file_read_attempts"] > 0 for r in skill_rows),
+            "name_only_scope_unknown": sum(r["name_only_selection_events"] > 0 for r in skill_rows),
             "bfs_reachable_total": sum(r["bfs_reachable"] for r in skill_rows),
             "reachability_only": sum(r["reachability_only"] for r in skill_rows),
             "no_evidence": sum(r["no_evidence_in_source"] for r in skill_rows),
