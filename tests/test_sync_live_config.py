@@ -48,6 +48,19 @@ class ValidateRepoRelTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_repo_rel("scripts/sync_live_config.py")
 
+    def test_rejects_paths_outside_the_tools_actual_scope(self):
+        """Regression test: TOP_LEVEL_MAP previously allowed the broad `.codex/`
+        and `hermes/` prefixes even though the tool's real scope (collect_full_scope)
+        is `.codex/hooks/` and `hermes/skills/` -- a caller-supplied --paths value
+        like `.codex/config.toml` passed validation despite being out of scope."""
+        with self.assertRaises(ValueError):
+            validate_repo_rel(".codex/config.toml")
+        with self.assertRaises(ValueError):
+            validate_repo_rel("hermes/scripts/something.py")
+        # In-scope subpaths still pass.
+        self.assertEqual(validate_repo_rel(".codex/hooks/foo.py"), ".codex/hooks/foo.py")
+        self.assertEqual(validate_repo_rel("hermes/skills/x/y.md"), "hermes/skills/x/y.md")
+
 
 class LiveRelForTest(unittest.TestCase):
     def test_maps_each_top_level_root(self):
@@ -126,7 +139,7 @@ class FindCommandFilesForSkillTest(unittest.TestCase):
 class ScopeLiveRootsTest(unittest.TestCase):
     def test_full_scope_returns_all_top_level_roots(self):
         roots = scope_live_roots([], full=True)
-        self.assertEqual(sorted(roots), sorted([".claude/", ".codex/", ".hermes/"]))
+        self.assertEqual(sorted(roots), sorted([".claude/", ".codex/hooks/", ".hermes/skills/"]))
 
     def test_core_scope_returns_only_referenced_skill_dirs(self):
         files = [

@@ -30,13 +30,14 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import uuid
 from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath
 
 TOP_LEVEL_MAP = {
     ".claude/": ".claude/",
-    ".codex/": ".codex/",
-    "hermes/": ".hermes/",
+    ".codex/hooks/": ".codex/hooks/",
+    "hermes/skills/": ".hermes/skills/",
 }
 DIFF_SNIPPET_MAX_BYTES = 200_000
 DIFF_SNIPPET_MAX_LINES = 60
@@ -304,21 +305,20 @@ while IFS= read -r p; do
   repo_root=$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null || true)
   commit=""
   if [ -n "$repo_root" ]; then
-    # `realpath --relative-to` is GNU-only (BSD/macOS realpath has no such
-    # flag); a plain prefix strip is portable and safe here since $p is
-    # always an absolute path already known to sit under $repo_root.
-    case "$p" in
-      "$repo_root"/*) relp="${p#"$repo_root"/}" ;;
-      *) relp="" ;;
-    esac
-    if [ -n "$relp" ]; then
-      # Uses GS (not FS) to join sha/date/author/subject -- this record's OWN
-      # fields are FS-delimited, so the commit's subfields must use a
-      # different separator or `record.split(FS)` silently misparses every
-      # field after this one (a real bug caught in review: content_b64 ended
-      # up holding the commit date).
-      commit=$(git -C "$repo_root" log -1 --format="%H${GS}%aI${GS}%an${GS}%s" -- "$relp" 2>/dev/null || true)
-    fi
+    # Pass the absolute path straight to `git -C "$dir" log`, letting git do
+    # its own pathspec resolution, instead of manually prefix-stripping
+    # against $repo_root -- a prior version did that (to avoid GNU-only
+    # `realpath --relative-to`) and silently dropped commit metadata whenever
+    # $HOME or any path component was a symlink, since `git rev-parse
+    # --show-toplevel` returns the physical (symlink-resolved) path while $p
+    # does not.
+    #
+    # Uses GS (not FS) to join sha/date/author/subject -- this record's OWN
+    # fields are FS-delimited, so the commit's subfields must use a
+    # different separator or `record.split(FS)` silently misparses every
+    # field after this one (a real bug caught in review: content_b64 ended
+    # up holding the commit date).
+    commit=$(git -C "$dir" log -1 --format="%H${GS}%aI${GS}%an${GS}%s" -- "$p" 2>/dev/null || true)
   fi
   content_b64=""
   if [ "$size" -le 200000 ]; then
@@ -472,27 +472,39 @@ def _remote_home(host: str) -> str:
 
 def _apply_remote_repo_to_live(root: Path, paths: list[str], host: str) -> None:
     remote_home = _remote_home(host)
+    # Unpredictable staging paths: a fixed /tmp name is a race/collision target
+    # for another concurrent run (or, on a shared multi-user host, another
+    # user) on the same machine.
+    token = uuid.uuid4().hex
+    remote_tar = f"/tmp/sync_live_config_{token}.tar.gz"
+    remote_extract = f"/tmp/sync_live_config_{token}_extract"
     with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
         tar_path = tmp.name
     try:
         with tarfile.open(tar_path, "w:gz") as tar:
             for p in paths:
                 tar.add(repo_abs_for(root, p), arcname=p)
-        remote_tar = "/tmp/sync_live_config_payload.tar.gz"
         subprocess.run(["scp", "-o", "ConnectTimeout=10", tar_path, f"{host}:{remote_tar}"], check=True)
         # Destinations are fully resolved here (Python-side), never left for the
         # remote shell to expand — that literal-$HOME expansion bug is what this fixes.
         manifest = "\n".join(f"{p}\t{remote_home}/{live_rel_for(p)}" for p in paths)
         remote_script = f"""set -e
-mkdir -p /tmp/sync_live_config_extract
-tar -xzf {remote_tar} -C /tmp/sync_live_config_extract
+mkdir -p {remote_extract}
+tar -xzf {remote_tar} -C {remote_extract}
 while IFS=$'\\t' read -r src dest; do
+  # Refuse to follow a pre-existing symlink at the destination -- a symlink
+  # planted there ahead of time (or left over from another run) could
+  # redirect the write outside the intended live root.
+  if [ -L "$dest" ]; then
+    echo "refusing to overwrite symlink destination: $dest" >&2
+    exit 1
+  fi
   mkdir -p "$(dirname "$dest")"
-  cp "/tmp/sync_live_config_extract/$src" "$dest"
+  cp "{remote_extract}/$src" "$dest"
 done <<'MANIFEST_EOF'
 {manifest}
 MANIFEST_EOF
-rm -rf /tmp/sync_live_config_extract {remote_tar}
+rm -rf {remote_extract} {remote_tar}
 """
         subprocess.run(["ssh", "-o", "ConnectTimeout=15", host, "bash", "-s"], input=remote_script, text=True, check=True)
     finally:
@@ -541,7 +553,7 @@ def main() -> int:
     args = ap.parse_args()
     try:
         return args.func(args)
-    except ValueError as e:
+    except (ValueError, RuntimeError, subprocess.CalledProcessError, OSError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
 

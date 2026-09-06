@@ -23,9 +23,10 @@ has two subcommands:
   same path, plus a capped unified diff for small text files. It also reports
   a **`live_only`** status: files present live but absent from the repo's
   tracked scope, which a repo-only file scan would otherwise never see (this
-  is the exact shape of the `hermes/skills` rename/delete drift below). All
-  of this works identically for `--remote HOST` — evidence there is not a
-  degraded subset of local.
+  is the exact shape of the `hermes/skills` rename/delete drift below). Remote
+  targets get the same per-file commit/diff enrichment as local, but **not**
+  the `live_only` directory walk yet — see "Remote targets" below for the
+  exact gap.
 - `apply --direction {repo-to-live,live-to-repo} --paths PATH [PATH ...] [--remote HOST]`
   — mechanically copies exactly the paths you name, in exactly the
   direction you name. No inference, no batch-wide default. Every path is
