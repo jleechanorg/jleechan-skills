@@ -54,3 +54,24 @@ Run this from anywhere inside the repo — it resolves the repo root itself via
    the user needs the exact paths to spot-check.
 4. **Never delete.** A file that exists live but not in the repo's scope is
    left alone; this skill only adds/updates.
+
+## `hermes/skills/` is a special case — verify direction before `--full`
+
+`.claude/` and `.codex/hooks/` reliably flow repo → live (this repo is the
+freshest source when a fix was committed straight to GitHub). `hermes/skills/`
+is different: it is populated by a *separate*, manually-invoked, one-shot
+`/exportcommands` push from `~/.hermes/skills` (itself its own actively
+maintained git repo, e.g. `jleechanorg/jleechanclaw`) into this repo. If that
+export hasn't run recently, this repo's `hermes/skills/` snapshot goes stale
+— and a `--full --apply` would then **resurrect content already renamed or
+deleted on live**, not fix drift (confirmed 2026-09-06: 713 "missing" files
+under `~/.hermes/skills/` traced entirely to a single 2026-08-01 export
+commit, while live had moved on for 5+ weeks).
+
+Before running `--full --apply` against `hermes/skills/`: check
+`git log --oneline -- hermes/skills | head -3` in this repo for staleness,
+and prefer re-running `/exportcommands` (live → repo) to refresh the
+snapshot first, rather than pushing the stale snapshot back down to live.
+`.claude/skills_archive/` carries the same caution — diffs there may reflect
+a deliberate archival pass (e.g. the 2026-08-27 zero-use archive), not
+accidental drift.
