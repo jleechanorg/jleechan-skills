@@ -24,6 +24,7 @@ import difflib
 import hashlib
 import json
 import re
+import shlex
 import subprocess
 import sys
 import tarfile
@@ -41,7 +42,7 @@ DIFF_SNIPPET_MAX_LINES = 60
 NOISE_DIRS = {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"}
 NOISE_SUFFIXES = {".pyc", ".pyo"}
 NOISE_NAMES = {".DS_Store"}
-RS, FS = "\x1e", "\x1f"  # record / field separators for the remote batch protocol
+RS, FS, GS = "\x1e", "\x1f", "\x1d"  # record / field / (nested-commit) group separators
 
 
 def repo_root() -> Path:
@@ -53,8 +54,21 @@ def repo_root() -> Path:
     return Path(out.stdout.strip())
 
 
+_SAFE_PATH_RE = re.compile(r"^[A-Za-z0-9._/-]+$")
+
+
 def validate_repo_rel(p: str) -> str:
-    """Reject anything that isn't a plain, non-traversing path under an allowed root."""
+    """Reject anything that isn't a plain, non-traversing path under an allowed root.
+
+    Every one of these paths eventually becomes an argv element or heredoc
+    line sent over `ssh` for a remote target, where OpenSSH flattens trailing
+    command arguments into one string re-parsed by the remote shell — a `;`,
+    backtick, quote, or newline here is a remote-command-injection vector, not
+    just a local filesystem-escape one. The allowlist is deliberately strict:
+    every currently tracked path under the allowed roots matches it.
+    """
+    if not _SAFE_PATH_RE.match(p):
+        raise ValueError(f"unsafe path (disallowed characters): {p!r}")
     pure = PurePosixPath(p)
     if pure.is_absolute() or ".." in pure.parts or p != pure.as_posix():
         raise ValueError(f"unsafe path: {p!r}")
@@ -272,28 +286,45 @@ _REMOTE_BATCH_SCRIPT = r'''
 set -e
 RS=$'\x1e'
 FS=$'\x1f'
+GS=$'\x1d'
 while IFS= read -r p; do
   if [ ! -f "$p" ]; then
-    printf 'MISSING%s%s' "$FS" "$RS"
+    printf 'MISSING%s' "$RS"
     continue
   fi
-  hash=$(sha256sum "$p" | cut -d' ' -f1)
+  # sha256sum is GNU-coreutils-only; `shasum -a 256` is the macOS/BSD equivalent.
+  if command -v sha256sum >/dev/null 2>&1; then
+    hash=$(sha256sum "$p" | cut -d' ' -f1)
+  else
+    hash=$(shasum -a 256 "$p" | cut -d' ' -f1)
+  fi
   size=$(wc -c < "$p" | tr -d ' ')
   dir=$(dirname "$p")
   repo_root=$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null || true)
   commit=""
   if [ -n "$repo_root" ]; then
-    relp=$(realpath --relative-to="$repo_root" "$p" 2>/dev/null || true)
+    # `realpath --relative-to` is GNU-only (BSD/macOS realpath has no such
+    # flag); a plain prefix strip is portable and safe here since $p is
+    # always an absolute path already known to sit under $repo_root.
+    case "$p" in
+      "$repo_root"/*) relp="${p#"$repo_root"/}" ;;
+      *) relp="" ;;
+    esac
     if [ -n "$relp" ]; then
-      commit=$(git -C "$repo_root" log -1 --format="%H${FS}%aI${FS}%an${FS}%s" -- "$relp" 2>/dev/null || true)
+      # Uses GS (not FS) to join sha/date/author/subject -- this record's OWN
+      # fields are FS-delimited, so the commit's subfields must use a
+      # different separator or `record.split(FS)` silently misparses every
+      # field after this one (a real bug caught in review: content_b64 ended
+      # up holding the commit date).
+      commit=$(git -C "$repo_root" log -1 --format="%H${GS}%aI${GS}%an${GS}%s" -- "$relp" 2>/dev/null || true)
     fi
   fi
   content_b64=""
   if [ "$size" -le 200000 ]; then
     content_b64=$(base64 < "$p" | tr -d '\n')
   fi
-  printf 'FOUND%s%s%s%s%s%s%s%s%s%s' \
-    "$FS" "$hash" "$FS" "$repo_root" "$FS" "$commit" "$FS" "$content_b64" "$FS" "$RS"
+  printf 'FOUND%s%s%s%s%s%s%s%s%s' \
+    "$FS" "$hash" "$FS" "$repo_root" "$FS" "$commit" "$FS" "$content_b64" "$RS"
 done
 '''
 
@@ -306,12 +337,15 @@ def evidence_remote(root: Path, files: list[str], host: str) -> list[FileEvidenc
     remote_home = _remote_home(host)
     remote_paths = [f"{remote_home}/{live_rel_for(f)}" for f in files]
     # Script arrives via stdin (immune to ssh's argv-flattening/re-quoting of the
-    # command line); paths arrive as trailing argv ("$@") after `--`, which is
-    # safe here because none of these config paths contain spaces or shell
-    # metacharacters.
+    # command line); paths arrive as trailing argv ("$@") after `--`. validate_repo_rel
+    # already restricts these to a safe character allowlist, but OpenSSH still
+    # flattens the whole trailing command line into one string for the remote
+    # shell to re-parse, so quote each element too — defense in depth for the
+    # exact class of bug this whole rewrite exists to close.
+    quoted_paths = [shlex.quote(p) for p in remote_paths]
     script = _REMOTE_BATCH_SCRIPT.replace('while IFS= read -r p; do', 'for p in "$@"; do')
     proc = subprocess.run(
-        ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host, "bash", "-s", "--", *remote_paths],
+        ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host, "bash", "-s", "--", *quoted_paths],
         input=script, capture_output=True, text=True,
     )
     if proc.returncode != 0:
@@ -328,7 +362,12 @@ def evidence_remote(root: Path, files: list[str], host: str) -> list[FileEvidenc
         if kind == "MISSING":
             results.append(FileEvidence(f, live_rel_for(f), "new", repo_last_commit=last_commit(root, f)))
             continue
-        _, remote_hash, remote_repo_root, remote_commit_raw, content_b64 = fields[:5]
+        if len(fields) != 5:
+            # Fail loud, not silently-misparsed: a field-count mismatch here means
+            # some value leaked an FS byte (or the wire protocol changed underneath
+            # us) — trust nothing rather than guess which field is which.
+            raise RuntimeError(f"malformed remote record for {f!r} on {host}: {len(fields)} fields, expected 5")
+        _, remote_hash, remote_repo_root, remote_commit_raw, content_b64 = fields
         repo_abs = repo_abs_for(root, f)
         repo_hash = sha256_of(repo_abs)
         status = "modified" if remote_hash != repo_hash else "ok"
@@ -336,7 +375,7 @@ def evidence_remote(root: Path, files: list[str], host: str) -> list[FileEvidenc
         if remote_repo_root:
             ev.live_repo_root = f"{host}:{remote_repo_root}"
         if remote_commit_raw:
-            sha, date, author, subject = (remote_commit_raw.split(FS, 3) + ["", "", "", ""])[:4]
+            sha, date, author, subject = (remote_commit_raw.split(GS, 3) + ["", "", "", ""])[:4]
             ev.live_last_commit = {"sha": sha[:12], "date": date, "author": author, "subject": subject}
         if status == "modified" and content_b64:
             try:
@@ -460,8 +499,12 @@ def _apply_remote_live_to_repo(root: Path, paths: list[str], host: str) -> None:
     remote_home = _remote_home(host)
     for p in paths:
         remote_path = f"{remote_home}/{live_rel_for(p)}"
+        # OpenSSH flattens all trailing command args into one string for the
+        # remote shell to re-parse; validate_repo_rel already rejects shell
+        # metacharacters, but quote here too — this call is one edit away
+        # from carrying an unvalidated path again, and shlex.quote is free.
         out = subprocess.run(
-            ["ssh", "-o", "ConnectTimeout=15", host, "cat", remote_path],
+            ["ssh", "-o", "ConnectTimeout=15", host, "cat", shlex.quote(remote_path)],
             capture_output=True, check=True,
         )
         repo_abs = repo_abs_for(root, p)

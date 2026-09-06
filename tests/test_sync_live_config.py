@@ -2,11 +2,17 @@
 PR #419 (path containment, the --local-only inversion, and the find_command_files_for_skill
 substring over-match), plus core evidence/mapping logic."""
 
+import subprocess
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from scripts.sync_live_config import (
+    FS,
+    GS,
+    RS,
     FileEvidence,
+    evidence_remote,
     find_command_files_for_skill,
     live_abs_for,
     live_rel_for,
@@ -166,6 +172,87 @@ class FileEvidenceStatusTest(unittest.TestCase):
     def test_status_values_are_the_documented_set(self):
         ev = FileEvidence(repo_rel="x", live_rel="y", status="live_only")
         self.assertIn(ev.status, ("new", "modified", "ok", "live_only"))
+
+
+class EvidenceRemoteTest(unittest.TestCase):
+    """Regression coverage for the exact bug found in review: the remote batch
+    protocol nested a 4-part git commit tuple inside an FS-delimited record
+    using the SAME separator, so `record.split(FS)` silently misparsed every
+    field after the commit (content_b64 ended up holding the commit date)."""
+
+    def _fake_run(self, remote_home: str, batch_stdout: str):
+        def run(cmd, **kwargs):
+            del kwargs  # signature-compatible stand-in for subprocess.run; args unused
+            if cmd[0] == "git":
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            if cmd[0] == "ssh" and "printf" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, stdout=remote_home, stderr="")
+            if cmd[0] == "ssh" and "bash" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, stdout=batch_stdout, stderr="")
+            raise AssertionError(f"unexpected subprocess.run call in test: {cmd}")
+        return run
+
+    def test_modified_file_with_commit_metadata_parses_correctly(self):
+        import base64
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as root_dir:
+            root = Path(root_dir)
+            (root / ".claude" / "commands").mkdir(parents=True)
+            repo_file = root / ".claude" / "commands" / "foo.md"
+            repo_file.write_text("repo version\n")
+
+            remote_content = base64.b64encode(b"live version\n").decode()
+            commit_tuple = GS.join(["abc123def456", "2026-01-01T00:00:00-08:00", "Someone", "a commit subject"])
+            record = FS.join(["FOUND", "deadbeef" * 8, "/home/testuser/somerepo", commit_tuple, remote_content])
+            batch_stdout = record + RS
+
+            with patch("scripts.sync_live_config.subprocess.run", side_effect=self._fake_run("/home/testuser", batch_stdout)):
+                results = evidence_remote(root, [".claude/commands/foo.md"], "testhost")
+
+            self.assertEqual(len(results), 1)
+            ev = results[0]
+            self.assertEqual(ev.status, "modified")
+            self.assertEqual(ev.live_repo_root, "testhost:/home/testuser/somerepo")
+            assert ev.live_last_commit is not None
+            self.assertEqual(ev.live_last_commit["sha"], "abc123def456"[:12])
+            self.assertEqual(ev.live_last_commit["date"], "2026-01-01T00:00:00-08:00")
+            self.assertEqual(ev.live_last_commit["author"], "Someone")
+            self.assertEqual(ev.live_last_commit["subject"], "a commit subject")
+            # This is the exact field the bug corrupted: it must be the real
+            # diff, not the commit date leaking in from a misparsed field.
+            assert ev.diff_snippet is not None
+            self.assertIn("live version", ev.diff_snippet)
+            self.assertNotIn("2026-01-01", ev.diff_snippet)
+
+    def test_missing_file_reports_new(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as root_dir:
+            root = Path(root_dir)
+            (root / ".claude" / "commands").mkdir(parents=True)
+            (root / ".claude" / "commands" / "foo.md").write_text("x\n")
+            batch_stdout = "MISSING" + RS
+
+            with patch("scripts.sync_live_config.subprocess.run", side_effect=self._fake_run("/home/testuser", batch_stdout)):
+                results = evidence_remote(root, [".claude/commands/foo.md"], "testhost")
+
+            self.assertEqual(results[0].status, "new")
+
+    def test_malformed_record_raises_instead_of_silently_misparsing(self):
+        """A field count other than 5 must fail loudly, not guess."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as root_dir:
+            root = Path(root_dir)
+            (root / ".claude" / "commands").mkdir(parents=True)
+            (root / ".claude" / "commands" / "foo.md").write_text("x\n")
+            # Only 3 fields after "FOUND" instead of 4 -- simulates a protocol drift.
+            malformed = FS.join(["FOUND", "hash", "extra"]) + RS
+
+            with patch("scripts.sync_live_config.subprocess.run", side_effect=self._fake_run("/home/testuser", malformed)):
+                with self.assertRaises(RuntimeError):
+                    evidence_remote(root, [".claude/commands/foo.md"], "testhost")
 
 
 if __name__ == "__main__":

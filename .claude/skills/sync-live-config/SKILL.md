@@ -116,12 +116,21 @@ has two subcommands:
 `report --remote HOST` resolves the remote `$HOME` once, then runs a single
 batched script over SSH that returns, per path, its hash, enclosing-repo last
 commit, and (for files under the diff-snippet size cap) base64 content so a
-real unified diff can be computed locally — feature parity with the local
-target, not a degraded subset. `apply --remote HOST` transfers only the files
-you named: `tar`+`scp`+remote-extract for repo-to-live, or `ssh ... cat` for
-live-to-repo. Destination paths are always fully resolved in Python before
-being sent to the remote shell — never left for the remote side to expand a
-`$HOME`-style variable itself.
+real unified diff can be computed locally — the per-file judgment inputs
+match local. **One real gap remains:** the `live_only` directory walk (files
+present live but never repo-tracked) only runs against the local machine
+today; a remote target does not yet get that scan, so a remote-side rename/
+delete drift (the `hermes/skills` incident shape) would currently be invisible
+to `report --remote`. Treat a clean `report --remote` result as "no drift in
+the tracked-file scope," not as "definitely no drift at all," until that gap
+is closed. `apply --remote HOST` transfers only the files you named:
+`tar`+`scp`+remote-extract for repo-to-live, or `ssh ... cat` for live-to-repo.
+Destination paths are always fully resolved in Python before being sent to
+the remote shell — never left for the remote side to expand a `$HOME`-style
+variable itself. The remote batch script uses portable primitives
+(`sha256sum` with a `shasum -a 256` fallback, a plain prefix-strip instead of
+GNU-only `realpath --relative-to`) so it works against both Linux and macOS
+remotes.
 
 ## Bootstrapping on a machine that has never run this before
 
