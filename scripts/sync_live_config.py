@@ -79,29 +79,48 @@ def validate_repo_rel(p: str) -> str:
     return p
 
 
-def live_rel_for(repo_rel: str) -> str:
-    """repo-relative path -> live-relative path (relative to `home`, no leading slash)."""
+def _matched_top_level(repo_rel: str) -> tuple[str, str]:
+    """Return the (repo_prefix, live_prefix) pair repo_rel actually matched."""
     validate_repo_rel(repo_rel)
     for prefix, live_prefix in TOP_LEVEL_MAP.items():
         if repo_rel.startswith(prefix):
-            return live_prefix + repo_rel[len(prefix):]
+            return prefix, live_prefix
     raise AssertionError("unreachable: validate_repo_rel already checked this")
 
 
+def live_rel_for(repo_rel: str) -> str:
+    """repo-relative path -> live-relative path (relative to `home`, no leading slash)."""
+    prefix, live_prefix = _matched_top_level(repo_rel)
+    return live_prefix + repo_rel[len(prefix):]
+
+
 def live_abs_for(repo_rel: str, home: Path) -> Path:
-    """Resolve repo_rel to an absolute live path, contained within `home`."""
+    """Resolve repo_rel to an absolute live path, contained within its specific
+    mapped root (e.g. home/.claude), not merely "somewhere under $HOME".
+
+    A containment check against the whole home directory is not enough: a
+    symlink at, say, `~/.claude/skills/foo/SKILL.md` pointing at
+    `~/.ssh/id_rsa` resolves to a path that IS relative to `$HOME` and would
+    pass a home-wide check while still being a write to an arbitrary file
+    elsewhere under the user's home directory (reproduced in review).
+    """
+    _, live_prefix = _matched_top_level(repo_rel)
     live_rel = live_rel_for(repo_rel)
+    allowed_root = (home / live_prefix).resolve()
     candidate = (home / live_rel).resolve()
-    if not candidate.is_relative_to(home.resolve()):
-        raise ValueError(f"resolved live path escapes home: {candidate}")
+    if not candidate.is_relative_to(allowed_root):
+        raise ValueError(f"resolved live path escapes its allowed root {allowed_root}: {candidate}")
     return candidate
 
 
 def repo_abs_for(root: Path, repo_rel: str) -> Path:
-    validate_repo_rel(repo_rel)
+    """Resolve repo_rel to an absolute repo path, contained within its specific
+    mapped root (same reasoning as live_abs_for)."""
+    prefix, _ = _matched_top_level(repo_rel)
+    allowed_root = (root / prefix).resolve()
     candidate = (root / repo_rel).resolve()
-    if not candidate.is_relative_to(root.resolve()):
-        raise ValueError(f"resolved repo path escapes repo root: {candidate}")
+    if not candidate.is_relative_to(allowed_root):
+        raise ValueError(f"resolved repo path escapes its allowed root {allowed_root}: {candidate}")
     return candidate
 
 
@@ -459,7 +478,19 @@ def cmd_apply(args: argparse.Namespace) -> int:
     return 0
 
 
+def _validate_host(host: str) -> str:
+    """Reject a host string OpenSSH's own argument parser could interpret as
+    an option instead of a hostname (e.g. `-oProxyCommand=...`) -- ssh does
+    not reliably treat a positional-looking argument as "not an option" just
+    because of where it appears on the command line (verified: `-oProxyCommand=...`
+    is parsed as an option even in the hostname position)."""
+    if not host or host.startswith("-"):
+        raise ValueError(f"unsafe host (looks like an ssh option): {host!r}")
+    return host
+
+
 def _remote_home(host: str) -> str:
+    host = _validate_host(host)
     out = subprocess.run(
         ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host, "printf", "%s", "$HOME"],
         capture_output=True, text=True, check=True,
@@ -491,12 +522,29 @@ def _apply_remote_repo_to_live(root: Path, paths: list[str], host: str) -> None:
         remote_script = f"""set -e
 mkdir -p {remote_extract}
 tar -xzf {remote_tar} -C {remote_extract}
+REMOTE_HOME={shlex.quote(remote_home)}
 while IFS=$'\\t' read -r src dest; do
-  # Refuse to follow a pre-existing symlink at the destination -- a symlink
-  # planted there ahead of time (or left over from another run) could
-  # redirect the write outside the intended live root.
-  if [ -L "$dest" ]; then
-    echo "refusing to overwrite symlink destination: $dest" >&2
+  # Refuse to follow a pre-existing symlink anywhere between $REMOTE_HOME and
+  # dest, not just at the leaf: a symlinked PARENT directory (e.g.
+  # .claude/skills/foo -> ~/.ssh) would let `cp` write through it even though
+  # dest itself is not a symlink (reproduced in review -- a leaf-only `-L`
+  # check misses exactly this case).
+  case "$dest" in
+    "$REMOTE_HOME"/*) rel="${{dest#"$REMOTE_HOME"/}}" ;;
+    *) echo "refusing: destination outside $REMOTE_HOME: $dest" >&2; exit 1 ;;
+  esac
+  check_path="$REMOTE_HOME"
+  escaped=0
+  IFS='/' read -ra parts <<< "$rel"
+  for part in "${{parts[@]}}"; do
+    check_path="$check_path/$part"
+    if [ -L "$check_path" ]; then
+      echo "refusing to write through symlink path component: $check_path" >&2
+      escaped=1
+      break
+    fi
+  done
+  if [ "$escaped" -ne 0 ]; then
     exit 1
   fi
   mkdir -p "$(dirname "$dest")"

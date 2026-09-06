@@ -12,6 +12,7 @@ from scripts.sync_live_config import (
     GS,
     RS,
     FileEvidence,
+    _validate_host,
     evidence_remote,
     find_command_files_for_skill,
     live_abs_for,
@@ -104,6 +105,39 @@ class ContainmentTest(unittest.TestCase):
             (home / ".claude" / "commands" / "foo.md").symlink_to(evil_target)
             with self.assertRaises(ValueError):
                 live_abs_for(".claude/commands/foo.md", home)
+
+    def test_symlink_to_a_different_sensitive_path_still_within_home_is_rejected(self):
+        """Regression test: a home-wide containment check is not enough --
+        `~/secret/keys.txt` and `~/.ssh/id_rsa` are both "relative to $HOME"
+        and would pass a check scoped that broadly. Reproduced in review:
+        `apply` overwrote a secret file through a symlink at a skill path.
+        Containment must be scoped to the specific mapped root (e.g.
+        home/.claude), not the whole home directory."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as home_dir:
+            home = Path(home_dir)
+            (home / ".claude" / "skills" / "foo").mkdir(parents=True)
+            (home / "secret").mkdir()
+            secret = home / "secret" / "keys.txt"
+            secret.write_text("super secret")
+            (home / ".claude" / "skills" / "foo" / "SKILL.md").symlink_to(secret)
+            with self.assertRaises(ValueError):
+                live_abs_for(".claude/skills/foo/SKILL.md", home)
+
+    def test_repo_abs_for_rejects_symlink_to_sibling_top_level_dir(self):
+        """Mirror test for the repo side: a symlink inside .claude/ pointing
+        at another top-level repo directory (e.g. .git/) must be rejected,
+        not just a symlink pointing entirely outside the repo."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as root_dir:
+            root = Path(root_dir)
+            (root / ".claude" / "commands").mkdir(parents=True)
+            (root / "other_top_level").mkdir()
+            sensitive = root / "other_top_level" / "secret.txt"
+            sensitive.write_text("secret")
+            (root / ".claude" / "commands" / "foo.md").symlink_to(sensitive)
+            with self.assertRaises(ValueError):
+                repo_abs_for(root, ".claude/commands/foo.md")
 
 
 class FindCommandFilesForSkillTest(unittest.TestCase):
@@ -266,6 +300,23 @@ class EvidenceRemoteTest(unittest.TestCase):
             with patch("scripts.sync_live_config.subprocess.run", side_effect=self._fake_run("/home/testuser", malformed)):
                 with self.assertRaises(RuntimeError):
                     evidence_remote(root, [".claude/commands/foo.md"], "testhost")
+
+
+class ValidateHostTest(unittest.TestCase):
+    """Regression coverage: OpenSSH's own argument parser does not reliably
+    treat a `-`-prefixed value as "not an option" just because of where it
+    appears on the command line -- `--remote=-oProxyCommand=...` was
+    confirmed (via `ssh -G`) to be interpreted as a real ssh option even in
+    the hostname position."""
+
+    def test_accepts_ordinary_hostnames(self):
+        for h in ("jeff-ubuntu", "example.com", "10.0.0.1", "user@host"):
+            self.assertEqual(_validate_host(h), h)
+
+    def test_rejects_option_like_values(self):
+        for h in ("-oProxyCommand=touch /tmp/pwned", "-x", "--", ""):
+            with self.assertRaises(ValueError):
+                _validate_host(h)
 
 
 if __name__ == "__main__":

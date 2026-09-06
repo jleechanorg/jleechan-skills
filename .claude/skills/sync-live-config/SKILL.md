@@ -128,10 +128,15 @@ is closed. `apply --remote HOST` transfers only the files you named:
 `tar`+`scp`+remote-extract for repo-to-live, or `ssh ... cat` for live-to-repo.
 Destination paths are always fully resolved in Python before being sent to
 the remote shell — never left for the remote side to expand a `$HOME`-style
-variable itself. The remote batch script uses portable primitives
-(`sha256sum` with a `shasum -a 256` fallback, a plain prefix-strip instead of
-GNU-only `realpath --relative-to`) so it works against both Linux and macOS
-remotes.
+variable itself. The remote batch script uses portable primitives: a
+`sha256sum`-with-`shasum -a 256`-fallback for hashing, and `git -C "$dir" log
+-- "$p"` (letting git resolve the pathspec itself against the absolute path)
+for the commit lookup instead of manually reconstructing a relative path —
+both an earlier `realpath --relative-to` version (GNU-only) and its
+replacement prefix-strip silently dropped commit metadata whenever `$HOME` or
+any path component was a symlink. Every write, local or remote, also refuses
+to follow a pre-existing symlink anywhere between the allowed root and the
+destination — not just at the final path component.
 
 ## Bootstrapping on a machine that has never run this before
 
