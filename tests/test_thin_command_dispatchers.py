@@ -44,6 +44,7 @@ class ThinCommandDispatchersTest(unittest.TestCase):
             "smart-advisor": ("advice.md", "advice", "aliases: [smart-advisor]"),
             "webadvice": ("web-advice.md", "web-advice", "aliases: [webadvice]"),
             "df": ("factory.md", "dark-factory", "aliases: [f, df]"),
+            "abal": ("ablation.md", "ablation", "aliases: [abal]"),
         }
         for alias, (command_name, skill_name, declaration) in aliases.items():
             with self.subTest(alias=alias):
@@ -80,7 +81,7 @@ class ThinCommandDispatchersTest(unittest.TestCase):
         self.assertEqual((2, 1, 2), (result.command_count, result.dispatcher_count, len(result.errors)))
 
     def test_top_level_aliases_have_native_command_files(self):
-        for alias in ("smart-advisor", "webadvice", "df", "f", "sq", "ms", "p", "r"):
+        for alias in ("smart-advisor", "webadvice", "df", "f", "sq", "ms", "p", "r", "abal"):
             with self.subTest(alias=alias):
                 command = COMMANDS / f"{alias}.md"
                 self.assertTrue(command.is_file(), f"missing alias command file: {command}")
