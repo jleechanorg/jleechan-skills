@@ -13,7 +13,8 @@ tool's evidence report and decides per-file direction. The tool only:
           caller-chosen direction, after validating every path stays
           within the allowed roots. Never infers direction.
 
-Scope is either the README's "top 6" highlighted skills (default) or every
+Scope is either the README's highlighted-skills table (default -- whatever
+that table currently lists, parsed live rather than a fixed count) or every
 tracked file under .claude/, .codex/hooks/, hermes/skills/ (--full).
 """
 from __future__ import annotations
@@ -391,8 +392,13 @@ def evidence_remote(root: Path, files: list[str], host: str) -> list[FileEvidenc
 def cmd_report(args: argparse.Namespace) -> int:
     root = repo_root()
     home = Path(args.home).expanduser() if args.home else Path.home()
-    files = collect_full_scope(root) if args.full else collect_core_scope(root)
-    scope_name = "FULL" if args.full else "CORE (top-6 highlighted skills)"
+    if args.full:
+        files = collect_full_scope(root)
+        scope_name = "FULL"
+    else:
+        files = collect_core_scope(root)
+        highlighted_count = len(parse_highlighted_skill_dirs(root))
+        scope_name = f"CORE ({highlighted_count} highlighted skills from README)"
 
     targets: dict[str, list[FileEvidence]] = {}
     if not args.remote_only:
