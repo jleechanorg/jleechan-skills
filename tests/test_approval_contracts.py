@@ -197,14 +197,14 @@ class ApprovalContractsTest(unittest.TestCase):
         green = skill("pr-green-definition")
         readme = (REPO_ROOT / "README.md").read_text()
 
-        self.assertIn("Documentation-only exception", draft_first)
+        self.assertIn("Documentation-only `/er` exception", draft_first)
         self.assertIn("do not run `/er`", draft_first)
         self.assertIn("`README.md`", draft_first)
         self.assertIn("`docs/**`", draft_first)
         self.assertIn("`.claude/**`", draft_first)
         self.assertRegex(draft_first, r"still require `/es` and\s+`/advice`")
         allowlist = re.search(
-            r"is documentation-only only when every changed path is one of:\n\n"
+            r"For this `/er` exemption, every changed path must be one of:\n\n"
             r"(?P<paths>(?:- `[^`]+`\n)+)",
             draft_first,
         )
@@ -240,7 +240,7 @@ class ApprovalContractsTest(unittest.TestCase):
         swarm = skill("swarm")
 
         self.assertIn('cwd_project_key = os.getcwd().replace("/", "-")', history)
-        self.assertIn("skip auto-selection but not the\npre-run disclosure", factory)
+        self.assertIn("Always tell the user the **actual command** you ran", factory)
         self.assertIn("The top-level session owns named visible lanes", swarm)
 
 
