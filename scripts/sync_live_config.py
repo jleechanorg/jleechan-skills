@@ -303,6 +303,31 @@ def evidence_local(root: Path, files: list[str], home: Path, full: bool) -> list
     return out
 
 
+# Shared by every remote script (evidence gathering and both apply directions):
+# refuses to follow a symlink anywhere between a base directory and a target
+# path -- not just at the final path component, which a leaf-only `[ -L ]`
+# check would miss for a symlinked PARENT directory (reproduced in review).
+# Requires `bash` (uses `local`/arrays), which every call site already invokes
+# via `bash -s`.
+_SYMLINK_GUARD_FN = r'''
+path_has_symlink_component() {
+  local base="$1" target="$2" rel check part
+  case "$target" in
+    "$base"/*) rel="${target#"$base"/}" ;;
+    *) return 0 ;;
+  esac
+  check="$base"
+  local IFS='/'
+  for part in $rel; do
+    check="$check/$part"
+    if [ -L "$check" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+'''
+
 _REMOTE_BATCH_SCRIPT = r'''
 set -e
 RS=$'\x1e'
@@ -340,7 +365,14 @@ while IFS= read -r p; do
     commit=$(git -C "$dir" log -1 --format="%H${GS}%aI${GS}%an${GS}%s" -- "$p" 2>/dev/null || true)
   fi
   content_b64=""
-  if [ "$size" -le 200000 ]; then
+  # Refuse to read file CONTENT through a symlink -- a hash/commit-metadata
+  # mismatch is informational, but base64-encoding a symlinked file's bytes
+  # into content_b64 (and from there into a diff_snippet) is a real
+  # exfiltration vector for a read-only `report --remote` (reproduced in
+  # review: a remote path symlinked to a private key leaked its content into
+  # the JSON evidence). Hash/commit lookup above are left as-is since neither
+  # leaks raw content.
+  if [ "$size" -le 200000 ] && ! path_has_symlink_component "$REMOTE_HOME" "$p"; then
     content_b64=$(base64 < "$p" | tr -d '\n')
   fi
   printf 'FOUND%s%s%s%s%s%s%s%s%s' \
@@ -363,7 +395,11 @@ def evidence_remote(root: Path, files: list[str], host: str) -> list[FileEvidenc
     # shell to re-parse, so quote each element too — defense in depth for the
     # exact class of bug this whole rewrite exists to close.
     quoted_paths = [shlex.quote(p) for p in remote_paths]
-    script = _REMOTE_BATCH_SCRIPT.replace('while IFS= read -r p; do', 'for p in "$@"; do')
+    script = (
+        _SYMLINK_GUARD_FN
+        + f"REMOTE_HOME={shlex.quote(remote_home)}\n"
+        + _REMOTE_BATCH_SCRIPT.replace('while IFS= read -r p; do', 'for p in "$@"; do')
+    )
     proc = subprocess.run(
         ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host, "bash", "-s", "--", *quoted_paths],
         input=script, capture_output=True, text=True,
@@ -519,7 +555,7 @@ def _apply_remote_repo_to_live(root: Path, paths: list[str], host: str) -> None:
         # Destinations are fully resolved here (Python-side), never left for the
         # remote shell to expand — that literal-$HOME expansion bug is what this fixes.
         manifest = "\n".join(f"{p}\t{remote_home}/{live_rel_for(p)}" for p in paths)
-        remote_script = f"""set -e
+        remote_script = _SYMLINK_GUARD_FN + f"""set -e
 mkdir -p {remote_extract}
 tar -xzf {remote_tar} -C {remote_extract}
 REMOTE_HOME={shlex.quote(remote_home)}
@@ -529,22 +565,8 @@ while IFS=$'\\t' read -r src dest; do
   # .claude/skills/foo -> ~/.ssh) would let `cp` write through it even though
   # dest itself is not a symlink (reproduced in review -- a leaf-only `-L`
   # check misses exactly this case).
-  case "$dest" in
-    "$REMOTE_HOME"/*) rel="${{dest#"$REMOTE_HOME"/}}" ;;
-    *) echo "refusing: destination outside $REMOTE_HOME: $dest" >&2; exit 1 ;;
-  esac
-  check_path="$REMOTE_HOME"
-  escaped=0
-  IFS='/' read -ra parts <<< "$rel"
-  for part in "${{parts[@]}}"; do
-    check_path="$check_path/$part"
-    if [ -L "$check_path" ]; then
-      echo "refusing to write through symlink path component: $check_path" >&2
-      escaped=1
-      break
-    fi
-  done
-  if [ "$escaped" -ne 0 ]; then
+  if path_has_symlink_component "$REMOTE_HOME" "$dest"; then
+    echo "refusing to write through a symlinked path component: $dest" >&2
     exit 1
   fi
   mkdir -p "$(dirname "$dest")"
@@ -565,13 +587,23 @@ def _apply_remote_live_to_repo(root: Path, paths: list[str], host: str) -> None:
     remote_home = _remote_home(host)
     for p in paths:
         remote_path = f"{remote_home}/{live_rel_for(p)}"
-        # OpenSSH flattens all trailing command args into one string for the
-        # remote shell to re-parse; validate_repo_rel already rejects shell
-        # metacharacters, but quote here too — this call is one edit away
-        # from carrying an unvalidated path again, and shlex.quote is free.
+        # A bare `ssh host cat path` follows symlinks with no containment check
+        # at all -- reproduced in review: a remote path symlinked to a private
+        # key pulled its content straight into the repo. Route through the
+        # same shared guard used by the write side, refusing to `cat` through
+        # any symlinked path component before it ever reaches stdout.
+        remote_script = _SYMLINK_GUARD_FN + f"""set -e
+REMOTE_HOME={shlex.quote(remote_home)}
+TARGET={shlex.quote(remote_path)}
+if path_has_symlink_component "$REMOTE_HOME" "$TARGET"; then
+  echo "refusing to read through a symlinked path component: $TARGET" >&2
+  exit 1
+fi
+cat "$TARGET"
+"""
         out = subprocess.run(
-            ["ssh", "-o", "ConnectTimeout=15", host, "cat", shlex.quote(remote_path)],
-            capture_output=True, check=True,
+            ["ssh", "-o", "ConnectTimeout=15", host, "bash", "-s"],
+            input=remote_script.encode(), capture_output=True, check=True,
         )
         repo_abs = repo_abs_for(root, p)
         repo_abs.parent.mkdir(parents=True, exist_ok=True)

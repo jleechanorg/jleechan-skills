@@ -148,3 +148,24 @@ done by running the script directly from a repo checkout:
 `python3 scripts/sync_live_config.py report` — once this skill itself is
 included in whatever scope you sync, the slash command becomes available for
 every subsequent run.
+
+## Accepted residual risks
+
+This tool operates on the caller's own `$HOME` under their own account — it
+is not designed to defend against an adversary who already has local write
+access to that account. Two known gaps are accepted rather than chased
+further, both discussed and agreed in review:
+
+- **A symlinked check-then-write TOCTOU window.** Every containment check
+  resolves symlinks and then performs a normal `open`/`cp`; a symlink
+  swapped in between the check and the write would be followed. Closing this
+  properly needs `O_NOFOLLOW`/`dir_fd`-relative opens, which is disproportionate
+  for a single-user tool that only ever targets its own account.
+- **The top-level mapped root itself being a symlink.** Containment is
+  checked against `home/.claude` (etc.) *as resolved* — if `~/.claude` itself
+  is a symlink to some other location (a real, common dotfiles pattern),
+  everything computed relative to it is still "relative to" that resolved
+  root, so operations transparently follow it. This is indistinguishable
+  from the legitimate case without asking the operator, and this repo
+  explicitly wants to support "my `~/.claude` is symlinked to my dotfiles
+  repo" as normal, not broken.
