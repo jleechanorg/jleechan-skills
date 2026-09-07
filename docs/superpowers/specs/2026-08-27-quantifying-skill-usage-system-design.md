@@ -4,6 +4,63 @@
 
 This specification defines the architecture for a verified, empirical usage measurement system across all agent execution runtimes (Claude Code, Hermes, Codex, and Antigravity). It formally resolves the distinction between **human-typed slash commands** (`/command`) and **agentic skill invocations** (`Skill` tool calls, autonomous subagent dispatches, and auto-resolver triggers), addressing open bead `bd-cmdtop40-skills-usage-measurement-mtq`.
 
+## Implemented reporting contract (2026-09-06)
+
+The design below includes planned capabilities, not a claim of complete runtime
+coverage. The implemented entrypoints are `scripts/capture_command_skill_usage.py`
+and `scripts/audit_command_skill_usage.py`. Capture takes `--manifest`; audit takes
+`--manifest`, `--output-dir`, and optionally `--repo-root`.
+
+- Set an explicit half-open 30-day UTC window in `window_start_inclusive` and
+  `window_end_exclusive`. Configure `skill_inventory_roots` as a list of
+  `{"scope": "home-claude", "path": "/absolute/path/to/skills"}` objects. Each row
+  has a scope-qualified `skill_id`, lexical path, resolved target, and content hash.
+  Recursive `SKILL.md` and top-level legacy Markdown inventories are distinct
+  from proof that the runtime has enabled those skills.
+- Set `excluded_session_ids` and `excluded_cwds` explicitly to exclude known audit
+  sessions. These are operator-declared exclusions, not inferred session purposes.
+  New captures bind this policy inside the hashed corpus; audit rejects later
+  policy changes. Recapture to apply different exclusions.
+- `skill-usage-30d.json` separates structured selections, file-read attempts,
+  unresolved name observations, and static reachability. A file-read call does
+  not prove the tool succeeded or that its workflow ran. Name-only selections
+  cannot identify the installed scope, even if only one scope was inventoried.
+  Explicit call IDs deduplicate receipts across sources. Without one, identity
+  is source-record-local; repeated source observations are not proven distinct
+  workflow executions.
+- `observed-skill-paths-30d.csv` retains paths outside the current inventory,
+  including other worktrees; ambiguous shared symlink targets are not credited
+  to multiple installations. Alias resolution preserves the original observation.
+- Capture records coverage counters and source hashes. Audit checks captured
+  inventory content/targets and configured scanner source hashes before building
+  its name-level reference graph. That graph is supporting evidence, not a
+  scope-resolved execution trace.
+- Shell read telemetry accepts only a complete literal grammar: an optional
+  exact three-token `bash|sh|zsh|dash -c|-lc <command>` wrapper, and every
+  command segment must be a literal `cat`, `sed`, `head`, or `tail` read.
+  Unknown commands, cwd-changing commands, redirections, unquoted control or
+  subshell syntax, and shell expansion make the whole command unknown. Tilde
+  operands are unresolved rather than expanded on the auditing host.
+- Orchestration telemetry accepts only direct optional-`await`
+  `tools.exec_command({...})` expression statements with literal string,
+  boolean, or null fields. Expressions, numeric values, unsupported escapes,
+  callbacks, and other JavaScript syntax are unknown. A v3 manifest must bind
+  the complete scanner and capture source-hash sets; legacy manifests are
+  explicitly marked unverified when those maps are absent or partial, as are
+  outputs produced with `--ignore-scanner-hash`.
+- Missing or unsupported logs keep coverage **partial**. No observed use means
+  **unknown**, never unused. `archive_eligible_from_usage_alone` is always false;
+  no weighted score or zero-count list authorizes archival.
+
+Focused checks:
+
+```sh
+python3 -m unittest tests.test_command_skill_usage_audit tests.test_scoped_skill_usage tests.test_skill_usage_capture tests.test_skill_usage_pipeline
+```
+
+Keep normalized corpora private: they omit raw prompts and tool output but retain
+local paths, timestamps, and session identifiers needed for traceability.
+
 ---
 
 ## Problem Statement & Empirical History

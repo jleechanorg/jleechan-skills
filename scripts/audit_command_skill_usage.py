@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import csv
 import datetime as dt
 import hashlib
@@ -11,6 +13,11 @@ import json
 import re
 from collections import Counter, defaultdict, deque
 from pathlib import Path
+
+try:
+    from scripts.scoped_skill_usage import event_excluded, scoped_rows
+except ModuleNotFoundError:
+    from scoped_skill_usage import event_excluded, scoped_rows
 
 SLASH_TOKEN_RE = re.compile(
     r"(?<![\w/])/((?:extended-library:)?[A-Za-z][A-Za-z0-9_-]*)(?![\w/])"
@@ -25,6 +32,22 @@ SKILL_TOOL_CALL_RE = re.compile(r"""Skill\(\s*["']([A-Za-z0-9_-]+)["']\s*\)""")
 ALIAS_PROSE_RE = re.compile(
     r"(?:Alias for|Shortcut alias for|points to|alias of)\s+[`/]?([A-Za-z0-9_-]+(?::[A-Za-z0-9_-]+)?)[`]?",
     re.IGNORECASE,
+)
+
+REQUIRED_SCANNER_SOURCE_HASHES = frozenset(
+    {
+        "scripts/audit_command_skill_usage.py",
+        "scripts/capture_command_skill_usage.py",
+        "scripts/scoped_skill_usage.py",
+        "scripts/skill_read_telemetry.py",
+    }
+)
+REQUIRED_CAPTURE_SOURCE_HASHES = frozenset(
+    {
+        "scripts/capture_command_skill_usage.py",
+        "scripts/scoped_skill_usage.py",
+        "scripts/skill_read_telemetry.py",
+    }
 )
 
 NON_COMMAND_TOKENS: dict[str, str] = {
@@ -143,10 +166,7 @@ def build_full_reachability_graph(
 
     for row in commands:
         cmd_name = row["command"]
-        cmd_path = Path(row["path"])
-        if not cmd_path.is_file():
-            continue
-        text = cmd_path.read_text(encoding="utf-8", errors="replace")
+        text = inventory_text(row)
         fm = parse_frontmatter(text)
 
         # Parse frontmatter aliases
@@ -182,10 +202,7 @@ def build_full_reachability_graph(
 
     for row in skills:
         skill_name = row["skill"]
-        skill_path = Path(row["path"])
-        if not skill_path.is_file():
-            continue
-        text = skill_path.read_text(encoding="utf-8", errors="replace")
+        text = inventory_text(row)
         for s in extract_skill_references_from_text(text):
             if s in known_skills and s != skill_name:
                 skill_to_skills[skill_name].add(s)
@@ -244,17 +261,23 @@ def compute_bfs_closure(
     skill_to_cmds: dict[str, set[str]],
     alias_map: dict[str, str],
 ) -> tuple[set[str], set[str], dict[str, list[str]], dict[str, list[str]]]:
-    """Run full Breadth-First Search closure from observed commands and skills."""
+    """Run full Breadth-First Search closure from observed commands and skills.
+
+    Every set is walked in sorted order.  Reachability reasons record the first
+    parent to claim a node, so unordered iteration made that attribution depend
+    on per-process string hash randomization and two runs over the same frozen
+    snapshot could disagree.
+    """
     queue = deque()
     reachable_cmds = set(observed_cmds)
     reachable_skills = set(observed_skills)
     cmd_reach_reasons: dict[str, list[str]] = defaultdict(list)
     skill_reach_reasons: dict[str, list[str]] = defaultdict(list)
 
-    for c in observed_cmds:
+    for c in sorted(observed_cmds):
         queue.append(("cmd", c))
         cmd_reach_reasons[c].append("direct telemetry seed")
-    for s in observed_skills:
+    for s in sorted(observed_skills):
         queue.append(("skill", s))
         skill_reach_reasons[s].append("direct tool-selection seed")
 
@@ -274,14 +297,14 @@ def compute_bfs_closure(
                     queue.append(("skill", target))
 
             # Outgoing command edges
-            for next_c in cmd_to_cmds.get(item, set()):
+            for next_c in sorted(cmd_to_cmds.get(item, ())):
                 if next_c not in reachable_cmds:
                     reachable_cmds.add(next_c)
                     cmd_reach_reasons[next_c].append(f"invoked by /{item}")
                     queue.append(("cmd", next_c))
 
             # Outgoing skill edges
-            for next_s in cmd_to_skills.get(item, set()):
+            for next_s in sorted(cmd_to_skills.get(item, ())):
                 if next_s not in reachable_skills:
                     reachable_skills.add(next_s)
                     skill_reach_reasons[next_s].append(f"called by /{item}")
@@ -289,14 +312,14 @@ def compute_bfs_closure(
 
         elif kind == "skill":
             # Skill-to-skill edges
-            for next_s in skill_to_skills.get(item, set()):
+            for next_s in sorted(skill_to_skills.get(item, ())):
                 if next_s not in reachable_skills:
                     reachable_skills.add(next_s)
                     skill_reach_reasons[next_s].append(f"referenced by skill:{item}")
                     queue.append(("skill", next_s))
 
             # Skill-to-command edges
-            for next_c in skill_to_cmds.get(item, set()):
+            for next_c in sorted(skill_to_cmds.get(item, ())):
                 if next_c not in reachable_cmds:
                     reachable_cmds.add(next_c)
                     cmd_reach_reasons[next_c].append(f"invoked by skill:{item}")
@@ -315,6 +338,110 @@ def load_bound_json(base: Path, manifest: dict, path_key: str, hash_key: str) ->
     if payload.get("snapshot_id") != manifest["snapshot_id"]:
         raise ValueError(f"snapshot_id mismatch: {frozen_path}")
     return payload
+
+
+def inventory_text(row: dict) -> str:
+    """Return the attested bytes for an inventory row as text.
+
+    The snapshot is a frozen input, so a row produced by a current capture is
+    served from the snapshot and never re-read from disk, whatever its size.
+    Against such a snapshot the audit is a pure function of its frozen inputs
+    and immune to writes landing under the inventory roots between the capture
+    and audit phases.  Bytes are only trusted when the row also attests their
+    digest.
+
+    ``resolved_target`` is deliberately not re-checked on this path: symlink
+    identity was resolved and recorded at capture time, and consulting the live
+    target would reintroduce the very filesystem dependency being removed.
+
+    Rows from snapshots captured before this contract carry no
+    ``content_encoding`` and keep the original live-read drift guard, so
+    replaying a historical snapshot still depends on a quiet filesystem.
+    """
+    path = Path(row["path"])
+    expected = row.get("content_sha256")
+    if "content_encoding" in row:
+        if row["content_encoding"] != "base64":
+            raise ValueError(f"inventory content drift: {path}")
+        if not row.get("content_captured", True):
+            # Capture could not read this file, so the row attests nothing.
+            # The live filesystem is not a substitute for bytes never captured.
+            return ""
+        encoded = row.get("content_b64")
+        if not isinstance(encoded, str):
+            raise ValueError(f"inventory content drift: {path}")
+        try:
+            content = base64.b64decode(encoded, validate=True)
+        except (ValueError, binascii.Error):
+            raise ValueError(f"inventory content drift: {path}") from None
+        # Bytes without a digest are unattested, and a digest without bytes is
+        # an inconsistent row. Both fail closed rather than being trusted.
+        if content and not expected:
+            raise ValueError(f"inventory content drift: missing attestation for {path}")
+        if content and digest(content) != expected:
+            raise ValueError(f"inventory content drift: {path}")
+        if not content and expected:
+            raise ValueError(f"inventory content drift: {path}")
+        return content.decode("utf-8", errors="replace")
+    try:
+        content = path.read_bytes()
+    except OSError:
+        if expected:
+            raise ValueError(f"inventory content drift: missing {path}")
+        return ""
+    if expected and digest(content) != expected:
+        raise ValueError(f"inventory content drift: {path}")
+    if row.get("resolved_target") and str(path.resolve()) != row["resolved_target"]:
+        raise ValueError(f"inventory target drift: {path}")
+    return content.decode("utf-8", errors="replace")
+
+
+def verify_source_hashes(
+    manifest: dict, key: str, source_root: Path, label: str
+) -> None:
+    values = manifest.get(key, {})
+    if not isinstance(values, dict):
+        raise TypeError(f"{label} source hashes must be a mapping")
+    for relative, expected in values.items():
+        candidate = (source_root / relative).resolve(strict=False)
+        if not candidate.is_relative_to(source_root):
+            raise ValueError(
+                f"{label} source hash path escapes source root: {relative}"
+            )
+        try:
+            actual = digest(candidate.read_bytes())
+        except OSError as exc:
+            raise ValueError(f"{label} source is unavailable: {relative}") from exc
+        if actual != expected:
+            raise ValueError(f"{label} source hash does not match manifest: {relative}")
+
+
+def source_provenance_status(
+    manifest: dict, source_root: Path, ignore_scanner_hash: bool
+) -> str:
+    """Verify source bindings and return an explicit status for the output."""
+    if ignore_scanner_hash:
+        return "unverified_explicit_override"
+
+    verify_source_hashes(manifest, "scanner_source_sha256", source_root, "scanner")
+    verify_source_hashes(manifest, "capture_source_sha256", source_root, "capture")
+    scanner_hashes = manifest.get("scanner_source_sha256", {})
+    capture_hashes = manifest.get("capture_source_sha256", {})
+    scanner_keys = set(scanner_hashes) if isinstance(scanner_hashes, dict) else set()
+    capture_keys = set(capture_hashes) if isinstance(capture_hashes, dict) else set()
+    complete = (
+        scanner_keys == REQUIRED_SCANNER_SOURCE_HASHES
+        and capture_keys == REQUIRED_CAPTURE_SOURCE_HASHES
+    )
+    if manifest.get("schema") == "claude_usage_audit_manifest.v3":
+        if not complete:
+            raise ValueError("complete source hash maps are required for manifest v3")
+        return "verified"
+    if complete:
+        return "verified"
+    if not scanner_keys and not capture_keys and not manifest.get("scanner_sha256"):
+        return "unverified_legacy_missing_source_hashes"
+    return "unverified_legacy_incomplete_source_hashes"
 
 
 def audit(
@@ -342,6 +469,10 @@ def audit(
         and digest(Path(__file__).read_bytes()) != manifest.get("scanner_sha256")
     ):
         raise ValueError("scanner hash does not match manifest")
+    source_root = Path(__file__).resolve().parents[1]
+    provenance_status = source_provenance_status(
+        manifest, source_root, ignore_scanner_hash
+    )
 
     base = manifest_path.parent
     root = repo_root or base
@@ -352,11 +483,29 @@ def audit(
         or corpus.get("window_end_exclusive") != manifest["window_end_exclusive"]
     ):
         raise ValueError("normalized corpus window does not match manifest")
+    if "exclusions" in corpus:
+        current_exclusions = {
+            "excluded_session_ids": sorted(
+                {str(item) for item in manifest.get("excluded_session_ids", [])}
+            ),
+            "excluded_cwds": sorted(
+                {
+                    str(Path(item).expanduser().resolve(strict=False))
+                    for item in manifest.get("excluded_cwds", [])
+                    if isinstance(item, str)
+                }
+            ),
+        }
+        if any(
+            corpus["exclusions"].get(key, []) != value
+            for key, value in current_exclusions.items()
+        ):
+            raise ValueError("normalized corpus exclusions do not match manifest")
 
     commands = inventory["commands"]
     skills = inventory["skills"]
     command_names = [row["command"] for row in commands]
-    skill_names = [row["skill"] for row in skills]
+    skill_names = [row.get("skill_id", row["skill"]) for row in skills]
     if len(command_names) != len(set(command_names)) or len(skill_names) != len(set(skill_names)):
         raise ValueError("duplicate identity in inventory snapshot")
 
@@ -403,16 +552,21 @@ def audit(
     command_runtime_counts: dict[str, Counter] = defaultdict(Counter)
     skill_runtime_counts: dict[str, Counter] = defaultdict(Counter)
 
-    for event in corpus["events"]:
+    retained_events = [event for event in corpus["events"] if not event_excluded(event, manifest)]
+    analysis["excluded_observations"] = len(corpus["events"]) - len(retained_events)
+    for event in retained_events:
         rt = event.get("runtime", "claude")
         stamp = parse_time(event.get("timestamp"))
         if stamp is None or not (start <= stamp < end):
             raise ValueError(f"normalized event outside bound window: {event.get('event_id')}")
 
+        if event.get("kind") == "skill_read":
+            continue  # Path-qualified read attempts are attributed separately below.
+
         # Explicit Skill Selection
         if event.get("kind") == "skill_selection":
             name = event["selected_name"]
-            key = (event["event_id"], name)
+            key = (rt, event["event_id"], name)
             if key in skill_events:
                 analysis["duplicate_skill_events_suppressed"] += 1
                 continue
@@ -603,7 +757,19 @@ def audit(
         row["archive_eligible_from_usage_alone"] = False
         skill_rows.append(row)
 
+    skill_rows, skill_observations = scoped_rows(
+        skills, [*skill_events.values(), *(event for event in retained_events
+                 if event.get("kind") == "skill_read")],
+        {row["skill"]: row for row in skill_rows}, operator_notes)
     output_dir.mkdir(parents=True, exist_ok=True)
+    # An inventory file capture could not read contributes no outbound references,
+    # so its edges are missing from the reachability graph. Count it rather than
+    # letting it look like a document that genuinely references nothing.
+    uncaptured_inventory = sorted(
+        row["path"]
+        for row in list(inventory.get("commands", [])) + list(inventory.get("skills", []))
+        if "content_encoding" in row and not row.get("content_captured", True)
+    )
     common = {
         "snapshot_id": manifest["snapshot_id"],
         "window_start_inclusive": manifest["window_start_inclusive"],
@@ -612,7 +778,11 @@ def audit(
         "inventory_sha256": manifest["inventory_snapshot_sha256"],
         "normalized_event_corpus_sha256": manifest["normalized_event_corpus_sha256"],
         "capture_coverage": corpus["coverage"],
+        "uncaptured_inventory_count": len(uncaptured_inventory),
+        "uncaptured_inventory_paths": uncaptured_inventory,
         "analysis_counters": dict(analysis),
+        "provenance_status": provenance_status,
+        "provenance_verified": provenance_status == "verified",
     }
 
     command_payload = {
@@ -631,16 +801,25 @@ def audit(
     }
 
     skill_payload = {
-        "schema": "hardened_claude_skill_usage.v2",
+        "schema": "scoped_skill_usage.v3",
         **common,
         "active_skill_count": len(skill_rows),
         "observed_direct_skill_count": sum(r["explicit_skill_selections"] > 0 for r in skill_rows),
         "bfs_reachable_total_skill_count": sum(r["bfs_reachable"] for r in skill_rows),
         "workflow_reachable_only_skill_count": sum(r["reachability_only"] for r in skill_rows),
         "no_evidence_skill_count": sum(r["no_evidence_in_source"] for r in skill_rows),
-        "total_structured_skill_selections": sum(skill_counts.values()),
+        "total_structured_skill_selections": sum(e["kind"] == "skill_selection" for e in skill_observations),
+        "scope_attributed_selections": sum(r["explicit_skill_selections"] for r in skill_rows),
+        "total_file_read_attempts": sum(e["kind"] == "skill_read" for e in skill_observations),
+        "scope_attributed_read_attempts": sum(r["file_read_attempts"] for r in skill_rows),
+        "unresolved_scope_observations": sum(e["attributed_skill_id"] is None for e in skill_observations),
+        "coverage_status": "partial",
+        "limitations": ["File reads are attempts, not proof of successful workflow execution.",
+                        "Name-only invocations cannot identify an installed scope.",
+                        "Static reachability is name-level supporting evidence, not execution.",
+                        "Missing logs, dynamic shell reads, and uninstrumented runtimes prevent unused classification."],
         "skills": skill_rows,
-        "events": sorted(skill_events.values(), key=lambda r: (r["timestamp"], r["selected_name"])),
+        "events": skill_observations,
     }
 
     (output_dir / "strict-claude-command-usage-30d.json").write_text(
@@ -679,6 +858,15 @@ def audit(
             handle,
             fieldnames=[
                 "skill",
+                "skill_id",
+                "scope",
+                "path",
+                "usage_status",
+                "coverage_status",
+                "file_read_attempts",
+                "claude_file_read_attempts",
+                "codex_file_read_attempts",
+                "name_only_selection_events",
                 "explicit_skill_selections",
                 "claude_direct_events",
                 "codex_direct_events",
@@ -711,6 +899,14 @@ def audit(
             for name, count in sorted(all_skill_counts.items())
         )
 
+    with (output_dir / "observed-skill-paths-30d.csv").open("w", newline="") as handle:
+        path_counts = Counter((event.get("runtime", "claude"), event["selected_path"],
+                               event.get("attributed_skill_id") or "")
+                              for event in skill_observations if event.get("selected_path"))
+        writer = csv.writer(handle)
+        writer.writerow(["runtime", "selected_path", "attributed_skill_id", "read_or_selection_attempts"])
+        writer.writerows((*key, count) for key, count in sorted(path_counts.items()))
+
     return {
         "command_summary": {
             "total": len(command_rows),
@@ -721,6 +917,8 @@ def audit(
         "skill_summary": {
             "total": len(skill_rows),
             "direct_selections": sum(r["explicit_skill_selections"] > 0 for r in skill_rows),
+            "observed_read_attempts": sum(r["file_read_attempts"] > 0 for r in skill_rows),
+            "name_only_scope_unknown": sum(r["name_only_selection_events"] > 0 for r in skill_rows),
             "bfs_reachable_total": sum(r["bfs_reachable"] for r in skill_rows),
             "reachability_only": sum(r["reachability_only"] for r in skill_rows),
             "no_evidence": sum(r["no_evidence_in_source"] for r in skill_rows),
@@ -747,7 +945,7 @@ def main() -> None:
     parser.add_argument(
         "--ignore-scanner-hash",
         action="store_true",
-        help="Skip scanner script SHA256 validation against manifest",
+        help="Bypass scanner/capture source validation (marks output unverified)",
     )
     args = parser.parse_args()
     res = audit(
