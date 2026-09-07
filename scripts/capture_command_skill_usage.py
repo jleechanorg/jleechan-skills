@@ -132,7 +132,7 @@ def command_inventory(
                 "is_symlink": item.is_symlink(),
                 "resolved_target": str(target),
                 "resolved_target_exists": exists,
-                "content_sha256": digest(content) if content else "",
+                "content_sha256": digest(content) if content is not None else "",
                 **frozen_content(content),
             }
         )
@@ -232,8 +232,8 @@ def skill_inventory(
                     "is_symlink": item.is_symlink(),
                     "resolved_target": str(target),
                     "resolved_target_exists": target.exists(),
-                    "hash": digest(content) if content else "",
-                    "content_sha256": digest(content) if content else "",
+                    "hash": digest(content) if content is not None else "",
+                    "content_sha256": digest(content) if content is not None else "",
                     **frozen_content(content),
                 }
             )
