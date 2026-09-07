@@ -13,6 +13,9 @@ from __future__ import annotations
 import base64
 import configparser
 import json
+import os
+import subprocess
+import sys
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -295,9 +298,97 @@ class CaptureEmbedsInventoryContentTest(unittest.TestCase):
             self.assertEqual([row["skill"] for row in audited], ["demo"])
 
 
+class DeterministicAuditTest(unittest.TestCase):
+    """The same frozen snapshot must classify the same way in any process."""
+
+    CLOSURE_SCRIPT = """
+import json, sys
+sys.path.insert(0, {root!r})
+from scripts.audit_command_skill_usage import compute_bfs_closure
+parents = [f"parent-{{i}}" for i in range(12)]
+edges = {{p: {{"shared-target"}} for p in parents}}
+_, _, _, reasons = compute_bfs_closure(
+    set(), set(parents), set(), set(parents) | {{"shared-target"}},
+    {{}}, {{}}, edges, {{}}, {{}},
+)
+print(json.dumps(reasons["shared-target"]))
+"""
+
+    def _reasons(self, seed: str) -> str:
+        proc = subprocess.run(
+            [sys.executable, "-c", self.CLOSURE_SCRIPT.format(root=str(REPO_ROOT))],
+            capture_output=True,
+            text=True,
+            env=dict(os.environ, PYTHONHASHSEED=seed),
+            cwd=str(REPO_ROOT),
+            check=True,
+        )
+        return proc.stdout.strip()
+
+    def test_reachability_reasons_do_not_depend_on_hash_randomization(self):
+        """Twelve parents claim one node; which one wins must not be luck.
+
+        Reachability reasons record the first parent to reach a node, so
+        iterating unordered sets made attribution depend on per-process string
+        hash randomization: two audits of one frozen snapshot could disagree.
+        """
+        results = {self._reasons(seed) for seed in ("0", "1", "7", "12345", "99991")}
+        self.assertEqual(
+            len(results),
+            1,
+            f"reachability attribution varied with PYTHONHASHSEED: {results}",
+        )
+        self.assertEqual(
+            json.loads(results.pop())[0],
+            "referenced by skill:parent-0",
+            "attribution should follow sorted order, not set order",
+        )
+
+
+class UncapturedInventoryIsCountedTest(unittest.TestCase):
+    def test_uncaptured_rows_are_reported_not_silently_empty(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "SKILL.md"
+            path.write_bytes(b"# present at audit time\n")
+            skill = {
+                "skill": "gcp",
+                "path": str(path),
+                "content_sha256": "",
+                "content_encoding": "base64",
+                "content_b64": "",
+                "content_captured": False,
+            }
+            manifest = build_audit_fixture(root, events=[], skills=[skill])
+            audit(manifest, root / "out")
+            payload = json.loads((root / "out/skill-usage-30d.json").read_text())
+            self.assertEqual(payload["uncaptured_inventory_count"], 1)
+            self.assertEqual(payload["uncaptured_inventory_paths"], [str(path)])
+
+    def test_fully_captured_snapshot_reports_zero_uncaptured(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "SKILL.md"
+            body = b"# body\n"
+            path.write_bytes(body)
+            manifest = build_audit_fixture(
+                root, events=[], skills=[_frozen_skill(path, body)]
+            )
+            audit(manifest, root / "out")
+            payload = json.loads((root / "out/skill-usage-30d.json").read_text())
+            self.assertEqual(payload["uncaptured_inventory_count"], 0)
+            self.assertEqual(payload["uncaptured_inventory_paths"], [])
+
+
 class PytestPathContractTest(unittest.TestCase):
     def test_pytest_ini_declares_repo_root_on_the_import_path(self):
-        """Bare ``pytest`` must collect; tests import the ``scripts`` package."""
+        """``pytest.ini`` must put the repo root on the import path.
+
+        Without it, collection of ``tests/test_archive_dependency_contract.py``
+        fails on ``ModuleNotFoundError: No module named 'scripts'``.  This case
+        asserts the declaration; the suite actually running under a bare
+        ``pytest`` is what demonstrates the effect.
+        """
         parser = configparser.ConfigParser()
         parser.read(REPO_ROOT / "pytest.ini")
         self.assertIn("pythonpath", parser["pytest"])

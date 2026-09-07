@@ -261,17 +261,23 @@ def compute_bfs_closure(
     skill_to_cmds: dict[str, set[str]],
     alias_map: dict[str, str],
 ) -> tuple[set[str], set[str], dict[str, list[str]], dict[str, list[str]]]:
-    """Run full Breadth-First Search closure from observed commands and skills."""
+    """Run full Breadth-First Search closure from observed commands and skills.
+
+    Every set is walked in sorted order.  Reachability reasons record the first
+    parent to claim a node, so unordered iteration made that attribution depend
+    on per-process string hash randomization and two runs over the same frozen
+    snapshot could disagree.
+    """
     queue = deque()
     reachable_cmds = set(observed_cmds)
     reachable_skills = set(observed_skills)
     cmd_reach_reasons: dict[str, list[str]] = defaultdict(list)
     skill_reach_reasons: dict[str, list[str]] = defaultdict(list)
 
-    for c in observed_cmds:
+    for c in sorted(observed_cmds):
         queue.append(("cmd", c))
         cmd_reach_reasons[c].append("direct telemetry seed")
-    for s in observed_skills:
+    for s in sorted(observed_skills):
         queue.append(("skill", s))
         skill_reach_reasons[s].append("direct tool-selection seed")
 
@@ -291,14 +297,14 @@ def compute_bfs_closure(
                     queue.append(("skill", target))
 
             # Outgoing command edges
-            for next_c in cmd_to_cmds.get(item, set()):
+            for next_c in sorted(cmd_to_cmds.get(item, ())):
                 if next_c not in reachable_cmds:
                     reachable_cmds.add(next_c)
                     cmd_reach_reasons[next_c].append(f"invoked by /{item}")
                     queue.append(("cmd", next_c))
 
             # Outgoing skill edges
-            for next_s in cmd_to_skills.get(item, set()):
+            for next_s in sorted(cmd_to_skills.get(item, ())):
                 if next_s not in reachable_skills:
                     reachable_skills.add(next_s)
                     skill_reach_reasons[next_s].append(f"called by /{item}")
@@ -306,14 +312,14 @@ def compute_bfs_closure(
 
         elif kind == "skill":
             # Skill-to-skill edges
-            for next_s in skill_to_skills.get(item, set()):
+            for next_s in sorted(skill_to_skills.get(item, ())):
                 if next_s not in reachable_skills:
                     reachable_skills.add(next_s)
                     skill_reach_reasons[next_s].append(f"referenced by skill:{item}")
                     queue.append(("skill", next_s))
 
             # Skill-to-command edges
-            for next_c in skill_to_cmds.get(item, set()):
+            for next_c in sorted(skill_to_cmds.get(item, ())):
                 if next_c not in reachable_cmds:
                     reachable_cmds.add(next_c)
                     cmd_reach_reasons[next_c].append(f"invoked by skill:{item}")
@@ -756,6 +762,14 @@ def audit(
                  if event.get("kind") == "skill_read")],
         {row["skill"]: row for row in skill_rows}, operator_notes)
     output_dir.mkdir(parents=True, exist_ok=True)
+    # An inventory file capture could not read contributes no outbound references,
+    # so its edges are missing from the reachability graph. Count it rather than
+    # letting it look like a document that genuinely references nothing.
+    uncaptured_inventory = sorted(
+        row["path"]
+        for row in list(inventory.get("commands", [])) + list(inventory.get("skills", []))
+        if "content_encoding" in row and not row.get("content_captured", True)
+    )
     common = {
         "snapshot_id": manifest["snapshot_id"],
         "window_start_inclusive": manifest["window_start_inclusive"],
@@ -764,6 +778,8 @@ def audit(
         "inventory_sha256": manifest["inventory_snapshot_sha256"],
         "normalized_event_corpus_sha256": manifest["normalized_event_corpus_sha256"],
         "capture_coverage": corpus["coverage"],
+        "uncaptured_inventory_count": len(uncaptured_inventory),
+        "uncaptured_inventory_paths": uncaptured_inventory,
         "analysis_counters": dict(analysis),
         "provenance_status": provenance_status,
         "provenance_verified": provenance_status == "verified",
