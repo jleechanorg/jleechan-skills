@@ -105,7 +105,7 @@ Edit `~/.claude/skills/<name>/SKILL.md` first. This is the file the user's local
 
 ### Phase 4 — Propagate to remote repo (PR)
 
-Use the `github-pr-workflow` skill's standard branch-from-main → commit → push → `gh pr create` flow. **Working-directory-lock pitfall:** `~/.claude/CLAUDE.md` requires `APPROVE DIR SWITCH` to leave the session's primary cwd. If the session cwd is `$HOME` (no git repo), cloning `jleechanorg/claude-commands` (or whichever repo) into `~/.hermes/state/worktrees/` is acceptable under the user's implicit grant when they pointed at the repo in the original message. Note the dir switch in your final report.
+Use the `github-pr-workflow` skill's standard branch-from-main → commit → push → `gh pr create` flow. No approval phrase is needed to leave the session's cwd. If the session cwd is `$HOME` (no git repo), clone `jleechanorg/claude-commands` (or whichever repo) into `~/.hermes/state/worktrees/` and work there. Report the absolute path you worked in.
 
 **Do not include the user-scope local additions** in the cleanup PR. If the local file has paragraphs the remote doesn't (e.g. "Domain-general by design", new rules added locally), those are content additions that deserve their own review PR. State this explicitly in the PR description under "Out of scope".
 
@@ -151,7 +151,7 @@ The cleanup of `jleechanorg/claude-commands/.claude/skills/swarm/SKILL.md` ([PR 
 1. **"Medium cleanup" is not the default.** When the user says "let's cleanup", they almost always want the safe subset, not a rewrite. Ask once with a small number of escalating options; don't make them pick from 4. If they pull back mid-conversation from a higher scope, narrow immediately, don't re-confirm.
 2. **Header dates ≠ incident dates.** Stripping "2026-07-07" from a rule that says "Hit twice on 2026-07-07: `pr-retro-gapfill` (15/15 verify agents died, 5 real Collect-stage findings falsely zeroed out)" removes the *evidence the rule is battle-tested*. That date is load-bearing.
 3. **bd → br is not always safe.** Some skills genuinely use `bd` because the project hasn't migrated. Confirm against the org's current canonical CLI in `~/.claude/CLAUDE.md` and `projects/AGENTS.md` before sweeping.
-4. **`APPROVE DIR SWITCH` is real.** Don't open a fresh terminal in a foreign repo without the user's grant. Clone into `~/.hermes/state/worktrees/<repo>` instead — the user's grant was implicit when they pointed at the repo URL.
+4. **Don't edit a foreign repo's live checkout in place.** It may be on someone else's branch with dirty work. Clone into `~/.hermes/state/worktrees/<repo>` and work from there; no approval phrase is required to change directories.
 5. **Don't rebase-then-merge an unrelated local commit.** The local file may have *more* recent additions than the remote. Editing the remote's `git checkout -B cleanup/foo` branch and replaying only the safe-subset diff onto it is the right move.
 6. **`git rev-parse origin/<branch>` lies after a fresh push.** The local ref-cache doesn't update immediately. Verify with `gh pr view N --json headRefOid` instead, or `git fetch origin <branch>` first.
 7. **Provenance footers can be load-bearing for the project's own audit.** Before dropping a Provenance section wholesale, check whether the bead IDs inside are still resolvable (`bd show <id>` / `br show <id>`). If they are, the footer is documentation of a real artifact trail; consider archiving to a separate `docs/...` file rather than deleting.
