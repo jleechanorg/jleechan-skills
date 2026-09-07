@@ -17,7 +17,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from scripts.audit_command_skill_usage import audit, digest
+from scripts.audit_command_skill_usage import audit, digest, inventory_text
 from scripts.capture_command_skill_usage import command_inventory, skill_inventory
 from tests.test_command_skill_usage_audit import build_audit_fixture
 
@@ -248,6 +248,35 @@ class CaptureEmbedsInventoryContentTest(unittest.TestCase):
             self.assertEqual(row["content_encoding"], "base64")
             self.assertEqual(base64.b64decode(row["content_b64"]), body)
             self.assertEqual(digest(base64.b64decode(row["content_b64"])), row["content_sha256"])
+
+    def test_captured_empty_file_never_yields_post_capture_bytes(self):
+        """A zero-byte file captured today must not read as tomorrow's content.
+
+        This is the gap review found: an empty file was not frozen at all, so
+        the audit silently used whatever the filesystem held at audit time.
+        The assertion is on ``inventory_text`` directly because that is where
+        the substitution happened.
+        """
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            probe = root / "skills" / "probe" / "SKILL.md"
+            probe.parent.mkdir(parents=True)
+            probe.write_bytes(b"")
+            row = next(
+                r
+                for r in skill_inventory(
+                    inventory_roots=[{"scope": "home", "path": str(root / "skills")}]
+                )
+                if r["skill"] == "probe"
+            )
+
+            probe.write_bytes(b"Read `.claude/skills/target/SKILL.md`\n")
+
+            self.assertEqual(
+                inventory_text(row),
+                "",
+                "audit used post-capture live bytes from a zero-byte inventory file",
+            )
 
     def test_captured_snapshot_audits_after_the_source_tree_is_rewritten(self):
         """End-to-end: capture then rewrite every source file, audit still runs."""
