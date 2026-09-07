@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import datetime as dt
 import hashlib
 import json
@@ -69,6 +70,22 @@ def message_text(content: object) -> str:
     )
 
 
+def frozen_content(content: bytes) -> dict[str, str]:
+    """Embed the exact bytes the row attests so the audit never re-reads disk.
+
+    Capture and audit run minutes apart against live inventory roots, so a
+    concurrent write would otherwise invalidate an in-flight run.  Base64 keeps
+    the payload byte-exact and independently checkable against
+    ``content_sha256``.
+    """
+    if not content:
+        return {}
+    return {
+        "content_encoding": "base64",
+        "content_b64": base64.b64encode(content).decode("ascii"),
+    }
+
+
 def command_inventory(
     commands_root: Path, excluded_docs: dict[str, str] | None = None
 ) -> list[dict]:
@@ -83,6 +100,10 @@ def command_inventory(
     for item in paths:
         target = item.resolve(strict=False)
         exists = target.exists()
+        try:
+            content = item.read_bytes() if exists else b""
+        except OSError:
+            content = b""
         name = item.stem
         is_extended = item.parent.name == "extended-library"
         full_name = f"extended-library:{name}" if is_extended else name
@@ -103,7 +124,8 @@ def command_inventory(
                 "is_symlink": item.is_symlink(),
                 "resolved_target": str(target),
                 "resolved_target_exists": exists,
-                "content_sha256": digest(item.read_bytes()) if exists else "",
+                "content_sha256": digest(content) if content else "",
+                **frozen_content(content),
             }
         )
     return rows
@@ -204,6 +226,7 @@ def skill_inventory(
                     "resolved_target_exists": target.exists(),
                     "hash": digest(content) if content else "",
                     "content_sha256": digest(content) if content else "",
+                    **frozen_content(content),
                 }
             )
     return sorted(rows, key=lambda row: row["skill_id"])

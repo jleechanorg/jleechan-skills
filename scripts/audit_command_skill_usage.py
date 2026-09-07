@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import csv
 import datetime as dt
 import hashlib
@@ -333,8 +335,27 @@ def load_bound_json(base: Path, manifest: dict, path_key: str, hash_key: str) ->
 
 
 def inventory_text(row: dict) -> str:
+    """Return the attested bytes for an inventory row as text.
+
+    The snapshot is a frozen input, so a row that carries its own bytes is
+    served from the snapshot and never re-read from disk.  That keeps the audit
+    a pure function of its frozen inputs and immune to writes landing under the
+    inventory roots between the capture and audit phases.  Rows from historical
+    snapshots carry no bytes and keep the original live-read drift guard.
+    """
     path = Path(row["path"])
     expected = row.get("content_sha256")
+    encoded = row.get("content_b64")
+    if isinstance(encoded, str):
+        if row.get("content_encoding") != "base64":
+            raise ValueError(f"inventory content drift: {path}")
+        try:
+            content = base64.b64decode(encoded, validate=True)
+        except (ValueError, binascii.Error):
+            raise ValueError(f"inventory content drift: {path}") from None
+        if expected and digest(content) != expected:
+            raise ValueError(f"inventory content drift: {path}")
+        return content.decode("utf-8", errors="replace")
     try:
         content = path.read_bytes()
     except OSError:
