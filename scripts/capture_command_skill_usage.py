@@ -70,19 +70,27 @@ def message_text(content: object) -> str:
     )
 
 
-def frozen_content(content: bytes) -> dict[str, str]:
+def frozen_content(content: bytes | None) -> dict[str, str | bool]:
     """Embed the exact bytes the row attests so the audit never re-reads disk.
 
     Capture and audit run minutes apart against live inventory roots, so a
     concurrent write would otherwise invalidate an in-flight run.  Base64 keeps
     the payload byte-exact and independently checkable against
     ``content_sha256``.
+
+    Every row is frozen, including a legitimately empty document; leaving empty
+    rows unfrozen would send them back to the live filesystem and reopen the
+    race this exists to close.  ``None`` means capture could not read the file,
+    which is recorded as ``content_captured: False`` rather than flattened into
+    an empty document, so the audit never mistakes an unread file for an empty
+    one or substitutes live bytes for it.
     """
-    if not content:
-        return {}
+    if content is None:
+        return {"content_encoding": "base64", "content_b64": "", "content_captured": False}
     return {
         "content_encoding": "base64",
         "content_b64": base64.b64encode(content).decode("ascii"),
+        "content_captured": True,
     }
 
 
@@ -101,9 +109,9 @@ def command_inventory(
         target = item.resolve(strict=False)
         exists = target.exists()
         try:
-            content = item.read_bytes() if exists else b""
+            content = item.read_bytes() if exists else None
         except OSError:
-            content = b""
+            content = None
         name = item.stem
         is_extended = item.parent.name == "extended-library"
         full_name = f"extended-library:{name}" if is_extended else name
@@ -211,7 +219,7 @@ def skill_inventory(
             try:
                 content = item.read_bytes()
             except OSError:
-                content = b""
+                content = None
             name = parse_frontmatter_name(item)
             rows.append(
                 {

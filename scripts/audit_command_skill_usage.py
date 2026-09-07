@@ -337,23 +337,44 @@ def load_bound_json(base: Path, manifest: dict, path_key: str, hash_key: str) ->
 def inventory_text(row: dict) -> str:
     """Return the attested bytes for an inventory row as text.
 
-    The snapshot is a frozen input, so a row that carries its own bytes is
-    served from the snapshot and never re-read from disk.  That keeps the audit
-    a pure function of its frozen inputs and immune to writes landing under the
-    inventory roots between the capture and audit phases.  Rows from historical
-    snapshots carry no bytes and keep the original live-read drift guard.
+    The snapshot is a frozen input, so a row produced by a current capture is
+    served from the snapshot and never re-read from disk, whatever its size.
+    Against such a snapshot the audit is a pure function of its frozen inputs
+    and immune to writes landing under the inventory roots between the capture
+    and audit phases.  Bytes are only trusted when the row also attests their
+    digest.
+
+    ``resolved_target`` is deliberately not re-checked on this path: symlink
+    identity was resolved and recorded at capture time, and consulting the live
+    target would reintroduce the very filesystem dependency being removed.
+
+    Rows from snapshots captured before this contract carry no
+    ``content_encoding`` and keep the original live-read drift guard, so
+    replaying a historical snapshot still depends on a quiet filesystem.
     """
     path = Path(row["path"])
     expected = row.get("content_sha256")
-    encoded = row.get("content_b64")
-    if isinstance(encoded, str):
-        if row.get("content_encoding") != "base64":
+    if "content_encoding" in row:
+        if row["content_encoding"] != "base64":
+            raise ValueError(f"inventory content drift: {path}")
+        if not row.get("content_captured", True):
+            # Capture could not read this file, so the row attests nothing.
+            # The live filesystem is not a substitute for bytes never captured.
+            return ""
+        encoded = row.get("content_b64")
+        if not isinstance(encoded, str):
             raise ValueError(f"inventory content drift: {path}")
         try:
             content = base64.b64decode(encoded, validate=True)
         except (ValueError, binascii.Error):
             raise ValueError(f"inventory content drift: {path}") from None
-        if expected and digest(content) != expected:
+        # Bytes without a digest are unattested, and a digest without bytes is
+        # an inconsistent row. Both fail closed rather than being trusted.
+        if content and not expected:
+            raise ValueError(f"inventory content drift: missing attestation for {path}")
+        if content and digest(content) != expected:
+            raise ValueError(f"inventory content drift: {path}")
+        if not content and expected:
             raise ValueError(f"inventory content drift: {path}")
         return content.decode("utf-8", errors="replace")
     try:

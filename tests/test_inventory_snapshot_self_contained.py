@@ -28,9 +28,10 @@ def _frozen_skill(path: Path, content: bytes) -> dict:
     return {
         "skill": "gcp",
         "path": str(path),
-        "content_sha256": digest(content),
+        "content_sha256": digest(content) if content else "",
         "content_encoding": "base64",
         "content_b64": base64.b64encode(content).decode("ascii"),
+        "content_captured": True,
     }
 
 
@@ -75,6 +76,99 @@ class InventorySnapshotSelfContainedTest(unittest.TestCase):
             path.write_bytes(captured)
             skill = _frozen_skill(path, captured)
             skill["content_b64"] = "not valid base64!!"
+            manifest = build_audit_fixture(root, events=[], skills=[skill])
+            with self.assertRaisesRegex(ValueError, "inventory content drift"):
+                audit(manifest, root / "out")
+
+    def test_bytes_without_a_declared_digest_fail_closed(self):
+        """Frozen bytes are only trusted when the row also attests their digest."""
+        for missing in ({}, {"content_sha256": ""}):
+            with self.subTest(missing=missing), TemporaryDirectory() as directory:
+                root = Path(directory)
+                path = root / "SKILL.md"
+                captured = b"# captured bytes\n"
+                path.write_bytes(captured)
+                skill = _frozen_skill(path, captured)
+                skill.pop("content_sha256")
+                skill.update(missing)
+                manifest = build_audit_fixture(root, events=[], skills=[skill])
+                with self.assertRaisesRegex(ValueError, "missing attestation"):
+                    audit(manifest, root / "out")
+
+    def test_declared_digest_without_bytes_fails_closed(self):
+        """A digest with an empty payload is an inconsistent row, not an empty file."""
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "SKILL.md"
+            path.write_bytes(b"# captured bytes\n")
+            skill = _frozen_skill(path, b"")
+            skill["content_sha256"] = digest(b"# captured bytes\n")
+            manifest = build_audit_fixture(root, events=[], skills=[skill])
+            with self.assertRaisesRegex(ValueError, "inventory content drift"):
+                audit(manifest, root / "out")
+
+    def test_empty_file_is_frozen_and_never_reread(self):
+        """A zero-byte file is frozen too; it must not fall back to a live read."""
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "SKILL.md"
+            path.write_bytes(b"")
+            manifest = build_audit_fixture(
+                root, events=[], skills=[_frozen_skill(path, b"")]
+            )
+            path.write_bytes(b"rewritten after capture\n")
+            audit(manifest, root / "out")
+            rows = json.loads((root / "out/skill-usage-30d.json").read_text())["skills"]
+            self.assertEqual([row["skill"] for row in rows], ["gcp"])
+
+    def test_uncaptured_row_does_not_borrow_live_bytes(self):
+        """A file capture could not read attests nothing and reads no disk."""
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "SKILL.md"
+            path.write_bytes(b"content that appeared after capture\n")
+            skill = {
+                "skill": "gcp",
+                "path": str(path),
+                "content_sha256": "",
+                "content_encoding": "base64",
+                "content_b64": "",
+                "content_captured": False,
+            }
+            manifest = build_audit_fixture(root, events=[], skills=[skill])
+            audit(manifest, root / "out")
+            rows = json.loads((root / "out/skill-usage-30d.json").read_text())["skills"]
+            self.assertEqual([row["skill"] for row in rows], ["gcp"])
+
+    def test_symlink_retarget_does_not_break_a_frozen_row(self):
+        """Symlink identity is attested at capture; the live target is not consulted."""
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            original = root / "original.md"
+            original.write_bytes(b"---\nname: gcp\n---\n# original\n")
+            link = root / "SKILL.md"
+            link.symlink_to(original)
+            skill = _frozen_skill(link, original.read_bytes())
+            skill["resolved_target"] = str(original.resolve())
+            manifest = build_audit_fixture(root, events=[], skills=[skill])
+
+            other = root / "other.md"
+            other.write_bytes(b"# somewhere else\n")
+            link.unlink()
+            link.symlink_to(other)
+
+            audit(manifest, root / "out")
+            rows = json.loads((root / "out/skill-usage-30d.json").read_text())["skills"]
+            self.assertEqual([row["skill"] for row in rows], ["gcp"])
+
+    def test_unknown_content_encoding_fails_closed(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "SKILL.md"
+            captured = b"# captured bytes\n"
+            path.write_bytes(captured)
+            skill = _frozen_skill(path, captured)
+            skill["content_encoding"] = "rot13"
             manifest = build_audit_fixture(root, events=[], skills=[skill])
             with self.assertRaisesRegex(ValueError, "inventory content drift"):
                 audit(manifest, root / "out")
@@ -128,10 +222,19 @@ class CaptureEmbedsInventoryContentTest(unittest.TestCase):
             root = Path(directory)
             body = b"---\ndescription: /demo\n---\n# /demo\n"
             (root / "demo.md").write_bytes(body)
-            row = next(r for r in command_inventory(root) if r["command"] == "demo")
+            (root / "empty.md").write_bytes(b"")
+            rows = {r["command"]: r for r in command_inventory(root)}
+            row = rows["demo"]
             self.assertEqual(row["content_encoding"], "base64")
+            self.assertTrue(row["content_captured"])
             self.assertEqual(base64.b64decode(row["content_b64"]), body)
             self.assertEqual(digest(base64.b64decode(row["content_b64"])), row["content_sha256"])
+
+            empty = rows["empty"]
+            self.assertEqual(empty["content_encoding"], "base64")
+            self.assertTrue(empty["content_captured"])
+            self.assertEqual(empty["content_b64"], "")
+            self.assertEqual(empty["content_sha256"], "")
 
     def test_skill_inventory_embeds_verifiable_content(self):
         with TemporaryDirectory() as directory:
