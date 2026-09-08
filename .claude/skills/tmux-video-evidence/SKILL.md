@@ -1,6 +1,6 @@
 ---
 name: tmux-video-evidence
-description: Record captioned terminal evidence videos and publish them as GitHub PR attachments with portable, sanitized outputs
+description: Record captioned terminal evidence videos with portable, sanitized outputs for authorized review
 ---
 
 # Tmux Video Evidence for Agent Work Verification
@@ -16,7 +16,7 @@ Every terminal evidence package must include:
 - A browser-friendly preview artifact (`.gif` recommended)
 - Captions for that video (burned-in preferred; `.vtt`/`.srt` acceptable)
 - Sanitized terminal/test output (no machine-specific absolute paths)
-- GitHub-hosted URL(s) published by automation
+- Media links accessible to the intended reviewer at an authorized destination
 - A downloadable high-fidelity artifact (`.mp4` or `.mp4.zip`)
 
 ## Mandatory Video Sections
@@ -91,13 +91,15 @@ ffmpeg -y -i /tmp/<work_name>.gif -movflags +faststart -pix_fmt yuv420p /tmp/<wo
 
 For every tmux video, provide captions by either:
 1. Burning captions into the video (preferred), or
-2. Producing `/tmp/<work_name>.vtt` and linking it in PR + gist.
+2. Producing `/tmp/<work_name>.vtt` and linking it alongside the reviewed media artifacts.
 
 Use `~/.claude/skills/video-caption/SKILL.md` when you need to generate burned-in captions reliably.
 
-## Publish in PR (GitHub-Hosted, Zero-Touch)
+## Evidence access and authorized publication
 
-Preferred path:
+Follow `~/.claude/skills/evidence-standards/SKILL.md` for publication authority, audience, and destination. A PR, checked-in document, access-controlled receipt/store, or authorized gist may link the evidence. A gist or GitHub upload is not an independent acceptance requirement. Preserve real media, captions, exact source provenance, and reviewer access; publish only within the current authorization.
+
+The following GitHub release example applies only when that destination is authorized:
 
 ```bash
 zip -j /tmp/terminal.mp4.zip /abs/path/to/terminal.mp4
@@ -130,6 +132,6 @@ A reviewer should reject evidence if any are missing:
 2. Real command output (not echo-only)
 3. Captions present
 4. Sanitized logs (no machine-specific absolute paths)
-5. GitHub-hosted media URL(s) in PR
+5. Media links accessible to the intended reviewer at an authorized destination
 6. Automated `gh` release/comment workflow or optional native-attachment helper used instead of manual drag-drop
-7. Matching entry in self-contained gist
+7. Matching metadata and captions in the reviewed evidence receipt
