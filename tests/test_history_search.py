@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 import shutil
 import sqlite3
@@ -190,6 +191,25 @@ class TestHistorySearch(unittest.TestCase):
         self.assertEqual(
             [entry.metadata["thread_id"] for entry in results],
             ["unique-1", "unique-0", "shared"],
+        )
+
+    def test_codex_mixed_index_and_rollout_profiles_sort_actual_instants(self) -> None:
+        indexed = self.temp_dir / "indexed"
+        indexed.mkdir()
+        with sqlite3.connect(indexed / "state_5.sqlite") as con:
+            con.execute("CREATE TABLE threads (id TEXT, title TEXT, first_user_message TEXT, cwd TEXT, git_branch TEXT, created_at INTEGER, archived INTEGER)")
+            con.execute("INSERT INTO threads VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        ("indexed", "history", "indexed history", "/work", "main", 1788283000, 0))
+        rollouts = self.temp_dir / "rollouts"
+        (rollouts / "sessions").mkdir(parents=True)
+        (rollouts / "sessions/rollout-test.jsonl").write_text(json.dumps({
+            "timestamp": datetime.fromtimestamp(1788283060, timezone.utc).isoformat(),
+            "role": "user", "content": "newer rollout history",
+        }) + "\n")
+        results = search_codex(query="history", codex_homes=[indexed, rollouts])
+        self.assertEqual(
+            [entry.snippet for entry in results],
+            ["newer rollout history", "indexed history"],
         )
 
     def test_search_hermes_fts5_and_like_fallback(self) -> None:

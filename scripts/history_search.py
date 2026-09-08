@@ -8,6 +8,7 @@ Gracefully handles absent databases, missing files, and malformed JSON.
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 import glob
 import json
 import os
@@ -272,7 +273,13 @@ def search_codex(
                 seen_threads.add(thread_id)
             entry.metadata["codex_home"] = str(home)
             results.append(entry)
-    return sorted(results, key=lambda entry: entry.timestamp, reverse=True)[:limit]
+    def timestamp_key(entry: HistoryEntry) -> float:
+        try:
+            return datetime.fromisoformat(entry.timestamp).timestamp()
+        except ValueError:
+            return float("-inf")
+
+    return sorted(results, key=timestamp_key, reverse=True)[:limit]
 
 
 def _search_codex_store(
@@ -423,7 +430,7 @@ def _search_codex_store(
                                 if query and query.lower() not in text.lower():
                                     continue
                                 snippet = _clean_snippet(text, max_chars=max_chars)
-                                ts = str(obj.get("timestamp") or "")[:10]
+                                ts = str(obj.get("timestamp") or "")
                                 results.append(
                                     HistoryEntry(
                                         source="codex",
