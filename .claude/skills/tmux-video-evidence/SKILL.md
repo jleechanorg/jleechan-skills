@@ -133,5 +133,5 @@ A reviewer should reject evidence if any are missing:
 3. Captions present
 4. Sanitized logs (no machine-specific absolute paths)
 5. Media links accessible to the intended reviewer at an authorized destination
-6. Automated `gh` release/comment workflow or optional native-attachment helper used instead of manual drag-drop
+6. Any publication uses the authorized destination and applicable automation workflow
 7. Matching metadata and captions in the reviewed evidence receipt
