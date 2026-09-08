@@ -185,15 +185,20 @@ be **PARTIAL** or **INSUFFICIENT**, not **PASS**. A claim that lacks the
 layer label is non-compliant and the verdict must be downgraded to PARTIAL.
 
 
-## Publication (gist-first)
+## Evidence access and publication
 
-When evidence is ready for a PR:
+Keep the original evidence and its provenance intact. Provide the intended
+reviewer with accessible reproduction directions and artifact links in the PR,
+a checked-in document, an access-controlled receipt/store, or an authorized gist.
+Include the reviewed/tested SHA, dependencies, exact commands and expected results
+required for the applicable evidence class. A gist is one supported location;
+it is not an independent prerequisite for a passing verdict.
 
-1. **Publish to a secret/unlisted gist** with sanitized artifacts (README, metadata, pytest output, checksums).
-2. Put **only the gist URL** in the PR `## Evidence` section (and linked sections as required by the description gate).
-3. **Do not commit** evidence bundles under `docs/evidence/` on the PR branch unless a repo gate explicitly requires in-tree paths — local `/tmp/<repo>/<branch>/` is the working bundle; gist is the published copy.
-4. Gate-6 accepts `gist.github.com/` URLs; prefer that over `docs/evidence/` tree links in the PR body.
-
+Publish or send artifacts only within the current task's authorized audience and
+destination. Sanitize any shareable copy while retaining private originals and
+identifying the relationship between them. An unlisted gist is accessible to
+anyone with its URL; do not treat it as an access-controlled secret store.
+Follow any actual repository gate requiring particular in-tree evidence paths.
 
 ## Bundle anatomy (minimal)
 
