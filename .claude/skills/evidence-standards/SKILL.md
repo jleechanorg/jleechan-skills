@@ -87,16 +87,25 @@ Tolerance for Test/Docs-Only Changes") and take precedence on conflict.
 
 ## Evidence Sequencing — expensive evidence runs LAST, once
 
+Before a behavior fix, obtain fresh evidence of the reported failure at the
+lowest sufficient layer and preserve the baseline revision, inputs, and output.
+Source/trace inspection and authorized diagnostic instrumentation may be needed
+to construct that reproducer. A missing reproducer blocks an unproven fix claim,
+not continued diagnosis. Real-service failures still require the real boundary;
+a fast unit test cannot substitute for a cross-service reproduction.
+
 Cheap gates (unit/focused tests, lint, compile) iterate freely per commit.
 Adversarial code-review rounds are cheap per-pass, but must continue to enforce
-the required correctness and evidence checks. Expensive evidence (real-server + real-LLM runs, RED/GREEN pairs,
+the required correctness and evidence checks. Final expensive evidence (real-server + real-LLM runs, packaged RED/GREEN comparisons,
 browser/video capture, bundle assembly) runs ONCE, at the END: only after code is
 complete — all review findings resolved or explicitly deferred, focused tests
 green, no known remaining code work. Freeze the HEAD, then run the expensive
 stack against it. Running expensive evidence mid-iteration guarantees it is
 voided by the next fix (PR #9604/#9640, 2026-09-01: ~40 of 50 commits were
 evidence churn; the RED/GREEN pair and bundle had to be scheduled for a full
-rerun anyway).
+rerun anyway). The final comparison may replay the preserved baseline alongside
+the completed candidate; scheduling that package last does not defer the initial
+failure reproduction until after the behavior fix.
 
 Rerun expensive evidence ONLY on a material change per the Staleness Tolerance
 diff test above: a production-behavior file in the evidenced path changed, or

@@ -356,6 +356,11 @@ install_commands() {
 # Copy scripts to ~/.claude/scripts/
 install_scripts() {
     install_component "$SRC_SCRIPTS_DIR" "$INSTALL_ROOT/scripts" "scripts"
+    if [ -f "$PLUGIN_SRC_DIR/scripts/history_search.py" ]; then
+        mkdir -p "$INSTALL_ROOT/scripts"
+        rm -f "$INSTALL_ROOT/scripts/history_search.py"
+        cp -a "$PLUGIN_SRC_DIR/scripts/history_search.py" "$INSTALL_ROOT/scripts/history_search.py"
+    fi
 }
 
 # Copy skills to ~/.claude/skills/
@@ -366,6 +371,11 @@ install_skills() {
 # Environment validation
 validate_installation() {
     local component source_dir relative destination_file files_checked=0
+    if [ -f "$PLUGIN_SRC_DIR/scripts/history_search.py" ] &&
+       ! cmp -s "$PLUGIN_SRC_DIR/scripts/history_search.py" "$INSTALL_ROOT/scripts/history_search.py"; then
+        log_error "Manifest validation failed for scripts/history_search.py"
+        return 1
+    fi
     for component in agents commands scripts skills; do
         source_dir="$PLUGIN_SRC_DIR/.claude/$component"
         [ -d "$source_dir" ] || continue

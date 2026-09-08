@@ -12,16 +12,21 @@ causal lane. It does not tune prompts or change backend behavior itself.
 
 ## Modes
 
-- **Direct diagnostic mode** applies only when this skill is invoked directly
-  to diagnose a concrete failure and the active task authorizes investigation
+- **Direct diagnostic mode** applies when the active task asks to diagnose a
+  concrete failure and authorizes investigation
   or fixes. After the route verdict, it may execute the selected owner skill.
-- **Review-only mode** applies automatically when loaded by another review or
-  audit workflow, or when the subject is a code diff, PR, proposed guard, or
-  proof classification. Emit the evidence-backed verdict and findings, then
-  stop before executing `/llm-first` or `/backend-first`.
+- **Review-only mode** applies when the task requests a review or audit, including
+  a diagnostic loaded by another review workflow. Reviewing a diff, PR, guard,
+  or proof does not itself authorize repairs. Emit the evidence-backed verdict
+  and findings, then
+  stop before executing `/llm-first` or `/backend-first`. Return those findings
+  to the parent workflow; completing this review does not end other authorized
+  work in the parent task.
 
-If the invocation mode is unclear or the active task does not authorize
-changes, use review-only mode.
+Resolve the mode from the active task. A request to diagnose authorizes
+investigation, not every possible fix or production mutation. If the task is
+review-only or its scope remains unclear, return the verdict to the caller and
+continue only the caller's already-authorized work.
 
 ## Boundary trace
 
@@ -66,9 +71,12 @@ In direct diagnostic mode, execute only the selected owner skill:
 
 - LLM route: execute `/llm-first`.
 - Backend route: execute `/backend-first`.
-- Under-instrumented: report the missing artifact and stop. Instrumentation
-  requires a separately authorized follow-up that changes no prompt/schema or
-  backend semantics; rerun this diagnostic after that evidence exists.
+- Under-instrumented: report the missing artifact and continue authorized
+  inspection, capture, or reversible diagnostic instrumentation. Keep prompt,
+  schema, and backend semantics unchanged while locating the divergence, then
+  rerun this diagnostic. Ask only when obtaining the particular artifact requires
+  access, a production mutation, or work outside the existing authorization.
+  Continue independent authorized work while that specific action is blocked.
 
 In review-only mode, stop after the evidence-backed verdict and findings. Do
 not launch owner skills, provider experiments, or edits.

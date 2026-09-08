@@ -8,6 +8,7 @@ import shutil
 import sqlite3
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from scripts.history_search import (
     ALL_SOURCES,
@@ -134,6 +135,62 @@ class TestHistorySearch(unittest.TestCase):
         )
         self.assertEqual(len(rollout_results), 1)
         self.assertIn("Rollout prompt test", rollout_results[0].snippet)
+
+    def test_codex_search_includes_active_and_default_homes(self) -> None:
+        for directory, message in (
+            (".codex-astra", "active profile history"),
+            (".codex", "default profile history"),
+        ):
+            sessions = self.temp_dir / directory / "sessions"
+            sessions.mkdir(parents=True)
+            (sessions / "rollout-test.jsonl").write_text(json.dumps({
+                "timestamp": "2026-09-08",
+                "role": "user",
+                "content": message,
+            }) + "\n")
+        with patch("pathlib.Path.home", return_value=self.temp_dir), patch.dict(
+            "os.environ", {"CODEX_HOME": str(self.temp_dir / ".codex-astra")}
+        ):
+            results = search_codex(query="profile history")
+        self.assertEqual(
+            {entry.snippet for entry in results},
+            {"active profile history", "default profile history"},
+        )
+
+    def test_explicit_codex_homes_are_scoped_and_aliases_are_deduplicated(self) -> None:
+        profile = self.temp_dir / "custom-profile"
+        sessions = profile / "sessions"
+        sessions.mkdir(parents=True)
+        (sessions / "rollout-test.jsonl").write_text(json.dumps({
+            "timestamp": "2026-09-08",
+            "type": "response_item",
+            "payload": {
+                "type": "message", "role": "user",
+                "content": [{"type": "input_text", "text": "custom trace"}],
+            },
+        }) + "\n")
+        alias = self.temp_dir / "profile-alias"
+        alias.symlink_to(profile, target_is_directory=True)
+        results = search_codex(query="custom trace", codex_homes=[profile, alias])
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].snippet, "custom trace")
+        self.assertEqual(results[0].metadata["codex_home"], str(profile.resolve()))
+
+    def test_codex_profile_indexes_deduplicate_threads_and_sort_full_timestamps(self) -> None:
+        homes = [self.temp_dir / "first", self.temp_dir / "second"]
+        for index, home in enumerate(homes):
+            home.mkdir()
+            with sqlite3.connect(home / "state_5.sqlite") as con:
+                con.execute("CREATE TABLE threads (id TEXT, title TEXT, first_user_message TEXT, cwd TEXT, git_branch TEXT, created_at INTEGER, archived INTEGER)")
+                con.executemany("INSERT INTO threads VALUES (?, ?, ?, ?, ?, ?, ?)", [
+                    ("shared", "history", "shared history", "/work", "main", 1788283000, 0),
+                    (f"unique-{index}", "history", f"history {index}", "/work", "main", 1788283010 + index, 0),
+                ])
+        results = search_codex(query="history", codex_homes=homes)
+        self.assertEqual(
+            [entry.metadata["thread_id"] for entry in results],
+            ["unique-1", "unique-0", "shared"],
+        )
 
     def test_search_hermes_fts5_and_like_fallback(self) -> None:
         db_path = self.temp_dir / "hermes_state.db"

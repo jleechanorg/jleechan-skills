@@ -94,7 +94,7 @@ def _extract_claude_content(msg_obj: Any) -> str:
         parts = []
         for part in msg_obj:
             if isinstance(part, dict):
-                if part.get("type") == "text" and part.get("text"):
+                if part.get("type") in ("text", "input_text") and part.get("text"):
                     parts.append(str(part["text"]))
                 elif part.get("content"):
                     parts.append(str(part["content"]))
@@ -244,8 +244,46 @@ def search_codex(
     max_chars: int = 200,
     db_path: Optional[Path | str] = None,
     sessions_dir: Optional[Path | str] = None,
+    codex_homes: Optional[Sequence[Path | str]] = None,
 ) -> list[HistoryEntry]:
-    """Search Codex threads (~/.codex/state_5.sqlite) and rollouts."""
+    """Sample explicit profiles, or the active and default Codex homes."""
+    if db_path is not None or sessions_dir is not None:
+        return _search_codex_store(
+            query, cwd, limit, max_chars, db_path, sessions_dir
+        )
+
+    profiles = codex_homes if codex_homes is not None else [
+        os.environ.get("CODEX_HOME") or Path.home() / ".codex",
+        Path.home() / ".codex",
+    ]
+    homes = dict.fromkeys(Path(profile).expanduser().resolve() for profile in profiles)
+    results: list[HistoryEntry] = []
+    seen_threads: set[str] = set()
+    for home in homes:
+        entries = _search_codex_store(
+            query, cwd, limit, max_chars,
+            home / "state_5.sqlite", home / "sessions",
+        )
+        for entry in entries:
+            thread_id = entry.metadata.get("thread_id")
+            if thread_id and thread_id in seen_threads:
+                continue
+            if thread_id:
+                seen_threads.add(thread_id)
+            entry.metadata["codex_home"] = str(home)
+            results.append(entry)
+    return sorted(results, key=lambda entry: entry.timestamp, reverse=True)[:limit]
+
+
+def _search_codex_store(
+    query: str,
+    cwd: str,
+    limit: int,
+    max_chars: int,
+    db_path: Optional[Path | str],
+    sessions_dir: Optional[Path | str],
+) -> list[HistoryEntry]:
+    """Read a single Codex profile without changing its database or rollouts."""
     results: list[HistoryEntry] = []
     database = Path(db_path) if db_path is not None else Path.home() / ".codex" / "state_5.sqlite"
 
@@ -269,7 +307,7 @@ def search_codex(
             if query:
                 sql = f"""
                     SELECT title, substr(first_user_message, 1, 200), cwd, git_branch,
-                           {date_expr} as created
+                           {date_expr} as created, id
                     FROM threads
                     WHERE (title LIKE ? OR first_user_message LIKE ?)
                       AND (archived = 0 OR archived IS NULL)
@@ -280,7 +318,7 @@ def search_codex(
             else:
                 sql = f"""
                     SELECT title, substr(first_user_message, 1, 200), cwd, git_branch,
-                           {date_expr} as created
+                           {date_expr} as created, id
                     FROM threads
                     WHERE (cwd LIKE ? OR cwd IS NULL)
                       AND (archived = 0 OR archived IS NULL)
@@ -294,7 +332,7 @@ def search_codex(
                 # Fallback to recent threads across any workspace if cwd has no hits
                 sql_recent = f"""
                     SELECT title, substr(first_user_message, 1, 200), cwd, git_branch,
-                           {date_expr} as created
+                           {date_expr} as created, id
                     FROM threads
                     WHERE (archived = 0 OR archived IS NULL)
                     ORDER BY created_at DESC
@@ -302,12 +340,12 @@ def search_codex(
                 """
                 rows = cur.execute(sql_recent, (limit,)).fetchall()
 
-            for title, first_msg, row_cwd, branch, created in rows:
+            for title, first_msg, row_cwd, branch, created, thread_id in rows:
                 proj = Path(row_cwd).name if row_cwd else "?"
                 title_str = (title or "?")[:40]
                 branch_str = branch or "main"
                 snippet = _clean_snippet(first_msg or "", max_chars=max_chars)
-                ts = str(created or "")[:10]
+                ts = str(created or "")
                 label = f"{proj} | {branch_str} | {title_str}"
                 results.append(
                     HistoryEntry(
@@ -315,7 +353,10 @@ def search_codex(
                         timestamp=ts,
                         label=label,
                         snippet=snippet,
-                        metadata={"cwd": row_cwd, "branch": branch, "title": title},
+                        metadata={
+                            "cwd": row_cwd, "branch": branch, "title": title,
+                            "thread_id": thread_id, "database": str(database),
+                        },
                     )
                 )
         except Exception:
@@ -364,7 +405,14 @@ def search_codex(
                                 if not isinstance(obj, dict):
                                     continue
                                 text = ""
-                                if obj.get("role") == "user":
+                                payload = obj.get("payload", {})
+                                if (
+                                    obj.get("type") == "response_item"
+                                    and isinstance(payload, dict)
+                                    and payload.get("role") == "user"
+                                ):
+                                    text = _extract_claude_content(payload.get("content"))
+                                elif obj.get("role") == "user":
                                     text = str(obj.get("content") or "")
                                 elif "user_message" in obj:
                                     text = str(obj.get("user_message") or "")
@@ -899,6 +947,7 @@ def search_history(
             max_chars=max_chars,
             db_path=kwargs.get("codex_db_path"),
             sessions_dir=kwargs.get("codex_sessions_dir"),
+            codex_homes=kwargs.get("codex_homes"),
         )
     if "hermes" in selected_sources:
         results["hermes"] = search_hermes(
@@ -990,6 +1039,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("-n", "--limit", type=int, default=5, help="Result limit per source (default: 5)")
     parser.add_argument("--max-chars", type=int, default=200, help="Max snippet length in chars (default: 200)")
     parser.add_argument("--cwd", default=os.getcwd(), help="Override working directory for project scoping")
+    parser.add_argument(
+        "--codex-home", action="append", dest="codex_homes", metavar="PATH",
+        help="Codex profile to search (repeatable; defaults to CODEX_HOME and ~/.codex)",
+    )
     parser.add_argument("--json", action="store_true", help="Output results in JSON format")
     parser.add_argument("--no-color", action="store_true", help="Disable ANSI color codes")
 
@@ -1005,6 +1058,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         cwd=args.cwd,
         limit=args.limit,
         max_chars=args.max_chars,
+        codex_homes=args.codex_homes,
     )
 
     if args.json:

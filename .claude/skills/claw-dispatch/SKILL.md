@@ -153,7 +153,7 @@ if m:
   else
     PR_URL="PR #${PR_NUMBER}"
   fi
-  TASK_WITH_RESOLVED="Keep ${PR_URL} draft while completing /es, /er, and /advice; then mark it ready and bring it to /green. Fix CI failures and merge conflicts, and treat CodeRabbit/Bugbot as advisory. Use /green ${PR_NUMBER} to verify. Act autonomously — do not ask for permission to fix things. IMPORTANT: attempt at most ${CLAW_MAX_ATTEMPTS:-5} fix-push-CI cycles. After reaching the limit, post a status summary of remaining blockers and stop — do not continue iterating."
+  TASK_WITH_RESOLVED="Keep ${PR_URL} draft while completing /es, /er, and /advice; then mark it ready and bring it to /green. Fix CI failures and merge conflicts, and treat CodeRabbit/Bugbot as advisory. Use /green ${PR_NUMBER} to verify. Continue authorized work within the parent mission's scope and deadline; do not invent a cycle-count stop or ask again for already-authorized remediation. If this worker cannot proceed, return the exact blocked action and evidence to its parent, which diagnoses and continues authorized recovery or independent work. Preserve merge and destructive-action approval requirements."
   TASK_DESCRIPTION="$TASK_WITH_RESOLVED"
 fi
 
@@ -215,11 +215,16 @@ $RESOLVED_CONTENT
   fi
 fi
 
-# Max-attempts override: --max-attempts N (default 5 for PR tasks; no cap for freeform tasks)
+# An explicit max-attempts option bounds this worker invocation.
 if printf '%s' "$TASK_WITH_RESOLVED" | grep -q -- '--max-attempts'; then
   CLAW_MAX_ATTEMPTS=$(printf '%s' "$TASK_WITH_RESOLVED" | grep -oE -- '--max-attempts[[:space:]]+[0-9]+' | awk '{print $2}' | head -1)
   TASK_WITH_RESOLVED=$(printf '%s' "$TASK_WITH_RESOLVED" | sed "s/--max-attempts[[:space:]]*[0-9]*//" | sed 's/^[[:space:]]*//')
   export CLAW_MAX_ATTEMPTS
+fi
+if [ -n "${CLAW_MAX_ATTEMPTS:-}" ]; then
+  TASK_WITH_RESOLVED="${TASK_WITH_RESOLVED}
+
+This worker invocation has an explicitly configured limit of ${CLAW_MAX_ATTEMPTS} attempts. At that limit, return its incomplete status and evidence to the parent; the parent continues authorized diagnosis or independent work within the mission deadline. Do not claim completion or merge approval from an exhausted invocation."
 fi
 
 # Bidi mode: synchronous, streaming output

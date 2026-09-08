@@ -122,6 +122,24 @@ class InstallerIntegrationTest(unittest.TestCase):
                 self.assertTrue(installed_dependency.is_file(), installed_dependency)
                 self.assertIn(f"~/.claude/skills/{dependency}/SKILL.md", quick)
 
+    def test_history_helper_runs_outside_source_checkout_after_install(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            (fixture / "scripts").mkdir()
+            shutil.copy2(REPO_ROOT / "scripts/history_search.py", fixture / "scripts/history_search.py")
+            target = temp_dir / "claude-home"
+            result = self.run_installer(fixture, target)
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            helper = target / "scripts/history_search.py"
+            self.assertTrue(helper.is_file())
+            result = subprocess.run(
+                ["python3", str(helper), "--help"], cwd=temp_dir,
+                capture_output=True, text=True, timeout=10,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("--codex-home", result.stdout)
+
     def test_boundary_commands_resolve_skills_under_nondefault_claude_home(self):
         with tempfile.TemporaryDirectory() as directory:
             temp_dir = Path(directory)
