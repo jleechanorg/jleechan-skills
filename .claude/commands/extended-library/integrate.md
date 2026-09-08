@@ -21,7 +21,7 @@ execution_mode: immediate
 
 **Purpose**: Create fresh branch from main and cleanup test servers
 
-**Action**: Stop test server → Run the global `integrate.sh` script → Clean environment
+**Action**: Conditionally stop test server → Run the global `integrate.sh` script → Prepare fresh branch
 
 **Canonical implementation**:
 
@@ -53,17 +53,17 @@ no arguments, invoke the global script with no trailing arguments.
 **Enhanced Implementation**:
 - **Auto-Learning**: Automatically trigger `/learn` to capture insights from completed work
 - **Factory Evolution**: Automatically trigger `/factory-evolve --taxonomy` to surface reviewer-node gaps from recent work (structural G1+G2 check only — fast, no history search)
-- Stop test server for current branch (if running)
+- Stop test server for current branch if manager is present and executable (skipped on main or detached HEAD)
 - Execute the canonical global script with the optional branch name and flags
 - Creates new branch from latest main
-- Ensures clean starting point for new features
+- Prepares fresh starting branch for new features
 - Pulls latest changes from main
 - Sets up custom or timestamp-based branch naming
-- Cleans up branch-specific test server resources
+- Conditionally releases branch-specific test server resources if manager is configured and succeeds
 - **Learning Documentation**: Capture and document patterns from previous branch work
 
 **Test Server Integration**:
-- Automatically stops test server for current branch before checkout/branch/stash
+- Conditionally stops test server for current branch before checkout/branch/stash (skipped on main or detached HEAD)
 - Absent test server manager: explicitly SKIPPED and integration continues
 - Existing nonexecutable manager or failing manager: reports error including original stderr and exits nonzero before checkout/branch/stash
 - Successful stop: reports only that manager returned success (not proven orphan absence)
