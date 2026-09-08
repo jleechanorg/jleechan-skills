@@ -20,7 +20,7 @@ description: Enforcement rules for reviewing evidence artifacts against the evid
 | Verdict | Meaning |
 |---------|---------|
 | **PASS** | Every claim has a matching artifact of STRONG quality and every mandatory check below passes. Satisfies the draft-phase `/er` gate when `/er` is applicable. |
-| **PARTIAL** | Claims are supported but one or more mandatory checks soft-warn (e.g., WARN in an optional verification_report.json, missing downloadable MP4). Does not satisfy the draft-phase `/er` gate. |
+| **PARTIAL** | Claims are supported but one or more mandatory checks soft-warn (e.g., WARN in an optional verification_report.json, missing a required downloadable MP4). Does not satisfy the draft-phase `/er` gate. |
 | **FAIL** | A claim is contradicted by an artifact, or integrity is broken (sha256 mismatch, dirty capture producing the claim, scope exclusion). |
 | **INCONCLUSIVE** | Not enough artifact data exists to decide. Request more. |
 
@@ -216,8 +216,9 @@ verdict at the new SHA without rerunning the later phases; only a material
 production-behavior diff requires a full rerun. Never rerun once per finding —
 if fixes are still landing, wait until they are batched into one new SHA
 (`evidence-standards` § "Evidence Sequencing") before spending a full pass.
-The 2-gate-cycle cap applies: a third full `/er` cycle on the same PR requires
-operator escalation, not a self-authorized rerun.
+Continue necessary review and fixes within the applicable task scope and autonomy
+deadline. Review count alone does not require escalation; ask only for a missing
+authority or unresolved decision that blocks the affected action.
 
 ### Phase 1 — Inventory
 
@@ -237,7 +238,7 @@ For each claim, identify the single primary artifact that proves it. Rate qualit
 
 ### Phase 3 — Mandatory Checks
 
-Run all eight checks in the "Mandatory Pre-PASS Checks" section above. Record the result of each.
+Run each applicable check in "Mandatory Pre-PASS Checks" above. Record its result, or N/A with the scope reason.
 
 ### Phase 4 — Verdict Table
 
@@ -268,9 +269,9 @@ Produce output in this format:
 - [x] bundle or per-file checksums verified → 38/38 OK
 - [x] verification_report.json absent/not applicable, or overall_verdict = PASS
 - [x] Scope note matches claimed domain
-- [x] Terminal GIF + MP4 + caption present
-- [ ] Browser UI GIF: 404 — private repo hosting (→ PARTIAL)
-- [x] Gist has clone + test commands
+- [x] Required or claimed terminal media: <verified artifacts, or N/A with reason>
+- [ ] Required or claimed browser media: <verified artifacts, or concrete missing artifact and verdict>
+- [x] Linked reproduction directions: <location with exact SHA, dependencies, commands, and expected results>
 
 ### Violations
 1. <specific evidence item that fails>
@@ -288,10 +289,10 @@ Produce output in this format:
 
 - **Self-referencing claims**: `evidence.md` cites itself instead of raw artifacts → WEAK
 - **Circular provenance**: the bypass gate reads the reference file it's supposed to match against → artifact INVALID, overall FAIL
-- **Evidence committed but not linked**: bundle in `evidence/` but PR description has no gist/release link → PR fails "clean computer" check
+- **Reproduction directions missing or inaccessible**: no accessible link or inline directions meeting section 6 → PARTIAL, even if evidence files were committed.
 - **Private repo release as inline image**: GitHub won't proxy it → broken GIF → PARTIAL
-- **"Native video attachment"** (drag & drop into PR comment): not directly downloadable via URL → PARTIAL
-- **Screenshot instead of GIF for a flow claim**: cannot show before/action/after → FAIL
+- **Required media inaccessible**: an attachment or hosted artifact cannot be accessed in the form required by section 4 → PARTIAL. Verify access rather than inferring failure from the attachment method.
+- **Static screenshot offered as required flow video**: it does not show before/action/after behavior → FAIL for that flow claim.
 - **`echo "PASS"` in terminal video instead of real test runner output**: hard block → FAIL
 - **Pre/post git SHA mismatch** in terminal video: test was run against a different commit than claimed → FAIL
 

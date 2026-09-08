@@ -11,9 +11,9 @@ description: Use when dispatching work through the Hermes gateway with /claw, es
 
 | Input | Default action |
 |-------|---------------|
-| PR number (`#633`, `PR 633`, `633`) | Expand to draft-first readiness followed by `/green`, then post to Slack → Hermes (5 attempt cap) |
+| PR number (`#633`, `PR 633`, `633`) | Expand to draft-first readiness followed by `/green`, then post to Slack → Hermes (no default attempt cap) |
 | General task description | Post to Slack → Hermes |
-| `--max-attempts N` | Override attempt cap (default 5 for PR tasks) |
+| `--max-attempts N` | Set an explicit worker attempt limit; return incomplete status and evidence to the parent at the limit |
 | `--bidi` prefix | Hermes interactive session (streaming) |
 | `--hermes` prefix | Force through Hermes gateway |
 | Slash command resolution (e.g. `/green`) | Resolve skill then pass to Hermes via Slack |
