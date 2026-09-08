@@ -8,7 +8,9 @@ scope: project
 # GitHub CLI Reference
 
 ## Purpose
-Provide comprehensive, copy-paste ready instructions for GitHub CLI (gh) installation and usage to prevent common mistakes like missing full paths or forgetting GITHUB_TOKEN environment variable prefix.
+Reference GitHub CLI installation, authentication, and commands for the current
+authorized operation. Use the installed binary discovered with `command -v gh`;
+the `~/.local/bin/gh` examples assume that installation location.
 
 ## Activation cues
 - Requests to use GitHub CLI or `gh` commands
@@ -64,12 +66,12 @@ fi
 ## Critical Usage Rules
 
 ### ✅ ALWAYS Do This:
-1. **Use full path**: `~/.local/bin/gh` (installed to user bin, not /tmp)
+1. **Use the installed binary**: resolve it with `command -v gh`; use `~/.local/bin/gh` when installed there
 2. **GITHUB_TOKEN automatic**: No prefix needed - gh automatically uses environment variable
 3. **Specify repo**: Add `--repo jleechanorg/your-project.com` for clarity
 
 ### ❌ NEVER Do This:
-1. **Don't use**: Just `gh` (it's not in PATH unless you add ~/.local/bin)
+1. **Don't reinstall over a working binary**: inspect the current PATH and platform first
 2. **Don't use /tmp**: Install to ~/.local/bin to comply with TEMPORARY FILE ISOLATION policy
 3. **Don't add redundant prefix**: `GITHUB_TOKEN=$GITHUB_TOKEN` is unnecessary
 
@@ -237,12 +239,13 @@ fi
 ## Troubleshooting
 
 ### Error: "command not found: gh"
-**Cause**: Used `gh` instead of full path
-**Solution**: Always use `~/.local/bin/gh`
+**Cause**: The binary is absent from the current PATH.
+**Solution**: Inspect `command -v gh` and the known installation path; install for the current platform only if needed.
 
 ### Error: "You are not logged into any GitHub hosts"
-**Cause**: `GITHUB_TOKEN` environment variable not set
-**Solution**: Verify `GITHUB_TOKEN` is set with `echo $GITHUB_TOKEN` (should show token value)
+**Cause**: No usable authentication is available to this invocation.
+**Solution**: Inspect `gh auth status`. For an environment-token setup, check
+`test -n "${GITHUB_TOKEN:-}" && echo "GITHUB_TOKEN is set"`. Never print the token.
 
 ### Error: "HTTP 404: Not Found"
 **Cause**: Missing `--repo` flag or incorrect repo name
@@ -294,7 +297,7 @@ fi
 - **Purpose**: Authentication token for GitHub API
 - **Set automatically**: Available as environment variable
 - **Usage**: GitHub CLI automatically uses this environment variable (no manual prefix needed)
-- **Scopes**: Full access (admin:org, repo, workflow, etc.)
+- **Scopes**: Inspect the current account's permissions; do not assume administrative access.
 
 ## Integration with Other Tools
 
@@ -351,7 +354,7 @@ $GH workflow list --repo $REPO
 ## Reporting Expectations
 When using gh CLI, always:
 1. Confirm gh binary exists before running commands
-2. Include full command with GITHUB_TOKEN prefix in output
-3. Show actual output from gh commands
-4. Report any errors with full error message
+2. Include the command without expanded credential values or token prefixes
+3. Show relevant actual output with credentials redacted
+4. Report diagnostic errors with credentials redacted
 5. Verify authentication status if commands fail

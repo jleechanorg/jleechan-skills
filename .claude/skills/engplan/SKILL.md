@@ -1,6 +1,6 @@
 ---
 name: engplan
-description: Generic engineering plan skill — produces a stage-PR plan with file-exclusive ownership, beads, memories, TDD, /4layer, /tdd, separate test/code commits, and 100-300 LOC commit caps. Modeled on the ZFC leveling hybrid plan but generic for any feature/cleanup/bug-fix work.
+description: Plan medium-to-large engineering work across staged PRs with file ownership, dependencies, tracking, and proportional evidence.
 type: planning
 ---
 
@@ -8,10 +8,10 @@ type: planning
 
 A reusable planning template for medium-to-large engineering work that produces:
 - A small number of larger PRs (NOT many small PRs)
-- File-exclusive ownership (no two open PRs touch the same file)
+- Explicit file ownership and coordination for overlapping work
 - TDD with `/tdd` (red → green → refactor) and `/4layer` minimal-repro ladder
-- Separate commits for tests and code (test commits land BEFORE code commits)
-- Per-commit delta cap: 100-300 LOC; PRs composed of 3-8 commits
+- Fresh failing evidence before behavior fixes, with reviewable commits
+- Commit/PR sizes suited to the change and any explicit user-requested limits
 - Beads (`br`) and memory entries linking the plan to existing tracking
 - Cross-references to all existing roadmap docs in scope
 
@@ -62,37 +62,35 @@ The doc has these sections in order:
 ## Core Rules
 
 ### Rule 1: File-exclusive ownership
-Each PR owns a set of files. **No other open or planned PR may modify a claimed file** until the owning PR merges or releases the claim.
+Assign file ownership and inspect overlapping changes before editing. Coordinate
+shared files or sequence dependent patches; do not overwrite another worker's
+changes. An open PR touching a file does not by itself block independent work.
 
 Before opening any new PR in the scope:
 ```bash
 gh pr list --state open --json number,files --jq \
   '.[] | select(.files[].path | IN("FILE_LIST")) | .number'
 ```
-If non-empty → stop, coordinate or wait.
+If non-empty, inspect actual overlap and coordinate the affected files. Continue independent authorized work.
 
-### Rule 2: Separate commits for tests and code
-- **Test commit FIRST** (red): adds failing tests asserting target behavior
-- **Code commit NEXT** (green): minimum code to make tests pass
-- **Optional refactor commit**: cleanup, no behavior change
+### Rule 2: Preserve test/fix sequence
 
-This is `/tdd` discipline at the commit level — verifiable in `git log`.
+Capture fresh failure evidence before a behavior fix, then implement the smallest
+change that resolves it. Separate red/green commits when the user or accepted plan
+requires them; otherwise a verified commit may contain both test and fix with the
+actual RED/GREEN sequence recorded in evidence.
 
-### Rule 3: Per-commit LOC cap
-- **100 LOC minimum** (forces meaningful chunks, not nit-fixes)
-- **300 LOC maximum** (forces decomposition, keeps review tractable)
-- Generated files (lockfiles, fixtures, snapshots) excluded from cap
-- Pure deletion commits exempt from minimum (deletion is good)
+### Rule 3: Commit size
 
-Check before committing:
-```bash
-git diff --cached --stat | tail -1
-# Look for "N insertions(+), M deletions(-)" — N+M should be 100-300
-```
+Keep commits coherent and reviewable. Honor explicit size limits in the current
+user request or accepted plan; do not impose a 100-line minimum, pad a small fix,
+or remove needed behavior to meet an inherited line-count target.
 
-### Rule 4: PRs composed of 3-8 commits
-- <3 commits → likely too small, fold into another PR
-- >8 commits → likely too big, split into stage-PRs
+### Rule 4: PR size
+
+Choose commit and PR boundaries from dependencies, risk, and the delivery goal.
+A small coherent fix may be one commit. Preserve explicit user-requested staging
+or count limits, but do not invent a minimum number of commits or PRs.
 
 ### Rule 5: /4layer test coverage per stage-PR
 Every stage-PR must include test commits at the right layer:
@@ -136,10 +134,10 @@ Plan writes:
 ### Phase 1: File ownership audit
 1. For each open PR, list modified files: `gh pr view <N> --json files`.
 2. Build conflict matrix: which files are touched by multiple PRs?
-3. Identify hot files (touched by >2 open PRs) — these MUST be claimed by exactly one stage-PR going forward.
+3. Inspect files touched by multiple PRs and assign coordination or sequencing for actual conflicts.
 
 ### Phase 2: Stage decomposition
-1. Group target work into 2-5 stage-PRs.
+1. Group target work into the smallest coherent set of stage-PRs that fits the accepted plan.
 2. Assign each file to exactly one stage-PR.
 3. Verify no file is in two stage-PRs.
 4. Choose sequencing: parallel-eligible vs serial-required.
@@ -147,13 +145,13 @@ Plan writes:
 ### Phase 3: Per-PR commit plan
 For each stage-PR, plan commits in this order:
 1. **Bead-doc commit** (10-30 LOC) — create governing bead, update roadmap if needed
-2. **Test commit (red)** (100-300 LOC) — failing tests for target behavior
-3. **Code commit (green)** (100-300 LOC) — minimum code to pass
+2. **RED check** — failing tests for target behavior; commit separately when required
+3. **Verified implementation commit** — minimum code and relevant tests to pass
 4. **Optional layer-2/3/4 test commit** — broader coverage if Layer 1 isn't enough
 5. **Optional refactor commit** — cleanup, no behavior change
 6. **Evidence commit** (any size) — evidence bundle path, gist URL in PR body
 
-Verify per-commit cap with `git diff --cached --stat | tail -1`.
+Inspect `git diff --cached --stat` for reviewability and any explicitly agreed size limit.
 
 ### Phase 4: Doc generation
 Write the artifact at `~/roadmap/nextsteps-<date>-<scope>-stage-pr-plan.md`.
@@ -171,7 +169,7 @@ Add entry to `~/.claude/projects/<project>/memory/` describing the plan and add 
 
 - **PR proliferation**: opening a new PR for each small fix when an existing PR in scope could absorb it
 - **File contention**: two PRs editing the same file simultaneously → rebase churn, stale CR
-- **Mixed commits**: tests + code in same commit → can't verify TDD discipline from git log
+- **Missing RED proof**: a combined test/fix commit still needs evidence that the check failed before the behavior fix
 - **Silent commit-bloat**: commit with 1000+ LOC delta — usually means PR should be split
 - **Bead-after-the-fact**: creating a bead AFTER the PR opens — defeats tracking
 - **Roadmap-drift**: writing a plan but never syncing the repo copy
@@ -209,7 +207,7 @@ Add entry to `~/.claude/projects/<project>/memory/` describing the plan and add 
 gh pr list --state open --json number,files --jq \
   '.[] | select(.files[].path | IN("<FILE_LIST>")) | .number'
 ```
-If any PR is returned → stop, coordinate or wait.
+If a PR is returned, inspect actual overlap, coordinate affected work, and continue independent authorized tasks.
 
 ### Net LOC Targets (template)
 - PR-A: net ≤ 0 (deletion) | net ≤ +<N> (feature)

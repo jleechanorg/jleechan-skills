@@ -5,6 +5,10 @@ description: How to start a local development server for Your Project
 
 # Running the Local Development Server
 
+Use the current repository's server entrypoint, provider setup, shared environment,
+and test-account policy. The examples below apply to a repository that provides
+`run_local_server.sh`; inspect its instructions before adopting ports or auth flags.
+
 ## Quick Start
 
 ```bash
@@ -23,7 +27,7 @@ description: How to start a local development server for Your Project
 
 ## What It Does
 
-1. Activates/creates Python venv and installs requirements
+1. Uses the documented repository environment; preserve shared-venv links and bootstrap requirements
 2. Loads API keys from Google Secret Manager (Gemini, Cerebras, OpenRouter)
 3. Picks available ports (branch-hash or random in 8100–8199 range)
 4. Cache-busts frontend assets to a temp dir (`/var/folders/.../frontend_v1_cache_bust.*`)
@@ -79,16 +83,10 @@ cp $PROJECT_ROOT/frontend_v1/themes/fantasy.css /var/folders/.../frontend_v1_cac
 
 ## Stopping Servers
 
-```bash
-# Option 1: Kill by PID files
-kill $(cat /tmp/<repo-name>/<branch-name>/flask_backend.pid) $(cat /tmp/<repo-name>/<branch-name>/mcp_server.pid)
-
-# Option 2: Interactive cleanup
-./run_local_server.sh --cleanup
-
-# Option 3: Find and kill by port
-lsof -ti :8054 | xargs kill
-```
+Use the PID files from this task's launch and verify that each live PID still
+belongs to the expected server/worktree before stopping it. A reused PID or an
+occupied port does not establish ownership. Use the repository's cleanup helper
+only after inspecting its affected processes; preserve other tasks' servers.
 
 ## Capturing Screenshots from Live Server
 
@@ -119,8 +117,8 @@ python3 testing_ui/test_smoke_fantasy.py
 
 | Issue | Solution |
 |-------|---------|
-| Port in use | `./run_local_server.sh --cleanup` or `lsof -ti :<PORT> \| xargs kill` |
+| Port in use | Inspect the listener; stop only this task's server or use an available port |
 | Missing API keys | Ensure `gcloud` is configured with `worldarchitecture-ai` project |
-| Venv creation fails | Delete `venv/` and re-run |
+| Venv setup fails | Inspect the environment path or shared-venv symlink and use the documented bootstrap; preserve shared environments |
 | CSS changes not showing | Server serves from cache-bust temp dir; either hot-swap or restart |
 | Smoke test hangs on live server | Use direct Playwright script instead (theme detection race condition) |
