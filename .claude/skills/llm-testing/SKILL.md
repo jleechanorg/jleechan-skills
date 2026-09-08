@@ -49,7 +49,8 @@ credential copying, and generated environment file. A missing runtime requires
 setup and diagnosis; it does not authorize switching to the Gemini SDK. Preserve
 the selected provider's permission profile and the repository's test-account rules.
 
-Exercise the production streaming transport when the claim involves it. Distinguish
+Exercise the production streaming transport when the claim involves it or the
+repository's testing owner requires it. Distinguish
 transport/SSE delivery from provider-native token streaming: evidence for one does
 not prove the other. If the selected provider cannot establish the claim, identify
 that limitation and use only a testing method authorized by the governing owner.
@@ -78,8 +79,11 @@ Print the full absolute evidence path and record the actual command and target.
 
 - Evidence bundle: `/tmp/your-project.com/<branch>/<test_name>/latest/` — print the **full
   absolute path**.
-- Must include streaming artifacts (`streaming_evidence.json`, `/interaction/stream` captures in
-  `http_request_responses.jsonl`, streaming done payload).
+- Include streaming artifacts when the claim involves streaming or the repository's
+  testing owner requires them. Use that owner's capture format; WorldArchitect's
+  production streaming requirement remains in force, including its request and
+  completion captures. A non-streaming real-model claim in another repository does
+  not require unrelated streaming artifacts.
 - UI/interactive behavior also requires a **captioned video** (`.mp4`/`.gif`/`.cast`) tied to the
   PR HEAD SHA.
 - Provenance: input captured from the real client, never reconstructed from backend reference
@@ -108,4 +112,5 @@ Print the full absolute evidence path and record the actual command and target.
 - Flask test client instead of a real server (no real HTTP/MCP boundary).
 - TTFC/latency numbers from an in-process client (not a real server round-trip).
 - Asserting on backend reference data the test itself seeded (circular provenance).
-- Non-streaming finish turns when streaming is the production path.
+- Non-streaming evidence offered for a streaming claim or where the repository's
+  testing owner requires the production streaming path.

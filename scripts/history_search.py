@@ -300,7 +300,7 @@ def _search_codex_store(
     if database.is_file():
         con = None
         try:
-            con = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
+            con = sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True)
             cur = con.cursor()
             like_param = f"%{query}%" if query else f"%{cwd_basename}%"
 
@@ -465,7 +465,7 @@ def search_hermes(
 
     con = None
     try:
-        con = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
+        con = sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True)
         cur = con.cursor()
         rows = []
         if query:
@@ -566,7 +566,7 @@ def search_agy(
     if database.is_file():
         con = None
         try:
-            con = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
+            con = sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True)
             cur = con.cursor()
             rows = []
             if query:

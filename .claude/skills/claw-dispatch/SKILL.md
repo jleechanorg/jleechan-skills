@@ -216,11 +216,33 @@ $RESOLVED_CONTENT
 fi
 
 # An explicit max-attempts option bounds this worker invocation.
-if printf '%s' "$TASK_WITH_RESOLVED" | grep -q -- '--max-attempts'; then
-  CLAW_MAX_ATTEMPTS=$(printf '%s' "$TASK_WITH_RESOLVED" | grep -oE -- '--max-attempts[[:space:]]+[0-9]+' | awk '{print $2}' | head -1)
-  TASK_WITH_RESOLVED=$(printf '%s' "$TASK_WITH_RESOLVED" | sed "s/--max-attempts[[:space:]]*[0-9]*//" | sed 's/^[[:space:]]*//')
-  export CLAW_MAX_ATTEMPTS
-fi
+CLAW_ATTEMPT_PARSE=$(python3 - "$TASK_WITH_RESOLVED" "${CLAW_MAX_ATTEMPTS:-}" <<'PY'
+import re
+import sys
+
+task, limit = sys.argv[1:]
+options = list(re.finditer(
+    r"(?<!\S)--max-attempts(?=[=\s]|$)(?:=(\S*)|\s+(\S+))?", task
+))
+if len(options) > 1:
+    raise SystemExit("Specify --max-attempts only once")
+if options:
+    option = options[0]
+    limit = option.group(1) if option.group(1) is not None else option.group(2)
+    if not limit or not re.fullmatch(r"[1-9][0-9]*", limit):
+        raise SystemExit("--max-attempts requires an exact positive integer")
+    task = task[:option.start()] + task[option.end():]
+    if not task.strip():
+        raise SystemExit("--max-attempts also requires a task description")
+if limit and not re.fullmatch(r"[1-9][0-9]*", limit):
+    raise SystemExit("CLAW_MAX_ATTEMPTS requires an exact positive integer")
+print(limit)
+print(task.strip())
+PY
+) || exit 2
+CLAW_MAX_ATTEMPTS=${CLAW_ATTEMPT_PARSE%%$'\n'*}
+TASK_WITH_RESOLVED=${CLAW_ATTEMPT_PARSE#*$'\n'}
+export CLAW_MAX_ATTEMPTS
 if [ -n "${CLAW_MAX_ATTEMPTS:-}" ]; then
   TASK_WITH_RESOLVED="${TASK_WITH_RESOLVED}
 

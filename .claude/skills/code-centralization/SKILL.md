@@ -217,7 +217,9 @@ def action_resolution(self) -> dict[str, Any]:
 
 ### Step 4: Verify No Regressions
 
-Run all existing tests to ensure behavior unchanged:
+Run the relevant existing and new checks selected by the repository's testing
+owner. Compare unexplained failures with the unchanged baseline and record their
+disposition; a failed required check is not green.
 
 ```bash
 # ✅ GOOD - Verify backward compatibility
@@ -446,11 +448,12 @@ Before extracting duplicated code:
 - [ ] Identified 2+ locations with similar logic
 - [ ] Written comprehensive tests for helper functions (TDD)
 - [ ] Verified existing tests provide safety net
-- [ ] Extracted helper functions that pass all tests
+- [ ] Extracted helper functions pass the applicable scoped checks
 - [ ] Refactored consuming code to use helpers
-- [ ] All existing tests still pass (no regressions)
+- [ ] No regressions in the affected behavior; any pre-existing failure has an evidence-backed baseline disposition
+- [ ] Current required checks satisfy the repository's readiness rules; no failed required check is described as green
 - [ ] Helper tests cover the actual branches, boundaries, and caller contracts
-- [ ] Code reduction achieved (net lines saved)
+- [ ] Duplication reduced; net LOC recorded as an outcome rather than a readiness quota
 - [ ] Documentation updated if needed
 
 ## Related Patterns

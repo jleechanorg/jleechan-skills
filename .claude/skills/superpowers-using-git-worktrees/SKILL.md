@@ -53,9 +53,14 @@ git check-ignore -q "$LOCATION" 2>/dev/null
 
 **If NOT ignored:**
 
-Use an external isolated directory, or add the specific ignore entry when the
-task authorizes that repository change. Preserve unrelated ignore rules and
-dirty work; worktree creation does not require an unrelated configuration commit.
+For a user- or repository-selected location, authorized worktree setup includes
+adding its exact ignore entry to the repository-local `info/exclude` file
+(`git rev-parse --git-path info/exclude`), unless an explicit policy prohibits
+that change. Preserve unrelated entries and verify the selected path is ignored.
+Use an external location only when no location was specified, or when the user
+or repository permits that fallback. Ask only if an explicit constraint makes
+the selected location unusable; continue independent authorized work meanwhile.
+No unrelated tracked configuration commit is needed.
 
 **Why critical:** Prevents accidentally committing worktree contents to repository.
 
@@ -71,6 +76,8 @@ No .gitignore verification needed - outside project entirely.
 worktree_path="$LOCATION/$BRANCH_NAME"
 
 # Select the base ref from repository policy or the user's explicit instruction.
+# Use HEAD only when neither provides a base.
+BASE_REF="${BASE_REF:-HEAD}"
 git worktree add "$worktree_path" -b "$BRANCH_NAME" "$BASE_REF"
 cd "$worktree_path"
 ```
@@ -110,7 +117,7 @@ Proceeding with <next authorized task action>
 | `worktrees/` exists | Use it (verify ignored) |
 | Both exist | Use `.worktrees/` |
 | Neither exists | Check repository policy, then choose an external unique directory |
-| Directory not ignored | Use external isolation or an authorized specific ignore entry |
+| Selected directory not ignored | Add its exact local exclude entry unless prohibited; preserve explicit location constraints |
 | Tests fail during baseline | Capture, classify, and investigate within scope |
 | Setup is needed | Follow the repository bootstrap and shared environment |
 

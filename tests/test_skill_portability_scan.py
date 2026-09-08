@@ -310,5 +310,153 @@ class PolicyFilesContractTest(unittest.TestCase):
         self.assertEqual(result.stdout.strip(), "README.md")
 
 
+
+class DocumentedShellExamplesTest(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="skill-shell-")
+        self.addCleanup(temporary.cleanup)
+        self.tmp_path = Path(temporary.name)
+
+    def test_claw_attempt_option_rejects_malformed_limits_before_dispatch(self):
+        content = (REPO_ROOT / ".claude/skills/claw-dispatch/SKILL.md").read_text()
+        parser = content.split("# An explicit max-attempts option", 1)[1]
+        parser = "# An explicit max-attempts option" + parser.split(
+            "# Bidi mode:", 1
+        )[0]
+
+        def execute(task, inherited_limit=None):
+            env = {**os.environ, "TASK_WITH_RESOLVED": task}
+            env.pop("CLAW_MAX_ATTEMPTS", None)
+            if inherited_limit is not None:
+                env["CLAW_MAX_ATTEMPTS"] = inherited_limit
+            return subprocess.run(
+                ["bash", "-c", "set -euo pipefail\n" + parser
+                 + '\nprintf "DISPATCH:%s\\n%s\\n" '
+                 + '"${CLAW_MAX_ATTEMPTS:-}" "$TASK_WITH_RESOLVED"'],
+                env=env, text=True, capture_output=True, timeout=10,
+            )
+
+        cases = (
+            ("do the task", True, ""),
+            ("--max-attempts 7 do the task", True, "7"),
+            ("do the task --max-attempts=12", True, "12"),
+            ("--max-attempts\n9 do the task", True, "9"),
+            ("--max-attempts", False, ""),
+            ("--max-attempts=", False, ""),
+            ("--max-attempts 0", False, ""),
+            ("--max-attempts -2", False, ""),
+            ("--max-attempts nope", False, ""),
+            ("--max-attempts 3junk", False, ""),
+            ("--max-attempts 3.5", False, ""),
+            ("--max-attempts 3 --max-attempts 4", False, ""),
+            ("--max-attempts 3", False, ""),
+        )
+        for task, valid, expected_limit in cases:
+            with self.subTest(task=task):
+                result = execute(task)
+                if valid:
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertIn("DISPATCH:" + expected_limit + "\n", result.stdout)
+                    self.assertIn("do the task", result.stdout)
+                    self.assertNotIn("--max-attempts", result.stdout)
+                    if not expected_limit:
+                        self.assertNotIn("configured limit", result.stdout)
+                else:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertNotIn("DISPATCH:", result.stdout)
+        for inherited in ("4", "0", "invalid"):
+            with self.subTest(inherited=inherited):
+                result = execute("do the task", inherited)
+                if inherited == "4":
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertIn("DISPATCH:4\n", result.stdout)
+                else:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertNotIn("DISPATCH:", result.stdout)
+        override = execute("--max-attempts 7 do the task", "4")
+        self.assertEqual(override.returncode, 0, override.stderr)
+        self.assertIn("DISPATCH:7\n", override.stdout)
+
+    def test_documented_gh_resolution_prefers_path_then_local_executable(self):
+        content = (
+            REPO_ROOT / ".claude/skills/github-cli-reference/SKILL.md"
+        ).read_text()
+        section = content.split("### Step 0:", 1)[1]
+        script = section.split("```bash\n", 1)[1].split("\n```", 1)[0]
+        for index, (on_path, local_executable) in enumerate(
+            ((True, True), (False, True), (False, False))
+        ):
+            with self.subTest(on_path=on_path, local=local_executable):
+                home = self.tmp_path / f"gh home {index}"
+                bin_dir = home / "path bin"
+                bin_dir.mkdir(parents=True)
+                local_gh = home / ".local/bin/gh"
+                local_gh.parent.mkdir(parents=True)
+                local_gh.write_text("#!/bin/sh\nprintf 'local-gh\\n'\n")
+                local_gh.chmod(0o755 if local_executable else 0o644)
+                path_gh = bin_dir / "gh"
+                if on_path:
+                    path_gh.write_text("#!/bin/sh\nprintf 'path-gh\\n'\n")
+                    path_gh.chmod(0o755)
+                env = {**os.environ, "HOME": str(home), "PATH": str(bin_dir)}
+                env.pop("GH", None)
+                result = subprocess.run(
+                    ["/bin/bash", "-c", script
+                     + '\nprintf "RESOLVED=%s\\n" "${GH:-}"'],
+                    env=env, text=True, capture_output=True, timeout=10,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                expected = path_gh if on_path else local_gh if local_executable else ""
+                self.assertIn(f"RESOLVED={expected}\n", result.stdout)
+
+    def test_documented_worktree_creation_uses_explicit_base_or_head(self):
+        content = (
+            REPO_ROOT / ".claude/skills/superpowers-using-git-worktrees/SKILL.md"
+        ).read_text()
+        section = content.split("### 1. Create Worktree", 1)[1]
+        script = section.split("```bash\n", 1)[1].split("\n```", 1)[0]
+        repo = self.tmp_path / "base repo"
+        env = {
+            **os.environ, "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_CONFIG_NOSYSTEM": "1",
+        }
+
+        def git(*args):
+            return subprocess.run(
+                ["git", "-c", "core.hooksPath=/dev/null", "-C", str(repo), *args],
+                env=env, text=True, capture_output=True, check=True, timeout=30,
+            ).stdout.strip()
+
+        repo.mkdir()
+        git("init")
+        git("config", "user.email", "fixture@localhost")
+        git("config", "user.name", "Fixture")
+        git("config", "core.hooksPath", "/dev/null")
+        (repo / "README.md").write_text("base\n")
+        git("add", "README.md")
+        git("commit", "-m", "base")
+        base = git("rev-parse", "HEAD")
+        git("update-ref", "refs/remotes/origin/main", base)
+        (repo / "README.md").write_text("later\n")
+        git("commit", "-am", "later")
+        head = git("rev-parse", "HEAD")
+        for index, base_ref in enumerate((None, "", "origin/main")):
+            with self.subTest(base_ref=base_ref):
+                run_env = {
+                    **env, "LOCATION": str(self.tmp_path / "worktree area"),
+                    "BRANCH_NAME": f"fixture-{index}",
+                }
+                run_env.pop("BASE_REF", None)
+                if base_ref is not None:
+                    run_env["BASE_REF"] = base_ref
+                result = subprocess.run(
+                    ["bash", "-c", "set -eu\n" + script
+                     + '\nprintf "ACTUAL=%s\\n" "$(git rev-parse HEAD)"'],
+                    cwd=repo, env=run_env, text=True, capture_output=True, timeout=30,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("ACTUAL=" + (base if base_ref else head), result.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

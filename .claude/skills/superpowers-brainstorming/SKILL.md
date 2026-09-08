@@ -18,19 +18,19 @@ another brainstorming phase or approval at each section.
 
 **Understanding the idea:**
 - Check out the current project state first (files, docs, recent commits)
-- Ask questions one at a time to refine the idea
+- Ask focused questions when material uncertainty cannot be resolved from the available context
 - Prefer multiple choice questions when possible, but open-ended is fine too
 - Only one question per message - if a topic needs more exploration, break it into multiple questions
 - Focus on understanding: purpose, constraints, success criteria
 
 **Exploring approaches:**
-- Propose 2-3 different approaches with trade-offs
+- Compare useful alternatives when material uncertainty remains or the user requests options; do not reopen an already approved choice
 - Present options conversationally with your recommendation and reasoning
 - Lead with your recommended option and explain why
 
 **Presenting the design:**
 - Once you believe you understand what you're building, present the design
-- Break it into sections of 200-300 words
+- Use sections and detail proportional to the design and requested review
 - Honor requested review checkpoints; otherwise collect feedback without pausing each section
 - Cover: architecture, components, data flow, error handling, testing
 - Be ready to go back and clarify if something doesn't make sense
@@ -52,6 +52,6 @@ another brainstorming phase or approval at each section.
 - **One question at a time** - Don't overwhelm with multiple questions
 - **Multiple choice preferred** - Easier to answer than open-ended when possible
 - **YAGNI ruthlessly** - Remove unnecessary features from all designs
-- **Explore alternatives** - Always propose 2-3 approaches before settling
-- **Incremental validation** - Present design in sections, validate each
+- **Explore alternatives when useful** - Compare options for unresolved material choices or at the user's request
+- **Review checkpoints** - Pause for requested checkpoints or material unresolved decisions; an approved plan needs no new options phase or per-section approval
 - **Be flexible** - Go back and clarify when something doesn't make sense

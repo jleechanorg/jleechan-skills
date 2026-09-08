@@ -91,7 +91,7 @@ ffmpeg -y -i /tmp/<work_name>.gif -movflags +faststart -pix_fmt yuv420p /tmp/<wo
 
 For every tmux video, provide captions by either:
 1. Burning captions into the video (preferred), or
-2. Producing `/tmp/<work_name>.vtt` and linking it alongside the reviewed media artifacts.
+2. Producing `/tmp/<work_name>.vtt` or `.srt` and linking that actual file alongside the reviewed media artifacts.
 
 Use `~/.claude/skills/video-caption/SKILL.md` when you need to generate burned-in captions reliably.
 
@@ -99,12 +99,13 @@ Use `~/.claude/skills/video-caption/SKILL.md` when you need to generate burned-i
 
 Follow `~/.claude/skills/evidence-standards/SKILL.md` for publication authority, audience, and destination. A PR, checked-in document, access-controlled receipt/store, or authorized gist may link the evidence. A gist or GitHub upload is not an independent acceptance requirement. Preserve real media, captions, exact source provenance, and reviewer access; publish only within the current authorization.
 
-The following GitHub release example applies only when that destination is authorized:
+The following GitHub release example applies only when that destination is authorized. This example uses a sidecar: set `caption_file` to the actual generated `.vtt` or `.srt` path. For captions already burned into the video, omit the sidecar argument.
 
 ```bash
+caption_file="/abs/path/to/terminal.vtt"
 zip -j /tmp/terminal.mp4.zip /abs/path/to/terminal.mp4
 gh release create evidence-pr-<PR_NUMBER> --draft --title "PR #<PR_NUMBER> Evidence" --notes "" 2>/dev/null || true
-gh release upload evidence-pr-<PR_NUMBER> /tmp/terminal.mp4.zip /abs/path/to/terminal.gif /abs/path/to/terminal.srt --clobber
+gh release upload evidence-pr-<PR_NUMBER> /tmp/terminal.mp4.zip /abs/path/to/terminal.gif "$caption_file" --clobber
 gh release view evidence-pr-<PR_NUMBER> --json assets,url
 gh pr comment <PR_NUMBER_OR_URL> --body-file /tmp/evidence_comment.md
 ```

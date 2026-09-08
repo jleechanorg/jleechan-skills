@@ -48,6 +48,11 @@ For each bundle, extract:
 - Pass rate
 - Scenario names
 - Timestamp
+- For L3, the harness-selected provider, actual model identifier from response
+  metadata, and material configuration required by the canonical evidence and
+  harness owners. Preserve the requested model separately; mark an unreported
+  actual model as unknown rather than deriving it from the requested alias.
+  Include this provenance in bundle metadata and reproduction directions.
 
 ### 4. Check evidence freshness
 
@@ -67,8 +72,12 @@ new run, and a changed filename alone does not establish staleness.
 
 Output a markdown table with these columns:
 
-| ID | Domain | Logic Change | File(s) | Layer | Test File | Evidence Status | Gap? |
-|----|--------|-------------|---------|-------|-----------|----------------|------|
+| ID | Domain | Logic Change | File(s) | Layer | Test File | Evidence Status | Provenance | Gap? |
+|----|--------|-------------|---------|-------|-----------|----------------|------------|------|
+
+For L3 rows, link the provider/model/configuration metadata and reproduction
+directions in **Provenance**. Mark missing attribution as a gap for any claim
+that depends on the actual provider or model.
 
 **Evidence Status values:**
 - `FRESH (SHA xxx, N/N pass)` — evidence exists at current HEAD, all scenarios pass

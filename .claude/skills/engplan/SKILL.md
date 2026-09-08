@@ -7,7 +7,7 @@ type: planning
 # /engplan — Generic Engineering Plan Skill
 
 A reusable planning template for medium-to-large engineering work that produces:
-- A small number of larger PRs (NOT many small PRs)
+- Coherent PR boundaries suited to dependencies, risk, and the delivery goal
 - Explicit file ownership and coordination for overlapping work
 - TDD with `/tdd` (red → green → refactor) and `/4layer` minimal-repro ladder
 - Fresh failing evidence before behavior fixes, with reviewable commits
@@ -16,8 +16,8 @@ A reusable planning template for medium-to-large engineering work that produces:
 - Cross-references to all existing roadmap docs in scope
 
 This skill is project-agnostic. The ZFC leveling plan
-(`~/roadmap/nextsteps-2026-04-28-zfc-stage-pr-hybrid-plan.md`) is the canonical
-example.
+(`~/roadmap/nextsteps-2026-04-28-zfc-stage-pr-hybrid-plan.md`) is a historical
+example; the current task and repository owners govern the plan.
 
 ---
 
@@ -45,15 +45,15 @@ The doc has these sections in order:
 1. **Goal** — one paragraph
 2. **Why** — bullet list of audit findings, prior failures, file-contention evidence
 3. **File-Exclusive Ownership Map** — table: PR → owns/may-read/closes
-4. **Per-PR Commit Plan** — table per PR: commit N → test/code → files → LOC delta
+4. **Per-PR Commit Plan** — coherent changes, files, and accepted commit boundaries; estimate LOC only when useful
 5. **Sequencing** — DAG of PRs (which run parallel, which block)
 6. **Open-PR Handling** — what to do with existing open PRs
 7. **Concurrency Rule** — codified `gh pr list` query
-8. **Net LOC Targets** — per-PR caps
+8. **Size Constraints** — explicit limits from the current request or accepted plan, if any
 9. **Beads** — existing + new bead IDs per PR
 10. **Memory Entries** — what memory files this plan reads/updates
-11. **TDD Plan** — red/green/refactor mapping per commit
-12. **/4layer Coverage** — which layer each test commit targets
+11. **TDD Plan** — fresh failure and verification for behavior fixes
+12. **/4layer Coverage** — sufficient layers selected by the repository's testing owner
 13. **Cross-References** — all related roadmap docs (active, predecessor, foundational, skills)
 14. **Sync Requirement** — paths to copy doc to
 
@@ -93,7 +93,9 @@ A small coherent fix may be one commit. Preserve explicit user-requested staging
 or count limits, but do not invent a minimum number of commits or PRs.
 
 ### Rule 5: /4layer test coverage per stage-PR
-Every stage-PR must include test commits at the right layer:
+Select sufficient checks using the repository's testing and evidence owners.
+Tests may share a coherent implementation commit; separate test commits are not
+required by this skill. The layer examples are:
 - **Layer 1**: Unit tests (`$PROJECT_ROOT/tests/test_*.py`)
 - **Layer 2**: End-to-end (`$PROJECT_ROOT/tests/test_end2end/`)
 - **Layer 3**: MCP/HTTP real-mode (`testing_mcp/`)
@@ -143,13 +145,18 @@ Plan writes:
 4. Choose sequencing: parallel-eligible vs serial-required.
 
 ### Phase 3: Per-PR commit plan
-For each stage-PR, plan commits in this order:
-1. **Bead-doc commit** (10-30 LOC) — create governing bead, update roadmap if needed
+For each stage-PR, plan the activities needed for its scope. These are not a
+required number of commits; combine or omit optional activities as appropriate:
+1. **Tracking and documentation** — link governing tracking and update the roadmap as required by the repository
 2. **RED check** — failing tests for target behavior; commit separately when required
 3. **Verified implementation commit** — minimum code and relevant tests to pass
 4. **Optional layer-2/3/4 test commit** — broader coverage if Layer 1 isn't enough
 5. **Optional refactor commit** — cleanup, no behavior change
-6. **Evidence commit** (any size) — evidence bundle path, gist URL in PR body
+6. **Evidence record** — link the evidence at the authorized destination using the canonical evidence-standards owner; a separate commit or external publication is not inherently required
+
+Use existing task authorization for the selected evidence destination. An external
+publication needs applicable authorization, but an already authorized destination
+does not create another confirmation checkpoint.
 
 Inspect `git diff --cached --stat` for reviewability and any explicitly agreed size limit.
 
@@ -170,7 +177,7 @@ Add entry to `~/.claude/projects/<project>/memory/` describing the plan and add 
 - **PR proliferation**: opening a new PR for each small fix when an existing PR in scope could absorb it
 - **File contention**: two PRs editing the same file simultaneously → rebase churn, stale CR
 - **Missing RED proof**: a combined test/fix commit still needs evidence that the check failed before the behavior fix
-- **Silent commit-bloat**: commit with 1000+ LOC delta — usually means PR should be split
+- **Unreviewable changes**: split incoherent changes by dependency or risk; a line count alone is not a split requirement
 - **Bead-after-the-fact**: creating a bead AFTER the PR opens — defeats tracking
 - **Roadmap-drift**: writing a plan but never syncing the repo copy
 - **Generic plans**: "fix bugs", "improve performance" — must have concrete file ownership
@@ -192,15 +199,15 @@ Add entry to `~/.claude/projects/<project>/memory/` describing the plan and add 
 | **PR-C: Evidence** | `tests/test_*.py` | none modify | Gate-6 evidence |
 
 ### Per-PR Commit Plan (template)
+Illustrative activities, not a commit or line-count quota. Select the rows and
+boundaries required by the accepted plan; one coherent commit may be sufficient.
+
 **PR-A: <name>**
-| # | Type | Files | LOC | Bead | Description |
+| # | Type | Files | Size estimate, if useful | Bead | Description |
 |---|---|---|---|---|---|
-| 1 | bead-doc | `roadmap/...md` | 30 | rev-xxxxx | Add governing bead |
-| 2 | test (red) | `tests/test_a.py` | 200 | rev-xxxxx | Failing tests for X |
-| 3 | code (green) | `src/a.py` | 250 | rev-xxxxx | Minimum impl to pass |
-| 4 | test (Layer 3) | `testing_mcp/test_a_real.py` | 150 | rev-xxxxx | Real-mode coverage |
-| 5 | refactor | `src/a.py` | 100 | rev-xxxxx | Cleanup, no behavior change |
-| 6 | evidence | PR body | n/a | rev-xxxxx | Gist URL + bundle path |
+| 1 | tracking/docs, if needed | `roadmap/...md` | <estimate or n/a> | <tracking> | Link governing work |
+| 2 | test and implementation | <test and source paths> | <estimate or n/a> | <tracking> | Capture required RED before the fix and verify GREEN |
+| 3 | broader evidence, if needed | <scoped driver or artifact> | <estimate or n/a> | <tracking> | Record results at the authorized destination |
 
 ### Concurrency Rule (template — paste verbatim)
 ```bash
@@ -209,10 +216,10 @@ gh pr list --state open --json number,files --jq \
 ```
 If a PR is returned, inspect actual overlap, coordinate affected work, and continue independent authorized tasks.
 
-### Net LOC Targets (template)
-- PR-A: net ≤ 0 (deletion) | net ≤ +<N> (feature)
-- PR-B: net ≤ +<N>
-- PR-C: tests only — production code untouched
+### Size Constraints (template)
+- Explicit user or accepted-plan constraint: <limit and source, or none>
+- Expected diff size, if useful: <estimate, not a quota>
+- Review boundary: <dependency or risk that justifies splitting, if any>
 
 ### Cross-References (template)
 - Active/governing: `<paths>`
@@ -229,4 +236,4 @@ If a PR is returned, inspect actual overlap, coordinate affected work, and conti
 - `.claude/skills/repro-twin-clone-evidence/SKILL.md` — evidence capture
 - `.claude/commands/4layer.md` — minimal-repro ladder
 - `.claude/commands/tdd.md` — red/green/refactor with matrix testing
-- `~/roadmap/nextsteps-2026-04-28-zfc-stage-pr-hybrid-plan.md` — canonical example
+- `~/roadmap/nextsteps-2026-04-28-zfc-stage-pr-hybrid-plan.md` — historical example

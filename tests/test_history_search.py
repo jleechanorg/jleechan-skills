@@ -235,6 +235,66 @@ class TestHistorySearch(unittest.TestCase):
             ["newer rollout history", "indexed history"],
         )
 
+    def test_sqlite_searches_preserve_literal_path_characters(self) -> None:
+        for directory in (
+            "ordinary", "hash#profile", "query?profile",
+            "percent%23profile", "space ü profile",
+        ):
+            profile = self.temp_dir / directory
+            profile.mkdir()
+            database = profile / "state_5.sqlite"
+            with sqlite3.connect(database) as connection:
+                connection.executescript("""
+                    CREATE TABLE threads (
+                        id TEXT, title TEXT, first_user_message TEXT, cwd TEXT,
+                        git_branch TEXT, created_at INTEGER, archived INTEGER
+                    );
+                    INSERT INTO threads VALUES (
+                        't1', 'literalpath', 'literalpath', '/fixture/project',
+                        'main', 1788283033, 0
+                    );
+                    CREATE TABLE sessions (id TEXT, title TEXT, source TEXT);
+                    INSERT INTO sessions VALUES ('s1', 'literalpath', 'fixture');
+                    CREATE TABLE messages (
+                        id INTEGER, session_id TEXT, timestamp INTEGER,
+                        role TEXT, content TEXT, tool_name TEXT, tool_calls TEXT
+                    );
+                    INSERT INTO messages VALUES (
+                        1, 's1', 1788283033, 'user', 'literalpath', NULL, NULL
+                    );
+                    CREATE TABLE conversation_summaries (
+                        conversation_id TEXT, title TEXT, preview TEXT,
+                        step_count INTEGER, last_modified_time TEXT,
+                        workspace_uris TEXT, agent_name TEXT, killed INTEGER
+                    );
+                    INSERT INTO conversation_summaries VALUES (
+                        'c1', 'literalpath', 'literalpath', 1,
+                        '2026-09-01T12:00:00Z', '/fixture/project', 'agy', 0
+                    );
+                """)
+            before_bytes = database.read_bytes()
+            before_paths = set(self.temp_dir.rglob("*"))
+            searches = (
+                (search_codex, {"codex_homes": [profile]}),
+                (search_codex, {
+                    "db_path": database, "sessions_dir": profile / "sessions",
+                }),
+                (search_hermes, {"db_path": database}),
+                (search_agy, {
+                    "db_path": database, "brain_dir": profile / "brain",
+                    "history_file": profile / "history.jsonl",
+                }),
+            )
+            for search, options in searches:
+                with self.subTest(
+                    directory=directory, search=search.__name__, options=options
+                ):
+                    results = search(query="literalpath", **options)
+                    self.assertEqual(len(results), 1)
+                    self.assertEqual(results[0].snippet, "literalpath")
+                    self.assertEqual(database.read_bytes(), before_bytes)
+                    self.assertEqual(set(self.temp_dir.rglob("*")), before_paths)
+
     def test_search_hermes_fts5_and_like_fallback(self) -> None:
         db_path = self.temp_dir / "hermes_state.db"
         con = sqlite3.connect(str(db_path))

@@ -216,9 +216,11 @@ verdict at the new SHA without rerunning the later phases; only a material
 production-behavior diff requires a full rerun. Never rerun once per finding —
 if fixes are still landing, wait until they are batched into one new SHA
 (`evidence-standards` § "Evidence Sequencing") before spending a full pass.
-Continue necessary review and fixes within the applicable task scope and autonomy
-deadline. Review count alone does not require escalation; ask only for a missing
-authority or unresolved decision that blocks the affected action.
+Continue necessary review and already-authorized fixes within the applicable task
+scope and autonomy deadline. A review-only invocation reports findings without
+editing the reviewed source or evidence; fixes use write authority already held
+by the parent task. Review count alone does not require escalation; ask only for
+missing authority or an unresolved decision that blocks the affected action.
 
 ### Phase 1 — Inventory
 
