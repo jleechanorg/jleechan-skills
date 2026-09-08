@@ -351,6 +351,12 @@ class DocumentedShellExamplesTest(unittest.TestCase):
             ("--bidi --max-attempts 7 " + task, None, "7", "true||false", task),
             ("--hermes " + task + " --max-attempts=12", None, "12",
              "false||true", task),
+            ("--bidiography " + task, None, "", "false||false",
+             "--bidiography " + task),
+            ("--hermesize " + task, None, "", "false||false",
+             "--hermesize " + task),
+            ("--continuefoo " + task, None, "", "false||false",
+             "--continuefoo " + task),
         )
         for arguments, inherited, expected, controls, requested in cases:
             with self.subTest(arguments=arguments, inherited=inherited):

@@ -78,18 +78,18 @@ export CLAW_MAX_ATTEMPTS
 BIDI_MODE=false
 CONTINUE_SESSION=""
 
-if printf '%s' "$TASK_DESCRIPTION" | grep -q '^--bidi'; then
+if printf '%s' "$TASK_DESCRIPTION" | grep -Eq '^--bidi([[:space:]]|$)'; then
   BIDI_MODE=true
   TASK_DESCRIPTION=$(printf '%s' "$TASK_DESCRIPTION" | sed 's/^--bidi[[:space:]]*//')
 fi
 
-if printf '%s' "$TASK_DESCRIPTION" | grep -q '^--continue'; then
+if printf '%s' "$TASK_DESCRIPTION" | grep -Eq '^--continue([[:space:]]|$)'; then
   CONTINUE_SESSION=$(printf '%s' "$TASK_DESCRIPTION" | sed 's/^--continue[[:space:]]*//' | awk '{print $1}')
 fi
 
 # --hermes: force the task to run inline in the gateway (skip the AO directive).
 FORCE_HERMES=false
-if printf '%s' "$TASK_DESCRIPTION" | grep -q '^--hermes'; then
+if printf '%s' "$TASK_DESCRIPTION" | grep -Eq '^--hermes([[:space:]]|$)'; then
   FORCE_HERMES=true
   TASK_DESCRIPTION=$(printf '%s' "$TASK_DESCRIPTION" | sed 's/^--hermes[[:space:]]*//')
 fi
