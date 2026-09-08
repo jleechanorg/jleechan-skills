@@ -203,6 +203,7 @@ Illustrative activities, not a commit or line-count quota. Select the rows and
 boundaries required by the accepted plan; one coherent commit may be sufficient.
 
 **PR-A: <name>**
+
 | # | Type | Files | Size estimate, if useful | Bead | Description |
 |---|---|---|---|---|---|
 | 1 | tracking/docs, if needed | `roadmap/...md` | <estimate or n/a> | <tracking> | Link governing work |

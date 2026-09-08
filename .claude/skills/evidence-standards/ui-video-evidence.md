@@ -71,13 +71,17 @@ Use `~/.claude/skills/video-caption/SKILL.md` for reliable burned-in captions.
 
 Follow `~/.claude/skills/evidence-standards/SKILL.md` for publication authority, audience, and destination. A PR, checked-in document, access-controlled receipt/store, or authorized gist may link the evidence. A gist or GitHub upload is not an independent acceptance requirement. Preserve real media, captions, exact source provenance, and reviewer access; publish only within the current authorization.
 
-The following GitHub release example applies only when that destination is authorized. This example uses a sidecar: set `caption_file` to the actual generated `.vtt` or `.srt` path. For captions already burned into the video, omit the sidecar argument.
+The following GitHub release example applies only when that destination is authorized. Set `caption_file` to the actual generated `.vtt` or `.srt` path when using a sidecar; leave it empty only when captions are already burned into the video. The asset list includes the sidecar only when set.
 
 ```bash
-caption_file="/abs/path/to/ui_flow.vtt"
+caption_file=""  # Set to the actual .vtt or .srt path unless captions are burned in.
+assets=("/tmp/ui_flow.mp4.zip" "/abs/path/to/ui_flow.gif")
+if [ -n "$caption_file" ]; then
+  assets+=("$caption_file")
+fi
 zip -j /tmp/ui_flow.mp4.zip /abs/path/to/ui_flow.mp4
 gh release create evidence-pr-<PR_NUMBER> --draft --title "PR #<PR_NUMBER> Evidence" --notes "" 2>/dev/null || true
-gh release upload evidence-pr-<PR_NUMBER> /tmp/ui_flow.mp4.zip /abs/path/to/ui_flow.gif "$caption_file" --clobber
+gh release upload evidence-pr-<PR_NUMBER> "${assets[@]}" --clobber
 gh release view evidence-pr-<PR_NUMBER> --json assets,url
 gh pr edit <PR_NUMBER_OR_URL> --body-file /tmp/pr_body.md
 ```

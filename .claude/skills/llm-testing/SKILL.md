@@ -77,8 +77,8 @@ Print the full absolute evidence path and record the actual command and target.
 
 ## Evidence (ties to /es)
 
-- Evidence bundle: `/tmp/your-project.com/<branch>/<test_name>/latest/` — print the **full
-  absolute path**.
+- Evidence bundle: Use the location required by the repository's testing owner.
+  Print the **full absolute path**.
 - Include streaming artifacts when the claim involves streaming or the repository's
   testing owner requires them. Use that owner's capture format; WorldArchitect's
   production streaming requirement remains in force, including its request and
