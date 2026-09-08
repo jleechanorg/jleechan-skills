@@ -377,23 +377,10 @@ if [ -n "$current_branch" ] && [ "$current_branch" != "main" ]; then
     if [ ! -e "$server_manager" ]; then
         echo "ℹ️  Test server manager absent; test server stop SKIPPED"
     elif [ ! -x "$server_manager" ]; then
-        echo -e "${RED}❌ ERROR: Test server manager exists but is not executable: $server_manager${NC}" >&2
         die 1 "Test server manager is not executable: $server_manager"
     else
         echo "🛑 Stopping test server for branch '$current_branch'..."
-        stop_err_file="$(mktemp -t integrate_server_stop_err.XXXXXX)"
-        if ! "$server_manager" stop "$current_branch" 2>"$stop_err_file"; then
-            echo -e "${RED}❌ ERROR: Test server manager stop failed for branch '$current_branch':${NC}" >&2
-            if [ -s "$stop_err_file" ]; then
-                cat "$stop_err_file" >&2
-            fi
-            rm -f "$stop_err_file"
-            die 1 "Test server manager stop failed for branch '$current_branch'"
-        fi
-        if [ -s "$stop_err_file" ]; then
-            cat "$stop_err_file" >&2
-        fi
-        rm -f "$stop_err_file"
+        (cd "$repo_root" && "$server_manager" stop "$current_branch") || die 1 "Test server manager stop failed for branch '$current_branch'"
         echo -e "${GREEN}✅ Test server manager returned success for branch '$current_branch'${NC}"
     fi
 fi
