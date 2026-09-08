@@ -371,9 +371,31 @@ fi
 
 # Stop test server for current branch if running
 current_branch=$(git branch --show-current)
-if [ "$current_branch" != "main" ]; then
-    echo "🛑 Stopping test server for branch '$current_branch'..."
-    ./test_server_manager.sh stop "$current_branch" 2>/dev/null || true
+if [ -n "$current_branch" ] && [ "$current_branch" != "main" ]; then
+    repo_root="$(git rev-parse --show-toplevel 2>/dev/null)" || die 1 "Not inside a git repository"
+    server_manager="$repo_root/test_server_manager.sh"
+    if [ ! -e "$server_manager" ]; then
+        echo "ℹ️  Test server manager absent; test server stop SKIPPED"
+    elif [ ! -x "$server_manager" ]; then
+        echo -e "${RED}❌ ERROR: Test server manager exists but is not executable: $server_manager${NC}" >&2
+        die 1 "Test server manager is not executable: $server_manager"
+    else
+        echo "🛑 Stopping test server for branch '$current_branch'..."
+        stop_err_file="$(mktemp -t integrate_server_stop_err.XXXXXX)"
+        if ! "$server_manager" stop "$current_branch" 2>"$stop_err_file"; then
+            echo -e "${RED}❌ ERROR: Test server manager stop failed for branch '$current_branch':${NC}" >&2
+            if [ -s "$stop_err_file" ]; then
+                cat "$stop_err_file" >&2
+            fi
+            rm -f "$stop_err_file"
+            die 1 "Test server manager stop failed for branch '$current_branch'"
+        fi
+        if [ -s "$stop_err_file" ]; then
+            cat "$stop_err_file" >&2
+        fi
+        rm -f "$stop_err_file"
+        echo -e "${GREEN}✅ Test server manager returned success for branch '$current_branch'${NC}"
+    fi
 fi
 
 # Check for unmerged changes on current branch
