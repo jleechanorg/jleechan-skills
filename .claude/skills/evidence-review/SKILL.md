@@ -149,16 +149,21 @@ Private repo assets = **PARTIAL / FAIL** for inline rendering.
 
 ### 6. Self-contained / clean-computer reproducibility
 
-A PASS verdict requires the PR to meet the "clean computer" standard from `evidence-standards`:
+Apply the reproducibility requirements for the applicable evidence class in
+`evidence-standards`. A PASS verdict requires self-contained directions that
+identify:
 
-- [ ] PR description links a **gist** with reproduction instructions
-- [ ] Gist contains `git clone <url>` + `git checkout <branch>`
-- [ ] Gist lists dependencies (Python version, pip requirements, service account needs)
-- [ ] Gist has exact test invocation commands (copy-pasteable into a terminal)
-- [ ] Gist documents expected output (pass counts, scenario names)
-- [ ] Gist embeds or links the GIF + downloadable MP4
+- [ ] The exact reviewed SHA, source location, and commands to retrieve it. If evidence was re-affirmed, retain its original tested SHA and the reviewed SHA with the canonical materiality justification.
+- [ ] Required dependencies and prerequisites, including runtime versions and any service/account requirements; never include credentials.
+- [ ] Exact validation commands and expected results, such as pass counts or scenario outcomes.
+- [ ] Any media required by section 4, with its tested SHA and accessible location.
 
-**Failure mode**: if the only instructions are "see the repo" or "run the tests" without exact commands → PARTIAL.
+Directions may live in the PR, a checked-in document, an access-controlled evidence
+receipt, or an authorized gist. Link the actual directions and ensure the intended
+reviewer can access them; this check does not authorize external publication.
+
+**Failure mode**: if the only instructions are "see the repo" or "run the tests"
+without exact commands and expected results → PARTIAL.
 
 ### 7. Anti-Fabrication & Telemetry Verification (Bead rev-wghca)
 
