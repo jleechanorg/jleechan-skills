@@ -55,7 +55,7 @@ itself remains the separate two-gate check defined by `pr-green-definition`.
 ### 1. Bundle integrity
 
 ```bash
-cd <bundle_dir>
+cd '<bundle_dir>'
 
 if [[ -f checksums.sha256 ]]; then
   sha256sum -c checksums.sha256
