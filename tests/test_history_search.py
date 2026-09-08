@@ -17,6 +17,7 @@ from scripts.history_search import (
     ansify,
     color,
     format_results,
+    main,
     search_agy,
     search_claude,
     search_codex,
@@ -32,6 +33,28 @@ class TestHistorySearch(unittest.TestCase):
 
     def tearDown(self) -> None:
         shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def test_cli_rejects_nonpositive_budgets_before_search(self) -> None:
+        for option in ("--limit", "--max-chars"):
+            for value in ("0", "-1"):
+                with self.subTest(option=option, value=value):
+                    with patch(
+                        "scripts.history_search.search_history", return_value={}
+                    ) as search:
+                        with patch("sys.stderr"), patch("builtins.print"):
+                            with self.assertRaises(SystemExit) as error:
+                                main([option, value])
+                        self.assertEqual(error.exception.code, 2)
+                        search.assert_not_called()
+
+    def test_cli_accepts_explicit_audit_budgets_above_sparse_defaults(self) -> None:
+        with patch(
+            "scripts.history_search.search_history", return_value={}
+        ) as search:
+            with patch("builtins.print"):
+                self.assertEqual(main(["--limit", "50", "--max-chars", "500"]), 0)
+        self.assertEqual(search.call_args.kwargs["limit"], 50)
+        self.assertEqual(search.call_args.kwargs["max_chars"], 500)
 
     def test_search_claude_indexing_and_malformed_json_tolerance(self) -> None:
         proj_dir = self.temp_dir / "claude_projects" / "-Users-test-myproject"

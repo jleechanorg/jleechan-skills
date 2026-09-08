@@ -353,13 +353,34 @@ install_commands() {
     install_component "$SRC_COMMANDS_DIR" "$INSTALL_ROOT/commands" "commands"
 }
 
+preflight_history_helper() {
+    local source="$PLUGIN_SRC_DIR/scripts/history_search.py"
+    local scripts_dir="$INSTALL_ROOT/scripts"
+    local destination="$scripts_dir/history_search.py"
+    [ -f "$source" ] || return 0
+
+    if [ -L "$scripts_dir" ] ||
+       { path_exists "$scripts_dir" && [ ! -d "$scripts_dir" ]; }; then
+        log_error "Refusing history helper installation through a non-directory or linked scripts path: $scripts_dir"
+        return 1
+    fi
+    if path_exists "$destination" &&
+       { [ -L "$destination" ] || [ ! -f "$destination" ] || ! cmp -s "$source" "$destination"; }; then
+        log_error "Refusing to replace an existing history helper: $destination"
+        log_error "Inspect and preserve that file; --backup deliberately backs up and replaces the entire target."
+        return 1
+    fi
+}
+
 # Copy scripts to ~/.claude/scripts/
 install_scripts() {
     install_component "$SRC_SCRIPTS_DIR" "$INSTALL_ROOT/scripts" "scripts"
     if [ -f "$PLUGIN_SRC_DIR/scripts/history_search.py" ]; then
+        preflight_history_helper
         mkdir -p "$INSTALL_ROOT/scripts"
-        rm -f "$INSTALL_ROOT/scripts/history_search.py"
-        cp -a "$PLUGIN_SRC_DIR/scripts/history_search.py" "$INSTALL_ROOT/scripts/history_search.py"
+        if ! path_exists "$INSTALL_ROOT/scripts/history_search.py"; then
+            cp -a -n "$PLUGIN_SRC_DIR/scripts/history_search.py" "$INSTALL_ROOT/scripts/history_search.py"
+        fi
     fi
 }
 
@@ -412,6 +433,7 @@ main() {
     echo
 
     prepare_target
+    preflight_history_helper
     prepare_archive_migration_on_merge
     install_agents
     install_commands

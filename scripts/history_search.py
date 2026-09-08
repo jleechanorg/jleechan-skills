@@ -1054,6 +1054,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--no-color", action="store_true", help="Disable ANSI color codes")
 
     args = parser.parse_args(argv)
+    if args.limit < 1 or args.max_chars < 1:
+        parser.error("--limit and --max-chars must be positive integers")
 
     search_query = args.explicit_query or args.query or ""
     use_color = should_use_color(force_color=False if args.no_color else None)

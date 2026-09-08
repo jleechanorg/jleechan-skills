@@ -41,17 +41,18 @@ python3 "${CLAUDE_HOME:-$HOME/.claude}/scripts/history_search.py" "query string"
 python3 "${CLAUDE_HOME:-$HOME/.claude}/scripts/history_search.py" "query" --source agy --json
 ```
 
-## Hard Limits
+## Sparse defaults and explicit audit budgets
 
-- Never `cat` full history files.
-- Prefer metadata and first/last small samples.
-- Default sample budget:
-  - At most 3 candidate files per source.
-  - At most 3 user prompts per file.
-  - At most 200 chars per prompt.
-- For Hermes & agy (SQLite DBs): apply the same per-snippet 200-char cap; cap the
-  total hits at ≤ 5 by default, ≤ 20 hard maximum. FTS5 MATCH on common words
-  can return tens of thousands of rows — never `SELECT *` without a LIMIT.
+- Never `cat` full history files. Prefer metadata and bounded excerpts.
+- The helper defaults to five results per source and 200 characters per snippet.
+  `--limit` and `--max-chars` accept positive integers. For an authorized larger
+  audit, choose explicit finite budgets, retain full result artifacts locally,
+  and summarize aggregate counts with bounded representative excerpts.
+- When sampling files directly, start with three candidate files per source and
+  three user prompts per file; expand only as the task and evidence require.
+- For Hermes and agy SQLite searches, always use an explicit result `LIMIT` and
+  bounded snippets. Broad FTS queries can match thousands of rows; aggregate
+  counts separately from the selected excerpt sample.
 - Exclude assistant thinking/tool payload blobs unless explicitly required.
 - Search Hermes last — its FTS5 is the slowest of the sources.
 
@@ -228,7 +229,7 @@ if not os.path.exists(db):
 con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
 cur = con.cursor()
 
-# Per-snippet 200-char cap; LIMIT 5 by default (20 hard cap, enforced by /history --limit).
+# Sparse example: 200 characters per snippet and five hits; use explicit positive audit budgets when expanding.
 LIMIT = 5
 
 try:
@@ -271,8 +272,8 @@ con.close()
 ### 6) Sample agy CLI conversations (sparse SQLite)
 
 agy CLI (Antigravity CLI wrapper at `~/.local/bin/agy`) stores conversation
-metadata in a SQLite summaries DB. Read-only, capped at ≤5 rows. Per-snippet
-200-char cap. Wrap every result line with `ansify("agy", ..., query)` so the
+metadata in a SQLite summaries DB. This read-only example samples five rows with
+200-character snippets; use the explicit audit budgets when expanding. Wrap every result line with `ansify("agy", ..., query)` so the
 label is yellow and matched substrings are yellow-highlighted.
 
 ```python
@@ -327,7 +328,8 @@ When the DB is missing entirely (agy CLI not installed), print a single
 ### 7) Sample Cursor conversations (sparse JSON + chats)
 
 Cursor stores a flat prompt history file plus per-conversation chat blobs and agent transcripts.
-Read-only. Per-snippet 200-char cap. ≤3 prompt hits total. Wrap every line with
+This read-only example samples three prompt hits with 200-character snippets.
+Use the explicit audit budgets when expanding. Wrap every line with
 `ansify("cursor", ..., query)` so the label is green and matched substrings
 are yellow.
 
@@ -400,7 +402,7 @@ Return:
 - Current branch/PR intent from git.
 - Recent request themes from Claude history.
 - Recent request themes from Codex history.
-- Recent Hermes hits (per-snippet 200 chars only).
+- Recent Hermes hits with bounded snippets (200 characters by default).
 - Recent agy conversations (preview/title only).
 - Recent Cursor prompts (one-liner each).
 - One concise statement: "This worktree appears focused on X because Y+Z evidence."
