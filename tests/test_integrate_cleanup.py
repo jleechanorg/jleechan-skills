@@ -29,18 +29,17 @@ class IntegrateCleanupTests(unittest.TestCase):
         env["PATH"] = f"{fake_bin}:{path_val}"
         env["CI"] = "1"
         env["NONINTERACTIVE"] = "1"
-        env["HERMES_SKIP_EXAMPLE_COM_GUARD"] = "1"
         env["GIT_CONFIG_NOSYSTEM"] = "1"
         env["GIT_CONFIG_GLOBAL"] = "/dev/null"
-        env["GIT_AUTHOR_NAME"] = "Jeffrey Lee-Chan"
-        env["GIT_AUTHOR_EMAIL"] = "jleechan2015@users.noreply.github.com"
-        env["GIT_COMMITTER_NAME"] = "Jeffrey Lee-Chan"
-        env["GIT_COMMITTER_EMAIL"] = "jleechan2015@users.noreply.github.com"
+        env["GIT_AUTHOR_NAME"] = "Test User"
+        env["GIT_AUTHOR_EMAIL"] = "test@fixture.invalid"
+        env["GIT_COMMITTER_NAME"] = "Test User"
+        env["GIT_COMMITTER_EMAIL"] = "test@fixture.invalid"
 
         subprocess.run(["git", "init", "--bare", str(origin)], check=True, capture_output=True, env=env, timeout=30)
         subprocess.run(["git", "init", str(work)], check=True, capture_output=True, env=env, timeout=30)
-        subprocess.run(["git", "-C", str(work), "config", "user.name", "Jeffrey Lee-Chan"], check=True, env=env, timeout=30)
-        subprocess.run(["git", "-C", str(work), "config", "user.email", "jleechan2015@users.noreply.github.com"], check=True, env=env, timeout=30)
+        subprocess.run(["git", "-C", str(work), "config", "user.name", "Test User"], check=True, env=env, timeout=30)
+        subprocess.run(["git", "-C", str(work), "config", "user.email", "test@fixture.invalid"], check=True, env=env, timeout=30)
         subprocess.run(["git", "-C", str(work), "checkout", "-b", "main"], check=True, capture_output=True, env=env, timeout=30)
         (work / "README.md").write_text("initial repo content\n", encoding="utf-8")
         subprocess.run(["git", "-C", str(work), "add", "README.md"], check=True, env=env, timeout=30)
