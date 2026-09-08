@@ -108,21 +108,27 @@ grep -A10 "Scope note" README.md
 - If the scope note explicitly excludes a domain the PR claim covers (e.g. "browser layer out of scope") → narrow verdict to in-scope claims only
 - If the scope note has been updated to include a domain, verify the matching artifact exists
 
-### 4. Video artifacts — BOTH types required for non-trivial PRs
+### 4. Video artifacts required by the claim
 
-**Tmux / Terminal video** (required for any code change, test run, deploy):
-- [ ] **GIF** embedded inline in PR description (renders on GitHub without clicking)
-- [ ] **MP4** linked and directly downloadable from PR description
-- [ ] **Caption** naming: test name, pass/fail result, key assertion
+Apply the user-scope evidence-standards and repository UI owner before selecting
+video requirements. User-visible behavior needs captioned video tied to the tested
+SHA. Terminal recording is required when the relevant owner or user asks for it,
+or when the claim depends on demonstrating terminal behavior; a test invocation
+alone does not create a GIF-plus-MP4 requirement.
 
-**Browser UI video** (required when PR adds or modifies any `testing_ui/test_*.py` file):
-- [ ] **GIF** embedded inline in PR description
-- [ ] **MP4** linked and directly downloadable
-- [ ] **Caption** naming: URL, user actions, before/after behavior
+For each applicable video requirement, verify:
+- The required format is present and accessible; check any inline GIF or downloadable MP4 the PR claims to provide.
+- The caption identifies the test/action, observed result, and tested SHA.
+- UI footage visibly shows the relevant element and before/action/after behavior.
+- Terminal footage, when required, shows the command and relevant result.
 
-If ANY of the above is missing → verdict is **PARTIAL** (not PASS), regardless of other evidence quality.
+A missing applicable artifact yields **PARTIAL**. Record inapplicable formats as
+N/A with a reason; do not impose terminal and browser video on every PR.
 
 ### 5. Public-URL hosting check
+
+Apply this check when public or inline video rendering is claimed or required.
+It does not independently require publishing an otherwise private evidence bundle.
 
 GIFs and MP4s must be on a **public** repository — private repo release assets return 404 for anonymous viewers and do NOT render as inline images in PR descriptions.
 
