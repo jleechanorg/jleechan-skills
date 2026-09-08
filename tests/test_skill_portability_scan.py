@@ -317,22 +317,124 @@ class DocumentedShellExamplesTest(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.tmp_path = Path(temporary.name)
 
+    def test_claw_resolved_skill_options_are_not_invocation_options(self):
+        content = (REPO_ROOT / ".claude/skills/claw-dispatch/SKILL.md").read_text()
+        execution = content.split("```bash\n", 1)[1].split("\n```", 1)[0]
+        # Omit only gateway setup; execute task initialization and expansion.
+        script = execution.split('LOGDIR="', 1)[0]
+        script += 'TASK_WITH_RESOLVED="$TASK_DESCRIPTION"' + execution.split(
+            'TASK_WITH_RESOLVED="$TASK_DESCRIPTION"', 1
+        )[1].split("# General AO-dispatch directive", 1)[0]
+        definition = (
+            REPO_ROOT / ".claude/skills/orchconverge/SKILL.md"
+        ).read_text()
+        repo = self.tmp_path / "dispatch repo"
+        owner = repo / ".claude/skills/orchconverge/SKILL.md"
+        owner.parent.mkdir(parents=True)
+        owner.write_text(definition)
+        home = self.tmp_path / "dispatch home"
+        home.mkdir()
+        task = "/orchconverge repair the selected task"
+        cases = (
+            (task, None, "", "false||false", task),
+            ("--max-attempts 7 " + task, None, "7", "false||false", task),
+            (task + " --max-attempts=12", None, "12", "false||false", task),
+            (task, "4", "4", "false||false", task),
+            ("--max-attempts 7 " + task, "4", "7", "false||false", task),
+            ("--max-attempts 3junk " + task, None, None, "", task),
+            ("--bidi " + task, None, "", "true||false", task),
+            ("--hermes " + task, None, "", "false||true", task),
+            (
+                "--continue previous " + task, None, "", "false|previous|false",
+                "--continue previous " + task,
+            ),
+            ("--bidi --max-attempts 7 " + task, None, "7", "true||false", task),
+            ("--hermes " + task + " --max-attempts=12", None, "12",
+             "false||true", task),
+        )
+        for arguments, inherited, expected, controls, requested in cases:
+            with self.subTest(arguments=arguments, inherited=inherited):
+                env = {**os.environ, "HOME": str(home), "ARGUMENTS": arguments}
+                env.pop("CLAW_MAX_ATTEMPTS", None)
+                if inherited is not None:
+                    env["CLAW_MAX_ATTEMPTS"] = inherited
+                result = subprocess.run(
+                    ["bash", "-c", script
+                     + '\nprintf "CONTROLS:%s|%s|%s\\n" '
+                     + '"$BIDI_MODE" "$CONTINUE_SESSION" "$FORCE_HERMES"'
+                     + '\nprintf "DISPATCH:%s\\n%s\\n" '
+                     + '"${CLAW_MAX_ATTEMPTS:-}" "$TASK_WITH_RESOLVED"'],
+                    cwd=repo, env=env, text=True, capture_output=True, timeout=10,
+                    check=False,
+                )
+                if expected is None:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertNotIn("DISPATCH:", result.stdout)
+                    continue
+                self.assertEqual(result.returncode, 0, result.stderr)
+                actual_controls = result.stdout.split("CONTROLS:", 1)[1].splitlines()[0]
+                self.assertEqual(actual_controls, controls)
+                payload = result.stdout.split("DISPATCH:" + expected + "\n", 1)[1]
+                self.assertTrue(
+                    payload.startswith("The user asked: " + requested + "\n")
+                )
+                self.assertIn("\n---\n" + definition.rstrip("\n") + "\n---", payload)
+                directive = "This worker invocation has an explicitly configured limit"
+                self.assertEqual(payload.count(directive), 1 if expected else 0)
+
+    def test_dark_factory_prerequisite_propagates_binary_failure(self):
+        content = (REPO_ROOT / ".claude/skills/dark-factory/SKILL.md").read_text()
+        resolver = content.split("resolve_dark_factory_home() {", 1)[1]
+        resolver = "resolve_dark_factory_home() {" + resolver.split("\n```", 1)[0]
+        verification = content.split("1. **Verify binary install**", 1)[1]
+        verification = verification.split("```bash\n", 1)[1].split("\n   ```", 1)[0]
+        for index, help_status in enumerate((0, 42, None)):
+            with self.subTest(help_status=help_status):
+                home = self.tmp_path / f"factory home {index}"
+                binary = home / ".local/bin/dark-factory"
+                binary.parent.mkdir(parents=True)
+                installed = home / "factory/bin/dark-factory"
+                installed.parent.mkdir(parents=True)
+                installed.write_text("#!/bin/sh\nexit 0\n")
+                installed.chmod(0o755)
+                if help_status is not None:
+                    binary.write_text(
+                        '#!/bin/sh\n[ "$1" = "--help" ] || exit 99\n'
+                        + f"exit {help_status}\n"
+                    )
+                    binary.chmod(0o755)
+                result = subprocess.run(
+                    ["/bin/bash", "-c", resolver + "\n" + verification
+                     + '\nprintf "PIPELINE_START\\n"'],
+                    env={
+                        **os.environ, "HOME": str(home), "PATH": "/usr/bin:/bin",
+                        "DARK_FACTORY_HOME": str(home / "factory"),
+                    },
+                    text=True, capture_output=True, timeout=10, check=False,
+                )
+                if help_status == 0:
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertIn("PIPELINE_START", result.stdout)
+                else:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertNotIn("PIPELINE_START", result.stdout)
+
     def test_claw_attempt_option_rejects_malformed_limits_before_dispatch(self):
         content = (REPO_ROOT / ".claude/skills/claw-dispatch/SKILL.md").read_text()
         parser = content.split("# An explicit max-attempts option", 1)[1]
         parser = "# An explicit max-attempts option" + parser.split(
-            "# Bidi mode:", 1
-        )[0]
+            "export CLAW_MAX_ATTEMPTS", 1
+        )[0] + "export CLAW_MAX_ATTEMPTS\n"
 
         def execute(task, inherited_limit=None):
-            env = {**os.environ, "TASK_WITH_RESOLVED": task}
+            env = {**os.environ, "TASK_DESCRIPTION": task}
             env.pop("CLAW_MAX_ATTEMPTS", None)
             if inherited_limit is not None:
                 env["CLAW_MAX_ATTEMPTS"] = inherited_limit
             return subprocess.run(
                 ["bash", "-c", "set -euo pipefail\n" + parser
                  + '\nprintf "DISPATCH:%s\\n%s\\n" '
-                 + '"${CLAW_MAX_ATTEMPTS:-}" "$TASK_WITH_RESOLVED"'],
+                 + '"${CLAW_MAX_ATTEMPTS:-}" "$TASK_DESCRIPTION"'],
                 env=env, text=True, capture_output=True, timeout=10,
             )
 

@@ -44,6 +44,56 @@ When invoked with a task description:
 TASK_DESCRIPTION="$ARGUMENTS"
 set -euo pipefail
 
+# An explicit max-attempts option bounds this worker invocation.
+# Parse only user arguments; resolved skill documentation is task content.
+CLAW_ATTEMPT_PARSE=$(python3 - "$TASK_DESCRIPTION" "${CLAW_MAX_ATTEMPTS:-}" <<'PY'
+import re
+import sys
+
+task, limit = sys.argv[1:]
+options = list(re.finditer(
+    r"(?<!\S)--max-attempts(?=[=\s]|$)(?:=(\S*)|\s+(\S+))?", task
+))
+if len(options) > 1:
+    raise SystemExit("Specify --max-attempts only once")
+if options:
+    option = options[0]
+    limit = option.group(1) if option.group(1) is not None else option.group(2)
+    if not limit or not re.fullmatch(r"[1-9][0-9]*", limit):
+        raise SystemExit("--max-attempts requires an exact positive integer")
+    task = task[:option.start()] + task[option.end():]
+    if not task.strip():
+        raise SystemExit("--max-attempts also requires a task description")
+if limit and not re.fullmatch(r"[1-9][0-9]*", limit):
+    raise SystemExit("CLAW_MAX_ATTEMPTS requires an exact positive integer")
+print(limit)
+print(task.strip())
+PY
+) || exit 2
+CLAW_MAX_ATTEMPTS=${CLAW_ATTEMPT_PARSE%%$'\n'*}
+TASK_DESCRIPTION=${CLAW_ATTEMPT_PARSE#*$'\n'}
+export CLAW_MAX_ATTEMPTS
+
+# Bidi mode: synchronous, streaming output
+BIDI_MODE=false
+CONTINUE_SESSION=""
+
+if printf '%s' "$TASK_DESCRIPTION" | grep -q '^--bidi'; then
+  BIDI_MODE=true
+  TASK_DESCRIPTION=$(printf '%s' "$TASK_DESCRIPTION" | sed 's/^--bidi[[:space:]]*//')
+fi
+
+if printf '%s' "$TASK_DESCRIPTION" | grep -q '^--continue'; then
+  CONTINUE_SESSION=$(printf '%s' "$TASK_DESCRIPTION" | sed 's/^--continue[[:space:]]*//' | awk '{print $1}')
+fi
+
+# --hermes: force the task to run inline in the gateway (skip the AO directive).
+FORCE_HERMES=false
+if printf '%s' "$TASK_DESCRIPTION" | grep -q '^--hermes'; then
+  FORCE_HERMES=true
+  TASK_DESCRIPTION=$(printf '%s' "$TASK_DESCRIPTION" | sed 's/^--hermes[[:space:]]*//')
+fi
+
 LOGDIR="/tmp/hermes"
 mkdir -p "$LOGDIR"
 chmod 700 "$LOGDIR" 2>/dev/null || true
@@ -215,58 +265,10 @@ $RESOLVED_CONTENT
   fi
 fi
 
-# An explicit max-attempts option bounds this worker invocation.
-CLAW_ATTEMPT_PARSE=$(python3 - "$TASK_WITH_RESOLVED" "${CLAW_MAX_ATTEMPTS:-}" <<'PY'
-import re
-import sys
-
-task, limit = sys.argv[1:]
-options = list(re.finditer(
-    r"(?<!\S)--max-attempts(?=[=\s]|$)(?:=(\S*)|\s+(\S+))?", task
-))
-if len(options) > 1:
-    raise SystemExit("Specify --max-attempts only once")
-if options:
-    option = options[0]
-    limit = option.group(1) if option.group(1) is not None else option.group(2)
-    if not limit or not re.fullmatch(r"[1-9][0-9]*", limit):
-        raise SystemExit("--max-attempts requires an exact positive integer")
-    task = task[:option.start()] + task[option.end():]
-    if not task.strip():
-        raise SystemExit("--max-attempts also requires a task description")
-if limit and not re.fullmatch(r"[1-9][0-9]*", limit):
-    raise SystemExit("CLAW_MAX_ATTEMPTS requires an exact positive integer")
-print(limit)
-print(task.strip())
-PY
-) || exit 2
-CLAW_MAX_ATTEMPTS=${CLAW_ATTEMPT_PARSE%%$'\n'*}
-TASK_WITH_RESOLVED=${CLAW_ATTEMPT_PARSE#*$'\n'}
-export CLAW_MAX_ATTEMPTS
 if [ -n "${CLAW_MAX_ATTEMPTS:-}" ]; then
   TASK_WITH_RESOLVED="${TASK_WITH_RESOLVED}
 
 This worker invocation has an explicitly configured limit of ${CLAW_MAX_ATTEMPTS} attempts. At that limit, return its incomplete status and evidence to the parent; the parent continues authorized diagnosis or independent work within the mission deadline. Do not claim completion or merge approval from an exhausted invocation."
-fi
-
-# Bidi mode: synchronous, streaming output
-BIDI_MODE=false
-CONTINUE_SESSION=""
-
-if printf '%s' "$TASK_WITH_RESOLVED" | grep -q '^--bidi'; then
-  BIDI_MODE=true
-  TASK_WITH_RESOLVED=$(printf '%s' "$TASK_WITH_RESOLVED" | sed 's/^--bidi[[:space:]]*//')
-fi
-
-if printf '%s' "$TASK_WITH_RESOLVED" | grep -q '^--continue'; then
-  CONTINUE_SESSION=$(printf '%s' "$TASK_WITH_RESOLVED" | sed 's/^--continue[[:space:]]*//' | awk '{print $1}')
-fi
-
-# --hermes: force the task to run inline in the gateway (skip the AO directive).
-FORCE_HERMES=false
-if printf '%s' "$TASK_WITH_RESOLVED" | grep -q '^--hermes'; then
-  FORCE_HERMES=true
-  TASK_WITH_RESOLVED=$(printf '%s' "$TASK_WITH_RESOLVED" | sed 's/^--hermes[[:space:]]*//')
 fi
 
 # General AO-dispatch directive (the documented "AO workers first" default).
