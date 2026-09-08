@@ -17,7 +17,12 @@ Git worktrees create isolated workspaces sharing the same repository, allowing w
 
 Follow this priority order:
 
-### 1. Check Existing Directories
+### 1. Honor the user and repository preference
+
+Use the location specified by the user or applicable repository instructions
+without asking again. If neither specifies a location, continue below.
+
+### 2. Check Existing Directories
 
 ```bash
 # Check in priority order
@@ -26,14 +31,6 @@ ls -d worktrees 2>/dev/null      # Alternative
 ```
 
 **If found:** Use that directory. If both exist, `.worktrees` wins.
-
-### 2. Check CLAUDE.md
-
-```bash
-grep -i "worktree.*director" CLAUDE.md 2>/dev/null
-```
-
-**If preference specified:** Use it without asking.
 
 ### 3. Choose an isolated default
 
@@ -62,37 +59,23 @@ dirty work; worktree creation does not require an unrelated configuration commit
 
 **Why critical:** Prevents accidentally committing worktree contents to repository.
 
-### For Global Directory (~/.config/superpowers/worktrees)
+### For directories outside the repository
 
 No .gitignore verification needed - outside project entirely.
 
 ## Creation Steps
 
-### 1. Detect Project Name
+### 1. Create Worktree
 
 ```bash
-project=$(basename "$(git rev-parse --show-toplevel)")
+worktree_path="$LOCATION/$BRANCH_NAME"
+
+# Select the base ref from repository policy or the user's explicit instruction.
+git worktree add "$worktree_path" -b "$BRANCH_NAME" "$BASE_REF"
+cd "$worktree_path"
 ```
 
-### 2. Create Worktree
-
-```bash
-# Determine full path
-case "$LOCATION" in
-  .worktrees|worktrees)
-    path="$LOCATION/$BRANCH_NAME"
-    ;;
-  *)
-    path="$LOCATION/$BRANCH_NAME"
-    ;;
-esac
-
-# Create worktree with new branch
-git worktree add "$path" -b "$BRANCH_NAME"
-cd "$path"
-```
-
-### 3. Run Project Setup
+### 2. Run Project Setup
 
 Use the repository's documented bootstrap and existing environment. Preserve
 its package manager, lockfiles, and shared-venv requirements. Inspect the relevant
@@ -100,7 +83,7 @@ manifest only when setup is undocumented, and install/build only prerequisites
 needed for the scoped task; do not run every recognized package manager or create
 a duplicate per-worktree environment.
 
-### 4. Verify Clean Baseline
+### 3. Verify Clean Baseline
 
 Run the smallest repository-approved baseline checks covering the task. Respect
 restrictions on full local suites and use documentation checks for docs-only work.
@@ -111,7 +94,7 @@ ask only for missing authority or an unresolved decision that changes the task.
 
 **If tests pass:** Report ready.
 
-### 5. Report Location
+### 4. Report Location
 
 ```
 Worktree ready at <full-path>
@@ -160,7 +143,7 @@ You: I'm using the using-git-worktrees skill to set up an isolated workspace.
 
 [Check .worktrees/ - exists]
 [Verify ignored - git check-ignore confirms .worktrees/ is ignored]
-[Create worktree: git worktree add .worktrees/auth -b feature/auth]
+[Create worktree from the repository's configured base ref]
 [Run the repository bootstrap if needed]
 [Run scoped baseline checks - 47 passing]
 
@@ -176,7 +159,7 @@ Proceeding with the authorized auth implementation
 - Skip baseline test verification
 - Hide failing baseline checks or claim a clean baseline without evidence
 - Override the user's or repository's worktree location
-- Skip CLAUDE.md check
+- Skip applicable repository worktree instructions
 
 **Always:**
 - Follow the user's and repository's directory preference, then choose a safe default
@@ -191,5 +174,5 @@ Proceeding with the authorized auth implementation
 - Any skill needing isolated workspace
 
 **Pairs with:**
-- **finishing-a-development-branch** - REQUIRED for cleanup after work complete
+- **finishing-a-development-branch** - Verify and deliver the authorized result; preserve the worktree unless cleanup is authorized
 - **executing-plans** or **subagent-driven-development** - Work happens in this worktree
