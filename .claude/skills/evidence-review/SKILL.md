@@ -55,16 +55,18 @@ itself remains the separate two-gate check defined by `pr-green-definition`.
 ### 1. Bundle integrity
 
 ```bash
-cd '<bundle_dir>'
+(
+  cd '<bundle_dir>' || { echo "Failed to enter bundle directory" >&2; exit 1; }
 
-if [[ -f checksums.sha256 ]]; then
-  sha256sum -c checksums.sha256
-elif find . -name "*.sha256" -print -quit | grep -q .; then
-  find . -name "*.sha256" -execdir sha256sum -c '{}' \;
-else
-  echo "No checksum files found"
-  exit 2
-fi
+  if [[ -f checksums.sha256 ]]; then
+    sha256sum -c checksums.sha256
+  elif find . -name "*.sha256" -print -quit | grep -q .; then
+    find . -name "*.sha256" -execdir sha256sum -c '{}' \;
+  else
+    echo "No checksum files found"
+    exit 2
+  fi
+)
 ```
 
 - Top-level `checksums.sha256` means bundle-checksum mode.

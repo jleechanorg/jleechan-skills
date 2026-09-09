@@ -80,10 +80,11 @@ if [ -n "$caption_file" ]; then
   assets+=("$caption_file")
 fi
 zip -j /tmp/ui_flow.mp4.zip /abs/path/to/ui_flow.mp4
-gh release create evidence-pr-<PR_NUMBER> --draft --title "PR #<PR_NUMBER> Evidence" --notes "" 2>/dev/null || true
-gh release upload evidence-pr-<PR_NUMBER> "${assets[@]}" --clobber
-gh release view evidence-pr-<PR_NUMBER> --json assets,url
-gh pr edit <PR_NUMBER_OR_URL> --body-file /tmp/pr_body.md
+tag="evidence-pr-${PR_NUMBER}"
+gh release create "$tag" --draft --title "PR #${PR_NUMBER} Evidence" --notes "" 2>/dev/null || true
+gh release upload "$tag" "${assets[@]}" --clobber
+gh release view "$tag" --json assets,url
+gh pr edit "$PR_NUMBER_OR_URL" --body-file /tmp/pr_body.md
 ```
 
 For this authorized GitHub example, build `/tmp/pr_body.md` from the asset URLs returned by `gh release view --json assets,url`. Do not guess the final download URL for draft releases. Other authorized destinations use their own verified artifact locations.
