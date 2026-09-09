@@ -27,8 +27,13 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 SKILLS = REPO_ROOT / ".claude" / "skills"
 
 # No trailing slash required: `cd /Users/alice` and `(/home/bob)` leak just as
-# much as `/Users/alice/x`.
-PERSONAL_HOME = re.compile(r"/(?:Users|home)/([A-Za-z0-9._-]+)")
+# much as `/Users/alice/x`. Case-insensitive because macOS resolves `/users`
+# to `/Users`, so the lowercase spelling is a working path, not a typo. The
+# Windows alternation catches `C:\Users\alice`.
+PERSONAL_HOME = re.compile(
+    r"(?:/(?:Users|home)/|[A-Za-z]:\\Users\\)([A-Za-z0-9._-]+)",
+    re.IGNORECASE,
+)
 
 # Home-directory segments that are not a real person's account on a real
 # machine, and so are not a leak. Anything outside this set fails the test.
@@ -57,9 +62,14 @@ VENDORED_ALLOWED_FILES = frozenset(
 )
 
 
+ALLOWED_LOWER = frozenset(s.lower() for s in ALLOWED_SEGMENTS)
+
+
 def _scan_line(rel, lineno, line, offenders):
     for match in PERSONAL_HOME.finditer(line):
-        if match.group(1) in ALLOWED_SEGMENTS:
+        # PERSONAL_HOME is IGNORECASE, so the segment check must be too,
+        # or "/Users/USER" would slip past an exact-case allowlist.
+        if match.group(1).lower() in ALLOWED_LOWER:
             continue
         offenders.append(f"{rel}:{lineno}: {match.group(0)}")
 
@@ -74,6 +84,8 @@ class SkillExportNoPersonalPathsTest(unittest.TestCase):
     """
 
     def test_no_personal_home_paths_in_exported_skills(self):
+        self.assertTrue(SKILLS.is_dir(), f"skills tree missing: {SKILLS}")
+        scanned = 0
         offenders = []
         for path in sorted(SKILLS.rglob("*")):
             rel_to_skills = path.relative_to(SKILLS).as_posix()
@@ -88,6 +100,7 @@ class SkillExportNoPersonalPathsTest(unittest.TestCase):
             if path.is_dir():
                 continue
 
+            scanned += 1
             raw = path.read_bytes()
             if b"\x00" in raw:
                 continue  # genuinely binary: no reviewable text
@@ -97,6 +110,9 @@ class SkillExportNoPersonalPathsTest(unittest.TestCase):
             for lineno, line in enumerate(text.splitlines(), start=1):
                 _scan_line(rel, lineno, line, offenders)
 
+        self.assertGreater(
+            scanned, 100, "scanned too few files -- the guard is not looking where it claims"
+        )
         self.assertEqual(
             offenders,
             [],
