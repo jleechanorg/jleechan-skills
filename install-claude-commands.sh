@@ -330,12 +330,14 @@ install_component() {
 
     if [ -d "$src_dir" ]; then
         mkdir -p "$dest_dir"
+        local preserved_count=0
         while IFS= read -r -d '' relative; do
             relative="${relative#./}"
             local cur_dir="$dest_dir"
             local part
             local parent_rel; parent_rel="$(dirname "$relative")"
             local skip_file=false
+            local linked_owner=""
             if [ "$parent_rel" != "." ]; then
                 local old_ifs="$IFS"
                 IFS='/' read -ra PARTS <<< "$parent_rel"
@@ -344,11 +346,14 @@ install_component() {
                     cur_dir="$cur_dir/$part"
                     if [ -L "$cur_dir" ]; then
                         skip_file=true
+                        linked_owner="$cur_dir"
                         break
                     fi
                 done
             fi
             if [ "$skip_file" = true ]; then
+                log_info "Preserving externally owned $component_name link ($linked_owner); skipping $dest_dir/$relative"
+                preserved_count=$((preserved_count + 1))
                 continue
             fi
             mkdir -p "$(dirname "$dest_dir/$relative")"
@@ -358,7 +363,11 @@ install_component() {
             cd "$src_dir"
             list_installable_files "$component_name"
         )
-        log_success "Installed recursive $component_name tree"
+        if [ "$preserved_count" -gt 0 ]; then
+            log_success "Installed recursive $component_name tree (preserved $preserved_count externally owned path(s))"
+        else
+            log_success "Installed recursive $component_name tree"
+        fi
     else
         log_warning "No $component_name source directory found at $src_dir"
     fi
@@ -485,6 +494,7 @@ validate_installation() {
             local part
             local parent_rel; parent_rel="$(dirname "$relative")"
             local is_linked=false
+            local linked_owner=""
             if [ "$parent_rel" != "." ]; then
                 local old_ifs="$IFS"
                 IFS='/' read -ra PARTS <<< "$parent_rel"
@@ -493,11 +503,13 @@ validate_installation() {
                     cur_dir="$cur_dir/$part"
                     if [ -L "$cur_dir" ]; then
                         is_linked=true
+                        linked_owner="$cur_dir"
                         break
                     fi
                 done
             fi
             if [ "$is_linked" = true ]; then
+                log_info "Preserving externally owned $component link ($linked_owner) during validation; skipping $INSTALL_ROOT/$component/$relative"
                 continue
             fi
             destination_file="$INSTALL_ROOT/$component/$relative"

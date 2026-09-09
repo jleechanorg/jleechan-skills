@@ -147,13 +147,13 @@ GIFs and MP4s must be on a **public** repository — private repo release assets
 
 ```bash
 # For each <owner>/<repo> hosting a video asset:
-gh api repos/<owner>/<repo> --jq '.private'
+gh api 'repos/<owner>/<repo>' --jq '.private'
 # Must be: false
 ```
 
 ```bash
 # And verify the asset itself is uploaded and accessible:
-gh api repos/<owner>/<repo>/releases/tags/<tag> \
+gh api 'repos/<owner>/<repo>/releases/tags/<tag>' \
   --jq '.assets[] | {name: .name, state: .state}'
 # All states must be "uploaded"
 ```
