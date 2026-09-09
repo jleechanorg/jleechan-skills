@@ -485,6 +485,13 @@ class DocumentedShellExamplesTest(unittest.TestCase):
         self.assertEqual(override.returncode, 0, override.stderr)
         self.assertIn("DISPATCH:7\n", override.stdout)
 
+        for empty_task in ("", "   ", "\t\n"):
+            with self.subTest(empty_task=repr(empty_task)):
+                for inherited in (None, "5"):
+                    res = execute(empty_task, inherited)
+                    self.assertNotEqual(res.returncode, 0)
+                    self.assertNotIn("DISPATCH:", res.stdout)
+
     def test_documented_gh_resolution_prefers_path_then_local_executable(self):
         content = (
             REPO_ROOT / ".claude/skills/github-cli-reference/SKILL.md"
