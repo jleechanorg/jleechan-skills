@@ -705,6 +705,56 @@ class TestHistorySearch(unittest.TestCase):
         self.assertIsNone(rec_later.metadata.get("model"))
         self.assertNotEqual(rec_later.metadata.get("model"), "record-only-model")
 
+    def test_codex_turn_model_does_not_leak_across_turn_boundaries(self) -> None:
+        sess_dir = self.temp_dir / "boundary_test" / "sessions"
+        sess_dir.mkdir(parents=True)
+        rollout_file = sess_dir / "rollout-boundary.jsonl"
+        lines = [
+            # Turn 1: has task_started, turn_context with model, and user prompt, then task_complete
+            json.dumps({"type": "event_msg", "payload": {"type": "task_started", "turn_id": "turn-1"}}),
+            json.dumps({"type": "turn_context", "payload": {"turn_id": "turn-1", "model": "model-turn-1"}}),
+            json.dumps({"type": "response_item", "payload": {"role": "user", "content": [{"type": "input_text", "text": "Turn 1 prompt with explicit model"}]}}),
+            json.dumps({"type": "event_msg", "payload": {"type": "task_complete", "turn_id": "turn-1"}}),
+            # Turn 2: starts a new turn without a turn_context, user prompt arrives
+            json.dumps({"type": "event_msg", "payload": {"type": "task_started", "turn_id": "turn-2"}}),
+            json.dumps({"type": "response_item", "payload": {"role": "user", "content": [{"type": "input_text", "text": "Turn 2 prompt lacking new context"}]}}),
+            # Turn 3: public enum PascalCase boundary check
+            json.dumps({"type": "TurnStarted", "payload": {"turn_id": "turn-3"}}),
+            json.dumps({"type": "TurnContext", "payload": {"turn_id": "turn-3", "model": "model-turn-3"}}),
+            json.dumps({"type": "response_item", "payload": {"role": "user", "content": [{"type": "input_text", "text": "Turn 3 prompt with model"}]}}),
+            json.dumps({"type": "TurnComplete", "payload": {"turn_id": "turn-3"}}),
+            json.dumps({"type": "response_item", "payload": {"role": "user", "content": [{"type": "input_text", "text": "Post turn 3 prompt without context"}]}}),
+        ]
+        rollout_file.write_text("\n".join(lines) + "\n")
+
+        results = search_codex(query="prompt", sessions_dir=sess_dir, limit=10)
+        self.assertEqual(len(results), 4)
+        turn1_entry = next(r for r in results if "Turn 1 prompt" in r.snippet)
+        turn2_entry = next(r for r in results if "Turn 2 prompt" in r.snippet)
+        turn3_entry = next(r for r in results if "Turn 3 prompt" in r.snippet)
+        post3_entry = next(r for r in results if "Post turn 3 prompt" in r.snippet)
+
+        # Turn 1 must attribute turn_context model
+        self.assertEqual(turn1_entry.metadata.get("model"), "model-turn-1")
+        self.assertEqual(turn1_entry.metadata.get("model_source"), "turn_context")
+        self.assertEqual(turn1_entry.metadata.get("model_scope"), "turn")
+
+        # Turn 2 MUST NOT leak turn 1's model across task_complete / task_started boundary
+        self.assertNotEqual(turn2_entry.metadata.get("model"), "model-turn-1")
+        self.assertIsNone(turn2_entry.metadata.get("model"))
+        self.assertNotEqual(turn2_entry.metadata.get("model_source"), "turn_context")
+
+        # Turn 3 must attribute TurnContext model
+        self.assertEqual(turn3_entry.metadata.get("model"), "model-turn-3")
+        self.assertEqual(turn3_entry.metadata.get("model_source"), "turn_context")
+        self.assertEqual(turn3_entry.metadata.get("model_scope"), "turn")
+
+        # Post Turn 3 MUST NOT leak Turn 3's model after TurnComplete
+        self.assertNotEqual(post3_entry.metadata.get("model"), "model-turn-3")
+        self.assertIsNone(post3_entry.metadata.get("model"))
+        self.assertNotEqual(post3_entry.metadata.get("model_source"), "turn_context")
+
 
 if __name__ == "__main__":
     unittest.main()
+
