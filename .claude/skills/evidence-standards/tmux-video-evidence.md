@@ -1,6 +1,6 @@
 ---
 name: tmux-video-evidence
-description: Record captioned terminal evidence videos and publish them as GitHub PR attachments with portable, sanitized outputs
+description: Record captioned terminal evidence videos with portable, sanitized outputs for authorized review
 ---
 
 # Tmux Video Evidence for Agent Work Verification
@@ -16,7 +16,7 @@ Every terminal evidence package must include:
 - A browser-friendly preview artifact (`.gif` recommended)
 - Captions for that video (burned-in preferred; `.vtt`/`.srt` acceptable)
 - Sanitized terminal/test output (no machine-specific absolute paths)
-- GitHub-hosted URL(s) published by automation
+- Media links accessible to the intended reviewer at an authorized destination
 - A downloadable high-fidelity artifact (`.mp4` or `.mp4.zip`)
 
 ## Mandatory Video Sections
@@ -91,18 +91,25 @@ ffmpeg -y -i /tmp/<work_name>.gif -movflags +faststart -pix_fmt yuv420p /tmp/<wo
 
 For every tmux video, provide captions by either:
 1. Burning captions into the video (preferred), or
-2. Producing `/tmp/<work_name>.vtt` and linking it in PR + gist.
+2. Producing `/tmp/<work_name>.vtt` or `.srt` and linking that actual file alongside the reviewed media artifacts.
 
 Use `~/.claude/skills/video-caption/SKILL.md` when you need to generate burned-in captions reliably.
 
-## Publish in PR (GitHub-Hosted, Zero-Touch)
+## Evidence access and authorized publication
 
-Preferred path:
+Follow `~/.claude/skills/evidence-standards/SKILL.md` for publication authority, audience, and destination. A PR, checked-in document, access-controlled receipt/store, or authorized gist may link the evidence. A gist or GitHub upload is not an independent acceptance requirement. Preserve real media, captions, exact source provenance, and reviewer access; publish only within the current authorization.
+
+The following GitHub release example applies only when that destination is authorized. Set `caption_file` to the actual generated `.vtt` or `.srt` path when using a sidecar; leave it empty only when captions are already burned into the video. The asset list includes the sidecar only when set.
 
 ```bash
+caption_file=""  # Set to the actual .vtt or .srt path unless captions are burned in.
+assets=("/tmp/terminal.mp4.zip" "/abs/path/to/terminal.gif")
+if [ -n "$caption_file" ]; then
+  assets+=("$caption_file")
+fi
 zip -j /tmp/terminal.mp4.zip /abs/path/to/terminal.mp4
 gh release create evidence-pr-<PR_NUMBER> --draft --title "PR #<PR_NUMBER> Evidence" --notes "" 2>/dev/null || true
-gh release upload evidence-pr-<PR_NUMBER> /tmp/terminal.mp4.zip /abs/path/to/terminal.gif /abs/path/to/terminal.srt --clobber
+gh release upload evidence-pr-<PR_NUMBER> "${assets[@]}" --clobber
 gh release view evidence-pr-<PR_NUMBER> --json assets,url
 gh pr comment <PR_NUMBER_OR_URL> --body-file /tmp/evidence_comment.md
 ```
@@ -130,6 +137,6 @@ A reviewer should reject evidence if any are missing:
 2. Real command output (not echo-only)
 3. Captions present
 4. Sanitized logs (no machine-specific absolute paths)
-5. GitHub-hosted media URL(s) in PR
-6. Automated `gh` workflow or optional native-attachment helper used instead of manual drag-drop
-7. Matching entry in self-contained gist
+5. Media links accessible to the intended reviewer at an authorized destination
+6. Any publication uses the authorized destination and applicable automation workflow
+7. Matching metadata and captions in the reviewed evidence receipt

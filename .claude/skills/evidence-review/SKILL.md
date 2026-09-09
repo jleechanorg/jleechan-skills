@@ -20,7 +20,7 @@ description: Enforcement rules for reviewing evidence artifacts against the evid
 | Verdict | Meaning |
 |---------|---------|
 | **PASS** | Every claim has a matching artifact of STRONG quality and every mandatory check below passes. Satisfies the draft-phase `/er` gate when `/er` is applicable. |
-| **PARTIAL** | Claims are supported but one or more mandatory checks soft-warn (e.g., WARN in an optional verification_report.json, missing downloadable MP4). Does not satisfy the draft-phase `/er` gate. |
+| **PARTIAL** | Claims are supported but one or more mandatory checks soft-warn (e.g., WARN in an optional verification_report.json, missing a required downloadable MP4). Does not satisfy the draft-phase `/er` gate. |
 | **FAIL** | A claim is contradicted by an artifact, or integrity is broken (sha256 mismatch, dirty capture producing the claim, scope exclusion). |
 | **INCONCLUSIVE** | Not enough artifact data exists to decide. Request more. |
 
@@ -55,7 +55,7 @@ itself remains the separate two-gate check defined by `pr-green-definition`.
 ### 1. Bundle integrity
 
 ```bash
-cd <bundle_dir>
+cd '<bundle_dir>'
 
 if [[ -f checksums.sha256 ]]; then
   sha256sum -c checksums.sha256
@@ -108,21 +108,27 @@ grep -A10 "Scope note" README.md
 - If the scope note explicitly excludes a domain the PR claim covers (e.g. "browser layer out of scope") → narrow verdict to in-scope claims only
 - If the scope note has been updated to include a domain, verify the matching artifact exists
 
-### 4. Video artifacts — BOTH types required for non-trivial PRs
+### 4. Video artifacts required by the claim
 
-**Tmux / Terminal video** (required for any code change, test run, deploy):
-- [ ] **GIF** embedded inline in PR description (renders on GitHub without clicking)
-- [ ] **MP4** linked and directly downloadable from PR description
-- [ ] **Caption** naming: test name, pass/fail result, key assertion
+Apply the user-scope evidence-standards and repository UI owner before selecting
+video requirements. User-visible behavior needs captioned video tied to the tested
+SHA. Terminal recording is required when the relevant owner or user asks for it,
+or when the claim depends on demonstrating terminal behavior; a test invocation
+alone does not create a GIF-plus-MP4 requirement.
 
-**Browser UI video** (required when PR adds or modifies any `testing_ui/test_*.py` file):
-- [ ] **GIF** embedded inline in PR description
-- [ ] **MP4** linked and directly downloadable
-- [ ] **Caption** naming: URL, user actions, before/after behavior
+For each applicable video requirement, verify:
+- The required format is present and accessible; check any inline GIF or downloadable MP4 the PR claims to provide.
+- The caption identifies the test/action, observed result, and tested SHA.
+- UI footage visibly shows the relevant element and before/action/after behavior.
+- Terminal footage, when required, shows the command and relevant result.
 
-If ANY of the above is missing → verdict is **PARTIAL** (not PASS), regardless of other evidence quality.
+A missing applicable artifact yields **PARTIAL**. Record inapplicable formats as
+N/A with a reason; do not impose terminal and browser video on every PR.
 
 ### 5. Public-URL hosting check
+
+Apply this check when public or inline video rendering is claimed or required.
+It does not independently require publishing an otherwise private evidence bundle.
 
 GIFs and MP4s must be on a **public** repository — private repo release assets return 404 for anonymous viewers and do NOT render as inline images in PR descriptions.
 
@@ -143,16 +149,21 @@ Private repo assets = **PARTIAL / FAIL** for inline rendering.
 
 ### 6. Self-contained / clean-computer reproducibility
 
-A PASS verdict requires the PR to meet the "clean computer" standard from `evidence-standards`:
+Apply the reproducibility requirements for the applicable evidence class in
+`evidence-standards`. A PASS verdict requires self-contained directions that
+identify:
 
-- [ ] PR description links a **gist** with reproduction instructions
-- [ ] Gist contains `git clone <url>` + `git checkout <branch>`
-- [ ] Gist lists dependencies (Python version, pip requirements, service account needs)
-- [ ] Gist has exact test invocation commands (copy-pasteable into a terminal)
-- [ ] Gist documents expected output (pass counts, scenario names)
-- [ ] Gist embeds or links the GIF + downloadable MP4
+- [ ] The exact reviewed SHA, source location, and commands to retrieve it. If evidence was re-affirmed, retain its original tested SHA and the reviewed SHA with the canonical materiality justification.
+- [ ] Required dependencies and prerequisites, including runtime versions and any service/account requirements; never include credentials.
+- [ ] Exact validation commands and expected results, such as pass counts or scenario outcomes.
+- [ ] Any media required by section 4, with its tested SHA and accessible location.
 
-**Failure mode**: if the only instructions are "see the repo" or "run the tests" without exact commands → PARTIAL.
+Directions may live in the PR, a checked-in document, an access-controlled evidence
+receipt, or an authorized gist. Link the actual directions and ensure the intended
+reviewer can access them; this check does not authorize external publication.
+
+**Failure mode**: if the only instructions are "see the repo" or "run the tests"
+without exact commands and expected results → PARTIAL.
 
 ### 7. Anti-Fabrication & Telemetry Verification (Bead rev-wghca)
 
@@ -205,8 +216,11 @@ verdict at the new SHA without rerunning the later phases; only a material
 production-behavior diff requires a full rerun. Never rerun once per finding —
 if fixes are still landing, wait until they are batched into one new SHA
 (`evidence-standards` § "Evidence Sequencing") before spending a full pass.
-The 2-gate-cycle cap applies: a third full `/er` cycle on the same PR requires
-operator escalation, not a self-authorized rerun.
+Continue necessary review and already-authorized fixes within the applicable task
+scope and autonomy deadline. A review-only invocation reports findings without
+editing the reviewed source or evidence; fixes use write authority already held
+by the parent task. Review count alone does not require escalation; ask only for
+missing authority or an unresolved decision that blocks the affected action.
 
 ### Phase 1 — Inventory
 
@@ -226,7 +240,7 @@ For each claim, identify the single primary artifact that proves it. Rate qualit
 
 ### Phase 3 — Mandatory Checks
 
-Run all eight checks in the "Mandatory Pre-PASS Checks" section above. Record the result of each.
+Run each applicable check in "Mandatory Pre-PASS Checks" above. Record its result, or N/A with the scope reason.
 
 ### Phase 4 — Verdict Table
 
@@ -257,9 +271,9 @@ Produce output in this format:
 - [x] bundle or per-file checksums verified → 38/38 OK
 - [x] verification_report.json absent/not applicable, or overall_verdict = PASS
 - [x] Scope note matches claimed domain
-- [x] Terminal GIF + MP4 + caption present
-- [ ] Browser UI GIF: 404 — private repo hosting (→ PARTIAL)
-- [x] Gist has clone + test commands
+- [x] Required or claimed terminal media: <verified artifacts, or N/A with reason>
+- [ ] Required or claimed browser media: <verified artifacts, or concrete missing artifact and verdict>
+- [x] Linked reproduction directions: <location with exact SHA, dependencies, commands, and expected results>
 
 ### Violations
 1. <specific evidence item that fails>
@@ -277,10 +291,10 @@ Produce output in this format:
 
 - **Self-referencing claims**: `evidence.md` cites itself instead of raw artifacts → WEAK
 - **Circular provenance**: the bypass gate reads the reference file it's supposed to match against → artifact INVALID, overall FAIL
-- **Evidence committed but not linked**: bundle in `evidence/` but PR description has no gist/release link → PR fails "clean computer" check
+- **Reproduction directions missing or inaccessible**: no accessible link or inline directions meeting section 6 → PARTIAL, even if evidence files were committed.
 - **Private repo release as inline image**: GitHub won't proxy it → broken GIF → PARTIAL
-- **"Native video attachment"** (drag & drop into PR comment): not directly downloadable via URL → PARTIAL
-- **Screenshot instead of GIF for a flow claim**: cannot show before/action/after → FAIL
+- **Required media inaccessible**: an attachment or hosted artifact cannot be accessed in the form required by section 4 → PARTIAL. Verify access rather than inferring failure from the attachment method.
+- **Static screenshot offered as required flow video**: it does not show before/action/after behavior → FAIL for that flow claim.
 - **`echo "PASS"` in terminal video instead of real test runner output**: hard block → FAIL
 - **Pre/post git SHA mismatch** in terminal video: test was run against a different commit than claimed → FAIL
 

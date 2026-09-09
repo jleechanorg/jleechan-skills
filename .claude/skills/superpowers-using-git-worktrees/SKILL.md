@@ -17,7 +17,12 @@ Git worktrees create isolated workspaces sharing the same repository, allowing w
 
 Follow this priority order:
 
-### 1. Check Existing Directories
+### 1. Honor the user and repository preference
+
+Use the location specified by the user or applicable repository instructions
+without asking again. If neither specifies a location, continue below.
+
+### 2. Check Existing Directories
 
 ```bash
 # Check in priority order
@@ -27,26 +32,12 @@ ls -d worktrees 2>/dev/null      # Alternative
 
 **If found:** Use that directory. If both exist, `.worktrees` wins.
 
-### 2. Check CLAUDE.md
+### 3. Choose an isolated default
 
-```bash
-grep -i "worktree.*director" CLAUDE.md 2>/dev/null
-```
-
-**If preference specified:** Use it without asking.
-
-### 3. Ask User
-
-If no directory exists and no CLAUDE.md preference:
-
-```
-No worktree directory found. Where should I create worktrees?
-
-1. .worktrees/ (project-local, hidden)
-2. ~/.config/superpowers/worktrees/<project-name>/ (global location)
-
-Which would you prefer?
-```
+If the user or repository specifies no location, choose a unique directory
+outside the active checkout using `mktemp -d`, and report the absolute path.
+Routine worktree placement does not need a new approval. Ask only if a real
+storage/access constraint prevents an appropriate isolated location.
 
 ## Safety Verification
 
@@ -62,84 +53,60 @@ git check-ignore -q "$LOCATION" 2>/dev/null
 
 **If NOT ignored:**
 
-Per Jesse's rule "Fix broken things immediately":
-1. Add appropriate line to .gitignore
-2. Commit the change
-3. Proceed with worktree creation
+For a user- or repository-selected location, authorized worktree setup includes
+adding its exact ignore entry to the repository-local `info/exclude` file
+(`git rev-parse --git-path info/exclude`), unless an explicit policy prohibits
+that change. Preserve unrelated entries and verify the selected path is ignored.
+Use an external location only when no location was specified, or when the user
+or repository permits that fallback. Ask only if an explicit constraint makes
+the selected location unusable; continue independent authorized work meanwhile.
+No unrelated tracked configuration commit is needed.
 
 **Why critical:** Prevents accidentally committing worktree contents to repository.
 
-### For Global Directory (~/.config/superpowers/worktrees)
+### For directories outside the repository
 
 No .gitignore verification needed - outside project entirely.
 
 ## Creation Steps
 
-### 1. Detect Project Name
+### 1. Create Worktree
 
 ```bash
-project=$(basename "$(git rev-parse --show-toplevel)")
+worktree_path="$LOCATION/$BRANCH_NAME"
+
+# Select the base ref from repository policy or the user's explicit instruction.
+# Use HEAD only when neither provides a base.
+BASE_REF="${BASE_REF:-HEAD}"
+git worktree add "$worktree_path" -b "$BRANCH_NAME" "$BASE_REF"
+cd "$worktree_path"
 ```
 
-### 2. Create Worktree
+### 2. Run Project Setup
 
-```bash
-# Determine full path
-case $LOCATION in
-  .worktrees|worktrees)
-    path="$LOCATION/$BRANCH_NAME"
-    ;;
-  ~/.config/superpowers/worktrees/*)
-    path="~/.config/superpowers/worktrees/$project/$BRANCH_NAME"
-    ;;
-esac
+Use the repository's documented bootstrap and existing environment. Preserve
+its package manager, lockfiles, and shared-venv requirements. Inspect the relevant
+manifest only when setup is undocumented, and install/build only prerequisites
+needed for the scoped task; do not run every recognized package manager or create
+a duplicate per-worktree environment.
 
-# Create worktree with new branch
-git worktree add "$path" -b "$BRANCH_NAME"
-cd "$path"
-```
+### 3. Verify Clean Baseline
 
-### 3. Run Project Setup
+Run the smallest repository-approved baseline checks covering the task. Respect
+restrictions on full local suites and use documentation checks for docs-only work.
 
-Auto-detect and run appropriate setup:
-
-```bash
-# Node.js
-if [ -f package.json ]; then npm install; fi
-
-# Rust
-if [ -f Cargo.toml ]; then cargo build; fi
-
-# Python
-if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-if [ -f pyproject.toml ]; then poetry install; fi
-
-# Go
-if [ -f go.mod ]; then go mod download; fi
-```
-
-### 4. Verify Clean Baseline
-
-Run tests to ensure worktree starts clean:
-
-```bash
-# Examples - use project-appropriate command
-npm test
-cargo test
-pytest
-go test ./...
-```
-
-**If tests fail:** Report failures, ask whether to proceed or investigate.
+**If tests fail:** Capture and classify failures, investigate relevant failures,
+and continue authorized work. Distinguish pre-existing failures from regressions;
+ask only for missing authority or an unresolved decision that changes the task.
 
 **If tests pass:** Report ready.
 
-### 5. Report Location
+### 4. Report Location
 
 ```
 Worktree ready at <full-path>
 Tests passing (<N> tests, 0 failures)
-Ready to implement <feature-name>
+Proceeding with <next authorized task action>
 ```
 
 ## Quick Reference
@@ -149,10 +116,10 @@ Ready to implement <feature-name>
 | `.worktrees/` exists | Use it (verify ignored) |
 | `worktrees/` exists | Use it (verify ignored) |
 | Both exist | Use `.worktrees/` |
-| Neither exists | Check CLAUDE.md → Ask user |
-| Directory not ignored | Add to .gitignore + commit |
-| Tests fail during baseline | Report failures + ask |
-| No package.json/Cargo.toml | Skip dependency install |
+| Neither exists | Check repository policy, then choose an external unique directory |
+| Selected directory not ignored | Add its exact local exclude entry unless prohibited; preserve explicit location constraints |
+| Tests fail during baseline | Capture, classify, and investigate within scope |
+| Setup is needed | Follow the repository bootstrap and shared environment |
 
 ## Common Mistakes
 
@@ -164,17 +131,17 @@ Ready to implement <feature-name>
 ### Assuming directory location
 
 - **Problem:** Creates inconsistency, violates project conventions
-- **Fix:** Follow priority: existing > CLAUDE.md > ask
+- **Fix:** Follow priority: user/repository preference > existing isolated directory > external unique directory
 
 ### Proceeding with failing tests
 
 - **Problem:** Can't distinguish new bugs from pre-existing issues
-- **Fix:** Report failures, get explicit permission to proceed
+- **Fix:** Capture baseline failures and classify them before claiming a later change is a regression or a fix
 
 ### Hardcoding setup commands
 
 - **Problem:** Breaks on projects using different tools
-- **Fix:** Auto-detect from project files (package.json, etc.)
+- **Fix:** Use the documented project bootstrap before deriving setup from manifests
 
 ## Example Workflow
 
@@ -183,13 +150,13 @@ You: I'm using the using-git-worktrees skill to set up an isolated workspace.
 
 [Check .worktrees/ - exists]
 [Verify ignored - git check-ignore confirms .worktrees/ is ignored]
-[Create worktree: git worktree add .worktrees/auth -b feature/auth]
-[Run npm install]
-[Run npm test - 47 passing]
+[Create worktree from the repository's configured base ref]
+[Run the repository bootstrap if needed]
+[Run scoped baseline checks - 47 passing]
 
 Worktree ready at /Users/jesse/myproject/.worktrees/auth
 Tests passing (47 tests, 0 failures)
-Ready to implement auth feature
+Proceeding with the authorized auth implementation
 ```
 
 ## Red Flags
@@ -197,14 +164,14 @@ Ready to implement auth feature
 **Never:**
 - Create worktree without verifying it's ignored (project-local)
 - Skip baseline test verification
-- Proceed with failing tests without asking
-- Assume directory location when ambiguous
-- Skip CLAUDE.md check
+- Hide failing baseline checks or claim a clean baseline without evidence
+- Override the user's or repository's worktree location
+- Skip applicable repository worktree instructions
 
 **Always:**
-- Follow directory priority: existing > CLAUDE.md > ask
+- Follow the user's and repository's directory preference, then choose a safe default
 - Verify directory is ignored for project-local
-- Auto-detect and run project setup
+- Use the repository setup and shared environment
 - Verify clean test baseline
 
 ## Integration
@@ -214,5 +181,5 @@ Ready to implement auth feature
 - Any skill needing isolated workspace
 
 **Pairs with:**
-- **finishing-a-development-branch** - REQUIRED for cleanup after work complete
+- **finishing-a-development-branch** - Verify and deliver the authorized result; preserve the worktree unless cleanup is authorized
 - **executing-plans** or **subagent-driven-development** - Work happens in this worktree

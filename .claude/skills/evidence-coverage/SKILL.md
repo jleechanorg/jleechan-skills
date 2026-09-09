@@ -28,7 +28,7 @@ Use the testing-layers skill (`.claude/skills/testing-layers/SKILL.md`) decision
 |-------|------|----------------|---------------|
 | L1 | Unit / Deterministic | No server, no LLM, pure function | Math, parsing, schema validation, prompt-contract string checks |
 | L2 | Integration (mock LLM) | Server running, mock LLM | Route wiring, middleware, auth, state merge |
-| L3 | Real LLM (MCP) | Real server + real Gemini | Model compliance, prompt effectiveness, behavioral contracts |
+| L3 | Real LLM (MCP) | Real server + real provider selected by the harness owner | Model compliance, prompt effectiveness, behavioral contracts |
 | L5 | Browser E2E | Full stack + browser | UI rendering, player-visible behavior |
 
 **Key rule**: Any claim about LLM compliance (event frequency, sanctuary activation, prompt
@@ -48,26 +48,41 @@ For each bundle, extract:
 - Pass rate
 - Scenario names
 - Timestamp
+- For L3, the harness-selected provider, actual model identifier from response
+  metadata, and material configuration required by the canonical evidence and
+  harness owners. Preserve the requested model separately; mark an unreported
+  actual model as unknown rather than deriving it from the requested alias.
+  Include this provenance in bundle metadata and reproduction directions.
 
 ### 4. Check evidence freshness
 
-Evidence is **STALE** if production files changed since the evidence SHA:
+Compare the captured source SHA with the current change:
 ```bash
 git diff <evidence_sha>..HEAD --name-only -- $PROJECT_ROOT/ | grep -v tests/
 ```
 
-If any non-test production file changed, the evidence must be re-run.
+Apply `~/.claude/skills/evidence-standards/SKILL.md` sections Evidence Staleness
+Tolerance and Evidence Sequencing. Re-run evidence affected by a material behavior
+change after batching pending fixes. For a qualifying nonbehavioral delta, record
+the diff assessment and re-affirm the prior result for the current SHA. Preserve
+the original tested SHA, timestamps, and artifact hashes; re-affirmation is not a
+new run, and a changed filename alone does not establish staleness.
 
 ### 5. Build the matrix
 
 Output a markdown table with these columns:
 
-| ID | Domain | Logic Change | File(s) | Layer | Test File | Evidence Status | Gap? |
-|----|--------|-------------|---------|-------|-----------|----------------|------|
+| ID | Domain | Logic Change | File(s) | Layer | Test File | Evidence Status | Provenance | Gap? |
+|----|--------|-------------|---------|-------|-----------|----------------|------------|------|
+
+For L3 rows, link the provider/model/configuration metadata and reproduction
+directions in **Provenance**. Mark missing attribution as a gap for any claim
+that depends on the actual provider or model.
 
 **Evidence Status values:**
 - `FRESH (SHA xxx, N/N pass)` — evidence exists at current HEAD, all scenarios pass
-- `STALE (SHA xxx, N/N pass)` — evidence exists but production files changed since
+- `RE-AFFIRMED (tested SHA xxx, current SHA yyy)` — prior evidence remains applicable after the canonical nonbehavioral-diff check
+- `STALE (SHA xxx, N/N pass)` — a material change invalidates the evidence for this claim
 - `MISSING` — no evidence bundle found
 - `N/A` — layer doesn't require evidence (e.g., L1 unit tests run in CI)
 
@@ -92,7 +107,7 @@ After the matrix, include:
 
 **Summary statistics:**
 - Total logic changes: N
-- Covered (fresh): N
+- Covered (fresh or re-affirmed): N
 - Stale: N
 - Missing: N
 - Critical gaps: N
@@ -113,5 +128,5 @@ After the matrix, include:
 
 - Testing layers: `.claude/skills/testing-layers/SKILL.md`
 - E2E testing: `.claude/skills/end2end-testing.md`
-- Evidence standards: `~/.claude/skills/evidence-standards.md` (user-scope) and `.claude/skills/evidence-standards.md` (repo-scope)
+- Evidence standards: `~/.claude/skills/evidence-standards/SKILL.md` (user-scope) and `.claude/skills/evidence-standards.md` (repo-scope)
 - Root-cause first: `.claude/skills/root-cause-first/SKILL.md`
