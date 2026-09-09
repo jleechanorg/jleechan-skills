@@ -56,15 +56,26 @@ itself remains the separate two-gate check defined by `pr-green-definition`.
 
 ```bash
 (
-  cd '<bundle_dir>' || { echo "Failed to enter bundle directory" >&2; exit 1; }
+  bundle_dir='<bundle_dir>'
+  cd "$bundle_dir" || { echo "Failed to enter bundle directory" >&2; exit 1; }
 
   if [[ -f checksums.sha256 ]]; then
     sha256sum -c checksums.sha256
-  elif find . -name "*.sha256" -print -quit | grep -q .; then
-    find . -name "*.sha256" -execdir sha256sum -c '{}' \;
   else
-    echo "No checksum files found"
-    exit 2
+    found_any=false
+    status=0
+    while IFS= read -r -d '' cs_file; do
+      found_any=true
+      dir="$(dirname "$cs_file")"
+      base="$(basename "$cs_file")"
+      ( cd "$dir" && sha256sum -c "$base" ) || status=1
+    done < <(find . -name "*.sha256" -type f -print0)
+
+    if [ "$found_any" = false ]; then
+      echo "No checksum files found" >&2
+      exit 2
+    fi
+    exit "$status"
   fi
 )
 ```
