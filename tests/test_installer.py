@@ -40,6 +40,10 @@ class InstallerIntegrationTest(unittest.TestCase):
             path = source / relative
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content, encoding="utf-8")
+        exported_script = fixture / "scripts" / "integrate.sh"
+        exported_script.parent.mkdir(parents=True, exist_ok=True)
+        exported_script.write_text("#!/bin/sh\necho installed-integrate\n", encoding="utf-8")
+        exported_script.chmod(0o755)
         return fixture
 
     def run_installer(
@@ -95,6 +99,10 @@ class InstallerIntegrationTest(unittest.TestCase):
             self.assertFalse((target / "skills/example/scripts/.pytest_cache").exists())
             self.assertFalse((target / "skills_archive").exists())
             self.assertFalse((target / "commands_archive").exists())
+            installed_integrate = target / "scripts/integrate.sh"
+            self.assertTrue(installed_integrate.is_file())
+            self.assertEqual(installed_integrate.read_bytes(), (fixture / "scripts/integrate.sh").read_bytes())
+            self.assertTrue(os.access(installed_integrate, os.X_OK))
 
     def test_superpowers_quick_installs_with_bundled_subskills(self):
         with tempfile.TemporaryDirectory() as directory:

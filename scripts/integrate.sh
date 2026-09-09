@@ -371,9 +371,18 @@ fi
 
 # Stop test server for current branch if running
 current_branch=$(git branch --show-current)
-if [ "$current_branch" != "main" ]; then
-    echo "🛑 Stopping test server for branch '$current_branch'..."
-    ./test_server_manager.sh stop "$current_branch" 2>/dev/null || true
+if [ -n "$current_branch" ] && [ "$current_branch" != "main" ]; then
+    repo_root="$(git rev-parse --show-toplevel 2>/dev/null)" || die 1 "Not inside a git repository"
+    server_manager="$repo_root/test_server_manager.sh"
+    if [ ! -e "$server_manager" ]; then
+        echo "ℹ️  Test server manager absent; test server stop SKIPPED"
+    elif [ ! -x "$server_manager" ]; then
+        die 1 "Test server manager is not executable: $server_manager"
+    else
+        echo "🛑 Stopping test server for branch '$current_branch'..."
+        (cd "$repo_root" && "$server_manager" stop "$current_branch") || die 1 "Test server manager stop failed for branch '$current_branch'"
+        echo -e "${GREEN}✅ Test server manager returned success for branch '$current_branch'${NC}"
+    fi
 fi
 
 # Check for unmerged changes on current branch
@@ -485,13 +494,17 @@ if [ "$current_branch" != "main" ] && [ "$NEW_BRANCH_MODE" = false ]; then
     fi
 fi
 
-# Detect if main is checked out in a worktree (can't checkout in primary repo)
+# Detect if main is checked out in a worktree (can't checkout in primary repo).
+# Capture the complete listing before filtering: with pipefail, grep -q can
+# close the pipe early and make git worktree list report SIGPIPE (141).
 MAIN_IN_WORKTREE=false
-if git worktree list --porcelain 2>/dev/null | grep -q "^branch refs/heads/main$"; then
-    MAIN_IN_WORKTREE=true
-    worktree_path=$(git worktree list --porcelain 2>/dev/null | grep -B2 "^branch refs/heads/main$" | grep "^worktree " | awk '{print $2}')
-    echo -e "${YELLOW}⚠️  'main' is checked out in worktree: $worktree_path${NC}"
-    echo -e "${YELLOW}   Skipping checkout — will use origin/main as branch base instead.${NC}"
+if worktrees_list=$(git worktree list --porcelain 2>/dev/null); then
+    if echo "$worktrees_list" | grep "^branch refs/heads/main$" >/dev/null; then
+        MAIN_IN_WORKTREE=true
+        worktree_path=$(echo "$worktrees_list" | grep -B2 "^branch refs/heads/main$" | grep "^worktree " | awk '{print $2}')
+        echo -e "${YELLOW}⚠️  'main' is checked out in worktree: $worktree_path${NC}"
+        echo -e "${YELLOW}   Skipping checkout — will use origin/main as branch base instead.${NC}"
+    fi
 fi
 
 echo -e "\n${GREEN}1. Switching to main branch...${NC}"
