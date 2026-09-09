@@ -283,10 +283,18 @@ there to a pointer 2026-09-06; this section is the full policy).
 - Polling or mechanical sweeps: haiku/mini tier.
 - Top tier (the session's own model): reserve for adversarial judgment, or
   only after a cheaper tier has already failed on that unit.
-- Before repeating a delegated claim, read the artifact it rests on — a lane's
-  own "done" is a claim, not the evidence for it. This is artifact-checking on
-  results you are about to pass along, not a standing verification pass over
-  every lane, and never a subagent spawned to check your own work.
+- Before you repeat a delegated claim **or act on it**, read the artifact it
+  rests on — and read the part that substantiates the specific claim, not just
+  that an artifact exists. A lane's own "done" is a claim, not the evidence for
+  it, and neither is its summary of its own work. Acting on it counts: closing a
+  bead, marking a task complete, or building on a lane's "fixed" all carry the
+  claim forward as if it were checked. This is artifact-checking on results you
+  carry forward, not a standing verification pass over every lane.
+- Do not spawn a subagent to check work **you** did yourself — that is
+  self-verification you already perform. This does not touch the coder/verifier
+  pair above: a verifier reviewing a *different* agent's revision is an
+  independent lane, not a re-check of your own output, and stays required
+  wherever the pair template is used.
 - Delegate coding (edits, new files, generated code) to `/s` (sidekick) or a
   subagent when the track is independent and large enough to earn its own
   context. Work you can finish in a handful of tool calls, do in the root
