@@ -33,6 +33,7 @@ SRC_AGENTS_DIR="$PLUGIN_SRC_DIR/.claude/agents"
 SRC_COMMANDS_DIR="$PLUGIN_SRC_DIR/.claude/commands"
 SRC_SCRIPTS_DIR="$PLUGIN_SRC_DIR/.claude/scripts"
 SRC_SKILLS_DIR="$PLUGIN_SRC_DIR/.claude/skills"
+SRC_INTEGRATE_SCRIPT="$PLUGIN_SRC_DIR/scripts/integrate.sh"
 INSTALL_MODE="refuse"
 INSTALL_ROOT="$CLAUDE_HOME"
 STAGING_DIR=""
@@ -356,6 +357,14 @@ install_commands() {
 # Copy scripts to ~/.claude/scripts/
 install_scripts() {
     install_component "$SRC_SCRIPTS_DIR" "$INSTALL_ROOT/scripts" "scripts"
+    if [ -f "$SRC_INTEGRATE_SCRIPT" ]; then
+        mkdir -p "$INSTALL_ROOT/scripts"
+        rm -f "$INSTALL_ROOT/scripts/integrate.sh"
+        cp -a "$SRC_INTEGRATE_SCRIPT" "$INSTALL_ROOT/scripts/integrate.sh"
+        log_success "Installed exported integrate script"
+    else
+        log_warning "No integrate script source found at $SRC_INTEGRATE_SCRIPT"
+    fi
 }
 
 # Copy skills to ~/.claude/skills/
@@ -382,6 +391,14 @@ validate_installation() {
             list_installable_files "$component"
         )
     done
+    if [ -f "$SRC_INTEGRATE_SCRIPT" ]; then
+        if [ ! -f "$INSTALL_ROOT/scripts/integrate.sh" ] || \
+            ! cmp -s "$SRC_INTEGRATE_SCRIPT" "$INSTALL_ROOT/scripts/integrate.sh"; then
+            log_error "Manifest validation failed for scripts/integrate.sh"
+            return 1
+        fi
+        files_checked=$((files_checked + 1))
+    fi
     log_success "Source-derived manifest validation passed ($files_checked files)"
 }
 

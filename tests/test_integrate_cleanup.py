@@ -11,6 +11,13 @@ INTEGRATE_SCRIPT = REPO_ROOT / "scripts" / "integrate.sh"
 
 
 class IntegrateCleanupTests(unittest.TestCase):
+    def install_integrate_script(self, home: Path) -> Path:
+        installed = home / ".claude" / "scripts" / "integrate.sh"
+        installed.parent.mkdir(parents=True)
+        installed.write_bytes(INTEGRATE_SCRIPT.read_bytes())
+        installed.chmod(0o755)
+        return installed
+
     def create_isolated_repo(self, base_dir: Path) -> tuple[Path, Path, dict[str, str]]:
         origin = base_dir / "origin.git"
         work = base_dir / "work"
@@ -125,6 +132,61 @@ class IntegrateCleanupTests(unittest.TestCase):
                 timeout=30,
             ).stdout.strip()
             self.assertNotEqual(current_branch, "feature/cleanup-target")
+
+    def test_installed_script_supports_custom_name_and_new_branch_from_home(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            base = Path(tmp_dir)
+            _, work, env = self.create_isolated_repo(base)
+            installed = self.install_integrate_script(Path(env["HOME"]))
+            self.assertTrue(installed.is_file())
+            self.assertFalse((work / "integrate.sh").exists())
+
+            result = subprocess.run(
+                ["bash", str(installed), "feature/from-home", "--new-branch"],
+                cwd=str(work),
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("Using custom branch name: feature/from-home", result.stdout)
+            current_branch = subprocess.run(
+                ["git", "-C", str(work), "branch", "--show-current"],
+                capture_output=True,
+                text=True,
+                check=True,
+                env=env,
+                timeout=30,
+            ).stdout.strip()
+            self.assertEqual(current_branch, "feature/from-home")
+
+    def test_many_worktrees_do_not_trigger_pipefail_false_negative(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            base = Path(tmp_dir)
+            _, work, env = self.create_isolated_repo(base)
+            fake_git = Path(env["HOME"]) / "bin" / "git"
+            fake_git.write_text(
+                "#!/bin/sh\n"
+                "if [ \"$1\" = worktree ] && [ \"$2\" = list ]; then\n"
+                "  exec python3 -c 'import sys; print(\"worktree /tmp/main-worktree\\nHEAD 0000000000000000000000000000000000000000\\nbranch refs/heads/main\"); [print(f\"worktree /tmp/dummy-{i}\\nHEAD 0000000000000000000000000000000000000000\\ndetached\\n\") for i in range(5000)]'\n"
+                "fi\n"
+                "exec /usr/bin/git \"$@\"\n",
+                encoding="utf-8",
+            )
+            fake_git.chmod(0o755)
+
+            result = subprocess.run(
+                ["bash", str(INTEGRATE_SCRIPT), "feature/many-worktrees", "--new-branch"],
+                cwd=str(work),
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("'main' is checked out in worktree: /tmp/main-worktree", result.stdout)
+            self.assertIn("Skipping checkout", result.stdout)
 
     def test_failing_manager_reports_error_with_stderr_and_fails_before_checkout(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

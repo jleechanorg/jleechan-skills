@@ -494,13 +494,17 @@ if [ "$current_branch" != "main" ] && [ "$NEW_BRANCH_MODE" = false ]; then
     fi
 fi
 
-# Detect if main is checked out in a worktree (can't checkout in primary repo)
+# Detect if main is checked out in a worktree (can't checkout in primary repo).
+# Capture the complete listing before filtering: with pipefail, grep -q can
+# close the pipe early and make git worktree list report SIGPIPE (141).
 MAIN_IN_WORKTREE=false
-if git worktree list --porcelain 2>/dev/null | grep -q "^branch refs/heads/main$"; then
-    MAIN_IN_WORKTREE=true
-    worktree_path=$(git worktree list --porcelain 2>/dev/null | grep -B2 "^branch refs/heads/main$" | grep "^worktree " | awk '{print $2}')
-    echo -e "${YELLOW}⚠️  'main' is checked out in worktree: $worktree_path${NC}"
-    echo -e "${YELLOW}   Skipping checkout — will use origin/main as branch base instead.${NC}"
+if worktrees_list=$(git worktree list --porcelain 2>/dev/null); then
+    if echo "$worktrees_list" | grep "^branch refs/heads/main$" >/dev/null; then
+        MAIN_IN_WORKTREE=true
+        worktree_path=$(echo "$worktrees_list" | grep -B2 "^branch refs/heads/main$" | grep "^worktree " | awk '{print $2}')
+        echo -e "${YELLOW}⚠️  'main' is checked out in worktree: $worktree_path${NC}"
+        echo -e "${YELLOW}   Skipping checkout — will use origin/main as branch base instead.${NC}"
+    fi
 fi
 
 echo -e "\n${GREEN}1. Switching to main branch...${NC}"
