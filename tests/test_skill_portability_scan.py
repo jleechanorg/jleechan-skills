@@ -572,6 +572,94 @@ class DocumentedShellExamplesTest(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn("ACTUAL=" + (base if base_ref else head), result.stdout)
 
+    def test_documented_evidence_review_bundle_integrity_snippet_behavior(self):
+        content = (
+            REPO_ROOT / ".claude/skills/evidence-review/SKILL.md"
+        ).read_text()
+        section = content.split("### 1. Bundle integrity", 1)[1]
+        raw_snippet = section.split("```bash\n", 1)[1].split("\n```", 1)[0]
+
+        def run_check(bundle_dir: Path) -> subprocess.CompletedProcess[str]:
+            # Replace placeholder with bundle_dir path
+            snippet = raw_snippet.replace("'<bundle_dir>'", f"'{bundle_dir}'").replace('"<bundle_dir>"', f'"{bundle_dir}"')
+            return subprocess.run(
+                ["bash", "-c", snippet],
+                capture_output=True, text=True, timeout=10,
+            )
+
+        # 1. Absent bundle directory -> non-zero exit code (1)
+        res_absent = run_check(self.tmp_path / "absent_bundle")
+        self.assertNotEqual(res_absent.returncode, 0)
+        self.assertIn("Failed to enter bundle directory", res_absent.stderr)
+
+        # 2. Valid checksum with spaces in directory and file names -> exit 0
+        bundle = self.tmp_path / "bundle with spaces"
+        bundle.mkdir()
+        sub = bundle / "nested dir"
+        sub.mkdir()
+        target_file = sub / "file with spaces.txt"
+        target_file.write_text("valid payload content\n")
+        cs_file = sub / "item.sha256"
+        sha = subprocess.run(["sha256sum", target_file.name], cwd=sub, capture_output=True, text=True, check=True).stdout
+        cs_file.write_text(sha)
+
+        res_valid = run_check(bundle)
+        self.assertEqual(res_valid.returncode, 0, res_valid.stderr + res_valid.stdout)
+
+        # 3. Failing nested checksum -> must propagate non-zero exit code (1), not exit 0
+        cs_file.write_text("0000000000000000000000000000000000000000000000000000000000000000  file with spaces.txt\n")
+        res_fail = run_check(bundle)
+        self.assertNotEqual(res_fail.returncode, 0, "Nested checksum failure must not exit 0")
+
+        # 4. No checksum files found -> exit 2
+        empty_bundle = self.tmp_path / "empty_bundle"
+        empty_bundle.mkdir()
+        res_empty = run_check(empty_bundle)
+        self.assertEqual(res_empty.returncode, 2)
+
+    def test_documented_worktree_safety_verification_ignore_snippet_behavior(self):
+        content = (
+            REPO_ROOT / ".claude/skills/superpowers-using-git-worktrees/SKILL.md"
+        ).read_text()
+        section = content.split("### For Project-Local Directories (.worktrees or worktrees)", 1)[1]
+        raw_snippet = section.split("```bash\n", 1)[1].split("\n```", 1)[0]
+
+        repo = self.tmp_path / "wt_repo"
+        repo.mkdir()
+        env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+        subprocess.run(["git", "init"], cwd=repo, env=env, check=True, capture_output=True)
+        subprocess.run(["git", "config", "user.email", "test@test.local"], cwd=repo, env=env, check=True, capture_output=True)
+        subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, env=env, check=True, capture_output=True)
+        (repo / "README.md").write_text("repo root\n")
+        subprocess.run(["git", "add", "."], cwd=repo, env=env, check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-m", "init"], cwd=repo, env=env, check=True, capture_output=True)
+
+        exclude_file = repo / ".git/info/exclude"
+
+        def run_verify(location_str: str, cwd: Path = repo) -> subprocess.CompletedProcess[str]:
+            return subprocess.run(
+                ["bash", "-c", raw_snippet],
+                cwd=cwd,
+                env={**env, "LOCATION": location_str},
+                capture_output=True, text=True, timeout=10,
+            )
+
+        # 1. Relative in-repo path (.worktrees) that is unignored must be handled and added to info/exclude
+        run_verify(".worktrees")
+        self.assertTrue(exclude_file.exists(), "info/exclude should exist after checking unignored relative path")
+        self.assertIn(".worktrees", exclude_file.read_text())
+
+        # 2. External mktemp directory outside repo must NOT modify info/exclude
+        exclude_file.write_text("")
+        external_mktemp = self.tmp_path / "external_wt_temp"
+        external_mktemp.mkdir()
+        run_verify(str(external_mktemp))
+        self.assertEqual(exclude_file.read_text().strip(), "", "External path must not write to info/exclude")
+
+        # 3. Running outside a git repo must fail safely without modifying anything
+        res_nogit = run_verify(str(self.tmp_path / "wt"), cwd=self.tmp_path)
+        self.assertEqual(res_nogit.returncode, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

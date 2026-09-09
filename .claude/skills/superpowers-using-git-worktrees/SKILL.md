@@ -49,8 +49,21 @@ storage/access constraint prevents an appropriate isolated location.
 # Check if a project-local directory is ignored (respects local, global, and system gitignore)
 # External paths (outside repo root) are already isolated and must not be checked or added to info/exclude.
 repo_root=$(git rev-parse --show-toplevel 2>/dev/null || true)
-if [[ -n "$repo_root" && "$LOCATION" == "$repo_root"/* ]]; then
-  git check-ignore -q "$LOCATION" 2>/dev/null
+if [ -n "$repo_root" ]; then
+  abs_location=$(python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$LOCATION" 2>/dev/null || true)
+  abs_repo=$(python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$repo_root" 2>/dev/null || true)
+  if [[ -n "$abs_repo" && -n "$abs_location" && "$abs_location" == "$abs_repo"/* ]]; then
+    git check-ignore -q "$abs_location" 2>/dev/null
+    rc=$?
+    if [ "$rc" -eq 1 ]; then
+      exclude_file=$(git rev-parse --git-path info/exclude 2>/dev/null || true)
+      if [ -n "$exclude_file" ]; then
+        rel_entry="${abs_location#$abs_repo/}"
+        mkdir -p "$(dirname "$exclude_file")"
+        echo "$rel_entry" >> "$exclude_file"
+      fi
+    fi
+  fi
 fi
 ```
 
