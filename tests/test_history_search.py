@@ -629,6 +629,59 @@ class TestHistorySearch(unittest.TestCase):
         self.assertEqual(db_results[0].metadata.get("model"), "claude-3-7-sonnet")
         self.assertEqual(db_results[0].metadata.get("model_source"), "database")
 
+    def test_codex_search_preserves_profile_directory_with_trailing_space(self) -> None:
+        profile_base = self.temp_dir / "profile"
+        profile_space = self.temp_dir / "profile "
+        (profile_base / "sessions").mkdir(parents=True)
+        (profile_space / "sessions").mkdir(parents=True)
+
+        (profile_base / "sessions" / "rollout-base.jsonl").write_text(
+            json.dumps({"role": "user", "content": "needle unselected owner"}) + "\n"
+        )
+        (profile_space / "sessions" / "rollout-space.jsonl").write_text(
+            json.dumps({"role": "user", "content": "needle selected owner"}) + "\n"
+        )
+
+        results = search_codex(query="needle", codex_homes=[str(profile_space)])
+        self.assertEqual(len(results), 1)
+        self.assertIn("needle selected owner", results[0].snippet)
+        self.assertEqual(results[0].metadata.get("codex_home"), str(profile_space.resolve()))
+
+    def test_codex_rollout_attribution_distinguishes_session_and_resets_missing_turns(self) -> None:
+        sess_dir = self.temp_dir / "attribution_test" / "sessions"
+        sess_dir.mkdir(parents=True)
+        rollout_file = sess_dir / "rollout-attribution.jsonl"
+        lines = [
+            json.dumps({"type": "session_meta", "payload": {"model": "session-hint-model"}}),
+            json.dumps({"type": "response_item", "payload": {"role": "user", "content": [{"type": "input_text", "text": "turn with session meta only"}]}}),
+            json.dumps({"type": "turn_context", "payload": {"turn_id": "1", "model": "turn-1-model"}}),
+            json.dumps({"type": "response_item", "payload": {"role": "user", "content": [{"type": "input_text", "text": "turn with turn context model"}]}}),
+            json.dumps({"type": "turn_context", "payload": {"turn_id": "2"}}),
+            json.dumps({"type": "response_item", "payload": {"role": "user", "content": [{"type": "input_text", "text": "turn with missing turn context model"}]}}),
+        ]
+        rollout_file.write_text("\n".join(lines) + "\n")
+
+        results = search_codex(query="turn with", sessions_dir=sess_dir, limit=10)
+        self.assertEqual(len(results), 3)
+        turn_session = next(r for r in results if "session meta only" in r.snippet)
+        turn_1 = next(r for r in results if "turn context model" in r.snippet and "missing" not in r.snippet)
+        turn_2 = next(r for r in results if "missing turn context model" in r.snippet)
+
+        # 1. Session-meta only must NOT report model_source as "turn_context"
+        self.assertNotEqual(turn_session.metadata.get("model_source"), "turn_context")
+        self.assertEqual(turn_session.metadata.get("model_source"), "session_meta")
+        self.assertEqual(turn_session.metadata.get("session_model"), "session-hint-model")
+
+        # 2. Turn 1 has turn_context model
+        self.assertEqual(turn_1.metadata.get("model"), "turn-1-model")
+        self.assertEqual(turn_1.metadata.get("model_source"), "turn_context")
+
+        # 3. Turn 2 omits model in turn_context: must NOT inherit turn 1 model
+        self.assertNotEqual(turn_2.metadata.get("model"), "turn-1-model")
+        self.assertIsNone(turn_2.metadata.get("model"))
+        self.assertNotEqual(turn_2.metadata.get("model_source"), "turn_context")
+
 
 if __name__ == "__main__":
     unittest.main()
+
