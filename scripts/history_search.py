@@ -432,7 +432,7 @@ def _search_codex_store(
             rollout_files: list[Path] = []
             for root, _, files in os.walk(sess_dir):
                 for f in files:
-                    if f.startswith("rollout") and f.endswith(".jsonl"):
+                    if f.startswith("rollout-") and f.endswith(".jsonl"):
                         rollout_files.append(Path(root) / f)
                 if len(rollout_files) >= 20:
                     break
@@ -464,6 +464,7 @@ def _search_codex_store(
                             if not isinstance(obj, dict):
                                 continue
 
+                            record_model: Optional[str] = None
                             line_type = obj.get("type")
                             payload = obj.get("payload", {})
                             if line_type == "turn_context":
@@ -476,7 +477,7 @@ def _search_codex_store(
                                 if payload.get("model"):
                                     session_hint_model = str(payload["model"])
                             elif obj.get("model"):
-                                current_turn_model = str(obj["model"])
+                                record_model = str(obj["model"])
 
                             text = ""
                             if (
@@ -504,6 +505,10 @@ def _search_codex_store(
                                 meta["model"] = current_turn_model
                                 meta["model_source"] = "turn_context"
                                 meta["model_scope"] = "turn"
+                            elif record_model:
+                                meta["model"] = record_model
+                                meta["model_source"] = "record"
+                                meta["model_scope"] = "record"
                             elif not seen_turn_context and session_hint_model:
                                 meta["model"] = session_hint_model
                                 meta["model_source"] = "session_meta"

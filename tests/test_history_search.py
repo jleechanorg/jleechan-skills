@@ -576,7 +576,7 @@ class TestHistorySearch(unittest.TestCase):
         fake_home = self.temp_dir / "fake_home_default"
         default_sessions = fake_home / ".codex" / "sessions" / "sub"
         default_sessions.mkdir(parents=True)
-        (default_sessions / "rollout.jsonl").write_text(
+        (default_sessions / "rollout-default.jsonl").write_text(
             json.dumps({"role": "user", "content": "FROM_DEFAULT_HOME_PROFILE"}) + "\n"
         )
 
@@ -680,6 +680,30 @@ class TestHistorySearch(unittest.TestCase):
         self.assertNotEqual(turn_2.metadata.get("model"), "turn-1-model")
         self.assertIsNone(turn_2.metadata.get("model"))
         self.assertNotEqual(turn_2.metadata.get("model_source"), "turn_context")
+
+    def test_codex_record_level_model_stays_local_and_does_not_leak_to_subsequent_records(self) -> None:
+        sess_dir = self.temp_dir / "record_model_test" / "sessions"
+        sess_dir.mkdir(parents=True)
+        rollout_file = sess_dir / "rollout-record-model.jsonl"
+        lines = [
+            json.dumps({"type": "response_item", "model": "record-only-model", "payload": {"role": "user", "content": [{"type": "input_text", "text": "needle record"}]}}),
+            json.dumps({"type": "response_item", "payload": {"role": "user", "content": [{"type": "input_text", "text": "needle later"}]}}),
+        ]
+        rollout_file.write_text("\n".join(lines) + "\n")
+
+        results = search_codex(query="needle", sessions_dir=sess_dir, limit=10)
+        self.assertEqual(len(results), 2)
+        rec_first = next(r for r in results if "needle record" in r.snippet)
+        rec_later = next(r for r in results if "needle later" in r.snippet)
+
+        # 1. Record-level model must not be labeled turn_context
+        self.assertNotEqual(rec_first.metadata.get("model_source"), "turn_context")
+        self.assertEqual(rec_first.metadata.get("model"), "record-only-model")
+        self.assertEqual(rec_first.metadata.get("model_source"), "record")
+
+        # 2. Later record lacking model must NOT inherit the first record's model
+        self.assertIsNone(rec_later.metadata.get("model"))
+        self.assertNotEqual(rec_later.metadata.get("model"), "record-only-model")
 
 
 if __name__ == "__main__":
