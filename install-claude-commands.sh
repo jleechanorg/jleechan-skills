@@ -381,10 +381,24 @@ preflight_history_helper() {
         log_error "Refusing history helper installation through a non-directory or linked scripts path: $scripts_dir"
         return 1
     fi
+    if [ -L "$receipt" ]; then
+        log_error "Refusing history helper installation through unsafe receipt symlink: $receipt"
+        return 1
+    fi
+    if path_exists "$receipt"; then
+        if ! python3 -c 'import sys, os; st = os.lstat(sys.argv[1]); sys.exit(0 if (os.path.isfile(sys.argv[1]) and st.st_nlink == 1) else 1)' "$receipt" 2>/dev/null; then
+            log_error "Refusing history helper installation through unsafe hardlinked or non-regular receipt: $receipt"
+            return 1
+        fi
+    fi
     if path_exists "$destination"; then
         if [ -L "$destination" ] || [ ! -f "$destination" ]; then
             log_error "Refusing to replace an existing history helper: $destination"
             log_error "Inspect and preserve that file; --backup deliberately backs up and replaces the entire target."
+            return 1
+        fi
+        if ! python3 -c 'import sys, os; st = os.lstat(sys.argv[1]); sys.exit(0 if (os.path.isfile(sys.argv[1]) and st.st_nlink == 1) else 1)' "$destination" 2>/dev/null; then
+            log_error "Refusing to replace hardlinked history helper: $destination"
             return 1
         fi
         if cmp -s "$source" "$destination"; then
@@ -401,10 +415,10 @@ preflight_history_helper() {
             fi
         fi
 
-        if [ "$is_owned" = false ] && [ -d "$PLUGIN_SRC_DIR/.git" ]; then
+        if [ "$is_owned" = false ] && git -C "$PLUGIN_SRC_DIR" rev-parse --git-dir >/dev/null 2>&1; then
             local blob_sha
             blob_sha="$(git -C "$PLUGIN_SRC_DIR" hash-object "$destination" 2>/dev/null || true)"
-            if [ -n "$blob_sha" ] && git -C "$PLUGIN_SRC_DIR" cat-file -e "$blob_sha" 2>/dev/null; then
+            if [ -n "$blob_sha" ] && git -C "$PLUGIN_SRC_DIR" rev-list --objects HEAD -- scripts/history_search.py 2>/dev/null | grep -E "^${blob_sha}[[:space:]]+scripts/history_search\.py$" >/dev/null 2>&1; then
                 is_owned=true
             fi
         fi
@@ -426,7 +440,9 @@ install_scripts() {
         mkdir -p "$INSTALL_ROOT/scripts"
         rm -f "$INSTALL_ROOT/scripts/history_search.py"
         cp -a "$PLUGIN_SRC_DIR/scripts/history_search.py" "$INSTALL_ROOT/scripts/history_search.py"
-        file_sha256 "$INSTALL_ROOT/scripts/history_search.py" > "$INSTALL_ROOT/scripts/.history_search.py.sha256"
+        local receipt="$INSTALL_ROOT/scripts/.history_search.py.sha256"
+        rm -f "$receipt"
+        file_sha256 "$INSTALL_ROOT/scripts/history_search.py" > "$receipt"
     fi
     if [ -f "$SRC_INTEGRATE_SCRIPT" ]; then
         mkdir -p "$INSTALL_ROOT/scripts"
