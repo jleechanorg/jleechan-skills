@@ -68,8 +68,11 @@ changes. An open PR touching a file does not by itself block independent work.
 
 Before opening any new PR in the scope:
 ```bash
-gh pr list --state open --json number,files --jq \
-  '.[] | select(.files[].path | IN("FILE_LIST")) | .number'
+TARGET_FILES=("path/to/file1.py" "path/to/file2.py")
+gh pr list --state open --limit 300 --json number,files | jq -r --args '
+  $ARGS.positional as $targets |
+  .[] | select(any(.files[]?.path; . as $p | $targets | index($p))) | .number
+' "${TARGET_FILES[@]}"
 ```
 If non-empty, inspect actual overlap and coordinate the affected files. Continue independent authorized work.
 
@@ -212,8 +215,11 @@ boundaries required by the accepted plan; one coherent commit may be sufficient.
 
 ### Concurrency Rule (template — paste verbatim)
 ```bash
-gh pr list --state open --json number,files --jq \
-  '.[] | select(.files[].path | IN("<FILE_LIST>")) | .number'
+TARGET_FILES=("path/to/file1.py" "path/to/file2.py")
+gh pr list --state open --limit 300 --json number,files | jq -r --args '
+  $ARGS.positional as $targets |
+  .[] | select(any(.files[]?.path; . as $p | $targets | index($p))) | .number
+' "${TARGET_FILES[@]}"
 ```
 If a PR is returned, inspect actual overlap, coordinate affected work, and continue independent authorized tasks.
 
