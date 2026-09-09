@@ -726,6 +726,19 @@ class DocumentedShellExamplesTest(unittest.TestCase):
         self.assertNotEqual(res_err.returncode, 0, "Git failure must exit non-zero")
         self.assertEqual(exclude_file.read_text().strip(), "", "Git failure must not write to info/exclude")
 
+        # 6. LOCATION exactly equal to repository root must be rejected before child classification
+        exclude_file.write_text("")
+        res_root = run_verify(str(repo))
+        self.assertNotEqual(res_root.returncode, 0, "LOCATION equal to repository root must fail")
+        self.assertIn("repository root", res_root.stderr)
+        self.assertEqual(exclude_file.read_text().strip(), "", "Exact repository root must not write to info/exclude")
+
+        # Relative '.' resolving to repository root must also be rejected
+        res_dot = run_verify(".")
+        self.assertNotEqual(res_dot.returncode, 0, "LOCATION equal to '.' (repo root) must fail")
+        self.assertIn("repository root", res_dot.stderr)
+        self.assertEqual(exclude_file.read_text().strip(), "", "Repo root '.' must not write to info/exclude")
+
     def test_documented_shell_fixture_enforces_gh_containment_and_credential_isolation(self):
         # 1. Verify sensitive tokens are stripped from os.environ
         for key in os.environ:
