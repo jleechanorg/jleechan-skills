@@ -65,10 +65,13 @@ Examples:
   does not prove that no orphaned processes remain.
 - `--force` and `--new-branch` retain the script's documented safety semantics.
 
-After the script succeeds, use `/push` when the new branch needs its test
-server started. Then follow the existing post-integration workflow: invoke
-`/learn` to capture an authorized durable learning and run
-`/factory-evolve --taxonomy` for the fast structural reviewer-node check. If
-the current task does not authorize a memory write, report `/learn` as skipped
-instead of creating memory. Do not claim that server cleanup or branch
-integration occurred until the script output and exit status establish it.
+After the script succeeds, invoke `/learn` as a required completion step.
+A user request for `/integrate` includes this learning step; do not require
+separate approval or skip it because the user did not also type `/learn`.
+Follow the canonical learn skill for all persistence targets and report each
+result. Honor an explicit no-memory instruction and higher-priority storage
+restrictions; report any blocked target and never claim it was saved.
+Then run `/factory-evolve --taxonomy` for the structural reviewer-node check.
+Use `/push` when the new branch needs its test server started. Do not claim
+server cleanup or branch integration until the script output and exit status
+establish it, or learning capture until its persistence results are verified.
