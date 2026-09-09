@@ -11,13 +11,14 @@ Skills are exported to other machines and other users, so a hardcoded
 every reader. The portable form is `${CLAUDE_HOME:-$HOME/.claude}` for
 Claude-home paths, or a bare binary name resolved on PATH.
 
-Scope: every text file under `.claude/skills/`, not just Markdown — the first
-real leak this test caught outside its original glob was a Python fixture
-string. This covers the skills tree only; personal paths elsewhere in the repo
-(notably `.beads/`) are out of its declared scope and are not claimed to be
-guarded here.
+Scope: every non-binary file under `.claude/skills/`, plus symlink targets —
+the first real leak caught outside the original Markdown glob was a Python
+fixture string. This covers the skills tree only; personal paths elsewhere in
+the repo (notably `.beads/`, which currently holds 83) are out of its declared
+scope and are not claimed to be guarded here.
 """
 
+import os
 import re
 import unittest
 from pathlib import Path
@@ -55,31 +56,46 @@ VENDORED_ALLOWED_FILES = frozenset(
     }
 )
 
-# Binary/large artifacts that are not reviewable text.
-SKIP_SUFFIXES = frozenset(
-    {".png", ".jpg", ".jpeg", ".gif", ".pdf", ".mp4", ".mov", ".zip", ".ico"}
-)
+
+def _scan_line(rel, lineno, line, offenders):
+    for match in PERSONAL_HOME.finditer(line):
+        if match.group(1) in ALLOWED_SEGMENTS:
+            continue
+        offenders.append(f"{rel}:{lineno}: {match.group(0)}")
 
 
 class SkillExportNoPersonalPathsTest(unittest.TestCase):
+    """Every bypass closed here was found by an adversarial reviewer, not by CI.
+
+    Deliberately avoided: suffix-based skipping (a personal path in a UTF-8 file
+    named `.pdf` is still a leak), decode-error skipping (invalid UTF-8 is a
+    bypass, not a reason to stop looking), and `is_file()` gating (a dangling
+    symlink is not a file, but its *target string* leaks the path).
+    """
+
     def test_no_personal_home_paths_in_exported_skills(self):
         offenders = []
         for path in sorted(SKILLS.rglob("*")):
-            if not path.is_file() or path.suffix.lower() in SKIP_SUFFIXES:
-                continue
             rel_to_skills = path.relative_to(SKILLS).as_posix()
             if rel_to_skills in VENDORED_ALLOWED_FILES:
                 continue
-            try:
-                text = path.read_text(encoding="utf-8")
-            except (UnicodeDecodeError, ValueError):
-                continue  # binary payload, nothing to review
+            rel = path.relative_to(REPO_ROOT)
+
+            # A symlink's target is text we ship, whether or not it resolves.
+            if path.is_symlink():
+                _scan_line(rel, 0, os.readlink(path), offenders)
+                continue
+            if path.is_dir():
+                continue
+
+            raw = path.read_bytes()
+            if b"\x00" in raw:
+                continue  # genuinely binary: no reviewable text
+            # errors="replace" rather than skipping: invalid UTF-8 must not be
+            # a way to smuggle a path past the guard.
+            text = raw.decode("utf-8", errors="replace")
             for lineno, line in enumerate(text.splitlines(), start=1):
-                for match in PERSONAL_HOME.finditer(line):
-                    if match.group(1) in ALLOWED_SEGMENTS:
-                        continue
-                    rel = path.relative_to(REPO_ROOT)
-                    offenders.append(f"{rel}:{lineno}: {match.group(0)}")
+                _scan_line(rel, lineno, line, offenders)
 
         self.assertEqual(
             offenders,
