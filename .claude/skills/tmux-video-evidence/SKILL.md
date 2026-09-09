@@ -34,9 +34,9 @@ Record these sections in order:
 
 ## Evidence Script Template
 
-Create `/tmp/${WORK_NAME:-work}_evidence.sh`:
+This template contains placeholders. Do not execute it directly or invent fallback defaults. Before creating `/tmp/${WORK_NAME:-work}_evidence.sh`, complete all placeholder fields with the user's actual PR number, scoped test command, and relevant modified files:
 
-```bash
+```text
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -53,14 +53,14 @@ echo "=== 2. COMMIT LOG ==="
 git log --oneline origin/main..HEAD
 
 echo "=== 3. CODE DIFFS ==="
-git diff origin/main...HEAD -- path/to/important_file_1.py | head -80
-git diff origin/main...HEAD -- path/to/important_file_2.py | head -80
+git diff origin/main...HEAD -- <path/to/important_file_1.py> | head -80
+git diff origin/main...HEAD -- <path/to/important_file_2.py> | head -80
 
 echo "=== 4. PR STATUS ==="
-gh pr view "${PR_NUMBER:-1}" --json number,title,url,state,headRefName
+gh pr view "<PR_NUMBER>" --json number,title,url,state,headRefName
 
 echo "=== 5. LIVE TEST EXECUTION (SANITIZED) ==="
-${TEST_COMMAND:-pytest} 2>&1 \
+<SCOPED_TEST_COMMAND> 2>&1 \
   | sed -E \
       -e 's#/Users/[^/]+/#/Users/REDACTED/#g' \
       -e 's#/private/var/folders/[^[:space:]]+#/private/var/folders/REDACTED#g'
@@ -98,7 +98,51 @@ Use `~/.claude/skills/video-caption/SKILL.md` when you need to generate burned-i
 
 Follow `~/.claude/skills/evidence-standards/SKILL.md` for publication authority, audience, and destination. A PR, checked-in document, access-controlled receipt/store, or authorized gist may link the evidence. A gist or GitHub upload is not an independent acceptance requirement. Preserve real media, captions, exact source provenance, and reviewer access; publish only within the current authorization.
 
-The following GitHub release example applies only when that destination is authorized. Set `caption_file` to the actual generated `.vtt` or `.srt` path when using a sidecar; leave it empty only when captions are already burned into the video. The asset list includes the sidecar only when set.
+The following GitHub release example applies only when that destination is authorized. Verify all declared media and caption inputs exist before creating the release; do not invent fallback PR targets. Set `caption_file` to the actual generated `.vtt` or `.srt` path when using a sidecar; leave it empty only when captions are already burned into the video. The asset list includes the sidecar only when set.
+
+```bash
+(
+  set -euo pipefail
+  if [[ -z "${PR_NUMBER:-}" || "$PR_NUMBER" == *"<"* ]]; then
+    echo "Error: PR_NUMBER must be set to a valid PR number before publication" >&2
+    exit 1
+  fi
+
+  video_file="${VIDEO_FILE:-/tmp/terminal.mp4}"
+  preview_file="${PREVIEW_FILE:-/tmp/terminal.gif}"
+  caption_file="${CAPTION_FILE:-}"  # Set to the actual .vtt or .srt path unless captions are burned in.
+  zip_file="${ZIP_FILE:-/tmp/terminal.mp4.zip}"
+
+  if [ ! -f "$video_file" ]; then
+    echo "Error: Video file '$video_file' not found" >&2
+    exit 1
+  fi
+  if [ ! -f "$preview_file" ]; then
+    echo "Error: Preview file '$preview_file' not found" >&2
+    exit 1
+  fi
+  if [ -n "$caption_file" ] && [ ! -f "$caption_file" ]; then
+    echo "Error: Caption sidecar '$caption_file' specified but not found" >&2
+    exit 1
+  fi
+
+  zip -j "$zip_file" "$video_file"
+
+  assets=("$zip_file" "$preview_file")
+  if [ -n "$caption_file" ]; then
+    assets+=("$caption_file")
+  fi
+
+  tag="evidence-pr-${PR_NUMBER}"
+  gh release create "$tag" --draft --title "PR #${PR_NUMBER} Evidence" --notes ""
+  gh release upload "$tag" "${assets[@]}" --clobber
+  gh release view "$tag" --json assets,url
+)
+```
+
+From the JSON output returned by `gh release view`, extract the uploaded asset URLs and construct `/tmp/evidence_comment.md`. Do not guess draft asset download URLs or invent placeholder URLs.
+
+Once `/tmp/evidence_comment.md` is constructed, post the comment to the authorized PR:
 
 ```bash
 (
@@ -108,18 +152,12 @@ The following GitHub release example applies only when that destination is autho
     exit 1
   fi
   target_pr="${PR_NUMBER_OR_URL:-$PR_NUMBER}"
-
-  caption_file=""  # Set to the actual .vtt or .srt path unless captions are burned in.
-  assets=("/tmp/terminal.mp4.zip" "/abs/path/to/terminal.gif")
-  if [ -n "$caption_file" ]; then
-    assets+=("$caption_file")
+  comment_file="${COMMENT_FILE:-/tmp/evidence_comment.md}"
+  if [ ! -s "$comment_file" ]; then
+    echo "Error: Comment body file '$comment_file' does not exist or is empty" >&2
+    exit 1
   fi
-  zip -j /tmp/terminal.mp4.zip /abs/path/to/terminal.mp4
-  tag="evidence-pr-${PR_NUMBER}"
-  gh release create "$tag" --draft --title "PR #${PR_NUMBER} Evidence" --notes ""
-  gh release upload "$tag" "${assets[@]}" --clobber
-  gh release view "$tag" --json assets,url
-  gh pr comment "$target_pr" --body-file /tmp/evidence_comment.md
+  gh pr comment "$target_pr" --body-file "$comment_file"
 )
 ```
 
