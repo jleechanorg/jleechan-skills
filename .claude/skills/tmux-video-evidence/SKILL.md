@@ -104,8 +104,35 @@ The following GitHub release example applies only when that destination is autho
 (
   set -euo pipefail
   repo="${REPO:-}"
-  target_pr="${PR_NUMBER_OR_URL:-${PR_NUMBER:-}}"
-  if [[ "$target_pr" =~ github\.com/([^/]+/[^/]+)/pull/([0-9]+) ]]; then
+  url_regex='^https://github\.com/([^/]+/[^/]+)/pull/([1-9][0-9]*)/?$'
+
+  if [[ -n "${PR_NUMBER_OR_URL:-}" ]]; then
+    if [[ "$PR_NUMBER_OR_URL" =~ $url_regex ]]; then
+      url_repo="${BASH_REMATCH[1]}"
+      url_pr="${BASH_REMATCH[2]}"
+      if [[ -n "$repo" && "$repo" != "$url_repo" ]]; then
+        echo "Error: Conflicting repository target '$repo' vs PR URL '$url_repo'" >&2
+        exit 1
+      fi
+      repo="${repo:-$url_repo}"
+      if [[ -n "${PR_NUMBER:-}" && "${PR_NUMBER}" != "$url_pr" ]]; then
+        echo "Error: Conflicting PR number '${PR_NUMBER}' vs PR URL '$url_pr'" >&2
+        exit 1
+      fi
+      PR_NUMBER="$url_pr"
+    elif [[ "$PR_NUMBER_OR_URL" =~ ^[1-9][0-9]*$ ]]; then
+      if [[ -n "${PR_NUMBER:-}" && "${PR_NUMBER}" != "$PR_NUMBER_OR_URL" ]]; then
+        echo "Error: Conflicting PR number '${PR_NUMBER}' vs PR_NUMBER_OR_URL '$PR_NUMBER_OR_URL'" >&2
+        exit 1
+      fi
+      PR_NUMBER="${PR_NUMBER:-$PR_NUMBER_OR_URL}"
+    else
+      echo "Error: PR_NUMBER_OR_URL must be a valid GitHub PR URL or positive PR number" >&2
+      exit 1
+    fi
+  fi
+
+  if [[ -n "${PR_NUMBER:-}" && "$PR_NUMBER" =~ $url_regex ]]; then
     url_repo="${BASH_REMATCH[1]}"
     url_pr="${BASH_REMATCH[2]}"
     if [[ -n "$repo" && "$repo" != "$url_repo" ]]; then
@@ -113,14 +140,10 @@ The following GitHub release example applies only when that destination is autho
       exit 1
     fi
     repo="${repo:-$url_repo}"
-    if [[ -n "${PR_NUMBER:-}" && "${PR_NUMBER}" != "$url_pr" ]]; then
-      echo "Error: Conflicting PR number '${PR_NUMBER}' vs PR URL '$url_pr'" >&2
-      exit 1
-    fi
-    PR_NUMBER="${PR_NUMBER:-$url_pr}"
+    PR_NUMBER="$url_pr"
   fi
 
-  if [[ -z "${PR_NUMBER:-}" || "$PR_NUMBER" == *"<"* ]]; then
+  if [[ -z "${PR_NUMBER:-}" || "$PR_NUMBER" == *"<"* || ! "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
     echo "Error: PR_NUMBER must be set to a valid PR number before publication" >&2
     exit 1
   fi
@@ -128,7 +151,7 @@ The following GitHub release example applies only when that destination is autho
     echo "Error: REPO must be set to a valid owner/repo before publication" >&2
     exit 1
   fi
-  if [[ "$repo" != */* ]]; then
+  if [[ ! "$repo" =~ ^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$ ]]; then
     echo "Error: REPO must be in the format 'owner/repo'" >&2
     exit 1
   fi
@@ -179,8 +202,35 @@ Once `/tmp/evidence_comment.md` is constructed, post the comment to the authoriz
 (
   set -euo pipefail
   repo="${REPO:-}"
-  target_pr="${PR_NUMBER_OR_URL:-${PR_NUMBER:-}}"
-  if [[ "$target_pr" =~ github\.com/([^/]+/[^/]+)/pull/([0-9]+) ]]; then
+  url_regex='^https://github\.com/([^/]+/[^/]+)/pull/([1-9][0-9]*)/?$'
+
+  if [[ -n "${PR_NUMBER_OR_URL:-}" ]]; then
+    if [[ "$PR_NUMBER_OR_URL" =~ $url_regex ]]; then
+      url_repo="${BASH_REMATCH[1]}"
+      url_pr="${BASH_REMATCH[2]}"
+      if [[ -n "$repo" && "$repo" != "$url_repo" ]]; then
+        echo "Error: Conflicting repository target '$repo' vs PR URL '$url_repo'" >&2
+        exit 1
+      fi
+      repo="${repo:-$url_repo}"
+      if [[ -n "${PR_NUMBER:-}" && "${PR_NUMBER}" != "$url_pr" ]]; then
+        echo "Error: Conflicting PR number '${PR_NUMBER}' vs PR URL '$url_pr'" >&2
+        exit 1
+      fi
+      PR_NUMBER="$url_pr"
+    elif [[ "$PR_NUMBER_OR_URL" =~ ^[1-9][0-9]*$ ]]; then
+      if [[ -n "${PR_NUMBER:-}" && "${PR_NUMBER}" != "$PR_NUMBER_OR_URL" ]]; then
+        echo "Error: Conflicting PR number '${PR_NUMBER}' vs PR_NUMBER_OR_URL '$PR_NUMBER_OR_URL'" >&2
+        exit 1
+      fi
+      PR_NUMBER="${PR_NUMBER:-$PR_NUMBER_OR_URL}"
+    else
+      echo "Error: PR_NUMBER_OR_URL must be a valid GitHub PR URL or positive PR number" >&2
+      exit 1
+    fi
+  fi
+
+  if [[ -n "${PR_NUMBER:-}" && "$PR_NUMBER" =~ $url_regex ]]; then
     url_repo="${BASH_REMATCH[1]}"
     url_pr="${BASH_REMATCH[2]}"
     if [[ -n "$repo" && "$repo" != "$url_repo" ]]; then
@@ -188,14 +238,10 @@ Once `/tmp/evidence_comment.md` is constructed, post the comment to the authoriz
       exit 1
     fi
     repo="${repo:-$url_repo}"
-    if [[ -n "${PR_NUMBER:-}" && "${PR_NUMBER}" != "$url_pr" ]]; then
-      echo "Error: Conflicting PR number '${PR_NUMBER}' vs PR URL '$url_pr'" >&2
-      exit 1
-    fi
-    target_pr="$url_pr"
+    PR_NUMBER="$url_pr"
   fi
 
-  if [[ -z "${target_pr:-}" || "$target_pr" == *"<"* ]]; then
+  if [[ -z "${PR_NUMBER:-}" || "$PR_NUMBER" == *"<"* || ! "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
     echo "Error: PR_NUMBER must be set to a valid PR number before publication" >&2
     exit 1
   fi
@@ -203,10 +249,12 @@ Once `/tmp/evidence_comment.md` is constructed, post the comment to the authoriz
     echo "Error: REPO must be set to a valid owner/repo before publication" >&2
     exit 1
   fi
-  if [[ "$repo" != */* ]]; then
+  if [[ ! "$repo" =~ ^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$ ]]; then
     echo "Error: REPO must be in the format 'owner/repo'" >&2
     exit 1
   fi
+
+  target_pr="$PR_NUMBER"
 
   comment_file="${COMMENT_FILE:-/tmp/evidence_comment.md}"
   if [ ! -s "$comment_file" ]; then
