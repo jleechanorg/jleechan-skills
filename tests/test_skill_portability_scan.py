@@ -903,6 +903,88 @@ print("NOT_VALID_JSON")
         self.assertIn("```text\n", slack_sec, "Slack upload template must use text fence")
         self.assertNotIn("```bash\n", slack_sec, "Slack upload template must not use bash fence")
 
+    def _create_gh_test_env(self, test_dir: Path, calls_file: Path) -> dict[str, str]:
+        disposable_home = test_dir / "disposable_home"
+        disposable_home.mkdir(parents=True, exist_ok=True)
+        gh_config = disposable_home / "gh"
+        gh_config.mkdir(parents=True, exist_ok=True)
+        stub_dir = test_dir / "bin"
+        stub_dir.mkdir(parents=True, exist_ok=True)
+
+        fake_gh = stub_dir / "gh"
+        fake_gh.write_text(f"""#!{sys.executable}
+import json, os, sys
+
+calls_file = {repr(str(calls_file))}
+mode = os.environ.get("GH_STUB_MODE", "first_run")
+with open(calls_file, "a") as f:
+    f.write(json.dumps({{"mode": mode, "argv": sys.argv[1:]}}) + "\\n")
+
+args = sys.argv[1:]
+if len(args) >= 2 and args[0] == "release":
+    subcmd = args[1]
+    if subcmd == "create":
+        if mode == "first_run":
+            sys.exit(0)
+        elif mode in ("repeat_draft", "conflicting_published", "fail_view"):
+            sys.exit(1)
+        sys.exit(0)
+    elif subcmd == "view":
+        if mode == "fail_view":
+            sys.exit(1)
+        if "--jq" in args:
+            jq_idx = args.index("--jq")
+            if args[jq_idx + 1] == ".isDraft":
+                if mode in ("repeat_draft", "first_run"):
+                    print("true")
+                    sys.exit(0)
+                elif mode == "conflicting_published":
+                    print("false")
+                    sys.exit(0)
+                else:
+                    print("false")
+                    sys.exit(0)
+        print(json.dumps({{"url": "https://github.com/example/repo/releases/tag/v1", "assets": [{{"name": "a", "url": "https://example.com/a"}}]}}))
+        sys.exit(0)
+    elif subcmd == "upload":
+        if mode == "fail_upload":
+            sys.exit(1)
+        sys.exit(0)
+    else:
+        print(f"STUB_REFUSED: unknown release command {{subcmd}}", file=sys.stderr)
+        sys.exit(86)
+elif len(args) >= 2 and args[0] == "pr":
+    subcmd = args[1]
+    if subcmd in ("comment", "edit", "view"):
+        sys.exit(0)
+    else:
+        print(f"STUB_REFUSED: unknown pr command {{subcmd}}", file=sys.stderr)
+        sys.exit(86)
+else:
+    print(f"STUB_REFUSED: unknown command {{args}}", file=sys.stderr)
+    sys.exit(86)
+""")
+        fake_gh.chmod(0o755)
+
+        clean_env = {
+            k: v for k, v in os.environ.items()
+            if not any(part in k.upper() for part in ("TOKEN", "SECRET", "CREDENTIAL", "API_KEY", "PASSWORD"))
+            and not k.startswith("BASH_FUNC_gh")
+            and k != "GH_TOKEN"
+        }
+        clean_env["HOME"] = str(disposable_home)
+        clean_env["CLAUDE_HOME"] = str(disposable_home / ".claude")
+        clean_env["CODEX_HOME"] = str(disposable_home / ".codex")
+        clean_env["GH_CONFIG_DIR"] = str(gh_config)
+        clean_env["XDG_CONFIG_HOME"] = str(disposable_home / ".config")
+        clean_env["GIT_CONFIG_GLOBAL"] = os.devnull
+        clean_env["GIT_CONFIG_NOSYSTEM"] = "1"
+        clean_env["GH_PROMPT_DISABLED"] = "1"
+        clean_env["BASH_ENV"] = os.devnull
+        clean_env["ENV"] = os.devnull
+        clean_env["PATH"] = f"{stub_dir}:{clean_env.get('PATH', '/usr/bin:/bin')}"
+        return clean_env
+
     def test_video_evidence_publication_snippets_guard_unset_pr_and_contained(self):
         owners = [
             REPO_ROOT / ".claude/skills/tmux-video-evidence/SKILL.md",
@@ -918,78 +1000,131 @@ print("NOT_VALID_JSON")
                 block1 = blocks[1].split("\n```", 1)[0]
                 block2 = blocks[2].split("\n```", 1)[0]
 
+                test_dir = self.tmp_path / f"pub_test_{skill_file.name}_{skill_file.parent.name}"
+                test_dir.mkdir(parents=True, exist_ok=True)
+                calls_file = test_dir / "gh-calls.jsonl"
+                env = self._create_gh_test_env(test_dir, calls_file)
+
+                # 0. Task-local stub must refuse unknown commands
+                res_unk = subprocess.run(["gh", "repo", "delete", "some/repo"], env=env, capture_output=True, text=True)
+                self.assertEqual(res_unk.returncode, 86)
+                self.assertIn("STUB_REFUSED", res_unk.stderr)
+                if calls_file.exists():
+                    calls_file.unlink()
+
                 # --- Block 1: Release create / upload / view ---
 
                 # 1. Unset PR_NUMBER must fail informatively before calling gh and exit non-zero
                 res_unset = subprocess.run(
                     ["bash", "-c", "unset PR_NUMBER PR_NUMBER_OR_URL\n" + block1],
-                    capture_output=True, text=True,
+                    env=env, capture_output=True, text=True,
                 )
                 self.assertNotEqual(res_unset.returncode, 0, f"Unset PR_NUMBER must fail in {skill_file.name}")
                 self.assertIn("PR_NUMBER", res_unset.stderr)
+                self.assertFalse(calls_file.exists())
 
                 # 2. Placeholder <PR_NUMBER> must fail informatively before calling gh
                 res_placeholder = subprocess.run(
                     ["bash", "-c", 'PR_NUMBER="<PR_NUMBER>"\n' + block1],
-                    capture_output=True, text=True,
+                    env=env, capture_output=True, text=True,
                 )
                 self.assertNotEqual(res_placeholder.returncode, 0, f"Placeholder PR_NUMBER must fail in {skill_file.name}")
                 self.assertIn("PR_NUMBER", res_placeholder.stderr)
+                self.assertFalse(calls_file.exists())
 
-                # 3. Missing video or preview file must fail before calling gh (stub gh sees 0 calls)
-                test_dir = self.tmp_path / f"pub_test_{skill_file.name}_{skill_file.parent.name}"
-                test_dir.mkdir(parents=True, exist_ok=True)
-                calls_file = test_dir / "gh-calls.jsonl"
-                stub_dir = test_dir / "bin"
-                stub_dir.mkdir(exist_ok=True)
-                fake_gh = stub_dir / "gh"
-                fake_gh.write_text(f"""#!{sys.executable}
-import json, sys
-with open({repr(str(calls_file))}, "a") as f:
-    f.write(json.dumps(sys.argv[1:]) + "\\n")
-if "view" in sys.argv:
-    print(json.dumps({{"url": "https://github.com/example/repo/releases/tag/v1", "assets": [{{"name": "a", "url": "https://example.com/a"}}]}}))
-sys.exit(0)
-""")
-                fake_gh.chmod(0o755)
-                env = {**os.environ, "PATH": f"{stub_dir}:{os.environ['PATH']}"}
+                # 3. Unset REPO must fail informatively before calling gh
+                res_unset_repo = subprocess.run(
+                    ["bash", "-c", 'PR_NUMBER="42"\nunset REPO PR_NUMBER_OR_URL\n' + block1],
+                    env=env, capture_output=True, text=True,
+                )
+                self.assertNotEqual(res_unset_repo.returncode, 0, f"Unset REPO must fail in {skill_file.name}")
+                self.assertIn("REPO", res_unset_repo.stderr)
+                self.assertFalse(calls_file.exists())
 
-                # Video file missing
+                # 4. Placeholder REPO must fail informatively before calling gh
+                res_placeholder_repo = subprocess.run(
+                    ["bash", "-c", 'PR_NUMBER="42"\nREPO="<owner/repo>"\n' + block1],
+                    env=env, capture_output=True, text=True,
+                )
+                self.assertNotEqual(res_placeholder_repo.returncode, 0, f"Placeholder REPO must fail in {skill_file.name}")
+                self.assertIn("REPO", res_placeholder_repo.stderr)
+                self.assertFalse(calls_file.exists())
+
+                # 5. Conflicting target repository must fail before calling gh
+                res_conflict_repo = subprocess.run(
+                    ["bash", "-c", 'PR_NUMBER="42"\nREPO="intended/repo"\nPR_NUMBER_OR_URL="https://github.com/conflicting/repo/pull/42"\n' + block1],
+                    env=env, capture_output=True, text=True,
+                )
+                self.assertNotEqual(res_conflict_repo.returncode, 0)
+                self.assertIn("Conflicting", res_conflict_repo.stderr)
+                self.assertFalse(calls_file.exists())
+
+                # 6. Conflicting PR number must fail before calling gh
+                res_conflict_pr = subprocess.run(
+                    ["bash", "-c", 'PR_NUMBER="42"\nREPO="intended/repo"\nPR_NUMBER_OR_URL="https://github.com/intended/repo/pull/99"\n' + block1],
+                    env=env, capture_output=True, text=True,
+                )
+                self.assertNotEqual(res_conflict_pr.returncode, 0)
+                self.assertIn("Conflicting", res_conflict_pr.stderr)
+                self.assertFalse(calls_file.exists())
+
+                # 7. Missing video or preview file must fail before calling gh (stub gh sees 0 calls)
+                dummy_video = test_dir / "video.mp4"
+                dummy_video.write_bytes(b"dummy video data")
+                dummy_preview = test_dir / "preview.gif"
+                dummy_preview.write_bytes(b"dummy gif data")
+
                 res_missing_video = subprocess.run(
-                    ["bash", "-c", f'PR_NUMBER="42"\nVIDEO_FILE="{test_dir}/nonexistent.mp4"\n' + block1],
+                    ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nVIDEO_FILE="{test_dir}/nonexistent.mp4"\n' + block1],
                     env=env, capture_output=True, text=True,
                 )
                 self.assertNotEqual(res_missing_video.returncode, 0)
                 self.assertFalse(calls_file.exists(), "gh must not be called when video file is missing")
 
                 # Missing caption file when specified
-                dummy_video = test_dir / "video.mp4"
-                dummy_video.write_bytes(b"dummy video data")
-                dummy_preview = test_dir / "preview.gif"
-                dummy_preview.write_bytes(b"dummy gif data")
                 res_missing_caption = subprocess.run(
-                    ["bash", "-c", f'PR_NUMBER="42"\nVIDEO_FILE="{dummy_video}"\nPREVIEW_FILE="{dummy_preview}"\nCAPTION_FILE="{test_dir}/missing.vtt"\n' + block1],
+                    ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nVIDEO_FILE="{dummy_video}"\nPREVIEW_FILE="{dummy_preview}"\nCAPTION_FILE="{test_dir}/missing.vtt"\n' + block1],
                     env=env, capture_output=True, text=True,
                 )
                 self.assertNotEqual(res_missing_caption.returncode, 0)
                 self.assertFalse(calls_file.exists(), "gh must not be called when declared caption file is missing")
 
-                # Positive test for Block 1 with valid inputs and caption sidecar
+                # 8. Positive test for Block 1 with valid inputs and caption sidecar
                 dummy_caption = test_dir / "captions.vtt"
                 dummy_caption.write_text("WEBVTT\n\n00:00.000 --> 00:01.000\nCaption\n")
                 zip_out = test_dir / "archive.zip"
                 res_pos1 = subprocess.run(
-                    ["bash", "-c", f'PR_NUMBER="42"\nVIDEO_FILE="{dummy_video}"\nPREVIEW_FILE="{dummy_preview}"\nCAPTION_FILE="{dummy_caption}"\nZIP_FILE="{zip_out}"\n' + block1],
+                    ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nVIDEO_FILE="{dummy_video}"\nPREVIEW_FILE="{dummy_preview}"\nCAPTION_FILE="{dummy_caption}"\nZIP_FILE="{zip_out}"\n' + block1],
                     env=env, capture_output=True, text=True,
                 )
                 self.assertEqual(res_pos1.returncode, 0, res_pos1.stderr + res_pos1.stdout)
                 self.assertTrue(zip_out.exists(), "Zip artifact must be created")
                 self.assertTrue(calls_file.exists())
-                logged_calls = [json.loads(line) for line in calls_file.read_text().splitlines()]
+                logged_calls = [json.loads(line)["argv"] for line in calls_file.read_text().splitlines()]
                 self.assertEqual(len(logged_calls), 3)
-                self.assertEqual(logged_calls[0], ["release", "create", "evidence-pr-42", "--draft", "--title", "PR #42 Evidence", "--notes", ""])
-                self.assertEqual(logged_calls[1], ["release", "upload", "evidence-pr-42", str(zip_out), str(dummy_preview), str(dummy_caption), "--clobber"])
-                self.assertEqual(logged_calls[2], ["release", "view", "evidence-pr-42", "--json", "assets,url"])
+                self.assertEqual(logged_calls[0], ["release", "create", "evidence-pr-42", "--repo", "intended/repo", "--draft", "--title", "PR #42 Evidence", "--notes", ""])
+                self.assertEqual(logged_calls[1], ["release", "upload", "evidence-pr-42", "--repo", "intended/repo", str(zip_out), str(dummy_preview), str(dummy_caption), "--clobber"])
+                self.assertEqual(logged_calls[2], ["release", "view", "evidence-pr-42", "--repo", "intended/repo", "--json", "assets,url"])
+
+                # 9. Wrong CWD test: Block 1 executed from a different repo binds intended repo via --repo
+                calls_file.unlink()
+                wrong_cwd = test_dir / "wrong_cwd"
+                wrong_cwd.mkdir(exist_ok=True)
+                git_env = {**env, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+                subprocess.run(["git", "init"], cwd=wrong_cwd, env=git_env, check=True, capture_output=True)
+                subprocess.run(["git", "remote", "add", "origin", "git@github.com:wrong-owner/wrong-repo.git"], cwd=wrong_cwd, env=git_env, check=True, capture_output=True)
+
+                res_wrong_cwd = subprocess.run(
+                    ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nVIDEO_FILE="{dummy_video}"\nPREVIEW_FILE="{dummy_preview}"\nCAPTION_FILE="{dummy_caption}"\nZIP_FILE="{zip_out}"\n' + block1],
+                    cwd=wrong_cwd, env=env, capture_output=True, text=True,
+                )
+                self.assertEqual(res_wrong_cwd.returncode, 0, res_wrong_cwd.stderr + res_wrong_cwd.stdout)
+                self.assertTrue(calls_file.exists())
+                calls_wrong = [json.loads(line)["argv"] for line in calls_file.read_text().splitlines()]
+                for call in calls_wrong:
+                    self.assertIn("--repo", call)
+                    self.assertIn("intended/repo", call)
+                    self.assertNotIn("wrong-repo", call)
 
                 # Caller survival on Block 1 failure
                 res_caller1 = subprocess.run(
@@ -1010,11 +1145,38 @@ sys.exit(0)
                 self.assertNotEqual(res_unset2.returncode, 0)
                 self.assertFalse(calls_file.exists())
 
+                # Unset REPO fails in Block 2
+                res_unset_repo2 = subprocess.run(
+                    ["bash", "-c", 'PR_NUMBER="42"\nunset REPO PR_NUMBER_OR_URL\n' + block2],
+                    env=env, capture_output=True, text=True,
+                )
+                self.assertNotEqual(res_unset_repo2.returncode, 0)
+                self.assertIn("REPO", res_unset_repo2.stderr)
+                self.assertFalse(calls_file.exists())
+
+                # Placeholder REPO fails in Block 2
+                res_ph_repo2 = subprocess.run(
+                    ["bash", "-c", 'PR_NUMBER="42"\nREPO="<owner/repo>"\n' + block2],
+                    env=env, capture_output=True, text=True,
+                )
+                self.assertNotEqual(res_ph_repo2.returncode, 0)
+                self.assertIn("REPO", res_ph_repo2.stderr)
+                self.assertFalse(calls_file.exists())
+
+                # Conflicting target repo in Block 2 fails before gh
+                res_conflict_repo2 = subprocess.run(
+                    ["bash", "-c", 'PR_NUMBER="42"\nREPO="intended/repo"\nPR_NUMBER_OR_URL="https://github.com/conflicting/repo/pull/42"\n' + block2],
+                    env=env, capture_output=True, text=True,
+                )
+                self.assertNotEqual(res_conflict_repo2.returncode, 0)
+                self.assertIn("Conflicting", res_conflict_repo2.stderr)
+                self.assertFalse(calls_file.exists())
+
                 # Missing or empty body file fails in Block 2
                 empty_body = test_dir / "empty_body.md"
                 empty_body.write_text("")
                 res_empty_body = subprocess.run(
-                    ["bash", "-c", f'PR_NUMBER="42"\nBODY_FILE="{empty_body}"\nCOMMENT_FILE="{empty_body}"\n' + block2],
+                    ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nBODY_FILE="{empty_body}"\nCOMMENT_FILE="{empty_body}"\n' + block2],
                     env=env, capture_output=True, text=True,
                 )
                 self.assertNotEqual(res_empty_body.returncode, 0)
@@ -1024,15 +1186,36 @@ sys.exit(0)
                 valid_body = test_dir / "valid_body.md"
                 valid_body.write_text("## Verified Evidence Content\n")
                 res_pos2 = subprocess.run(
-                    ["bash", "-c", f'PR_NUMBER="42"\nBODY_FILE="{valid_body}"\nCOMMENT_FILE="{valid_body}"\n' + block2],
+                    ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nBODY_FILE="{valid_body}"\nCOMMENT_FILE="{valid_body}"\n' + block2],
                     env=env, capture_output=True, text=True,
                 )
                 self.assertEqual(res_pos2.returncode, 0, res_pos2.stderr + res_pos2.stdout)
                 self.assertTrue(calls_file.exists())
-                logged_calls2 = [json.loads(line) for line in calls_file.read_text().splitlines()]
+                logged_calls2 = [json.loads(line)["argv"] for line in calls_file.read_text().splitlines()]
                 self.assertEqual(len(logged_calls2), 1)
                 expected_subcmd = "edit" if "ui-video-evidence" in str(skill_file) else "comment"
-                self.assertEqual(logged_calls2[0], ["pr", expected_subcmd, "42", "--body-file", str(valid_body)])
+                self.assertEqual(logged_calls2[0], ["pr", expected_subcmd, "42", "--repo", "intended/repo", "--body-file", str(valid_body)])
+
+                # Full PR URL derives REPO in Block 2
+                calls_file.unlink()
+                res_url2 = subprocess.run(
+                    ["bash", "-c", f'PR_NUMBER_OR_URL="https://github.com/intended/repo/pull/42"\nBODY_FILE="{valid_body}"\nCOMMENT_FILE="{valid_body}"\n' + block2],
+                    env=env, capture_output=True, text=True,
+                )
+                self.assertEqual(res_url2.returncode, 0, res_url2.stderr + res_url2.stdout)
+                logged_url2 = [json.loads(line)["argv"] for line in calls_file.read_text().splitlines()]
+                self.assertEqual(len(logged_url2), 1)
+                self.assertEqual(logged_url2[0], ["pr", expected_subcmd, "42", "--repo", "intended/repo", "--body-file", str(valid_body)])
+
+                # Wrong-CWD for Block 2
+                calls_file.unlink()
+                res_wrong_cwd2 = subprocess.run(
+                    ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nBODY_FILE="{valid_body}"\nCOMMENT_FILE="{valid_body}"\n' + block2],
+                    cwd=wrong_cwd, env=env, capture_output=True, text=True,
+                )
+                self.assertEqual(res_wrong_cwd2.returncode, 0, res_wrong_cwd2.stderr + res_wrong_cwd2.stdout)
+                logged_wrong2 = [json.loads(line)["argv"] for line in calls_file.read_text().splitlines()]
+                self.assertEqual(logged_wrong2[0], ["pr", expected_subcmd, "42", "--repo", "intended/repo", "--body-file", str(valid_body)])
 
                 # Caller survival on Block 2 failure
                 res_caller2 = subprocess.run(
@@ -1060,46 +1243,7 @@ sys.exit(0)
                 test_dir = self.tmp_path / f"rep_pub_{skill_file.name}_{skill_file.parent.name}"
                 test_dir.mkdir(parents=True, exist_ok=True)
                 calls_file = test_dir / "gh-calls.jsonl"
-                stub_dir = test_dir / "bin"
-                stub_dir.mkdir(exist_ok=True)
-                fake_gh = stub_dir / "gh"
-                fake_gh.write_text(f"""#!{sys.executable}
-import json, os, sys
-mode = os.environ.get("GH_STUB_MODE", "first_run")
-with open({repr(str(calls_file))}, "a") as f:
-    f.write(json.dumps({{"mode": mode, "argv": sys.argv[1:]}}) + "\\n")
-if len(sys.argv) >= 3 and sys.argv[1:3] == ["release", "create"]:
-    if mode == "first_run":
-        sys.exit(0)
-    elif mode in ("repeat_draft", "conflicting_published", "fail_view"):
-        sys.exit(1)
-if len(sys.argv) >= 3 and sys.argv[1:3] == ["release", "view"]:
-    if mode == "fail_view":
-        sys.exit(1)
-    if "--jq" in sys.argv:
-        jq_idx = sys.argv.index("--jq")
-        if sys.argv[jq_idx + 1] == ".isDraft":
-            if mode in ("repeat_draft", "first_run"):
-                print("true")
-                sys.exit(0)
-            elif mode == "conflicting_published":
-                print("false")
-                sys.exit(0)
-            else:
-                print("false")
-                sys.exit(0)
-    print(json.dumps({{"url": "https://github.com/example/repo/releases/tag/v1", "assets": [{{"name": "a", "url": "https://example.com/a"}}]}}))
-    sys.exit(0)
-if len(sys.argv) >= 3 and sys.argv[1:3] == ["release", "upload"]:
-    if mode == "fail_upload":
-        sys.exit(1)
-    sys.exit(0)
-if len(sys.argv) >= 3 and sys.argv[1] == "pr":
-    sys.exit(0)
-sys.exit(0)
-""")
-                fake_gh.chmod(0o755)
-                env = {**os.environ, "PATH": f"{stub_dir}:{os.environ['PATH']}"}
+                env = self._create_gh_test_env(test_dir, calls_file)
 
                 dummy_video = test_dir / "video.mp4"
                 dummy_video.write_bytes(b"dummy video data")
@@ -1113,6 +1257,7 @@ sys.exit(0)
 
                 base_cmd = (
                     f'PR_NUMBER="42"\n'
+                    f'REPO="intended/repo"\n'
                     f'VIDEO_FILE="{dummy_video}"\n'
                     f'PREVIEW_FILE="{dummy_preview}"\n'
                     f'CAPTION_FILE="{dummy_caption}"\n'
@@ -1134,10 +1279,10 @@ sys.exit(0)
                 logged_repeat = [json.loads(line) for line in calls_file.read_text().splitlines()]
                 argvs_repeat = [c["argv"] if isinstance(c, dict) and "argv" in c else c for c in logged_repeat]
                 self.assertEqual(len(argvs_repeat), 4)
-                self.assertEqual(argvs_repeat[0], ["release", "create", "evidence-pr-42", "--draft", "--title", "PR #42 Evidence", "--notes", ""])
-                self.assertEqual(argvs_repeat[1], ["release", "view", "evidence-pr-42", "--json", "isDraft", "--jq", ".isDraft"])
-                self.assertEqual(argvs_repeat[2], ["release", "upload", "evidence-pr-42", str(zip_out), str(dummy_preview), str(dummy_caption), "--clobber"])
-                self.assertEqual(argvs_repeat[3], ["release", "view", "evidence-pr-42", "--json", "assets,url"])
+                self.assertEqual(argvs_repeat[0], ["release", "create", "evidence-pr-42", "--repo", "intended/repo", "--draft", "--title", "PR #42 Evidence", "--notes", ""])
+                self.assertEqual(argvs_repeat[1], ["release", "view", "evidence-pr-42", "--repo", "intended/repo", "--json", "isDraft", "--jq", ".isDraft"])
+                self.assertEqual(argvs_repeat[2], ["release", "upload", "evidence-pr-42", "--repo", "intended/repo", str(zip_out), str(dummy_preview), str(dummy_caption), "--clobber"])
+                self.assertEqual(argvs_repeat[3], ["release", "view", "evidence-pr-42", "--repo", "intended/repo", "--json", "assets,url"])
 
                 # 2. Conflicting published release: release create fails, view reports isDraft == false
                 if calls_file.exists():
@@ -1151,8 +1296,8 @@ sys.exit(0)
                 logged_conflict = [json.loads(line) for line in calls_file.read_text().splitlines()]
                 argvs_conflict = [c["argv"] if isinstance(c, dict) and "argv" in c else c for c in logged_conflict]
                 self.assertEqual(len(argvs_conflict), 2)
-                self.assertEqual(argvs_conflict[0][:3], ["release", "create", "evidence-pr-42"])
-                self.assertEqual(argvs_conflict[1][:3], ["release", "view", "evidence-pr-42"])
+                self.assertEqual(argvs_conflict[0][:4], ["release", "create", "evidence-pr-42", "--repo"])
+                self.assertEqual(argvs_conflict[1][:4], ["release", "view", "evidence-pr-42", "--repo"])
                 self.assertFalse(any(c[:2] == ["release", "upload"] for c in argvs_conflict), "Must not upload on published release conflict")
 
                 # 3. View failure after create failure
