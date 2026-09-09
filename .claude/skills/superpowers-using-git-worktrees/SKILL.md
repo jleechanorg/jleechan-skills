@@ -56,6 +56,10 @@ storage/access constraint prevents an appropriate isolated location.
   fi
   abs_location=$(python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$LOCATION")
   abs_repo=$(python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$repo_root")
+  if [[ "$abs_location" == "$abs_repo" ]]; then
+    echo "Error: LOCATION cannot be the repository root" >&2
+    exit 1
+  fi
   if [[ -n "$abs_repo" && -n "$abs_location" && "$abs_location" == "$abs_repo"/* ]]; then
     rc=0
     git check-ignore -q "$abs_location" 2>/dev/null || rc=$?
