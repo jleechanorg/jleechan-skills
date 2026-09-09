@@ -46,21 +46,21 @@ storage/access constraint prevents an appropriate isolated location.
 **MUST verify directory is ignored before creating worktree:**
 
 ```bash
-# Check if the specific directory being used is ignored (respects local, global, and system gitignore)
-# Use the actual $LOCATION variable value, not generic checks
-git check-ignore -q "$LOCATION" 2>/dev/null
+# Check if a project-local directory is ignored (respects local, global, and system gitignore)
+# External paths (outside repo root) are already isolated and must not be checked or added to info/exclude.
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null || true)
+if [[ -n "$repo_root" && "$LOCATION" == "$repo_root"/* ]]; then
+  git check-ignore -q "$LOCATION" 2>/dev/null
+fi
 ```
 
-**If NOT ignored:**
+**If NOT ignored (for a project-local directory):**
 
-For a user- or repository-selected location, authorized worktree setup includes
-adding its exact ignore entry to the repository-local `info/exclude` file
-(`git rev-parse --git-path info/exclude`), unless an explicit policy prohibits
-that change. Preserve unrelated entries and verify the selected path is ignored.
-Use an external location only when no location was specified, or when the user
-or repository permits that fallback. Ask only if an explicit constraint makes
-the selected location unusable; continue independent authorized work meanwhile.
-No unrelated tracked configuration commit is needed.
+For a user- or repository-selected project-local location inside the repository (where `git check-ignore` exited 1), authorized worktree setup includes adding its exact ignore entry to the repository-local `info/exclude` file (`git rev-parse --git-path info/exclude`), unless an explicit policy prohibits that change. Preserve unrelated entries and verify the selected path is ignored.
+
+Never add external directories (such as paths outside the repository created by `mktemp -d`) to `info/exclude`. An external path causes `git check-ignore` to exit with status 128 rather than 1, and external paths are already outside the project tree.
+
+Use an external location only when no location was specified, or when the user or repository permits that fallback. Ask only if an explicit constraint makes the selected location unusable; continue independent authorized work meanwhile. No unrelated tracked configuration commit is needed.
 
 **Why critical:** Prevents accidentally committing worktree contents to repository.
 
@@ -117,7 +117,7 @@ Proceeding with <next authorized task action>
 | `worktrees/` exists | Use it (verify ignored) |
 | Both exist | Use `.worktrees/` |
 | Neither exists | Check repository policy, then choose an external unique directory |
-| Selected directory not ignored | Add its exact local exclude entry unless prohibited; preserve explicit location constraints |
+| Selected project-local directory not ignored | Add its exact local exclude entry unless prohibited; never add external paths |
 | Tests fail during baseline | Capture, classify, and investigate within scope |
 | Setup is needed | Follow the repository bootstrap and shared environment |
 
