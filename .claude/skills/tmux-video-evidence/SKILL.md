@@ -103,8 +103,33 @@ The following GitHub release example applies only when that destination is autho
 ```bash
 (
   set -euo pipefail
+  repo="${REPO:-}"
+  target_pr="${PR_NUMBER_OR_URL:-${PR_NUMBER:-}}"
+  if [[ "$target_pr" =~ github\.com/([^/]+/[^/]+)/pull/([0-9]+) ]]; then
+    url_repo="${BASH_REMATCH[1]}"
+    url_pr="${BASH_REMATCH[2]}"
+    if [[ -n "$repo" && "$repo" != "$url_repo" ]]; then
+      echo "Error: Conflicting repository target '$repo' vs PR URL '$url_repo'" >&2
+      exit 1
+    fi
+    repo="${repo:-$url_repo}"
+    if [[ -n "${PR_NUMBER:-}" && "${PR_NUMBER}" != "$url_pr" ]]; then
+      echo "Error: Conflicting PR number '${PR_NUMBER}' vs PR URL '$url_pr'" >&2
+      exit 1
+    fi
+    PR_NUMBER="${PR_NUMBER:-$url_pr}"
+  fi
+
   if [[ -z "${PR_NUMBER:-}" || "$PR_NUMBER" == *"<"* ]]; then
     echo "Error: PR_NUMBER must be set to a valid PR number before publication" >&2
+    exit 1
+  fi
+  if [[ -z "${repo:-}" || "$repo" == *"<"* ]]; then
+    echo "Error: REPO must be set to a valid owner/repo before publication" >&2
+    exit 1
+  fi
+  if [[ "$repo" != */* ]]; then
+    echo "Error: REPO must be in the format 'owner/repo'" >&2
     exit 1
   fi
 
@@ -134,15 +159,15 @@ The following GitHub release example applies only when that destination is autho
   fi
 
   tag="evidence-pr-${PR_NUMBER}"
-  if ! gh release create "$tag" --draft --title "PR #${PR_NUMBER} Evidence" --notes ""; then
-    is_draft="$(gh release view "$tag" --json isDraft --jq '.isDraft')"
+  if ! gh release create "$tag" --repo "$repo" --draft --title "PR #${PR_NUMBER} Evidence" --notes ""; then
+    is_draft="$(gh release view "$tag" --repo "$repo" --json isDraft --jq '.isDraft')"
     if [ "$is_draft" != "true" ]; then
       echo "Error: Release '$tag' could not be created and is not a draft release" >&2
       exit 1
     fi
   fi
-  gh release upload "$tag" "${assets[@]}" --clobber
-  gh release view "$tag" --json assets,url
+  gh release upload "$tag" --repo "$repo" "${assets[@]}" --clobber
+  gh release view "$tag" --repo "$repo" --json assets,url
 )
 ```
 
@@ -153,17 +178,42 @@ Once `/tmp/evidence_comment.md` is constructed, post the comment to the authoriz
 ```bash
 (
   set -euo pipefail
-  if [[ -z "${PR_NUMBER:-}" || "$PR_NUMBER" == *"<"* ]]; then
+  repo="${REPO:-}"
+  target_pr="${PR_NUMBER_OR_URL:-${PR_NUMBER:-}}"
+  if [[ "$target_pr" =~ github\.com/([^/]+/[^/]+)/pull/([0-9]+) ]]; then
+    url_repo="${BASH_REMATCH[1]}"
+    url_pr="${BASH_REMATCH[2]}"
+    if [[ -n "$repo" && "$repo" != "$url_repo" ]]; then
+      echo "Error: Conflicting repository target '$repo' vs PR URL '$url_repo'" >&2
+      exit 1
+    fi
+    repo="${repo:-$url_repo}"
+    if [[ -n "${PR_NUMBER:-}" && "${PR_NUMBER}" != "$url_pr" ]]; then
+      echo "Error: Conflicting PR number '${PR_NUMBER}' vs PR URL '$url_pr'" >&2
+      exit 1
+    fi
+    target_pr="$url_pr"
+  fi
+
+  if [[ -z "${target_pr:-}" || "$target_pr" == *"<"* ]]; then
     echo "Error: PR_NUMBER must be set to a valid PR number before publication" >&2
     exit 1
   fi
-  target_pr="${PR_NUMBER_OR_URL:-$PR_NUMBER}"
+  if [[ -z "${repo:-}" || "$repo" == *"<"* ]]; then
+    echo "Error: REPO must be set to a valid owner/repo before publication" >&2
+    exit 1
+  fi
+  if [[ "$repo" != */* ]]; then
+    echo "Error: REPO must be in the format 'owner/repo'" >&2
+    exit 1
+  fi
+
   comment_file="${COMMENT_FILE:-/tmp/evidence_comment.md}"
   if [ ! -s "$comment_file" ]; then
     echo "Error: Comment body file '$comment_file' does not exist or is empty" >&2
     exit 1
   fi
-  gh pr comment "$target_pr" --body-file "$comment_file"
+  gh pr comment "$target_pr" --repo "$repo" --body-file "$comment_file"
 )
 ```
 
