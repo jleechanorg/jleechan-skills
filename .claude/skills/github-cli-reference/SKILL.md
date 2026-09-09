@@ -67,7 +67,7 @@ mean GitHub CLI is absent.
 
 ### ❌ NEVER Do This:
 1. **Don't reinstall over a working binary**: inspect the current PATH and platform first
-2. **Don't use /tmp**: Install to ~/.local/bin to comply with TEMPORARY FILE ISOLATION policy
+2. **Don't use /tmp**: Install to a supported location (system package manager or ~/.local/bin) to comply with TEMPORARY FILE ISOLATION policy; never install into /tmp
 3. **Don't add redundant prefix**: `GITHUB_TOKEN=$GITHUB_TOKEN` is unnecessary
 
 ## Command Reference
@@ -250,9 +250,9 @@ mean GitHub CLI is absent.
 **Cause**: Token lacks required permissions
 **Solution**: Verify token scopes with `gh auth status`, ensure token has `repo` scope
 
-### Binary not found: "~/.local/bin/gh"
-**Cause**: gh CLI not installed yet
-**Solution**: Run installation steps from "Installation (One-Time Setup)" section
+### Binary not found: "gh"
+**Cause**: gh CLI not installed or not on PATH
+**Solution**: Follow Step 0 to discover the binary or install via the platform's supported method (e.g. `brew install gh` on macOS or `~/.local/bin/gh` on Linux)
 
 ## Advanced Patterns
 
@@ -361,3 +361,19 @@ When using gh CLI, always:
 3. Show relevant actual output with credentials redacted
 4. Report diagnostic errors with credentials redacted
 5. Verify authentication status if commands fail
+
+## Before declaring GitHub/API work blocked — source of truth
+
+Origin: `~/.claude/CLAUDE.md` § GitHub API fallback before blocking
+(compressed there to a pointer 2026-09-06; this section is the full policy).
+
+Never report GitHub/API work as blocked without first, independently, trying
+**both** REST and GraphQL where the operation permits either (they are
+separate quota buckets — see "REST ↔ GraphQL are separate quota buckets"
+above). Public REST endpoints may be tried **unauthenticated** when the
+authenticated quota is exhausted; unauthenticated and authenticated paths can
+have different read/write permissions and rate limits, so a 403 on one is not
+proof the other is unavailable. Use bounded probes (a fixed small number of
+attempts, not an open retry loop) and respect any circuit breaker already in
+place. Never loop indefinitely on a failing call, and never bypass
+authentication or safety checks to force a call through.
