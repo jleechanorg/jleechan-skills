@@ -108,10 +108,11 @@ if [ -n "$caption_file" ]; then
   assets+=("$caption_file")
 fi
 zip -j /tmp/terminal.mp4.zip /abs/path/to/terminal.mp4
-gh release create evidence-pr-<PR_NUMBER> --draft --title "PR #<PR_NUMBER> Evidence" --notes "" 2>/dev/null || true
-gh release upload evidence-pr-<PR_NUMBER> "${assets[@]}" --clobber
-gh release view evidence-pr-<PR_NUMBER> --json assets,url
-gh pr comment <PR_NUMBER_OR_URL> --body-file /tmp/evidence_comment.md
+tag="evidence-pr-${PR_NUMBER}"
+gh release create "$tag" --draft --title "PR #${PR_NUMBER} Evidence" --notes "" 2>/dev/null || true
+gh release upload "$tag" "${assets[@]}" --clobber
+gh release view "$tag" --json assets,url
+gh pr comment "$PR_NUMBER_OR_URL" --body-file /tmp/evidence_comment.md
 ```
 
 Behavior:
