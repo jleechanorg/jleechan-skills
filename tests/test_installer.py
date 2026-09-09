@@ -190,7 +190,7 @@ class InstallerIntegrationTest(unittest.TestCase):
                     self.assertTrue(scripts.is_symlink())
                     self.assertFalse((external / "nested/tool.py").exists())
 
-    def test_history_helper_upgrade_requires_backup_but_identical_merge_is_safe(self):
+    def test_history_helper_source_upgrade_succeeds_on_merge_and_rejects_local_edits(self):
         with tempfile.TemporaryDirectory() as directory:
             temp_dir = Path(directory)
             fixture = self.make_fixture(temp_dir)
@@ -201,20 +201,40 @@ class InstallerIntegrationTest(unittest.TestCase):
             self.assertEqual(
                 installed.returncode, 0, installed.stdout + installed.stderr
             )
+            self.assertEqual(
+                (target / "scripts/history_search.py").read_text(),
+                "print('version one')\n",
+            )
             identical = self.run_installer(fixture, target, "--merge")
             self.assertEqual(
                 identical.returncode, 0, identical.stdout + identical.stderr
             )
 
+            # Upgraded source should safely upgrade on --merge
             source.write_text("print('version two')\n")
-            refused = self.run_installer(fixture, target, "--merge")
-            self.assertNotEqual(refused.returncode, 0, refused.stdout)
+            upgraded = self.run_installer(fixture, target, "--merge")
+            self.assertEqual(
+                upgraded.returncode, 0, upgraded.stdout + upgraded.stderr
+            )
             self.assertEqual(
                 (target / "scripts/history_search.py").read_text(),
-                "print('version one')\n",
+                "print('version two')\n",
             )
-            upgraded = self.run_installer(fixture, target, "--backup")
-            self.assertEqual(upgraded.returncode, 0, upgraded.stdout + upgraded.stderr)
+
+            # Local modifications must be protected from overwrite
+            (target / "scripts/history_search.py").write_text("print('locally modified')\n")
+            source.write_text("print('version three')\n")
+            refused = self.run_installer(fixture, target, "--merge")
+            self.assertNotEqual(refused.returncode, 0)
+            self.assertIn("history helper", (refused.stderr + refused.stdout).lower())
+            self.assertEqual(
+                (target / "scripts/history_search.py").read_text(),
+                "print('locally modified')\n",
+            )
+
+            # --backup deliberately backs up and replaces the entire target
+            backup_run = self.run_installer(fixture, target, "--backup")
+            self.assertEqual(backup_run.returncode, 0, backup_run.stdout + backup_run.stderr)
             self.assertEqual(
                 (target / "scripts/history_search.py").read_text(), source.read_text()
             )
@@ -222,7 +242,7 @@ class InstallerIntegrationTest(unittest.TestCase):
             self.assertEqual(len(backups), 1)
             self.assertEqual(
                 (backups[0] / "scripts/history_search.py").read_text(),
-                "print('version one')\n",
+                "print('locally modified')\n",
             )
 
     def test_boundary_commands_resolve_skills_under_nondefault_claude_home(self):
@@ -721,30 +741,47 @@ class InstallerIntegrationTest(unittest.TestCase):
             self.assertFalse(list(temp_dir.glob("claude-home.backup-*")))
             self.assertFalse(list(temp_dir.glob("claude-home.staging-*")))
 
-    def test_merge_replaces_symlinked_skill_directory_to_readonly_target(self):
+    def test_merge_preserves_symlinked_skill_directory_and_does_not_write_target(self):
         with tempfile.TemporaryDirectory() as directory:
             temp_dir = Path(directory)
             fixture = self.make_fixture(temp_dir)
             target = temp_dir / "claude-home"
             target.mkdir()
-            readonly_release = temp_dir / "readonly-release" / "example"
-            readonly_release.mkdir(parents=True)
-            readonly_file = readonly_release / "SKILL.md"
-            readonly_file.write_text("# Readonly Skill\n", encoding="utf-8")
-            readonly_file.chmod(0o444)
-            readonly_release.chmod(0o555)
+
+            external_repo = temp_dir / "external-repo" / "dark-factory"
+            external_repo.mkdir(parents=True)
+            external_skill = external_repo / "SKILL.md"
+            external_bytes = b"# External Dark Factory Skill\n"
+            external_skill.write_bytes(external_bytes)
 
             skills_target = target / "skills"
             skills_target.mkdir()
-            (skills_target / "example").symlink_to(readonly_release)
+            linked_skill = skills_target / "dark-factory"
+            linked_skill.symlink_to(external_repo)
+
+            fixture_dark = fixture / ".claude/skills/dark-factory"
+            fixture_dark.mkdir(parents=True)
+            (fixture_dark / "SKILL.md").write_text("# Repo Managed Dark Factory\n")
+
+            # Also check source symlink entries copy appropriately
+            source_symlink = fixture / ".claude/skills/example/source-symlink.txt"
+            source_symlink_target = fixture / ".claude/skills/example/SKILL.md"
+            source_symlink.symlink_to(source_symlink_target.name)
 
             result = self.run_installer(fixture, target, "--merge")
 
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-            installed_skill = skills_target / "example" / "SKILL.md"
-            self.assertTrue(installed_skill.is_file())
-            self.assertFalse((skills_target / "example").is_symlink())
-            self.assertEqual(installed_skill.read_text(encoding="utf-8"), "# Skill\n")
+            # Topology: must remain the exact same symlink pointing to external_repo
+            self.assertTrue(linked_skill.is_symlink())
+            self.assertEqual(os.readlink(linked_skill), str(external_repo))
+            # External target must not be written
+            self.assertEqual(external_skill.read_bytes(), external_bytes)
+            # Regular skill still updated appropriately
+            self.assertTrue((skills_target / "example/SKILL.md").is_file())
+            self.assertEqual((skills_target / "example/SKILL.md").read_text(), "# Skill\n")
+            # Source symlink entry copied appropriately
+            installed_symlink = skills_target / "example/source-symlink.txt"
+            self.assertTrue(installed_symlink.is_symlink())
 
 
 if __name__ == "__main__":
