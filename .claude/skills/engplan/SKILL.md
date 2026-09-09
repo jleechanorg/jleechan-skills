@@ -69,10 +69,38 @@ changes. An open PR touching a file does not by itself block independent work.
 Before opening any new PR in the scope:
 ```bash
 TARGET_FILES=("path/to/file1.py" "path/to/file2.py")
-gh pr list --state open --limit 300 --json number,files | jq -r --args '
+
+if [ ${#TARGET_FILES[@]} -eq 0 ] || [[ "${TARGET_FILES[*]}" =~ \<.*\> ]]; then
+  echo "Error: TARGET_FILES must be set to actual file paths before running concurrency check" >&2
+  exit 1
+fi
+
+LIMIT=300
+if ! PR_DATA=$(gh pr list --state open --limit "$LIMIT" --json number,files); then
+  echo "Error: Failed to query open PRs from GitHub API" >&2
+  exit 1
+fi
+PR_COUNT=$(echo "$PR_DATA" | jq 'length')
+
+if [ "$PR_COUNT" -ge "$LIMIT" ]; then
+  echo "Notice: Open PR query reached limit ($LIMIT); inspecting bounded sample, older open PRs not checked." >&2
+fi
+
+MATCHING_PRS=$(echo "$PR_DATA" | jq -r --args '
   $ARGS.positional as $targets |
-  .[] | select(any(.files[]?.path; . as $p | $targets | index($p))) | .number
-' "${TARGET_FILES[@]}"
+  [ .[] | select(any(.files[]?.path; . as $p | $targets | index($p))) | .number ] | unique | .[]
+' "${TARGET_FILES[@]}")
+
+if [ -n "$MATCHING_PRS" ]; then
+  echo "Overlapping open PRs found:"
+  echo "$MATCHING_PRS"
+else
+  if [ "$PR_COUNT" -ge "$LIMIT" ]; then
+    echo "No overlapping PRs found within bounded sample of $LIMIT open PRs (exhaustive verification requires inspecting older PRs)."
+  else
+    echo "No overlapping open PRs found across all $PR_COUNT open PRs."
+  fi
+fi
 ```
 If non-empty, inspect actual overlap and coordinate the affected files. Continue independent authorized work.
 
@@ -213,13 +241,41 @@ boundaries required by the accepted plan; one coherent commit may be sufficient.
 | 2 | test and implementation | <test and source paths> | <estimate or n/a> | <tracking> | Capture required RED before the fix and verify GREEN |
 | 3 | broader evidence, if needed | <scoped driver or artifact> | <estimate or n/a> | <tracking> | Record results at the authorized destination |
 
-### Concurrency Rule (template — paste verbatim)
+### Concurrency Rule (template)
 ```bash
 TARGET_FILES=("path/to/file1.py" "path/to/file2.py")
-gh pr list --state open --limit 300 --json number,files | jq -r --args '
+
+if [ ${#TARGET_FILES[@]} -eq 0 ] || [[ "${TARGET_FILES[*]}" =~ \<.*\> ]]; then
+  echo "Error: TARGET_FILES must be set to actual file paths before running concurrency check" >&2
+  exit 1
+fi
+
+LIMIT=300
+if ! PR_DATA=$(gh pr list --state open --limit "$LIMIT" --json number,files); then
+  echo "Error: Failed to query open PRs from GitHub API" >&2
+  exit 1
+fi
+PR_COUNT=$(echo "$PR_DATA" | jq 'length')
+
+if [ "$PR_COUNT" -ge "$LIMIT" ]; then
+  echo "Notice: Open PR query reached limit ($LIMIT); inspecting bounded sample, older open PRs not checked." >&2
+fi
+
+MATCHING_PRS=$(echo "$PR_DATA" | jq -r --args '
   $ARGS.positional as $targets |
-  .[] | select(any(.files[]?.path; . as $p | $targets | index($p))) | .number
-' "${TARGET_FILES[@]}"
+  [ .[] | select(any(.files[]?.path; . as $p | $targets | index($p))) | .number ] | unique | .[]
+' "${TARGET_FILES[@]}")
+
+if [ -n "$MATCHING_PRS" ]; then
+  echo "Overlapping open PRs found:"
+  echo "$MATCHING_PRS"
+else
+  if [ "$PR_COUNT" -ge "$LIMIT" ]; then
+    echo "No overlapping PRs found within bounded sample of $LIMIT open PRs (exhaustive verification requires inspecting older PRs)."
+  else
+    echo "No overlapping open PRs found across all $PR_COUNT open PRs."
+  fi
+fi
 ```
 If a PR is returned, inspect actual overlap, coordinate affected work, and continue independent authorized tasks.
 

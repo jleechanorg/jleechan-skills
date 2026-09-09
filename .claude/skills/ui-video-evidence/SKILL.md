@@ -71,7 +71,7 @@ Record browser window including address bar.
 
 ### Option 3: ffmpeg (headless/CI)
 ```bash
-ffmpeg -video_size 1280x720 -framerate 10 -f x11grab -i :99 -t 30 /tmp/<work_name>.mp4
+ffmpeg -video_size 1280x720 -framerate 10 -f x11grab -i :99 -t 30 "/tmp/${WORK_NAME:-work}.mp4"
 ```
 
 ## Caption Requirements (MANDATORY)
@@ -91,17 +91,26 @@ Follow `~/.claude/skills/evidence-standards/SKILL.md` for publication authority,
 The following GitHub release example applies only when that destination is authorized. Set `caption_file` to the actual generated `.vtt` or `.srt` path when using a sidecar; leave it empty only when captions are already burned into the video. The asset list includes the sidecar only when set.
 
 ```bash
-caption_file=""  # Set to the actual .vtt or .srt path unless captions are burned in.
-assets=("/tmp/ui_flow.mp4.zip" "/abs/path/to/ui_flow.gif")
-if [ -n "$caption_file" ]; then
-  assets+=("$caption_file")
-fi
-zip -j /tmp/ui_flow.mp4.zip /abs/path/to/ui_flow.mp4
-tag="evidence-pr-${PR_NUMBER}"
-gh release create "$tag" --draft --title "PR #${PR_NUMBER} Evidence" --notes "" 2>/dev/null || true
-gh release upload "$tag" "${assets[@]}" --clobber
-gh release view "$tag" --json assets,url
-gh pr edit "$PR_NUMBER_OR_URL" --body-file /tmp/pr_body.md
+(
+  set -euo pipefail
+  if [[ -z "${PR_NUMBER:-}" || "$PR_NUMBER" == *"<"* ]]; then
+    echo "Error: PR_NUMBER must be set to a valid PR number before publication" >&2
+    exit 1
+  fi
+  target_pr="${PR_NUMBER_OR_URL:-$PR_NUMBER}"
+
+  caption_file=""  # Set to the actual .vtt or .srt path unless captions are burned in.
+  assets=("/tmp/ui_flow.mp4.zip" "/abs/path/to/ui_flow.gif")
+  if [ -n "$caption_file" ]; then
+    assets+=("$caption_file")
+  fi
+  zip -j /tmp/ui_flow.mp4.zip /abs/path/to/ui_flow.mp4
+  tag="evidence-pr-${PR_NUMBER}"
+  gh release create "$tag" --draft --title "PR #${PR_NUMBER} Evidence" --notes ""
+  gh release upload "$tag" "${assets[@]}" --clobber
+  gh release view "$tag" --json assets,url
+  gh pr edit "$target_pr" --body-file /tmp/pr_body.md
+)
 ```
 
 For this authorized GitHub example, build `/tmp/pr_body.md` from the asset URLs returned by `gh release view --json assets,url`. Do not guess the final download URL for draft releases. Other authorized destinations use their own verified artifact locations.
