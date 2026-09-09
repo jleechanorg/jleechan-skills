@@ -200,7 +200,8 @@ aliases and duplicate indexed thread IDs are deduplicated.
 python3 "${CLAUDE_HOME:-$HOME/.claude}/scripts/history_search.py" "query" --source codex --json
 
 # A selected profile; repeat --codex-home for each resolved home in the audit.
-python3 "${CLAUDE_HOME:-$HOME/.claude}/scripts/history_search.py" "query" --source codex --codex-home "$CODEX_HOME" --json
+# When CODEX_HOME is unset or empty, the helper searches the active and default homes without resolving to cwd.
+python3 "${CLAUDE_HOME:-$HOME/.claude}/scripts/history_search.py" "query" --source codex ${CODEX_HOME:+--codex-home "$CODEX_HOME"} --json
 ```
 
 This helper samples indexed titles/first prompts, then bounded rollout files

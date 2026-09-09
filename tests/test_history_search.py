@@ -530,6 +530,105 @@ class TestHistorySearch(unittest.TestCase):
         self.assertIn("🌐 agy CLI (1 matches)", output)
         self.assertIn("🖥️  Cursor (1 matches)", output)
 
+    def test_codex_search_profile_isolation_and_sibling_inference(self) -> None:
+        fake_home = self.temp_dir / "fake_home"
+        real_sessions = fake_home / ".codex" / "sessions" / "sub"
+        real_sessions.mkdir(parents=True)
+        (real_sessions / "rollout-secret.jsonl").write_text(
+            json.dumps({"role": "user", "content": "SECRET_FROM_REAL_HOME_SESSIONS"}) + "\n"
+        )
+        real_db = fake_home / ".codex" / "state_5.sqlite"
+        real_db.parent.mkdir(parents=True, exist_ok=True)
+        with sqlite3.connect(str(real_db)) as con:
+            con.execute("CREATE TABLE threads (id TEXT, title TEXT, first_user_message TEXT, cwd TEXT, git_branch TEXT, created_at INTEGER, archived INTEGER)")
+            con.execute("INSERT INTO threads VALUES ('t1', 'sec', 'SECRET_FROM_REAL_DB', '/p', 'm', 1788283033, 0)")
+
+        # 1. Explicit db only with empty db must not search real home sessions
+        isolated_profile = self.temp_dir / "isolated_profile"
+        isolated_profile.mkdir(parents=True)
+        empty_db = isolated_profile / "empty_state_5.sqlite"
+        with sqlite3.connect(str(empty_db)) as con:
+            con.execute("CREATE TABLE threads (id TEXT, title TEXT, first_user_message TEXT, cwd TEXT, git_branch TEXT, created_at INTEGER, archived INTEGER)")
+
+        with patch("pathlib.Path.home", return_value=fake_home):
+            results = search_codex(query="SECRET_FROM_REAL_HOME_SESSIONS", db_path=empty_db)
+            self.assertEqual(len(results), 0)
+
+        # 2. Explicit sessions only with empty sessions must not query default database
+        empty_sessions = isolated_profile / "empty_sessions"
+        empty_sessions.mkdir()
+        with patch("pathlib.Path.home", return_value=fake_home):
+            results = search_codex(query="SECRET_FROM_REAL_DB", sessions_dir=empty_sessions)
+            self.assertEqual(len(results), 0)
+
+        # 3. Sibling inference: explicit db finds rollouts in sibling sessions/ directory
+        sibling_sessions = isolated_profile / "sessions" / "rollouts"
+        sibling_sessions.mkdir(parents=True)
+        (sibling_sessions / "rollout-sibling.jsonl").write_text(
+            json.dumps({"role": "user", "content": "FIND_IN_SIBLING_SESSIONS"}) + "\n"
+        )
+        with patch("pathlib.Path.home", return_value=fake_home):
+            sibling_results = search_codex(query="FIND_IN_SIBLING_SESSIONS", db_path=empty_db)
+            self.assertEqual(len(sibling_results), 1)
+            self.assertIn("FIND_IN_SIBLING_SESSIONS", sibling_results[0].snippet)
+
+    def test_codex_search_empty_codex_home_does_not_become_cwd_nor_suppress_defaults(self) -> None:
+        fake_home = self.temp_dir / "fake_home_default"
+        default_sessions = fake_home / ".codex" / "sessions" / "sub"
+        default_sessions.mkdir(parents=True)
+        (default_sessions / "rollout.jsonl").write_text(
+            json.dumps({"role": "user", "content": "FROM_DEFAULT_HOME_PROFILE"}) + "\n"
+        )
+
+        cwd_dir = self.temp_dir / "cwd_dir"
+        cwd_sessions = cwd_dir / "sessions"
+        cwd_sessions.mkdir(parents=True)
+        (cwd_sessions / "rollout-cwd.jsonl").write_text(
+            json.dumps({"role": "user", "content": "SECRET_FROM_CWD"}) + "\n"
+        )
+
+        with patch.dict("os.environ", {"CODEX_HOME": ""}), patch("pathlib.Path.home", return_value=fake_home), patch("os.getcwd", return_value=str(cwd_dir)):
+            results_empty = search_codex(query="FROM_DEFAULT_HOME_PROFILE", codex_homes=["", "   "])
+            self.assertEqual(len(results_empty), 1)
+            self.assertIn("FROM_DEFAULT_HOME_PROFILE", results_empty[0].snippet)
+
+            results_cwd = search_codex(query="SECRET_FROM_CWD", codex_homes=[""])
+            self.assertEqual(len(results_cwd), 0)
+
+    def test_codex_model_metadata_attribution_per_turn(self) -> None:
+        profile_dir = self.temp_dir / "model_audit_profile"
+        sessions_dir = profile_dir / "sessions" / "sub"
+        sessions_dir.mkdir(parents=True)
+
+        rollout_file = sessions_dir / "rollout-model-change.jsonl"
+        lines = [
+            json.dumps({"type": "session_meta", "payload": {"model": "initial-meta-model"}}),
+            json.dumps({"type": "turn_context", "payload": {"turn_id": "1", "model": "gpt-5.1-codex"}}),
+            json.dumps({"type": "response_item", "payload": {"role": "user", "content": "Question in turn 1"}}),
+            json.dumps({"type": "turn_context", "payload": {"turn_id": "2", "model": "gpt-5.3-codex"}}),
+            json.dumps({"type": "response_item", "payload": {"role": "user", "content": "Question in turn 2"}}),
+        ]
+        rollout_file.write_text("\n".join(lines) + "\n")
+
+        results = search_codex(query="Question in turn", sessions_dir=sessions_dir, limit=10)
+        self.assertEqual(len(results), 2)
+        turn1 = next(r for r in results if "turn 1" in r.snippet)
+        turn2 = next(r for r in results if "turn 2" in r.snippet)
+        self.assertEqual(turn1.metadata.get("model"), "gpt-5.1-codex")
+        self.assertEqual(turn1.metadata.get("model_source"), "turn_context")
+        self.assertEqual(turn2.metadata.get("model"), "gpt-5.3-codex")
+        self.assertEqual(turn2.metadata.get("model_source"), "turn_context")
+
+        # Database search with model column
+        db_path = profile_dir / "state_5.sqlite"
+        with sqlite3.connect(str(db_path)) as con:
+            con.execute("CREATE TABLE threads (id TEXT, title TEXT, first_user_message TEXT, cwd TEXT, git_branch TEXT, created_at INTEGER, archived INTEGER, model TEXT)")
+            con.execute("INSERT INTO threads VALUES ('t_model', 'Model Thread', 'Database search query with model', '/proj', 'main', 1788283033, 0, 'claude-3-7-sonnet')")
+        db_results = search_codex(query="Database search query with model", db_path=db_path)
+        self.assertEqual(len(db_results), 1)
+        self.assertEqual(db_results[0].metadata.get("model"), "claude-3-7-sonnet")
+        self.assertEqual(db_results[0].metadata.get("model_source"), "database")
+
 
 if __name__ == "__main__":
     unittest.main()
