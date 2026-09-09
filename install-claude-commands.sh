@@ -323,6 +323,11 @@ install_component() {
     local component_name="$3"
     local relative
 
+    if [ -L "$dest_dir" ]; then
+        log_info "Preserving externally owned $component_name directory link: $dest_dir"
+        return 0
+    fi
+
     if [ -d "$src_dir" ]; then
         mkdir -p "$dest_dir"
         while IFS= read -r -d '' relative; do
@@ -470,6 +475,10 @@ validate_installation() {
     for component in agents commands scripts skills; do
         source_dir="$PLUGIN_SRC_DIR/.claude/$component"
         [ -d "$source_dir" ] || continue
+        if [ -L "$INSTALL_ROOT/$component" ]; then
+            log_info "Preserving externally owned $component directory link during validation: $INSTALL_ROOT/$component"
+            continue
+        fi
         while IFS= read -r -d '' relative; do
             relative="${relative#./}"
             local cur_dir="$INSTALL_ROOT/$component"

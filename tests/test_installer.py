@@ -782,6 +782,35 @@ class InstallerIntegrationTest(unittest.TestCase):
             installed_symlink = skills_target / "example/source-symlink.txt"
             self.assertTrue(installed_symlink.is_symlink())
 
+    def test_merge_preserves_component_root_symlink_and_does_not_write_target(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            target = temp_dir / "claude-home"
+            target.mkdir()
+
+            external_skills = temp_dir / "external-skills"
+            external_skills.mkdir(parents=True)
+            external_skill = external_skills / "example/SKILL.md"
+            external_skill.parent.mkdir(parents=True)
+            external_bytes = b"# Separately Owned Skill Content\n"
+            external_skill.write_bytes(external_bytes)
+
+            skills_target = target / "skills"
+            skills_target.symlink_to(external_skills)
+
+            result = self.run_installer(fixture, target, "--merge")
+
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            # Topology: skills_target must remain the exact symlink pointing to external_skills
+            self.assertTrue(skills_target.is_symlink())
+            self.assertEqual(os.readlink(skills_target), str(external_skills))
+            # External target must not be written or overwritten
+            self.assertEqual(external_skill.read_bytes(), external_bytes)
+            # Other components (e.g. commands/agents) still update
+            self.assertTrue((target / "commands").exists())
+            self.assertIn("Preserving externally owned skills directory link", result.stdout)
+
     def test_installer_refuses_unsafe_receipt_symlink_even_when_helper_is_identical(self):
         with tempfile.TemporaryDirectory() as directory:
             temp_dir = Path(directory)
