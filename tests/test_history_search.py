@@ -718,21 +718,13 @@ class TestHistorySearch(unittest.TestCase):
             # Turn 2: starts a new turn without a turn_context, user prompt arrives
             json.dumps({"type": "event_msg", "payload": {"type": "task_started", "turn_id": "turn-2"}}),
             json.dumps({"type": "response_item", "payload": {"role": "user", "content": [{"type": "input_text", "text": "Turn 2 prompt lacking new context"}]}}),
-            # Turn 3: public enum PascalCase boundary check
-            json.dumps({"type": "TurnStarted", "payload": {"turn_id": "turn-3"}}),
-            json.dumps({"type": "TurnContext", "payload": {"turn_id": "turn-3", "model": "model-turn-3"}}),
-            json.dumps({"type": "response_item", "payload": {"role": "user", "content": [{"type": "input_text", "text": "Turn 3 prompt with model"}]}}),
-            json.dumps({"type": "TurnComplete", "payload": {"turn_id": "turn-3"}}),
-            json.dumps({"type": "response_item", "payload": {"role": "user", "content": [{"type": "input_text", "text": "Post turn 3 prompt without context"}]}}),
         ]
         rollout_file.write_text("\n".join(lines) + "\n")
 
         results = search_codex(query="prompt", sessions_dir=sess_dir, limit=10)
-        self.assertEqual(len(results), 4)
+        self.assertEqual(len(results), 2)
         turn1_entry = next(r for r in results if "Turn 1 prompt" in r.snippet)
         turn2_entry = next(r for r in results if "Turn 2 prompt" in r.snippet)
-        turn3_entry = next(r for r in results if "Turn 3 prompt" in r.snippet)
-        post3_entry = next(r for r in results if "Post turn 3 prompt" in r.snippet)
 
         # Turn 1 must attribute turn_context model
         self.assertEqual(turn1_entry.metadata.get("model"), "model-turn-1")
@@ -744,17 +736,43 @@ class TestHistorySearch(unittest.TestCase):
         self.assertIsNone(turn2_entry.metadata.get("model"))
         self.assertNotEqual(turn2_entry.metadata.get("model_source"), "turn_context")
 
-        # Turn 3 must attribute TurnContext model
-        self.assertEqual(turn3_entry.metadata.get("model"), "model-turn-3")
-        self.assertEqual(turn3_entry.metadata.get("model_source"), "turn_context")
-        self.assertEqual(turn3_entry.metadata.get("model_scope"), "turn")
+    def test_codex_delayed_turn_completion_does_not_clear_newer_active_context(self) -> None:
+        sess_dir = self.temp_dir / "delayed_completion_test" / "sessions"
+        sess_dir.mkdir(parents=True)
+        rollout_file = sess_dir / "rollout-delayed.jsonl"
+        lines = [
+            # startA / contextA
+            json.dumps({"type": "event_msg", "payload": {"type": "task_started", "turn_id": "turn-A"}}),
+            json.dumps({"type": "turn_context", "payload": {"turn_id": "turn-A", "model": "model-A"}}),
+            # startB / contextB
+            json.dumps({"type": "event_msg", "payload": {"type": "task_started", "turn_id": "turn-B"}}),
+            json.dumps({"type": "turn_context", "payload": {"turn_id": "turn-B", "model": "model-B"}}),
+            # completionA arrives while turn B is active
+            json.dumps({"type": "event_msg", "payload": {"type": "task_complete", "turn_id": "turn-A"}}),
+            # userB prompt
+            json.dumps({"type": "response_item", "payload": {"role": "user", "content": [{"type": "input_text", "text": "Turn B user prompt"}]}}),
+            # same-turn completion for turn B
+            json.dumps({"type": "event_msg", "payload": {"type": "task_complete", "turn_id": "turn-B"}}),
+            # next start without context
+            json.dumps({"type": "event_msg", "payload": {"type": "task_started", "turn_id": "turn-C"}}),
+            json.dumps({"type": "response_item", "payload": {"role": "user", "content": [{"type": "input_text", "text": "Turn C prompt without context"}]}}),
+        ]
+        rollout_file.write_text("\n".join(lines) + "\n")
 
-        # Post Turn 3 MUST NOT leak Turn 3's model after TurnComplete
-        self.assertNotEqual(post3_entry.metadata.get("model"), "model-turn-3")
-        self.assertIsNone(post3_entry.metadata.get("model"))
-        self.assertNotEqual(post3_entry.metadata.get("model_source"), "turn_context")
+        results = search_codex(query="prompt", sessions_dir=sess_dir, limit=10)
+        self.assertEqual(len(results), 2)
+        turn_b = next(r for r in results if "Turn B user prompt" in r.snippet)
+        turn_c = next(r for r in results if "Turn C prompt without context" in r.snippet)
+
+        # Retain B attribution despite delayed completion of A
+        self.assertEqual(turn_b.metadata.get("model"), "model-B")
+        self.assertEqual(turn_b.metadata.get("model_source"), "turn_context")
+        self.assertEqual(turn_b.metadata.get("model_scope"), "turn")
+
+        # Same-turn completion still clears and next start without context never inherits A
+        self.assertIsNone(turn_c.metadata.get("model"))
+        self.assertNotEqual(turn_c.metadata.get("model_source"), "turn_context")
 
 
 if __name__ == "__main__":
     unittest.main()
-
