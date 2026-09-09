@@ -278,14 +278,16 @@ there to a pointer 2026-09-06; this section is the full policy).
 
 - Route every independent unit to the **cheapest capable tier** — never
   silently inherit an expensive session model for delegated work.
-- Small/mechanical bounded coding: `/Users/jleechan/.local/bin/codexs`
+- Small/mechanical bounded coding: `codexs` (on PATH)
   (`gpt-5.3-codex-spark`) when capacity exists, falling back to `luna_worker`.
 - Polling or mechanical sweeps: haiku/mini tier.
 - Top tier (the session's own model): reserve for adversarial judgment, or
   only after a cheaper tier has already failed on that unit.
 - Before you repeat a delegated claim **or act on it**, read the artifact it
   rests on — and read the part that substantiates the specific claim, not just
-  that an artifact exists. A lane's own "done" is a claim, not the evidence for
+  that an artifact exists. Check its provenance too: a log from the wrong SHA, a
+  run that predates the change, or an empty result file all pass a presence
+  check and prove nothing. A lane's own "done" is a claim, not the evidence for
   it, and neither is its summary of its own work. Acting on it counts: closing a
   bead, marking a task complete, or building on a lane's "fixed" all carry the
   claim forward as if it were checked. This is artifact-checking on results you
