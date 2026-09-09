@@ -1089,6 +1089,28 @@ else:
                 self.assertNotEqual(res_missing_caption.returncode, 0)
                 self.assertFalse(calls_file.exists(), "gh must not be called when declared caption file is missing")
 
+                # Malformed PR URL / target variants must fail before calling gh (assert ZERO gh calls)
+                malformed_targets_b1 = [
+                    'PR_NUMBER_OR_URL="https://evil.example/github.com/acme/widgets/pull/42"',
+                    'PR_NUMBER_OR_URL="github.com/acme/widgets/pull/42"',
+                    'PR_NUMBER_OR_URL="https://github.com/acme/widgets/pull/42/junk"',
+                    'PR_NUMBER_OR_URL="https://github.com/acme/widgets/pull/42junk"',
+                    'PR_NUMBER_OR_URL="https://github.com/acme/widgets/pull/0"',
+                    'PR_NUMBER="42"\nPR_NUMBER_OR_URL="99"\nREPO="intended/repo"',
+                    'PR_NUMBER="0"\nREPO="intended/repo"',
+                    'PR_NUMBER="42"\nREPO="invalid_no_slash"',
+                    'PR_NUMBER="42"\nREPO="too/many/slashes/repo"',
+                ]
+                for target_env in malformed_targets_b1:
+                    if calls_file.exists():
+                        calls_file.unlink()
+                    res_mal1 = subprocess.run(
+                        ["bash", "-c", f'{target_env}\nVIDEO_FILE="{dummy_video}"\nPREVIEW_FILE="{dummy_preview}"\n' + block1],
+                        env=env, capture_output=True, text=True,
+                    )
+                    self.assertNotEqual(res_mal1.returncode, 0, f"Malformed target must fail in Block 1: {target_env}")
+                    self.assertFalse(calls_file.exists(), f"gh must not be called on malformed target in Block 1: {target_env}")
+
                 # 8. Positive test for Block 1 with valid inputs and caption sidecar
                 dummy_caption = test_dir / "captions.vtt"
                 dummy_caption.write_text("WEBVTT\n\n00:00.000 --> 00:01.000\nCaption\n")
@@ -1105,6 +1127,20 @@ else:
                 self.assertEqual(logged_calls[0], ["release", "create", "evidence-pr-42", "--repo", "intended/repo", "--draft", "--title", "PR #42 Evidence", "--notes", ""])
                 self.assertEqual(logged_calls[1], ["release", "upload", "evidence-pr-42", "--repo", "intended/repo", str(zip_out), str(dummy_preview), str(dummy_caption), "--clobber"])
                 self.assertEqual(logged_calls[2], ["release", "view", "evidence-pr-42", "--repo", "intended/repo", "--json", "assets,url"])
+
+                # Valid PR URL with trailing slash in Block 1
+                calls_file.unlink()
+                if zip_out.exists():
+                    zip_out.unlink()
+                res_slash1 = subprocess.run(
+                    ["bash", "-c", f'PR_NUMBER_OR_URL="https://github.com/intended/repo/pull/42/"\nVIDEO_FILE="{dummy_video}"\nPREVIEW_FILE="{dummy_preview}"\nCAPTION_FILE="{dummy_caption}"\nZIP_FILE="{zip_out}"\n' + block1],
+                    env=env, capture_output=True, text=True,
+                )
+                self.assertEqual(res_slash1.returncode, 0, res_slash1.stderr + res_slash1.stdout)
+                self.assertTrue(calls_file.exists())
+                logged_slash1 = [json.loads(line)["argv"] for line in calls_file.read_text().splitlines()]
+                self.assertEqual(len(logged_slash1), 3)
+                self.assertEqual(logged_slash1[0], ["release", "create", "evidence-pr-42", "--repo", "intended/repo", "--draft", "--title", "PR #42 Evidence", "--notes", ""])
 
                 # 9. Wrong CWD test: Block 1 executed from a different repo binds intended repo via --repo
                 calls_file.unlink()
@@ -1182,9 +1218,33 @@ else:
                 self.assertNotEqual(res_empty_body.returncode, 0)
                 self.assertFalse(calls_file.exists())
 
-                # Positive test for Block 2 with non-empty body
+                # Malformed PR URL / target variants must fail before calling gh in Block 2 (assert ZERO gh calls)
                 valid_body = test_dir / "valid_body.md"
                 valid_body.write_text("## Verified Evidence Content\n")
+                malformed_targets_b2 = [
+                    f'PR_NUMBER_OR_URL="https://evil.example/github.com/acme/widgets/pull/42"\nBODY_FILE="{valid_body}"\nCOMMENT_FILE="{valid_body}"',
+                    f'PR_NUMBER_OR_URL="github.com/acme/widgets/pull/42"\nBODY_FILE="{valid_body}"\nCOMMENT_FILE="{valid_body}"',
+                    f'PR_NUMBER_OR_URL="https://github.com/acme/widgets/pull/42/junk"\nBODY_FILE="{valid_body}"\nCOMMENT_FILE="{valid_body}"',
+                    f'PR_NUMBER_OR_URL="https://github.com/acme/widgets/pull/42junk"\nBODY_FILE="{valid_body}"\nCOMMENT_FILE="{valid_body}"',
+                    f'PR_NUMBER_OR_URL="https://github.com/acme/widgets/pull/0"\nBODY_FILE="{valid_body}"\nCOMMENT_FILE="{valid_body}"',
+                    f'PR_NUMBER="42"\nPR_NUMBER_OR_URL="99"\nREPO="intended/repo"\nBODY_FILE="{valid_body}"\nCOMMENT_FILE="{valid_body}"',
+                    f'PR_NUMBER="0"\nREPO="intended/repo"\nBODY_FILE="{valid_body}"\nCOMMENT_FILE="{valid_body}"',
+                    f'PR_NUMBER="42"\nREPO="invalid_no_slash"\nBODY_FILE="{valid_body}"\nCOMMENT_FILE="{valid_body}"',
+                    f'PR_NUMBER="42"\nREPO="too/many/slashes/repo"\nBODY_FILE="{valid_body}"\nCOMMENT_FILE="{valid_body}"',
+                ]
+                for target_env in malformed_targets_b2:
+                    if calls_file.exists():
+                        calls_file.unlink()
+                    res_mal2 = subprocess.run(
+                        ["bash", "-c", f'{target_env}\n' + block2],
+                        env=env, capture_output=True, text=True,
+                    )
+                    self.assertNotEqual(res_mal2.returncode, 0, f"Malformed target must fail in Block 2: {target_env}")
+                    self.assertFalse(calls_file.exists(), f"gh must not be called on malformed target in Block 2: {target_env}")
+
+                # Positive test for Block 2 with non-empty body
+                if calls_file.exists():
+                    calls_file.unlink()
                 res_pos2 = subprocess.run(
                     ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nBODY_FILE="{valid_body}"\nCOMMENT_FILE="{valid_body}"\n' + block2],
                     env=env, capture_output=True, text=True,
@@ -1206,6 +1266,17 @@ else:
                 logged_url2 = [json.loads(line)["argv"] for line in calls_file.read_text().splitlines()]
                 self.assertEqual(len(logged_url2), 1)
                 self.assertEqual(logged_url2[0], ["pr", expected_subcmd, "42", "--repo", "intended/repo", "--body-file", str(valid_body)])
+
+                # Full PR URL with trailing slash in Block 2
+                calls_file.unlink()
+                res_url2_slash = subprocess.run(
+                    ["bash", "-c", f'PR_NUMBER_OR_URL="https://github.com/intended/repo/pull/42/"\nBODY_FILE="{valid_body}"\nCOMMENT_FILE="{valid_body}"\n' + block2],
+                    env=env, capture_output=True, text=True,
+                )
+                self.assertEqual(res_url2_slash.returncode, 0, res_url2_slash.stderr + res_url2_slash.stdout)
+                logged_url2_slash = [json.loads(line)["argv"] for line in calls_file.read_text().splitlines()]
+                self.assertEqual(len(logged_url2_slash), 1)
+                self.assertEqual(logged_url2_slash[0], ["pr", expected_subcmd, "42", "--repo", "intended/repo", "--body-file", str(valid_body)])
 
                 # Wrong-CWD for Block 2
                 calls_file.unlink()
