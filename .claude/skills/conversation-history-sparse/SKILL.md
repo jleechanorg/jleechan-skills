@@ -209,8 +209,14 @@ when the index has no match. It is orientation, not an exhaustive message search
 or a failure-rate measurement. For a frequency audit, declare the time window,
 profile coverage, exclusions, sampling limits, and denominator; retain only
 bounded excerpts from the selected corpus. Attribute criticized responses using
-per-turn model metadata, not the thread's latest model label. Distinguish user
-corrections from quoted instructions, assistant admissions, and automatic resumes.
+per-turn model metadata, not the thread's latest model label. When run with
+`--json`, the helper exposes structured metadata for each match:
+- `metadata.model`: resolved model identifier when known.
+- `metadata.model_source`: provenance of the attribution (`"turn_context"`, `"record"`, `"session_meta"`, or `"database"`).
+- `metadata.model_scope`: attribution scope (`"turn"`, `"record"`, `"session"`, or `"thread"`).
+- `metadata.thread_model` (for thread index hits) or `metadata.session_model` (for rollout hits): container-level hints.
+
+Respect the scope distinction: `turn` scope reflects exact per-turn context, whereas `thread` and `session` scopes reflect container-level defaults. When model metadata is absent from the record or turn context, the model fields remain unknown/omitted; never fabricate exact model attribution. Distinguish user corrections from quoted instructions, assistant admissions, and automatic resumes.
 
 ### 5) Sample Hermes messages (sparse FTS5 + colored)
 

@@ -124,7 +124,13 @@ The following GitHub release example applies only when that destination is autho
   fi
 
   tag="evidence-pr-${PR_NUMBER}"
-  gh release create "$tag" --draft --title "PR #${PR_NUMBER} Evidence" --notes ""
+  if ! gh release create "$tag" --draft --title "PR #${PR_NUMBER} Evidence" --notes ""; then
+    is_draft="$(gh release view "$tag" --json isDraft --jq '.isDraft')"
+    if [ "$is_draft" != "true" ]; then
+      echo "Error: Release '$tag' could not be created and is not a draft release" >&2
+      exit 1
+    fi
+  fi
   gh release upload "$tag" "${assets[@]}" --clobber
   gh release view "$tag" --json assets,url
 )

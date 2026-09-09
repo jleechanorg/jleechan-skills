@@ -781,6 +781,9 @@ class InstallerIntegrationTest(unittest.TestCase):
             self.assertEqual((skills_target / "example/SKILL.md").read_text(), "# Skill\n")
             installed_symlink = skills_target / "example/source-symlink.txt"
             self.assertTrue(installed_symlink.is_symlink())
+            # Meaningful log assertion: external owner link skip and preserved count are logged
+            self.assertIn(f"Preserving externally owned skills link ({linked_skill}); skipping {linked_skill / 'SKILL.md'}", result.stdout)
+            self.assertIn("preserved 1 externally owned path", result.stdout)
 
     def test_merge_preserves_component_root_symlink_and_does_not_write_target(self):
         with tempfile.TemporaryDirectory() as directory:

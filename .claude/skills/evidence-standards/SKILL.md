@@ -19,6 +19,7 @@ the structural and recording details; this file is the policy.
 **After running any evidence-gathering pass, you MUST always reconfirm** by
 explicitly stating what the evidence proves vs what it does NOT prove — this
 applies to the response you give the user, not just the bundle's own
+"What This Evidence Does NOT Prove" section (below).
 
 ## Aiming gate — run BEFORE spending on an evidence campaign
 

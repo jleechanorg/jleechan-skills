@@ -1029,6 +1029,160 @@ sys.exit(0)
                 self.assertEqual(res_caller2.returncode, 0)
                 self.assertIn("CALLER2_SURVIVED:1\n", res_caller2.stdout)
 
+    def test_video_evidence_publication_repeat_draft_upload_and_failure_guards(self):
+        owners = [
+            REPO_ROOT / ".claude/skills/tmux-video-evidence/SKILL.md",
+            REPO_ROOT / ".claude/skills/evidence-standards/tmux-video-evidence.md",
+            REPO_ROOT / ".claude/skills/ui-video-evidence/SKILL.md",
+        ]
+        for skill_file in owners:
+            with self.subTest(owner=skill_file.name):
+                content = skill_file.read_text(encoding="utf-8")
+                section = content.split("## Evidence access and authorized publication", 1)[1]
+                blocks = section.split("```bash\n")
+                self.assertGreaterEqual(len(blocks), 3, f"{skill_file.name} must split publication into two bash blocks")
+                block1 = blocks[1].split("\n```", 1)[0]
+                block2 = blocks[2].split("\n```", 1)[0]
+
+                test_dir = self.tmp_path / f"rep_pub_{skill_file.name}_{skill_file.parent.name}"
+                test_dir.mkdir(parents=True, exist_ok=True)
+                calls_file = test_dir / "gh-calls.jsonl"
+                stub_dir = test_dir / "bin"
+                stub_dir.mkdir(exist_ok=True)
+                fake_gh = stub_dir / "gh"
+                fake_gh.write_text(f"""#!{sys.executable}
+import json, os, sys
+mode = os.environ.get("GH_STUB_MODE", "first_run")
+with open({repr(str(calls_file))}, "a") as f:
+    f.write(json.dumps({{"mode": mode, "argv": sys.argv[1:]}}) + "\\n")
+if len(sys.argv) >= 3 and sys.argv[1:3] == ["release", "create"]:
+    if mode == "first_run":
+        sys.exit(0)
+    elif mode in ("repeat_draft", "conflicting_published", "fail_view"):
+        sys.exit(1)
+if len(sys.argv) >= 3 and sys.argv[1:3] == ["release", "view"]:
+    if mode == "fail_view":
+        sys.exit(1)
+    if "--jq" in sys.argv:
+        jq_idx = sys.argv.index("--jq")
+        if sys.argv[jq_idx + 1] == ".isDraft":
+            if mode in ("repeat_draft", "first_run"):
+                print("true")
+                sys.exit(0)
+            elif mode == "conflicting_published":
+                print("false")
+                sys.exit(0)
+            else:
+                print("false")
+                sys.exit(0)
+    print(json.dumps({{"url": "https://github.com/example/repo/releases/tag/v1", "assets": [{{"name": "a", "url": "https://example.com/a"}}]}}))
+    sys.exit(0)
+if len(sys.argv) >= 3 and sys.argv[1:3] == ["release", "upload"]:
+    if mode == "fail_upload":
+        sys.exit(1)
+    sys.exit(0)
+if len(sys.argv) >= 3 and sys.argv[1] == "pr":
+    sys.exit(0)
+sys.exit(0)
+""")
+                fake_gh.chmod(0o755)
+                env = {**os.environ, "PATH": f"{stub_dir}:{os.environ['PATH']}"}
+
+                dummy_video = test_dir / "video.mp4"
+                dummy_video.write_bytes(b"dummy video data")
+                dummy_preview = test_dir / "preview.gif"
+                dummy_preview.write_bytes(b"dummy gif data")
+                dummy_caption = test_dir / "captions.vtt"
+                dummy_caption.write_text("WEBVTT\n\n00:00.000 --> 00:01.000\nCaption\n")
+                zip_out = test_dir / "archive.zip"
+                body_file = test_dir / "body.md"
+                body_file.write_text("## Verified Evidence Content\n")
+
+                base_cmd = (
+                    f'PR_NUMBER="42"\n'
+                    f'VIDEO_FILE="{dummy_video}"\n'
+                    f'PREVIEW_FILE="{dummy_preview}"\n'
+                    f'CAPTION_FILE="{dummy_caption}"\n'
+                    f'ZIP_FILE="{zip_out}"\n'
+                    f'BODY_FILE="{body_file}"\n'
+                    f'COMMENT_FILE="{body_file}"\n'
+                )
+
+                # 1. Repeat draft upload: release create fails (already exists), but view confirms draft
+                if calls_file.exists():
+                    calls_file.unlink()
+                env_repeat = {**env, "GH_STUB_MODE": "repeat_draft"}
+                res_repeat = subprocess.run(
+                    ["bash", "-c", base_cmd + block1],
+                    env=env_repeat, capture_output=True, text=True,
+                )
+                self.assertEqual(res_repeat.returncode, 0, res_repeat.stderr + res_repeat.stdout)
+                self.assertTrue(calls_file.exists())
+                logged_repeat = [json.loads(line) for line in calls_file.read_text().splitlines()]
+                argvs_repeat = [c["argv"] if isinstance(c, dict) and "argv" in c else c for c in logged_repeat]
+                self.assertEqual(len(argvs_repeat), 4)
+                self.assertEqual(argvs_repeat[0], ["release", "create", "evidence-pr-42", "--draft", "--title", "PR #42 Evidence", "--notes", ""])
+                self.assertEqual(argvs_repeat[1], ["release", "view", "evidence-pr-42", "--json", "isDraft", "--jq", ".isDraft"])
+                self.assertEqual(argvs_repeat[2], ["release", "upload", "evidence-pr-42", str(zip_out), str(dummy_preview), str(dummy_caption), "--clobber"])
+                self.assertEqual(argvs_repeat[3], ["release", "view", "evidence-pr-42", "--json", "assets,url"])
+
+                # 2. Conflicting published release: release create fails, view reports isDraft == false
+                if calls_file.exists():
+                    calls_file.unlink()
+                env_conflict = {**env, "GH_STUB_MODE": "conflicting_published"}
+                res_conflict = subprocess.run(
+                    ["bash", "-c", base_cmd + block1],
+                    env=env_conflict, capture_output=True, text=True,
+                )
+                self.assertNotEqual(res_conflict.returncode, 0, "Conflicting published release must fail")
+                logged_conflict = [json.loads(line) for line in calls_file.read_text().splitlines()]
+                argvs_conflict = [c["argv"] if isinstance(c, dict) and "argv" in c else c for c in logged_conflict]
+                self.assertEqual(len(argvs_conflict), 2)
+                self.assertEqual(argvs_conflict[0][:3], ["release", "create", "evidence-pr-42"])
+                self.assertEqual(argvs_conflict[1][:3], ["release", "view", "evidence-pr-42"])
+                self.assertFalse(any(c[:2] == ["release", "upload"] for c in argvs_conflict), "Must not upload on published release conflict")
+
+                # 3. View failure after create failure
+                if calls_file.exists():
+                    calls_file.unlink()
+                env_fail_view = {**env, "GH_STUB_MODE": "fail_view"}
+                res_fail_view = subprocess.run(
+                    ["bash", "-c", base_cmd + block1],
+                    env=env_fail_view, capture_output=True, text=True,
+                )
+                self.assertNotEqual(res_fail_view.returncode, 0, "View failure must propagate error")
+                logged_fail_view = [json.loads(line) for line in calls_file.read_text().splitlines()]
+                argvs_fail_view = [c["argv"] if isinstance(c, dict) and "argv" in c else c for c in logged_fail_view]
+                self.assertFalse(any(c[:2] == ["release", "upload"] for c in argvs_fail_view), "Must not upload when view fails")
+
+                # 4. Upload failure
+                if calls_file.exists():
+                    calls_file.unlink()
+                env_fail_upload = {**env, "GH_STUB_MODE": "fail_upload"}
+                res_fail_upload = subprocess.run(
+                    ["bash", "-c", base_cmd + block1],
+                    env=env_fail_upload, capture_output=True, text=True,
+                )
+                self.assertNotEqual(res_fail_upload.returncode, 0, "Upload failure must propagate error")
+                logged_fail_upload = [json.loads(line) for line in calls_file.read_text().splitlines()]
+                argvs_fail_upload = [c["argv"] if isinstance(c, dict) and "argv" in c else c for c in logged_fail_upload]
+                self.assertFalse(any(c[:3] == ["release", "view", "evidence-pr-42"] and "--json" in c and "assets,url" in c for c in argvs_fail_upload), "Must not view assets when upload fails")
+
+                # 5. Failures must not trigger downstream comment/body action
+                for fail_mode in ("conflicting_published", "fail_view", "fail_upload"):
+                    if calls_file.exists():
+                        calls_file.unlink()
+                    env_fail_pipeline = {**env, "GH_STUB_MODE": fail_mode}
+                    res_pipe = subprocess.run(
+                        ["bash", "-c", f"set -e\n{base_cmd}\n{block1}\n{block2}"],
+                        env=env_fail_pipeline, capture_output=True, text=True,
+                    )
+                    calls_in_fail = [json.loads(line) for line in calls_file.read_text().splitlines()] if calls_file.exists() else []
+                    argvs_pipe = [c["argv"] if isinstance(c, dict) and "argv" in c else c for c in calls_in_fail]
+                    self.assertNotEqual(res_pipe.returncode, 0, f"Pipeline must fail on {fail_mode}: out={res_pipe.stdout!r}, err={res_pipe.stderr!r}, calls={calls_in_fail!r}")
+                    self.assertFalse(any(c[:1] == ["pr"] for c in argvs_pipe), f"PR action must not run on {fail_mode}")
+
 
 if __name__ == "__main__":
     unittest.main()
+
