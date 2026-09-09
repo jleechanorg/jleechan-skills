@@ -270,3 +270,65 @@ it is often a steady-state VM or daemon, not the agent fleet.
 Never fork a multi-minute CLI delegation (`agy`, `codex`, `claude -p`) as a
 foreground Bash call: always `run_in_background` with an explicit timeout, then
 read the output file on the task notification.
+
+## Model-tier routing and delegation defaults — source of truth
+
+Origin: `${CLAUDE_HOME:-$HOME/.claude}/CLAUDE.md` § Parallel subagents and model routing (compressed
+there to a pointer 2026-09-06; this section is the full policy).
+
+- Route every independent unit to the **cheapest capable tier** — never
+  silently inherit an expensive session model for delegated work.
+- Small/mechanical bounded coding: `codexs` (on PATH)
+  (`gpt-5.3-codex-spark`) when capacity exists, falling back to `luna_worker`.
+- Polling or mechanical sweeps: haiku/mini tier.
+- Top tier (the session's own model): reserve for adversarial judgment, or
+  only after a cheaper tier has already failed on that unit.
+- Before you repeat a delegated claim **or act on it**, read the artifact it
+  rests on — and read the part that substantiates the specific claim, not just
+  that an artifact exists. Check its provenance too: a log from the wrong SHA, a
+  run that predates the change, or an empty result file all pass a presence
+  check and prove nothing. A lane's own "done" is a claim, not the evidence for
+  it, and neither is its summary of its own work. Acting on it counts: closing a
+  bead, marking a task complete, or building on a lane's "fixed" all carry the
+  claim forward as if it were checked. This is artifact-checking on results you
+  carry forward, not a standing verification pass over every lane.
+- Do not spawn a subagent to check work **you** did yourself — that is
+  self-verification you already perform. This does not touch the coder/verifier
+  pair above: a verifier reviewing a *different* agent's revision is an
+  independent lane, not a re-check of your own output, and stays required
+  wherever the pair template is used.
+- Delegate coding (edits, new files, generated code) to `/s` (sidekick) or a
+  subagent when the track is independent and large enough to earn its own
+  context. Work you can finish in a handful of tool calls, do in the root
+  session — delegating it costs more than it saves.
+
+Teammate/subagent stall detection (transcript-proof liveness) is owned by
+`${CLAUDE_HOME:-$HOME/.claude}/skills/sidekick/SKILL.md` § Transcript-proof liveness — do not
+duplicate that procedure here.
+
+## Collecting results — check every channel before redoing the work
+
+A finished lane is not a delivered lane. Direct result delivery to the parent
+can fail silently: `ListAgents` shows `idle` (its turn ended) and no report
+ever arrives. **`idle` means "finished", not "reported".**
+
+Before re-doing any lane's work yourself:
+
+1. **Ask the lane.** `SendMessage` to it by name re-enters its transcript and it
+   can resend. This is cheap and usually works.
+2. **Check the side channels it was told to write.** If lanes were instructed to
+   post to beads (`br comments add`), write files, or comment on a PR, read
+   those. A lane whose direct message vanished has usually still written its
+   artifact.
+3. **Only then re-run it** — and if you do, say so in the final report, because
+   the duplicated cost is real.
+
+Failure mode this kills (observed 2026-09-07): 15 lanes all completed, direct
+delivery silently dropped every report, the orchestrator re-did the analysis
+itself, and the original 15 reports arrived afterwards — while the bead-comment
+channel had been working the entire time and was never checked. Roughly half a
+session's review work paid for twice.
+
+Corollary: **verify the delivery path on the first lane before scaling to N.**
+Spawn one, confirm its result actually reaches you, then fan out. A broken
+channel discovered at N=1 costs one lane; at N=15 it costs fifteen.
