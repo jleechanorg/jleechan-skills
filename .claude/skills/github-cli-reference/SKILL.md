@@ -368,9 +368,8 @@ Origin: `~/.claude/CLAUDE.md` § GitHub API fallback before blocking
 (compressed there to a pointer 2026-09-06; this section is the full policy).
 
 Never report GitHub/API work as blocked without first, independently, trying
-**both** REST and GraphQL where the operation permits either (they are
-separate quota buckets — see "REST ↔ GraphQL are separate quota buckets"
-above). Public REST endpoints may be tried **unauthenticated** when the
+**both** REST and GraphQL where the operation permits either (REST and GraphQL
+operate under separate quota buckets). Public REST endpoints may be tried **unauthenticated** when the
 authenticated quota is exhausted; unauthenticated and authenticated paths can
 have different read/write permissions and rate limits, so a 403 on one is not
 proof the other is unavailable. Use bounded probes (a fixed small number of

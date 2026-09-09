@@ -317,6 +317,53 @@ class DocumentedShellExamplesTest(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.tmp_path = Path(temporary.name)
 
+        self._orig_env = dict(os.environ)
+        self.addCleanup(self._restore_env)
+
+        isolated_home = self.tmp_path / "fixture_home"
+        isolated_home.mkdir(parents=True, exist_ok=True)
+        isolated_bin = self.tmp_path / "fixture_bin"
+        isolated_bin.mkdir(parents=True, exist_ok=True)
+        gh_config = isolated_home / "gh"
+        gh_config.mkdir(parents=True, exist_ok=True)
+
+        self.gh_calls_file = self.tmp_path / "fixture-gh-calls.jsonl"
+        gh_stub = isolated_bin / "gh"
+        gh_stub.write_text(
+            f"#!{sys.executable}\n"
+            "import json, sys\n"
+            f"with open({repr(str(self.gh_calls_file))}, 'a') as f:\n"
+            "    f.write(json.dumps(sys.argv[1:]) + '\\n')\n"
+            "print('FIXTURE_GH_STUB_REFUSED: external GitHub commands are disabled', file=sys.stderr)\n"
+            "sys.exit(86)\n"
+        )
+        gh_stub.chmod(0o755)
+
+        for key in list(os.environ):
+            upper = key.upper()
+            if any(part in upper for part in ("TOKEN", "SECRET", "CREDENTIAL", "API_KEY", "PASSWORD")) or key in (
+                "SSH_AUTH_SOCK", "GIT_ASKPASS", "SSH_ASKPASS"
+            ):
+                os.environ.pop(key, None)
+            if key.startswith("BASH_FUNC_gh") or key == "GH_TOKEN":
+                os.environ.pop(key, None)
+
+        os.environ["HOME"] = str(isolated_home)
+        os.environ["CLAUDE_HOME"] = str(isolated_home / ".claude")
+        os.environ["CODEX_HOME"] = str(isolated_home / ".codex")
+        os.environ["GH_CONFIG_DIR"] = str(gh_config)
+        os.environ["XDG_CONFIG_HOME"] = str(isolated_home / ".config")
+        os.environ["GIT_CONFIG_GLOBAL"] = os.devnull
+        os.environ["GIT_CONFIG_NOSYSTEM"] = "1"
+        os.environ["GH_PROMPT_DISABLED"] = "1"
+        os.environ["BASH_ENV"] = os.devnull
+        os.environ["ENV"] = os.devnull
+        os.environ["PATH"] = f"{isolated_bin}:{os.environ.get('PATH', '/usr/bin:/bin')}"
+
+    def _restore_env(self):
+        os.environ.clear()
+        os.environ.update(self._orig_env)
+
     def test_claw_resolved_skill_options_are_not_invocation_options(self):
         content = (REPO_ROOT / ".claude/skills/claw-dispatch/SKILL.md").read_text()
         execution = content.split("```bash\n", 1)[1].split("\n```", 1)[0]
@@ -649,16 +696,150 @@ class DocumentedShellExamplesTest(unittest.TestCase):
         self.assertTrue(exclude_file.exists(), "info/exclude should exist after checking unignored relative path")
         self.assertIn(".worktrees", exclude_file.read_text())
 
-        # 2. External mktemp directory outside repo must NOT modify info/exclude
+        # 2. Absolute in-repo path that is unignored must also be handled and added to info/exclude
+        exclude_file.write_text("")
+        run_verify(str(repo / "worktrees"))
+        self.assertEqual(exclude_file.read_text().strip(), "worktrees")
+
+        # 3. External mktemp directory outside repo must NOT modify info/exclude
         exclude_file.write_text("")
         external_mktemp = self.tmp_path / "external_wt_temp"
         external_mktemp.mkdir()
-        run_verify(str(external_mktemp))
+        res_ext = run_verify(str(external_mktemp))
+        self.assertEqual(res_ext.returncode, 0)
         self.assertEqual(exclude_file.read_text().strip(), "", "External path must not write to info/exclude")
 
-        # 3. Running outside a git repo must fail safely without modifying anything
+        # 4. Running outside a git repo must fail informatively with non-zero exit code
         res_nogit = run_verify(str(self.tmp_path / "wt"), cwd=self.tmp_path)
-        self.assertEqual(res_nogit.returncode, 0)
+        self.assertNotEqual(res_nogit.returncode, 0, "Running outside a git repo must fail")
+
+        # 5. Git call failure (e.g. invalid git dir) must exit non-zero without modifying exclude
+        exclude_file.write_text("")
+        fake_git_dir = repo / "broken_git"
+        res_err = subprocess.run(
+            ["bash", "-c", raw_snippet],
+            cwd=repo,
+            env={**env, "LOCATION": ".worktrees", "GIT_DIR": str(fake_git_dir)},
+            capture_output=True, text=True, timeout=10,
+        )
+        self.assertNotEqual(res_err.returncode, 0, "Git failure must exit non-zero")
+        self.assertEqual(exclude_file.read_text().strip(), "", "Git failure must not write to info/exclude")
+
+    def test_documented_shell_fixture_enforces_gh_containment_and_credential_isolation(self):
+        # 1. Verify sensitive tokens are stripped from os.environ
+        for key in os.environ:
+            upper = key.upper()
+            self.assertFalse(
+                any(part in upper for part in ("TOKEN", "SECRET", "CREDENTIAL", "API_KEY", "PASSWORD")),
+                f"Sensitive variable {key} must not be present in fixture environment",
+            )
+        # 2. Verify gh fails closed with exit code 86 and fixture marker
+        res = subprocess.run(["gh", "release", "create", "test-fixture-check"], capture_output=True, text=True)
+        self.assertEqual(res.returncode, 86)
+        self.assertIn("FIXTURE_GH_STUB_REFUSED", res.stderr)
+        # 3. Verify gh in subshell bash -c also fails closed
+        res_bash = subprocess.run(["bash", "-c", "gh release create test-fixture-check-bash"], capture_output=True, text=True)
+        self.assertEqual(res_bash.returncode, 86)
+        self.assertIn("FIXTURE_GH_STUB_REFUSED", res_bash.stderr)
+        self.assertTrue(self.gh_calls_file.exists())
+        self.assertGreaterEqual(len(self.gh_calls_file.read_text().splitlines()), 2)
+
+    def test_writing_plans_markdown_code_fence_structure(self):
+        content = (REPO_ROOT / ".claude/skills/superpowers-writing-plans/SKILL.md").read_text()
+        lines = content.splitlines()
+        in_fence = False
+        fence_char = None
+        fence_len = 0
+        remember_in_fence = None
+        handoff_in_fence = None
+
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("```") or stripped.startswith("~~~"):
+                c = stripped[0]
+                flen = len(stripped) - len(stripped.lstrip(c))
+                if not in_fence:
+                    in_fence = True
+                    fence_char = c
+                    fence_len = flen
+                else:
+                    if c == fence_char and flen >= fence_len:
+                        in_fence = False
+                        fence_char = None
+                        fence_len = 0
+            if stripped.startswith("## Remember"):
+                remember_in_fence = in_fence
+            if stripped.startswith("## Execution Handoff"):
+                handoff_in_fence = in_fence
+
+        self.assertFalse(in_fence, "File must not end inside an open code fence")
+        self.assertFalse(remember_in_fence, "## Remember must not be inside a code fence")
+        self.assertFalse(handoff_in_fence, "## Execution Handoff must not be inside a code fence")
+
+    def test_engplan_concurrency_query_validation_and_uniqueness(self):
+        content = (REPO_ROOT / ".claude/skills/engplan/SKILL.md").read_text()
+        section = content.split("### Rule 1: File-exclusive ownership", 1)[1]
+        raw_snippet = section.split("```bash\n", 1)[1].split("\n```", 1)[0]
+
+        # 1. Unset or placeholder target files must fail before calling gh
+        fail_snippet = "TARGET_FILES=(\"<FILE_LIST>\")\n" + raw_snippet.split("TARGET_FILES=", 1)[1].split("\n", 1)[1]
+        res_placeholder = subprocess.run(["bash", "-c", fail_snippet], capture_output=True, text=True)
+        self.assertNotEqual(res_placeholder.returncode, 0, "Placeholder TARGET_FILES must fail before gh")
+        self.assertIn("TARGET_FILES", res_placeholder.stderr)
+
+        # 2. Unique PR numbers when stub returns duplicate hits
+        stub_dir = self.tmp_path / "stub_gh_bin"
+        stub_dir.mkdir()
+        fake_gh = stub_dir / "gh"
+        calls_file = self.tmp_path / "engplan-stub-calls.jsonl"
+        fake_gh.write_text(f"""#!{sys.executable}
+import json, sys
+with open({repr(str(calls_file))}, "a") as f:
+    f.write(json.dumps(sys.argv[1:]) + "\\n")
+print(json.dumps([
+  {{"number": 101, "files": [{{"path": "a.py"}}, {{"path": "b.py"}}]}},
+  {{"number": 102, "files": [{{"path": "c.py"}}]}}
+]))
+""")
+        fake_gh.chmod(0o755)
+
+        run_env = {**os.environ, "PATH": f"{stub_dir}:{os.environ['PATH']}"}
+        test_snippet = 'TARGET_FILES=("a.py" "b.py")\n' + raw_snippet.split("TARGET_FILES=", 1)[1].split("\n", 1)[1]
+        res_unique = subprocess.run(["bash", "-c", test_snippet], env=run_env, capture_output=True, text=True)
+        self.assertEqual(res_unique.returncode, 0, res_unique.stderr + res_unique.stdout)
+        # Should only output PR 101 once
+        nums = [line.strip() for line in res_unique.stdout.splitlines() if line.strip().isdigit()]
+        self.assertEqual(nums, ["101"])
+        self.assertTrue(calls_file.exists())
+        self.assertGreaterEqual(len(calls_file.read_text().splitlines()), 1)
+
+    def test_video_evidence_publication_snippets_guard_unset_pr_and_contained(self):
+        owners = [
+            REPO_ROOT / ".claude/skills/tmux-video-evidence/SKILL.md",
+            REPO_ROOT / ".claude/skills/evidence-standards/tmux-video-evidence.md",
+            REPO_ROOT / ".claude/skills/ui-video-evidence/SKILL.md",
+        ]
+        for skill_file in owners:
+            with self.subTest(owner=skill_file.name):
+                content = skill_file.read_text()
+                section = content.split("## Evidence access and authorized publication", 1)[1]
+                raw_snippet = section.split("```bash\n", 1)[1].split("\n```", 1)[0]
+
+                # 1. Unset PR_NUMBER must fail informatively before calling gh and exit non-zero
+                res_unset = subprocess.run(
+                    ["bash", "-c", "unset PR_NUMBER PR_NUMBER_OR_URL\n" + raw_snippet],
+                    capture_output=True, text=True,
+                )
+                self.assertNotEqual(res_unset.returncode, 0, f"Unset PR_NUMBER must fail in {skill_file.name}")
+                self.assertIn("PR_NUMBER", res_unset.stderr)
+
+                # 2. Placeholder <PR_NUMBER> must fail informatively before calling gh
+                res_placeholder = subprocess.run(
+                    ["bash", "-c", 'PR_NUMBER="<PR_NUMBER>"\n' + raw_snippet],
+                    capture_output=True, text=True,
+                )
+                self.assertNotEqual(res_placeholder.returncode, 0, f"Placeholder PR_NUMBER must fail in {skill_file.name}")
+                self.assertIn("PR_NUMBER", res_placeholder.stderr)
 
 
 if __name__ == "__main__":

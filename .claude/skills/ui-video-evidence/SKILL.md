@@ -31,11 +31,22 @@ Each UI evidence run must provide:
 - A downloadable high-fidelity artifact (`.mp4`, `.mp4.zip`, or release asset)
 - Matching metadata and caption artifacts in the reviewed evidence receipt
 
+## Scoped Browser Ownership (resolve FIRST, before picking a capture method)
+
+Before choosing how to capture evidence, check whether the target repo has its
+own browser-execution owner (e.g. `testing_ui/CLAUDE.md`,
+`~/.claude/skills/browser-testing/SKILL.md`). If a scoped owner exists and
+forbids headed/manual capture or Claude-in-Chrome, its policy wins — use its
+designated headless tool (Aside CLI/`aside-mcp`, or headless Playwright). Do
+not escalate to a native-chrome/manual-capture requirement, and do not ask for
+Screen Recording permission, when a scoped headless path is available and not
+documented as blocked.
+
 ## Mandatory Frames
 
 | # | Frame | Must show |
 |---|-------|-----------|
-| 1 | URL + Page Load | Full browser URL bar with route under test |
+| 1 | URL + Page Load | Full native browser URL bar with route under test, OR — when the scoped owner mandates headless capture — a genuine route/URL provenance marker (printed navigation URL/log line, on-page route text, or window title) captured from the same automated session and tied to the frame timestamp |
 | 2 | Before State | Initial state before action |
 | 3 | Action | Click/input/navigation action |
 | 4 | After State | Resulting state after action |
@@ -43,10 +54,16 @@ Each UI evidence run must provide:
 
 ## Recording Options
 
-### Option 1: Claude-in-Chrome GIF/Video workflow
-Use browser automation and record the full flow while keeping URL visible.
+### Option 1: Scoped headless driver (Aside / Playwright) — DEFAULT when a repo forbids headed capture
+Follow `~/.claude/skills/browser-testing/SKILL.md`: drive the browser headlessly
+via Aside CLI/`aside-mcp` or headless Playwright, log the navigated URL/route to
+the terminal or an overlay, and record with the scoped repo's own recorder
+(e.g. `testing_ui/streaming/base.py` `UIVideoRecorder`) or `ffmpeg` (Option 3).
+Never use `mcp__claude-in-chrome__*` or any headed browser for this path.
 
-### Option 2: Kap (manual desktop capture)
+### Option 2: Manual desktop capture (Kap) — LAST RESORT ONLY
+Only when no repo-scoped headless policy exists AND native browser chrome is
+required. Do not use this when the repo forbids headed/manual capture.
 ```bash
 brew install --cask kap
 ```
@@ -54,7 +71,7 @@ Record browser window including address bar.
 
 ### Option 3: ffmpeg (headless/CI)
 ```bash
-ffmpeg -video_size 1280x720 -framerate 10 -f x11grab -i :99 -t 30 /tmp/<work_name>.mp4
+ffmpeg -video_size 1280x720 -framerate 10 -f x11grab -i :99 -t 30 "/tmp/${WORK_NAME:-work}.mp4"
 ```
 
 ## Caption Requirements (MANDATORY)
@@ -74,17 +91,26 @@ Follow `~/.claude/skills/evidence-standards/SKILL.md` for publication authority,
 The following GitHub release example applies only when that destination is authorized. Set `caption_file` to the actual generated `.vtt` or `.srt` path when using a sidecar; leave it empty only when captions are already burned into the video. The asset list includes the sidecar only when set.
 
 ```bash
-caption_file=""  # Set to the actual .vtt or .srt path unless captions are burned in.
-assets=("/tmp/ui_flow.mp4.zip" "/abs/path/to/ui_flow.gif")
-if [ -n "$caption_file" ]; then
-  assets+=("$caption_file")
-fi
-zip -j /tmp/ui_flow.mp4.zip /abs/path/to/ui_flow.mp4
-tag="evidence-pr-${PR_NUMBER}"
-gh release create "$tag" --draft --title "PR #${PR_NUMBER} Evidence" --notes "" 2>/dev/null || true
-gh release upload "$tag" "${assets[@]}" --clobber
-gh release view "$tag" --json assets,url
-gh pr edit "$PR_NUMBER_OR_URL" --body-file /tmp/pr_body.md
+(
+  set -euo pipefail
+  if [[ -z "${PR_NUMBER:-}" || "$PR_NUMBER" == *"<"* ]]; then
+    echo "Error: PR_NUMBER must be set to a valid PR number before publication" >&2
+    exit 1
+  fi
+  target_pr="${PR_NUMBER_OR_URL:-$PR_NUMBER}"
+
+  caption_file=""  # Set to the actual .vtt or .srt path unless captions are burned in.
+  assets=("/tmp/ui_flow.mp4.zip" "/abs/path/to/ui_flow.gif")
+  if [ -n "$caption_file" ]; then
+    assets+=("$caption_file")
+  fi
+  zip -j /tmp/ui_flow.mp4.zip /abs/path/to/ui_flow.mp4
+  tag="evidence-pr-${PR_NUMBER}"
+  gh release create "$tag" --draft --title "PR #${PR_NUMBER} Evidence" --notes ""
+  gh release upload "$tag" "${assets[@]}" --clobber
+  gh release view "$tag" --json assets,url
+  gh pr edit "$target_pr" --body-file /tmp/pr_body.md
+)
 ```
 
 For this authorized GitHub example, build `/tmp/pr_body.md` from the asset URLs returned by `gh release view --json assets,url`. Do not guess the final download URL for draft releases. Other authorized destinations use their own verified artifact locations.
@@ -121,6 +147,31 @@ Reject these:
 - Manual drag-drop as the only publication path
 - Media inaccessible to the intended reviewer
 
+## Authorization vs Capability (MANDATORY)
+
+Before choosing a capture method, distinguish three separate things:
+1. **Task authorization** — you already have authorization to do routine,
+   in-scope evidence capture; a failed OS-level capture probe does NOT mean
+   the user withheld authorization.
+2. **OS capability** — whether one process/tool can capture the screen
+   natively (e.g. a CoreGraphics/Screen Recording permission check).
+3. **Evidence sufficiency** — whether the required frames and provenance can
+   be produced through an authorized, already-available alternative (e.g. a
+   scoped headless browser driver, see "Scoped Browser Ownership" above).
+
+Rules:
+- **Never run a TCC/permission reset as a diagnostic probe** (e.g. `tccutil
+  reset ScreenCapture`, or any command that mutates OS privacy grants) to test
+  whether capture works. This destroys unrelated apps' existing grants and is
+  not reversible from inside the agent.
+- Exhaust all authorized, scoped, headless capture alternatives (Option 1 and
+  Option 3 above) before concluding that human/OS-level consent is required.
+- If genuine OS consent is required after alternatives are exhausted, report
+  the exact capability gap and the alternatives you tried —
+  do not claim the user withheld authorization and do not declare the whole goal blocked.
+- Do not fabricate a browser address bar or native chrome to satisfy the
+  Mandatory Frames table when actual capture is headless.
+
 ## Reviewer Checklist
 
 1. Video is linked from the review receipt at an authorized, reviewer-accessible destination
@@ -148,3 +199,13 @@ Moved here from `~/.claude/CLAUDE.md` on 2026-07-25. Applies to AGY CLI and any 
 ### Capture script standard *(your-project.com-specific)*
 
 Every `testing_ui/capture_*.py` script must use the shared `browser_test_helpers.py` helpers — `wait_for_page_ready()` and `verify_first_frame_not_blank()`. New scripts that re-implement waits inline are a regression.
+
+## Slack Distribution — Native Attachments Only
+
+When distributing video or visual evidence to Slack (channels, incident threads, or DMs):
+- **NEVER** use text-only Slack MCP tools (`conversations_add_message`) to send bare paths or GitHub URLs. Text-only message tools do not render media inline.
+- **ALWAYS** use the dedicated uploader script:
+  ```bash
+  python3 ~/.claude/skills/slack-media-upload/scripts/slack_upload.py [--dm | --channel <id>] --file <path> [--title <title>...] [--thread-ts <ts>] [--comment <text>]
+  ```
+- This wraps Slack's two-step `files.getUploadURLExternal` → `files.completeUploadExternal` API so videos and GIFs render directly inline in Slack.
