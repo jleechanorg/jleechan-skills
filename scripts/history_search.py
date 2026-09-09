@@ -467,63 +467,31 @@ def _search_codex_store(
 
                             record_model: Optional[str] = None
                             line_type = obj.get("type")
-                            payload = obj.get("payload", {})
-                            event_subtype = payload.get("type") if isinstance(payload, dict) else None
-                            event_turn_id = (
-                                payload.get("turn_id")
-                                if isinstance(payload, dict) and payload.get("turn_id")
-                                else obj.get("turn_id")
-                            )
+                            payload = obj.get("payload") if isinstance(obj.get("payload"), dict) else {}
 
-                            if (
-                                line_type in ("turn_context", "TurnContext")
-                                or event_subtype in ("turn_context", "TurnContext")
-                            ):
+                            if line_type == "turn_context":
                                 seen_turn_context = True
-                                if event_turn_id:
-                                    active_turn_id = str(event_turn_id)
-                                if isinstance(payload, dict) and payload.get("model"):
-                                    current_turn_model = str(payload["model"])
-                                else:
+                                turn_id = payload.get("turn_id") or obj.get("turn_id")
+                                if turn_id:
+                                    active_turn_id = str(turn_id)
+                                model = payload.get("model") or obj.get("model")
+                                current_turn_model = str(model) if model else None
+                            elif line_type == "event_msg":
+                                event_type = payload.get("type")
+                                if event_type == "task_started":
                                     current_turn_model = None
-                            elif (
-                                line_type in ("task_started", "turn_started", "TurnStarted")
-                                or (
-                                    line_type == "event_msg"
-                                    and event_subtype in ("task_started", "turn_started", "TurnStarted")
-                                )
-                            ):
-                                current_turn_model = None
-                                active_turn_id = str(event_turn_id) if event_turn_id else None
-                            elif (
-                                line_type in (
-                                    "task_complete",
-                                    "turn_complete",
-                                    "TurnComplete",
-                                    "turn_aborted",
-                                    "TurnAborted",
-                                )
-                                or (
-                                    line_type == "event_msg"
-                                    and event_subtype in (
-                                        "task_complete",
-                                        "turn_complete",
-                                        "TurnComplete",
-                                        "turn_aborted",
-                                        "TurnAborted",
-                                    )
-                                )
-                            ):
-                                current_turn_model = None
-                                active_turn_id = None
-                            elif (
-                                event_turn_id
-                                and active_turn_id is not None
-                                and str(event_turn_id) != active_turn_id
-                            ):
-                                current_turn_model = None
-                                active_turn_id = str(event_turn_id)
-                            elif line_type == "session_meta" and isinstance(payload, dict):
+                                    turn_id = payload.get("turn_id")
+                                    active_turn_id = str(turn_id) if turn_id else None
+                                elif event_type in ("task_complete", "turn_aborted"):
+                                    completion_turn_id = str(payload.get("turn_id")) if payload.get("turn_id") else None
+                                    if completion_turn_id is not None and active_turn_id is not None:
+                                        if completion_turn_id == active_turn_id:
+                                            current_turn_model = None
+                                            active_turn_id = None
+                                    elif completion_turn_id is None and active_turn_id is None:
+                                        current_turn_model = None
+                                        active_turn_id = None
+                            elif line_type == "session_meta":
                                 if payload.get("model"):
                                     session_hint_model = str(payload["model"])
                             elif obj.get("model"):
