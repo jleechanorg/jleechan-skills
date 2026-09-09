@@ -13,6 +13,7 @@ scripts/skill_portability_scan.py does not exist yet.
 """
 
 import importlib
+import json
 import os
 import shutil
 import subprocess
@@ -781,15 +782,37 @@ class DocumentedShellExamplesTest(unittest.TestCase):
         section = content.split("### Rule 1: File-exclusive ownership", 1)[1]
         raw_snippet = section.split("```bash\n", 1)[1].split("\n```", 1)[0]
 
-        # 1. Unset or placeholder target files must fail before calling gh
-        fail_snippet = "TARGET_FILES=(\"<FILE_LIST>\")\n" + raw_snippet.split("TARGET_FILES=", 1)[1].split("\n", 1)[1]
-        res_placeholder = subprocess.run(["bash", "-c", fail_snippet], capture_output=True, text=True)
+        # 1. Default raw snippet (TARGET_FILES=()) must fail before calling gh
+        res_default = subprocess.run(["bash", "-c", raw_snippet], capture_output=True, text=True)
+        self.assertNotEqual(res_default.returncode, 0, "Default empty TARGET_FILES must fail before gh")
+        self.assertIn("TARGET_FILES", res_default.stderr)
+
+        # 2. Angle placeholder target files must fail before calling gh
+        fail_placeholder = 'TARGET_FILES=("<FILE_LIST>")\n' + raw_snippet.split("TARGET_FILES=", 1)[1].split("\n", 1)[1]
+        res_placeholder = subprocess.run(["bash", "-c", fail_placeholder], capture_output=True, text=True)
         self.assertNotEqual(res_placeholder.returncode, 0, "Placeholder TARGET_FILES must fail before gh")
         self.assertIn("TARGET_FILES", res_placeholder.stderr)
 
-        # 2. Unique PR numbers when stub returns duplicate hits
+        # 3. Dummy path/to/ placeholder target files must fail before calling gh
+        fail_dummy = 'TARGET_FILES=("path/to/file1.py")\n' + raw_snippet.split("TARGET_FILES=", 1)[1].split("\n", 1)[1]
+        res_dummy = subprocess.run(["bash", "-c", fail_dummy], capture_output=True, text=True)
+        self.assertNotEqual(res_dummy.returncode, 0, "Dummy path/to/ TARGET_FILES must fail before gh")
+        self.assertIn("TARGET_FILES", res_dummy.stderr)
+
+        # 4. Caller survival on failure (subshell protects caller)
+        caller_script = (
+            "set -e\n"
+            "status=0\n"
+            + raw_snippet + " || status=$?\n"
+            "printf 'CALLER_SURVIVED:%s\\n' \"$status\"\n"
+        )
+        res_caller = subprocess.run(["bash", "-c", caller_script], capture_output=True, text=True)
+        self.assertEqual(res_caller.returncode, 0, res_caller.stderr)
+        self.assertIn("CALLER_SURVIVED:1\n", res_caller.stdout)
+
+        # 5. Unique PR numbers when stub returns duplicate hits
         stub_dir = self.tmp_path / "stub_gh_bin"
-        stub_dir.mkdir()
+        stub_dir.mkdir(exist_ok=True)
         fake_gh = stub_dir / "gh"
         calls_file = self.tmp_path / "engplan-stub-calls.jsonl"
         fake_gh.write_text(f"""#!{sys.executable}
@@ -807,11 +830,65 @@ print(json.dumps([
         test_snippet = 'TARGET_FILES=("a.py" "b.py")\n' + raw_snippet.split("TARGET_FILES=", 1)[1].split("\n", 1)[1]
         res_unique = subprocess.run(["bash", "-c", test_snippet], env=run_env, capture_output=True, text=True)
         self.assertEqual(res_unique.returncode, 0, res_unique.stderr + res_unique.stdout)
-        # Should only output PR 101 once
         nums = [line.strip() for line in res_unique.stdout.splitlines() if line.strip().isdigit()]
         self.assertEqual(nums, ["101"])
         self.assertTrue(calls_file.exists())
         self.assertGreaterEqual(len(calls_file.read_text().splitlines()), 1)
+
+        # 6. Propagate actual gh failures rather than reporting zero overlap
+        fake_gh.write_text(f"""#!{sys.executable}
+import sys
+sys.stderr.write("GH_NETWORK_FAILURE\\n")
+sys.exit(1)
+""")
+        fake_gh.chmod(0o755)
+        res_gh_fail = subprocess.run(["bash", "-c", test_snippet], env=run_env, capture_output=True, text=True)
+        self.assertNotEqual(res_gh_fail.returncode, 0, "gh failure must propagate non-zero exit")
+        self.assertNotIn("No overlapping", res_gh_fail.stdout)
+
+        # 7. Propagate actual jq failures rather than reporting zero overlap
+        fake_gh.write_text(f"""#!{sys.executable}
+print("NOT_VALID_JSON")
+""")
+        fake_gh.chmod(0o755)
+        res_jq_fail = subprocess.run(["bash", "-c", test_snippet], env=run_env, capture_output=True, text=True)
+        self.assertNotEqual(res_jq_fail.returncode, 0, "jq failure must propagate non-zero exit")
+        self.assertNotIn("No overlapping", res_jq_fail.stdout)
+
+        # 8. Plan template section references Rule 1 rather than duplicating the full query
+        template_section = content.split("### Concurrency Rule (template)", 1)[1].split("### Size Constraints", 1)[0]
+        self.assertNotIn("gh pr list --state open", template_section, "Plan template must not duplicate full gh query")
+        self.assertIn("Rule 1", template_section, "Plan template must reference Rule 1")
+
+    def test_tmux_and_ui_non_runnable_templates(self):
+        standalone = REPO_ROOT / ".claude/skills/tmux-video-evidence/SKILL.md"
+        companion = REPO_ROOT / ".claude/skills/evidence-standards/tmux-video-evidence.md"
+        ui_skill = REPO_ROOT / ".claude/skills/ui-video-evidence/SKILL.md"
+
+        standalone_content = standalone.read_text(encoding="utf-8")
+        companion_content = companion.read_text(encoding="utf-8")
+        ui_content = ui_skill.read_text(encoding="utf-8")
+
+        # 1. tmux template must use text fence, not bash
+        self.assertIn("## Evidence Script Template", standalone_content)
+        self.assertIn("/tmp/${WORK_NAME:-work}_evidence.sh", standalone_content)
+        script_sec = standalone_content.split("## Evidence Script Template", 1)[1].split("## Recording", 1)[0]
+        self.assertIn("```text\n", script_sec, "tmux Evidence Script Template must be non-runnable text fence")
+        self.assertNotIn("```bash\n", script_sec, "tmux Evidence Script Template must not be bash fence")
+
+        # 2. No invented defaults ${PR_NUMBER:-1} or ${TEST_COMMAND:-pytest}
+        self.assertNotIn("${PR_NUMBER:-1}", script_sec)
+        self.assertNotIn("${TEST_COMMAND:-pytest}", script_sec)
+        self.assertIn("<PR_NUMBER>", script_sec)
+        self.assertIn("<SCOPED_TEST_COMMAND>", script_sec)
+
+        # 3. Companion copy agrees with standalone
+        self.assertEqual(standalone_content, companion_content, "Companion tmux-video-evidence.md must match standalone SKILL.md")
+
+        # 4. Slack upload template in ui-video-evidence must use text fence, not bash
+        slack_sec = ui_content.split("## Slack Distribution", 1)[1]
+        self.assertIn("```text\n", slack_sec, "Slack upload template must use text fence")
+        self.assertNotIn("```bash\n", slack_sec, "Slack upload template must not use bash fence")
 
     def test_video_evidence_publication_snippets_guard_unset_pr_and_contained(self):
         owners = [
@@ -823,11 +900,16 @@ print(json.dumps([
             with self.subTest(owner=skill_file.name):
                 content = skill_file.read_text()
                 section = content.split("## Evidence access and authorized publication", 1)[1]
-                raw_snippet = section.split("```bash\n", 1)[1].split("\n```", 1)[0]
+                blocks = section.split("```bash\n")
+                self.assertGreaterEqual(len(blocks), 3, f"{skill_file.name} must split publication into two bash blocks")
+                block1 = blocks[1].split("\n```", 1)[0]
+                block2 = blocks[2].split("\n```", 1)[0]
+
+                # --- Block 1: Release create / upload / view ---
 
                 # 1. Unset PR_NUMBER must fail informatively before calling gh and exit non-zero
                 res_unset = subprocess.run(
-                    ["bash", "-c", "unset PR_NUMBER PR_NUMBER_OR_URL\n" + raw_snippet],
+                    ["bash", "-c", "unset PR_NUMBER PR_NUMBER_OR_URL\n" + block1],
                     capture_output=True, text=True,
                 )
                 self.assertNotEqual(res_unset.returncode, 0, f"Unset PR_NUMBER must fail in {skill_file.name}")
@@ -835,11 +917,117 @@ print(json.dumps([
 
                 # 2. Placeholder <PR_NUMBER> must fail informatively before calling gh
                 res_placeholder = subprocess.run(
-                    ["bash", "-c", 'PR_NUMBER="<PR_NUMBER>"\n' + raw_snippet],
+                    ["bash", "-c", 'PR_NUMBER="<PR_NUMBER>"\n' + block1],
                     capture_output=True, text=True,
                 )
                 self.assertNotEqual(res_placeholder.returncode, 0, f"Placeholder PR_NUMBER must fail in {skill_file.name}")
                 self.assertIn("PR_NUMBER", res_placeholder.stderr)
+
+                # 3. Missing video or preview file must fail before calling gh (stub gh sees 0 calls)
+                test_dir = self.tmp_path / f"pub_test_{skill_file.name}_{skill_file.parent.name}"
+                test_dir.mkdir(parents=True, exist_ok=True)
+                calls_file = test_dir / "gh-calls.jsonl"
+                stub_dir = test_dir / "bin"
+                stub_dir.mkdir(exist_ok=True)
+                fake_gh = stub_dir / "gh"
+                fake_gh.write_text(f"""#!{sys.executable}
+import json, sys
+with open({repr(str(calls_file))}, "a") as f:
+    f.write(json.dumps(sys.argv[1:]) + "\\n")
+if "view" in sys.argv:
+    print(json.dumps({{"url": "https://github.com/example/repo/releases/tag/v1", "assets": [{{"name": "a", "url": "https://example.com/a"}}]}}))
+sys.exit(0)
+""")
+                fake_gh.chmod(0o755)
+                env = {**os.environ, "PATH": f"{stub_dir}:{os.environ['PATH']}"}
+
+                # Video file missing
+                res_missing_video = subprocess.run(
+                    ["bash", "-c", f'PR_NUMBER="42"\nVIDEO_FILE="{test_dir}/nonexistent.mp4"\n' + block1],
+                    env=env, capture_output=True, text=True,
+                )
+                self.assertNotEqual(res_missing_video.returncode, 0)
+                self.assertFalse(calls_file.exists(), "gh must not be called when video file is missing")
+
+                # Missing caption file when specified
+                dummy_video = test_dir / "video.mp4"
+                dummy_video.write_bytes(b"dummy video data")
+                dummy_preview = test_dir / "preview.gif"
+                dummy_preview.write_bytes(b"dummy gif data")
+                res_missing_caption = subprocess.run(
+                    ["bash", "-c", f'PR_NUMBER="42"\nVIDEO_FILE="{dummy_video}"\nPREVIEW_FILE="{dummy_preview}"\nCAPTION_FILE="{test_dir}/missing.vtt"\n' + block1],
+                    env=env, capture_output=True, text=True,
+                )
+                self.assertNotEqual(res_missing_caption.returncode, 0)
+                self.assertFalse(calls_file.exists(), "gh must not be called when declared caption file is missing")
+
+                # Positive test for Block 1 with valid inputs and caption sidecar
+                dummy_caption = test_dir / "captions.vtt"
+                dummy_caption.write_text("WEBVTT\n\n00:00.000 --> 00:01.000\nCaption\n")
+                zip_out = test_dir / "archive.zip"
+                res_pos1 = subprocess.run(
+                    ["bash", "-c", f'PR_NUMBER="42"\nVIDEO_FILE="{dummy_video}"\nPREVIEW_FILE="{dummy_preview}"\nCAPTION_FILE="{dummy_caption}"\nZIP_FILE="{zip_out}"\n' + block1],
+                    env=env, capture_output=True, text=True,
+                )
+                self.assertEqual(res_pos1.returncode, 0, res_pos1.stderr + res_pos1.stdout)
+                self.assertTrue(zip_out.exists(), "Zip artifact must be created")
+                self.assertTrue(calls_file.exists())
+                logged_calls = [json.loads(line) for line in calls_file.read_text().splitlines()]
+                self.assertEqual(len(logged_calls), 3)
+                self.assertEqual(logged_calls[0], ["release", "create", "evidence-pr-42", "--draft", "--title", "PR #42 Evidence", "--notes", ""])
+                self.assertEqual(logged_calls[1], ["release", "upload", "evidence-pr-42", str(zip_out), str(dummy_preview), str(dummy_caption), "--clobber"])
+                self.assertEqual(logged_calls[2], ["release", "view", "evidence-pr-42", "--json", "assets,url"])
+
+                # Caller survival on Block 1 failure
+                res_caller1 = subprocess.run(
+                    ["bash", "-c", f'set -e\nstatus=0\nPR_NUMBER=""\n' + block1 + ' || status=$?\nprintf "CALLER1_SURVIVED:%s\\n" "$status"'],
+                    env=env, capture_output=True, text=True,
+                )
+                self.assertEqual(res_caller1.returncode, 0)
+                self.assertIn("CALLER1_SURVIVED:1\n", res_caller1.stdout)
+
+                # --- Block 2: PR comment / edit ---
+                calls_file.unlink()
+
+                # Unset PR_NUMBER fails in Block 2
+                res_unset2 = subprocess.run(
+                    ["bash", "-c", "unset PR_NUMBER PR_NUMBER_OR_URL\n" + block2],
+                    env=env, capture_output=True, text=True,
+                )
+                self.assertNotEqual(res_unset2.returncode, 0)
+                self.assertFalse(calls_file.exists())
+
+                # Missing or empty body file fails in Block 2
+                empty_body = test_dir / "empty_body.md"
+                empty_body.write_text("")
+                res_empty_body = subprocess.run(
+                    ["bash", "-c", f'PR_NUMBER="42"\nBODY_FILE="{empty_body}"\nCOMMENT_FILE="{empty_body}"\n' + block2],
+                    env=env, capture_output=True, text=True,
+                )
+                self.assertNotEqual(res_empty_body.returncode, 0)
+                self.assertFalse(calls_file.exists())
+
+                # Positive test for Block 2 with non-empty body
+                valid_body = test_dir / "valid_body.md"
+                valid_body.write_text("## Verified Evidence Content\n")
+                res_pos2 = subprocess.run(
+                    ["bash", "-c", f'PR_NUMBER="42"\nBODY_FILE="{valid_body}"\nCOMMENT_FILE="{valid_body}"\n' + block2],
+                    env=env, capture_output=True, text=True,
+                )
+                self.assertEqual(res_pos2.returncode, 0, res_pos2.stderr + res_pos2.stdout)
+                self.assertTrue(calls_file.exists())
+                logged_calls2 = [json.loads(line) for line in calls_file.read_text().splitlines()]
+                self.assertEqual(len(logged_calls2), 1)
+                expected_subcmd = "edit" if "ui-video-evidence" in str(skill_file) else "comment"
+                self.assertEqual(logged_calls2[0], ["pr", expected_subcmd, "42", "--body-file", str(valid_body)])
+
+                # Caller survival on Block 2 failure
+                res_caller2 = subprocess.run(
+                    ["bash", "-c", f'set -e\nstatus=0\nPR_NUMBER=""\n' + block2 + ' || status=$?\nprintf "CALLER2_SURVIVED:%s\\n" "$status"'],
+                    env=env, capture_output=True, text=True,
+                )
+                self.assertEqual(res_caller2.returncode, 0)
+                self.assertIn("CALLER2_SURVIVED:1\n", res_caller2.stdout)
 
 
 if __name__ == "__main__":

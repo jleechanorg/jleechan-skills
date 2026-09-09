@@ -88,7 +88,51 @@ Use `~/.claude/skills/video-caption/SKILL.md` for reliable burned-in captions.
 
 Follow `~/.claude/skills/evidence-standards/SKILL.md` for publication authority, audience, and destination. A PR, checked-in document, access-controlled receipt/store, or authorized gist may link the evidence. A gist or GitHub upload is not an independent acceptance requirement. Preserve real media, captions, exact source provenance, and reviewer access; publish only within the current authorization.
 
-The following GitHub release example applies only when that destination is authorized. Set `caption_file` to the actual generated `.vtt` or `.srt` path when using a sidecar; leave it empty only when captions are already burned into the video. The asset list includes the sidecar only when set.
+The following GitHub release example applies only when that destination is authorized. Verify all declared media and caption inputs exist before creating the release; do not invent fallback PR targets. Set `caption_file` to the actual generated `.vtt` or `.srt` path when using a sidecar; leave it empty only when captions are already burned into the video. The asset list includes the sidecar only when set.
+
+```bash
+(
+  set -euo pipefail
+  if [[ -z "${PR_NUMBER:-}" || "$PR_NUMBER" == *"<"* ]]; then
+    echo "Error: PR_NUMBER must be set to a valid PR number before publication" >&2
+    exit 1
+  fi
+
+  video_file="${VIDEO_FILE:-/tmp/ui_flow.mp4}"
+  preview_file="${PREVIEW_FILE:-/tmp/ui_flow.gif}"
+  caption_file="${CAPTION_FILE:-}"  # Set to the actual .vtt or .srt path unless captions are burned in.
+  zip_file="${ZIP_FILE:-/tmp/ui_flow.mp4.zip}"
+
+  if [ ! -f "$video_file" ]; then
+    echo "Error: Video file '$video_file' not found" >&2
+    exit 1
+  fi
+  if [ ! -f "$preview_file" ]; then
+    echo "Error: Preview file '$preview_file' not found" >&2
+    exit 1
+  fi
+  if [ -n "$caption_file" ] && [ ! -f "$caption_file" ]; then
+    echo "Error: Caption sidecar '$caption_file' specified but not found" >&2
+    exit 1
+  fi
+
+  zip -j "$zip_file" "$video_file"
+
+  assets=("$zip_file" "$preview_file")
+  if [ -n "$caption_file" ]; then
+    assets+=("$caption_file")
+  fi
+
+  tag="evidence-pr-${PR_NUMBER}"
+  gh release create "$tag" --draft --title "PR #${PR_NUMBER} Evidence" --notes ""
+  gh release upload "$tag" "${assets[@]}" --clobber
+  gh release view "$tag" --json assets,url
+)
+```
+
+From the JSON output returned by `gh release view`, extract the uploaded asset URLs and construct `/tmp/pr_body.md`. Do not guess draft asset download URLs or invent placeholder URLs.
+
+Once `/tmp/pr_body.md` is constructed, update the authorized PR:
 
 ```bash
 (
@@ -98,22 +142,14 @@ The following GitHub release example applies only when that destination is autho
     exit 1
   fi
   target_pr="${PR_NUMBER_OR_URL:-$PR_NUMBER}"
-
-  caption_file=""  # Set to the actual .vtt or .srt path unless captions are burned in.
-  assets=("/tmp/ui_flow.mp4.zip" "/abs/path/to/ui_flow.gif")
-  if [ -n "$caption_file" ]; then
-    assets+=("$caption_file")
+  body_file="${BODY_FILE:-/tmp/pr_body.md}"
+  if [ ! -s "$body_file" ]; then
+    echo "Error: PR body file '$body_file' does not exist or is empty" >&2
+    exit 1
   fi
-  zip -j /tmp/ui_flow.mp4.zip /abs/path/to/ui_flow.mp4
-  tag="evidence-pr-${PR_NUMBER}"
-  gh release create "$tag" --draft --title "PR #${PR_NUMBER} Evidence" --notes ""
-  gh release upload "$tag" "${assets[@]}" --clobber
-  gh release view "$tag" --json assets,url
-  gh pr edit "$target_pr" --body-file /tmp/pr_body.md
+  gh pr edit "$target_pr" --body-file "$body_file"
 )
 ```
-
-For this authorized GitHub example, build `/tmp/pr_body.md` from the asset URLs returned by `gh release view --json assets,url`. Do not guess the final download URL for draft releases. Other authorized destinations use their own verified artifact locations.
 
 Optional path:
 - `$HOME/.claude/scripts/github_pr_media_upload.py` may still be used when native `user-attachments` URLs are specifically desired and a valid GitHub web session cookie is available
@@ -205,7 +241,7 @@ Every `testing_ui/capture_*.py` script must use the shared `browser_test_helpers
 When distributing video or visual evidence to Slack (channels, incident threads, or DMs):
 - **NEVER** use text-only Slack MCP tools (`conversations_add_message`) to send bare paths or GitHub URLs. Text-only message tools do not render media inline.
 - **ALWAYS** use the dedicated uploader script:
-  ```bash
+  ```text
   python3 ~/.claude/skills/slack-media-upload/scripts/slack_upload.py [--dm | --channel <id>] --file <path> [--title <title>...] [--thread-ts <ts>] [--comment <text>]
   ```
 - This wraps Slack's two-step `files.getUploadURLExternal` → `files.completeUploadExternal` API so videos and GIFs render directly inline in Slack.
