@@ -779,9 +779,106 @@ class InstallerIntegrationTest(unittest.TestCase):
             # Regular skill still updated appropriately
             self.assertTrue((skills_target / "example/SKILL.md").is_file())
             self.assertEqual((skills_target / "example/SKILL.md").read_text(), "# Skill\n")
-            # Source symlink entry copied appropriately
             installed_symlink = skills_target / "example/source-symlink.txt"
             self.assertTrue(installed_symlink.is_symlink())
+
+    def test_installer_refuses_unsafe_receipt_symlink_even_when_helper_is_identical(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            source_helper = fixture / "scripts/history_search.py"
+            source_helper.write_text("print('identical helper')\n")
+
+            target = temp_dir / "claude-home"
+            target.mkdir()
+            scripts = target / "scripts"
+            scripts.mkdir()
+            (scripts / "history_search.py").write_text("print('identical helper')\n")
+
+            external = temp_dir / "external"
+            external.mkdir()
+            protected = external / "protected.txt"
+            protected.write_text("unrelated protected data\n")
+
+            receipt = scripts / ".history_search.py.sha256"
+            receipt.symlink_to(protected)
+
+            result = self.run_installer(fixture, target, "--merge")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(protected.read_text(), "unrelated protected data\n")
+            self.assertFalse((target / "agents/nested/agent.md").exists())
+
+    def test_installer_rejects_unowned_helper_matching_unrelated_git_blob(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            source_helper = fixture / "scripts/history_search.py"
+            source_helper.write_text("print('new helper')\n")
+
+            # Initialize git in fixture and commit an unrelated file with specific bytes
+            env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+            subprocess.run(["git", "init"], cwd=fixture, env=env, check=True, capture_output=True)
+            subprocess.run(["git", "config", "user.email", "test@test.local"], cwd=fixture, env=env, check=True, capture_output=True)
+            subprocess.run(["git", "config", "user.name", "Test"], cwd=fixture, env=env, check=True, capture_output=True)
+            (fixture / "unrelated.txt").write_text("user-owned unrelated repository bytes\n")
+            subprocess.run(["git", "add", "."], cwd=fixture, env=env, check=True, capture_output=True)
+            subprocess.run(["git", "commit", "-m", "init"], cwd=fixture, env=env, check=True, capture_output=True)
+
+            target = temp_dir / "claude-home"
+            target.mkdir()
+            scripts = target / "scripts"
+            scripts.mkdir()
+            # Destination has the bytes of unrelated.txt, not history_search.py
+            (scripts / "history_search.py").write_text("user-owned unrelated repository bytes\n")
+
+            result = self.run_installer(fixture, target, "--merge")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(
+                (scripts / "history_search.py").read_text(),
+                "user-owned unrelated repository bytes\n",
+            )
+            self.assertFalse((target / "agents/nested/agent.md").exists())
+
+    def test_installer_git_worktree_source_allows_legitimate_owned_history_upgrade(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            main_repo = temp_dir / "main_repo"
+            main_repo.mkdir()
+            fixture = self.make_fixture(main_repo)
+            source_helper = fixture / "scripts/history_search.py"
+            source_helper.write_text("print('version 1')\n")
+
+            env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+            subprocess.run(["git", "init"], cwd=fixture, env=env, check=True, capture_output=True)
+            subprocess.run(["git", "config", "user.email", "test@test.local"], cwd=fixture, env=env, check=True, capture_output=True)
+            subprocess.run(["git", "config", "user.name", "Test"], cwd=fixture, env=env, check=True, capture_output=True)
+            subprocess.run(["git", "add", "."], cwd=fixture, env=env, check=True, capture_output=True)
+            subprocess.run(["git", "commit", "-m", "v1"], cwd=fixture, env=env, check=True, capture_output=True)
+
+            # Create a git worktree from main_repo
+            worktree_dir = temp_dir / "worktree"
+            subprocess.run(["git", "worktree", "add", str(worktree_dir), "-b", "feat"], cwd=fixture, env=env, check=True, capture_output=True)
+
+            # In worktree, .git is a file
+            self.assertTrue((worktree_dir / ".git").is_file())
+
+            # Update history_search.py in worktree to version 2
+            (worktree_dir / "scripts/history_search.py").write_text("print('version 2')\n")
+
+            # Target has version 1 without receipt
+            target = temp_dir / "claude-home"
+            target.mkdir()
+            scripts = target / "scripts"
+            scripts.mkdir()
+            (scripts / "history_search.py").write_text("print('version 1')\n")
+
+            # Running installer from worktree should recognize version 1 as historical and upgrade
+            result = self.run_installer(worktree_dir, target, "--merge")
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(
+                (scripts / "history_search.py").read_text(),
+                "print('version 2')\n",
+            )
 
 
 if __name__ == "__main__":
