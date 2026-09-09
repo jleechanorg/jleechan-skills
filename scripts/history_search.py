@@ -256,9 +256,8 @@ def search_codex(
     valid_profiles: list[Path] = []
     if codex_homes is not None:
         for profile in codex_homes:
-            profile_str = str(profile).strip()
-            if profile_str:
-                valid_profiles.append(Path(profile_str).expanduser().resolve())
+            if str(profile).strip():
+                valid_profiles.append(Path(profile).expanduser().resolve())
     if not valid_profiles:
         default_profiles = [
             os.environ.get("CODEX_HOME") or Path.home() / ".codex",
@@ -406,7 +405,9 @@ def _search_codex_store(
                 }
                 if row_model:
                     meta["model"] = str(row_model)
+                    meta["thread_model"] = str(row_model)
                     meta["model_source"] = "database"
+                    meta["model_scope"] = "thread"
                 results.append(
                     HistoryEntry(
                         source="codex",
@@ -448,7 +449,9 @@ def _search_codex_store(
                 if len(results) >= limit:
                     break
                 try:
-                    current_model: Optional[str] = None
+                    session_hint_model: Optional[str] = None
+                    current_turn_model: Optional[str] = None
+                    seen_turn_context: bool = False
                     with open(rf, "r", encoding="utf-8", errors="ignore") as f:
                         for line in f:
                             line = line.strip()
@@ -463,14 +466,17 @@ def _search_codex_store(
 
                             line_type = obj.get("type")
                             payload = obj.get("payload", {})
-                            if line_type == "turn_context" and isinstance(payload, dict):
-                                if payload.get("model"):
-                                    current_model = str(payload["model"])
+                            if line_type == "turn_context":
+                                seen_turn_context = True
+                                if isinstance(payload, dict) and payload.get("model"):
+                                    current_turn_model = str(payload["model"])
+                                else:
+                                    current_turn_model = None
                             elif line_type == "session_meta" and isinstance(payload, dict):
-                                if payload.get("model") and current_model is None:
-                                    current_model = str(payload["model"])
+                                if payload.get("model"):
+                                    session_hint_model = str(payload["model"])
                             elif obj.get("model"):
-                                current_model = str(obj["model"])
+                                current_turn_model = str(obj["model"])
 
                             text = ""
                             if (
@@ -492,9 +498,16 @@ def _search_codex_store(
                             snippet = _clean_snippet(text, max_chars=max_chars)
                             ts = str(obj.get("timestamp") or "")
                             meta = {"path": str(rf)}
-                            if current_model:
-                                meta["model"] = current_model
+                            if session_hint_model:
+                                meta["session_model"] = session_hint_model
+                            if current_turn_model:
+                                meta["model"] = current_turn_model
                                 meta["model_source"] = "turn_context"
+                                meta["model_scope"] = "turn"
+                            elif not seen_turn_context and session_hint_model:
+                                meta["model"] = session_hint_model
+                                meta["model_source"] = "session_meta"
+                                meta["model_scope"] = "session"
                             results.append(
                                 HistoryEntry(
                                     source="codex",
