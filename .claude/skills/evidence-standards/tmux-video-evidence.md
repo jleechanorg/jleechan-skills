@@ -53,8 +53,8 @@ echo "=== 2. COMMIT LOG ==="
 git log --oneline origin/main..HEAD
 
 echo "=== 3. CODE DIFFS ==="
-git diff origin/main...HEAD -- <path/to/important_file_1.py> | head -80
-git diff origin/main...HEAD -- <path/to/important_file_2.py> | head -80
+git diff origin/main...HEAD -- <path/to/important_file_1.py> | sed -n '1,80p'
+git diff origin/main...HEAD -- <path/to/important_file_2.py> | sed -n '1,80p'
 
 echo "=== 4. PR STATUS ==="
 gh pr view "<PR_NUMBER>" --json number,title,url,state,headRefName
@@ -63,7 +63,11 @@ echo "=== 5. LIVE TEST EXECUTION (SANITIZED) ==="
 <SCOPED_TEST_COMMAND> 2>&1 \
   | sed -E \
       -e 's#/Users/[^/]+/#/Users/REDACTED/#g' \
-      -e 's#/private/var/folders/[^[:space:]]+#/private/var/folders/REDACTED#g'
+      -e 's#/home/[^/]+/#/home/REDACTED/#g' \
+      -e 's#/private/var/folders/[^[:space:]]+#/private/var/folders/REDACTED#g' \
+      -e 's#/workspace/[^[:space:]]+#/workspace/REDACTED#g' \
+      -e 's#/tmp/[^[:space:]]+#/tmp/REDACTED#g'
+
 
 echo "=== 6. POST-RUN SHA ==="
 POST_SHA="$(git rev-parse HEAD)"
@@ -98,7 +102,7 @@ Use `~/.claude/skills/video-caption/SKILL.md` when you need to generate burned-i
 
 Follow `~/.claude/skills/evidence-standards/SKILL.md` for publication authority, audience, and destination. A PR, checked-in document, access-controlled receipt/store, or authorized gist may link the evidence. A gist or GitHub upload is not an independent acceptance requirement. Preserve real media, captions, exact source provenance, and reviewer access; publish only within the current authorization.
 
-The following GitHub release example applies only when that destination is authorized. Verify all declared media and caption inputs exist before creating the release; do not invent fallback PR targets. Set `caption_file` to the actual generated `.vtt` or `.srt` path when using a sidecar; leave it empty only when captions are already burned into the video. The asset list includes the sidecar only when set.
+The following GitHub release example applies only when that destination is authorized. Verify the intended PR exists via `gh pr view` before creating any release or upload. Caller must provide non-empty `VIDEO_FILE` and `PREVIEW_FILE` artifacts, an explicit non-empty `RUN_ID`, and declare an explicit caption choice: set `CAPTION_FILE` to the actual .vtt or .srt sidecar path, or set `CAPTION_MODE=burned` when captions are burned into the video. All media and subtitle formats are verified with ffprobe prior to archive creation and publication. Each run publishes to an immutable unique release tag combining the PR number, commit SHA, and run identifier without overwriting or clobbering existing releases.
 
 ```bash
 (
@@ -143,6 +147,11 @@ The following GitHub release example applies only when that destination is autho
     PR_NUMBER="$url_pr"
   fi
 
+  if ! command -v ffprobe >/dev/null 2>&1; then
+    echo "Error: ffprobe is required for media validation but not found in PATH" >&2
+    exit 1
+  fi
+
   if [[ -z "${PR_NUMBER:-}" || "$PR_NUMBER" == *"<"* || ! "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
     echo "Error: PR_NUMBER must be set to a valid PR number before publication" >&2
     exit 1
@@ -155,25 +164,85 @@ The following GitHub release example applies only when that destination is autho
     echo "Error: REPO must be in the format 'owner/repo'" >&2
     exit 1
   fi
-
-  video_file="${VIDEO_FILE:-/tmp/terminal.mp4}"
-  preview_file="${PREVIEW_FILE:-/tmp/terminal.gif}"
-  caption_file="${CAPTION_FILE:-}"  # Set to the actual .vtt or .srt path unless captions are burned in.
-  zip_file="${ZIP_FILE:-/tmp/terminal.mp4.zip}"
-
-  if [ ! -f "$video_file" ]; then
-    echo "Error: Video file '$video_file' not found" >&2
-    exit 1
-  fi
-  if [ ! -f "$preview_file" ]; then
-    echo "Error: Preview file '$preview_file' not found" >&2
-    exit 1
-  fi
-  if [ -n "$caption_file" ] && [ ! -f "$caption_file" ]; then
-    echo "Error: Caption sidecar '$caption_file' specified but not found" >&2
+  if [[ -z "${RUN_ID:-}" || "$RUN_ID" == *"<"* ]]; then
+    echo "Error: RUN_ID must be set to an explicit nonempty identifier before publication" >&2
     exit 1
   fi
 
+  if [[ -z "${VIDEO_FILE:-}" || "$VIDEO_FILE" == *"<"* ]]; then
+    echo "Error: VIDEO_FILE must be set to a valid path before publication" >&2
+    exit 1
+  fi
+  if [[ -z "${PREVIEW_FILE:-}" || "$PREVIEW_FILE" == *"<"* ]]; then
+    echo "Error: PREVIEW_FILE must be set to a valid path before publication" >&2
+    exit 1
+  fi
+
+  video_file="$VIDEO_FILE"
+  preview_file="$PREVIEW_FILE"
+
+  if [ ! -f "$video_file" ] || [ ! -s "$video_file" ]; then
+    echo "Error: Video file '$video_file' not found or is empty" >&2
+    exit 1
+  fi
+  if [ ! -f "$preview_file" ] || [ ! -s "$preview_file" ]; then
+    echo "Error: Preview file '$preview_file' not found or is empty" >&2
+    exit 1
+  fi
+
+  video_codec="$(ffprobe -v error -select_streams v:0 -show_entries stream=codec_type -of default=noprint_wrappers=1:nokey=1 "$video_file" 2>/dev/null || true)"
+  if [[ "$video_codec" != "video" ]]; then
+    echo "Error: Video file '$video_file' does not contain a valid video stream" >&2
+    exit 1
+  fi
+
+  preview_codec="$(ffprobe -v error -select_streams v:0 -show_entries stream=codec_type -of default=noprint_wrappers=1:nokey=1 "$preview_file" 2>/dev/null || true)"
+  if [[ "$preview_codec" != "video" ]]; then
+    echo "Error: Preview file '$preview_file' does not contain a valid video/image stream" >&2
+    exit 1
+  fi
+
+  if [[ "${CAPTION_MODE:-}" == "burned" ]]; then
+    caption_file=""
+  elif [[ -n "${CAPTION_FILE:-}" && "${CAPTION_FILE:-}" != *"<"* ]]; then
+    caption_file="$CAPTION_FILE"
+    if [ ! -f "$caption_file" ] || [ ! -s "$caption_file" ]; then
+      echo "Error: Caption sidecar '$caption_file' specified but not found or is empty" >&2
+      exit 1
+    fi
+    caption_codec="$(ffprobe -v error -show_entries stream=codec_type -of default=noprint_wrappers=1:nokey=1 "$caption_file" 2>/dev/null || true)"
+    if [[ "$caption_codec" != "subtitle" ]]; then
+      echo "Error: Caption file '$caption_file' does not contain a valid subtitle stream" >&2
+      exit 1
+    fi
+  else
+    echo "Error: Explicit caption choice required: specify CAPTION_FILE (.vtt/.srt) or CAPTION_MODE=burned" >&2
+    exit 1
+  fi
+
+  # Verify exact intended PR before any release creation or mutation
+  pr_view_json="$(gh pr view "$PR_NUMBER" --repo "$repo" --json number,headRefOid,url)"
+  pr_head_sha="$(printf '%s' "$pr_view_json" | jq -r '.headRefOid // empty')"
+  pr_number_resolved="$(printf '%s' "$pr_view_json" | jq -r '.number // empty')"
+  if [[ -n "$pr_number_resolved" && "$pr_number_resolved" != "$PR_NUMBER" ]]; then
+    echo "Error: Verified PR number mismatch ($pr_number_resolved vs $PR_NUMBER)" >&2
+    exit 1
+  fi
+  if [[ -z "$pr_head_sha" ]]; then
+    echo "Error: Unable to resolve head SHA for PR #$PR_NUMBER in $repo" >&2
+    exit 1
+  fi
+
+  if [[ -n "${CAPTURED_SHA:-}" && "$CAPTURED_SHA" != "$pr_head_sha" ]]; then
+    echo "Error: Declared CAPTURED_SHA '$CAPTURED_SHA' does not match verified PR head '$pr_head_sha'" >&2
+    exit 1
+  fi
+
+  target_sha="${CAPTURED_SHA:-$pr_head_sha}"
+  sha_short="${target_sha:0:12}"
+  tag="evidence-pr-${PR_NUMBER}-${sha_short}-${RUN_ID}"
+
+  zip_file="${ZIP_FILE:-${video_file}.zip}"
   zip -j "$zip_file" "$video_file"
 
   assets=("$zip_file" "$preview_file")
@@ -181,18 +250,15 @@ The following GitHub release example applies only when that destination is autho
     assets+=("$caption_file")
   fi
 
-  tag="evidence-pr-${PR_NUMBER}"
   if ! gh release create "$tag" --repo "$repo" --draft --title "PR #${PR_NUMBER} Evidence" --notes ""; then
-    is_draft="$(gh release view "$tag" --repo "$repo" --json isDraft --jq '.isDraft')"
-    if [ "$is_draft" != "true" ]; then
-      echo "Error: Release '$tag' could not be created and is not a draft release" >&2
-      exit 1
-    fi
+    echo "Error: Release '$tag' could not be created or already exists; stopping without modifying releases" >&2
+    exit 1
   fi
-  gh release upload "$tag" --repo "$repo" "${assets[@]}" --clobber
+  gh release upload "$tag" --repo "$repo" "${assets[@]}"
   gh release view "$tag" --repo "$repo" --json assets,url
 )
 ```
+
 
 From the JSON output returned by `gh release view`, extract the uploaded asset URLs and construct `/tmp/evidence_comment.md`. Do not guess draft asset download URLs or invent placeholder URLs.
 
@@ -254,13 +320,21 @@ Once `/tmp/evidence_comment.md` is constructed, post the comment to the authoriz
     exit 1
   fi
 
-  target_pr="$PR_NUMBER"
-
   comment_file="${COMMENT_FILE:-/tmp/evidence_comment.md}"
   if [ ! -s "$comment_file" ]; then
     echo "Error: Comment body file '$comment_file' does not exist or is empty" >&2
     exit 1
   fi
+
+  # Verify exact intended PR before posting comment
+  pr_view_json="$(gh pr view "$PR_NUMBER" --repo "$repo" --json number,headRefOid,url)"
+  pr_number_resolved="$(printf '%s' "$pr_view_json" | jq -r '.number // empty')"
+  if [[ -n "$pr_number_resolved" && "$pr_number_resolved" != "$PR_NUMBER" ]]; then
+    echo "Error: Verified PR number mismatch ($pr_number_resolved vs $PR_NUMBER)" >&2
+    exit 1
+  fi
+
+  target_pr="$PR_NUMBER"
   gh pr comment "$target_pr" --repo "$repo" --body-file "$comment_file"
 )
 ```
