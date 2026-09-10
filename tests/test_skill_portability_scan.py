@@ -627,12 +627,14 @@ class DocumentedShellExamplesTest(unittest.TestCase):
         section = content.split("### 1. Bundle integrity", 1)[1]
         raw_snippet = section.split("```bash\n", 1)[1].split("\n```", 1)[0]
 
-        def run_check(bundle_dir: Path) -> subprocess.CompletedProcess[str]:
+        def run_check(bundle_dir: Path, extra_env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
             # Replace placeholder with bundle_dir path
             snippet = raw_snippet.replace("'<bundle_dir>'", f"'{bundle_dir}'").replace('"<bundle_dir>"', f'"{bundle_dir}"')
+            env = {**os.environ, **extra_env} if extra_env else None
             return subprocess.run(
                 ["bash", "-c", snippet],
                 capture_output=True, text=True, timeout=10,
+                env=env,
             )
 
         # 1. Absent bundle directory -> non-zero exit code (1)
@@ -664,6 +666,20 @@ class DocumentedShellExamplesTest(unittest.TestCase):
         empty_bundle.mkdir()
         res_empty = run_check(empty_bundle)
         self.assertEqual(res_empty.returncode, 2)
+
+        # 5. Stub find yields valid NUL path then exits 7 -> must fail closed (non-zero)
+        stub_dir = self.tmp_path / "find_stub_bin"
+        stub_dir.mkdir(parents=True, exist_ok=True)
+        stub_find = stub_dir / "find"
+        stub_find.write_text(f"""#!/bin/sh
+printf '%s\\0' './nested dir/item.sha256'
+exit 7
+""")
+        stub_find.chmod(0o755)
+        cs_file.write_text(sha)
+        res_find_fail = run_check(bundle, extra_env={"PATH": f"{stub_dir}:{os.environ.get('PATH', '')}"})
+        self.assertNotEqual(res_find_fail.returncode, 0, "Find traversal error (exit 7) must propagate non-zero exit code even when checksum file was found")
+
 
     def test_documented_worktree_safety_verification_ignore_snippet_behavior(self):
         content = (
@@ -903,6 +919,64 @@ print("NOT_VALID_JSON")
         self.assertIn("```text\n", slack_sec, "Slack upload template must use text fence")
         self.assertNotIn("```bash\n", slack_sec, "Slack upload template must not use bash fence")
 
+        # 5. Diff truncation under pipefail must not use head -80; must use sed -n '1,80p'
+        self.assertNotIn("| head -80", script_sec, "tmux script diff pipeline must not pipe to head under pipefail")
+        self.assertIn("sed -n '1,80p'", script_sec, "tmux script diff pipeline must use sed -n '1,80p'")
+
+        # 6. Sanitization pipeline must redact Linux /home, CI /workspace, and /tmp
+        self.assertIn("s#/home/[^/]+/#/home/REDACTED/#g", script_sec)
+        self.assertIn("s#/workspace/[^[:space:]]+#/workspace/REDACTED#g", script_sec)
+        self.assertIn("s#/tmp/[^[:space:]]+#/tmp/REDACTED#g", script_sec)
+
+    def test_tmux_diff_truncation_pipefail_behavior_and_sanitization(self):
+        large_diff_cmd = (
+            "set -euo pipefail; "
+            "python3 -c 'import sys; [sys.stdout.write(f\"diff line {i}\\n\") for i in range(1000)]' "
+            "| sed -n '1,80p'; "
+            "echo 'POST_DIFF_SENTINEL'"
+        )
+        res_diff = subprocess.run(["bash", "-c", large_diff_cmd], capture_output=True, text=True)
+        self.assertEqual(res_diff.returncode, 0)
+        self.assertIn("POST_DIFF_SENTINEL", res_diff.stdout)
+        lines = [line for line in res_diff.stdout.splitlines() if line.startswith("diff line")]
+        self.assertEqual(len(lines), 80)
+
+        sed_pipeline = (
+            "sed -E "
+            "-e 's#/Users/[^/]+/#/Users/REDACTED/#g' "
+            "-e 's#/home/[^/]+/#/home/REDACTED/#g' "
+            "-e 's#/private/var/folders/[^[:space:]]+#/private/var/folders/REDACTED#g' "
+            "-e 's#/workspace/[^[:space:]]+#/workspace/REDACTED#g' "
+            "-e 's#/tmp/[^[:space:]]+#/tmp/REDACTED#g'"
+        )
+        test_payload = (
+            "mac: /Users/alice/repo/a.py\n"
+            "mac_space_user: /Users/alice smith/repo/b.py\n"
+            "mac_var: /private/var/folders/2b/xyz123/T/test.log\n"
+            "linux: /home/bob/repo/c.py\n"
+            "linux_space_user: /home/bob builder/repo/d.py\n"
+            "workspace: /workspace/project/e.py\n"
+            "workspace_space_surrounding: running /workspace/job-123/task in parallel\n"
+            "tmp: /tmp/scratch_dir/f.py\n"
+            "tmp_space_surrounding: output written to /tmp/build-456/summary.txt successfully\n"
+        )
+        res_sed = subprocess.run(
+            ["bash", "-c", f"cat << 'EOF' | {sed_pipeline}\n{test_payload}EOF"],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(res_sed.returncode, 0)
+        out = res_sed.stdout
+        self.assertIn("mac: /Users/REDACTED/repo/a.py", out)
+        self.assertIn("mac_space_user: /Users/REDACTED/repo/b.py", out)
+        self.assertIn("mac_var: /private/var/folders/REDACTED", out)
+        self.assertIn("linux: /home/REDACTED/repo/c.py", out)
+        self.assertIn("linux_space_user: /home/REDACTED/repo/d.py", out)
+        self.assertIn("workspace: /workspace/REDACTED", out)
+        self.assertIn("workspace_space_surrounding: running /workspace/REDACTED in parallel", out)
+        self.assertIn("tmp: /tmp/REDACTED", out)
+        self.assertIn("tmp_space_surrounding: output written to /tmp/REDACTED successfully", out)
+
+
     def _create_gh_test_env(self, test_dir: Path, calls_file: Path) -> dict[str, str]:
         disposable_home = test_dir / "disposable_home"
         disposable_home.mkdir(parents=True, exist_ok=True)
@@ -910,6 +984,30 @@ print("NOT_VALID_JSON")
         gh_config.mkdir(parents=True, exist_ok=True)
         stub_dir = test_dir / "bin"
         stub_dir.mkdir(parents=True, exist_ok=True)
+
+        fake_ffprobe = stub_dir / "ffprobe"
+        fake_ffprobe.write_text(f"""#!{sys.executable}
+import os, sys
+
+mode = os.environ.get("FFPROBE_STUB_MODE", "normal")
+if mode == "fail":
+    sys.exit(1)
+if mode == "empty_stream":
+    sys.exit(0)
+
+args = sys.argv[1:]
+filepath = args[-1] if args else ""
+if filepath.endswith((".vtt", ".srt")):
+    print("subtitle")
+    sys.exit(0)
+elif filepath.endswith((".mp4", ".gif", ".mov")):
+    print("video")
+    sys.exit(0)
+else:
+    print("unknown")
+    sys.exit(0)
+""")
+        fake_ffprobe.chmod(0o755)
 
         fake_gh = stub_dir / "gh"
         fake_gh.write_text(f"""#!{sys.executable}
@@ -955,7 +1053,20 @@ if len(args) >= 2 and args[0] == "release":
         sys.exit(86)
 elif len(args) >= 2 and args[0] == "pr":
     subcmd = args[1]
-    if subcmd in ("comment", "edit", "view"):
+    if subcmd == "view":
+        if mode == "fail_pr_view":
+            sys.exit(1)
+        pr_num = "42"
+        for a in args:
+            if a.isdigit():
+                pr_num = a
+        print(json.dumps({{
+            "number": int(pr_num),
+            "headRefOid": "0123456789abcdef0123456789abcdef01234567",
+            "url": f"https://github.com/intended/repo/pull/{{pr_num}}"
+        }}))
+        sys.exit(0)
+    elif subcmd in ("comment", "edit"):
         sys.exit(0)
     else:
         print(f"STUB_REFUSED: unknown pr command {{subcmd}}", file=sys.stderr)
@@ -1073,13 +1184,35 @@ else:
                 dummy_video.write_bytes(b"dummy video data")
                 dummy_preview = test_dir / "preview.gif"
                 dummy_preview.write_bytes(b"dummy gif data")
+                dummy_caption = test_dir / "captions.vtt"
+                dummy_caption.write_text("WEBVTT\n\n00:00.000 --> 00:01.000\nCaption\n")
 
                 res_missing_video = subprocess.run(
-                    ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nVIDEO_FILE="{test_dir}/nonexistent.mp4"\n' + block1],
+                    ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nVIDEO_FILE="{test_dir}/nonexistent.mp4"\nPREVIEW_FILE="{dummy_preview}"\nCAPTION_FILE="{dummy_caption}"\n' + block1],
                     env=env, capture_output=True, text=True,
                 )
                 self.assertNotEqual(res_missing_video.returncode, 0)
                 self.assertFalse(calls_file.exists(), "gh must not be called when video file is missing")
+
+                # Empty video file must fail
+                empty_video = test_dir / "empty_video.mp4"
+                empty_video.write_bytes(b"")
+                res_empty_video = subprocess.run(
+                    ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nVIDEO_FILE="{empty_video}"\nPREVIEW_FILE="{dummy_preview}"\nCAPTION_FILE="{dummy_caption}"\n' + block1],
+                    env=env, capture_output=True, text=True,
+                )
+                self.assertNotEqual(res_empty_video.returncode, 0)
+                self.assertFalse(calls_file.exists(), "gh must not be called when video file is empty")
+
+                # Empty preview file must fail
+                empty_preview = test_dir / "empty_preview.gif"
+                empty_preview.write_bytes(b"")
+                res_empty_preview = subprocess.run(
+                    ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nVIDEO_FILE="{dummy_video}"\nPREVIEW_FILE="{empty_preview}"\nCAPTION_FILE="{dummy_caption}"\n' + block1],
+                    env=env, capture_output=True, text=True,
+                )
+                self.assertNotEqual(res_empty_preview.returncode, 0)
+                self.assertFalse(calls_file.exists(), "gh must not be called when preview file is empty")
 
                 # Missing caption file when specified
                 res_missing_caption = subprocess.run(
@@ -1088,6 +1221,51 @@ else:
                 )
                 self.assertNotEqual(res_missing_caption.returncode, 0)
                 self.assertFalse(calls_file.exists(), "gh must not be called when declared caption file is missing")
+
+                # Empty caption file when specified
+                empty_caption = test_dir / "empty.vtt"
+                empty_caption.write_bytes(b"")
+                res_empty_caption = subprocess.run(
+                    ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nVIDEO_FILE="{dummy_video}"\nPREVIEW_FILE="{dummy_preview}"\nCAPTION_FILE="{empty_caption}"\n' + block1],
+                    env=env, capture_output=True, text=True,
+                )
+                self.assertNotEqual(res_empty_caption.returncode, 0)
+                self.assertFalse(calls_file.exists(), "gh must not be called when caption file is empty")
+
+                # Missing caption choice entirely (neither CAPTION_FILE nor burned mode)
+                res_no_caption_choice = subprocess.run(
+                    ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nRUN_ID="run-1"\nVIDEO_FILE="{dummy_video}"\nPREVIEW_FILE="{dummy_preview}"\n' + block1],
+                    env=env, capture_output=True, text=True,
+                )
+                self.assertNotEqual(res_no_caption_choice.returncode, 0)
+                self.assertFalse(calls_file.exists(), "gh must not be called when caption choice is missing")
+
+                # Rejected caption aliases must fail
+                for bad_cap in ('BURNED_CAPTIONS="true"', 'CAPTION_MODE="burned-in"', 'CAPTION_FILE="burned"'):
+                    res_bad_cap = subprocess.run(
+                        ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nRUN_ID="run-1"\nVIDEO_FILE="{dummy_video}"\nPREVIEW_FILE="{dummy_preview}"\n{bad_cap}\n' + block1],
+                        env=env, capture_output=True, text=True,
+                    )
+                    self.assertNotEqual(res_bad_cap.returncode, 0, f"Alias {bad_cap} must be rejected")
+                    self.assertFalse(calls_file.exists(), f"gh must not be called on bad caption alias {bad_cap}")
+
+                # Missing RUN_ID fails before calling gh
+                res_unset_run_id = subprocess.run(
+                    ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nVIDEO_FILE="{dummy_video}"\nPREVIEW_FILE="{dummy_preview}"\nCAPTION_MODE="burned"\n' + block1],
+                    env=env, capture_output=True, text=True,
+                )
+                self.assertNotEqual(res_unset_run_id.returncode, 0)
+                self.assertIn("RUN_ID", res_unset_run_id.stderr)
+                self.assertFalse(calls_file.exists(), "gh must not be called when RUN_ID is missing")
+
+                # Format validation failure via ffprobe
+                env_ffprobe_fail = {**env, "FFPROBE_STUB_MODE": "fail"}
+                res_format_fail = subprocess.run(
+                    ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nRUN_ID="run-1"\nVIDEO_FILE="{dummy_video}"\nPREVIEW_FILE="{dummy_preview}"\nCAPTION_FILE="{dummy_caption}"\n' + block1],
+                    env=env_ffprobe_fail, capture_output=True, text=True,
+                )
+                self.assertNotEqual(res_format_fail.returncode, 0)
+                self.assertFalse(calls_file.exists(), "gh must not be called when media format validation fails")
 
                 # Malformed PR URL / target variants must fail before calling gh (assert ZERO gh calls)
                 malformed_targets_b1 = [
@@ -1105,42 +1283,100 @@ else:
                     if calls_file.exists():
                         calls_file.unlink()
                     res_mal1 = subprocess.run(
-                        ["bash", "-c", f'{target_env}\nVIDEO_FILE="{dummy_video}"\nPREVIEW_FILE="{dummy_preview}"\n' + block1],
+                        ["bash", "-c", f'{target_env}\nRUN_ID="run-1"\nVIDEO_FILE="{dummy_video}"\nPREVIEW_FILE="{dummy_preview}"\nCAPTION_FILE="{dummy_caption}"\n' + block1],
                         env=env, capture_output=True, text=True,
                     )
                     self.assertNotEqual(res_mal1.returncode, 0, f"Malformed target must fail in Block 1: {target_env}")
                     self.assertFalse(calls_file.exists(), f"gh must not be called on malformed target in Block 1: {target_env}")
 
                 # 8. Positive test for Block 1 with valid inputs and caption sidecar
-                dummy_caption = test_dir / "captions.vtt"
-                dummy_caption.write_text("WEBVTT\n\n00:00.000 --> 00:01.000\nCaption\n")
                 zip_out = test_dir / "archive.zip"
                 res_pos1 = subprocess.run(
-                    ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nVIDEO_FILE="{dummy_video}"\nPREVIEW_FILE="{dummy_preview}"\nCAPTION_FILE="{dummy_caption}"\nZIP_FILE="{zip_out}"\n' + block1],
+                    ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nRUN_ID="run-1"\nVIDEO_FILE="{dummy_video}"\nPREVIEW_FILE="{dummy_preview}"\nCAPTION_FILE="{dummy_caption}"\nZIP_FILE="{zip_out}"\n' + block1],
                     env=env, capture_output=True, text=True,
                 )
                 self.assertEqual(res_pos1.returncode, 0, res_pos1.stderr + res_pos1.stdout)
                 self.assertTrue(zip_out.exists(), "Zip artifact must be created")
                 self.assertTrue(calls_file.exists())
                 logged_calls = [json.loads(line)["argv"] for line in calls_file.read_text().splitlines()]
-                self.assertEqual(len(logged_calls), 3)
-                self.assertEqual(logged_calls[0], ["release", "create", "evidence-pr-42", "--repo", "intended/repo", "--draft", "--title", "PR #42 Evidence", "--notes", ""])
-                self.assertEqual(logged_calls[1], ["release", "upload", "evidence-pr-42", "--repo", "intended/repo", str(zip_out), str(dummy_preview), str(dummy_caption), "--clobber"])
-                self.assertEqual(logged_calls[2], ["release", "view", "evidence-pr-42", "--repo", "intended/repo", "--json", "assets,url"])
+                expected_tag = "evidence-pr-42-0123456789ab-run-1"
+                self.assertEqual(len(logged_calls), 4)
+                self.assertEqual(logged_calls[0], ["pr", "view", "42", "--repo", "intended/repo", "--json", "number,headRefOid,url"])
+                self.assertEqual(logged_calls[1], ["release", "create", expected_tag, "--repo", "intended/repo", "--draft", "--title", "PR #42 Evidence", "--notes", ""])
+                self.assertEqual(logged_calls[2], ["release", "upload", expected_tag, "--repo", "intended/repo", str(zip_out), str(dummy_preview), str(dummy_caption)])
+                self.assertEqual(logged_calls[3], ["release", "view", expected_tag, "--repo", "intended/repo", "--json", "assets,url"])
+
+                # Distinct run IDs produce distinct tags without --clobber
+                calls_file.unlink()
+                if zip_out.exists():
+                    zip_out.unlink()
+                res_run_a = subprocess.run(
+                    ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nRUN_ID="run-alpha"\nVIDEO_FILE="{dummy_video}"\nPREVIEW_FILE="{dummy_preview}"\nCAPTION_MODE="burned"\nZIP_FILE="{zip_out}"\n' + block1],
+                    env=env, capture_output=True, text=True,
+                )
+                self.assertEqual(res_run_a.returncode, 0, res_run_a.stderr + res_run_a.stdout)
+                calls_a = [json.loads(line)["argv"] for line in calls_file.read_text().splitlines()]
+                tag_a = calls_a[1][2]
+                self.assertIn("run-alpha", tag_a)
+                self.assertNotIn("--clobber", calls_a[2])
+
+                calls_file.unlink()
+                if zip_out.exists():
+                    zip_out.unlink()
+                res_run_b = subprocess.run(
+                    ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nRUN_ID="run-beta"\nVIDEO_FILE="{dummy_video}"\nPREVIEW_FILE="{dummy_preview}"\nCAPTION_MODE="burned"\nZIP_FILE="{zip_out}"\n' + block1],
+                    env=env, capture_output=True, text=True,
+                )
+                self.assertEqual(res_run_b.returncode, 0, res_run_b.stderr + res_run_b.stdout)
+                calls_b = [json.loads(line)["argv"] for line in calls_file.read_text().splitlines()]
+                tag_b = calls_b[1][2]
+                self.assertIn("run-beta", tag_b)
+                self.assertNotEqual(tag_a, tag_b)
+                self.assertNotIn("--clobber", calls_b[2])
+
+                # Positive test with burned caption mode
+                calls_file.unlink()
+                if zip_out.exists():
+                    zip_out.unlink()
+                res_burned1 = subprocess.run(
+                    ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nRUN_ID="run-1"\nVIDEO_FILE="{dummy_video}"\nPREVIEW_FILE="{dummy_preview}"\nCAPTION_MODE="burned"\nZIP_FILE="{zip_out}"\n' + block1],
+                    env=env, capture_output=True, text=True,
+                )
+                self.assertEqual(res_burned1.returncode, 0, res_burned1.stderr + res_burned1.stdout)
+                logged_burned1 = [json.loads(line)["argv"] for line in calls_file.read_text().splitlines()]
+                self.assertEqual(len(logged_burned1), 4)
+                self.assertEqual(logged_burned1[2], ["release", "upload", expected_tag, "--repo", "intended/repo", str(zip_out), str(dummy_preview)])
+
+                # Positive test with paths with spaces
+                calls_file.unlink()
+                space_video = test_dir / "space video.mp4"
+                space_video.write_bytes(b"space video bytes")
+                space_preview = test_dir / "space preview.gif"
+                space_preview.write_bytes(b"space preview bytes")
+                space_caption = test_dir / "space caption.vtt"
+                space_caption.write_text("WEBVTT\n\n00:00.000 --> 00:01.000\nCaption\n")
+                space_zip = test_dir / "space archive.zip"
+                res_spaces1 = subprocess.run(
+                    ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nRUN_ID="run-1"\nVIDEO_FILE="{space_video}"\nPREVIEW_FILE="{space_preview}"\nCAPTION_FILE="{space_caption}"\nZIP_FILE="{space_zip}"\n' + block1],
+                    env=env, capture_output=True, text=True,
+                )
+                self.assertEqual(res_spaces1.returncode, 0, res_spaces1.stderr + res_spaces1.stdout)
+                self.assertTrue(space_zip.exists())
 
                 # Valid PR URL with trailing slash in Block 1
                 calls_file.unlink()
                 if zip_out.exists():
                     zip_out.unlink()
                 res_slash1 = subprocess.run(
-                    ["bash", "-c", f'PR_NUMBER_OR_URL="https://github.com/intended/repo/pull/42/"\nVIDEO_FILE="{dummy_video}"\nPREVIEW_FILE="{dummy_preview}"\nCAPTION_FILE="{dummy_caption}"\nZIP_FILE="{zip_out}"\n' + block1],
+                    ["bash", "-c", f'PR_NUMBER_OR_URL="https://github.com/intended/repo/pull/42/"\nRUN_ID="run-1"\nVIDEO_FILE="{dummy_video}"\nPREVIEW_FILE="{dummy_preview}"\nCAPTION_FILE="{dummy_caption}"\nZIP_FILE="{zip_out}"\n' + block1],
                     env=env, capture_output=True, text=True,
                 )
                 self.assertEqual(res_slash1.returncode, 0, res_slash1.stderr + res_slash1.stdout)
                 self.assertTrue(calls_file.exists())
                 logged_slash1 = [json.loads(line)["argv"] for line in calls_file.read_text().splitlines()]
-                self.assertEqual(len(logged_slash1), 3)
-                self.assertEqual(logged_slash1[0], ["release", "create", "evidence-pr-42", "--repo", "intended/repo", "--draft", "--title", "PR #42 Evidence", "--notes", ""])
+                self.assertEqual(len(logged_slash1), 4)
+                self.assertEqual(logged_slash1[0], ["pr", "view", "42", "--repo", "intended/repo", "--json", "number,headRefOid,url"])
+                self.assertEqual(logged_slash1[1], ["release", "create", expected_tag, "--repo", "intended/repo", "--draft", "--title", "PR #42 Evidence", "--notes", ""])
 
                 # 9. Wrong CWD test: Block 1 executed from a different repo binds intended repo via --repo
                 calls_file.unlink()
@@ -1151,7 +1387,7 @@ else:
                 subprocess.run(["git", "remote", "add", "origin", "git@github.com:wrong-owner/wrong-repo.git"], cwd=wrong_cwd, env=git_env, check=True, capture_output=True)
 
                 res_wrong_cwd = subprocess.run(
-                    ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nVIDEO_FILE="{dummy_video}"\nPREVIEW_FILE="{dummy_preview}"\nCAPTION_FILE="{dummy_caption}"\nZIP_FILE="{zip_out}"\n' + block1],
+                    ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nRUN_ID="run-1"\nVIDEO_FILE="{dummy_video}"\nPREVIEW_FILE="{dummy_preview}"\nCAPTION_FILE="{dummy_caption}"\nZIP_FILE="{zip_out}"\n' + block1],
                     cwd=wrong_cwd, env=env, capture_output=True, text=True,
                 )
                 self.assertEqual(res_wrong_cwd.returncode, 0, res_wrong_cwd.stderr + res_wrong_cwd.stdout)
@@ -1208,7 +1444,7 @@ else:
                 self.assertIn("Conflicting", res_conflict_repo2.stderr)
                 self.assertFalse(calls_file.exists())
 
-                # Missing or empty body file fails in Block 2
+                # Missing or empty body file fails in Block 2 before any gh call
                 empty_body = test_dir / "empty_body.md"
                 empty_body.write_text("")
                 res_empty_body = subprocess.run(
@@ -1216,7 +1452,7 @@ else:
                     env=env, capture_output=True, text=True,
                 )
                 self.assertNotEqual(res_empty_body.returncode, 0)
-                self.assertFalse(calls_file.exists())
+                self.assertFalse(calls_file.exists(), "gh must not be called when body/comment file is empty")
 
                 # Malformed PR URL / target variants must fail before calling gh in Block 2 (assert ZERO gh calls)
                 valid_body = test_dir / "valid_body.md"
@@ -1252,9 +1488,10 @@ else:
                 self.assertEqual(res_pos2.returncode, 0, res_pos2.stderr + res_pos2.stdout)
                 self.assertTrue(calls_file.exists())
                 logged_calls2 = [json.loads(line)["argv"] for line in calls_file.read_text().splitlines()]
-                self.assertEqual(len(logged_calls2), 1)
+                self.assertEqual(len(logged_calls2), 2)
                 expected_subcmd = "edit" if "ui-video-evidence" in str(skill_file) else "comment"
-                self.assertEqual(logged_calls2[0], ["pr", expected_subcmd, "42", "--repo", "intended/repo", "--body-file", str(valid_body)])
+                self.assertEqual(logged_calls2[0], ["pr", "view", "42", "--repo", "intended/repo", "--json", "number,headRefOid,url"])
+                self.assertEqual(logged_calls2[1], ["pr", expected_subcmd, "42", "--repo", "intended/repo", "--body-file", str(valid_body)])
 
                 # Full PR URL derives REPO in Block 2
                 calls_file.unlink()
@@ -1264,8 +1501,9 @@ else:
                 )
                 self.assertEqual(res_url2.returncode, 0, res_url2.stderr + res_url2.stdout)
                 logged_url2 = [json.loads(line)["argv"] for line in calls_file.read_text().splitlines()]
-                self.assertEqual(len(logged_url2), 1)
-                self.assertEqual(logged_url2[0], ["pr", expected_subcmd, "42", "--repo", "intended/repo", "--body-file", str(valid_body)])
+                self.assertEqual(len(logged_url2), 2)
+                self.assertEqual(logged_url2[0], ["pr", "view", "42", "--repo", "intended/repo", "--json", "number,headRefOid,url"])
+                self.assertEqual(logged_url2[1], ["pr", expected_subcmd, "42", "--repo", "intended/repo", "--body-file", str(valid_body)])
 
                 # Full PR URL with trailing slash in Block 2
                 calls_file.unlink()
@@ -1275,8 +1513,9 @@ else:
                 )
                 self.assertEqual(res_url2_slash.returncode, 0, res_url2_slash.stderr + res_url2_slash.stdout)
                 logged_url2_slash = [json.loads(line)["argv"] for line in calls_file.read_text().splitlines()]
-                self.assertEqual(len(logged_url2_slash), 1)
-                self.assertEqual(logged_url2_slash[0], ["pr", expected_subcmd, "42", "--repo", "intended/repo", "--body-file", str(valid_body)])
+                self.assertEqual(len(logged_url2_slash), 2)
+                self.assertEqual(logged_url2_slash[0], ["pr", "view", "42", "--repo", "intended/repo", "--json", "number,headRefOid,url"])
+                self.assertEqual(logged_url2_slash[1], ["pr", expected_subcmd, "42", "--repo", "intended/repo", "--body-file", str(valid_body)])
 
                 # Wrong-CWD for Block 2
                 calls_file.unlink()
@@ -1286,7 +1525,9 @@ else:
                 )
                 self.assertEqual(res_wrong_cwd2.returncode, 0, res_wrong_cwd2.stderr + res_wrong_cwd2.stdout)
                 logged_wrong2 = [json.loads(line)["argv"] for line in calls_file.read_text().splitlines()]
-                self.assertEqual(logged_wrong2[0], ["pr", expected_subcmd, "42", "--repo", "intended/repo", "--body-file", str(valid_body)])
+                self.assertEqual(len(logged_wrong2), 2)
+                self.assertEqual(logged_wrong2[0], ["pr", "view", "42", "--repo", "intended/repo", "--json", "number,headRefOid,url"])
+                self.assertEqual(logged_wrong2[1], ["pr", expected_subcmd, "42", "--repo", "intended/repo", "--body-file", str(valid_body)])
 
                 # Caller survival on Block 2 failure
                 res_caller2 = subprocess.run(
@@ -1329,6 +1570,7 @@ else:
                 base_cmd = (
                     f'PR_NUMBER="42"\n'
                     f'REPO="intended/repo"\n'
+                    f'RUN_ID="run-1"\n'
                     f'VIDEO_FILE="{dummy_video}"\n'
                     f'PREVIEW_FILE="{dummy_preview}"\n'
                     f'CAPTION_FILE="{dummy_caption}"\n'
@@ -1336,8 +1578,9 @@ else:
                     f'BODY_FILE="{body_file}"\n'
                     f'COMMENT_FILE="{body_file}"\n'
                 )
+                expected_tag = "evidence-pr-42-0123456789ab-run-1"
 
-                # 1. Repeat draft upload: release create fails (already exists), but view confirms draft
+                # 1. Repeat draft / existing release fails closed without uploading or retrying ambiguous write
                 if calls_file.exists():
                     calls_file.unlink()
                 env_repeat = {**env, "GH_STUB_MODE": "repeat_draft"}
@@ -1345,17 +1588,18 @@ else:
                     ["bash", "-c", base_cmd + block1],
                     env=env_repeat, capture_output=True, text=True,
                 )
-                self.assertEqual(res_repeat.returncode, 0, res_repeat.stderr + res_repeat.stdout)
+                self.assertNotEqual(res_repeat.returncode, 0, "Failed create must exit non-zero")
                 self.assertTrue(calls_file.exists())
                 logged_repeat = [json.loads(line) for line in calls_file.read_text().splitlines()]
                 argvs_repeat = [c["argv"] if isinstance(c, dict) and "argv" in c else c for c in logged_repeat]
-                self.assertEqual(len(argvs_repeat), 4)
-                self.assertEqual(argvs_repeat[0], ["release", "create", "evidence-pr-42", "--repo", "intended/repo", "--draft", "--title", "PR #42 Evidence", "--notes", ""])
-                self.assertEqual(argvs_repeat[1], ["release", "view", "evidence-pr-42", "--repo", "intended/repo", "--json", "isDraft", "--jq", ".isDraft"])
-                self.assertEqual(argvs_repeat[2], ["release", "upload", "evidence-pr-42", "--repo", "intended/repo", str(zip_out), str(dummy_preview), str(dummy_caption), "--clobber"])
-                self.assertEqual(argvs_repeat[3], ["release", "view", "evidence-pr-42", "--repo", "intended/repo", "--json", "assets,url"])
+                self.assertEqual(len(argvs_repeat), 2)
+                self.assertEqual(argvs_repeat[0], ["pr", "view", "42", "--repo", "intended/repo", "--json", "number,headRefOid,url"])
+                self.assertEqual(argvs_repeat[1], ["release", "create", expected_tag, "--repo", "intended/repo", "--draft", "--title", "PR #42 Evidence", "--notes", ""])
+                self.assertFalse(any(c[:2] == ["release", "upload"] for c in argvs_repeat), "Must not upload on create failure")
+                self.assertFalse(any(c[:2] == ["release", "view"] for c in argvs_repeat[1:]), "Must not run dead release view on create failure")
+                self.assertFalse(any("--clobber" in c for c in argvs_repeat), "Must never use --clobber")
 
-                # 2. Conflicting published release: release create fails, view reports isDraft == false
+                # 2. Conflicting published release: release create fails
                 if calls_file.exists():
                     calls_file.unlink()
                 env_conflict = {**env, "GH_STUB_MODE": "conflicting_published"}
@@ -1367,14 +1611,14 @@ else:
                 logged_conflict = [json.loads(line) for line in calls_file.read_text().splitlines()]
                 argvs_conflict = [c["argv"] if isinstance(c, dict) and "argv" in c else c for c in logged_conflict]
                 self.assertEqual(len(argvs_conflict), 2)
-                self.assertEqual(argvs_conflict[0][:4], ["release", "create", "evidence-pr-42", "--repo"])
-                self.assertEqual(argvs_conflict[1][:4], ["release", "view", "evidence-pr-42", "--repo"])
+                self.assertEqual(argvs_conflict[0], ["pr", "view", "42", "--repo", "intended/repo", "--json", "number,headRefOid,url"])
+                self.assertEqual(argvs_conflict[1], ["release", "create", expected_tag, "--repo", "intended/repo", "--draft", "--title", "PR #42 Evidence", "--notes", ""])
                 self.assertFalse(any(c[:2] == ["release", "upload"] for c in argvs_conflict), "Must not upload on published release conflict")
 
-                # 3. View failure after create failure
+                # 3. View failure
                 if calls_file.exists():
                     calls_file.unlink()
-                env_fail_view = {**env, "GH_STUB_MODE": "fail_view"}
+                env_fail_view = {**env, "GH_STUB_MODE": "fail_pr_view"}
                 res_fail_view = subprocess.run(
                     ["bash", "-c", base_cmd + block1],
                     env=env_fail_view, capture_output=True, text=True,
@@ -1383,6 +1627,7 @@ else:
                 logged_fail_view = [json.loads(line) for line in calls_file.read_text().splitlines()]
                 argvs_fail_view = [c["argv"] if isinstance(c, dict) and "argv" in c else c for c in logged_fail_view]
                 self.assertFalse(any(c[:2] == ["release", "upload"] for c in argvs_fail_view), "Must not upload when view fails")
+                self.assertFalse(any(c[:2] == ["release", "create"] for c in argvs_fail_view), "Must not create when view fails")
 
                 # 4. Upload failure
                 if calls_file.exists():
@@ -1395,10 +1640,10 @@ else:
                 self.assertNotEqual(res_fail_upload.returncode, 0, "Upload failure must propagate error")
                 logged_fail_upload = [json.loads(line) for line in calls_file.read_text().splitlines()]
                 argvs_fail_upload = [c["argv"] if isinstance(c, dict) and "argv" in c else c for c in logged_fail_upload]
-                self.assertFalse(any(c[:3] == ["release", "view", "evidence-pr-42"] and "--json" in c and "assets,url" in c for c in argvs_fail_upload), "Must not view assets when upload fails")
+                self.assertFalse(any(c[:3] == ["release", "view", expected_tag] and "--json" in c and "assets,url" in c for c in argvs_fail_upload), "Must not view assets when upload fails")
 
                 # 5. Failures must not trigger downstream comment/body action
-                for fail_mode in ("conflicting_published", "fail_view", "fail_upload"):
+                for fail_mode in ("repeat_draft", "conflicting_published", "fail_pr_view", "fail_upload"):
                     if calls_file.exists():
                         calls_file.unlink()
                     env_fail_pipeline = {**env, "GH_STUB_MODE": fail_mode}
@@ -1409,7 +1654,31 @@ else:
                     calls_in_fail = [json.loads(line) for line in calls_file.read_text().splitlines()] if calls_file.exists() else []
                     argvs_pipe = [c["argv"] if isinstance(c, dict) and "argv" in c else c for c in calls_in_fail]
                     self.assertNotEqual(res_pipe.returncode, 0, f"Pipeline must fail on {fail_mode}: out={res_pipe.stdout!r}, err={res_pipe.stderr!r}, calls={calls_in_fail!r}")
-                    self.assertFalse(any(c[:1] == ["pr"] for c in argvs_pipe), f"PR action must not run on {fail_mode}")
+                    self.assertFalse(any(c[:2] == ["pr", "comment"] or c[:2] == ["pr", "edit"] for c in argvs_pipe), f"PR action must not run on {fail_mode}")
+
+    def test_ffprobe_real_fixtures_validation(self):
+        import shutil
+        if not shutil.which("ffprobe"):
+            self.skipTest("ffprobe not available in PATH")
+        with tempfile.TemporaryDirectory() as td:
+            vtt = Path(td) / "fixture.vtt"
+            vtt.write_text("WEBVTT\n\n00:00.000 --> 00:01.000\nHello\n", encoding="utf-8")
+            srt = Path(td) / "fixture.srt"
+            srt.write_text("1\n00:00:00,000 --> 00:00:01,000\nHello\n", encoding="utf-8")
+            txt = Path(td) / "invalid.txt"
+            txt.write_text("not a subtitle", encoding="utf-8")
+
+            cmd = ["ffprobe", "-v", "error", "-show_entries", "stream=codec_type", "-of", "default=noprint_wrappers=1:nokey=1"]
+            res_vtt = subprocess.run(cmd + [str(vtt)], capture_output=True, text=True)
+            self.assertEqual(res_vtt.returncode, 0)
+            self.assertEqual(res_vtt.stdout.strip(), "subtitle")
+
+            res_srt = subprocess.run(cmd + [str(srt)], capture_output=True, text=True)
+            self.assertEqual(res_srt.returncode, 0)
+            self.assertEqual(res_srt.stdout.strip(), "subtitle")
+
+            res_txt = subprocess.run(cmd + [str(txt)], capture_output=True, text=True)
+            self.assertNotEqual(res_txt.stdout.strip(), "subtitle")
 
 
 if __name__ == "__main__":
