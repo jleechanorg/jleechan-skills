@@ -192,6 +192,16 @@ The following GitHub release example applies only when that destination is autho
     exit 1
   fi
 
+  if [[ -n "${CAPTION_MODE:-}" && "${CAPTION_MODE:-}" != "burned" ]]; then
+    echo "Error: Unsupported CAPTION_MODE '${CAPTION_MODE}': only CAPTION_MODE=burned is supported" >&2
+    exit 1
+  fi
+
+  if [[ -n "${CAPTION_FILE:-}" && "${CAPTION_FILE:-}" != *"<"* && "${CAPTION_MODE:-}" == "burned" ]]; then
+    echo "Error: Cannot specify both CAPTION_FILE and CAPTION_MODE=burned: choose exactly one caption option" >&2
+    exit 1
+  fi
+
   if [[ "${CAPTION_MODE:-}" == "burned" ]]; then
     caption_file=""
   elif [[ -n "${CAPTION_FILE:-}" && "${CAPTION_FILE:-}" != *"<"* ]]; then

@@ -1264,12 +1264,36 @@ else:
 
                 # Rejected caption aliases must fail
                 for bad_cap in ('BURNED_CAPTIONS="true"', 'CAPTION_MODE="burned-in"', 'CAPTION_FILE="burned"'):
+                    if calls_file.exists():
+                        calls_file.unlink()
                     res_bad_cap = subprocess.run(
                         ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nRUN_ID="run-1"\nVIDEO_FILE="{dummy_video}"\nPREVIEW_FILE="{dummy_preview}"\n{bad_cap}\n' + block1],
                         env=env, capture_output=True, text=True,
                     )
                     self.assertNotEqual(res_bad_cap.returncode, 0, f"Alias {bad_cap} must be rejected")
                     self.assertFalse(calls_file.exists(), f"gh must not be called on bad caption alias {bad_cap}")
+
+                # Simultaneous nonempty CAPTION_FILE and CAPTION_MODE=burned must fail before calling gh
+                if calls_file.exists():
+                    calls_file.unlink()
+                valid_sha = "0123456789abcdef0123456789abcdef01234567"
+                res_both_captions = subprocess.run(
+                    ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nRUN_ID="run-1"\nCAPTURED_SHA="{valid_sha}"\nVIDEO_FILE="{dummy_video}"\nPREVIEW_FILE="{dummy_preview}"\nCAPTION_FILE="{dummy_caption}"\nCAPTION_MODE="burned"\n' + block1],
+                    env=env, capture_output=True, text=True,
+                )
+                self.assertNotEqual(res_both_captions.returncode, 0, "Simultaneous CAPTION_FILE and CAPTION_MODE=burned must be rejected")
+                self.assertFalse(calls_file.exists(), "gh must not be called when both CAPTION_FILE and CAPTION_MODE=burned are set")
+
+                # Unsupported CAPTION_MODE with provided CAPTION_FILE must fail before calling gh
+                for unsupported_mode in ('CAPTION_MODE="burned-in"', 'CAPTION_MODE="sidecar"', 'CAPTION_MODE="auto"'):
+                    if calls_file.exists():
+                        calls_file.unlink()
+                    res_unsupported_cap = subprocess.run(
+                        ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nRUN_ID="run-1"\nCAPTURED_SHA="{valid_sha}"\nVIDEO_FILE="{dummy_video}"\nPREVIEW_FILE="{dummy_preview}"\nCAPTION_FILE="{dummy_caption}"\n{unsupported_mode}\n' + block1],
+                        env=env, capture_output=True, text=True,
+                    )
+                    self.assertNotEqual(res_unsupported_cap.returncode, 0, f"Unsupported {unsupported_mode} with sidecar must be rejected")
+                    self.assertFalse(calls_file.exists(), f"gh must not be called on unsupported {unsupported_mode} with sidecar")
 
                 # Missing RUN_ID fails before calling gh
                 res_unset_run_id = subprocess.run(
