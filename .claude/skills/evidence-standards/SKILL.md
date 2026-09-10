@@ -21,6 +21,67 @@ explicitly stating what the evidence proves vs what it does NOT prove — this
 applies to the response you give the user, not just the bundle's own
 "What This Evidence Does NOT Prove" section (below).
 
+## Aiming gate — run BEFORE spending on an evidence campaign
+
+Before the first expensive call (real-LLM batch, browser run, replay sweep),
+write one sentence:
+
+> "This campaign will explain **<the reported symptom>**, and if it comes back
+> <expected result>, the explanation is <X>."
+
+If you cannot name a reported symptom — a user complaint, a production rate, a
+failing turn — **you are not gathering evidence, you are decorating a claim.**
+Stop and re-aim.
+
+Hard rules:
+
+- **A "Known gaps" / "unproven" list is a disclosure artifact, not a work
+  queue.** It records what is unproven, which is not the same as what matters.
+  Working it top-to-bottom is documentation gravity, not prioritization.
+- **The originating symptom outranks every listed gap.** If a gap and the
+  symptom disagree about where to spend, spend on the symptom.
+- **If you find yourself writing "this proves nothing about <the actual bug>"
+  into your own bundle, that is a stop signal, not a disclosure.** You have
+  just written down that you aimed at the wrong target. Re-aim before
+  continuing; do not ship the caveat as a substitute for hitting the target.
+- For a model-behavior bug, prefer replaying **real captured production input
+  through the real path** (`~/.claude/skills/ablation/SKILL.md`) over
+  synthesizing new prompts. Synthetic prompts test the schema; captured
+  payloads test the bug.
+- Forensics on already-captured data (logs, BigQuery, Firestore) is usually
+  cheaper AND closer to the symptom than any new generation campaign. Cost it
+  first.
+
+Recurrence log: violated 2026-08-16 (research fanout instead of ablation),
+2026-08-18 (ranked a 4-6% lever while a 58% one sat unranked), and 2026-09-07
+(360 real Gemini calls proving schema conformance while the reported ~75% memory
+miss went unmeasured; a zero-LLM-call forensics pass on the same day found the
+two real root causes).
+
+## Derived-artifact rule: a number in prose must exist in an artifact
+
+If a README, PR body, or commit message states a computed figure (p-value,
+denominator, interval, rate), that figure must be readable from a committed
+artifact — not only from the prose asserting it.
+
+- **"summary.json now carries X" requires that file's checksum to have
+  changed.** If you edited only the prose, you did not regenerate anything.
+  Re-run the producer, then diff the artifact, then make the claim.
+- **Commit the computation, not just the result.** A p-value produced by a
+  shell one-liner is unreproducible the moment the shell scrolls away. Put the
+  function in the script the bundle names.
+- **Then actually run it and confirm it reproduces the published number.** A
+  committed function that returns a different value than the README is worse
+  than no function: it looks reproducible and is wrong.
+- Recompute every headline figure from the raw rows, not from your own summary,
+  before publishing. Summaries inherit their bugs silently.
+
+Observed 2026-09-07: a bundle claimed `fisher_exact_greater()` "reproduces both
+values" while the committed filter used a different cohort (n=70 vs n=50) and
+returned different p-values, and claimed `summary.json` "now carries the data"
+while that file's hash was unchanged. Both were caught by review, not by
+self-check.
+
 ## Core principle: raw req/resp > unit tests > nothing
 
 Ordered by strength, for a production behavior claim:
@@ -121,6 +182,14 @@ behavioral fixes into one new SHA before rerunning affected evidence.
 Evidence harness/infra code is not the feature: building or hardening capture
 harnesses inside the feature PR moves the HEAD and voids gates. Land harness
 changes in their own PR first, then freeze the feature head.
+
+Before an expensive FINAL run, record a reusable launch capsule: FINAL or
+DIAGNOSTIC, exact worktree and SHA, absolute interpreter, command and output
+paths, nonsecret effective provider/model settings, and dedicated test-account
+scope. Run cheap import, browser, and provider-selection preflight through that
+same invocation before provider calls; confirm behavior work is settled for
+FINAL. Reviewers must reuse the exact capsule. Setup failures remain setup
+failures until raw provider proof supports a product or auth diagnosis.
 
 ## Evidence class table
 

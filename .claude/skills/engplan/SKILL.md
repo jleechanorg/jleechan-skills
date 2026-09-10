@@ -68,8 +68,55 @@ changes. An open PR touching a file does not by itself block independent work.
 
 Before opening any new PR in the scope:
 ```bash
-gh pr list --state open --json number,files --jq \
-  '.[] | select(.files[].path | IN("FILE_LIST")) | .number'
+TARGET_FILES=()
+
+(
+  set -euo pipefail
+  if [ ${#TARGET_FILES[@]} -eq 0 ] || [[ "${TARGET_FILES[*]}" =~ \<.*\> ]]; then
+    echo "Error: TARGET_FILES must be set to actual file paths before running concurrency check" >&2
+    exit 1
+  fi
+  for f in "${TARGET_FILES[@]}"; do
+    if [[ "$f" =~ ^path/to/ ]]; then
+      echo "Error: TARGET_FILES contains placeholder path '$f'; supply actual planned paths" >&2
+      exit 1
+    fi
+  done
+
+  LIMIT=300
+  if ! PR_DATA=$(gh pr list --state open --limit "$LIMIT" --json number,files); then
+    echo "Error: Failed to query open PRs from GitHub API" >&2
+    exit 1
+  fi
+
+  if ! PR_COUNT=$(echo "$PR_DATA" | jq 'length' 2>/dev/null); then
+    echo "Error: Failed to parse PR data with jq" >&2
+    exit 1
+  fi
+
+  if [ "$PR_COUNT" -ge "$LIMIT" ]; then
+    echo "Notice: Open PR query reached limit ($LIMIT); inspecting bounded sample, older open PRs not checked." >&2
+  fi
+
+  if ! MATCHING_PRS=$(echo "$PR_DATA" | jq -r --args '
+    $ARGS.positional as $targets |
+    [ .[] | select(any(.files[]?.path; . as $p | $targets | index($p))) | .number ] | unique | .[]
+  ' "${TARGET_FILES[@]}" 2>/dev/null); then
+    echo "Error: Failed to extract matching PRs with jq" >&2
+    exit 1
+  fi
+
+  if [ -n "$MATCHING_PRS" ]; then
+    echo "Overlapping open PRs found:"
+    echo "$MATCHING_PRS"
+  else
+    if [ "$PR_COUNT" -ge "$LIMIT" ]; then
+      echo "No overlapping PRs found within bounded sample of $LIMIT open PRs (older open PRs not checked)."
+    else
+      echo "No overlapping open PRs found across $PR_COUNT open PRs checked."
+    fi
+  fi
+)
 ```
 If non-empty, inspect actual overlap and coordinate the affected files. Continue independent authorized work.
 
@@ -210,12 +257,13 @@ boundaries required by the accepted plan; one coherent commit may be sufficient.
 | 2 | test and implementation | <test and source paths> | <estimate or n/a> | <tracking> | Capture required RED before the fix and verify GREEN |
 | 3 | broader evidence, if needed | <scoped driver or artifact> | <estimate or n/a> | <tracking> | Record results at the authorized destination |
 
-### Concurrency Rule (template — paste verbatim)
-```bash
-gh pr list --state open --json number,files --jq \
-  '.[] | select(.files[].path | IN("<FILE_LIST>")) | .number'
-```
-If a PR is returned, inspect actual overlap, coordinate affected work, and continue independent authorized tasks.
+### Concurrency Rule (template)
+Execute the concurrency check defined in [Rule 1: File-exclusive ownership](#rule-1-file-exclusive-ownership) for the files planned in this stage before opening a PR:
+- Supply the planned file paths in `TARGET_FILES`
+- If an overlapping open PR is returned, inspect actual overlap and coordinate affected work
+- Bounded query inspects open PRs up to the limit; older open PRs or large file lists may require checking individual PR diffs
+- Continue independent authorized tasks; open PRs touching a file do not inherently gate unrelated work
+
 
 ### Size Constraints (template)
 - Explicit user or accepted-plan constraint: <limit and source, or none>

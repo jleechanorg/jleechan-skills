@@ -59,8 +59,9 @@ From crontab:
 ## Troubleshooting
 
 **Preflight fails with "minimax binary not found"**:
-- Inspect the installed automation's MiniMax-to-`claude` mapping and PATH.
-- Resolve the missing dependency under the preflight procedure above; do not bypass validation.
+- This is a configuration/preflight check defect for this configured Claude profile: in this environment setup, there is no standalone `minimax` binary; MiniMax automation uses the `claude` CLI binary configured with MiniMax API environment variables.
+- Ensure the `claude` CLI binary is installed and on PATH, and ensure the automation wrapper maps MiniMax invocations to `claude`.
+- Do not bypass validation; verify `claude` and the environment mapping instead.
 
 **API errors**:
 - Check presence without printing the value: `test -n "${MINIMAX_API_KEY:-}" && echo "MINIMAX_API_KEY is set"`

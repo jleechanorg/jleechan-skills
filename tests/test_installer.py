@@ -190,7 +190,7 @@ class InstallerIntegrationTest(unittest.TestCase):
                     self.assertTrue(scripts.is_symlink())
                     self.assertFalse((external / "nested/tool.py").exists())
 
-    def test_history_helper_upgrade_requires_backup_but_identical_merge_is_safe(self):
+    def test_history_helper_source_upgrade_succeeds_on_merge_and_rejects_local_edits(self):
         with tempfile.TemporaryDirectory() as directory:
             temp_dir = Path(directory)
             fixture = self.make_fixture(temp_dir)
@@ -201,20 +201,40 @@ class InstallerIntegrationTest(unittest.TestCase):
             self.assertEqual(
                 installed.returncode, 0, installed.stdout + installed.stderr
             )
+            self.assertEqual(
+                (target / "scripts/history_search.py").read_text(),
+                "print('version one')\n",
+            )
             identical = self.run_installer(fixture, target, "--merge")
             self.assertEqual(
                 identical.returncode, 0, identical.stdout + identical.stderr
             )
 
+            # Upgraded source should safely upgrade on --merge
             source.write_text("print('version two')\n")
-            refused = self.run_installer(fixture, target, "--merge")
-            self.assertNotEqual(refused.returncode, 0, refused.stdout)
+            upgraded = self.run_installer(fixture, target, "--merge")
+            self.assertEqual(
+                upgraded.returncode, 0, upgraded.stdout + upgraded.stderr
+            )
             self.assertEqual(
                 (target / "scripts/history_search.py").read_text(),
-                "print('version one')\n",
+                "print('version two')\n",
             )
-            upgraded = self.run_installer(fixture, target, "--backup")
-            self.assertEqual(upgraded.returncode, 0, upgraded.stdout + upgraded.stderr)
+
+            # Local modifications must be protected from overwrite
+            (target / "scripts/history_search.py").write_text("print('locally modified')\n")
+            source.write_text("print('version three')\n")
+            refused = self.run_installer(fixture, target, "--merge")
+            self.assertNotEqual(refused.returncode, 0)
+            self.assertIn("history helper", (refused.stderr + refused.stdout).lower())
+            self.assertEqual(
+                (target / "scripts/history_search.py").read_text(),
+                "print('locally modified')\n",
+            )
+
+            # --backup deliberately backs up and replaces the entire target
+            backup_run = self.run_installer(fixture, target, "--backup")
+            self.assertEqual(backup_run.returncode, 0, backup_run.stdout + backup_run.stderr)
             self.assertEqual(
                 (target / "scripts/history_search.py").read_text(), source.read_text()
             )
@@ -222,7 +242,7 @@ class InstallerIntegrationTest(unittest.TestCase):
             self.assertEqual(len(backups), 1)
             self.assertEqual(
                 (backups[0] / "scripts/history_search.py").read_text(),
-                "print('version one')\n",
+                "print('locally modified')\n",
             )
 
     def test_boundary_commands_resolve_skills_under_nondefault_claude_home(self):
@@ -721,30 +741,176 @@ class InstallerIntegrationTest(unittest.TestCase):
             self.assertFalse(list(temp_dir.glob("claude-home.backup-*")))
             self.assertFalse(list(temp_dir.glob("claude-home.staging-*")))
 
-    def test_merge_replaces_symlinked_skill_directory_to_readonly_target(self):
+    def test_merge_preserves_symlinked_skill_directory_and_does_not_write_target(self):
         with tempfile.TemporaryDirectory() as directory:
             temp_dir = Path(directory)
             fixture = self.make_fixture(temp_dir)
             target = temp_dir / "claude-home"
             target.mkdir()
-            readonly_release = temp_dir / "readonly-release" / "example"
-            readonly_release.mkdir(parents=True)
-            readonly_file = readonly_release / "SKILL.md"
-            readonly_file.write_text("# Readonly Skill\n", encoding="utf-8")
-            readonly_file.chmod(0o444)
-            readonly_release.chmod(0o555)
+
+            external_repo = temp_dir / "external-repo" / "dark-factory"
+            external_repo.mkdir(parents=True)
+            external_skill = external_repo / "SKILL.md"
+            external_bytes = b"# External Dark Factory Skill\n"
+            external_skill.write_bytes(external_bytes)
 
             skills_target = target / "skills"
             skills_target.mkdir()
-            (skills_target / "example").symlink_to(readonly_release)
+            linked_skill = skills_target / "dark-factory"
+            linked_skill.symlink_to(external_repo)
+
+            fixture_dark = fixture / ".claude/skills/dark-factory"
+            fixture_dark.mkdir(parents=True)
+            (fixture_dark / "SKILL.md").write_text("# Repo Managed Dark Factory\n")
+
+            # Also check source symlink entries copy appropriately
+            source_symlink = fixture / ".claude/skills/example/source-symlink.txt"
+            source_symlink_target = fixture / ".claude/skills/example/SKILL.md"
+            source_symlink.symlink_to(source_symlink_target.name)
 
             result = self.run_installer(fixture, target, "--merge")
 
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-            installed_skill = skills_target / "example" / "SKILL.md"
-            self.assertTrue(installed_skill.is_file())
-            self.assertFalse((skills_target / "example").is_symlink())
-            self.assertEqual(installed_skill.read_text(encoding="utf-8"), "# Skill\n")
+            # Topology: must remain the exact same symlink pointing to external_repo
+            self.assertTrue(linked_skill.is_symlink())
+            self.assertEqual(os.readlink(linked_skill), str(external_repo))
+            # External target must not be written
+            self.assertEqual(external_skill.read_bytes(), external_bytes)
+            # Regular skill still updated appropriately
+            self.assertTrue((skills_target / "example/SKILL.md").is_file())
+            self.assertEqual((skills_target / "example/SKILL.md").read_text(), "# Skill\n")
+            installed_symlink = skills_target / "example/source-symlink.txt"
+            self.assertTrue(installed_symlink.is_symlink())
+            # Meaningful log assertion: external owner link skip and preserved count are logged
+            self.assertIn(f"Preserving externally owned skills link ({linked_skill}); skipping {linked_skill / 'SKILL.md'}", result.stdout)
+            self.assertIn("preserved 1 externally owned path", result.stdout)
+
+    def test_merge_preserves_component_root_symlink_and_does_not_write_target(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            target = temp_dir / "claude-home"
+            target.mkdir()
+
+            external_skills = temp_dir / "external-skills"
+            external_skills.mkdir(parents=True)
+            external_skill = external_skills / "example/SKILL.md"
+            external_skill.parent.mkdir(parents=True)
+            external_bytes = b"# Separately Owned Skill Content\n"
+            external_skill.write_bytes(external_bytes)
+
+            skills_target = target / "skills"
+            skills_target.symlink_to(external_skills)
+
+            result = self.run_installer(fixture, target, "--merge")
+
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            # Topology: skills_target must remain the exact symlink pointing to external_skills
+            self.assertTrue(skills_target.is_symlink())
+            self.assertEqual(os.readlink(skills_target), str(external_skills))
+            # External target must not be written or overwritten
+            self.assertEqual(external_skill.read_bytes(), external_bytes)
+            # Other components (e.g. commands/agents) still update
+            self.assertTrue((target / "commands").exists())
+            self.assertIn("Preserving externally owned skills directory link", result.stdout)
+
+    def test_installer_refuses_unsafe_receipt_symlink_even_when_helper_is_identical(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            source_helper = fixture / "scripts/history_search.py"
+            source_helper.write_text("print('identical helper')\n")
+
+            target = temp_dir / "claude-home"
+            target.mkdir()
+            scripts = target / "scripts"
+            scripts.mkdir()
+            (scripts / "history_search.py").write_text("print('identical helper')\n")
+
+            external = temp_dir / "external"
+            external.mkdir()
+            protected = external / "protected.txt"
+            protected.write_text("unrelated protected data\n")
+
+            receipt = scripts / ".history_search.py.sha256"
+            receipt.symlink_to(protected)
+
+            result = self.run_installer(fixture, target, "--merge")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(protected.read_text(), "unrelated protected data\n")
+            self.assertFalse((target / "agents/nested/agent.md").exists())
+
+    def test_installer_rejects_unowned_helper_matching_unrelated_git_blob(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            source_helper = fixture / "scripts/history_search.py"
+            source_helper.write_text("print('new helper')\n")
+
+            # Initialize git in fixture and commit an unrelated file with specific bytes
+            env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+            subprocess.run(["git", "init"], cwd=fixture, env=env, check=True, capture_output=True)
+            subprocess.run(["git", "config", "user.email", "test@test.local"], cwd=fixture, env=env, check=True, capture_output=True)
+            subprocess.run(["git", "config", "user.name", "Test"], cwd=fixture, env=env, check=True, capture_output=True)
+            (fixture / "unrelated.txt").write_text("user-owned unrelated repository bytes\n")
+            subprocess.run(["git", "add", "."], cwd=fixture, env=env, check=True, capture_output=True)
+            subprocess.run(["git", "commit", "-m", "init"], cwd=fixture, env=env, check=True, capture_output=True)
+
+            target = temp_dir / "claude-home"
+            target.mkdir()
+            scripts = target / "scripts"
+            scripts.mkdir()
+            # Destination has the bytes of unrelated.txt, not history_search.py
+            (scripts / "history_search.py").write_text("user-owned unrelated repository bytes\n")
+
+            result = self.run_installer(fixture, target, "--merge")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(
+                (scripts / "history_search.py").read_text(),
+                "user-owned unrelated repository bytes\n",
+            )
+            self.assertFalse((target / "agents/nested/agent.md").exists())
+
+    def test_installer_git_worktree_source_allows_legitimate_owned_history_upgrade(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            main_repo = temp_dir / "main_repo"
+            main_repo.mkdir()
+            fixture = self.make_fixture(main_repo)
+            source_helper = fixture / "scripts/history_search.py"
+            source_helper.write_text("print('version 1')\n")
+
+            env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+            subprocess.run(["git", "init"], cwd=fixture, env=env, check=True, capture_output=True)
+            subprocess.run(["git", "config", "user.email", "test@test.local"], cwd=fixture, env=env, check=True, capture_output=True)
+            subprocess.run(["git", "config", "user.name", "Test"], cwd=fixture, env=env, check=True, capture_output=True)
+            subprocess.run(["git", "add", "."], cwd=fixture, env=env, check=True, capture_output=True)
+            subprocess.run(["git", "commit", "-m", "v1"], cwd=fixture, env=env, check=True, capture_output=True)
+
+            # Create a git worktree from main_repo
+            worktree_dir = temp_dir / "worktree"
+            subprocess.run(["git", "worktree", "add", str(worktree_dir), "-b", "feat"], cwd=fixture, env=env, check=True, capture_output=True)
+
+            # In worktree, .git is a file
+            self.assertTrue((worktree_dir / ".git").is_file())
+
+            # Update history_search.py in worktree to version 2
+            (worktree_dir / "scripts/history_search.py").write_text("print('version 2')\n")
+
+            # Target has version 1 without receipt
+            target = temp_dir / "claude-home"
+            target.mkdir()
+            scripts = target / "scripts"
+            scripts.mkdir()
+            (scripts / "history_search.py").write_text("print('version 1')\n")
+
+            # Running installer from worktree should recognize version 1 as historical and upgrade
+            result = self.run_installer(worktree_dir, target, "--merge")
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(
+                (scripts / "history_search.py").read_text(),
+                "print('version 2')\n",
+            )
 
 
 if __name__ == "__main__":
