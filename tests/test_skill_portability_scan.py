@@ -20,6 +20,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -1047,6 +1048,27 @@ if len(args) >= 2 and args[0] == "release":
     elif subcmd == "upload":
         if mode == "fail_upload":
             sys.exit(1)
+        import shutil
+        tag = None
+        assets = []
+        i = 2
+        while i < len(args):
+            if args[i] == "--repo":
+                i += 2
+            elif args[i].startswith("-"):
+                i += 1
+            elif tag is None:
+                tag = args[i]
+                i += 1
+            else:
+                assets.append(args[i])
+                i += 1
+        if tag:
+            upload_store = os.path.join(os.path.dirname(calls_file), "mock_releases", tag)
+            os.makedirs(upload_store, exist_ok=True)
+            for a in assets:
+                if os.path.exists(a):
+                    shutil.copy2(a, os.path.join(upload_store, os.path.basename(a)))
         sys.exit(0)
     else:
         print(f"STUB_REFUSED: unknown release command {{subcmd}}", file=sys.stderr)
@@ -1258,10 +1280,35 @@ else:
                 self.assertIn("RUN_ID", res_unset_run_id.stderr)
                 self.assertFalse(calls_file.exists(), "gh must not be called when RUN_ID is missing")
 
+                # Missing CAPTURED_SHA fails before calling gh
+                res_unset_captured_sha = subprocess.run(
+                    ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nRUN_ID="run-1"\nVIDEO_FILE="{dummy_video}"\nPREVIEW_FILE="{dummy_preview}"\nCAPTION_MODE="burned"\n' + block1],
+                    env=env, capture_output=True, text=True,
+                )
+                self.assertNotEqual(res_unset_captured_sha.returncode, 0)
+                self.assertIn("CAPTURED_SHA", res_unset_captured_sha.stderr)
+                self.assertFalse(calls_file.exists(), "gh must not be called when CAPTURED_SHA is missing")
+
+                # Mismatched CAPTURED_SHA fails before release create
+                if calls_file.exists():
+                    calls_file.unlink()
+                res_mismatch_sha = subprocess.run(
+                    ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nRUN_ID="run-1"\nCAPTURED_SHA="deadbeef1234567890abcdef0123456789abcdef"\nVIDEO_FILE="{dummy_video}"\nPREVIEW_FILE="{dummy_preview}"\nCAPTION_MODE="burned"\n' + block1],
+                    env=env, capture_output=True, text=True,
+                )
+                self.assertNotEqual(res_mismatch_sha.returncode, 0)
+                self.assertIn("CAPTURED_SHA", res_mismatch_sha.stderr)
+                logged_mismatch = [json.loads(line)["argv"] for line in calls_file.read_text().splitlines()]
+                self.assertEqual(len(logged_mismatch), 1)
+                self.assertEqual(logged_mismatch[0][:2], ["pr", "view"])
+                self.assertFalse(any(c[:2] == ["release", "create"] for c in logged_mismatch), "Must not create release on SHA mismatch")
+
                 # Format validation failure via ffprobe
+                if calls_file.exists():
+                    calls_file.unlink()
                 env_ffprobe_fail = {**env, "FFPROBE_STUB_MODE": "fail"}
                 res_format_fail = subprocess.run(
-                    ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nRUN_ID="run-1"\nVIDEO_FILE="{dummy_video}"\nPREVIEW_FILE="{dummy_preview}"\nCAPTION_FILE="{dummy_caption}"\n' + block1],
+                    ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nRUN_ID="run-1"\nCAPTURED_SHA="0123456789abcdef0123456789abcdef01234567"\nVIDEO_FILE="{dummy_video}"\nPREVIEW_FILE="{dummy_preview}"\nCAPTION_FILE="{dummy_caption}"\n' + block1],
                     env=env_ffprobe_fail, capture_output=True, text=True,
                 )
                 self.assertNotEqual(res_format_fail.returncode, 0)
@@ -1283,35 +1330,57 @@ else:
                     if calls_file.exists():
                         calls_file.unlink()
                     res_mal1 = subprocess.run(
-                        ["bash", "-c", f'{target_env}\nRUN_ID="run-1"\nVIDEO_FILE="{dummy_video}"\nPREVIEW_FILE="{dummy_preview}"\nCAPTION_FILE="{dummy_caption}"\n' + block1],
+                        ["bash", "-c", f'{target_env}\nRUN_ID="run-1"\nCAPTURED_SHA="0123456789abcdef0123456789abcdef01234567"\nVIDEO_FILE="{dummy_video}"\nPREVIEW_FILE="{dummy_preview}"\nCAPTION_FILE="{dummy_caption}"\n' + block1],
                         env=env, capture_output=True, text=True,
                     )
                     self.assertNotEqual(res_mal1.returncode, 0, f"Malformed target must fail in Block 1: {target_env}")
                     self.assertFalse(calls_file.exists(), f"gh must not be called on malformed target in Block 1: {target_env}")
 
-                # 8. Positive test for Block 1 with valid inputs and caption sidecar
-                zip_out = test_dir / "archive.zip"
+                # 8. Positive test for Block 1 with valid inputs and caption sidecar; verifies clean zip isolation
+                if calls_file.exists():
+                    calls_file.unlink()
+                preexisting_zip = Path(str(dummy_video) + ".zip")
+                with zipfile.ZipFile(preexisting_zip, "w") as zf:
+                    zf.writestr("unrelated.txt", "unrelated old content\n")
+
+                # Demonstrate old behavior: updating preexisting zip retains unrelated entries
+                subprocess.run(["zip", "-j", str(preexisting_zip), str(dummy_video)], check=True, capture_output=True)
+                with zipfile.ZipFile(preexisting_zip, "r") as zf:
+                    self.assertIn("unrelated.txt", zf.namelist(), "Demonstrating old defect: zip -j retained unrelated old entry")
+                    self.assertIn(dummy_video.name, zf.namelist())
+
+                # Reset preexisting_zip with ONLY unrelated entry to test after-fix isolation
+                with zipfile.ZipFile(preexisting_zip, "w") as zf:
+                    zf.writestr("unrelated.txt", "unrelated old content\n")
+
+                valid_sha = "0123456789abcdef0123456789abcdef01234567"
                 res_pos1 = subprocess.run(
-                    ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nRUN_ID="run-1"\nVIDEO_FILE="{dummy_video}"\nPREVIEW_FILE="{dummy_preview}"\nCAPTION_FILE="{dummy_caption}"\nZIP_FILE="{zip_out}"\n' + block1],
+                    ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nRUN_ID="run-1"\nCAPTURED_SHA="{valid_sha}"\nVIDEO_FILE="{dummy_video}"\nPREVIEW_FILE="{dummy_preview}"\nCAPTION_FILE="{dummy_caption}"\n' + block1],
                     env=env, capture_output=True, text=True,
                 )
                 self.assertEqual(res_pos1.returncode, 0, res_pos1.stderr + res_pos1.stdout)
-                self.assertTrue(zip_out.exists(), "Zip artifact must be created")
                 self.assertTrue(calls_file.exists())
                 logged_calls = [json.loads(line)["argv"] for line in calls_file.read_text().splitlines()]
                 expected_tag = "evidence-pr-42-0123456789ab-run-1"
                 self.assertEqual(len(logged_calls), 4)
                 self.assertEqual(logged_calls[0], ["pr", "view", "42", "--repo", "intended/repo", "--json", "number,headRefOid,url"])
                 self.assertEqual(logged_calls[1], ["release", "create", expected_tag, "--repo", "intended/repo", "--draft", "--title", "PR #42 Evidence", "--notes", ""])
-                self.assertEqual(logged_calls[2], ["release", "upload", expected_tag, "--repo", "intended/repo", str(zip_out), str(dummy_preview), str(dummy_caption)])
+                mock_releases = calls_file.parent / "mock_releases" / expected_tag
+                uploaded_zip = mock_releases / f"{dummy_video.name}.zip"
+                self.assertTrue(uploaded_zip.exists())
+                with zipfile.ZipFile(uploaded_zip, "r") as zf:
+                    uploaded_names = zf.namelist()
+                    self.assertNotIn("unrelated.txt", uploaded_names, "Uploaded archive must not retain unrelated preexisting entries")
+                    self.assertIn(dummy_video.name, uploaded_names, "Uploaded archive must contain intended video capture")
+                with zipfile.ZipFile(preexisting_zip, "r") as zf:
+                    self.assertEqual(zf.namelist(), ["unrelated.txt"], "User's preexisting archive must remain untouched")
                 self.assertEqual(logged_calls[3], ["release", "view", expected_tag, "--repo", "intended/repo", "--json", "assets,url"])
 
                 # Distinct run IDs produce distinct tags without --clobber
-                calls_file.unlink()
-                if zip_out.exists():
-                    zip_out.unlink()
+                if calls_file.exists():
+                    calls_file.unlink()
                 res_run_a = subprocess.run(
-                    ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nRUN_ID="run-alpha"\nVIDEO_FILE="{dummy_video}"\nPREVIEW_FILE="{dummy_preview}"\nCAPTION_MODE="burned"\nZIP_FILE="{zip_out}"\n' + block1],
+                    ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nRUN_ID="run-alpha"\nCAPTURED_SHA="{valid_sha}"\nVIDEO_FILE="{dummy_video}"\nPREVIEW_FILE="{dummy_preview}"\nCAPTION_MODE="burned"\n' + block1],
                     env=env, capture_output=True, text=True,
                 )
                 self.assertEqual(res_run_a.returncode, 0, res_run_a.stderr + res_run_a.stdout)
@@ -1320,11 +1389,10 @@ else:
                 self.assertIn("run-alpha", tag_a)
                 self.assertNotIn("--clobber", calls_a[2])
 
-                calls_file.unlink()
-                if zip_out.exists():
-                    zip_out.unlink()
+                if calls_file.exists():
+                    calls_file.unlink()
                 res_run_b = subprocess.run(
-                    ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nRUN_ID="run-beta"\nVIDEO_FILE="{dummy_video}"\nPREVIEW_FILE="{dummy_preview}"\nCAPTION_MODE="burned"\nZIP_FILE="{zip_out}"\n' + block1],
+                    ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nRUN_ID="run-beta"\nCAPTURED_SHA="{valid_sha}"\nVIDEO_FILE="{dummy_video}"\nPREVIEW_FILE="{dummy_preview}"\nCAPTION_MODE="burned"\n' + block1],
                     env=env, capture_output=True, text=True,
                 )
                 self.assertEqual(res_run_b.returncode, 0, res_run_b.stderr + res_run_b.stdout)
@@ -1335,40 +1403,40 @@ else:
                 self.assertNotIn("--clobber", calls_b[2])
 
                 # Positive test with burned caption mode
-                calls_file.unlink()
-                if zip_out.exists():
-                    zip_out.unlink()
+                if calls_file.exists():
+                    calls_file.unlink()
                 res_burned1 = subprocess.run(
-                    ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nRUN_ID="run-1"\nVIDEO_FILE="{dummy_video}"\nPREVIEW_FILE="{dummy_preview}"\nCAPTION_MODE="burned"\nZIP_FILE="{zip_out}"\n' + block1],
+                    ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nRUN_ID="run-1"\nCAPTURED_SHA="{valid_sha}"\nVIDEO_FILE="{dummy_video}"\nPREVIEW_FILE="{dummy_preview}"\nCAPTION_MODE="burned"\n' + block1],
                     env=env, capture_output=True, text=True,
                 )
                 self.assertEqual(res_burned1.returncode, 0, res_burned1.stderr + res_burned1.stdout)
                 logged_burned1 = [json.loads(line)["argv"] for line in calls_file.read_text().splitlines()]
                 self.assertEqual(len(logged_burned1), 4)
-                self.assertEqual(logged_burned1[2], ["release", "upload", expected_tag, "--repo", "intended/repo", str(zip_out), str(dummy_preview)])
+                self.assertEqual(logged_burned1[2][:5], ["release", "upload", expected_tag, "--repo", "intended/repo"])
+                self.assertIn(dummy_preview, [Path(p) for p in logged_burned1[2][5:]])
 
                 # Positive test with paths with spaces
-                calls_file.unlink()
+                if calls_file.exists():
+                    calls_file.unlink()
                 space_video = test_dir / "space video.mp4"
                 space_video.write_bytes(b"space video bytes")
                 space_preview = test_dir / "space preview.gif"
                 space_preview.write_bytes(b"space preview bytes")
                 space_caption = test_dir / "space caption.vtt"
                 space_caption.write_text("WEBVTT\n\n00:00.000 --> 00:01.000\nCaption\n")
-                space_zip = test_dir / "space archive.zip"
                 res_spaces1 = subprocess.run(
-                    ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nRUN_ID="run-1"\nVIDEO_FILE="{space_video}"\nPREVIEW_FILE="{space_preview}"\nCAPTION_FILE="{space_caption}"\nZIP_FILE="{space_zip}"\n' + block1],
+                    ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nRUN_ID="run-1"\nCAPTURED_SHA="{valid_sha}"\nVIDEO_FILE="{space_video}"\nPREVIEW_FILE="{space_preview}"\nCAPTION_FILE="{space_caption}"\n' + block1],
                     env=env, capture_output=True, text=True,
                 )
                 self.assertEqual(res_spaces1.returncode, 0, res_spaces1.stderr + res_spaces1.stdout)
-                self.assertTrue(space_zip.exists())
+                space_uploaded_zip = calls_file.parent / "mock_releases" / expected_tag / f"{space_video.name}.zip"
+                self.assertTrue(space_uploaded_zip.exists())
 
                 # Valid PR URL with trailing slash in Block 1
-                calls_file.unlink()
-                if zip_out.exists():
-                    zip_out.unlink()
+                if calls_file.exists():
+                    calls_file.unlink()
                 res_slash1 = subprocess.run(
-                    ["bash", "-c", f'PR_NUMBER_OR_URL="https://github.com/intended/repo/pull/42/"\nRUN_ID="run-1"\nVIDEO_FILE="{dummy_video}"\nPREVIEW_FILE="{dummy_preview}"\nCAPTION_FILE="{dummy_caption}"\nZIP_FILE="{zip_out}"\n' + block1],
+                    ["bash", "-c", f'PR_NUMBER_OR_URL="https://github.com/intended/repo/pull/42/"\nRUN_ID="run-1"\nCAPTURED_SHA="{valid_sha}"\nVIDEO_FILE="{dummy_video}"\nPREVIEW_FILE="{dummy_preview}"\nCAPTION_FILE="{dummy_caption}"\n' + block1],
                     env=env, capture_output=True, text=True,
                 )
                 self.assertEqual(res_slash1.returncode, 0, res_slash1.stderr + res_slash1.stdout)
@@ -1379,7 +1447,8 @@ else:
                 self.assertEqual(logged_slash1[1], ["release", "create", expected_tag, "--repo", "intended/repo", "--draft", "--title", "PR #42 Evidence", "--notes", ""])
 
                 # 9. Wrong CWD test: Block 1 executed from a different repo binds intended repo via --repo
-                calls_file.unlink()
+                if calls_file.exists():
+                    calls_file.unlink()
                 wrong_cwd = test_dir / "wrong_cwd"
                 wrong_cwd.mkdir(exist_ok=True)
                 git_env = {**env, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
@@ -1387,7 +1456,7 @@ else:
                 subprocess.run(["git", "remote", "add", "origin", "git@github.com:wrong-owner/wrong-repo.git"], cwd=wrong_cwd, env=git_env, check=True, capture_output=True)
 
                 res_wrong_cwd = subprocess.run(
-                    ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nRUN_ID="run-1"\nVIDEO_FILE="{dummy_video}"\nPREVIEW_FILE="{dummy_preview}"\nCAPTION_FILE="{dummy_caption}"\nZIP_FILE="{zip_out}"\n' + block1],
+                    ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nRUN_ID="run-1"\nCAPTURED_SHA="{valid_sha}"\nVIDEO_FILE="{dummy_video}"\nPREVIEW_FILE="{dummy_preview}"\nCAPTION_FILE="{dummy_caption}"\n' + block1],
                     cwd=wrong_cwd, env=env, capture_output=True, text=True,
                 )
                 self.assertEqual(res_wrong_cwd.returncode, 0, res_wrong_cwd.stderr + res_wrong_cwd.stdout)
@@ -1407,7 +1476,8 @@ else:
                 self.assertIn("CALLER1_SURVIVED:1\n", res_caller1.stdout)
 
                 # --- Block 2: PR comment / edit ---
-                calls_file.unlink()
+                if calls_file.exists():
+                    calls_file.unlink()
 
                 # Unset PR_NUMBER fails in Block 2
                 res_unset2 = subprocess.run(
@@ -1494,7 +1564,8 @@ else:
                 self.assertEqual(logged_calls2[1], ["pr", expected_subcmd, "42", "--repo", "intended/repo", "--body-file", str(valid_body)])
 
                 # Full PR URL derives REPO in Block 2
-                calls_file.unlink()
+                if calls_file.exists():
+                    calls_file.unlink()
                 res_url2 = subprocess.run(
                     ["bash", "-c", f'PR_NUMBER_OR_URL="https://github.com/intended/repo/pull/42"\nBODY_FILE="{valid_body}"\nCOMMENT_FILE="{valid_body}"\n' + block2],
                     env=env, capture_output=True, text=True,
@@ -1506,7 +1577,8 @@ else:
                 self.assertEqual(logged_url2[1], ["pr", expected_subcmd, "42", "--repo", "intended/repo", "--body-file", str(valid_body)])
 
                 # Full PR URL with trailing slash in Block 2
-                calls_file.unlink()
+                if calls_file.exists():
+                    calls_file.unlink()
                 res_url2_slash = subprocess.run(
                     ["bash", "-c", f'PR_NUMBER_OR_URL="https://github.com/intended/repo/pull/42/"\nBODY_FILE="{valid_body}"\nCOMMENT_FILE="{valid_body}"\n' + block2],
                     env=env, capture_output=True, text=True,
@@ -1518,7 +1590,8 @@ else:
                 self.assertEqual(logged_url2_slash[1], ["pr", expected_subcmd, "42", "--repo", "intended/repo", "--body-file", str(valid_body)])
 
                 # Wrong-CWD for Block 2
-                calls_file.unlink()
+                if calls_file.exists():
+                    calls_file.unlink()
                 res_wrong_cwd2 = subprocess.run(
                     ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nBODY_FILE="{valid_body}"\nCOMMENT_FILE="{valid_body}"\n' + block2],
                     cwd=wrong_cwd, env=env, capture_output=True, text=True,
@@ -1571,6 +1644,7 @@ else:
                     f'PR_NUMBER="42"\n'
                     f'REPO="intended/repo"\n'
                     f'RUN_ID="run-1"\n'
+                    f'CAPTURED_SHA="0123456789abcdef0123456789abcdef01234567"\n'
                     f'VIDEO_FILE="{dummy_video}"\n'
                     f'PREVIEW_FILE="{dummy_preview}"\n'
                     f'CAPTION_FILE="{dummy_caption}"\n'
