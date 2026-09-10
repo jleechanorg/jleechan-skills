@@ -1,6 +1,6 @@
 ---
 name: ui-video-evidence
-description: Record captioned browser/UI evidence videos, upload to GitHub PR attachments, and link sanitized artifacts in a self-contained gist
+description: Record captioned browser/UI evidence videos and link sanitized artifacts for authorized review
 ---
 
 # UI Video Evidence for Visual Verification
@@ -26,10 +26,10 @@ Each UI evidence run must provide:
 - UI fallback media (`.gif` recommended for easy PR preview)
 - Captions (burned-in preferred; `.vtt`/`.srt` acceptable)
 - Git linkage (`git rev-parse HEAD` visible in recording context)
-- GitHub-hosted URL(s) published by automation
+- Media links accessible to the intended reviewer at an authorized destination
 - A browser-viewable artifact (`.gif`, raw URL, release asset, or native attachment)
 - A downloadable high-fidelity artifact (`.mp4`, `.mp4.zip`, or release asset)
-- Matching entry in a self-contained gist bundle
+- Matching metadata and caption artifacts in the reviewed evidence receipt
 
 ## Mandatory Frames
 
@@ -63,18 +63,25 @@ Both tmux and UI videos must always have captions.
 
 Accepted forms:
 1. Burned-in captions in the video (preferred)
-2. Sidecar caption file (`.vtt`/`.srt`) linked in PR and included in gist
+2. Sidecar caption file (`.vtt`/`.srt`) linked alongside the reviewed media artifacts
 
 Use `~/.claude/skills/video-caption/SKILL.md` for reliable burned-in captions.
 
-## GitHub Hosting (Required, Zero-Touch)
+## Evidence access and authorized publication
 
-Preferred path:
+Follow `~/.claude/skills/evidence-standards/SKILL.md` for publication authority, audience, and destination. A PR, checked-in document, access-controlled receipt/store, or authorized gist may link the evidence. A gist or GitHub upload is not an independent acceptance requirement. Preserve real media, captions, exact source provenance, and reviewer access; publish only within the current authorization.
+
+The following GitHub release example applies only when that destination is authorized. Set `caption_file` to the actual generated `.vtt` or `.srt` path when using a sidecar; leave it empty only when captions are already burned into the video. The asset list includes the sidecar only when set.
 
 ```bash
+caption_file=""  # Set to the actual .vtt or .srt path unless captions are burned in.
+assets=("/tmp/ui_flow.mp4.zip" "/abs/path/to/ui_flow.gif")
+if [ -n "$caption_file" ]; then
+  assets+=("$caption_file")
+fi
 zip -j /tmp/ui_flow.mp4.zip /abs/path/to/ui_flow.mp4
 gh release create evidence-pr-<PR_NUMBER> --draft --title "PR #<PR_NUMBER> Evidence" --notes "" 2>/dev/null || true
-gh release upload evidence-pr-<PR_NUMBER> /tmp/ui_flow.mp4.zip /abs/path/to/ui_flow.gif /abs/path/to/ui_flow.srt --clobber
+gh release upload evidence-pr-<PR_NUMBER> "${assets[@]}" --clobber
 gh release view evidence-pr-<PR_NUMBER> --json assets,url
 gh pr edit <PR_NUMBER_OR_URL> --body-file /tmp/pr_body.md
 ```
@@ -92,9 +99,9 @@ Optional path:
 ```markdown
 ## UI Evidence
 
-- GIF: `<asset url from gh release view --json assets>`
-- MP4 ZIP: `<asset url from gh release view --json assets>`
-- Captions: burned-in (or gist: https://gist.github.com/<id>#file-ui-video-vtt)
+- GIF: `<reviewer-accessible location at the authorized destination>`
+- MP4 ZIP: `<reviewer-accessible location at the authorized destination>`
+- Captions: burned-in (or link to the matching caption artifact)
 - Route: `/path/under/test`
 - Commit: `<sha>`
 - Claim: <what this proves>
@@ -109,14 +116,14 @@ Reject these:
 - Missing captions
 - Screenshot-only evidence for flow claims
 - Manual drag-drop as the only publication path
-- Non-GitHub-hosted media when GitHub hosting is available
+- Media inaccessible to the intended reviewer
 
 ## Reviewer Checklist
 
-1. Video is linked in PR via GitHub-hosted URL
-2. Automation path uses `gh` or the optional native-attachment helper instead of manual drag-drop
+1. Video is linked from the review receipt at an authorized, reviewer-accessible destination
+2. Any publication follows the authorized destination and applicable automation workflow
 3. Captions are present
 4. Before/action/after flow is visible
 5. URL and route match claim
 6. Git SHA linkage is visible
-7. Gist contains matching metadata/caption artifacts
+7. The reviewed evidence receipt includes matching metadata/caption artifacts

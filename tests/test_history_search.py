@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 import shutil
 import sqlite3
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from scripts.history_search import (
     ALL_SOURCES,
@@ -15,6 +17,7 @@ from scripts.history_search import (
     ansify,
     color,
     format_results,
+    main,
     search_agy,
     search_claude,
     search_codex,
@@ -30,6 +33,28 @@ class TestHistorySearch(unittest.TestCase):
 
     def tearDown(self) -> None:
         shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def test_cli_rejects_nonpositive_budgets_before_search(self) -> None:
+        for option in ("--limit", "--max-chars"):
+            for value in ("0", "-1"):
+                with self.subTest(option=option, value=value):
+                    with patch(
+                        "scripts.history_search.search_history", return_value={}
+                    ) as search:
+                        with patch("sys.stderr"), patch("builtins.print"):
+                            with self.assertRaises(SystemExit) as error:
+                                main([option, value])
+                        self.assertEqual(error.exception.code, 2)
+                        search.assert_not_called()
+
+    def test_cli_accepts_explicit_audit_budgets_above_sparse_defaults(self) -> None:
+        with patch(
+            "scripts.history_search.search_history", return_value={}
+        ) as search:
+            with patch("builtins.print"):
+                self.assertEqual(main(["--limit", "50", "--max-chars", "500"]), 0)
+        self.assertEqual(search.call_args.kwargs["limit"], 50)
+        self.assertEqual(search.call_args.kwargs["max_chars"], 500)
 
     def test_search_claude_indexing_and_malformed_json_tolerance(self) -> None:
         proj_dir = self.temp_dir / "claude_projects" / "-Users-test-myproject"
@@ -134,6 +159,141 @@ class TestHistorySearch(unittest.TestCase):
         )
         self.assertEqual(len(rollout_results), 1)
         self.assertIn("Rollout prompt test", rollout_results[0].snippet)
+
+    def test_codex_search_includes_active_and_default_homes(self) -> None:
+        for directory, message in (
+            (".codex-astra", "active profile history"),
+            (".codex", "default profile history"),
+        ):
+            sessions = self.temp_dir / directory / "sessions"
+            sessions.mkdir(parents=True)
+            (sessions / "rollout-test.jsonl").write_text(json.dumps({
+                "timestamp": "2026-09-08",
+                "role": "user",
+                "content": message,
+            }) + "\n")
+        with patch("pathlib.Path.home", return_value=self.temp_dir), patch.dict(
+            "os.environ", {"CODEX_HOME": str(self.temp_dir / ".codex-astra")}
+        ):
+            results = search_codex(query="profile history")
+        self.assertEqual(
+            {entry.snippet for entry in results},
+            {"active profile history", "default profile history"},
+        )
+
+    def test_explicit_codex_homes_are_scoped_and_aliases_are_deduplicated(self) -> None:
+        profile = self.temp_dir / "custom-profile"
+        sessions = profile / "sessions"
+        sessions.mkdir(parents=True)
+        (sessions / "rollout-test.jsonl").write_text(json.dumps({
+            "timestamp": "2026-09-08",
+            "type": "response_item",
+            "payload": {
+                "type": "message", "role": "user",
+                "content": [{"type": "input_text", "text": "custom trace"}],
+            },
+        }) + "\n")
+        alias = self.temp_dir / "profile-alias"
+        alias.symlink_to(profile, target_is_directory=True)
+        results = search_codex(query="custom trace", codex_homes=[profile, alias])
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].snippet, "custom trace")
+        self.assertEqual(results[0].metadata["codex_home"], str(profile.resolve()))
+
+    def test_codex_profile_indexes_deduplicate_threads_and_sort_full_timestamps(self) -> None:
+        homes = [self.temp_dir / "first", self.temp_dir / "second"]
+        for index, home in enumerate(homes):
+            home.mkdir()
+            with sqlite3.connect(home / "state_5.sqlite") as con:
+                con.execute("CREATE TABLE threads (id TEXT, title TEXT, first_user_message TEXT, cwd TEXT, git_branch TEXT, created_at INTEGER, archived INTEGER)")
+                con.executemany("INSERT INTO threads VALUES (?, ?, ?, ?, ?, ?, ?)", [
+                    ("shared", "history", "shared history", "/work", "main", 1788283000, 0),
+                    (f"unique-{index}", "history", f"history {index}", "/work", "main", 1788283010 + index, 0),
+                ])
+        results = search_codex(query="history", codex_homes=homes)
+        self.assertEqual(
+            [entry.metadata["thread_id"] for entry in results],
+            ["unique-1", "unique-0", "shared"],
+        )
+
+    def test_codex_mixed_index_and_rollout_profiles_sort_actual_instants(self) -> None:
+        indexed = self.temp_dir / "indexed"
+        indexed.mkdir()
+        with sqlite3.connect(indexed / "state_5.sqlite") as con:
+            con.execute("CREATE TABLE threads (id TEXT, title TEXT, first_user_message TEXT, cwd TEXT, git_branch TEXT, created_at INTEGER, archived INTEGER)")
+            con.execute("INSERT INTO threads VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        ("indexed", "history", "indexed history", "/work", "main", 1788283000, 0))
+        rollouts = self.temp_dir / "rollouts"
+        (rollouts / "sessions").mkdir(parents=True)
+        (rollouts / "sessions/rollout-test.jsonl").write_text(json.dumps({
+            "timestamp": datetime.fromtimestamp(1788283060, timezone.utc).isoformat(),
+            "role": "user", "content": "newer rollout history",
+        }) + "\n")
+        results = search_codex(query="history", codex_homes=[indexed, rollouts])
+        self.assertEqual(
+            [entry.snippet for entry in results],
+            ["newer rollout history", "indexed history"],
+        )
+
+    def test_sqlite_searches_preserve_literal_path_characters(self) -> None:
+        for directory in (
+            "ordinary", "hash#profile", "query?profile",
+            "percent%23profile", "space ü profile",
+        ):
+            profile = self.temp_dir / directory
+            profile.mkdir()
+            database = profile / "state_5.sqlite"
+            with sqlite3.connect(database) as connection:
+                connection.executescript("""
+                    CREATE TABLE threads (
+                        id TEXT, title TEXT, first_user_message TEXT, cwd TEXT,
+                        git_branch TEXT, created_at INTEGER, archived INTEGER
+                    );
+                    INSERT INTO threads VALUES (
+                        't1', 'literalpath', 'literalpath', '/fixture/project',
+                        'main', 1788283033, 0
+                    );
+                    CREATE TABLE sessions (id TEXT, title TEXT, source TEXT);
+                    INSERT INTO sessions VALUES ('s1', 'literalpath', 'fixture');
+                    CREATE TABLE messages (
+                        id INTEGER, session_id TEXT, timestamp INTEGER,
+                        role TEXT, content TEXT, tool_name TEXT, tool_calls TEXT
+                    );
+                    INSERT INTO messages VALUES (
+                        1, 's1', 1788283033, 'user', 'literalpath', NULL, NULL
+                    );
+                    CREATE TABLE conversation_summaries (
+                        conversation_id TEXT, title TEXT, preview TEXT,
+                        step_count INTEGER, last_modified_time TEXT,
+                        workspace_uris TEXT, agent_name TEXT, killed INTEGER
+                    );
+                    INSERT INTO conversation_summaries VALUES (
+                        'c1', 'literalpath', 'literalpath', 1,
+                        '2026-09-01T12:00:00Z', '/fixture/project', 'agy', 0
+                    );
+                """)
+            before_bytes = database.read_bytes()
+            before_paths = set(self.temp_dir.rglob("*"))
+            searches = (
+                (search_codex, {"codex_homes": [profile]}),
+                (search_codex, {
+                    "db_path": database, "sessions_dir": profile / "sessions",
+                }),
+                (search_hermes, {"db_path": database}),
+                (search_agy, {
+                    "db_path": database, "brain_dir": profile / "brain",
+                    "history_file": profile / "history.jsonl",
+                }),
+            )
+            for search, options in searches:
+                with self.subTest(
+                    directory=directory, search=search.__name__, options=options
+                ):
+                    results = search(query="literalpath", **options)
+                    self.assertEqual(len(results), 1)
+                    self.assertEqual(results[0].snippet, "literalpath")
+                    self.assertEqual(database.read_bytes(), before_bytes)
+                    self.assertEqual(set(self.temp_dir.rglob("*")), before_paths)
 
     def test_search_hermes_fts5_and_like_fallback(self) -> None:
         db_path = self.temp_dir / "hermes_state.db"

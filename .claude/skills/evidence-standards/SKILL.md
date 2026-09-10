@@ -87,16 +87,25 @@ Tolerance for Test/Docs-Only Changes") and take precedence on conflict.
 
 ## Evidence Sequencing — expensive evidence runs LAST, once
 
+Before a behavior fix, obtain fresh evidence of the reported failure at the
+lowest sufficient layer and preserve the baseline revision, inputs, and output.
+Source/trace inspection and authorized diagnostic instrumentation may be needed
+to construct that reproducer. A missing reproducer blocks an unproven fix claim,
+not continued diagnosis. Real-service failures still require the real boundary;
+a fast unit test cannot substitute for a cross-service reproduction.
+
 Cheap gates (unit/focused tests, lint, compile) iterate freely per commit.
 Adversarial code-review rounds are cheap per-pass, but must continue to enforce
-the required correctness and evidence checks. Expensive evidence (real-server + real-LLM runs, RED/GREEN pairs,
+the required correctness and evidence checks. Final expensive evidence (real-server + real-LLM runs, packaged RED/GREEN comparisons,
 browser/video capture, bundle assembly) runs ONCE, at the END: only after code is
 complete — all review findings resolved or explicitly deferred, focused tests
 green, no known remaining code work. Freeze the HEAD, then run the expensive
 stack against it. Running expensive evidence mid-iteration guarantees it is
 voided by the next fix (PR #9604/#9640, 2026-09-01: ~40 of 50 commits were
 evidence churn; the RED/GREEN pair and bundle had to be scheduled for a full
-rerun anyway).
+rerun anyway). The final comparison may replay the preserved baseline alongside
+the completed candidate; scheduling that package last does not defer the initial
+failure reproduction until after the behavior fix.
 
 Rerun expensive evidence ONLY on a material change per the Staleness Tolerance
 diff test above: a production-behavior file in the evidenced path changed, or
@@ -176,15 +185,20 @@ be **PARTIAL** or **INSUFFICIENT**, not **PASS**. A claim that lacks the
 layer label is non-compliant and the verdict must be downgraded to PARTIAL.
 
 
-## Publication (gist-first)
+## Evidence access and publication
 
-When evidence is ready for a PR:
+Keep the original evidence and its provenance intact. Provide the intended
+reviewer with accessible reproduction directions and artifact links in the PR,
+a checked-in document, an access-controlled receipt/store, or an authorized gist.
+Include the reviewed/tested SHA, dependencies, exact commands and expected results
+required for the applicable evidence class. A gist is one supported location;
+it is not an independent prerequisite for a passing verdict.
 
-1. **Publish to a secret/unlisted gist** with sanitized artifacts (README, metadata, pytest output, checksums).
-2. Put **only the gist URL** in the PR `## Evidence` section (and linked sections as required by the description gate).
-3. **Do not commit** evidence bundles under `docs/evidence/` on the PR branch unless a repo gate explicitly requires in-tree paths — local `/tmp/<repo>/<branch>/` is the working bundle; gist is the published copy.
-4. Gate-6 accepts `gist.github.com/` URLs; prefer that over `docs/evidence/` tree links in the PR body.
-
+Publish or send artifacts only within the current task's authorized audience and
+destination. Sanitize any shareable copy while retaining private originals and
+identifying the relationship between them. An unlisted gist is accessible to
+anyone with its URL; do not treat it as an access-controlled secret store.
+Follow any actual repository gate requiring particular in-tree evidence paths.
 
 ## Bundle anatomy (minimal)
 

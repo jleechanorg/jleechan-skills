@@ -11,9 +11,9 @@ description: Use when dispatching work through the Hermes gateway with /claw, es
 
 | Input | Default action |
 |-------|---------------|
-| PR number (`#633`, `PR 633`, `633`) | Expand to draft-first readiness followed by `/green`, then post to Slack → Hermes (5 attempt cap) |
+| PR number (`#633`, `PR 633`, `633`) | Expand to draft-first readiness followed by `/green`, then post to Slack → Hermes (no default attempt cap) |
 | General task description | Post to Slack → Hermes |
-| `--max-attempts N` | Override attempt cap (default 5 for PR tasks) |
+| `--max-attempts N` | Set an explicit worker attempt limit; return incomplete status and evidence to the parent at the limit |
 | `--bidi` prefix | Hermes interactive session (streaming) |
 | `--hermes` prefix | Force through Hermes gateway |
 | Slash command resolution (e.g. `/green`) | Resolve skill then pass to Hermes via Slack |
@@ -43,6 +43,56 @@ When invoked with a task description:
 ```bash
 TASK_DESCRIPTION="$ARGUMENTS"
 set -euo pipefail
+
+# An explicit max-attempts option bounds this worker invocation.
+# Parse only user arguments; resolved skill documentation is task content.
+CLAW_ATTEMPT_PARSE=$(python3 - "$TASK_DESCRIPTION" "${CLAW_MAX_ATTEMPTS:-}" <<'PY'
+import re
+import sys
+
+task, limit = sys.argv[1:]
+options = list(re.finditer(
+    r"(?<!\S)--max-attempts(?=[=\s]|$)(?:=(\S*)|\s+(\S+))?", task
+))
+if len(options) > 1:
+    raise SystemExit("Specify --max-attempts only once")
+if options:
+    option = options[0]
+    limit = option.group(1) if option.group(1) is not None else option.group(2)
+    if not limit or not re.fullmatch(r"[1-9][0-9]*", limit):
+        raise SystemExit("--max-attempts requires an exact positive integer")
+    task = task[:option.start()] + task[option.end():]
+    if not task.strip():
+        raise SystemExit("--max-attempts also requires a task description")
+if limit and not re.fullmatch(r"[1-9][0-9]*", limit):
+    raise SystemExit("CLAW_MAX_ATTEMPTS requires an exact positive integer")
+print(limit)
+print(task.strip())
+PY
+) || exit 2
+CLAW_MAX_ATTEMPTS=${CLAW_ATTEMPT_PARSE%%$'\n'*}
+TASK_DESCRIPTION=${CLAW_ATTEMPT_PARSE#*$'\n'}
+export CLAW_MAX_ATTEMPTS
+
+# Bidi mode: synchronous, streaming output
+BIDI_MODE=false
+CONTINUE_SESSION=""
+
+if printf '%s' "$TASK_DESCRIPTION" | grep -Eq '^--bidi([[:space:]]|$)'; then
+  BIDI_MODE=true
+  TASK_DESCRIPTION=$(printf '%s' "$TASK_DESCRIPTION" | sed 's/^--bidi[[:space:]]*//')
+fi
+
+if printf '%s' "$TASK_DESCRIPTION" | grep -Eq '^--continue([[:space:]]|$)'; then
+  CONTINUE_SESSION=$(printf '%s' "$TASK_DESCRIPTION" | sed 's/^--continue[[:space:]]*//' | awk '{print $1}')
+fi
+
+# --hermes: force the task to run inline in the gateway (skip the AO directive).
+FORCE_HERMES=false
+if printf '%s' "$TASK_DESCRIPTION" | grep -Eq '^--hermes([[:space:]]|$)'; then
+  FORCE_HERMES=true
+  TASK_DESCRIPTION=$(printf '%s' "$TASK_DESCRIPTION" | sed 's/^--hermes[[:space:]]*//')
+fi
 
 LOGDIR="/tmp/hermes"
 mkdir -p "$LOGDIR"
@@ -153,7 +203,7 @@ if m:
   else
     PR_URL="PR #${PR_NUMBER}"
   fi
-  TASK_WITH_RESOLVED="Keep ${PR_URL} draft while completing /es, /er, and /advice; then mark it ready and bring it to /green. Fix CI failures and merge conflicts, and treat CodeRabbit/Bugbot as advisory. Use /green ${PR_NUMBER} to verify. Act autonomously — do not ask for permission to fix things. IMPORTANT: attempt at most ${CLAW_MAX_ATTEMPTS:-5} fix-push-CI cycles. After reaching the limit, post a status summary of remaining blockers and stop — do not continue iterating."
+  TASK_WITH_RESOLVED="Keep ${PR_URL} draft while completing /es, /er, and /advice; then mark it ready and bring it to /green. Fix CI failures and merge conflicts, and treat CodeRabbit/Bugbot as advisory. Use /green ${PR_NUMBER} to verify. Continue authorized work within the parent mission's scope and deadline; do not invent a cycle-count stop or ask again for already-authorized remediation. If this worker cannot proceed, return the exact blocked action and evidence to its parent, which diagnoses and continues authorized recovery or independent work. Preserve merge and destructive-action approval requirements."
   TASK_DESCRIPTION="$TASK_WITH_RESOLVED"
 fi
 
@@ -215,31 +265,10 @@ $RESOLVED_CONTENT
   fi
 fi
 
-# Max-attempts override: --max-attempts N (default 5 for PR tasks; no cap for freeform tasks)
-if printf '%s' "$TASK_WITH_RESOLVED" | grep -q -- '--max-attempts'; then
-  CLAW_MAX_ATTEMPTS=$(printf '%s' "$TASK_WITH_RESOLVED" | grep -oE -- '--max-attempts[[:space:]]+[0-9]+' | awk '{print $2}' | head -1)
-  TASK_WITH_RESOLVED=$(printf '%s' "$TASK_WITH_RESOLVED" | sed "s/--max-attempts[[:space:]]*[0-9]*//" | sed 's/^[[:space:]]*//')
-  export CLAW_MAX_ATTEMPTS
-fi
+if [ -n "${CLAW_MAX_ATTEMPTS:-}" ]; then
+  TASK_WITH_RESOLVED="${TASK_WITH_RESOLVED}
 
-# Bidi mode: synchronous, streaming output
-BIDI_MODE=false
-CONTINUE_SESSION=""
-
-if printf '%s' "$TASK_WITH_RESOLVED" | grep -q '^--bidi'; then
-  BIDI_MODE=true
-  TASK_WITH_RESOLVED=$(printf '%s' "$TASK_WITH_RESOLVED" | sed 's/^--bidi[[:space:]]*//')
-fi
-
-if printf '%s' "$TASK_WITH_RESOLVED" | grep -q '^--continue'; then
-  CONTINUE_SESSION=$(printf '%s' "$TASK_WITH_RESOLVED" | sed 's/^--continue[[:space:]]*//' | awk '{print $1}')
-fi
-
-# --hermes: force the task to run inline in the gateway (skip the AO directive).
-FORCE_HERMES=false
-if printf '%s' "$TASK_WITH_RESOLVED" | grep -q '^--hermes'; then
-  FORCE_HERMES=true
-  TASK_WITH_RESOLVED=$(printf '%s' "$TASK_WITH_RESOLVED" | sed 's/^--hermes[[:space:]]*//')
+This worker invocation has an explicitly configured limit of ${CLAW_MAX_ATTEMPTS} attempts. At that limit, return its incomplete status and evidence to the parent; the parent continues authorized diagnosis or independent work within the mission deadline. Do not claim completion or merge approval from an exhausted invocation."
 fi
 
 # General AO-dispatch directive (the documented "AO workers first" default).

@@ -8,7 +8,9 @@ scope: project
 # GitHub CLI Reference
 
 ## Purpose
-Provide comprehensive, copy-paste ready instructions for GitHub CLI (gh) installation and usage to prevent common mistakes like missing full paths or forgetting GITHUB_TOKEN environment variable prefix.
+Reference GitHub CLI installation, authentication, and commands for the current
+authorized operation. Use the installed binary discovered with `command -v gh`;
+run Step 0 in the current shell before the examples, which use the resolved `GH` path.
 
 ## Activation cues
 - Requests to use GitHub CLI or `gh` commands
@@ -23,40 +25,35 @@ Provide comprehensive, copy-paste ready instructions for GitHub CLI (gh) install
 
 ### Step 0: Check if Already Installed
 ```bash
-if [ -f ~/.local/bin/gh ]; then
-    echo "✅ gh CLI already installed"
-    ~/.local/bin/gh --version
+GH="$(command -v gh || true)"
+if [ -z "$GH" ] && [ -x "$HOME/.local/bin/gh" ]; then
+    GH="$HOME/.local/bin/gh"
+fi
+if [ -n "$GH" ]; then
+    echo "gh CLI already installed: $GH"
+    "$GH" --version
 else
-    echo "gh CLI not found, proceeding with installation..."
+    echo "gh CLI not found; installation is needed"
 fi
 ```
 
-### Step 1: Download and Extract (Complies with TEMPORARY FILE ISOLATION)
-```bash
-# Only install if not already present
-if [ ! -f ~/.local/bin/gh ]; then
-    # Use mktemp for unique temporary directory (CLAUDE.md policy compliance)
-    TMP_GH_DIR="$(mktemp -d)"
-    cd "$TMP_GH_DIR"
-    curl -sL https://github.com/cli/cli/releases/download/v2.40.1/gh_2.40.1_linux_amd64.tar.gz -o gh.tar.gz
-    tar -xzf gh.tar.gz
-    mkdir -p ~/.local/bin
-    cp gh_2.40.1_linux_amd64/bin/gh ~/.local/bin/gh
-    chmod +x ~/.local/bin/gh
-    cd - > /dev/null
-    rm -rf "$TMP_GH_DIR"
-fi
-```
+### Step 1: Install Only When Missing
+
+If `GH` is empty, inspect the current platform and use its supported installation
+method from the [GitHub CLI installation instructions](https://cli.github.com/).
+Complete installation within the task's existing authority, then rerun Step 0.
+Preserve an existing working binary; a missing `~/.local/bin/gh` alone does not
+mean GitHub CLI is absent.
 
 ### Step 2: Verify Installation
 ```bash
-~/.local/bin/gh --version
+"$GH" --version
 ```
-**Expected output**: `gh version 2.40.1 (2023-12-13)`
+**Expected output**: the installed GitHub CLI version.
 
 ### Step 3: Test Authentication
 ```bash
-~/.local/bin/gh auth status
+"$GH" auth status
 ```
 **Expected output**: `✓ Logged in to github.com account <username> (GITHUB_TOKEN)`
 **Note**: GitHub CLI automatically uses the `GITHUB_TOKEN` environment variable - no prefix needed!
@@ -64,12 +61,12 @@ fi
 ## Critical Usage Rules
 
 ### ✅ ALWAYS Do This:
-1. **Use full path**: `~/.local/bin/gh` (installed to user bin, not /tmp)
+1. **Use the installed binary**: resolve it with `command -v gh`; use `~/.local/bin/gh` when installed there
 2. **GITHUB_TOKEN automatic**: No prefix needed - gh automatically uses environment variable
 3. **Specify repo**: Add `--repo jleechanorg/your-project.com` for clarity
 
 ### ❌ NEVER Do This:
-1. **Don't use**: Just `gh` (it's not in PATH unless you add ~/.local/bin)
+1. **Don't reinstall over a working binary**: inspect the current PATH and platform first
 2. **Don't use /tmp**: Install to ~/.local/bin to comply with TEMPORARY FILE ISOLATION policy
 3. **Don't add redundant prefix**: `GITHUB_TOKEN=$GITHUB_TOKEN` is unnecessary
 
@@ -79,170 +76,171 @@ fi
 
 #### Check auth status
 ```bash
-~/.local/bin/gh auth status
+"$GH" auth status
 ```
 
 #### Check API rate limit
 ```bash
-~/.local/bin/gh api rate_limit --jq '.rate | {limit: .limit, remaining: .remaining}'
+"$GH" api rate_limit --jq '.rate | {limit: .limit, remaining: .remaining}'
 ```
 
 ### Repository Operations
 
 #### View repository info
 ```bash
-~/.local/bin/gh repo view jleechanorg/your-project.com
+"$GH" repo view jleechanorg/your-project.com
 ```
 
 #### View repository info (JSON)
 ```bash
-~/.local/bin/gh repo view jleechanorg/your-project.com --json name,owner,isPrivate,defaultBranchRef,description
+"$GH" repo view jleechanorg/your-project.com --json name,owner,isPrivate,defaultBranchRef,description
 ```
 
 #### List branches
 ```bash
-~/.local/bin/gh api repos/jleechanorg/your-project.com/branches --jq '.[0:10] | .[] | {name: .name, protected: .protected}'
+"$GH" api repos/jleechanorg/your-project.com/branches --jq '.[0:10] | .[] | {name: .name, protected: .protected}'
 ```
 
 ### Pull Request Operations
 
 #### List open PRs
 ```bash
-~/.local/bin/gh pr list --repo jleechanorg/your-project.com --state open --limit 10
+"$GH" pr list --repo jleechanorg/your-project.com --state open --limit 10
 ```
 
 #### List all PRs (including closed)
 ```bash
-~/.local/bin/gh pr list --repo jleechanorg/your-project.com --state all --limit 20
+"$GH" pr list --repo jleechanorg/your-project.com --state all --limit 20
 ```
 
 #### View specific PR
 ```bash
-~/.local/bin/gh pr view <PR_NUMBER> --repo jleechanorg/your-project.com
+"$GH" pr view '<PR_NUMBER>' --repo jleechanorg/your-project.com
 ```
 
 #### View PR with JSON output
 ```bash
-~/.local/bin/gh pr view <PR_NUMBER> --repo jleechanorg/your-project.com --json number,title,state,author,createdAt,body
+"$GH" pr view '<PR_NUMBER>' --repo jleechanorg/your-project.com --json number,title,state,author,createdAt,body
 ```
 
 #### View PR checks/status
 ```bash
-~/.local/bin/gh pr checks <PR_NUMBER> --repo jleechanorg/your-project.com
+"$GH" pr checks '<PR_NUMBER>' --repo jleechanorg/your-project.com
 ```
 
 #### Create PR
 ```bash
-~/.local/bin/gh pr create --repo jleechanorg/your-project.com --title "PR Title" --body "PR Description"
+"$GH" pr create --repo jleechanorg/your-project.com --title "PR Title" --body "PR Description"
 ```
 
 #### Create PR (interactive)
 ```bash
-~/.local/bin/gh pr create --repo jleechanorg/your-project.com --fill
+"$GH" pr create --repo jleechanorg/your-project.com --fill
 ```
 
 #### Merge PR
 ```bash
-~/.local/bin/gh pr merge <PR_NUMBER> --repo jleechanorg/your-project.com --squash
+"$GH" pr merge '<PR_NUMBER>' --repo jleechanorg/your-project.com --squash
 ```
 
 #### View PR comments
 ```bash
-~/.local/bin/gh api repos/jleechanorg/your-project.com/pulls/<PR_NUMBER>/comments
+"$GH" api repos/jleechanorg/your-project.com/pulls/'<PR_NUMBER>'/comments
 ```
 
 ### Issue Operations
 
 #### List issues
 ```bash
-~/.local/bin/gh issue list --repo jleechanorg/your-project.com --limit 10
+"$GH" issue list --repo jleechanorg/your-project.com --limit 10
 ```
 
 #### List open issues with labels
 ```bash
-~/.local/bin/gh issue list --repo jleechanorg/your-project.com --state open --label bug --limit 10
+"$GH" issue list --repo jleechanorg/your-project.com --state open --label bug --limit 10
 ```
 
 #### View specific issue
 ```bash
-~/.local/bin/gh issue view <ISSUE_NUMBER> --repo jleechanorg/your-project.com
+"$GH" issue view '<ISSUE_NUMBER>' --repo jleechanorg/your-project.com
 ```
 
 #### Create issue
 ```bash
-~/.local/bin/gh issue create --repo jleechanorg/your-project.com --title "Issue Title" --body "Issue Description"
+"$GH" issue create --repo jleechanorg/your-project.com --title "Issue Title" --body "Issue Description"
 ```
 
 ### Workflow Operations
 
 #### List workflows
 ```bash
-~/.local/bin/gh workflow list --repo jleechanorg/your-project.com
+"$GH" workflow list --repo jleechanorg/your-project.com
 ```
 
 #### List workflow runs
 ```bash
-~/.local/bin/gh run list --repo jleechanorg/your-project.com --limit 10
+"$GH" run list --repo jleechanorg/your-project.com --limit 10
 ```
 
 #### List workflow runs for specific workflow
 ```bash
-~/.local/bin/gh run list --repo jleechanorg/your-project.com --workflow "Workflow Name" --limit 10
+"$GH" run list --repo jleechanorg/your-project.com --workflow "Workflow Name" --limit 10
 ```
 
 #### View workflow run details
 ```bash
-~/.local/bin/gh run view <RUN_ID> --repo jleechanorg/your-project.com
+"$GH" run view '<RUN_ID>' --repo jleechanorg/your-project.com
 ```
 
 #### Watch workflow run
 ```bash
-~/.local/bin/gh run watch <RUN_ID> --repo jleechanorg/your-project.com
+"$GH" run watch '<RUN_ID>' --repo jleechanorg/your-project.com
 ```
 
 ### Label Operations
 
 #### List labels
 ```bash
-~/.local/bin/gh label list --repo jleechanorg/your-project.com
+"$GH" label list --repo jleechanorg/your-project.com
 ```
 
 #### Create label
 ```bash
-~/.local/bin/gh label create "label-name" --repo jleechanorg/your-project.com --description "Label description" --color "ff0000"
+"$GH" label create "label-name" --repo jleechanorg/your-project.com --description "Label description" --color "ff0000"
 ```
 
 ### GitHub API Direct Access
 
 #### Get user info
 ```bash
-~/.local/bin/gh api user --jq '.login'
+"$GH" api user --jq '.login'
 ```
 
 #### Get latest commit on main
 ```bash
-~/.local/bin/gh api repos/jleechanorg/your-project.com/commits/main --jq '{sha: .sha[0:7], author: .commit.author.name, message: .commit.message | split("\n")[0]}'
+"$GH" api repos/jleechanorg/your-project.com/commits/main --jq '{sha: .sha[0:7], author: .commit.author.name, message: .commit.message | split("\n")[0]}'
 ```
 
 #### Get repository collaborators
 ```bash
-~/.local/bin/gh api repos/jleechanorg/your-project.com/collaborators
+"$GH" api repos/jleechanorg/your-project.com/collaborators
 ```
 
 #### Get repository topics
 ```bash
-~/.local/bin/gh api repos/jleechanorg/your-project.com/topics
+"$GH" api repos/jleechanorg/your-project.com/topics
 ```
 
 ## Troubleshooting
 
 ### Error: "command not found: gh"
-**Cause**: Used `gh` instead of full path
-**Solution**: Always use `~/.local/bin/gh`
+**Cause**: The binary is absent from the current PATH.
+**Solution**: Inspect `command -v gh` and the known installation path; install for the current platform only if needed.
 
 ### Error: "You are not logged into any GitHub hosts"
-**Cause**: `GITHUB_TOKEN` environment variable not set
-**Solution**: Verify `GITHUB_TOKEN` is set with `echo $GITHUB_TOKEN` (should show token value)
+**Cause**: No usable authentication is available to this invocation.
+**Solution**: Inspect `gh auth status`. For an environment-token setup, check
+`test -n "${GITHUB_TOKEN:-}" && echo "GITHUB_TOKEN is set"`. Never print the token.
 
 ### Error: "HTTP 404: Not Found"
 **Cause**: Missing `--repo` flag or incorrect repo name
@@ -260,7 +258,7 @@ fi
 
 ### Check if gh is installed
 ```bash
-if [ -f ~/.local/bin/gh ]; then
+if command -v gh >/dev/null 2>&1 || [ -x "$HOME/.local/bin/gh" ]; then
     echo "gh CLI is installed"
 else
     echo "gh CLI not installed, run installation steps"
@@ -269,13 +267,13 @@ fi
 
 ### Get PR number from current branch
 ```bash
-PR_NUMBER=$(~/.local/bin/gh pr list --repo jleechanorg/your-project.com --head $(git branch --show-current) --json number --jq '.[0].number')
+PR_NUMBER=$("$GH" pr list --repo jleechanorg/your-project.com --head $(git branch --show-current) --json number --jq '.[0].number')
 echo "Current branch PR: #$PR_NUMBER"
 ```
 
 ### Check if PR exists for current branch
 ```bash
-PR_EXISTS=$(~/.local/bin/gh pr list --repo jleechanorg/your-project.com --head $(git branch --show-current) --json number --jq 'length')
+PR_EXISTS=$("$GH" pr list --repo jleechanorg/your-project.com --head $(git branch --show-current) --json number --jq 'length')
 if [ "$PR_EXISTS" -gt 0 ]; then
     echo "PR exists for current branch"
 else
@@ -285,7 +283,7 @@ fi
 
 ### Get PR status with detailed info
 ```bash
-~/.local/bin/gh pr view <PR_NUMBER> --repo jleechanorg/your-project.com --json number,title,state,isDraft,mergeable,reviewDecision,statusCheckRollup
+"$GH" pr view '<PR_NUMBER>' --repo jleechanorg/your-project.com --json number,title,state,isDraft,mergeable,reviewDecision,statusCheckRollup
 ```
 
 ## Environment Variables
@@ -294,13 +292,13 @@ fi
 - **Purpose**: Authentication token for GitHub API
 - **Set automatically**: Available as environment variable
 - **Usage**: GitHub CLI automatically uses this environment variable (no manual prefix needed)
-- **Scopes**: Full access (admin:org, repo, workflow, etc.)
+- **Scopes**: Inspect the current account's permissions; do not assume administrative access.
 
 ## Integration with Other Tools
 
 ### Use with jq for JSON parsing
 ```bash
-~/.local/bin/gh pr list --repo jleechanorg/your-project.com --json number,title --jq '.[] | "\(.number): \(.title)"'
+"$GH" pr list --repo jleechanorg/your-project.com --json number,title --jq '.[] | "\(.number): \(.title)"'
 ```
 
 ### Use in scripts
@@ -309,21 +307,25 @@ fi
 set -e
 
 # Define gh command
-GH="~/.local/bin/gh"
+GH="$(command -v gh || true)"
+if [ -z "$GH" ] && [ -x "$HOME/.local/bin/gh" ]; then
+    GH="$HOME/.local/bin/gh"
+fi
+[ -n "$GH" ] || { echo "Run the installation steps first" >&2; exit 1; }
 REPO="jleechanorg/your-project.com"
 
 # Use in script
-$GH pr list --repo $REPO --limit 5
+"$GH" pr list --repo $REPO --limit 5
 ```
 
 ### Use with grep for filtering
 ```bash
-~/.local/bin/gh pr list --repo jleechanorg/your-project.com | grep "OPEN"
+"$GH" pr list --repo jleechanorg/your-project.com | grep "OPEN"
 ```
 
 ## Best Practices
 
-1. **Always use full path**: Never assume `gh` is in PATH (use `~/.local/bin/gh`)
+1. **Resolve the installed binary**: Prefer `command -v gh`, then the executable `~/.local/bin/gh` fallback.
 2. **GITHUB_TOKEN automatic**: gh CLI automatically uses environment variable (no prefix needed)
 3. **Always specify --repo**: Makes commands explicit and prevents errors
 4. **Use --json with --jq**: For parsing specific fields from responses
@@ -335,13 +337,17 @@ $GH pr list --repo $REPO --limit 5
 
 ```bash
 # Set up gh command variable for easy reuse
-GH="~/.local/bin/gh"
+GH="$(command -v gh || true)"
+if [ -z "$GH" ] && [ -x "$HOME/.local/bin/gh" ]; then
+    GH="$HOME/.local/bin/gh"
+fi
+[ -n "$GH" ] || { echo "Run the installation steps first" >&2; exit 1; }
 REPO="jleechanorg/your-project.com"
 
 # Now you can use it like this:
-$GH pr list --repo $REPO
-$GH issue list --repo $REPO
-$GH workflow list --repo $REPO
+"$GH" pr list --repo $REPO
+"$GH" issue list --repo $REPO
+"$GH" workflow list --repo $REPO
 ```
 
 ## Related Skills
@@ -351,7 +357,7 @@ $GH workflow list --repo $REPO
 ## Reporting Expectations
 When using gh CLI, always:
 1. Confirm gh binary exists before running commands
-2. Include full command with GITHUB_TOKEN prefix in output
-3. Show actual output from gh commands
-4. Report any errors with full error message
+2. Include the command without expanded credential values or token prefixes
+3. Show relevant actual output with credentials redacted
+4. Report diagnostic errors with credentials redacted
 5. Verify authentication status if commands fail

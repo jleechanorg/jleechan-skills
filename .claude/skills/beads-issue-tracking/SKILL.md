@@ -49,4 +49,14 @@ For machine-readable contracts, run `br capabilities`, `br schema`, or `br robot
 
 Each worktree has its own checked-out `.beads/issues.jsonl`, while the database location depends on workspace discovery. Use `br where` before diagnosis. Do not discard or stage another worktree's Beads state by assumption.
 
+**Resolve the database before mutating, not just before diagnosing.** `br`'s discovery is not confined to the current directory: in a worktree with no local `.beads/beads.db`, it walks outward and can silently bind to a *different* checkout's database, so `br update` run from your worktree lands in someone else's branch with no error and no diff in your own tree. Observed 2026-09-08: 83 `br update` calls from a fresh worktree wrote into an unrelated sibling checkout on another branch, caught only by an unprompted `br info` before push.
+
+Before the first mutation in any worktree:
+
+1. Run `br where` (or `br info`) and read the resolved database path. If it is not under this worktree, stop.
+2. If the worktree has no local database, create one from its own checked-out JSONL — `br sync --import-only` — rather than letting discovery pick one.
+3. Pin every mutating call explicitly: `br --db "$(pwd)/.beads/beads.db" update ...`.
+
+If you discover mutations already landed in the wrong checkout, restore that checkout (`git restore .beads/`), confirm it is clean, and redo the work with `--db` pinned. Running several worktrees of one repo concurrently makes this more likely, not less.
+
 If JSONL has merge conflicts, stop and inspect repository policy; do not hand-edit records or install a merge driver from this reference. Resolve through the repository's Beads workflow and validate with `br sync --status` plus `br doctor --quick`.

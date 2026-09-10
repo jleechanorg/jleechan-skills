@@ -31,8 +31,8 @@ The `minimax` CLI agent runs Claude Code with the MiniMax API endpoint:
 
 The automation automatically sets these from `MINIMAX_API_KEY`:
 ```bash
-ANTHROPIC_AUTH_TOKEN=<MINIMAX_API_KEY>
-ANTHROPIC_API_KEY=<MINIMAX_API_KEY>
+ANTHROPIC_AUTH_TOKEN="<MINIMAX_API_KEY>"
+ANTHROPIC_API_KEY="<MINIMAX_API_KEY>"
 ANTHROPIC_BASE_URL="https://api.minimax.io/anthropic"
 ANTHROPIC_MODEL="MiniMax-M2.5"
 API_TIMEOUT_MS="3000000"
@@ -41,10 +41,9 @@ CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC="1"
 
 ## Preflight Validation
 
-If preflight fails (CLI not found), you can skip it with:
-```bash
-TESTING=true jleechanorg-pr-monitor --fixpr --cli-agent minimax
-```
+If the CLI is missing, inspect the installed binary and PATH, then resolve the
+missing dependency within the authorized task. Do not set `TESTING=true` to skip
+preflight during a real automation run or count a skipped check as validation.
 
 ## Cron Jobs Using MiniMax
 
@@ -60,9 +59,9 @@ From crontab:
 ## Troubleshooting
 
 **Preflight fails with "minimax binary not found"**:
-- This is expected - minimax uses `claude` binary with minimax API
-- Set `TESTING=true` to skip preflight validation
+- Inspect the installed automation's MiniMax-to-`claude` mapping and PATH.
+- Resolve the missing dependency under the preflight procedure above; do not bypass validation.
 
 **API errors**:
-- Verify `MINIMAX_API_KEY` is set: `echo $MINIMAX_API_KEY`
+- Check presence without printing the value: `test -n "${MINIMAX_API_KEY:-}" && echo "MINIMAX_API_KEY is set"`
 - Check orchestration package is up to date: `pip show jleechanorg-orchestration`

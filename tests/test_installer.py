@@ -40,6 +40,10 @@ class InstallerIntegrationTest(unittest.TestCase):
             path = source / relative
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content, encoding="utf-8")
+        exported_script = fixture / "scripts" / "integrate.sh"
+        exported_script.parent.mkdir(parents=True, exist_ok=True)
+        exported_script.write_text("#!/bin/sh\necho installed-integrate\n", encoding="utf-8")
+        exported_script.chmod(0o755)
         return fixture
 
     def run_installer(
@@ -95,6 +99,10 @@ class InstallerIntegrationTest(unittest.TestCase):
             self.assertFalse((target / "skills/example/scripts/.pytest_cache").exists())
             self.assertFalse((target / "skills_archive").exists())
             self.assertFalse((target / "commands_archive").exists())
+            installed_integrate = target / "scripts/integrate.sh"
+            self.assertTrue(installed_integrate.is_file())
+            self.assertEqual(installed_integrate.read_bytes(), (fixture / "scripts/integrate.sh").read_bytes())
+            self.assertTrue(os.access(installed_integrate, os.X_OK))
 
     def test_superpowers_quick_installs_with_bundled_subskills(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -121,6 +129,101 @@ class InstallerIntegrationTest(unittest.TestCase):
                 installed_dependency = target / f"skills/{dependency}/SKILL.md"
                 self.assertTrue(installed_dependency.is_file(), installed_dependency)
                 self.assertIn(f"~/.claude/skills/{dependency}/SKILL.md", quick)
+
+    def test_history_helper_runs_outside_source_checkout_after_install(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            shutil.copy2(REPO_ROOT / "scripts/history_search.py", fixture / "scripts/history_search.py")
+            target = temp_dir / "claude-home"
+            result = self.run_installer(fixture, target)
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            helper = target / "scripts/history_search.py"
+            self.assertTrue(helper.is_file())
+            result = subprocess.run(
+                ["python3", str(helper), "--help"], cwd=temp_dir,
+                capture_output=True, text=True, timeout=10,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("--codex-home", result.stdout)
+
+    def test_history_helper_collisions_fail_before_component_writes(self):
+        for kind in ("file", "helper_symlink", "scripts_symlink"):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as directory:
+                temp_dir = Path(directory)
+                fixture = self.make_fixture(temp_dir)
+                (fixture / "scripts/history_search.py").write_text(
+                    "print('new helper')\n"
+                )
+                target = temp_dir / "claude-home"
+                target.mkdir()
+                external = temp_dir / "external"
+                external.mkdir()
+                original = external / "history_search.py"
+                original.write_text("user-owned helper\n")
+                scripts = target / "scripts"
+                if kind == "scripts_symlink":
+                    scripts.symlink_to(external, target_is_directory=True)
+                else:
+                    scripts.mkdir()
+                    if kind == "helper_symlink":
+                        (scripts / "history_search.py").symlink_to(original)
+                    else:
+                        (scripts / "history_search.py").write_text(
+                            "user-owned helper\n"
+                        )
+
+                result = self.run_installer(fixture, target, "--merge")
+
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn(
+                    "history helper", (result.stderr + result.stdout).lower()
+                )
+                self.assertEqual(
+                    (scripts / "history_search.py").read_text(), "user-owned helper\n"
+                )
+                self.assertEqual(original.read_text(), "user-owned helper\n")
+                self.assertFalse((target / "agents/nested/agent.md").exists())
+                if kind == "helper_symlink":
+                    self.assertTrue((scripts / "history_search.py").is_symlink())
+                if kind == "scripts_symlink":
+                    self.assertTrue(scripts.is_symlink())
+                    self.assertFalse((external / "nested/tool.py").exists())
+
+    def test_history_helper_upgrade_requires_backup_but_identical_merge_is_safe(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            source = fixture / "scripts/history_search.py"
+            source.write_text("print('version one')\n")
+            target = temp_dir / "claude-home"
+            installed = self.run_installer(fixture, target)
+            self.assertEqual(
+                installed.returncode, 0, installed.stdout + installed.stderr
+            )
+            identical = self.run_installer(fixture, target, "--merge")
+            self.assertEqual(
+                identical.returncode, 0, identical.stdout + identical.stderr
+            )
+
+            source.write_text("print('version two')\n")
+            refused = self.run_installer(fixture, target, "--merge")
+            self.assertNotEqual(refused.returncode, 0, refused.stdout)
+            self.assertEqual(
+                (target / "scripts/history_search.py").read_text(),
+                "print('version one')\n",
+            )
+            upgraded = self.run_installer(fixture, target, "--backup")
+            self.assertEqual(upgraded.returncode, 0, upgraded.stdout + upgraded.stderr)
+            self.assertEqual(
+                (target / "scripts/history_search.py").read_text(), source.read_text()
+            )
+            backups = list(temp_dir.glob("claude-home.backup-*"))
+            self.assertEqual(len(backups), 1)
+            self.assertEqual(
+                (backups[0] / "scripts/history_search.py").read_text(),
+                "print('version one')\n",
+            )
 
     def test_boundary_commands_resolve_skills_under_nondefault_claude_home(self):
         with tempfile.TemporaryDirectory() as directory:
