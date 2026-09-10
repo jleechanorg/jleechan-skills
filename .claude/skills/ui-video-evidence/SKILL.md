@@ -197,7 +197,7 @@ The following GitHub release example applies only when that destination is autho
     exit 1
   fi
 
-  if [[ -n "${CAPTION_FILE:-}" && "${CAPTION_FILE:-}" != *"<"* && "${CAPTION_MODE:-}" == "burned" ]]; then
+  if [[ -n "${CAPTION_FILE:-}" && "${CAPTION_MODE:-}" == "burned" ]]; then
     echo "Error: Cannot specify both CAPTION_FILE and CAPTION_MODE=burned: choose exactly one caption option" >&2
     exit 1
   fi

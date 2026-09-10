@@ -1284,6 +1284,16 @@ else:
                 self.assertNotEqual(res_both_captions.returncode, 0, "Simultaneous CAPTION_FILE and CAPTION_MODE=burned must be rejected")
                 self.assertFalse(calls_file.exists(), "gh must not be called when both CAPTION_FILE and CAPTION_MODE=burned are set")
 
+                # Placeholder CAPTION_FILE with CAPTION_MODE=burned must also fail before calling gh (no placeholder exception in XOR)
+                if calls_file.exists():
+                    calls_file.unlink()
+                res_ph_both = subprocess.run(
+                    ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nRUN_ID="run-1"\nCAPTURED_SHA="{valid_sha}"\nVIDEO_FILE="{dummy_video}"\nPREVIEW_FILE="{dummy_preview}"\nCAPTION_FILE="<caption.vtt>"\nCAPTION_MODE="burned"\n' + block1],
+                    env=env, capture_output=True, text=True,
+                )
+                self.assertNotEqual(res_ph_both.returncode, 0, "Placeholder CAPTION_FILE with CAPTION_MODE=burned must be rejected")
+                self.assertFalse(calls_file.exists(), "gh must not be called when placeholder CAPTION_FILE and CAPTION_MODE=burned are set")
+
                 # Unsupported CAPTION_MODE with provided CAPTION_FILE must fail before calling gh
                 for unsupported_mode in ('CAPTION_MODE="burned-in"', 'CAPTION_MODE="sidecar"', 'CAPTION_MODE="auto"'):
                     if calls_file.exists():
