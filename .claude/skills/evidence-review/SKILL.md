@@ -62,6 +62,13 @@ itself remains the separate two-gate check defined by `pr-green-definition`.
   if [[ -f checksums.sha256 ]]; then
     sha256sum -c checksums.sha256
   else
+    cs_list="$(mktemp)" || exit 1
+    if ! find . -name "*.sha256" -type f -print0 > "$cs_list"; then
+      echo "Failed to discover checksum files" >&2
+      rm -f "$cs_list"
+      exit 1
+    fi
+
     found_any=false
     status=0
     while IFS= read -r -d '' cs_file; do
@@ -69,7 +76,8 @@ itself remains the separate two-gate check defined by `pr-green-definition`.
       dir="$(dirname "$cs_file")"
       base="$(basename "$cs_file")"
       ( cd "$dir" && sha256sum -c "$base" ) || status=1
-    done < <(find . -name "*.sha256" -type f -print0)
+    done < "$cs_list"
+    rm -f "$cs_list"
 
     if [ "$found_any" = false ]; then
       echo "No checksum files found" >&2
