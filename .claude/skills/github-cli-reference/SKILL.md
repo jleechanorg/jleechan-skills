@@ -369,10 +369,16 @@ Origin: `~/.claude/CLAUDE.md` § GitHub API fallback before blocking
 
 Never report GitHub/API work as blocked without first, independently, trying
 **both** REST and GraphQL where the operation permits either (REST and GraphQL
-operate under separate quota buckets). Public REST endpoints may be tried **unauthenticated** when the
-authenticated quota is exhausted; unauthenticated and authenticated paths can
-have different read/write permissions and rate limits, so a 403 on one is not
-proof the other is unavailable. Use bounded probes (a fixed small number of
-attempts, not an open retry loop) and respect any circuit breaker already in
-place. Never loop indefinitely on a failing call, and never bypass
-authentication or safety checks to force a call through.
+operate under separate quota buckets). Independent fallback attempts are permitted
+only for **read-only or idempotent operations**. When an uncertain response occurs
+on a non-idempotent mutation (such as creating a comment, creating a release, or
+modifying state), the client must read back the current state or check idempotency
+before any retry attempt; never retry a mutation blindly to avoid creating duplicate
+comments, releases, or side effects. Public REST endpoints may be tried **unauthenticated**
+when the authenticated quota is exhausted; unauthenticated and authenticated paths can
+have different read/write permissions and rate limits, so a 403 on one is not proof
+the other is unavailable. Use bounded probes (a fixed small number of attempts, not an
+open retry loop) and respect any circuit breaker already in place. Never loop
+indefinitely on a failing call, and never bypass authentication or safety checks to
+force a call through. Human merge authority and approval gates remain strictly preserved;
+automated fallbacks must never merge pull requests without explicit authorization.
