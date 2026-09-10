@@ -88,7 +88,7 @@ Use `~/.claude/skills/video-caption/SKILL.md` for reliable burned-in captions.
 
 Follow `~/.claude/skills/evidence-standards/SKILL.md` for publication authority, audience, and destination. A PR, checked-in document, access-controlled receipt/store, or authorized gist may link the evidence. A gist or GitHub upload is not an independent acceptance requirement. Preserve real media, captions, exact source provenance, and reviewer access; publish only within the current authorization.
 
-The following GitHub release example applies only when that destination is authorized. Verify the intended PR exists via `gh pr view` before creating any release or upload. Caller must provide non-empty `VIDEO_FILE` and `PREVIEW_FILE` artifacts, an explicit non-empty `RUN_ID`, and declare an explicit caption choice: set `CAPTION_FILE` to the actual .vtt or .srt sidecar path, or set `CAPTION_MODE=burned` when captions are burned into the video. All media and subtitle formats are verified with ffprobe prior to archive creation and publication. Each run publishes to an immutable unique release tag combining the PR number, commit SHA, and run identifier without overwriting or clobbering existing releases.
+The following GitHub release example applies only when that destination is authorized. Verify the intended PR exists via `gh pr view` before creating any release or upload. Caller must provide non-empty `VIDEO_FILE` and `PREVIEW_FILE` artifacts, an explicit non-empty `RUN_ID`, an explicit non-empty `CAPTURED_SHA` matching the PR head SHA, and declare an explicit caption choice: set `CAPTION_FILE` to the actual .vtt or .srt sidecar path, or set `CAPTION_MODE=burned` when captions are burned into the video. All media and subtitle formats are verified with ffprobe prior to archive creation and publication. Packaging creates a new archive in a private temporary directory so existing user archives are never overwritten or updated with stale entries. Each run publishes to an immutable unique release tag combining the PR number, commit SHA, and run identifier without overwriting or clobbering existing releases.
 
 ```bash
 (
@@ -152,6 +152,10 @@ The following GitHub release example applies only when that destination is autho
   fi
   if [[ -z "${RUN_ID:-}" || "$RUN_ID" == *"<"* ]]; then
     echo "Error: RUN_ID must be set to an explicit nonempty identifier before publication" >&2
+    exit 1
+  fi
+  if [[ -z "${CAPTURED_SHA:-}" || "$CAPTURED_SHA" == *"<"* ]]; then
+    echo "Error: CAPTURED_SHA must be set to the explicit commit SHA captured in the evidence" >&2
     exit 1
   fi
 
@@ -219,16 +223,17 @@ The following GitHub release example applies only when that destination is autho
     exit 1
   fi
 
-  if [[ -n "${CAPTURED_SHA:-}" && "$CAPTURED_SHA" != "$pr_head_sha" ]]; then
+  if [[ "$CAPTURED_SHA" != "$pr_head_sha" ]]; then
     echo "Error: Declared CAPTURED_SHA '$CAPTURED_SHA' does not match verified PR head '$pr_head_sha'" >&2
     exit 1
   fi
 
-  target_sha="${CAPTURED_SHA:-$pr_head_sha}"
-  sha_short="${target_sha:0:12}"
+  sha_short="${CAPTURED_SHA:0:12}"
   tag="evidence-pr-${PR_NUMBER}-${sha_short}-${RUN_ID}"
 
-  zip_file="${ZIP_FILE:-${video_file}.zip}"
+  archive_dir="$(mktemp -d "${TMPDIR:-/tmp}/evidence_archive.XXXXXX")"
+  trap 'rm -rf "$archive_dir"' EXIT
+  zip_file="$archive_dir/$(basename "$video_file").zip"
   zip -j "$zip_file" "$video_file"
 
   assets=("$zip_file" "$preview_file")
