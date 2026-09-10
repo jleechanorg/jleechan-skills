@@ -243,6 +243,13 @@ class ApprovalContractsTest(unittest.TestCase):
         self.assertIn("Always tell the user the **actual command** you ran", factory)
         self.assertIn("The top-level session owns named visible lanes", swarm)
 
+    def test_github_cli_reference_fallback_and_merge_authority(self) -> None:
+        ref = skill("github-cli-reference")
+        self.assertIn("read-only or idempotent", ref)
+        self.assertIn("must read back", ref)
+        self.assertIn("Human merge authority", ref)
+
+
 
 if __name__ == "__main__":
     unittest.main()
