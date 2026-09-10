@@ -40,7 +40,7 @@ While jobs run, do independent work that cannot invalidate their inputs, and use
 
 Never create, edit, commit, write, or read secrets from `.env` files. Credentials belong in the process environment, macOS Keychain, or another designated secure credential store. Existing `~/.bashrc` exports may be read, but do not add credentials there without an explicit request (see the wrapper-edit rule below). Codex authenticates with `codex login` and its active profile's credential store; never export `OPENAI_API_KEY` for Codex, in `~/.bashrc` or anywhere else. Do not recommend re-login until a non-empty Keychain probe and a cheap non-UI tool call both fail; a TTY or sandbox-token error alone is insufficient. Do not edit user-owned shell wrappers without explicit request.
 
-**Runtime:** Use nvm Node 22 (`/Users/jleechan/.nvm/versions/node/v22.22.0/bin/node`), never Homebrew Node 24 (`/opt/homebrew/bin/node`).
+**Runtime:** Use nvm-managed Node 22 (resolve via `nvm which 22` or `$NVM_DIR/versions/node/v22*/bin/node`); do not use the Homebrew Node 24 install. The exact path on this machine is `$HOME/.nvm/versions/node/v22*/bin/node`.
 
 ## Workspace and method fidelity
 
@@ -153,7 +153,7 @@ Resolve AO `--agent` shorthands from live `~/.hermes/agent-orchestrator.yaml`; d
 
 ## Configuration and service safety
 
-MCP server registration is per runtime and the destinations are not interchangeable: Claude Code MCP servers belong in `~/.claude.json`, never `~/.claude/settings.json`; Codex MCP servers belong in the active `CODEX_HOME/config.toml`. Stable user-scope MCP installs use `npm -g` or `uvx`; never repo, worktree, or temp paths. Register HTTP MCPs in `/Users/jleechan/.config/mcp-daemon/start-mcp-daemons.sh`. Launchd plist template ownership remains with `~/.claude/skills/launchd-plist-template/SKILL.md`. Before replacing a service, verify old processes are gone and prevent duplicate credential-sharing connections. Do not write `wiki/` except through `/wiki-ingest`.
+MCP server registration is per runtime and the destinations are not interchangeable: Claude Code MCP servers belong in `~/.claude.json`, never `~/.claude/settings.json`; Codex MCP servers belong in the active `CODEX_HOME/config.toml`. Stable user-scope MCP installs use `npm -g` or `uvx`; never repo, worktree, or temp paths. Register HTTP MCPs in `$HOME/.config/mcp-daemon/start-mcp-daemons.sh`. Launchd plist template ownership remains with `~/.claude/skills/launchd-plist-template/SKILL.md`. Before replacing a service, verify old processes are gone and prevent duplicate credential-sharing connections. Do not write `wiki/` except through `/wiki-ingest`.
 
 ## Goals, slash commands, and directory safety
 
@@ -163,7 +163,7 @@ Goal setting and hardening: `~/.claude/skills/cmux-goal/SKILL.md` and `~/.claude
 
 ## Task-scoped /af
 
-When `/af` or `/auto-factory` is invoked, keep all coding LLM work inside the task-scoped workflow: `/Users/jleechan/.claude/skills/auto-factory/SKILL.md`.
+When `/af` or `/auto-factory` is invoked, keep all coding LLM work inside the task-scoped workflow: `~/.claude/skills/auto-factory/SKILL.md`.
 
 ## Review and output discipline
 
@@ -210,8 +210,8 @@ Runtime configuration belongs to the active `CODEX_HOME/config.toml`; another pr
 
 - Delegate bounded independent work when coordination cost is lower than execution cost; the primary agent retains requirements, integration, and final verification.
 - Use `terra_scout` for discovery, `terra_reviewer` for semantic review, and `luna_verifier` for focused test execution.
-- For bounded implementation, prefer `/Users/jleechan/.local/bin/codexs` for small mechanical edits when available; otherwise use `luna_worker`.
-- Treat model lists in tool descriptions as advisory discovery metadata, not an exhaustive allowlist. If a requested installed model is omitted, first probe one harmless `spawn_agent` call with the exact model slug; only after a concrete rejection may you fall back to its canonical CLI wrapper (Spark: `/Users/jleechan/.local/bin/codexs`) or another model, and report the actual rejection.
+- For bounded implementation, prefer `~/.local/bin/codexs` for small mechanical edits when available; otherwise use `luna_worker`.
+- Treat model lists in tool descriptions as advisory discovery metadata, not an exhaustive allowlist. If a requested installed model is omitted, first probe one harmless `spawn_agent` call with the exact model slug; only after a concrete rejection may you fall back to its canonical CLI wrapper (Spark: `~/.local/bin/codexs`) or another model, and report the actual rejection.
 - Resource admission gate (corrected 2026-09-02): before spawning lanes, subprocess fleets, or CLI delegations — or any time diagnosing memory pressure — compute available RAM from `vm_stat` as (free+inactive+purgeable+speculative)×page_size and attribute the top RSS consumer with `ps -Ao rss,comm -r | head`. Never gate on `vm.swapusage` used/total ratio (macOS sizes the swapfile dynamically; "89% full" can coexist with 12+GB available). `kern.memorystatus_vm_pressure_level`: 2 is amber/informational, only 4 is critical. Spawn normally when available >8GB and pressure ≤2; reduce lane count at 4-8GB or pressure=3; defer only at <4GB or pressure=4, and attribute it to the real top-RSS source first. Never fork a multi-minute CLI delegation as foreground Bash: always background + timeout. Full gate: `~/.claude/skills/parallelize-to-ceiling/SKILL.md` — treat that skill as source of truth if this summary drifts from it.
 - When a teammate or background subagent goes quiet, read its actual transcript/output file before concluding it is stalled — file mtimes alone cannot distinguish a hang from a long synchronous tool call. Only ping or take over once the transcript itself shows no forward progress.
 - Give parallel writers isolated files/worktrees and name the model lane explicitly. Do not delegate tightly coupled atomic work.

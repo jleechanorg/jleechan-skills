@@ -1,6 +1,6 @@
 # Claude Global Baseline
 
-Shared policy is loaded below. Edit universal rules in `~/.codex/AGENTS.md`; keep only Claude-specific additions in this adapter. The imported section explicitly labeled Codex-only does not apply to Claude. Do not duplicate shared rules here.
+Shared policy is loaded below. Edit universal rules in `$CODEX_HOME/AGENTS.md` (defaults to `~/.codex/AGENTS.md`); keep only Claude-specific additions in this adapter. The imported section explicitly labeled Codex-only does not apply to Claude. Do not duplicate shared rules here.
 
 @~/.codex/AGENTS.md
 
