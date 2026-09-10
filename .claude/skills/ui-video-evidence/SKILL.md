@@ -260,9 +260,9 @@ The following GitHub release example applies only when that destination is autho
 )
 ```
 
-From the JSON output returned by `gh release view`, extract the uploaded asset URLs and construct `/tmp/pr_body.md`. Do not guess draft asset download URLs or invent placeholder URLs.
+From the JSON output returned by `gh release view`, extract the uploaded asset URLs and construct `/tmp/evidence_comment.md`. Do not guess draft asset download URLs or invent placeholder URLs.
 
-Once `/tmp/pr_body.md` is constructed, update the authorized PR:
+Once `/tmp/evidence_comment.md` is constructed, post the comment to the authorized PR:
 
 ```bash
 (
@@ -319,23 +319,36 @@ Once `/tmp/pr_body.md` is constructed, update the authorized PR:
     echo "Error: REPO must be in the format 'owner/repo'" >&2
     exit 1
   fi
-
-  body_file="${BODY_FILE:-/tmp/pr_body.md}"
-  if [ ! -s "$body_file" ]; then
-    echo "Error: PR body file '$body_file' does not exist or is empty" >&2
+  if [[ -z "${CAPTURED_SHA:-}" || "$CAPTURED_SHA" == *"<"* || ! "$CAPTURED_SHA" =~ ^[0-9a-fA-F]{40}$ ]]; then
+    echo "Error: CAPTURED_SHA must be set to a valid 40-character commit SHA" >&2
     exit 1
   fi
 
-  # Verify exact intended PR before editing PR body
+  comment_file="${COMMENT_FILE:-/tmp/evidence_comment.md}"
+  if [ ! -s "$comment_file" ]; then
+    echo "Error: Comment body file '$comment_file' does not exist or is empty" >&2
+    exit 1
+  fi
+
+  # Verify exact intended PR before posting comment
   pr_view_json="$(gh pr view "$PR_NUMBER" --repo "$repo" --json number,headRefOid,url)"
   pr_number_resolved="$(printf '%s' "$pr_view_json" | jq -r '.number // empty')"
   if [[ -n "$pr_number_resolved" && "$pr_number_resolved" != "$PR_NUMBER" ]]; then
     echo "Error: Verified PR number mismatch ($pr_number_resolved vs $PR_NUMBER)" >&2
     exit 1
   fi
+  pr_head_sha="$(printf '%s' "$pr_view_json" | jq -r '.headRefOid // empty')"
+  if [[ -z "$pr_head_sha" || ! "$pr_head_sha" =~ ^[0-9a-fA-F]{40}$ ]]; then
+    echo "Error: Unable to resolve valid head SHA for PR #$PR_NUMBER in $repo" >&2
+    exit 1
+  fi
+  if [[ "$CAPTURED_SHA" != "$pr_head_sha" ]]; then
+    echo "Error: Declared CAPTURED_SHA '$CAPTURED_SHA' does not match verified PR head '$pr_head_sha'" >&2
+    exit 1
+  fi
 
   target_pr="$PR_NUMBER"
-  gh pr edit "$target_pr" --repo "$repo" --body-file "$body_file"
+  gh pr comment "$target_pr" --repo "$repo" --body-file "$comment_file"
 )
 ```
 

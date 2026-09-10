@@ -334,6 +334,10 @@ Once `/tmp/evidence_comment.md` is constructed, post the comment to the authoriz
     echo "Error: REPO must be in the format 'owner/repo'" >&2
     exit 1
   fi
+  if [[ -z "${CAPTURED_SHA:-}" || "$CAPTURED_SHA" == *"<"* || ! "$CAPTURED_SHA" =~ ^[0-9a-fA-F]{40}$ ]]; then
+    echo "Error: CAPTURED_SHA must be set to a valid 40-character commit SHA" >&2
+    exit 1
+  fi
 
   comment_file="${COMMENT_FILE:-/tmp/evidence_comment.md}"
   if [ ! -s "$comment_file" ]; then
@@ -346,6 +350,15 @@ Once `/tmp/evidence_comment.md` is constructed, post the comment to the authoriz
   pr_number_resolved="$(printf '%s' "$pr_view_json" | jq -r '.number // empty')"
   if [[ -n "$pr_number_resolved" && "$pr_number_resolved" != "$PR_NUMBER" ]]; then
     echo "Error: Verified PR number mismatch ($pr_number_resolved vs $PR_NUMBER)" >&2
+    exit 1
+  fi
+  pr_head_sha="$(printf '%s' "$pr_view_json" | jq -r '.headRefOid // empty')"
+  if [[ -z "$pr_head_sha" || ! "$pr_head_sha" =~ ^[0-9a-fA-F]{40}$ ]]; then
+    echo "Error: Unable to resolve valid head SHA for PR #$PR_NUMBER in $repo" >&2
+    exit 1
+  fi
+  if [[ "$CAPTURED_SHA" != "$pr_head_sha" ]]; then
+    echo "Error: Declared CAPTURED_SHA '$CAPTURED_SHA' does not match verified PR head '$pr_head_sha'" >&2
     exit 1
   fi
 
