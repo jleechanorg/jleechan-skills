@@ -265,12 +265,22 @@ The following GitHub release example applies only when that destination is autho
     assets+=("$caption_file")
   fi
 
-  if ! gh release create "$tag" --repo "$repo" --draft --title "PR #${PR_NUMBER} Evidence" --notes ""; then
+  if ! gh release create "$tag" --repo "$repo" --target "$CAPTURED_SHA" --draft --title "PR #${PR_NUMBER} Evidence" --notes ""; then
     echo "Error: Release '$tag' could not be created or already exists; stopping without modifying releases" >&2
     exit 1
   fi
   gh release upload "$tag" --repo "$repo" "${assets[@]}"
-  gh release view "$tag" --repo "$repo" --json assets,url
+  release_json="$(gh release view "$tag" --repo "$repo" --json assets,targetCommitish,url)"
+  release_target="$(printf '%s' "$release_json" | jq -r '.targetCommitish // empty')"
+  if [[ -z "$release_target" || ! "$release_target" =~ ^[0-9a-fA-F]{40}$ ]]; then
+    echo "Error: Unable to resolve valid target commit for release '$tag' in $repo" >&2
+    exit 1
+  fi
+  if [[ "$release_target" != "$CAPTURED_SHA" ]]; then
+    echo "Error: Verified release target commit '$release_target' does not match CAPTURED_SHA '$CAPTURED_SHA'" >&2
+    exit 1
+  fi
+  printf '%s\n' "$release_json"
 )
 ```
 
