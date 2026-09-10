@@ -1082,19 +1082,44 @@ elif len(args) >= 2 and args[0] == "pr":
         for a in args:
             if a.isdigit():
                 pr_num = a
-        print(json.dumps({{
+        head_sha = os.environ.get("GH_STUB_PR_HEAD", "0123456789abcdef0123456789abcdef01234567")
+        if head_sha == "__EMPTY__":
+            head_val = ""
+        elif head_sha == "__MALFORMED__":
+            head_val = "not-40-hex"
+        else:
+            head_val = head_sha
+        pr_data = {{
             "number": int(pr_num),
-            "headRefOid": "0123456789abcdef0123456789abcdef01234567",
-            "url": f"https://github.com/intended/repo/pull/{{pr_num}}"
-        }}))
+            "headRefOid": head_val,
+            "url": "https://github.com/intended/repo/pull/" + str(pr_num)
+        }}
+        body_sentinel = os.environ.get("PR_BODY_SENTINEL_FILE")
+        if body_sentinel and os.path.exists(body_sentinel):
+            with open(body_sentinel) as bf:
+                pr_data["body"] = bf.read()
+        print(json.dumps(pr_data))
         sys.exit(0)
-    elif subcmd in ("comment", "edit"):
+    elif subcmd == "comment":
+        sys.exit(0)
+    elif subcmd == "edit":
+        deny_edit = os.environ.get("GH_STUB_DENY_EDIT", "0")
+        if deny_edit == "1":
+            print("STUB_REFUSED: gh pr edit is forbidden in evidence workflow", file=sys.stderr)
+            sys.exit(86)
+        body_sentinel = os.environ.get("PR_BODY_SENTINEL_FILE")
+        if body_sentinel and os.path.exists(body_sentinel):
+            bf_idx = args.index("--body-file") if "--body-file" in args else -1
+            if bf_idx != -1 and bf_idx + 1 < len(args):
+                with open(args[bf_idx + 1]) as nbf:
+                    with open(body_sentinel, "w") as obf:
+                        obf.write(nbf.read())
         sys.exit(0)
     else:
-        print(f"STUB_REFUSED: unknown pr command {{subcmd}}", file=sys.stderr)
+        print("STUB_REFUSED: unknown pr command " + str(subcmd), file=sys.stderr)
         sys.exit(86)
 else:
-    print(f"STUB_REFUSED: unknown command {{args}}", file=sys.stderr)
+    print("STUB_REFUSED: unknown command " + str(args), file=sys.stderr)
     sys.exit(86)
 """)
         fake_gh.chmod(0o755)
@@ -1582,59 +1607,151 @@ else:
                     self.assertNotEqual(res_mal2.returncode, 0, f"Malformed target must fail in Block 2: {target_env}")
                     self.assertFalse(calls_file.exists(), f"gh must not be called on malformed target in Block 2: {target_env}")
 
-                # Positive test for Block 2 with non-empty body
+                # Block 2: CAPTURED_SHA validation tests across all 3 owners
+                # Missing CAPTURED_SHA fails before calling gh
                 if calls_file.exists():
                     calls_file.unlink()
-                res_pos2 = subprocess.run(
-                    ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nBODY_FILE="{valid_body}"\nCOMMENT_FILE="{valid_body}"\n' + block2],
+                res_unset_cap2 = subprocess.run(
+                    ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nCOMMENT_FILE="{valid_body}"\nBODY_FILE="{valid_body}"\n' + block2],
                     env=env, capture_output=True, text=True,
+                )
+                self.assertNotEqual(res_unset_cap2.returncode, 0)
+                self.assertIn("CAPTURED_SHA", res_unset_cap2.stderr)
+                self.assertFalse(calls_file.exists(), "gh must not be called when CAPTURED_SHA is missing in Block 2")
+
+                # Empty CAPTURED_SHA fails before calling gh
+                if calls_file.exists():
+                    calls_file.unlink()
+                res_empty_cap2 = subprocess.run(
+                    ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nCAPTURED_SHA=""\nCOMMENT_FILE="{valid_body}"\nBODY_FILE="{valid_body}"\n' + block2],
+                    env=env, capture_output=True, text=True,
+                )
+                self.assertNotEqual(res_empty_cap2.returncode, 0)
+                self.assertIn("CAPTURED_SHA", res_empty_cap2.stderr)
+                self.assertFalse(calls_file.exists(), "gh must not be called when CAPTURED_SHA is empty in Block 2")
+
+                # Placeholder CAPTURED_SHA fails before calling gh
+                if calls_file.exists():
+                    calls_file.unlink()
+                res_ph_cap2 = subprocess.run(
+                    ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nCAPTURED_SHA="<sha>"\nCOMMENT_FILE="{valid_body}"\nBODY_FILE="{valid_body}"\n' + block2],
+                    env=env, capture_output=True, text=True,
+                )
+                self.assertNotEqual(res_ph_cap2.returncode, 0)
+                self.assertIn("CAPTURED_SHA", res_ph_cap2.stderr)
+                self.assertFalse(calls_file.exists(), "gh must not be called when CAPTURED_SHA is placeholder in Block 2")
+
+                # Invalid CAPTURED_SHA (not 40-hex) fails before calling gh
+                if calls_file.exists():
+                    calls_file.unlink()
+                res_inv_cap2 = subprocess.run(
+                    ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nCAPTURED_SHA="invalid-sha"\nCOMMENT_FILE="{valid_body}"\nBODY_FILE="{valid_body}"\n' + block2],
+                    env=env, capture_output=True, text=True,
+                )
+                self.assertNotEqual(res_inv_cap2.returncode, 0)
+                self.assertIn("CAPTURED_SHA", res_inv_cap2.stderr)
+                self.assertFalse(calls_file.exists(), "gh must not be called when CAPTURED_SHA is invalid in Block 2")
+
+                # Newer/mismatched headRefOid: fails before mutation, performs only read-only pr view
+                if calls_file.exists():
+                    calls_file.unlink()
+                env_newer_head = {**env, "GH_STUB_PR_HEAD": "fedcba9876543210fedcba9876543210fedcba98"}
+                res_mismatch_head2 = subprocess.run(
+                    ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nCAPTURED_SHA="{valid_sha}"\nCOMMENT_FILE="{valid_body}"\nBODY_FILE="{valid_body}"\n' + block2],
+                    env=env_newer_head, capture_output=True, text=True,
+                )
+                self.assertNotEqual(res_mismatch_head2.returncode, 0, "Stale CAPTURED_SHA must be rejected against newer PR head")
+                self.assertIn("CAPTURED_SHA", res_mismatch_head2.stderr)
+                self.assertTrue(calls_file.exists())
+                logged_mismatch2 = [json.loads(line)["argv"] for line in calls_file.read_text().splitlines()]
+                self.assertEqual(len(logged_mismatch2), 1, "Mismatched head must only call pr view")
+                self.assertEqual(logged_mismatch2[0][:2], ["pr", "view"])
+
+                # Empty headRefOid from pr view fails before mutation
+                if calls_file.exists():
+                    calls_file.unlink()
+                env_empty_head = {**env, "GH_STUB_PR_HEAD": "__EMPTY__"}
+                res_empty_head2 = subprocess.run(
+                    ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nCAPTURED_SHA="{valid_sha}"\nCOMMENT_FILE="{valid_body}"\nBODY_FILE="{valid_body}"\n' + block2],
+                    env=env_empty_head, capture_output=True, text=True,
+                )
+                self.assertNotEqual(res_empty_head2.returncode, 0, "Empty headRefOid must be rejected")
+                logged_empty_head = [json.loads(line)["argv"] for line in calls_file.read_text().splitlines()]
+                self.assertEqual(len(logged_empty_head), 1)
+                self.assertEqual(logged_empty_head[0][:2], ["pr", "view"])
+
+                # Malformed headRefOid from pr view fails before mutation
+                if calls_file.exists():
+                    calls_file.unlink()
+                env_malformed_head = {**env, "GH_STUB_PR_HEAD": "__MALFORMED__"}
+                res_mal_head2 = subprocess.run(
+                    ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nCAPTURED_SHA="{valid_sha}"\nCOMMENT_FILE="{valid_body}"\nBODY_FILE="{valid_body}"\n' + block2],
+                    env=env_malformed_head, capture_output=True, text=True,
+                )
+                self.assertNotEqual(res_mal_head2.returncode, 0, "Malformed headRefOid must be rejected")
+                logged_mal_head = [json.loads(line)["argv"] for line in calls_file.read_text().splitlines()]
+                self.assertEqual(len(logged_mal_head), 1)
+                self.assertEqual(logged_mal_head[0][:2], ["pr", "view"])
+
+                # Positive test for Block 2 with non-empty body and matching CAPTURED_SHA
+                if calls_file.exists():
+                    calls_file.unlink()
+                pr_body_sentinel = test_dir / "pr_body_sentinel.txt"
+                sentinel_content = "ORIGINAL_PR_DESCRIPTION_DO_NOT_OVERWRITE\n"
+                pr_body_sentinel.write_text(sentinel_content)
+                env_b2_pos = {**env, "PR_BODY_SENTINEL_FILE": str(pr_body_sentinel), "GH_STUB_DENY_EDIT": "1"}
+
+                res_pos2 = subprocess.run(
+                    ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nCAPTURED_SHA="{valid_sha}"\nBODY_FILE="{valid_body}"\nCOMMENT_FILE="{valid_body}"\n' + block2],
+                    env=env_b2_pos, capture_output=True, text=True,
                 )
                 self.assertEqual(res_pos2.returncode, 0, res_pos2.stderr + res_pos2.stdout)
                 self.assertTrue(calls_file.exists())
                 logged_calls2 = [json.loads(line)["argv"] for line in calls_file.read_text().splitlines()]
                 self.assertEqual(len(logged_calls2), 2)
-                expected_subcmd = "edit" if "ui-video-evidence" in str(skill_file) else "comment"
                 self.assertEqual(logged_calls2[0], ["pr", "view", "42", "--repo", "intended/repo", "--json", "number,headRefOid,url"])
-                self.assertEqual(logged_calls2[1], ["pr", expected_subcmd, "42", "--repo", "intended/repo", "--body-file", str(valid_body)])
+                self.assertEqual(logged_calls2[1], ["pr", "comment", "42", "--repo", "intended/repo", "--body-file", str(valid_body)])
+                self.assertFalse(any(c[:2] == ["pr", "edit"] for c in logged_calls2), "Must never use pr edit in evidence publication")
+                self.assertEqual(pr_body_sentinel.read_text(), sentinel_content, "PR body sentinel must remain untouched")
 
                 # Full PR URL derives REPO in Block 2
                 if calls_file.exists():
                     calls_file.unlink()
                 res_url2 = subprocess.run(
-                    ["bash", "-c", f'PR_NUMBER_OR_URL="https://github.com/intended/repo/pull/42"\nBODY_FILE="{valid_body}"\nCOMMENT_FILE="{valid_body}"\n' + block2],
-                    env=env, capture_output=True, text=True,
+                    ["bash", "-c", f'PR_NUMBER_OR_URL="https://github.com/intended/repo/pull/42"\nCAPTURED_SHA="{valid_sha}"\nBODY_FILE="{valid_body}"\nCOMMENT_FILE="{valid_body}"\n' + block2],
+                    env=env_b2_pos, capture_output=True, text=True,
                 )
                 self.assertEqual(res_url2.returncode, 0, res_url2.stderr + res_url2.stdout)
                 logged_url2 = [json.loads(line)["argv"] for line in calls_file.read_text().splitlines()]
                 self.assertEqual(len(logged_url2), 2)
                 self.assertEqual(logged_url2[0], ["pr", "view", "42", "--repo", "intended/repo", "--json", "number,headRefOid,url"])
-                self.assertEqual(logged_url2[1], ["pr", expected_subcmd, "42", "--repo", "intended/repo", "--body-file", str(valid_body)])
+                self.assertEqual(logged_url2[1], ["pr", "comment", "42", "--repo", "intended/repo", "--body-file", str(valid_body)])
 
                 # Full PR URL with trailing slash in Block 2
                 if calls_file.exists():
                     calls_file.unlink()
                 res_url2_slash = subprocess.run(
-                    ["bash", "-c", f'PR_NUMBER_OR_URL="https://github.com/intended/repo/pull/42/"\nBODY_FILE="{valid_body}"\nCOMMENT_FILE="{valid_body}"\n' + block2],
-                    env=env, capture_output=True, text=True,
+                    ["bash", "-c", f'PR_NUMBER_OR_URL="https://github.com/intended/repo/pull/42/"\nCAPTURED_SHA="{valid_sha}"\nBODY_FILE="{valid_body}"\nCOMMENT_FILE="{valid_body}"\n' + block2],
+                    env=env_b2_pos, capture_output=True, text=True,
                 )
                 self.assertEqual(res_url2_slash.returncode, 0, res_url2_slash.stderr + res_url2_slash.stdout)
                 logged_url2_slash = [json.loads(line)["argv"] for line in calls_file.read_text().splitlines()]
                 self.assertEqual(len(logged_url2_slash), 2)
                 self.assertEqual(logged_url2_slash[0], ["pr", "view", "42", "--repo", "intended/repo", "--json", "number,headRefOid,url"])
-                self.assertEqual(logged_url2_slash[1], ["pr", expected_subcmd, "42", "--repo", "intended/repo", "--body-file", str(valid_body)])
+                self.assertEqual(logged_url2_slash[1], ["pr", "comment", "42", "--repo", "intended/repo", "--body-file", str(valid_body)])
 
                 # Wrong-CWD for Block 2
                 if calls_file.exists():
                     calls_file.unlink()
                 res_wrong_cwd2 = subprocess.run(
-                    ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nBODY_FILE="{valid_body}"\nCOMMENT_FILE="{valid_body}"\n' + block2],
-                    cwd=wrong_cwd, env=env, capture_output=True, text=True,
+                    ["bash", "-c", f'PR_NUMBER="42"\nREPO="intended/repo"\nCAPTURED_SHA="{valid_sha}"\nBODY_FILE="{valid_body}"\nCOMMENT_FILE="{valid_body}"\n' + block2],
+                    cwd=wrong_cwd, env=env_b2_pos, capture_output=True, text=True,
                 )
                 self.assertEqual(res_wrong_cwd2.returncode, 0, res_wrong_cwd2.stderr + res_wrong_cwd2.stdout)
                 logged_wrong2 = [json.loads(line)["argv"] for line in calls_file.read_text().splitlines()]
                 self.assertEqual(len(logged_wrong2), 2)
                 self.assertEqual(logged_wrong2[0], ["pr", "view", "42", "--repo", "intended/repo", "--json", "number,headRefOid,url"])
-                self.assertEqual(logged_wrong2[1], ["pr", expected_subcmd, "42", "--repo", "intended/repo", "--body-file", str(valid_body)])
+                self.assertEqual(logged_wrong2[1], ["pr", "comment", "42", "--repo", "intended/repo", "--body-file", str(valid_body)])
 
                 # Caller survival on Block 2 failure
                 res_caller2 = subprocess.run(
