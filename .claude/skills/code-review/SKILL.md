@@ -8,11 +8,34 @@ Two-axis review of the diff between `HEAD` and a fixed point the user supplies:
 - **Standards** — does the code conform to this repo's documented coding standards?
 - **Spec** — does the code faithfully implement the originating issue / PRD / spec?
 
-Both axes run as **parallel sub-agents** so they don't pollute each other's context, then this skill aggregates their findings.
+Full reviews run both axes as **parallel sub-agents** so they do not pollute each other's context, then this skill aggregates their findings. Resolve the requested scope below before dispatching them.
 
 The issue tracker should have been provided to you — run `/setup-matt-pocock-skills` if `docs/agents/issue-tracker.md` is missing.
 
 ## Process
+
+### 0. Resolve scope and check known blockers first
+
+For a repeat safety/status review with known blockers, first pin the current PR
+head and base, record the previously reviewed head, inspect changes from that head, and rerun the existing
+smallest relevant reproducer. Resolve refs from the supplied PR or established
+review context before asking for missing information. Historical findings alone
+are not current-head proof.
+
+If fresh evidence confirms a blocker that already decides the requested safety
+question, promptly report **HOLD** with the tested head, command/result, blocker,
+and unreviewed scope. Update the existing issue only when authorized by the task or repository policy
+(check for duplicates before creating one); otherwise include the finding in the report. Do not launch or wait for optional review lanes; cancel optional
+lanes already running. This is a bounded safety verdict, never approval of the
+remaining diff. An unavailable or inconclusive reproducer is not confirmation:
+continue focused investigation or report the exact evidence gap.
+
+If the blocker is fixed, inspect material changes and complete Steps 1–5 below
+before concluding safety, unless the user explicitly narrowed the review scope;
+report any such limitation. A passing old reproducer alone does not establish safety. For a first review, or an explicitly comprehensive/full
+review, continue through both axes below even if a blocker is found. Report a
+blocker promptly without abandoning that requested comprehensive scope.
+
 
 ### 1. Pin the fixed point
 
