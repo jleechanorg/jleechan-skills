@@ -84,8 +84,6 @@ COMMON_RSYNC_EXCLUDES=(
   'exportcommands.sh.bak-20260720-super-exclude'
 )
 HERMES_RSYNC_EXTRAS=(
-  # The shared code-review skill is owned by .claude/skills.
-  '/code-review/'
   '.mcp_config*'
   'plugin.json'
   'package-lock.json'
@@ -355,11 +353,29 @@ for dir in "${HERMES_DIRS[@]}"; do
     continue
   fi
   mkdir -p "$dst"
+  hermes_excludes=("${COMMON_RSYNC_EXCLUDES[@]}" "${HERMES_RSYNC_EXTRAS[@]}")
+  if [[ "$dir" == "skills" && -f .claude/skills/code-review/SKILL.md ]]; then
+    hermes_excludes+=('/code-review/')
+  fi
   rsync -aL \
-    $(rsync_excludes "${COMMON_RSYNC_EXCLUDES[@]}" "${HERMES_RSYNC_EXTRAS[@]}") \
+    $(rsync_excludes "${hermes_excludes[@]}") \
     "$src" "$dst"
   echo "  ✅ hermes/$dir"
 done
+
+# Materialize shared-skill projections on fresh and previously exported targets.
+if [[ -f .claude/skills/code-review/SKILL.md ]]; then
+  if [[ -L hermes/skills/code-review ]]; then
+    if [[ "$(readlink hermes/skills/code-review)" != "../../.claude/skills/code-review" ]]; then
+      echo "Refusing to replace an unknown code-review directory link" >&2
+      exit 1
+    fi
+    rm -- hermes/skills/code-review
+  fi
+  mkdir -p hermes/skills/code-review/agents
+  ln -sfn ../../../.claude/skills/code-review/SKILL.md hermes/skills/code-review/SKILL.md
+  ln -sfn ../../../../.claude/skills/code-review/agents/openai.yaml hermes/skills/code-review/agents/openai.yaml
+fi
 
 # ── Rsync ~/.codex/<dir> → .codex/<dir> at target repo root ──────────────────
 # Deliberately NOT -L (no symlink following): ~/.codex/skills is heavily
