@@ -344,6 +344,14 @@ done
 # the export portable. Missing dir = soft skip (Hermes may not be installed on
 # every machine), not a hard failure.
 echo "▶ Syncing ~/.hermes/ surfaces..."
+if [[ -f .claude/skills/code-review/SKILL.md ]]; then
+  for projection_parent in hermes hermes/skills hermes/skills/code-review/agents; do
+    if [[ -L "$projection_parent" ]]; then
+      echo "Export incomplete: refusing directory link at $projection_parent" >&2
+      exit 1
+    fi
+  done
+fi
 # shellcheck disable=SC2046
 for dir in "${HERMES_DIRS[@]}"; do
   src="$HERMES_HOME/$dir/"

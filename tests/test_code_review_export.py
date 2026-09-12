@@ -14,7 +14,10 @@ EXPORTER = ROOT / ".claude/commands/exportcommands.sh"
 
 class CodeReviewExportTest(unittest.TestCase):
     def test_export_preserves_canonical_skill_and_find_discovery(self):
-        for initial in ("projection", "legacy", "empty", "directory_alias", "unknown_alias"):
+        for initial in (
+            "projection", "legacy", "empty", "directory_alias", "unknown_alias",
+            "nested_alias", "hermes_alias", "skills_alias",
+        ):
             with self.subTest(initial=initial):
                 self.exercise_export(initial)
 
@@ -25,7 +28,7 @@ class CodeReviewExportTest(unittest.TestCase):
         source = EXPORTER.read_text()
         helper_start = source.index("COMMON_RSYNC_EXCLUDES=(")
         helper_end = source.index("# Compute Hermes-side file counts", helper_start)
-        loop_start = source.index('for dir in "${HERMES_DIRS[@]}"; do')
+        loop_start = source.index("# ── Rsync ~/.hermes")
         loop_end = source.index("# ── Rsync ~/.codex", loop_start)
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -49,6 +52,23 @@ class CodeReviewExportTest(unittest.TestCase):
                 outside.mkdir()
                 (outside / "SKILL.md").write_text("preserve me\n")
                 projected.symlink_to("../../unrelated", target_is_directory=True)
+            elif initial in ("nested_alias", "hermes_alias", "skills_alias"):
+                outside = root / "unrelated"
+                outside.mkdir()
+                (outside / "openai.yaml").write_text("preserve me\n")
+                if initial == "nested_alias":
+                    projected.mkdir()
+                    alias = projected / "agents"
+                    target = "../../../unrelated"
+                elif initial == "hermes_alias":
+                    (root / "hermes").rename(root / "saved-hermes")
+                    alias = root / "hermes"
+                    target = "unrelated"
+                else:
+                    projected.parent.rename(root / "saved-skills")
+                    alias = root / "hermes/skills"
+                    target = "../unrelated"
+                alias.symlink_to(target, target_is_directory=True)
             upstream = root / "upstream/skills/code-review"
             upstream.mkdir(parents=True)
             (upstream / "SKILL.md").write_text("stale upstream skill\n")
@@ -68,6 +88,12 @@ class CodeReviewExportTest(unittest.TestCase):
                 env={**os.environ, "HERMES_HOME": str(root / "upstream")},
                 capture_output=True, text=True, timeout=30,
             )
+            if initial in ("nested_alias", "hermes_alias", "skills_alias"):
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(os.readlink(alias), target)
+                self.assertEqual((outside / "openai.yaml").read_text(), "preserve me\n")
+                self.assertEqual(list(outside.iterdir()), [outside / "openai.yaml"])
+                return
             if initial == "unknown_alias":
                 self.assertNotEqual(result.returncode, 0)
                 self.assertEqual(os.readlink(projected), "../../unrelated")
