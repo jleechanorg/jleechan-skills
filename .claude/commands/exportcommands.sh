@@ -344,6 +344,14 @@ done
 # the export portable. Missing dir = soft skip (Hermes may not be installed on
 # every machine), not a hard failure.
 echo "▶ Syncing ~/.hermes/ surfaces..."
+if [[ -f .claude/skills/code-review/SKILL.md ]]; then
+  for projection_parent in hermes hermes/skills hermes/skills/code-review/agents; do
+    if [[ -L "$projection_parent" ]]; then
+      echo "Export incomplete: refusing directory link at $projection_parent" >&2
+      exit 1
+    fi
+  done
+fi
 # shellcheck disable=SC2046
 for dir in "${HERMES_DIRS[@]}"; do
   src="$HERMES_HOME/$dir/"
@@ -353,11 +361,29 @@ for dir in "${HERMES_DIRS[@]}"; do
     continue
   fi
   mkdir -p "$dst"
+  hermes_excludes=("${COMMON_RSYNC_EXCLUDES[@]}" "${HERMES_RSYNC_EXTRAS[@]}")
+  if [[ "$dir" == "skills" && -f .claude/skills/code-review/SKILL.md ]]; then
+    hermes_excludes+=('/code-review/')
+  fi
   rsync -aL \
-    $(rsync_excludes "${COMMON_RSYNC_EXCLUDES[@]}" "${HERMES_RSYNC_EXTRAS[@]}") \
+    $(rsync_excludes "${hermes_excludes[@]}") \
     "$src" "$dst"
   echo "  ✅ hermes/$dir"
 done
+
+# Materialize shared-skill projections on fresh and previously exported targets.
+if [[ -f .claude/skills/code-review/SKILL.md ]]; then
+  if [[ -L hermes/skills/code-review ]]; then
+    if [[ "$(readlink hermes/skills/code-review)" != "../../.claude/skills/code-review" ]]; then
+      echo "Refusing to replace an unknown code-review directory link" >&2
+      exit 1
+    fi
+    rm -- hermes/skills/code-review
+  fi
+  mkdir -p hermes/skills/code-review/agents
+  ln -sfn ../../../.claude/skills/code-review/SKILL.md hermes/skills/code-review/SKILL.md
+  ln -sfn ../../../../.claude/skills/code-review/agents/openai.yaml hermes/skills/code-review/agents/openai.yaml
+fi
 
 # ── Rsync ~/.codex/<dir> → .codex/<dir> at target repo root ──────────────────
 # Deliberately NOT -L (no symlink following): ~/.codex/skills is heavily
