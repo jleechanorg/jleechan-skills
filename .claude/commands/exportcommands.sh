@@ -84,6 +84,8 @@ COMMON_RSYNC_EXCLUDES=(
   'exportcommands.sh.bak-20260720-super-exclude'
 )
 HERMES_RSYNC_EXTRAS=(
+  # The shared code-review skill is owned by .claude/skills.
+  '/code-review/'
   '.mcp_config*'
   'plugin.json'
   'package-lock.json'
