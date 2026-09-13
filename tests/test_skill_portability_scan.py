@@ -1108,9 +1108,20 @@ if len(args) >= 2 and args[0] == "release":
                             rel_target = state[tag]["targetCommitish"]
                 except Exception:
                     pass
+        assets_list = []
+        if tag:
+            upload_store = os.path.join(os.path.dirname(calls_file), "mock_releases", tag)
+            if os.path.exists(upload_store):
+                for fname in sorted(os.listdir(upload_store)):
+                    fpath = os.path.join(upload_store, fname)
+                    if os.path.isfile(fpath):
+                        assets_list.append({{
+                            "name": fname,
+                            "url": "https://github.com/intended/repo/releases/download/" + tag + "/" + fname,
+                        }})
         rel_data = {{
-            "url": "https://github.com/example/repo/releases/tag/v1",
-            "assets": [{{"name": "a", "url": "https://example.com/a"}}],
+            "url": ("https://github.com/intended/repo/releases/tag/" + tag) if tag else "https://github.com/example/repo/releases/tag/v1",
+            "assets": assets_list,
         }}
         if rel_target is not None and (req_fields is None or "targetCommitish" in req_fields):
             rel_data["targetCommitish"] = rel_target
@@ -1492,9 +1503,11 @@ else:
                 self.assertTrue(calls_file.exists())
                 logged_calls = [json.loads(line)["argv"] for line in calls_file.read_text().splitlines()]
                 expected_tag = "evidence-pr-42-0123456789ab-run-1"
-                self.assertEqual(len(logged_calls), 4)
+                self.assertEqual(len(logged_calls), 5)
                 self.assertEqual(logged_calls[0], ["pr", "view", "42", "--repo", "intended/repo", "--json", "number,headRefOid,url"])
                 self.assertEqual(logged_calls[1], ["release", "create", expected_tag, "--repo", "intended/repo", "--target", valid_sha, "--draft", "--title", "PR #42 Evidence", "--notes", ""])
+                self.assertEqual(logged_calls[2], ["release", "view", expected_tag, "--repo", "intended/repo", "--json", "assets,targetCommitish,url"])
+                self.assertEqual(logged_calls[3][:5], ["release", "upload", expected_tag, "--repo", "intended/repo"])
                 mock_releases = calls_file.parent / "mock_releases" / expected_tag
                 uploaded_zip = mock_releases / f"{dummy_video.name}.zip"
                 self.assertTrue(uploaded_zip.exists())
@@ -1504,9 +1517,15 @@ else:
                     self.assertIn(dummy_video.name, uploaded_names, "Uploaded archive must contain intended video capture")
                 with zipfile.ZipFile(preexisting_zip, "r") as zf:
                     self.assertEqual(zf.namelist(), ["unrelated.txt"], "User's preexisting archive must remain untouched")
-                self.assertEqual(logged_calls[3], ["release", "view", expected_tag, "--repo", "intended/repo", "--json", "assets,targetCommitish,url"])
+                self.assertEqual(logged_calls[4], ["release", "view", expected_tag, "--repo", "intended/repo", "--json", "assets,targetCommitish,url"])
                 release_out = json.loads(res_pos1.stdout.strip().splitlines()[-1])
                 self.assertEqual(release_out.get("targetCommitish"), valid_sha, "Release output JSON must bind exact CAPTURED_SHA target")
+                uploaded_asset_names = {a["name"] for a in release_out.get("assets", [])}
+                self.assertIn(f"{dummy_video.name}.zip", uploaded_asset_names)
+                self.assertIn(dummy_preview.name, uploaded_asset_names)
+                self.assertIn(dummy_caption.name, uploaded_asset_names)
+                for a in release_out.get("assets", []):
+                    self.assertEqual(a["url"], f"https://github.com/intended/repo/releases/download/{expected_tag}/{a['name']}")
 
                 # Target readback failure modes in Block 1:
                 # 1. Target mismatch: release target differs from CAPTURED_SHA
@@ -1520,6 +1539,8 @@ else:
                 self.assertNotEqual(res_target_mismatch.returncode, 0, "Mismatched release target commit must fail")
                 self.assertNotIn("targetCommitish", res_target_mismatch.stdout, "Must not output release JSON on target mismatch")
                 self.assertNotIn("https://github.com/", res_target_mismatch.stdout)
+                calls_mismatch = [json.loads(line)["argv"] for line in calls_file.read_text().splitlines()]
+                self.assertFalse(any(c[:2] == ["release", "upload"] for c in calls_mismatch), "Mismatched release target must assert zero release upload calls")
 
                 # 2. Missing targetCommitish in release view output
                 if calls_file.exists():
@@ -1532,6 +1553,8 @@ else:
                 self.assertNotEqual(res_target_missing.returncode, 0, "Missing release targetCommitish must fail")
                 self.assertNotIn("targetCommitish", res_target_missing.stdout)
                 self.assertNotIn("https://github.com/", res_target_missing.stdout)
+                calls_missing = [json.loads(line)["argv"] for line in calls_file.read_text().splitlines()]
+                self.assertFalse(any(c[:2] == ["release", "upload"] for c in calls_missing), "Missing release targetCommitish must assert zero release upload calls")
 
                 # 3. Empty targetCommitish in release view output
                 if calls_file.exists():
@@ -1544,6 +1567,8 @@ else:
                 self.assertNotEqual(res_target_empty.returncode, 0, "Empty release targetCommitish must fail")
                 self.assertNotIn("targetCommitish", res_target_empty.stdout)
                 self.assertNotIn("https://github.com/", res_target_empty.stdout)
+                calls_empty = [json.loads(line)["argv"] for line in calls_file.read_text().splitlines()]
+                self.assertFalse(any(c[:2] == ["release", "upload"] for c in calls_empty), "Empty release targetCommitish must assert zero release upload calls")
 
                 # 4. Malformed targetCommitish in release view output
                 if calls_file.exists():
@@ -1556,6 +1581,8 @@ else:
                 self.assertNotEqual(res_target_malformed.returncode, 0, "Malformed release targetCommitish must fail")
                 self.assertNotIn("targetCommitish", res_target_malformed.stdout)
                 self.assertNotIn("https://github.com/", res_target_malformed.stdout)
+                calls_malformed = [json.loads(line)["argv"] for line in calls_file.read_text().splitlines()]
+                self.assertFalse(any(c[:2] == ["release", "upload"] for c in calls_malformed), "Malformed release targetCommitish must assert zero release upload calls")
 
                 # 5. Pipeline failure on target mismatch: Block 1 fails closed, no Block 2 comment
                 if calls_file.exists():
@@ -1569,6 +1596,7 @@ else:
                 self.assertNotEqual(res_pipe_mismatch.returncode, 0, "Pipeline must fail on target mismatch")
                 pipe_calls_early = [json.loads(line)["argv"] for line in calls_file.read_text().splitlines()] if calls_file.exists() else []
                 self.assertFalse(any(c[:2] == ["pr", "comment"] or c[:2] == ["pr", "edit"] for c in pipe_calls_early), "Must not comment when release target mismatched")
+                self.assertFalse(any(c[:2] == ["release", "upload"] for c in pipe_calls_early), "Must not upload when release target mismatched in pipeline")
 
                 # Distinct run IDs produce distinct tags without --clobber
                 if calls_file.exists():
@@ -1581,7 +1609,8 @@ else:
                 calls_a = [json.loads(line)["argv"] for line in calls_file.read_text().splitlines()]
                 tag_a = calls_a[1][2]
                 self.assertIn("run-alpha", tag_a)
-                self.assertNotIn("--clobber", calls_a[2])
+                self.assertNotIn("--clobber", calls_a[3])
+                self.assertFalse(any("--clobber" in c for c in calls_a))
 
                 if calls_file.exists():
                     calls_file.unlink()
@@ -1594,7 +1623,8 @@ else:
                 tag_b = calls_b[1][2]
                 self.assertIn("run-beta", tag_b)
                 self.assertNotEqual(tag_a, tag_b)
-                self.assertNotIn("--clobber", calls_b[2])
+                self.assertNotIn("--clobber", calls_b[3])
+                self.assertFalse(any("--clobber" in c for c in calls_b))
 
                 # Positive test with burned caption mode
                 if calls_file.exists():
@@ -1605,9 +1635,9 @@ else:
                 )
                 self.assertEqual(res_burned1.returncode, 0, res_burned1.stderr + res_burned1.stdout)
                 logged_burned1 = [json.loads(line)["argv"] for line in calls_file.read_text().splitlines()]
-                self.assertEqual(len(logged_burned1), 4)
-                self.assertEqual(logged_burned1[2][:5], ["release", "upload", expected_tag, "--repo", "intended/repo"])
-                self.assertIn(dummy_preview, [Path(p) for p in logged_burned1[2][5:]])
+                self.assertEqual(len(logged_burned1), 5)
+                self.assertEqual(logged_burned1[3][:5], ["release", "upload", expected_tag, "--repo", "intended/repo"])
+                self.assertIn(dummy_preview, [Path(p) for p in logged_burned1[3][5:]])
 
                 # Positive test with paths with spaces
                 if calls_file.exists():
@@ -1636,9 +1666,12 @@ else:
                 self.assertEqual(res_slash1.returncode, 0, res_slash1.stderr + res_slash1.stdout)
                 self.assertTrue(calls_file.exists())
                 logged_slash1 = [json.loads(line)["argv"] for line in calls_file.read_text().splitlines()]
-                self.assertEqual(len(logged_slash1), 4)
+                self.assertEqual(len(logged_slash1), 5)
                 self.assertEqual(logged_slash1[0], ["pr", "view", "42", "--repo", "intended/repo", "--json", "number,headRefOid,url"])
                 self.assertEqual(logged_slash1[1], ["release", "create", expected_tag, "--repo", "intended/repo", "--target", valid_sha, "--draft", "--title", "PR #42 Evidence", "--notes", ""])
+                self.assertEqual(logged_slash1[2], ["release", "view", expected_tag, "--repo", "intended/repo", "--json", "assets,targetCommitish,url"])
+                self.assertEqual(logged_slash1[3][:5], ["release", "upload", expected_tag, "--repo", "intended/repo"])
+                self.assertEqual(logged_slash1[4], ["release", "view", expected_tag, "--repo", "intended/repo", "--json", "assets,targetCommitish,url"])
 
                 # 9. Wrong CWD test: Block 1 executed from a different repo binds intended repo via --repo
                 if calls_file.exists():
@@ -2000,7 +2033,9 @@ else:
                 self.assertNotEqual(res_fail_upload.returncode, 0, "Upload failure must propagate error")
                 logged_fail_upload = [json.loads(line) for line in calls_file.read_text().splitlines()]
                 argvs_fail_upload = [c["argv"] if isinstance(c, dict) and "argv" in c else c for c in logged_fail_upload]
-                self.assertFalse(any(c[:3] == ["release", "view", expected_tag] and "--json" in c for c in argvs_fail_upload), "Must not view assets when upload fails")
+                upload_idx = next((i for i, c in enumerate(argvs_fail_upload) if c[:2] == ["release", "upload"]), None)
+                self.assertIsNotNone(upload_idx, "Must attempt upload")
+                self.assertFalse(any(c[:2] == ["release", "view"] for c in argvs_fail_upload[upload_idx + 1:]), "Must not view assets after upload fails")
 
                 # 5. Failures must not trigger downstream comment/body action
                 for fail_mode in ("repeat_draft", "conflicting_published", "fail_pr_view", "fail_upload"):
@@ -2027,6 +2062,7 @@ else:
                 self.assertNotEqual(res_pipe_target.returncode, 0, "Pipeline must fail on release target mismatch")
                 calls_in_target_fail = [json.loads(line)["argv"] for line in calls_file.read_text().splitlines()] if calls_file.exists() else []
                 self.assertFalse(any(c[:2] == ["pr", "comment"] or c[:2] == ["pr", "edit"] for c in calls_in_target_fail), "PR comment must not run on release target mismatch")
+                self.assertFalse(any(c[:2] == ["release", "upload"] for c in calls_in_target_fail), "Must not upload on release target mismatch in pipeline")
 
     def test_ffprobe_real_fixtures_validation(self):
         import shutil
