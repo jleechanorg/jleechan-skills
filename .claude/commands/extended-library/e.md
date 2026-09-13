@@ -18,8 +18,8 @@ When delegating work to subagents or pair-programming partners, **default to the
 - **Opus / Fable** — reserve ONLY for genuinely hard architectural reasoning, cross-context synthesis, ambiguous debugging, adversarial design judgment, or when Sonnet demonstrably fails (state which failure). Do not reach for the top tier by default — and NEVER by omission: an `Agent()`/workflow `agent()` spawn without an explicit `model` silently inherits the session model, which usually IS the top tier. Set `model` on every spawn (see ~/.claude/CLAUDE.md § "Subagent model routing").
 
 ### Codex family
-- **Codex Spark** (or other GPT-medium variants) — fast code generation, scaffolding, mechanical edits, well-scoped refactors.
-- **GPT-large** — reserve ONLY for hard architectural tasks where Codex Spark has demonstrably failed.
+- **Codex Luna** (or other GPT-medium variants) — fast code generation, scaffolding, mechanical edits, well-scoped refactors.
+- **GPT-large** — reserve ONLY for hard architectural tasks where Codex Luna has demonstrably failed.
 
 ### Other providers
 - **Cerebras / Gemini Flash / GLM-5.1 / wafer.ai** — preferred for high-volume mechanical code generation.

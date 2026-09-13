@@ -55,7 +55,7 @@ Always classify into ONE of these five buckets before recommending a fix. The bu
 **Recipe:**
 1. Install or update `codex`: `brew upgrade codex` (or `npm i -g @openai/codex`).
 2. Verify flags: `codex review --help 2>&1 | grep -E -- '--(base|model)'` should return non-empty.
-3. Verify the model tier per SOUL.md `## COMMIT: subagent model routing (mandatory, 2026-07-14)` — cheapest correct tier for review lanes (mini/haiku-class for pollers/monitors, mid-tier Sonnet/Codex Spark for standard review/evidence lanes).
+3. Verify the model tier per SOUL.md `## COMMIT: subagent model routing (mandatory, 2026-07-14)` — cheapest correct tier for review lanes (mini/haiku-class for pollers/monitors, mid-tier Sonnet/Codex Luna for standard review/evidence lanes).
 4. The "fix now" recipe: change `configure_review_cli` to return 0 on missing CLI but still mark a typed `PREFLIGHT_FAILED` status; the loop should set `AGENT_FAILURES=${#AGENTS[@]}` when preflight fails so the warning fires.
 
 ### Bucket C: Agent-execution suppressed (spawned but produced 0 bytes / errors)
