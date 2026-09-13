@@ -57,9 +57,10 @@ Apply when the user asks to "tighten", "shorten", "trim", or "make this more con
 
 > The bug was caused by the migration → The migration caused the bug.
 
-**Kill "is"/"are" wrappers around gerunds.** "is showing", "is running", "is being processed" → the gerund alone, or active voice.
+**Kill "is"/"are" wrappers around gerunds.** "is showing", "is running", "is being processed" → the gerund alone, or active voice. **Preserve progressive aspect when it carries current state.** "The server is running the job" (in progress) is not the same as "The server runs the job" (habitual behavior). Strip the wrapper only when timing does not matter — status updates, live ops, in-flight actions keep the `-ing`.
 
-> The server is running the job → The server runs the job.
+> The server is running the job → The server runs the job. (OK for docs describing routine behavior.)
+> The server is running the job → The server is running the job. (KEEP — describes in-flight state, e.g. in a status feed.)
 
 **Numbers over hand-waving.** "many", "several", "various", "a number of" → a count, a range, or "some".
 

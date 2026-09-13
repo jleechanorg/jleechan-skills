@@ -26,6 +26,18 @@ Text arrives inline (rewrite in-place and reply), as a file (read it, then `patc
 4. Ask: "What makes the below so obviously AI generated?" Answer briefly with any remaining tells.
 5. Revise one more time. Present the final version.
 
+## Preserve facts, hedges, and meaning-bearing grammar
+
+Several patterns below (notably pattern 5 "Vague attributions" and pattern 21 "Knowledge-cutoff disclaimers") illustrate rewrites that replace a hedge with a named source. Those are illustrative of *well-attributed* prose — only adopt that shape when an actual source is verified. If the source text says "experts believe," keep it hedged. Do NOT manufacture concrete facts (dates, names, statistics, registration numbers, survey years) the source did not contain.
+
+**Do not strip these without checking meaning:**
+
+- **Progressive aspect.** "The server is running the job" (in progress) ≠ "The server runs the job" (habitual). Keep `-ing` when reporting live state, in-flight operations, or current activity (status feeds, incident updates, release notes, ops dashboards).
+- **Passive voice.** Keep when the actor is unknown, irrelevant, or required by genre (scientific, legal, incident reports).
+- **Required copulas.** Strip `serves as/stands as/boasts` in favor of `is/has`, but keep `is` when removing it changes meaning (compliance language, definitions, requirements).
+
+Strip wrappers only when the aspect, voice, or copula removal does not change the intended meaning.
+
 ## Personality and soul
 
 Avoiding AI patterns is half the job. Sterile, voiceless writing is just as obvious as slop. Soulless signs: every sentence the same length, no opinions, no acknowledgment of uncertainty, no first-person when appropriate, no humor, no edge, reads like Wikipedia. Add voice by: having opinions, varying rhythm (short then long), acknowledging complexity, using "I" when it fits, letting some mess in (tangents, asides, half-formed thoughts), being specific about feelings ("there's something unsettling about agents churning away at 3am" not "this is concerning").
@@ -176,7 +188,7 @@ LLMs use em dashes (—) more than humans, mimicking "punchy" sales writing. Mos
 
 ### 19. Curly quotation marks
 
-ChatGPT uses curly quotes ("…") instead of straight ("…").
+ChatGPT uses curly quotes (U+201C “…”, U+201D …”) instead of straight ASCII ("…").
 
 > He said “the project is on track” but others disagreed.
 
@@ -229,9 +241,16 @@ ChatGPT uses curly quotes ("…") instead of straight ("…").
 
 **Watch:** third-party, cross-functional, client-facing, data-driven, decision-making, well-known, high-quality, real-time, long-term, end-to-end.
 
+**Problem:** AI hyphenates common word pairs with perfect consistency. Humans rarely hyphenate these uniformly, and when they do, it's inconsistent. Less common or technical compound modifiers are fine to hyphenate.
+
+**Important:** keep the hyphen when the compound functions as a modifier before a noun. Removing it produces grammatical regressions ("cross functional team," "high quality report," "client facing tools," "decision making process," "detail oriented"). Strip hyphens only when:
+
+- the writer has hyphenated nearly every common pair in the same paragraph (a stylistic AI tell), OR
+- the compound is not modifying a noun (e.g. "the data is data driven" — no hyphen needed; "a data-driven report" — keep the hyphen).
+
 > The cross-functional team delivered a high-quality, data-driven report on our client-facing tools. Their decision-making process was well-known for being thorough and detail-oriented.
 
-> The cross functional team delivered a high quality, data driven report on our client facing tools. Their decision making process was known for being thorough and detail oriented.
+> The cross-functional team delivered a high-quality, data-driven report on our client-facing tools. Their decision-making process was known for being thorough and detail-oriented. (Only the well-known → known trim was applied; compound-modifier hyphens were preserved.)
 
 ### 27. Persuasive authority tropes
 
