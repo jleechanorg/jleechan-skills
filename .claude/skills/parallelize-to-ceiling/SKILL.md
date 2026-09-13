@@ -279,7 +279,7 @@ there to a pointer 2026-09-06; this section is the full policy).
 - Route every independent unit to the **cheapest capable tier** — never
   silently inherit an expensive session model for delegated work.
 - Small/mechanical bounded coding: `codex-luna` (on PATH)
-  (`gpt-5.6-luna`) when capacity exists.
+  (`gpt-5.6-luna`) when capacity exists, falling back to `luna_worker`.
 - Polling or mechanical sweeps: haiku/mini tier.
 - Top tier (the session's own model): reserve for adversarial judgment, or
   only after a cheaper tier has already failed on that unit.
