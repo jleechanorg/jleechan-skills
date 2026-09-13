@@ -243,14 +243,15 @@ ChatGPT uses curly quotes (U+201C “…”, U+201D …”) instead of straight 
 
 **Problem:** AI hyphenates common word pairs with perfect consistency. Humans rarely hyphenate these uniformly, and when they do, it's inconsistent. Less common or technical compound modifiers are fine to hyphenate.
 
-**Important:** keep the hyphen when the compound functions as a modifier before a noun. Removing it produces grammatical regressions ("cross functional team," "high quality report," "client facing tools," "decision making process," "detail oriented"). Strip hyphens only when:
+**Rule:** never strip a hyphen from a compound modifier that comes before a noun. The result is a grammatical regression ("cross functional team," "high quality report," "client facing tools," "decision making process," "detail oriented"). Hyphen-stripping is allowed only when the compound is NOT modifying a noun — e.g. "the data is data driven" (predicate), "we work cross-functionally" (adverb).
 
-- the writer has hyphenated nearly every common pair in the same paragraph (a stylistic AI tell), OR
-- the compound is not modifying a noun (e.g. "the data is data driven" — no hyphen needed; "a data-driven report" — keep the hyphen).
+If the paragraph shows nearly every common pair hyphenated (a stylistic AI tell), flag the paragraph and rewrite by **varying the phrasing or splitting into shorter sentences** — do NOT fix over-hyphenation by removing required hyphens.
 
 > The cross-functional team delivered a high-quality, data-driven report on our client-facing tools. Their decision-making process was well-known for being thorough and detail-oriented.
 
 > The cross-functional team delivered a high-quality, data-driven report on our client-facing tools. Their decision-making process was known for being thorough and detail-oriented. (Only the well-known → known trim was applied; compound-modifier hyphens were preserved.)
+
+> The team delivered a report on tools that clients face. They had a process for making decisions, and it was thorough. (Over-hyphenation in a paragraph was addressed by rewriting the sentences, not by removing required hyphens.)
 
 ### 27. Persuasive authority tropes
 
