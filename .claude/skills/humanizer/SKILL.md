@@ -42,9 +42,13 @@ Strip wrappers only when the aspect, voice, or copula removal does not change th
 
 Avoiding AI patterns is half the job. Sterile, voiceless writing is just as obvious as slop. Soulless signs: every sentence the same length, no opinions, no acknowledgment of uncertainty, no first-person when appropriate, no humor, no edge, reads like Wikipedia. Add voice by: having opinions, varying rhythm (short then long), acknowledging complexity, using "I" when it fits, letting some mess in (tangents, asides, half-formed thoughts), being specific about feelings ("there's something unsettling about agents churning away at 3am" not "this is concerning").
 
+**Important:** when humanizing *someone else's* neutral prose (a resume, a third-party memo, documentation, an email from a colleague), do not inject opinions, humor, or feelings the author did not express. Tightening their prose does not mean giving them a new voice. Voice can be made less sterile through rhythm and wording (vary sentence length, swap generic intensifiers for specific ones, kill throat-clearing), but personality belongs to the author. Apply the "have opinions / use 'I' / be specific about feelings" guidance to **your own** output, not to third-party text.
+
 > The experiment produced interesting results. The agents generated 3 million lines of code. Some developers were impressed while others were skeptical.
 
 > I genuinely don't know how to feel about this one. 3 million lines of code, generated while the humans presumably slept. Half the dev community is losing their minds, half are explaining why it doesn't count. I keep thinking about those agents working through the night.
+
+(The "After" example above is acceptable as a *demonstration* of what voice looks like — apply it to your own writing, not to third-party text.)
 
 ## Patterns
 

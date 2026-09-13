@@ -8,15 +8,23 @@ license: MIT
 
 Short is not the goal. Clear is. These are the moves that cut without cutting meaning.
 
+## Preserve meaning before trimming
+
+The moves below are *defaults*. None of them apply unconditionally. **Do not change the factual content of the text.** If the source says "several failures," keep "several" unless an exact count is available. If the source says "issue," keep "issue" unless the actual diagnosis is known. If the source says "somewhat confident," keep the degree — "somewhat" carries material uncertainty that "confident" alone drops. Trimming rewrites the *words*, not the *facts* or the *stance* of the author.
+
+When editing someone else's neutral prose (resumes, memos, docs, third-party email), do not inject opinions, humor, or feelings the author did not express — tightening does not mean adding a voice.
+
 ## When to use
 
 Apply when the user asks to "tighten", "shorten", "trim", or "make this more concise". Apply to your own output when drafting PR descriptions, release notes, docs, memos, or replies that exceed what the situation needs. Skip for fiction, poetry, and cases where length is the point.
 
 ## The moves
 
-**Cut adverbs.** "very", "really", "extremely", "quite", "rather", "fairly", "somewhat" — drop them. The verb carries the weight.
+**Cut adverbs.** "very", "really", "extremely", "quite", "rather", "fairly", "somewhat" — drop them when they are redundant (the verb already carries the weight, or the sentence is padding). **Keep them when they carry material intensity or uncertainty:** "somewhat confident" is not the same as "confident"; "fairly complete" is not the same as "complete"; "extremely toxic" is not the same as "toxic". Limit removal to redundant modifiers, or replace with wording that preserves the original degree.
 
-> She was very tired → She was tired. / She was exhausted.
+> She was very tired → She was tired. / She was exhausted. (Redundant "very" — drop.)
+> The result was fairly complete → The result was complete. (Marginal — drop.)
+> I am somewhat confident this will hold → KEEP "somewhat" — drops material uncertainty if removed.
 
 **Lead with the outcome.** First sentence answers "what happened" or "what's the answer". No preamble.
 
@@ -62,9 +70,12 @@ Apply when the user asks to "tighten", "shorten", "trim", or "make this more con
 > The server is running the job → The server runs the job. (OK for docs describing routine behavior.)
 > The server is running the job → The server is running the job. (KEEP — describes in-flight state, e.g. in a status feed.)
 
-**Numbers over hand-waving.** "many", "several", "various", "a number of" → a count, a range, or "some".
+**Numbers over hand-waving.** "many", "several", "various", "a number of" → a count, a range, or "some" — *only when an actual number is available*. If the source only said "several," keep "several" (or "some") rather than fabricating a count.
 
-**Specific over vague.** "issue" → "cache miss", "problem" → "stale read", "thing" → "retry queue".
+> Several users reported cache misses (N=4 reported between Mar–May) → Several users reported cache misses, four in the March–May window. (Use the count if you have it.)
+> Several users reported cache misses → KEEP "several" if no count is available — do not invent one.
+
+**Specific over vague.** "issue" → "cache miss", "problem" → "stale read", "thing" → "retry queue" — *only when the specific diagnosis is known*. If the source only said "issue," keep "issue" until an actual diagnosis is verified.
 
 ## Process
 
