@@ -23,8 +23,9 @@ Apply when the user asks to "tighten", "shorten", "trim", or "make this more con
 **Cut adverbs.** "very", "really", "extremely", "quite", "rather", "fairly", "somewhat" — drop them when they are redundant (the verb already carries the weight, or the sentence is padding). **Keep them when they carry material intensity or uncertainty:** "somewhat confident" is not the same as "confident"; "fairly complete" is not the same as "complete"; "extremely toxic" is not the same as "toxic". Limit removal to redundant modifiers, or replace with wording that preserves the original degree.
 
 > She was very tired → She was tired. / She was exhausted. (Redundant "very" — drop.)
-> The result was fairly complete → The result was complete. (Marginal — drop.)
+> The report was quite long → The report was long. ("Quite" as filler — drop.)
 > I am somewhat confident this will hold → KEEP "somewhat" — drops material uncertainty if removed.
+> The toxin was extremely toxic → KEEP "extremely" — strengthens the claim.
 
 **Lead with the outcome.** First sentence answers "what happened" or "what's the answer". No preamble.
 
