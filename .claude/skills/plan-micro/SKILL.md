@@ -8,6 +8,14 @@ description: Create or revise an executable engineering plan by writing one full
 Turn the current goal into a dependency-ordered bead plan and a durable
 `~/roadmap/` handoff. Plan only. Do not implement the code.
 
+## Timeline, parallel lanes, and milestones (mandatory)
+
+Read and apply `${CLAUDE_HOME:-$HOME/.claude}/skills/parallelize-to-ceiling/references/timeline-milestones.md`
+on every invocation. Always include a timeline, maximize useful independent
+lanes within the measured resource ceiling, and report milestones every
+20 minutes with an hourly rollup during active work. Preserve this command's
+planning, handoff, and execution authorization boundaries.
+
 ## Harden the overall objective first
 
 Before decomposition, run the full `/ironclad` document workflow for the
@@ -133,7 +141,9 @@ Prefer updating the newest relevant plan. Otherwise write
    link and embedded full criteria.
 5. RED and GREEN commands, expected outcomes, and integration-test rationale.
 6. File ownership and changed-line budgets.
-7. Parallel execution waves and the final independent verification gate.
+7. Parallel execution waves, lane ownership and capacity limits, an estimated
+   timeline with 20-minute milestones and hourly rollups, and the final
+   independent verification gate.
 
 Create or update the beads in the owning store, add dependencies, then re-read every saved description. Verify that each coding pair is test-first, no bead
 mixes test and non-test files, each implementation bead states its line target

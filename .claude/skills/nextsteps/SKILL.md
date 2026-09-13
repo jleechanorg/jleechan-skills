@@ -1,11 +1,19 @@
 ---
 name: nextsteps
-description: Situational assessment and roadmap sync after a work block. Default mode reads ONLY beads (`br`) and `~/roadmap` (lean: independent nextsteps markdown doc + beads update + roadmap activity + ~/roadmap learnings log). `--full` preserves the legacy all-source behavior (adds Claude auto-memory writes, mem0 sync, and GitHub Issue creation). Prefers editing existing roadmap docs over creating new files.
+description: "Situational assessment and roadmap sync after a work block. Default mode reads ONLY beads (`br`) and `~/roadmap` (lean: independent nextsteps markdown doc + beads update + roadmap activity + ~/roadmap learnings log). `--full` preserves the legacy all-source behavior (adds Claude auto-memory writes, mem0 sync, and GitHub Issue creation). Prefers editing existing roadmap docs over creating new files."
 ---
 
 # /nextsteps — Situational Assessment & Roadmap Update
 
 Situational assessment and roadmap sync after a work block.
+
+## Timeline, parallel lanes, and milestones (mandatory)
+
+Read and apply `${CLAUDE_HOME:-$HOME/.claude}/skills/parallelize-to-ceiling/references/timeline-milestones.md`
+on every invocation. Always include a timeline, maximize useful independent
+lanes within the measured resource ceiling, and report milestones every
+20 minutes with an hourly rollup during active work. Preserve this command's
+planning, handoff, and execution authorization boundaries.
 
 ## Modes (read first — determines which phases run)
 
@@ -106,7 +114,7 @@ The independent `.md` file is the **handoff artifact**: a reader must be able to
 1. **Title line** — e.g. `# Nextsteps — <topic or repo> — <YYYY-MM-DD>`
 2. **Table of contents** — Markdown list linking to **every** following `##` section (Executive summary through Roadmap pointer). Use GitHub-style anchors (lowercase, hyphenated, dedupe if titles repeat). Update whenever headings change.
 3. **Executive summary** — Short, skimmable block (bullets OK): what this block accomplished, what is blocked or at risk, top priorities / sequencing, beads and PRs that matter (**ids with links**). No deep procedural detail — that lives in the sections below.
-4. **Full detail (all following `##` sections)** — Each section is **self-contained** (definitions, file paths, acceptance criteria, dependencies). Do not rely on “see chat” or unstated context. Order: Context → Bead index → Work queue → PR / merge state → Learnings pointer → Roadmap pointer.
+4. **Full detail (all following `##` sections)** — Each section is **self-contained** (definitions, file paths, acceptance criteria, dependencies). Do not rely on “see chat” or unstated context. Order: Context → Bead index → Work queue → Timeline and parallel lanes → PR / merge state → Learnings pointer → Roadmap pointer.
 
 **Required `##` sections after Executive summary (skip only if genuinely N/A — one line stating why):**
 
@@ -115,6 +123,7 @@ The independent `.md` file is the **handoff artifact**: a reader must be able to
 | **Context** | 2–6 sentences: what block just ended, repo(s), branch/PR if relevant, scope boundaries |
 | **Bead index** | Table: `bd-…` id, title, priority/status if known, **link** — every open bead touched or created this run. Prefer `https://github.com/<owner>/<repo>/issues/<n>` when the bead syncs to GitHub Issues; else `br show <id>` as fallback. Link the id in every row. |
 | **Work queue** | Numbered tasks; each task **self-contained**: goal, acceptance criteria, files/areas, dependencies/blockers, suggested order; **reference beads** inline as linked `[bd-xxx](url)` where applicable |
+| **Timeline and parallel lanes** | Estimated elapsed windows, lane owners and exclusive write scope, dependencies, outputs/proof, critical path, concurrency ceiling and limiting resource; 20-minute milestones and hourly rollups for future execution, without resuming stopped work |
 | **PR / merge state** | Same session truth as Phase 1b (`PR #n: OPEN \| MERGED \| CLOSED`) for any PR referenced; full PR URLs |
 | **Learnings pointer** | Path/link to the new `~/roadmap/learnings-YYYY-MM.md` entry for this date; one-line summary of what was logged |
 | **Roadmap pointer** | Confirm `roadmap/activity/YYYY-MM-DD.md` appended (and README date link added if new date) |
@@ -136,6 +145,7 @@ The independent `.md` file is the **handoff artifact**: a reader must be able to
 - [Context](#context)
 - [Bead index](#bead-index)
 - [Work queue](#work-queue)
+- [Timeline and parallel lanes](#timeline-and-parallel-lanes)
 - [PR / merge state](#pr--merge-state)
 - [Learnings pointer](#learnings-pointer)
 - [Roadmap pointer](#roadmap-pointer)
@@ -160,6 +170,16 @@ The independent `.md` file is the **handoff artifact**: a reader must be able to
 ## Work queue
 
 1. … — tracks [bd-…](https://github.com/org/repo/issues/NN)
+
+## Timeline and parallel lanes
+
+| Elapsed estimate | Lane / owner | Scope / dependencies | Deliverable / proof |
+|---|---|---|---|
+| … | … | … | … |
+
+- Critical path and measured or provisional concurrency ceiling: …
+- Milestones: +20m, +40m, +60m (hourly rollup), then repeat while active.
+- Execution start: pending authorized resumption; this handoff does not start it.
 
 ## PR / merge state
 
