@@ -165,7 +165,7 @@ signaling contracts:
 PAIR TASK: <bounded task and explicit file scope>
 CODER: follow `${CLAUDE_HOME:-$HOME/.claude}/agents/agy-pair-coder.md`; implement and signal IMPLEMENTATION_READY with `Revision: <exact git SHA>` and `Worktree: <absolute path>`.
 VERIFIER: follow `${CLAUDE_HOME:-$HOME/.claude}/agents/agy-pair-verifier.md`; independently verify the handed-off revision and signal VERIFICATION_COMPLETE or VERIFICATION_FAILED.
-FALLBACK: if an AGY lane concretely fails, retry that lane with codexs, claudem, or an own cheap agent while preserving isolation and independent verification.
+FALLBACK: if an AGY lane concretely fails, retry that lane with codex-luna, claudem, or an own cheap agent while preserving isolation and independent verification.
 ```
 
 ## Fallback precedence
@@ -173,10 +173,10 @@ FALLBACK: if an AGY lane concretely fails, retry that lane with codexs, claudem,
 The `FALLBACK` template above is governed by this order:
 
 1. Start with the AGY pair as the primary implementation and verification lanes.
-2. After a concrete AGY lane failure, retry the same bounded lane with `codexs`
-   as the Spark fallback; codexs is not a multi-model router. If that lane
-   also fails, invoke the Codex CLI explicitly with `-m gpt-5.6-luna`, then
-   `-m gpt-5.6-terra`, then `-m gpt-5.6-sol`, advancing only after a concrete
+2. After a concrete AGY lane failure, retry the same bounded lane with
+   `codex-luna` as the Luna fallback; codex-luna is not a multi-model router.
+   If that lane also fails, invoke the Codex CLI explicitly with `-m gpt-5.6-terra`, then
+   `-m gpt-5.6-sol`, advancing only after a concrete
    failure in that lane.
 3. Use `claudem` or an own cheap agent only when the ordered Codex route is
    unavailable; preserve the same bounded scope and verification requirements.
@@ -210,13 +210,13 @@ state and verify against `Revision`.
 ## Codex model routing
 
 For Codex parallel lanes, use this ordered fallback and advance only after a
-concrete per-lane failure. Invoke `codexs` as the Spark fallback; codexs is
-not a multi-model router:
+concrete per-lane failure. Invoke `codex-luna` as the Luna fallback;
+codex-luna is not a multi-model router:
 
-`gpt-5.3-codex-spark` → `gpt-5.6-luna` → `gpt-5.6-terra` → `gpt-5.6-sol`
+`gpt-5.6-luna` → `gpt-5.6-terra` → `gpt-5.6-sol`
 
 Record the rejection and retry the same bounded lane with the next explicit
-model. Never skip directly from Spark to Sol.
+model. Never skip directly from Luna to Sol.
 
 ## One-line form (for config files)
 
@@ -278,8 +278,8 @@ there to a pointer 2026-09-06; this section is the full policy).
 
 - Route every independent unit to the **cheapest capable tier** — never
   silently inherit an expensive session model for delegated work.
-- Small/mechanical bounded coding: `codexs` (on PATH)
-  (`gpt-5.3-codex-spark`) when capacity exists, falling back to `luna_worker`.
+- Small/mechanical bounded coding: `codex-luna` (on PATH)
+  (`gpt-5.6-luna`) when capacity exists.
 - Polling or mechanical sweeps: haiku/mini tier.
 - Top tier (the session's own model): reserve for adversarial judgment, or
   only after a cheaper tier has already failed on that unit.

@@ -37,7 +37,7 @@ Run discovery through `/e` with `/p`: enumerate independent items and keep a
 single coordinating writer for Bead and roadmap mutations. Prefer cheaper
 parallel read-only subagents for independent discovery lanes, code-path
 tracing, evidence inventory, and adversarial contract review. Use the locally
-available lower-cost route (for example Luna or the canonical Spark wrapper)
+available lower-cost route (for example the canonical `codex-luna` wrapper)
 when it is capable of the bounded task. Gather these lanes in parallel:
 
 1. Read repo instructions, the active goal, recent commits, changed files, and

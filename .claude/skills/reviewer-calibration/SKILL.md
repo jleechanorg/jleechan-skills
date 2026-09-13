@@ -30,7 +30,7 @@ The controller v1 supports exactly one backend:
 
 Do not advertise a backend the controller cannot run. If a calibration lane
 needs a different backend, route it through the raw terminal command
-(`codex exec --yolo -m gpt-5.3-codex-spark …`) — it is the raw baseline,
+(`codex exec --yolo -m gpt-5.6-luna …`) — it is the raw baseline,
 not the controller contract.
 
 ## Rule
@@ -65,7 +65,7 @@ Run all available reviewers against the same envelope:
 2. Raw terminal mirror:
 
 ```bash
-codex exec --yolo -m gpt-5.3-codex-spark \
+codex exec --yolo -m gpt-5.6-luna \
   "Review this PR/evidence/diff. Blocker findings only. Use this exact envelope: <path>"
 ```
 
@@ -148,4 +148,3 @@ If disabled:
 ```text
 Reviewer calibration: disabled <explicit reason>
 ```
-
