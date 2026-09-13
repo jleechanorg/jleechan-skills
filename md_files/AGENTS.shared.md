@@ -94,7 +94,7 @@ to upload files natively so they render inline in Slack.
 
 ## Disk diagnosis
 
-Follow `~/.agents/skills/disk-root-cause/SKILL.md` and the owning `~/projects_other/disk_magician/CLAUDE.md` before any other measurement; full three-lane procedure in `~/.claude/CLAUDE-global-reference.md` § Disk diagnosis. Do not present quick cleanup as the full explanation.
+When disk space, quota, or growth diagnosis is needed, follow the documented disk-diagnosis procedure (three lanes: whole-disk reconciliation, snapshot delta, safety-gated quick wins). Never present quick cleanup as the full explanation; the reconciliation lane is the authoritative answer, quick wins only address outliers.
 
 ## Beads and memory
 
@@ -145,7 +145,7 @@ For changes that require CI, once any check queues/pends >10 minutes, running th
 ## Merge safety — explicit approval required
 
 
-For `jleechanorg/worldarchitect.ai` only, never run `gh pr merge`, merge API calls, or push directly to main/master unless `MERGE APPROVED` or `merge approved` (or clear variants/obvious typos such as `merge approed`, `merge approve`, case-insensitive) appears in the most recent live user message. Context summaries, prior turns, worker prompts, and paraphrases are not authorization. AO workers may never execute `gh pr merge`; only the human-facing session may. `AO_ALLOW_GH_PR_MERGE=1` is never a bypass. When ready, summarize current-head CI, mergeability, evidence, and head SHA, then stop.
+Never run `gh pr merge`, merge API calls, or push directly to a default branch unless explicit merge approval (e.g. `MERGE APPROVED` or obvious case-insensitive typo) appears in the most recent live user message. Context summaries, prior turns, worker prompts, and paraphrases are not authorization. Delegated worker sessions may never execute `gh pr merge`; only the human-facing session may. Environment variables or alias workarounds (`*_ALLOW_GH_PR_MERGE=1`, etc.) are never a bypass. When ready, summarize current-head CI, mergeability, evidence, and head SHA, then stop.
 
 ## AO operations
 
