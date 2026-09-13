@@ -44,57 +44,60 @@ CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
 CLAUDE_HOME="${CLAUDE_HOME:-$HOME/.claude}"
 mkdir -p "$CODEX_HOME" "$CLAUDE_HOME"
 
-# 2. Back up any existing policy files so a re-run can never silently overwrite them.
+# 2. Install each policy: back up any divergent existing file, then copy.
+#    Re-running on identical files is a no-op (no backup, no overwrite, mtime preserved).
 ts="$(date -u +%Y%m%dT%H%M%SZ)"
-for pair in \
-    "md_files/AGENTS.shared.md $CODEX_HOME/AGENTS.md" \
-    "md_files/CLAUDE.adapter.md $CLAUDE_HOME/CLAUDE.md" ; do
-  set -- $pair
-  if [ -f "$2" ] && ! cmp -s "$1" "$2"; then
-    cp -p "$2" "$2.bak.$ts"
-    echo "backed up $2 -> $2.bak.$ts"
+backup_and_copy() {
+  local src="$1" dst="$2" ts="$3"
+  if [ -f "$dst" ] && ! cmp -s "$src" "$dst"; then
+    cp -p "$dst" "$dst.bak.$ts"
+    echo "backed up $dst -> $dst.bak.$ts"
   fi
-done
+  # Skip the copy when contents already match (preserves mtime).
+  if [ ! -f "$dst" ] || ! cmp -s "$src" "$dst"; then
+    install -m 0644 "$src" "$dst"
+  fi
+}
+backup_and_copy "md_files/AGENTS.shared.md"  "$CODEX_HOME/AGENTS.md"  "$ts"
+backup_and_copy "md_files/CLAUDE.adapter.md" "$CLAUDE_HOME/CLAUDE.md" "$ts"
 
-# 3. Install the shared policy and the Claude adapter.
-cp md_files/AGENTS.shared.md  "$CODEX_HOME/AGENTS.md"
-cp md_files/CLAUDE.adapter.md "$CLAUDE_HOME/CLAUDE.md"
-
-# 4. If CODEX_HOME is non-default, point the adapter's @import at the real path.
+# 3. If CODEX_HOME is non-default, point the adapter's @import at the real path.
 if [ "$CODEX_HOME" != "$HOME/.codex" ]; then
   sed -i.bak "s|@~/.codex/AGENTS.md|@$CODEX_HOME/AGENTS.md|" "$CLAUDE_HOME/CLAUDE.md"
   echo "rewired Claude adapter import to @$CODEX_HOME/AGENTS.md"
 fi
 
-# 5. Verify both files are at their expected paths.
+# 4. Verify both files are at their expected paths.
 [ -f "$CODEX_HOME/AGENTS.md"  ] && echo "shared policy: OK ($CODEX_HOME/AGENTS.md)"
 [ -f "$CLAUDE_HOME/CLAUDE.md" ] && echo "Claude adapter: OK ($CLAUDE_HOME/CLAUDE.md)"
 
-# 6. Sanity check: no absolute user paths leaked into the installed files.
-#    Fail loudly if any input is missing or unreadable (no false-positive OK).
+# 5. Sanity check: no absolute user paths leaked into the installed files.
+#    Fail loudly if any input is missing, unreadable, or non-regular
+#    (directories, fifos, symlinks to nowhere, etc.) — no false-positive OK.
 ok=1
 for f in "$CODEX_HOME/AGENTS.md" "$CLAUDE_HOME/CLAUDE.md"; do
-  if [ ! -r "$f" ]; then
-    echo "portable: ERROR — $f is missing or unreadable" >&2
+  if [ ! -f "$f" ] || [ ! -r "$f" ]; then
+    echo "portable: ERROR — $f is missing, unreadable, or not a regular file" >&2
     ok=0
     continue
   fi
-  if grep -nE '/Users/[A-Za-z]+|/home/[A-Za-z]+' "$f" >/dev/null 2>&1; then
-    rc=$?
-    # grep exit 1 (no match) is the only clean result; 2+ means scan error.
-    if [ "$rc" -ge 2 ]; then
-      echo "portable: ERROR — grep failed on $f (exit $rc)" >&2
-      ok=0
-    else
-      echo "portable: ERROR — $f contains user-specific paths" >&2
-      ok=0
-    fi
-  fi
+  # Capture grep's exit status BEFORE the if-test (otherwise rc is always 0 here).
+  grep -nE '/Users/[A-Za-z]+|/home/[A-Za-z]+' "$f" >/dev/null 2>&1
+  rc=$?
+  case "$rc" in
+    0) echo "portable: ERROR — $f contains user-specific paths" >&2; ok=0 ;;
+    1) : ;;                                                    # clean no-match
+    *) echo "portable: ERROR — grep failed on $f (exit $rc)" >&2; ok=0 ;;
+  esac
 done
 [ "$ok" = "1" ] && echo "portable: OK (no /Users/<name> or /home/<name> paths)"
 ```
 
-The `cmp -s` before each `cp` means the bootstrap is idempotent: re-running it on a machine whose policy already matches the template is a no-op (no backup, no overwrite). Re-running it on a machine with local edits produces a `.bak.<UTC-timestamp>` file next to the old policy.
+Notes on the install path:
+
+- `backup_and_copy` uses bash functions that take `"$src" "$dst"` as separate arguments, so paths with embedded spaces (e.g. `CODEX_HOME="$HOME/codex with space"`) are handled correctly. Do not replace the function with `set -- $pair` — that word-splits on whitespace and silently skips backups.
+- `install -m 0644` is a no-op when the destination contents match the source, preserving the file's mtime. Re-running the bootstrap on an already-up-to-date machine is truly idempotent.
+- `case "$rc" in 0|1|*)` correctly maps grep's three exit codes (0 = match, 1 = no match, ≥2 = error) to the right verdict. The earlier `if grep...; then rc=$?` shape always captured the if-test result (0 or 1), never grep's actual exit ≥2.
 
 ## Editing guidance (per `AGENTS.shared.md`)
 
@@ -113,27 +116,26 @@ Treat that gate as live for any edit to any file in this directory.
 If you copy a fresh policy file from your `~` into this directory, run the path-scan before committing — it fails the change if any user-specific path leaked in:
 
 ```bash
-# Reject any input that is missing or unreadable (no silent OK).
+# Reject any missing/unreadable/non-regular input; map grep exit codes
+# (0=match, 1=no-match, >=2=error) to the right verdict.
 files=(md_files/AGENTS.shared.md md_files/CLAUDE.adapter.md)
 ok=1
 for f in "${files[@]}"; do
-  if [ ! -r "$f" ]; then
-    echo "scan: ERROR — $f is missing or unreadable" >&2
+  if [ ! -f "$f" ] || [ ! -r "$f" ]; then
+    echo "scan: ERROR — $f is missing, unreadable, or not a regular file" >&2
     ok=0
     continue
   fi
-  if grep -nE '/Users/[A-Za-z]+|/home/[A-Za-z]+|@[A-Za-z0-9.-]+\.example\.(com|org|net)' \
-       "$f" >/dev/null 2>&1; then
-    rc=$?
-    if [ "$rc" -ge 2 ]; then
-      echo "scan: ERROR — grep failed on $f (exit $rc)" >&2
-      ok=0
-    else
-      echo "scan: HIT — $f contains user-specific paths:" >&2
-      grep -nE '/Users/[A-Za-z]+|/home/[A-Za-z]+|@[A-Za-z0-9.-]+\.example\.(com|org|net)' "$f" >&2
-      ok=0
-    fi
-  fi
+  grep -nE '/Users/[A-Za-z]+|/home/[A-Za-z]+|@[A-Za-z0-9.-]+\.example\.(com|org|net)' \
+       "$f" >/dev/null 2>&1
+  rc=$?
+  case "$rc" in
+    0) echo "scan: HIT — $f contains user-specific paths:" >&2
+       grep -nE '/Users/[A-Za-z]+|/home/[A-Za-z]+|@[A-Za-z0-9.-]+\.example\.(com|org|net)' "$f" >&2
+       ok=0 ;;
+    1) : ;;  # clean
+    *) echo "scan: ERROR — grep failed on $f (exit $rc)" >&2; ok=0 ;;
+  esac
 done
 [ "$ok" = "1" ] && echo "portable: clean"
 ```
