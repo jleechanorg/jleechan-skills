@@ -243,6 +243,22 @@ class ApprovalContractsTest(unittest.TestCase):
         self.assertIn("Always tell the user the **actual command** you ran", factory)
         self.assertIn("The top-level session owns named visible lanes", swarm)
 
+    def test_github_cli_reference_fallback_and_merge_authority(self) -> None:
+        ref = skill("github-cli-reference")
+        norm = " ".join(ref.split())
+        self.assertIn("read-only or idempotent", ref)
+        self.assertIn("must read back", ref)
+        self.assertIn("Human merge authority", ref)
+        self.assertIn(
+            "When an uncertain response occurs on a non-idempotent mutation (such as creating a comment, creating a release, or modifying state), the client must read back the current state or check idempotency before any retry attempt; never retry a mutation blindly to avoid creating duplicate comments, releases, or side effects.",
+            norm,
+        )
+        self.assertIn(
+            "Human merge authority and approval gates remain strictly preserved; automated fallbacks must never merge pull requests without explicit authorization.",
+            norm,
+        )
+
+
 
 if __name__ == "__main__":
     unittest.main()

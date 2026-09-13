@@ -55,16 +55,37 @@ itself remains the separate two-gate check defined by `pr-green-definition`.
 ### 1. Bundle integrity
 
 ```bash
-cd '<bundle_dir>'
+(
+  bundle_dir='<bundle_dir>'
+  cd "$bundle_dir" || { echo "Failed to enter bundle directory" >&2; exit 1; }
 
-if [[ -f checksums.sha256 ]]; then
-  sha256sum -c checksums.sha256
-elif find . -name "*.sha256" -print -quit | grep -q .; then
-  find . -name "*.sha256" -execdir sha256sum -c '{}' \;
-else
-  echo "No checksum files found"
-  exit 2
-fi
+  if [[ -f checksums.sha256 ]]; then
+    sha256sum -c checksums.sha256
+  else
+    cs_list="$(mktemp)" || exit 1
+    if ! find . -name "*.sha256" -type f -print0 > "$cs_list"; then
+      echo "Failed to discover checksum files" >&2
+      rm -f "$cs_list"
+      exit 1
+    fi
+
+    found_any=false
+    status=0
+    while IFS= read -r -d '' cs_file; do
+      found_any=true
+      dir="$(dirname "$cs_file")"
+      base="$(basename "$cs_file")"
+      ( cd "$dir" && sha256sum -c "$base" ) || status=1
+    done < "$cs_list"
+    rm -f "$cs_list"
+
+    if [ "$found_any" = false ]; then
+      echo "No checksum files found" >&2
+      exit 2
+    fi
+    exit "$status"
+  fi
+)
 ```
 
 - Top-level `checksums.sha256` means bundle-checksum mode.
@@ -134,13 +155,13 @@ GIFs and MP4s must be on a **public** repository — private repo release assets
 
 ```bash
 # For each <owner>/<repo> hosting a video asset:
-gh api repos/<owner>/<repo> --jq '.private'
+gh api 'repos/<owner>/<repo>' --jq '.private'
 # Must be: false
 ```
 
 ```bash
 # And verify the asset itself is uploaded and accessible:
-gh api repos/<owner>/<repo>/releases/tags/<tag> \
+gh api 'repos/<owner>/<repo>/releases/tags/<tag>' \
   --jq '.assets[] | {name: .name, state: .state}'
 # All states must be "uploaded"
 ```

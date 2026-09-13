@@ -62,8 +62,8 @@ if options:
     if not limit or not re.fullmatch(r"[1-9][0-9]*", limit):
         raise SystemExit("--max-attempts requires an exact positive integer")
     task = task[:option.start()] + task[option.end():]
-    if not task.strip():
-        raise SystemExit("--max-attempts also requires a task description")
+if not task.strip():
+    raise SystemExit("--max-attempts also requires a task description" if options else "A task description is required")
 if limit and not re.fullmatch(r"[1-9][0-9]*", limit):
     raise SystemExit("CLAW_MAX_ATTEMPTS requires an exact positive integer")
 print(limit)
