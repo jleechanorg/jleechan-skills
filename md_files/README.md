@@ -128,9 +128,25 @@ done
 
 Notes on the install path:
 
-- `backup_and_copy` uses bash functions that take `"$src" "$dst"` as separate arguments, so paths with embedded spaces (e.g. `CODEX_HOME="$HOME/codex with space"`) are handled correctly. Do not replace the function with `set -- $pair` — that word-splits on whitespace and silently skips backups.
-- `install -m 0644` is a no-op when the destination contents match the source, preserving the file's mtime. Re-running the bootstrap on an already-up-to-date machine is truly idempotent.
-- `case "$rc" in 0|1|*)` correctly maps grep's three exit codes (0 = match, 1 = no match, ≥2 = error) to the right verdict. The earlier `if grep...; then rc=$?` shape always captured the if-test result (0 or 1), never grep's actual exit ≥2.
+- `backup_and_write` uses bash functions that take a path-to-intended-content
+  as the first argument, so paths with embedded spaces (e.g.
+  `CODEX_HOME="$HOME/codex with space"`) are handled correctly. Do not replace
+  this with `set -- $pair` — that word-splits on whitespace and silently
+  skips backups.
+- The comparison uses the **post-rewrite** adapter form (with `@$CODEX_HOME/AGENTS.md`
+  substituted in when CODEX_HOME is non-default), not the raw source file. Without
+  this, `cmp` would always see a "divergence" between the on-disk adapter and the
+  raw source after the @import rewrite, and the bootstrap would create spurious
+  backups on every re-run.
+- `awk gsub` (not sed) is used for the @import rewrite because awk's gsub takes
+  the replacement as a variable — paths containing `|`, `/`, `#`, or any other
+  punctuation cannot break it. The replacement is pre-escaped for `&` and `\` so
+  paths containing those characters (which awk gsub treats as back-references)
+  survive intact.
+- `case "$rc" in 0|1|*)` correctly maps grep's three exit codes (0 = match,
+  1 = no match, ≥2 = error) to the right verdict. The earlier `if grep...; then
+  rc=$?` shape always captured the if-test result (0 or 1), never grep's actual
+  exit ≥2.
 
 ## Editing guidance (per `AGENTS.shared.md`)
 
