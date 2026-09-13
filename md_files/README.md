@@ -45,27 +45,60 @@ CLAUDE_HOME="${CLAUDE_HOME:-$HOME/.claude}"
 mkdir -p "$CODEX_HOME" "$CLAUDE_HOME"
 
 # 2. Install each policy: back up any divergent existing file, then copy.
-#    Re-running on identical files is a no-op (no backup, no overwrite, mtime preserved).
+#    Both files are identical regardless of CODEX_HOME on a default install;
+#    the Claude adapter only differs when CODEX_HOME is non-default (its
+#    @import is rewritten). Stage the post-rewrite adapter as a temp file so
+#    the backup check compares against the post-rewrite form (not the raw
+#    source) and a re-run is a true no-op.
 ts="$(date -u +%Y%m%dT%H%M%SZ)"
-backup_and_copy() {
-  local src="$1" dst="$2" ts="$3"
-  if [ -f "$dst" ] && ! cmp -s "$src" "$dst"; then
+
+# Stage both intended payloads as temp files. Bash $() command substitution
+# strips trailing newlines, so we cannot use shell variables for the
+# content -- use files instead.
+intended_ag_tmp="$(mktemp -t md_bootstrap_ag.XXXXXX)"
+intended_ad_tmp="$(mktemp -t md_bootstrap_ad.XXXXXX)"
+trap 'rm -f "$intended_ag_tmp" "$intended_ad_tmp"' EXIT
+install -m 0644 "md_files/AGENTS.shared.md" "$intended_ag_tmp"
+
+if [ "$CODEX_HOME" != "$HOME/.codex" ]; then
+  target_import="@$CODEX_HOME/AGENTS.md"
+  # Use awk gsub (not sed) so paths containing `|`, `/`, `#`, or any other
+  # punctuation cannot break the substitution. The source passes through awk
+  # with each @~/.codex/AGENTS.md occurrence rewritten to the target import.
+  # Escape `&` and `\` in the replacement (awk gsub treats these as
+  # back-references; an unescaped `&` in the path would be expanded to the
+  # matched text and corrupt the import line). Each `&` becomes `\\&` so awk
+  # treats it as a literal ampersand; each `\` becomes `\\` so awk treats it
+  # as a literal backslash.
+  awk_escaped_target=$(printf '%s' "$target_import" | sed 's/[\\&]/\\&/g; s/\\&/\\\\&/g')
+  awk -v old="@~/.codex/AGENTS.md" -v new="$awk_escaped_target" \
+    '{gsub(old, new); print}' "md_files/CLAUDE.adapter.md" > "$intended_ad_tmp"
+else
+  target_import="@~/.codex/AGENTS.md"
+  install -m 0644 "md_files/CLAUDE.adapter.md" "$intended_ad_tmp"
+fi
+
+backup_and_write() {
+  # Back up `$2` if it differs from the supplied `intended` file, then copy
+  # `intended` over `$2` (idempotent — preserves mtime when no change).
+  local intended="$1" dst="$2" ts="$3"
+  if [ -f "$dst" ] && ! cmp -s "$intended" "$dst"; then
     cp -p "$dst" "$dst.bak.$ts"
     echo "backed up $dst -> $dst.bak.$ts"
   fi
-  # Skip the copy when contents already match (preserves mtime).
-  if [ ! -f "$dst" ] || ! cmp -s "$src" "$dst"; then
-    install -m 0644 "$src" "$dst"
+  if [ ! -f "$dst" ] || ! cmp -s "$intended" "$dst"; then
+    install -m 0644 "$intended" "$dst"
   fi
 }
-backup_and_copy "md_files/AGENTS.shared.md"  "$CODEX_HOME/AGENTS.md"  "$ts"
-backup_and_copy "md_files/CLAUDE.adapter.md" "$CLAUDE_HOME/CLAUDE.md" "$ts"
 
-# 3. If CODEX_HOME is non-default, point the adapter's @import at the real path.
-if [ "$CODEX_HOME" != "$HOME/.codex" ]; then
-  sed -i.bak "s|@~/.codex/AGENTS.md|@$CODEX_HOME/AGENTS.md|" "$CLAUDE_HOME/CLAUDE.md"
-  echo "rewired Claude adapter import to @$CODEX_HOME/AGENTS.md"
+backup_and_write "$intended_ag_tmp"  "$CODEX_HOME/AGENTS.md"  "$ts"
+backup_and_write "$intended_ad_tmp" "$CLAUDE_HOME/CLAUDE.md" "$ts"
+
+if [ "$CODEX_HOME" != "$HOME/.codex" ] && ! grep -qF "$target_import" "$CLAUDE_HOME/CLAUDE.md"; then
+  echo "ERROR: rewired adapter is missing target import $target_import" >&2
+  exit 1
 fi
+[ "$CODEX_HOME" != "$HOME/.codex" ] && echo "rewired Claude adapter import to $target_import"
 
 # 4. Verify both files are at their expected paths.
 [ -f "$CODEX_HOME/AGENTS.md"  ] && echo "shared policy: OK ($CODEX_HOME/AGENTS.md)"

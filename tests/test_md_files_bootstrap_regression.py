@@ -178,8 +178,102 @@ class MdFilesBootstrapRegressionTests(unittest.TestCase):
                 f"@{codex_dir}/AGENTS.md", ad,
                 "non-default CODEX_HOME was not rewired into Claude's @import",
             )
+            self.assertNotIn(
+                "@~/.codex/AGENTS.md", ad,
+                "default @~/.codex/AGENTS.md import was not replaced after rewrite",
+            )
         finally:
             shutil.rmtree(home, ignore_errors=True)
+
+    # ----- Bootstrap: non-default CODEX_HOME re-run is idempotent -----
+
+    def test_non_default_codex_home_rerun_is_idempotent(self):
+        home = tempfile.mkdtemp(prefix="md_bootstrap_idem_alt_")
+        try:
+            codex_dir = f"{home}/my_codex"
+            claude_dir = f"{home}/claude"
+            env = os.environ.copy()
+            env["HOME"] = home
+            env["CODEX_HOME"] = codex_dir
+            env["CLAUDE_HOME"] = claude_dir
+
+            r1 = _run(self.bootstrap, env)
+            self.assertEqual(r1.returncode, 0, f"first run failed: {r1.stderr}")
+            mtime1 = os.stat(f"{claude_dir}/CLAUDE.md").st_mtime
+            self.assertEqual(
+                sorted(os.listdir(claude_dir)), ["CLAUDE.md"],
+                f"unexpected files after first run: {os.listdir(claude_dir)}",
+            )
+
+            time.sleep(1.2)
+
+            r2 = _run(self.bootstrap, env)
+            self.assertEqual(r2.returncode, 0, f"second run failed: {r2.stderr}")
+            mtime2 = os.stat(f"{claude_dir}/CLAUDE.md").st_mtime
+            self.assertEqual(
+                sorted(os.listdir(claude_dir)), ["CLAUDE.md"],
+                f"second run created spurious files: {os.listdir(claude_dir)}",
+            )
+            self.assertEqual(
+                mtime1, mtime2,
+                "non-default CODEX_HOME re-run bumped CLAUDE.md mtime — should be "
+                "idempotent (Codex 2026-09-13 review finding #1)",
+            )
+        finally:
+            shutil.rmtree(home, ignore_errors=True)
+
+    # ----- Bootstrap: CODEX_HOME with awk-special characters -----
+
+    def test_codex_home_with_awk_special_chars(self):
+        # awk gsub treats `&` and `\` as back-references in the replacement
+        # string. CODEX_HOME containing either character would corrupt the
+        # rewritten import unless properly escaped. (Codex 2026-09-13 review
+        # finding #2.)
+        for spec in [
+            "codex with space",
+            "codex|pipe",
+            "codex$dollar",
+            "codex&amp",
+            "codex#hash",
+            "codex\\back",
+            "codex&&here",
+            "codex\\\\back",
+        ]:
+            with self.subTest(spec=spec):
+                home = tempfile.mkdtemp(prefix=f"md_bootstrap_spec_{hash(spec) & 0xffff:04x}_")
+                try:
+                    codex_dir = f"{home}/{spec}"
+                    claude_dir = f"{home}/claude"
+                    os.makedirs(codex_dir)
+                    os.makedirs(claude_dir)
+                    with open(f"{codex_dir}/AGENTS.md", "w") as f:
+                        f.write("# shared\n")
+                    with open(f"{claude_dir}/CLAUDE.md", "w") as f:
+                        f.write("# adapter\n@~/.codex/AGENTS.md\n")
+                    env = os.environ.copy()
+                    env["HOME"] = home
+                    env["CODEX_HOME"] = codex_dir
+                    env["CLAUDE_HOME"] = claude_dir
+
+                    r = _run(self.bootstrap, env)
+                    self.assertEqual(
+                        r.returncode, 0,
+                        f"bootstrap failed for spec={spec!r}: {r.stderr}",
+                    )
+
+                    ad = open(f"{claude_dir}/CLAUDE.md").read()
+                    target = f"@{codex_dir}/AGENTS.md"
+                    self.assertIn(
+                        target, ad,
+                        f"spec={spec!r}: rewired import {target!r} not found in adapter",
+                    )
+                    self.assertNotIn(
+                        "@~/.codex/AGENTS.md", ad,
+                        f"spec={spec!r}: default import was not replaced (awk gsub "
+                        f"may have eaten `&` or `\\` in the replacement)",
+                    )
+                finally:
+                    shutil.rmtree(home, ignore_errors=True)
 
     # ----- Scan: clean file -> portable: clean -----
 
