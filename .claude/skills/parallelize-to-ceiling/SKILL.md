@@ -23,6 +23,14 @@ the answer.
 This applies to local CLI work and to remote/distributed compute equally, to
 one-off scripts and to production pipelines alike.
 
+## Timeline, parallel lanes, and milestones (mandatory)
+
+Read and apply `${CLAUDE_HOME:-$HOME/.claude}/skills/parallelize-to-ceiling/references/timeline-milestones.md`
+on every invocation. Always include a timeline, maximize useful independent
+lanes within the measured resource ceiling, and report milestones every
+20 minutes with an hourly rollup during active work. Preserve this command's
+planning, handoff, and execution authorization boundaries.
+
 ## The decision procedure
 
 1. **Enumerate the independent items.** Rows, files, tests, migrations, doc
