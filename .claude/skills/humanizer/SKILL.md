@@ -1,6 +1,6 @@
 ---
 name: humanizer
-description: Use when editing or reviewing prose to remove AI-writing tells — em-dash overuse, rule-of-three padding, "delve"/"tapestry"/"pivotal" vocabulary, sycophantic openers, knowledge-cutoff hedging, fragmented headers. Also use on your own output before publishing release notes, PR descriptions, docs, or essays.
+description: Use when editing or reviewing prose to remove AI-writing tells — em-dash overuse, rule-of-three padding, "delve"/"tapestry"/"pivotal" vocabulary, sycophantic openers, knowledge-cutoff hedging, fragmented headers. Also use on your own output before publishing release notes, PR descriptions, docs, or essays. Also enforces directive-style edits (burstiness, lead-with-impact, problem→solution, no em dashes, no fabricated specificity).
 license: MIT
 ---
 
@@ -25,6 +25,29 @@ Text arrives inline (rewrite in-place and reply), as a file (read it, then `patc
 3. Draft the rewrite.
 4. Ask: "What makes the below so obviously AI generated?" Answer briefly with any remaining tells.
 5. Revise one more time. Present the final version.
+
+## Directives (priority order — load these FIRST, scan for tells second)
+
+1. **Burstiness.** Vary sentence rhythm hard. Never leave three consecutive sentences
+   within ~5 words of each other. Land one very short sentence (≤6 words) per ~150 words.
+   Don't open consecutive sentences the same way. Vary paragraph length too.
+2. **Lead with impact and data.** First sentence answers "what happened" or "what's the answer."
+   Within a sentence, put known/old info first and new info last.
+3. **Problem then solution.** State the problem, then the fix and its measurable result.
+4. **Concrete, from the source only.** Replace vague modifiers ("highly successful," "important")
+   with a specific detail already in the source: a number, a named example, a time.
+   Never invent facts to sound concrete.
+5. **No em dashes.** Restructure to a period, comma, or colon. "The results exceeded every
+   forecast." not "The results were promising — they beat every forecast."
+6. **No fabricated specificity.** The concreteness rule above is not a license to invent
+   numbers, names, dates, or anecdotes. Anchor only with detail the source already contains.
+7. **No voice homogenization.** Preserve the author's specific nouns, product names,
+   identifiers, versions, file paths, flags, and exact figures verbatim, even where they read stiff.
+8. **No detector-chasing.** Clean writing lowers AI-scores as a side effect. Optimizing for
+   evasion produces worse prose. Don't tune for the tool.
+
+The "Process" steps above identify tells. These directives prioritize the rewrite itself.
+Apply directives first, scan tells second.
 
 ## Preserve facts, hedges, and meaning-bearing grammar
 
@@ -297,3 +320,10 @@ A heading followed by a one-line paragraph that restates the heading before the 
 ## Attribution
 
 Ported from [blader/humanizer](https://github.com/blader/humanizer) (MIT), based on [Wikipedia: Signs of AI writing](https://en.wikipedia.org/wiki/Wikipedia:Signs_of_AI_writing) (WikiProject AI Cleanup). All 29 patterns, personality section, and before/after examples preserved from the source. See `LICENSE` in this directory for the MIT license.
+
+## Combines contributions
+
+This skill folds in the editor-directives layer (burstiness, lead-with-impact, problem→
+solution, hard em-dash ban, no fabricated specificity, no detector-chasing) that arrived
+in a separate draft on 2026-09-13. The 29 patterns below remain the catalog; the
+directives above govern priority.
