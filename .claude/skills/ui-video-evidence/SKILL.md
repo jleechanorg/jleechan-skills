@@ -276,6 +276,19 @@ The following GitHub release example applies only when that destination is autho
     echo "Error: Verified release target commit '$release_target' does not match CAPTURED_SHA '$CAPTURED_SHA'" >&2
     exit 1
   fi
+  for expected_asset in "${assets[@]}"; do
+    name="$(basename "$expected_asset")"
+    matches="$(printf '%s' "$release_json" | jq --arg n "$name" '[.assets[] | select(.name == $n)]')"
+    count="$(printf '%s' "$matches" | jq 'length')"
+    if [[ "$count" -ne 1 ]]; then
+      echo "Error: Expected asset '$name' present $count time(s) in release readback (must be exactly 1)" >&2
+      exit 1
+    fi
+    if [[ -z "$(printf '%s' "$matches" | jq -r '.[0].url // empty')" ]]; then
+      echo "Error: Expected asset '$name' has no usable URL in release readback" >&2
+      exit 1
+    fi
+  done
   printf '%s\n' "$release_json"
 )
 ```

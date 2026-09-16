@@ -1119,6 +1119,17 @@ if len(args) >= 2 and args[0] == "release":
                             "name": fname,
                             "url": "https://github.com/intended/repo/releases/download/" + tag + "/" + fname,
                         }})
+        dup_name = os.environ.get("GH_STUB_DUPLICATE_ASSET_BASENAME")
+        if dup_name:
+            for a in list(assets_list):
+                if a["name"] == dup_name:
+                    assets_list.append({{"name": dup_name, "url": ""}})
+                    break
+        blank_name = os.environ.get("GH_STUB_BLANK_URL_BASENAME")
+        if blank_name:
+            for a in assets_list:
+                if a["name"] == blank_name:
+                    a["url"] = ""
         rel_data = {{
             "url": ("https://github.com/intended/repo/releases/tag/" + tag) if tag else "https://github.com/example/repo/releases/tag/v1",
             "assets": assets_list,
@@ -1145,10 +1156,13 @@ if len(args) >= 2 and args[0] == "release":
             else:
                 assets.append(args[i])
                 i += 1
+        drop_name = os.environ.get("GH_STUB_DROP_ASSET_BASENAME")
         if tag:
             upload_store = os.path.join(os.path.dirname(calls_file), "mock_releases", tag)
             os.makedirs(upload_store, exist_ok=True)
             for a in assets:
+                if drop_name and os.path.basename(a) == drop_name:
+                    continue
                 if os.path.exists(a):
                     shutil.copy2(a, os.path.join(upload_store, os.path.basename(a)))
         sys.exit(0)
@@ -2063,6 +2077,69 @@ else:
                 calls_in_target_fail = [json.loads(line)["argv"] for line in calls_file.read_text().splitlines()] if calls_file.exists() else []
                 self.assertFalse(any(c[:2] == ["pr", "comment"] or c[:2] == ["pr", "edit"] for c in calls_in_target_fail), "PR comment must not run on release target mismatch")
                 self.assertFalse(any(c[:2] == ["release", "upload"] for c in calls_in_target_fail), "Must not upload on release target mismatch in pipeline")
+
+    def test_video_evidence_publication_detects_incomplete_asset_readback(self):
+        owners = [
+            REPO_ROOT / ".claude/skills/tmux-video-evidence/SKILL.md",
+            REPO_ROOT / ".claude/skills/evidence-standards/tmux-video-evidence.md",
+            REPO_ROOT / ".claude/skills/ui-video-evidence/SKILL.md",
+        ]
+        for skill_file in owners:
+            with self.subTest(owner=skill_file.name):
+                content = skill_file.read_text(encoding="utf-8")
+                section = content.split("## Evidence access and authorized publication", 1)[1]
+                blocks = section.split("```bash\n")
+                block1 = blocks[1].split("\n```", 1)[0]
+
+                test_dir = self.tmp_path / f"asset_pub_{skill_file.name}_{skill_file.parent.name}"
+                test_dir.mkdir(parents=True, exist_ok=True)
+                calls_file = test_dir / "gh-calls.jsonl"
+                env = self._create_gh_test_env(test_dir, calls_file)
+
+                dummy_video = test_dir / "video.mp4"
+                dummy_video.write_bytes(b"dummy video data")
+                dummy_preview = test_dir / "preview.gif"
+                dummy_preview.write_bytes(b"dummy gif data")
+                dummy_caption = test_dir / "captions.vtt"
+                dummy_caption.write_text("WEBVTT\n\n00:00.000 --> 00:01.000\nCaption\n")
+
+                base_cmd = (
+                    f'PR_NUMBER="42"\nREPO="intended/repo"\nRUN_ID="run-1"\n'
+                    f'CAPTURED_SHA="0123456789abcdef0123456789abcdef01234567"\n'
+                    f'VIDEO_FILE="{dummy_video}"\nPREVIEW_FILE="{dummy_preview}"\n'
+                    f'CAPTION_FILE="{dummy_caption}"\n'
+                )
+
+                # 1. Upload silently drops an expected asset: readback missing it must fail closed
+                if calls_file.exists():
+                    calls_file.unlink()
+                env_drop = {**env, "GH_STUB_DROP_ASSET_BASENAME": dummy_preview.name}
+                res_drop = subprocess.run(["bash", "-c", base_cmd + block1], env=env_drop, capture_output=True, text=True)
+                self.assertNotEqual(res_drop.returncode, 0, f"{skill_file.name} must fail when an expected asset is missing from readback")
+
+                # 2. Duplicate asset name where one duplicate has an invalid (empty) URL must fail closed
+                if calls_file.exists():
+                    calls_file.unlink()
+                env_dup = {**env, "GH_STUB_DUPLICATE_ASSET_BASENAME": dummy_preview.name}
+                res_dup = subprocess.run(["bash", "-c", base_cmd + block1], env=env_dup, capture_output=True, text=True)
+                self.assertNotEqual(res_dup.returncode, 0, f"{skill_file.name} must fail on a duplicate asset name with an invalid URL")
+
+                # 3. Expected asset present by name but URL is blank/invalid must fail closed
+                if calls_file.exists():
+                    calls_file.unlink()
+                env_blank = {**env, "GH_STUB_BLANK_URL_BASENAME": dummy_preview.name}
+                res_blank = subprocess.run(["bash", "-c", base_cmd + block1], env=env_blank, capture_output=True, text=True)
+                self.assertNotEqual(res_blank.returncode, 0, f"{skill_file.name} must fail when an expected asset has a blank/invalid URL")
+
+                # 4. Preserve the complete, correct publication case: all three assets present with valid URLs
+                if calls_file.exists():
+                    calls_file.unlink()
+                res_ok = subprocess.run(["bash", "-c", base_cmd + block1], env=env, capture_output=True, text=True)
+                self.assertEqual(res_ok.returncode, 0, f"{skill_file.name} complete publication must still succeed: {res_ok.stderr!r}")
+                final_json = json.loads(res_ok.stdout.strip().splitlines()[-1])
+                self.assertEqual(len(final_json["assets"]), 3, f"{skill_file.name} must upload exactly video zip, preview, and caption")
+                for a in final_json["assets"]:
+                    self.assertTrue(a.get("url"), f"{skill_file.name} asset {a['name']} must have a non-empty URL")
 
     def test_ffprobe_real_fixtures_validation(self):
         import shutil
