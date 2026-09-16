@@ -87,6 +87,16 @@ path_identity() {
     stat -c '%d:%i' "$1" 2>/dev/null || stat -f '%d:%i' "$1"
 }
 
+file_sha256() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" | awk '{print $1}'
+    elif command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "$1" | awk '{print $1}'
+    else
+        python3 -c 'import hashlib, sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$1"
+    fi
+}
+
 release_migration_lock() {
     [ "$MIGRATION_LOCK_HELD" = true ] || return 0
     rmdir "$MIGRATION_LOCK_DIR" || log_warning "Could not remove migration lock: $MIGRATION_LOCK_DIR"
@@ -299,10 +309,10 @@ list_installable_files() {
             -name '_archived_*' -o \
             -name __pycache__ -o \
             -name .pytest_cache \
-        \) -prune -o -type f ! -name '*.py[co]' ! -name '.DS_Store' -print0
+        \) -prune -o \( -type f -o -type l \) ! -name '*.py[co]' ! -name '.DS_Store' -print0
     else
         find . -type d \( -name __pycache__ -o -name .pytest_cache \) -prune \
-            -o -type f ! -name '*.py[co]' ! -name '.DS_Store' -print0
+            -o \( -type f -o -type l \) ! -name '*.py[co]' ! -name '.DS_Store' -print0
     fi
 }
 
@@ -313,13 +323,21 @@ install_component() {
     local component_name="$3"
     local relative
 
+    if [ -L "$dest_dir" ]; then
+        log_info "Preserving externally owned $component_name directory link: $dest_dir"
+        return 0
+    fi
+
     if [ -d "$src_dir" ]; then
         mkdir -p "$dest_dir"
+        local preserved_count=0
         while IFS= read -r -d '' relative; do
             relative="${relative#./}"
             local cur_dir="$dest_dir"
             local part
             local parent_rel; parent_rel="$(dirname "$relative")"
+            local skip_file=false
+            local linked_owner=""
             if [ "$parent_rel" != "." ]; then
                 local old_ifs="$IFS"
                 IFS='/' read -ra PARTS <<< "$parent_rel"
@@ -327,9 +345,16 @@ install_component() {
                 for part in "${PARTS[@]}"; do
                     cur_dir="$cur_dir/$part"
                     if [ -L "$cur_dir" ]; then
-                        rm -f "$cur_dir"
+                        skip_file=true
+                        linked_owner="$cur_dir"
+                        break
                     fi
                 done
+            fi
+            if [ "$skip_file" = true ]; then
+                log_info "Preserving externally owned $component_name link ($linked_owner); skipping $dest_dir/$relative"
+                preserved_count=$((preserved_count + 1))
+                continue
             fi
             mkdir -p "$(dirname "$dest_dir/$relative")"
             rm -f "$dest_dir/$relative"
@@ -338,7 +363,11 @@ install_component() {
             cd "$src_dir"
             list_installable_files "$component_name"
         )
-        log_success "Installed recursive $component_name tree"
+        if [ "$preserved_count" -gt 0 ]; then
+            log_success "Installed recursive $component_name tree (preserved $preserved_count externally owned path(s))"
+        else
+            log_success "Installed recursive $component_name tree"
+        fi
     else
         log_warning "No $component_name source directory found at $src_dir"
     fi
@@ -358,6 +387,7 @@ preflight_history_helper() {
     local source="$PLUGIN_SRC_DIR/scripts/history_search.py"
     local scripts_dir="$INSTALL_ROOT/scripts"
     local destination="$scripts_dir/history_search.py"
+    local receipt="$scripts_dir/.history_search.py.sha256"
     [ -f "$source" ] || return 0
 
     if [ -L "$scripts_dir" ] ||
@@ -365,12 +395,55 @@ preflight_history_helper() {
         log_error "Refusing history helper installation through a non-directory or linked scripts path: $scripts_dir"
         return 1
     fi
-    if path_exists "$destination" &&
-       { [ -L "$destination" ] || [ ! -f "$destination" ] || ! cmp -s "$source" "$destination"; }; then
-        log_error "Refusing to replace an existing history helper: $destination"
-        log_error "Inspect and preserve that file; --backup deliberately backs up and replaces the entire target."
+    if [ -L "$receipt" ]; then
+        log_error "Refusing history helper installation through unsafe receipt symlink: $receipt"
         return 1
     fi
+    if path_exists "$receipt"; then
+        if ! python3 -c 'import sys, os; st = os.lstat(sys.argv[1]); sys.exit(0 if (os.path.isfile(sys.argv[1]) and st.st_nlink == 1) else 1)' "$receipt" 2>/dev/null; then
+            log_error "Refusing history helper installation through unsafe hardlinked or non-regular receipt: $receipt"
+            return 1
+        fi
+    fi
+    if path_exists "$destination"; then
+        if [ -L "$destination" ] || [ ! -f "$destination" ]; then
+            log_error "Refusing to replace an existing history helper: $destination"
+            log_error "Inspect and preserve that file; --backup deliberately backs up and replaces the entire target."
+            return 1
+        fi
+        if ! python3 -c 'import sys, os; st = os.lstat(sys.argv[1]); sys.exit(0 if (os.path.isfile(sys.argv[1]) and st.st_nlink == 1) else 1)' "$destination" 2>/dev/null; then
+            log_error "Refusing to replace hardlinked history helper: $destination"
+            return 1
+        fi
+        if cmp -s "$source" "$destination"; then
+            return 0
+        fi
+
+        local is_owned=false
+        if [ -f "$receipt" ]; then
+            local expected_hash dest_hash
+            expected_hash="$(tr -d '[:space:]' < "$receipt" 2>/dev/null || true)"
+            dest_hash="$(file_sha256 "$destination" | tr -d '[:space:]')"
+            if [ -n "$expected_hash" ] && [ "$dest_hash" = "$expected_hash" ]; then
+                is_owned=true
+            fi
+        fi
+
+        if [ "$is_owned" = false ] && git -C "$PLUGIN_SRC_DIR" rev-parse --git-dir >/dev/null 2>&1; then
+            local blob_sha
+            blob_sha="$(git -C "$PLUGIN_SRC_DIR" hash-object "$destination" 2>/dev/null || true)"
+            if [ -n "$blob_sha" ] && git -C "$PLUGIN_SRC_DIR" rev-list --objects HEAD -- scripts/history_search.py 2>/dev/null | grep -E "^${blob_sha}[[:space:]]+scripts/history_search\.py$" >/dev/null 2>&1; then
+                is_owned=true
+            fi
+        fi
+
+        if [ "$is_owned" = false ]; then
+            log_error "Refusing to replace an existing history helper: $destination"
+            log_error "Inspect and preserve that file; --backup deliberately backs up and replaces the entire target."
+            return 1
+        fi
+    fi
+    return 0
 }
 
 # Copy scripts to ~/.claude/scripts/
@@ -379,9 +452,11 @@ install_scripts() {
     if [ -f "$PLUGIN_SRC_DIR/scripts/history_search.py" ]; then
         preflight_history_helper
         mkdir -p "$INSTALL_ROOT/scripts"
-        if ! path_exists "$INSTALL_ROOT/scripts/history_search.py"; then
-            cp -a -n "$PLUGIN_SRC_DIR/scripts/history_search.py" "$INSTALL_ROOT/scripts/history_search.py"
-        fi
+        rm -f "$INSTALL_ROOT/scripts/history_search.py"
+        cp -a "$PLUGIN_SRC_DIR/scripts/history_search.py" "$INSTALL_ROOT/scripts/history_search.py"
+        local receipt="$INSTALL_ROOT/scripts/.history_search.py.sha256"
+        rm -f "$receipt"
+        file_sha256 "$INSTALL_ROOT/scripts/history_search.py" > "$receipt"
     fi
     if [ -f "$SRC_INTEGRATE_SCRIPT" ]; then
         mkdir -p "$INSTALL_ROOT/scripts"
@@ -409,10 +484,40 @@ validate_installation() {
     for component in agents commands scripts skills; do
         source_dir="$PLUGIN_SRC_DIR/.claude/$component"
         [ -d "$source_dir" ] || continue
+        if [ -L "$INSTALL_ROOT/$component" ]; then
+            log_info "Preserving externally owned $component directory link during validation: $INSTALL_ROOT/$component"
+            continue
+        fi
         while IFS= read -r -d '' relative; do
             relative="${relative#./}"
+            local cur_dir="$INSTALL_ROOT/$component"
+            local part
+            local parent_rel; parent_rel="$(dirname "$relative")"
+            local is_linked=false
+            local linked_owner=""
+            if [ "$parent_rel" != "." ]; then
+                local old_ifs="$IFS"
+                IFS='/' read -ra PARTS <<< "$parent_rel"
+                IFS="$old_ifs"
+                for part in "${PARTS[@]}"; do
+                    cur_dir="$cur_dir/$part"
+                    if [ -L "$cur_dir" ]; then
+                        is_linked=true
+                        linked_owner="$cur_dir"
+                        break
+                    fi
+                done
+            fi
+            if [ "$is_linked" = true ]; then
+                log_info "Preserving externally owned $component link ($linked_owner) during validation; skipping $INSTALL_ROOT/$component/$relative"
+                continue
+            fi
             destination_file="$INSTALL_ROOT/$component/$relative"
-            if [ ! -f "$destination_file" ] || ! cmp -s "$source_dir/$relative" "$destination_file"; then
+            if [ ! -f "$destination_file" ] && [ ! -L "$destination_file" ]; then
+                log_error "Manifest validation failed for $component/$relative"
+                return 1
+            fi
+            if [ -f "$destination_file" ] && ! cmp -s "$source_dir/$relative" "$destination_file"; then
                 log_error "Manifest validation failed for $component/$relative"
                 return 1
             fi

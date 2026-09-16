@@ -253,11 +253,22 @@ def search_codex(
             query, cwd, limit, max_chars, db_path, sessions_dir
         )
 
-    profiles = codex_homes if codex_homes is not None else [
-        os.environ.get("CODEX_HOME") or Path.home() / ".codex",
-        Path.home() / ".codex",
-    ]
-    homes = dict.fromkeys(Path(profile).expanduser().resolve() for profile in profiles)
+    valid_profiles: list[Path] = []
+    if codex_homes is not None:
+        for profile in codex_homes:
+            if str(profile).strip():
+                valid_profiles.append(Path(profile).expanduser().resolve())
+    if not valid_profiles:
+        default_profiles = [
+            os.environ.get("CODEX_HOME") or Path.home() / ".codex",
+            Path.home() / ".codex",
+        ]
+        valid_profiles = [
+            Path(p).expanduser().resolve()
+            for p in default_profiles
+            if str(p).strip()
+        ]
+    homes = list(dict.fromkeys(valid_profiles))
     results: list[HistoryEntry] = []
     seen_threads: set[str] = set()
     for home in homes:
@@ -290,14 +301,37 @@ def _search_codex_store(
     db_path: Optional[Path | str],
     sessions_dir: Optional[Path | str],
 ) -> list[HistoryEntry]:
-    """Read a single Codex profile without changing its database or rollouts."""
+    """Read a single Codex profile without changing its database or rollouts.
+
+    Explicit profile parameters remain strictly isolated from default/home stores.
+    When only one of db_path or sessions_dir is supplied, coherent sibling inference
+    resolves the other within that same profile directory if it exists; otherwise,
+    the unspecified store is disabled rather than falling back to ~/.codex.
+    """
     results: list[HistoryEntry] = []
-    database = Path(db_path) if db_path is not None else Path.home() / ".codex" / "state_5.sqlite"
+
+    # Coherent sibling inference and store isolation
+    database: Optional[Path]
+    sess_dir: Optional[Path]
+    if db_path is not None and sessions_dir is None:
+        database = Path(db_path)
+        sibling_sessions = database.parent / "sessions"
+        sess_dir = sibling_sessions if sibling_sessions.is_dir() else None
+    elif sessions_dir is not None and db_path is None:
+        sess_dir = Path(sessions_dir)
+        sibling_db = sess_dir.parent / "state_5.sqlite"
+        database = sibling_db if sibling_db.is_file() else None
+    elif db_path is not None and sessions_dir is not None:
+        database = Path(db_path)
+        sess_dir = Path(sessions_dir)
+    else:
+        database = Path.home() / ".codex" / "state_5.sqlite"
+        sess_dir = Path.home() / ".codex" / "sessions"
 
     cwd_path = cwd or os.getcwd()
     cwd_basename = Path(cwd_path).name
 
-    if database.is_file():
+    if database is not None and database.is_file():
         con = None
         try:
             con = sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True)
@@ -311,10 +345,20 @@ def _search_codex_store(
                 END
             """
 
+            has_model_col = False
+            try:
+                col_info = cur.execute("PRAGMA table_info(threads)").fetchall()
+                col_names = [col[1] for col in col_info]
+                has_model_col = "model" in col_names
+            except Exception:
+                pass
+
+            model_select = ", model" if has_model_col else ""
+
             if query:
                 sql = f"""
                     SELECT title, substr(first_user_message, 1, 200), cwd, git_branch,
-                           {date_expr} as created, id
+                           {date_expr} as created, id{model_select}
                     FROM threads
                     WHERE (title LIKE ? OR first_user_message LIKE ?)
                       AND (archived = 0 OR archived IS NULL)
@@ -325,7 +369,7 @@ def _search_codex_store(
             else:
                 sql = f"""
                     SELECT title, substr(first_user_message, 1, 200), cwd, git_branch,
-                           {date_expr} as created, id
+                           {date_expr} as created, id{model_select}
                     FROM threads
                     WHERE (cwd LIKE ? OR cwd IS NULL)
                       AND (archived = 0 OR archived IS NULL)
@@ -336,10 +380,9 @@ def _search_codex_store(
 
             rows = cur.execute(sql, params).fetchall()
             if not rows and not query:
-                # Fallback to recent threads across any workspace if cwd has no hits
                 sql_recent = f"""
                     SELECT title, substr(first_user_message, 1, 200), cwd, git_branch,
-                           {date_expr} as created, id
+                           {date_expr} as created, id{model_select}
                     FROM threads
                     WHERE (archived = 0 OR archived IS NULL)
                     ORDER BY created_at DESC
@@ -347,23 +390,31 @@ def _search_codex_store(
                 """
                 rows = cur.execute(sql_recent, (limit,)).fetchall()
 
-            for title, first_msg, row_cwd, branch, created, thread_id in rows:
+            for row in rows:
+                title, first_msg, row_cwd, branch, created, thread_id = row[:6]
+                row_model = row[6] if has_model_col and len(row) > 6 and row[6] else None
                 proj = Path(row_cwd).name if row_cwd else "?"
                 title_str = (title or "?")[:40]
                 branch_str = branch or "main"
                 snippet = _clean_snippet(first_msg or "", max_chars=max_chars)
                 ts = str(created or "")
                 label = f"{proj} | {branch_str} | {title_str}"
+                meta: dict[str, Any] = {
+                    "cwd": row_cwd, "branch": branch, "title": title,
+                    "thread_id": thread_id, "database": str(database),
+                }
+                if row_model:
+                    meta["model"] = str(row_model)
+                    meta["thread_model"] = str(row_model)
+                    meta["model_source"] = "database"
+                    meta["model_scope"] = "thread"
                 results.append(
                     HistoryEntry(
                         source="codex",
                         timestamp=ts,
                         label=label,
                         snippet=snippet,
-                        metadata={
-                            "cwd": row_cwd, "branch": branch, "title": title,
-                            "thread_id": thread_id, "database": str(database),
-                        },
+                        metadata=meta,
                     )
                 )
         except Exception:
@@ -376,76 +427,125 @@ def _search_codex_store(
                     pass
 
     # Fallback to session rollout files if DB is missing or has no results
-    if not results:
-        sess_dir = Path(sessions_dir) if sessions_dir is not None else Path.home() / ".codex" / "sessions"
-        if sess_dir.is_dir():
-            try:
-                rollout_files: list[Path] = []
-                for root, _, files in os.walk(sess_dir):
-                    for f in files:
-                        if f.startswith("rollout-") and f.endswith(".jsonl"):
-                            rollout_files.append(Path(root) / f)
-                    if len(rollout_files) >= 20:
-                        break
+    if not results and sess_dir is not None and sess_dir.is_dir():
+        try:
+            rollout_files: list[Path] = []
+            for root, _, files in os.walk(sess_dir):
+                for f in files:
+                    if f.startswith("rollout-") and f.endswith(".jsonl"):
+                        rollout_files.append(Path(root) / f)
+                if len(rollout_files) >= 20:
+                    break
 
-                def safe_mtime_p(p: Path) -> float:
-                    try:
-                        return p.stat().st_mtime
-                    except Exception:
-                        return 0.0
+            def safe_mtime_p(p: Path) -> float:
+                try:
+                    return p.stat().st_mtime
+                except Exception:
+                    return 0.0
 
-                rollout_files.sort(key=safe_mtime_p, reverse=True)
+            rollout_files.sort(key=safe_mtime_p, reverse=True)
 
-                for rf in rollout_files[:5]:
-                    if len(results) >= limit:
-                        break
-                    try:
-                        with open(rf, "r", encoding="utf-8", errors="ignore") as f:
-                            for line in f:
-                                line = line.strip()
-                                if not line:
-                                    continue
-                                try:
-                                    obj = json.loads(line)
-                                except Exception:
-                                    continue
-                                if not isinstance(obj, dict):
-                                    continue
-                                text = ""
-                                payload = obj.get("payload", {})
-                                if (
-                                    obj.get("type") == "response_item"
-                                    and isinstance(payload, dict)
-                                    and payload.get("role") == "user"
-                                ):
-                                    text = _extract_claude_content(payload.get("content"))
-                                elif obj.get("role") == "user":
-                                    text = str(obj.get("content") or "")
-                                elif "user_message" in obj:
-                                    text = str(obj.get("user_message") or "")
-                                elif "message" in obj and isinstance(obj["message"], dict):
-                                    text = _extract_claude_content(obj["message"].get("content"))
-                                if not text:
-                                    continue
-                                if query and query.lower() not in text.lower():
-                                    continue
-                                snippet = _clean_snippet(text, max_chars=max_chars)
-                                ts = str(obj.get("timestamp") or "")
-                                results.append(
-                                    HistoryEntry(
-                                        source="codex",
-                                        timestamp=ts,
-                                        label=rf.parent.name,
-                                        snippet=snippet,
-                                        metadata={"path": str(rf)},
-                                    )
+            for rf in rollout_files[:5]:
+                if len(results) >= limit:
+                    break
+                try:
+                    session_hint_model: Optional[str] = None
+                    current_turn_model: Optional[str] = None
+                    active_turn_id: Optional[str] = None
+                    seen_turn_context: bool = False
+                    with open(rf, "r", encoding="utf-8", errors="ignore") as f:
+                        for line in f:
+                            line = line.strip()
+                            if not line:
+                                continue
+                            try:
+                                obj = json.loads(line)
+                            except Exception:
+                                continue
+                            if not isinstance(obj, dict):
+                                continue
+
+                            record_model: Optional[str] = None
+                            line_type = obj.get("type")
+                            payload = obj.get("payload") if isinstance(obj.get("payload"), dict) else {}
+
+                            if line_type == "turn_context":
+                                seen_turn_context = True
+                                turn_id = payload.get("turn_id") or obj.get("turn_id")
+                                if turn_id:
+                                    active_turn_id = str(turn_id)
+                                model = payload.get("model") or obj.get("model")
+                                current_turn_model = str(model) if model else None
+                            elif line_type == "event_msg":
+                                event_type = payload.get("type")
+                                if event_type == "task_started":
+                                    current_turn_model = None
+                                    turn_id = payload.get("turn_id")
+                                    active_turn_id = str(turn_id) if turn_id else None
+                                elif event_type in ("task_complete", "turn_aborted"):
+                                    completion_turn_id = str(payload.get("turn_id")) if payload.get("turn_id") else None
+                                    if completion_turn_id is not None and active_turn_id is not None:
+                                        if completion_turn_id == active_turn_id:
+                                            current_turn_model = None
+                                            active_turn_id = None
+                                    elif completion_turn_id is None and active_turn_id is None:
+                                        current_turn_model = None
+                                        active_turn_id = None
+                            elif line_type == "session_meta":
+                                if payload.get("model"):
+                                    session_hint_model = str(payload["model"])
+                            elif obj.get("model"):
+                                record_model = str(obj["model"])
+
+                            text = ""
+                            if (
+                                line_type == "response_item"
+                                and isinstance(payload, dict)
+                                and payload.get("role") == "user"
+                            ):
+                                text = _extract_claude_content(payload.get("content"))
+                            elif obj.get("role") == "user":
+                                text = str(obj.get("content") or "")
+                            elif "user_message" in obj:
+                                text = str(obj.get("user_message") or "")
+                            elif "message" in obj and isinstance(obj["message"], dict):
+                                text = _extract_claude_content(obj["message"].get("content"))
+                            if not text:
+                                continue
+                            if query and query.lower() not in text.lower():
+                                continue
+                            snippet = _clean_snippet(text, max_chars=max_chars)
+                            ts = str(obj.get("timestamp") or "")
+                            meta = {"path": str(rf)}
+                            if session_hint_model:
+                                meta["session_model"] = session_hint_model
+                            if current_turn_model:
+                                meta["model"] = current_turn_model
+                                meta["model_source"] = "turn_context"
+                                meta["model_scope"] = "turn"
+                            elif record_model:
+                                meta["model"] = record_model
+                                meta["model_source"] = "record"
+                                meta["model_scope"] = "record"
+                            elif not seen_turn_context and session_hint_model:
+                                meta["model"] = session_hint_model
+                                meta["model_source"] = "session_meta"
+                                meta["model_scope"] = "session"
+                            results.append(
+                                HistoryEntry(
+                                    source="codex",
+                                    timestamp=ts,
+                                    label=rf.parent.name,
+                                    snippet=snippet,
+                                    metadata=meta,
                                 )
-                                if len(results) >= limit:
-                                    break
-                    except Exception:
-                        continue
-            except Exception:
-                pass
+                            )
+                            if len(results) >= limit:
+                                break
+                except Exception:
+                    continue
+        except Exception:
+            pass
 
     return results[:limit]
 
@@ -1067,7 +1167,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         cwd=args.cwd,
         limit=args.limit,
         max_chars=args.max_chars,
-        codex_homes=args.codex_homes,
+        codex_homes=[h for h in args.codex_homes if h and h.strip()] if args.codex_homes is not None else None,
     )
 
     if args.json:
