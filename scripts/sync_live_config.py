@@ -26,6 +26,7 @@ import hashlib
 import json
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -531,7 +532,10 @@ def cmd_apply(args: argparse.Namespace) -> int:
             for p in paths:
                 live_abs = live_abs_for(p, home)
                 live_abs.parent.mkdir(parents=True, exist_ok=True)
-                live_abs.write_bytes(repo_abs_for(root, p).read_bytes())
+                # copy2 (not write_bytes/read_bytes) so the destination keeps
+                # the source's mode bits — a script losing its executable bit
+                # on copy is a silent breakage.
+                shutil.copy2(repo_abs_for(root, p), live_abs)
                 print(f"repo -> live: {p}")
     else:  # live-to-repo
         if args.remote:
@@ -540,7 +544,7 @@ def cmd_apply(args: argparse.Namespace) -> int:
             for p in paths:
                 repo_abs = repo_abs_for(root, p)
                 repo_abs.parent.mkdir(parents=True, exist_ok=True)
-                repo_abs.write_bytes(live_abs_for(p, home).read_bytes())
+                shutil.copy2(live_abs_for(p, home), repo_abs)
                 print(f"live -> repo: {p}")
     return 0
 
@@ -587,6 +591,7 @@ def _apply_remote_repo_to_live(root: Path, paths: list[str], host: str) -> None:
         # remote shell to expand — that literal-$HOME expansion bug is what this fixes.
         manifest = "\n".join(f"{p}\t{remote_home}/{live_rel_for(p)}" for p in paths)
         remote_script = _SYMLINK_GUARD_FN + f"""set -e
+trap 'rm -rf {remote_extract} {remote_tar}' EXIT
 mkdir -p {remote_extract}
 tar -xzf {remote_tar} -C {remote_extract}
 REMOTE_HOME={shlex.quote(remote_home)}
@@ -605,9 +610,18 @@ while IFS=$'\\t' read -r src dest; do
 done <<'MANIFEST_EOF'
 {manifest}
 MANIFEST_EOF
-rm -rf {remote_extract} {remote_tar}
 """
         subprocess.run(["ssh", "-o", "ConnectTimeout=15", host, "bash", "-s"], input=remote_script, text=True, check=True)
+    except subprocess.CalledProcessError:
+        # The remote script's own EXIT trap covers everything from mkdir
+        # onward, but scp can fail after partially uploading, or the ssh
+        # invocation can die before the trap is even installed — best-effort
+        # clean up the known token-named paths in either case.
+        subprocess.run(
+            ["ssh", "-o", "ConnectTimeout=10", host, "rm", "-rf", remote_extract, remote_tar],
+            check=False,
+        )
+        raise
     finally:
         Path(tar_path).unlink(missing_ok=True)
     for p in paths:

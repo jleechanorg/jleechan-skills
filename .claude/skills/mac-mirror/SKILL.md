@@ -68,7 +68,7 @@ SSH_TARGET="mymac"   # Tier 1 default: the LAN alias
 if ssh -o ConnectTimeout=5 -o BatchMode=yes "$SSH_TARGET" true 2>/dev/null; then
   echo "SSH_OK via Tier 1 (LAN alias)"
 else
-  # Tier 2 — Tailscale SSH (off-LAN). The alias above won't fail over here —
+  # Tier 2 — SSH over Tailscale (off-LAN). The alias above won't fail over here —
   # target the Tailscale IP directly with the identity file explicit.
   TS_IP=$(tailscale status | awk '/<mac-hostname>/{print $1}')
   SSH_ARGS=(-i ~/.ssh/id_mymac)
@@ -135,7 +135,13 @@ if ! git pull --ff-only origin "$BRANCH"; then
   exit 1
 fi
 
-SESSION=$(printf '%s' "mirror-$BRANCH" | tr -c 'a-zA-Z0-9_-' '-')
+# A stable checksum suffix disambiguates branches that sanitize to the same
+# session name (e.g. "feat/a" and "feat-a" both become "mirror-feat-a" via
+# tr alone) — cksum is portable everywhere (macOS + Linux), unlike
+# sha256sum/shasum which aren't guaranteed on both.
+BRANCH_SAFE=$(printf '%s' "$BRANCH" | tr -c 'a-zA-Z0-9_-' '-')
+BRANCH_HASH=$(printf '%s' "$BRANCH" | cksum | cut -d' ' -f1)
+SESSION="mirror-${BRANCH_SAFE}-${BRANCH_HASH}"
 # tmux has-session prefix-matches by default — the leading "=" forces an
 # exact match so a shorter branch name doesn't false-match a longer one.
 tmux has-session -t "=$SESSION" 2>/dev/null || tmux new-session -d -s "$SESSION" -c "$TARGET"

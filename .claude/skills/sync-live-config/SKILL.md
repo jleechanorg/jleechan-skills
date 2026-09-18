@@ -85,9 +85,12 @@ has two subcommands:
      leftover junk?) and from context (test caches and `.pytest_cache/`
      artifacts are pre-filtered out, but skill-specific scratch files still
      show up and need a real look).
-   - A `symlink` row (remote only) is not a direction decision at all —
-     nothing is known about it beyond "this path has a symlinked component."
-     Never guess a direction for it; tell the user it needs manual
+   - A `symlink` row is not a direction decision at all — nothing is known
+     about it beyond "this path has a symlinked component." It can come from
+     either side: a remote target's per-component symlink walk, or local
+     evidence when a repo-tracked file's live-side path resolves outside its
+     mapped root (e.g. a command symlinked in from an unrelated project
+     repo). Never guess a direction for it; tell the user it needs manual
      investigation on that host before it can be judged.
 
 3. **`hermes/skills/` and `.claude/skills_archive/` are known inversion

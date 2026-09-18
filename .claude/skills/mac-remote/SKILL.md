@@ -148,7 +148,7 @@ ssh macbook 'git clone https://github.com/$GITHUB_REPOSITORY.git /tmp/your-proje
 
 ## Caveats
 
-- **LAN-only by default**: `192.168.254.199` only reachable when both machines on the same home LAN. Use the Tailscale fallback above for off-LAN access — remember the `-i` flag, the bare alias won't carry over.
+- **LAN-only by default**: `192.168.254.199` only reachable when both machines on the same home LAN. Use the Tailscale fallback above for off-LAN access — `ssh macbook-ts` already includes its `IdentityFile`, no `-i` needed; `-i` is only required if you connect to the raw Tailscale IP directly instead of through that alias.
 - **macOS SSH keychain**: First SSH attempt may prompt for keychain access; use `ssh-add --apple-use-keychain ~/.ssh/id_macbook` to cache.
 - **No headless Docker**: MacBook uses colima for Docker; running Docker on the MacBook requires colima VM to be Running (the `ezgha-fleet-watchdog` script auto-starts it).
 - **macOS sandboxing**: Some `~/Library/...` paths may need Full Disk Access for the terminal app to read them.
