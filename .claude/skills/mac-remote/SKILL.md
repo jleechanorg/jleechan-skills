@@ -1,11 +1,11 @@
 ---
 name: mac-remote
-description: "Steer work on $USER's MacBook via SSH. Use when asked to run commands, install software, check services, or manage files on the MacBook from jeff-ubuntu or another machine. Auto-detects whether running locally on MacBook (no SSH) or remotely (SSH into MacBook first)."
+description: "Steer work on $USER's MacBook via SSH. Use when asked to run commands, install software, check services, or manage files on the MacBook from jeff-ubuntu or another machine. Auto-detects whether running locally on MacBook (no SSH) or remotely (SSH into MacBook first). Resolves the connection via the shared SSH-first-then-Tailscale tier ladder (see cross-machine-ssh-tier)."
 ---
 
 # Mac Remote — MacBook SSH Steering
 
-Mirror of `/linux` (jeff-ubuntu), but targeting the MacBook. Runs from any machine that can reach the MacBook's SSH port.
+Mirror of `linux-remote` (jeff-ubuntu), but targeting the MacBook. Runs from any machine that can reach the MacBook's SSH port.
 
 ## Connection
 
@@ -13,11 +13,13 @@ Mirror of `/linux` (jeff-ubuntu), but targeting the MacBook. Runs from any machi
 |---|---|
 | **Host alias (recommended)** | `macbook` (after `~/.ssh/config` setup below) |
 | **Hostname (LAN)** | `jeffreys-macbook-pro.local` or `192.168.254.199` |
-| **Hostname (Tailscale)** | `100.67.70.24` (works off-LAN via Tailscale) |
+| **Hostname (Tailscale)** | look up live via `tailscale status | awk '/macbook/{print $1}'` (last known `100.67.70.24`) — **never hardcode** |
 | **User** | `$USER` |
-| **Key (from MacBook)** | `~/.ssh/id_jeff_ubuntu` (same key used by jeff-ubuntu's reverse direction) |
+| **Key (from MacBook)** | `~/.ssh/id_macbook` — same per-direction naming used by jeff-ubuntu's reverse direction |
 | **SSH port** | 22 (default) |
 | **OS** | macOS 14+ (Sonoma/Sequoia), aarch64 |
+
+For the rationale behind Tier 1 (LAN alias) → Tier 2 (Tailscale + explicit `-i`) → Tier 3 (Slack `#hermes-pc`), Tailscale-IP re-verification, key naming, and OAuth-scopes-reinstall gotcha, see [`cross-machine-ssh-tier`](../cross-machine-ssh-tier/SKILL.md).
 
 ## Detect local-vs-remote automatically
 
@@ -26,12 +28,32 @@ Before SSHing, check if you're already on the MacBook:
 ```bash
 if [[ "$(uname -s)" == "Darwin" && "$(hostname -s)" == "jeffreys-macbook-pro" ]]; then
   echo "local MacBook — no SSH needed"
-else
-  ssh macbook '...'  # remote
 fi
 ```
 
 Or simpler — try `uname -s` to detect. On MacBook locally, `Darwin`; on jeff-ubuntu, `Linux`; on GitHub Actions ubuntu-latest, `Linux`.
+
+If you're remote, resolve the connection through the **shared tier ladder** instead of hardcoding `ssh macbook '...'`:
+
+```bash
+# Peer = macbook. After this block runs:
+#   Tier 1 ok:  $SSH_TARGET = "macbook",                    $SSH_ARGS = ()
+#   Tier 2 ok:  $SSH_TARGET = "jleechan@<tailscale-ip>",    $SSH_ARGS = (-i ~/.ssh/id_macbook)
+#   Tier 3:     $SSH_TARGET = "", both tiers down — fall back to Slack #hermes-pc
+PEER_LAN_ALIAS="macbook"
+PEER_TS_PATTERN="macbook"
+PEER_KEY="$HOME/.ssh/id_macbook"
+# (the ladder itself is defined in cross-machine-ssh-tier/SKILL.md — paste/inline as needed;
+#  see "The ladder" section there)
+```
+
+Then run the actual command:
+
+```bash
+ssh "${SSH_ARGS[@]}" "$SSH_TARGET" '<command>'
+```
+
+The ladder's Tier 1 default is the `macbook` alias — so simple existing one-liners like `ssh macbook 'df -h /'` keep working unchanged when on the same LAN. The Tier 2 fallback only kicks in when Tier 1 was refused (off-LAN).
 
 ## Setup on a remote machine (one-time, e.g. on jeff-ubuntu)
 
@@ -44,19 +66,19 @@ ssh-copy-id -i ~/.ssh/id_macbook.pub $USER@192.168.254.199
 # (prompts for $USER's MacBook password once)
 
 # 3. Add the macbook alias to ~/.ssh/config
-cat >> ~/.ssh/config <<'EOF'
+cat >> ~/.ssh/config <<'INNER_EOF'
 
 Host macbook
     HostName 192.168.254.199
     User $USER
     IdentityFile ~/.ssh/id_macbook
     StrictHostKeyChecking no
-EOF
+INNER_EOF
 ```
 
 ## How to run commands
 
-Once the alias is set up, use `ssh macbook '<command>'` for one-liners:
+Once the alias is set up, use `ssh macbook '<command>'` for one-liners (the Tier 1 default):
 
 ```bash
 ssh macbook 'launchctl list | grep ezgha'                            # check launchd
@@ -68,11 +90,11 @@ ssh macbook 'ls -la ~/.local/share/worldarchitect-runners/'          # runtime m
 For multi-line scripts, use heredoc:
 
 ```bash
-ssh macbook 'bash -s' << 'EOF'
+ssh macbook 'bash -s' << 'INNER_EOF'
 brew update
 brew install ez-gh-actions
 ls -la /opt/homebrew/bin/ezgha
-EOF
+INNER_EOF
 ```
 
 ## sudo with known password
@@ -98,6 +120,8 @@ scp macbook:/remote/file /local/path                                # remote →
 rsync -avz /local/ macbook:/remote/                                 # sync directory
 ```
 
+`scp` also follows the `~/.ssh/config` alias, so the one-line `scp /local/file macbook:/remote/path` works whenever `ssh macbook` does. Off-LAN, use Tailscale: `scp /local/file "jleechan@$(tailscale status | awk '/macbook/{print $1}'):/remote/path"` with the explicit key (`scp -i ~/.ssh/id_macbook ...`).
+
 ## Chaining: MacBook → jeff-ubuntu
 
 After SSHing into the MacBook, you can chain to jeff-ubuntu from there. This is useful when you need the MacBook's tooling (e.g. `colima`, `docker`, `cmux`) to act on jeff-ubuntu artifacts:
@@ -112,7 +136,7 @@ Note: jeff-ubuntu must be reachable from the MacBook. From the home LAN, it's `1
 
 | Task | Command |
 |------|---------|
-| Check ezgha status | `ssh macbook '~/.cargo/bin/ezgha status \| grep -E "managed\|registered"'` |
+| Check ezgha status | `ssh macbook '~/.cargo/bin/ezgha status | grep -E "managed|registered"'` |
 | Check fleet-watchdog log | `ssh macbook 'tail -n 20 /tmp/ezgha-watchdog.log'` |
 | Restart ezgha | `ssh macbook 'launchctl kickstart -k gui/$(id -u)/org.jleechanorg.ezgha'` |
 | Check colima VM | `ssh macbook 'limactl list'` |
@@ -138,9 +162,10 @@ ssh macbook 'git clone https://github.com/$GITHUB_REPOSITORY.git /tmp/your-proje
 
 ## Caveats
 
-- **LAN-only by default**: `192.168.254.199` only reachable when both machines on the same home LAN. Use Tailscale (`100.67.70.24`) for off-LAN access.
+- **LAN-only by default**: `192.168.254.199` only reachable when both machines on the same home LAN. Use Tailscale (look up live — `100.67.70.24` is last known) for off-LAN access; full ladder rationale in [`cross-machine-ssh-tier`](../cross-machine-ssh-tier/SKILL.md).
 - **macOS SSH keychain**: First SSH attempt may prompt for keychain access; use `ssh-add --apple-use-keychain ~/.ssh/id_macbook` to cache.
 - **No headless Docker**: MacBook uses colima for Docker; running Docker on the MacBook requires colima VM to be Running (the `ezgha-fleet-watchdog` script auto-starts it).
 - **macOS sandboxing**: Some `~/Library/...` paths may need Full Disk Access for the terminal app to read them.
 - **sudo prompts on macOS**: Touch ID prompt instead of password on physical Mac; over SSH use `expect` with password.
 - **Always prefer SSH over VNC/Screen Sharing**: SSH is scriptable + auditable + doesn't steal focus.
+- **Tier 3 fallback (Slack `#hermes-pc`)** only triggers on human-typed posts; manifest-scoped OAuth changes require an explicit Slack App reinstall — see [`cross-machine-ssh-tier`](../cross-machine-ssh-tier/SKILL.md) § Tier 3 caveats.

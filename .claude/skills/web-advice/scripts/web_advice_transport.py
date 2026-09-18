@@ -53,7 +53,10 @@ CONTRACT section for full provenance):
 
 from __future__ import annotations
 
+import json
+import os
 import re
+from pathlib import Path
 
 _SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 
@@ -251,6 +254,10 @@ class PublicShareNotVerifiedError(Exception):
 
 class PacketAttachmentsNotVerifiedError(Exception):
     """Raised when browser attachment chips do not match generated packets."""
+
+
+class ContextDeficientReviewError(Exception):
+    """Raised when a reviewer response complains about lack of context or missing attachments."""
 
 
 def _file_manifest_map(entries: list, label: str) -> dict:
@@ -937,6 +944,244 @@ def verify_frame_order(prompt_frame_names: list, model_reported_order: list) -> 
         "extra_frames": extra_frames,
         "reordered_frames": reordered_frames,
     }
+
+
+# ---------------------------------------------------------------------------
+# Lesson 14: CONTEXT SUFFICIENCY & LACK-OF-CONTEXT DETECTION
+# ---------------------------------------------------------------------------
+
+_CONTEXT_DEFICIENT_PATTERNS = (
+    re.compile(
+        r"(?i)\b(?:i|we)\s+(?:do not|don'?t)\s+have\s+access\s+to\s+(?:the\s+)?(?:attached|uploaded|local|referenced)?\s*(?:files?|diff|patch|code|images?|screenshots?)\b"
+    ),
+    re.compile(
+        r"(?i)\b(?:i|we)\s+(?:cannot|can'?t)\s+(?:see|view|access|read|inspect|open)\s+(?:the\s+)?(?:attached|uploaded|local)?\s*(?:files?|diff|patch|code|images?|screenshots?)\b"
+    ),
+    re.compile(
+        r"(?i)\bno\s+(?:files?|code|diff|patch|attachments?|images?|screenshots?)\s+(?:were|was|are|seem\s+to\s+be|appear\s+to\s+be)\s+(?:attached|provided|uploaded|found|visible)\b"
+    ),
+    re.compile(
+        r"(?i)\bplease\s+(?:provide|upload|attach|share)\s+(?:the\s+)?(?:full\s+)?(?:code|diff|patch|files?|contents?|images?|screenshots?)\b"
+    ),
+    re.compile(
+        r"(?i)\bwithout\s+(?:seeing|having\s+access\s+to|reviewing)\s+(?:the\s+)?(?:actual\s+)?(?:code|diff|files?|patch|images?|screenshots?)\b"
+    ),
+    re.compile(
+        r"(?i)\bas\s+an\s+ai[,\s]+i\s+(?:do\s+not|cannot|can'?t)\s+(?:access|open|read|view)\s+(?:local|external|attached)?\s*files?\b"
+    ),
+    re.compile(
+        r"(?i)\b(?:it\s+seems|it\s+appears|there\s+is)\s+no\s+(?:code|diff|file|attachment|image|screenshot)\s+(?:attached|uploaded|provided)\b"
+    ),
+    re.compile(
+        r"(?i)\binsufficient\s+context\s+to\s+(?:review|evaluate|assess|provide\s+a\s+verdict)\b"
+    ),
+    re.compile(
+        r"(?i)\bthe\s+attached\s+files?\s+(?:appears?|seems?)\s+to\s+be\s+(?:empty|unreadable|corrupted)\b"
+    ),
+)
+
+
+def detect_context_deficiency(response_text: str) -> list[str]:
+    """Detect complaints/refusals indicating the model lacked context or attachments.
+
+    Returns a list of matched complaint phrases. Empty list means no complaints detected.
+    """
+    if not response_text:
+        return []
+    matches = []
+    for pattern in _CONTEXT_DEFICIENT_PATTERNS:
+        match = pattern.search(response_text)
+        if match:
+            matches.append(match.group(0))
+    return matches
+
+
+def assert_no_context_complaints(response_text: str) -> None:
+    """Raise ContextDeficientReviewError if the model complained about missing context."""
+    complaints = detect_context_deficiency(response_text)
+    if complaints:
+        raise ContextDeficientReviewError(
+            f"Review rejected: model complained about lack of context or missing attachments: {complaints!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Lesson 15: UPLOAD CLASSIFICATION & DISK PERSISTENCE BUNDLE
+# ---------------------------------------------------------------------------
+
+
+def classify_upload_kinds(filenames: list) -> set[str]:
+    """Classify file paths into upload kinds: code, visual, evidence, document."""
+    kinds: set[str] = set()
+    for name in filenames or []:
+        lowered = str(name).lower()
+        if lowered.endswith(
+            (".png", ".jpg", ".jpeg", ".webp", ".gif", ".mp4", ".webm", ".mov")
+        ):
+            kinds.add("visual")
+        elif lowered.endswith(
+            (
+                ".patch",
+                ".diff",
+                ".py",
+                ".js",
+                ".ts",
+                ".html",
+                ".css",
+                ".sh",
+                ".jsonl",
+                ".rs",
+                ".go",
+                ".c",
+                ".cpp",
+                ".h",
+            )
+        ):
+            kinds.add("code")
+        elif "evidence" in lowered or "sha256sums" in lowered or lowered.endswith(
+            (".json", ".log")
+        ):
+            kinds.add("evidence")
+        else:
+            kinds.add("document")
+    return kinds
+
+
+def save_review_record(
+    target_dir: str | Path,
+    model_name: str,
+    review_text: str,
+    metadata: dict | None = None,
+) -> Path:
+    """Save full model review text and metadata to target directory on disk."""
+    dir_path = Path(target_dir).resolve()
+    dir_path.mkdir(parents=True, exist_ok=True)
+    slug = re.sub(r"[^a-zA-Z0-9_-]+", "_", model_name.lower()).strip("_")
+    review_file = dir_path / f"{slug}_review.md"
+    review_file.write_text(review_text, encoding="utf-8")
+    if metadata:
+        meta_file = dir_path / f"{slug}_metadata.json"
+        meta_file.write_text(
+            json.dumps(metadata, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+    return review_file
+
+
+def save_web_advice_bundle(
+    output_dir: str | Path,
+    subject: str,
+    models_data: dict[str, dict],
+    synthesis_markdown: str,
+    run_marker: str | None = None,
+) -> dict:
+    """Save complete review bundle including individual model reviews, synthesis, and manifest.json."""
+    dir_path = Path(output_dir).resolve()
+    dir_path.mkdir(parents=True, exist_ok=True)
+
+    manifest_models = {}
+    for model_name, data in (models_data or {}).items():
+        text = data.get("review_text") or data.get("response") or ""
+        parsed = parse_verdict(text)
+        verdict = data.get("verdict") or parsed.get("verdict") or "UNKNOWN"
+        confidence = data.get("confidence") or parsed.get("confidence") or "unknown"
+        complaints = detect_context_deficiency(text)
+
+        uploaded_files = data.get("uploaded_files") or []
+        file_names = [
+            f.get("path", "") if isinstance(f, dict) else str(f)
+            for f in uploaded_files
+        ]
+        upload_kinds = data.get("upload_kind") or sorted(
+            classify_upload_kinds(file_names)
+        )
+
+        review_path = save_review_record(
+            dir_path,
+            model_name,
+            text,
+            metadata={
+                "model": model_name,
+                "verdict": verdict,
+                "confidence": confidence,
+                "share_url": data.get("share_url") or "not obtained",
+                "uploaded_files": uploaded_files,
+                "upload_verified": data.get("upload_verified", False),
+                "upload_kind": list(upload_kinds)
+                if isinstance(upload_kinds, set)
+                else upload_kinds,
+                "context_complaints": complaints,
+            },
+        )
+
+        manifest_models[model_name] = {
+            "verdict": verdict,
+            "confidence": confidence,
+            "share_url": data.get("share_url") or "not obtained",
+            "disk_location": str(review_path),
+            "uploaded_files": uploaded_files,
+            "upload_verified": data.get("upload_verified", False),
+            "upload_kind": list(upload_kinds)
+            if isinstance(upload_kinds, set)
+            else upload_kinds,
+            "context_deficiency_detected": bool(complaints),
+            "context_complaints": complaints,
+        }
+
+    synthesis_file = dir_path / "synthesis.md"
+    synthesis_file.write_text(synthesis_markdown, encoding="utf-8")
+
+    manifest = {
+        "manifest_version": "web_advice/v2",
+        "subject": subject,
+        "run_marker": run_marker or "",
+        "output_dir": str(dir_path),
+        "synthesis_disk_location": str(synthesis_file),
+        "models": manifest_models,
+    }
+
+    manifest_file = dir_path / "manifest.json"
+    manifest_file.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return manifest
+
+
+def format_web_advice_summary_table(manifest: dict) -> str:
+    """Format the comprehensive markdown table required by /web-advice."""
+    models = manifest.get("models") or {}
+    lines = [
+        "| Model | Verdict | Confidence | Share URL | Disk Location | Uploaded Files & Proof | Context Complaints |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    for model_name, info in sorted(models.items()):
+        verdict = info.get("verdict", "UNKNOWN")
+        conf = info.get("confidence", "unknown")
+        share = info.get("share_url", "not obtained")
+        disk = info.get("disk_location", "none")
+        verified = "PASS" if info.get("upload_verified") else "FAIL"
+
+        uploaded = info.get("uploaded_files") or []
+        files_str = ", ".join(
+            (f.get("path") if isinstance(f, dict) else Path(f).name)
+            for f in uploaded
+        ) or "none"
+        if len(files_str) > 30:
+            files_str = files_str[:27] + "..."
+        upload_cell = f"{files_str} ({verified})"
+
+        complaints = info.get("context_complaints") or []
+        context_cell = (
+            "PASS (0 complaints)"
+            if not complaints
+            else f"FAIL: {len(complaints)} complaints"
+        )
+
+        lines.append(
+            f"| {model_name} | {verdict} | {conf} | {share} | {disk} | {upload_cell} | {context_cell} |"
+        )
+    return "\n".join(lines)
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -157,3 +157,15 @@ def test_fill_composer_accepts_a_visible_value_after_chatgpt_raises_on_fill():
         keyboard = Keyboard()
 
     fill_composer(Page(), Composer(), "review this packet")
+
+
+def test_report_is_incomplete_when_context_deficiency_complaints_present():
+    report = {
+        "authenticated": True,
+        "composer_writable": True,
+        "upload_verified": True,
+        "packet_echo_verified": True,
+        "response": "I cannot see the attached file. Please provide the code.",
+        "context_deficiency_complaints": ["I cannot see the attached file"],
+    }
+    assert report_is_complete(report) is False

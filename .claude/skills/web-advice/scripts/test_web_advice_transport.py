@@ -12,6 +12,7 @@ import pytest
 
 from web_advice_transport import (
     AttachmentNotVerifiedError,
+    ContextDeficientReviewError,
     PacketAttachmentsNotVerifiedError,
     PublicShareNotVerifiedError,
     RetrievalNotVerifiedError,
@@ -19,15 +20,21 @@ from web_advice_transport import (
     WebAdviceHardFail,
     assert_allowed_transport,
     assert_attachment_verified,
+    assert_no_context_complaints,
     assert_packet_attachments_verified,
     assert_public_share_verified,
     assert_retrieval_verified,
     assert_review_packet_complete,
     build_visual_prompt,
+    classify_upload_kinds,
+    detect_context_deficiency,
     format_conversation_title,
+    format_web_advice_summary_table,
     is_banned_substitute,
     parse_verdict,
     resolve_transport_ladder,
+    save_review_record,
+    save_web_advice_bundle,
     seat_accounting,
     verify_frame_order,
 )
@@ -1106,3 +1113,108 @@ class TestAssertPublicShareVerified:
         }
         with pytest.raises(PublicShareNotVerifiedError, match="verdict mismatch"):
             assert_public_share_verified(probe)
+
+
+class TestContextDeficiency:
+    def test_detects_explicit_missing_file_complaints(self):
+        complaints = [
+            "I don't have access to the attached file.",
+            "I do not have access to the uploaded patch.",
+            "As an AI, I cannot access local files. Please provide the code.",
+            "No files were attached to your request.",
+            "Without seeing the actual code, I cannot evaluate this.",
+            "Insufficient context to evaluate this change.",
+            "The attached file appears to be empty.",
+            "No images were attached for review.",
+        ]
+        for text in complaints:
+            matches = detect_context_deficiency(text)
+            assert len(matches) > 0, f"Failed to detect complaint in: {text!r}"
+
+    def test_does_not_flag_valid_reviews_mentioning_access_or_files(self):
+        valid_reviews = [
+            "VERDICT: APPROVED\nREASONING: The fix ensures unauthenticated users do not have access to the file upload endpoint.",
+            "VERDICT: APPROVED\nREASONING: Checked that no files were left dangling in /tmp after execution.",
+            "VERDICT: APPROVED\nREASONING: The prompt tool contracts accurately map the response schema.",
+        ]
+        for text in valid_reviews:
+            matches = detect_context_deficiency(text)
+            assert matches == [], f"False positive detected in: {text!r}"
+
+    def test_assert_no_context_complaints_raises(self):
+        with pytest.raises(ContextDeficientReviewError, match="model complained"):
+            assert_no_context_complaints(
+                "Please upload the diff so I can review it."
+            )
+
+    def test_assert_no_context_complaints_passes(self):
+        assert_no_context_complaints(
+            "VERDICT: APPROVED\nREASONING: Looks great and passes all tests."
+        )
+
+
+class TestUploadClassification:
+    def test_classifies_code_files(self):
+        assert classify_upload_kinds(["patch.diff", "main.py", "app.js"]) == {"code"}
+
+    def test_classifies_visual_files(self):
+        assert classify_upload_kinds(["screen.png", "clip.mp4", "shot.jpeg"]) == {"visual"}
+
+    def test_classifies_evidence_files(self):
+        assert classify_upload_kinds(["SHA256SUMS.txt", "run.log", "report.json"]) == {"evidence"}
+
+    def test_classifies_mixed_files(self):
+        kinds = classify_upload_kinds(["diff.patch", "mobile_375x812.png", "SHA256SUMS.txt"])
+        assert kinds == {"code", "visual", "evidence"}
+
+
+class TestDiskPersistenceAndBundle:
+    def test_save_review_record(self, tmp_path):
+        review_text = "VERDICT: APPROVED\nREASONING: Clean implementation."
+        path = save_review_record(
+            target_dir=tmp_path,
+            model_name="Gemini Pro",
+            review_text=review_text,
+            metadata={"status": "ok"},
+        )
+        assert path.exists()
+        assert path.name == "gemini_pro_review.md"
+        assert path.read_text(encoding="utf-8") == review_text
+        meta_path = tmp_path / "gemini_pro_metadata.json"
+        assert meta_path.exists()
+
+    def test_save_web_advice_bundle_and_format_table(self, tmp_path):
+        models_data = {
+            "ChatGPT": {
+                "review_text": "VERDICT: APPROVED\nCONFIDENCE: high\nREASONING: Solid fix.",
+                "share_url": "https://chatgpt.com/share/abc-123",
+                "uploaded_files": ["raw_git_diff.patch", "full_changed_files.txt"],
+                "upload_verified": True,
+            },
+            "Gemini Pro": {
+                "review_text": "VERDICT: APPROVED\nCONFIDENCE: high\nREASONING: Architectural alignment.",
+                "share_url": "https://gemini.google.com/share/xyz-789",
+                "uploaded_files": ["raw_git_diff.patch", "full_changed_files.txt"],
+                "upload_verified": True,
+            },
+        }
+        synthesis = "## Synthesis\nAll models agree: APPROVE."
+        manifest = save_web_advice_bundle(
+            output_dir=tmp_path,
+            subject="PR #9739 Review",
+            models_data=models_data,
+            synthesis_markdown=synthesis,
+            run_marker="RUN-9739-01",
+        )
+        assert (tmp_path / "manifest.json").exists()
+        assert (tmp_path / "synthesis.md").exists()
+        assert (tmp_path / "chatgpt_review.md").exists()
+        assert (tmp_path / "gemini_pro_review.md").exists()
+
+        table = format_web_advice_summary_table(manifest)
+        assert "ChatGPT" in table
+        assert "Gemini Pro" in table
+        assert "https://chatgpt.com/share/abc-123" in table
+        assert "https://gemini.google.com/share/xyz-789" in table
+        assert str(tmp_path) in table
+        assert "PASS" in table

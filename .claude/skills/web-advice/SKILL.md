@@ -1,6 +1,6 @@
 ---
 name: web-advice
-description: Browser-based multi-model advice and review using ChatGPT, Gemini, and Perplexity Web. Use for an independent external perspective on any subject, including PRs, designs, docs, plans, and decisions.
+description: "Get multi-model browser advice."
 ---
 
 # /web-advice — Multi-Model Browser Review
@@ -12,6 +12,10 @@ description: Browser-based multi-model advice and review using ChatGPT, Gemini, 
 | `/advice` | In-session: subagent + /secondo + /research | Architectural reasoning, ZFC reviews, code-path analysis |
 | `/web-advice` | Browser: ChatGPT + Gemini + Perplexity Web; Aside preferred, browser fallbacks supported | Independent external multi-model advice or review; visual/video context; web-search grounding |
 | `/er` | In-session: evidence-standards skill | Evidence bundle integrity (4-gate checksum/SHA/real-services) |
+
+## Standing task-scoped authorization
+
+Operator directive (2026-09-09): `/wa` and `/web-advice` are standing-authorized for review material relevant to the active task, including when invoked by `/sq` or `/advice`. Do not require a second authorization phrase or skip a required review because it was not repeated in the latest message. Honor later revocation or narrower scope. Keep credentials and unrelated private material out of submissions; this authorization does not extend to publishing results or changing account settings.
 
 ## Real-Browser Transport Contract: Runtime-Specific
 
@@ -309,23 +313,46 @@ Web chat LLM review sessions are stateful and interactive, not single-turn scrip
   3. **Reply in the active chat thread**: Type/upload the requested code or explanation directly into the existing browser tab session.
   4. **Wait for re-evaluation**: Allow the model to re-analyze the updated context and render its finalized, fully grounded verdict.
 
-### Step 5 — Synthesize & Report Share URLs / Snippets (MANDATORY)
+### Step 4c — Zero Context Complaints Gate (MANDATORY)
+
+Immediately after capturing each model's response, verify that the model did not complain about missing attachments, empty files, or lack of context. Run `assert_no_context_complaints(respText)` or `detect_context_deficiency(respText)`:
+- **Forbidden complaint markers**: "don't have access to the file", "cannot see the attachment", "no files were attached", "please provide the code", "as an AI I cannot access local files", "without seeing the actual code", "insufficient context to evaluate", "attached file appears empty".
+- **Action on complaint**: If any complaint is detected, **do NOT record or accept the verdict**. The review has failed the context grounding gate. Flag the seat as `CONTEXT_DEFICIENT`, and either perform the interactive follow-up upload (Step 4b) or start a clean chat with explicit attachment verification (Step 2b).
+
+### Step 4d — Save Full Reviews to Disk in /tmp (MANDATORY)
+
+Every `/web-advice` review MUST be persisted to disk in full. Do not rely solely on transient browser tabs or conversation IDs:
+1. Create a dedicated run directory: `/tmp/web_advice/<subject_slug>_<timestamp>/`
+2. Save each model's complete, un-truncated response to `/tmp/web_advice/<run_dir>/<model>_review.md`
+3. Save the synthesized advice to `/tmp/web_advice/<run_dir>/synthesis.md`
+4. Write `/tmp/web_advice/<run_dir>/manifest.json` containing the metadata:
+   - Evaluated git commit SHA and subject
+   - Exact uploaded files inventory (names, paths, byte sizes, SHA256 digests)
+   - Upload kind classification (`code`, `visual`, `evidence`, `document`)
+   - Attachment confirmation status from composer DOM probe
+   - Context complaints check result (`PASS` / `FAIL`)
+   - Verified public share URL (or `not obtained: <reason>`)
+   - Full absolute disk location for each review
+
+### Step 5 — Synthesize & Report Share URLs, Disk Locations, and Proof (MANDATORY)
 
 > [!IMPORTANT]
-> **Mandatory Share URL & Verbatim Conversation Snippet Invariant (Strict Hard-Fail Rule)**:
+> **Mandatory Forensic Verification Invariant (Strict Hard-Fail Rule)**:
 > Every `/web-advice` run MUST output:
-> 1. **File Upload Confirmation**: Confirm that full files, diff patches, or real video/image assets were uploaded via file chooser (`setInputFiles`) into composer chips (zero ungrounded diff-only inlining for code reviews).
-> 2. **Public Conversation Share URLs**: The exact, clickable public permalink / share URL for each evaluated model (`https://chatgpt.com/share/...` or `/c/...`, `https://gemini.google.com/share/...`, `https://www.perplexity.ai/search/...`).
-> 3. **Verbatim Conversation Snippets per PR / Subject**: Exact blockquotes of the model's verdict and analysis per reviewed PR or artifact to provide undeniable proof of review execution.
+> 1. **Verified Disk Location**: The full absolute path where the full review text is persisted on disk (e.g. `/tmp/web_advice/.../<model>_review.md`).
+> 2. **Explicit Uploaded Files Inventory & Proof**: Confirm what exact files (code, diff, visual screenshots, video frames, evidence bundles) were uploaded via file chooser (`setInputFiles`) into composer chips, and verify that the upload kind matches the review scope.
+> 3. **Context Complaints Verification**: Explicitly confirm the LLM chat did not complain about lack of context or missing files (`PASS: 0 complaints`).
+> 4. **Public Conversation Share URLs**: The exact, clickable public permalink / share URL for each evaluated model. **Share-click guard (incident 2026-09-06):** locate the review conversation only by its `[web advice] <Subject>` title and only in the tab that submitted the prompt; never click Share on a conversation found by a generic sidebar selector (pinned personal chats sort first). If the titled chat cannot be located or vendor sharing is unavailable, record `share URL: not obtained: <reason>`; never leave this field unaddressed.
+> 5. **Verbatim Conversation Snippets per PR / Subject**: Exact blockquotes of the model's verdict and analysis per reviewed PR or artifact to provide undeniable proof of review execution.
 
 ```markdown
 ## /web-advice synthesis
 
-| Model | Verdict | Confidence | Share URL | Coverage & Upload Confirmation | Key finding |
-|---|---|---|---|---|---|
-| ChatGPT | <verdict> | high/med/low | <share URL> | Files uploaded & confirmed | <one line> |
-| Gemini Pro | <verdict> | high/med/low | <share URL> | Files uploaded & confirmed | <one line> |
-| Perplexity | <verdict> | high/med/low | <share URL> | Files uploaded & confirmed | <one line> (note: web-grounded) |
+| Model | Verdict | Confidence | Share URL | Disk Location | Uploaded Files & Proof | Context Complaints |
+|---|---|---|---|---|---|---|
+| ChatGPT | <verdict> | high/med/low | <share URL> | /tmp/web_advice/.../chatgpt_review.md | raw_git_diff.patch, full_changed_files.txt (PASS) | PASS (0 complaints) |
+| Gemini Pro | <verdict> | high/med/low | <share URL> | /tmp/web_advice/.../gemini_pro_review.md | raw_git_diff.patch, full_changed_files.txt (PASS) | PASS (0 complaints) |
+| Perplexity | <verdict> | high/med/low | <share URL> | /tmp/web_advice/.../perplexity_review.md | raw_git_diff.patch, full_changed_files.txt (PASS) | PASS (0 complaints) |
 
 ### Verbatim Conversation Snippets per PR / Subject:
 #### 1. [Subject / PR #N]
