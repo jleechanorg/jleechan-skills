@@ -19,7 +19,7 @@ Mirror of `/linux` (jeff-ubuntu), but targeting the MacBook. Runs from any machi
 | **SSH port** | 22 (default) |
 | **OS** | macOS 14+ (Sonoma/Sequoia), aarch64 |
 
-## Off-LAN fallback: Tailscale
+## Off-LAN fallback: Tailscale, then Slack
 
 If `ssh macbook` times out or is refused (off home LAN, or the LAN link is just down), use the dedicated Tailscale alias instead — proven working 2026-09-16/17, including a double-hop from jeff-ubuntu with the LAN link fully down:
 
@@ -27,7 +27,9 @@ If `ssh macbook` times out or is refused (off home LAN, or the LAN link is just 
 ssh macbook-ts '<command>'
 ```
 
-`macbook-ts` is a real `~/.ssh/config` stanza on the SSHing machine (`HostName 100.67.70.24`, same `IdentityFile` as the LAN alias) — no manual `-i`/IP lookup needed, it's a drop-in replacement for `macbook` in every command in this skill. `ssh macbook` does **not** fail over automatically; try the LAN alias first, fall to `-ts` on failure. Re-verify with `tailscale status | grep macbook` if it ever seems dead.
+`macbook-ts` is a real `~/.ssh/config` stanza on the SSHing machine (same `IdentityFile` as the LAN alias) — no manual `-i`/IP lookup needed, it's a drop-in replacement for `macbook` in every command in this skill. `ssh macbook` does **not** fail over automatically; try the LAN alias first, fall to `-ts` on failure. Re-verify with `tailscale status | grep macbook` if it ever seems dead.
+
+If both the LAN alias and `macbook-ts` fail, see [cross-machine-ssh-tier](../cross-machine-ssh-tier/SKILL.md) for the Tier 3 messaging-gateway fallback and its debugging caveats (OAuth-scope-vs-connection, bot-message filtering) — that skill is the shared source of truth for this whole ladder, used identically by `linux-remote`, `linux-mirror`, and `mac-mirror`.
 
 ## Detect local-vs-remote automatically
 

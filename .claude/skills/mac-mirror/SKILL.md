@@ -21,7 +21,7 @@ This skill assumes you've already got:
   ```
   (`ssh_config` does not expand environment variables — write your actual username literally, not `$USER`.)
 - SSH enabled on the Mac (System Settings → General → Sharing → Remote Login), with the other machine's public key added.
-- Your repo lives under `$HOME` on **both** machines, at the same relative path (e.g. `~/projects/myrepo` on both). This skill mirrors by `$HOME`-relative path; a repo outside `$HOME`, or at a different relative path on each machine, isn't supported — step 1 below checks for this and stops rather than silently producing a wrong path.
+- Your repo lives under `$HOME` on the source machine (any relative path). This skill mirrors it onto the target Mac under `$HOME/mirror/<same relative path>` — a dedicated namespace so every mirrored checkout is easy to find on either machine and never collides with (or silently overwrites) a normal checkout that happens to already exist at that same path. A repo outside `$HOME` on the source side isn't supported — step 1 below checks for this and stops rather than silently producing a wrong path.
 - (Optional, for off-LAN/travel use) Both machines joined to the same Tailscale tailnet — same caveat as linux-mirror: the bare alias won't fail over to Tailscale automatically, target the Tailscale IP + explicit `-i` when off-LAN.
 - (Optional, for SSH-fully-down fallback) A messaging-gateway agent running on the Mac, watching a Slack channel (or similar) you can post to.
 
@@ -47,6 +47,8 @@ case "$REPO_ROOT" in
 esac
 ```
 
+Also prepare `$CONTEXT`: a short, self-contained summary (1-3 sentences) of what should actually continue on the Mac — the real next action, not just "resume work." This isn't optional bookkeeping: step 4 types it as the first message to a freshly-launched coding agent on the target machine, which has no access to this conversation. Write it as if briefing a colleague who just walked in cold.
+
 If `$BRANCH` is empty (detached HEAD) or `$DIRTY` is non-empty, stop and tell the user — commit/name the branch first.
 
 If `$REMOTE_URL` is an HTTPS URL with an embedded credential (`https://<token>@host/...`), warn the user before continuing: that URL gets written verbatim into the remote clone's `.git/config` in step 4, so the credential ends up live on the target Mac too. Prefer an SSH remote, or a credential helper that doesn't embed the token in the URL. (Step 4's base64 encoding is not a confidentiality measure for this value — it only prevents argv re-tokenization/injection. A trivially-decodable token is still visible in the remote host's `ps` output during the mirror.)
@@ -61,33 +63,7 @@ Confirm with the user first if the branch has no upstream yet or diverges from o
 
 ### 3. Pick a connectivity tier — try in order, stop at first success. Carry the resolved connection forward into `SSH_ARGS`/`SSH_TARGET` for step 4 — don't just check reachability and then reconnect a different way.
 
-```bash
-SSH_ARGS=()
-SSH_TARGET="mymac"   # Tier 1 default: the LAN alias
-
-if ssh -o ConnectTimeout=5 -o BatchMode=yes "$SSH_TARGET" true 2>/dev/null; then
-  echo "SSH_OK via Tier 1 (LAN alias)"
-else
-  # Tier 2 — SSH over Tailscale (off-LAN). The alias above won't fail over here —
-  # target the Tailscale IP directly with the identity file explicit.
-  TS_IP=$(tailscale status | awk '/<mac-hostname>/{print $1}')
-  SSH_ARGS=(-i ~/.ssh/id_mymac)
-  SSH_TARGET="myusername@$TS_IP"
-  if ssh "${SSH_ARGS[@]}" -o ConnectTimeout=5 -o BatchMode=yes "$SSH_TARGET" true 2>/dev/null; then
-    echo "SSH_OK via Tier 2 (Tailscale)"
-  else
-    SSH_TARGET=""   # neither tier reached — fall through to Tier 3 below
-  fi
-fi
-```
-
-**Tier 3 — Messaging-gateway handoff (SSH AND Tailscale both down, `$SSH_TARGET` empty):** post the exact repo/branch/commit and the steps from §4 to a channel a reactive gateway agent on the Mac is watching, asking it to execute them locally and reply when the tmux session is ready. It has no shared context with this session — give complete, explicit instructions.
-
-Same debugging priority as linux-mirror's Tier 3 if this seems dead — don't assume it needs a restart:
-1. **A missing OAuth-style scope grant on the gateway's own credential, not a connection problem.** A connection can report fully healthy while a permission declared in the integration's config was never actually granted to the live credential. Discriminating check: call the platform's own auth-introspection endpoint with the gateway's live credential (e.g. Slack's `auth.test`, or attempt the scoped call and read the error). Remedy: reinstall/reauthorize the integration — a bare restart doesn't do this.
-2. **A message-filtering rule tripping on a test artifact**, not a real failure — many gateways drop messages attributed to a bot/app identity by default, including ones posted via some other app's OAuth token. Verify with a message typed directly by a human, not posted via any API token.
-
-Only after ruling both out is it worth suspecting the connection layer itself (debug-level logging on the gateway process — check its actual log destination, e.g. `journalctl` for a systemd-managed service, or the equivalent launchd log for a macOS service).
+See [cross-machine-ssh-tier](../cross-machine-ssh-tier/SKILL.md) for the Tier 1→2→3 connectivity ladder (LAN SSH → SSH over Tailscale → messaging-gateway fallback), its debugging caveats, and the key-naming convention. Run that skill's ladder block with `PEER_LAN_ALIAS="mymac"` (and the matching `PEER_TS_PATTERN`/`PEER_KEY`/`PEER_USER`) to resolve `SSH_ARGS`/`SSH_TARGET` before continuing to step 4. If `$SSH_TARGET` comes back empty, both Tier 1 and Tier 2 failed — fall through to that skill's Tier 3 (messaging-gateway handoff): post the exact repo/branch/commit and the steps from §4 to a channel a reactive gateway agent on the Mac is watching, asking it to execute them locally and reply when the tmux session is ready.
 
 ### 4. Remote checkout + tmux (Tier 1/2 only — skip if `$SSH_TARGET` is empty, that means Tier 3 applies instead)
 
@@ -97,13 +73,15 @@ Arguments are base64-encoded before crossing the wire — `ssh host command args
 REL_PATH_B64=$(printf '%s' "$REL_PATH" | base64 | tr -d '\n')
 BRANCH_B64=$(printf '%s' "$BRANCH" | base64 | tr -d '\n')
 REMOTE_URL_B64=$(printf '%s' "$REMOTE_URL" | base64 | tr -d '\n')
+CONTEXT_B64=$(printf '%s' "$CONTEXT" | base64 | tr -d '\n')
 
-ssh "${SSH_ARGS[@]}" "$SSH_TARGET" bash -s -- "$REL_PATH_B64" "$BRANCH_B64" "$REMOTE_URL_B64" << 'EOF'
+ssh "${SSH_ARGS[@]}" "$SSH_TARGET" bash -s -- "$REL_PATH_B64" "$BRANCH_B64" "$REMOTE_URL_B64" "$CONTEXT_B64" << 'EOF'
 set -e
 REL_PATH=$(printf '%s' "$1" | base64 -d)
 BRANCH=$(printf '%s' "$2" | base64 -d)
 REMOTE_URL=$(printf '%s' "$3" | base64 -d)
-TARGET="$HOME/$REL_PATH"
+CONTEXT=$(printf '%s' "$4" | base64 -d)
+TARGET="$HOME/mirror/$REL_PATH"
 
 if [ ! -e "$TARGET/.git" ]; then
   mkdir -p "$(dirname "$TARGET")"
@@ -144,8 +122,24 @@ BRANCH_HASH=$(printf '%s' "$BRANCH" | cksum | cut -d' ' -f1)
 SESSION="mirror-${BRANCH_SAFE}-${BRANCH_HASH}"
 # tmux has-session prefix-matches by default — the leading "=" forces an
 # exact match so a shorter branch name doesn't false-match a longer one.
-tmux has-session -t "=$SESSION" 2>/dev/null || tmux new-session -d -s "$SESSION" -c "$TARGET"
-echo "READY:$SESSION:$TARGET:$(git rev-parse HEAD)"
+if tmux has-session -t "=$SESSION" 2>/dev/null; then
+  echo "RESUMED:$SESSION:$TARGET:$(git rev-parse HEAD)"
+else
+  tmux new-session -d -s "$SESSION" -c "$TARGET"
+  if [ -n "$CONTEXT" ]; then
+    # A bare shell in a checked-out repo is not "continuing the work
+    # session" — launch the coding agent and hand it $CONTEXT as its first
+    # message. This only ever fires on a session that didn't already exist
+    # (the branch above), so a resumed session never gets a replayed prompt
+    # injected on top of work already in progress. `sleep` is a fixed wait
+    # for the CLI to reach its prompt; raise it if yours starts slower.
+    tmux send-keys -t "$SESSION" "claude" Enter
+    sleep 3
+    tmux send-keys -t "$SESSION" -l "$CONTEXT"
+    tmux send-keys -t "$SESSION" Enter
+  fi
+  echo "READY:$SESSION:$TARGET:$(git rev-parse HEAD)"
+fi
 EOF
 ```
 
@@ -153,7 +147,7 @@ Note: `printf` (not `echo`) for the session-name sanitizing is deliberate — pi
 
 ### 5. Hand off
 
-Report the session name, target path, and commit SHA from the `READY:` line — cross-check that SHA against your local `git rev-parse HEAD`. This check isn't optional: `--ff-only` only guards against a genuinely diverged remote branch — if the remote already has local commits sitting *ahead* of `origin/$BRANCH` (not diverged, just ahead), the pull succeeds as a silent no-op and `READY` reports that ahead-of-origin SHA, not the one you just pushed. The SHA cross-check is what actually catches that case. Then give the attach command:
+Report the session name, target path, and commit SHA from the `READY:`/`RESUMED:` line — cross-check that SHA against your local `git rev-parse HEAD`. `READY` means a fresh session was created and the agent was just launched with `$CONTEXT`; `RESUMED` means an existing session was found as-is and nothing was typed into it — check on that work directly (attach or send a follow-up) rather than assuming it's idle. This check isn't optional: `--ff-only` only guards against a genuinely diverged remote branch — if the remote already has local commits sitting *ahead* of `origin/$BRANCH` (not diverged, just ahead), the pull succeeds as a silent no-op and `READY` reports that ahead-of-origin SHA, not the one you just pushed. The SHA cross-check is what actually catches that case. Then give the attach command:
 
 ```bash
 ssh -t "${SSH_ARGS[@]}" "$SSH_TARGET" "tmux attach -t <SESSION>"
@@ -170,7 +164,8 @@ If a PR is open for `$BRANCH`, pushes update its head automatically. Otherwise p
 ## Caveats
 
 - Committed-state-only mirror — see "What this carries over" above.
-- Repo must live under `$HOME` at the same relative path on both machines (see Setup) — step 1 fails loudly rather than silently mirroring to the wrong place.
+- Source repo must live under `$HOME` (see Setup) — step 1 fails loudly rather than silently mirroring to the wrong place. The target-side checkout always lands under `$HOME/mirror/`, not at the identical path as the source.
+- Step 4 auto-launches `claude` (hardcoded) and types `$CONTEXT` into it, but only on a freshly created session — edit the hardcoded command if you use a different CLI. Never assume a `RESUMED` session is idle just because this skill didn't type anything into it.
 - macOS SSH keychain may prompt on first connection; `ssh-add --apple-use-keychain ~/.ssh/id_mymac` caches it.
 - A bare host alias is typically LAN-only; off-LAN, target the Tailscale IP + explicit `-i` per Tier 2 — and make sure step 4 actually uses the resolved `$SSH_ARGS`/`$SSH_TARGET`, not a re-hardcoded alias.
 - Never pass unencoded user-controlled values (repo path, branch name, remote URL) as literal SSH command arguments — base64-encode first (see step 4).
