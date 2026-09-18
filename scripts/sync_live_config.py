@@ -205,7 +205,16 @@ def last_commit(cwd: Path, rel_path: str) -> dict | None:
     line = out.stdout.strip()
     if not line:
         return None
-    sha, date, author, subject = line.split("\x1f", 3)
+    # git log can emit multiple lines here in edge cases (e.g. a path that
+    # resolves through a submodule boundary in some enclosing repo), and a
+    # commit with an empty subject can legitimately produce fewer than 3
+    # separators. Commit metadata is supplementary for this report, not
+    # load-bearing — never let a parse surprise crash the whole scan over it.
+    line = line.splitlines()[0]
+    parts = line.split("\x1f", 3)
+    if len(parts) != 4:
+        return None
+    sha, date, author, subject = parts
     return {"sha": sha[:12], "date": date, "author": author, "subject": subject}
 
 
@@ -263,7 +272,16 @@ def evidence_local(root: Path, files: list[str], home: Path, full: bool) -> list
     for f in files:
         live_rel = live_rel_for(f)
         seen_live_rel.add(live_rel)
-        live_abs = live_abs_for(f, home)
+        try:
+            live_abs = live_abs_for(f, home)
+        except ValueError:
+            # A legitimate live-side symlink (e.g. a command/skill symlinked
+            # into ~/.claude from an unrelated project repo) resolves outside
+            # its mapped root. Report it the same way remote targets already
+            # do — a `symlink` row with everything else withheld — instead of
+            # crashing the whole report over one file.
+            out.append(FileEvidence(f, live_rel, "symlink", repo_last_commit=last_commit(root, f)))
+            continue
         repo_abs = repo_abs_for(root, f)
         repo_hash, live_hash = sha256_of(repo_abs), sha256_of(live_abs)
         if live_hash is None:
