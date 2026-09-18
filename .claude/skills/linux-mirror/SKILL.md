@@ -161,7 +161,7 @@ else
     # only fires the first time a given target directory is mirrored (the
     # dialog only appears once claude.json records the directory as
     # trusted); a no-op loop on an already-trusted directory is safe.
-    for _ in $(seq 1 20); do
+    for _ in $(seq 1 40); do
       if tmux capture-pane -p -t "$SESSION" 2>/dev/null | grep -q "Yes, I trust this folder"; then
         tmux send-keys -t "$SESSION" Down
         sleep 0.3
@@ -179,7 +179,14 @@ else
   # keeps the session entry around specifically so it doesn't vanish, so
   # has-session still returns success. #{pane_dead} is the actual signal
   # (confirmed live: 1 immediately after an exec failure, 0 while running).
-  if tmux has-session -t "=$SESSION" 2>/dev/null && [ "$(tmux display-message -p -t "$SESSION" '#{pane_dead}')" = "0" ]; then
+  # A still-showing trust dialog is a third failure mode #{pane_dead} can't
+  # catch: claude is alive, just parked on the modal, if the poll above
+  # exhausted its window before the dialog rendered (a real risk on a
+  # loaded box — /advice round 3 caught this) — re-check for it explicitly
+  # rather than trusting silence from the poll loop as acceptance.
+  if tmux has-session -t "=$SESSION" 2>/dev/null \
+     && [ "$(tmux display-message -p -t "$SESSION" '#{pane_dead}')" = "0" ] \
+     && ! tmux capture-pane -p -t "$SESSION" 2>/dev/null | grep -q "Yes, I trust this folder"; then
     echo "READY:$SESSION:$TARGET:$(git rev-parse HEAD)"
   else
     echo "FAILED:$SESSION:$TARGET — session did not survive launch (check that \`claude\` is on the remote PATH); pane retained by remain-on-exit for inspection: tmux capture-pane -p -t $SESSION" >&2
@@ -215,7 +222,7 @@ If a PR is already open for `$BRANCH`, pushes update that PR's head automaticall
 
 - Committed-state-only mirror (see "What this carries over" above) — this is the chosen tradeoff over rsyncing the dirty working tree.
 - Source repo must live under `$HOME` (see Setup) — step 1 fails loudly rather than silently mirroring to the wrong place. The target-side checkout always lands under `$HOME/mirror/`, not at the identical path as the source.
-- Step 4 auto-launches `claude` (hardcoded) and types `$CONTEXT` into it, but only on a freshly created session — edit the hardcoded command if you use a different CLI. Never assume a `RESUMED` session is idle just because this skill didn't type anything into it.
+- Step 4 auto-launches `claude` (hardcoded) as the session's command with `$CONTEXT` passed as its argv (not typed via `send-keys`), but only on a freshly created session — edit the hardcoded command if you use a different CLI. Never assume a `RESUMED` session is idle just because this skill didn't launch anything into it.
 - A bare host alias is typically LAN-only; off-LAN (traveling), target the Tailscale IP + explicit `-i` per Tier 2 — and make sure step 4 actually uses the resolved `$SSH_ARGS`/`$SSH_TARGET` from step 3, not a re-hardcoded alias, or the whole point of the fallback is lost.
 - Never pass unencoded user-controlled values (repo path, branch name, remote URL) as literal SSH command arguments — a branch name is attacker-controllable shell input the moment someone else can push to your fork, and SSH doesn't preserve argv separation across the wire. Base64-encode first (see step 4).
 - Tier 3 (messaging-gateway handoff) hands off to a *different* agent/process with no shared context — give it complete, explicit instructions, don't assume it can infer intent from this conversation. Also verify it's genuinely reactive before relying on it (see Tier 3 caveats above) — a live-looking connection isn't proof it's actually processing events, and a missing permission grant is a much likelier culprit than the connection itself.
