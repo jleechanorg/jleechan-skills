@@ -19,6 +19,16 @@ Mirror of `/linux` (jeff-ubuntu), but targeting the MacBook. Runs from any machi
 | **SSH port** | 22 (default) |
 | **OS** | macOS 14+ (Sonoma/Sequoia), aarch64 |
 
+## Off-LAN fallback: Tailscale
+
+If `ssh macbook` times out or is refused (off home LAN, or the LAN link is just down), use the dedicated Tailscale alias instead — proven working 2026-09-16/17, including a double-hop from jeff-ubuntu with the LAN link fully down:
+
+```bash
+ssh macbook-ts '<command>'
+```
+
+`macbook-ts` is a real `~/.ssh/config` stanza on the SSHing machine (`HostName 100.67.70.24`, same `IdentityFile` as the LAN alias) — no manual `-i`/IP lookup needed, it's a drop-in replacement for `macbook` in every command in this skill. `ssh macbook` does **not** fail over automatically; try the LAN alias first, fall to `-ts` on failure. Re-verify with `tailscale status | grep macbook` if it ever seems dead.
+
 ## Detect local-vs-remote automatically
 
 Before SSHing, check if you're already on the MacBook:
@@ -138,7 +148,7 @@ ssh macbook 'git clone https://github.com/$GITHUB_REPOSITORY.git /tmp/your-proje
 
 ## Caveats
 
-- **LAN-only by default**: `192.168.254.199` only reachable when both machines on the same home LAN. Use Tailscale (`100.67.70.24`) for off-LAN access.
+- **LAN-only by default**: `192.168.254.199` only reachable when both machines on the same home LAN. Use the Tailscale fallback above for off-LAN access — `ssh macbook-ts` already includes its `IdentityFile`, no `-i` needed; `-i` is only required if you connect to the raw Tailscale IP directly instead of through that alias.
 - **macOS SSH keychain**: First SSH attempt may prompt for keychain access; use `ssh-add --apple-use-keychain ~/.ssh/id_macbook` to cache.
 - **No headless Docker**: MacBook uses colima for Docker; running Docker on the MacBook requires colima VM to be Running (the `ezgha-fleet-watchdog` script auto-starts it).
 - **macOS sandboxing**: Some `~/Library/...` paths may need Full Disk Access for the terminal app to read them.
