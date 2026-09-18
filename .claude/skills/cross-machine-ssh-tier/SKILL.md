@@ -35,6 +35,8 @@ Parameterize by peer:
 
 After this block runs, `$SSH_TARGET` holds either the LAN alias (Tier 1) or `myusername@<tailscale-ip>` (Tier 2), or is empty (Tier 3 — fall through to your surrounding code's `if [ -n "$SSH_TARGET" ]` guard).
 
+If your caller runs under `set -u` (nounset), expanding `"${SSH_ARGS[@]}"` while `SSH_ARGS=()` is still empty (the Tier 1 success path) throws `unbound variable` on macOS's stock bash 3.2 — bash's own array-expansion-under-nounset bug, fixed in 4.4+. Use `"${SSH_ARGS[@]+"${SSH_ARGS[@]}"}"` in a `set -u` context, or just don't set `-u` around this block.
+
 ```bash
 # Inputs:
 #   PEER_LAN_ALIAS   — e.g. "mymac" or "mylinux"
@@ -106,8 +108,9 @@ The ladder above encodes the right key by peer — do not swap them.
 Never hardcode a Tailscale IP in committed code. Even "last known" values go stale on tailscale key rotations or mesh reconfiguration. Use:
 
 ```bash
-# All live Tailscale peers (one IP per line, in priority order)
-tailscale status | awk '/peer/{print $1}'
+# All live Tailscale peers (one IP per line) — plain `tailscale status`
+# output has no literal "peer" token per line, so match everything:
+tailscale status | awk '{print $1}'
 
 # A specific peer (case-sensitive substring match against the peer hostname)
 tailscale status | awk "/${PEER_TS_PATTERN}/{print \$1}"

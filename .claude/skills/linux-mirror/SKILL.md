@@ -123,18 +123,23 @@ SESSION="mirror-${BRANCH_SAFE}-${BRANCH_HASH}"
 if tmux has-session -t "=$SESSION" 2>/dev/null; then
   echo "RESUMED:$SESSION:$TARGET:$(git rev-parse HEAD)"
 else
-  tmux new-session -d -s "$SESSION" -c "$TARGET"
+  # A bare shell in a checked-out repo is not "continuing the work session"
+  # — launch the coding agent as the session's actual command, with
+  # $CONTEXT as its argv, instead of `new-session` + a bare shell +
+  # `send-keys` typed in after a fixed sleep. tmux execs trailing words
+  # directly (no shell re-tokenization), so this also closes the injection
+  # window a typed-and-Entered $CONTEXT would open if the CLI weren't at
+  # its prompt yet: a `send-keys`-typed string lands in whatever the pane's
+  # foreground process is at that moment, so a starting-vs-prompt-not-ready
+  # race can dump $CONTEXT straight into an interactive shell and execute
+  # it. Passing it as an argv element never touches a shell at all — this
+  # only ever fires on a session that didn't already exist (the branch
+  # above), so a resumed session never gets a replayed prompt injected on
+  # top of work already in progress.
   if [ -n "$CONTEXT" ]; then
-    # A bare shell in a checked-out repo is not "continuing the work
-    # session" — launch the coding agent and hand it $CONTEXT as its first
-    # message. This only ever fires on a session that didn't already exist
-    # (the branch above), so a resumed session never gets a replayed prompt
-    # injected on top of work already in progress. `sleep` is a fixed wait
-    # for the CLI to reach its prompt; raise it if yours starts slower.
-    tmux send-keys -t "$SESSION" "claude" Enter
-    sleep 3
-    tmux send-keys -t "$SESSION" -l "$CONTEXT"
-    tmux send-keys -t "$SESSION" Enter
+    tmux new-session -d -s "$SESSION" -c "$TARGET" claude "$CONTEXT"
+  else
+    tmux new-session -d -s "$SESSION" -c "$TARGET"
   fi
   echo "READY:$SESSION:$TARGET:$(git rev-parse HEAD)"
 fi
