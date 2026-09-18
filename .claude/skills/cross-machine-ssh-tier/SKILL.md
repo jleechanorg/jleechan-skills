@@ -54,8 +54,15 @@ if ssh -o ConnectTimeout=5 -o BatchMode=yes "$SSH_TARGET" true 2>/dev/null; then
 else
   # Tier 2 — Tailscale SSH (off-LAN fallback). Re-verify the IP every call;
   # never hardcode it — Tailscale IPs are stable per-device but can change
-  # on key rotations or mesh reconfiguration.
-  TS_IP=$(tailscale status | awk "/${PEER_TS_PATTERN}/{print \$1}")
+  # on key rotations or mesh reconfiguration. Match against the hostname
+  # column ($2) only, not the whole line ($0, awk's default) — matching
+  # the whole line lets a pattern like "mac" match an unrelated peer's OS
+  # column ("macOS") instead of the intended hostname. `-v pat=` avoids
+  # interpolating $PEER_TS_PATTERN straight into the awk program text.
+  # `exit` after the first hit makes "first match wins" actually true —
+  # without it, multiple matching peers concatenate into one multi-line
+  # $TS_IP and silently produce a garbage $SSH_TARGET.
+  TS_IP=$(tailscale status | awk -v pat="$PEER_TS_PATTERN" '$2 ~ pat {print $1; exit}')
   SSH_ARGS=(-i "$PEER_KEY")
   SSH_TARGET="${PEER_USER}@${TS_IP}"
   if ssh "${SSH_ARGS[@]}" -o ConnectTimeout=5 -o BatchMode=yes "$SSH_TARGET" true 2>/dev/null; then
@@ -112,8 +119,11 @@ Never hardcode a Tailscale IP in committed code. Even "last known" values go sta
 # output has no literal "peer" token per line, so match everything:
 tailscale status | awk '{print $1}'
 
-# A specific peer (case-sensitive substring match against the peer hostname)
-tailscale status | awk "/${PEER_TS_PATTERN}/{print \$1}"
+# A specific peer — match column 2 (hostname) only, not the whole line, and
+# stop at the first hit (see the Tier 2 ladder block above for why both
+# matter: matching $0 can hit an unrelated peer's OS column, and omitting
+# `exit` can produce a multi-line result instead of one IP).
+tailscale status | awk -v pat="$PEER_TS_PATTERN" '$2 ~ pat {print $1; exit}'
 ```
 
-A single peer usually has exactly one IP; if a peer rotates keys, both the old and new IPs may show briefly — `awk` returns the first match, which is the active one. If the pattern matches zero peers, `TS_IP` is empty and the Tier 2 ssh call fails fast with a hostname-resolution error, which is the correct outcome (caller falls through to Tier 3).
+A single peer usually has exactly one IP; if a peer rotates keys, both the old and new IPs may show briefly — the `exit` after the first match is what actually makes "first match wins" true here (a plain `awk '/pat/{print $1}'` with no `exit` prints every matching line, not just the first). If the pattern matches zero peers, `TS_IP` is empty and the Tier 2 ssh call fails fast with a hostname-resolution error, which is the correct outcome (caller falls through to Tier 3).

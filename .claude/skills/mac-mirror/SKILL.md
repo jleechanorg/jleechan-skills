@@ -138,12 +138,55 @@ else
   # only ever fires on a session that didn't already exist (the branch
   # above), so a resumed session never gets a replayed prompt injected on
   # top of work already in progress.
+  #
+  # `--dangerously-skip-permissions` and `--` are both required. `--`
+  # stops `claude` from treating a `$CONTEXT` that happens to start with
+  # `-`/`--` as a flag instead of the prompt. `--dangerously-skip-permissions`
+  # skips tool-permission prompts, but — confirmed live, 2026-09-18 — it
+  # does NOT suppress the first-run workspace-trust dialog for a git
+  # repository specifically (it does for a plain non-git directory, which
+  # is what made an earlier version of this fix look sufficient before
+  # testing against an actual mirrored clone). That dialog's *default*
+  # selection is "No, exit"; a bare `claude "$CONTEXT"` on a fresh mirror
+  # clone sits there, and the session vanishes the instant anything —
+  # including an unrelated Enter — accepts the default and exits `claude`.
+  #
+  # remain-on-exit is set in the same tmux invocation (not a separate
+  # call) so a session that dies immediately — missing `claude` binary,
+  # PATH not resolving it under a non-login tmux shell, a crash — leaves a
+  # dead-but-inspectable pane instead of vanishing outright.
   if [ -n "$CONTEXT" ]; then
-    tmux new-session -d -s "$SESSION" -c "$TARGET" claude "$CONTEXT"
+    tmux new-session -d -s "$SESSION" -c "$TARGET" claude --dangerously-skip-permissions -- "$CONTEXT" \; set-option -t "$SESSION" remain-on-exit on
+    # Poll for the trust dialog and accept it with fixed navigation keys
+    # (Down, Enter) — never $CONTEXT — so this carries none of the
+    # injection risk the original send-keys-typed-$CONTEXT bug had. This
+    # only fires the first time a given target directory is mirrored (the
+    # dialog only appears once claude.json records the directory as
+    # trusted); a no-op loop on an already-trusted directory is safe.
+    for _ in $(seq 1 20); do
+      if tmux capture-pane -p -t "$SESSION" 2>/dev/null | grep -q "Yes, I trust this folder"; then
+        tmux send-keys -t "$SESSION" Down
+        sleep 0.3
+        tmux send-keys -t "$SESSION" Enter
+        break
+      fi
+      sleep 0.5
+    done
   else
-    tmux new-session -d -s "$SESSION" -c "$TARGET"
+    tmux new-session -d -s "$SESSION" -c "$TARGET" \; set-option -t "$SESSION" remain-on-exit on
   fi
-  echo "READY:$SESSION:$TARGET:$(git rev-parse HEAD)"
+  # tmux new-session exits 0 even when the launched command can't be
+  # exec'd, and with remain-on-exit set, has-session alone can't tell a
+  # genuinely running session from a dead one either — remain-on-exit
+  # keeps the session entry around specifically so it doesn't vanish, so
+  # has-session still returns success. #{pane_dead} is the actual signal
+  # (confirmed live: 1 immediately after an exec failure, 0 while running).
+  if tmux has-session -t "=$SESSION" 2>/dev/null && [ "$(tmux display-message -p -t "$SESSION" '#{pane_dead}')" = "0" ]; then
+    echo "READY:$SESSION:$TARGET:$(git rev-parse HEAD)"
+  else
+    echo "FAILED:$SESSION:$TARGET — session did not survive launch (check that \`claude\` is on the remote PATH); pane retained by remain-on-exit for inspection: tmux capture-pane -p -t $SESSION" >&2
+    exit 1
+  fi
 fi
 EOF
 ```
