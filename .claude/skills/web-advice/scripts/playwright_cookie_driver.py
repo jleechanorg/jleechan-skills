@@ -6,6 +6,8 @@ import time
 
 from playwright.sync_api import sync_playwright
 
+from web_advice_transport import detect_context_deficiency, save_review_record
+
 
 class UploadGateError(RuntimeError):
     """Raised when the visible vendor UI refuses an upload before selection."""
@@ -63,18 +65,29 @@ def parse_args():
 
 
 def visible_attachment_names(page, expected_names):
-    """Return exact filenames the web UI rendered before prompting."""
+    """Return expected filenames whose stem the web UI rendered before prompting.
+
+    Some vendors (observed: ChatGPT) append a dedup/timestamp suffix to the
+    displayed filename on upload (e.g. "full_changed_files(20260916-184...)"
+    for "full_changed_files.txt"), so an exact-string match against the
+    original filename always fails even when the upload succeeded. Match on
+    the filename stem (name without extension) appearing as a substring of a
+    rendered text node instead (bead rev-63pla, 2026-09-16).
+    """
     if not expected_names:
         return []
-    return sorted(
-        page.evaluate(
-            """expected => [...new Set([...document.querySelectorAll('*')]
-                .flatMap(e => [e.textContent, e.getAttribute('aria-label')])
-                .filter(Boolean).map(value => value.trim())
-                .filter(value => expected.includes(value)))]""",
-            expected_names,
-        )
+    stems = [pathlib.Path(name).stem for name in expected_names]
+    rendered_texts = page.evaluate(
+        """() => [...new Set([...document.querySelectorAll('*')]
+            .flatMap(e => [e.textContent, e.getAttribute('aria-label')])
+            .filter(Boolean).map(value => value.trim())
+            .filter(value => value.length > 0 && value.length < 200))]"""
     )
+    found = []
+    for name, stem in zip(expected_names, stems):
+        if any(stem in text for text in rendered_texts):
+            found.append(name)
+    return sorted(found)
 
 
 def fill_composer(page, composer, prompt):
@@ -126,7 +139,14 @@ def upload_attachments(page, site, attachments):
             "No unambiguous enabled document input was available "
             f"for {upload_selector!r} (count={inputs.count()}); do not use .first()."
         )
-    inputs.set_input_files(attachments)
+    # Attach one file per set_input_files call rather than the whole list at
+    # once: composers that intercept the change event to append into internal
+    # attachment state (observed: ChatGPT) only render one chip for a
+    # multi-file synthetic DataTransfer, even though a real OS drag-drop of
+    # the same files would produce multiple chips (bead rev-63pla, 2026-09-16).
+    for single_attachment in attachments:
+        inputs.set_input_files([single_attachment])
+        page.wait_for_timeout(1_500)
 
 
 def submit_prompt(page, site):
@@ -141,6 +161,16 @@ def submit_prompt(page, site):
 
     send = page.locator(site["send_selector"])
     send.wait_for(state="visible", timeout=5_000)
+    # A just-attached large document can leave the send control briefly
+    # disabled while the vendor finishes server-side processing even after
+    # its chip is visible; wait for it to become enabled rather than firing
+    # a click that the disabled control silently drops (bead rev-63pla,
+    # 2026-09-16).
+    disabled_deadline = time.monotonic() + 15
+    while time.monotonic() < disabled_deadline:
+        if send.is_enabled():
+            break
+        page.wait_for_timeout(1_000)
     send.click()
 
 
@@ -159,6 +189,7 @@ def report_is_complete(report):
         and report.get("upload_verified")
         and report.get("packet_echo_verified")
         and report.get("response")
+        and not report.get("context_deficiency_complaints")
     )
 
 
@@ -186,6 +217,9 @@ def main():
         "visible_attachment_names": [],
         "upload_verified": False,
         "packet_echo_verified": False,
+        "disk_location": "",
+        "share_url": "not obtained: automated driver",
+        "context_deficiency_complaints": [],
         "reason": None,
         "response": "",
     }
@@ -231,10 +265,22 @@ def main():
                 report["authenticated"] = True
                 report["composer_writable"] = True
                 upload_attachments(page, site, [str(path) for path in attachments])
-                page.wait_for_timeout(1_000)
-                report["visible_attachment_names"] = visible_attachment_names(
-                    page, expected_names
-                )
+                # Large text attachments (multi-MB review packets) take longer
+                # than 1s to finish server-side processing before their chip
+                # renders with its final filename; poll instead of a single
+                # fixed-delay check (bead rev-63pla, 2026-09-16).
+                upload_deadline = time.monotonic() + 20
+                while time.monotonic() < upload_deadline:
+                    page.wait_for_timeout(1_000)
+                    report["visible_attachment_names"] = visible_attachment_names(
+                        page, expected_names
+                    )
+                    if set(report["visible_attachment_names"]) == set(
+                        expected_names
+                    ) and len(report["visible_attachment_names"]) == len(
+                        expected_names
+                    ):
+                        break
                 report["upload_verified"] = (
                     set(report["visible_attachment_names"]) == set(expected_names)
                     and len(report["visible_attachment_names"]) == len(expected_names)
@@ -257,11 +303,31 @@ def main():
                         stable = stable + 1 if current and current == previous else 0
                         if stable >= 2 and len(current) > 40:
                             report["response"] = current
+                            complaints = detect_context_deficiency(current)
+                            if complaints:
+                                report["context_deficiency_complaints"] = complaints
+                                report["reason"] = (
+                                    f"model_complained_lack_of_context:{'; '.join(complaints)}"
+                                )
                             report["packet_echo_verified"] = has_packet_echo(
                                 current, prompt, expected_names
                             )
-                            if not report["packet_echo_verified"]:
+                            if not report["packet_echo_verified"] and not report["reason"]:
                                 report["reason"] = "packet_echo_not_observed"
+
+                            review_dir = args.output.parent / "reviews"
+                            review_path = save_review_record(
+                                review_dir,
+                                args.site,
+                                current,
+                                metadata={
+                                    "site": args.site,
+                                    "uploaded_files": [str(path) for path in attachments],
+                                    "share_url": report.get("share_url")
+                                    or "not obtained: automated driver",
+                                },
+                            )
+                            report["disk_location"] = str(review_path.resolve())
                             break
                         previous = current
                         time.sleep(3)
