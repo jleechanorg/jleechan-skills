@@ -83,6 +83,15 @@ REMOTE_URL=$(printf '%s' "$3" | base64 -d)
 CONTEXT=$(printf '%s' "$4" | base64 -d)
 TARGET="$HOME/mirror/$REL_PATH"
 
+# $CONTEXT is a required briefing for the coding agent step 4 launches, not
+# optional bookkeeping (see step 1) — an empty value falling through to a
+# bare-shell session would still pass the has-session/pane_dead/no-dialog
+# READY check below with no agent actually running.
+if [ -z "$CONTEXT" ]; then
+  echo "FAILED:$TARGET — \$CONTEXT is empty; refusing to report READY on a bare shell with no agent launched" >&2
+  exit 1
+fi
+
 if [ ! -e "$TARGET/.git" ]; then
   mkdir -p "$(dirname "$TARGET")"
   git clone "$REMOTE_URL" "$TARGET"
@@ -155,43 +164,53 @@ else
   # call) so a session that dies immediately — missing `claude` binary,
   # PATH not resolving it under a non-login tmux shell, a crash — leaves a
   # dead-but-inspectable pane instead of vanishing outright.
-  if [ -n "$CONTEXT" ]; then
-    tmux new-session -d -s "$SESSION" -c "$TARGET" claude --dangerously-skip-permissions -- "$CONTEXT" \; set-option -t "$SESSION" remain-on-exit on
-    # Poll for the trust dialog and accept it with fixed navigation keys
-    # (Down, Enter) — never $CONTEXT — so this carries none of the
-    # injection risk the original send-keys-typed-$CONTEXT bug had. This
-    # only fires the first time a given target directory is mirrored (the
-    # dialog only appears once claude.json records the directory as
-    # trusted); a no-op loop on an already-trusted directory is safe.
-    for _ in $(seq 1 40); do
-      PANE_PROBE=$(tmux capture-pane -p -t "$SESSION" 2>/dev/null || true)
-      if echo "$PANE_PROBE" | grep -q "Yes, I trust this folder"; then
+  tmux new-session -d -s "$SESSION" -c "$TARGET" claude --dangerously-skip-permissions -- "$CONTEXT" \; set-option -t "$SESSION" remain-on-exit on
+  # Poll for the trust dialog and accept it with fixed navigation keys
+  # (Down, Enter) — never $CONTEXT — so this carries none of the
+  # injection risk the original send-keys-typed-$CONTEXT bug had. This
+  # only fires the first time a given target directory is mirrored (the
+  # dialog only appears once claude.json records the directory as
+  # trusted); a no-op loop on an already-trusted directory is safe.
+  for _ in $(seq 1 40); do
+    PANE_PROBE=$(tmux capture-pane -p -t "$SESSION" 2>/dev/null || true)
+    if echo "$PANE_PROBE" | grep -q "Yes, I trust this folder"; then
+      # The dialog's text can be captured before its keyboard handler is
+      # actually wired up — confirmed live under real load (this box
+      # routinely runs 20+ concurrent mirror tmux sessions): a Down sent
+      # the instant the text appeared was silently swallowed, and a
+      # fixed-delay Enter afterward confirmed the still-focused default
+      # "No, exit", killing the session (exit 1). Settle briefly, then
+      # verify the cursor actually reached "Yes, I trust this folder"
+      # before sending Enter — checking before each Down (not after)
+      # means a Down that lands late is never followed by a second one
+      # that would toggle the two-item list back to "No, exit".
+      sleep 0.2
+      for _ in $(seq 1 15); do
+        tmux capture-pane -p -t "$SESSION" 2>/dev/null | grep -qE '❯[[:space:]]*Yes, I trust this folder' && break
         tmux send-keys -t "$SESSION" Down
-        sleep 0.3
-        tmux send-keys -t "$SESSION" Enter
-        # send-keys returns before claude's render loop processes Enter —
-        # confirmed live: the readiness check below ran ~8ms after Enter
-        # and still saw the dialog text on screen, reporting a false
-        # FAILED on a session that was actually fine one second later.
-        # Poll (bounded) until the dialog text actually clears.
-        for _ in $(seq 1 10); do
-          echo "$(tmux capture-pane -p -t "$SESSION" 2>/dev/null)" | grep -q "Yes, I trust this folder" || break
-          sleep 0.2
-        done
-        break
-      fi
-      # An already-trusted directory never shows the dialog, so without a
-      # positive exit this loop always burns its full budget — confirmed
-      # live: an already-trusted launch stalled the caller a flat 20s.
-      # claude's status bar ("bypass permissions on") only ever appears
-      # once past the dialog (confirmed live: never co-occurs with the
-      # dialog text), so treat it as the "no dialog is coming" signal.
-      echo "$PANE_PROBE" | grep -q "bypass permissions on" && break
-      sleep 0.5
-    done
-  else
-    tmux new-session -d -s "$SESSION" -c "$TARGET" \; set-option -t "$SESSION" remain-on-exit on
-  fi
+        sleep 0.2
+      done
+      tmux send-keys -t "$SESSION" Enter
+      # send-keys returns before claude's render loop processes Enter —
+      # confirmed live: the readiness check below ran ~8ms after Enter
+      # and still saw the dialog text on screen, reporting a false
+      # FAILED on a session that was actually fine one second later.
+      # Poll (bounded) until the dialog text actually clears.
+      for _ in $(seq 1 10); do
+        echo "$(tmux capture-pane -p -t "$SESSION" 2>/dev/null)" | grep -q "Yes, I trust this folder" || break
+        sleep 0.2
+      done
+      break
+    fi
+    # An already-trusted directory never shows the dialog, so without a
+    # positive exit this loop always burns its full budget — confirmed
+    # live: an already-trusted launch stalled the caller a flat 20s.
+    # claude's status bar ("bypass permissions on") only ever appears
+    # once past the dialog (confirmed live: never co-occurs with the
+    # dialog text), so treat it as the "no dialog is coming" signal.
+    echo "$PANE_PROBE" | grep -q "bypass permissions on" && break
+    sleep 0.5
+  done
   # tmux new-session exits 0 even when the launched command can't be
   # exec'd, and with remain-on-exit set, has-session alone can't tell a
   # genuinely running session from a dead one either — remain-on-exit
