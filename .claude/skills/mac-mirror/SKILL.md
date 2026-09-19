@@ -187,10 +187,16 @@ else
       sleep 0.2
       for _ in $(seq 1 15); do
         tmux capture-pane -p -t "$SESSION" 2>/dev/null | grep -qE '❯[[:space:]]*Yes, I trust this folder' && break
-        tmux send-keys -t "$SESSION" Down
+        tmux send-keys -t "$SESSION" Down || true
         sleep 0.2
       done
-      tmux send-keys -t "$SESSION" Enter
+      # || true on both send-keys calls: a session that died in the gap
+      # since the last capture-pane check would make send-keys fail and,
+      # under set -e, silently abort the whole remote script with no
+      # FAILED: marker — the same class of gap 58d9db5 closed for
+      # capture-pane. Falling through instead lets the existing
+      # has-session/pane_dead check report FAILED correctly.
+      tmux send-keys -t "$SESSION" Enter || true
       # send-keys returns before claude's render loop processes Enter —
       # confirmed live: the readiness check below ran ~8ms after Enter
       # and still saw the dialog text on screen, reporting a false
