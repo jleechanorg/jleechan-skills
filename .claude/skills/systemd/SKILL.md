@@ -124,17 +124,20 @@ if [[ -f ~/.bash_profile ]]; then
     set +u
     source ~/.bash_profile 2>/dev/null || true
     set -u
+elif [[ -f ~/.bashrc ]]; then
+    set +u
+    source ~/.bashrc 2>/dev/null || true
+    set -u
 fi
 
-# 2. Dynamic credential resolution fallbacks.
+# 2. Prepend explicit directories to PATH defensively before credential lookup.
+export PATH="$HOME/.local/bin:$HOME/.cargo/bin:/usr/local/bin:${PATH:-/usr/bin:/bin:/usr/sbin:/sbin}"
+
+# 3. Dynamic credential resolution fallbacks.
 if [[ -z "${GH_TOKEN:-}" ]]; then
-    GH_TOKEN="$(/usr/bin/env gh auth token 2>/dev/null || true)"
+    GH_TOKEN="$(gh auth token 2>/dev/null || true)"
 fi
 export GH_TOKEN
-
-# 3. Explicit PATH so br / gh / sqlite3 / python3 resolve without the
-#    bash_profile source — defensive against minimal PATH= environments.
-export PATH="$HOME/.local/bin:$HOME/.cargo/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 # 4. Forward to the actual target.
 exec "$TARGET" "$@"
@@ -165,7 +168,7 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 WorkingDirectory=@REPO@
-ExecStart=/bin/bash @HOME@/.hermes/scripts/systemd-wrapper.sh @REPO@/daemon/<job>.sh
+ExecStart=/bin/bash @HOME@/.hermes/scripts/systemd-wrapper.sh @REPO@/daemon/scripts/<job>.sh
 # Strip shell-exported GitHub tokens so keyring auth wins (PR #206).
 UnsetEnvironment=GITHUB_TOKEN GH_TOKEN
 # Pulls in HERMES_SLACK_BOT_TOKEN etc. from the file at 0600; the leading
@@ -220,9 +223,9 @@ Description=Schedule <job-name>.service daily at 03:00 local
 # because it's a maintenance window, not urgent.
 
 [Timer]
-# Daily at 03:00:00 local time. Use `*-*-* HH:MM:00` form for fixed times,
-# `OnCalendar=daily` shorthand for midnight UTC (NOT what you want — UTC
-# drift breaks the "03:00 local" assumption).
+# Daily at 03:00:00 local time. Use `*-*-* HH:MM:00` form for fixed times
+# (`OnCalendar=daily` is shorthand for midnight `*-*-* 00:00:00` in the
+# systemd manager's local timezone, which is not the intended 03:00 schedule).
 OnCalendar=*-*-* 03:00:00
 # Catch up missed runs (e.g. machine was asleep at fire time).
 Persistent=true
@@ -260,14 +263,15 @@ OnUnitActiveSec=60
 
 ## 6-Step Installation Checklist
 
-1. Write the target script (the worker) under `daemon/scripts/<job>.sh`.
+1. Write the target script (the worker) under `daemon/scripts/<job>.sh` and ensure it is executable (`chmod 0755 daemon/scripts/<job>.sh`).
 2. Write the sourced wrapper script (`systemd-wrapper.sh`) to
    `~/.hermes/scripts/systemd-wrapper.sh` and `chmod 0755` it.
-3. Write the minimal unit template files using `@HOME@` / `@REPO@`
+3. Ensure the log directory exists: `mkdir -p "$HOME/Library/Logs/dark-factory"`.
+4. Write the minimal unit template files using `@HOME@` / `@REPO@`
    placeholders (not hardcoded paths), commit them under
    `daemon/systemd/<unit>.service.template` and
    `daemon/systemd/<unit>.timer.template`.
-4. **Commit the templates to the owning repo.** A unit with no repo template
+5. **Commit the templates to the owning repo.** A unit with no repo template
    is orphaned — cleanup scripts cannot find or remove it. This step is
    mandatory before install (same rule as `/launchd` step 4).
 5. Ensure linger is on so user services survive logout/reboot:
@@ -337,8 +341,8 @@ systemctl --user status <job>.service --no-pager
 systemctl --user start <job>.service
 journalctl --user -u <job>.service -n 50
 
-# Wrapper is sourcing bash_profile correctly?
-bash -x ~/.hermes/scripts/systemd-wrapper.sh /bin/true   # trace it
+# Wrapper is sourcing profile correctly? (avoid raw bash -x which could echo tokens)
+~/.hermes/scripts/systemd-wrapper.sh /usr/bin/printenv PATH
 ```
 
 ---

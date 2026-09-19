@@ -184,7 +184,7 @@ Streamlined workflow optimized for speed and simplicity:
      if command -v npm >/dev/null 2>&1 && [ -f package.json ] && npm run --silent 2>/dev/null | grep -q "test"; then
        npm test
      elif command -v vpython >/dev/null 2>&1; then
-       env TESTING=true python -m pytest
+       env TESTING=true vpython -m pytest
      elif command -v python3 >/dev/null 2>&1; then
        env TESTING=true python3 -m pytest
      elif command -v python >/dev/null 2>&1; then
@@ -530,5 +530,5 @@ EXECUTIVE SUMMARY & DECISION SYNTHESIS analysis for operational decision consens
 
 1. Ensure working tree cleanliness (`git status --short`).
 2. If changes were made, restate next steps (commit, push, or request manual review).
-3. Update Memory MCP with consensus patterns and successful issue resolutions.
+3. If user explicitly opts into memory persistence, record a sanitized, project-scoped summary of consensus patterns and key resolution decisions into Memory MCP (stripping private keys, user PII, or raw secret payloads).
 4. Note: GitHub rollbacks available if any issues discovered post-merge.

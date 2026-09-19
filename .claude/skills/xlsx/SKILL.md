@@ -81,9 +81,11 @@ For data analysis, visualization, and basic operations, use **pandas** which pro
 ```python
 import pandas as pd
 
-# Read Excel
+# Read Excel, CSV, or TSV
 df = pd.read_excel('file.xlsx')  # Default: first sheet
 all_sheets = pd.read_excel('file.xlsx', sheet_name=None)  # All sheets as dict
+csv_df = pd.read_csv('data.csv')  # CSV loading
+tsv_df = pd.read_csv('data.tsv', sep='\t')  # TSV loading
 
 # Analyze
 df.head()      # Preview data
@@ -92,6 +94,7 @@ df.describe()  # Statistics
 
 # Write Excel
 df.to_excel('output.xlsx', index=False)
+csv_df.to_excel('from_csv.xlsx', index=False)  # Convert CSV/TSV to Excel
 ```
 
 ## Excel File Workflows
@@ -136,7 +139,7 @@ This applies to ALL calculations - totals, percentages, ratios, differences, etc
 4. **Save**: Write to file
 5. **Recalculate formulas (MANDATORY IF USING FORMULAS)**: Use the scripts/recalc.py script
    ```bash
-   python scripts/recalc.py output.xlsx
+   python "${CLAUDE_HOME:-$HOME/.claude}/skills/xlsx/scripts/recalc.py" output.xlsx
    ```
 6. **Verify and fix any errors**: 
    - The script returns JSON with error details
@@ -183,8 +186,8 @@ wb.save('output.xlsx')
 # Using openpyxl to preserve formulas and formatting
 from openpyxl import load_workbook
 
-# Load existing file
-wb = load_workbook('existing.xlsx')
+# Load existing file (use keep_vba=True for .xlsm macro-enabled workbooks)
+wb = load_workbook('existing.xlsm', keep_vba=True)
 sheet = wb.active  # or wb['SheetName'] for specific sheet
 
 # Working with multiple sheets
@@ -201,7 +204,8 @@ sheet.delete_cols(3)  # Delete column 3
 new_sheet = wb.create_sheet('NewSheet')
 new_sheet['A1'] = 'Data'
 
-wb.save('modified.xlsx')
+# Preserve .xlsm extension for macro-enabled workbooks
+wb.save('modified.xlsm')
 ```
 
 ## Recalculating formulas
@@ -209,12 +213,14 @@ wb.save('modified.xlsx')
 Excel files created or modified by openpyxl contain formulas as strings but not calculated values. Use the provided `scripts/recalc.py` script to recalculate formulas:
 
 ```bash
-python scripts/recalc.py <excel_file> [timeout_seconds]
+python "${CLAUDE_HOME:-$HOME/.claude}/skills/xlsx/scripts/recalc.py" <excel_file> [timeout_seconds] [--force]
 ```
+
+By default, workbooks with at-risk external links are rejected to avoid corrupting or losing cached reference data. Pass `--force` only if you intentionally want to bypass this check.
 
 Example:
 ```bash
-python scripts/recalc.py output.xlsx 30
+python "${CLAUDE_HOME:-$HOME/.claude}/skills/xlsx/scripts/recalc.py" output.xlsx 30
 ```
 
 The script:
@@ -272,6 +278,7 @@ The script returns JSON with error details:
 - Cell indices are 1-based (row=1, column=1 refers to cell A1)
 - Use `data_only=True` to read calculated values: `load_workbook('file.xlsx', data_only=True)`
 - **Warning**: If opened with `data_only=True` and saved, formulas are replaced with values and permanently lost
+- Ensure the workbook formulas are recalculated first via `scripts/recalc.py`, or inspect both formula views (`data_only=False` for formula strings) and cached value views (`data_only=True`) to detect stale or missing cache values
 - For large files: Use `read_only=True` for reading or `write_only=True` for writing
 - Formulas are preserved but not evaluated - use scripts/recalc.py to update values
 

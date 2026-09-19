@@ -18,7 +18,9 @@ Run the following to find the PR number for the current branch:
 gh pr view --json number,url,title
 ```
 
-If the command fails (no PR found), tell the user: "No open PR found for the current branch."
+Inspect the error output:
+- If `gh` reports `no open pull requests found` for the branch, inform the user: "No open PR found for the current branch."
+- For other errors (e.g. auth failure, network timeout, or rate limiting), surface the specific error message to the user rather than assuming no PR exists.
 
 ### Step 2: Post CodeRabbit Comment
 

@@ -65,8 +65,7 @@ Before your first real scenario run, sanity-check that `dispatch_command`
 actually satisfies the contract above -- no real model call, just "argv in,
 capture.jsonl out":
 ```bash
-cd ~/.claude/skills/test-realistic/scripts
-python3 verify_adapter.py --config <path/to/.test-realistic.toml>
+python3 "${CLAUDE_HOME:-$HOME/.claude}/skills/test-realistic/scripts/verify_adapter.py" --config <path/to/.test-realistic.toml>
 ```
 This dispatches your real command against a trivial fixture pool/scenario
 and checks: at least one file matches `capture_glob`, every line parses as
@@ -95,17 +94,15 @@ a real coverage-judge model call diagnosing the same problem indirectly.
 
 ### Step 1: Unit-test gate (always run first, zero model calls, zero network)
 ```bash
-cd ~/.claude/skills/test-realistic
-python3 -m pytest tests/ -q
+python3 -m pytest "${CLAUDE_HOME:-$HOME/.claude}/skills/test-realistic/tests" -q
 ```
 The model seam (`llm_callable`) is stubbed in every unit test. This proves
 the harness's own mechanics (batching, retry, validation, verdict
 aggregation) without spending a real model call.
 
-### Step 2: Generate (model-delegated, two real model calls)
+### Step 2: Generate (model-delegated, three real model calls)
 ```bash
-cd ~/.claude/skills/test-realistic/scripts
-python3 scenario_generator.py "<TARGET>" --output-dir <path> [--config <path/to/.test-realistic.toml>]
+python3 "${CLAUDE_HOME:-$HOME/.claude}/skills/test-realistic/scripts/scenario_generator.py" "<TARGET>" --output-dir <path> [--config <path/to/.test-realistic.toml>]
 ```
 `<TARGET>` is a freeform prompt, a PR number, a commit SHA, or (if your
 project configured `doc_target_patterns`) a doc-target id. On malformed
@@ -156,7 +153,7 @@ subprocess also exited 0 (or was explicitly excused via
 ## Anti-false-green rules (non-negotiable, carried over verbatim from the source design)
 
 1. Target classification and scenario-step authoring are ALWAYS real model
-   calls -- never `if "pr" in target.lower()`-style keyword routing.
+   calls (unless scenario steps are explicitly supplied in-session via `--from-json`) -- never `if "pr" in target.lower()`-style keyword routing.
 2. `feature_summary` is derived independently at generation time and is
    NEVER supplied by the same session that will later grade the run.
 3. The coverage judge's `exercised: True` requires non-empty
@@ -173,7 +170,7 @@ subprocess also exited 0 (or was explicitly excused via
 ## Directory layout
 
 ```
-~/.claude/skills/test-realistic/
+${CLAUDE_HOME:-$HOME/.claude}/skills/test-realistic/
   SKILL.md                    # this file
   PROVENANCE.md               # source lineage (EXAMPLE/historical block)
   scripts/

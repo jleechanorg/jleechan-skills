@@ -76,15 +76,17 @@ python3 - "$HOME/Library/LaunchAgents/ai.agento.lifecycle-all.plist" <<'EOF'
 import plistlib, sys
 data = plistlib.load(open(sys.argv[1], 'rb'))
 key = data.get('EnvironmentVariables', {}).get('MINIMAX_API_KEY', '')
-print(f'MINIMAX_API_KEY = {repr(key)}')
-print('BAD: redacted' if key == '__OPENCLAW_REDACTED__' else 'OK: real key present' if key else 'EMPTY')
+masked = f"{key[:4]}...{key[-4:]} (len={len(key)})" if len(key) > 8 else ("present" if key else "empty")
+print(f'MINIMAX_API_KEY status = {masked}')
+print('BAD: redacted sentinel' if key == '__OPENCLAW_REDACTED__' else 'OK: real key present' if key else 'EMPTY')
 EOF
 ```
 
 ### Step 3: Check keychain for the real key
 
 ```bash
-security find-generic-password -s MINIMAX_API_KEY -w
+# Check presence without leaking credential to terminal
+security find-generic-password -s MINIMAX_API_KEY >/dev/null 2>&1 && echo "Keychain: MINIMAX_API_KEY present" || echo "Keychain: MINIMAX_API_KEY missing"
 ```
 
 If keychain has a real key but plist has `__OPENCLAW_REDACTED__`, the plist was set from a legacy config export that used the sentinel.

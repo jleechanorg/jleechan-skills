@@ -211,7 +211,7 @@ Before declaring the goal written, run these gates on your own draft:
 1. **Outcome verifiability** — is the "Outcome" line ONE of the four named end-states, with a concrete artifact? If it says "improve" / "address" / "investigate" / "explore" — rewrite it. Those are activities, not outcomes.
 2. **Evidence specificity** — does "Evidence required" name the actual artifact (file:line, PR URL, screenshot path, log excerpt), not a category ("tests", "logs")?
 3. **Green-CI grounded** — does "Green-CI definition" list this repo's actual workflow names from Phase 2? If Phase 2 found none, write "first run — gates to be enumerated from `gh run list --workflow` on first execution" instead of inventing gate names.
-4. **Pitfalls sourced** — does every "Pitfalls" entry cite a real Phase 2 finding (date, session id, or memory key)? Invented pitfalls are fabrication — strike them.
+4. **Pitfalls sourced** — when Phase 2 finds matched history or memory, does every "Pitfalls" entry cite a real Phase 2 finding (date, session id, or memory key)? When no prior context exists, accept the explicit "No prior CLI sessions or memory matched; first run on this topic" statement. Invented pitfalls are fabrication — strike them.
 5. **Definition of Done includes the no-follow-up rule** — verbatim: "NO follow-up question" appears in the DoD section.
 6. **Dispatch routing references the real commits** — does it cite `scope-pivot-to-ao` / `pr-green-dispatch` so a worker reading the goal knows when to escalate inline→AO?
 
