@@ -164,7 +164,7 @@ else
     # dialog only appears once claude.json records the directory as
     # trusted); a no-op loop on an already-trusted directory is safe.
     for _ in $(seq 1 40); do
-      PANE_PROBE=$(tmux capture-pane -p -t "$SESSION" 2>/dev/null)
+      PANE_PROBE=$(tmux capture-pane -p -t "$SESSION" 2>/dev/null || true)
       if echo "$PANE_PROBE" | grep -q "Yes, I trust this folder"; then
         tmux send-keys -t "$SESSION" Down
         sleep 0.3
