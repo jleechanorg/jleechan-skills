@@ -162,12 +162,29 @@ else
     # dialog only appears once claude.json records the directory as
     # trusted); a no-op loop on an already-trusted directory is safe.
     for _ in $(seq 1 40); do
-      if tmux capture-pane -p -t "$SESSION" 2>/dev/null | grep -q "Yes, I trust this folder"; then
+      PANE_PROBE=$(tmux capture-pane -p -t "$SESSION" 2>/dev/null)
+      if echo "$PANE_PROBE" | grep -q "Yes, I trust this folder"; then
         tmux send-keys -t "$SESSION" Down
         sleep 0.3
         tmux send-keys -t "$SESSION" Enter
+        # send-keys returns before claude's render loop processes Enter —
+        # confirmed live: the readiness check below ran ~8ms after Enter
+        # and still saw the dialog text on screen, reporting a false
+        # FAILED on a session that was actually fine one second later.
+        # Poll (bounded) until the dialog text actually clears.
+        for _ in $(seq 1 10); do
+          echo "$(tmux capture-pane -p -t "$SESSION" 2>/dev/null)" | grep -q "Yes, I trust this folder" || break
+          sleep 0.2
+        done
         break
       fi
+      # An already-trusted directory never shows the dialog, so without a
+      # positive exit this loop always burns its full budget — confirmed
+      # live: an already-trusted launch stalled the caller a flat 20s.
+      # claude's status bar ("bypass permissions on") only ever appears
+      # once past the dialog (confirmed live: never co-occurs with the
+      # dialog text), so treat it as the "no dialog is coming" signal.
+      echo "$PANE_PROBE" | grep -q "bypass permissions on" && break
       sleep 0.5
     done
   else
