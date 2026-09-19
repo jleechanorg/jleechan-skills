@@ -18,7 +18,7 @@ This skill assumes you've already got:
       IdentityFile ~/.ssh/id_mylinux
   ```
   (`ssh_config` does not expand environment variables — write your actual username literally, not `$USER`.)
-- Your repo lives under `$HOME` on **both** machines, at the same relative path (e.g. `~/projects/myrepo` on both). This skill mirrors by `$HOME`-relative path; a repo outside `$HOME`, or at a different relative path on each machine, isn't supported — step 1 below checks for this and stops rather than silently producing a wrong path.
+- Your repo lives under `$HOME` on the source machine (any relative path). This skill mirrors it onto the target machine under `$HOME/mirror/<same relative path>` — a dedicated namespace so every mirrored checkout is easy to find on either machine and never collides with (or silently overwrites) a normal checkout that happens to already exist at that same path. A repo outside `$HOME` on the source side isn't supported — step 1 below checks for this and stops rather than silently producing a wrong path.
 - (Optional, for off-LAN/travel use) Both machines joined to the same Tailscale tailnet. Note: a bare SSH alias like the one above resolves its `HostName` literally — it does NOT fail over to Tailscale automatically. Off-LAN, connect via the Tailscale IP directly with the identity file explicit: `ssh -i ~/.ssh/id_mylinux myusername@<tailscale-ip>` (look it up with `tailscale status | grep <hostname>` — don't hardcode it, Tailscale IPs are stable per-device but you should still re-verify rather than assume).
 - (Optional, for SSH-fully-down fallback) A messaging-gateway agent (e.g. a Hermes-style gateway, or anything that runs commands on your behalf) running on the Linux box, watching a Slack channel (or similar) you can post to.
 
@@ -44,6 +44,8 @@ case "$REPO_ROOT" in
 esac
 ```
 
+Also prepare `$CONTEXT`: a short, self-contained summary (1-3 sentences) of what should actually continue on the Linux machine — the real next action, not just "resume work." This isn't optional bookkeeping: step 4 types it as the first message to a freshly-launched coding agent on the target machine, which has no access to this conversation. Write it as if briefing a colleague who just walked in cold.
+
 If `$BRANCH` is empty (detached HEAD) or `$DIRTY` is non-empty, stop and tell the user — commit/name the branch first.
 
 If `$REMOTE_URL` is an HTTPS URL with an embedded credential (`https://<token>@host/...`), warn the user before continuing: that URL gets written verbatim into the remote clone's `.git/config` in step 4, so the credential ends up live on the target machine too. Prefer an SSH remote, or a credential helper that doesn't embed the token in the URL. (Step 4's base64 encoding is not a confidentiality measure for this value — it only prevents argv re-tokenization/injection. A trivially-decodable token is still visible in the remote host's `ps` output during the mirror.)
@@ -58,34 +60,7 @@ Confirm with the user before pushing if the branch has no upstream yet or diverg
 
 ### 3. Pick a connectivity tier — try in order, stop at first success. Carry the resolved connection forward into `SSH_ARGS`/`SSH_TARGET` for step 4 — don't just check reachability and then reconnect a different way.
 
-```bash
-SSH_ARGS=()
-SSH_TARGET="mylinux"   # Tier 1 default: the LAN alias
-
-if ssh -o ConnectTimeout=5 -o BatchMode=yes "$SSH_TARGET" true 2>/dev/null; then
-  echo "SSH_OK via Tier 1 (LAN alias)"
-else
-  # Tier 2 — SSH over Tailscale (off-LAN fallback, e.g. traveling with a laptop
-  # while the Linux box stays home). The alias above won't fail over here —
-  # target the Tailscale IP directly with the identity file explicit.
-  TS_IP=$(tailscale status | awk '/<linux-hostname>/{print $1}')
-  SSH_ARGS=(-i ~/.ssh/id_mylinux)
-  SSH_TARGET="myusername@$TS_IP"
-  if ssh "${SSH_ARGS[@]}" -o ConnectTimeout=5 -o BatchMode=yes "$SSH_TARGET" true 2>/dev/null; then
-    echo "SSH_OK via Tier 2 (Tailscale)"
-  else
-    SSH_TARGET=""   # neither tier reached — fall through to Tier 3 below
-  fi
-fi
-```
-
-**Tier 3 — Messaging-gateway handoff (SSH AND Tailscale both down, `$SSH_TARGET` empty):** if the Linux box runs a reactive gateway agent watching a Slack channel (or similar), post the exact repo/branch/commit and the steps from §4 below, asking it to execute them locally and reply when the tmux session is ready. This is a real handoff to a different agent process with no shared context — give it complete, explicit instructions.
-
-If this tier ever seems dead, don't assume it needs a restart — two things are much likelier culprits, in order of how much time they'll save you:
-1. **A missing OAuth-style scope grant on the gateway's own credential, not a connection problem.** A connection can report fully healthy — process alive, socket/session established, ping/pong succeeding — while a specific required permission was declared in the integration's config/manifest but never actually granted to the live credential (e.g. added to a Slack app's manifest after the app was already installed — the scope isn't live until the app is reinstalled/reauthorized). **Discriminating check:** call the platform's own auth-introspection endpoint with the gateway's actual live credential (for Slack: `auth.test`, or attempt the specific scoped call you need and read the error — `missing_scope` names the gap directly) rather than trusting the integration's own settings UI, which can show a scope as "configured" when it was never granted. **Remedy:** reinstall/reauthorize the app so the currently-declared scopes actually take effect — a bare process restart does not do this.
-2. **A message-filtering rule you're tripping as a test artifact, not a real failure.** Many gateways correctly drop messages attributed to a bot/app identity by default (including messages posted via some *other* app's OAuth-issued token, which platforms often tag with that app's identity even when the underlying account is a real human). Verify with a message you know is genuinely human-originated — typed directly in the client, not posted via any API token — before concluding the gateway itself is broken.
-
-Only after ruling both of these out is it worth suspecting the connection layer itself (e.g. enabling debug-level logging on the gateway process — check its actual log destination, which for a systemd-managed service is the journal, e.g. `journalctl --user -u <service>`, not necessarily its own app log file).
+See [cross-machine-ssh-tier](../cross-machine-ssh-tier/SKILL.md) for the Tier 1→2→3 connectivity ladder (LAN SSH → SSH over Tailscale → messaging-gateway fallback), its debugging caveats, and the key-naming convention. Run that skill's ladder block with `PEER_LAN_ALIAS="mylinux"` (and the matching `PEER_TS_PATTERN`/`PEER_KEY`/`PEER_USER`) to resolve `SSH_ARGS`/`SSH_TARGET` before continuing to step 4. If `$SSH_TARGET` comes back empty, both Tier 1 and Tier 2 failed — fall through to that skill's Tier 3 (messaging-gateway handoff): post the exact repo/branch/commit and the steps from §4 below, asking it to execute them locally and reply when the tmux session is ready.
 
 ### 4. Remote checkout + tmux (Tier 1/2 only — skip if `$SSH_TARGET` is empty, that means Tier 3 applies instead)
 
@@ -95,13 +70,24 @@ Arguments are base64-encoded before crossing the wire. This isn't just a quoting
 REL_PATH_B64=$(printf '%s' "$REL_PATH" | base64 | tr -d '\n')
 BRANCH_B64=$(printf '%s' "$BRANCH" | base64 | tr -d '\n')
 REMOTE_URL_B64=$(printf '%s' "$REMOTE_URL" | base64 | tr -d '\n')
+CONTEXT_B64=$(printf '%s' "$CONTEXT" | base64 | tr -d '\n')
 
-ssh "${SSH_ARGS[@]}" "$SSH_TARGET" bash -s -- "$REL_PATH_B64" "$BRANCH_B64" "$REMOTE_URL_B64" << 'EOF'
+ssh "${SSH_ARGS[@]}" "$SSH_TARGET" bash -s -- "$REL_PATH_B64" "$BRANCH_B64" "$REMOTE_URL_B64" "$CONTEXT_B64" << 'EOF'
 set -e
 REL_PATH=$(printf '%s' "$1" | base64 -d)
 BRANCH=$(printf '%s' "$2" | base64 -d)
 REMOTE_URL=$(printf '%s' "$3" | base64 -d)
-TARGET="$HOME/$REL_PATH"
+CONTEXT=$(printf '%s' "$4" | base64 -d)
+TARGET="$HOME/mirror/$REL_PATH"
+
+# $CONTEXT is a required briefing for the coding agent step 4 launches, not
+# optional bookkeeping (see step 1) — an empty value falling through to a
+# bare-shell session would still pass the has-session/pane_dead/no-dialog
+# READY check below with no agent actually running.
+if [ -z "$CONTEXT" ]; then
+  echo "FAILED:$TARGET — \$CONTEXT is empty; refusing to report READY on a bare shell with no agent launched" >&2
+  exit 1
+fi
 
 if [ ! -e "$TARGET/.git" ]; then
   mkdir -p "$(dirname "$TARGET")"
@@ -143,8 +129,112 @@ SESSION="mirror-${BRANCH_SAFE}-${BRANCH_HASH}"
 # tmux has-session prefix-matches by default (checking for "mirror-feat"
 # would incorrectly succeed against an existing "mirror-feature-x") — the
 # leading "=" forces an exact match.
-tmux has-session -t "=$SESSION" 2>/dev/null || tmux new-session -d -s "$SESSION" -c "$TARGET"
-echo "READY:$SESSION:$TARGET:$(git rev-parse HEAD)"
+if tmux has-session -t "=$SESSION" 2>/dev/null; then
+  echo "RESUMED:$SESSION:$TARGET:$(git rev-parse HEAD)"
+else
+  # A bare shell in a checked-out repo is not "continuing the work session"
+  # — launch the coding agent as the session's actual command, with
+  # $CONTEXT as its argv, instead of `new-session` + a bare shell +
+  # `send-keys` typed in after a fixed sleep. tmux execs trailing words
+  # directly (no shell re-tokenization), so this also closes the injection
+  # window a typed-and-Entered $CONTEXT would open if the CLI weren't at
+  # its prompt yet: a `send-keys`-typed string lands in whatever the pane's
+  # foreground process is at that moment, so a starting-vs-prompt-not-ready
+  # race can dump $CONTEXT straight into an interactive shell and execute
+  # it. Passing it as an argv element never touches a shell at all — this
+  # only ever fires on a session that didn't already exist (the branch
+  # above), so a resumed session never gets a replayed prompt injected on
+  # top of work already in progress.
+  #
+  # `--dangerously-skip-permissions` and `--` are both required. `--`
+  # stops `claude` from treating a `$CONTEXT` that happens to start with
+  # `-`/`--` as a flag instead of the prompt. `--dangerously-skip-permissions`
+  # skips tool-permission prompts, but — confirmed live, 2026-09-18 — it
+  # does NOT suppress the first-run workspace-trust dialog for a git
+  # repository specifically (it does for a plain non-git directory, which
+  # is what made an earlier version of this fix look sufficient before
+  # testing against an actual mirrored clone). That dialog's *default*
+  # selection is "No, exit"; a bare `claude "$CONTEXT"` on a fresh mirror
+  # clone sits there, and the session vanishes the instant anything —
+  # including an unrelated Enter — accepts the default and exits `claude`.
+  #
+  # remain-on-exit is set in the same tmux invocation (not a separate
+  # call) so a session that dies immediately — missing `claude` binary,
+  # PATH not resolving it under a non-login tmux shell, a crash — leaves a
+  # dead-but-inspectable pane instead of vanishing outright.
+  tmux new-session -d -s "$SESSION" -c "$TARGET" claude --dangerously-skip-permissions -- "$CONTEXT" \; set-option -t "$SESSION" remain-on-exit on
+  # Poll for the trust dialog and accept it with fixed navigation keys
+  # (Down, Enter) — never $CONTEXT — so this carries none of the
+  # injection risk the original send-keys-typed-$CONTEXT bug had. This
+  # only fires the first time a given target directory is mirrored (the
+  # dialog only appears once claude.json records the directory as
+  # trusted); a no-op loop on an already-trusted directory is safe.
+  for _ in $(seq 1 40); do
+    PANE_PROBE=$(tmux capture-pane -p -t "$SESSION" 2>/dev/null || true)
+    if echo "$PANE_PROBE" | grep -q "Yes, I trust this folder"; then
+      # The dialog's text can be captured before its keyboard handler is
+      # actually wired up — confirmed live under real load (this box
+      # routinely runs 20+ concurrent mirror tmux sessions): a Down sent
+      # the instant the text appeared was silently swallowed, and a
+      # fixed-delay Enter afterward confirmed the still-focused default
+      # "No, exit", killing the session (exit 1). Settle briefly, then
+      # verify the cursor actually reached "Yes, I trust this folder"
+      # before sending Enter — checking before each Down (not after)
+      # means a Down that lands late is never followed by a second one
+      # that would toggle the two-item list back to "No, exit".
+      sleep 0.2
+      for _ in $(seq 1 15); do
+        tmux capture-pane -p -t "$SESSION" 2>/dev/null | grep -qE '❯[[:space:]]*Yes, I trust this folder' && break
+        tmux send-keys -t "$SESSION" Down || true
+        sleep 0.2
+      done
+      # || true on both send-keys calls: a session that died in the gap
+      # since the last capture-pane check would make send-keys fail and,
+      # under set -e, silently abort the whole remote script with no
+      # FAILED: marker — the same class of gap 58d9db5 closed for
+      # capture-pane. Falling through instead lets the existing
+      # has-session/pane_dead check report FAILED correctly.
+      tmux send-keys -t "$SESSION" Enter || true
+      # send-keys returns before claude's render loop processes Enter —
+      # confirmed live: the readiness check below ran ~8ms after Enter
+      # and still saw the dialog text on screen, reporting a false
+      # FAILED on a session that was actually fine one second later.
+      # Poll (bounded) until the dialog text actually clears.
+      for _ in $(seq 1 10); do
+        echo "$(tmux capture-pane -p -t "$SESSION" 2>/dev/null)" | grep -q "Yes, I trust this folder" || break
+        sleep 0.2
+      done
+      break
+    fi
+    # An already-trusted directory never shows the dialog, so without a
+    # positive exit this loop always burns its full budget — confirmed
+    # live: an already-trusted launch stalled the caller a flat 20s.
+    # claude's status bar ("bypass permissions on") only ever appears
+    # once past the dialog (confirmed live: never co-occurs with the
+    # dialog text), so treat it as the "no dialog is coming" signal.
+    echo "$PANE_PROBE" | grep -q "bypass permissions on" && break
+    sleep 0.5
+  done
+  # tmux new-session exits 0 even when the launched command can't be
+  # exec'd, and with remain-on-exit set, has-session alone can't tell a
+  # genuinely running session from a dead one either — remain-on-exit
+  # keeps the session entry around specifically so it doesn't vanish, so
+  # has-session still returns success. #{pane_dead} is the actual signal
+  # (confirmed live: 1 immediately after an exec failure, 0 while running).
+  # A still-showing trust dialog is a third failure mode #{pane_dead} can't
+  # catch: claude is alive, just parked on the modal, if the poll above
+  # exhausted its window before the dialog rendered (a real risk on a
+  # loaded box — /advice round 3 caught this) — re-check for it explicitly
+  # rather than trusting silence from the poll loop as acceptance.
+  if tmux has-session -t "=$SESSION" 2>/dev/null \
+     && [ "$(tmux display-message -p -t "$SESSION" '#{pane_dead}')" = "0" ] \
+     && ! tmux capture-pane -p -t "$SESSION" 2>/dev/null | grep -q "Yes, I trust this folder"; then
+    echo "READY:$SESSION:$TARGET:$(git rev-parse HEAD)"
+  else
+    echo "FAILED:$SESSION:$TARGET — session did not survive launch (check that \`claude\` is on the remote PATH); pane retained by remain-on-exit for inspection: tmux capture-pane -p -t $SESSION" >&2
+    exit 1
+  fi
+fi
 EOF
 ```
 
@@ -152,7 +242,7 @@ Note: `printf` (not `echo`) for the session-name sanitizing is deliberate — pi
 
 ### 5. Hand off
 
-Report the session name, target path, and commit SHA from the `READY:` line — cross-check that SHA against your local `git rev-parse HEAD` before trusting the mirror is on the commit you think it is. This check isn't optional: `--ff-only` only guards against a genuinely diverged remote branch — if the remote already has local commits sitting *ahead* of `origin/$BRANCH` (not diverged, just ahead), the pull succeeds as a silent no-op and `READY` reports that ahead-of-origin SHA, not the one you just pushed. The SHA cross-check is what actually catches that case. Then give the user (or continue as) the attach command:
+Report the session name, target path, and commit SHA from the `READY:`/`RESUMED:` line — cross-check that SHA against your local `git rev-parse HEAD` before trusting the mirror is on the commit you think it is. `READY` means a fresh session was created and the agent was just launched with `$CONTEXT`; `RESUMED` means an existing session was found as-is and nothing was typed into it — check on that work directly (attach or send a follow-up) rather than assuming it's idle. This check isn't optional: `--ff-only` only guards against a genuinely diverged remote branch — if the remote already has local commits sitting *ahead* of `origin/$BRANCH` (not diverged, just ahead), the pull succeeds as a silent no-op and `READY` reports that ahead-of-origin SHA, not the one you just pushed. The SHA cross-check is what actually catches that case. Then give the user (or continue as) the attach command:
 
 ```bash
 ssh -t "${SSH_ARGS[@]}" "$SSH_TARGET" "tmux attach -t <SESSION>"
@@ -173,7 +263,8 @@ If a PR is already open for `$BRANCH`, pushes update that PR's head automaticall
 ## Caveats
 
 - Committed-state-only mirror (see "What this carries over" above) — this is the chosen tradeoff over rsyncing the dirty working tree.
-- Repo must live under `$HOME` at the same relative path on both machines (see Setup) — step 1 fails loudly rather than silently mirroring to the wrong place.
+- Source repo must live under `$HOME` (see Setup) — step 1 fails loudly rather than silently mirroring to the wrong place. The target-side checkout always lands under `$HOME/mirror/`, not at the identical path as the source.
+- Step 4 auto-launches `claude` (hardcoded) as the session's command with `$CONTEXT` passed as its argv (not typed via `send-keys`), but only on a freshly created session — edit the hardcoded command if you use a different CLI. Never assume a `RESUMED` session is idle just because this skill didn't launch anything into it.
 - A bare host alias is typically LAN-only; off-LAN (traveling), target the Tailscale IP + explicit `-i` per Tier 2 — and make sure step 4 actually uses the resolved `$SSH_ARGS`/`$SSH_TARGET` from step 3, not a re-hardcoded alias, or the whole point of the fallback is lost.
 - Never pass unencoded user-controlled values (repo path, branch name, remote URL) as literal SSH command arguments — a branch name is attacker-controllable shell input the moment someone else can push to your fork, and SSH doesn't preserve argv separation across the wire. Base64-encode first (see step 4).
 - Tier 3 (messaging-gateway handoff) hands off to a *different* agent/process with no shared context — give it complete, explicit instructions, don't assume it can infer intent from this conversation. Also verify it's genuinely reactive before relying on it (see Tier 3 caveats above) — a live-looking connection isn't proof it's actually processing events, and a missing permission grant is a much likelier culprit than the connection itself.
