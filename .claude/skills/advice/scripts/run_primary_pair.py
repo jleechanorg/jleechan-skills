@@ -447,6 +447,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--packet-file", required=True, type=Path)
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument(
+        "--reviewers",
+        default="codex,opus",
+        metavar="REVIEWER",
+        help="reviewer subset (codex and/or opus, comma-separated; default: codex,opus)",
+    )
+    parser.add_argument(
         "--timeout-seconds",
         type=float,
         default=1200.0,
@@ -458,7 +464,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=2.0,
         help="bounded output-drain grace after a timeout (default: 2)",
     )
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    reviewers = args.reviewers.split(",")
+    if not reviewers or any(name not in {"codex", "opus"} for name in reviewers):
+        parser.error("--reviewers must contain only codex and opus")
+    if len(set(reviewers)) != len(reviewers):
+        parser.error("--reviewers must not contain duplicates")
+    args.reviewers = reviewers
+    return args
 
 
 def cleanup_directory(path: Path) -> dict[str, Any]:
@@ -533,10 +546,9 @@ def main(
     )
     output_dir.mkdir(parents=True, exist_ok=True)
     temp_root = Path(tempfile.mkdtemp(prefix="advice-primary-pair-"))
-    clones = {"codex": temp_root / "codex", "opus": temp_root / "opus"}
     receipt: dict[str, Any] = {
         "sha": sha,
-        "parallel_dispatch": True,
+        "parallel_dispatch": len(args.reviewers) > 1,
         "checkout_kind": "independent_clone_no_local",
         "timeout_seconds": args.timeout_seconds,
         "timeout_grace_seconds": args.timeout_grace_seconds,
@@ -544,6 +556,8 @@ def main(
     }
     operational_error: str | None = None
     try:
+        reviewer_names = args.reviewers
+        clones = {name: temp_root / name for name in reviewer_names}
         for path in clones.values():
             create_clone_fn(repo, path, sha)
         receipt["clone_shas"] = {
@@ -552,25 +566,19 @@ def main(
         }
         if any(clone_sha != sha for clone_sha in receipt["clone_shas"].values()):
             raise RuntimeError("review clone did not resolve to the requested SHA")
-        barrier = threading.Barrier(2)
-        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        barrier = threading.Barrier(len(reviewer_names))
+        lane_functions = {"codex": codex_lane, "opus": opus_lane}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(reviewer_names)) as executor:
             futures = {
-                "codex": executor.submit(
-                    codex_lane,
-                    clones["codex"],
+                name: executor.submit(
+                    lane_functions[name],
+                    clones[name],
                     prompt,
                     barrier,
                     args.timeout_seconds,
                     args.timeout_grace_seconds,
-                ),
-                "opus": executor.submit(
-                    opus_lane,
-                    clones["opus"],
-                    prompt,
-                    barrier,
-                    args.timeout_seconds,
-                    args.timeout_grace_seconds,
-                ),
+                )
+                for name in reviewer_names
             }
             results = {name: future.result() for name, future in futures.items()}
         for name, result in results.items():
@@ -579,9 +587,9 @@ def main(
         receipt["descendant_termination_failures"] = descendant_termination_failures(
             results
         )
-        receipt["overlap_proven"] = max(r["started_ns"] for r in results.values()) <= min(
-            r["ended_ns"] for r in results.values()
-        )
+        receipt["overlap_proven"] = len(results) > 1 and max(
+            r["started_ns"] for r in results.values()
+        ) <= min(r["ended_ns"] for r in results.values())
         receipt["operation"] = {"success": True, "error": None}
     except Exception as error:
         operational_error = f"{type(error).__name__}: {error}"

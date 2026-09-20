@@ -95,8 +95,9 @@ not continued diagnosis. Real-service failures still require the real boundary;
 a fast unit test cannot substitute for a cross-service reproduction.
 
 Cheap gates (unit/focused tests, lint, compile) iterate freely per commit.
-Adversarial code-review rounds are cheap per-pass, but must continue to enforce
-the required correctness and evidence checks. Final expensive evidence (real-server + real-LLM runs, packaged RED/GREEN comparisons,
+Review scheduling follows `draft-first-pr/SKILL.md`'s canonical lifecycle and
+composition contract; continue to enforce the required correctness and
+evidence checks. Final expensive evidence (real-server + real-LLM runs, packaged RED/GREEN comparisons,
 browser/video capture, bundle assembly) runs ONCE, at the END: only after code is
 complete — all review findings resolved or explicitly deferred, focused tests
 green, no known remaining code work. Freeze the HEAD, then run the expensive

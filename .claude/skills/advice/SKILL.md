@@ -44,6 +44,10 @@ does not satisfy this contract.
 
 Use the same review packet for both reviewers:
 
+The primary pair selection is explicit: pass `--reviewers codex,opus` to the
+canonical runner. Additional reviewers come only from the existing fallback
+chain or an explicit selection; this does not change the quorum.
+
 ```
 You are a senior engineer giving a focused second opinion.
 
@@ -76,6 +80,7 @@ python3 "$ADVICE_RUNNER" \
   --ref "$REVIEW_SHA" \
   --packet-file "$ADVICE_TMP/review-packet.txt" \
   --output-dir "$ADVICE_TMP/results" \
+  --reviewers codex,opus \
   --timeout-seconds 1200 \
   --timeout-grace-seconds 2
 ```
@@ -311,7 +316,15 @@ VERDICT: WITHHELD at <SHA> — <quorum or availability reason>
 - Reviewing a PR — `gh pr view <N> --json headRefOid --jq '.headRefOid'`
 - Reviewing the working tree — `git rev-parse HEAD`, **but HEAD does not identify uncommitted changes.** If `git status --porcelain` is non-empty, that SHA does not name the tree you reviewed. Commit the intended state before review; the primary-pair runner refuses dirty input and no approval verdict may be emitted for it.
 
-This verdict is valid only for that exact state — per the SHA-binding rule in `draft-first-pr/SKILL.md`, a new commit invalidates it and `/advice` must be re-run at the new SHA before the PR can be marked ready. Do not emit a bare "APPROVED"/"looks good" without the SHA — an unbound verdict cannot be checked for staleness later.
+This verdict is valid only for the exact reviewed state. Apply the SHA-binding
+and staleness-tolerance rules in `draft-first-pr/SKILL.md`: compare the verdict
+SHA with current HEAD, inspect the actual diff, and classify whether the delta
+is material behavioral or non-behavioral. A non-behavioral delta may be
+re-affirmed at the new SHA after documenting it; a material behavioral delta
+requires re-running `/advice`. Preserve
+the two independent full-coverage approvals required by Quorum; re-affirmation
+never turns one reviewer into approval. Do not emit a bare "APPROVED"/"looks
+good" without the SHA — an unbound verdict cannot be checked for staleness.
 
 ## Token budget
 

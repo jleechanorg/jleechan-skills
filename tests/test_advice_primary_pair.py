@@ -86,6 +86,29 @@ class PrimaryPairTest(unittest.TestCase):
             env=self.env,
         )
 
+    def test_reviewers_accepts_codex_opus_subset_and_rejects_unknown_or_duplicates(self) -> None:
+        self.executable("codex", "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
+        self.executable("claude", "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
+
+        for reviewers in ("", "codex,codex", "gemini"):
+            result = self.invoke("--reviewers", reviewers)
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertIn("--reviewers", result.stderr)
+
+    def test_single_reviewer_runs_one_clone_and_barrier_lane(self) -> None:
+        self.executable("codex", "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
+        self.executable("claude", "touch \"$ADVICE_TEST_SYNC_DIR/unexpected-opus.ran\"\n")
+
+        result = self.invoke("--reviewers", "codex")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        receipt = json.loads((self.output / "receipt.json").read_text())
+        self.assertEqual(set(receipt["reviewers"]), {"codex"})
+        self.assertEqual(receipt["clone_shas"], {"codex": self.sha})
+        self.assertFalse(receipt["parallel_dispatch"])
+        self.assertFalse(receipt["overlap_proven"])
+        self.assertFalse((self.sync / "unexpected-opus.ran").exists())
+
     def test_runs_codex_and_opus_concurrently_in_independent_exact_sha_clones(self) -> None:
         peer_wait = """
 touch "$ADVICE_TEST_SYNC_DIR/%s.started"
@@ -101,7 +124,7 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         self.executable("codex", peer_wait % ("codex", "opus", "opus", "codex"))
         self.executable("claude", peer_wait % ("opus", "codex", "codex", "opus"))
 
-        result = self.invoke()
+        result = self.invoke("--reviewers", "codex,opus")
 
         self.assertEqual(result.returncode, 0, result.stderr)
         receipt = json.loads((self.output / "receipt.json").read_text())
