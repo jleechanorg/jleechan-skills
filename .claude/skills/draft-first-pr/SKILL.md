@@ -35,6 +35,19 @@ before expensive evidence. Reviewers may finish code inspection early; final
 approval must account for the finished evidence and exact current SHA. Do not
 run expensive evidence while known code-correctness work remains unfinished.
 
+When multiple reviews are requested, use one frozen candidate/base and one
+shared factual scope and defect inventory; shared inputs do not replace each
+review's independent judgment. Run independent review groups concurrently
+where transport and resource rules permit; each review covers the entire
+declared change, while focus lanes supplement rather than replace approval.
+Collect current findings in one batch. After repeated same-cause
+findings, inspect the shared representation before another local patch. Do not
+invent additional approval gates; existing approvals remain workflow-specific.
+Final evidence stays last; when evidence is in the declared review scope, the
+same independent reviewers must inspect it and reaffirm at the finished HEAD. A
+same-HEAD finished code review can account for unchanged code without blindly
+rereading it; the orchestrator cannot promote an earlier review alone.
+
 While a PR is draft, accept these final gates in sequence — do not skip any:
 
 1. **`/es`** — evidence bundle passes (real evidence per `~/.claude/skills/evidence-standards/SKILL.md` + repo-specific extensions), verified at the PR's current HEAD SHA.

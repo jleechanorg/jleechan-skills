@@ -208,6 +208,13 @@ reason and retry only once in a clean chat.
 
 Submit one model at a time. Submitting in parallel can hit rate limits or trigger captchas. Wait for each response before submitting the next.
 
+Shared review composition and scheduling follows
+`~/.claude/skills/draft-first-pr/SKILL.md`: freeze one candidate/base and shared
+factual scope, run independent review groups concurrently where permitted, and
+collect findings before batching fixes. The vendor submissions below remain
+sequential; full-change coverage, upload, authentication, and quorum rules are
+unchanged.
+
 > [!IMPORTANT]
 > **Mandatory File Attachment Pattern (Zero Diff-Only Inlining)**:
 > For any PR or code review, you MUST attach both `raw_git_diff.patch` and `full_changed_files.txt` via `page.locator('input[type="file"]').first().setInputFiles(...)` before submitting the prompt. Never substitute an inlined diff summary in the prompt text for the actual full source files.
