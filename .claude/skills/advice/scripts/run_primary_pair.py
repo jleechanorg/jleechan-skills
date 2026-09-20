@@ -544,7 +544,17 @@ def main(
         "The current directory is an independent detached clone at that SHA. Review only this checkout.\n\n"
         f"{packet}"
     )
-    output_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        # Reserve the result path before dispatch. Reusing a directory could
+        # leave an unselected review artifact beside a fresh receipt.
+        output_dir.mkdir(parents=True, exist_ok=False)
+    except FileExistsError:
+        print(
+            "output directory must be a fresh path per invocation; "
+            "refusing to reuse existing reviewer artifacts",
+            file=sys.stderr,
+        )
+        return 2
     temp_root = Path(tempfile.mkdtemp(prefix="advice-primary-pair-"))
     receipt: dict[str, Any] = {
         "sha": sha,

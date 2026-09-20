@@ -86,7 +86,10 @@ python3 "$ADVICE_RUNNER" \
 ```
 
 Create `$ADVICE_TMP/review-packet.txt` before invoking the runner. The output
-directory is deliberately outside the repository. Read `codex.txt`, `opus.txt`,
+directory is deliberately outside the repository and must be a fresh path that
+does not already exist. The runner atomically reserves that path and exits 2
+before dispatch if it already exists, preserving its contents; create a new
+results directory for every invocation. Read `codex.txt`, `opus.txt`,
 and `receipt.json`; the receipt records the resolved SHA, each transport, launch
 times, each clone SHA, cleanup status, and any changed original-repository
 fingerprint components. The
@@ -318,13 +321,16 @@ VERDICT: WITHHELD at <SHA> — <quorum or availability reason>
 
 This verdict is valid only for the exact reviewed state. Apply the SHA-binding
 and staleness-tolerance rules in `draft-first-pr/SKILL.md`: compare the verdict
-SHA with current HEAD, inspect the actual diff, and classify whether the delta
-is material behavioral or non-behavioral. A non-behavioral delta may be
-re-affirmed at the new SHA after documenting it; a material behavioral delta
-requires re-running `/advice`. Preserve
-the two independent full-coverage approvals required by Quorum; re-affirmation
-never turns one reviewer into approval. Do not emit a bare "APPROVED"/"looks
-good" without the SHA — an unbound verdict cannot be checked for staleness.
+SHA with current HEAD and inspect the actual changed delta. Each original
+independent approving reviewer must inspect that delta and explicitly reaffirm
+the approval at the new SHA. Classify runner, script, and skill-instruction
+changes by their observed behavior and contract effect, never by directory or
+path alone. A genuinely harmless non-behavioral delta may be re-affirmed after
+documenting it; a material behavioral delta requires re-running `/advice`.
+Preserve the two independent full-coverage approvals required by Quorum;
+re-affirmation never turns one reviewer into approval. Do not emit a bare
+"APPROVED"/"looks good" without the SHA — an unbound verdict cannot be checked
+for staleness.
 
 ## Token budget
 

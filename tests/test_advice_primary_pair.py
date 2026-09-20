@@ -109,6 +109,60 @@ class PrimaryPairTest(unittest.TestCase):
         self.assertFalse(receipt["overlap_proven"])
         self.assertFalse((self.sync / "unexpected-opus.ran").exists())
 
+    def test_opus_only_runs_only_opus_and_records_non_parallel_dispatch(self) -> None:
+        self.executable("codex", "touch \"$ADVICE_TEST_SYNC_DIR/unexpected-codex.ran\"\n")
+        self.executable(
+            "claude",
+            "printf '%s\\n' \"$@\" > \"$ADVICE_TEST_SYNC_DIR/opus.args\"\n"
+            "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n",
+        )
+
+        result = self.invoke("--reviewers", "opus")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        receipt = json.loads((self.output / "receipt.json").read_text())
+        self.assertEqual(set(receipt["reviewers"]), {"opus"})
+        self.assertEqual(receipt["clone_shas"], {"opus": self.sha})
+        self.assertFalse(receipt["parallel_dispatch"])
+        self.assertFalse(receipt["overlap_proven"])
+        self.assertFalse((self.sync / "unexpected-codex.ran").exists())
+        opus_args = (self.sync / "opus.args").read_text().splitlines()
+        self.assertIn("--dangerously-skip-permissions", opus_args)
+        self.assertIn("opus", opus_args)
+
+    def test_rejects_reused_output_dir_before_subset_dispatch_and_preserves_receipts(self) -> None:
+        self.executable(
+            "codex",
+            "touch \"$ADVICE_TEST_SYNC_DIR/codex.ran\"\n"
+            "printf 'VERDICT: CODEX\\nCOVERAGE: all\\n'\n",
+        )
+        self.executable(
+            "claude",
+            "touch \"$ADVICE_TEST_SYNC_DIR/opus.ran\"\n"
+            "printf 'VERDICT: OPUS\\nCOVERAGE: all\\n'\n",
+        )
+
+        first = self.invoke("--reviewers", "codex,opus")
+
+        self.assertEqual(first.returncode, 0, first.stderr)
+        original_files = {
+            path.name: path.read_bytes() for path in self.output.iterdir()
+        }
+        second = self.invoke("--reviewers", "opus")
+
+        self.assertEqual(second.returncode, 2, second.stderr)
+        self.assertIn("fresh path", second.stderr.lower())
+        self.assertEqual(
+            {path.name: path.read_bytes() for path in self.output.iterdir()},
+            original_files,
+        )
+        self.assertTrue((self.sync / "codex.ran").exists())
+        self.assertEqual(
+            len(list(self.sync.glob("opus.ran"))),
+            1,
+            "rejected subset rerun must not launch opus against stale output",
+        )
+
     def test_runs_codex_and_opus_concurrently_in_independent_exact_sha_clones(self) -> None:
         peer_wait = """
 touch "$ADVICE_TEST_SYNC_DIR/%s.started"
