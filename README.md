@@ -112,6 +112,7 @@ pointers and are intentionally not the documentation target.
 | Command | Full name / skill | When to use it / expected outcome |
 |---|---|---|
 | `/advice` (`/smart-advisor`) | [`advice`](.claude/skills/advice/SKILL.md) | Use at a design or implementation decision. Give the question plus a PR, ref, or path; independent reviewers read the real scope and return a synthesized recommendation. For a PR gate, incomplete or truncated review context can only yield `WITHHELD`, never approval. |
+| `/ablation` (`/abal`) | [`ablation`](.claude/skills/ablation/SKILL.md) | Use when diagnosing a bug in LLM behavior or stochastic systems where the cause is disputed. Manipulates the real captured input and replays it through the real production path, one variable per arm, with a verbatim control arm run first. |
 | `/repro` | [`repro-evidence`](.claude/skills/repro-evidence/SKILL.md) | Use before fixing a reported bug that needs proof. State the symptom and real target; it creates an isolated replay, captures provenance, and returns `REPRO`, `RELATED`, or `NON-REPRO` rather than guessing. |
 | `/research` | [`research`](.claude/skills/research/SKILL.md) | Use when a decision depends on facts rather than recollection. Ask a focused question; a background agent gathers primary sources and writes a cited Markdown finding in the repo’s established notes location. |
 | `/memory-search` (`/ms`) | [`memory-search`](.claude/skills/memory-search/SKILL.md) | Use to recover prior work, decisions, or incidents. Ask a specific query; it searches the configured roadmap, Beads, local memories, history, wiki, and Slack in parallel, then returns merged, cacheable leads. |
@@ -141,6 +142,14 @@ Use this when you need independent reasoning at a real decision point. Give it a
 
 ```bash
 /advice "Should we switch this cache from LRU to LFU eviction?"
+```
+
+### [`ablation`](.claude/skills/ablation/SKILL.md) — `/ablation`, alias `/abal`
+
+Use when diagnosing a bug in LLM behavior or stochastic systems where the cause is disputed or theorized rather than measured. Enforces the rule that you manipulate the real captured input and replay it through the real production call path, one variable per arm, with a verbatim control arm (N≥5) run first to establish the baseline rate. N=1 is never evidence when the control is stochastic.
+
+```bash
+/ablation "Investigate whether history entry 0 is the trigger for opening scene regression"
 ```
 
 ### [`repro-evidence`](.claude/skills/repro-evidence/SKILL.md) — `/repro`
