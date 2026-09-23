@@ -17,6 +17,13 @@ Locks in the three findings from the 2026-09-13 Codex review of PR #433:
    file), the scan must print ``scan: ERROR`` and a non-zero exit code, never
    ``portable: clean``. The earlier ``if grep ...; then rc=$?`` shape always
    captured the if-test result (0) and silently swallowed the grep error.
+
+4. **Bootstrap payload-generation failure handling** (CodeRabbit 2026-09-13
+   follow-up): when ``install -m 0644 md_files/AGENTS.shared.md <tmp>`` (or
+   the awk rewrite) silently fails, the staged temp file is empty and the
+   downstream ``backup_and_write`` then backs up a valid existing policy and
+   replaces it with the empty file. The bootstrap must fail loudly before
+   any destination is touched.
 """
 
 import os
@@ -321,6 +328,71 @@ class MdFilesBootstrapRegressionTests(unittest.TestCase):
             self.assertNotIn("portable: clean", r.stdout)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
+
+    # ----- Bootstrap: payload-generation failure aborts before touching dest -----
+    # (CodeRabbit 2026-09-13 follow-up: if `install` silently fails the temp
+    # file is empty, and the next backup_and_write would back up a valid
+    # existing policy and overwrite it with the empty file. The bootstrap
+    # must fail before that happens, with no modifications to either
+    # destination.)
+    def test_missing_source_aborts_before_dest_touched(self):
+        home = tempfile.mkdtemp(prefix="md_bootstrap_missrc_")
+        try:
+            env = os.environ.copy()
+            env["HOME"] = home
+            env.pop("CODEX_HOME", None)
+            env.pop("CLAUDE_HOME", None)
+            # Pre-create a valid policy at the destination. The bootstrap
+            # must NOT touch it (no backup, no overwrite).
+            os.makedirs(f"{home}/.codex", exist_ok=True)
+            os.makedirs(f"{home}/.claude", exist_ok=True)
+            valid_ag = "VALID EXISTING CODEX POLICY\n"
+            valid_ad = "VALID EXISTING CLAUDE POLICY\n"
+            with open(f"{home}/.codex/AGENTS.md", "w") as f:
+                f.write(valid_ag)
+            with open(f"{home}/.claude/CLAUDE.md", "w") as f:
+                f.write(valid_ad)
+
+            # Patch the bootstrap to point at a non-existent source so the
+            # payload-generation step cannot succeed. This simulates a
+            # corrupt clone or wrong CWD.
+            patched = self.bootstrap.replace(
+                str(SRC_DIR / "AGENTS.shared.md"),
+                "/nonexistent/AGENTS.shared.md",
+            )
+            self.assertNotIn(
+                str(SRC_DIR / "AGENTS.shared.md"), patched,
+                "test fixture failed: source path replacement did not apply",
+            )
+
+            r = _run(patched, env=env, cwd=str(REPO_ROOT))
+            self.assertNotEqual(
+                r.returncode, 0,
+                "bootstrap must exit non-zero when the source template is missing",
+            )
+            self.assertIn("ERROR", r.stderr, "bootstrap must log an ERROR")
+
+            # Destination files are untouched (no backup, no overwrite).
+            codex_baks = [f for f in os.listdir(f"{home}/.codex") if ".bak." in f]
+            claude_baks = [f for f in os.listdir(f"{home}/.claude") if ".bak." in f]
+            self.assertEqual(
+                codex_baks, [],
+                f"missing-source bootstrap must not create backups: {codex_baks}",
+            )
+            self.assertEqual(
+                claude_baks, [],
+                f"missing-source bootstrap must not create backups: {claude_baks}",
+            )
+            self.assertEqual(
+                open(f"{home}/.codex/AGENTS.md").read(), valid_ag,
+                "missing-source bootstrap must not overwrite AGENTS.md",
+            )
+            self.assertEqual(
+                open(f"{home}/.claude/CLAUDE.md").read(), valid_ad,
+                "missing-source bootstrap must not overwrite CLAUDE.md",
+            )
+        finally:
+            shutil.rmtree(home, ignore_errors=True)
 
     # ----- Scan: directory as file -> scan: ERROR (Codex Bug #3 regression) -----
 

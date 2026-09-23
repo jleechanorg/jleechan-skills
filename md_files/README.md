@@ -55,10 +55,25 @@ ts="$(date -u +%Y%m%dT%H%M%SZ)"
 # Stage both intended payloads as temp files. Bash $() command substitution
 # strips trailing newlines, so we cannot use shell variables for the
 # content -- use files instead.
+# Fail fast if either source template is missing or unreadable: the temp
+# file below would otherwise be created empty and silently overwrite the
+# destination via backup_and_write, deleting a valid policy.
+for src in "md_files/AGENTS.shared.md" "md_files/CLAUDE.adapter.md"; do
+  if [ ! -f "$src" ] || [ ! -r "$src" ]; then
+    echo "bootstrap: ERROR -- $src is missing or unreadable; aborting before any install" >&2
+    exit 1
+  fi
+done
 intended_ag_tmp="$(mktemp -t md_bootstrap_ag.XXXXXX)"
 intended_ad_tmp="$(mktemp -t md_bootstrap_ad.XXXXXX)"
 trap 'rm -f "$intended_ag_tmp" "$intended_ad_tmp"' EXIT
 install -m 0644 "md_files/AGENTS.shared.md" "$intended_ag_tmp"
+# install returns nonzero on failure; a zero-byte temp would silently
+# replace the destination below.
+if [ ! -s "$intended_ag_tmp" ]; then
+  echo "bootstrap: ERROR -- staged AGENTS payload is empty ($intended_ag_tmp); aborting" >&2
+  exit 1
+fi
 
 if [ "$CODEX_HOME" != "$HOME/.codex" ]; then
   target_import="@$CODEX_HOME/AGENTS.md"
@@ -76,6 +91,10 @@ if [ "$CODEX_HOME" != "$HOME/.codex" ]; then
 else
   target_import="@~/.codex/AGENTS.md"
   install -m 0644 "md_files/CLAUDE.adapter.md" "$intended_ad_tmp"
+fi
+if [ ! -s "$intended_ad_tmp" ]; then
+  echo "bootstrap: ERROR -- staged adapter payload is empty ($intended_ad_tmp); aborting" >&2
+  exit 1
 fi
 
 backup_and_write() {
