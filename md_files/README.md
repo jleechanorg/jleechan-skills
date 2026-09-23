@@ -67,9 +67,13 @@ done
 intended_ag_tmp="$(mktemp -t md_bootstrap_ag.XXXXXX)"
 intended_ad_tmp="$(mktemp -t md_bootstrap_ad.XXXXXX)"
 trap 'rm -f "$intended_ag_tmp" "$intended_ad_tmp"' EXIT
-install -m 0644 "md_files/AGENTS.shared.md" "$intended_ag_tmp"
-# install returns nonzero on failure; a zero-byte temp would silently
-# replace the destination below.
+# Capture install's exit status explicitly: a partial write that returns
+# nonzero would otherwise pass the [ ! -s ] size check and be installed as
+# the real policy via backup_and_write.
+if ! install -m 0644 "md_files/AGENTS.shared.md" "$intended_ag_tmp"; then
+  echo "bootstrap: ERROR -- install failed for md_files/AGENTS.shared.md; aborting" >&2
+  exit 1
+fi
 if [ ! -s "$intended_ag_tmp" ]; then
   echo "bootstrap: ERROR -- staged AGENTS payload is empty ($intended_ag_tmp); aborting" >&2
   exit 1
@@ -77,20 +81,25 @@ fi
 
 if [ "$CODEX_HOME" != "$HOME/.codex" ]; then
   target_import="@$CODEX_HOME/AGENTS.md"
-  # Use awk gsub (not sed) so paths containing `|`, `/`, `#`, or any other
-  # punctuation cannot break the substitution. The source passes through awk
-  # with each @~/.codex/AGENTS.md occurrence rewritten to the target import.
-  # Escape `&` and `\` in the replacement (awk gsub treats these as
-  # back-references; an unescaped `&` in the path would be expanded to the
-  # matched text and corrupt the import line). Each `&` becomes `\\&` so awk
-  # treats it as a literal ampersand; each `\` becomes `\\` so awk treats it
-  # as a literal backslash.
-  awk_escaped_target=$(printf '%s' "$target_import" | sed 's/[\\&]/\\&/g; s/\\&/\\\\&/g')
-  awk -v old="@~/.codex/AGENTS.md" -v new="$awk_escaped_target" \
-    '{gsub(old, new); print}' "md_files/CLAUDE.adapter.md" > "$intended_ad_tmp"
+  # Use Python for the @import rewrite because BSD sed and POSIX awk gsub
+  # both lack a portable way to emit a literal `&` in the replacement
+  # (the GNU `\&` extension is not in BSD sed). Python's str.replace()
+  # is unambiguous.
+  if ! python3 -c '
+import sys
+target = sys.argv[1]
+src = open(sys.argv[2]).read()
+sys.stdout.write(src.replace("@~/.codex/AGENTS.md", target))
+' "$target_import" "md_files/CLAUDE.adapter.md" > "$intended_ad_tmp"; then
+    echo "bootstrap: ERROR -- python rewrite failed for md_files/CLAUDE.adapter.md; aborting" >&2
+    exit 1
+  fi
 else
   target_import="@~/.codex/AGENTS.md"
-  install -m 0644 "md_files/CLAUDE.adapter.md" "$intended_ad_tmp"
+  if ! install -m 0644 "md_files/CLAUDE.adapter.md" "$intended_ad_tmp"; then
+    echo "bootstrap: ERROR -- install failed for md_files/CLAUDE.adapter.md; aborting" >&2
+    exit 1
+  fi
 fi
 if [ ! -s "$intended_ad_tmp" ]; then
   echo "bootstrap: ERROR -- staged adapter payload is empty ($intended_ad_tmp); aborting" >&2
@@ -123,13 +132,17 @@ fi
 [ -f "$CODEX_HOME/AGENTS.md"  ] && echo "shared policy: OK ($CODEX_HOME/AGENTS.md)"
 [ -f "$CLAUDE_HOME/CLAUDE.md" ] && echo "Claude adapter: OK ($CLAUDE_HOME/CLAUDE.md)"
 
-# 5. Sanity check: no absolute user paths leaked into the installed files.
+# 5. Sanity check: the SOURCE files under md_files/ must not contain
+#    absolute user paths. The installed copies are intentionally
+#    machine-specific when CODEX_HOME is non-default (the @import is
+#    rewired to an absolute path), so we scan the source files instead --
+#    the portable artifacts that ship in version control.
 #    Fail loudly if any input is missing, unreadable, or non-regular
 #    (directories, fifos, symlinks to nowhere, etc.) — no false-positive OK.
 ok=1
-for f in "$CODEX_HOME/AGENTS.md" "$CLAUDE_HOME/CLAUDE.md"; do
+for f in "md_files/AGENTS.shared.md" "md_files/CLAUDE.adapter.md"; do
   if [ ! -f "$f" ] || [ ! -r "$f" ]; then
-    echo "portable: ERROR — $f is missing, unreadable, or not a regular file" >&2
+    echo "portable: ERROR -- $f is missing, unreadable, or not a regular file" >&2
     ok=0
     continue
   fi
@@ -137,12 +150,12 @@ for f in "$CODEX_HOME/AGENTS.md" "$CLAUDE_HOME/CLAUDE.md"; do
   grep -nE '/Users/[A-Za-z]+|/home/[A-Za-z]+' "$f" >/dev/null 2>&1
   rc=$?
   case "$rc" in
-    0) echo "portable: ERROR — $f contains user-specific paths" >&2; ok=0 ;;
+    0) echo "portable: ERROR -- $f contains user-specific paths" >&2; ok=0 ;;
     1) : ;;                                                    # clean no-match
-    *) echo "portable: ERROR — grep failed on $f (exit $rc)" >&2; ok=0 ;;
+    *) echo "portable: ERROR -- grep failed on $f (exit $rc)" >&2; ok=0 ;;
   esac
 done
-[ "$ok" = "1" ] && echo "portable: OK (no /Users/<name> or /home/<name> paths)"
+[ "$ok" = "1" ] && echo "portable: OK (no /Users/<name> or /home/<name> paths in source files)"
 ```
 
 Notes on the install path:

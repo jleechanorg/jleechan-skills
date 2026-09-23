@@ -19,11 +19,29 @@ Locks in the three findings from the 2026-09-13 Codex review of PR #433:
    captured the if-test result (0) and silently swallowed the grep error.
 
 4. **Bootstrap payload-generation failure handling** (CodeRabbit 2026-09-13
-   follow-up): when ``install -m 0644 md_files/AGENTS.shared.md <tmp>`` (or
-   the awk rewrite) silently fails, the staged temp file is empty and the
-   downstream ``backup_and_write`` then backs up a valid existing policy and
-   replaces it with the empty file. The bootstrap must fail loudly before
-   any destination is touched.
+   follow-up + Codex /wa /advice round 3): when ``install -m 0644
+   md_files/AGENTS.shared.md <tmp>`` (or the awk rewrite) silently fails,
+   the staged temp file may be empty OR may contain a truncated write, and
+   the downstream ``backup_and_write`` would back up a valid existing
+   policy and overwrite it with the broken file. The bootstrap must fail
+   loudly before any destination is touched.
+
+5. **awk ``gsub`` replacement-string escaping** (Opus /wa /advice round 3):
+   when ``CODEX_HOME`` contains ``&`` or ``\``, the sed-based escape that
+   produces awk's gsub replacement string must produce the right byte
+   sequence for awk to emit the literal characters. Each ``\`` in the path
+   must be doubled to ``\\``; each ``&`` must become ``\\&`` (the GNU awk
+   ``\\&`` escape for literal ``&``). A bug here corrupts the rewired
+   import line and the post-install ``grep -qF`` check fails, but the
+   destination file is already partially written.
+
+6. **Source-vs-installed portability scan** (Opus /wa /advice round 3):
+   the post-install ``portable:`` check scans the SOURCE files under
+   ``md_files/`` (the portable artifacts that ship in version control),
+   not the installed copies. A non-default ``CODEX_HOME`` legitimately
+   rewrites the installed adapter to contain an absolute path; scanning
+   the installed file would produce a false ERROR on every run, including
+   idempotent re-runs.
 """
 
 import os
@@ -390,6 +408,133 @@ class MdFilesBootstrapRegressionTests(unittest.TestCase):
             self.assertEqual(
                 open(f"{home}/.claude/CLAUDE.md").read(), valid_ad,
                 "missing-source bootstrap must not overwrite CLAUDE.md",
+            )
+        finally:
+            shutil.rmtree(home, ignore_errors=True)
+
+    # ----- Bootstrap: install partial-write failure (Codex /wa /advice round 3) -----
+    # When `install -m 0644 src tmp` writes a partial payload then returns
+    # nonzero, `[ ! -s ]` would pass on the truncated file. The bootstrap
+    # must capture install's exit status and abort if it failed.
+    def test_install_failure_aborts_before_dest_touched(self):
+        home = tempfile.mkdtemp(prefix="md_bootstrap_install_fail_")
+        try:
+            env = os.environ.copy()
+            env["HOME"] = home
+            env.pop("CODEX_HOME", None)
+            env.pop("CLAUDE_HOME", None)
+            # Pre-create a valid destination policy.
+            os.makedirs(f"{home}/.codex", exist_ok=True)
+            os.makedirs(f"{home}/.claude", exist_ok=True)
+            valid_ag = "VALID EXISTING CODEX POLICY\n"
+            valid_ad = "VALID EXISTING CLAUDE POLICY\n"
+            with open(f"{home}/.codex/AGENTS.md", "w") as f:
+                f.write(valid_ag)
+            with open(f"{home}/.claude/CLAUDE.md", "w") as f:
+                f.write(valid_ad)
+
+            # Patch the bootstrap to redirect the install target to an
+            # unwritable location, forcing install to return nonzero. We
+            # do this by pre-creating the destination as a directory (so
+            # install cannot write a regular file on top of it).
+            # The destination path is the mktemp temp file, which we
+            # can't predict; instead we make the *source* unreadable so
+            # install itself returns nonzero with a partial or empty
+            # write. The bootstrap must abort before backup_and_write
+            # touches the destination.
+            patched = self.bootstrap.replace(
+                str(SRC_DIR / "AGENTS.shared.md"),
+                "/nonexistent/AGENTS.shared.md",
+            )
+            r = _run(patched, env=env, cwd=str(REPO_ROOT))
+            self.assertNotEqual(
+                r.returncode, 0,
+                "bootstrap must exit non-zero when install fails (not silently "
+                "pass [ ! -s ] on a partial write)",
+            )
+            # Destination unchanged
+            self.assertEqual(
+                open(f"{home}/.codex/AGENTS.md").read(), valid_ag,
+                "bootstrap must not overwrite AGENTS.md when install fails",
+            )
+        finally:
+            shutil.rmtree(home, ignore_errors=True)
+
+    # ----- Bootstrap: CODEX_HOME with literal \& (Opus /wa /advice round 3) -----
+    # The sed escape `s/\\/\\\\/g; s/&/\\\\\\&/g` must produce the right byte
+    # sequence for awk's gsub to emit literal & and \. A bug here produced
+    # `@/var/.../codex\@~/.codex/AGENTS.mddir/AGENTS.md` -- the `&` was
+    # expanded to the matched text `@~/.codex/AGENTS.md` and corrupted the
+    # import line.
+    def test_codex_home_with_literal_backslash_ampersand(self):
+        home = tempfile.mkdtemp(prefix="md_bootstrap_bsamp_")
+        try:
+            spec = "codex\\&dir"  # literal backslash + ampersand in dir name
+            codex_dir = f"{home}/{spec}"
+            claude_dir = f"{home}/claude"
+            os.makedirs(codex_dir)
+            os.makedirs(claude_dir)
+            Path(f"{codex_dir}/AGENTS.md").write_text("# shared\n")
+            Path(f"{claude_dir}/CLAUDE.md").write_text("# adapter\n@~/.codex/AGENTS.md\n")
+
+            env = os.environ.copy()
+            env["HOME"] = home
+            env["CODEX_HOME"] = codex_dir
+            env["CLAUDE_HOME"] = claude_dir
+
+            r = _run(self.bootstrap, env=env, cwd=str(REPO_ROOT))
+            self.assertEqual(
+                r.returncode, 0,
+                f"bootstrap must succeed when CODEX_HOME contains \\&: "
+                f"{r.stderr or r.stdout}",
+            )
+
+            target = f"@{codex_dir}/AGENTS.md"
+            ad = Path(f"{claude_dir}/CLAUDE.md").read_text()
+            self.assertIn(
+                target, ad,
+                f"CODEX_HOME with \\& must produce literal target import; got: {ad!r}",
+            )
+            # The corruption signature: matched text leaked into the import
+            self.assertNotIn(
+                "@~/.codex/AGENTS.md", ad,
+                "default @~/.codex/AGENTS.md import was not replaced after \\& "
+                "rewrite (gsub \& expansion leaked matched text)",
+            )
+        finally:
+            shutil.rmtree(home, ignore_errors=True)
+
+    # ----- Bootstrap: portability check scans source files, not installed -----
+    # (Opus /wa /advice round 3 finding 2a.) With a non-default CODEX_HOME
+    # under $HOME (e.g. $HOME/codex-alt), the rewired import legitimately
+    # contains an absolute path. The portability check must NOT flag the
+    # installed file; it must scan the source files under md_files/.
+    def test_non_default_codex_home_passes_portability_check(self):
+        home = tempfile.mkdtemp(prefix="md_bootstrap_portcheck_")
+        try:
+            codex_dir = f"{home}/codex-alt"
+            claude_dir = f"{home}/claude"
+            os.makedirs(codex_dir)
+            os.makedirs(claude_dir)
+            Path(f"{codex_dir}/AGENTS.md").write_text("# shared\n")
+            Path(f"{claude_dir}/CLAUDE.md").write_text("# adapter\n@~/.codex/AGENTS.md\n")
+
+            env = os.environ.copy()
+            env["HOME"] = home
+            env["CODEX_HOME"] = codex_dir
+            env["CLAUDE_HOME"] = claude_dir
+
+            r = _run(self.bootstrap, env=env, cwd=str(REPO_ROOT))
+            self.assertEqual(
+                r.returncode, 0,
+                f"bootstrap must exit 0 on non-default CODEX_HOME under $HOME "
+                f"(portability check must scan source files, not installed); "
+                f"got rc={r.returncode}, stderr={r.stderr!r}, stdout={r.stdout!r}",
+            )
+            # The portable check should explicitly say "source files"
+            self.assertIn(
+                "source files", r.stdout,
+                "portability check message must indicate it scanned source files",
             )
         finally:
             shutil.rmtree(home, ignore_errors=True)
