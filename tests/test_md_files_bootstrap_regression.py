@@ -1,39 +1,39 @@
 """Regression tests for the md_files/ shared-policy bootstrap.
 
-Locks in the three findings from the 2026-09-13 Codex review of PR #433:
+Locks in the five findings from the multi-round review history:
 
 1. **Idempotent re-run + mtime preservation**: re-running the bootstrap on a
    machine whose policy already matches the template must not create backups
    and must not bump the destination mtime.
 
 2. **Path-with-spaces correctness**: when ``CODEX_HOME`` (or any path) contains
-   whitespace, the bash function ``backup_and_copy`` must still back up the
+   whitespace, the bash function ``backup_and_write`` must still back up the
    divergent existing file before overwriting. The earlier ``for pair in
    "src dst"; do set -- $pair; ...`` shape word-split on whitespace and
    silently skipped the AGENTS.md backup when ``CODEX_HOME`` had a space.
 
 3. **Portability scan grep-error handling**: when ``grep`` exits with a code
-   other than 0 or 1 (e.g. 2 — the target is a directory instead of a regular
+   other than 0 or 1 (e.g. 2 -- the target is a directory instead of a regular
    file), the scan must print ``scan: ERROR`` and a non-zero exit code, never
    ``portable: clean``. The earlier ``if grep ...; then rc=$?`` shape always
    captured the if-test result (0) and silently swallowed the grep error.
 
-4. **Bootstrap payload-generation failure handling** (CodeRabbit 2026-09-13
-   follow-up + Codex /wa /advice round 3): when ``install -m 0644
-   md_files/AGENTS.shared.md <tmp>`` (or the awk rewrite) silently fails,
-   the staged temp file may be empty OR may contain a truncated write, and
-   the downstream ``backup_and_write`` would back up a valid existing
-   policy and overwrite it with the broken file. The bootstrap must fail
-   loudly before any destination is touched.
+4. **Bootstrap payload-generation failure handling** (Codex + Opus
+   /wa /advice rounds 3-5): when ``install -m 0644 md_files/AGENTS.shared.md
+   <tmp>`` (or the Python @import rewrite) silently fails, the staged temp
+   file may be empty OR may contain a truncated write, and the downstream
+   ``backup_and_write`` would back up a valid existing policy and overwrite
+   it with the broken file. The bootstrap must fail loudly before any
+   destination is touched.
 
 5. **@import rewrite with portable escaping** (Opus /wa /advice round 3):
    the @import rewrite must handle ``CODEX_HOME`` paths containing ``&``,
-   ``\``, spaces, ``|``, and other punctuation without corrupting the
+   ``\\``, spaces, ``|``, and other punctuation without corrupting the
    rewritten line. Awk gsub's ``&`` always expands to the regex match, so
    a path containing ``&`` would inject the match text into the output.
-   BSD sed has no portable ``\&`` escape; POSIX awk gsub has the same
-   limitation. The fix uses Python ``str.replace()`` -- byte-exact and
-   unambiguous for any byte sequence in the target path.
+   BSD sed has no portable escape for literal ``&``; POSIX awk gsub has
+   the same limitation. The fix uses Python ``str.replace()`` -- byte-exact
+   and unambiguous for any byte sequence in the target path.
 
 6. **Source-vs-installed portability scan** (Opus /wa /advice round 3):
    the post-install ``portable:`` check scans the SOURCE files under
@@ -42,7 +42,7 @@ Locks in the three findings from the 2026-09-13 Codex review of PR #433:
    rewrites the installed adapter to contain an absolute path; scanning
    the installed file would produce a false ERROR on every run, including
    idempotent re-runs.
-"""
+"""  # noqa: W605
 
 import os
 import re
@@ -417,27 +417,33 @@ class MdFilesBootstrapRegressionTests(unittest.TestCase):
     # When `install -m 0644 src tmp` writes a partial payload then returns
     # nonzero, `[ ! -s ]` would pass on the truncated file. The bootstrap
     # must capture install's exit status and abort if it failed.
-    # We use a PATH-shimmed `install` that returns nonzero on a readable
-    # source -- this exercises the real install-exit-status code path
-    # that `test_missing_source_aborts_before_dest_touched` cannot reach
-    # (that test stops at the pre-flight `[ ! -f $src ]` check).
+    # The shim writes non-empty PARTIAL output and returns nonzero ONLY
+    # for the AGENTS.shared.md source -- so a regression that removes the
+    # `if ! install` guard for AGENTS.shared.md lets the partial payload
+    # reach backup_and_write, which then overwrites a valid existing
+    # AGENTS.md with PARTIAL. Without the guard, this test fails.
     def test_install_failure_aborts_before_dest_touched(self):
         shim_dir = tempfile.mkdtemp(prefix="md_bootstrap_shim_")
         home = tempfile.mkdtemp(prefix="md_bootstrap_install_fail_")
         try:
-            # Build a shim `install` that fails with exit code 1 after
-            # leaving the destination empty (the worst-case partial-write
-            # scenario the bootstrap must guard against).
+            # Shim: write non-empty PARTIAL bytes to the destination,
+            # then return nonzero only when the source is AGENTS.shared.md.
+            # Adapter installs succeed normally so the only abort path
+            # exercised is the AGENTS `if ! install` guard.
             shim = os.path.join(shim_dir, "install")
             Path(shim).write_text(
                 "#!/usr/bin/env bash\n"
-                "# Test shim: simulate a partial-write install failure.\n"
-                "# Touch the destination (so [ ! -s ] would pass) then exit 1.\n"
+                "# Test shim: simulate an install that writes a non-empty\n"
+                "# partial payload then returns nonzero for AGENTS.shared.md.\n"
+                "src=\"${@: -2:1}\"\n"
                 "dest=\"${@: -1}\"\n"
                 "if [ -n \"$dest\" ] && [ \"$dest\" != \"$1\" ]; then\n"
-                "  printf '' > \"$dest\"\n"
+                "  printf 'PARTIAL_PAYLOAD_NOT_REAL_POLICY' > \"$dest\"\n"
                 "fi\n"
-                "exit 1\n"
+                "case \"$src\" in\n"
+                "  *AGENTS.shared.md) exit 1 ;;\n"
+                "  *) exit 0 ;;\n"
+                "esac\n"
             )
             os.chmod(shim, 0o755)
 
@@ -466,14 +472,13 @@ class MdFilesBootstrapRegressionTests(unittest.TestCase):
                 "ERROR", r.stderr + r.stdout,
                 "bootstrap must log an ERROR on install failure",
             )
-            # Destination unchanged
+            # Destination unchanged -- the AGENTS guard must catch this
+            # before backup_and_write touches the destination.
             self.assertEqual(
                 open(f"{home}/.codex/AGENTS.md").read(), valid_ag,
-                "bootstrap must not overwrite AGENTS.md when install fails",
-            )
-            self.assertEqual(
-                open(f"{home}/.claude/CLAUDE.md").read(), valid_ad,
-                "bootstrap must not overwrite CLAUDE.md when install fails",
+                "bootstrap must not overwrite AGENTS.md when install fails "
+                "(the AGENTS `if ! install` guard must catch the partial "
+                "before backup_and_write)",
             )
             # No backup files should have been created
             codex_baks = [f for f in os.listdir(f"{home}/.codex") if ".bak." in f]
@@ -523,8 +528,8 @@ class MdFilesBootstrapRegressionTests(unittest.TestCase):
             # The corruption signature: matched text leaked into the import
             self.assertNotIn(
                 "@~/.codex/AGENTS.md", ad,
-                "default @~/.codex/AGENTS.md import was not replaced after \\& "
-                "rewrite (gsub \& expansion leaked matched text)",
+                "default @~/.codex/AGENTS.md import was not replaced after "
+                "rewrite (matched-text expansion would have leaked into the import)",
             )
         finally:
             shutil.rmtree(home, ignore_errors=True)
