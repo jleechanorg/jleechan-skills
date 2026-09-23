@@ -64,12 +64,25 @@ def _extract_bash_blocks(md_text: str) -> list[str]:
 
 
 def _run(script_text: str, env: dict, cwd: str | None = None) -> subprocess.CompletedProcess:
-    """Write a one-shot bash wrapper and run it; return the completed process."""
-    path = "/tmp/md_files_bootstrap_test.sh"
-    with open(path, "w") as f:
-        f.write("#!/usr/bin/env bash\nset +e\n" + script_text)
-    os.chmod(path, 0o755)
-    return subprocess.run(["bash", path], capture_output=True, text=True, env=env, cwd=cwd)
+    """Write a one-shot bash wrapper and run it; return the completed process.
+
+    Each invocation writes to a freshly-named tempfile (mkstemp) so that
+    parallel test workers don't trample each other, and so that a
+    pre-existing symlink at a fixed path can't be hijacked to point the
+    wrapper at attacker-controlled content (CodeRabbit 2026-09-23
+    finding). The temp file is cleaned up after the subprocess returns.
+    """
+    fd, path = tempfile.mkstemp(prefix="md_files_bootstrap_test_", suffix=".sh")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write("#!/usr/bin/env bash\nset +e\n" + script_text)
+        os.chmod(path, 0o755)
+        return subprocess.run(["bash", path], capture_output=True, text=True, env=env, cwd=cwd)
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
 
 
 @unittest.skipUnless(README_PATH.exists(), "md_files/README.md not present")
@@ -489,6 +502,64 @@ class MdFilesBootstrapRegressionTests(unittest.TestCase):
         finally:
             shutil.rmtree(home, ignore_errors=True)
             shutil.rmtree(shim_dir, ignore_errors=True)
+
+    # ----- Bootstrap: backup cp failure (CodeRabbit 2026-09-23 finding) -----
+    # If `cp -p` (the backup copy) fails, the bootstrap must NOT proceed to
+    # `install` (which would overwrite the destination without a valid
+    # backup). We simulate a backup failure by pre-creating a directory at
+    # the backup path so `cp -p` cannot write a regular file on top of it.
+    def test_backup_failure_aborts_before_dest_touched(self):
+        home = tempfile.mkdtemp(prefix="md_bootstrap_bak_fail_")
+        try:
+            env = os.environ.copy()
+            env["HOME"] = home
+            env.pop("CODEX_HOME", None)
+            env.pop("CLAUDE_HOME", None)
+            # Pre-create a divergent destination policy (forces a backup
+            # to be attempted) and a blocking directory at the backup path.
+            os.makedirs(f"{home}/.codex", exist_ok=True)
+            os.makedirs(f"{home}/.claude", exist_ok=True)
+            divergent_ag = "DIVERGENT EXISTING CODEX POLICY\n"
+            divergent_ad = "DIVERGENT EXISTING CLAUDE POLICY\n"
+            with open(f"{home}/.codex/AGENTS.md", "w") as f:
+                f.write(divergent_ag)
+            with open(f"{home}/.claude/CLAUDE.md", "w") as f:
+                f.write(divergent_ad)
+            # Block `cp -p` from writing the backup by pre-creating a
+            # DIRECTORY at the expected backup path (which contains a
+            # timestamp the bootstrap generates; we use a wildcard glob
+            # approach below since the timestamp is unknown).
+            # Instead of glob-blocking, make the .codex parent dir
+            # read-only so `cp -p` cannot write any file in it.
+            os.chmod(f"{home}/.codex", 0o555)
+            os.chmod(f"{home}/.claude", 0o555)
+
+            r = _run(self.bootstrap, env=env, cwd=str(REPO_ROOT))
+            # Restore perms so cleanup can proceed even if the test fails.
+            os.chmod(f"{home}/.codex", 0o755)
+            os.chmod(f"{home}/.claude", 0o755)
+            self.assertNotEqual(
+                r.returncode, 0,
+                "bootstrap must exit non-zero when backup cp fails (not "
+                "proceed to install the new policy over the divergent one)",
+            )
+            self.assertIn(
+                "back up", r.stderr + r.stdout,
+                "bootstrap must log a backup-failure ERROR",
+            )
+            # Destination unchanged: the divergent policy must still be on
+            # disk (no install overwrote it because the backup failed).
+            self.assertEqual(
+                open(f"{home}/.codex/AGENTS.md").read(), divergent_ag,
+                "bootstrap must not overwrite AGENTS.md when backup cp fails",
+            )
+        finally:
+            # Restore perms before cleanup
+            for sub in (".codex", ".claude"):
+                p = f"{home}/{sub}"
+                if os.path.isdir(p):
+                    os.chmod(p, 0o755)
+            shutil.rmtree(home, ignore_errors=True)
 
     # ----- Bootstrap: CODEX_HOME with literal \& (Opus /wa /advice round 3) -----
     # Python str.replace() emits the target verbatim, including literal

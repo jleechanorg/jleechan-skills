@@ -111,11 +111,20 @@ backup_and_write() {
   # `intended` over `$2` (idempotent — preserves mtime when no change).
   local intended="$1" dst="$2" ts="$3"
   if [ -f "$dst" ] && ! cmp -s "$intended" "$dst"; then
-    cp -p "$dst" "$dst.bak.$ts"
+    # Abort if the backup copy fails. A failed backup would leave the
+    # following `install` to overwrite the destination without a valid
+    # backup, so we fail loudly instead.
+    if ! cp -p "$dst" "$dst.bak.$ts"; then
+      echo "bootstrap: ERROR -- failed to back up $dst -> $dst.bak.$ts; aborting" >&2
+      exit 1
+    fi
     echo "backed up $dst -> $dst.bak.$ts"
   fi
   if [ ! -f "$dst" ] || ! cmp -s "$intended" "$dst"; then
-    install -m 0644 "$intended" "$dst"
+    if ! install -m 0644 "$intended" "$dst"; then
+      echo "bootstrap: ERROR -- install of $intended to $dst failed; aborting" >&2
+      exit 1
+    fi
   fi
 }
 
