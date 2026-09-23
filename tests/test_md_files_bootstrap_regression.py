@@ -26,14 +26,14 @@ Locks in the three findings from the 2026-09-13 Codex review of PR #433:
    policy and overwrite it with the broken file. The bootstrap must fail
    loudly before any destination is touched.
 
-5. **awk ``gsub`` replacement-string escaping** (Opus /wa /advice round 3):
-   when ``CODEX_HOME`` contains ``&`` or ``\``, the sed-based escape that
-   produces awk's gsub replacement string must produce the right byte
-   sequence for awk to emit the literal characters. Each ``\`` in the path
-   must be doubled to ``\\``; each ``&`` must become ``\\&`` (the GNU awk
-   ``\\&`` escape for literal ``&``). A bug here corrupts the rewired
-   import line and the post-install ``grep -qF`` check fails, but the
-   destination file is already partially written.
+5. **@import rewrite with portable escaping** (Opus /wa /advice round 3):
+   the @import rewrite must handle ``CODEX_HOME`` paths containing ``&``,
+   ``\``, spaces, ``|``, and other punctuation without corrupting the
+   rewritten line. Awk gsub's ``&`` always expands to the regex match, so
+   a path containing ``&`` would inject the match text into the output.
+   BSD sed has no portable ``\&`` escape; POSIX awk gsub has the same
+   limitation. The fix uses Python ``str.replace()`` -- byte-exact and
+   unambiguous for any byte sequence in the target path.
 
 6. **Source-vs-installed portability scan** (Opus /wa /advice round 3):
    the post-install ``portable:`` check scans the SOURCE files under
@@ -250,10 +250,11 @@ class MdFilesBootstrapRegressionTests(unittest.TestCase):
     # ----- Bootstrap: CODEX_HOME with awk-special characters -----
 
     def test_codex_home_with_awk_special_chars(self):
-        # awk gsub treats `&` and `\` as back-references in the replacement
-        # string. CODEX_HOME containing either character would corrupt the
-        # rewritten import unless properly escaped. (Codex 2026-09-13 review
-        # finding #2.)
+        # The @import rewrite handles paths containing `&`, `\`, spaces,
+        # `|`, `#`, etc. without corruption. The original awk gsub
+        # approach was fragile here (Codex 2026-09-13 review finding #2
+        # and Opus /wa /advice round 3 finding #2b); the current Python
+        # str.replace() rewrite is unambiguous for any byte sequence.
         for spec in [
             "codex with space",
             "codex|pipe",
@@ -294,8 +295,8 @@ class MdFilesBootstrapRegressionTests(unittest.TestCase):
                     )
                     self.assertNotIn(
                         "@~/.codex/AGENTS.md", ad,
-                        f"spec={spec!r}: default import was not replaced (awk gsub "
-                        f"may have eaten `&` or `\\` in the replacement)",
+                        f"spec={spec!r}: default import was not replaced "
+                        f"(the @import rewrite did not run for this path)",
                     )
                 finally:
                     shutil.rmtree(home, ignore_errors=True)
@@ -416,11 +417,33 @@ class MdFilesBootstrapRegressionTests(unittest.TestCase):
     # When `install -m 0644 src tmp` writes a partial payload then returns
     # nonzero, `[ ! -s ]` would pass on the truncated file. The bootstrap
     # must capture install's exit status and abort if it failed.
+    # We use a PATH-shimmed `install` that returns nonzero on a readable
+    # source -- this exercises the real install-exit-status code path
+    # that `test_missing_source_aborts_before_dest_touched` cannot reach
+    # (that test stops at the pre-flight `[ ! -f $src ]` check).
     def test_install_failure_aborts_before_dest_touched(self):
+        shim_dir = tempfile.mkdtemp(prefix="md_bootstrap_shim_")
         home = tempfile.mkdtemp(prefix="md_bootstrap_install_fail_")
         try:
+            # Build a shim `install` that fails with exit code 1 after
+            # leaving the destination empty (the worst-case partial-write
+            # scenario the bootstrap must guard against).
+            shim = os.path.join(shim_dir, "install")
+            Path(shim).write_text(
+                "#!/usr/bin/env bash\n"
+                "# Test shim: simulate a partial-write install failure.\n"
+                "# Touch the destination (so [ ! -s ] would pass) then exit 1.\n"
+                "dest=\"${@: -1}\"\n"
+                "if [ -n \"$dest\" ] && [ \"$dest\" != \"$1\" ]; then\n"
+                "  printf '' > \"$dest\"\n"
+                "fi\n"
+                "exit 1\n"
+            )
+            os.chmod(shim, 0o755)
+
             env = os.environ.copy()
             env["HOME"] = home
+            env["PATH"] = shim_dir + ":" + env.get("PATH", "")
             env.pop("CODEX_HOME", None)
             env.pop("CLAUDE_HOME", None)
             # Pre-create a valid destination policy.
@@ -433,39 +456,41 @@ class MdFilesBootstrapRegressionTests(unittest.TestCase):
             with open(f"{home}/.claude/CLAUDE.md", "w") as f:
                 f.write(valid_ad)
 
-            # Patch the bootstrap to redirect the install target to an
-            # unwritable location, forcing install to return nonzero. We
-            # do this by pre-creating the destination as a directory (so
-            # install cannot write a regular file on top of it).
-            # The destination path is the mktemp temp file, which we
-            # can't predict; instead we make the *source* unreadable so
-            # install itself returns nonzero with a partial or empty
-            # write. The bootstrap must abort before backup_and_write
-            # touches the destination.
-            patched = self.bootstrap.replace(
-                str(SRC_DIR / "AGENTS.shared.md"),
-                "/nonexistent/AGENTS.shared.md",
-            )
-            r = _run(patched, env=env, cwd=str(REPO_ROOT))
+            r = _run(self.bootstrap, env=env, cwd=str(REPO_ROOT))
             self.assertNotEqual(
                 r.returncode, 0,
                 "bootstrap must exit non-zero when install fails (not silently "
                 "pass [ ! -s ] on a partial write)",
+            )
+            self.assertIn(
+                "ERROR", r.stderr + r.stdout,
+                "bootstrap must log an ERROR on install failure",
             )
             # Destination unchanged
             self.assertEqual(
                 open(f"{home}/.codex/AGENTS.md").read(), valid_ag,
                 "bootstrap must not overwrite AGENTS.md when install fails",
             )
+            self.assertEqual(
+                open(f"{home}/.claude/CLAUDE.md").read(), valid_ad,
+                "bootstrap must not overwrite CLAUDE.md when install fails",
+            )
+            # No backup files should have been created
+            codex_baks = [f for f in os.listdir(f"{home}/.codex") if ".bak." in f]
+            self.assertEqual(
+                codex_baks, [],
+                f"install-failure bootstrap must not create backups: {codex_baks}",
+            )
         finally:
             shutil.rmtree(home, ignore_errors=True)
+            shutil.rmtree(shim_dir, ignore_errors=True)
 
     # ----- Bootstrap: CODEX_HOME with literal \& (Opus /wa /advice round 3) -----
-    # The sed escape `s/\\/\\\\/g; s/&/\\\\\\&/g` must produce the right byte
-    # sequence for awk's gsub to emit literal & and \. A bug here produced
-    # `@/var/.../codex\@~/.codex/AGENTS.mddir/AGENTS.md` -- the `&` was
-    # expanded to the matched text `@~/.codex/AGENTS.md` and corrupted the
-    # import line.
+    # Python str.replace() emits the target verbatim, including literal
+    # `&` and `\`. The previous awk gsub chain was corrupt: a path
+    # containing `\&` produced output like `@/var/.../codex\@~/.codex/AGENTS.mddir/AGENTS.md`
+    # because awk's `&` in the replacement expanded to the matched
+    # text `@~/.codex/AGENTS.md` instead of the literal `&` in the path.
     def test_codex_home_with_literal_backslash_ampersand(self):
         home = tempfile.mkdtemp(prefix="md_bootstrap_bsamp_")
         try:

@@ -170,11 +170,18 @@ Notes on the install path:
   this, `cmp` would always see a "divergence" between the on-disk adapter and the
   raw source after the @import rewrite, and the bootstrap would create spurious
   backups on every re-run.
-- `awk gsub` (not sed) is used for the @import rewrite because awk's gsub takes
-  the replacement as a variable — paths containing `|`, `/`, `#`, or any other
-  punctuation cannot break it. The replacement is pre-escaped for `&` and `\` so
-  paths containing those characters (which awk gsub treats as back-references)
-  survive intact.
+- `python3` (not awk or sed) is used for the @import rewrite. Awk gsub's `&` in
+  the replacement always expands to the regex match — there is no portable way
+  to emit a literal `&` when the match is something other than `&` itself
+  (GNU `\\&` is not in BSD sed, and POSIX awk gsub has the same limitation).
+  Python's `str.replace()` is byte-exact and unambiguous for any path.
+- The portability check scans the SOURCE files under `md_files/`, not the
+  installed copies. A non-default `CODEX_HOME` legitimately rewrites the
+  installed adapter to contain an absolute path; scanning the installed file
+  would produce a false ERROR on every run, including idempotent re-runs.
+- `install`'s exit status is captured explicitly (`if ! install ...`). A
+  partial write that returns nonzero would otherwise pass `[ ! -s ]` and be
+  installed as the real policy via `backup_and_write`.
 - `case "$rc" in 0|1|*)` correctly maps grep's three exit codes (0 = match,
   1 = no match, ≥2 = error) to the right verdict. The earlier `if grep...; then
   rc=$?` shape always captured the if-test result (0 or 1), never grep's actual
