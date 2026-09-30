@@ -159,7 +159,10 @@ def path_exists_at(sha: str, path: str) -> bool:
 
 
 def commit_exists(sha: str) -> bool:
-    return ensure_commit_local(sha)
+    if not ensure_commit_local(sha):
+        return False
+    rc, kind, _ = run(["git", "cat-file", "-t", sha])
+    return rc == 0 and kind.strip() == "commit"
 
 
 def commit_time(sha: str) -> float | None:
@@ -424,12 +427,11 @@ def verify_test_counts(head: str, body: str) -> list[Verdict]:
         if actual is None:
             out.append(Verdict(label, "file not found at PR head", "UNVERIFIABLE"))
             continue
-        derived = f"static count at {head[:12]} = {actual}"
-        if claimed == actual:
-            out.append(Verdict(label, derived, "PASS"))
-        else:
-            direction = "exceeds" if claimed > actual else "undercounts"
-            out.append(Verdict(label, f"{derived} (claim {direction} actual)", "FAIL"))
+        derived = (
+            f"static declarations at {head[:12]} = {actual}; "
+            "test discovery and execution were not performed"
+        )
+        out.append(Verdict(label, derived, "UNVERIFIABLE"))
     return out
 
 
