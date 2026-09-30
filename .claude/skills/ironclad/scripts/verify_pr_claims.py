@@ -203,13 +203,18 @@ def get_unresolved_review_threads(pr_number: int, slug: str) -> tuple[int, int] 
         return None
     owner, repo = slug.split("/", 1)
     query = (
-        "query($owner:String!,$repo:String!,$pr:Int!){"
+        "query($owner:String!,$repo:String!,$pr:Int!,$cursor:String){"
         "repository(owner:$owner,name:$repo){"
         "pullRequest(number:$pr){"
-        "reviewThreads(first:100){nodes{isResolved}}}}}"
+        "reviewThreads(first:100,after:$cursor){nodes{isResolved}"
+        "pageInfo{hasNextPage,endCursor}}}}}"
     )
-    rc, out, err = gh_call(
-        [
+    cursor: str | None = None
+    seen_cursors: set[str] = set()
+    unresolved = 0
+    total = 0
+    while True:
+        args = [
             "api",
             "graphql",
             "-f",
@@ -221,16 +226,37 @@ def get_unresolved_review_threads(pr_number: int, slug: str) -> tuple[int, int] 
             "-F",
             f"pr={pr_number}",
         ]
-    )
-    if rc != 0:
-        print(f"ERROR: reviewThreads GraphQL query failed: {err.strip()}", file=sys.stderr)
-        return None
-    try:
-        nodes = json.loads(out)["data"]["repository"]["pullRequest"]["reviewThreads"]["nodes"]
-    except (KeyError, TypeError, json.JSONDecodeError):
-        return None
-    unresolved = sum(1 for n in nodes if not n.get("isResolved"))
-    return unresolved, len(nodes)
+        if cursor is not None:
+            args.extend(["-F", f"cursor={cursor}"])
+        rc, out, err = gh_call(args)
+        if rc != 0:
+            print(f"ERROR: reviewThreads GraphQL query failed: {err.strip()}", file=sys.stderr)
+            return None
+        try:
+            connection = json.loads(out)["data"]["repository"]["pullRequest"]["reviewThreads"]
+            nodes = connection["nodes"]
+            page_info = connection["pageInfo"]
+            has_next = page_info["hasNextPage"]
+            next_cursor = page_info["endCursor"]
+            if not isinstance(nodes, list) or not isinstance(page_info, dict):
+                return None
+            if not isinstance(has_next, bool):
+                return None
+            if has_next and (not isinstance(next_cursor, str) or not next_cursor):
+                return None
+            if not all(isinstance(node, dict) and isinstance(node.get("isResolved"), bool) for node in nodes):
+                return None
+        except (KeyError, TypeError, json.JSONDecodeError):
+            return None
+        total += len(nodes)
+        unresolved += sum(1 for node in nodes if not node["isResolved"])
+        if not has_next:
+            return unresolved, total
+        if next_cursor in seen_cursors or next_cursor == cursor:
+            print("ERROR: reviewThreads GraphQL cursor did not advance", file=sys.stderr)
+            return None
+        seen_cursors.add(next_cursor)
+        cursor = next_cursor
 
 
 # --------------------------------------------------------------------------

@@ -42,9 +42,11 @@ Measured 2026-09-06 across one mission (`~/roadmap/STATE-pr9739-honest-evidence-
 
 ## Plan review gate
 
-Before implementing any nontrivial plan, obtain an independent plan review. `/advice` approval is mandatory by default. Bind the plan-review artifact to the plan content hash, scope, assumptions, exit criteria, verified executable checks, and the actual reviewer transcript and verdict. Run or probe each proposed check against the real target before writing it as an executable criterion; resolve its required inputs, flags, and expected failure semantics. Use read-only, help, or preflight probes when executing the criterion would mutate gated state; preserve existing action authorization. A material plan edit invalidates the affected approval; wording-only edits do not require another full review. For high-risk plans involving progression, XP, state persistence, security, deployment, or a disputed root cause, attempt `/wa` as well; `/wa` approval is mandatory only when the user explicitly requires it. If a mandatory reviewer is unavailable, the verdict is WITHHELD and dependent implementation halts; continue safe independent preparation. Browser unavailability is never approval. Optional high-risk `/wa` unavailability may proceed with approved `/advice` and a stated risk and limit.
+Before implementing any nontrivial plan, obtain an independent plan review. `/advice` approval is mandatory by default. Bind the plan-review artifact to the plan content hash, scope, assumptions, exit criteria, verified executable checks, and the actual reviewer transcript and verdict. Run or probe each proposed check against the real target before writing it as an executable criterion; resolve its required inputs, flags, and expected failure semantics. Use read-only, help, or preflight probes when executing the criterion would mutate gated state; preserve existing action authorization. A material plan edit invalidates the affected approval; wording-only edits do not require another full review. For high-risk plans involving progression, XP, state persistence, security, deployment, or a disputed root cause, attempt canonical `/web-advice` as well; `/wa` is user shorthand for `/web-advice` only when that alias is installed, and its approval is mandatory only when the user explicitly requires it. If a mandatory reviewer is unavailable, the verdict is WITHHELD and dependent implementation halts; continue safe independent preparation. Browser unavailability is never approval. Optional high-risk `/web-advice` unavailability may proceed with approved `/advice` and a stated risk and limit.
 
 One planning pass and one independent verification pass do not waive mandatory plan review. Plan approval does not satisfy runtime evidence, code-review, deployment, or merge gates. Expensive final evidence remains last, after implementation and blocker triage; it does not postpone plan review until after implementation. Drafting the plan and review packet is preparation; this gate does not recursively gate its own preparation.
+
+For this gate, a nontrivial plan means a runtime, state, security, deployment, or contract change; multiple coordinated steps or files; or a material decision. An isolated low-risk wording or heading correction with no contract behavior change is a trivial direct edit. The model judges materiality; do not encode this decision as application heuristics.
 
 ## Procedure
 
@@ -130,12 +132,12 @@ Canonical self-grading forms:
 
 | Claim shape | Do not write | Write |
 |---|---|---|
-| no diff | `git diff --stat A B -- p` → expect empty | `git diff --quiet A B -- p && echo PASS I1 \|\| echo FAIL I1` |
-| files identical | `cmp a b` → expect no output | `cmp -s a b && echo PASS E4 \|\| echo FAIL E4` |
-| tests pass | `./run_tests.sh t.py` → expect `Failed: 0` | `./run_tests.sh t.py >"$(mktemp)" 2>&1 && echo PASS I3 \|\| echo FAIL I3` |
-| exact count | `grep -c X f` → expect 3 | `[ "$(grep -c X f)" = 3 ] && echo PASS D1 \|\| echo FAIL D1` |
-| JSON field | `gh pr view N --json isDraft` → read it | `gh pr view N --json isDraft -q .isDraft \| grep -qx true && echo PASS I4 \|\| echo FAIL I4` |
-| CI rollup | `gh pr checks N` → read it | `gh pr view N --json statusCheckRollup -q '[.statusCheckRollup[] \| select((.conclusion // .state) != "SUCCESS")] \| length' \| grep -qx 0 && echo PASS \|\| echo FAIL` |
+| no diff | `git diff --stat A B -- p` → expect empty | `git diff --quiet A B -- p && echo PASS I1 \|\| { echo FAIL I1; exit 1; }` |
+| files identical | `cmp a b` → expect no output | `cmp -s a b && echo PASS E4 \|\| { echo FAIL E4; exit 1; }` |
+| tests pass | `./run_tests.sh t.py` → expect `Failed: 0` | `./run_tests.sh t.py >"$(mktemp)" 2>&1 && echo PASS I3 \|\| { echo FAIL I3; exit 1; }` |
+| exact count | `grep -c X f` → expect 3 | `[ "$(grep -c X f)" = 3 ] && echo PASS D1 \|\| { echo FAIL D1; exit 1; }` |
+| JSON field | `gh pr view N --json isDraft` → read it | `gh pr view N --json isDraft -q .isDraft \| grep -qx true && echo PASS I4 \|\| { echo FAIL I4; exit 1; }` |
+| CI rollup | `gh pr checks N` → read it | `gh pr view N --json statusCheckRollup -q '[.statusCheckRollup[] \| select((.conclusion // .state) != "SUCCESS")] \| length' \| grep -qx 0 && echo PASS \|\| { echo FAIL; exit 1; }` |
 
 Never use `wc -l` or `wc -c` output as a literal (macOS pads with spaces; an
 empty `git log` still yields one line). Strip ANSI before grepping tool output.
@@ -144,7 +146,7 @@ Filled example (one step of a docs bead):
 
 ```
 Steps:       1. grep -q "test_core_memory_prompt_arm_real_e2e" testing_mcp/CLAUDE.md
-                && echo PASS D1 || echo FAIL D1
+                && echo PASS D1 || { echo FAIL D1; exit 1; }
              2. In testing_mcp/CLAUDE.md, directly after the table row beginning
                 "| `testing_mcp/core/test_level_up_organic.py` |", insert the row:
                 | `testing_mcp/core/test_core_memory_prompt_arm_real_e2e.py` | Direct Gemini SDK only: ... |
