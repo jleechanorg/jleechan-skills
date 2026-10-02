@@ -181,9 +181,27 @@ If the user can't log in to one model, run /web-advice with the others as long a
 
 Create a new or temporary chat for each seat. Inspect the composer before the
 chooser opens: a stale draft or unrelated attachment invalidates the attempt.
-For `aside repl`, stage files inside that Aside session before opening its file
-chooser; it rejects paths outside the session directory. Never replace a
-failed upload with a bare URL.
+For `aside repl`, keep one interactive REPL process alive through staging,
+attachment verification, and submission. Start `aside repl` once, then run
+`console.log(pwd)` inside it to discover the active session directory. Copy the
+complete packet into a subdirectory of that exact path from the local shell
+while the REPL stays open; run the upload calls in that same REPL. A separate
+`aside repl "..."` invocation creates a different session: paths discovered by
+an earlier invocation cannot be reused. If the process restarts, rediscover
+`pwd` and restage the packet. Aside rejects upload paths outside the active
+session directory. Never replace a failed upload with a bare URL.
+
+Prefer the composer's supported `locator.fill(prompt)` operation, including
+contenteditable composers where available. Before sending, read back the
+complete composer text (`inputValue()` for input/textarea or `innerText()` for
+contenteditable) and compare it with the prepared prompt, including its prefix,
+final instruction, and total length.
+Successful `keyboard.type()` completion does not prove the full prompt arrived.
+If text is partial or duplicated, clear the composer, re-enter the complete
+prompt, and verify it again before submission; do not send the partial draft.
+Capture the verified prompt and every exact rendered attachment filename in
+the same pre-submit state. A clipped preview or matching prefix alone is
+insufficient. These checks also apply when using a persistent Aside MCP session.
 
 The only successful upload state is every exact packet filename rendered by
 the composer. A no-exception `set_input_files()` result, local file size, a
@@ -258,7 +276,7 @@ await gemP.keyboard.press('Backspace');
 await new Promise(r => setTimeout(r, 500));
 ```
 
-**Gotcha — TrustedHTML errors:** Don't use `el.innerHTML = ...`; Gemini's textbox uses Trusted Types. Use `el.innerText = ...` (which works) OR use `keyboard.type()` (which always works).
+**Gotcha — TrustedHTML errors:** Don't use `el.innerHTML = ...`; Gemini's textbox uses Trusted Types. Use the composer’s supported `fill()` or typing operation, then verify the complete text as required in Step 2b; typing can silently truncate.
 
 **Gotcha — ChatGPT send:** ChatGPT requires clicking the "Send message" button, NOT pressing Enter. After typing, locate and click it.
 
