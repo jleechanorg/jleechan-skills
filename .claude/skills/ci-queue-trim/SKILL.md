@@ -1,13 +1,18 @@
 ---
 name: ci-queue-trim
 description: >
-  Audit and trim queued GitHub Actions CI workflow runs for dormant or merged PRs.
-  Solves the deceptive PR.updatedAt pitfall by evaluating actual head commit timestamps
-  and checking PR merge state. Includes Colima socket and host disk health preflights.
+  Audit and trim queued GitHub Actions CI workflow runs for dormant,
+  superseded, or merged PRs. Verifies run.headSha vs the current PR/branch
+  head to detect obsolete queued pushes, applies event-specific semantics
+  (pull_request/push vs merge_group vs unknown), and re-validates the
+  candidate fingerprint immediately before any cancellation. Workflow
+  importance is decided by an explicit configured allowlist, never by
+  fuzzy substring heuristics. Includes Colima socket and host disk health
+  preflights.
 type: skill
 scope: global
 owner: $USER
-version: 1.0.0
+version: 1.1.0
 triggers:
   - "ci queue trim"
   - "trim ci queue"
@@ -24,16 +29,56 @@ allowed-tools:
 
 # /ci-queue-trim — CI Queue Inactivity Triage & Trimming
 
-Use this skill when GitHub Actions self-hosted or cloud runner queues become backlogged with queued runs from stale, dormant, or already-merged pull requests.
+Use this skill when GitHub Actions self-hosted or cloud runner queues become backlogged with queued runs from stale, dormant, already-merged, or already-superseded pull requests.
 
-## The Core Pitfall: Naive `PR.updatedAt` vs `committedDate`
+## The Three Pitfalls Resolved at Audit Time
 
-When filtering PRs by activity, querying GitHub API's `PR.updatedAt` is **fundamentally deceptive**:
-- Automated bots (e.g. merge queues, label synchronizers, automated status comments, rebase checks) constantly update the `updatedAt` timestamp on pull requests.
-- A PR whose code has not been touched in 10–18 days will frequently show an `updatedAt` of "2 minutes ago".
-- **The Ground Truth Rule**: Always check `commits[-1].committedDate` (the author's actual code push timestamp) against the inactivity window (default: 2 hours). If no new code was pushed within the window, the PR is dormant and its queued CI runs should be cancelled to free up runner slots for active developers.
-- **Orphaned Runs Rule**: Any queued run belonging to a PR with `state == "MERGED"` or `state == "CLOSED"` is an orphaned zombie and must be cancelled immediately.
-- **Protected Branch Rule**: Runs on `main`, `master`, `production`, `staging`, or `release` branches are protected and never cancelled automatically.
+### 1. Deceptive `PR.updatedAt` (bots touch it constantly)
+When filtering PRs by activity, `PR.updatedAt` is **fundamentally deceptive**:
+- Automated bots (merge queues, label synchronizers, automated status comments,
+  rebase checks) constantly touch `updatedAt`.
+- A PR whose code has not been touched in 10–30 days frequently shows
+  `updatedAt` of "2 minutes ago".
+- The script uses the head commit's **committer date** as the source of
+  truth. Note: `committedDate` is the **author's commit timestamp**, which
+  precedes the push — it is NOT the push time. Push time can be obtained
+  from the run's `created_at` or by comparing run.headSha against the PR
+  current head SHA.
+- If no commit could be resolved within the inactivity window
+  (default: 2 hours), the run is kept with `audit_incomplete=True`. The run's
+  age is never substituted for the head-commit age.
+
+### 2. Superseded runs (`run.headSha` ≠ PR/branch current head)
+A run can be queued against an older SHA even though the PR has since been
+pushed to a newer one. Comparing `run.headSha` to the PR's current
+`head.sha` (or, for push events, to the branch HEAD SHA) catches these
+without false-positive dormancy cancellations.
+- For `pull_request` / `pull_request_target` events: the comparison ref is
+  `PR.head.sha`, the **merge ref inside the base repo**. For fork PRs the
+  run's recorded head SHA may be a fork SHA and is NOT comparable directly;
+  the script compares it against the base repo's PR.head.sha.
+- For `push` events: the comparison ref is the branch HEAD SHA.
+- For `merge_group` and any unsupported event: the generic stale-head
+  comparison is **never applied** — these events are kept (or, if the PR is
+  already MERGED/CLOSED, cancelled as orphans).
+
+### 3. Lookup failures (PR / commit / run detail unknown)
+If the audit cannot verify the PR head, the head commit date, or the run
+metadata, the run is kept with `audit_incomplete=True` and the cancellation
+list is filtered by `refresh_before_cancel` immediately before mutation.
+The tool never substitutes the run's age for a missing head-commit age.
+
+## Protected Branches and Workflows
+
+- **Protected branches** (never cancelled automatically):
+  `main`, `master`, `production`, `staging`, `release`, `deploy`.
+- **Protected workflows** (never cancelled automatically) are decided by an
+  **explicit configured allowlist** at the top of the script
+  (`PROTECTED_WORKFLOWS`). A workflow whose name merely contains a keyword
+  such as "deploy" or "reusable" is **not** implicitly protected — populate
+  the allowlist with the exact workflow filename or display name.
+- Reusable workflows invoked via `workflow_call` are protected by **event
+  semantics**, not by fuzzy name matching.
 
 ---
 
@@ -43,37 +88,77 @@ The skill includes a pre-built, standalone Python helper at:
 `/Users/jleechan/.claude/skills/ci-queue-trim/scripts/ci_queue_trim.py`
 
 ### 1. Dry-Run Audit (Default)
-Inspects the queue, maps each run to its PR, calculates head commit age vs `updatedAt`, and flags cancel candidates without cancelling anything:
+Inspects the queue, maps each run to its PR, evaluates supersede + dormancy,
+and flags cancel candidates:
 ```bash
 python3 ~/.claude/skills/ci-queue-trim/scripts/ci_queue_trim.py
 ```
 
 ### 2. Execute Cancellations
-Cancels all queued runs belonging to dormant PRs (>2h commit age) and merged/closed PRs:
+Cancels superseded or orphaned (MERGED/CLOSED PR) queued runs after
+`rebalancing_before_cancel` validates each candidate's fingerprint:
 ```bash
 python3 ~/.claude/skills/ci-queue-trim/scripts/ci_queue_trim.py --cancel
 ```
 
-### 3. Customize Threshold and Target Repo
-Change the inactivity threshold (in hours) or target repository:
+### 3. Superseded-Only Mode (Conservative)
+Cancels runs whose head SHA is proven obsolete (newer push advanced the PR or
+branch head). **Dormancy is ignored** — even ancient current-head runs are
+kept. Recommended for first-time operators who want to apply only the
+strictest proven-obsolete criterion:
 ```bash
-python3 ~/.claude/skills/ci-queue-trim/scripts/ci_queue_trim.py --repo jleechanorg/worldarchitect.ai --max-age-hours 4 --cancel
+python3 ~/.claude/skills/ci-queue-trim/scripts/ci_queue_trim.py \
+    --superseded-only --cancel
 ```
 
-### 4. Host & Colima Preflight (`--check-host`)
-Checks local macOS host conditions that cause runner starvation or admission lockouts:
+### 4. Customize Threshold and Target Repo
+Change the inactivity threshold (in hours) or target repository:
+```bash
+python3 ~/.claude/skills/ci-queue-trim/scripts/ci_queue_trim.py \
+    --repo jleechanorg/worldarchitect.ai --max-age-hours 4 --cancel
+```
+
+### 5. Host & Colima Preflight (`--check-host`)
+Checks local macOS host conditions that cause runner starvation or admission
+lockouts:
 ```bash
 python3 ~/.claude/skills/ci-queue-trim/scripts/ci_queue_trim.py --check-host
 ```
 Checks:
-- **Colima Sockets:** Verifies `~/.colima/_lima/_networks/user-v2/user-v2_fd.sock` exists and is backed by exactly 1 active `limactl usernet` process. Detects orphaned `usernet` PIDs that cause startup crashes (`dial unix user-v2_fd.sock: no such file or directory`).
-- **Host Disk Space:** Checks `/System/Volumes/Data` against the 7.0 GB admission safety floor.
+- **Colima Sockets:** Verifies `~/.colima/_lima/_networks/user-v2/user-v2_fd.sock`
+  exists and is backed by exactly 1 active `limactl usernet` process. Detects
+  orphaned `usernet` PIDs that cause startup crashes (`dial unix
+  user-v2_fd.sock: no such file or directory`).
+- **Host Disk Space:** Checks `/System/Volumes/Data` against the 7.0 GB
+  admission safety floor.
 
-### 5. Structured JSON Output (`--json`)
+### 6. Structured JSON Output (`--json`)
 Returns machine-readable JSON for scripting, subagents, or automated triage:
 ```bash
 python3 ~/.claude/skills/ci-queue-trim/scripts/ci_queue_trim.py --json
 ```
+Each row carries:
+`run_id, name, branch, event, pr_number, pr_state, head_commit_age,
+pr_updated_age, deceptive_delta, superseded, audit_incomplete, verdict,
+reason`.
+
+---
+
+## Pre-Cancellation Refresh
+
+Before any `gh run cancel` call, the script re-fetches each candidate's
+fingerprint via `refresh_before_cancel`:
+
+1. Re-fetch run metadata (`status`, `event`, `name`, `path`).
+2. Drop the run if it is no longer `queued`, if its event shifted to
+   `merge_group` / unknown, or if its workflow is now in
+   `PROTECTED_WORKFLOWS`.
+3. Re-fetch the PR (or branch HEAD for push events) and drop the run if the
+   head SHA advanced to match the run's recorded head SHA (the supersede
+   has resolved).
+
+Runs that fail any of these checks are dropped before any mutation; the
+report shows how many were dropped.
 
 ---
 
@@ -109,8 +194,22 @@ rm -rf /private/tmp/<dir_name>
 ```
 
 ### 3. Verify Self-Hosted Runner Capacity
-After trimming stale runs, verify that the runner fleet is picking up active jobs:
+After trimming stale runs, verify that the runner fleet is picking up active
+jobs:
 ```bash
 ./doctor-runner
 ```
 Expect **16/16 healthy** (6 Mac + 10 Linux runners executing or cycling).
+
+### 4. Audit-Incomplete Runs
+If a run is reported with `audit_incomplete=True`, the script could not
+verify its PR/branch/commit at audit time. To investigate:
+```bash
+# Fetch the run detail directly to confirm event / status / workflow
+gh api repos/<owner>/<repo>/actions/runs/<run_id>
+
+# Verify the PR head SHA
+gh api repos/<owner>/<repo>/pulls/<pr_number> | jq '.head.sha, .state'
+```
+Do **not** manually cancel an `audit_incomplete` run unless you have
+independently confirmed the head SHA mismatch.
