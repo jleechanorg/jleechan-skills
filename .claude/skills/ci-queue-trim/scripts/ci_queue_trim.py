@@ -24,15 +24,24 @@ Event semantics:
   * ``merge_group``: never cancelled via stale-head; only MERGED/CLOSED.
   * unknown event: ``audit_incomplete=True``; never cancel.
 
-Workflow importance is decided by an explicit allowlist (``PROTECTED_WORKFLOWS``)
-with a safe default for ``release.yml`` / ``deploy.yml`` / ``publish.yml``.
-The ``@<ref>`` suffix on a workflow path is stripped before comparison.
+Workflow importance is decided by an explicit ``--allow-workflow`` allowlist
+for cancellation. Default empty allowlist keeps ALL workflows (no workflow
+may be cancelled unless the operator explicitly opts it in). Additional
+explicit protection is via ``--protect-workflow`` (repeatable). The
+``@<ref>`` suffix on a workflow path is stripped before comparison. The
+tool does NOT guess deployment safety from conventional filenames.
+
+``--superseded-only`` cancels only runs whose head SHA is proven obsolete
+(superseded=True); terminal-state PRs whose head still matches the run are
+KEPT, even when MERGED/CLOSED. The dormancy-based cancellation path is
+preserved separately as the default mode (without ``--superseded-only``).
 
 Usage:
     python3 ci_queue_trim.py [--repo OWNER/REPO] [--max-age-hours HOURS]
                              [--cancel | --superseded-only --cancel]
                              [--check-host]
                              [--allow-workflow PATH]...
+                             [--protect-workflow PATH]...
 """
 
 from __future__ import annotations
@@ -41,12 +50,11 @@ import argparse
 import datetime
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
 from collections import namedtuple
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 DEFAULT_REPO = "jleechanorg/worldarchitect.ai"
 DEFAULT_MAX_AGE_HOURS = 2.0
@@ -54,13 +62,11 @@ DEFAULT_MAX_AGE_HOURS = 2.0
 # Branches whose runs are never cancelled.
 PROTECTED_BRANCHES = {"main", "master", "production", "staging", "release", "deploy"}
 
-# Default safe workflow protections. Out of the box the tool must not
-# cancel arbitrary deploy / release pipelines. ``@ref`` suffix is stripped
-# before matching.
-DEFAULT_PROTECTED_WORKFLOWS = frozenset({
-    "release.yml", "deploy.yml", "publish.yml", "tag-release.yml",
-})
-PROTECTED_WORKFLOWS: set = set(DEFAULT_PROTECTED_WORKFLOWS)
+# Workflow importance is decided per-invocation:
+#   --allow-workflow PATH   => opt-in allowlist for cancellation (default empty)
+#   --protect-workflow PATH => additional explicit protected list (default empty)
+# There is NO default protected-workflow allowlist; the tool does NOT guess
+# deployment safety from conventional filenames.
 
 # Events split into semantic buckets.
 MERGE_GROUP_EVENTS = {"merge_group"}
@@ -69,12 +75,15 @@ SUPPORTED_EVENTS = {"pull_request", "pull_request_target", "push"}
 COLIMA_SOCKET = os.path.expanduser("~/.colima/_lima/_networks/user-v2/user-v2_fd.sock")
 DISK_FLOOR_GB = 7.0
 
-_REF_SUFFIX = re.compile(r"@[^\s/]+$")
-
-
 def _strip_ref(workflow_path: str) -> str:
-    """Strip the ``@<ref>`` suffix GH adds to some workflow paths."""
-    return _REF_SUFFIX.sub("", workflow_path or "")
+    """Strip the ``@<ref>`` suffix GH adds to some workflow paths.
+
+    Uses ``partition('@')`` so refs that contain slashes (e.g.
+    ``.github/workflows/release.yml@refs/heads/feature/x``) are handled
+    correctly — the previous regex excluded slashes and left such paths
+    intact.
+    """
+    return (workflow_path or "").partition("@")[0]
 
 
 def run_cmd(cmd: List[str], timeout: int = 60) -> Tuple[int, str, str]:
@@ -145,7 +154,8 @@ Classification = namedtuple(
 
 DEFAULT_OPTIONS = {
     "protected_branches": PROTECTED_BRANCHES,
-    "protected_workflows": PROTECTED_WORKFLOWS,
+    "protected_workflows": set(),
+    "allowed_workflows": set(),
     "max_age_hours": DEFAULT_MAX_AGE_HOURS,
     "superseded_only": False,
 }
@@ -172,7 +182,8 @@ def classify_run(
     ``audit_incomplete`` only for the cases that actually need them.
     """
     pb = options.get("protected_branches", PROTECTED_BRANCHES)
-    pw = options.get("protected_workflows", PROTECTED_WORKFLOWS)
+    pw = options.get("protected_workflows", set())
+    aw = options.get("allowed_workflows", set())
     max_age_hours = options.get("max_age_hours", DEFAULT_MAX_AGE_HOURS)
     superseded_only = bool(options.get("superseded_only"))
 
@@ -197,10 +208,25 @@ def classify_run(
             reason=f"Protected branch '{branch}'", pr_state="N/A",
         )
 
+    # Workflow importance: positive allowlist for cancellation.
+    # Default empty allowlist means NO workflows may be cancelled (safe
+    # default). Operator must opt-in with --allow-workflow.
+    if not aw:
+        return Classification(
+            verdict="KEEP", superseded=False, audit_incomplete=False,
+            reason="No --allow-workflow specified; default keeps all workflows",
+            pr_state="N/A",
+        )
     if workflow_path and workflow_path in pw:
         return Classification(
             verdict="KEEP", superseded=False, audit_incomplete=False,
             reason=f"Protected workflow '{workflow_path}'", pr_state="N/A",
+        )
+    if workflow_path not in aw:
+        return Classification(
+            verdict="KEEP", superseded=False, audit_incomplete=False,
+            reason=f"Workflow '{workflow_path}' not in --allow-workflow list",
+            pr_state="N/A",
         )
 
     if event in MERGE_GROUP_EVENTS:
@@ -254,8 +280,19 @@ def classify_run(
     pr_state = "MERGED" if pr_merged else pr_state_raw.upper() or "UNKNOWN"
 
     if event == "pull_request_target":
-        # Base-side semantics. Only MERGED/CLOSED cancels; do not use
-        # PR.head.sha for supersede comparison.
+        # Base-side semantics.
+        # In superseded-only mode, pull_request_target NEVER cancels
+        # (base-side runs execute on BASE SHA; tip advance on the PR is
+        # not proven supersede; terminal matching heads KEEP).
+        if superseded_only:
+            return Classification(
+                verdict="KEEP", superseded=False, audit_incomplete=False,
+                reason=(
+                    "pull_request_target in superseded-only; "
+                    "base-side never cancels"
+                ),
+                pr_state=pr_state,
+            )
         if pr_state in ("MERGED", "CLOSED"):
             return Classification(
                 verdict="CANCEL", superseded=False, audit_incomplete=False,
@@ -281,17 +318,22 @@ def classify_run(
             pr_state=pr_state,
         )
 
+    # In superseded-only mode, terminal matching heads KEEP. Only
+    # superseded=True cancels in this mode. Dormancy is preserved
+    # separately as the default (non-superseded-only) mode below.
+    if superseded_only:
+        return Classification(
+            verdict="KEEP", superseded=False, audit_incomplete=False,
+            reason=(
+                "Superseded-only mode: terminal matching head KEEP"
+            ),
+            pr_state=pr_state,
+        )
+
     if pr_state in ("MERGED", "CLOSED"):
         return Classification(
             verdict="CANCEL", superseded=False, audit_incomplete=False,
             reason=f"PR #{pr.get('number')} is {pr_state} (orphaned run)",
-            pr_state=pr_state,
-        )
-
-    if superseded_only:
-        return Classification(
-            verdict="KEEP", superseded=False, audit_incomplete=False,
-            reason="Superseded-only mode: run is at current PR head",
             pr_state=pr_state,
         )
 
@@ -335,13 +377,16 @@ def classify_run(
 def fetch_run_record(repo: str, run_id: int) -> Optional[Dict[str, Any]]:
     """Return the canonical run record (None on error).
 
-    The shape mirrors `gh api /repos/<repo>/actions/runs/<id>` for the
-    fields the classifier actually reads; callers must treat ``None`` as
-    ``metadata_complete=False``.
+    Faithful to the live ``gh api /repos/<repo>/actions/runs/<id>`` shape:
+    the run's ``repository`` carries ``id`` + ``full_name``, while each
+    ``pull_requests[].head.repo`` carries only ``{id, name, url}`` — NOT
+    ``full_name``. Identity verification therefore uses the stable
+    numeric ``repo.id``, not ``full_name``.
     """
     data = _gh_api(f"repos/{repo}/actions/runs/{run_id}")
     if not data:
         return None
+    repo_data = data.get("repository") or {}
     return {
         "databaseId": data.get("id") or data.get("databaseId"),
         "name": data.get("name") or "",
@@ -350,8 +395,30 @@ def fetch_run_record(repo: str, run_id: int) -> Optional[Dict[str, Any]]:
         "event": data.get("event") or "",
         "workflow_path": data.get("path") or "",
         "status": data.get("status") or "",
+        "repository": {
+            "id": repo_data.get("id"),
+            "full_name": repo_data.get("full_name") or "",
+            "name": repo_data.get("name") or "",
+        },
         "pull_requests": [
-            {"number": p.get("number")}
+            {
+                "number": p.get("number"),
+                "head": {
+                    "sha": ((p.get("head") or {}).get("sha")) or "",
+                    "ref": ((p.get("head") or {}).get("ref")) or "",
+                    "repo": {
+                        "id": ((p.get("head") or {}).get("repo") or {}).get("id"),
+                        "name": ((p.get("head") or {}).get("repo") or {}).get("name") or "",
+                    },
+                },
+                "base": {
+                    "ref": ((p.get("base") or {}).get("ref")) or "",
+                    "repo": {
+                        "id": ((p.get("base") or {}).get("repo") or {}).get("id"),
+                        "name": ((p.get("base") or {}).get("repo") or {}).get("name") or "",
+                    },
+                },
+            }
             for p in (data.get("pull_requests") or [])
             if p.get("number")
         ],
@@ -359,11 +426,17 @@ def fetch_run_record(repo: str, run_id: int) -> Optional[Dict[str, Any]]:
 
 
 def fetch_pr_record(repo: str, pr_number: int) -> Optional[Dict[str, Any]]:
-    """Return the canonical PR record (None on error)."""
+    """Return the canonical PR record (None on error).
+
+    The live ``pulls/{n}`` response includes ``head.repo.{id, full_name,
+    name, ...}`` and ``base.repo.{id, ...}``. Identity verification
+    uses ``head.repo.id`` to match against the run's PR association.
+    """
     data = _gh_api(f"repos/{repo}/pulls/{pr_number}")
     if not data:
         return None
     head = data.get("head") or {}
+    base = data.get("base") or {}
     return {
         "number": data.get("number"),
         "state": (data.get("state") or "").lower(),
@@ -372,7 +445,18 @@ def fetch_pr_record(repo: str, pr_number: int) -> Optional[Dict[str, Any]]:
         "head": {
             "sha": head.get("sha") or "",
             "ref": head.get("ref") or "",
-            "repo": {"full_name": ((head.get("repo") or {}).get("full_name"))},
+            "repo": {
+                "id": (head.get("repo") or {}).get("id"),
+                "full_name": (head.get("repo") or {}).get("full_name") or "",
+                "name": (head.get("repo") or {}).get("name") or "",
+            },
+        },
+        "base": {
+            "ref": base.get("ref") or "",
+            "repo": {
+                "id": (base.get("repo") or {}).get("id"),
+                "full_name": (base.get("repo") or {}).get("full_name") or "",
+            },
         },
         "head_commit_date": ((data.get("head") or {}).get("repo") or {}).get("pushed_at")
             or data.get("updated_at"),
@@ -415,36 +499,6 @@ def get_queued_runs(repo: str, limit: int = 100) -> Optional[List[Dict[str, Any]
 # ---------------------------------------------------------------------------
 
 
-def _build_row(run: Dict[str, Any], cls: Classification) -> Dict[str, Any]:
-    head_commit_dt = parse_iso_datetime((run.get("pr") or {}).get("head_commit_date", ""))
-    pr_updated_dt = parse_iso_datetime((run.get("pr") or {}).get("updated_at", ""))
-    return {
-        "run_id": run.get("databaseId"),
-        "name": run.get("name") or "Unknown",
-        "branch": run.get("head_branch") or "",
-        "event": run.get("event") or "",
-        "pr_number": (run.get("pr") or {}).get("number"),
-        "pr_state": cls.pr_state,
-        "head_commit_age": (
-            format_duration((FIXED_NOW_FALLBACK - head_commit_dt).total_seconds())
-            if head_commit_dt and run.get("_now") else "unknown"
-        ),
-        "pr_updated_age": (
-            format_duration((run["_now"] - pr_updated_dt).total_seconds())
-            if pr_updated_dt and run.get("_now") else "unknown"
-        ),
-        "deceptive_delta": False,
-        "superseded": cls.superseded,
-        "audit_incomplete": cls.audit_incomplete,
-        "verdict": cls.verdict,
-        "reason": cls.reason,
-    }
-
-
-# A single timestamp the row builder uses; tests patch datetime via ``_patch_now``.
-FIXED_NOW_FALLBACK = datetime.datetime(2026, 1, 15, 12, 0, 0, tzinfo=datetime.timezone.utc)
-
-
 def _collect_inputs(repo: str, run_record: Dict[str, Any]) -> Tuple[
     Optional[Dict[str, Any]], Optional[str], bool
 ]:
@@ -453,7 +507,10 @@ def _collect_inputs(repo: str, run_record: Dict[str, Any]) -> Tuple[
 
     For ``push`` events we never look up a PR — push runs have no PR
     association. For other events, the PR is fetched ONLY for the run's
-    own ``pull_requests`` array (no branch-name guessing).
+    own ``pull_requests`` array (no branch-name guessing), and we
+    REQUIRE ``len(pr_array)==1`` plus an exact repo identity match between
+    the PR association and the fetched PR. Multiple associations, zero
+    associations, or missing/mismatched identity all yield UNKNOWN.
     """
     event = run_record.get("event") or ""
     pr_record: Optional[Dict[str, Any]] = None
@@ -468,22 +525,29 @@ def _collect_inputs(repo: str, run_record: Dict[str, Any]) -> Tuple[
         ok_branch = branch_head is not None
     elif event in SUPPORTED_EVENTS:
         pr_refs = run_record.get("pull_requests") or []
-        if not pr_refs:
-            # Run detail listed zero associated PRs — do NOT search by
-            # branch name; the audit stays UNKNOWN.
+        # Strict: require EXACTLY one PR association. 0 = nothing to
+        # bind; >1 = ambiguous, refuse to guess which is canonical.
+        if len(pr_refs) != 1:
             return None, None, False
-        # Use the first associated PR. GH at most associates one PR per
-        # run for these events; if more exist we conservatively take the
-        # first and require an exact SHA bind in classify_run.
-        pr_number = pr_refs[0]["number"]
+        pr_ref = pr_refs[0]
+        pr_number = pr_ref.get("number")
+        if not pr_number:
+            return None, None, False
+        # Identity required from BOTH the run's PR association AND the
+        # fetched PR. We match the stable numeric ``head.repo.id``
+        # (the run's PR association has ``{id, name, url}`` but NOT
+        # ``full_name``; the fetched PR has both). Absent or mismatched
+        # identity → UNKNOWN.
+        expected_repo_id = ((pr_ref.get("head") or {}).get("repo") or {}).get("id")
         pr_record = fetch_pr_record(repo, pr_number)
-        ok_pr = pr_record is not None
-        # For pull_request_target the PR head SHA is NOT a supersede ref;
-        # we still need the PR for state + number, but we do not fetch a
-        # branch head for these events.
-        if event == "pull_request":
-            # No branch head needed; PR head.sha is the supersede ref.
-            pass
+        if pr_record is None:
+            return None, None, False
+        actual_repo_id = (
+            (pr_record.get("head") or {}).get("repo") or {}
+        ).get("id")
+        if not expected_repo_id or not actual_repo_id or expected_repo_id != actual_repo_id:
+            return None, None, False
+        ok_pr = True
     elif event in MERGE_GROUP_EVENTS:
         pass  # neither PR nor branch head is required
     else:
@@ -498,6 +562,7 @@ def audit_queue(
     limit: int = 100,
     superseded_only: bool = False,
     protected_workflows: Optional[set] = None,
+    allowed_workflows: Optional[set] = None,
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     """Audit the queued runs of ``repo``. Returns ``(rows, stats)``."""
     runs = get_queued_runs(repo, limit=limit)
@@ -512,10 +577,8 @@ def audit_queue(
     now = datetime.datetime.now(datetime.timezone.utc)
     options = {
         "protected_branches": PROTECTED_BRANCHES,
-        "protected_workflows": (
-            set(protected_workflows) if protected_workflows is not None
-            else PROTECTED_WORKFLOWS
-        ),
+        "protected_workflows": set(protected_workflows or []),
+        "allowed_workflows": set(allowed_workflows or []),
         "max_age_hours": max_age_hours,
         "superseded_only": superseded_only,
     }
@@ -537,6 +600,7 @@ def audit_queue(
                 "event": queued_row.get("event") or "",
                 "workflow_path": "",
                 "status": queued_row.get("status") or "",
+                "repository": {"full_name": ""},
                 "pull_requests": [],
             }
             pr, branch_head = None, None
@@ -600,18 +664,34 @@ def cancel_with_per_item_refresh(
     *,
     superseded_only: bool = False,
     protected_workflows: Optional[set] = None,
-    run_cmd_fn: Optional[Callable[..., Tuple[int, str, str]]] = None,
+    allowed_workflows: Optional[set] = None,
     now: Optional[datetime.datetime] = None,
 ) -> List[int]:
     """Cancel each candidate only if a fresh re-fetch + re-classify still
-    says CANCEL. Returns the list of run IDs that were cancelled."""
-    _run_cmd = run_cmd_fn or run_cmd
+    says CANCEL.
+
+    For every candidate the SAME classifier is reused:
+
+        1. Re-fetch the run record. Validate required fields
+           (``id``, ``head_sha``, ``event``, ``path``) and repository
+           identity. Refuse incomplete or mismatched responses.
+        2. Confirm the run is still ``queued`` (not yet started).
+        3. Re-fetch the exact PR (or branch head for push events), with
+           the same strict exactly-one + identity semantics.
+        4. Re-classify using the pure ``classify_run`` (single
+           classification path — no duplicate decision logic).
+        5. If the fresh verdict is ``CANCEL`` AND all inputs were
+           fetched cleanly, issue ONE ``gh run cancel`` call.
+
+    Any step that fails (incomplete response, missing repo identity,
+    state advance, audit_incomplete) drops the candidate.
+
+    Returns the list of run IDs that were cancelled.
+    """
     options = {
         "protected_branches": PROTECTED_BRANCHES,
-        "protected_workflows": (
-            set(protected_workflows) if protected_workflows is not None
-            else PROTECTED_WORKFLOWS
-        ),
+        "protected_workflows": set(protected_workflows or []),
+        "allowed_workflows": set(allowed_workflows or []),
         "max_age_hours": DEFAULT_MAX_AGE_HOURS,
         "superseded_only": superseded_only,
     }
@@ -622,69 +702,96 @@ def cancel_with_per_item_refresh(
         if row.get("verdict") != "CANCEL":
             continue
         run_id = row.get("run_id")
-        # 1. Re-fetch run
+        if run_id is None:
+            continue
+
+        # 1. Re-fetch run record.
         data = _gh_api(f"repos/{repo}/actions/runs/{run_id}")
         if data is None:
             continue
+        # Validate required fields — malformed responses are refused.
+        # ``data.id`` MUST equal the requested run_id (no mismatch between
+        # the URL path and the returned identifier is acceptable).
+        if data.get("id") != run_id:
+            continue
+        if not (data.get("head_sha") and data.get("event") and data.get("path")):
+            continue
+        # Repository identity: the response's ``repository`` field
+        # carries ``id`` + ``full_name``. The URL path
+        # ``repos/{repo}/actions/runs/{run_id}`` implies the run is
+        # from the target repo, but we cross-check ``full_name`` when
+        # available. If ``full_name`` is missing, we trust the URL path
+        # (the alternative would mark every minimal-response run as
+        # UNKNOWN). Missing identity entirely → refuse.
+        repo_data = data.get("repository") or {}
+        repo_id = repo_data.get("id")
+        repo_full_name = (repo_data.get("full_name") or "").strip()
+        if not repo_id and not repo_full_name:
+            continue
+        if repo_full_name and repo_full_name != repo:
+            continue
         run = {
-            "databaseId": data.get("id") or run_id,
+            "databaseId": data.get("id"),
             "name": data.get("name") or "",
             "head_branch": data.get("head_branch") or "",
             "head_sha": data.get("head_sha") or "",
             "event": data.get("event") or "",
             "workflow_path": data.get("path") or "",
             "status": data.get("status") or "",
+            "repository": {
+                "id": repo_id,
+                "full_name": repo_full_name,
+                "name": (repo_data.get("name") or ""),
+            },
             "pull_requests": [
-                {"number": p.get("number")}
+                {
+                    "number": p.get("number"),
+                    "head": {
+                        "sha": ((p.get("head") or {}).get("sha")) or "",
+                        "ref": ((p.get("head") or {}).get("ref")) or "",
+                        "repo": {
+                            "id": ((p.get("head") or {}).get("repo") or {}).get("id"),
+                            "name": ((p.get("head") or {}).get("repo") or {}).get("name") or "",
+                        },
+                    },
+                    "base": {
+                        "ref": ((p.get("base") or {}).get("ref")) or "",
+                        "repo": {
+                            "id": ((p.get("base") or {}).get("repo") or {}).get("id"),
+                            "name": ((p.get("base") or {}).get("repo") or {}).get("name") or "",
+                        },
+                    },
+                }
                 for p in (data.get("pull_requests") or [])
                 if p.get("number")
             ],
         }
+        # 2. Confirm still queued.
         if (run.get("status") or "").lower() != "queued":
             continue
-        # 2. Re-fetch exact inputs
+        # 3. Re-fetch exact inputs (strict exactly-one PR + identity).
         pr, branch_head, fetches_ok = _collect_inputs(repo, run)
+        # 4. Re-classify with the SAME pure classifier.
         cls = classify_run(
-            run=run, pr=pr, branch_head_sha=branch_head,
-            metadata_complete=True,
-            options=options, now=now,
+            run=run,
+            pr=pr,
+            branch_head_sha=branch_head,
+            metadata_complete=fetches_ok,
+            options=options,
+            now=now,
         )
+        # 5. Single decision: classifier verdict + complete inputs.
         if cls.verdict != "CANCEL":
             continue
-        # 3. Cancel iff the run's event still requires it AND the exact
-        #    PR is no longer freshly matching.
-        if cls.pr_state in ("MERGED", "CLOSED"):
-            rc, _, stderr = _run_cmd(
-                ["gh", "run", "cancel", str(run_id), "--repo", repo], timeout=30
-            )
-            if rc == 0:
-                cancelled.append(run_id)
-            else:
-                print(f"Cancel {run_id} failed: {stderr.strip()}", file=sys.stderr)
+        if not fetches_ok:
             continue
-        # Supersede or dormancy: only cancel if we still see a difference.
-        if run["event"] == "push":
-            if run["head_sha"] and branch_head and run["head_sha"] != branch_head:
-                rc, _, stderr = _run_cmd(
-                    ["gh", "run", "cancel", str(run_id), "--repo", repo], timeout=30
-                )
-                if rc == 0:
-                    cancelled.append(run_id)
-                else:
-                    print(f"Cancel {run_id} failed: {stderr.strip()}", file=sys.stderr)
-            continue
-        # pull_request: only cancel if PR head tip still differs from run.
-        if pr is None:
-            continue
-        pr_head_sha = (pr.get("head") or {}).get("sha") or ""
-        if run["head_sha"] and pr_head_sha and run["head_sha"] != pr_head_sha:
-            rc, _, stderr = _run_cmd(
-                ["gh", "run", "cancel", str(run_id), "--repo", repo], timeout=30
-            )
-            if rc == 0:
-                cancelled.append(run_id)
-            else:
-                print(f"Cancel {run_id} failed: {stderr.strip()}", file=sys.stderr)
+        rc, _, stderr = run_cmd(
+            ["gh", "run", "cancel", str(run_id), "--repo", repo], timeout=30
+        )
+        if rc == 0:
+            cancelled.append(run_id)
+        else:
+            print(f"Cancel {run_id} failed: {stderr.strip()}", file=sys.stderr)
     return cancelled
 
 
@@ -796,7 +903,20 @@ def main() -> int:
     parser.add_argument(
         "--allow-workflow", action="append", default=[],
         metavar="PATH",
-        help="Extend the protected-workflows allowlist. May be repeated.",
+        help=(
+            "Opt-in workflow path eligible for cancellation. May be "
+            "repeated. Default empty keep ALL workflows (no cancellation "
+            "based on workflow filter)."
+        ),
+    )
+    parser.add_argument(
+        "--protect-workflow", action="append", default=[],
+        metavar="PATH",
+        help=(
+            "Additional explicitly protected workflow path. May be "
+            "repeated. Default empty (no extra protection beyond "
+            "protected branches)."
+        ),
     )
     args = parser.parse_args()
 
@@ -806,8 +926,11 @@ def main() -> int:
             print(f"  • {note}")
         print()
 
-    protected_workflows = set(DEFAULT_PROTECTED_WORKFLOWS)
+    allowed_workflows = set()
     for path in args.allow_workflow:
+        allowed_workflows.add(_strip_ref(path))
+    protected_workflows = set()
+    for path in args.protect_workflow:
         protected_workflows.add(_strip_ref(path))
 
     print(
@@ -820,6 +943,7 @@ def main() -> int:
         limit=args.limit,
         superseded_only=args.superseded_only,
         protected_workflows=protected_workflows,
+        allowed_workflows=allowed_workflows,
     )
     _print_report(audited, stats, args.max_age_hours)
 
@@ -835,6 +959,7 @@ def main() -> int:
             args.repo, runs_to_cancel,
             superseded_only=args.superseded_only,
             protected_workflows=protected_workflows,
+            allowed_workflows=allowed_workflows,
         )
         print(f"\nCompleted: Successfully cancelled {len(cancelled)}/{len(runs_to_cancel)} runs.")
     elif stats.get("to_cancel", 0) > 0 and not args.cancel:

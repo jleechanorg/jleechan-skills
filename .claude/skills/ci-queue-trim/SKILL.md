@@ -77,26 +77,57 @@ reads `actions/runs/{id}.pull_requests` (the only authoritative pointer).
 Two forks pushing a branch named `feature/x` will not cross-bind the run
 to the wrong PR.
 
+- The audit requires **exactly one** PR association (0 or >1 ⇒ UNKNOWN,
+  `audit_incomplete=True`). There is no "pick the first" fallback.
+- Identity between the run's PR pointer and the fetched `pulls/{n}`
+  record is verified by the stable **numeric `repo.id`**. The live
+  shape of `actions/runs/{id}.pull_requests[].head.repo` is
+  `{id, name, url}` (no `full_name`); requiring `full_name` would mark
+  every real run unknown. The `pulls/{n}.head.repo` record carries
+  `{id, full_name, name, ...}` — match by `id`.
+- Absent or mismatched `repo.id` ⇒ UNKNOWN.
+
 ### 5. Per-item refresh before cancellation
 Before every individual `gh run cancel`, the script re-fetches the run
 record and the exact PR (or branch HEAD for push events), re-runs the
-classifier, and only cancels if the verdict is still CANCEL. If state
-moved on between audit time and mutation time, the candidate is dropped.
+**same pure classifier** the audit used, and only cancels if the verdict
+is still CANCEL. If state moved on between audit time and mutation
+time, the candidate is dropped.
+
+The fresh response is validated before any mutation:
+- `data.id` MUST equal the requested `run_id` (mismatched id ⇒ drop,
+  even if the rest looks valid).
+- Required fields (`event`, `head_branch`, `head_sha`, `path`,
+  `pull_requests[]`, `repository`) MUST be present.
+- `repository.{id, full_name, name}` MUST be present.
+- If any of the above is missing, the candidate is **kept** — the
+  re-fetch is treated as incomplete and `gh run cancel` is NOT
+  invoked.
+
+Dormancy-based cancellation (current head advanced beyond the run's
+`head_sha`) is preserved as a separate `superseded=True` signal and
+flows through the same classifier path at mutation time. There is no
+separate decision logic after the classifier.
 
 ## Protected Branches and Workflows
 
 - **Protected branches** (never cancelled automatically):
   `main`, `master`, `production`, `staging`, `release`, `deploy`.
-- **Protected workflows** (never cancelled automatically) are decided by an
-  **explicit configured allowlist**. Safe defaults are
-  `release.yml`, `deploy.yml`, `publish.yml`, `tag-release.yml` (the
-  `@<ref>` suffix on a workflow path is stripped before matching).
-- A workflow whose name merely contains a keyword such as "deploy" or
-  "reusable" is **not** implicitly protected — populate the allowlist
-  with the exact workflow filename.
+- **Workflow cancellation is opted-in via `--allow-workflow PATH`**
+  (repeatable). The default is an empty allowlist, which keeps every
+  workflow — i.e. **no workflow is cancellable out of the box**. Operators
+  must explicitly enumerate the exact normalized workflow paths they
+  consider safe to cancel.
+- **Workflow protection is opt-in via `--protect-workflow PATH`** (repeatable).
+  `--allow-workflow` enables cancellation; `--protect-workflow` protects
+  even if the same path is in `--allow-workflow`. The two flags are
+  independent.
+- The `@<ref>` suffix on a workflow path (e.g.
+  `release.yml@refs/heads/feature/x`, `deploy.yml@v2`) is stripped
+  before matching via `partition('@')[0]` — refs containing slashes are
+  preserved.
 - Reusable workflows invoked via `workflow_call` are protected by
   **event semantics**, not by fuzzy name matching.
-- Extend at runtime with `--allow-workflow PATH` (repeatable).
 
 ---
 
@@ -120,20 +151,27 @@ python3 ~/.claude/skills/ci-queue-trim/scripts/ci_queue_trim.py --cancel
 ```
 
 ### 3. Superseded-Only Mode (Conservative)
-Cancels runs whose head SHA is proven obsolete (newer push advanced the
-PR or branch head). Dormancy-against-current-head runs stay untouched.
-Recommended for first-time operators who want only the strictest
-proven-obsolete criterion:
+Cancels ONLY runs whose head SHA is **proven obsolete** (`superseded=True`).
+Terminal matching heads on `MERGED`/`CLOSED` PRs are KEPT.
+`pull_request_target` runs (base-side) are KEPT unconditionally in this
+mode — a tip advance on the PR is not a proven supersede. Dormancy-based
+cancellations (current head advanced beyond the run's `head_sha`) are
+disabled in this mode. Recommended for first-time operators who want
+only the strictest proven-obsolete criterion:
 ```bash
 python3 ~/.claude/skills/ci-queue-trim/scripts/ci_queue_trim.py \
     --superseded-only --cancel
 ```
 
-### 4. Extend the Workflow Allowlist
+### 4. Enable Cancellation for Specific Workflows
+`--allow-workflow PATH` (repeatable) opts a workflow INTO cancellation.
+Default is empty (no workflow cancellable). Use `--protect-workflow PATH`
+to also keep a path safe even if it was added to the allowlist.
 ```bash
 python3 ~/.claude/skills/ci-queue-trim/scripts/ci_queue_trim.py \
-    --allow-workflow path/to/extra-protected.yml \
-    --allow-workflow another.yml@v3 \
+    --allow-workflow .github/workflows/ci.yml \
+    --allow-workflow .github/workflows/lint.yml@v2 \
+    --protect-workflow .github/workflows/ci.yml \
     --cancel
 ```
 

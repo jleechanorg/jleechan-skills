@@ -37,6 +37,14 @@ import ci_queue_trim  # noqa: E402
 
 FIXED_NOW = datetime.datetime(2026, 1, 15, 12, 0, 0, tzinfo=datetime.timezone.utc)
 
+# Stable numeric repo identity (matches the live
+# ``actions/runs/{id}.pull_requests[].head.repo`` shape, which has
+# ``{id, name, url}`` but NOT ``full_name``). Identity verification
+# in the audit + cancel path matches by this numeric ``id``.
+REPO_ID = 1002634306
+ALICE_REPO_ID = 1002634310
+BOB_REPO_ID = 1002634312
+
 
 def _iso(dt: datetime.datetime) -> str:
     return dt.replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -54,25 +62,57 @@ def queued_run(
     branch: str = "feature/test",
     head_sha: str = "abc123",
     event: str = "pull_request",
-    workflow_path: str = "ci.yml",
+    workflow_path: str = ".github/workflows/ci.yml",
     pr_numbers: Optional[List[int]] = None,
     status: str = "queued",
     created_minutes_ago: int = 30,
+    repository: Optional[Dict[str, Any]] = None,
+    pr_head_repo: Optional[Dict[str, Any]] = None,
+    pr_head_sha: Optional[str] = None,
 ) -> Dict[str, Any]:
     """The shape `gh api /repos/.../actions/runs/{id}` actually returns.
 
     ``pull_requests`` is the only authoritative pointer from run → PR; the
-    audit MUST NOT derive that binding from head_branch alone.
+    audit MUST NOT derive that binding from head_branch alone. The run
+    record also carries ``repository.{id, full_name, name}`` and the
+    PR association's ``head.repo`` is ``{id, name, url}`` — WITHOUT
+    ``full_name`` (per the live API). Identity verification matches by
+    the stable numeric ``repo.id``.
     """
+    if repository is None:
+        repository = {"id": REPO_ID, "full_name": "owner/repo", "name": "repo"}
+    if pr_head_repo is None:
+        pr_head_repo = {"id": REPO_ID, "name": "repo"}
     return {
         "databaseId": run_id,
+        "id": run_id,
         "name": name,
         "head_branch": branch,
         "head_sha": head_sha,
         "event": event,
         "path": workflow_path,
+        "workflow_path": workflow_path,
         "status": status,
-        "pull_requests": [{"number": n} for n in (pr_numbers or [])],
+        "repository": repository,
+        "pull_requests": [
+            {
+                "number": n,
+                "head": {
+                    "sha": pr_head_sha or head_sha,
+                    "ref": "feature/x",
+                    "repo": pr_head_repo,
+                },
+                "base": {
+                    "ref": "main",
+                    "repo": {
+                        "id": REPO_ID,
+                        "name": "repo",
+                        "full_name": "owner/repo",
+                    },
+                },
+            }
+            for n in (pr_numbers or [])
+        ],
         "createdAt": _iso(FIXED_NOW - datetime.timedelta(minutes=created_minutes_ago)),
         "url": f"https://github.com/owner/repo/actions/runs/{run_id}",
     }
@@ -87,22 +127,51 @@ def pr_record(
     state: str = "open",
     head_repo: str = "owner/repo",
     base_repo: str = "owner/repo",
+    head_repo_id: Optional[int] = None,
+    base_repo_id: Optional[int] = None,
     head_ref: str = "feature/test",
     merged: bool = False,
     head_commit_minutes_ago: int = 10,
 ) -> Dict[str, Any]:
-    """Faithful PR shape.
+    """Faithful PR shape (``pulls/{n}``).
 
     ``head.sha`` is the head branch tip; ``merge_commit_sha`` is a separate
-    field and is NOT what supersede comparison should use.
+    field and is NOT what supersede comparison should use. ``head.repo``
+    and ``base.repo`` carry the stable numeric ``id``; ``head.repo`` also
+    carries ``full_name`` (the run's ``pull_requests[].head.repo`` does
+    NOT — identity match is by ``id``).
     """
+    if head_repo_id is None:
+        head_repo_id = REPO_ID if head_repo == "owner/repo" else (
+            ALICE_REPO_ID if head_repo == "alice/repo" else REPO_ID
+        )
+    if base_repo_id is None:
+        base_repo_id = REPO_ID if base_repo == "owner/repo" else (
+            ALICE_REPO_ID if base_repo == "alice/repo" else REPO_ID
+        )
     return {
         "number": number,
         "state": state,
         "merged": merged,
         "merge_commit_sha": merge_commit_sha,
-        "head": {"sha": head_sha, "ref": head_ref, "repo": {"full_name": head_repo}},
-        "base": {"sha": base_sha, "repo": {"full_name": base_repo}},
+        "head": {
+            "sha": head_sha,
+            "ref": head_ref,
+            "repo": {
+                "id": head_repo_id,
+                "full_name": head_repo,
+                "name": head_repo.split("/")[-1],
+            },
+        },
+        "base": {
+            "sha": base_sha,
+            "ref": "main",
+            "repo": {
+                "id": base_repo_id,
+                "full_name": base_repo,
+                "name": base_repo.split("/")[-1],
+            },
+        },
         "updated_at": _iso(FIXED_NOW - datetime.timedelta(minutes=5)),
         "head_commit_date": _iso(FIXED_NOW - datetime.timedelta(minutes=head_commit_minutes_ago)),
     }
@@ -220,7 +289,13 @@ def _setup_queue(
 
 
 def _audit_with(stub: _RunCmdStub, **overrides: Any) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
-    kwargs = {"max_age_hours": 2.0, "limit": 50}
+    kwargs = {
+        "max_age_hours": 2.0, "limit": 50,
+        # Default allowlist for tests that expect CANCEL verdicts on the
+        # standard ci.yml workflow. Tests that exercise workflow
+        # protection / different paths override this.
+        "allowed_workflows": {".github/workflows/ci.yml"},
+    }
     kwargs.update(overrides)
     _reset_caches()
     with mock.patch.object(ci_queue_trim, "run_cmd", side_effect=stub), _patch_now():
@@ -239,6 +314,7 @@ class TestClassifierSemantics(unittest.TestCase):
     BASE_OPTS = {
         "protected_branches": ci_queue_trim.PROTECTED_BRANCHES,
         "protected_workflows": set(),
+        "allowed_workflows": {".github/workflows/ci.yml"},
         "max_age_hours": 2.0,
         "superseded_only": False,
     }
@@ -331,6 +407,7 @@ class TestPRAssociation(unittest.TestCase):
             branch="feature/x",
             head_sha="sha_alice_tip",
             pr_numbers=[1001],  # alice's PR, only
+            pr_head_repo={"id": ALICE_REPO_ID, "name": "repo"},
         )
         pr_alice = pr_record(
             1001,
@@ -487,7 +564,10 @@ class TestPerItemRefresh(unittest.TestCase):
             return stub_obj.__class__.__call__(stub_obj, cmd, timeout)
 
         with mock.patch.object(ci_queue_trim, "run_cmd", side_effect=dynamic_fetch), _patch_now():
-            cancel_with_per_item_refresh("owner/repo", cancel_candidates)
+            cancel_with_per_item_refresh(
+                "owner/repo", cancel_candidates,
+                allowed_workflows={".github/workflows/ci.yml"},
+            )
 
         # Only run 200 should be cancelled; run 201 was dropped on re-fetch.
         self.assertEqual(stub.cancel_calls, [200])
@@ -509,7 +589,10 @@ class TestPerItemRefresh(unittest.TestCase):
         self.assertEqual({r["run_id"] for r in cancel_candidates}, {200, 201})
 
         with mock.patch.object(ci_queue_trim, "run_cmd", side_effect=stub), _patch_now():
-            cancel_with_per_item_refresh("owner/repo", cancel_candidates)
+            cancel_with_per_item_refresh(
+                "owner/repo", cancel_candidates,
+                allowed_workflows={".github/workflows/ci.yml"},
+            )
 
         # Both candidates survive the per-item refresh and get cancelled.
         self.assertEqual(sorted(stub.cancel_calls), [200, 201])
@@ -525,15 +608,21 @@ class TestPerItemRefresh(unittest.TestCase):
 
 
 class TestWorkflowProtection(unittest.TestCase):
-    """The default PROTECTED_WORKFLOWS must include safe release/deploy
-    paths so the tool never cancels arbitrary deploy / release runs out
-    of the box. The comparator strips ``@ref`` suffixes."""
+    """Workflow importance is decided by an explicit ``--allow-workflow``
+    allowlist. Default empty allowlist keeps ALL workflows (no workflow
+    may be cancelled unless the operator explicitly opts it in). The
+    ``@<ref>`` suffix on a workflow path is stripped before matching,
+    including refs that contain slashes (e.g. ``@refs/heads/feature/x``)."""
 
-    def test_release_yml_at_main_is_protected_by_default(self):
+    def test_release_yml_at_refs_heads_feature_x_kept_by_default(self):
+        """Without --allow-workflow, even a release workflow is kept by
+        default. The full path including @refs/heads/feature/x must be
+        stripped before matching."""
         stub = _RunCmdStub()
         run = queued_run(
             300, name="Release", event="pull_request",
-            head_sha="old", pr_numbers=[42], workflow_path="release.yml@main",
+            head_sha="old", pr_numbers=[42],
+            workflow_path=".github/workflows/release.yml@refs/heads/feature/x",
         )
         pr = pr_record(42, head_sha="new_tip")
         _setup_queue(stub, [run], {42: pr})
@@ -541,38 +630,74 @@ class TestWorkflowProtection(unittest.TestCase):
         audited, _ = _audit_with(stub)
         self.assertEqual(audited[0]["verdict"], "KEEP")
         self.assertIn("release.yml", audited[0]["reason"])
+        # The reason reflects the safe default (no allow-workflow match).
+        self.assertIn("not in", audited[0]["reason"].lower())
 
-    def test_deploy_yml_at_ref_is_protected_by_default(self):
+    def test_deploy_yml_at_v2_kept_by_default(self):
         stub = _RunCmdStub()
         run = queued_run(
             301, name="Deploy", event="push",
-            branch="main", head_sha="branch_old", pr_numbers=[],
-            workflow_path="deploy.yml@v2",
+            branch="feature/x", head_sha="branch_old", pr_numbers=[],
+            workflow_path=".github/workflows/deploy.yml@v2",
         )
         _setup_queue(stub, [run])
+        stub.add(
+            "/branches/feature/x",
+            {"commit": {"name": "refs/heads/feature/x", "sha": "branch_new"}},
+        )
 
         audited, _ = _audit_with(stub)
+        # Default empty allowlist → KEEP "not in --allow-workflow list".
         self.assertEqual(audited[0]["verdict"], "KEEP")
+        self.assertIn("not in", audited[0]["reason"].lower())
 
-    def test_allow_workflow_cli_flag_extends_protection(self):
-        """The operator can extend the protection at runtime with
-        ``--allow-workflow`` (repeatable)."""
+    def test_allow_workflow_cli_flag_enables_cancellation(self):
+        """``--allow-workflow`` is a positive cancellation allowlist. It
+        does NOT extend any default protection; without an explicit
+        opt-in, no workflows may be cancelled."""
         stub = _RunCmdStub()
         run = queued_run(
             302, name="My Build", event="pull_request",
-            head_sha="old", pr_numbers=[42], workflow_path="custom/release.yml",
+            head_sha="old", pr_numbers=[42],
+            workflow_path=".github/workflows/custom/build.yml",
         )
         pr = pr_record(42, head_sha="new_tip")
         _setup_queue(stub, [run], {42: pr})
 
-        with mock.patch.object(ci_queue_trim, "PROTECTED_WORKFLOWS", set()):
-            audited, _ = _audit_with(stub)
-            self.assertEqual(audited[0]["verdict"], "CANCEL")
+        # Default: empty allowlist → KEEP
+        audited, _ = _audit_with(stub)
+        self.assertEqual(audited[0]["verdict"], "KEEP")
+
+        # Opt-in: allow .github/workflows/custom/build.yml → CANCEL
+        audited, _ = _audit_with(
+            stub, allowed_workflows={".github/workflows/custom/build.yml"}
+        )
+        self.assertEqual(audited[0]["verdict"], "CANCEL")
+
+    def test_protect_workflow_cli_flag_protects_even_when_allowed(self):
+        """``--protect-workflow`` adds an explicit protection. A workflow
+        that's both allowed and protected stays KEEP (protection wins)."""
+        stub = _RunCmdStub()
+        run = queued_run(
+            303, name="CI", event="pull_request",
+            head_sha="old", pr_numbers=[42],
+            workflow_path=".github/workflows/ci.yml@refs/heads/feature/x",
+        )
+        pr = pr_record(42, head_sha="new_tip")
+        _setup_queue(stub, [run], {42: pr})
+
+        audited, _ = _audit_with(
+            stub,
+            allowed_workflows={".github/workflows/ci.yml"},
+            protected_workflows={".github/workflows/ci.yml"},
+        )
+        self.assertEqual(audited[0]["verdict"], "KEEP")
+        self.assertIn("protected", audited[0]["reason"].lower())
 
     def test_protected_branch_main_preserved(self):
         stub = _RunCmdStub()
         run = queued_run(
-            303, name="CI", event="pull_request",
+            304, name="CI", event="pull_request",
             branch="main", head_sha="sha_x", pr_numbers=[42],
         )
         _setup_queue(stub, [run])
@@ -608,6 +733,401 @@ class TestBackwardCompatibility(unittest.TestCase):
         # New fields:
         for key in ("event", "superseded", "audit_incomplete"):
             self.assertIn(key, row)
+
+
+# ---------------------------------------------------------------------------
+# Round 4 fixes — strict identity, single classifier path, supersede-only,
+# malformed/missing fields, fresh id-equality, repo-id shape.
+# ---------------------------------------------------------------------------
+
+
+class TestNewReviewCoverage(unittest.TestCase):
+    """Regressions for the round-4 review fixes.
+
+    * ``--allow-workflow`` is a positive allowlist (default empty keeps
+      all workflows; arbitrary deploy paths stay KEEP absent allow).
+    * ``--allow-workflow`` does NOT add protection (``--protect-workflow``
+      does).
+    * ``--superseded-only`` cancels only ``superseded=True``; terminal
+      matching heads KEEP, including on ``pull_request_target``.
+    * ``cancel_with_per_item_refresh`` validates the fresh response
+      (``id == requested run_id``, required fields present, repo
+      identity present), uses the SAME pure classifier for the final
+      decision, and refuses to cancel on any incomplete state.
+    * Dormancy-based cancellation is preserved separately from
+      ``--superseded-only`` and propagates through the same classifier
+      path at mutation time.
+    * ``_strip_ref`` handles refs that contain slashes
+      (``@refs/heads/feature/x``).
+    * ``_collect_inputs`` requires exactly one PR association (0 or >1
+      ⇒ UNKNOWN). Identity is matched by stable numeric ``repo.id``
+      (the live ``actions/runs/{id}.pull_requests[].head.repo`` shape
+      is ``{id, name, url}`` — NOT ``full_name``).
+    """
+
+    BASE_OPTS = {
+        "protected_branches": ci_queue_trim.PROTECTED_BRANCHES,
+        "protected_workflows": set(),
+        "allowed_workflows": {".github/workflows/ci.yml"},
+        "max_age_hours": 2.0,
+        "superseded_only": False,
+    }
+
+    # ---- _strip_ref + realistic fixtures ----
+
+    def test_strip_ref_handles_slash_in_ref(self):
+        """_strip_ref must handle refs that contain slashes; the
+        previous regex left such paths intact."""
+        self.assertEqual(
+            ci_queue_trim._strip_ref(".github/workflows/release.yml@refs/heads/feature/x"),
+            ".github/workflows/release.yml",
+        )
+        self.assertEqual(
+            ci_queue_trim._strip_ref(".github/workflows/release.yml@main"),
+            ".github/workflows/release.yml",
+        )
+        self.assertEqual(
+            ci_queue_trim._strip_ref(".github/workflows/release.yml"),
+            ".github/workflows/release.yml",
+        )
+        self.assertEqual(ci_queue_trim._strip_ref(""), "")
+
+    def test_live_shaped_pull_request_identity_red_and_green(self):
+        """Live ``actions/runs/{id}.pull_requests[].head.repo`` is
+        ``{id, name, url}`` (no ``full_name``); ``pulls/{n}.head.repo``
+        is ``{id, full_name, name, ...}``. Identity MUST match by the
+        stable numeric ``repo.id``. Mismatched id → UNKNOWN; matching
+        id → proceeds to the classifier."""
+        # RED: id mismatch → UNKNOWN
+        stub = _RunCmdStub()
+        run_red = queued_run(
+            700, head_sha="old", pr_numbers=[42],
+            pr_head_repo={"id": ALICE_REPO_ID, "name": "repo"},
+        )
+        pr_bob = pr_record(42, head_sha="new_tip", head_repo="bob/repo",
+                           head_repo_id=BOB_REPO_ID)
+        _setup_queue(stub, [run_red], {42: pr_bob})
+        audited, _ = _audit_with(stub)
+        self.assertEqual(audited[0]["verdict"], "KEEP")
+        self.assertTrue(audited[0]["audit_incomplete"])
+
+        # GREEN: matching id → proceeds to classifier (superseded → CANCEL)
+        stub_g = _RunCmdStub()
+        run_green = queued_run(
+            701, head_sha="old", pr_numbers=[42],
+            pr_head_repo={"id": ALICE_REPO_ID, "name": "repo"},
+        )
+        pr_alice = pr_record(42, head_sha="new_tip", head_repo="alice/repo",
+                             head_repo_id=ALICE_REPO_ID)
+        _setup_queue(stub_g, [run_green], {42: pr_alice})
+        audited, _ = _audit_with(stub_g)
+        self.assertEqual(audited[0]["verdict"], "CANCEL")
+        self.assertTrue(audited[0]["superseded"])
+
+    # ---- exactly-one PR requirement ----
+
+    def test_exactly_one_pr_association_required_zero_or_many_yields_unknown(self):
+        """0 or >1 PR associations both yield UNKNOWN. We do not pick
+        a canonical PR when the run detail itself does not."""
+        # Zero
+        stub = _RunCmdStub()
+        run_zero = queued_run(710, head_sha="old", pr_numbers=[])
+        _setup_queue(stub, [run_zero])
+        audited, _ = _audit_with(stub)
+        self.assertEqual(audited[0]["verdict"], "KEEP")
+        self.assertTrue(audited[0]["audit_incomplete"])
+
+        # Many
+        stub_m = _RunCmdStub()
+        run_many = queued_run(711, head_sha="old", pr_numbers=[42, 99])
+        _setup_queue(stub_m, [run_many])
+        audited, _ = _audit_with(stub_m)
+        self.assertEqual(audited[0]["verdict"], "KEEP")
+        self.assertTrue(audited[0]["audit_incomplete"])
+
+    # ---- allowlist semantics ----
+
+    def test_arbitrary_deploy_path_kept_absent_allow(self):
+        """Without ``--allow-workflow``, arbitrary deploy paths are kept
+        by default — even with a fresh supersede the workflow filter
+        blocks cancellation."""
+        stub = _RunCmdStub()
+        run = queued_run(
+            720, event="pull_request", head_sha="old", pr_numbers=[42],
+            workflow_path=".github/workflows/deploy.yml@refs/heads/feature/x",
+        )
+        pr = pr_record(42, head_sha="new_tip")
+        _setup_queue(stub, [run], {42: pr})
+
+        audited, _ = _audit_with(stub)
+        self.assertEqual(audited[0]["verdict"], "KEEP")
+        self.assertIn("not in", audited[0]["reason"].lower())
+
+    def test_allowed_ci_path_cancels(self):
+        """With ``--allow-workflow`` set to the run's path, the run is
+        CANCEL-eligible and cancellation fires."""
+        stub = _RunCmdStub()
+        run = queued_run(
+            721, event="pull_request", head_sha="old", pr_numbers=[42],
+            workflow_path=".github/workflows/ci.yml",
+        )
+        pr = pr_record(42, head_sha="new_tip")
+        _setup_queue(stub, [run], {42: pr})
+        stub.allow_cancel(721)
+
+        audited, _ = _audit_with(
+            stub, allowed_workflows={".github/workflows/ci.yml"}
+        )
+        self.assertEqual(audited[0]["verdict"], "CANCEL")
+
+        with mock.patch.object(ci_queue_trim, "run_cmd", side_effect=stub), _patch_now():
+            cancelled = ci_queue_trim.cancel_with_per_item_refresh(
+                "owner/repo", audited,
+                allowed_workflows={".github/workflows/ci.yml"},
+            )
+        self.assertEqual(cancelled, [721])
+        self.assertEqual(stub.cancel_calls, [721])
+
+    def test_allow_does_not_protect(self):
+        """``--allow-workflow PATH`` enables cancellation; it does NOT
+        add ``PATH`` to the protected list. To protect, use
+        ``--protect-workflow``."""
+        stub = _RunCmdStub()
+        run = queued_run(
+            722, event="pull_request", head_sha="old", pr_numbers=[42],
+            workflow_path=".github/workflows/custom/build.yml",
+        )
+        pr = pr_record(42, head_sha="new_tip")
+        _setup_queue(stub, [run], {42: pr})
+
+        # Default empty → KEEP
+        audited, _ = _audit_with(stub)
+        self.assertEqual(audited[0]["verdict"], "KEEP")
+
+        # Opt-in allow → CANCEL
+        audited, _ = _audit_with(
+            stub, allowed_workflows={".github/workflows/custom/build.yml"}
+        )
+        self.assertEqual(audited[0]["verdict"], "CANCEL")
+
+        # Same allow + protected → KEEP (protection wins over allow).
+        audited, _ = _audit_with(
+            stub,
+            allowed_workflows={".github/workflows/custom/build.yml"},
+            protected_workflows={".github/workflows/custom/build.yml"},
+        )
+        self.assertEqual(audited[0]["verdict"], "KEEP")
+        self.assertIn("protected", audited[0]["reason"].lower())
+
+    # ---- superseded-only terminal matching ----
+
+    def test_terminal_current_sha_kept_superseded_only(self):
+        """In ``--superseded-only`` mode, terminal matching heads KEEP.
+        Only ``superseded=True`` cancels. This applies to
+        ``pull_request_target`` (base-side runs are NEVER cancelled in
+        superseded-only mode) and to ``pull_request`` MERGED/CLOSED
+        whose head still matches the run."""
+        # pull_request_target MERGED with matching head → KEEP
+        run_t = queued_run(
+            730, head_sha="base_v1", event="pull_request_target",
+            branch="feature/qt", pr_numbers=[42],
+        )
+        pr_merged_qt = pr_record(42, head_sha="base_v1", state="closed", merged=True)
+        cls = ci_queue_trim.classify_run(
+            run=run_t, pr=pr_merged_qt, branch_head_sha=None,
+            metadata_complete=True,
+            options={**self.BASE_OPTS, "superseded_only": True},
+            now=FIXED_NOW,
+        )
+        self.assertEqual(cls.verdict, "KEEP")
+
+        # pull_request MERGED with matching head → KEEP in superseded-only
+        run_p = queued_run(
+            731, head_sha="tip_v1", event="pull_request",
+            branch="feature/x", pr_numbers=[42],
+        )
+        pr_merged_p = pr_record(42, head_sha="tip_v1", state="closed", merged=True)
+        cls = ci_queue_trim.classify_run(
+            run=run_p, pr=pr_merged_p, branch_head_sha=None,
+            metadata_complete=True,
+            options={**self.BASE_OPTS, "superseded_only": True},
+            now=FIXED_NOW,
+        )
+        self.assertEqual(cls.verdict, "KEEP")
+
+        # But superseded=True still cancels in superseded-only mode.
+        run_s = queued_run(
+            732, head_sha="old_sha", event="pull_request",
+            branch="feature/x", pr_numbers=[42],
+        )
+        pr_new = pr_record(42, head_sha="new_tip")
+        cls = ci_queue_trim.classify_run(
+            run=run_s, pr=pr_new, branch_head_sha=None,
+            metadata_complete=True,
+            options={**self.BASE_OPTS, "superseded_only": True},
+            now=FIXED_NOW,
+        )
+        self.assertEqual(cls.verdict, "CANCEL")
+        self.assertTrue(cls.superseded)
+
+    # ---- fresh-response validation at mutation time ----
+
+    def test_malformed_fresh_response_no_cancel(self):
+        """If the fresh re-fetch returns a response missing required
+        fields or with a mismatched ``id``, the run is NOT cancelled
+        even if the audit verdict was CANCEL."""
+        stub = _RunCmdStub()
+        run = queued_run(740, head_sha="old", pr_numbers=[42])
+        pr = pr_record(42, head_sha="new_tip")
+        _setup_queue(stub, [run], {42: pr})
+
+        audited, _ = _audit_with(stub)
+        candidates = [r for r in audited if r["verdict"] == "CANCEL"]
+        self.assertEqual(len(candidates), 1)
+
+        call_count = {"740": 0}
+
+        def dynamic_fetch(cmd, timeout=60):
+            cmd_str = " ".join(cmd)
+            if "/actions/runs/740" in cmd_str:
+                call_count["740"] += 1
+                if call_count["740"] >= 1:
+                    # Malformed: missing 'id' and 'event'
+                    return 0, json.dumps({
+                        "name": "CI",
+                        "head_branch": "feature/test",
+                        "head_sha": "old",
+                        "path": ".github/workflows/ci.yml",
+                        "status": "queued",
+                        "pull_requests": [
+                            {"number": 42, "head": {"repo": {"id": REPO_ID, "name": "repo"}}}
+                        ],
+                        "repository": {"id": REPO_ID, "full_name": "owner/repo", "name": "repo"},
+                    }), ""
+            return stub(cmd, timeout)
+
+        with mock.patch.object(ci_queue_trim, "run_cmd", side_effect=dynamic_fetch), _patch_now():
+            cancelled = ci_queue_trim.cancel_with_per_item_refresh(
+                "owner/repo", candidates,
+                allowed_workflows={".github/workflows/ci.yml"},
+            )
+        self.assertEqual(cancelled, [])
+        self.assertEqual(stub.cancel_calls, [])
+
+    def test_missing_repo_identity_no_cancel(self):
+        """If the fresh re-fetch returns data without repository identity
+        (no ``id``, no ``full_name``), the run is NOT cancelled."""
+        stub = _RunCmdStub()
+        run = queued_run(750, head_sha="old", pr_numbers=[42])
+        pr = pr_record(42, head_sha="new_tip")
+        _setup_queue(stub, [run], {42: pr})
+
+        audited, _ = _audit_with(stub)
+        candidates = [r for r in audited if r["verdict"] == "CANCEL"]
+        self.assertEqual(len(candidates), 1)
+
+        call_count = {"750": 0}
+
+        def dynamic_fetch(cmd, timeout=60):
+            cmd_str = " ".join(cmd)
+            if "/actions/runs/750" in cmd_str:
+                call_count["750"] += 1
+                if call_count["750"] >= 1:
+                    return 0, json.dumps({
+                        "id": 750, "name": "CI",
+                        "head_branch": "feature/test", "head_sha": "old",
+                        "event": "pull_request",
+                        "path": ".github/workflows/ci.yml",
+                        "status": "queued",
+                        "pull_requests": [
+                            {"number": 42, "head": {"repo": {"id": REPO_ID, "name": "repo"}}}
+                        ],
+                        # No "repository" field
+                    }), ""
+            return stub(cmd, timeout)
+
+        with mock.patch.object(ci_queue_trim, "run_cmd", side_effect=dynamic_fetch), _patch_now():
+            cancelled = ci_queue_trim.cancel_with_per_item_refresh(
+                "owner/repo", candidates,
+                allowed_workflows={".github/workflows/ci.yml"},
+            )
+        self.assertEqual(cancelled, [])
+        self.assertEqual(stub.cancel_calls, [])
+
+    def test_id_mismatch_in_fresh_response_no_cancel(self):
+        """If the fresh re-fetch returns data with an ``id`` that does
+        NOT match the requested ``run_id``, the run is NOT cancelled
+        (the response is for a different run)."""
+        stub = _RunCmdStub()
+        run = queued_run(760, head_sha="old", pr_numbers=[42])
+        pr = pr_record(42, head_sha="new_tip")
+        _setup_queue(stub, [run], {42: pr})
+
+        audited, _ = _audit_with(stub)
+        candidates = [r for r in audited if r["verdict"] == "CANCEL"]
+        self.assertEqual(len(candidates), 1)
+
+        call_count = {"760": 0}
+
+        def dynamic_fetch(cmd, timeout=60):
+            cmd_str = " ".join(cmd)
+            if "/actions/runs/760" in cmd_str:
+                call_count["760"] += 1
+                if call_count["760"] >= 1:
+                    # Return data for a DIFFERENT run id.
+                    return 0, json.dumps({
+                        "id": 999999, "name": "CI",
+                        "head_branch": "feature/test", "head_sha": "old",
+                        "event": "pull_request",
+                        "path": ".github/workflows/ci.yml",
+                        "status": "queued",
+                        "pull_requests": [
+                            {"number": 42, "head": {"repo": {"id": REPO_ID, "name": "repo"}}}
+                        ],
+                        "repository": {"id": REPO_ID, "full_name": "owner/repo", "name": "repo"},
+                    }), ""
+            return stub(cmd, timeout)
+
+        with mock.patch.object(ci_queue_trim, "run_cmd", side_effect=dynamic_fetch), _patch_now():
+            cancelled = ci_queue_trim.cancel_with_per_item_refresh(
+                "owner/repo", candidates,
+                allowed_workflows={".github/workflows/ci.yml"},
+            )
+        self.assertEqual(cancelled, [])
+        self.assertEqual(stub.cancel_calls, [])
+
+    # ---- dormant mode preserved ----
+
+    def test_dormant_current_head_cancels_at_mutation(self):
+        """Dormancy-based CANCEL propagates through the same classifier
+        + check path at mutation time (not silently dropped by separate
+        decision logic)."""
+        stub = _RunCmdStub()
+        # Push event with an old head; branch head advanced → CANCEL.
+        run = queued_run(
+            770, event="push", branch="feature/dormant", head_sha="old_head",
+            pr_numbers=[], workflow_path=".github/workflows/ci.yml",
+        )
+        _setup_queue(stub, [run])
+        stub.add(
+            "/branches/feature/dormant",
+            {"commit": {"name": "refs/heads/feature/dormant", "sha": "new_head"}},
+        )
+        stub.allow_cancel(770)
+
+        audited, _ = _audit_with(
+            stub, allowed_workflows={".github/workflows/ci.yml"}
+        )
+        self.assertEqual(audited[0]["verdict"], "CANCEL")
+        self.assertTrue(audited[0]["superseded"])
+
+        with mock.patch.object(ci_queue_trim, "run_cmd", side_effect=stub), _patch_now():
+            cancelled = ci_queue_trim.cancel_with_per_item_refresh(
+                "owner/repo", audited,
+                allowed_workflows={".github/workflows/ci.yml"},
+            )
+        self.assertEqual(cancelled, [770])
+        self.assertEqual(stub.cancel_calls, [770])
 
 
 if __name__ == "__main__":
