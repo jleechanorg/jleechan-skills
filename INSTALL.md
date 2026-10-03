@@ -1,5 +1,9 @@
 # Installation
 
+For the curated native-tool derivatives, use the opt-in
+[portable installation](portable/README.md). It requires a dedicated destination,
+installs only its manifest scope, and leaves the canonical Claude workflows alone.
+
 This export is skills-first: every canonical package is under
 `.claude/skills/<skill>/SKILL.md`; slash-command files are optional pointers.
 
