@@ -717,7 +717,11 @@ def cancel_with_per_item_refresh(
     Any step that fails (incomplete response, missing repo identity,
     state advance, audit_incomplete) drops the candidate.
 
-    Returns the list of run IDs that were cancelled.
+    Returns the list of run IDs for which ``gh run cancel`` returned
+    successfully. This records the cancellation REQUEST, NOT terminal
+    status; ``gh run cancel`` returns 0 on async acceptance. The
+    operator must verify terminal state independently (e.g.
+    ``gh run view <id>`` or a follow-up audit).
     """
     options = {
         "protected_branches": PROTECTED_BRANCHES,
@@ -909,8 +913,10 @@ def _print_report(audited: List[Dict[str, Any]], stats: Dict[str, Any],
     superseded_count = sum(1 for r in audited if r.get("superseded"))
     incomplete_count = sum(1 for r in audited if r.get("audit_incomplete"))
     if superseded_count:
-        print(f"\n* {superseded_count} run(s) cancelled as superseded "
-              "(run headSha no longer matches PR/branch current head).")
+        print(f"\n* {superseded_count} run(s) flagged as superseded "
+              "(run headSha no longer matches PR/branch current head). "
+              "Cancellation will be REQUESTED (async); verify terminal "
+              "state independently.")
     if incomplete_count:
         print(f"\n* {incomplete_count} run(s) kept with audit_incomplete=True "
               "(PR/commit/run lookup failed).")
@@ -992,7 +998,14 @@ def main() -> int:
             protected_workflows=protected_workflows,
             allowed_workflows=allowed_workflows,
         )
-        print(f"\nCompleted: Successfully cancelled {len(cancelled)}/{len(runs_to_cancel)} runs.")
+        accepted = len(cancelled)
+        print(
+            f"\nCancellation requests accepted for {accepted}/"
+            f"{len(runs_to_cancel)} candidates. "
+            f"`gh run cancel` returns 0 on async acceptance; "
+            f"verify terminal state independently "
+            f"(e.g. `gh run view <id>` or a follow-up audit)."
+        )
     elif stats.get("to_cancel", 0) > 0 and not args.cancel:
         print(
             f"\nDry-run mode: {stats['to_cancel']} runs eligible for cancellation. "
