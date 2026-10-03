@@ -25,6 +25,12 @@ or measured resource/tool limits, and name the reason. Task complexity or
 length alone does not justify serial execution. Do not invent work, duplicate
 lanes, expand scope, or provision paid resources without existing authority.
 
+When scope changes, record the affected deliverable and its acceptance evidence.
+Before holding an accepted batch for an add-on, name an actual dependency,
+shared-write conflict, or measured resource/tool limit that blocks its next
+authorized action. Otherwise continue its next authorized action and track the
+add-on separately.
+
 ## Every 20 minutes, with an hourly rollup
 
 Record the active workflow start time and next report deadline. During active
