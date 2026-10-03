@@ -37,7 +37,7 @@ Before launching local subprocess fleets, inspect available RAM and pressure, an
 - For coder/verifier handoff, pin exact revision, owned paths, relevant checks and evidence. A verifier must inspect the handed-off revision independently.
 - Report observed live worker count or tool status separately from requested concurrency. A flag or advertised slot count is not proof of active work.
 - Before relying on a result, read the artifact that supports the particular claim and check revision/provenance. Running is not progressing; idle is not proof that results reached the parent.
-- If delivery fails, ask the lane and inspect its designated outputs before duplicating the work. Verify one result-delivery path before scaling a new route widely.
+- A lost callback or disconnected reporting channel leaves delivery unconfirmed. Ask the lane and inspect its designated outputs and relevant authorized remote state before declaring execution paused or failed, or repeating a write. If the outcome remains unknown, keep it unconfirmed rather than blindly repeating writes. Scope any blocker to the affected action and target; continue independent ready work. Verify one result-delivery path before scaling a new route widely.
 - Retry only failed bounded work with an explicit reason and preserved scope; do not repeat an equivalent stalled launch without changing its cause.
 
 ## Completion
