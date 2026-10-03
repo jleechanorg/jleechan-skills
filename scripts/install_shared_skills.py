@@ -5,10 +5,9 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import shutil
 
 REPO = Path(__file__).resolve().parents[1]
-ROOTS = ('.claude', '.codex', '.agents')
+ROOTS = ('.codex', '.agents')
 
 
 def digest(path):
@@ -66,42 +65,48 @@ def source_manifest():
     return manifest
 
 
-def plan(home, package, undo):
+def plan(home, undo):
     manifest = source_manifest()
-    for p in (home, package, undo):
+    for p in (home, undo):
         unlinked_ancestors(p)
         if p.is_symlink():
             raise ValueError('Linked root refused')
-    if not home.is_dir() or package.exists() or undo.exists():
-        raise ValueError('Home must exist; package and undo must be new')
-    if package == home or undo == home or package in undo.parents or undo in package.parents:
-        raise ValueError('Overlapping package/undo refused')
-    for p in (package, undo):
-        if any(part in ROOTS for part in p.parts):
-            raise ValueError('Use separate versioned package and undo roots')
+    if not home.is_dir() or undo.exists():
+        raise ValueError('Home must exist; undo must be new')
+    if undo == home or undo in home.parents or any(
+            part in ('.claude', '.codex', '.agents') for part in undo.parts):
+        raise ValueError('Use a separate private undo directory')
+    canonical = home / '.claude/skills'
+    unlinked_ancestors(canonical / 'placeholder')
+    # Activation never writes canonical content. Reconcile source updates separately.
+    for name in manifest['skills']:
+        live = canonical / name
+        if live.is_symlink() or not (live / 'SKILL.md').is_file():
+            raise ValueError(f'Missing or linked live canonical package: {name}')
+        for rel, sha in manifest['files'].items():
+            if Path(rel).parts[0] == name:
+                target = canonical / rel
+                unlinked_ancestors(target)
+                if target.is_symlink() or not target.is_file() or digest(target) != sha:
+                    raise ValueError(f'Reconcile reviewed source with live canonical file first: {rel}')
     targets = []
     for runtime in ROOTS:
         for name in manifest['skills']:
             dest = home / runtime / 'skills' / name
             unlinked_ancestors(dest)
             targets.append({'path': str(dest), 'name': name, 'before': snapshot(dest)})
-    return {'format': 'shared-plan-v1', 'home': str(home), 'package': str(package),
+    return {'format': 'shared-live-plan-v1', 'home': str(home),
+            'canonical_before': {name: snapshot(canonical / name) for name in manifest['skills']},
             'undo': str(undo), 'manifest': manifest, 'targets': targets}
 
 
 def apply(saved):
     # Reconstruct destinations from fixed roots and verified names, not plan-supplied paths.
-    fresh = plan(Path(saved['home']), Path(saved['package']), Path(saved['undo']))
+    fresh = plan(Path(saved['home']), Path(saved['undo']))
     if saved != fresh:
         raise ValueError('Plan/source/destination drift; review a new plan')
-    package, undo = Path(saved['package']), Path(saved['undo'])
-    package.mkdir(parents=True)
-    for name in saved['manifest']['skills']:
-        shutil.copytree(REPO / '.claude/skills' / name, package / 'skills' / name)
-    (package / 'manifest.json').write_text(json.dumps(saved['manifest'], indent=2)+'\n')
-    for rel, sha in saved['manifest']['files'].items():
-        if digest(package / 'skills' / rel) != sha:
-            raise ValueError('Staged package changed')
+    canonical = Path(saved['home']) / '.claude/skills'
+    undo = Path(saved['undo'])
     undo.mkdir(parents=True)
     receipt = dict(saved, status='applying', changed=[])
     receipt_path = undo / 'receipt.json'
@@ -113,7 +118,9 @@ def apply(saved):
             raise ValueError('Destination changed during apply; preserve receipt for recovery')
         dest.parent.mkdir(parents=True, exist_ok=True)
         backup = undo / str(i)
-        target = package / 'skills' / entry['name']
+        target = canonical / entry['name']
+        if snapshot(target) != saved['canonical_before'][entry['name']]:
+            raise ValueError('Live source changed during apply; preserve receipt for recovery')
         operation = {'path': str(dest), 'backup': str(backup), 'target': str(target), 'state': 'pending'}
         receipt['changed'].append(operation)
         receipt_path.write_text(json.dumps(receipt, indent=2)+'\n')
@@ -133,7 +140,6 @@ def apply(saved):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--home', type=Path)
-    parser.add_argument('--package', type=Path)
     parser.add_argument('--undo', type=Path)
     parser.add_argument('--plan', type=Path)
     parser.add_argument('--apply', type=Path)
@@ -141,9 +147,9 @@ def main():
     if args.apply:
         print(apply(json.loads(args.apply.read_text())))
     else:
-        if not all((args.home, args.package, args.undo, args.plan)):
-            parser.error('Provide --home --package --undo --plan, or --apply PLAN')
-        value = plan(args.home, args.package, args.undo)
+        if not all((args.home, args.undo, args.plan)):
+            parser.error('Provide --home --undo --plan, or --apply PLAN')
+        value = plan(args.home, args.undo)
         with args.plan.open('x') as stream:
             json.dump(value, stream, indent=2)
             stream.write('\n')

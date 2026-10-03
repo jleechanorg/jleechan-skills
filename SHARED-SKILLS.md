@@ -7,50 +7,55 @@ Four-layer is the first reconciled bundle; the remaining accepted skills need se
 reconciliation before their discovery links can move. Do not use the older portable
 installer or the whole-home Claude installer to update this selected bundle.
 
-## Review and local activation
+## Review and direct live-root activation
 
-From a checkout of the reviewed commit, create a private plan with absolute paths:
+The live canonical source on each host is `~/.claude/skills/<name>`. Codex and Agents
+link directly to that directory. There is no versioned local package or snapshot target;
+a reviewed Git commit supplies provenance, not another runtime-specific copy.
+
+First review source-to-live differences for the selected packages. Apply any approved
+source edits to the existing Claude canonical files while preserving local additions
+and private preimages. This link installer does not edit or replace canonical content:
+it refuses activation until required canonical files match the reviewed manifest.
+Extra canonical files are preserved and recorded; subsequent drift requires a new plan.
+
+From the reviewed repository checkout, create a private plan with absolute paths:
 
 ```bash
 python3 scripts/install_shared_skills.py \
   --home "$HOME" \
-  --package "$HOME/.local/share/jleechan-skills/REVIEWED_REVISION" \
-  --undo "$HOME/.local/share/jleechan-skills/REVIEWED_REVISION-undo" \
+  --undo "$HOME/.local/share/jleechan-skills-undo/UNIQUE_OPERATION" \
   --plan /tmp/shared-skills-plan.json
 ```
 
-The plan records exact source hashes and all selected preimages. Review local changes
-before approving it. Apply only that reviewed plan with `--apply /tmp/shared-skills-plan.json`.
-Changed source/destination state requires a fresh plan and review. All selected entries
-in `.claude/skills`, `.codex/skills`, and `.agents/skills` become links to one versioned
-package. Existing directories and symlinks move intact to numbered undo entries;
-symlinks are not followed into old canonical directories. No whole-home copy occurs.
-The receipt records each operation before mutation and confirms installed link targets.
-A partial failure remains visible in the receipt; do not blindly rerun it.
+Review the plan, then apply that exact plan with `--apply /tmp/shared-skills-plan.json`.
+The selected `.codex/skills` and `.agents/skills` entries become direct links to the
+corresponding live `.claude/skills` directories. Existing discovery entries move intact
+to numbered undo entries; symlinks are not followed into old release directories.
+Claude directories and all old releases remain unchanged. Source or destination drift
+is refused. The private receipt records each operation before mutation. A partial
+failure remains visible; inspect its receipt before any retry.
 
-The `/4layer` Claude command stays unchanged. Install the new thin
-`.claude/commands/four-layer.md` only after checking its target is absent or matches the
-reviewed preimage; preserve any existing command before replacement. Both commands
-read the same shared `4layer` definition. Skill discovery of `four-layer` uses the
-included thin alias. No command or package copy proves runtime discovery or execution.
+The existing `/4layer` command remains unchanged. Review and install the thin
+`.claude/commands/four-layer.md` separately, preserving any previous command. Both read
+the same live 4layer definition; the included skill alias also dispatches to 4layer.
 
-For Ubuntu, use the existing authorized SSH route and normal host verification; stage
-only this manifest, its selected packages, and the installer from the same reviewed
-commit. Inspect Ubuntu's own preimages and generate its plan there. Do not reuse a Mac
-plan, assume matching homes, or copy credentials/history.
+For Ubuntu, use its existing authorized SSH route and normal host verification.
+Inspect and reconcile its own live canonical preimages, then generate its own plan.
+Do not reuse a Mac plan or transfer whole homes, credentials, or history.
 
-For cloud, materialize these same selected packages from the reviewed repository
-commit through the supported personal-skill registry. Preserve package identity and
-publish/reconcile each dependency before claiming discovery. Cloud cannot symlink to
-a Mac path. Catalog-only companion resolution uses exact skill names.
+Cloud materializes the same selected package sources from the reviewed Git commit via
+its supported personal-skill registry; it cannot symlink to a Mac path. Reconcile the
+required companion packages and exact-name alias before claiming catalog discovery.
+Disk bytes, catalog discovery, invocation, and GUI proof remain separate.
 
 ## Undo
 
-Read the private undo receipt. For each completed entry, verify it still is a symlink
-to the recorded target before removing that link and restoring its numbered preimage.
-If it changed after installation, leave it intact and report the conflict. For an
-originally absent entry, remove only the still-matching created link. Keep package and
-undo directories until verification finishes; never overwrite later user edits.
+For each receipt entry, confirm the discovery link still points to its recorded live
+Claude target, remove only that link, then restore its numbered preimage. If it changed
+later, preserve it and report the conflict. Originally absent entries have no preimage.
+Do not modify the canonical Claude package or old release directories to undo links.
+A canonical source edit has its own separately reviewed preimage and undo operation.
 
 ## Four-layer semantic mapping
 
