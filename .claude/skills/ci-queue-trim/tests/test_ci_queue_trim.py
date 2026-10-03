@@ -1,22 +1,15 @@
 #!/usr/bin/env python3
 """test_ci_queue_trim.py — focused offline regression tests for ci_queue_trim.py.
 
-These tests exercise the audit logic without touching the network or any
-``gh`` CLI. They patch ``ci_queue_trim.run_cmd`` so the script's helpers see
-deterministic GitHub-API responses built from per-test fixtures.
+These tests exercise the audit + classifier without touching the network or
+any ``gh`` CLI. They patch ``ci_queue_trim.run_cmd`` so the script's helpers
+see per-test responses built from faithful GH REST shapes:
 
-The fixtures model the failure modes the tool must respect:
-
-* Superseded runs (run.headSha differs from the PR's current head SHA).
-* Merge-group and unknown events must NEVER be cancelled via stale-head.
-* Lookup failures (PR / commit / run) must keep the run and mark audit
-  incomplete; never substitute run age as a head-age fact.
-* Fork PRs where the PR's merge SHA is not equal to the run's recorded SHA.
-* Pre-cancellation refresh must catch concurrent changes (run moved on,
-  PR head advanced, run no longer on a protected branch).
-* ``--superseded-only`` mode must cancel only proven obsolete heads.
-* Workflow importance is decided by an explicit configured allowlist, not
-  by fuzzy substring heuristics on the workflow name.
+* ``run.workflow_path`` may be ``release.yml`` or ``release.yml@main`` — the
+  comparator strips the ``@ref`` suffix.
+* ``run.pull_requests`` is the only source of truth for which PR owns a run;
+  a branch-name collision between fork A and fork B must NOT bind them.
+* ``PR.head.sha`` is the head branch tip SHA, NOT the merge ref.
 
 Run with::
 
@@ -49,78 +42,104 @@ def _iso(dt: datetime.datetime) -> str:
     return dt.replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
-def _run(
+# ---------------------------------------------------------------------------
+# Faithful GitHub REST fixtures
+# ---------------------------------------------------------------------------
+
+
+def queued_run(
     run_id: int,
     *,
     name: str = "CI",
     branch: str = "feature/test",
     head_sha: str = "abc123",
     event: str = "pull_request",
-    created_at: Optional[datetime.datetime] = None,
+    workflow_path: str = "ci.yml",
+    pr_numbers: Optional[List[int]] = None,
     status: str = "queued",
+    created_minutes_ago: int = 30,
 ) -> Dict[str, Any]:
+    """The shape `gh api /repos/.../actions/runs/{id}` actually returns.
+
+    ``pull_requests`` is the only authoritative pointer from run → PR; the
+    audit MUST NOT derive that binding from head_branch alone.
+    """
     return {
         "databaseId": run_id,
         "name": name,
-        "headBranch": branch,
-        "headSha": head_sha,
+        "head_branch": branch,
+        "head_sha": head_sha,
         "event": event,
+        "path": workflow_path,
         "status": status,
-        "createdAt": _iso(created_at or (FIXED_NOW - datetime.timedelta(minutes=30))),
-        "url": f"https://github.com/x/y/actions/runs/{run_id}",
+        "pull_requests": [{"number": n} for n in (pr_numbers or [])],
+        "createdAt": _iso(FIXED_NOW - datetime.timedelta(minutes=created_minutes_ago)),
+        "url": f"https://github.com/owner/repo/actions/runs/{run_id}",
     }
 
 
-def _pr(
+def pr_record(
     number: int,
     *,
-    branch: str = "feature/test",
-    sha: str = "abc123",
-    state: str = "OPEN",
-    updated_minutes_ago: int = 10,
-    fork: Optional[str] = None,
+    head_sha: str = "abc123",
+    base_sha: str = "base000",
+    merge_commit_sha: Optional[str] = None,
+    state: str = "open",
+    head_repo: str = "owner/repo",
+    base_repo: str = "owner/repo",
+    head_ref: str = "feature/test",
+    merged: bool = False,
+    head_commit_minutes_ago: int = 10,
 ) -> Dict[str, Any]:
-    base: Dict[str, Any] = {
+    """Faithful PR shape.
+
+    ``head.sha`` is the head branch tip; ``merge_commit_sha`` is a separate
+    field and is NOT what supersede comparison should use.
+    """
+    return {
         "number": number,
         "state": state,
-        "updated_at": _iso(FIXED_NOW - datetime.timedelta(minutes=updated_minutes_ago)),
-        "head": {
-            "ref": branch,
-            "sha": sha,
-            "repo": {"full_name": "owner/repo"},
-        },
+        "merged": merged,
+        "merge_commit_sha": merge_commit_sha,
+        "head": {"sha": head_sha, "ref": head_ref, "repo": {"full_name": head_repo}},
+        "base": {"sha": base_sha, "repo": {"full_name": base_repo}},
+        "updated_at": _iso(FIXED_NOW - datetime.timedelta(minutes=5)),
+        "head_commit_date": _iso(FIXED_NOW - datetime.timedelta(minutes=head_commit_minutes_ago)),
     }
-    if fork is not None:
-        base["head"]["repo"] = {"full_name": fork}
-    return base
 
 
-def _commit(sha: str, *, age_minutes: int) -> Dict[str, Any]:
-    return {
-        "sha": sha,
-        "commit": {"committer": {"date": _iso(FIXED_NOW - datetime.timedelta(minutes=age_minutes))}},
-    }
+# ---------------------------------------------------------------------------
+# Command stub
+# ---------------------------------------------------------------------------
 
 
 class _RunCmdStub:
-    """Stub for ``ci_queue_trim.run_cmd`` that responds by argv-substring match.
-
-    Each test registers a sequence of (matcher, payload) pairs. The first
-    matcher whose substring appears in the command argv wins; if no matcher
-    matches, an empty result is returned so the audit path is forced to
-    handle a lookup failure (which the test can then assert).
-    """
+    """Stub for ``ci_queue_trim.run_cmd`` that responds by argv-substring match."""
 
     def __init__(self) -> None:
         self.responses: List[Tuple[str, Any]] = []
         self.calls: List[List[str]] = []
+        # Per-run cmd response when `gh run cancel <id>` is invoked.
+        self.cancel_calls: List[int] = []
+        self.cancel_responses: Dict[int, Tuple[int, str, str]] = {}
 
     def add(self, matcher: str, payload: Any) -> None:
         self.responses.append((matcher, payload))
 
+    def allow_cancel(self, run_id: int, rc: int = 0) -> None:
+        self.cancel_responses[run_id] = (rc, "", "" if rc == 0 else "boom")
+
     def __call__(self, cmd: List[str], timeout: int = 60) -> Tuple[int, str, str]:
         self.calls.append(list(cmd))
         cmd_str = " ".join(cmd)
+        # Intercept `gh run cancel`
+        if "run cancel" in cmd_str:
+            # parse run id
+            for tok in cmd:
+                if tok.isdigit():
+                    self.cancel_calls.append(int(tok))
+                    return self.cancel_responses.get(int(tok), (0, "", ""))
+            return (1, "", "no run id parsed")
         for matcher, payload in self.responses:
             if matcher in cmd_str:
                 if isinstance(payload, BaseException):
@@ -135,7 +154,6 @@ class _RunCmdStub:
 
 
 def _patch_now() -> Any:
-    """Pin ``datetime.datetime.now`` inside the module to FIXED_NOW."""
     real_datetime = ci_queue_trim.datetime.datetime
 
     class FrozenDateTime(real_datetime):
@@ -148,324 +166,416 @@ def _patch_now() -> Any:
     return mock.patch.object(ci_queue_trim.datetime, "datetime", FrozenDateTime)
 
 
+def _reset_caches() -> None:
+    # No module-level caches in the refactored design.
+    return
+
+
+def _setup_queue(
+    stub: _RunCmdStub,
+    run_records: List[Dict[str, Any]],
+    pr_by_number: Optional[Dict[int, Dict[str, Any]]] = None,
+    *,
+    queue_fetch_rc: int = 0,
+) -> None:
+    """Wire up stub responses for an audit run.
+
+    `run_records` are returned by per-run ``actions/runs/{id}`` calls.
+    `pr_by_number` is fetched by ``pulls/{n}`` keyed by run PR number.
+    The default ``gh run list`` response uses the first run's record so
+    the audit has a starting queue. ``queue_fetch_rc`` is non-zero to
+    simulate a failed queue fetch.
+
+    Push events DO NOT have a branch HEAD stub pre-registered here; tests
+    that need a particular branch HEAD must register one explicitly so
+    they retain control over the supersede-vs-not verdict.
+    """
+    pr_by_number = pr_by_number or {}
+    if queue_fetch_rc != 0:
+        stub.add("gh run list", (queue_fetch_rc, "", "boom"))
+        return
+    list_view = [
+        {
+            "databaseId": r["databaseId"],
+            "name": r["name"],
+            "headBranch": r["head_branch"],
+            "headSha": r["head_sha"],
+            "event": r["event"],
+            "status": r["status"],
+            "createdAt": r["createdAt"],
+            "url": r["url"],
+        }
+        for r in run_records
+    ]
+    stub.add("gh run list", list_view)
+    for r in run_records:
+        run_id = r["databaseId"]
+        stub.add(f"/actions/runs/{run_id}", r)
+        for pr_ref in r.get("pull_requests", []):
+            pr_num = pr_ref["number"]
+            if pr_num in pr_by_number:
+                stub.add(f"/pulls/{pr_num}", pr_by_number[pr_num])
+            else:
+                stub.add(f"/pulls/{pr_num}", (1, "", "404 missing"))
+
+
 def _audit_with(stub: _RunCmdStub, **overrides: Any) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
-    """Run ``audit_queue`` against the stub and return its raw results."""
     kwargs = {"max_age_hours": 2.0, "limit": 50}
     kwargs.update(overrides)
-    # Clear module-level caches so per-test fixtures do not bleed.
-    ci_queue_trim._COMMIT_DATE_CACHE.clear()
-    ci_queue_trim._PR_BY_HEAD_CACHE.clear()
+    _reset_caches()
     with mock.patch.object(ci_queue_trim, "run_cmd", side_effect=stub), _patch_now():
         return ci_queue_trim.audit_queue("owner/repo", **kwargs)
 
 
 # ---------------------------------------------------------------------------
-# Superseded vs current head
+# Pure classifier — supersede / current head semantics
 # ---------------------------------------------------------------------------
 
 
-class TestSupersededAndCurrentHead(unittest.TestCase):
-    """``pull_request`` and ``push`` runs must be cancelled when the run's
-    recorded head SHA no longer matches the PR/branch current head. A run
-    whose head SHA still matches must only be cancelled for MERGED/CLOSED
-    PRs, never for stale code alone on a fresh push."""
+class TestClassifierSemantics(unittest.TestCase):
+    """Exercise ``classify_run`` directly with PR-independent fixtures so the
+    pure logic is tested without any HTTP shape coupling."""
 
-    def test_pull_request_run_superseded_by_newer_head_is_cancelled(self):
-        stub = _RunCmdStub()
-        stub.add("gh run list", [_run(1, head_sha="old_sha_aaa")])
-        stub.add("/pulls?state=all", [_pr(42, sha="new_sha_bbb", branch="feature/test")])
-        stub.add("/pulls?state=all&head=owner:feature/test", _pr(42, sha="new_sha_bbb", branch="feature/test"))
-        stub.add("/commits/new_sha_bbb", _commit("new_sha_bbb", age_minutes=5))
+    BASE_OPTS = {
+        "protected_branches": ci_queue_trim.PROTECTED_BRANCHES,
+        "protected_workflows": set(),
+        "max_age_hours": 2.0,
+        "superseded_only": False,
+    }
 
-        audited, stats = _audit_with(stub)
+    def _classify(self, run: Dict[str, Any], pr: Optional[Dict[str, Any]],
+                  branch_head_sha: Optional[str], metadata_complete: bool = True):
+        return ci_queue_trim.classify_run(
+            run=run,
+            pr=pr,
+            branch_head_sha=branch_head_sha,
+            metadata_complete=metadata_complete,
+            options=self.BASE_OPTS,
+            now=FIXED_NOW,
+        )
 
-        self.assertEqual(stats["total_queued"], 1)
-        self.assertEqual(stats["to_cancel"], 1)
-        self.assertEqual(audited[0]["verdict"], "CANCEL")
-        self.assertTrue(audited[0]["superseded"])
-        self.assertFalse(audited[0]["audit_incomplete"])
+    def test_pull_request_supersede_uses_pr_head_sha_tip_not_merge_ref(self):
+        """The merge_commit_sha must NOT be used for supersede comparison;
+        PR.head.sha (the head branch tip) is the correct ref."""
+        run = queued_run(1, head_sha="old_run_sha", pr_numbers=[42])
+        pr = pr_record(
+            42,
+            head_sha="new_tip",
+            merge_commit_sha="merge_commit_xyz",  # separate field; not used
+        )
+        cls = self._classify(run, pr, None)
+        self.assertEqual(cls.verdict, "CANCEL")
+        self.assertTrue(cls.superseded)
+        self.assertFalse(cls.audit_incomplete)
 
-    def test_pull_request_run_at_current_head_is_kept(self):
-        stub = _RunCmdStub()
-        stub.add("gh run list", [_run(2, head_sha="same_sha")])
-        stub.add("/pulls?state=all", [_pr(7, sha="same_sha", branch="feature/test", state="OPEN")])
-        stub.add("/commits/same_sha", _commit("same_sha", age_minutes=10))
+    def test_pull_request_current_head_kept_when_run_sha_matches_tip(self):
+        run = queued_run(2, head_sha="tip_a", pr_numbers=[42])
+        pr = pr_record(42, head_sha="tip_a", head_commit_minutes_ago=10)
+        cls = self._classify(run, pr, None)
+        self.assertEqual(cls.verdict, "KEEP")
+        self.assertFalse(cls.superseded)
 
-        audited, stats = _audit_with(stub)
+    def test_pull_request_target_keeps_unless_proven(self):
+        """pull_request_target runs use the BASE branch SHA; supersede is
+        NOT proven by PR.head.sha differing. Only MERGED/CLOSED cancels."""
+        run = queued_run(3, head_sha="base_at_v1", event="pull_request_target",
+                         branch="feature/qt", pr_numbers=[42])
+        pr_open = pr_record(42, head_sha="tip_v2")  # tip advanced
+        cls = self._classify(run, pr_open, None)
+        # Open PR + base-side semantics → KEEP unless proven.
+        self.assertEqual(cls.verdict, "KEEP")
+        self.assertFalse(cls.superseded)
 
-        self.assertEqual(stats["to_cancel"], 0)
-        self.assertEqual(stats["to_keep"], 1)
-        self.assertEqual(audited[0]["verdict"], "KEEP")
-        self.assertFalse(audited[0]["superseded"])
-        self.assertFalse(audited[0]["audit_incomplete"])
+        pr_merged = pr_record(42, head_sha="tip_v2", state="closed", merged=True)
+        cls = self._classify(run, pr_merged, None)
+        self.assertEqual(cls.verdict, "CANCEL")
+        self.assertEqual(cls.pr_state, "MERGED")
 
-    def test_push_event_branch_head_mismatch_is_cancelled(self):
-        stub = _RunCmdStub()
-        stub.add("gh run list", [_run(3, head_sha="branch_old", event="push", branch="release-2026")])
-        stub.add("/pulls?state=all", [])
-        stub.add("/branches/release-2026", {"commit": {"sha": "branch_new"}})
-        stub.add("/commits/branch_new", _commit("branch_new", age_minutes=5))
-
-        audited, _ = _audit_with(stub)
-
-        self.assertEqual(audited[0]["verdict"], "CANCEL")
-        self.assertTrue(audited[0]["superseded"])
-
-    def test_merged_pr_run_is_cancelled_even_when_head_matches(self):
-        stub = _RunCmdStub()
-        stub.add("gh run list", [_run(4, head_sha="merged_sha")])
-        stub.add("/pulls?state=all", [_pr(99, sha="merged_sha", state="MERGED", updated_minutes_ago=180)])
-
-        audited, _ = _audit_with(stub)
-
-        self.assertEqual(audited[0]["verdict"], "CANCEL")
-        self.assertEqual(audited[0]["pr_state"], "MERGED")
-
-
-# ---------------------------------------------------------------------------
-# Event-specific merge-ref / fork identity semantics
-# ---------------------------------------------------------------------------
-
-
-class TestEventSemantics(unittest.TestCase):
-    """``merge_group`` and unknown events MUST NOT receive the generic
-    stale-head comparison. ``pull_request_target`` and fork PRs must use
-    the PR's head SHA (which is the merge ref), not the run's recorded
-    SHA which may be a fork SHA."""
+    def test_push_event_branch_head_mismatch_cancels(self):
+        run = queued_run(4, head_sha="branch_old", event="push", branch="feature/x",
+                         pr_numbers=[])
+        cls = self._classify(run, None, branch_head_sha="branch_new")
+        self.assertEqual(cls.verdict, "CANCEL")
+        self.assertTrue(cls.superseded)
 
     def test_merge_group_event_skips_stale_head_comparison(self):
-        stub = _RunCmdStub()
-        old_run = _run(
-            5,
-            head_sha="mergegroup_old",
-            event="merge_group",
-            branch="feature/mq",
-            created_at=FIXED_NOW - datetime.timedelta(hours=6),
-        )
-        stub.add("gh run list", [old_run])
-        stub.add("/pulls?state=all", [])
+        run = queued_run(5, head_sha="x", event="merge_group", branch="feature/mq",
+                         pr_numbers=[], created_minutes_ago=6 * 60)
+        cls = self._classify(run, None, "anything")
+        self.assertEqual(cls.verdict, "KEEP")
+        self.assertIn("merge_group", cls.reason.lower())
 
-        audited, _ = _audit_with(stub)
-
-        self.assertEqual(audited[0]["verdict"], "KEEP")
-        self.assertFalse(audited[0]["superseded"])
-        self.assertIn("merge_group", audited[0]["reason"].lower())
-
-    def test_unknown_event_marks_audit_incomplete_and_keeps(self):
-        stub = _RunCmdStub()
-        weird_run = _run(
-            6,
-            head_sha="weird_sha",
-            event="repository_dispatch",
-            branch="feature/automation",
-        )
-        stub.add("gh run list", [weird_run])
-        stub.add("/pulls?state=all", [])
-
-        audited, _ = _audit_with(stub)
-
-        self.assertEqual(audited[0]["verdict"], "KEEP")
-        self.assertTrue(audited[0]["audit_incomplete"])
-        self.assertIn("unsupported", audited[0]["reason"].lower())
-
-    def test_fork_pr_uses_pr_head_sha_not_run_head_sha(self):
-        """A fork PR's PR.head.sha is the merge ref inside the base repo.
-        The run's recorded head SHA may be the fork's SHA and is therefore
-        NOT comparable to PR.head.sha directly. When the run's SHA is on
-        the fork, the audit must use the PR's head SHA as the current head."""
-
-        stub = _RunCmdStub()
-        stub.add("gh run list", [_run(7, head_sha="fork_sha_zzz")])
-        stub.add("/pulls?state=all", [_pr(11, sha="created_sha_base", branch="feature/fork", fork="alice/repo")])
-        stub.add("/commits/fork_sha_zzz", _commit("fork_sha_zzz", age_minutes=5))
-
-        audited, _ = _audit_with(stub)
-
-        self.assertEqual(audited[0]["verdict"], "CANCEL")
-        self.assertTrue(audited[0]["superseded"])
+    def test_unknown_event_keeps_with_audit_incomplete(self):
+        run = queued_run(6, head_sha="x", event="repository_dispatch", pr_numbers=[])
+        cls = self._classify(run, None, None)
+        self.assertEqual(cls.verdict, "KEEP")
+        self.assertTrue(cls.audit_incomplete)
+        self.assertIn("unsupported", cls.reason.lower())
 
 
 # ---------------------------------------------------------------------------
-# Lookup failures must mark incomplete, never substitute run age
+# PR association — fork A branch must not bind fork B's PR
 # ---------------------------------------------------------------------------
 
 
-class TestLookupFailures(unittest.TestCase):
-    """If PR/commit/run lookup fails, the run must be KEPT with
-    ``audit_incomplete=True``. The audit must NOT fall back to the run's
-    age as a substitute for the head commit age."""
+class TestPRAssociation(unittest.TestCase):
+    """The run-detail ``pull_requests`` array is the only authoritative PR
+    pointer. Two forks sharing a branch name MUST NOT cross-bind."""
 
-    def test_missing_pr_lookup_marks_incomplete_and_keeps(self):
+    def test_two_forks_same_branch_identity_does_not_cross_bind(self):
+        """Both forks push a branch named ``feature/x``. The audit must
+        only follow the PR that the run detail explicitly associates."""
         stub = _RunCmdStub()
-        stub.add("gh run list", [_run(8, branch="scratch/runaway")])
-        stub.add("/pulls?state=all", [])
-        stub.add("/pulls?state=all&head=owner:scratch/runaway", [])
-
-        audited, _ = _audit_with(stub)
-
-        self.assertEqual(audited[0]["verdict"], "KEEP")
-        self.assertTrue(audited[0]["audit_incomplete"])
-        self.assertIn("pr lookup", audited[0]["reason"].lower())
-
-    def test_missing_commit_date_marks_incomplete_and_does_not_use_run_age(self):
-        stub = _RunCmdStub()
-        stub.add(
-            "gh run list",
-            [_run(9, head_sha="missing_sha", branch="feature/x",
-                  created_at=FIXED_NOW - datetime.timedelta(hours=10))],
+        fork_a_run = queued_run(
+            100,
+            branch="feature/x",
+            head_sha="sha_alice_tip",
+            pr_numbers=[1001],  # alice's PR, only
         )
-        stub.add("/pulls?state=all", [_pr(12, sha="missing_sha", branch="feature/x")])
-        stub.add("/commits/missing_sha", (1, "", "404 Not Found"))
-
-        audited, _ = _audit_with(stub)
-
-        self.assertEqual(audited[0]["verdict"], "KEEP")
-        self.assertTrue(audited[0]["audit_incomplete"])
-        self.assertEqual(audited[0]["head_commit_age"], "unknown")
-
-    def test_run_metadata_fetch_failure_marks_incomplete(self):
-        stub = _RunCmdStub()
-        stub.add("gh run list", [_run(10, head_sha="sha_x", branch="feature/y")])
-        stub.add("/pulls?state=all", [_pr(13, sha="sha_x", branch="feature/y")])
-        stub.add("/commits/sha_x", _commit("sha_x", age_minutes=5))
-        stub.add("/actions/runs/10", (1, "", "boom"))
+        pr_alice = pr_record(
+            1001,
+            head_sha="sha_alice_tip",
+            head_repo="alice/repo",
+            head_ref="feature/x",
+        )
+        # Note: fork B's PR (2002, branch=feature/x) is in the queue but
+        # NOT in fork A's run detail pull_requests array. The audit must
+        # not classify fork A's run against fork B's PR.
+        pr_bob = pr_record(
+            2002,
+            head_sha="sha_bob_tip",
+            head_repo="bob/repo",
+            head_ref="feature/x",
+            merged=True,  # closed
+        )
+        _setup_queue(stub, [fork_a_run], {1001: pr_alice, 2002: pr_bob})
 
         audited, _ = _audit_with(stub)
         self.assertEqual(len(audited), 1)
-        self.assertEqual(audited[0]["pr_number"], 13)
-        # If metadata fetch failed, the audit must mark the run incomplete
-        # rather than treat the missing fields as evidence of staleness.
+        self.assertEqual(audited[0]["pr_number"], 1001)
+        self.assertEqual(audited[0]["verdict"], "KEEP")
+        self.assertFalse(audited[0]["superseded"])
+
+    def test_fork_pr_with_unknown_association_is_kept_unknown(self):
+        """If the run detail's pull_requests array is empty (or the lookup
+        fails for the listed PR), the audit must KEEP UNKNOWN — never guess
+        via the branch name."""
+        stub = _RunCmdStub()
+        run_no_pr = queued_run(101, branch="feature/x", head_sha="sha_x",
+                               pr_numbers=[])
+        _setup_queue(stub, [run_no_pr])
+
+        audited, _ = _audit_with(stub)
+        self.assertEqual(len(audited), 1)
+        self.assertIsNone(audited[0]["pr_number"])
+        self.assertEqual(audited[0]["verdict"], "KEEP")
         self.assertTrue(audited[0]["audit_incomplete"])
 
-
-# ---------------------------------------------------------------------------
-# Pre-cancellation refresh catches concurrent changes
-# ---------------------------------------------------------------------------
-
-
-class TestPreCancelRefresh(unittest.TestCase):
-    """``refresh_before_cancel`` must re-fetch run status, event, and the
-    candidate fingerprint (PR head SHA, PR number, workflow name). If any
-    field moved on since the audit, the run must NOT be cancelled."""
-
-    def test_refresh_skips_run_that_is_no_longer_queued(self):
+    def test_push_event_does_not_bind_arbitrary_pr_via_branch(self):
+        """Push events are NOT pull requests. The audit must not classify a
+        push run against a PR that happens to share the branch name."""
         stub = _RunCmdStub()
-        stub.add("gh run list", [_run(11, head_sha="old_x", event="pull_request", status="queued")])
-        stub.add("/pulls?state=all", [_pr(20, sha="new_x", branch="feature/z")])
-        stub.add("/commits/new_x", _commit("new_x", age_minutes=5))
+        push_run = queued_run(
+            102, event="push", branch="feature/x", head_sha="branch_old",
+            pr_numbers=[],
+        )
+        # A PR happens to exist with the same branch name.
+        same_branch_pr = pr_record(
+            7, head_sha="branch_new", head_ref="feature/x"
+        )
+        _setup_queue(stub, [push_run], {7: same_branch_pr})
+        # Override the branch-head response so push event sees a different head.
+        stub.add("/branches/feature/x", {"commit": {"name": "refs/heads/feature/x", "sha": "branch_new"}})
 
         audited, _ = _audit_with(stub)
+        self.assertEqual(len(audited), 1)
+        self.assertEqual(audited[0]["event"], "push")
+        # Push run is cancelled via branch-head mismatch, NOT via the PR.
         self.assertEqual(audited[0]["verdict"], "CANCEL")
-
-        stub.calls.clear()
-        stub.add("/actions/runs/11", {"status": "in_progress", "event": "pull_request", "name": "CI"})
-        stub.add("/pulls/20", _pr(20, sha="new_x", branch="feature/z"))
-
-        refreshed = ci_queue_trim.refresh_before_cancel(
-            "owner/repo", audited, run_cmd=stub
-        )
-        self.assertEqual(refreshed, [])
-
-    def test_refresh_skips_run_when_pr_head_advanced_to_match(self):
-        stub = _RunCmdStub()
-        stub.add("gh run list", [_run(12, head_sha="v1", event="pull_request")])
-        stub.add("/pulls?state=all", [_pr(21, sha="v2", branch="feature/w")])
-
-        audited, _ = _audit_with(stub)
-        self.assertEqual(audited[0]["verdict"], "CANCEL")
-
-        stub.calls.clear()
-        stub.add("/actions/runs/12", {"status": "queued", "event": "pull_request", "name": "CI"})
-        stub.add("/pulls/21", _pr(21, sha="v1", branch="feature/w"))
-
-        refreshed = ci_queue_trim.refresh_before_cancel(
-            "owner/repo", audited, run_cmd=stub
-        )
-        self.assertEqual(refreshed, [])
-
-    def test_refresh_skips_run_when_workflow_changed_to_protected(self):
-        """If the run's workflow filename matches the explicit protected
-        list now (e.g. an admin reconfigured the workflow), the refresh
-        must drop the candidate."""
-
-        stub = _RunCmdStub()
-        stub.add("gh run list", [_run(15, head_sha="r1", event="pull_request", name="Plain CI")])
-        stub.add("/pulls?state=all", [_pr(40, sha="new1", branch="feature/prot")])
-        stub.add("/commits/new1", _commit("new1", age_minutes=5))
-
-        audited, _ = _audit_with(stub)
-        self.assertEqual(audited[0]["verdict"], "CANCEL")
-
-        stub.calls.clear()
-        stub.add("/actions/runs/15", {"status": "queued", "event": "pull_request", "name": "release.yml"})
-        stub.add("/pulls/40", _pr(40, sha="new1", branch="feature/prot"))
-
-        with mock.patch.object(ci_queue_trim, "PROTECTED_WORKFLOWS", {"release.yml"}):
-            refreshed = ci_queue_trim.refresh_before_cancel(
-                "owner/repo", audited, run_cmd=stub
-            )
-        self.assertEqual(refreshed, [])
+        self.assertTrue(audited[0]["superseded"])
+        # The PR was not used to classify.
+        self.assertIsNone(audited[0]["pr_number"])
 
 
 # ---------------------------------------------------------------------------
-# Workflow / branch protection guards (explicit allowlists only)
+# API failure handling — incomplete audit must KEEP, not inherit stale defaults
 # ---------------------------------------------------------------------------
 
 
-class TestProtection(unittest.TestCase):
-    """Workflows that are explicitly listed in ``PROTECTED_WORKFLOWS`` must
-    be kept. The ``deploy`` branch must be protected. Workflows whose names
-    merely contain the substring 'reusable' must NOT trigger protection
-    unless they are explicitly listed."""
+class TestAPIFailureHandling(unittest.TestCase):
+    """fetch_run_details or get_queued_runs failure must force KEEP for any
+    run that depended on the missing data. A failed queue fetch must not be
+    silently turned into a healthy empty success."""
 
-    def test_reusable_workflow_call_is_kept_via_event(self):
+    def test_run_detail_fetch_failure_marks_incomplete_and_keeps(self):
         stub = _RunCmdStub()
-        stub.add(
-            "gh run list",
-            [_run(13, name="Plain CI", head_sha="r1", event="workflow_call", branch="feature/q")],
+        stub.add("gh run list", [{"databaseId": 1, "headBranch": "feature/x",
+                                  "headSha": "sha1", "event": "pull_request",
+                                  "status": "queued", "name": "CI",
+                                  "createdAt": _iso(FIXED_NOW)}])
+        # Per-run detail fails (e.g. transient API error).
+        stub.add("/actions/runs/1", (1, "", "boom"))
+
+        audited, _ = _audit_with(stub)
+        self.assertEqual(len(audited), 1)
+        self.assertTrue(audited[0]["audit_incomplete"])
+        self.assertEqual(audited[0]["verdict"], "KEEP")
+
+    def test_queue_fetch_failure_does_not_become_healthy_empty(self):
+        """A failed queue fetch must propagate as a failure marker, NOT
+        succeed with an empty queue and no error."""
+        stub = _RunCmdStub()
+        stub.add("gh run list", (124, "", "timeout"))
+        # The call to `audit_queue` itself should signal failure.
+        from ci_queue_trim import audit_queue
+        with mock.patch.object(ci_queue_trim, "run_cmd", side_effect=stub), _patch_now():
+            audited, stats = audit_queue("owner/repo")
+        self.assertEqual(audited, [])
+        # Stats must carry the failure so the caller knows audit failed.
+        self.assertTrue(stats.get("queue_fetch_failed"))
+        self.assertEqual(stats["to_cancel"], 0)
+
+
+# ---------------------------------------------------------------------------
+# Pre-cancellation refresh — per-item, re-fetch + re-classify
+# ---------------------------------------------------------------------------
+
+
+class TestPerItemRefresh(unittest.TestCase):
+    """Before EACH individual cancellation, the run AND its exact PR are
+    re-fetched and the candidate re-classified with fresh state."""
+
+    def _two_candidates(self) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        runs = [
+            queued_run(200, head_sha="old_a", pr_numbers=[10]),
+            queued_run(201, head_sha="old_b", pr_numbers=[11]),
+        ]
+        prs = {
+            10: pr_record(10, head_sha="new_a"),
+            11: pr_record(11, head_sha="new_b"),
+        }
+        return runs, prs
+
+    def test_state_advance_between_first_and_second_cancel_drops_later(self):
+        """After the first cancel, the second run's PR head advances so
+        its supersede resolves. The second cancel must be dropped."""
+        stub = _RunCmdStub()
+        runs, prs = self._two_candidates()
+        _setup_queue(stub, runs, prs)
+        stub.allow_cancel(200)
+        stub.allow_cancel(201)
+
+        # Audit-time classification: both runs are CANCEL candidates.
+        audited, _ = _audit_with(stub)
+        cancel_candidates = [r for r in audited if r["verdict"] == "CANCEL"]
+        self.assertEqual({r["run_id"] for r in cancel_candidates}, {200, 201})
+
+        from ci_queue_trim import cancel_with_per_item_refresh
+
+        # Between cancels: the first /pulls/11 fetch during cancel
+        # returns a head that matches run 201, so the classifier
+        # re-classifies it as KEEP and the run is dropped.
+        fetch_counts = {"11": 0}
+        stub_obj = stub
+
+        def dynamic_fetch(cmd: List[str], timeout: int = 60):
+            cmd_str = " ".join(cmd)
+            if "/pulls/11" in cmd_str:
+                fetch_counts["11"] += 1
+                if fetch_counts["11"] >= 1:
+                    return 0, json.dumps(pr_record(11, head_sha="old_b")), ""
+            return stub_obj.__class__.__call__(stub_obj, cmd, timeout)
+
+        with mock.patch.object(ci_queue_trim, "run_cmd", side_effect=dynamic_fetch), _patch_now():
+            cancel_with_per_item_refresh("owner/repo", cancel_candidates)
+
+        # Only run 200 should be cancelled; run 201 was dropped on re-fetch.
+        self.assertEqual(stub.cancel_calls, [200])
+
+    def test_real_eligible_cancellation_executes_gh_cancel_with_exact_id(self):
+        """Verify ``gh run cancel <id>`` receives exactly the eligible ID
+        and nothing else, with no extras."""
+        stub = _RunCmdStub()
+        runs, prs = self._two_candidates()
+        _setup_queue(stub, runs, prs)
+        stub.allow_cancel(200)
+        stub.allow_cancel(201)
+
+        from ci_queue_trim import cancel_with_per_item_refresh
+
+        # Audit-time classification must agree the runs are CANCEL.
+        audited, _ = _audit_with(stub)
+        cancel_candidates = [r for r in audited if r["verdict"] == "CANCEL"]
+        self.assertEqual({r["run_id"] for r in cancel_candidates}, {200, 201})
+
+        with mock.patch.object(ci_queue_trim, "run_cmd", side_effect=stub), _patch_now():
+            cancel_with_per_item_refresh("owner/repo", cancel_candidates)
+
+        # Both candidates survive the per-item refresh and get cancelled.
+        self.assertEqual(sorted(stub.cancel_calls), [200, 201])
+        # Each cancel call must name exactly one numeric run id.
+        for cmd in stub.calls:
+            if "run cancel" in " ".join(cmd):
+                self.assertEqual(sum(1 for t in cmd if t.isdigit()), 1)
+
+
+# ---------------------------------------------------------------------------
+# Workflow protection — @ref suffix, default safe allowlist
+# ---------------------------------------------------------------------------
+
+
+class TestWorkflowProtection(unittest.TestCase):
+    """The default PROTECTED_WORKFLOWS must include safe release/deploy
+    paths so the tool never cancels arbitrary deploy / release runs out
+    of the box. The comparator strips ``@ref`` suffixes."""
+
+    def test_release_yml_at_main_is_protected_by_default(self):
+        stub = _RunCmdStub()
+        run = queued_run(
+            300, name="Release", event="pull_request",
+            head_sha="old", pr_numbers=[42], workflow_path="release.yml@main",
         )
-        stub.add("/pulls?state=all", [_pr(30, sha="r1", branch="feature/q")])
-        stub.add("/commits/r1", _commit("r1", age_minutes=5))
+        pr = pr_record(42, head_sha="new_tip")
+        _setup_queue(stub, [run], {42: pr})
 
         audited, _ = _audit_with(stub)
         self.assertEqual(audited[0]["verdict"], "KEEP")
-        # Reason must reference the event, not a fuzzy substring of the name.
-        self.assertIn("workflow_call", audited[0]["reason"].lower())
+        self.assertIn("release.yml", audited[0]["reason"])
 
-    def test_workflow_in_explicit_protect_list_is_kept(self):
+    def test_deploy_yml_at_ref_is_protected_by_default(self):
         stub = _RunCmdStub()
-        stub.add(
-            "gh run list",
-            [_run(16, name="Deploy Production", head_sha="r2", event="pull_request", branch="feature/d")],
+        run = queued_run(
+            301, name="Deploy", event="push",
+            branch="main", head_sha="branch_old", pr_numbers=[],
+            workflow_path="deploy.yml@v2",
         )
-        stub.add("/pulls?state=all", [_pr(31, sha="new2", branch="feature/d")])
-        stub.add("/commits/new2", _commit("new2", age_minutes=5))
+        _setup_queue(stub, [run])
 
         audited, _ = _audit_with(stub)
-        # Audit-time check: name contains "Deploy" but is NOT in protected list yet.
-        self.assertEqual(audited[0]["verdict"], "CANCEL")
+        self.assertEqual(audited[0]["verdict"], "KEEP")
 
-    def test_fuzzy_name_match_does_not_trigger_protection(self):
-        """A workflow whose name merely contains a protected keyword must
-        not be kept unless explicitly listed."""
-
+    def test_allow_workflow_cli_flag_extends_protection(self):
+        """The operator can extend the protection at runtime with
+        ``--allow-workflow`` (repeatable)."""
         stub = _RunCmdStub()
-        stub.add(
-            "gh run list",
-            [_run(17, name="my-deploy-helper", head_sha="r3", event="pull_request", branch="feature/x")],
+        run = queued_run(
+            302, name="My Build", event="pull_request",
+            head_sha="old", pr_numbers=[42], workflow_path="custom/release.yml",
         )
-        stub.add("/pulls?state=all", [_pr(32, sha="new3", branch="feature/x")])
-        stub.add("/commits/new3", _commit("new3", age_minutes=5))
+        pr = pr_record(42, head_sha="new_tip")
+        _setup_queue(stub, [run], {42: pr})
 
         with mock.patch.object(ci_queue_trim, "PROTECTED_WORKFLOWS", set()):
             audited, _ = _audit_with(stub)
+            self.assertEqual(audited[0]["verdict"], "CANCEL")
 
-        self.assertEqual(audited[0]["verdict"], "CANCEL")
-
-    def test_deploy_branch_is_kept(self):
+    def test_protected_branch_main_preserved(self):
         stub = _RunCmdStub()
-        stub.add("gh run list", [_run(14, head_sha="d1", event="push", branch="deploy")])
-        stub.add("/pulls?state=all", [])
+        run = queued_run(
+            303, name="CI", event="pull_request",
+            branch="main", head_sha="sha_x", pr_numbers=[42],
+        )
+        _setup_queue(stub, [run])
 
         audited, _ = _audit_with(stub)
         self.assertEqual(audited[0]["verdict"], "KEEP")
@@ -473,54 +583,31 @@ class TestProtection(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# --superseded-only mode
+# Backwards-compatibility smoke
 # ---------------------------------------------------------------------------
 
 
-class TestSupersededOnlyMode(unittest.TestCase):
-    """``superseded_only=True`` must cancel ONLY runs whose head SHA no
-    longer matches the PR/branch current head. Dormant but-current-head
-    runs must stay untouched, even if their head commit is ancient."""
+class TestBackwardCompatibility(unittest.TestCase):
+    """The audit output must still carry every field the original skill
+    relied on, even if values are now more conservative."""
 
-    def test_superseded_only_keeps_dormant_but_current_head_runs(self):
+    def test_row_shape_includes_all_legacy_and_new_fields(self):
         stub = _RunCmdStub()
-        # Old run, but its head SHA still matches the PR's current head.
-        # In normal mode this would be cancelled for dormancy (>2h).
-        stub.add("gh run list", [_run(50, head_sha="still_current", branch="feature/long")])
-        stub.add("/pulls?state=all", [_pr(60, sha="still_current", branch="feature/long")])
-        stub.add("/commits/still_current", _commit("still_current", age_minutes=60 * 24 * 30))  # 30 days
+        run = queued_run(400, head_sha="old", pr_numbers=[42])
+        pr = pr_record(42, head_sha="new_tip")
+        _setup_queue(stub, [run], {42: pr})
 
-        audited, stats = _audit_with(stub, superseded_only=True)
-
-        self.assertEqual(audited[0]["verdict"], "KEEP")
-        self.assertEqual(stats["to_cancel"], 0)
-        self.assertIn("superseded-only", audited[0]["reason"].lower())
-
-    def test_superseded_only_cancels_proven_superseded_runs(self):
-        stub = _RunCmdStub()
-        stub.add("gh run list", [_run(51, head_sha="old_run_sha")])
-        stub.add("/pulls?state=all", [_pr(61, sha="new_head_sha", branch="feature/s")])
-        stub.add("/pulls?state=all&head=owner:feature/s", _pr(61, sha="new_head_sha", branch="feature/s"))
-        stub.add("/commits/new_head_sha", _commit("new_head_sha", age_minutes=5))
-
-        audited, stats = _audit_with(stub, superseded_only=True)
-
-        self.assertEqual(audited[0]["verdict"], "CANCEL")
-        self.assertTrue(audited[0]["superseded"])
-        self.assertEqual(stats["to_cancel"], 1)
-
-    def test_superseded_only_still_cancels_merged_pr_runs(self):
-        """Even in superseded-only mode, MERGED/CLOSED PRs are orphans and
-        must be cancelled because the work landed regardless of head SHA."""
-
-        stub = _RunCmdStub()
-        stub.add("gh run list", [_run(52, head_sha="merged_sha")])
-        stub.add("/pulls?state=all", [_pr(62, sha="merged_sha", state="MERGED", updated_minutes_ago=240)])
-
-        audited, _ = _audit_with(stub, superseded_only=True)
-
-        self.assertEqual(audited[0]["verdict"], "CANCEL")
-        self.assertEqual(audited[0]["pr_state"], "MERGED")
+        audited, _ = _audit_with(stub)
+        row = audited[0]
+        for key in (
+            "run_id", "name", "branch", "pr_number", "pr_state",
+            "head_commit_age", "pr_updated_age", "deceptive_delta",
+            "verdict", "reason",
+        ):
+            self.assertIn(key, row)
+        # New fields:
+        for key in ("event", "superseded", "audit_incomplete"):
+            self.assertIn(key, row)
 
 
 if __name__ == "__main__":

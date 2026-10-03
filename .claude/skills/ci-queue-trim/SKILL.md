@@ -1,18 +1,21 @@
 ---
 name: ci-queue-trim
 description: >
-  Audit and trim queued GitHub Actions CI workflow runs for dormant,
-  superseded, or merged PRs. Verifies run.headSha vs the current PR/branch
-  head to detect obsolete queued pushes, applies event-specific semantics
-  (pull_request/push vs merge_group vs unknown), and re-validates the
-  candidate fingerprint immediately before any cancellation. Workflow
-  importance is decided by an explicit configured allowlist, never by
-  fuzzy substring heuristics. Includes Colima socket and host disk health
-  preflights.
+  Audit and trim queued GitHub Actions CI workflow runs whose head SHA is
+  obsolete or whose PR has landed. PR association comes from
+  `actions/runs/{id}.pull_requests` (the only authoritative pointer);
+  branch names that collide between forks MUST NOT cross-bind runs to a
+  PR. Event semantics split pull_request from pull_request_target (the
+  latter uses base-side SHA, so a tip advance is NOT a supersede signal)
+  and merge_group / unknown events skip the generic stale-head comparison.
+  Per-item re-validation right before each `gh run cancel` catches
+  concurrent state advances. Workflow importance is decided by an explicit
+  configured allowlist with safe release / deploy defaults, never by fuzzy
+  substring heuristics.
 type: skill
 scope: global
 owner: $USER
-version: 1.1.0
+version: 1.2.0
 triggers:
   - "ci queue trim"
   - "trim ci queue"
@@ -29,56 +32,71 @@ allowed-tools:
 
 # /ci-queue-trim — CI Queue Inactivity Triage & Trimming
 
-Use this skill when GitHub Actions self-hosted or cloud runner queues become backlogged with queued runs from stale, dormant, already-merged, or already-superseded pull requests.
+Use this skill when GitHub Actions self-hosted or cloud runner queues become backlogged with queued runs whose head SHA is no longer current or whose PR has already landed.
 
-## The Three Pitfalls Resolved at Audit Time
+## The Pitfalls Resolved at Audit Time
 
 ### 1. Deceptive `PR.updatedAt` (bots touch it constantly)
 When filtering PRs by activity, `PR.updatedAt` is **fundamentally deceptive**:
-- Automated bots (merge queues, label synchronizers, automated status comments,
-  rebase checks) constantly touch `updatedAt`.
+- Automated bots (merge queues, label synchronizers, automated status
+  comments, rebase checks) constantly touch `updatedAt`.
 - A PR whose code has not been touched in 10–30 days frequently shows
   `updatedAt` of "2 minutes ago".
 - The script uses the head commit's **committer date** as the source of
   truth. Note: `committedDate` is the **author's commit timestamp**, which
-  precedes the push — it is NOT the push time. Push time can be obtained
-  from the run's `created_at` or by comparing run.headSha against the PR
-  current head SHA.
-- If no commit could be resolved within the inactivity window
-  (default: 2 hours), the run is kept with `audit_incomplete=True`. The run's
-  age is never substituted for the head-commit age.
+  precedes the push — it is NOT the push time.
 
-### 2. Superseded runs (`run.headSha` ≠ PR/branch current head)
-A run can be queued against an older SHA even though the PR has since been
-pushed to a newer one. Comparing `run.headSha` to the PR's current
-`head.sha` (or, for push events, to the branch HEAD SHA) catches these
-without false-positive dormancy cancellations.
-- For `pull_request` / `pull_request_target` events: the comparison ref is
-  `PR.head.sha`, the **merge ref inside the base repo**. For fork PRs the
-  run's recorded head SHA may be a fork SHA and is NOT comparable directly;
-  the script compares it against the base repo's PR.head.sha.
-- For `push` events: the comparison ref is the branch HEAD SHA.
-- For `merge_group` and any unsupported event: the generic stale-head
-  comparison is **never applied** — these events are kept (or, if the PR is
-  already MERGED/CLOSED, cancelled as orphans).
+### 2. Superseded runs (`run.head_sha` ≠ PR/branch current head)
+A run can be queued against an older SHA even though the PR has since
+advanced. The script compares `run.head_sha` against the current head SHA
+to detect this without false-positive dormancy cancellations.
 
-### 3. Lookup failures (PR / commit / run detail unknown)
+- `PR.head.sha` is the **head branch tip SHA** — NOT the merge ref.
+  `merge_commit_sha` is a separate field and must NOT be used for
+  supersede comparison.
+- For `pull_request` events: comparison ref is `PR.head.sha`.
+- For `pull_request_target`: base-side semantics. The run's `head_sha`
+  is the BASE branch SHA, not the PR head SHA. Tip advances on the PR
+  are NOT proven supersede — keep unless the PR is MERGED/CLOSED.
+- For `push` events: comparison ref is the branch HEAD SHA.
+- For `merge_group` and any unsupported event: never apply the generic
+  stale-head comparison.
+
+### 3. Lookup failure (PR / commit / run detail unknown)
 If the audit cannot verify the PR head, the head commit date, or the run
-metadata, the run is kept with `audit_incomplete=True` and the cancellation
-list is filtered by `refresh_before_cancel` immediately before mutation.
-The tool never substitutes the run's age for a missing head-commit age.
+detail, the run is kept with `audit_incomplete=True`. The tool NEVER
+substitutes the run's age for a missing head-commit age.
+
+A failed `gh run list` (queue fetch) is propagated as
+`stats["queue_fetch_failed"]=True`, NOT silently turned into a healthy
+empty success.
+
+### 4. PR association — branch names that collide between forks
+Branch-name lookup is **never** used to bind a run to a PR. The script
+reads `actions/runs/{id}.pull_requests` (the only authoritative pointer).
+Two forks pushing a branch named `feature/x` will not cross-bind the run
+to the wrong PR.
+
+### 5. Per-item refresh before cancellation
+Before every individual `gh run cancel`, the script re-fetches the run
+record and the exact PR (or branch HEAD for push events), re-runs the
+classifier, and only cancels if the verdict is still CANCEL. If state
+moved on between audit time and mutation time, the candidate is dropped.
 
 ## Protected Branches and Workflows
 
 - **Protected branches** (never cancelled automatically):
   `main`, `master`, `production`, `staging`, `release`, `deploy`.
 - **Protected workflows** (never cancelled automatically) are decided by an
-  **explicit configured allowlist** at the top of the script
-  (`PROTECTED_WORKFLOWS`). A workflow whose name merely contains a keyword
-  such as "deploy" or "reusable" is **not** implicitly protected — populate
-  the allowlist with the exact workflow filename or display name.
-- Reusable workflows invoked via `workflow_call` are protected by **event
-  semantics**, not by fuzzy name matching.
+  **explicit configured allowlist**. Safe defaults are
+  `release.yml`, `deploy.yml`, `publish.yml`, `tag-release.yml` (the
+  `@<ref>` suffix on a workflow path is stripped before matching).
+- A workflow whose name merely contains a keyword such as "deploy" or
+  "reusable" is **not** implicitly protected — populate the allowlist
+  with the exact workflow filename.
+- Reusable workflows invoked via `workflow_call` are protected by
+  **event semantics**, not by fuzzy name matching.
+- Extend at runtime with `--allow-workflow PATH` (repeatable).
 
 ---
 
@@ -88,52 +106,57 @@ The skill includes a pre-built, standalone Python helper at:
 `/Users/jleechan/.claude/skills/ci-queue-trim/scripts/ci_queue_trim.py`
 
 ### 1. Dry-Run Audit (Default)
-Inspects the queue, maps each run to its PR, evaluates supersede + dormancy,
-and flags cancel candidates:
+Inspects the queue, classifies each run via the pure classifier, and
+prints cancel candidates without cancelling anything:
 ```bash
 python3 ~/.claude/skills/ci-queue-trim/scripts/ci_queue_trim.py
 ```
 
 ### 2. Execute Cancellations
-Cancels superseded or orphaned (MERGED/CLOSED PR) queued runs after
-`rebalancing_before_cancel` validates each candidate's fingerprint:
+Each candidate is re-fetched and re-classified immediately before its
+`gh run cancel` call:
 ```bash
 python3 ~/.claude/skills/ci-queue-trim/scripts/ci_queue_trim.py --cancel
 ```
 
 ### 3. Superseded-Only Mode (Conservative)
-Cancels runs whose head SHA is proven obsolete (newer push advanced the PR or
-branch head). **Dormancy is ignored** — even ancient current-head runs are
-kept. Recommended for first-time operators who want to apply only the
-strictest proven-obsolete criterion:
+Cancels runs whose head SHA is proven obsolete (newer push advanced the
+PR or branch head). Dormancy-against-current-head runs stay untouched.
+Recommended for first-time operators who want only the strictest
+proven-obsolete criterion:
 ```bash
 python3 ~/.claude/skills/ci-queue-trim/scripts/ci_queue_trim.py \
     --superseded-only --cancel
 ```
 
-### 4. Customize Threshold and Target Repo
-Change the inactivity threshold (in hours) or target repository:
+### 4. Extend the Workflow Allowlist
+```bash
+python3 ~/.claude/skills/ci-queue-trim/scripts/ci_queue_trim.py \
+    --allow-workflow path/to/extra-protected.yml \
+    --allow-workflow another.yml@v3 \
+    --cancel
+```
+
+### 5. Customize Threshold and Target Repo
 ```bash
 python3 ~/.claude/skills/ci-queue-trim/scripts/ci_queue_trim.py \
     --repo jleechanorg/worldarchitect.ai --max-age-hours 4 --cancel
 ```
 
-### 5. Host & Colima Preflight (`--check-host`)
-Checks local macOS host conditions that cause runner starvation or admission
-lockouts:
+### 6. Host & Colima Preflight (`--check-host`)
+Checks local macOS host conditions that cause runner starvation or
+admission lockouts:
 ```bash
 python3 ~/.claude/skills/ci-queue-trim/scripts/ci_queue_trim.py --check-host
 ```
-Checks:
 - **Colima Sockets:** Verifies `~/.colima/_lima/_networks/user-v2/user-v2_fd.sock`
-  exists and is backed by exactly 1 active `limactl usernet` process. Detects
-  orphaned `usernet` PIDs that cause startup crashes (`dial unix
-  user-v2_fd.sock: no such file or directory`).
+  exists and is backed by exactly 1 active `limactl usernet` process.
 - **Host Disk Space:** Checks `/System/Volumes/Data` against the 7.0 GB
   admission safety floor.
 
-### 6. Structured JSON Output (`--json`)
-Returns machine-readable JSON for scripting, subagents, or automated triage:
+### 7. Structured JSON Output (`--json`)
+Returns machine-readable JSON for scripting, subagents, or automated
+triage:
 ```bash
 python3 ~/.claude/skills/ci-queue-trim/scripts/ci_queue_trim.py --json
 ```
@@ -144,58 +167,26 @@ reason`.
 
 ---
 
-## Pre-Cancellation Refresh
-
-Before any `gh run cancel` call, the script re-fetches each candidate's
-fingerprint via `refresh_before_cancel`:
-
-1. Re-fetch run metadata (`status`, `event`, `name`, `path`).
-2. Drop the run if it is no longer `queued`, if its event shifted to
-   `merge_group` / unknown, or if its workflow is now in
-   `PROTECTED_WORKFLOWS`.
-3. Re-fetch the PR (or branch HEAD for push events) and drop the run if the
-   head SHA advanced to match the run's recorded head SHA (the supersede
-   has resolved).
-
-Runs that fail any of these checks are dropped before any mutation; the
-report shows how many were dropped.
-
----
-
 ## Self-Healing & Remediation Recipes
 
 ### 1. Colima Sockets Stuck / Multiple `limactl usernet` PIDs
 If `--check-host` reports orphaned `usernet` processes or missing sockets:
 ```bash
-# 1. Inspect orphaned usernet processes
 ps -Ao pid,command | grep '[l]imactl usernet'
-
-# 2. Terminate orphaned PIDs (NEVER use killall)
 kill -9 <PID_1> <PID_2>
-
-# 3. Remove dead socket files
 rm -f ~/.colima/_lima/_networks/user-v2/user-v2_*.sock
-
-# 4. Restart Colima cleanly
 colima start
 ```
 
 ### 2. Host Disk Floor Tripped (`free_disk_gb < 7.0`)
-If host disk space is below 7.0 GB:
 ```bash
-# 1. Find dead temporary repos in /private/tmp
 ls -la /private/tmp/
-
-# 2. Verify no active processes hold open file descriptors
 lsof +D /private/tmp/<dir_name>
-
-# 3. Clean up orphaned tmpdir
 rm -rf /private/tmp/<dir_name>
 ```
 
 ### 3. Verify Self-Hosted Runner Capacity
-After trimming stale runs, verify that the runner fleet is picking up active
-jobs:
+After trimming stale runs:
 ```bash
 ./doctor-runner
 ```
@@ -205,11 +196,25 @@ Expect **16/16 healthy** (6 Mac + 10 Linux runners executing or cycling).
 If a run is reported with `audit_incomplete=True`, the script could not
 verify its PR/branch/commit at audit time. To investigate:
 ```bash
-# Fetch the run detail directly to confirm event / status / workflow
-gh api repos/<owner>/<repo>/actions/runs/<run_id>
-
-# Verify the PR head SHA
+gh api repos/<owner>/<repo>/actions/runs/<run_id> | jq '.event, .head_sha, .pull_requests'
 gh api repos/<owner>/<repo>/pulls/<pr_number> | jq '.head.sha, .state'
 ```
 Do **not** manually cancel an `audit_incomplete` run unless you have
 independently confirmed the head SHA mismatch.
+
+---
+
+## Architecture
+
+The script is structured around one **pure classifier** (`classify_run`)
+that consumes pre-fetched facts and returns a `Classification` namedtuple
+(`verdict, superseded, audit_incomplete, reason, pr_state`):
+
+- `audit_queue` fetches each run's record + the exact PR (via the run
+  detail's `pull_requests` array) + the branch HEAD for push events,
+  then calls `classify_run` once per run.
+- `cancel_with_per_item_refresh` re-runs the same fetch + classifier
+  pipeline per candidate immediately before each `gh run cancel`.
+
+Because the same classifier is reused, audit-time verdicts and
+pre-mutation verdicts cannot drift.
