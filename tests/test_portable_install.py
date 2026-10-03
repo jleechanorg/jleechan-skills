@@ -78,6 +78,35 @@ class PortableInstallTests(unittest.TestCase):
         (copied / "skills/extra.txt").write_text("unlisted")
         self.assertNotEqual(subprocess.run(command, capture_output=True).returncode, 0)
 
+    def test_integrity_and_target_gates_survive_optimization(self):
+        fixture = self.root / "fixture"
+        (fixture / "scripts").mkdir(parents=True)
+        shutil.copyfile(REPO / "install-claude-commands.sh", fixture / "install-claude-commands.sh")
+        shutil.copyfile(REPO / "scripts/verify_portable_skills.py",
+                        fixture / "scripts/verify_portable_skills.py")
+        shutil.copytree(SOURCE, fixture / "portable")
+        skill = fixture / "portable/skills/advice/SKILL.md"
+        original = skill.read_bytes()
+        extra = fixture / "portable/skills/unlisted.txt"
+        for optimize in ("0", "1"):
+            for case in ("corruption", "inventory", "target"):
+                with self.subTest(optimize=optimize, case=case):
+                    skill.write_bytes(original)
+                    if extra.exists():
+                        extra.unlink()
+                    target = self.root / (".agents" if case == "target" else "output")
+                    if case == "corruption":
+                        skill.write_text("corrupted")
+                    elif case == "inventory":
+                        extra.write_text("unlisted")
+                    env = dict(os.environ, PYTHONOPTIMIZE=optimize, PORTABLE_HOME=str(target))
+                    result = subprocess.run(
+                        ["bash", str(fixture / "install-claude-commands.sh"), "--portable"],
+                        env=env, capture_output=True, text=True)
+                    self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertIn("Portable verification failed", result.stderr)
+                    self.assertFalse(target.exists(), "Rejected install must not create its target")
+
 
 if __name__ == "__main__":
     unittest.main()

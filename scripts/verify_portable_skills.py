@@ -10,34 +10,47 @@ from pathlib import Path
 def verify(root):
     root = Path(root)
     manifest = json.loads((root / "manifest.json").read_text())
-    assert manifest["format"] == "jleechan-portable-skills-v1", "Unknown manifest format"
+    if manifest["format"] != "jleechan-portable-skills-v1":
+        raise ValueError("Unknown manifest format")
     expected = manifest["files"]
-    assert expected, "Empty package"
-    assert not (root / "skills").is_symlink(), "Linked skills root refused"
+    if not expected:
+        raise ValueError("Empty package")
+    if (root / "skills").is_symlink():
+        raise ValueError("Linked skills root refused")
     actual = set()
     for path in (root / "skills").rglob("*"):
-        assert not path.is_symlink(), f"Symlink in package: {path}"
+        if path.is_symlink():
+            raise ValueError(f"Symlink in package: {path}")
         if path.is_file():
             actual.add(path.relative_to(root).as_posix())
-    assert actual == set(expected), "Package inventory differs from manifest"
+    if actual != set(expected):
+        raise ValueError("Package inventory differs from manifest")
     for relative, digest in expected.items():
-        assert hashlib.sha256((root / relative).read_bytes()).hexdigest() == digest, relative
+        if hashlib.sha256((root / relative).read_bytes()).hexdigest() != digest:
+            raise ValueError(relative)
     return manifest
 
 
 def check_target(value):
     target = Path(value)
-    assert value and target.is_absolute(), "PORTABLE_HOME must be an absolute dedicated directory"
-    assert ".." not in target.parts, "Parent traversal is not a target"
-    assert not any(p.is_symlink() for p in [target, *target.parents]), "Linked target/ancestor refused"
-    assert target != Path.home() and len(target.parts) > 2, "Broad target refused"
-    assert not any(part in {".claude", ".codex", ".agents"} for part in target.parts), "Use a dedicated package root, not an agent home"
+    if not value or not target.is_absolute():
+        raise ValueError("PORTABLE_HOME must be an absolute dedicated directory")
+    if ".." in target.parts:
+        raise ValueError("Parent traversal is not a target")
+    if any(p.is_symlink() for p in [target, *target.parents]):
+        raise ValueError("Linked target/ancestor refused")
+    if target == Path.home() or len(target.parts) <= 2:
+        raise ValueError("Broad target refused")
+    if any(part in {".claude", ".codex", ".agents"} for part in target.parts):
+        raise ValueError("Use a dedicated package root, not an agent home")
     if target.exists():
-        assert target.is_dir(), "Target must be a directory"
+        if not target.is_dir():
+            raise ValueError("Target must be a directory")
         if any(target.iterdir()):
             # Backups may preserve local edits, so verify ownership, not old hashes.
             manifest = json.loads((target / "manifest.json").read_text())
-            assert manifest["format"] == "jleechan-portable-skills-v1", "Unowned nonempty target refused"
+            if manifest["format"] != "jleechan-portable-skills-v1":
+                raise ValueError("Unowned nonempty target refused")
     return str(target)
 
 
@@ -51,7 +64,7 @@ def main():
             print(check_target(args.target))
         else:
             parser.error("root required") if args.root is None else verify(args.root)
-    except (AssertionError, OSError, ValueError, KeyError) as exc:
+    except (OSError, ValueError, KeyError) as exc:
         parser.exit(1, f"Portable verification failed: {exc}\n")
 
 
