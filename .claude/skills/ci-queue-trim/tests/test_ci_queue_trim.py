@@ -1129,6 +1129,62 @@ class TestNewReviewCoverage(unittest.TestCase):
         self.assertEqual(cancelled, [770])
         self.assertEqual(stub.cancel_calls, [770])
 
+    # ---- fetched pr_record.number must equal requested pr_number ----
+
+    def test_misrouted_pr_same_fork_repo_id_yields_incomplete_keep_at_audit(self):
+        """Audit guard: if the ``pulls/{pr_number}`` endpoint returns a
+        record whose own ``number`` field differs from the requested
+        ``pr_number`` (a misroute), the run is KEEP incomplete even if
+        the ``head.repo.id`` happens to match. The same fork identity is
+        not enough."""
+        stub = _RunCmdStub()
+        # Run's PR association says PR 42 with same-fork repo id.
+        run = queued_run(780, head_sha="old", pr_numbers=[42])
+        # The endpoint returns a record whose number is 43 (misroute),
+        # but head.repo.id matches the same-fork identity.
+        pr_record_wrong_number = pr_record(
+            43, head_sha="new_tip", head_repo_id=REPO_ID,
+        )
+        _setup_queue(stub, [run], {42: pr_record_wrong_number})
+
+        audited, _ = _audit_with(stub)
+        self.assertEqual(audited[0]["verdict"], "KEEP")
+        self.assertTrue(audited[0]["audit_incomplete"])
+
+    def test_misrouted_pr_no_cancel_at_mutation(self):
+        """Pre-cancel guard: same misroute at mutation time also drops
+        the candidate. ``gh run cancel`` is NOT invoked."""
+        stub = _RunCmdStub()
+        run = queued_run(781, head_sha="old", pr_numbers=[42])
+        pr_record_wrong_number = pr_record(
+            43, head_sha="new_tip", head_repo_id=REPO_ID,
+        )
+        _setup_queue(stub, [run], {42: pr_record_wrong_number})
+
+        # The audit verdict would be KEEP, but we simulate a stale
+        # CANCEL verdict from earlier in time and confirm the re-fetch +
+        # re-classify drops it.
+        candidates = [
+            {
+                "run_id": 781, "name": "CI", "branch": "feature/test",
+                "event": "pull_request", "pr_number": 42,
+                "pr_state": "open", "head_commit_age": 0,
+                "pr_updated_age": 0, "deceptive_delta": 0,
+                "superseded": True, "audit_incomplete": False,
+                "verdict": "CANCEL", "reason": "stale",
+                "head_sha": "old",
+            },
+        ]
+        stub.allow_cancel(781)
+
+        with mock.patch.object(ci_queue_trim, "run_cmd", side_effect=stub), _patch_now():
+            cancelled = ci_queue_trim.cancel_with_per_item_refresh(
+                "owner/repo", candidates,
+                allowed_workflows={".github/workflows/ci.yml"},
+            )
+        self.assertEqual(cancelled, [])
+        self.assertEqual(stub.cancel_calls, [])
+
 
 if __name__ == "__main__":
     unittest.main()

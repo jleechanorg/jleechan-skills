@@ -542,6 +542,12 @@ def _collect_inputs(repo: str, run_record: Dict[str, Any]) -> Tuple[
         pr_record = fetch_pr_record(repo, pr_number)
         if pr_record is None:
             return None, None, False
+        # The endpoint MUST return the PR whose `number` matches the
+        # requested ``pr_number``. A wrong PR with the same
+        # ``head.repo.id`` (same fork) is a misroute — refuse it.
+        actual_number = pr_record.get("number")
+        if actual_number != pr_number:
+            return None, None, False
         actual_repo_id = (
             (pr_record.get("head") or {}).get("repo") or {}
         ).get("id")
