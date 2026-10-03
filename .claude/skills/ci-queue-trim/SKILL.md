@@ -147,10 +147,7 @@ the commands below:
 "${CLAUDE_HOME:-$HOME/.claude}/skills/ci-queue-trim/scripts/ci_queue_trim.py"
 ```
 
-This expands to a per-user absolute path (e.g.
-`/home/jleechan/.claude/skills/...` on Linux or
-`/Users/<you>/.claude/skills/...` on macOS); the tilde form
-(`~/.claude/skills/...`) is equivalent.
+This resolves the helper under the active Claude home on both Linux and macOS.
 
 ### 1. Dry-Run Audit (Default)
 Inspects the queue, classifies each run via the pure classifier, and
