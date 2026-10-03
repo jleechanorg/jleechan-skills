@@ -139,8 +139,18 @@ separate decision logic after the classifier.
 
 ## Tooling & Command Syntax
 
-The skill includes a pre-built, standalone Python helper at:
-`/Users/jleechan/.claude/skills/ci-queue-trim/scripts/ci_queue_trim.py`
+The skill includes a pre-built, standalone Python helper. Resolve the
+skill root via the standard Claude home convention and substitute in
+the commands below:
+
+```bash
+"${CLAUDE_HOME:-$HOME/.claude}/skills/ci-queue-trim/scripts/ci_queue_trim.py"
+```
+
+This expands to a per-user absolute path (e.g.
+`/home/jleechan/.claude/skills/...` on Linux or
+`/Users/<you>/.claude/skills/...` on macOS); the tilde form
+(`~/.claude/skills/...`) is equivalent.
 
 ### 1. Dry-Run Audit (Default)
 Inspects the queue, classifies each run via the pure classifier, and
