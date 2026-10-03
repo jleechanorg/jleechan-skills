@@ -26,9 +26,10 @@ length alone does not justify serial execution. Do not invent work, duplicate
 lanes, expand scope, or provision paid resources without existing authority.
 
 When scope changes, record the affected deliverable and its acceptance evidence.
-Before holding an accepted batch for an add-on, name its unmet acceptance
-condition, required safety check, shared-write conflict, or measured resource
-limit. Otherwise continue its next authorized action and track the add-on separately.
+Before holding an accepted batch for an add-on, name an actual dependency,
+shared-write conflict, or measured resource/tool limit that blocks its next
+authorized action. Otherwise continue its next authorized action and track the
+add-on separately.
 
 ## Every 20 minutes, with an hourly rollup
 
