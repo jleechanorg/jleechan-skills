@@ -102,6 +102,11 @@ safe rollback.
 Read a skill before using it: some skills require a local binary, browser
 session, or integration that is not bundled with this export.
 
+An opt-in [curated portable edition](portable/README.md) provides native-tool
+derivatives with a hash manifest and isolated installation. Canonical Claude
+packages retain their existing behavior; file installation, runtime discovery,
+and successful workflow execution are verified separately.
+
 ---
 
 ## 📋 Skills at a Glance

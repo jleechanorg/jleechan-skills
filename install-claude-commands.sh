@@ -45,10 +45,12 @@ MIGRATION_PREPARED=false
 MIGRATION_ACTIVE_PATHS=()
 MIGRATION_ARCHIVE_PATHS=()
 MIGRATION_SOURCE_IDENTITIES=()
+PORTABLE=false
 
 show_usage() {
     cat <<EOF
 Usage: $(basename "$0") [--merge [--migrate-archives] | --backup]
+       PORTABLE_HOME=/absolute/dedicated/package $(basename "$0") --portable [--backup]
 
 Installs into CLAUDE_HOME (default: ~/.claude). A nonempty target is refused
 by default. Use --merge to explicitly update source-managed files in place, or
@@ -64,6 +66,7 @@ parse_arguments() {
             --merge) INSTALL_MODE="merge" ;;
             --migrate-archives) MIGRATE_ARCHIVES=true ;;
             --backup) INSTALL_MODE="backup" ;;
+            --portable) PORTABLE=true ;;
             -h|--help) show_usage; exit 0 ;;
             *) log_error "Unknown option: $1"; show_usage >&2; return 1 ;;
         esac
@@ -73,6 +76,25 @@ parse_arguments() {
         log_error "--migrate-archives requires --merge"
         return 1
     fi
+}
+
+# Portable derivatives are opt-in and never merge into canonical agent homes.
+# Reuse the existing staged backup transaction, copying skills only.
+install_portable() {
+    if [ "$INSTALL_MODE" = "merge" ] || [ "$MIGRATE_ARCHIVES" = true ]; then
+        log_error "Portable packages do not support merge or archive migration"
+        return 1
+    fi
+    python3 "$PLUGIN_SRC_DIR/scripts/verify_portable_skills.py" "$PLUGIN_SRC_DIR/portable"
+    CLAUDE_HOME="$(python3 "$PLUGIN_SRC_DIR/scripts/verify_portable_skills.py" --target "${PORTABLE_HOME:-}")"
+    INSTALL_ROOT="$CLAUDE_HOME"
+    prepare_target
+    install_component "$PLUGIN_SRC_DIR/portable/skills" "$INSTALL_ROOT/skills" "skills"
+    cp "$PLUGIN_SRC_DIR/portable/manifest.json" "$INSTALL_ROOT/manifest.json"
+    python3 "$PLUGIN_SRC_DIR/scripts/verify_portable_skills.py" "$INSTALL_ROOT"
+    finalize_backup_install
+    log_success "Portable disk package verified at $CLAUDE_HOME"
+    log_info "Discovery and runtime execution are separate checks; see portable/README.md."
 }
 
 directory_is_nonempty() {
@@ -442,6 +464,10 @@ show_next_steps() {
 # Main installation flow
 main() {
     parse_arguments "$@"
+    if [ "$PORTABLE" = true ]; then
+        install_portable
+        return
+    fi
     echo
     log_info "Claude Commands Installation Script"
     log_info "Installing complete Claude Code command system..."
