@@ -42,9 +42,15 @@ When filtering PRs by activity, `PR.updatedAt` is **fundamentally deceptive**:
   comments, rebase checks) constantly touch `updatedAt`.
 - A PR whose code has not been touched in 10–30 days frequently shows
   `updatedAt` of "2 minutes ago".
-- The script uses the head commit's **committer date** as the source of
-  truth. Note: `committedDate` is the **author's commit timestamp**, which
-  precedes the push — it is NOT the push time.
+- The script uses the **immutable head-commit committer timestamp** as
+  the source of truth — fetched from
+  `GET repos/{head.repo.full_name}/commits/{head.sha}` via
+  `commit.committer.date`. NEVER substituted with `pushed_at`,
+  `updated_at`, or run age.
+- `PR.updated_at` is reported separately for operator visibility only
+  (the `pr_updated_age` field); it is NOT used for dormancy decisions.
+- If the commits endpoint fails, the run is KEEP incomplete. The
+  classifier cannot trust a committer timestamp it cannot verify.
 
 ### 2. Superseded runs (`run.head_sha` ≠ PR/branch current head)
 A run can be queued against an older SHA even though the PR has since
@@ -201,7 +207,10 @@ python3 ~/.claude/skills/ci-queue-trim/scripts/ci_queue_trim.py --json
 Each row carries:
 `run_id, name, branch, event, pr_number, pr_state, head_commit_age,
 pr_updated_age, deceptive_delta, superseded, audit_incomplete, verdict,
-reason`.
+reason`. `head_commit_age` is the actual immutable committer-timestamp
+age (the dormancy source of truth). `pr_updated_age` is the PR
+`updated_at` age, reported for visibility only — not used for
+decisions.
 
 ---
 

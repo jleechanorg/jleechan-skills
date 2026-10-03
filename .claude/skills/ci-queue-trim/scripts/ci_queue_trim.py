@@ -431,23 +431,45 @@ def fetch_pr_record(repo: str, pr_number: int) -> Optional[Dict[str, Any]]:
     The live ``pulls/{n}`` response includes ``head.repo.{id, full_name,
     name, ...}`` and ``base.repo.{id, ...}``. Identity verification
     uses ``head.repo.id`` to match against the run's PR association.
+
+    The head commit date MUST come from the immutable committer
+    timestamp at ``GET repos/{head.repo.full_name}/commits/{head.sha}``
+    via ``commit.committer.date``. ``pushed_at`` and ``updated_at`` are
+    both repo/PR-level timestamps that get bumped by unrelated pushes
+    and bot comments — they are NOT a substitute for the actual commit
+    date. If the commits endpoint fails, ``head_commit_date`` is left
+    absent; the run is KEEP incomplete. ``updated_at`` is preserved
+    separately for reporting only.
     """
     data = _gh_api(f"repos/{repo}/pulls/{pr_number}")
     if not data:
         return None
     head = data.get("head") or {}
     base = data.get("base") or {}
+    head_sha = head.get("sha") or ""
+    head_repo_full = (head.get("repo") or {}).get("full_name") or ""
+
+    head_commit_date: Optional[str] = None
+    if head_repo_full and head_sha:
+        commit_data = _gh_api(
+            f"repos/{head_repo_full}/commits/{head_sha}"
+        )
+        if commit_data:
+            head_commit_date = (
+                (commit_data.get("commit") or {}).get("committer") or {}
+            ).get("date")
+
     return {
         "number": data.get("number"),
         "state": (data.get("state") or "").lower(),
         "merged": bool(data.get("merged")),
         "merge_commit_sha": data.get("merge_commit_sha"),
         "head": {
-            "sha": head.get("sha") or "",
+            "sha": head_sha,
             "ref": head.get("ref") or "",
             "repo": {
                 "id": (head.get("repo") or {}).get("id"),
-                "full_name": (head.get("repo") or {}).get("full_name") or "",
+                "full_name": head_repo_full,
                 "name": (head.get("repo") or {}).get("name") or "",
             },
         },
@@ -458,8 +480,11 @@ def fetch_pr_record(repo: str, pr_number: int) -> Optional[Dict[str, Any]]:
                 "full_name": (base.get("repo") or {}).get("full_name") or "",
             },
         },
-        "head_commit_date": ((data.get("head") or {}).get("repo") or {}).get("pushed_at")
-            or data.get("updated_at"),
+        # Immutable committer timestamp for the head commit ONLY. NEVER
+        # substitute pushed_at or updated_at here.
+        "head_commit_date": head_commit_date,
+        # PR-level timestamp kept for reporting only.
+        "updated_at": data.get("updated_at"),
     }
 
 

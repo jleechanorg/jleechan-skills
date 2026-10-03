@@ -132,6 +132,7 @@ def pr_record(
     head_ref: str = "feature/test",
     merged: bool = False,
     head_commit_minutes_ago: int = 10,
+    updated_at_minutes_ago: int = 5,
 ) -> Dict[str, Any]:
     """Faithful PR shape (``pulls/{n}``).
 
@@ -172,7 +173,7 @@ def pr_record(
                 "name": base_repo.split("/")[-1],
             },
         },
-        "updated_at": _iso(FIXED_NOW - datetime.timedelta(minutes=5)),
+        "updated_at": _iso(FIXED_NOW - datetime.timedelta(minutes=updated_at_minutes_ago)),
         "head_commit_date": _iso(FIXED_NOW - datetime.timedelta(minutes=head_commit_minutes_ago)),
     }
 
@@ -282,8 +283,28 @@ def _setup_queue(
         stub.add(f"/actions/runs/{run_id}", r)
         for pr_ref in r.get("pull_requests", []):
             pr_num = pr_ref["number"]
-            if pr_num in pr_by_number:
-                stub.add(f"/pulls/{pr_num}", pr_by_number[pr_num])
+            pr_rec = pr_by_number.get(pr_num) if pr_by_number else None
+            if pr_rec is not None:
+                stub.add(f"/pulls/{pr_num}", pr_rec)
+                # Stub the commits endpoint so fetch_pr_record gets the
+                # immutable committer timestamp. Use the head_commit_date
+                # already present on the PR fixture.
+                head_sha = (pr_rec.get("head") or {}).get("sha") or ""
+                head_full = (
+                    (pr_rec.get("head") or {}).get("repo") or {}
+                ).get("full_name") or "owner/repo"
+                if head_sha:
+                    stub.add(
+                        f"repos/{head_full}/commits/{head_sha}",
+                        {
+                            "commit": {
+                                "committer": {
+                                    "date": pr_rec.get("head_commit_date")
+                                    or "2026-01-15T00:00:00Z",
+                                }
+                            }
+                        },
+                    )
             else:
                 stub.add(f"/pulls/{pr_num}", (1, "", "404 missing"))
 
@@ -1184,6 +1205,108 @@ class TestNewReviewCoverage(unittest.TestCase):
             )
         self.assertEqual(cancelled, [])
         self.assertEqual(stub.cancel_calls, [])
+
+    # ---- immutable committer timestamp from /commits/{sha} ----
+
+    def test_old_head_uses_real_committer_date_not_pr_or_repo_activity(self):
+        """A PR with a recent ``updated_at`` (bot comment) AND a recent
+        ``head.repo.pushed_at`` (unrelated push) MUST NOT inflate the
+        head-commit age. Only the immutable committer timestamp from
+        ``/commits/{sha}`` counts. Run's head_sha matches PR's head_sha
+        (so no supersede); only dormancy is in play."""
+        stub = _RunCmdStub()
+        run = queued_run(
+            790, event="pull_request", head_sha="old_sha",
+            pr_numbers=[42],
+        )
+        # PR fixture: matching head_sha, recent updated_at, recent
+        # pushed_at — but the actual head_commit_date is OLD.
+        pr = pr_record(
+            42, head_sha="old_sha",
+            head_commit_minutes_ago=300,  # 5h ago — past max_age_hours
+            updated_at_minutes_ago=2,  # ~2 minutes ago (bot comment)
+        )
+        # Inject pushed_at directly on the head.repo — the live PR
+        # response carries this as a recent timestamp.
+        pr["head"]["repo"]["pushed_at"] = _iso(
+            FIXED_NOW - datetime.timedelta(minutes=2)
+        )
+        _setup_queue(stub, [run], {42: pr})
+
+        audited, _ = _audit_with(stub)
+        row = audited[0]
+        # The actual committer date is ~300h ago, which is OLD relative
+        # to max_age_hours=2. Dormancy cancels.
+        self.assertEqual(row["verdict"], "CANCEL")
+        self.assertFalse(row["superseded"])  # dormancy path, not supersede
+        # Head-commit age reflects the real committer date, NOT updated_at.
+        self.assertNotEqual(row["head_commit_age"], "unknown")
+        self.assertIn("5.0h", row["head_commit_age"])  # 300m formatted as 5.0h
+        # pr_updated_age is reported separately for the operator.
+        self.assertNotEqual(row["pr_updated_age"], "unknown")
+        self.assertIn("2", row["pr_updated_age"])
+
+    def test_commits_lookup_failure_unknown_keep_in_normal_mode(self):
+        """Normal mode: if the ``/commits/{sha}`` endpoint fails,
+        ``head_commit_date`` is left absent and the run is KEEP
+        incomplete — NEVER substituted by ``pushed_at``/``updated_at``/
+        run age. Dormancy-based cancellation requires the real
+        committer timestamp; we cannot trust it without it."""
+        stub = _RunCmdStub()
+        run = queued_run(
+            791, event="pull_request", head_sha="old_sha",
+            pr_numbers=[42],
+        )
+        pr = pr_record(
+            42, head_sha="old_sha",
+            head_commit_minutes_ago=300,
+        )
+        _setup_queue(stub, [run], {42: pr})
+
+        # Force the commits endpoint to fail with a 404 (delete the
+        # default stub registered by _setup_queue).
+        pr_sha = (pr.get("head") or {}).get("sha")
+        stub.responses = [
+            (m, p) for (m, p) in stub.responses
+            if f"/commits/{pr_sha}" not in m
+        ]
+        stub.add(f"/commits/{pr_sha}", (1, "", "404 missing"))
+
+        audited, _ = _audit_with(stub)
+        row = audited[0]
+        self.assertEqual(row["verdict"], "KEEP")
+        self.assertTrue(row["audit_incomplete"])
+        # Reporting field shows unknown, NOT 300 or any substituted value.
+        self.assertEqual(row["head_commit_age"], "unknown")
+
+    def test_superseded_only_operates_without_committer_timestamp(self):
+        """Superseded-only mode cancels on the strict supersede signal
+        alone and does NOT require the committer timestamp."""
+        stub = _RunCmdStub()
+        run = queued_run(
+            792, event="pull_request", head_sha="old_sha",
+            pr_numbers=[42],
+        )
+        pr = pr_record(
+            42, head_sha="new_tip",
+            head_commit_minutes_ago=300,
+        )
+        _setup_queue(stub, [run], {42: pr})
+        # Force commits endpoint to fail.
+        pr_sha = (pr.get("head") or {}).get("sha")
+        stub.responses = [
+            (m, p) for (m, p) in stub.responses
+            if f"/commits/{pr_sha}" not in m
+        ]
+        stub.add(f"/commits/{pr_sha}", (1, "", "404 missing"))
+
+        audited, _ = _audit_with(stub, superseded_only=True)
+        row = audited[0]
+        # Supersede (head_sha mismatch) cancels in superseded-only mode
+        # even with no committer timestamp.
+        self.assertEqual(row["verdict"], "CANCEL")
+        self.assertTrue(row["superseded"])
+        self.assertFalse(row["audit_incomplete"])
 
 
 if __name__ == "__main__":

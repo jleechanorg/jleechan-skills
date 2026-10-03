@@ -96,6 +96,43 @@ Regressions:
 - `TestNewReviewCoverage::test_live_shaped_pull_request_identity_red_and_green`
 - `TestNewReviewCoverage::test_strip_ref_handles_slash_in_ref`
 
+## Round-6 regression fix — immutable committer timestamp
+
+The root live dryrun revealed that `fetch_pr_record` was substituting
+`head.repo.pushed_at` (which bumps on every repo push, including
+unrelated branches) and `PR.updated_at` (which bumps on every bot
+comment) for the actual head-commit committer timestamp. All unrelated
+candidates showed `1.1m` head-commit age because the repository push
+shared one `pushed_at`. The original installed tool already fetched the
+real committer date — restored.
+
+`fetch_pr_record` now:
+- Calls `GET repos/{head.repo.full_name}/commits/{head.sha}` and
+  extracts `commit.committer.date` as `head_commit_date`.
+- Leaves `head_commit_date` absent if that endpoint fails (never
+  substitutes `pushed_at`, `updated_at`, or run age).
+- Stores `updated_at` separately on the PR record for reporting only
+  (the `pr_updated_age` audit row field).
+
+In normal mode, an absent `head_commit_date` → KEEP incomplete — the
+classifier cannot trust a committer timestamp it cannot verify. In
+`--superseded-only` mode, the supersede signal alone cancels; the
+committer timestamp is not required.
+
+Regressions:
+- `TestNewReviewCoverage::test_old_head_uses_real_committer_date_not_pr_or_repo_activity`
+  proves recent `updated_at` AND recent `head.repo.pushed_at` do NOT
+  inflate the head-commit age. The actual committer date wins.
+- `TestNewReviewCoverage::test_commits_lookup_failure_unknown_keep_in_normal_mode`
+  proves an absent committer timestamp yields KEEP incomplete, never
+  a substituted dormancy cancel.
+- `TestNewReviewCoverage::test_superseded_only_operates_without_committer_timestamp`
+  proves `--superseded-only` cancels on the supersede signal alone
+  even without a committer timestamp.
+
+The exact PR-number identity guard from round-5 (number must match
+the requested `pr_number`) is preserved.
+
 ## Round-5 cleanup
 
 - Removed unused `_build_row` helper.
