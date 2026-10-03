@@ -78,6 +78,47 @@ class PortableInstallTests(unittest.TestCase):
         (copied / "skills/extra.txt").write_text("unlisted")
         self.assertNotEqual(subprocess.run(command, capture_output=True).returncode, 0)
 
+    def test_manifest_skill_scope_survives_optimization(self):
+        for optimize in ("0", "1"):
+            for case in ("added", "omitted", "missing_entry"):
+                with self.subTest(optimize=optimize, case=case):
+                    copied = self.root / ("copy-" + optimize + case)
+                    shutil.copytree(SOURCE, copied)
+                    path = copied / "manifest.json"
+                    manifest = json.loads(path.read_text())
+                    if case == "added":
+                        manifest["skills"].append("nonexistent")
+                    elif case == "omitted":
+                        manifest["skills"].remove("advice")
+                    else:
+                        (copied / "skills/advice/SKILL.md").unlink()
+                        del manifest["files"]["skills/advice/SKILL.md"]
+                    path.write_text(json.dumps(manifest))
+                    result = subprocess.run(
+                        ["python3", str(REPO / "scripts/verify_portable_skills.py"), str(copied)],
+                        env=dict(os.environ, PYTHONOPTIMIZE=optimize), capture_output=True, text=True)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("Missing SKILL.md" if case == "missing_entry" else "Skill list differs",
+                                  result.stderr)
+
+    def test_custom_canonical_home_is_preserved_under_optimization(self):
+        shutil.copytree(SOURCE, self.target)
+        sentinel = self.target / "local.txt"
+        sentinel.write_text("keep canonical home")
+        alias = self.root / "canonical-alias"
+        alias.symlink_to(self.target, target_is_directory=True)
+        for optimize in ("0", "1"):
+            for canonical in (self.target, alias):
+                with self.subTest(optimize=optimize, canonical=canonical):
+                    result = subprocess.run(
+                        ["bash", str(REPO / "install-claude-commands.sh"), "--portable", "--backup"],
+                        env=dict(os.environ, PYTHONOPTIMIZE=optimize, CLAUDE_HOME=str(canonical),
+                                 PORTABLE_HOME=str(self.target)), capture_output=True, text=True)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("equals configured CLAUDE_HOME", result.stderr)
+                    self.assertEqual(sentinel.read_text(), "keep canonical home")
+                    self.assertEqual(list(self.root.glob("package.backup-*")), [])
+
     def test_integrity_and_target_gates_survive_optimization(self):
         fixture = self.root / "fixture"
         (fixture / "scripts").mkdir(parents=True)

@@ -17,6 +17,14 @@ def verify(root):
         raise ValueError("Empty package")
     if (root / "skills").is_symlink():
         raise ValueError("Linked skills root refused")
+    skills = manifest["skills"]
+    directories = {p.name for p in (root / "skills").iterdir() if p.is_dir()}
+    if (not isinstance(skills, list) or not all(isinstance(name, str) for name in skills)
+            or len(skills) != len(set(skills)) or set(skills) != directories):
+        raise ValueError("Skill list differs from package directories")
+    for name in skills:
+        if not (root / "skills" / name / "SKILL.md").is_file():
+            raise ValueError(f"Missing SKILL.md: {name}")
     actual = set()
     for path in (root / "skills").rglob("*"):
         if path.is_symlink():
@@ -31,7 +39,7 @@ def verify(root):
     return manifest
 
 
-def check_target(value):
+def check_target(value, canonical_home=None):
     target = Path(value)
     if not value or not target.is_absolute():
         raise ValueError("PORTABLE_HOME must be an absolute dedicated directory")
@@ -43,6 +51,8 @@ def check_target(value):
         raise ValueError("Broad target refused")
     if any(part in {".claude", ".codex", ".agents"} for part in target.parts):
         raise ValueError("Use a dedicated package root, not an agent home")
+    if canonical_home is not None and target.resolve() == Path(canonical_home).resolve():
+        raise ValueError("Portable target equals configured CLAUDE_HOME")
     if target.exists():
         if not target.is_dir():
             raise ValueError("Target must be a directory")
@@ -58,10 +68,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("root", nargs="?")
     parser.add_argument("--target")
+    parser.add_argument("--canonical-home")
     args = parser.parse_args()
     try:
         if args.target is not None:
-            print(check_target(args.target))
+            print(check_target(args.target, args.canonical_home))
         else:
             parser.error("root required") if args.root is None else verify(args.root)
     except (OSError, ValueError, KeyError) as exc:

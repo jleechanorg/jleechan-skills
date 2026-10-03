@@ -81,12 +81,13 @@ parse_arguments() {
 # Portable derivatives are opt-in and never merge into canonical agent homes.
 # Reuse the existing staged backup transaction, copying skills only.
 install_portable() {
+    local canonical_home="$CLAUDE_HOME"
     if [ "$INSTALL_MODE" = "merge" ] || [ "$MIGRATE_ARCHIVES" = true ]; then
         log_error "Portable packages do not support merge or archive migration"
         return 1
     fi
     python3 "$PLUGIN_SRC_DIR/scripts/verify_portable_skills.py" "$PLUGIN_SRC_DIR/portable"
-    CLAUDE_HOME="$(python3 "$PLUGIN_SRC_DIR/scripts/verify_portable_skills.py" --target "${PORTABLE_HOME:-}")"
+    CLAUDE_HOME="$(python3 "$PLUGIN_SRC_DIR/scripts/verify_portable_skills.py" --target "${PORTABLE_HOME:-}" --canonical-home "$canonical_home")"
     INSTALL_ROOT="$CLAUDE_HOME"
     prepare_target
     install_component "$PLUGIN_SRC_DIR/portable/skills" "$INSTALL_ROOT/skills" "skills"
