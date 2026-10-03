@@ -1,0 +1,15 @@
+{
+  "format": "jleechan-shared-skills-v1",
+  "skills": [
+    "4layer",
+    "four-layer",
+    "integration-verification",
+    "pr-blocker-min-repro"
+  ],
+  "files": {
+    "4layer/SKILL.md": "669da8cce6c310c8489c29d47051f27b371b6f4a2ee6480c0691084a1b3d4569",
+    "four-layer/SKILL.md": "2cd9dd2d2169affcddecfdfee610159e866a814c41d6976dc04be3d65081d4bf",
+    "integration-verification/SKILL.md": "b833445ba5c7e3fc794c1c9a2d11d5171d5cc06943a7ed42a9125d08bf7c024c",
+    "pr-blocker-min-repro/SKILL.md": "1742551066db331f731ffcf24852b844e4dabe620e263282f888a25388bdc6bd"
+  }
+}

@@ -9,9 +9,19 @@ execution_mode: immediate
 
 Runs the Four-Layer Minimal Repro ladder to reproduce PR blockers quickly with evidence-backed classification.
 
-Primary source is the existing command definition and protocol companion:
-- `.claude/commands/extended-library/4layer.md`
-- `.claude/skills/pr-blocker-min-repro/SKILL.md`
+This skill owns the protocol for `/4layer` and `four-layer`. Command files are
+thin dispatchers, not protocol dependencies; an absent global
+`commands/extended-library/4layer.md` does not require a project overlay.
+
+Before executing, read both mandatory companions completely, resolving these paths
+relative to this skill (on catalog-only runtimes, resolve each exact companion name
+and read its returned definition):
+- `../pr-blocker-min-repro/SKILL.md`
+- `../integration-verification/SKILL.md`
+
+If either companion is missing, report the missing dependency and do not claim the
+workflow is complete. Discover actual project runners before using companion examples;
+examples do not authorize provider calls or changes to shared state.
 
 ## Minimal Repro Ladder
 
@@ -71,3 +81,25 @@ After each test run, capture:
 
 - `.claude/skills/pr-blocker-min-repro/SKILL.md` for BYOK-specific starter commands and bead note patterns.
 - `.claude/skills/integration-verification/SKILL.md` for minimum evidence completeness.
+
+## Integration claim gate
+
+For ANY integration claim, provide all three: configuration evidence that enables the
+feature, trigger evidence showing automatic activation, and timestamped log evidence
+from an automatic (not manual) execution. Manual test output cannot substitute for
+automatic-run logs. If any evidence is missing, the integration is NOT verified.
+
+## Shared runtime boundary
+
+Claude, Codex, and cloud sessions use this same protocol. Read the target repository's
+instructions and resolve the documented runner before executing; shell examples are
+illustrative, not universal executable commands. Show the exact command and working
+directory. If a runner, fixture, credential, or supported execution tool is unavailable,
+report `UNSUPPORTED ENVIRONMENT / NO REPRO` with checked paths; do not count a skip as a
+pass or bypass the pass-only ladder. Inspection and packaging do not authorize live
+provider calls, credential-file reads, shared-state mutations, or external publication.
+
+Record command, revision, environment summary, duration, and each layer's
+pass/fail/unsupported/not-run result alongside its evidence. Correlate screenshots and
+logs to the same run, redact secrets and private content before authorized sharing,
+and treat layer classification as a triage hint rather than root-cause proof.
