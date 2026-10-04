@@ -2,9 +2,13 @@
 
 This is the repository companion to [issue 459](https://github.com/jleechanorg/jleechan-skills/issues/459), with a sanitized incident chronology and an executable behavioral regression specification for OpenAI engineers.
 
-**Current result:** six synthetic positive controls accepted, six synthetic negative controls rejected; focused harness tests passed. **No fresh actual-agent failure has been reproduced.** No provider/model call was made for this package. The original incident is reported evidence; the offline fixture is a simulated contract oracle; an actual-agent replay is a separate experiment still to run.
+**To give work directly to a fresh dot, use [DOT-EXECUTE.md](DOT-EXECUTE.md).** It is a single self-contained Markdown task with all inputs and nine executable outcomes. An engineer can point dot at that URL and ask it to complete the file; no custom adapter or installer is needed. Keep the separate [observer guide](DOT-OBSERVER.md) out of the executor's input.
+
+**Proof status:** zero actual fresh root-dot runs of that file have been observed, so no fresh-dot failure is proved. The earlier six-case fixture below remains a synthetic oracle. A different native-worker exercise completed available first-turn work and correctly waited for genuinely missing input; that is not proof of the requested root-dot failure. No additional native-only experiment is being substituted for the requested run.
 
 ## Contents
+
+- [Single-file dot task](DOT-EXECUTE.md) and [separate operator/acceptance guide](DOT-OBSERVER.md)
 
 - [Task timelines and causal analysis](task-timelines-and-rca.md): 58 neutral task aliases, all 169 rewritten chronology events, genuine holds, completed scope and unknown causes
 - [Machine-readable chronology](task-timelines.json): same events, relative elapsed seconds, separately marked post-window corrections
@@ -116,7 +120,7 @@ Copy `actual-run-template.json` into your own results folder and fill in runtime
 
 Keep classifications distinct:
 
-- `not_run`: actual-agent test not performed (the state of this package)
+- `not_run`: this specific scenario/runtime has not been executed (all six stub scenarios remain untested against a fresh root dot; the separate real-file native experiment has its own results)
 - `contract_pass`: captured actual behavior satisfied this scenario
 - `contract_fail`: captured behavior violated this scenario; inspect whether the phenotype matches the incident
 - `timeout_nonterminal`: observation budget ended without terminal behavior
@@ -130,4 +134,4 @@ The strongest observed follow-through gap is T06: an acknowledged-as-posted but 
 
 The chronology also preserves successful scoped outcomes and genuine approval/cancellation boundaries. A tool message labeling an operation “user cancelled” does not establish human intent when the user explicitly denies canceling; preserve the tool observation, the clarification and the unknown causal origin. Do not infer an internal defect from that ambiguity. A later successful authorized retry does not grant permission to bypass a later denial.
 
-There is no production fix in this package and no claim of merge readiness. The unchanged fixture, new capture bridge and tests are nonproduction repro tooling. Installer/exported skills are unchanged; repository-wide tests and live-agent tests are not claimed by the focused verification receipt.
+There is no production fix in this package and no claim of merge readiness. The unchanged fixture, new capture bridge and tests are nonproduction repro tooling. Installer/exported skills are unchanged; repository-wide tests and fresh root-dot tests are not claimed by the original focused verification receipt. The narrower native first-turn observation is described in the observer guide and does not establish a fresh-dot result.
