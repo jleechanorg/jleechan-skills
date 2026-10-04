@@ -221,8 +221,15 @@ Keep coder and verifier in separate contexts. Prefer the currently supported
 native lane tools under the runtime gate. When an explicitly selected local
 AGY route is already available and authorized, load its installed coder/verifier
 profiles through their resolved paths for launch, logging, isolation, and
-signaling details. Do not assume global `~/.claude/agents` profiles exist, or
-treat profile text as permission to override the current runtime.
+signaling details. For that admitted local route, resolve these defaults through
+the configured `CLAUDE_HOME` and verify the profiles are present:
+
+- Coder: `${CLAUDE_HOME:-$HOME/.claude}/agents/agy-pair-coder.md`
+- Verifier: `${CLAUDE_HOME:-$HOME/.claude}/agents/agy-pair-verifier.md`
+
+Do not assume these profiles exist or treat profile text as permission to
+override the current runtime. A missing local profile is an unavailable route,
+not authorization to install tools, change permissions, or call a provider.
 
 ### Two-agent pair template
 
