@@ -27,7 +27,7 @@ from pathlib import Path
 TEMPLATE = Path(__file__).resolve().parent.parent / "assets" / "template.html"
 COLS = 60
 SECRET_RE = re.compile(
-    r"gh[pousr]_[A-Za-z0-9]{30,}|github_pat_\w{20,}|sk-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}"
+    r"gh[pousr]_[A-Za-z0-9]{30,}|github_pat_\w{20,}|sk-[A-Za-z0-9_-]{20,}|(?:AKIA|ASIA)[0-9A-Z]{16}"
     r"|AIza[0-9A-Za-z_-]{35}|xox[abposr]-[A-Za-z0-9-]{10,}|hooks\.slack\.com/services/"
     r"|-----BEGIN [A-Z ]*PRIVATE KEY-----|eyJ[\w-]{10,}\.eyJ[\w-]{10,}\.[\w-]{10,}"
     r"|AQ\.[A-Za-z0-9_-]{30,}")
@@ -84,8 +84,12 @@ def publish_gist(spec, path):
         try:
             run(["gh", "gist", "edit", gid, "-f", path.name, str(path)])
         except RuntimeError as err:
-            print(f"build.py: gist edit failed ({err}); creating a new gist", file=sys.stderr)
-            gid = ""
+            if "404" not in str(err) and "not found" not in str(err).lower():
+                print(f"build.py: gist edit failed ({err}); keeping gist {gid}, content may be stale",
+                      file=sys.stderr)
+            else:
+                print(f"build.py: gist {gid} is gone ({err}); creating a new gist", file=sys.stderr)
+                gid = ""
     if not gid:
         url = run(["gh", "gist", "create", str(path), "-d", f"timeline: {spec['title']}"])
         gid = url.rstrip("/").rsplit("/", 1)[-1]
@@ -119,7 +123,12 @@ def short_link(preview, path):
 
 
 def publish_bead(spec, path, gist_url, preview):
-    db = spec.get("bead_db") or json.loads(run(["br", "info", "--json"]))["database_path"]
+    db = spec.get("bead_db")
+    if not db:
+        db = json.loads(run(["br", "info", "--json"]))["database_path"]
+        top = run(["git", "rev-parse", "--show-toplevel"])
+        if Path(top).resolve() not in Path(db).resolve().parents:
+            raise RuntimeError(f"bead db {db} is outside this worktree; set spec bead_db")
     side = Path(f"{path}.bead")
     bid = side.read_text().strip() if side.exists() else spec.get("bead", "")
     if not bid:
