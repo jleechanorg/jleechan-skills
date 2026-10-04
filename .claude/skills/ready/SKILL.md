@@ -30,14 +30,15 @@ A PR is READY when ALL of the following hold, verified at the CURRENT head SHA
    body as a single canonical `**Evidence**: <gist-url> (head <sha>)` marker —
    one marker only; stale markers with old head declarations make the
    Evidence Gate fail).
-2. **/er** — adversarial evidence review verdict PASS at the current head
-   (findings fixed RED-first). A head move whose actual delta leaves every
-   tested claim, assertion, and driver intact may instead be reaffirmed at the
-   new SHA under `draft-first-pr/SKILL.md`'s SHA-binding rule — document the
-   delta and the prior verdict's provenance rather than relabeling the old
-   capture; a behavioral change or a changed assertion/driver requires a fresh
-   run.
-3. **/advice** — at least two independent full-coverage approval reviewers
+2. **/er** — when `draft-first-pr` (including repo-defined exemptions) requires
+   it, adversarial evidence review verdict PASS at the current head (findings
+   fixed RED-first). A head move whose actual delta leaves every tested claim,
+   assertion, and driver intact may instead be reaffirmed at the new SHA under
+   `draft-first-pr/SKILL.md`'s SHA-binding rule — document the delta and the
+   prior verdict's provenance rather than relabeling the old capture; a
+   behavioral change or a changed assertion/driver requires a fresh run.
+3. **/advice** — when `draft-first-pr` (including repo-defined exemptions)
+   requires it, at least two independent full-coverage approval reviewers
    from the canonical `advice/SKILL.md` approval lanes approve the exact head, or
    every REQUEST_CHANGES finding is fixed and the two-reviewer quorum is rerun
    and approves. Research and the orchestrating agent do not vote. One approval

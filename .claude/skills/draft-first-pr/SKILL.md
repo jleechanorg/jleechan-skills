@@ -184,8 +184,8 @@ For this `/er` exemption, every changed path must be one of:
 
 For that class, do not run `/er`. Record
 `/er: NOT REQUIRED — documentation-only (<changed paths>)` on the PR, then
-continue directly to `/advice`. Documentation-only PRs still require `/es` and
-`/advice` at the current SHA, followed by `/green` using its documentation-only CI exception and separate merge authorization.
+continue to `/advice` where required. Documentation-only PRs still require `/es`
+and, unless a repo-exempted class applies, `/advice` at the current SHA, followed by `/green` using its documentation-only CI exception and separate merge authorization.
 
 This `/er` exemption is an exact allowlist, not a file-extension heuristic. Changes under
 `.claude/**`, `.codex/**`, `.github/**`, prompts, tests, scripts, configuration,

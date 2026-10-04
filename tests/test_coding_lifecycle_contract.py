@@ -176,6 +176,10 @@ class CodingLifecycleContract(unittest.TestCase):
         ready = read("ready")
         self.assertIn("/er and /advice where `draft-first-pr` (including repo-defined exemptions) requires them", ready)
         self.assertNotIn("Final acceptance remains /es → /er → /advice at the current SHA;", ready)
+        self.assertIn("2. **/er** — when `draft-first-pr` (including repo-defined exemptions) requires it,", ready)
+        self.assertIn("3. **/advice** — when `draft-first-pr` (including repo-defined exemptions) requires it,", ready)
+        self.assertIn("still require `/es` and, unless a repo-exempted class applies, `/advice` at the current SHA", owner)
+        self.assertNotIn("still require `/es` and `/advice` at the current SHA", owner)
         command = " ".join((SKILLS.parent / "commands" / "ready.md").read_text().split())
         self.assertIn("/er and /advice where `draft-first-pr` (including repo-defined exemptions) requires them", command)
 

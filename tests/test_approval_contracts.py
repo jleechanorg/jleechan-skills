@@ -209,7 +209,11 @@ class ApprovalContractsTest(unittest.TestCase):
         self.assertIn("`README.md`", draft_first)
         self.assertIn("`docs/**`", draft_first)
         self.assertIn("`.claude/**`", draft_first)
-        self.assertRegex(draft_first, r"still require `/es` and\s+`/advice`")
+        self.assertRegex(
+            draft_first,
+            r"still require `/es`\s+and, unless a repo-exempted class applies,"
+            r"\s+`/advice`",
+        )
         allowlist = re.search(
             r"For this `/er` exemption, every changed path must be one of:\n\n"
             r"(?P<paths>(?:- `[^`]+`\n)+)",
