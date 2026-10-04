@@ -36,18 +36,20 @@ only the affected behavior.
 
 | Change class | Layers |
 |---|---|
-| Wording-only / small low-risk | Skip standalone spec and plan; focused check, then the applicable gates below. |
+| Wording-only / small low-risk (including a small code fix) | Skip standalone spec, plan, and plan-review cycle; focused tests, then the applicable gates below. Runtime change or file count alone does not make a change non-small. |
 | Ordinary feature | Outcome spec, TDD, unit + relevant tests, correctness checkpoint, then formal review. |
 | Cross-service boundary | Add an integration-layer test; a mocked unit test cannot prove it. |
 | Large change | May pause at the correctness checkpoint for human direction before expensive review (optional, never a gate). |
 | High-risk (security, permission, approval, merge, destructive, credential) | No layer skipping; the full gate chain and independent final coverage still apply. |
 
 **Mandatory regardless of class:** gates the user explicitly required;
-high-risk, security, permission, approval, and merge gates; and real proof for
-any production-behavior claim. **Skippable by class:** standalone spec/plan,
-history mining, and extra review lanes for trivial low-risk changes. Skill
-pipelines (`write-goal`, `ironclad`, `ready`) delegate applicability and review
-timing here; none may apply universally.
+high-risk, security, data-integrity, permission, deployment, approval, and merge
+gates; and real proof for any production-behavior claim. **Skippable by class:**
+standalone spec/plan, plan-review cycle, history mining, and extra review lanes
+for small low-risk changes, including small code fixes. A standalone plan review
+applies only to high-risk or user-required cases, or an unresolved material
+decision. Skill pipelines (`write-goal`, `ironclad`, `ready`) delegate
+applicability and review timing here; none may apply universally.
 
 Cheap real smoke (e.g. UI target check) may run early to catch a wrong target;
 expensive final evidence follows correct, frozen code.

@@ -19,7 +19,7 @@ class CodingLifecycleContract(unittest.TestCase):
 
     def test_wording_only_small_changes_skip_spec_and_plan(self):
         self.assertIn("Wording-only / small low-risk", self.section)
-        self.assertIn("Skip standalone spec and plan", self.section)
+        self.assertIn("Skip standalone spec, plan, and plan-review cycle", self.section)
 
     def test_ordinary_feature_uses_tdd_and_checkpoint(self):
         self.assertIn("Ordinary feature", self.section)
@@ -112,18 +112,30 @@ class CodingLifecycleContract(unittest.TestCase):
         self.assertIn("execute the phases that apply", goal)
         self.assertIn("Run the applicable gates at completion", goal)
         iron = read("ironclad")
-        self.assertIn("follow `draft-first-pr` § Coding lifecycle", iron)
-        self.assertIn("never forces history mining, a plan, or review onto a trivial direct edit", iron)
-        # The mandatory plan review for nontrivial plans must survive.
-        self.assertIn("`/advice` approval is mandatory by default", iron)
+        self.assertIn("applicability follows `draft-first-pr` § Coding lifecycle", iron)
+        self.assertIn("never waives user-required, high-risk, approval/merge, or real-proof gates", iron)
+
+    def test_small_code_fix_is_eligible_for_the_proportional_path(self):
+        iron = read("ironclad")
+        self.assertNotIn("a nontrivial plan means a runtime", iron)
+        self.assertNotIn("multiple coordinated steps or files", iron)
+        self.assertIn("A small low-risk change, including a small code fix, takes the proportional path", iron)
+        self.assertIn("runtime change or file count alone never triggers this gate", iron)
+        # Explicit and high-risk gates survive.
+        for term in ("explicitly required review", "data-integrity", "permission", "deployment"):
+            self.assertIn(term, iron)
+        owner = read("draft-first-pr")
+        self.assertIn("(including a small code fix)", owner)
+        self.assertIn("Runtime change or file count alone does not make a change non-small", owner)
+        self.assertIn("A standalone plan review applies only to high-risk or user-required cases", owner)
 
     def test_mandatory_versus_skippable_is_stated_once_in_the_owner(self):
         owner = read("draft-first-pr")
         self.assertIn("Mandatory regardless of class", owner)
         self.assertIn("Skippable by class", owner)
         self.assertIn("none may apply universally", owner)
+        self.assertIn("high-risk/security", read("write-goal"))
         for name in ("write-goal", "ironclad"):
-            self.assertIn("high-risk/security", read(name))
             self.assertIn("real-proof", read(name))
 
 
