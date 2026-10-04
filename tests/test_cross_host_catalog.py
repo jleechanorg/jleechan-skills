@@ -49,6 +49,38 @@ class CatalogTests(unittest.TestCase):
    with self.assertRaisesRegex(ValueError,'linked canonical'):m.install(ROOT,h,'v1')
    self.assertTrue(p.is_symlink())
    self.assertFalse(m.release_path(h,'v1').exists())
+ def test_failed_activation_restores_links_and_preimages(self):
+  from unittest.mock import patch
+  spec=importlib.util.spec_from_file_location('catalog',ROOT/'scripts/install_shared_catalog.py');m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+  with tempfile.TemporaryDirectory() as t:
+   base=Path(t).resolve();h=base/'home';src=base/'source';h.mkdir()
+   for tree in ['.claude/skills/example','portable/skills','shared/aliases']:(src/tree).mkdir(parents=True)
+   (src/'shared/retain-local.json').write_text('[]');(src/'.claude/skills/example/SKILL.md').write_text('reviewed source')
+   old=h/'.agents/skills/example';old.mkdir(parents=True);(old/'SKILL.md').write_text('local consumer')
+   with patch.object(m,'verify',return_value=['injected verification failure']):
+    with self.assertRaisesRegex(ValueError,'injected verification failure'):m.install(src,h,'failed')
+   self.assertFalse(old.is_symlink());self.assertEqual((old/'SKILL.md').read_text(),'local consumer')
+   self.assertFalse((h/'.claude/skills/example/SKILL.md').exists())
+   self.assertEqual(json.loads((m.release_path(h,'failed')/'receipt.json').read_text())['status'],'failed')
+ def test_failed_activation_preserves_concurrent_live_edit(self):
+  from unittest.mock import patch
+  spec=importlib.util.spec_from_file_location('catalog',ROOT/'scripts/install_shared_catalog.py');m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+  with tempfile.TemporaryDirectory() as t:
+   base=Path(t).resolve();h=base/'home';src=base/'source';h.mkdir()
+   for tree in ['.claude/skills/example','portable/skills','shared/aliases']:(src/tree).mkdir(parents=True)
+   (src/'shared/retain-local.json').write_text('[]');(src/'.claude/skills/example/SKILL.md').write_text('reviewed source')
+   live=h/'.claude/skills/example/SKILL.md'
+   def changed_then_failed(*args):live.write_text('newer user edit');return ['concurrent failure']
+   with patch.object(m,'verify',side_effect=changed_then_failed):
+    with self.assertRaisesRegex(ValueError,'concurrent failure'):m.install(src,h,'failed-edit')
+   self.assertEqual(live.read_text(),'newer user edit')
+ def test_linked_discovery_root_is_refused_without_mutation(self):
+  spec=importlib.util.spec_from_file_location('catalog',ROOT/'scripts/install_shared_catalog.py');m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+  with tempfile.TemporaryDirectory() as t:
+   base=Path(t).resolve();h=base/'home';h.mkdir();outside=base/'outside';outside.mkdir()
+   (h/'.agents').symlink_to(outside,target_is_directory=True)
+   with self.assertRaisesRegex(ValueError,'symlinked discovery root'):m.install(ROOT,h,'linked-root')
+   self.assertEqual(list(outside.iterdir()),[]);self.assertFalse(m.release_path(h,'linked-root').exists())
  def test_refuses_reused_release(self):
   spec=importlib.util.spec_from_file_location('catalog',ROOT/'scripts/install_shared_catalog.py');m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
   with tempfile.TemporaryDirectory() as t:
