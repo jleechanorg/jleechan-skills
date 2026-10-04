@@ -9,5 +9,8 @@
   "auto-factory": "Local variant has current factory host and repair-mode routing; preserve deployment-specific owner.",
   "swarm": "Local variant includes host resource and worktree lifecycle policies; retain until host-specific workflow is migrated.",
   "advice": "Retain complete local canonical executable pair runner; installer excludes this name from both runtimes.",
-  "web-advice": "Retain complete local canonical browser integration; installer excludes this name from both runtimes."
+  "web-advice": "Retain complete local canonical browser integration; installer excludes this name from both runtimes.",
+  "factory-spec": "Live Mac discovery links to the active dark-factory project; retain project-owned workflow on both hosts instead of replacing the integration with a portable snapshot.",
+  "factory-review": "Live Mac discovery links to the active dark-factory project; retain project-owned workflow on both hosts instead of replacing the integration with a portable snapshot.",
+  "dark-factory": "Live Mac discovery links to the active dark-factory project; retain project-owned workflow on both hosts instead of replacing the integration with a portable snapshot."
 }
