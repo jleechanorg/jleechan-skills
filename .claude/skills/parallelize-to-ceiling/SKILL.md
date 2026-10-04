@@ -222,8 +222,8 @@ The `FALLBACK` template above is governed by this order:
 1. Start with the AGY pair as the primary implementation and verification lanes.
 2. After a concrete AGY lane failure, retry the same bounded lane with `codex-luna`
    as the Luna fallback; codex-luna is not a multi-model router. If that lane
-   also fails, invoke the Codex CLI explicitly with `-m gpt-5.6-terra`,
-   then `-m gpt-5.6-sol`, advancing only after a concrete
+   also fails, invoke the Codex CLI explicitly with `-m gpt-5.6-terra`, then
+   `-m gpt-5.6-sol`, advancing only after a concrete
    failure in that lane.
 3. Use `claudem` or an own cheap agent only when the ordered Codex route is
    unavailable; preserve the same bounded scope and verification requirements.
@@ -350,7 +350,7 @@ there to a pointer 2026-09-06; this section is the full policy).
   session — delegating it costs more than it saves.
 
 Teammate/subagent stall detection (transcript-proof liveness) is owned by
-`~/.claude/skills/sidekick/SKILL.md` § Transcript-proof liveness — do not
+`${CLAUDE_HOME:-$HOME/.claude}/skills/sidekick/SKILL.md` § Transcript-proof liveness — do not
 duplicate that procedure here.
 
 ## Collecting results — check every channel before redoing the work
