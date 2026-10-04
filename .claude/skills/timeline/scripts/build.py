@@ -82,17 +82,19 @@ def claim_path(spec, dest):
         repo = re.sub(r"//[^/@]*@", "//", run(["git", "remote", "get-url", "origin"]))
     except (RuntimeError, OSError, subprocess.TimeoutExpired):
         repo = ""
-    me = {"repo": repo, "branch": spec["branch"], "pr": str(spec.get("pr", ""))}
+    me = json.dumps({"repo": repo, "branch": spec["branch"], "pr": str(spec.get("pr", ""))})
     side = Path(f"{dest}.owner")
-    if side.exists():
-        prev = json.loads(side.read_text())
-        if (prev["branch"], prev["pr"]) != (me["branch"], me["pr"]) or (
-                prev["repo"] and repo and prev["repo"] != repo):
-            sys.exit(f"build.py: {dest} belongs to {prev}, not {me}; "
-                     "pass an explicit out.html to avoid overwriting its gist")
-        me["repo"] = prev["repo"] or repo
     dest.parent.mkdir(parents=True, exist_ok=True)
-    side.write_text(json.dumps(me) + "\n")
+    try:
+        with open(side, "x") as fh:
+            fh.write(me + "\n")
+        return
+    except FileExistsError:
+        pass
+    prev = side.read_text().strip()
+    if prev != me:
+        sys.exit(f"build.py: {dest} is owned by {prev}, not {me}; pass an explicit out.html "
+                 "(or delete the .owner file if this path is yours) to avoid overwriting its gist")
 
 
 def publish_gist(spec, path):
