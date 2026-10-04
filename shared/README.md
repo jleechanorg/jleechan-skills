@@ -48,7 +48,7 @@ portable behavior and complete packages, not timestamp or word count:
 
 ## Install
 
-First run the isolated tests and review the dry-run source paths, canonical destinations, consumer destinations and link targets (paths relative to the selected home):
+First run the isolated tests and review the dry-run source paths, canonical destinations, consumer destinations and link targets (source paths relative to the source root; destination and link-target paths relative to the selected home):
 
 ```bash
 python3 -m unittest discover -s tests -p 'test_cross_host_catalog.py'

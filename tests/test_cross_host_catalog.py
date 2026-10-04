@@ -185,4 +185,33 @@ class ReviewRegressionTests(unittest.TestCase):
  def test_retention_reason_records_match_excluded_live_destinations(self):
   m=self.installer();retained=json.loads((ROOT/'shared/retain-local.json').read_text());records={v['skill']:v for v in json.loads((ROOT/'shared/comparison-decisions.json').read_text())};mapping=m.live_targets(ROOT)
   for n,reason in retained.items():self.assertNotIn(n,mapping);self.assertEqual(records[n]['reason'],reason)
+ def test_all_source_trees_reject_top_level_package_symlinks_without_mutation(self):
+  m=self.installer()
+  for tree in m.TREES:
+   with self.subTest(tree=tree),tempfile.TemporaryDirectory() as t:
+    base=Path(t).resolve();src,home=self.fixture(base);outside=base/'outside';outside.mkdir();(outside/'SKILL.md').write_text('outside reviewed source')
+    (src/tree/'linked').symlink_to(outside,target_is_directory=True)
+    with self.assertRaisesRegex(ValueError,'Linked source'):m.install(src,home,'v1')
+    self.assertEqual(list(home.iterdir()),[])
+    self.assertEqual((outside/'SKILL.md').read_text(),'outside reviewed source')
+ def test_linked_source_tree_ancestors_are_rejected_without_mutation(self):
+  m=self.installer()
+  for name in ['.claude','portable','shared']:
+   with self.subTest(tree=name),tempfile.TemporaryDirectory() as t:
+    base=Path(t).resolve();src,home=self.fixture(base);outside=base/'outside';(src/name).rename(outside);(src/name).symlink_to(outside,target_is_directory=True)
+    with self.assertRaisesRegex(ValueError,'Linked source'):m.install(src,home,'v1')
+    self.assertEqual(list(home.iterdir()),[])
+ def test_mixed_canonical_cmux_packages_keep_restore_reference_closure(self):
+  import shutil,re
+  m=self.installer()
+  with tempfile.TemporaryDirectory() as t:
+   src,home=self.fixture(Path(t).resolve())
+   for name in ['cmux-backup','cmux-steer','cmux-restore']:shutil.copytree(ROOT/'portable/skills'/name,src/'portable/skills'/name)
+   for name in ['cmux-backup','cmux-steer']:shutil.copytree(ROOT/'.claude/skills'/name,src/'.claude/skills'/name)
+   mapping=m.live_targets(src);self.assertEqual(mapping['cmux-backup'],'.claude/skills/cmux-backup');self.assertEqual(mapping['cmux-steer'],'.claude/skills/cmux-steer');self.assertEqual(mapping['cmux-restore'],'portable/skills/cmux-restore')
+   m.install(src,home,'v1');self.assertEqual(m.verify(home,'v1'),[]);restore=home/'.claude/skills/cmux-restore'
+   refs=re.findall(r'\]\((\.\./[^)]+)\)',(restore/'SKILL.md').read_text());self.assertEqual(len(refs),2)
+   for ref in refs:
+    target=(restore/ref).resolve();self.assertTrue(target.is_file(),ref)
+    self.assertEqual(target.read_bytes(),(ROOT/'portable/skills'/ref.removeprefix('../')).read_bytes())
 if __name__=='__main__':unittest.main()

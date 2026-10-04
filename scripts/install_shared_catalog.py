@@ -30,13 +30,26 @@ def hashes(root):
     return result
 
 def targets(root):
-    canonical = {p.name: '.claude/skills/' + p.name for p in (root / '.claude/skills').iterdir()
+    root = Path(root).absolute()
+    packages = {}
+    # Check every source boundary before following SKILL.md or choosing a variant.
+    for tree in TREES:
+        directory = root / tree
+        for boundary in [directory, *directory.parents]:
+            if (boundary == root or root in boundary.parents) and boundary.is_symlink():
+                raise ValueError(f'Linked source tree refused: {boundary}')
+        entries = list(directory.iterdir())
+        for package in entries:
+            if package.is_symlink():
+                raise ValueError(f'Linked source package refused: {package}')
+        packages[tree] = entries
+    canonical = {p.name: '.claude/skills/' + p.name for p in packages['.claude/skills']
                  if (p / 'SKILL.md').is_file() and not p.name.startswith(('.', '_'))}
     retained = json.loads((root / 'shared/retain-local.json').read_text())
     canonical = {n: rel for n, rel in canonical.items() if n not in retained}
     agents = dict(canonical)
     for tree in ('portable/skills', 'shared/aliases'):
-        for p in (root / tree).iterdir():
+        for p in packages[tree]:
             if (p / 'SKILL.md').is_file():
                 agents[p.name] = tree + '/' + p.name
     return {'claude': canonical, 'agents': agents}
