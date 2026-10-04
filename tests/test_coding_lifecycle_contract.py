@@ -86,7 +86,7 @@ class CodingLifecycleContract(unittest.TestCase):
 
     def test_ready_advice_reaffirmation_is_delta_based_and_keeps_quorum(self):
         ready = read("ready")
-        self.assertIn("may reaffirm this gate at the new SHA", ready)
+        self.assertIn("The same delta-based reaffirmation applies here", ready)
         self.assertIn("never reduces the two-reviewer quorum", ready)
 
     def test_sq_stays_planning_only_with_explicit_caller_continuation(self):
