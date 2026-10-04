@@ -76,6 +76,25 @@ def run(cmd, cwd=None):
     return r.stdout.strip()
 
 
+def claim_path(spec, dest):
+    """Record which repo/branch/PR owns a stable path; refuse to share it with another."""
+    try:
+        repo = re.sub(r"//[^/@]*@", "//", run(["git", "remote", "get-url", "origin"]))
+    except (RuntimeError, OSError, subprocess.TimeoutExpired):
+        repo = ""
+    me = {"repo": repo, "branch": spec["branch"], "pr": str(spec.get("pr", ""))}
+    side = Path(f"{dest}.owner")
+    if side.exists():
+        prev = json.loads(side.read_text())
+        if (prev["branch"], prev["pr"]) != (me["branch"], me["pr"]) or (
+                prev["repo"] and repo and prev["repo"] != repo):
+            sys.exit(f"build.py: {dest} belongs to {prev}, not {me}; "
+                     "pass an explicit out.html to avoid overwriting its gist")
+        me["repo"] = prev["repo"] or repo
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    side.write_text(json.dumps(me) + "\n")
+
+
 def publish_gist(spec, path):
     hit = SECRET_RE.search(path.read_text())
     if hit:
@@ -183,6 +202,8 @@ def main(spec_path, out_path=None, branch=None, pr=None, publish=False):
     if pr:
         spec["pr"] = pr
     dest = out_file(spec, out_path)
+    if not out_path:
+        claim_path(spec, dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
     rows = [(p["title"], r) for p in spec["phases"] for r in p["rows"]]
     for _, r in rows:
