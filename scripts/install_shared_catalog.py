@@ -96,7 +96,7 @@ def verify(home, release):
     return errors
 
 def install(source, home, release, baseline=None):
-    source, home = Path(source).resolve(), Path(home).absolute()
+    source, home = Path(source).absolute(), Path(home).absolute()
     if home.is_symlink():
         raise ValueError('Linked home refused')
     home = home.resolve()

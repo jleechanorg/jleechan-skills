@@ -268,4 +268,18 @@ class ReviewRegressionTests(unittest.TestCase):
       self.assertEqual((h/'.agents/skills'/n).resolve(),p.parent)
      else:self.assertFalse(p.exists())
 
+ def test_real_install_and_dry_run_reject_linked_source_root_without_mutation(self):
+  import subprocess,sys
+  m=self.installer()
+  with tempfile.TemporaryDirectory() as t:
+   base=Path(t).resolve();src,home=self.fixture(base);linked=base/'linked-source';linked.symlink_to(src,target_is_directory=True)
+   before={str(p.relative_to(src)):p.read_bytes() for p in src.rglob('*') if p.is_file()}
+   with self.assertRaisesRegex(ValueError,'Linked source'):m.install(linked,home,'linked-api')
+   for flags in [[],['--dry-run']]:
+    result=subprocess.run([sys.executable,m.__file__,'--source',str(linked),'--home',str(home),'--release','linked-cli',*flags],capture_output=True,text=True)
+    self.assertNotEqual(result.returncode,0)
+    self.assertIn('Linked source',result.stderr)
+    self.assertEqual(list(home.iterdir()),[])
+   self.assertEqual(before,{str(p.relative_to(src)):p.read_bytes() for p in src.rglob('*') if p.is_file()})
+
 if __name__=='__main__':unittest.main()
