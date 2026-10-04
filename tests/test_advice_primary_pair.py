@@ -302,6 +302,38 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         self.assertIn("review document copy changed", result.stderr)
         self.assertEqual("original document", (self.repo / "plan.md").read_text())
 
+    def assert_completed_document_evidence_survives(self):
+        receipt = json.loads((self.output / "receipt.json").read_text())
+        self.assertFalse(receipt["operation"]["success"])
+        self.assertTrue(receipt["cleanup"]["success"])
+        self.assertEqual({"codex", "opus"}, set(receipt["reviewers"]))
+        for name in ("codex", "opus"):
+            self.assertIn("VERDICT:", (self.output / f"{name}.txt").read_text())
+            self.assertGreater(receipt["reviewers"][name]["started_ns"], 0)
+            self.assertGreaterEqual(receipt["reviewers"][name]["ended_ns"],
+                                    receipt["reviewers"][name]["started_ns"])
+
+    def test_document_copy_mutation_preserves_completed_lanes(self):
+        (self.repo / "plan.md").write_text("original document")
+        self.executable("codex", "printf 'changed' > .advice-review-documents/0.md\n"
+                        "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
+        self.executable("claude", "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
+        result = self.invoke("--reviewers", "codex,opus", "--document", "plan.md")
+        self.assertEqual(6, result.returncode, result.stderr)
+        self.assertIn("review document copy changed", result.stderr)
+        self.assert_completed_document_evidence_survives()
+
+    def test_source_document_mutation_preserves_completed_lanes(self):
+        (self.repo / "plan.md").write_text("original document")
+        self.env["ADVICE_TEST_ORIGINAL_REPO"] = str(self.repo)
+        self.executable("codex", 'printf "changed" > "$ADVICE_TEST_ORIGINAL_REPO/plan.md"\n'
+                        "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
+        self.executable("claude", "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
+        result = self.invoke("--reviewers", "codex,opus", "--document", "plan.md")
+        self.assertEqual(6, result.returncode, result.stderr)
+        self.assertIn("source documents changed", result.stderr)
+        self.assert_completed_document_evidence_survives()
+
     def test_refuses_dirty_input_checkout_before_dispatch(self) -> None:
         (self.repo / "untracked.txt").write_text("not represented by the SHA\n")
         self.executable("codex", "touch \"$ADVICE_TEST_SYNC_DIR/codex.ran\"\n")

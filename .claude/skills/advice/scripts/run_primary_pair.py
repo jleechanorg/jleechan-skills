@@ -639,12 +639,6 @@ def main(
                 for name in reviewer_names
             }
             results = {name: future.result() for name, future in futures.items()}
-        for path in clones.values():
-            for i, data in enumerate(documents.values()):
-                if (path / ".advice-review-documents" / f"{i}.md").read_bytes() != data:
-                    raise RuntimeError("review document copy changed during review")
-        if documents and read_review_documents(repo, args.document) != documents:
-            raise RuntimeError("source documents changed during review")
         for name, result in results.items():
             (output_dir / f"{name}.txt").write_text(result.pop("stdout"))
         receipt["reviewers"] = results
@@ -654,6 +648,13 @@ def main(
         receipt["overlap_proven"] = len(results) > 1 and max(
             r["started_ns"] for r in results.values()
         ) <= min(r["ended_ns"] for r in results.values())
+        # Preserve every completed lane before integrity checks invalidate approval.
+        for path in clones.values():
+            for i, data in enumerate(documents.values()):
+                if (path / ".advice-review-documents" / f"{i}.md").read_bytes() != data:
+                    raise RuntimeError("review document copy changed during review")
+        if documents and read_review_documents(repo, args.document) != documents:
+            raise RuntimeError("source documents changed during review")
         receipt["operation"] = {"success": True, "error": None}
     except Exception as error:
         operational_error = f"{type(error).__name__}: {error}"
