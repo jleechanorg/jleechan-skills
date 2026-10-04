@@ -45,19 +45,23 @@ async function waitAndCleanSingletonLock(dir) {
               let cmd = '';
               try { cmd = execSync(`ps -o command= -p ${pid} 2>/dev/null`).toString(); } catch {}
               const escaped = resolvedDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-              const userDirRegex = new RegExp('--user-data-dir=(?:"' + escaped + '"|\'' + escaped + '\'|' + escaped + '(?=[\\s\'"]|$))');
+              const userDirRegex = new RegExp('(?:^|\\s)--user-data-dir=(?:"' + escaped + '"|\'' + escaped + '\'|' + escaped + '(?=[\\s\'"]|$))');
               if (userDirRegex.test(cmd)) {
+                const isDead = (p) => {
+                  try { process.kill(p, 0); return false; }
+                  catch (e) { return e.code === 'ESRCH'; }
+                };
                 try { process.kill(pid, 15); } catch {}
                 let dead = false;
                 for (let k = 0; k < 10; k++) {
                   await sleep(200);
-                  try { process.kill(pid, 0); } catch { dead = true; break; }
+                  if (isDead(pid)) { dead = true; break; }
                 }
                 if (!dead) {
                   try { process.kill(pid, 9); } catch {}
                   for (let k = 0; k < 10; k++) {
                     await sleep(100);
-                    try { process.kill(pid, 0); } catch { dead = true; break; }
+                    if (isDead(pid)) { dead = true; break; }
                   }
                 }
                 if (dead) {
