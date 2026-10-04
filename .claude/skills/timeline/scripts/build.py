@@ -8,7 +8,7 @@ Spec: {title, snapshot, subtitle, branch, pr, bead, bead_db, done:[str], span,
 Minutes throughout. hi=null means unknown (grey). Color is chosen from hi.
 Without out.html the path is /tmp/timeline/<branch>-pr<N>.html, stable across
 rebuilds. --publish secret-scans the HTML, creates or edits one secret gist
-(id kept in <html>.gist), shortens the preview link via tinyurl, is.gd, then da.gd
+(id kept in <html>.gist), shortens the gistpreview.github.io link via tinyurl, cleanuri, then spoo.me
 (cached in <html>.short), and creates or updates one bead (id kept in <html>.bead).
 """
 import argparse
@@ -19,6 +19,7 @@ import re
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta
@@ -26,6 +27,7 @@ from pathlib import Path
 
 TEMPLATE = Path(__file__).resolve().parent.parent / "assets" / "template.html"
 COLS = 60
+UA = "timeline-skill/1.0"
 SECRET_RE = re.compile(
     r"gh[pousr]_[A-Za-z0-9]{30,}|github_pat_\w{20,}|sk-[A-Za-z0-9_-]{20,}|(?:AKIA|ASIA)[0-9A-Z]{16}"
     r"|AIza[0-9A-Za-z_-]{35}|xox[abposr]-[A-Za-z0-9-]{10,}|hooks\.slack\.com/services/"
@@ -95,29 +97,62 @@ def publish_gist(spec, path):
         gid = url.rstrip("/").rsplit("/", 1)[-1]
         side.write_text(gid + "\n")
     owner = run(["gh", "api", f"gists/{gid}", "--jq", ".owner.login"])
-    raw = f"https://gist.githubusercontent.com/{owner}/{gid}/raw/{path.name}"
-    return f"https://gist.github.com/{owner}/{gid}", f"https://htmlpreview.github.io/?{raw}"
+    return f"https://gist.github.com/{owner}/{gid}", f"https://gistpreview.github.io/?{gid}/{path.name}"
 
 
-def short_link(preview, path):
-    """Short URL for the preview link, cached in <html>.short (line 1 preview, line 2 short)."""
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None
+
+
+def _redirects_to(short, target):
+    """True when a HEAD on the short URL answers 3xx with Location exactly the target."""
+    req = urllib.request.Request(short, method="HEAD", headers={"User-Agent": UA})
+    try:
+        urllib.request.build_opener(_NoRedirect).open(req, timeout=10)
+    except urllib.error.HTTPError as err:
+        return 300 <= err.code < 400 and err.headers.get("Location") == target
+    except OSError:
+        return False
+    return False
+
+
+def _shorten(api, target):
+    q = urllib.parse.quote(target, safe="")
+    if api == "tinyurl":
+        req = urllib.request.Request(f"https://tinyurl.com/api-create.php?url={q}")
+    elif api == "cleanuri":
+        req = urllib.request.Request("https://cleanuri.com/api/v1/shorten",
+                                     data=f"url={q}".encode())
+    else:
+        req = urllib.request.Request("https://spoo.me/", data=f"url={q}".encode(),
+                                     headers={"Accept": "application/json"})
+    req.add_header("User-Agent", UA)
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        out = resp.read().decode().strip()
+    if api != "tinyurl":
+        out = json.loads(out).get("result_url" if api == "cleanuri" else "short_url", "")
+    return re.sub(r"^http://", "https://", out)
+
+
+def short_link(target, path):
+    """Short URL for target, cached in <html>.short (line 1 target, line 2 short).
+
+    Only a short URL that answers 3xx straight to target is accepted, so interstitial
+    shorteners are rejected.
+    """
     side = Path(f"{path}.short")
     if side.exists():
         cached = side.read_text().split()
-        if len(cached) == 2 and cached[0] == preview:
+        if len(cached) == 2 and cached[0] == target:
             return cached[1]
-    q = urllib.parse.quote(preview, safe="")
-    for api in (f"https://tinyurl.com/api-create.php?url={q}",
-                f"https://is.gd/create.php?format=simple&url={q}",
-                f"https://da.gd/s?url={q}"):
+    for api in ("tinyurl", "cleanuri", "spoo"):
         try:
-            req = urllib.request.Request(api, headers={"User-Agent": "timeline-skill/1.0"})
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                out = resp.read().decode().strip()
+            out = _shorten(api, target)
         except (OSError, ValueError):
             continue
-        if re.fullmatch(r"https?://\S+", out):
-            side.write_text(f"{preview}\n{out}\n")
+        if re.fullmatch(r"https://\S+", out) and _redirects_to(out, target):
+            side.write_text(f"{target}\n{out}\n")
             return out
     return None
 
@@ -250,10 +285,9 @@ def main(spec_path, out_path=None, branch=None, pr=None, publish=False):
         t0 = time.time()
         gist_url, preview = publish_gist(spec, dest)
         short = short_link(preview, dest)
+        print(f"Timeline: {short or preview}")
         if short:
-            print(f"Timeline: {short}\nPreview (full): {preview}")
-        else:
-            print(f"Timeline: {preview}")
+            print(f"Preview (full): {preview}")
         print(f"Gist: {gist_url}\nHTML (local): {dest}")
         t1 = time.time()
         try:
