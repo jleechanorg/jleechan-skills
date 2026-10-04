@@ -70,8 +70,8 @@ def out_file(spec, out_path):
     return Path("/tmp/timeline") / f"{stem}.html"
 
 
-def run(cmd, cwd=None):
-    r = subprocess.run(cmd, capture_output=True, text=True, timeout=120, cwd=cwd)
+def run(cmd, cwd=None, stdin=None):
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=120, cwd=cwd, input=stdin)
     if r.returncode:
         raise RuntimeError(f"{' '.join(cmd[:3])}: {r.stderr.strip()[-300:]}")
     return r.stdout.strip()
@@ -104,22 +104,25 @@ def claim_path(spec, dest):
 
 
 def publish_gist(spec, path):
-    hit = SECRET_RE.search(path.read_text())
+    text = path.read_text()
+    hit = SECRET_RE.search(text)
     if hit:
         sys.exit(f"build.py: refusing to publish, secret-like token at offset {hit.start()}")
     side = Path(f"{path}.gist")
     gid = side.read_text().strip() if side.exists() else ""
+    files = {path.name: {"content": text}}
     if gid:
         try:
-            run(["gh", "gist", "edit", gid, "-f", path.name, str(path)])
+            run(["gh", "api", "-X", "PATCH", f"gists/{gid}", "--input", "-"],
+                stdin=json.dumps({"files": files}))
         except RuntimeError as err:
-            if "HTTP 404" not in str(err) and "gist not found" not in str(err).lower():
+            if "HTTP 404" not in str(err):
                 raise RuntimeError(f"gist {gid} edit failed, not republishing stale links: {err}")
             print(f"build.py: gist {gid} is gone ({err}); creating a new gist", file=sys.stderr)
             gid = ""
     if not gid:
-        url = run(["gh", "gist", "create", str(path), "-d", f"timeline: {spec['title']}"])
-        gid = url.rstrip("/").rsplit("/", 1)[-1]
+        gid = json.loads(run(["gh", "api", "-X", "POST", "gists", "--input", "-"], stdin=json.dumps(
+            {"description": f"timeline: {spec['title']}", "public": False, "files": files})))["id"]
         side.write_text(gid + "\n")
     owner = run(["gh", "api", f"gists/{gid}", "--jq", ".owner.login"])
     return f"https://gist.github.com/{owner}/{gid}", f"https://gistpreview.github.io/?{gid}/{path.name}"
