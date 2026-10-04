@@ -1,8 +1,9 @@
 # Shared skill catalog
 
 Use the repository as the versioned distribution source. Canonical Claude
-workflows remain in `.claude/skills`; the 30 reviewed cross-runtime derivatives
-in `portable/skills` take precedence only in `~/.agents/skills`. Thin aliases
+workflows remain in `.claude/skills`; the reviewed cross-runtime derivatives
+in `portable/skills` remain distribution inputs, without overriding same-name live
+Claude packages. Thin aliases
 provide `browser`, `mac`, `linux`, and `playwright` without duplicating workflows.
 
 `install_shared_catalog.py` manages active canonical packages plus portable
@@ -56,13 +57,22 @@ python3 scripts/install_shared_catalog.py --release <reviewed-commit>
 python3 scripts/install_shared_catalog.py --release <reviewed-commit> --verify
 ```
 
-The installer copies complete packages to a new directory under
-`~/.local/share/jleechan-shared-skills/<release>`, verifies file hashes before
-changing discovery, and moves each replaced entry intact to a private undo
-directory. It never follows an old discovery link to overwrite its target.
-Existing releases are immutable by convention: updates use a new release name.
-The printed undo path contains `receipt.json` with old targets and moved entries.
-A failure restores only links still owned by this installation.
+The installer updates real files in `~/.claude/skills` and links
+`~/.agents/skills/<name>` directly to that live canonical package. It does not
+create active release snapshots or a `.codex/skills` projection. Same-name
+portable variants do not override canonical Claude workflows; aliases fill only
+missing names. Retained local integrations remain excluded.
+
+Local files that differ from the reviewed source cause a pre-mutation conflict.
+For a subsequent reviewed update, pass `--baseline-receipt <prior-receipt>`;
+only unchanged previously managed bytes may be updated. Local extensions are
+preserved. Reconcile divergent content explicitly before retrying. Existing
+snapshot links must be reconciled into real canonical directories first.
+
+Each operation records exact replaced files and consumer entries in a private
+undo directory under `~/.local/state/jleechan-shared-skills/<release>`. Undo is
+retained; no old backups or snapshot directories are deleted. Verification reads
+live managed bytes and consumer targets, so later local edits are visible.
 
 Use the same reviewed repository commit and installer on each host through an
 existing authorized transport. Compare the installed `catalog.json` file hashes

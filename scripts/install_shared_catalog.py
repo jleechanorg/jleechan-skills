@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install a versioned shared skill catalog with reversible discovery links.
+"""Update live canonical Claude packages with reversible consumer links.
 
 Only skills are managed. Existing commands, credentials, settings, plugins,
 archives, and host-only skill names are preserved. Canonical Claude packages
@@ -44,80 +44,136 @@ def targets(root):
 def release_path(home, release):
     if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*', release):
         raise ValueError('release must be one safe directory name')
-    base = home / '.local/share/jleechan-shared-skills'
-    return base / release
+    return home / '.local/state/jleechan-shared-skills' / release
+
+def live_targets(root):
+    mapping = targets(root)
+    # Existing Claude names own their workflow. Portable variants never silently
+    # replace same-name canonical instructions; aliases fill only missing names.
+    retained = json.loads((root / 'shared/retain-local.json').read_text())
+    merged = dict(mapping['claude'])
+    for name, rel in mapping['agents'].items():
+        if name not in retained:
+            merged.setdefault(name, rel)
+    return merged
 
 def verify(home, release):
-    root = release_path(home, release)
-    manifest = json.loads((root / 'catalog.json').read_text())
+    receipt = json.loads((release_path(home, release) / 'receipt.json').read_text())
     errors = []
-    if hashes(root) != manifest['files']:
-        errors.append('installed package hashes differ')
-    for runtime, entries in manifest['targets'].items():
-        for name, rel in entries.items():
-            link = home / ('.' + runtime) / 'skills' / name
-            if not link.is_symlink() or link.resolve() != root / rel:
-                errors.append(f'discovery mismatch: {runtime}/{name}')
+    canonical = home / '.claude/skills'
+    for name, files in receipt['managed'].items():
+        root = canonical / name
+        if root.is_symlink():
+            errors.append(f'canonical package must be live: {name}')
+        for rel, sha in files.items():
+            p = root / rel
+            if not p.is_file() or p.is_symlink() or hashlib.sha256(p.read_bytes()).hexdigest() != sha:
+                errors.append(f'live content mismatch: {name}/{rel}')
+        link = home / '.agents/skills' / name
+        if not link.is_symlink() or link.resolve() != root.resolve():
+            errors.append(f'discovery mismatch: agents/{name}')
     return errors
 
-def install(source, home, release):
+def install(source, home, release, baseline=None):
     source, home = Path(source).resolve(), Path(home).absolute()
-    destination = release_path(home, release)
-    if destination.exists() or destination.is_symlink():
-        raise FileExistsError(destination)
-    expected = hashes(source)
-    mapping = targets(source)
-    # Fail before mutation if discovery roots redirect somewhere unexpected.
-    for runtime in mapping:
-        root = home / ('.' + runtime) / 'skills'
-        if (home / ('.' + runtime)).is_symlink() or root.is_symlink():
-            raise ValueError(f'Review symlinked discovery root before installing: {root}')
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    staging = destination.parent / ('.staging-' + uuid.uuid4().hex)
-    backup = destination.parent / ('undo-' + release + '-' + uuid.uuid4().hex[:8])
-    staging.mkdir(mode=0o700)
-    backup.mkdir(mode=0o700)
-    actions = []
+    if home.is_symlink():
+        raise ValueError('Linked home refused')
+    home = home.resolve()
+    undo = release_path(home, release)
+    if any(p.is_symlink() for p in [undo, *undo.parents]):
+        raise ValueError('Linked undo path refused')
+    if undo.exists():
+        raise FileExistsError(undo)
+    mapping = live_targets(source)
+    previous = baseline or {}
+    actions, managed, updates = [], {}, []
+    # Validate every selected preimage before any mutation. A reviewed previous
+    # receipt authorizes updating owned bytes, never divergent local additions.
+    for runtime in ('.claude', '.agents'):
+        root = home / runtime / 'skills'
+        if any(p.is_symlink() for p in [home, root, *root.parents]):
+            raise ValueError(f'Review symlinked discovery root: {root}')
+    for name, rel in mapping.items():
+        dest = home / '.claude/skills' / name
+        if dest.is_symlink():
+            raise ValueError(f'Reconcile linked canonical package first: {name}')
+        files = {}
+        for src in sorted((source / rel).rglob('*')):
+            if any(part in NOISE for part in src.relative_to(source / rel).parts):
+                continue
+            if src.is_symlink():
+                raise ValueError(f'Linked source refused: {src}')
+            if not src.is_file():
+                continue
+            relative = str(src.relative_to(source / rel))
+            target = dest / relative
+            if target.is_symlink() or any(p.is_symlink() for p in target.parents):
+                raise ValueError(f'Linked live file refused: {name}/{relative}')
+            sha = hashlib.sha256(src.read_bytes()).hexdigest()
+            old = hashlib.sha256(target.read_bytes()).hexdigest() if target.is_file() else None
+            if target.exists() and not target.is_file():
+                raise ValueError(f'Non-file live conflict: {name}/{relative}')
+            if old is not None and old != sha and previous.get(name, {}).get(relative) != old:
+                raise ValueError(f'Local content conflict: {name}/{relative}')
+            files[relative] = sha
+            if old != sha:
+                updates.append((src, target, old))
+        managed[name] = files
+    undo.mkdir(parents=True, mode=0o700)
+    os.chmod(undo, 0o700)
+    receipt = {'format': 'shared-live-catalog-v2', 'release': release,
+               'backup': str(undo), 'managed': managed, 'actions': actions}
+    def save():
+        (undo / 'receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
+    save()
     try:
-        for tree in TREES:
-            shutil.copytree(source / tree, staging / tree, ignore=shutil.ignore_patterns(*NOISE))
-        if hashes(staging) != expected:
-            raise ValueError('staging verification failed')
-        manifest = {'format': 'jleechan-shared-skills-v1', 'release': release,
-                    'files': expected, 'targets': mapping}
-        (staging / 'catalog.json').write_text(json.dumps(manifest, indent=2) + '\n')
-        staging.rename(destination)
-        for runtime, entries in mapping.items():
-            root = home / ('.' + runtime) / 'skills'
-            root.mkdir(parents=True, exist_ok=True)
-            for name, rel in sorted(entries.items()):
-                link = root / name
-                saved = backup / runtime / name
-                action = {'link': str(link), 'target': str(destination / rel), 'saved': None}
-                if link.exists() or link.is_symlink():
-                    saved.parent.mkdir(parents=True, exist_ok=True)
-                    action['old_link_target'] = os.readlink(link) if link.is_symlink() else None
-                    link.rename(saved)
-                    action['saved'] = str(saved)
-                actions.append(action)
-                link.symlink_to(destination / rel, target_is_directory=True)
+        for src, target, old in updates:
+            current = hashlib.sha256(target.read_bytes()).hexdigest() if target.is_file() else None
+            if current != old or target.is_symlink():
+                raise ValueError(f'Concurrent live edit: {target}')
+            saved = None
+            if old is not None:
+                saved = undo / 'files' / target.relative_to(home / '.claude/skills')
+                saved.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(target, saved)
+            actions.append({'file': str(target), 'saved': str(saved) if saved else None,
+                            'sha256': hashlib.sha256(src.read_bytes()).hexdigest()})
+            save()
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, target)
+        root = home / '.agents/skills'
+        root.mkdir(parents=True, exist_ok=True)
+        for name in sorted(mapping):
+            link = root / name; target = home / '.claude/skills' / name
+            if link.is_symlink() and link.resolve() == target.resolve():
+                continue
+            saved = undo / 'agents' / name
+            action = {'link': str(link), 'target': str(target), 'saved': None}
+            if link.exists() or link.is_symlink():
+                saved.parent.mkdir(parents=True, exist_ok=True)
+                link.rename(saved); action['saved'] = str(saved)
+            actions.append(action); save()
+            link.symlink_to(target, target_is_directory=True)
         errors = verify(home, release)
         if errors:
             raise ValueError('; '.join(errors))
     except BaseException:
-        # Restore only links still owned by this installation; do not overwrite
-        # changes another process may have made while installation was running.
         for action in reversed(actions):
-            link = Path(action['link'])
-            if link.is_symlink() and os.readlink(link) == action['target']:
-                link.unlink()
-            if action['saved'] and not (link.exists() or link.is_symlink()):
-                Path(action['saved']).rename(link)
-        (backup / 'failed-actions.json').write_text(json.dumps(actions, indent=2))
-        raise
-    receipt = {'release': release, 'destination': str(destination), 'backup': str(backup),
-               'counts': {k: len(v) for k, v in mapping.items()}, 'actions': actions}
-    (backup / 'receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
+            if 'link' in action:
+                link = Path(action['link'])
+                if link.is_symlink() and os.readlink(link) == action['target']:
+                    link.unlink()
+                if action['saved'] and not (link.exists() or link.is_symlink()):
+                    Path(action['saved']).rename(link)
+            else:
+                target = Path(action['file'])
+                if target.is_file() and not target.is_symlink() and hashlib.sha256(target.read_bytes()).hexdigest() == action['sha256']:
+                    if action['saved']:
+                        shutil.copy2(action['saved'], target)
+                    else:
+                        target.unlink()
+        receipt['status'] = 'failed'; save(); raise
+    receipt['status'] = 'live-bytes-and-links-verified'; save()
     return receipt
 
 def main():
@@ -126,6 +182,7 @@ def main():
     parser.add_argument('--home', type=Path, default=Path.home())
     parser.add_argument('--release', required=True)
     parser.add_argument('--verify', action='store_true')
+    parser.add_argument('--baseline-receipt', type=Path, help='Reviewed prior live receipt; refuses local divergence')
     parser.add_argument('--dry-run', action='store_true')
     args = parser.parse_args()
     if args.verify:
@@ -133,7 +190,8 @@ def main():
         print(json.dumps({'errors': errors}));return bool(errors)
     if args.dry_run:
         print(json.dumps({k: sorted(v) for k, v in targets(args.source).items()}, indent=2));return 0
-    receipt = install(args.source, args.home, args.release)
+    baseline = json.loads(args.baseline_receipt.read_text())['managed'] if args.baseline_receipt else None
+    receipt = install(args.source, args.home, args.release, baseline)
     print(json.dumps({k: v for k, v in receipt.items() if k != 'actions'}, indent=2))
     return 0
 
