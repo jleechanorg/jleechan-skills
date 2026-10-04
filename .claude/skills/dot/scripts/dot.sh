@@ -15,9 +15,9 @@ set -euo pipefail
 if [[ "$(uname -s)" != "Darwin" && "${DOT_BACKEND:-auto}" != "chrome" ]]; then
   REMOTE_HOST="${DOT_REMOTE_HOST:-}"
   if [[ -z "$REMOTE_HOST" ]]; then
-    if ssh -q -o ConnectTimeout=2 macbook true 2>/dev/null; then
+    if ssh -q -o BatchMode=yes -o ConnectTimeout=2 macbook true 2>/dev/null; then
       REMOTE_HOST="macbook"
-    elif ssh -q -o ConnectTimeout=2 macbook-ts true 2>/dev/null; then
+    elif ssh -q -o BatchMode=yes -o ConnectTimeout=2 macbook-ts true 2>/dev/null; then
       REMOTE_HOST="macbook-ts"
     fi
   fi
@@ -120,9 +120,12 @@ cmd_read() {
     exit 2
   fi
   run_repl "$(prelude)
-const dotText = await dotPage.evaluate(() => document.body.innerText);
-try { await dotPage.close(); } catch {}
-console.log(dotText.slice(-$n));"
+try {
+  const dotText = await dotPage.evaluate(() => document.body.innerText);
+  console.log(dotText.slice(-$n));
+} finally {
+  try { await dotPage.close(); } catch {}
+}"
 }
 
 cmd_send_once() {
@@ -140,55 +143,56 @@ cmd_send_once() {
   fi
   if [[ -z "$out" ]]; then
   out="$(run_repl "$(prelude)
-const dotMsg = $msg_json;
-const dotNorm = (t) => t.replace(/\s+/g, ' ').trim();
-const dotReadComposer = () => dotPage.evaluate(() => (document.querySelector('[contenteditable=true]')||{}).innerText || '');
-const dotGetUserMessages = () => dotPage.evaluate(() => Array.from(document.querySelectorAll('[data-message-author-role=user]')).map(el => (el.innerText || '').replace(/\s+/g, ' ').trim()));
+try {
+  const dotMsg = $msg_json;
+  const dotNorm = (t) => t.replace(/\s+/g, ' ').trim();
+  const dotReadComposer = () => dotPage.evaluate(() => (document.querySelector('[contenteditable=true]')||{}).innerText || '');
+  const dotGetUserMessages = () => dotPage.evaluate(() => Array.from(document.querySelectorAll('[data-message-author-role=user]')).map(el => (el.innerText || '').replace(/\s+/g, ' ').trim()));
 
-// ChatGPT restores a saved draft lazily on focus, so focus first, then inspect.
-await dotPage.click('[contenteditable=true]');
-await new Promise(r => setTimeout(r, 1500));
-let dotComposer = (await dotReadComposer()).trim();
+  // ChatGPT restores a saved draft lazily on focus, so focus first, then inspect.
+  await dotPage.click('[contenteditable=true]');
+  await new Promise(r => setTimeout(r, 1500));
+  let dotComposer = (await dotReadComposer()).trim();
 
-if (dotComposer !== '') {
-  const normComposer = dotNorm(dotComposer);
-  const userMessages = await dotGetUserMessages();
-  // Safe to clear only if:
-  // 1) It exactly matches our own current message (from an interrupted prior attempt), OR
-  // 2) The exact text already exists as a completed user message in the conversation.
-  const dotAlreadySent = userMessages.some(m => m !== '' && m === normComposer);
-  const dotOwnLeftover = normComposer !== '' && normComposer === dotNorm(dotMsg);
-  if (dotOwnLeftover || dotAlreadySent) {
-    await dotPage.keyboard.press('Meta+A');
-    await dotPage.keyboard.press('Backspace');
-    await new Promise(r => setTimeout(r, 800));
-    dotComposer = (await dotReadComposer()).trim();
-    console.log('DOT_STALE_DRAFT_CLEARED');
+  if (dotComposer !== '') {
+    const normComposer = dotNorm(dotComposer);
+    const userMessages = await dotGetUserMessages();
+    // Safe to clear only if:
+    // 1) It exactly matches our own current message (from an interrupted prior attempt), OR
+    // 2) The exact text already exists as a completed user message in the conversation.
+    const dotAlreadySent = userMessages.some(m => m !== '' && m === normComposer);
+    const dotOwnLeftover = normComposer !== '' && normComposer === dotNorm(dotMsg);
+    if (dotOwnLeftover || dotAlreadySent) {
+      await dotPage.keyboard.press('Meta+A');
+      await dotPage.keyboard.press('Backspace');
+      await new Promise(r => setTimeout(r, 800));
+      dotComposer = (await dotReadComposer()).trim();
+      console.log('DOT_STALE_DRAFT_CLEARED');
+    }
   }
-}
-if (dotComposer !== '') {
-  console.log('DOT_DRAFT_PRESENT: ' + dotComposer.slice(0, 300));
-  try { await dotPage.close(); } catch {}
-} else {
-  await dotPage.keyboard.insertText(dotMsg);
-  await new Promise(r => setTimeout(r, 800));
-  const typed = (await dotReadComposer()).trim();
-  if (dotNorm(typed) !== dotNorm(dotMsg)) {
-    console.log('DOT_COMPOSER_MISMATCH: ' + typed.slice(0, 200));
-    try { await dotPage.close(); } catch {}
+  if (dotComposer !== '') {
+    console.log('DOT_DRAFT_PRESENT: ' + dotComposer.slice(0, 300));
   } else {
-    const beforeMsgs = await dotGetUserMessages();
-    const countMatches = (msgs, needle) => msgs.filter(m => m === needle).length;
-    const beforeCount = countMatches(beforeMsgs, dotNorm(dotMsg));
-    await dotPage.click('button[data-testid=send-button], button[aria-label*=Send]');
-    await new Promise(r => setTimeout(r, 4000));
-    const left = (await dotReadComposer()).trim();
-    const afterMsgs = await dotGetUserMessages();
-    const afterCount = countMatches(afterMsgs, dotNorm(dotMsg));
-    const sentVerified = left === '' && afterCount > beforeCount;
-    try { await dotPage.close(); } catch {}
-    console.log(sentVerified ? 'DOT_SENT_VERIFIED' : 'DOT_SEND_UNVERIFIED composer_left=' + left.length);
+    await dotPage.keyboard.insertText(dotMsg);
+    await new Promise(r => setTimeout(r, 800));
+    const typed = (await dotReadComposer()).trim();
+    if (dotNorm(typed) !== dotNorm(dotMsg)) {
+      console.log('DOT_COMPOSER_MISMATCH: ' + typed.slice(0, 200));
+    } else {
+      const beforeMsgs = await dotGetUserMessages();
+      const countMatches = (msgs, needle) => msgs.filter(m => m === needle).length;
+      const beforeCount = countMatches(beforeMsgs, dotNorm(dotMsg));
+      await dotPage.click('button[data-testid=send-button], button[aria-label*=Send]');
+      await new Promise(r => setTimeout(r, 4000));
+      const left = (await dotReadComposer()).trim();
+      const afterMsgs = await dotGetUserMessages();
+      const afterCount = countMatches(afterMsgs, dotNorm(dotMsg));
+      const sentVerified = left === '' && afterCount > beforeCount;
+      console.log(sentVerified ? 'DOT_SENT_VERIFIED' : 'DOT_SEND_UNVERIFIED composer_left=' + left.length);
+    }
   }
+} finally {
+  try { await dotPage.close(); } catch {}
 }")"
   fi
   echo "$out"

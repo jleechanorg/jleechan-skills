@@ -44,10 +44,9 @@ async function waitAndCleanSingletonLock(dir) {
               // Ensure this is an orphaned Chrome process specifically using our target directory
               let cmd = '';
               try { cmd = execSync(`ps -o command= -p ${pid} 2>/dev/null`).toString(); } catch {}
-              const argMatch = cmd.match(/--user-data-dir=(?:"([^"]+)"|'([^']+)'|([^\s]+))/);
-              const rawDir = argMatch ? (argMatch[1] || argMatch[2] || argMatch[3]) : '';
-              const cmdDir = rawDir ? path.resolve(rawDir) : '';
-              if (cmdDir && cmdDir === resolvedDir) {
+              const escaped = resolvedDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+              const userDirRegex = new RegExp('--user-data-dir=(?:"' + escaped + '"|\'' + escaped + '\'|' + escaped + '(?=[\\s\'"]|$))');
+              if (userDirRegex.test(cmd)) {
                 try { process.kill(pid, 15); } catch {}
                 let dead = false;
                 for (let k = 0; k < 10; k++) {
@@ -56,12 +55,17 @@ async function waitAndCleanSingletonLock(dir) {
                 }
                 if (!dead) {
                   try { process.kill(pid, 9); } catch {}
-                  await sleep(200);
+                  for (let k = 0; k < 10; k++) {
+                    await sleep(100);
+                    try { process.kill(pid, 0); } catch { dead = true; break; }
+                  }
                 }
-                for (const f of ['SingletonLock', 'SingletonCookie', 'SingletonSocket']) {
-                  try { fs.unlinkSync(path.join(dir, f)); } catch {}
+                if (dead) {
+                  for (const f of ['SingletonLock', 'SingletonCookie', 'SingletonSocket']) {
+                    try { fs.unlinkSync(path.join(dir, f)); } catch {}
+                  }
+                  hasLock = false;
                 }
-                hasLock = false;
               }
             }
           } catch (e) {
