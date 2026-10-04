@@ -3,8 +3,8 @@
 ci_queue_trim.py — CI Queue Inactivity Triage & Trimming Tool
 
 Audits and trims queued GitHub Actions workflow runs whose head SHA is no
-longer current (a newer push advanced the PR/branch head) or whose PR has
-already landed (MERGED/CLOSED). Anything the audit cannot verify is kept
+longer current (a newer push advanced the PR/branch head). PR closure and
+commit age never authorize cancellation. Anything the audit cannot verify is kept
 with ``audit_incomplete=True``; the tool never substitutes the run's age
 for a missing head-commit age.
 
@@ -16,12 +16,12 @@ Event semantics:
   * ``pull_request``: superseded when ``run.head_sha`` ≠ ``PR.head.sha``.
     PR.head.sha is the HEAD branch tip; ``merge_commit_sha`` is a separate
     field that must NOT be used for supersede comparison.
-  * ``pull_request_target``: base-side semantics. KEEP unless the PR is
-    MERGED/CLOSED — base-side runs execute on the BASE SHA, not the PR
+  * ``pull_request_target``: base-side semantics. Always KEEP —
+    base-side runs execute on the BASE SHA, not the PR
     head SHA, so a tip advance on the PR is not a supersede signal.
   * ``push``: superseded when ``run.head_sha`` ≠ branch HEAD. Push events
     are not associated with any PR; do not search for one.
-  * ``merge_group``: never cancelled via stale-head; only MERGED/CLOSED.
+  * ``merge_group``: always kept.
   * unknown event: ``audit_incomplete=True``; never cancel.
 
 Workflow importance is decided by an explicit ``--allow-workflow`` allowlist
@@ -31,10 +31,9 @@ explicit protection is via ``--protect-workflow`` (repeatable). The
 ``@<ref>`` suffix on a workflow path is stripped before comparison. The
 tool does NOT guess deployment safety from conventional filenames.
 
-``--superseded-only`` cancels only runs whose head SHA is proven obsolete
-(superseded=True); terminal-state PRs whose head still matches the run are
-KEPT, even when MERGED/CLOSED. The dormancy-based cancellation path is
-preserved separately as the default mode (without ``--superseded-only``).
+``--superseded-only`` remains accepted for compatibility: every mode now
+requires proven supersession. ``--max-age-hours`` labels age in the report;
+it never authorizes cancellation. ``--dry-run`` overrides ``--cancel``.
 
 Usage:
     python3 ci_queue_trim.py [--repo OWNER/REPO] [--max-age-hours HOURS]
@@ -185,7 +184,6 @@ def classify_run(
     pw = options.get("protected_workflows", set())
     aw = options.get("allowed_workflows", set())
     max_age_hours = options.get("max_age_hours", DEFAULT_MAX_AGE_HOURS)
-    superseded_only = bool(options.get("superseded_only"))
 
     branch = run.get("head_branch") or ""
     event = run.get("event") or ""
@@ -280,28 +278,9 @@ def classify_run(
     pr_state = "MERGED" if pr_merged else pr_state_raw.upper() or "UNKNOWN"
 
     if event == "pull_request_target":
-        # Base-side semantics.
-        # In superseded-only mode, pull_request_target NEVER cancels
-        # (base-side runs execute on BASE SHA; tip advance on the PR is
-        # not proven supersede; terminal matching heads KEEP).
-        if superseded_only:
-            return Classification(
-                verdict="KEEP", superseded=False, audit_incomplete=False,
-                reason=(
-                    "pull_request_target in superseded-only; "
-                    "base-side never cancels"
-                ),
-                pr_state=pr_state,
-            )
-        if pr_state in ("MERGED", "CLOSED"):
-            return Classification(
-                verdict="CANCEL", superseded=False, audit_incomplete=False,
-                reason=f"PR #{pr.get('number')} is {pr_state} (orphaned run)",
-                pr_state=pr_state,
-            )
         return Classification(
             verdict="KEEP", superseded=False, audit_incomplete=False,
-            reason="pull_request_target uses base-side semantics; not proven",
+            reason="pull_request_target uses base-side semantics; never cancelled",
             pr_state=pr_state,
         )
 
@@ -315,25 +294,6 @@ def classify_run(
                 f"Run head {run_head_sha[:7]} no longer matches PR "
                 f"#{pr.get('number')} head tip {pr_head_sha[:7]} (superseded)"
             ),
-            pr_state=pr_state,
-        )
-
-    # In superseded-only mode, terminal matching heads KEEP. Only
-    # superseded=True cancels in this mode. Dormancy is preserved
-    # separately as the default (non-superseded-only) mode below.
-    if superseded_only:
-        return Classification(
-            verdict="KEEP", superseded=False, audit_incomplete=False,
-            reason=(
-                "Superseded-only mode: terminal matching head KEEP"
-            ),
-            pr_state=pr_state,
-        )
-
-    if pr_state in ("MERGED", "CLOSED"):
-        return Classification(
-            verdict="CANCEL", superseded=False, audit_incomplete=False,
-            reason=f"PR #{pr.get('number')} is {pr_state} (orphaned run)",
             pr_state=pr_state,
         )
 
@@ -351,10 +311,10 @@ def classify_run(
     head_commit_age_sec = (now - head_commit_dt).total_seconds()
     if head_commit_age_sec > max_age_hours * 3600:
         return Classification(
-            verdict="CANCEL", superseded=False, audit_incomplete=False,
+            verdict="KEEP", superseded=False, audit_incomplete=False,
             reason=(
-                f"Dormant code: head commit is "
-                f"{format_duration(head_commit_age_sec)} old"
+                f"Current head: commit age {format_duration(head_commit_age_sec)} "
+                f"exceeds report threshold {max_age_hours:g}h; age is not cancellation authority"
             ),
             pr_state=pr_state,
         )
@@ -362,7 +322,7 @@ def classify_run(
     return Classification(
         verdict="KEEP", superseded=False, audit_incomplete=False,
         reason=(
-            f"Active PR: head commit is fresh "
+            f"Current head: head commit is within report age threshold "
             f"({format_duration(head_commit_age_sec)} old)"
         ),
         pr_state=pr_state,
@@ -712,6 +672,7 @@ def cancel_with_per_item_refresh(
     superseded_only: bool = False,
     protected_workflows: Optional[set] = None,
     allowed_workflows: Optional[set] = None,
+    max_age_hours: float = DEFAULT_MAX_AGE_HOURS,
     now: Optional[datetime.datetime] = None,
 ) -> List[int]:
     """Cancel each candidate only if a fresh re-fetch + re-classify still
@@ -743,7 +704,7 @@ def cancel_with_per_item_refresh(
         "protected_branches": PROTECTED_BRANCHES,
         "protected_workflows": set(protected_workflows or []),
         "allowed_workflows": set(allowed_workflows or []),
-        "max_age_hours": DEFAULT_MAX_AGE_HOURS,
+        "max_age_hours": max_age_hours,
         "superseded_only": superseded_only,
     }
     now = now or datetime.datetime.now(datetime.timezone.utc)
@@ -905,16 +866,18 @@ def _print_report(audited: List[Dict[str, Any]], stats: Dict[str, Any],
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Audit and trim queued GitHub Actions runs for superseded or merged PRs."
+        description="Audit and trim queued GitHub Actions runs with proven obsolete heads."
     )
     parser.add_argument("--repo", default=DEFAULT_REPO)
-    parser.add_argument("--max-age-hours", type=float, default=DEFAULT_MAX_AGE_HOURS)
+    parser.add_argument("--max-age-hours", type=float, default=DEFAULT_MAX_AGE_HOURS,
+                        help="Report age threshold only; never cancellation authority.")
     parser.add_argument("--limit", type=int, default=100)
     parser.add_argument("--cancel", action="store_true")
-    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="Audit only, even when --cancel is also supplied.")
     parser.add_argument(
         "--superseded-only", action="store_true",
-        help="Cancel only runs whose head SHA is proven obsolete.",
+        help="Compatibility flag: all modes require proven obsolete heads.",
     )
     parser.add_argument("--check-host", action="store_true")
     parser.add_argument("--json", action="store_true", dest="json_output")
@@ -968,13 +931,17 @@ def main() -> int:
     if args.json_output:
         print(json.dumps({"stats": stats, "runs": audited}, indent=2))
 
-    if args.cancel and not stats.get("queue_fetch_failed"):
+    if stats.get("queue_fetch_failed"):
+        return 1
+
+    if args.cancel and not args.dry_run:
         runs_to_cancel = [r for r in audited if r["verdict"] == "CANCEL"]
         if not runs_to_cancel:
             print("\nNo runs eligible for cancellation.")
             return 0
         cancelled = cancel_with_per_item_refresh(
             args.repo, runs_to_cancel,
+            max_age_hours=args.max_age_hours,
             superseded_only=args.superseded_only,
             protected_workflows=protected_workflows,
             allowed_workflows=allowed_workflows,
@@ -987,7 +954,7 @@ def main() -> int:
             f"verify terminal state independently "
             f"(e.g. `gh run view <id>` or a follow-up audit)."
         )
-    elif stats.get("to_cancel", 0) > 0 and not args.cancel:
+    elif stats.get("to_cancel", 0) > 0 and (not args.cancel or args.dry_run):
         print(
             f"\nDry-run mode: {stats['to_cancel']} runs eligible for cancellation. "
             "Re-run with --cancel to execute."

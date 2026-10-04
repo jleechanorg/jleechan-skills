@@ -22,6 +22,7 @@ or::
 from __future__ import annotations
 
 import datetime
+import io
 import json
 import sys
 import unittest
@@ -366,9 +367,9 @@ class TestClassifierSemantics(unittest.TestCase):
         self.assertEqual(cls.verdict, "KEEP")
         self.assertFalse(cls.superseded)
 
-    def test_pull_request_target_keeps_unless_proven(self):
+    def test_pull_request_target_always_keeps(self):
         """pull_request_target runs use the BASE branch SHA; supersede is
-        NOT proven by PR.head.sha differing. Only MERGED/CLOSED cancels."""
+        NOT proven by PR.head.sha differing, including MERGED/CLOSED PRs."""
         run = queued_run(3, head_sha="base_at_v1", event="pull_request_target",
                          branch="feature/qt", pr_numbers=[42])
         pr_open = pr_record(42, head_sha="tip_v2")  # tip advanced
@@ -379,7 +380,7 @@ class TestClassifierSemantics(unittest.TestCase):
 
         pr_merged = pr_record(42, head_sha="tip_v2", state="closed", merged=True)
         cls = self._classify(run, pr_merged, None)
-        self.assertEqual(cls.verdict, "CANCEL")
+        self.assertEqual(cls.verdict, "KEEP")
         self.assertEqual(cls.pr_state, "MERGED")
 
     def test_push_event_branch_head_mismatch_cancels(self):
@@ -769,9 +770,8 @@ class TestNewReviewCoverage(unittest.TestCase):
       (``id == requested run_id``, required fields present, repo
       identity present), uses the SAME pure classifier for the final
       decision, and refuses to cancel on any incomplete state.
-    * Dormancy-based cancellation is preserved separately from
-      ``--superseded-only`` and propagates through the same classifier
-      path at mutation time.
+    * Proven supersession is required in all modes and is rechecked
+      at mutation time.
     * ``_strip_ref`` handles refs that contain slashes
       (``@refs/heads/feature/x``).
     * ``_collect_inputs`` requires exactly one PR association (0 or >1
@@ -1111,10 +1111,10 @@ class TestNewReviewCoverage(unittest.TestCase):
         self.assertEqual(cancelled, [])
         self.assertEqual(stub.cancel_calls, [])
 
-    # ---- dormant mode preserved ----
+    # ---- obsolete push preserved ----
 
-    def test_dormant_current_head_cancels_at_mutation(self):
-        """Dormancy-based CANCEL propagates through the same classifier
+    def test_obsolete_push_cancels_at_mutation(self):
+        """Proven obsolete-head CANCEL propagates through the same classifier
         + check path at mutation time (not silently dropped by separate
         decision logic)."""
         stub = _RunCmdStub()
@@ -1207,7 +1207,7 @@ class TestNewReviewCoverage(unittest.TestCase):
         ``head.repo.pushed_at`` (unrelated push) MUST NOT inflate the
         head-commit age. Only the immutable committer timestamp from
         ``/commits/{sha}`` counts. Run's head_sha matches PR's head_sha
-        (so no supersede); only dormancy is in play."""
+        (so no supersede); age is reporting only."""
         stub = _RunCmdStub()
         run = queued_run(
             790, event="pull_request", head_sha="old_sha",
@@ -1229,10 +1229,9 @@ class TestNewReviewCoverage(unittest.TestCase):
 
         audited, _ = _audit_with(stub)
         row = audited[0]
-        # The actual committer date is ~300h ago, which is OLD relative
-        # to max_age_hours=2. Dormancy cancels.
-        self.assertEqual(row["verdict"], "CANCEL")
-        self.assertFalse(row["superseded"])  # dormancy path, not supersede
+        # The five-hour commit exceeds the report threshold but must stay queued.
+        self.assertEqual(row["verdict"], "KEEP")
+        self.assertFalse(row["superseded"])
         # Head-commit age reflects the real committer date, NOT updated_at.
         self.assertNotEqual(row["head_commit_age"], "unknown")
         self.assertIn("5.0h", row["head_commit_age"])  # 300m formatted as 5.0h
@@ -1244,8 +1243,7 @@ class TestNewReviewCoverage(unittest.TestCase):
         """Normal mode: if the ``/commits/{sha}`` endpoint fails,
         ``head_commit_date`` is left absent and the run is KEEP
         incomplete — NEVER substituted by ``pushed_at``/``updated_at``/
-        run age. Dormancy-based cancellation requires the real
-        committer timestamp; we cannot trust it without it."""
+        run age. Age reporting requires the real committer timestamp."""
         stub = _RunCmdStub()
         run = queued_run(
             791, event="pull_request", head_sha="old_sha",
@@ -1301,6 +1299,79 @@ class TestNewReviewCoverage(unittest.TestCase):
         self.assertEqual(row["verdict"], "CANCEL")
         self.assertTrue(row["superseded"])
         self.assertFalse(row["audit_incomplete"])
+
+
+class TestCancellationSafetyCLI(unittest.TestCase):
+    def test_current_head_and_base_side_preserved_in_every_mode(self):
+        for superseded_only in (False, True):
+            for state, merged in (("open", False), ("closed", False), ("closed", True)):
+                for event in ("pull_request", "pull_request_target"):
+                    with self.subTest(mode=superseded_only, state=state, merged=merged, event=event):
+                        stub = _RunCmdStub()
+                        run = queued_run(800, head_sha="current" if event == "pull_request" else "base", event=event, pr_numbers=[42])
+                        pr = pr_record(42, head_sha="current", state=state, merged=merged, head_commit_minutes_ago=600)
+                        _setup_queue(stub, [run], {42: pr})
+                        audited, _ = _audit_with(stub, superseded_only=superseded_only)
+                        self.assertEqual(audited[0]["verdict"], "KEEP")
+                        self.assertFalse(audited[0]["superseded"])
+                        # A stale earlier CANCEL verdict must also be rejected on refresh.
+                        with mock.patch.object(ci_queue_trim, "run_cmd", side_effect=stub), _patch_now():
+                            accepted = ci_queue_trim.cancel_with_per_item_refresh(
+                                "owner/repo", [{"run_id": 800, "verdict": "CANCEL"}],
+                                allowed_workflows={".github/workflows/ci.yml"},
+                                superseded_only=superseded_only,
+                            )
+                        self.assertEqual(accepted, [])
+                        self.assertEqual(stub.cancel_calls, [])
+
+    def test_obsolete_pr_still_cancellable_in_every_mode(self):
+        for superseded_only in (False, True):
+            for state, merged in (("open", False), ("closed", False), ("closed", True)):
+                with self.subTest(mode=superseded_only, state=state, merged=merged):
+                    stub = _RunCmdStub()
+                    run = queued_run(801, head_sha="old", pr_numbers=[42])
+                    _setup_queue(stub, [run], {42: pr_record(42, head_sha="new", state=state, merged=merged)})
+                    audited, _ = _audit_with(stub, superseded_only=superseded_only)
+                    self.assertEqual(audited[0]["verdict"], "CANCEL")
+                    self.assertTrue(audited[0]["superseded"])
+                    with mock.patch.object(ci_queue_trim, "run_cmd", side_effect=stub), _patch_now():
+                        accepted = ci_queue_trim.cancel_with_per_item_refresh(
+                            "owner/repo", audited, superseded_only=superseded_only,
+                            allowed_workflows={".github/workflows/ci.yml"},
+                        )
+                    self.assertEqual(accepted, [801])
+                    self.assertEqual(stub.cancel_calls, [801])
+
+    def test_cancel_dry_run_never_mutates(self):
+        stub = _RunCmdStub()
+        _setup_queue(stub, [queued_run(802, head_sha="old", pr_numbers=[42])], {42: pr_record(42, head_sha="new")})
+        argv = ["ci_queue_trim.py", "--repo", "owner/repo", "--allow-workflow", ".github/workflows/ci.yml", "--cancel", "--dry-run"]
+        with mock.patch.object(sys, "argv", argv), mock.patch.object(ci_queue_trim, "run_cmd", side_effect=stub), mock.patch("sys.stdout", new_callable=io.StringIO) as output:
+            rc = ci_queue_trim.main()
+        self.assertEqual(rc, 0)
+        self.assertEqual(stub.cancel_calls, [])
+        self.assertIn("Dry-run mode: 1", output.getvalue())
+
+    def test_nondefault_age_threshold_reaches_audit_and_refresh(self):
+        stub = _RunCmdStub()
+        _setup_queue(stub, [queued_run(803, head_sha="old", pr_numbers=[42])], {42: pr_record(42, head_sha="new")})
+        argv = ["ci_queue_trim.py", "--repo", "owner/repo", "--allow-workflow", ".github/workflows/ci.yml", "--cancel", "--max-age-hours", "7.5"]
+        with mock.patch.object(sys, "argv", argv), mock.patch.object(ci_queue_trim, "run_cmd", side_effect=stub), mock.patch.object(ci_queue_trim, "classify_run", wraps=ci_queue_trim.classify_run) as classify, mock.patch("sys.stdout", new_callable=io.StringIO):
+            rc = ci_queue_trim.main()
+        self.assertEqual(rc, 0)
+        self.assertEqual(stub.cancel_calls, [803])
+        self.assertEqual(len(classify.call_args_list), 2)
+        for call in classify.call_args_list:
+            self.assertEqual(call.kwargs["options"]["max_age_hours"], 7.5)
+
+    def test_queue_fetch_failure_exits_nonzero_without_mutation(self):
+        for flags in ([], ["--cancel"], ["--cancel", "--dry-run"]):
+            with self.subTest(flags=flags):
+                stub = _RunCmdStub()
+                stub.add("run list", (1, "", "API unavailable"))
+                with mock.patch.object(sys, "argv", ["ci_queue_trim.py", *flags]), mock.patch.object(ci_queue_trim, "run_cmd", side_effect=stub), mock.patch("sys.stdout", new_callable=io.StringIO):
+                    self.assertNotEqual(ci_queue_trim.main(), 0)
+                self.assertEqual(stub.cancel_calls, [])
 
 
 if __name__ == "__main__":
