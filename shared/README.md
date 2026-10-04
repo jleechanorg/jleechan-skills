@@ -108,3 +108,5 @@ injected catalog can remain unchanged. Test the visual picker and representative
 workflows separately. Skills do not install browser extensions, connect absent
 profiles, change permissions, or override another session's tab lock. `/browser`
 is also a Claude command; `$browser` discovery depends on the current host.
+
+File updates stage and hash-check the complete source bytes before activation. Interrupted copies leave prior live bytes intact; staging rechecks live preimages and creates missing files without replacing a concurrently created local file.

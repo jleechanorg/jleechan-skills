@@ -282,4 +282,43 @@ class ReviewRegressionTests(unittest.TestCase):
     self.assertEqual(list(home.iterdir()),[])
    self.assertEqual(before,{str(p.relative_to(src)):p.read_bytes() for p in src.rglob('*') if p.is_file()})
 
+ def test_interrupted_source_copy_never_activates_partial_live_bytes(self):
+  from unittest.mock import patch
+  m=self.installer()
+  for existing in [False,True]:
+   with self.subTest(existing=existing),tempfile.TemporaryDirectory() as t:
+    src,home=self.fixture(Path(t).resolve());source=src/'.claude/skills/example/SKILL.md';live=home/'.claude/skills/example/SKILL.md'
+    if existing:live.parent.mkdir(parents=True);live.write_text('old installed bytes')
+    baseline={'example':{'SKILL.md':__import__('hashlib').sha256(live.read_bytes()).hexdigest()}} if existing else None
+    real_copy=m.shutil.copy2
+    def interrupted(a,b,*args,**kwargs):
+     if Path(a)==source:Path(b).write_bytes(b'partial-copy');raise OSError('injected copy interruption')
+     return real_copy(a,b,*args,**kwargs)
+    with patch.object(m.shutil,'copy2',side_effect=interrupted),self.assertRaisesRegex(OSError,'injected copy interruption'):m.install(src,home,'interrupted',baseline)
+    if existing:self.assertEqual(live.read_text(),'old installed bytes')
+    else:self.assertFalse(live.exists())
+    self.assertFalse((home/'.agents/skills/example').exists())
+    self.assertEqual(list(live.parent.glob('*.tmp')),[])
+    self.assertEqual(json.loads((m.release_path(home,'interrupted')/'receipt.json').read_text())['status'],'failed')
+
+ def test_staged_copy_preserves_later_live_edits_and_refuses_source_drift(self):
+  from unittest.mock import patch
+  import hashlib
+  m=self.installer()
+  for drift in ['live','source']:
+   for existing in [False,True]:
+    with self.subTest(drift=drift,existing=existing),tempfile.TemporaryDirectory() as t:
+     src,home=self.fixture(Path(t).resolve());source=src/'.claude/skills/example/SKILL.md';live=home/'.claude/skills/example/SKILL.md'
+     if existing:live.parent.mkdir(parents=True);live.write_text('old installed bytes')
+     baseline={'example':{'SKILL.md':hashlib.sha256(live.read_bytes()).hexdigest()}} if existing else None
+     real_copy=m.shutil.copy2
+     def changed(a,b,*args,**kwargs):
+      if Path(a)==source:(live if drift=='live' else source).write_text('later user edit')
+      return real_copy(a,b,*args,**kwargs)
+     with patch.object(m.shutil,'copy2',side_effect=changed),self.assertRaisesRegex(ValueError,'Concurrent (live|source) edit'):m.install(src,home,'changed',baseline)
+     if drift=='live':self.assertEqual(live.read_text(),'later user edit')
+     elif existing:self.assertEqual(live.read_text(),'old installed bytes')
+     else:self.assertFalse(live.exists())
+     self.assertEqual(list(live.parent.glob('*.tmp')),[])
+
 if __name__=='__main__':unittest.main()

@@ -141,7 +141,7 @@ def install(source, home, release, baseline=None):
                 raise ValueError(f'Local content conflict: {name}/{relative}')
             files[relative] = sha
             if old != sha:
-                updates.append((src, target, old))
+                updates.append((src, target, old, sha))
         managed[name] = files
         for relative, old in previous.get(name, {}).items():
             if relative in files:
@@ -191,7 +191,9 @@ def install(source, home, release, baseline=None):
         (undo / 'receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
     save()
     try:
-        for src, target, old in updates:
+        for src, target, old, expected in updates:
+            if target.is_symlink() or any(p.is_symlink() for p in target.parents):
+                raise ValueError(f'Concurrent linked live path: {target}')
             current = hashlib.sha256(target.read_bytes()).hexdigest() if target.is_file() else None
             if current != old or target.is_symlink():
                 raise ValueError(f'Concurrent live edit: {target}')
@@ -201,10 +203,28 @@ def install(source, home, release, baseline=None):
                 saved.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(target, saved)
             actions.append({'file': str(target), 'saved': str(saved) if saved else None,
-                            'sha256': hashlib.sha256(src.read_bytes()).hexdigest()})
+                            'sha256': expected})
             save()
             target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, target)
+            staged = target.with_name('.' + target.name + '.shared-' + uuid.uuid4().hex + '.tmp')
+            try:
+                with staged.open('xb'):
+                    pass
+                shutil.copy2(src, staged)
+                if hashlib.sha256(staged.read_bytes()).hexdigest() != expected:
+                    raise ValueError(f'Concurrent source edit: {src}')
+                if target.is_symlink() or any(p.is_symlink() for p in target.parents):
+                    raise ValueError(f'Concurrent linked live path: {target}')
+                current = hashlib.sha256(target.read_bytes()).hexdigest() if target.is_file() else None
+                if current != old:
+                    raise ValueError(f'Concurrent live edit: {target}')
+                if old is None:
+                    os.link(staged, target)  # Atomic create without replacing a new local file.
+                else:
+                    os.replace(staged, target)
+            finally:
+                if staged.exists():
+                    staged.unlink()
         for target, old in removals:
             if target.is_symlink() or not target.is_file() or hashlib.sha256(target.read_bytes()).hexdigest() != old:
                 raise ValueError(f'Concurrent retired edit: {target}')
