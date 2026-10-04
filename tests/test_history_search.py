@@ -30,6 +30,12 @@ from scripts.history_search import (
 class TestHistorySearch(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = Path(tempfile.mkdtemp(prefix="test_hist_search_"))
+        # Default search locations must never read the invoking user's history.
+        fixture_home = self.temp_dir / "home"
+        fixture_home.mkdir()
+        home_patch = patch("scripts.history_search.Path.home", return_value=fixture_home)
+        home_patch.start()
+        self.addCleanup(home_patch.stop)
 
     def tearDown(self) -> None:
         shutil.rmtree(self.temp_dir, ignore_errors=True)
