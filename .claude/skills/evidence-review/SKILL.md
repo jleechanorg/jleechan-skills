@@ -31,7 +31,7 @@ The shared catalog preserves host-installed `/advice` and `/web-advice` integrat
 
 ## Draft-lifecycle integration
 
-The canonical lifecycle, its changed-path classification, and the SHA-binding /
+The canonical lifecycle, its documentation-only `/er` allowlist, and the SHA-binding /
 staleness-tolerance rule (`draft-first-pr` § "SHA-binding rule") live in
 `draft-first-pr`; apply that policy — including the staleness-tolerance diff
 test — before invoking this skill. Do not run a fresh `/er` pass on a HEAD

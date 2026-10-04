@@ -204,6 +204,7 @@ At the end, the agent's final reply MUST contain (finish-the-job Phase 4):
   - <finding 1 — e.g. "PR #7832 hit the same file in May 23 session; same fix shape applies">
   - <finding 2>
 - If no prior context: state explicitly "No prior CLI sessions or memory matched; first run on this topic."
+- If Phase 2 was skipped per the applicability rule: state "Phase 2 skipped — small low-risk change" instead of counts.
 
 ## Hand-off
 - Goal file written to: `.converge/goal.md` (this file)

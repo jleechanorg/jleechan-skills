@@ -133,7 +133,8 @@ or a deploy/preview workflow — or any **mixed** diff containing at least one s
 
 **Rationale:** rerunning real-server + real-LLM evidence for a docs typo or test rename burns
 hours of LLM time for zero added confidence. The evidence proves a *behavior*; if the behavior's
-code is byte-identical at HEAD, the proof is byte-valid at HEAD. Repo-level files may add
+code is byte-identical at HEAD and no assertion or driver backing it changed, the proof is
+byte-valid at HEAD. Repo-level files may add
 path-specific context (e.g. `<repo>/.claude/skills/evidence-standards.md` §"Evidence Staleness
 Tolerance for Test/Docs-Only Changes") and take precedence on conflict, but cannot waive the
 delta-and-claim test above.
@@ -162,8 +163,8 @@ the completed candidate; scheduling that package last does not defer the initial
 failure reproduction until after the behavior fix.
 
 Rerun expensive evidence ONLY on a material change per the Staleness Tolerance
-diff test above: a production-behavior file in the evidenced path changed, or
-the artifact producer changed in a way that alters captured bytes. When review
+delta-and-claim test above: the delta changes production behavior, or any test
+assertion, evidence driver/capture, or executable instruction a claim depends on. When review
 findings arrive after evidence, classify materiality FIRST; batch ALL pending
 fixes into ONE new SHA before any rerun — never a rerun per finding.
 
@@ -206,8 +207,8 @@ integration — real callstack exercised, mocks only at external API boundaries
 LLM or external service, real-service evidence is required (no mocked
 provider).
 
-**Exception 1:** non-production changes (docs, tests, tooling/scripts) — no
-evidence required.
+**Exception 1:** non-production changes (docs, tests, tooling/scripts) that
+back no production-behavior claim — no evidence required.
 
 **Exception 2:** production changes under 100 delta lines of non-test code —
 unit-only IS acceptable.

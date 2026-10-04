@@ -155,7 +155,10 @@ class CodingLifecycleContract(unittest.TestCase):
         cov = read("evidence-coverage")
         self.assertNotIn("git diff <evidence_sha>..HEAD --name-only", cov)
         self.assertIn("Read the full diff, including test files", cov)
-        self.assertIn("cannot waive the delta-and-claim test", read("evidence-standards"))
+        std = read("evidence-standards")
+        self.assertIn("cannot waive the delta-and-claim test", std)
+        self.assertNotIn("a production-behavior file in the evidenced path changed", std)
+        self.assertIn("delta-and-claim test above: the delta changes production behavior, or any test assertion", std)
 
 
 if __name__ == "__main__":
