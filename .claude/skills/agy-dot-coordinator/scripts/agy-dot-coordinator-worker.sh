@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 # .claude/skills/agy-dot-coordinator/scripts/agy-dot-coordinator-worker.sh
 # Periodic worker invoking agy CLI to coordinate with ChatGPT dot assistant.
+# Asks for in-flight work/goals, reminds dot to resume, and polls every minute for reply.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STATE_DIR="$HOME/.local/state/ai.gemini.agy-dot-coordinator"
 STATE_FILE="$STATE_DIR/state.json"
-COOLDOWN_SECS=7200 # 2 hours debounce between reminders
+COOLDOWN_SECS=7200 # 2 hours debounce between reminder rounds
+POLL_INTERVAL_SECS=60
+MAX_POLLS=10
 
 if [[ -f "$SCRIPT_DIR/../../dot/scripts/dot.sh" ]]; then
   DOT_SCRIPT="$SCRIPT_DIR/../../dot/scripts/dot.sh"
@@ -21,12 +24,14 @@ mkdir -p "$STATE_DIR"
 FORCE=0
 DRY_RUN=0
 STATUS_ONLY=0
+POLL_REPLY=1
 
 for arg in "$@"; do
   case "$arg" in
     --force) FORCE=1 ;;
     --dry-run) DRY_RUN=1 ;;
     --status) STATUS_ONLY=1 ;;
+    --no-poll) POLL_REPLY=0 ;;
     *) echo "Unknown option: $arg" >&2; exit 2 ;;
   esac
 done
@@ -43,16 +48,18 @@ read_last_sent() {
 write_state() {
   local epoch="$1"
   local status="$2"
+  local summary="${3:-}"
   python3 -c '
 import json, sys, time
 data = {
     "last_sent_epoch": int(sys.argv[1]),
     "last_sent_iso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(int(sys.argv[1]))),
-    "last_status": sys.argv[2]
+    "last_status": sys.argv[2],
+    "last_summary": sys.argv[3] if len(sys.argv) > 3 else ""
 }
 with open("'"$STATE_FILE"'", "w") as f:
     json.dump(data, f, indent=2)
-' "$epoch" "$status"
+' "$epoch" "$status" "$summary"
 }
 
 NOW=$(date +%s)
@@ -72,7 +79,6 @@ echo "Checking dot state via $DOT_SCRIPT read 2000..."
 DOT_TAIL=""
 if ! DOT_TAIL=$(timeout 45 "$DOT_SCRIPT" read 2000 2>&1); then
   echo "WARNING: Failed to read dot state: $DOT_TAIL" >&2
-  # Do not crash; record and exit 0 so launchd doesn't rapidly retry
   exit 0
 fi
 
@@ -102,11 +108,12 @@ PROMPT="You are the Antigravity (agy) coordinator.
 Communicate with the ChatGPT coordinator (the dot) using the /dot skill.
 Instructions:
 1. Inspect what the dot is doing by reading its conversation with /dot.
-2. Formulate and send a structured message starting with 'From Gemini (Antigravity Coordinator):':
-   - Inquire what work is currently in flight and what the active priorities are.
-   - Remind the dot to keep driving work forward in strict priority order using its cloud computer.
+2. Send a single structured message starting with 'From Gemini (Antigravity Coordinator):':
+   - Ask what work is currently in flight across all tracks and what active goals exist.
+   - Remind the dot to resume any paused or waiting work/goal and keep driving in strict priority order using its cloud computer.
    - Remind the dot to set up the cloud computer environment with everything needed (repositories, tools, dependencies, and test harnesses) and to strictly prefer driving execution there.
-3. Make sure the message is sent cleanly using dot.sh with DOT_WAIT_SECS=60 and report the verified result."
+3. Make sure the message is sent cleanly using dot.sh with DOT_WAIT_SECS=60 and report the verified send status.
+4. After sending, check every minute for a reply (polling dot.sh read 3000) until the dot finishes its response (no longer ending in Thinking/Working), then report the in-flight work and confirm it has resumed."
 
 if [[ "$DRY_RUN" -eq 1 ]]; then
   echo "[DRY-RUN] Would run agy -p with prompt:"
@@ -118,10 +125,10 @@ fi
 export DOT_WAIT_SECS=60
 export DOT_RETRY_SECS=15
 
-# Run agy with timeout
+# Run agy with timeout (accommodates 1-minute polling turns)
 AGY_OUT=""
 AGY_RC=0
-AGY_OUT=$(timeout 360 agy -p "$PROMPT" --dangerously-skip-permissions --print-timeout 300s 2>&1) || AGY_RC=$?
+AGY_OUT=$(timeout 480 agy -p "$PROMPT" --dangerously-skip-permissions --print-timeout 420s 2>&1) || AGY_RC=$?
 
 echo "agy finished with exit code $AGY_RC"
 echo "=== agy output ==="
@@ -129,7 +136,24 @@ echo "$AGY_OUT"
 echo "=================="
 
 if [[ "$AGY_RC" -eq 0 ]]; then
-  write_state "$NOW" "SUCCESS"
+  # If worker-level polling requested and dot is still working
+  if [[ "$POLL_REPLY" -eq 1 ]]; then
+    echo "Verifying dot reply via 1-minute polling loop..."
+    poll_count=0
+    while [[ $poll_count -lt $MAX_POLLS ]]; do
+      CURRENT_TAIL=$(timeout 45 "$DOT_SCRIPT" read 2500 2>&1 || true)
+      if echo "$CURRENT_TAIL" | grep -qiE "Thinking|Working|Searching|dot is typing"; then
+        poll_count=$((poll_count + 1))
+        echo "[Poll $poll_count/$MAX_POLLS] Dot is still actively working on reply. Waiting ${POLL_INTERVAL_SECS}s..."
+        sleep "$POLL_INTERVAL_SECS"
+      else
+        echo "Dot finished reply after ${poll_count} wait cycles."
+        break
+      fi
+    done
+  fi
+
+  write_state "$NOW" "SUCCESS" "Delivered and verified in-flight goals with dot"
   echo "Successfully completed dot check-in at $(date)."
 else
   # Check if failure was just composer busy

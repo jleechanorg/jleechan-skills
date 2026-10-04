@@ -7,10 +7,11 @@ description: Periodic background launchd agent (macOS) and systemd user timer (L
 
 ## Purpose
 `agy-dot-coordinator` provides a cross-platform background service (macOS `launchd` and Linux `systemd --user`) that periodically invokes the Antigravity CLI (`agy`) to inspect the user's central ChatGPT coordinator ("the dot"). It:
-1. Queries the dot about in-flight work and active priorities.
-2. Reminds the dot to continually drive work in priority order using its cloud computer environment.
-3. Directs the dot to provision and configure its cloud computer with all necessary tools, dependencies, and environment configurations, and strictly prefer driving execution there.
-4. Uses stateful debouncing and composer draft protection to prevent conversational spam and preserve peer drafts.
+1. Sends a structured message asking what work and goals are currently in flight across all tracks.
+2. Reminds the dot to resume any paused or waiting work/goal and keep driving in strict priority order using its cloud computer.
+3. Directs the dot to provision and configure its cloud computer with all necessary tools, repositories, dependencies, and test harnesses, and strictly prefer driving execution there.
+4. Checks every minute for a reply while the dot is thinking or working, confirms verified delivery, and logs the latest in-flight goals.
+5. Uses stateful debouncing and composer draft protection to prevent conversational spam and preserve peer drafts.
 
 ---
 
@@ -21,21 +22,27 @@ description: Periodic background launchd agent (macOS) and systemd user timer (L
 - **Linux**: Configured as paired `systemd` user service and timer (`systemd/ai.gemini.agy-dot-coordinator.service` and `systemd/ai.gemini.agy-dot-coordinator.timer`) managed via `systemctl --user`.
 - **Unified Installer**: `scripts/install-service.sh` auto-detects macOS vs Linux and delegates to `install-launchagent.sh` or `install-systemd.sh`.
 
-### 2. Zero-Environment Unit/Plist Principle
-- Schedulers contain zero secrets or hardcoded custom PATHs.
-- Execution passes through `scripts/agy-dot-coordinator-wrapper.sh`, which sources the user's login shell profile (`~/.bash_profile` on macOS or `~/.bashrc` on Linux) under `set +u` / `set -u`.
+### 2. Single Message Ask & Resume/Goal Reminder
+- The coordinator dispatches a single structured directive:
+  - Inquires on active in-flight goals and track status.
+  - Directs the dot to resume any paused or stalled goal immediately in priority order using its cloud computer.
+  - Directs the dot to maintain its cloud computer environment and prefer driving execution there.
 
-### 3. Stateful Debounce & Idle Detection
+### 3. 1-Minute Reply Polling Loop
+- After sending, the worker monitors the conversation, checking every minute (up to 10 minutes) with `dot.sh read` until the dot finishes its response (no longer ending in `Thinking`/`Working`).
+- Logs each poll cycle (`[Poll X/10] Dot is actively working on reply...`) and extracts the confirmed reply.
+
+### 4. Stateful Debounce & Idle Detection
 - Schedulers wake every 15 minutes (`StartInterval: 900` or `OnUnitActiveSec=15min`).
 - A 2-hour cooldown (7200 seconds) is enforced in `~/.local/state/ai.gemini.agy-dot-coordinator/state.json`.
 - If the dot is actively working (`Thinking`, `Working`, `Searching`), the check-in is skipped.
 
-### 4. Composer Contention & Draft Safety
+### 5. Composer Contention & Draft Safety
 - `dot.sh` invocations use `DOT_WAIT_SECS=60` and `DOT_RETRY_SECS=15` to avoid hanging when a peer or user draft sits in the composer.
 - If an unsubmitted peer draft is present (`DOT_DRAFT_PRESENT`), the worker cleanly logs the busy state and exits 0.
 - Delivery verification (`DOT_SENT_VERIFIED`) ensures messages are confirmed in the conversation DOM before updating the last-sent timestamp.
 
-### 5. Concurrency Locking
+### 6. Concurrency Locking
 - Mutual exclusion is enforced via `flock -n` on `/tmp/ai.gemini.agy-dot-coordinator.lock` to prevent overlapping runs.
 
 ---
@@ -52,7 +59,7 @@ description: Periodic background launchd agent (macOS) and systemd user timer (L
 │   └── ai.gemini.agy-dot-coordinator.timer            # Linux systemd user timer (15min cadence)
 └── scripts/
     ├── agy-dot-coordinator-wrapper.sh                 # Sourced environment & lock wrapper
-    ├── agy-dot-coordinator-worker.sh                  # Gated worker dispatching agy -p
+    ├── agy-dot-coordinator-worker.sh                  # Gated worker with 1-minute reply polling loop
     ├── install-service.sh                             # Cross-platform installer (macOS & Linux)
     ├── install-launchagent.sh                         # macOS launchctl installer
     └── install-systemd.sh                             # Linux systemctl --user installer
@@ -76,7 +83,7 @@ description: Periodic background launchd agent (macOS) and systemd user timer (L
   ```bash
   ~/.claude/skills/agy-dot-coordinator/scripts/agy-dot-coordinator-worker.sh --dry-run
   ```
-- **Force Immediate Check-in (Bypass Cooldown)**:
+- **Force Immediate Check-in & Reply Polling**:
   ```bash
   ~/.claude/skills/agy-dot-coordinator/scripts/agy-dot-coordinator-worker.sh --force
   ```
