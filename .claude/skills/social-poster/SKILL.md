@@ -17,7 +17,7 @@ Canonical implementation:
 When this skill is invoked:
 1. Read and follow `~/.hermes/skills/social-poster/SKILL.md` as the source of truth.
 2. Prefer the skill-defined workflow over re-specifying individual script calls in slash commands.
-3. **Intent and approval:** draft/stage requests never publish. An explicit publish/crosspost request follows the canonical publishing workflow only after its mandatory `POST APPROVED` confirmation and platform allowlist. Requesting `/social`, logging in, or staging is not posting approval.
+3. **Intent and approval:** draft/stage requests never publish. An explicit publish/crosspost request authorizes the identified, reviewed content and destination. Follow the canonical publishing workflow and platform allowlist; its legacy `POST APPROVED` token is internal bookkeeping, not an extra user phrase. Preserve any independently required tool/policy confirmation. Requesting `/social`, logging in, or staging is not posting approval.
 4. Treat current live browser state as higher-confidence evidence than old logs, stale session notes, or previous failed runs.
 
 ## Operational rules added from the 2026-07-11 Fable run

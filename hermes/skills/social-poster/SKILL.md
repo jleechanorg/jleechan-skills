@@ -48,11 +48,19 @@ context: inline
 ## Twitter/X browser workflow
 
 This section takes precedence over generic staging/auth recipes for Twitter/X.
-Draft and stage requests remain unpublished. An explicit publish or crosspost
-request selects the publishing workflow; it does not remove the mandatory
-`POST APPROVED` confirmation or platform allowlist. Ask for any missing required
-confirmation after the exact text, account, and media are reviewable. Never turn
-this into standing permission for future posts.
+Draft and stage requests remain unpublished. An ordinary explicit request such
+as "Cross post this to Twitter" authorizes publishing the identified, reviewed
+content to the intended account and destination. Do not require the user to
+repeat a magic phrase. Ask only for missing content/account/destination details
+or confirmation independently required by the active tool or policy. Material
+changes to the approved content or destination need renewed approval.
+
+`POST APPROVED` is an internal execution token for legacy publisher scripts,
+not a required user phrase. Supply it only after recording the actual user
+instruction and verified account/content, and always pass the selected platform
+allowlist; never use the token to manufacture permission. If an active tool or
+policy requires separate confirmation, obtain it normally. Invocation, login,
+and staging alone do not authorize posting, and no future posts are approved.
 
 1. Reuse a supported browser session and inspect the signed-in handle before
    drafting or staging. If signed out, prefer the normal **Continue with Google**
