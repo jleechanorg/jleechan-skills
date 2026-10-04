@@ -236,4 +236,34 @@ class ReviewRegressionTests(unittest.TestCase):
      target=home/'.claude/skills'/name/'SKILL.md'
      if existing:self.assertEqual(target.read_text(),'existing host integration '+name);self.assertEqual((home/'.agents/skills'/name).resolve(),target.parent)
      else:self.assertFalse(target.exists());self.assertFalse((home/'.agents/skills'/name).exists())
+
+ def test_fresh_and_existing_review_integrations_are_explicit(self):
+  import re
+  m=self.installer()
+  for existing in [False,True]:
+   with self.subTest(existing=existing),tempfile.TemporaryDirectory() as t:
+    h=Path(t).resolve()
+    if existing:
+     for n in ['advice','web-advice']:
+      p=h/'.claude/skills'/n;p.mkdir(parents=True);(p/'SKILL.md').write_text('host-owned '+n)
+      a=h/'.agents/skills'/n;a.parent.mkdir(parents=True,exist_ok=True);a.symlink_to(p,target_is_directory=True)
+    m.install(ROOT,h,'review-dependencies')
+    checked=[]
+    for p in (h/'.claude/skills').glob('*/SKILL.md'):
+     if p.parent.name in ['advice','web-advice']:continue
+     text=p.read_text()
+     if not re.search(r'(?:/advice|/web-advice|advice/SKILL)',text):continue
+     checked.append(p.parent.name)
+     self.assertIn('## Retained review integrations',text,p.parent.name)
+     self.assertIn('For a remote invocation, check',text,p.parent.name)
+     self.assertIn('UNAVAILABLE',text,p.parent.name)
+     self.assertIn('leave any dependent readiness or plan-approval gate unmet',text,p.parent.name)
+    self.assertEqual(len(checked),15)
+    for n in ['advice','web-advice']:
+     p=h/'.claude/skills'/n/'SKILL.md'
+     if existing:
+      self.assertEqual(p.read_text(),'host-owned '+n)
+      self.assertEqual((h/'.agents/skills'/n).resolve(),p.parent)
+     else:self.assertFalse(p.exists())
+
 if __name__=='__main__':unittest.main()

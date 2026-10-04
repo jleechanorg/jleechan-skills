@@ -5,6 +5,11 @@ description: "This skill should be used when the user asks for a PR report, PR a
 
 # /pr-report — Per-PR Delta Audit & Quality Review
 
+## Retained review integrations
+
+The shared catalog preserves host-installed `/advice` and `/web-advice` integrations instead of installing them. Before invoking either, resolve its `../advice/SKILL.md` or `../web-advice/SKILL.md` relative to this package and read the existing skill. For a remote invocation, check the corresponding skill on the target host. If absent, report that integration as `UNAVAILABLE` and identify the missing package; do not invent a replacement runner, claim an approval, or treat a required gate as passed. Continue independent authorized work, but leave any dependent readiness or plan-approval gate unmet. Existing review quorum, external-disclosure authorization, and optional-review rules still apply.
+
+
 Use when the user invokes `/pr-report [<PR#s>]` or asks for a structured audit of one or more open pull requests. The skill defines the methodology, lane protocol, model routing, and output format. The Claude command at `~/.claude/commands/pr-report.md` dispatches the work.
 
 ## Inputs
