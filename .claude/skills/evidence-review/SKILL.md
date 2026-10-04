@@ -44,7 +44,8 @@ prior verdict at the new SHA instead (see `evidence-standards` §
   `/er: NOT REQUIRED — documentation-only (<changed paths>)` at the reviewed
   SHA. Mixed diffs and every path outside that allowlist follow the normal gate.
 
-Every PR outside that exception requires `/er` = **PASS** at the current SHA
+Every PR outside that exception, and outside any low-risk class the repo's own
+instructions exempt per `draft-first-pr`, requires `/er` = **PASS** at the current SHA
 before `/advice`. PARTIAL, FAIL, or INCONCLUSIVE remains informative reviewer
 output but does not satisfy the gate.
 

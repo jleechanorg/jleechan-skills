@@ -21,8 +21,8 @@ This is the full state machine — every other file (`pr-green-definition`, `/gr
 ```
 DRAFT
   → /es PASS @ SHA
-  → /er PASS @ SHA (PRs outside the narrow /er documentation allowlist)
-  → /advice APPROVED @ SHA
+  → /er PASS @ SHA (unless the narrow /er documentation allowlist or a repo-exempted class applies)
+  → /advice APPROVED @ SHA (unless a repo-exempted class applies)
   → mark ready (gh pr ready <N>)
   → /green: applicable CI or documented exception + no merge conflicts @ current HEAD SHA
   → separate merge authorization: explicit human "MERGE APPROVED" (case-insensitive)
@@ -87,11 +87,19 @@ same independent reviewers must inspect it and reaffirm at the finished HEAD. A
 same-HEAD finished code review can account for unchanged code without blindly
 rereading it; the orchestrator cannot promote an earlier review alone.
 
-While a PR is draft, accept these final gates in sequence — do not skip any:
+While a PR is draft, accept these final gates, where applicable, in sequence — do not skip any applicable gate:
+
+A repository's own instructions (for example its `AGENTS.md` coding lifecycle)
+may exempt defined low-risk classes, such as docs-only, test-only, or small
+non-production changes, from `/er` and `/advice`; when they do, follow that
+classification and its exclusions. The narrow documentation allowlist below is
+the default when the repo defines none. No exemption covers changes to approval,
+merge, review, evidence, or security rules, or to security, permission,
+credential, or merge-path code.
 
 1. **`/es`** — evidence bundle passes (real evidence per `~/.claude/skills/evidence-standards/SKILL.md` + repo-specific extensions), verified at the PR's current HEAD SHA.
-2. **`/er`** — for every PR except the documentation-only class below, evidence review verdict is PASS (not PARTIAL/FAIL/INCONCLUSIVE), verified at the same current HEAD SHA — re-run if `/es` was earned at an older SHA.
-3. **`/advice`** — second-opinion approval on the change itself (`APPROVED at <SHA>` / `NOT APPROVED at <SHA>` / `WITHHELD at <SHA>` — see `~/.claude/skills/advice/SKILL.md`), bound to the same current HEAD SHA. `WITHHELD` does not satisfy the draft gate.
+2. **`/er`** — for every PR except the documentation-only class below or a repo-exempted class, evidence review verdict is PASS (not PARTIAL/FAIL/INCONCLUSIVE), verified at the same current HEAD SHA — re-run if `/es` was earned at an older SHA.
+3. **`/advice`** — second-opinion approval on the change itself (`APPROVED at <SHA>` / `NOT APPROVED at <SHA>` / `WITHHELD at <SHA>` — see `~/.claude/skills/advice/SKILL.md`), bound to the same current HEAD SHA, unless a repo-exempted class applies. `WITHHELD` does not satisfy the draft gate.
 
 Only after every applicable gate passes **at the same current SHA**: flip the PR from draft to ready-for-review (`gh pr ready <N>`).
 
@@ -177,8 +185,8 @@ For this `/er` exemption, every changed path must be one of:
 
 For that class, do not run `/er`. Record
 `/er: NOT REQUIRED — documentation-only (<changed paths>)` on the PR, then
-continue directly to `/advice`. Documentation-only PRs still require `/es` and
-`/advice` at the current SHA, followed by `/green` using its documentation-only CI exception and separate merge authorization.
+continue to `/advice` where required. Documentation-only PRs still require `/es`
+and, unless a repo-exempted class applies, `/advice` at the current SHA, followed by `/green` using its documentation-only CI exception and separate merge authorization.
 
 This `/er` exemption is an exact allowlist, not a file-extension heuristic. Changes under
 `.claude/**`, `.codex/**`, `.github/**`, prompts, tests, scripts, configuration,
@@ -229,7 +237,7 @@ For checks queued/pending more than 10 minutes, follow the local-equivalent exce
 
 ## Rationale
 
-Long-open PRs that skipped straight to chasing CI green (e.g. the level-up auto-PR class) were starved by CI contention — CI capacity is a shared resource, not a private queue. The `ci-value-audit-v2` findings (`green-gate` workflow: 341 hr/wk consumed, 50.7% cancel rate pre-[#8637](https://github.com/$GITHUB_REPOSITORY/pull/8637)) show that driving unproven work through full CI repeatedly is the dominant cost driver. Gating quality (`/es`, `/er` when required, and `/advice`) in draft — before CI spend — front-loads correctness and back-loads CI cost only onto PRs already known-good.
+Long-open PRs that skipped straight to chasing CI green (e.g. the level-up auto-PR class) were starved by CI contention — CI capacity is a shared resource, not a private queue. The `ci-value-audit-v2` findings (`green-gate` workflow: 341 hr/wk consumed, 50.7% cancel rate pre-[#8637](https://github.com/$GITHUB_REPOSITORY/pull/8637)) show that driving unproven work through full CI repeatedly is the dominant cost driver. Gating quality (`/es`, and `/er` and `/advice` when required) in draft — before CI spend — front-loads correctness and back-loads CI cost only onto PRs already known-good.
 
 ## CodeRabbit/Bugbot — optional advisory reviewers
 

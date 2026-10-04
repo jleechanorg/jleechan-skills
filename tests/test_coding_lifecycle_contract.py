@@ -160,6 +160,32 @@ class CodingLifecycleContract(unittest.TestCase):
         self.assertNotIn("a production-behavior file in the evidenced path changed", std)
         self.assertIn("delta-and-claim test above: the delta changes production behavior, or any test assertion", std)
 
+    def test_repo_defined_low_risk_review_exemptions_are_honored(self):
+        owner = read("draft-first-pr")
+        self.assertIn("may exempt defined low-risk classes", owner)
+        self.assertIn("docs-only, test-only, or small non-production changes", owner)
+        self.assertIn("default when the repo defines none", owner)
+        self.assertIn("No exemption covers changes to approval, merge, review, evidence, or security rules", owner)
+
+    def test_gate_entrypoints_respect_repo_exemptions(self):
+        owner = read("draft-first-pr")
+        self.assertIn("accept these final gates, where applicable, in sequence", owner)
+        self.assertIn("documentation-only class below or a repo-exempted class", owner)
+        self.assertIn("unless a repo-exempted class applies", owner)
+        self.assertIn("outside any low-risk class the repo's own instructions exempt", read("evidence-review"))
+        ready = read("ready")
+        self.assertIn("/er and /advice where `draft-first-pr` (including repo-defined exemptions) requires them", ready)
+        self.assertNotIn("Final acceptance remains /es → /er → /advice at the current SHA;", ready)
+        self.assertIn("2. **/er** — when `draft-first-pr` (including repo-defined exemptions) requires it,", ready)
+        self.assertIn("3. **/advice** — when `draft-first-pr` (including repo-defined exemptions) requires it,", ready)
+        self.assertIn("still require `/es` and, unless a repo-exempted class applies, `/advice` at the current SHA", owner)
+        self.assertNotIn("still require `/es` and `/advice` at the current SHA", owner)
+        self.assertIn("→ /advice APPROVED @ SHA (unless a repo-exempted class applies)", owner)
+        self.assertIn("or a repo-exempted class applies)", owner)
+        self.assertIn("security, permission, credential, or merge-path code", owner)
+        command = " ".join((SKILLS.parent / "commands" / "ready.md").read_text().split())
+        self.assertIn("/er and /advice where `draft-first-pr` (including repo-defined exemptions) requires them", command)
+
 
 if __name__ == "__main__":
     unittest.main()

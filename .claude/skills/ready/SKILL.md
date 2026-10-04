@@ -1,6 +1,6 @@
 ---
 name: ready
-description: Drive PR(s) to merge-ready — /es /er /advice approved, then /green, all comments and merge conflicts handled. Use for /ready or /r.
+description: Drive PR(s) to merge-ready — /es, plus /er and /advice where draft-first-pr requires them, then /green, all comments and merge conflicts handled. Use for /ready or /r.
 ---
 
 # /ready — PR merge-readiness gate
@@ -11,7 +11,8 @@ The shared catalog preserves host-installed `/advice` and `/web-advice` integrat
 
 
 **Order matters (draft-first):** if the PR is a DRAFT, keep it draft while
-driving gates 1–3 (/es, /er, /advice) to approved; only THEN undraft, then
+driving the applicable gates 1–3 (/es, and /er and /advice where `draft-first-pr`
+(including repo-defined exemptions) requires them) to approved; only THEN undraft, then
 drive gate 4 (/green) and gate 5 to done. If the PR is ALREADY non-draft,
 leave it non-draft — never convert an open non-draft PR back to draft; just
 apply the same final gate requirements.
@@ -19,7 +20,7 @@ apply the same final gate requirements.
 These are final acceptance gates, not a serial work schedule. Follow
 `draft-first-pr/SKILL.md`: run independent code reviews and cheap focused checks
 early in parallel, resolve or explicitly defer findings, then freeze the change
-before expensive evidence. Final acceptance remains /es → /er → /advice at
+before expensive evidence. Final acceptance remains the applicable /es → /er → /advice chain at
 the current SHA; do not postpone the first code review until after evidence.
 
 A PR is READY when ALL of the following hold, verified at the CURRENT head SHA
@@ -29,14 +30,15 @@ A PR is READY when ALL of the following hold, verified at the CURRENT head SHA
    body as a single canonical `**Evidence**: <gist-url> (head <sha>)` marker —
    one marker only; stale markers with old head declarations make the
    Evidence Gate fail).
-2. **/er** — adversarial evidence review verdict PASS at the current head
-   (findings fixed RED-first). A head move whose actual delta leaves every
-   tested claim, assertion, and driver intact may instead be reaffirmed at the
-   new SHA under `draft-first-pr/SKILL.md`'s SHA-binding rule — document the
-   delta and the prior verdict's provenance rather than relabeling the old
-   capture; a behavioral change or a changed assertion/driver requires a fresh
-   run.
-3. **/advice** — at least two independent full-coverage approval reviewers
+2. **/er** — when `draft-first-pr` (including repo-defined exemptions) requires
+   it, adversarial evidence review verdict PASS at the current head (findings
+   fixed RED-first). A head move whose actual delta leaves every tested claim,
+   assertion, and driver intact may instead be reaffirmed at the new SHA under
+   `draft-first-pr/SKILL.md`'s SHA-binding rule — document the delta and the
+   prior verdict's provenance rather than relabeling the old capture; a
+   behavioral change or a changed assertion/driver requires a fresh run.
+3. **/advice** — when `draft-first-pr` (including repo-defined exemptions)
+   requires it, at least two independent full-coverage approval reviewers
    from the canonical `advice/SKILL.md` approval lanes approve the exact head, or
    every REQUEST_CHANGES finding is fixed and the two-reviewer quorum is rerun
    and approves. Research and the orchestrating agent do not vote. One approval
