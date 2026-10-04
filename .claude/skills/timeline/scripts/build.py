@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build a timeline HTML from a JSON spec and print the matching text Gantt.
 
-Usage: build.py spec.json [out.html] [--branch B] [--pr N] [--publish]
+Usage: build.py spec.json [out.html] [--branch B] [--pr N] [--no-publish]
 Spec: {title, snapshot, subtitle, branch, pr, bead, bead_db, done:[str], span,
   phases:[{title, rows:[{id, name, owner, bead, detail, start, lo, hi, label}]}],
   flow:[[group...] | "‖" | str]}
@@ -127,6 +127,9 @@ def main(spec_path, out_path=None, branch=None, pr=None, publish=False):
     lo_end = max(r["start"] + r["lo"] for r in known)
     hi_end = max(r["start"] + (r["hi"] if r["hi"] is not None else r["lo"]) for r in known)
     span = spec.get("span") or max(10, int(math.ceil(hi_end / 10.0) * 10))
+    for _, r in rows:
+        if r["unknown"]:
+            r["lo"] = max(1, min(r["lo"], span - r["start"]))
     est = f"≈ {lo_end}–{hi_end} min" if hi_end != lo_end else f"≈ {lo_end} min"
     f_lo, f_hi = finish_text(spec.get("snapshot"), lo_end), finish_text(spec.get("snapshot"), hi_end)
     finish = f" → finish ~{f_lo}–{f_hi}" if f_lo else ""
@@ -205,11 +208,13 @@ def main(spec_path, out_path=None, branch=None, pr=None, publish=False):
             axis[min(cell(t) + i, len(axis) - 1)] = ch
     print(" " * w + " |" + "".join(axis).rstrip() + " min")
     print("█ low  ░ low→high | green <10m, yellow 10–30m, red 30+m (by high), grey unknown")
-    print(f"\nHTML: {dest}")
-    if publish:
+    print()
+    if not publish:
+        print(f"HTML (local): {dest}")
+    else:
         t0 = time.time()
         gist_url, preview = publish_gist(spec, dest)
-        print(f"Gist: {gist_url}\nPreview: {preview}")
+        print(f"Timeline: {preview}\nGist: {gist_url}\nHTML (local): {dest}")
         t1 = time.time()
         try:
             bid = publish_bead(spec, dest, gist_url, preview)
@@ -224,6 +229,7 @@ if __name__ == "__main__":
     ap.add_argument("out", nargs="?")
     ap.add_argument("--branch")
     ap.add_argument("--pr")
-    ap.add_argument("--publish", action="store_true")
+    ap.add_argument("--publish", action="store_true", help="default; kept for compatibility")
+    ap.add_argument("--no-publish", action="store_true", help="local HTML only, no gist or bead")
     a = ap.parse_args()
-    main(a.spec, a.out, a.branch, a.pr, a.publish)
+    main(a.spec, a.out, a.branch, a.pr, not a.no_publish)

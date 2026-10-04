@@ -16,7 +16,7 @@ Turn a plan into an HTML Gantt (bars, parallelism, time estimates) plus a flow s
    - Show work handed to other lanes (subagents, CLI delegates, the dot) as its own row, labelled with the owner.
    - Say in the subtitle when the plan changed because of this.
 3. **Estimates.** Each row has a start offset, a low estimate and a high estimate in minutes (`hi: null` = unknown). Color is by the HIGH estimate: green < 10 min, yellow 10–30, red 30+, grey unknown. Solid bar = low estimate; faded extension = up to high. The legend states this.
-4. **Generate, do not hand-edit HTML.** Write a JSON spec and run `${CLAUDE_HOME:-$HOME/.claude}/skills/timeline/scripts/build.py spec.json --publish` (stdlib only; spec in a `mktemp` dir). It applies the color rule, uses the CSS in `assets/template.html`, computes the header total estimate and projected finish time, and prints the text Gantt to stdout.
+4. **Generate, do not hand-edit HTML.** Write a JSON spec and run `${CLAUDE_HOME:-$HOME/.claude}/skills/timeline/scripts/build.py spec.json` (stdlib only; spec in a `mktemp` dir). It applies the color rule, uses the CSS in `assets/template.html`, computes the header total estimate and projected finish time, and prints the text Gantt to stdout.
 5. **Every row names its owner** (main session, lane, subagent, CLI delegate, CI) and, when the step has its own bead, that bead id. `build.py` warns on a row without an owner.
 
 ```json
@@ -33,7 +33,7 @@ Turn a plan into an HTML Gantt (bars, parallelism, time estimates) plus a flow s
 ## Stable path, gist, and bead
 
 - **One file per PR, overwritten in place.** With no `out.html`, the path is `/tmp/timeline/<branch with / → ->-pr<N>.html` (from spec `branch`/`pr` or `--branch`/`--pr`), e.g. `/tmp/timeline/feat-login-fix-pr123.html`; the PNG sits beside it. Never mint a new path on refresh.
-- **Gist.** `--publish` scans the HTML for tokens and keys and refuses to upload on a hit, then creates a secret (unlisted) gist on the first run and edits the same gist afterwards; the id lives in `<html>.gist`. `gh gist` rejects binary files, so only the HTML is uploaded. It prints the gist URL and an `https://htmlpreview.github.io/?<raw url>` link.
+- **Gist (default).** Every build publishes unless `--no-publish` is passed. It scans the HTML for tokens and keys and refuses to upload on a hit, then creates a secret (unlisted) gist on the first run and edits the same gist afterwards; the id lives in `<html>.gist`. `gh gist` rejects binary files, so only the HTML is uploaded. It prints the gist URL and an `https://htmlpreview.github.io/?<raw url>` link.
 - **Bead.** Each timeline is tied to exactly one bead, id in `<html>.bead` (or spec `bead` to reuse an existing one). The first run creates it with `br`; every run rewrites its notes with the gist URL, preview link, and HTML path. The DB comes from spec `bead_db` or `br info --json` in the cwd, and every call pins `--db` (beads-issue-tracking skill). Measured 2026-10-04 on an 85 MB, ~6,900-issue DB: create 0.7 s, update 0.6–0.7 s, close 1.1 s, so the step runs inline; a bead failure is reported without blocking the drawing.
 
 ## Always open and review (mandatory)
@@ -46,7 +46,7 @@ Never report a timeline you have not looked at.
 
 ## Always print it in chat (mandatory)
 
-The user may not open the files. Every reply includes the `build.py` stdout in a fenced block: one row per step, `█` low, `░` low→high, estimate plus color word at the row end, an axis line, and the header totals. Then give the HTML as a bare absolute path alone on its own line (terminals such as cmux linkify that and open it in a browser pane; they do not open markdown `file://` links), the gist URL and htmlpreview link, the bead id, the absolute PNG path, and one line on what you checked. Never omit the HTML or gist link.
+The user may not open the files. Every reply includes the `build.py` stdout in a fenced block: one row per step, `█` low, `░` low→high, estimate plus color word at the row end, an axis line, and the header totals. Then give, in this order: the htmlpreview link (`Timeline:` line, the primary link the user opens), the gist URL, the local HTML as a bare absolute path alone on its own line (secondary; terminals such as cmux linkify bare paths but not markdown `file://` links), the bead id, and one line on what you checked. Never omit the preview link.
 
 ## Refresh while work is active (mandatory)
 
