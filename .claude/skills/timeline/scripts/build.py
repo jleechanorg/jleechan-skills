@@ -136,7 +136,8 @@ def _shorten(api, target):
 
 
 def short_link(target, path):
-    """Short URL for target, cached in <html>.short (line 1 target, line 2 short).
+    """Short URL for target, cached in <html>.short (line 1 target, line 2 short);
+    a cached entry is reused only after a fresh redirect check.
 
     Only a short URL that answers 3xx straight to target is accepted, so interstitial
     shorteners are rejected.
@@ -144,7 +145,7 @@ def short_link(target, path):
     side = Path(f"{path}.short")
     if side.exists():
         cached = side.read_text().split()
-        if len(cached) == 2 and cached[0] == target:
+        if len(cached) == 2 and cached[0] == target and _redirects_to(cached[1], target):
             return cached[1]
     for api in ("tinyurl", "cleanuri", "spoo"):
         try:
@@ -283,7 +284,12 @@ def main(spec_path, out_path=None, branch=None, pr=None, publish=False):
         print(f"HTML (local): {dest}")
     else:
         t0 = time.time()
-        gist_url, preview = publish_gist(spec, dest)
+        try:
+            gist_url, preview = publish_gist(spec, dest)
+        except (RuntimeError, OSError, subprocess.TimeoutExpired) as err:
+            print(f"build.py: publish failed, timeline still drawn: {err}", file=sys.stderr)
+            print(f"HTML (local): {dest}")
+            return
         short = short_link(preview, dest)
         print(f"Timeline: {short or preview}")
         if short:
