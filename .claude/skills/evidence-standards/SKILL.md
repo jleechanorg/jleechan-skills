@@ -123,8 +123,7 @@ prompt, contract, or executable instruction that a claim depends on does. Flaggi
    Path category is a starting hint only: a test, evidence driver/capture, prompt, contract, schema, or
    `.claude/`/`.codex/`/`.cursor/` skill or agent file whose assertion, driver, or executable instruction
    changed can invalidate the proof it supports — read its diff against the claim it backs.
-4. For any `.py` file you classify as "comment/type-hint only," run the full content diff
-   (`git diff <evidence-sha> HEAD -- <file>`) — `--name-only` can't tell a comment edit from a behavior edit.
+4. Never classify from file names alone; a comment edit and a behavior edit look identical in a name list.
 
 **Fresh evidence IS required when the delta changes production behavior or anything a claim
 depends on** between the SHAs: a test assertion, evidence driver/capture, or executable instruction
@@ -136,7 +135,8 @@ or a deploy/preview workflow — or any **mixed** diff containing at least one s
 hours of LLM time for zero added confidence. The evidence proves a *behavior*; if the behavior's
 code is byte-identical at HEAD, the proof is byte-valid at HEAD. Repo-level files may add
 path-specific context (e.g. `<repo>/.claude/skills/evidence-standards.md` §"Evidence Staleness
-Tolerance for Test/Docs-Only Changes") and take precedence on conflict.
+Tolerance for Test/Docs-Only Changes") and take precedence on conflict, but cannot waive the
+delta-and-claim test above.
 
 ## Evidence Sequencing — expensive evidence runs LAST, once
 

@@ -57,7 +57,7 @@ Three failure modes that keep recurring in the user's last month of coding-CLI s
 
 ## Pipeline (execute the phases that apply, in order)
 
-Applicability and review timing follow `draft-first-pr` § Coding lifecycle. A trivial low-risk direct edit may skip history mining (Phase 2) and the heavier phases; user-required gates, high-risk/security gates, and real-proof requirements are never skipped.
+Applicability and review timing follow `draft-first-pr` § Coding lifecycle. A small low-risk change, including a small code fix, may skip history mining (Phase 2) and the heavier phases; user-required gates, high-risk/security gates, and real-proof requirements are never skipped.
 
 ### Phase 1 — Intake (≤1 turn)
 

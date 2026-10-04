@@ -71,7 +71,7 @@ class CodingLifecycleContract(unittest.TestCase):
         self.assertIn("assertion, driver, or executable instruction changed", hint)
         self.assertIn("changed assertion/driver requires a fresh run", read("ready"))
 
-    def test_changed_driver_evidence_is_invalidated(self):
+    def test_production_behavior_change_requires_fresh_evidence(self):
         self.assertIn("A production behavior change still requires fresh evidence", self.owner)
 
     def test_no_undefined_reviewer_d(self):
@@ -146,6 +146,16 @@ class CodingLifecycleContract(unittest.TestCase):
         self.assertIn("the delta and the claim decide, not the path", std)
         self.assertIn("a changed test assertion, evidence driver/capture", std)
         self.assertNotIn("git diff --name-only <verdict-sha> HEAD", read("draft-first-pr"))
+
+    def test_staleness_gates_read_content_diffs_including_tests(self):
+        er = read("evidence-review")
+        self.assertNotIn("git diff --name-only", er)
+        self.assertNotIn("only a material production-behavior diff", er)
+        self.assertIn("assertion, driver, or executable instruction a claim depends on", er)
+        cov = read("evidence-coverage")
+        self.assertNotIn("git diff <evidence_sha>..HEAD --name-only", cov)
+        self.assertIn("Read the full diff, including test files", cov)
+        self.assertIn("cannot waive the delta-and-claim test", read("evidence-standards"))
 
 
 if __name__ == "__main__":

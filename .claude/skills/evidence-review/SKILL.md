@@ -214,11 +214,13 @@ without exact commands and expected results → PARTIAL.
 
 Resolve the SHA of the last posted `ER-VERDICT:` comment's `HEAD=` value and
 compare to the subject's current HEAD. If they match, skip to the verdict phase
-and re-emit the prior verdict. If they differ, run `git diff --name-only
-<prior-verdict-sha> <current-sha>` per the staleness-tolerance test in
-`evidence-standards`: a non-behavioral diff lets you re-affirm the prior
-verdict at the new SHA without rerunning the later phases; only a material
-production-behavior diff requires a full rerun. Never rerun once per finding —
+and re-emit the prior verdict. If they differ, read `git diff
+<prior-verdict-sha> <current-sha>` against the verdict's claims per the
+staleness-tolerance test in `evidence-standards`: a delta that leaves every
+claim intact lets you re-affirm the prior verdict at the new SHA without
+rerunning the later phases; a delta that changes production behavior or any
+assertion, driver, or executable instruction a claim depends on requires a full
+rerun. Never rerun once per finding —
 if fixes are still landing, wait until they are batched into one new SHA
 (`evidence-standards` § "Evidence Sequencing") before spending a full pass.
 Continue necessary review and already-authorized fixes within the applicable task

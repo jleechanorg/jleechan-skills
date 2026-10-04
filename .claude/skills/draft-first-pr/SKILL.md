@@ -48,8 +48,8 @@ only the affected behavior.
 | High-risk (security, data-integrity, permission, deployment, approval, merge, destructive, credential) | No layer skipping; the full gate chain and independent final coverage still apply. |
 
 **Mandatory regardless of class:** gates the user explicitly required;
-high-risk, security, data-integrity, permission, deployment, approval, and merge
-gates; and real proof for any production-behavior claim. **Skippable by class:**
+high-risk, security, data-integrity, permission, deployment, approval, merge,
+destructive, and credential gates; and real proof for any production-behavior claim. **Skippable by class:**
 standalone spec/plan, plan-review cycle, history mining, and extra review lanes
 for small low-risk changes, including small code fixes. A standalone plan review
 applies only to high-risk or user-required cases, or an unresolved material

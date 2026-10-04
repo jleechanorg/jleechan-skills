@@ -52,7 +52,6 @@ Complete the required architectural design, specification self-review, implement
 
 This skill is planning-only: it never starts implementation. If implementation was already authorized by the user, the calling workflow must continue explicitly after this report (per `draft-first-pr` § Coding lifecycle); do not treat the report as the end of that work.
 
-
 Finish only when both documents exist, cover the requested outcome, pass their respective self-reviews, contain no `TBD`, `TODO`, or deferred decision, and the advice attempts and required status records are complete. The final response must include both absolute document paths, the questions and auto-picked answers with rationale, and the two separate advice status entries.
 
 If implementation would require unavailable user-specific information or new authority, still write and self-review both documents. Record the exact unmet precondition under `Implementation Preconditions`, make every affected implementation step conditional on it, and do not treat the planning invocation as authorization to satisfy it. Ordinary ambiguity, an unseen design, or the normal brainstorming approval checkpoints never justify stopping before both documents exist.
