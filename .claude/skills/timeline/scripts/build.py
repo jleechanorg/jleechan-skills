@@ -8,7 +8,8 @@ Spec: {title, snapshot, subtitle, branch, pr, bead, bead_db, done:[str], span,
 Minutes throughout. hi=null means unknown (grey). Color is chosen from hi.
 Without out.html the path is /tmp/timeline/<branch>-pr<N>.html, stable across
 rebuilds. --publish secret-scans the HTML, creates or edits one secret gist
-(id kept in <html>.gist), and creates or updates one bead (id kept in <html>.bead).
+(id kept in <html>.gist), shortens the preview link via tinyurl, is.gd, then da.gd
+(cached in <html>.short), and creates or updates one bead (id kept in <html>.bead).
 """
 import argparse
 import html
@@ -18,6 +19,8 @@ import re
 import subprocess
 import sys
 import time
+import urllib.parse
+import urllib.request
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -90,6 +93,29 @@ def publish_gist(spec, path):
     owner = run(["gh", "api", f"gists/{gid}", "--jq", ".owner.login"])
     raw = f"https://gist.githubusercontent.com/{owner}/{gid}/raw/{path.name}"
     return f"https://gist.github.com/{owner}/{gid}", f"https://htmlpreview.github.io/?{raw}"
+
+
+def short_link(preview, path):
+    """Short URL for the preview link, cached in <html>.short (line 1 preview, line 2 short)."""
+    side = Path(f"{path}.short")
+    if side.exists():
+        cached = side.read_text().split()
+        if len(cached) == 2 and cached[0] == preview:
+            return cached[1]
+    q = urllib.parse.quote(preview, safe="")
+    for api in (f"https://tinyurl.com/api-create.php?url={q}",
+                f"https://is.gd/create.php?format=simple&url={q}",
+                f"https://da.gd/s?url={q}"):
+        try:
+            req = urllib.request.Request(api, headers={"User-Agent": "timeline-skill/1.0"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                out = resp.read().decode().strip()
+        except (OSError, ValueError):
+            continue
+        if re.fullmatch(r"https?://\S+", out):
+            side.write_text(f"{preview}\n{out}\n")
+            return out
+    return None
 
 
 def publish_bead(spec, path, gist_url, preview):
@@ -214,7 +240,12 @@ def main(spec_path, out_path=None, branch=None, pr=None, publish=False):
     else:
         t0 = time.time()
         gist_url, preview = publish_gist(spec, dest)
-        print(f"Timeline: {preview}\nGist: {gist_url}\nHTML (local): {dest}")
+        short = short_link(preview, dest)
+        if short:
+            print(f"Timeline: {short}\nPreview (full): {preview}")
+        else:
+            print(f"Timeline: {preview}")
+        print(f"Gist: {gist_url}\nHTML (local): {dest}")
         t1 = time.time()
         try:
             bid = publish_bead(spec, dest, gist_url, preview)
