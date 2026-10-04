@@ -1,33 +1,40 @@
 #!/usr/bin/env bash
-# Talk to the user's ChatGPT "dot" assistant: headless Chrome first (dot_chrome.mjs), Aside (account u0) fallback.
+# Talk to the user's ChatGPT "dot" assistant.
+# Platform-aware architecture:
+#   - macOS: Aside (account u0 default) primary, headless Chrome (dot_chrome.mjs) secondary/fallback.
+#   - Linux: Transparent SSH bridge to macOS host, or local headless Chrome.
 # Usage: dot.sh read [chars]        print the tail of the conversation (default 5000 chars)
 #        dot.sh send <message-file> send file contents; while the composer holds a peer's unsent
 #                                   draft, retry every DOT_RETRY_SECS (60) up to DOT_WAIT_SECS (1800)
 #        dot.sh send-once <file>    single attempt, no retry
-# DOT_BACKEND=chrome|aside forces one backend (no fallback); default tries chrome, then aside only when
-# chrome failed before sending anything (DOT_CHROME_UNAVAILABLE). DOT_DRY_RUN=1 (chrome send): type, verify, clear, never send.
+# DOT_BACKEND=aside|chrome|auto forces one backend. DOT_DRY_RUN=1 (chrome send): type, verify, clear, never send.
 # Exit codes: 0 ok, 2 usage/error, 3 composer still busy after the wait, 4 send not verified.
 set -euo pipefail
 
 # Transparent Linux -> Mac forwarding when Aside is not local
 if [[ "$(uname -s)" != "Darwin" && "${DOT_BACKEND:-auto}" != "chrome" ]]; then
-  REMOTE_HOST=""
-  if ssh -q -o ConnectTimeout=2 macbook true 2>/dev/null; then
-    REMOTE_HOST="macbook"
-  elif ssh -q -o ConnectTimeout=2 macbook-ts true 2>/dev/null; then
-    REMOTE_HOST="macbook-ts"
+  REMOTE_HOST="${DOT_REMOTE_HOST:-}"
+  if [[ -z "$REMOTE_HOST" ]]; then
+    if ssh -q -o ConnectTimeout=2 macbook true 2>/dev/null; then
+      REMOTE_HOST="macbook"
+    elif ssh -q -o ConnectTimeout=2 macbook-ts true 2>/dev/null; then
+      REMOTE_HOST="macbook-ts"
+    fi
   fi
   if [[ -n "$REMOTE_HOST" ]]; then
     if [[ "${1:-}" == "read" ]]; then
-      exec ssh "$REMOTE_HOST" "~/.claude/skills/dot/scripts/dot.sh" "$@"
+      exec ssh "$REMOTE_HOST" "DOT_URL=\"${DOT_URL:-}\" DOT_ACCOUNT=\"${DOT_ACCOUNT:-}\" ~/.claude/skills/dot/scripts/dot.sh" "$@"
     elif [[ "${1:-}" == "send" || "${1:-}" == "send-once" ]]; then
       file="${2:-}"
-      if [[ -f "$file" ]]; then
-        remote_tmp="/tmp/dot_remote_$(date +%s)_$$.txt"
-        scp -q "$file" "$REMOTE_HOST:$remote_tmp"
-        ssh "$REMOTE_HOST" "~/.claude/skills/dot/scripts/dot.sh $1 $remote_tmp; rm -f $remote_tmp"
-        exit $?
+      if [[ ! -f "$file" || ! -s "$file" ]]; then
+        echo "dot.sh: message file missing or empty: $file" >&2
+        exit 2
       fi
+      remote_tmp="/tmp/dot_remote_$(date +%s)_$$.txt"
+      scp -q "$file" "$REMOTE_HOST:$remote_tmp"
+      ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=60 "$REMOTE_HOST" \
+        "DOT_URL=\"${DOT_URL:-}\" DOT_ACCOUNT=\"${DOT_ACCOUNT:-}\" DOT_DRY_RUN=\"${DOT_DRY_RUN:-}\" DOT_WAIT_SECS=\"${DOT_WAIT_SECS:-}\" DOT_RETRY_SECS=\"${DOT_RETRY_SECS:-}\" ~/.claude/skills/dot/scripts/dot.sh $1 $remote_tmp; rc=\$?; rm -f $remote_tmp; exit \$rc"
+      exit $?
     fi
   fi
 fi
@@ -36,7 +43,7 @@ DOT_URL="${DOT_URL:-https://chatgpt.com/dots/01a0f819-a779-775c-9d48-8c603503403
 ACCOUNT="${DOT_ACCOUNT:-u0}"
 SETTLE_MS="${DOT_SETTLE_MS:-7000}"
 
-if [[ -z "${DOT_BACKEND:-}" ]]; then
+if [[ -z "${DOT_BACKEND:-}" || "${DOT_BACKEND:-}" == "auto" ]]; then
   if [[ "$(uname -s)" == "Darwin" ]] && command -v aside >/dev/null 2>&1; then
     BACKEND="aside"
   else
@@ -90,14 +97,14 @@ JS
 cmd_read() {
   local n="${1:-5000}"
   [[ "$n" =~ ^[0-9]+$ ]] || { echo "chars must be an integer" >&2; exit 2; }
-  if [[ "$BACKEND" != aside ]]; then
+  if [[ "$BACKEND" == "chrome" ]]; then
     local rc=0
     run_chrome read "$n" || rc=$?
     if [[ $rc -eq 0 ]]; then echo "$CHROME_OUT"; return 0; fi
     [[ $rc -eq 124 ]] && { CHROME_OUT="DOT_CHROME_UNAVAILABLE: timeout"; rc=10; }
     if [[ $rc -ne 10 ]]; then echo "$CHROME_OUT"; exit "$rc"; fi
-    if [[ "$BACKEND" == chrome ]]; then echo "$CHROME_OUT" >&2; exit 2; fi
-    echo "dot.sh: $CHROME_OUT; falling back to Aside" >&2
+    echo "$CHROME_OUT" >&2
+    exit 2
   fi
   run_repl "$(prelude)
 const dotText = await dotPage.evaluate(() => document.body.innerText);
@@ -111,32 +118,33 @@ cmd_send_once() {
   msg_json="$(python3 -c 'import json,sys;print(json.dumps(open(sys.argv[1]).read().strip()))' "$file")"
   local out="" rc=0
   [[ "${DOT_DRY_RUN:-}" == 1 && "$BACKEND" == aside ]] && { echo "dot.sh: DOT_DRY_RUN needs the chrome backend" >&2; exit 2; }
-  if [[ "$BACKEND" != aside ]]; then
+  if [[ "$BACKEND" == "chrome" ]]; then
     run_chrome send "$file" || rc=$?
-    # Any chrome result other than "unavailable" may follow a click, so never re-send via Aside.
     [[ $rc -ne 0 && $rc -ne 10 ]] && CHROME_OUT="DOT_SEND_UNVERIFIED chrome_rc=$rc"
     if [[ $rc -ne 10 ]]; then out="$CHROME_OUT"
-    elif [[ "$BACKEND" == chrome || "${DOT_DRY_RUN:-}" == 1 ]]; then echo "$CHROME_OUT" >&2; exit 2
-    else echo "dot.sh: $CHROME_OUT; falling back to Aside" >&2; fi
+    else echo "$CHROME_OUT" >&2; exit 2; fi
   fi
   if [[ -z "$out" ]]; then
   out="$(run_repl "$(prelude)
 const dotMsg = $msg_json;
-const dotCount = (hay, needle) => hay.split(needle).length - 1;
-// The composer renders newlines as paragraphs, so compare whitespace-normalized text.
 const dotNorm = (t) => t.replace(/\s+/g, ' ').trim();
 const dotReadComposer = () => dotPage.evaluate(() => (document.querySelector('[contenteditable=true]')||{}).innerText || '');
+const dotGetUserMessages = () => dotPage.evaluate(() => Array.from(document.querySelectorAll('[data-message-author-role=user]')).map(el => el.innerText.replace(/\s+/g, ' ').trim()));
+
 // ChatGPT restores a saved draft lazily on focus, so focus first, then inspect.
 await dotPage.click('[contenteditable=true]');
 await new Promise(r => setTimeout(r, 1500));
 let dotComposer = (await dotReadComposer()).trim();
-// Our own message left by an earlier interrupted send: clear and retype it.
-const dotOwnLeftover = dotComposer !== '' && dotNorm(dotComposer) === dotNorm(dotMsg);
+
 if (dotComposer !== '') {
-  const body0 = await dotPage.evaluate(() => document.body.innerText);
-  const key = dotComposer.slice(0, 80);
-  // A draft whose text already appears outside the composer was already sent: stale, safe to clear.
-  if (dotOwnLeftover || dotCount(body0, key) >= 2) {
+  const normComposer = dotNorm(dotComposer);
+  const userMessages = await dotGetUserMessages();
+  // Safe to clear only if:
+  // 1) It exactly matches our own current message (from an interrupted prior attempt), OR
+  // 2) The exact text already exists in a previously submitted user message.
+  const dotAlreadySent = userMessages.some(m => m.includes(normComposer) || normComposer.includes(m));
+  const dotOwnLeftover = normComposer === dotNorm(dotMsg);
+  if (dotOwnLeftover || dotAlreadySent) {
     await dotPage.keyboard.press('Meta+A');
     await dotPage.keyboard.press('Backspace');
     await new Promise(r => setTimeout(r, 800));
@@ -153,14 +161,13 @@ if (dotComposer !== '') {
   if (dotNorm(typed) !== dotNorm(dotMsg)) {
     console.log('DOT_COMPOSER_MISMATCH: ' + typed.slice(0, 200));
   } else {
-    const key = dotMsg.split('\n')[0].slice(0, 80);
-    const before = dotCount(await dotPage.evaluate(() => document.body.innerText), key);
+    const beforeMsgs = await dotGetUserMessages();
     await dotPage.click('button[data-testid=send-button], button[aria-label*=Send]');
     await new Promise(r => setTimeout(r, 4000));
     const left = (await dotReadComposer()).trim();
-    const afterBody = await dotPage.evaluate(() => document.body.innerText);
-    // Sent = composer emptied and the text now appears in the conversation (not only the composer).
-    console.log(left === '' && dotCount(afterBody, key) >= 1 && before >= 1 ? 'DOT_SENT_VERIFIED' : 'DOT_SEND_UNVERIFIED composer_left=' + left.length);
+    const afterMsgs = await dotGetUserMessages();
+    const sentAppeared = afterMsgs.length > beforeMsgs.length || afterMsgs.some(m => m.includes(dotNorm(dotMsg)));
+    console.log(left === '' && sentAppeared ? 'DOT_SENT_VERIFIED' : 'DOT_SEND_UNVERIFIED composer_left=' + left.length);
   }
 }")"
   fi

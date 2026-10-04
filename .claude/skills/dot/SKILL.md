@@ -1,11 +1,13 @@
 ---
 name: dot
-description: Use when the user invokes /dot or asks to "message the dot", "ask dot", "tell dot", "tell chatgpt dot", "check the dot", or read replies from their ChatGPT "dot" assistant (the one that coordinates coders and PRs) through the Aside browser.
+description: Use when the user invokes /dot or asks to "message the dot", "ask dot", "tell dot", "tell chatgpt dot", "check the dot", or read replies from their ChatGPT "dot" assistant (the one that coordinates coders and PRs). Platform-aware backend: Aside browser on macOS, headless Chrome secondary/fallback, transparent SSH bridge on Linux.
 ---
 
 # /dot
 
-Talk to the user's ChatGPT dot (https://chatgpt.com/dots/01a0f819-a779-775c-9d48-8c6035034033) using `~/.claude/skills/dot/scripts/dot.sh`. Backend order: headless Google Chrome first, Aside as fallback.
+Talk to the user's ChatGPT dot assistant using `scripts/dot.sh`. Platform-aware architecture:
+- **macOS:** Aside browser (primary, account `u0` by default), headless Google Chrome secondary.
+- **Linux:** Transparent SSH bridge to macOS host (`macbook` / `macbook-ts`), or local headless Chrome.
 
 ## Default: delegate, then monitor
 
@@ -19,34 +21,38 @@ The dot runs its own coders. When /dot is used for work, hand the work to the do
 
 ## Actions
 
-- Read: `dot.sh read [chars]` prints the tail of the page text (default 5000). While the dot is working the tail ends with `dot` / `Thinking`.
+- Read: `dot.sh read [chars]` prints the tail of the page text (default 5000). While the dot is working the tail ends with `dot` / `Thinking` / `Working`.
 - Send: write the message to a `mktemp` file, then `dot.sh send <file>`. Prefix every message with the sender identity, e.g. `From Claude (<model>, <worktree>): ...`. Never interpolate raw text into JS; the script JSON-encodes the file.
-- To ask and get an answer: send, then poll `dot.sh read 3000` (separate calls, each under 60s) until the tail no longer ends in `Thinking`.
+- To ask and get an answer: send, then poll `dot.sh read 3000` (separate calls, each under 60s) until the tail no longer ends in `Thinking` or `Working`.
 - Run the script with a Bash timeout of at least 150s.
 
-## Rules
+## Concurrency & Safety Rules
 
 - Other agent sessions share this composer. ChatGPT restores a saved draft lazily on focus, so `send` focuses first, then inspects.
-- **Stale draft:** if the draft's text already appears in the conversation, it was already sent. `send` clears it and prints `DOT_STALE_DRAFT_CLEARED`.
-- **Unsent draft:** otherwise `send` never clears or overwrites it. It retries every 60s (`DOT_RETRY_SECS`) for up to 30 min (`DOT_WAIT_SECS`) and sends once the composer is empty; exit 3 means still busy after the wait. Because that can exceed the 600s Bash cap, run `send` with `run_in_background`. `send-once` makes a single attempt.
-- **Verified send:** `DOT_SENT_VERIFIED` requires an exact composer match before sending, then an emptied composer and the text visible in the conversation. Exit 4 means mismatched or unverified; `read` to check before resending.
+- **Stale draft:** A draft is only cleared if:
+  1. It exactly matches our own message from an interrupted prior attempt, OR
+  2. The exact text already appears in a previously submitted user message (`[data-message-author-role=user]`).
+  If cleared, `send` prints `DOT_STALE_DRAFT_CLEARED`.
+- **Unsent draft:** If an unsubmitted draft belonging to another session is present, `send` NEVER clears or overwrites it. It retries every 60s (`DOT_RETRY_SECS`) up to 30 min (`DOT_WAIT_SECS`) and sends once the composer is empty; exit 3 means still busy after the wait.
+- **Verified send:** `DOT_SENT_VERIFIED` requires:
+  1. Exact composer match after typing,
+  2. Emptied composer after clicking send,
+  3. The submitted text appearing in the conversation message list (`[data-message-author-role=user]`).
+  Exit 4 means mismatched or unverified.
 - Send only what the user asked to send. Do not post test messages.
-- Avoid line-leading list markers (`1)`, `-`, `*`): the composer converts them to list formatting, the typed text then mismatches and `send` exits 4 leaving the draft behind. Use plain sentences.
+- Avoid line-leading list markers (`1)`, `-`, `*`): the composer converts them to list formatting, which can cause mismatch detection. Use plain sentences.
 
 ## Backends
 
-- **Aside (primary on macOS):** Uses `aside repl --account u0`. Fast (8-10s), zero-copy, handles concurrent multi-agent traffic without profile locks, and never touches personal Google Chrome profiles or credentials.
-- **Chrome (`scripts/dot_chrome.mjs`):** Uses a dedicated persistent profile at `~/.config/dot-headless-chrome` with zero file copying and zero temporary directory creation. Automatically serializes concurrent agent access and cleans up orphaned browser processes.
-- `DOT_BACKEND=chrome|aside` forces one backend. `DOT_DRY_RUN=1 DOT_BACKEND=chrome dot.sh send-once <file>` types, verifies the exact match, clears the composer, and prints `DOT_DRYRUN_OK` without sending.
+- **Aside (primary on macOS):** Uses `aside repl --account ${DOT_ACCOUNT:-u0}`. Fast (8-10s), zero-copy, handles concurrent multi-agent traffic without profile locks, and never touches personal Google Chrome profiles or credentials.
+- **Chrome (`scripts/dot_chrome.mjs`):** Uses a dedicated persistent profile at `${DOT_CHROME_USER_DATA:-~/.config/dot-headless-chrome}` with zero file copying and zero temporary directory creation. Automatically detects `SingletonLock` held by orphaned Chrome processes targeting that specific user-data directory and cleans them safely.
+  - *Initial Chrome Setup:* To populate the headless profile initially, launch Chrome once with `--user-data-dir=~/.config/dot-headless-chrome`, log into ChatGPT, and close it.
 
-## Aside facts
+## Configuration & Environment Variables
 
-- Primary backend on macOS. Uses `aside repl --account u0` (jleechan@gmail.com).
-- Each `aside repl` call is a separate session: open, act, and read in one call. `openTab(url)` works; `attachBrowserTab` on the background dot tab hangs (CDP `Page.enable` timeout).
-- The composer is the single `[contenteditable=true]` (`#prompt-textarea`); `locator.fill()` fails on it. Use click then `page.keyboard.insertText`. Send button: `button[data-testid=send-button]`.
-- `page.waitForTimeout` does not exist; use `await new Promise(r => setTimeout(r, ms))`.
-
-## Hosts
-
-- **Mac (`jeffreys-macbook-pro`):** The Aside browser runs here, signed in to ChatGPT on account u0. `dot.sh` defaults to Aside locally and runs with zero file copying.
-- **Linux (`jeff-ubuntu`):** `dot.sh` automatically detects Linux and seamlessly forwards commands to `macbook` (with Tailscale `macbook-ts` fallback) over SSH, transferring message files transparently for `send`. No manual SSH commands required.
+- `DOT_URL`: Target ChatGPT dot assistant URL (defaults to user coordinator dot).
+- `DOT_ACCOUNT`: Aside browser account identifier (defaults to `u0`).
+- `DOT_BACKEND`: Force backend (`aside`, `chrome`, or `auto`).
+- `DOT_REMOTE_HOST`: SSH host for Linux-to-Mac forwarding (probes `macbook`, `macbook-ts` by default).
+- `DOT_CHROME_USER_DATA`: Custom Chrome user data directory (defaults to `~/.config/dot-headless-chrome`).
+- `DOT_DRY_RUN`: When `1` (Chrome backend), types, verifies exact match, clears composer, and prints `DOT_DRYRUN_OK` without sending.

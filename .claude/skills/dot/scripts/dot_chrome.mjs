@@ -16,7 +16,6 @@ const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (
 const COMPOSER = '[contenteditable=true]';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const norm = (t) => t.replace(/\s+/g, ' ').trim();
-const count = (hay, needle) => hay.split(needle).length - 1;
 
 class Unavailable extends Error {}
 const unavailable = (why) => { throw new Unavailable(why); };
@@ -41,13 +40,17 @@ async function waitAndCleanSingletonLock(dir) {
             let ppid = 0;
             try { ppid = parseInt(execSync(`ps -o ppid= -p ${pid} 2>/dev/null`).toString().trim(), 10); } catch {}
             if (ppid === 1) {
-              // Orphaned headless Chrome whose parent died
-              try { process.kill(pid, 15); } catch {}
-              await sleep(300);
-              for (const f of ['SingletonLock', 'SingletonCookie', 'SingletonSocket']) {
-                try { fs.unlinkSync(path.join(dir, f)); } catch {}
+              // Ensure this is an orphaned Chrome process specifically using our target directory
+              let cmd = '';
+              try { cmd = execSync(`ps -o command= -p ${pid} 2>/dev/null`).toString(); } catch {}
+              if (cmd.includes('dot-headless-chrome') || cmd.includes(dir)) {
+                try { process.kill(pid, 15); } catch {}
+                await sleep(300);
+                for (const f of ['SingletonLock', 'SingletonCookie', 'SingletonSocket']) {
+                  try { fs.unlinkSync(path.join(dir, f)); } catch {}
+                }
+                hasLock = false;
               }
-              hasLock = false;
             }
           } catch (e) {
             if (e.code === 'ESRCH') {
@@ -120,22 +123,27 @@ async function read(page, n) {
 
 async function send(page, file, dry) {
   const msg = fs.readFileSync(file, 'utf8').trim();
-  const body = () => page.evaluate(() => document.body.innerText);
   const readComposer = () => page.evaluate((s) => (document.querySelector(s) || {}).innerText || '', COMPOSER);
+  const getUserMessages = () => page.evaluate(() => Array.from(document.querySelectorAll('[data-message-author-role=user]')).map(el => (el.innerText || '').replace(/\s+/g, ' ').trim()));
   const clear = async () => { await page.keyboard.press('ControlOrMeta+A'); await page.keyboard.press('Backspace'); await sleep(800); };
+
   await page.click(COMPOSER);
   await sleep(1500);
   let composer = (await readComposer()).trim();
-  const ownLeftover = composer !== '' && norm(composer) === norm(msg);
+
   if (composer !== '') {
-    const key = composer.slice(0, 80);
-    if (ownLeftover || count(await body(), key) >= 2) {
+    const normComposer = norm(composer);
+    const userMessages = await getUserMessages();
+    const alreadySent = userMessages.some(m => m.includes(normComposer) || normComposer.includes(m));
+    const ownLeftover = normComposer === norm(msg);
+    if (ownLeftover || alreadySent) {
       await clear();
       composer = (await readComposer()).trim();
       console.log('DOT_STALE_DRAFT_CLEARED');
     }
   }
   if (composer !== '') { console.log('DOT_DRAFT_PRESENT: ' + composer.slice(0, 300)); return; }
+
   await page.keyboard.insertText(msg);
   await sleep(800);
   const typed = (await readComposer()).trim();
@@ -149,14 +157,15 @@ async function send(page, file, dry) {
     console.log(left === '' ? 'DOT_DRYRUN_OK composer_matched_and_cleared' : 'DOT_DRYRUN_CLEAR_FAILED composer_left=' + left.length);
     return;
   }
-  const key = msg.split('\n')[0].slice(0, 80);
-  const before = count(await body(), key);
+
+  const beforeMsgs = await getUserMessages();
   clicked = true;
   await page.click('button[data-testid=send-button], button[aria-label*=Send]');
   await sleep(4000);
   const left = (await readComposer()).trim();
-  const after = await body();
-  console.log(left === '' && count(after, key) >= 1 && before >= 1 ? 'DOT_SENT_VERIFIED' : 'DOT_SEND_UNVERIFIED composer_left=' + left.length);
+  const afterMsgs = await getUserMessages();
+  const sentAppeared = afterMsgs.length > beforeMsgs.length || afterMsgs.some(m => m.includes(norm(msg)));
+  console.log(left === '' && sentAppeared ? 'DOT_SENT_VERIFIED' : 'DOT_SEND_UNVERIFIED composer_left=' + left.length);
 }
 
 process.on('SIGTERM', async () => { try { await ctx?.close(); } catch {} process.exit(143); });
