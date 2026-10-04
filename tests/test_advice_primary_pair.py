@@ -257,6 +257,51 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
             0,
         )
 
+    def test_document_review_accepts_all_git_states_without_changing_source(self) -> None:
+        import shutil
+        import hashlib
+        doc = self.repo / "plan.md"
+        doc.write_text("complete plan\n")
+        self.executable("codex", "test \"$(cat .advice-review-documents/0.md)\" = \"complete plan\"\n"
+                        "printf 'VERDICT: APPROVED\\nCOVERAGE: entire document\\n'\n")
+        for state in ("untracked", "staged", "committed", "modified"):
+            if state == "staged":
+                run("git", "add", "plan.md", cwd=self.repo)
+            if state == "committed":
+                run("git", "commit", "-qm", "document", cwd=self.repo)
+            if state == "modified":
+                doc.write_text("older committed plan\n")
+                run("git", "add", "plan.md", cwd=self.repo)
+                run("git", "commit", "-qm", "older content", cwd=self.repo)
+                doc.write_text("complete plan\n")
+            self.sha = run("git", "rev-parse", "HEAD", cwd=self.repo).stdout.strip()
+            before = run("git", "status", "--porcelain", cwd=self.repo).stdout
+            result = self.invoke("--reviewers", "codex", "--document", "plan.md")
+            self.assertEqual(0, result.returncode, (state, result.stderr))
+            receipt = json.loads((self.output / "receipt.json").read_text())
+            self.assertEqual("documents", receipt["review_kind"])
+            self.assertEqual(hashlib.sha256(doc.read_bytes()).hexdigest(), receipt["document_hashes"]["plan.md"])
+            self.assertEqual(before, run("git", "status", "--porcelain", cwd=self.repo).stdout)
+            shutil.rmtree(self.output)
+
+    def test_document_paths_refuse_escape_symlinks_and_ignored_files(self) -> None:
+        (self.repo / "secret.md").write_text("not for review")
+        (self.repo / ".gitignore").write_text("secret.md\n")
+        (self.repo / "alias.md").symlink_to(self.repo / "tracked.txt")
+        for name in ("../packet.md", "alias.md", "secret.md"):
+            result = self.invoke("--document", name)
+            self.assertEqual(2, result.returncode, result.stderr)
+            self.assertFalse(self.output.exists())
+
+    def test_modified_reviewer_document_invalidates_review(self) -> None:
+        (self.repo / "plan.md").write_text("original document")
+        self.executable("codex", "printf 'changed' > .advice-review-documents/0.md\n"
+                        "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
+        result = self.invoke("--reviewers", "codex", "--document", "plan.md")
+        self.assertEqual(6, result.returncode, result.stderr)
+        self.assertIn("review document copy changed", result.stderr)
+        self.assertEqual("original document", (self.repo / "plan.md").read_text())
+
     def test_refuses_dirty_input_checkout_before_dispatch(self) -> None:
         (self.repo / "untracked.txt").write_text("not represented by the SHA\n")
         self.executable("codex", "touch \"$ADVICE_TEST_SYNC_DIR/codex.ran\"\n")
