@@ -45,6 +45,53 @@ context: inline
 
 # Social Poster — Draft-Only, POST APPROVED Gated
 
+## Twitter/X browser workflow
+
+This section takes precedence over generic staging/auth recipes for Twitter/X.
+Draft and stage requests remain unpublished. An ordinary explicit request such
+as "Cross post this to Twitter" authorizes publishing the identified, reviewed
+content to the intended account and destination. Do not require the user to
+repeat a magic phrase. Ask only for missing content/account/destination details
+or confirmation independently required by the active tool or policy. Material
+changes to the approved content or destination need renewed approval.
+
+`POST APPROVED` is an internal execution token for legacy publisher scripts,
+not a required user phrase. Supply it only after recording the actual user
+instruction and verified account/content, and always pass the selected platform
+allowlist; never use the token to manufacture permission. If an active tool or
+policy requires separate confirmation, obtain it normally. Invocation, login,
+and staging alone do not authorize posting, and no future posts are approved.
+
+1. Reuse a supported browser session and inspect the signed-in handle before
+   drafting or staging. If signed out, prefer the normal **Continue with Google**
+   flow when offered, select the intended existing Google account, and verify
+   the resulting X handle. A Google email alone does not prove the X identity.
+2. For a normal login failure, try one supported recovery (return to the official
+   login page or select the intended existing account), then report the exact
+   blocker. Stop for human-only challenges or denied actions. Never extract or
+   decrypt cookies, tokens, passwords, or browser credential stores; never bypass
+   access denial or switch to a hidden API to work around a blocked UI.
+3. Read the source post and retain its original text and original photo/video
+   when requested. Verify the uploaded media preview; do not silently replace
+   the original asset with a screenshot or omit it. Report inaccessible media.
+4. Inspect the verified account's recent posts for the source link and matching
+   text/media before submission. If a matching post exists, return its permalink
+   rather than creating a duplicate. If history cannot be checked, resolve that
+   uncertainty before posting. Recheck after any timeout or uncertain submission
+   before retrying; a timeout is not proof that posting failed.
+5. Before shortening text or building a thread, check the current account's
+   composer for supported long posts. When the full source fits, prefer one post
+   with the original media unless the user requested a thread. If it does not
+   fit, prepare a faithful shorter draft or thread for review. Do not assume a
+   subscription or a fixed limit from an old template; verify the full text
+   remains in the composer with no truncation or limit warning.
+6. Verify the exact visible text, intended handle, and media before the gated
+   publish action. Submit once. Then open the resulting permalink and verify
+   the author handle, visible full text (expand when needed), and original media.
+   Return the permalink with the verification result. A cleared composer or
+   success toast alone is not proof; report an uncertain outcome without retrying
+   until the profile/history check establishes whether the post exists.
+
 ## Contract
 
 1. **Draft, never post** — default mode produces text files + browser-staged tabs + screenshots. No network mutation without explicit `POST APPROVED`.
