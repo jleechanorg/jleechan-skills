@@ -203,13 +203,14 @@ def install(source, home, release, baseline=None):
                 saved.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(target, saved)
             actions.append({'file': str(target), 'saved': str(saved) if saved else None,
-                            'sha256': expected})
+                            'sha256': expected, 'activated': False})
             save()
             target.parent.mkdir(parents=True, exist_ok=True)
             staged = target.with_name('.' + target.name + '.shared-' + uuid.uuid4().hex + '.tmp')
+            staged_owned = False
             try:
                 with staged.open('xb'):
-                    pass
+                    staged_owned = True
                 shutil.copy2(src, staged)
                 if hashlib.sha256(staged.read_bytes()).hexdigest() != expected:
                     raise ValueError(f'Concurrent source edit: {src}')
@@ -222,8 +223,10 @@ def install(source, home, release, baseline=None):
                     os.link(staged, target)  # Atomic create without replacing a new local file.
                 else:
                     os.replace(staged, target)
+                actions[-1]['activated'] = True
+                save()
             finally:
-                if staged.exists():
+                if staged_owned and staged.exists():
                     staged.unlink()
         for target, old in removals:
             if target.is_symlink() or not target.is_file() or hashlib.sha256(target.read_bytes()).hexdigest() != old:
@@ -266,6 +269,8 @@ def install(source, home, release, baseline=None):
                 if action['saved'] and not (link.exists() or link.is_symlink()):
                     Path(action['saved']).rename(link)
             else:
+                if action.get('activated') is False:
+                    continue  # Intent alone does not confer ownership of a local file.
                 target = Path(action['file'])
                 if action['sha256'] is None:
                     if not (target.exists() or target.is_symlink()) and Path(action['saved']).is_file():

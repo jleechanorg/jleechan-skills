@@ -321,4 +321,25 @@ class ReviewRegressionTests(unittest.TestCase):
      else:self.assertFalse(live.exists())
      self.assertEqual(list(live.parent.glob('*.tmp')),[])
 
+ def test_same_byte_local_collision_is_preserved_when_activation_never_succeeded(self):
+  from unittest.mock import patch
+  m=self.installer()
+  with tempfile.TemporaryDirectory() as t:
+   src,home=self.fixture(Path(t).resolve());live=home/'.claude/skills/example/SKILL.md';expected=(src/'.claude/skills/example/SKILL.md').read_bytes();real_link=m.os.link
+   def collided(a,b,*args,**kwargs):
+    if Path(b)==live:live.write_bytes(Path(a).read_bytes());raise FileExistsError('same-byte local collision')
+    return real_link(a,b,*args,**kwargs)
+   with patch.object(m.os,'link',side_effect=collided),self.assertRaises(FileExistsError):m.install(src,home,'collision')
+   self.assertTrue(live.is_file());self.assertEqual(live.read_bytes(),expected)
+   self.assertEqual(list(live.parent.glob('*.tmp')),[])
+
+ def test_exclusive_staging_collision_preserves_preexisting_local_file(self):
+  from unittest.mock import patch
+  from types import SimpleNamespace
+  m=self.installer()
+  with tempfile.TemporaryDirectory() as t:
+   src,home=self.fixture(Path(t).resolve());live=home/'.claude/skills/example/SKILL.md';live.parent.mkdir(parents=True);staged=live.with_name('.SKILL.md.shared-collision.tmp');staged.write_text('preexisting local staging-name file')
+   with patch.object(m.uuid,'uuid4',return_value=SimpleNamespace(hex='collision')),self.assertRaises(FileExistsError):m.install(src,home,'staging-collision')
+   self.assertEqual(staged.read_text(),'preexisting local staging-name file');self.assertFalse(live.exists())
+
 if __name__=='__main__':unittest.main()
