@@ -46,7 +46,7 @@ Never report a timeline you have not looked at.
 
 ## Always print it in chat (mandatory)
 
-The user may not open the files. Every reply includes the `build.py` stdout in a fenced block: one row per step, `█` low, `░` low→high, estimate plus color word at the row end, an axis line, and the header totals. Then give the HTML as a clickable link, `[<abs path>](file://<abs path>)`, the gist URL and htmlpreview link, the bead id, the absolute PNG path, and one line on what you checked. Never omit the HTML or gist link.
+The user may not open the files. Every reply includes the `build.py` stdout in a fenced block: one row per step, `█` low, `░` low→high, estimate plus color word at the row end, an axis line, and the header totals. Then give the HTML as a bare absolute path alone on its own line (terminals such as cmux linkify that and open it in a browser pane; they do not open markdown `file://` links), the gist URL and htmlpreview link, the bead id, the absolute PNG path, and one line on what you checked. Never omit the HTML or gist link.
 
 ## Refresh while work is active (mandatory)
 
