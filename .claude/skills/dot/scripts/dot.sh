@@ -23,7 +23,14 @@ if [[ "$(uname -s)" != "Darwin" && "${DOT_BACKEND:-auto}" != "chrome" ]]; then
   fi
   if [[ -n "$REMOTE_HOST" ]]; then
     if [[ "${1:-}" == "read" ]]; then
-      exec ssh "$REMOTE_HOST" "DOT_URL=\"${DOT_URL:-}\" DOT_ACCOUNT=\"${DOT_ACCOUNT:-}\" ~/.claude/skills/dot/scripts/dot.sh" "$@"
+      remote_cmd=$(python3 -c '
+import shlex, sys
+envs = ["DOT_URL", "DOT_ACCOUNT", "DOT_BACKEND"]
+env_str = " ".join(f"{k}={shlex.quote(sys.argv[1+i])}" for i, k in enumerate(envs) if sys.argv[1+i])
+args_str = " ".join(shlex.quote(a) for a in sys.argv[4:])
+print(f"{env_str} ~/.claude/skills/dot/scripts/dot.sh {args_str}".strip())
+' "${DOT_URL:-}" "${DOT_ACCOUNT:-}" "${DOT_BACKEND:-}" "$@")
+      exec ssh "$REMOTE_HOST" "$remote_cmd"
     elif [[ "${1:-}" == "send" || "${1:-}" == "send-once" ]]; then
       file="${2:-}"
       if [[ ! -f "$file" || ! -s "$file" ]]; then
@@ -32,8 +39,14 @@ if [[ "$(uname -s)" != "Darwin" && "${DOT_BACKEND:-auto}" != "chrome" ]]; then
       fi
       remote_tmp="/tmp/dot_remote_$(date +%s)_$$.txt"
       scp -q "$file" "$REMOTE_HOST:$remote_tmp"
-      ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=60 "$REMOTE_HOST" \
-        "DOT_URL=\"${DOT_URL:-}\" DOT_ACCOUNT=\"${DOT_ACCOUNT:-}\" DOT_DRY_RUN=\"${DOT_DRY_RUN:-}\" DOT_WAIT_SECS=\"${DOT_WAIT_SECS:-}\" DOT_RETRY_SECS=\"${DOT_RETRY_SECS:-}\" ~/.claude/skills/dot/scripts/dot.sh $1 $remote_tmp; rc=\$?; rm -f $remote_tmp; exit \$rc"
+      remote_cmd=$(python3 -c '
+import shlex, sys
+envs = ["DOT_URL", "DOT_ACCOUNT", "DOT_DRY_RUN", "DOT_WAIT_SECS", "DOT_RETRY_SECS", "DOT_BACKEND"]
+env_str = " ".join(f"{k}={shlex.quote(sys.argv[1+i])}" for i, k in enumerate(envs) if sys.argv[1+i])
+cmd = f"{env_str} ~/.claude/skills/dot/scripts/dot.sh {shlex.quote(sys.argv[7])} {shlex.quote(sys.argv[8])}; rc=$?; rm -f {shlex.quote(sys.argv[8])}; exit $rc"
+print(cmd.strip())
+' "${DOT_URL:-}" "${DOT_ACCOUNT:-}" "${DOT_DRY_RUN:-}" "${DOT_WAIT_SECS:-}" "${DOT_RETRY_SECS:-}" "${DOT_BACKEND:-}" "$1" "$remote_tmp")
+      ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=60 "$REMOTE_HOST" "$remote_cmd"
       exit $?
     fi
   fi
@@ -108,6 +121,7 @@ cmd_read() {
   fi
   run_repl "$(prelude)
 const dotText = await dotPage.evaluate(() => document.body.innerText);
+try { await dotPage.close(); } catch {}
 console.log(dotText.slice(-$n));"
 }
 
@@ -154,12 +168,14 @@ if (dotComposer !== '') {
 }
 if (dotComposer !== '') {
   console.log('DOT_DRAFT_PRESENT: ' + dotComposer.slice(0, 300));
+  try { await dotPage.close(); } catch {}
 } else {
   await dotPage.keyboard.insertText(dotMsg);
   await new Promise(r => setTimeout(r, 800));
   const typed = (await dotReadComposer()).trim();
   if (dotNorm(typed) !== dotNorm(dotMsg)) {
     console.log('DOT_COMPOSER_MISMATCH: ' + typed.slice(0, 200));
+    try { await dotPage.close(); } catch {}
   } else {
     const beforeMsgs = await dotGetUserMessages();
     const countMatches = (msgs, needle) => msgs.filter(m => m === needle).length;
@@ -169,7 +185,8 @@ if (dotComposer !== '') {
     const left = (await dotReadComposer()).trim();
     const afterMsgs = await dotGetUserMessages();
     const afterCount = countMatches(afterMsgs, dotNorm(dotMsg));
-    const sentVerified = left === '' && (afterCount > beforeCount || afterMsgs.length > beforeMsgs.length);
+    const sentVerified = left === '' && afterCount > beforeCount;
+    try { await dotPage.close(); } catch {}
     console.log(sentVerified ? 'DOT_SENT_VERIFIED' : 'DOT_SEND_UNVERIFIED composer_left=' + left.length);
   }
 }")"

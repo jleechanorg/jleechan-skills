@@ -44,11 +44,20 @@ async function waitAndCleanSingletonLock(dir) {
               // Ensure this is an orphaned Chrome process specifically using our target directory
               let cmd = '';
               try { cmd = execSync(`ps -o command= -p ${pid} 2>/dev/null`).toString(); } catch {}
-              const argMatch = cmd.match(/--user-data-dir=([^\s]+)/);
-              const cmdDir = argMatch ? path.resolve(argMatch[1]) : '';
+              const argMatch = cmd.match(/--user-data-dir=(?:"([^"]+)"|'([^']+)'|([^\s]+))/);
+              const rawDir = argMatch ? (argMatch[1] || argMatch[2] || argMatch[3]) : '';
+              const cmdDir = rawDir ? path.resolve(rawDir) : '';
               if (cmdDir && cmdDir === resolvedDir) {
                 try { process.kill(pid, 15); } catch {}
-                await sleep(300);
+                let dead = false;
+                for (let k = 0; k < 10; k++) {
+                  await sleep(200);
+                  try { process.kill(pid, 0); } catch { dead = true; break; }
+                }
+                if (!dead) {
+                  try { process.kill(pid, 9); } catch {}
+                  await sleep(200);
+                }
                 for (const f of ['SingletonLock', 'SingletonCookie', 'SingletonSocket']) {
                   try { fs.unlinkSync(path.join(dir, f)); } catch {}
                 }
@@ -170,7 +179,7 @@ async function send(page, file, dry) {
   const left = (await readComposer()).trim();
   const afterMsgs = await getUserMessages();
   const afterCount = countMatches(afterMsgs, norm(msg));
-  const sentVerified = left === '' && (afterCount > beforeCount || afterMsgs.length > beforeMsgs.length);
+  const sentVerified = left === '' && afterCount > beforeCount;
   console.log(sentVerified ? 'DOT_SENT_VERIFIED' : 'DOT_SEND_UNVERIFIED composer_left=' + left.length);
 }
 
