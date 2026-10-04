@@ -81,6 +81,18 @@ class CatalogTests(unittest.TestCase):
    (h/'.agents').symlink_to(outside,target_is_directory=True)
    with self.assertRaisesRegex(ValueError,'symlinked discovery root'):m.install(ROOT,h,'linked-root')
    self.assertEqual(list(outside.iterdir()),[]);self.assertFalse(m.release_path(h,'linked-root').exists())
+ def test_live_aliases_resolve_canonical_dependencies(self):
+  import re
+  spec=importlib.util.spec_from_file_location('catalog',ROOT/'scripts/install_shared_catalog.py');m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+  with tempfile.TemporaryDirectory() as t:
+   h=Path(t).resolve();m.install(ROOT,h,'aliases')
+   for name in ['browser','linux','mac','playwright','er','es','harness','history','ms','p','parallel']:
+    skill=h/'.claude/skills'/name/'SKILL.md';text=skill.read_text()
+    references=re.findall(r'\((\.\./[^)]+/SKILL\.md)\)',text)
+    if name=='harness':references=['../harness-engineering/SKILL.md']
+    self.assertTrue(references,name)
+    for ref in references:self.assertTrue((skill.parent/ref).is_file(),(name,ref))
+    self.assertEqual((h/'.agents/skills'/name).resolve(),skill.parent)
  def test_refuses_reused_release(self):
   spec=importlib.util.spec_from_file_location('catalog',ROOT/'scripts/install_shared_catalog.py');m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
   with tempfile.TemporaryDirectory() as t:
