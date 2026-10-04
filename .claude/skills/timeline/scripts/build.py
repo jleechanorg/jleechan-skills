@@ -86,7 +86,7 @@ def publish_gist(spec, path):
         try:
             run(["gh", "gist", "edit", gid, "-f", path.name, str(path)])
         except RuntimeError as err:
-            if "404" not in str(err) and "not found" not in str(err).lower():
+            if "HTTP 404" not in str(err) and "gist not found" not in str(err).lower():
                 raise RuntimeError(f"gist {gid} edit failed, not republishing stale links: {err}")
             print(f"build.py: gist {gid} is gone ({err}); creating a new gist", file=sys.stderr)
             gid = ""
