@@ -1,0 +1,1202 @@
+{
+  "scope": {
+    "task_count": 58,
+    "retained_event_count": 169,
+    "analysis_duration_seconds": 43200,
+    "tasks_with_structured_in_window_time": 28,
+    "note": "Sanitized reported observations, not raw traces or a complete historical census; original action times may differ from report times. T+00:00:00 is the start of the bounded analysis, not an original task request time."
+  },
+  "tasks": [
+    {
+      "id": "T01",
+      "outcome": "Review workflow design",
+      "events": [
+        {
+          "elapsed_seconds": null,
+          "summary": "Design assigned; no policy installed."
+        },
+        {
+          "elapsed_seconds": 20865,
+          "summary": "Exact-head testing existed. A separate review-substitution decision was unanswered; companion tests passed, but formal reviewer quorum was unverified."
+        }
+      ],
+      "stopping_point_and_next_action": "Decision dependency, not missing implementation proof. Obtain the scoped exception decision without another duplicate review cycle.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T02",
+      "outcome": "Small fix readiness",
+      "events": [
+        {
+          "elapsed_seconds": null,
+          "summary": "A local fix and bounded independent review packet existed."
+        },
+        {
+          "elapsed_seconds": null,
+          "summary": "Remote publication and focused tests were verified. The change remained draft; approval on another change did not authorize its merge."
+        }
+      ],
+      "stopping_point_and_next_action": "Readiness follow-through gap. Reuse the existing owner and obtain the applicable exact-head review; internal reason for inactivity unknown.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T03",
+      "outcome": "Generated media implementation",
+      "events": [
+        {
+          "elapsed_seconds": null,
+          "summary": "An implementation owner was authorized; live activity was unverified."
+        },
+        {
+          "elapsed_seconds": 28605,
+          "summary": "Draft was mergeable; five workflows passed and four skipped. Real provider, schema, browser, dispatch and infrastructure acceptance were unproved."
+        }
+      ],
+      "stopping_point_and_next_action": "Live acceptance gap. Resolve named prerequisites within authorization; keep dispatch disabled until proven.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T04",
+      "outcome": "Routing implementation",
+      "events": [
+        {
+          "elapsed_seconds": null,
+          "summary": "Existing implementation found; coding and review authorized."
+        },
+        {
+          "elapsed_seconds": 28605,
+          "summary": "Current source approval and offline tests existed. Four workflows passed and three skipped. Older rejected-head review did not describe the current head."
+        }
+      ],
+      "stopping_point_and_next_action": "Activation is outside scope. Preserve source approval without claiming runtime acceptance or reopening obsolete reviews.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T05",
+      "outcome": "Scheduled job reliability",
+      "events": [
+        {
+          "elapsed_seconds": 14131,
+          "summary": "Dependency setup timed out before browser execution."
+        },
+        {
+          "elapsed_seconds": null,
+          "summary": "An alleged original pause was not found in the inspected history; a later local hold remained possible. Provenance clarification was published."
+        },
+        {
+          "elapsed_seconds": 28425,
+          "summary": "No owner response or new review; eight workflows passed, authentication workflow failed."
+        },
+        {
+          "elapsed_seconds": 35505,
+          "summary": "No new owner response, commit or integration observed."
+        },
+        {
+          "elapsed_seconds": 39825,
+          "summary": "User explicitly renewed execution in the available cloud environment."
+        },
+        {
+          "elapsed_seconds": 39885,
+          "summary": "Existing owner continued; no duplicate implementation owner added."
+        },
+        {
+          "elapsed_seconds": 39945,
+          "summary": "Authentication infrastructure failure remained; command-line Git authentication was unavailable."
+        },
+        {
+          "elapsed_seconds": 40305,
+          "summary": "Partial source was materialized. Focused unit, subtest and parity checks passed; a broader group failed an isolation guard and was not green."
+        },
+        {
+          "elapsed_seconds": 40835,
+          "summary": "One failed-job retry was authorized and accepted."
+        },
+        {
+          "elapsed_seconds": 41068,
+          "summary": "Deployed browser login/reload passed; a separate local private-browser navigation failed once in ten attempts."
+        },
+        {
+          "elapsed_seconds": 41082,
+          "summary": "User asked to verify actual job evidence and run only if missing; response-content issues remained a separate task."
+        },
+        {
+          "elapsed_seconds": 41145,
+          "summary": "Existing runtime artifacts proved target-state persistence/reload; a model-output omission remained. No fresh paid run was required; original run time unavailable."
+        },
+        {
+          "elapsed_seconds": 41685,
+          "summary": "Concurrent documentation-only work was detected and preserved."
+        },
+        {
+          "elapsed_seconds": 41903,
+          "summary": "Non-force two-parent reconciliation reached zero behind with documentation-only deletions."
+        },
+        {
+          "elapsed_seconds": 42165,
+          "summary": "Browser debug instrumentation changed the head; older CI was superseded."
+        },
+        {
+          "elapsed_seconds": 42705,
+          "summary": "Current-head named review capability was unavailable in the partial-source environment; old approvals did not automatically cover changed code."
+        },
+        {
+          "elapsed_seconds": 43005,
+          "summary": "Current head was mergeable and unmerged; six workflows passed and three remained running, with no current-head failure yet."
+        }
+      ],
+      "stopping_point_and_next_action": "Recoverable infrastructure failure followed by successful authorized continuation. At cutoff, exact-head CI and review capability remained genuine dependencies. Merge was not authorized.",
+      "post_window_updates": [
+        {
+          "elapsed_seconds": null,
+          "summary": "After cutoff, existing owner reported repairing a preview-reuse CI mismatch; no new commit/result supplied."
+        }
+      ]
+    },
+    {
+      "id": "T06",
+      "outcome": "Import and schema repair",
+      "events": [
+        {
+          "elapsed_seconds": 22005,
+          "summary": "An import-policy failure was posted and read back; no owner acknowledgment arrived."
+        },
+        {
+          "elapsed_seconds": 28425,
+          "summary": "Same head and no acknowledgment; directory tests still failed."
+        },
+        {
+          "elapsed_seconds": 35505,
+          "summary": "No new owner response, commit or integration observed."
+        },
+        {
+          "elapsed_seconds": 39045,
+          "summary": "Head unchanged; specific import failure persisted with no acknowledgment since first handoff."
+        },
+        {
+          "elapsed_seconds": 39165,
+          "summary": "Exact validator failed before the patch and passed an isolated narrow nonproduction candidate."
+        },
+        {
+          "elapsed_seconds": 39285,
+          "summary": "Narrow patch ready."
+        },
+        {
+          "elapsed_seconds": 39525,
+          "summary": "Publication was delayed by inherited-evidence hook behavior and a missing evidence heading; related existing fixes were found."
+        },
+        {
+          "elapsed_seconds": 39856,
+          "summary": "User-requested non-draft flag was set without changing the head; this was not a readiness claim."
+        },
+        {
+          "elapsed_seconds": 40005,
+          "summary": "Partial exact-source files were available, not a full checkout; a Git probe had unknown exit status."
+        },
+        {
+          "elapsed_seconds": 40125,
+          "summary": "Existing fix passed twelve offline cases."
+        },
+        {
+          "elapsed_seconds": 40305,
+          "summary": "Evidence-heading-only correction succeeded."
+        },
+        {
+          "elapsed_seconds": 40365,
+          "summary": "Approval review rejected a blob write; no alternate write route used."
+        },
+        {
+          "elapsed_seconds": 40425,
+          "summary": "Same-call retry succeeded after exact authorization evidence was supplied."
+        },
+        {
+          "elapsed_seconds": 40485,
+          "summary": "Patch published non-force; exact remote blobs verified."
+        },
+        {
+          "elapsed_seconds": 40565,
+          "summary": "Import and merge-commit checks passed; other CI was not declared green."
+        },
+        {
+          "elapsed_seconds": 40785,
+          "summary": "New size and schema coverage failures were observed."
+        },
+        {
+          "elapsed_seconds": 40845,
+          "summary": "Scoped fixes authorized; other owner confirmed no file overlap."
+        },
+        {
+          "elapsed_seconds": 41925,
+          "summary": "Local refactor met size cap; schema coverage reached full expected coverage."
+        },
+        {
+          "elapsed_seconds": 42285,
+          "summary": "Concurrent unrelated change was preserved as the parent."
+        },
+        {
+          "elapsed_seconds": 42525,
+          "summary": "Focused tests, subtests, schema regressions, streaming replay and differential cases passed; schema fingerprints unchanged."
+        },
+        {
+          "elapsed_seconds": 42765,
+          "summary": "Prepared patch reviewed by coordinator."
+        },
+        {
+          "elapsed_seconds": 42935,
+          "summary": "Blob write rejected on repository-ownership grounds; no combined tree, commit or ref created."
+        },
+        {
+          "elapsed_seconds": 42945,
+          "summary": "Account/repository permissions were independently verified. Authorized retry evidence remained pending; local fixes were not yet published."
+        },
+        {
+          "elapsed_seconds": 43065,
+          "summary": "Fresh preflight found the original writer's concurrent refactor. Duplicate local refactor was dropped; remaining schema-only work passed."
+        }
+      ],
+      "stopping_point_and_next_action": "Observed avoidable follow-through gap: unacknowledged handoff persisted 4h44m; a later isolated fix proved recoverable. Internal reason for not taking that fallback earlier is unknown. Later publication gates and current-head CI are distinct dependencies.",
+      "post_window_updates": [
+        {
+          "elapsed_seconds": 43605,
+          "summary": "Tool cancellation reported; underlying cancellation times were later reported as T+12:00:45 and T+12:08:45. Tool wording did not establish human intent."
+        },
+        {
+          "elapsed_seconds": 43632,
+          "summary": "Incomplete publication disclosed."
+        },
+        {
+          "elapsed_seconds": 43673,
+          "summary": "Specific resume approval requested."
+        },
+        {
+          "elapsed_seconds": 43714,
+          "summary": "User explicitly renewed publication approval; same owner authorized to retry."
+        },
+        {
+          "elapsed_seconds": 43767,
+          "summary": "User denied having canceled; causal origin of tool cancellation remained unknown."
+        },
+        {
+          "elapsed_seconds": 43933,
+          "summary": "Authorized same-call retries succeeded; schema correction published non-force atop concurrent work."
+        },
+        {
+          "elapsed_seconds": 43961,
+          "summary": "Exact remote blobs verified; exact-head CI queued/pending. No readiness claim."
+        },
+        {
+          "elapsed_seconds": 44020,
+          "summary": "Current metadata corrected; owner continued exact-head CI monitoring."
+        }
+      ]
+    },
+    {
+      "id": "T07",
+      "outcome": "Periodic request reconciliation",
+      "events": [
+        {
+          "elapsed_seconds": null,
+          "summary": "Scheduled bounded source audit executed."
+        },
+        {
+          "elapsed_seconds": null,
+          "summary": "Bounded message-source search exhausted its pages; a partial room sample did not establish complete history."
+        },
+        {
+          "elapsed_seconds": 28423,
+          "summary": "Next bounded delta found no actionable request; detailed counts were unavailable."
+        },
+        {
+          "elapsed_seconds": 32117,
+          "summary": "Next bounded delta found no actionable item; several heads and owner acknowledgments were unchanged; direct pending approvals were unanswered."
+        },
+        {
+          "elapsed_seconds": null,
+          "summary": "No new owner response, commit or integration observed."
+        }
+      ],
+      "stopping_point_and_next_action": "Read-only observation completed within stated coverage. Status polling alone did not advance owner execution and did not authorize denied actions or new access.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T08",
+      "outcome": "Remote-control design",
+      "events": [
+        {
+          "elapsed_seconds": null,
+          "summary": "Read-only tool fixture tests passed; source publication stopped at a specific pre-push decision. Deployment and identity binding unproved."
+        },
+        {
+          "elapsed_seconds": 40406,
+          "summary": "User requested open-source connectivity research/design only."
+        },
+        {
+          "elapsed_seconds": null,
+          "summary": "Licensing/cost research did not authorize installation or deployment."
+        },
+        {
+          "elapsed_seconds": 41744,
+          "summary": "User explicitly authorized design publication only."
+        },
+        {
+          "elapsed_seconds": 42105,
+          "summary": "Design published."
+        },
+        {
+          "elapsed_seconds": 42405,
+          "summary": "Design scope clarified in a follow-up publication."
+        },
+        {
+          "elapsed_seconds": 42512,
+          "summary": "Remote document bytes verified; security review pending; no installation."
+        }
+      ],
+      "stopping_point_and_next_action": "Writing delivered. Source pre-push decision and installation/access authorization remain separate; design publication does not establish deployment.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T09",
+      "outcome": "Browser and CLI identity audit",
+      "events": [
+        {
+          "elapsed_seconds": null,
+          "summary": "Browser sign-in worked; CLI identity remained separate."
+        },
+        {
+          "elapsed_seconds": null,
+          "summary": "Earlier browser success still did not prove CLI identity."
+        },
+        {
+          "elapsed_seconds": null,
+          "summary": "Recovered software ran, but identity listing failed on read-only default configuration storage."
+        }
+      ],
+      "stopping_point_and_next_action": "Filesystem capability blocks current identity verification. No active login challenge or credential-validity result was established.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T10",
+      "outcome": "Historical data comparison",
+      "events": [
+        {
+          "elapsed_seconds": null,
+          "summary": "CLI software worked; earlier account-list observation did not establish an authenticated query."
+        },
+        {
+          "elapsed_seconds": null,
+          "summary": "Current identity check failed on read-only configuration storage, superseding the older empty-account characterization. No credential copy or query occurred."
+        }
+      ],
+      "stopping_point_and_next_action": "Authentication/query outcome unverified. Browser login cannot be substituted for CLI identity proof; respect access boundaries.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T11",
+      "outcome": "Alternative architecture readiness",
+      "events": [
+        {
+          "elapsed_seconds": null,
+          "summary": "Candidate and prompt-composition controls prepared."
+        },
+        {
+          "elapsed_seconds": null,
+          "summary": "Change closed unmerged because its server-owned approach conflicted with the requested model-owned behavior."
+        }
+      ],
+      "stopping_point_and_next_action": "Canceled/superseded approach. Earlier candidate tests do not authorize resumption; no continuation required for that closed change.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T12",
+      "outcome": "Approved-merge follow-through",
+      "events": [
+        {
+          "elapsed_seconds": null,
+          "summary": "Earlier CI was green; merge action rejected the available approval evidence."
+        },
+        {
+          "elapsed_seconds": 21825,
+          "summary": "Branch remained open and mergeable; specific renewed approval following the denial was absent."
+        }
+      ],
+      "stopping_point_and_next_action": "Approval dependency after denial. Mergeability does not satisfy the missing authorization.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T13",
+      "outcome": "Account-protection follow-ups",
+      "events": [
+        {
+          "elapsed_seconds": null,
+          "summary": "Initial safety checks completed; optional external steps not all completed."
+        }
+      ],
+      "stopping_point_and_next_action": "Remaining authorized scope not fully evidenced. Verify scope before enrollment or sensitive-data sharing; no internal cause inferred.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T14",
+      "outcome": "Status skill rollout",
+      "events": [
+        {
+          "elapsed_seconds": null,
+          "summary": "Selected installations and discovery verified."
+        },
+        {
+          "elapsed_seconds": null,
+          "summary": "Source remained an unmerged draft, mergeable and clean; readiness review pending."
+        }
+      ],
+      "stopping_point_and_next_action": "Installation completed at selected targets; source readiness remains separate. Do not mislabel a clean branch as conflict-blocked.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T15",
+      "outcome": "Community creation A",
+      "events": [
+        {
+          "elapsed_seconds": null,
+          "summary": "No successful creation receipt; intended authenticated identity unverified."
+        }
+      ],
+      "stopping_point_and_next_action": "Identity prerequisite. Verify requested account before creation.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T16",
+      "outcome": "Community creation B",
+      "events": [
+        {
+          "elapsed_seconds": null,
+          "summary": "Observed account differed from requested identity; no creation verified."
+        }
+      ],
+      "stopping_point_and_next_action": "Account mismatch. Withhold creation until identity is resolved.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T17",
+      "outcome": "Application submission",
+      "events": [
+        {
+          "elapsed_seconds": null,
+          "summary": "Preparation existed; successful submission unverified."
+        }
+      ],
+      "stopping_point_and_next_action": "Inspect exact required facts and live consent/challenge state. A prepared form is not a submitted application.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T18",
+      "outcome": "Repost drafts",
+      "events": [
+        {
+          "elapsed_seconds": null,
+          "summary": "Duplicate-aware drafts delivered; a separate later post was completed."
+        }
+      ],
+      "stopping_point_and_next_action": "Draft delivery complete within scope; remaining account/refinement work unverified. Do not infer blanket posting permission.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T19",
+      "outcome": "Streaming persistence readiness",
+      "events": [
+        {
+          "elapsed_seconds": null,
+          "summary": "Route fix and focused test evidence prepared."
+        },
+        {
+          "elapsed_seconds": 20600,
+          "summary": "Metadata-only design gate repaired and passed; review threads resolved. Real provider, persistence, server, browser and formal review evidence remained absent."
+        }
+      ],
+      "stopping_point_and_next_action": "Specific metadata blocker resolved; runtime and review gates still open. A denied public evidence disclosure remained denied.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T20",
+      "outcome": "Historical routing closure",
+      "events": [
+        {
+          "elapsed_seconds": null,
+          "summary": "Reviewed candidate retained; separately canceled write did not occur."
+        },
+        {
+          "elapsed_seconds": 16065,
+          "summary": "Merged metadata and ancestry to main freshly verified."
+        }
+      ],
+      "stopping_point_and_next_action": "Historical source closure complete. Cancellation of a separate publication remains binding; merge does not prove deployment.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T21",
+      "outcome": "Cross-boundary behavior readiness",
+      "events": [
+        {
+          "elapsed_seconds": null,
+          "summary": "Draft conversion and ownership handoff completed."
+        },
+        {
+          "elapsed_seconds": 28605,
+          "summary": "Later production change invalidated automatic reuse of an older documentation/test-only review. Current applicability note posted; no acknowledgment."
+        },
+        {
+          "elapsed_seconds": 32145,
+          "summary": "Head unchanged with no new owner reply; no new tests run."
+        },
+        {
+          "elapsed_seconds": 35505,
+          "summary": "No new owner reply, commit or integration; returned CI unchanged."
+        }
+      ],
+      "stopping_point_and_next_action": "Exact-head evidence gap plus unacknowledged handoff. Re-evaluate only the changed behavior and obtain an owner acknowledgment; internal inactivity cause unknown.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T22",
+      "outcome": "Contract-test merge decision",
+      "events": [
+        {
+          "elapsed_seconds": null,
+          "summary": "Earlier readiness evidence existed; current status had not yet been refreshed."
+        },
+        {
+          "elapsed_seconds": 21825,
+          "summary": "Fresh check found branch open and mergeable; prior denial and unresolved waiver remained."
+        }
+      ],
+      "stopping_point_and_next_action": "Genuine approval/waiver dependency. Do not convert mergeability into approval.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T23",
+      "outcome": "Default-route regression readiness",
+      "events": [
+        {
+          "elapsed_seconds": null,
+          "summary": "Production fix already in main; regression-only candidate had deterministic test passes."
+        },
+        {
+          "elapsed_seconds": null,
+          "summary": "Published regression change had seven successful workflows and current source evidence; named reviews withheld under a no-model-CLI restriction."
+        },
+        {
+          "elapsed_seconds": 37665,
+          "summary": "Source publication confirmed; older CI-pending wording corrected without pretending a new CI run."
+        }
+      ],
+      "stopping_point_and_next_action": "Review capability/authorization boundary. Workflow passes do not supply named votes or an exception.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T24",
+      "outcome": "Mobile reload durability",
+      "events": [
+        {
+          "elapsed_seconds": null,
+          "summary": "Design and plan delivered; exact isolated browser reproduction not performed."
+        },
+        {
+          "elapsed_seconds": null,
+          "summary": "Source counterexamples fixed; draft CI showed eight passes and twenty-six skips. Heavy tests, browser and other checks skipped; feature default-off and instance-lifetime only."
+        }
+      ],
+      "stopping_point_and_next_action": "Runtime/transaction/restart-durability proof absent. Draft checks do not prove full CI or persistent runtime behavior; activation is separate.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T25",
+      "outcome": "State-transition tests",
+      "events": [
+        {
+          "elapsed_seconds": null,
+          "summary": "Earlier branch unmergeable and review not approved."
+        },
+        {
+          "elapsed_seconds": 28605,
+          "summary": "New head mergeable, but three shard cases failed expecting a server-created session. A mismatch with documented model-owned behavior was a lead, not a verdict; handoff had no acknowledgment."
+        },
+        {
+          "elapsed_seconds": 32145,
+          "summary": "Head and owner response unchanged."
+        },
+        {
+          "elapsed_seconds": 35505,
+          "summary": "No new owner response, commit or integration; returned CI unchanged."
+        }
+      ],
+      "stopping_point_and_next_action": "Failed tests plus unverified current-head approval. Resolve assertion-versus-policy mismatch with existing owner; no internal cause established.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T26",
+      "outcome": "Optional mode readiness",
+      "events": [
+        {
+          "elapsed_seconds": null,
+          "summary": "Reviewed candidate retained after canceled fixture publication."
+        },
+        {
+          "elapsed_seconds": 21825,
+          "summary": "Fresh check found branch unmergeable; prior publication cancellation remained binding."
+        }
+      ],
+      "stopping_point_and_next_action": "Cancellation and conflict are separate. Obtain renewed scoped authorization before retrying publication; provider-validation scope unresolved.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T27",
+      "outcome": "Tooling recovery",
+      "events": [
+        {
+          "elapsed_seconds": null,
+          "summary": "Tooling bundle and internal hashes verified; unactivated references/hooks identified."
+        },
+        {
+          "elapsed_seconds": null,
+          "summary": "Earlier delivery receipt confirmed compatible software and selected instruction readback."
+        },
+        {
+          "elapsed_seconds": null,
+          "summary": "A shared location later vanished while the working directory remained. Only a pinned CLI subset was restored and verified."
+        }
+      ],
+      "stopping_point_and_next_action": "Historical installation is not proof of full recovery or running execution. Additional downloads remained canceled; hook dispatch unproved.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T28",
+      "outcome": "Social workflow rollout",
+      "events": [
+        {
+          "elapsed_seconds": null,
+          "summary": "Live-source correction, selected-host link and focused checks verified."
+        },
+        {
+          "elapsed_seconds": null,
+          "summary": "Source remained an unmerged draft, mergeable and clean; readiness review pending."
+        }
+      ],
+      "stopping_point_and_next_action": "Selected installation complete; repository readiness separate. No repeat posting authorized.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T29",
+      "outcome": "Task backup",
+      "events": [
+        {
+          "elapsed_seconds": null,
+          "summary": "Local task records and export validated; remote backup unverified."
+        }
+      ],
+      "stopping_point_and_next_action": "Remote write canceled. Periodic source auditing is not backup synchronization.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T30",
+      "outcome": "Test cost isolation",
+      "events": [
+        {
+          "elapsed_seconds": null,
+          "summary": "Shared credential-selection risk identified; merely loading a key did not prove billed calls."
+        }
+      ],
+      "stopping_point_and_next_action": "Dashboard action denied; new credential settings need action-time approval. No unsupported attribution of spend.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T31",
+      "outcome": "Historical skipped-step investigation",
+      "events": [
+        {
+          "elapsed_seconds": null,
+          "summary": "Original report read and symptom clarified; no matching fix verified."
+        },
+        {
+          "elapsed_seconds": 21825,
+          "summary": "Sanitized conclusion: exported sequence omitted a requested intermediate action. Original request identifier and full provider payload missing."
+        }
+      ],
+      "stopping_point_and_next_action": "Symptom supported; implementation/provider cause unknown. Do not substitute an unrelated synthetic hypothesis or transmit private payloads without permission.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T32",
+      "outcome": "Historical result rendering",
+      "events": [
+        {
+          "elapsed_seconds": null,
+          "summary": "Saved deltas matched extracted rows; persistence/reload replay passed. Original query, concurrency and some live cases missing."
+        },
+        {
+          "elapsed_seconds": 27705,
+          "summary": "Existing session idle; candidate based on older source; two cases absent from current tests."
+        },
+        {
+          "elapsed_seconds": 27799,
+          "summary": "Refresh/apply-check/focused-test work authorized without production/provider changes."
+        },
+        {
+          "elapsed_seconds": 27885,
+          "summary": "Current-source apply-check and nine focused cases passed; older baseline had failures. Results were worker receipts, not independent reruns."
+        },
+        {
+          "elapsed_seconds": 27993,
+          "summary": "Complete narrow patch posted and read back; owner integration unverified."
+        },
+        {
+          "elapsed_seconds": 35505,
+          "summary": "Head unchanged with no owner response or integration; successful workflows did not prove patch integration."
+        }
+      ],
+      "stopping_point_and_next_action": "Local-patch/handoff boundary. Obtain acknowledgment and integrate under existing scope; historical/live gaps remain distinct.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T33",
+      "outcome": "Content synchronization",
+      "events": [
+        {
+          "elapsed_seconds": 25965,
+          "summary": "Canonical draft and focused offline tests published; several CI jobs skipped; runtime acceptance open."
+        },
+        {
+          "elapsed_seconds": 40169,
+          "summary": "Existing job reported downloads and no errors; no new ingestion launched for this audit."
+        },
+        {
+          "elapsed_seconds": 40290,
+          "summary": "Raw records changed, but capped narrative content did not grow. Reporting direction was corrected; no deployed-fix proof."
+        },
+        {
+          "elapsed_seconds": 42295,
+          "summary": "User requested explanation of the report."
+        },
+        {
+          "elapsed_seconds": 42931,
+          "summary": "Answer distinguished raw/metadata changes from new content; existing owner clarified reporting."
+        }
+      ],
+      "stopping_point_and_next_action": "Offline fix publication and job success do not establish canonical deployment or end-to-end synchronization. Runtime retry proof remains open.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T34",
+      "outcome": "Autonomy report and replay",
+      "events": [
+        {
+          "elapsed_seconds": null,
+          "summary": "Workflow writing published and bytes verified; intended cross-account adoption unacknowledged and access denied."
+        },
+        {
+          "elapsed_seconds": 39370,
+          "summary": "Public issue created and read back; no system fix implemented."
+        },
+        {
+          "elapsed_seconds": 39382,
+          "summary": "Issue link delivered."
+        },
+        {
+          "elapsed_seconds": 39916,
+          "summary": "User required reproduction without private repositories."
+        },
+        {
+          "elapsed_seconds": 40416,
+          "summary": "Complete Python fixture published and read back; six positive controls passed, six negative controls rejected. Fresh agent failure not tested."
+        },
+        {
+          "elapsed_seconds": 40605,
+          "summary": "Separate external review upload rejected at a privacy boundary; no bypass used; exact disclosure approval requested."
+        },
+        {
+          "elapsed_seconds": 40725,
+          "summary": "Specific upload approved; no broad standing permission inferred."
+        },
+        {
+          "elapsed_seconds": 41255,
+          "summary": "Authorized retry succeeded; one reviewer response pending; no quorum, actual-agent failure or system implementation claimed."
+        }
+      ],
+      "stopping_point_and_next_action": "Report/fixture delivered. Fresh agent replay, adoption and reviewer outcome are separate unknowns; a test harness is not a production fix.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T35",
+      "outcome": "Task recovery and reconciliation",
+      "events": [
+        {
+          "elapsed_seconds": 7725,
+          "summary": "Historical task goals recovered; recovery was not execution of every task."
+        },
+        {
+          "elapsed_seconds": 19485,
+          "summary": "Worker quota failure prevented canonical reconciliation writes; successful database read did not prove writes."
+        },
+        {
+          "elapsed_seconds": 32145,
+          "summary": "Shared location unavailable; current workspace and archive remained, so a full reset was not established."
+        },
+        {
+          "elapsed_seconds": 32835,
+          "summary": "Archive updated preserving original goals plus source-qualified changes; new bytes were not presented as identical old bytes."
+        },
+        {
+          "elapsed_seconds": 42737,
+          "summary": "User requested granular task timelines and stopping points."
+        },
+        {
+          "elapsed_seconds": 43200,
+          "summary": "User requested a bounded twelve-hour causal analysis with unknown links preserved."
+        }
+      ],
+      "stopping_point_and_next_action": "Quota blocked one write route; archive recovery succeeded. Task-record recovery must not be reported as task execution.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T36",
+      "outcome": "Message priority triage",
+      "events": [
+        {
+          "elapsed_seconds": null,
+          "summary": "Bounded multi-page expansion and earlier focused sweep completed."
+        }
+      ],
+      "stopping_point_and_next_action": "Some historical coverage partial. Mirrored messages are not new requests; linked runtime claims need verification.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T37",
+      "outcome": "Matching fix verification",
+      "events": [
+        {
+          "elapsed_seconds": null,
+          "summary": "Matching merged fix and scenario replay found."
+        }
+      ],
+      "stopping_point_and_next_action": "Source/replay discovery complete; deployed revision and fresh original-scenario proof absent. Avoid duplicate implementation.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T38",
+      "outcome": "Multi-account browser verification",
+      "events": [
+        {
+          "elapsed_seconds": null,
+          "summary": "A desktop route existed; both requested account identities remained unverified."
+        }
+      ],
+      "stopping_point_and_next_action": "User paused UI work. Do not bypass denied launch or account boundaries.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T39",
+      "outcome": "Message-time regression",
+      "events": [
+        {
+          "elapsed_seconds": null,
+          "summary": "Test-only candidate and worker results existed; conflicting production candidate remained unpublished."
+        },
+        {
+          "elapsed_seconds": null,
+          "summary": "Misleading docstring corrected without changing assertions; two distinct historical defects separated."
+        },
+        {
+          "elapsed_seconds": 28605,
+          "summary": "Corrected full patch posted and read back; current source lacked the test file."
+        },
+        {
+          "elapsed_seconds": 35505,
+          "summary": "Head unchanged and no owner integration. Returned CI included cancellations, which are not passes."
+        }
+      ],
+      "stopping_point_and_next_action": "Owner acknowledgment/integration and original runtime proof unverified. Worker results are not independent rerun or current-main/live proof.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T40",
+      "outcome": "Instruction-loading verification",
+      "events": [
+        {
+          "elapsed_seconds": null,
+          "summary": "CLI loaded full global and project guidance, disproving the truncation theory for that route."
+        }
+      ],
+      "stopping_point_and_next_action": "Automatic loading/behavior in other clients unproved. Do not generalize one-route success.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T41",
+      "outcome": "Runner migration",
+      "events": [
+        {
+          "elapsed_seconds": null,
+          "summary": "Original fix request covered reversible branch maintenance and CI; merge remained separate."
+        },
+        {
+          "elapsed_seconds": null,
+          "summary": "Non-force main reconciliation and a one-line runner-version migration verified."
+        },
+        {
+          "elapsed_seconds": 23076,
+          "summary": "Workflow passed on the requested runner family."
+        },
+        {
+          "elapsed_seconds": null,
+          "summary": "Post-description workflow passed; original fix-plus-CI task complete, draft unmerged."
+        },
+        {
+          "elapsed_seconds": 35505,
+          "summary": "Exact merge question remained unanswered; no merge performed."
+        }
+      ],
+      "stopping_point_and_next_action": "Task's fix/CI outcome completed. Only merge decision pending; avoid treating separate merge as unfinished repair.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T42",
+      "outcome": "Cross-environment skill sync",
+      "events": [
+        {
+          "elapsed_seconds": 18210,
+          "summary": "Source merge and selected-host loads reported complete."
+        },
+        {
+          "elapsed_seconds": 20205,
+          "summary": "Supported cloud registry push returned HTTP 422; inventory unchanged, zero additions verified."
+        },
+        {
+          "elapsed_seconds": 20325,
+          "summary": "Delivery receipts sent; delivery did not establish registration."
+        },
+        {
+          "elapsed_seconds": 37665,
+          "summary": "Prior local owner finished; transient disconnect lost no active work. One host connected; another offline/unauthorized. Registry gap remained."
+        }
+      ],
+      "stopping_point_and_next_action": "Source/selected-host success does not prove cloud registration. Recover only supported registry flow within access limits.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T43",
+      "outcome": "Single authorized crosspost",
+      "events": [
+        {
+          "elapsed_seconds": null,
+          "summary": "Requested text and media posted once; actual permalink read back."
+        }
+      ],
+      "stopping_point_and_next_action": "Completed. No repeat action needed.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T44",
+      "outcome": "Review-sprawl diagnosis",
+      "events": [
+        {
+          "elapsed_seconds": null,
+          "summary": "Source-traced diagnostic findings delivered."
+        }
+      ],
+      "stopping_point_and_next_action": "Diagnosis complete. Implementation of recommendations is a separate request.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T45",
+      "outcome": "Autonomy feedback writing",
+      "events": [
+        {
+          "elapsed_seconds": null,
+          "summary": "Document saved, read back and delivered."
+        }
+      ],
+      "stopping_point_and_next_action": "Completed writing deliverable. System behavior change not implied.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T46",
+      "outcome": "Offer-thread draft and reply",
+      "events": [
+        {
+          "elapsed_seconds": null,
+          "summary": "Relevant thread found, draft delivered, separately authorized message sent once."
+        }
+      ],
+      "stopping_point_and_next_action": "Requested communication completed; no duplicate outreach.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T47",
+      "outcome": "Interaction design A",
+      "events": [
+        {
+          "elapsed_seconds": null,
+          "summary": "Revised specification and plan delivered with scoped review."
+        }
+      ],
+      "stopping_point_and_next_action": "Design complete. Runtime implementation not claimed.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T48",
+      "outcome": "Output-length target closure",
+      "events": [
+        {
+          "elapsed_seconds": null,
+          "summary": "Historical merge verified."
+        },
+        {
+          "elapsed_seconds": 16065,
+          "summary": "Fresh merge metadata and main ancestry checked; separate canceled publication remained canceled."
+        }
+      ],
+      "stopping_point_and_next_action": "Source closure complete. Actual generated output length not established by prompt tests.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T49",
+      "outcome": "Routing design",
+      "events": [
+        {
+          "elapsed_seconds": null,
+          "summary": "Revised design and implementation plan delivered."
+        }
+      ],
+      "stopping_point_and_next_action": "Design complete; runtime implementation is separate.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T50",
+      "outcome": "Media generation design",
+      "events": [
+        {
+          "elapsed_seconds": null,
+          "summary": "Revised specification and plan delivered after scoped review."
+        }
+      ],
+      "stopping_point_and_next_action": "Design complete; runtime implementation is separate.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T51",
+      "outcome": "Architecture answer document",
+      "events": [
+        {
+          "elapsed_seconds": null,
+          "summary": "Document created/read back; requested wording saved while preserving user deletions."
+        }
+      ],
+      "stopping_point_and_next_action": "Writing completed. No external message sent.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T52",
+      "outcome": "Research skill update",
+      "events": [
+        {
+          "elapsed_seconds": null,
+          "summary": "Source merged, selected hosts synchronized and cloud registration verified."
+        }
+      ],
+      "stopping_point_and_next_action": "Scoped rollout completed. Broader parity belongs to a separate task.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T53",
+      "outcome": "Accumulated-state fix closure",
+      "events": [
+        {
+          "elapsed_seconds": null,
+          "summary": "Historical merge independently verified."
+        },
+        {
+          "elapsed_seconds": 16065,
+          "summary": "Fresh merge metadata and main ancestry checked; separate canceled publication remained canceled."
+        }
+      ],
+      "stopping_point_and_next_action": "Source closure complete; current scheduled-job success not implied.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T54",
+      "outcome": "Host execution access",
+      "events": [
+        {
+          "elapsed_seconds": null,
+          "summary": "Broad capability requests recovered; exact target/reply context needed qualification. Separate UI pause remained binding."
+        }
+      ],
+      "stopping_point_and_next_action": "Connected host's observer hit quota before execution; another host offline/unauthorized. Do not lift pause or retry denied route.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T55",
+      "outcome": "Information-boundary investigation",
+      "events": [
+        {
+          "elapsed_seconds": 13065,
+          "summary": "Read-only inspection authorized without implementation, content mutation or new authentication."
+        },
+        {
+          "elapsed_seconds": null,
+          "summary": "Export-level symptoms and design contradictions documented; private-payload sharing denied; no external session started. Dedup operation blocked."
+        }
+      ],
+      "stopping_point_and_next_action": "Evidence delivered; specific sharing approval pending. No attribution beyond export-level evidence.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T56",
+      "outcome": "Randomness audit diagnosis",
+      "events": [
+        {
+          "elapsed_seconds": null,
+          "summary": "Candidate passed thirty methods; baseline had seventeen assertion failures with no errors. Diagnosis packet delivered; no reconciliation rerun."
+        }
+      ],
+      "stopping_point_and_next_action": "Diagnosis complete; repair unpublished because publication was outside original scope. Historical raw events unavailable, so historical cause remains unknown.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T57",
+      "outcome": "Data-coverage alert repair",
+      "events": [
+        {
+          "elapsed_seconds": 16654,
+          "summary": "Integrated repair and exact-source focused tests passed; recorded readiness gate lacked a named approval. Live data counts unknown."
+        }
+      ],
+      "stopping_point_and_next_action": "Recorded review/evidence gate remains open. This analysis does not create a new mandatory gate; no merge/deployment/live-count claim.",
+      "post_window_updates": []
+    },
+    {
+      "id": "T58",
+      "outcome": "Contact research",
+      "events": [
+        {
+          "elapsed_seconds": 42463,
+          "summary": "New distinct search requested; separate completed communication left closed."
+        },
+        {
+          "elapsed_seconds": null,
+          "summary": "Candidates found and previously contacted people excluded; narrow thread verification ongoing, no outreach."
+        }
+      ],
+      "stopping_point_and_next_action": "No stopping event at cutoff: active bounded research. Later delivery and narrower review are separate post-window updates.",
+      "post_window_updates": [
+        {
+          "elapsed_seconds": 43245,
+          "summary": "Shortlist delivered; no outreach."
+        },
+        {
+          "elapsed_seconds": 43365,
+          "summary": "User narrowed the existing thread-review scope."
+        },
+        {
+          "elapsed_seconds": 43605,
+          "summary": "Same owner resumed verification; no duplicate search or outreach."
+        }
+      ]
+    }
+  ]
+}
