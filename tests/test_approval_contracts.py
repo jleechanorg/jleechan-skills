@@ -62,14 +62,18 @@ class ApprovalContractsTest(unittest.TestCase):
             "A bare `/superpowers-quick` invocation does not authorize external browser review",
             quick,
         )
-        self.assertIn("Do not run a second standalone `/web-advice`", quick)
+        self.assertIn("Run at most one standalone `/web-advice`", quick)
         self.assertIn("Do not pause or ask the user to log in", quick)
         self.assertIn(
-            "Reviewer D /web-advice is disabled; do not invoke it or any external browser transport",
+            "`/web-advice is disabled; do not invoke it or any external browser transport.`",
             quick,
         )
         self.assertIn(
-            "lists Reviewer D as `unavailable (disabled by parent authorization boundary)`",
+            "Verify the synthesis records no browser submission",
+            quick,
+        )
+        self.assertIn(
+            "Treat an attempted browser submission as an incomplete `/advice` run and record it as `FAILED`",
             quick,
         )
         self.assertIn(
@@ -93,11 +97,11 @@ class ApprovalContractsTest(unittest.TestCase):
             quick,
         )
         self.assertIn(
-            "Any Reviewer D attempt consumes the single `/web-advice` run",
+            "Any browser submission made during `/advice` consumes the single `/web-advice` run",
             quick,
         )
         self.assertIn(
-            "Only when `/advice` did not attempt Reviewer D",
+            "only when `/advice` made no browser submission",
             quick,
         )
         self.assertIn("`/advice`: `RAN | FAILED`", quick)
