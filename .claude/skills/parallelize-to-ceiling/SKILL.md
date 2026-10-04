@@ -23,6 +23,17 @@ the answer.
 This applies to local CLI work and to remote/distributed compute equally, to
 one-off scripts and to production pipelines alike.
 
+`/parallel` means **maximum parallelism**: when invoked, schedule every step
+from its true dependencies, not from list order, and overlap everything that
+can overlap. A step waits only on outputs it actually consumes. Read-only
+verification (reviews, audits, evidence checks) never blocks a reversible
+action (push, CI start, preview deploy); run them side by side and handle a
+finding with a follow-up commit. Start the longest pole (CI, real-LLM runs,
+slow builds) as early as its inputs allow. Hand idle-capable work to every
+available lane (subagents, CLI delegates, the dot) instead of queueing it
+behind your own turn. Merges, force-pushes, and destructive actions keep
+their own gates and are never "overlapped" past them.
+
 ## Timeline, parallel lanes, and milestones (mandatory)
 
 Read and apply `${CLAUDE_HOME:-$HOME/.claude}/skills/parallelize-to-ceiling/references/timeline-milestones.md`
@@ -155,6 +166,10 @@ Before spawning any new lane, subprocess fleet, or CLI delegation:
 - Single-writer for any shared ledger/manifest.
 - Order-deterministic merged results (sort by id, never completion order).
 - Instance-scoped container/process names so concurrent workers can't collide.
+- Lanes clean up their own `mktemp` scratch without a permission prompt: delete
+  it inside the script that created it (`trap`/`finally`), or `mv` it under
+  `/tmp`. Never `rm -rf "$(...)"` or `rm -rf "$VAR"`; the harness cannot resolve
+  those targets and stops the lane to ask.
 - Never relax a correctness/validation contract for speed — if a result's
   determinism can't be preserved, THAT is the written justification for serial.
 

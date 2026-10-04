@@ -1,0 +1,62 @@
+<!doctype html><html><head><meta charset="utf-8"><title>PR #10097 — remaining work timeline</title>
+<style>
+:root{--bg:#0f1115;--fg:#e6e8eb;--mut:#8a919c;--grid:#232733;--green:#2fbf71;--yellow:#e8b931;--red:#ef5350;--unk:#8a919c}
+body{background:var(--bg);color:var(--fg);font:14px/1.45 -apple-system,Segoe UI,sans-serif;margin:32px;max-width:1100px}
+h1{font-size:20px;margin:0 0 4px}.sub{color:var(--mut);margin-bottom:24px}
+.status{display:flex;gap:12px;margin-bottom:28px;flex-wrap:wrap}
+.card{background:#171a21;border:1px solid var(--grid);border-radius:8px;padding:10px 14px;flex:1;min-width:200px}
+.card b{display:block;font-size:12px;color:var(--mut);font-weight:500;text-transform:uppercase;letter-spacing:.04em}
+.gantt{display:grid;grid-template-columns:300px 1fr;row-gap:10px;align-items:center}
+.lbl{padding-right:12px}.lbl small{display:block;color:var(--mut);font-size:12px}
+.track{position:relative;height:28px;background:repeating-linear-gradient(90deg,var(--grid) 0 1px,transparent 1px calc(100%/9))}
+.bar{position:absolute;top:4px;height:20px;border-radius:4px;font-size:11px;padding:0 6px;line-height:20px;white-space:nowrap;color:#0f1115;font-weight:600}
+.ext{position:absolute;top:4px;height:20px;border-radius:0 4px 4px 0;opacity:.35}
+.axis{display:grid;grid-template-columns:300px 1fr;margin-top:6px;color:var(--mut);font-size:12px}
+.ticks{display:flex;justify-content:space-between}
+.phase{grid-column:1/3;color:var(--mut);font-size:12px;text-transform:uppercase;letter-spacing:.05em;margin-top:10px;border-bottom:1px solid var(--grid);padding-bottom:4px}
+.legend{margin-top:22px;color:var(--mut);font-size:12px;display:flex;gap:18px;flex-wrap:wrap}
+.sw{display:inline-block;width:12px;height:12px;border-radius:2px;vertical-align:-2px;margin-right:5px}
+.flow{margin-top:30px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px}
+.node{border:1px solid var(--grid);background:#171a21;border-radius:6px;padding:8px 10px}
+.arr{color:var(--mut)}.par{display:flex;flex-direction:column;gap:6px}
+</style></head><body>
+<h1>PR #10097 — remaining work to green</h1>
+<div class="sub">Snapshot 2026-10-04 ~12:55 PT · head 0f7de4461c (integration 0cffaec5fc) · estimate ≈ 55–75 min → green ~13:50–14:10 PT</div>
+<div class="status">
+<div class="card"><b>Merge main</b>All code conflicts resolved · 2 generated schema files being regenerated</div>
+<div class="card"><b>F2 fix</b>Written · tests running</div>
+<div class="card"><b>CI</b>Dark until the PR no longer conflicts (2 checks only)</div>
+<div class="card"><b>Coding owner after push</b>the dot (CI fixes, review findings, firestore audit)</div>
+</div>
+
+<div class="gantt">
+<div class="phase">Phase A · in flight now (parallel)</div>
+<div class="lbl">1 · Merge main<small>regen 2 schema files, conflict doc, both-parent test check, commit</small></div>
+<div class="track"><div class="bar" style="left:0;width:16.7%;background:var(--yellow)">15–25m</div><div class="ext" style="left:16.7%;width:11.1%;background:var(--yellow)"></div></div>
+<div class="lbl">2 · F2 fix<small>finish tests, compare to pre-fix code, commit</small></div>
+<div class="track"><div class="bar" style="left:0;width:11.1%;background:var(--yellow)">10–15m</div><div class="ext" style="left:11.1%;width:5.6%;background:var(--yellow)"></div></div>
+<div class="lbl">3 · Streaming-cooldown check<small>do the 2 failures also fail on main?</small></div>
+<div class="track"><div class="bar" style="left:0;width:11.1%;background:var(--yellow)">~10m</div></div>
+<div class="lbl">7 · firestore_service.py line audit<small>→ the dot, independent</small></div>
+<div class="track"><div class="bar" style="left:0;width:27.8%;background:var(--unk)">dot · open-ended</div></div>
+
+<div class="phase">Phase B · after 1 + 2 — review and push run in parallel</div>
+<div class="lbl">4 · Independent reviewers<small>F2 + merge, read-only, against the pushed SHA</small></div>
+<div class="track"><div class="bar" style="left:27.8%;width:16.7%;background:var(--yellow)">~15m</div></div>
+
+<div class="lbl">5 · Integrate F2 + push<small>fast-forward push; starts CI early</small></div>
+<div class="track"><div class="bar" style="left:27.8%;width:11.1%;background:var(--yellow)">~10m</div></div>
+<div class="phase">Phase C · CI (overlaps review)</div>
+<div class="lbl">6 · Full CI + fixes<small>review findings + CI failures → the dot</small></div>
+<div class="track"><div class="bar" style="left:38.9%;width:22.2%;background:var(--red)">20–40m</div><div class="ext" style="left:61.1%;width:22.2%;background:var(--red)"></div></div>
+</div>
+<div class="axis"><div></div><div class="ticks"><span>0</span><span>10</span><span>20</span><span>30</span><span>40</span><span>50</span><span>60</span><span>70</span><span>80</span><span>90 min</span></div></div>
+
+<div class="legend"><span><span class="sw" style="background:var(--green)"></span>&lt; 10 min</span><span><span class="sw" style="background:var(--yellow)"></span>10–30 min</span><span><span class="sw" style="background:var(--red)"></span>30+ min</span><span><span class="sw" style="background:var(--unk)"></span>unknown</span><span>color = high estimate · solid = low estimate, faded = up to high</span><span>0 = ~12:55 PT</span></div>
+
+<div class="flow">
+<div class="par"><div class="node">1 Merge main</div><div class="node">2 F2 fix</div><div class="node">3 Cooldown check</div></div>
+<span class="arr">→</span><div class="par"><div class="node">4 Reviewers</div><div class="node">5 Push → 6 CI</div></div><span class="arr">→</span><div class="node">dot fixes findings</div><span class="arr">→</span><div class="node">✅ green</div>
+<span class="arr" style="margin-left:18px">‖</span><div class="node">7 firestore audit (dot)</div>
+</div>
+</body></html>
