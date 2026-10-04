@@ -31,6 +31,40 @@ DRAFT
 
 Each arrow is a gate, not a formality — do not skip ahead, and do not treat an earlier gate's pass as still valid once HEAD has moved (see "SHA-binding rule" below).
 
+## Coding lifecycle (pre-draft work) — scale layers to risk
+
+Order: explore → outcome spec (no code) → code-level design when useful → TDD
+(fresh failing test first) → unit + relevant integration tests → coder
+correctness checkpoint → formal code/evidence review → narrow fixes until a
+genuine human dependency. Batch findings, preserve passing lanes, and recheck
+only the affected behavior.
+
+| Change class | Layers |
+|---|---|
+| Wording-only / small low-risk (including a small code fix) | Skip standalone spec, plan, and plan-review cycle; focused tests, then the applicable gates below. Runtime change or file count alone does not make a change non-small. |
+| Ordinary feature | Outcome spec, TDD, unit + relevant tests, correctness checkpoint, then formal review. |
+| Cross-service boundary | Add an integration-layer test; a mocked unit test cannot prove it. |
+| Large change | May pause at the correctness checkpoint for human direction before expensive review (optional, never a gate). |
+| High-risk (security, data-integrity, permission, deployment, approval, merge, destructive, credential) | No layer skipping; the full gate chain and independent final coverage still apply. |
+
+**Mandatory regardless of class:** gates the user explicitly required;
+high-risk, security, data-integrity, permission, deployment, approval, merge,
+destructive, and credential gates; and real proof for any production-behavior claim. **Skippable by class:**
+standalone spec/plan, plan-review cycle, history mining, and extra review lanes
+for small low-risk changes, including small code fixes. A standalone plan review
+applies only to high-risk or user-required cases, or an unresolved material
+decision. Skill pipelines (`write-goal`, `ironclad`, `ready`) delegate
+applicability and review timing here; none may apply universally.
+
+Cheap real smoke (e.g. UI target check) may run early to catch a wrong target;
+expensive final evidence follows correct, frozen code.
+
+**Execution handoff invariant.** An accepted next step must have an executing
+owner or started tool before reporting `Working`. With only an exact blocker plus
+resumption trigger, report `Blocked` or `Waiting` — a blocker never makes it
+`Working`. Creating a goal or checklist is not execution. Do not stop
+at a completed design when implementation was authorized.
+
 ## Draft-phase final acceptance gates (in order)
 
 Before this final sequence, run independent code-correctness reviews (including
@@ -156,12 +190,19 @@ mixed diff uses the normal `/er` gate.
 `/es`, `/er`, `/advice`, and `/green` gate verdicts are each earned **at a specific commit SHA** — none of the production-gate verdicts carry forward across a HEAD move. If a new commit lands after a verdict (a nit fix, a rebase, a CI-requested change), that verdict is **STALE** and must be re-earned — or explicitly re-affirmed at the new SHA — before it counts toward the next gate in the chain.
 
 **This is a verdict-binding rule, not an automatic evidence-capture rule.** Apply
-the evidence-staleness tolerance in `evidence-standards`: a docs, tests,
-skills, ordinary PR-policy, or other non-behavioral HEAD change does not
+the evidence-staleness tolerance in `evidence-standards`: a HEAD change whose
+actual delta (not its path category) leaves every tested claim intact does not
 require a fresh production-evidence run. The reviewer may re-affirm `/es` at
-the new SHA after documenting the non-production diff. A production behavior
+the new SHA after documenting that delta and the claims checked. A production behavior
 change still requires fresh evidence, then fresh SHA-bound `/es`, `/er`, and
 `/advice` verdicts.
+
+**Classify by the actual delta and the claim it could invalidate, never by path
+category.** Tests, evidence drivers and captures, prompts, contracts, schemas, and
+executable skill instructions can change behavior or invalidate proof. Re-affirm only
+after reading the delta and documenting why no tested claim, driver, or assertion is
+affected; a changed assertion, driver, or behavioral instruction invalidates the
+evidence that depends on it.
 
 The verdict rule applies uniformly:
 
@@ -170,7 +211,7 @@ The verdict rule applies uniformly:
 - A stale `/advice` APPROVED does not justify marking the PR ready.
 - A stale `/green` does not justify reporting merge-readiness.
 
-Before trusting any prior verdict, compare the SHA it was stamped with against the PR's live head: `gh pr view <N> --json headRefOid --jq '.headRefOid'`. On mismatch, run the staleness-tolerance diff test (`git diff --name-only <verdict-sha> HEAD`): a non-behavioral delta lets the verdict be re-affirmed at the new SHA after documenting the diff; a material delta means re-earning the gate. Never carry a verdict forward on memory alone — and never trigger an expensive rerun per finding: batch all pending fixes into one new SHA first (see `evidence-standards` § Evidence Sequencing).
+Before trusting any prior verdict, compare the SHA it was stamped with against the PR's live head: `gh pr view <N> --json headRefOid --jq '.headRefOid'`. On mismatch, run the staleness-tolerance diff test (read `git diff <verdict-sha> HEAD` against the verdict's claims): a delta that leaves those claims intact lets the verdict be re-affirmed at the new SHA after documenting the diff; a material delta means re-earning the gate. Never carry a verdict forward on memory alone — and never trigger an expensive rerun per finding: batch all pending fixes into one new SHA first (see `evidence-standards` § Evidence Sequencing).
 
 **Chain timing and quality.** The draft chain (`/es` → `/er` → `/advice`) is the FINAL pass: run it after code is complete and all known findings are resolved or deferred (`evidence-standards` § Evidence Sequencing) — not per push while fixes are still landing. Review findings remain subject to the required correctness gates: behavior-blocking findings must be fixed and reverified, while style/nit/doc feedback may be tracked as follow-ups. Batch pending behavioral fixes into one SHA before re-earning affected evidence.
 

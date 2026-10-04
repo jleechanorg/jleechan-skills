@@ -535,7 +535,11 @@ is rejected, or the composer does not render every exact packet filename.
 
 ### Stale evidence (verification FAIL)
 
-Symptom: `metadata.json:git_provenance.git_head` ≠ PR HEAD `headRefOid`.
+Symptom: `metadata.json:git_provenance.git_head` ≠ PR HEAD `headRefOid`
+**and** the actual delta from the tested SHA touches a claim the evidence backs
+(per the `evidence-standards` Staleness Tolerance test; path category alone never
+decides). A SHA move whose delta leaves every tested claim, assertion, and driver
+intact is not stale: re-affirm at the new SHA and record both SHAs and the delta.
 
 Recovery:
 1. Mark the evidence or production claim unverified; do not use it to support a recommendation.
