@@ -136,9 +136,9 @@ echo "$AGY_OUT"
 echo "=================="
 
 if [[ "$AGY_RC" -eq 0 ]]; then
-  # If worker-level polling requested and dot is still working
-  if [[ "$POLL_REPLY" -eq 1 ]]; then
-    echo "Verifying dot reply via 1-minute polling loop..."
+  # If worker-level polling requested and agy did not already verify the reply
+  if [[ "$POLL_REPLY" -eq 1 ]] && ! echo "$AGY_OUT" | grep -qiE "Dot Response|Dot Reply|confirmed resumed|finished reply"; then
+    echo "Verifying dot reply via fallback 1-minute polling loop..."
     poll_count=0
     while [[ $poll_count -lt $MAX_POLLS ]]; do
       CURRENT_TAIL=$(timeout 45 "$DOT_SCRIPT" read 2500 2>&1 || true)
