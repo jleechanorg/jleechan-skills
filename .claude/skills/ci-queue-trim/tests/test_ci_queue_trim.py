@@ -1374,5 +1374,66 @@ class TestCancellationSafetyCLI(unittest.TestCase):
                 self.assertEqual(stub.cancel_calls, [])
 
 
+class TestBaseIdentityAndJSON(unittest.TestCase):
+    def test_missing_or_mismatched_base_identity_keeps_at_audit_and_refresh(self):
+        for location in ("association", "run", "fetched_pr"):
+            for value in (None, REPO_ID + 1):
+                with self.subTest(location=location, value=value):
+                    stub = _RunCmdStub()
+                    run = queued_run(900, head_sha="old", pr_numbers=[42])
+                    pr = pr_record(42, head_sha="new")
+                    target = {
+                        "association": run["pull_requests"][0]["base"]["repo"],
+                        "run": run["repository"],
+                        "fetched_pr": pr["base"]["repo"],
+                    }[location]
+                    target["id"] = value
+                    _setup_queue(stub, [run], {42: pr})
+                    audited, _ = _audit_with(stub)
+                    self.assertEqual(audited[0]["verdict"], "KEEP")
+                    self.assertTrue(audited[0]["audit_incomplete"])
+                    with mock.patch.object(ci_queue_trim, "run_cmd", side_effect=stub):
+                        accepted = ci_queue_trim.cancel_with_per_item_refresh(
+                            "owner/repo", [{"run_id": 900, "verdict": "CANCEL"}],
+                            allowed_workflows={".github/workflows/ci.yml"},
+                        )
+                    self.assertEqual(accepted, [])
+                    self.assertEqual(stub.cancel_calls, [])
+
+    def test_json_stdout_is_one_object_for_all_cli_modes(self):
+        cases = (
+            ("audit", [], "obsolete", 0, []),
+            ("cancel", ["--cancel"], "obsolete", 0, [901]),
+            ("dry_cancel", ["--cancel", "--dry-run"], "obsolete", 0, []),
+            ("empty_cancel", ["--cancel"], "empty", 0, []),
+            ("keep_cancel", ["--cancel"], "current", 0, []),
+            ("error", [], "failure", 1, []),
+            ("error_cancel", ["--cancel"], "failure", 1, []),
+            ("error_dry_cancel", ["--cancel", "--dry-run"], "failure", 1, []),
+            ("host", ["--check-host"], "obsolete", 0, []),
+            ("cancel_error", ["--cancel"], "cancel_failure", 0, [901]),
+        )
+        for name, flags, queue, expected_rc, cancellations in cases:
+            with self.subTest(case=name):
+                stub = _RunCmdStub()
+                if queue == "failure":
+                    stub.add("run list", (1, "", "API unavailable"))
+                else:
+                    runs = [] if queue == "empty" else [queued_run(901, head_sha="old", pr_numbers=[42])]
+                    tip = "old" if queue == "current" else "new"
+                    _setup_queue(stub, runs, {42: pr_record(42, head_sha=tip)})
+                if queue == "cancel_failure":
+                    stub.allow_cancel(901, rc=1)
+                argv = ["ci_queue_trim.py", "--repo", "owner/repo", "--json", "--allow-workflow", ".github/workflows/ci.yml", *flags]
+                with mock.patch.object(sys, "argv", argv), mock.patch.object(ci_queue_trim, "run_cmd", side_effect=stub), mock.patch.object(ci_queue_trim, "check_host_health", return_value={"notes": ["fixture health"]}), mock.patch("sys.stdout", new_callable=io.StringIO) as stdout, mock.patch("sys.stderr", new_callable=io.StringIO) as stderr:
+                    rc = ci_queue_trim.main()
+                payload = json.loads(stdout.getvalue())
+                self.assertEqual(set(payload), {"stats", "runs"})
+                self.assertEqual(rc, expected_rc)
+                self.assertEqual(stub.cancel_calls, cancellations)
+                self.assertIn("Auditing queued CI", stderr.getvalue())
+                self.assertEqual(bool(payload["stats"].get("queue_fetch_failed")), queue == "failure")
+
+
 if __name__ == "__main__":
     unittest.main()

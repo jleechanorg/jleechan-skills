@@ -195,3 +195,46 @@ Coverage map:
   and Mac (root to perform after the seed lands).
 - Populate additional `--allow-workflow` entries with the operator's
   known safe test / check / lint paths.
+
+## Final contract correction — 2026-10-04 review follow-up
+
+This section supersedes contradictory current-behavior claims above; earlier
+round reports and their historical test counts remain intact.
+
+- Every mode requires proven supersession and explicit workflow opt-in.
+  Commit age and MERGED/CLOSED state alone never authorize cancellation.
+  Current-head work stays queued; pull_request_target always stays queued.
+- --superseded-only is a compatibility flag. Both modes can establish
+  supersession without a commit timestamp; missing age is reporting-only.
+  --max-age-hours is a report threshold, passed through audit and refresh.
+- --dry-run overrides --cancel. Queue-fetch failure returns nonzero.
+- Before mutation the fresh run ID must equal the requested ID; event,
+  head_sha and path are nonempty and status is queued. Repository identity
+  requires id or full_name, and a supplied full_name must match the target.
+  PR runs additionally require exactly one association, exact PR number,
+  matching nonempty head.repo.id, and equal nonempty IDs across association
+  base.repo, run.repository, and fetched PR base.repo. Push runs require a
+  branch-head lookup. repository.name is not required.
+- PR number plus base repository establishes PR identity. A head ref is not
+  an alternative identity; the historical association head SHA must not be
+  required to equal the current PR tip, because supersession changes it.
+- --json emits exactly one stdout object (stats and runs). Human messages
+  go to stderr in audit, cancellation, dry-run, host-check and error modes.
+  Cancellation acceptance remains an asynchronous result reported on stderr.
+- The old test_dormant_current_head_cancels_at_mutation name is superseded
+  by test_obsolete_push_cancels_at_mutation; it tests obsolete push heads.
+
+Linux verification at this final source state: 42 focused tests passed;
+26 installer tests passed. The two new regression methods fail against the
+preceding source with six base-identity assertion failures and ten JSON
+parse errors, then pass with this correction. Commands:
+
+```bash
+python3 .claude/skills/ci-queue-trim/tests/test_ci_queue_trim.py
+python3 -m unittest discover -s tests -p test_installer.py
+```
+
+Raw receipts: /tmp/runner-approval-20261004-queue/fix-round3-tests.txt,
+fix-round3-installer.txt, and fix-round3-red.txt on Linux. No live
+cancellation, installed-skill change, service change or runtime-config
+change was performed by this review-fix lane.

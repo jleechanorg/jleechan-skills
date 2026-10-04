@@ -46,6 +46,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+from contextlib import redirect_stdout
 import datetime
 import json
 import os
@@ -554,6 +555,16 @@ def _collect_inputs(repo: str, run_record: Dict[str, Any]) -> Tuple[
         ).get("id")
         if not expected_repo_id or not actual_repo_id or expected_repo_id != actual_repo_id:
             return None, None, False
+        # PR numbers are scoped to the base repository, not the head fork.
+        run_repo_id = (run_record.get("repository") or {}).get("id")
+        association_base_id = ((pr_ref.get("base") or {}).get("repo") or {}).get("id")
+        actual_base_id = ((pr_record.get("base") or {}).get("repo") or {}).get("id")
+        if not run_repo_id or not association_base_id or not actual_base_id:
+            return None, None, False
+        if not (association_base_id == run_repo_id == actual_base_id):
+            return None, None, False
+        # Historical association head.sha may differ from the current tip:
+        # that difference is the supersession signal, not an identity failure.
         ok_pr = True
     elif event in MERGE_GROUP_EVENTS:
         pass  # neither PR nor branch head is required
@@ -900,12 +911,13 @@ def main() -> int:
         ),
     )
     args = parser.parse_args()
+    report_stream = sys.stderr if args.json_output else sys.stdout
 
     if args.check_host:
-        print("=== Host & Colima Preflight ===")
+        print("=== Host & Colima Preflight ===", file=report_stream)
         for note in check_host_health().get("notes", []):
-            print(f"  • {note}")
-        print()
+            print(f"  • {note}", file=report_stream)
+        print(file=report_stream)
 
     allowed_workflows = set()
     for path in args.allow_workflow:
@@ -916,7 +928,8 @@ def main() -> int:
 
     print(
         f"Auditing queued CI runs for {args.repo} "
-        f"(mode: {'superseded-only' if args.superseded_only else 'standard'})..."
+        f"(mode: {'superseded-only' if args.superseded_only else 'standard'})...",
+        file=report_stream,
     )
     audited, stats = audit_queue(
         args.repo,
@@ -926,7 +939,8 @@ def main() -> int:
         protected_workflows=protected_workflows,
         allowed_workflows=allowed_workflows,
     )
-    _print_report(audited, stats, args.max_age_hours)
+    with redirect_stdout(report_stream):
+        _print_report(audited, stats, args.max_age_hours)
 
     if args.json_output:
         print(json.dumps({"stats": stats, "runs": audited}, indent=2))
@@ -937,7 +951,7 @@ def main() -> int:
     if args.cancel and not args.dry_run:
         runs_to_cancel = [r for r in audited if r["verdict"] == "CANCEL"]
         if not runs_to_cancel:
-            print("\nNo runs eligible for cancellation.")
+            print("\nNo runs eligible for cancellation.", file=report_stream)
             return 0
         cancelled = cancel_with_per_item_refresh(
             args.repo, runs_to_cancel,
@@ -952,12 +966,14 @@ def main() -> int:
             f"{len(runs_to_cancel)} candidates. "
             f"`gh run cancel` returns 0 on async acceptance; "
             f"verify terminal state independently "
-            f"(e.g. `gh run view <id>` or a follow-up audit)."
+            f"(e.g. `gh run view <id>` or a follow-up audit).",
+            file=report_stream,
         )
     elif stats.get("to_cancel", 0) > 0 and (not args.cancel or args.dry_run):
         print(
             f"\nDry-run mode: {stats['to_cancel']} runs eligible for cancellation. "
-            "Re-run with --cancel to execute."
+            "Re-run with --cancel to execute.",
+            file=report_stream,
         )
 
     return 0

@@ -94,7 +94,11 @@ to the wrong PR.
   `{id, name, url}` (no `full_name`); requiring `full_name` would mark
   every real run unknown. The `pulls/{n}.head.repo` record carries
   `{id, full_name, name, ...}` — match by `id`.
-- Absent or mismatched `repo.id` ⇒ UNKNOWN.
+- Absent or mismatched `repo.id` ⇒ UNKNOWN. The association base repo ID,
+  run repository ID, and fetched PR base repo ID must all be present and equal.
+  PR number plus base repository identifies the PR; head ref is not used as
+  an alternative identity. Historical association head SHA may differ from
+  the current tip and is not required to equal it.
 
 ### 5. Per-item refresh before cancellation
 Before every individual `gh run cancel`, the script re-fetches the run
@@ -113,7 +117,9 @@ The fresh response is validated before any mutation:
   With `id` alone, repository scope relies on the exact REST endpoint;
   `repository.name` is not required.
 - PR runs require exactly one `pull_requests` association with matching
-  PR number and numeric `head.repo.id`. Push runs require a successful
+  PR number and numeric `head.repo.id`, plus equal association/run/fetched-PR
+  base repository IDs. Thus PR cancellation requires `run.repository.id`,
+  even though push refresh can accept `repository.full_name` alone. Push runs require a successful
   branch-head lookup. Incomplete identity or lookups keep the run.
 
 Every mode requires `superseded=True` before cancellation. Neither old
@@ -214,8 +220,11 @@ python3 ~/.claude/skills/ci-queue-trim/scripts/ci_queue_trim.py --check-host
   admission safety floor.
 
 ### 7. Structured JSON Output (`--json`)
-Returns machine-readable JSON for scripting, subagents, or automated
-triage:
+Stdout contains exactly one JSON object with `stats` and `runs`, including
+for empty queues and queue-fetch errors. Human audit, host, dry-run, and
+cancellation messages go to stderr. Queue-fetch errors still exit nonzero;
+cancellation acceptance is reported on stderr and is not terminal-state proof.
+This contract also applies with `--cancel`, `--dry-run`, and `--check-host`:
 ```bash
 python3 ~/.claude/skills/ci-queue-trim/scripts/ci_queue_trim.py --json
 ```
