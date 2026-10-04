@@ -36,7 +36,12 @@ A PR is READY when ALL of the following hold, verified at the CURRENT head SHA
    every REQUEST_CHANGES finding is fixed and the two-reviewer quorum is rerun
    and approves. Research and the orchestrating agent do not vote. One approval
    can block but cannot approve; unavailable or partial-coverage reviewers do
-   not satisfy the approval quorum.
+   not satisfy the approval quorum. A head move whose actual delta leaves every
+   tested claim, assertion, and driver intact may reaffirm this gate at the new
+   SHA (full original coverage plus the small reviewed delta, documented) — it
+   never reduces the two-reviewer quorum or the named-reviewer requirement in
+   `advice/SKILL.md`; changing that requirement needs its own separate,
+   explicitly approved change.
 4. **/green** — every current-head CI check green (rerun infra-signature
    failures: SIGKILL-during-rustc, Set-up-Python, sqlite3-amalgamation;
    diagnose real failures instead of rerunning) AND mergeable with no

@@ -84,6 +84,27 @@ class CodingLifecycleContract(unittest.TestCase):
         self.assertIn("No cycle- or repeated-score count stops work", goal)
         self.assertIn("draft-phase gate", goal)
 
+    def test_ready_advice_reaffirmation_is_delta_based_and_keeps_quorum(self):
+        ready = read("ready")
+        self.assertIn("may reaffirm this gate at the new SHA", ready)
+        self.assertIn("never reduces the two-reviewer quorum", ready)
+
+    def test_sq_stays_planning_only_with_explicit_caller_continuation(self):
+        sq = read("superpowers-quick")
+        self.assertIn("planning-only: it never starts implementation", sq)
+        self.assertIn("calling workflow must continue explicitly", sq)
+
+    def test_worldai_code_standards_scales_by_substance_not_line_count(self):
+        path = SKILLS.parents[2] / "worldarchitect.ai" / ".claude" / "skills" / "code-standards" / "SKILL.md"
+        if not path.is_file():
+            self.skipTest("worldarchitect.ai checkout not alongside this repo")
+        cs = " ".join(path.read_text(encoding="utf-8").split())
+        self.assertIn("never to a line count", cs)
+        self.assertIn("apply the four standards inline", cs)
+        self.assertIn("always the full independent lanes", cs)
+        self.assertIn("Required final independent approvals", cs)
+        self.assertNotIn("independent review lanes** every time", cs)
+
 
 if __name__ == "__main__":
     unittest.main()
