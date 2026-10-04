@@ -87,11 +87,9 @@ def publish_gist(spec, path):
             run(["gh", "gist", "edit", gid, "-f", path.name, str(path)])
         except RuntimeError as err:
             if "404" not in str(err) and "not found" not in str(err).lower():
-                print(f"build.py: gist edit failed ({err}); keeping gist {gid}, content may be stale",
-                      file=sys.stderr)
-            else:
-                print(f"build.py: gist {gid} is gone ({err}); creating a new gist", file=sys.stderr)
-                gid = ""
+                raise RuntimeError(f"gist {gid} edit failed, not republishing stale links: {err}")
+            print(f"build.py: gist {gid} is gone ({err}); creating a new gist", file=sys.stderr)
+            gid = ""
     if not gid:
         url = run(["gh", "gist", "create", str(path), "-d", f"timeline: {spec['title']}"])
         gid = url.rstrip("/").rsplit("/", 1)[-1]
