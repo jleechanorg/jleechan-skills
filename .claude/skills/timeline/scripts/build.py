@@ -123,7 +123,7 @@ def publish_gist(spec, path):
             {"description": f"timeline: {spec['title']}", "public": False, "files": files})))["id"]
         side.write_text(gid + "\n")
     owner = run(["gh", "api", f"gists/{gid}", "--jq", ".owner.login"])
-    return f"https://gist.github.com/{owner}/{gid}", f"https://gistpreview.github.io/?{gid}/{path.name}"
+    return f"https://gist.github.com/{owner}/{gid}", f"https://gistpreview.github.io/?{gid}/{urllib.parse.quote(path.name)}"
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
