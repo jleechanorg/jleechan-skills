@@ -1,9 +1,9 @@
 ---
 name: pr-blocker-min-repro
 description: "PR blocker minimal repro ladder for BYOK and related regressions"
-type: "workflow"
-scope: "github"
 ---
+
+Workflow type: workflow. Scope: github.
 
 ## Overview
 
