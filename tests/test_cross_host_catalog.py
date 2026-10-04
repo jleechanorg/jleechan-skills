@@ -122,10 +122,15 @@ class ReviewRegressionTests(unittest.TestCase):
    src,home=self.fixture(Path(t).resolve())
    output=subprocess.check_output([sys.executable,m.__file__,'--source',str(src),'--home',str(home),'--release','v1','--dry-run'],text=True)
    planned=json.loads(output);receipt=m.install(src,home,'v1')
-   self.assertEqual(set(planned['claude']),set(receipt['managed']))
-   self.assertEqual(set(planned['agents']),set(receipt['managed']))
-   self.assertNotIn('retained',planned['agents'])
-   for n in receipt['managed']:self.assertEqual(planned['agents'][n],'.claude/skills/'+n)
+   for field in ['source','claude_destination','agents_destination','agents_target']:
+    self.assertEqual(set(planned[field]),set(receipt['managed']))
+    self.assertNotIn('retained',planned[field])
+   self.assertEqual(planned['source']['alias'],'portable/skills/alias')
+   for n in receipt['managed']:
+    self.assertEqual(planned['claude_destination'][n],'.claude/skills/'+n)
+    self.assertEqual(planned['agents_destination'][n],'.agents/skills/'+n)
+    self.assertEqual(planned['agents_target'][n],'.claude/skills/'+n)
+    self.assertEqual((home/planned['agents_destination'][n]).resolve(),home/planned['claude_destination'][n])
  def test_retired_managed_nested_skill_is_inactive_and_recoverable(self):
   m=self.installer()
   with tempfile.TemporaryDirectory() as t:
@@ -160,7 +165,7 @@ class ReviewRegressionTests(unittest.TestCase):
   package=ROOT/'.claude/skills/beads-issue-tracking/scripts'
   with tempfile.TemporaryDirectory() as t:
    path=Path(t)/'issues.jsonl'
-   for content,valid,sorted_ids in [(' {"id":"a"}\n{"id":"b"}\n',True,True),('{"id":"b"}\n{"id":"a"}\n',True,False),('{"id":"a"}\n{"id":"a"}\n',False,False),('[]\n',False,False),('\n',False,False),('{oops}\n',False,False)]:
+   for content,valid,sorted_ids in [(' {"id":"a"}\n{"id":"b"}\n',True,True),('{"id":"b"}\n{"id":"a"}\n',True,False),('{"id":"a"}\n{"id":"a"}\n',False,False),('[]\n',False,False),('\n',False,False),('{oops}\n',False,False),('',False,False)]:
     path.write_text(content)
     validate=subprocess.run([sys.executable,str(package/'validate_beads_issues_jsonl.py'),str(path)],capture_output=True)
     order=subprocess.run([sys.executable,str(package/'sort_beads_jsonl.py'),'--check',str(path)],capture_output=True)

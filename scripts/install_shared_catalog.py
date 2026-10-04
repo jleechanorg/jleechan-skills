@@ -334,7 +334,10 @@ def main():
         print(json.dumps({'errors': errors}));return bool(errors)
     if args.dry_run:
         mapping = live_targets(args.source)
-        print(json.dumps({'claude': mapping, 'agents': {n: '.claude/skills/' + n for n in mapping}}, indent=2));return 0
+        print(json.dumps({'source': mapping,
+                          'claude_destination': {n: '.claude/skills/' + n for n in mapping},
+                          'agents_destination': {n: '.agents/skills/' + n for n in mapping},
+                          'agents_target': {n: '.claude/skills/' + n for n in mapping}}, indent=2));return 0
     baseline = json.loads(args.baseline_receipt.read_text())['managed'] if args.baseline_receipt else None
     receipt = install(args.source, args.home, args.release, baseline)
     print(json.dumps({k: v for k, v in receipt.items() if k != 'actions'}, indent=2))

@@ -19,6 +19,8 @@ def records(path):
                 raise ValueError(f'line {number}: invalid or duplicate ID')
             seen.add(identity)
             rows.append(row)
+    if not rows:
+        raise ValueError('empty export cannot establish canonical ledger integrity')
     return rows
 
 

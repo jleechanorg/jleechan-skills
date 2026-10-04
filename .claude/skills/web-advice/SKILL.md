@@ -340,7 +340,10 @@ if (composerReadback !== reviewPrompt) {
 
 // Step 3c: Submit (Click Send button for ChatGPT/Gemini, or Press Enter for Perplexity)
 const sendBtn = await modelPage.locator('button[aria-label="Send prompt"], button[data-testid="send-button"]').first();
-if (sendBtn) {
+if (await sendBtn.isVisible()) {
+  if (!await sendBtn.isEnabled()) {
+    throw new Error('Send button is disabled; do not submit');
+  }
   await sendBtn.click();
 } else {
   await modelPage.keyboard.press('Enter');

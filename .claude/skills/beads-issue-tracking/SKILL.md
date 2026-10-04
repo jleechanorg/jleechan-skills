@@ -105,7 +105,7 @@ br doctor --robot-triage
 br doctor --quick
 ```
 
-`br sync` never runs Git commands. Export/import guards protect against empty, stale, conflicted, or malformed data. Do not use `--force`, `--repair`, or `--bypass-policy` without first reading the matching command help and inspecting the proposed scope.
+`br sync` never runs Git commands. Export/import guards protect against empty, stale, conflicted, or malformed data. Both read-only export checkers reject a zero-record ledger; an empty export cannot establish the existing canonical ledger’s integrity. Do not use `--force`, `--repair`, or `--bypass-policy` without first reading the matching command help and inspecting the proposed scope.
 
 For machine-readable contracts, run `br capabilities`, `br schema`, or `br robot-docs guide`. Treat live `br <command> --help` as authoritative when this reference and the installed version differ.
 

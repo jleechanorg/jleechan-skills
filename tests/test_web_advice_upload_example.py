@@ -17,16 +17,16 @@ class UploadExampleTests(unittest.TestCase):
         text = path.read_text()
         marker = '**Illustrative Playwright pattern:**' if '**Illustrative Playwright pattern:**' in text else '**Pattern (proven to work across all 3 providers):**'
         example = text[text.index(marker):].split('```javascript\n', 1)[1].split('```', 1)[0]
-        for scenario in ['complete', 'missing', 'processing', 'truncated', 'unconfigured']:
+        for scenario in ['complete', 'missing', 'processing', 'truncated', 'unconfigured', 'no-send-button', 'disabled-send']:
             prefix = '''const scenario = SCENARIO;
-const state = {uploads: [], sent: 0, composer: ''};
+const state = {uploads: [], sent: 0, enter: 0, composer: ''};
 const pwd = '/tmp/fixture-session';
 let clock = 0;
 Date.now = () => clock;
 globalThis.setTimeout = (callback) => queueMicrotask(callback);
 const input = {first() {return this;}, async setInputFiles(files) {state.uploads.push(files);}};
 const textbox = {first() {return this;}, async fill(text) {state.composer = text;}, async inputValue() {return scenario === 'truncated' ? 'partial' : state.composer;}};
-const send = {first() {return this;}, async click() {state.sent++;}};
+const send = {first() {return this;}, async isVisible() {return scenario !== 'no-send-button';}, async isEnabled() {return scenario !== 'disabled-send';}, async click() {if (scenario === 'no-send-button') throw new Error('Locator has no matching send button'); state.sent++;}};
 const chips = {async allTextContents() {
   clock = 120001;
   const names = state.uploads.flat().map((path) => path.split('/').pop());
@@ -39,7 +39,7 @@ const modelPage = {locator(selector) {
   if (selector.startsWith('input[type=')) return input;
   if (selector.startsWith('button[')) return send;
   return textbox;
-}, keyboard: {async press() {state.sent++;}}};
+}, keyboard: {async press(key) {if (key !== 'Enter') throw new Error('wrong key'); state.enter++; state.sent++;}}};
 try {
 '''.replace('SCENARIO', json.dumps(scenario))
             configured = example if scenario == 'unconfigured' else example.replace('REPLACE_WITH_INSPECTED_COMPOSER_ATTACHMENT_CHIP_SELECTOR', 'verified-chip')
@@ -49,11 +49,12 @@ try {
                 runner.write_text(script)
                 result = subprocess.run([shutil.which('node'), str(runner)], text=True, capture_output=True, check=True)
             proof = json.loads(result.stdout)
-            if scenario == 'complete':
+            if scenario in ['complete', 'no-send-button']:
                 self.assertTrue(proof.get('success'), proof)
                 self.assertEqual(len(proof['uploads']), 1)
                 self.assertEqual(len(proof['uploads'][0]), 5)
                 self.assertEqual(proof['sent'], 1)
+                self.assertEqual(proof['enter'], int(scenario == 'no-send-button'))
             else:
                 self.assertIn('error', proof)
                 self.assertEqual(proof['sent'], 0)
