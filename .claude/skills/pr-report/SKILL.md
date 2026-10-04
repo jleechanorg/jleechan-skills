@@ -1,6 +1,6 @@
 ---
 name: pr-report
-description: This skill should be used when the user asks for a PR report, PR audit, PR delta analysis, /pr-report, or wants per-PR summary with delta files/lines. Generates a structured report for one or more open PRs covering purpose, files changed, +/− line counts, /code-standards + /thermo review findings, /ponytail simplification opportunities, file-overlap combination candidates, and /green status per pr-green-definition. Output: machine-readable JSONL + human-readable markdown. Read-only by default; can apply simplifications if user opts in.
+description: "This skill should be used when the user asks for a PR report, PR audit, PR delta analysis, /pr-report, or wants per-PR summary with delta files/lines. Generates a structured report for one or more open PRs covering purpose, files changed, +/\u2212 line counts, /code-standards + /thermo review findings, /ponytail simplification opportunities, file-overlap combination candidates, and /green status per pr-green-definition. Output: machine-readable JSONL + human-readable markdown. Read-only by default; can apply simplifications if user opts in."
 ---
 
 # /pr-report — Per-PR Delta Audit & Quality Review

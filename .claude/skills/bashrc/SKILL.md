@@ -28,6 +28,22 @@ Claude/claude wrappers and model routing.
 - No explicit pre-change checklist.
 - No final validation proving wrapper and base command use different env stacks.
 
+### Second failure: proxy-binary PATH guards go stale silently (2026-09-09)
+
+- `~/.bashrc` had `if [ -x "$NVM_DIR/versions/node/v22.22.0/bin/codex" ]; then path_prepend_once ...; fi`
+  intended to expose that nvm bin dir on `PATH`. The dir also held `codex-auth`
+  (an unrelated npm package, the account switcher behind the `ca`/`csw`/`cstatus`
+  aliases), which rode along on the same prepend.
+- When the `codex` CLI's real install moved to a Claude plugin cache path (a bash
+  function wrapping `command codex`), the guard's target file stopped existing.
+  The guard silently stopped firing — `codex` didn't need it anymore, but
+  `codex-auth` did, and lost its only `PATH` entry point with zero error output.
+- Same stale-proxy pattern existed on a second machine (jeff-ubuntu), working only
+  by luck because `codex` still happened to exist under nvm there.
+- Root cause: the guard tested a *different* tool's existence as a cheap proxy for
+  "is this directory worth adding to PATH," instead of testing the tool it was
+  actually meant to protect.
+
 ## Before editing — history checks
 
 - Run `/history "bashrc minimax minimax_M3 claude settings.json" --recent 14` to confirm recent context.
@@ -95,6 +111,24 @@ claudem() {
 - Adding raw `ANTHROPIC_*` values to one layer without checking the other.
 - Running shell greps with unescaped pipes in one-liners.
 - Relying on output from `tmux`/shell without checking command exit codes and source context.
+- Gating a `PATH`-prepend (`[ -x path/to/bin/<X> ]`) on a *different* binary's
+  existence as a proxy for "is this directory good." Test the tool actually being
+  protected (or test the directory itself), never a stand-in command that happens
+  to share the same `bin/` — if the stand-in's install location ever moves, every
+  other tool riding on that guard silently loses its `PATH` entry with no error.
+
+## Preventing stale proxy guards
+
+- When installing, moving, or reinstalling any CLI tool, grep both `~/.bashrc`
+  and `~/.zshrc` for `-x .*bin/<toolname>` conditionals — anywhere that tool's
+  name appears as an existence-check target, not just where it's the tool being
+  installed. If the guard's target file no longer matches reality, fix or remove
+  the guard, and check whether any *other* alias/binary was piggy-backing on that
+  same `path_prepend_once` call.
+- After any such edit, resolve every alias defined near the touched region in a
+  real interactive shell — `bash -i -c 'alias <name>; command -v <target>'` — not
+  just `bash -lc` (aliases don't expand in non-interactive shells even with `-l`,
+  which can mask a real break as a false pass).
 
 ## Post-change acceptance checklist
 
@@ -102,6 +136,11 @@ claudem() {
 - Baseline `claude` path and wrapper `claudem` path are distinguishable.
 - Environment stack for each entry point is documented in commit notes.
 - Fresh shell smoke tests pass.
+- Every `[ -x path/to/bin/<X> ]` PATH guard touched (or newly adjacent to an edit)
+  tests the tool it's actually meant to protect, not a proxy binary that could move.
+- If multiple machines share this pattern (e.g. Mac + jeff-ubuntu), the same check
+  was re-verified on each — a guard working on one machine "by luck" is not proof
+  it's correct on another.
 
 ## Record change summary
 

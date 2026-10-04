@@ -361,3 +361,19 @@ When using gh CLI, always:
 3. Show relevant actual output with credentials redacted
 4. Report diagnostic errors with credentials redacted
 5. Verify authentication status if commands fail
+
+## Before declaring GitHub/API work blocked — source of truth
+
+Origin: `~/.claude/CLAUDE.md` § GitHub API fallback before blocking
+(compressed there to a pointer 2026-09-06; this section is the full policy).
+
+Never report GitHub/API work as blocked without first, independently, trying
+**both** REST and GraphQL where the operation permits either (they are
+separate quota buckets — see "REST ↔ GraphQL are separate quota buckets"
+above). Public REST endpoints may be tried **unauthenticated** when the
+authenticated quota is exhausted; unauthenticated and authenticated paths can
+have different read/write permissions and rate limits, so a 403 on one is not
+proof the other is unavailable. Use bounded probes (a fixed small number of
+attempts, not an open retry loop) and respect any circuit breaker already in
+place. Never loop indefinitely on a failing call, and never bypass
+authentication or safety checks to force a call through.

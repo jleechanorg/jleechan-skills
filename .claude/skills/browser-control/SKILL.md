@@ -1,13 +1,38 @@
 ---
 name: browser-control
-description: Control real websites and authenticated browser sessions, inspect pages, complete approved UI flows, or troubleshoot browser automation. Use for general browser work, site settings, OAuth consent, existing tabs, and Slack app configuration. Uses Aside first and routes deterministic app testing to playwright-ui-testing.
+description: Control real websites and authenticated browser sessions, inspect pages, complete approved UI flows, or troubleshoot browser automation. Use for general browser work, site settings, OAuth consent, existing tabs, and Slack app configuration. Uses the connected runtime browser when available; routes deterministic app testing to playwright-ui-testing.
 ---
 
 # Browser control
 
+## Supported runtime browser API
+
+When the current runtime provides a connected browser API (for example a Chrome
+extension bridge with Playwright locators), use that documented API first for
+user-authorized existing-tab work. Read its current browser/profile/tab inventory
+and documentation. This route preserves the existing session and does not copy
+credentials. It also applies to fingerprint-sensitive sites in their existing
+session; the cookie-injection restrictions below remain in force.
+
+On Ubuntu without Aside, an explicitly authorized, already-configured Playwright
+MCP or CLI may be used when runtime instructions permit it and it has a supported
+connection to the requested browser. CLI authorization does not create a connection
+to existing profiles: a default isolated Playwright browser is not the user's
+signed-in Chrome. Do not install software, grant access, expose a debugging port,
+or launch a second agent merely to manufacture missing access.
+
+Do not bypass tab ownership locks, disabled controls, or denied permissions.
+Inspect another relevant unlocked tab when available; report a locked tab as a
+scoped blocker. Do not treat one locked tab as proof that all browsers are blocked.
+Verify account identity in visible account UI, not from tab titles or profile names.
+Distinguish background operation through an existing extension from launching a
+new headless browser: they have different authentication and display requirements.
+An existing-tab request authorizes inspection through its supported connection;
+it is not a request to relaunch Chrome or switch accounts.
+
 ## Route the task
 
-The numbered **Routing order** below is the only authoritative sequence; these bullet categories are a non-binding restatement. A route is considered to have **succeeded** only when it completes the authenticated task the user asked for — a single transport error, a missing-tab condition, or one failed CLI call is not enough to advance. When a route fails to complete the authenticated task, fall back to the next numbered route.
+When no applicable supported runtime browser API is available, the numbered **Routing order** below is the fallback sequence; these bullet categories are a non-binding restatement. A route is considered to have **succeeded** only when it completes the authenticated task the user asked for — a single transport error, a missing-tab condition, or one failed CLI call is not enough to advance. When a route fails to complete the authenticated task, fall back to the next numbered route.
 
 - **Live websites, authenticated sessions, account settings, OAuth, existing tabs:** start at Aside MCP, then Aside CLI (the primary signed-in path that does not copy session material).
 - **Authenticated fallback on fingerprint-TOLERANT sites:** use the guarded browserclaw decrypt → headless inject lifecycle only after both Aside paths fail to complete the authenticated task, AND only when the user has explicitly authorized local cookie transfer for the requested authenticated-content task. **Fingerprint-sensitive sites (LinkedIn, banks/brokerages, Cloudflare/Akamai-protected, user-declared no-headless) NEVER advance past Aside.** When Aside is unavailable on a fingerprint-sensitive target, post a ONE-LINE display/input blocker; do not fall through to cookie injection, capture, learn, reverse, or Playwright.

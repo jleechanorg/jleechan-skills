@@ -1,0 +1,13 @@
+{
+  "social-poster": "Local package includes authenticated publishing integrations and generated workflows absent from the public export; retain complete local package.",
+  "test-realistic": "Local package includes a project-specific real-provider runner absent from the public export; retain its complete local package.",
+  "runner-health": "Fleet targets and helper behavior diverge; installed supervisor configuration owns counts, not a portable snapshot.",
+  "ezgha-watchdog": "Host-specific runner fleet configuration owns targets; retain local operational package.",
+  "levelup": "Local helper uses a different project scenario CLI; project checkout owns the executable contract.",
+  "linux-mirror": "Local variant coordinates multiple in-flight branches; preserve ongoing host workflow.",
+  "mac-mirror": "Local variant coordinates multiple in-flight branches; preserve ongoing host workflow.",
+  "auto-factory": "Local variant has current factory host and repair-mode routing; preserve deployment-specific owner.",
+  "swarm": "Local variant includes host resource and worktree lifecycle policies; retain until host-specific workflow is migrated.",
+  "advice": "Claude package has newer executable pair runner; keep native runner while agents uses verified portable derivative.",
+  "web-advice": "Claude package has local browser driver changes; keep native driver while agents uses verified portable derivative."
+}
