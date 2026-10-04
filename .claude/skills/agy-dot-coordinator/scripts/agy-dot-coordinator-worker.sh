@@ -109,7 +109,7 @@ Communicate with the ChatGPT coordinator (the dot) using the /dot skill.
 Instructions:
 1. Inspect what the dot is doing by reading its conversation with /dot.
 2. Send a single structured message starting with 'From Gemini (Antigravity Coordinator):':
-   - Ask what work is currently in flight across all tracks and what active goals exist.
+   - Ask to run /goal or report what work is currently in flight across all tracks and what active goals exist.
    - Remind the dot to resume any paused or waiting work/goal and keep driving in strict priority order using its cloud computer.
    - Remind the dot to set up the cloud computer environment with everything needed (repositories, tools, dependencies, and test harnesses) and to strictly prefer driving execution there.
 3. Make sure the message is sent cleanly using dot.sh with DOT_WAIT_SECS=60 and report the verified send status.
