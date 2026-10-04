@@ -89,8 +89,6 @@ def claim_path(spec, dest):
     me = json.dumps({"repo": repo, "branch": spec["branch"], "pr": str(spec.get("pr", ""))})
     side = Path(f"{dest}.owner")
     dest.parent.mkdir(parents=True, exist_ok=True)
-    if dest.is_symlink() or side.is_symlink():
-        sys.exit(f"build.py: {dest} or its .owner file is a symlink; refusing to write through it")
     try:
         with open(side, "x") as fh:
             fh.write(me + "\n")
@@ -213,6 +211,9 @@ def main(spec_path, out_path=None, branch=None, pr=None, publish=False):
     if pr:
         spec["pr"] = pr
     dest = out_file(spec, out_path)
+    for suffix in ("", ".owner", ".gist", ".short", ".bead"):
+        if Path(f"{dest}{suffix}").is_symlink():
+            sys.exit(f"build.py: {dest}{suffix} is a symlink; refusing to write through it")
     if not out_path:
         claim_path(spec, dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
