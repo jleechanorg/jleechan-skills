@@ -8,7 +8,6 @@
     "featured_bundle_sha256": "c4bb62518031c36d5cedaa69fc576d27785218c02b9f9dab865a9dbc74d949f6"
   },
   "skills": [
-    "4layer",
     "advice",
     "backend-first",
     "cmux-backup",
@@ -40,7 +39,6 @@
     "web-advice"
   ],
   "files": {
-    "skills/4layer/SKILL.md": "d4d68696d150959456b4f460b4ca0cb161f382d0b5742707570c576f74e7bab7",
     "skills/advice/SKILL.md": "7e9640c4640436f55b77e20af806560599f0fa0532232d3a9f8aeb46082a14f2",
     "skills/backend-first/SKILL.md": "1b404739b8c1492330d4864e433f2923d0d9aa05ad7d32aafcf70579928b456c",
     "skills/cmux-backup/SKILL.md": "433f6cdc12e5865ad62f8fb2bdc497afa1719db6ae9011d9a30a683bd497be4b",
