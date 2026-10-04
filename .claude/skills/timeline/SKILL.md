@@ -38,4 +38,8 @@ Never report a timeline you have not looked at.
 
 ## Always print it in chat (mandatory)
 
-The user may not open the files. Every reply includes the `build.py` stdout in a fenced block: one row per step, `█` low, `░` low→high, estimate plus color word at the row end, an axis line, and the header totals. Then give the absolute HTML and PNG paths and one line on what you checked.
+The user may not open the files. Every reply includes the `build.py` stdout in a fenced block: one row per step, `█` low, `░` low→high, estimate plus color word at the row end, an axis line, and the header totals. Then give the HTML as a clickable link, `[<abs path>](file://<abs path>)`, plus the absolute PNG path, and one line on what you checked. Never omit the HTML link.
+
+## Refresh while work is active (mandatory)
+
+Once /timeline is running for live work, rebuild it every 10 minutes until the tracked deliverable is done or blocked on the user: re-pin live state, build, review the render, and print the text Gantt plus the HTML link each time. Schedule the next refresh before ending the turn (a 600 s wakeup, or `/loop 10m` when available). Fold real-time lane polls (for example the dot's 5-minute poll) into the same tick rather than drawing more often.
