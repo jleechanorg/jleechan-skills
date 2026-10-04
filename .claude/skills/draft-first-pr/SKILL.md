@@ -21,8 +21,8 @@ This is the full state machine — every other file (`pr-green-definition`, `/gr
 ```
 DRAFT
   → /es PASS @ SHA
-  → /er PASS @ SHA (PRs outside the narrow /er documentation allowlist)
-  → /advice APPROVED @ SHA
+  → /er PASS @ SHA (unless the narrow /er documentation allowlist or a repo-exempted class applies)
+  → /advice APPROVED @ SHA (unless a repo-exempted class applies)
   → mark ready (gh pr ready <N>)
   → /green: applicable CI or documented exception + no merge conflicts @ current HEAD SHA
   → separate merge authorization: explicit human "MERGE APPROVED" (case-insensitive)
@@ -94,7 +94,8 @@ may exempt defined low-risk classes, such as docs-only, test-only, or small
 non-production changes, from `/er` and `/advice`; when they do, follow that
 classification and its exclusions. The narrow documentation allowlist below is
 the default when the repo defines none. No exemption covers changes to approval,
-merge, review, evidence, or security rules.
+merge, review, evidence, or security rules, or to security, permission,
+credential, or merge-path code.
 
 1. **`/es`** — evidence bundle passes (real evidence per `~/.claude/skills/evidence-standards/SKILL.md` + repo-specific extensions), verified at the PR's current HEAD SHA.
 2. **`/er`** — for every PR except the documentation-only class below or a repo-exempted class, evidence review verdict is PASS (not PARTIAL/FAIL/INCONCLUSIVE), verified at the same current HEAD SHA — re-run if `/es` was earned at an older SHA.
@@ -236,7 +237,7 @@ For checks queued/pending more than 10 minutes, follow the local-equivalent exce
 
 ## Rationale
 
-Long-open PRs that skipped straight to chasing CI green (e.g. the level-up auto-PR class) were starved by CI contention — CI capacity is a shared resource, not a private queue. The `ci-value-audit-v2` findings (`green-gate` workflow: 341 hr/wk consumed, 50.7% cancel rate pre-[#8637](https://github.com/$GITHUB_REPOSITORY/pull/8637)) show that driving unproven work through full CI repeatedly is the dominant cost driver. Gating quality (`/es`, `/er` when required, and `/advice`) in draft — before CI spend — front-loads correctness and back-loads CI cost only onto PRs already known-good.
+Long-open PRs that skipped straight to chasing CI green (e.g. the level-up auto-PR class) were starved by CI contention — CI capacity is a shared resource, not a private queue. The `ci-value-audit-v2` findings (`green-gate` workflow: 341 hr/wk consumed, 50.7% cancel rate pre-[#8637](https://github.com/$GITHUB_REPOSITORY/pull/8637)) show that driving unproven work through full CI repeatedly is the dominant cost driver. Gating quality (`/es`, and `/er` and `/advice` when required) in draft — before CI spend — front-loads correctness and back-loads CI cost only onto PRs already known-good.
 
 ## CodeRabbit/Bugbot — optional advisory reviewers
 

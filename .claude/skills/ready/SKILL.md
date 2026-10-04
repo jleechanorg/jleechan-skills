@@ -1,6 +1,6 @@
 ---
 name: ready
-description: Drive PR(s) to merge-ready — /es /er /advice approved, then /green, all comments and merge conflicts handled. Use for /ready or /r.
+description: Drive PR(s) to merge-ready — /es, plus /er and /advice where draft-first-pr requires them, then /green, all comments and merge conflicts handled. Use for /ready or /r.
 ---
 
 # /ready — PR merge-readiness gate

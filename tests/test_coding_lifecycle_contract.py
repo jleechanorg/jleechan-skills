@@ -180,6 +180,9 @@ class CodingLifecycleContract(unittest.TestCase):
         self.assertIn("3. **/advice** — when `draft-first-pr` (including repo-defined exemptions) requires it,", ready)
         self.assertIn("still require `/es` and, unless a repo-exempted class applies, `/advice` at the current SHA", owner)
         self.assertNotIn("still require `/es` and `/advice` at the current SHA", owner)
+        self.assertIn("→ /advice APPROVED @ SHA (unless a repo-exempted class applies)", owner)
+        self.assertIn("or a repo-exempted class applies)", owner)
+        self.assertIn("security, permission, credential, or merge-path code", owner)
         command = " ".join((SKILLS.parent / "commands" / "ready.md").read_text().split())
         self.assertIn("/er and /advice where `draft-first-pr` (including repo-defined exemptions) requires them", command)
 
