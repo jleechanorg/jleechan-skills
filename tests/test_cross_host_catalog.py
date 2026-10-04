@@ -165,4 +165,19 @@ class ReviewRegressionTests(unittest.TestCase):
     validate=subprocess.run([sys.executable,str(package/'validate_beads_issues_jsonl.py'),str(path)],capture_output=True)
     order=subprocess.run([sys.executable,str(package/'sort_beads_jsonl.py'),'--check',str(path)],capture_output=True)
     self.assertEqual(validate.returncode==0,valid);self.assertEqual(order.returncode==0,sorted_ids);self.assertEqual(path.read_text(),content)
+ def test_whole_package_retirement_restores_owned_link_and_preserves_extensions(self):
+  import shutil
+  m=self.installer()
+  with tempfile.TemporaryDirectory() as t:
+   src,home=self.fixture(Path(t).resolve());first=m.install(src,home,'v1');live=home/'.claude/skills/example/SKILL.md';note=live.parent/'note.md';note.write_text('keep local');shutil.rmtree(src/'.claude/skills/example')
+   second=m.install(src,home,'v2',first['managed']);self.assertFalse(live.exists());self.assertFalse((home/'.agents/skills/example').is_symlink());self.assertIn('example',second['retired_packages']);self.assertEqual(m.verify(home,'v2'),[])
+   self.assertEqual(note.read_text(),'keep local');m.rollback(home,'v2');self.assertEqual(live.read_text(),'version one');self.assertEqual((home/'.agents/skills/example').resolve(),live.parent)
+ def test_retain_transition_explicitly_hands_off_previous_management_without_writes(self):
+  m=self.installer()
+  with tempfile.TemporaryDirectory() as t:
+   src,home=self.fixture(Path(t).resolve());first=m.install(src,home,'v1');live=home/'.claude/skills/example/SKILL.md';live.write_text('local operational variant');(src/'shared/retain-local.json').write_text('["example","retained"]')
+   second=m.install(src,home,'v2',first['managed']);self.assertIn('example',second['retained_handoff']);self.assertNotIn('example',second['managed']);self.assertNotIn('example',second['retired_packages']);self.assertEqual(live.read_text(),'local operational variant');self.assertEqual((home/'.agents/skills/example').resolve(),live.parent)
+ def test_retention_reason_records_match_excluded_live_destinations(self):
+  m=self.installer();retained=json.loads((ROOT/'shared/retain-local.json').read_text());records={v['skill']:v for v in json.loads((ROOT/'shared/comparison-decisions.json').read_text())};mapping=m.live_targets(ROOT)
+  for n,reason in retained.items():self.assertNotIn(n,mapping);self.assertEqual(records[n]['reason'],reason)
 if __name__=='__main__':unittest.main()

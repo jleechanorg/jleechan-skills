@@ -3,12 +3,15 @@ Excel Formula Recalculation Script
 Recalculates all formulas in an Excel file using LibreOffice
 """
 
+import argparse
 import json
 import os
 import platform
 import subprocess
 import sys
 from pathlib import Path
+from zipfile import ZipFile, BadZipFile
+from xml.etree import ElementTree
 
 from office.soffice import get_soffice_env
 
@@ -67,9 +70,31 @@ def setup_libreoffice_macro():
         return False
 
 
-def recalc(filename, timeout=30):
+def external_workbook_links(filename):
+    """Detect OOXML external workbook parts/relationships before any rewrite."""
+    with ZipFile(filename) as archive:
+        for name in archive.namelist():
+            if name.startswith('xl/externalLinks/'):
+                return True
+            if name.endswith('.rels'):
+                root = ElementTree.fromstring(archive.read(name))
+                for relationship in root:
+                    kind = relationship.get('Type', '').rsplit('/', 1)[-1]
+                    if kind in {'externalLink', 'externalLinkPath'}:
+                        return True
+    return False
+
+
+def recalc(filename, timeout=30, force=False):
     if not Path(filename).exists():
         return {"error": f"File {filename} does not exist"}
+
+    if not force:
+        try:
+            if external_workbook_links(filename):
+                return {'error': 'External workbook links detected; recalculation refused. Use --force only after reviewing cached reference data risk.'}
+        except (OSError, BadZipFile, ElementTree.ParseError) as error:
+            return {'error': f'Cannot verify workbook link safety: {error}'}
 
     abs_path = str(Path(filename).absolute())
 
@@ -162,23 +187,17 @@ def recalc(filename, timeout=30):
 
 
 def main():
-    if len(sys.argv) < 2:
-        print("Usage: python recalc.py <excel_file> [timeout_seconds]")
-        print("\nRecalculates all formulas in an Excel file using LibreOffice")
-        print("\nReturns JSON with error details:")
-        print("  - status: 'success' or 'errors_found'")
-        print("  - total_errors: Total number of Excel errors found")
-        print("  - total_formulas: Number of formulas in the file")
-        print("  - error_summary: Breakdown by error type with locations")
-        print("    - #VALUE!, #DIV/0!, #REF!, #NAME?, #NULL!, #NUM!, #N/A")
-        sys.exit(1)
-
-    filename = sys.argv[1]
-    timeout = int(sys.argv[2]) if len(sys.argv) > 2 else 30
-
-    result = recalc(filename, timeout)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('filename')
+    parser.add_argument('timeout', nargs='?', type=int, default=30)
+    parser.add_argument('--force', action='store_true', help='Allow reviewed external workbook link risk')
+    args = parser.parse_args()
+    if args.timeout <= 0:
+        parser.error('timeout must be positive')
+    result = recalc(args.filename, args.timeout, force=args.force)
     print(json.dumps(result, indent=2))
+    return 1 if 'error' in result else 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

@@ -66,10 +66,17 @@ missing names. Retained local integrations remain excluded.
 Local files that differ from the reviewed source cause a pre-mutation conflict.
 For a subsequent reviewed update, pass `--baseline-receipt <prior-receipt>`;
 only unchanged previously managed bytes may be updated. Previously managed files
-removed from that source are moved intact to undo only when their prior hashes
+removed from that source, including all owned files and the owned consumer link
+of a removed package, are moved intact to undo only when their prior hashes
 still match; changed retired files cause a pre-mutation conflict. Unmanaged local
 extensions are preserved. Reconcile divergent content explicitly before retrying. Existing
 snapshot links must be reconciled into real canonical directories first.
+
+Adding a previously managed name to `retain-local.json` is an explicit ownership
+handoff, not deletion: its files and discovery entries remain intact, and the new
+receipt records the prior ownership in `retained_handoff`. The shared installer
+then excludes that name from writes in both runtimes. It does not remove a locally
+owned operational integration merely because it is now retained.
 
 Each operation records exact replaced files and consumer entries in a private
 undo directory under `~/.local/state/jleechan-shared-skills/<release>`. Undo is

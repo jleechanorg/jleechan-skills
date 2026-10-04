@@ -76,6 +76,10 @@ def verify(home, release):
         p = canonical / relative
         if p.exists() or p.is_symlink():
             errors.append(f'retired managed file remains live: {relative}')
+    for name in receipt.get('retired_packages', []):
+        p = home / '.agents/skills' / name
+        if p.exists() or p.is_symlink():
+            errors.append(f'retired consumer remains live: {name}')
     return errors
 
 def install(source, home, release, baseline=None):
@@ -90,7 +94,10 @@ def install(source, home, release, baseline=None):
         raise FileExistsError(undo)
     mapping = live_targets(source)
     previous = baseline or {}
-    actions, managed, updates, removals = [], {}, [], []
+    actions, managed, updates, removals, retired_consumers = [], {}, [], [], []
+    retired_files = {}
+    retained = json.loads((source / 'shared/retain-local.json').read_text())
+    retired_names = sorted(set(previous) - set(mapping) - set(retained))
     # Validate every selected preimage before any mutation. A reviewed previous
     # receipt authorizes updating owned bytes, never divergent local additions.
     for runtime in ('.claude', '.agents'):
@@ -129,6 +136,7 @@ def install(source, home, release, baseline=None):
             path = Path(relative)
             if path.is_absolute() or '..' in path.parts:
                 raise ValueError('Unsafe baseline path')
+            retired_files[name + '/' + relative] = old
             target = dest / path
             if target.is_symlink() or any(p.is_symlink() for p in target.parents):
                 raise ValueError(f'Linked retired file refused: {name}/{relative}')
@@ -136,11 +144,36 @@ def install(source, home, release, baseline=None):
                 if not target.is_file() or hashlib.sha256(target.read_bytes()).hexdigest() != old:
                     raise ValueError(f'Local retired content conflict: {name}/{relative}')
                 removals.append((target, old))
+    for name in retired_names:
+        if Path(name).name != name or name in {'.', '..'}:
+            raise ValueError('Unsafe baseline package name')
+        dest = home / '.claude/skills' / name
+        if dest.is_symlink() or any(p.is_symlink() for p in dest.parents):
+            raise ValueError(f'Linked retired package refused: {name}')
+        for relative, old in previous[name].items():
+            path = Path(relative)
+            if path.is_absolute() or '..' in path.parts:
+                raise ValueError('Unsafe baseline path')
+            retired_files[name + '/' + relative] = old
+            target = dest / path
+            if target.is_symlink() or any(p.is_symlink() for p in target.parents):
+                raise ValueError(f'Linked retired file refused: {name}/{relative}')
+            if target.exists():
+                if not target.is_file() or hashlib.sha256(target.read_bytes()).hexdigest() != old:
+                    raise ValueError(f'Local retired content conflict: {name}/{relative}')
+                removals.append((target, old))
+        link = home / '.agents/skills' / name
+        if link.exists() or link.is_symlink():
+            if not link.is_symlink() or os.readlink(link) != str(dest):
+                raise ValueError(f'Local retired consumer conflict: {name}')
+            retired_consumers.append((link, dest))
     undo.mkdir(parents=True, mode=0o700)
     os.chmod(undo, 0o700)
     receipt = {'format': 'shared-live-catalog-v2', 'release': release,
                'backup': str(undo), 'managed': managed, 'actions': actions,
-               'retired': {str(p.relative_to(home / '.claude/skills')): sha for p, sha in removals}}
+               'retired_packages': retired_names,
+               'retained_handoff': {n: previous[n] for n in previous if n in retained},
+               'retired': retired_files}
     def save():
         (undo / 'receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
     save()
@@ -167,6 +200,14 @@ def install(source, home, release, baseline=None):
             actions.append({'file': str(target), 'saved': str(saved), 'sha256': None})
             save()
             target.rename(saved)
+        for link, target in retired_consumers:
+            if not link.is_symlink() or os.readlink(link) != str(target):
+                raise ValueError(f'Concurrent retired consumer edit: {link}')
+            saved = undo / 'agents' / link.name
+            saved.parent.mkdir(parents=True, exist_ok=True)
+            actions.append({'link': str(link), 'target': str(target), 'saved': str(saved), 'retired': True})
+            save()
+            link.rename(saved)
         root = home / '.agents/skills'
         root.mkdir(parents=True, exist_ok=True)
         for name in sorted(mapping):
@@ -227,7 +268,8 @@ def rollback(home, release):
         if saved and (not saved.is_relative_to(undo) or '..' in saved.parts or any(p.is_symlink() for p in saved.parents) or not (saved.exists() or saved.is_symlink())):
             raise ValueError('Unsafe or missing rollback preimage')
         if 'link' in action:
-            matches = target.is_symlink() and os.readlink(target) == action['target']
+            matches = (not (target.exists() or target.is_symlink()) if action.get('retired')
+                       else target.is_symlink() and os.readlink(target) == action['target'])
         elif action['sha256'] is None:
             matches = not (target.exists() or target.is_symlink())
         else:
@@ -245,7 +287,8 @@ def rollback(home, release):
         target = Path(action.get('link', action.get('file')))
         saved = Path(action['saved']) if action['saved'] else None
         if 'link' in action:
-            matches = target.is_symlink() and os.readlink(target) == action['target']
+            matches = (not (target.exists() or target.is_symlink()) if action.get('retired')
+                       else target.is_symlink() and os.readlink(target) == action['target'])
         elif action['sha256'] is None:
             matches = not (target.exists() or target.is_symlink())
         else:

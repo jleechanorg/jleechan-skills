@@ -193,7 +193,7 @@
       ]
     ],
     "decision": "retain-local-operational-package",
-    "reason": "Claude package has newer executable pair runner; keep native runner while agents uses verified portable derivative."
+    "reason": "Retain complete local canonical executable pair runner; installer excludes this name from both runtimes."
   },
   {
     "skill": "af",
@@ -16276,7 +16276,7 @@
       ]
     ],
     "decision": "retain-local-operational-package",
-    "reason": "Claude package has local browser driver changes; keep native driver while agents uses verified portable derivative."
+    "reason": "Retain complete local canonical browser integration; installer excludes this name from both runtimes."
   },
   {
     "skill": "web-artifacts-builder",
