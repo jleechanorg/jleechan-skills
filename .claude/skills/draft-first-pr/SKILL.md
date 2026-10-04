@@ -87,7 +87,7 @@ same independent reviewers must inspect it and reaffirm at the finished HEAD. A
 same-HEAD finished code review can account for unchanged code without blindly
 rereading it; the orchestrator cannot promote an earlier review alone.
 
-While a PR is draft, accept these final gates in sequence — do not skip any:
+While a PR is draft, accept these final gates, where applicable, in sequence — do not skip any applicable gate:
 
 A repository's own instructions (for example its `AGENTS.md` coding lifecycle)
 may exempt defined low-risk classes, such as docs-only, test-only, or small
@@ -97,8 +97,8 @@ the default when the repo defines none. No exemption covers changes to approval,
 merge, review, evidence, or security rules.
 
 1. **`/es`** — evidence bundle passes (real evidence per `~/.claude/skills/evidence-standards/SKILL.md` + repo-specific extensions), verified at the PR's current HEAD SHA.
-2. **`/er`** — for every PR except the documentation-only class below, evidence review verdict is PASS (not PARTIAL/FAIL/INCONCLUSIVE), verified at the same current HEAD SHA — re-run if `/es` was earned at an older SHA.
-3. **`/advice`** — second-opinion approval on the change itself (`APPROVED at <SHA>` / `NOT APPROVED at <SHA>` / `WITHHELD at <SHA>` — see `~/.claude/skills/advice/SKILL.md`), bound to the same current HEAD SHA. `WITHHELD` does not satisfy the draft gate.
+2. **`/er`** — for every PR except the documentation-only class below or a repo-exempted class, evidence review verdict is PASS (not PARTIAL/FAIL/INCONCLUSIVE), verified at the same current HEAD SHA — re-run if `/es` was earned at an older SHA.
+3. **`/advice`** — second-opinion approval on the change itself (`APPROVED at <SHA>` / `NOT APPROVED at <SHA>` / `WITHHELD at <SHA>` — see `~/.claude/skills/advice/SKILL.md`), bound to the same current HEAD SHA, unless a repo-exempted class applies. `WITHHELD` does not satisfy the draft gate.
 
 Only after every applicable gate passes **at the same current SHA**: flip the PR from draft to ready-for-review (`gh pr ready <N>`).
 

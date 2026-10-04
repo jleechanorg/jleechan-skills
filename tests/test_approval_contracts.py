@@ -144,7 +144,7 @@ class ApprovalContractsTest(unittest.TestCase):
         advice = skill("advice")
         web_advice_command = (COMMANDS / "web-advice.md").read_text()
 
-        self.assertIn("/advice\napproved", (COMMANDS / "ready.md").read_text())
+        self.assertIn("/er and /advice\nwhere `draft-first-pr` (including repo-defined exemptions) requires them", (COMMANDS / "ready.md").read_text())
         self.assertIn("**/advice**", ready)
         self.assertIn("→ /advice APPROVED @ SHA", draft_first)
         self.assertNotIn("/web-advice", advice)
@@ -233,7 +233,8 @@ class ApprovalContractsTest(unittest.TestCase):
             evidence_review,
             r"Mixed diffs and every path outside that allowlist follow the normal gate",
         )
-        self.assertIn("Every PR outside that exception requires `/er` = **PASS**", evidence_review)
+        self.assertIn("requires `/er` = **PASS** at the current SHA", evidence_review)
+        self.assertIn("outside any low-risk class the repo's own\ninstructions exempt per `draft-first-pr`", evidence_review)
         self.assertNotIn("Acceptable for `/green` on NON_PRODUCTION", evidence_review)
         self.assertIn("when `/er` is required by that lifecycle", green)
         self.assertNotIn("DRAFT → `/es` → `/er` → `/advice`", green)

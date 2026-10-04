@@ -11,7 +11,8 @@ The shared catalog preserves host-installed `/advice` and `/web-advice` integrat
 
 
 **Order matters (draft-first):** if the PR is a DRAFT, keep it draft while
-driving gates 1–3 (/es, /er, /advice) to approved; only THEN undraft, then
+driving the applicable gates 1–3 (/es, and /er and /advice where `draft-first-pr`
+(including repo-defined exemptions) requires them) to approved; only THEN undraft, then
 drive gate 4 (/green) and gate 5 to done. If the PR is ALREADY non-draft,
 leave it non-draft — never convert an open non-draft PR back to draft; just
 apply the same final gate requirements.
@@ -19,7 +20,7 @@ apply the same final gate requirements.
 These are final acceptance gates, not a serial work schedule. Follow
 `draft-first-pr/SKILL.md`: run independent code reviews and cheap focused checks
 early in parallel, resolve or explicitly defer findings, then freeze the change
-before expensive evidence. Final acceptance remains /es → /er → /advice at
+before expensive evidence. Final acceptance remains the applicable /es → /er → /advice chain at
 the current SHA; do not postpone the first code review until after evidence.
 
 A PR is READY when ALL of the following hold, verified at the CURRENT head SHA

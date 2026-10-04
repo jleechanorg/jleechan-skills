@@ -167,6 +167,18 @@ class CodingLifecycleContract(unittest.TestCase):
         self.assertIn("default when the repo defines none", owner)
         self.assertIn("No exemption covers changes to approval, merge, review, evidence, or security rules", owner)
 
+    def test_gate_entrypoints_respect_repo_exemptions(self):
+        owner = read("draft-first-pr")
+        self.assertIn("accept these final gates, where applicable, in sequence", owner)
+        self.assertIn("documentation-only class below or a repo-exempted class", owner)
+        self.assertIn("unless a repo-exempted class applies", owner)
+        self.assertIn("outside any low-risk class the repo's own instructions exempt", read("evidence-review"))
+        ready = read("ready")
+        self.assertIn("/er and /advice where `draft-first-pr` (including repo-defined exemptions) requires them", ready)
+        self.assertNotIn("Final acceptance remains /es → /er → /advice at the current SHA;", ready)
+        command = " ".join((SKILLS.parent / "commands" / "ready.md").read_text().split())
+        self.assertIn("/er and /advice where `draft-first-pr` (including repo-defined exemptions) requires them", command)
+
 
 if __name__ == "__main__":
     unittest.main()
