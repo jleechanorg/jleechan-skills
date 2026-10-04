@@ -65,7 +65,8 @@ def out_file(spec, out_path):
         return Path(out_path)
     if not spec.get("branch"):
         sys.exit("build.py: give out.html, or branch (and pr) in the spec or flags")
-    stem = spec["branch"].replace("/", "-") + (f"-pr{spec['pr']}" if spec.get("pr") else "")
+    stem = re.sub(r"[^A-Za-z0-9._-]", "-", spec["branch"])
+    stem += re.sub(r"[^A-Za-z0-9._-]", "-", f"-pr{spec['pr']}") if spec.get("pr") else ""
     return Path("/tmp/timeline") / f"{stem}.html"
 
 
@@ -79,12 +80,17 @@ def run(cmd, cwd=None):
 def claim_path(spec, dest):
     """Record which repo/branch/PR owns a stable path; refuse to share it with another."""
     try:
-        repo = re.sub(r"//[^/@]*@", "//", run(["git", "remote", "get-url", "origin"]))
+        try:
+            repo = re.sub(r"//[^/@]*@", "//", run(["git", "remote", "get-url", "origin"]))
+        except RuntimeError:
+            repo = run(["git", "rev-parse", "--show-toplevel"])
     except (RuntimeError, OSError, subprocess.TimeoutExpired):
-        repo = ""
+        sys.exit("build.py: run from inside a git repo, or pass an explicit out.html")
     me = json.dumps({"repo": repo, "branch": spec["branch"], "pr": str(spec.get("pr", ""))})
     side = Path(f"{dest}.owner")
     dest.parent.mkdir(parents=True, exist_ok=True)
+    if dest.is_symlink() or side.is_symlink():
+        sys.exit(f"build.py: {dest} or its .owner file is a symlink; refusing to write through it")
     try:
         with open(side, "x") as fh:
             fh.write(me + "\n")
