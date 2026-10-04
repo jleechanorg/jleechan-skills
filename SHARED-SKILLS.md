@@ -32,9 +32,20 @@ Review the plan, then apply that exact plan with `--apply /tmp/shared-skills-pla
 The selected `.codex/skills` and `.agents/skills` entries become direct links to the
 corresponding live `.claude/skills` directories. Existing discovery entries move intact
 to numbered undo entries; symlinks are not followed into old release directories.
-Claude directories and all old releases remain unchanged. Source or destination drift
-is refused. The private receipt records each operation before mutation. A partial
-failure remains visible; inspect its receipt before any retry.
+Claude directories and all old releases remain unchanged. The undo directory is created
+with mode `0700`; plans and receipts are created with mode `0600` before writing data.
+Moved preimages retain their original permissions inside the private undo directory.
+Source or destination drift observed by the checks is refused. Final checks rehash the
+reviewed source and every live canonical package, and require each discovery link's exact
+text to name its canonical directory directly. A successful receipt reports
+`bytes-and-direct-links-checked`.
+
+These are sequential, non-atomic observations, not a lock against concurrent writers.
+Pause source and discovery writers during activation; later live edits remain live.
+The receipt records each operation before mutation. A process or filesystem failure can
+leave a partial operation, and interrupted receipt writes can be incomplete. Preserve
+the numbered preimages and inspect the receipt before any recovery or retry. There is
+no automatic rollback or cross-filesystem rename fallback.
 
 The existing `/4layer` command remains unchanged. Review and install the thin
 `.claude/commands/four-layer.md` separately, preserving any previous command. Both read

@@ -14,6 +14,16 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def write_private_json(path, value, *, exclusive=False):
+    # Set privacy at creation, rather than exposing data before a later chmod.
+    # Opening an existing receipt retains any more restrictive existing mode.
+    flags = os.O_WRONLY | os.O_CREAT | (os.O_EXCL if exclusive else os.O_TRUNC)
+    flags |= getattr(os, 'O_NOFOLLOW', 0)
+    with os.fdopen(os.open(path, flags, 0o600), 'w') as stream:
+        json.dump(value, stream, indent=2)
+        stream.write('\n')
+
+
 def unlinked_ancestors(path):
     if not path.is_absolute() or '..' in path.parts:
         raise ValueError('Absolute non-traversing path required')
@@ -107,10 +117,12 @@ def apply(saved):
         raise ValueError('Plan/source/destination drift; review a new plan')
     canonical = Path(saved['home']) / '.claude/skills'
     undo = Path(saved['undo'])
-    undo.mkdir(parents=True)
+    # Private before a receipt or any original discovery entry is moved here.
+    # Preimage permissions remain unchanged inside this restrictive directory.
+    undo.mkdir(mode=0o700, parents=True)
     receipt = dict(saved, status='applying', changed=[])
     receipt_path = undo / 'receipt.json'
-    receipt_path.write_text(json.dumps(receipt, indent=2)+'\n')
+    write_private_json(receipt_path, receipt, exclusive=True)
     for i, entry in enumerate(saved['targets']):
         dest = Path(entry['path'])
         unlinked_ancestors(dest)
@@ -123,17 +135,27 @@ def apply(saved):
             raise ValueError('Live source changed during apply; preserve receipt for recovery')
         operation = {'path': str(dest), 'backup': str(backup), 'target': str(target), 'state': 'pending'}
         receipt['changed'].append(operation)
-        receipt_path.write_text(json.dumps(receipt, indent=2)+'\n')
+        write_private_json(receipt_path, receipt)
         if dest.exists() or dest.is_symlink():
             dest.rename(backup)
         dest.symlink_to(target, target_is_directory=True)
         operation['state'] = 'linked'
-        receipt_path.write_text(json.dumps(receipt, indent=2)+'\n')
+        write_private_json(receipt_path, receipt)
+    if source_manifest() != saved['manifest']:
+        raise ValueError('Reviewed source changed during apply; preserve receipt for recovery')
+    for name in saved['manifest']['skills']:
+        target = canonical / name
+        unlinked_ancestors(target)
+        if snapshot(target) != saved['canonical_before'][name]:
+            raise ValueError('Live source changed during apply; preserve receipt for recovery')
     for entry in receipt['changed']:
-        if Path(entry['path']).resolve() != Path(entry['target']).resolve():
-            raise ValueError('Link verification failed')
-    receipt['status'] = 'bytes-and-links-verified'
-    receipt_path.write_text(json.dumps(receipt, indent=2)+'\n')
+        dest = Path(entry['path'])
+        unlinked_ancestors(dest)
+        if not dest.is_symlink() or os.readlink(dest) != entry['target']:
+            raise ValueError('Direct link verification failed; preserve receipt for recovery')
+    receipt['status'] = 'bytes-and-direct-links-checked'
+    receipt['verification_scope'] = 'Sequential non-atomic observations; concurrent writers are not locked out'
+    write_private_json(receipt_path, receipt)
     return receipt_path
 
 
@@ -150,9 +172,7 @@ def main():
         if not all((args.home, args.undo, args.plan)):
             parser.error('Provide --home --undo --plan, or --apply PLAN')
         value = plan(args.home, args.undo)
-        with args.plan.open('x') as stream:
-            json.dump(value, stream, indent=2)
-            stream.write('\n')
+        write_private_json(args.plan, value, exclusive=True)
         print(args.plan)
 
 
