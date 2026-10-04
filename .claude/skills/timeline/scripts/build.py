@@ -1,21 +1,33 @@
 #!/usr/bin/env python3
 """Build a timeline HTML from a JSON spec and print the matching text Gantt.
 
-Usage: build.py spec.json out.html
-Spec: {title, snapshot, subtitle, done:[str], span, phases:[{title, rows:[
-  {id, name, detail, start, lo, hi, label}]}], flow:[[group...] | "‖" | str]}
+Usage: build.py spec.json [out.html] [--branch B] [--pr N] [--publish]
+Spec: {title, snapshot, subtitle, branch, pr, bead, bead_db, done:[str], span,
+  phases:[{title, rows:[{id, name, owner, bead, detail, start, lo, hi, label}]}],
+  flow:[[group...] | "‖" | str]}
 Minutes throughout. hi=null means unknown (grey). Color is chosen from hi.
+Without out.html the path is /tmp/timeline/<branch>-pr<N>.html, stable across
+rebuilds. --publish secret-scans the HTML, creates or edits one secret gist
+(id kept in <html>.gist), and creates or updates one bead (id kept in <html>.bead).
 """
+import argparse
 import html
 import json
 import math
 import re
+import subprocess
 import sys
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
 TEMPLATE = Path(__file__).resolve().parent.parent / "assets" / "template.html"
 COLS = 60
+SECRET_RE = re.compile(
+    r"gh[pousr]_[A-Za-z0-9]{30,}|github_pat_\w{20,}|sk-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}"
+    r"|AIza[0-9A-Za-z_-]{35}|xox[abposr]-[A-Za-z0-9-]{10,}|hooks\.slack\.com/services/"
+    r"|-----BEGIN [A-Z ]*PRIVATE KEY-----|eyJ[\w-]{10,}\.eyJ[\w-]{10,}\.[\w-]{10,}"
+    r"|AQ\.[A-Za-z0-9_-]{30,}")
 
 
 def color(hi):
@@ -43,8 +55,67 @@ def finish_text(snapshot, mins):
     return t.strftime("%H:%M ") + m[3]
 
 
-def main(spec_path, out_path):
+def out_file(spec, out_path):
+    if out_path:
+        return Path(out_path)
+    if not spec.get("branch"):
+        sys.exit("build.py: give out.html, or branch (and pr) in the spec or flags")
+    stem = spec["branch"].replace("/", "-") + (f"-pr{spec['pr']}" if spec.get("pr") else "")
+    return Path("/tmp/timeline") / f"{stem}.html"
+
+
+def run(cmd, cwd=None):
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=120, cwd=cwd)
+    if r.returncode:
+        raise RuntimeError(f"{' '.join(cmd[:3])}: {r.stderr.strip()[-300:]}")
+    return r.stdout.strip()
+
+
+def publish_gist(spec, path):
+    hit = SECRET_RE.search(path.read_text())
+    if hit:
+        sys.exit(f"build.py: refusing to publish, secret-like token at offset {hit.start()}")
+    side = Path(f"{path}.gist")
+    gid = side.read_text().strip() if side.exists() else ""
+    if gid:
+        try:
+            run(["gh", "gist", "edit", gid, "-f", path.name, str(path)])
+        except RuntimeError as err:
+            print(f"build.py: gist edit failed ({err}); creating a new gist", file=sys.stderr)
+            gid = ""
+    if not gid:
+        url = run(["gh", "gist", "create", str(path), "-d", f"timeline: {spec['title']}"])
+        gid = url.rstrip("/").rsplit("/", 1)[-1]
+        side.write_text(gid + "\n")
+    owner = run(["gh", "api", f"gists/{gid}", "--jq", ".owner.login"])
+    raw = f"https://gist.githubusercontent.com/{owner}/{gid}/raw/{path.name}"
+    return f"https://gist.github.com/{owner}/{gid}", f"https://htmlpreview.github.io/?{raw}"
+
+
+def publish_bead(spec, path, gist_url, preview):
+    db = spec.get("bead_db") or json.loads(run(["br", "info", "--json"]))["database_path"]
+    side = Path(f"{path}.bead")
+    bid = side.read_text().strip() if side.exists() else spec.get("bead", "")
+    if not bid:
+        bid = json.loads(run(["br", "--db", db, "create", f"Timeline: {spec['title']}",
+                              "--type", "task", "--priority", "3", "--json", "--description",
+                              f"Provenance: /timeline for {path.name}; tracks the live timeline."]))
+        bid = bid[0]["id"] if isinstance(bid, list) else bid["id"]
+    side.write_text(bid + "\n")
+    notes = (f"Timeline gist: {gist_url}\nPreview: {preview}\nHTML: {path}\n"
+             f"Updated: {spec.get('snapshot', '')}")
+    run(["br", "--db", db, "update", bid, "--notes", notes])
+    return bid
+
+
+def main(spec_path, out_path=None, branch=None, pr=None, publish=False):
     spec = json.loads(Path(spec_path).read_text())
+    if branch:
+        spec["branch"] = branch
+    if pr:
+        spec["pr"] = pr
+    dest = out_file(spec, out_path)
+    dest.parent.mkdir(parents=True, exist_ok=True)
     rows = [(p["title"], r) for p in spec["phases"] for r in p["rows"]]
     for _, r in rows:
         # lo: null = duration unknown; draw a short grey stub, exclude from totals.
@@ -78,7 +149,10 @@ def main(spec_path, out_path):
             out.append(f'<div class="phase">{e(ph)}</div>')
             last = ph
         _, var = color(r["hi"])
-        det = f"<small>{e(r['detail'])}</small>" if r.get("detail") else ""
+        if not r.get("owner"):
+            print(f"build.py: row {r.get('id', r['name'])} has no owner", file=sys.stderr)
+        meta = " · ".join(str(r[k]) for k in ("owner", "bead", "detail") if r.get(k))
+        det = f"<small>{e(meta)}</small>" if meta else ""
         out.append(f'<div class="lbl">{e(str(r.get("id", "")))} · {e(r["name"])}{det}</div>')
         bar = (f'<div class="bar" style="left:{pct(r["start"])};width:{pct(r["lo"])};'
                f'background:var(--{var})">{e(fmt_est(r))}</div>')
@@ -105,7 +179,7 @@ def main(spec_path, out_path):
                 out.append(f'<div class="node">{e(g)}</div>')
         out.append("</div>")
     out.append("</body></html>")
-    Path(out_path).write_text("\n".join(out))
+    dest.write_text("\n".join(out))
 
     # Text Gantt (same rows, axis, totals)
     w = max(len(f"{r.get('id', '')} {r['name']}") for _, r in rows)
@@ -121,7 +195,9 @@ def main(spec_path, out_path):
         b = max(b, a + 1)
         bar = " " * a + "█" * (b - a) + "░" * max(0, c - b)
         word = color(r["hi"])[0]
-        print(f"{(str(r.get('id', '')) + ' ' + r['name']).ljust(w)} |{bar.ljust(COLS)}| {fmt_est(r)} {word}")
+        who = " ".join(str(r[k]) for k in ("owner", "bead") if r.get(k))
+        print(f"{(str(r.get('id', '')) + ' ' + r['name']).ljust(w)} |{bar.ljust(COLS)}| "
+              f"{fmt_est(r)} {word}" + (f" [{who}]" if who else ""))
     axis = [" "] * (COLS + 8)
     for t in range(0, span + 1, 10):
         s = str(t)
@@ -129,9 +205,25 @@ def main(spec_path, out_path):
             axis[min(cell(t) + i, len(axis) - 1)] = ch
     print(" " * w + " |" + "".join(axis).rstrip() + " min")
     print("█ low  ░ low→high | green <10m, yellow 10–30m, red 30+m (by high), grey unknown")
+    print(f"\nHTML: {dest}")
+    if publish:
+        t0 = time.time()
+        gist_url, preview = publish_gist(spec, dest)
+        print(f"Gist: {gist_url}\nPreview: {preview}")
+        t1 = time.time()
+        try:
+            bid = publish_bead(spec, dest, gist_url, preview)
+            print(f"Bead: {bid}  (gist {t1 - t0:.1f}s, bead {time.time() - t1:.1f}s)")
+        except (RuntimeError, KeyError, ValueError, subprocess.TimeoutExpired) as err:
+            print(f"build.py: bead step failed, timeline still drawn: {err}", file=sys.stderr)
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        sys.exit(__doc__)
-    main(sys.argv[1], sys.argv[2])
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("spec")
+    ap.add_argument("out", nargs="?")
+    ap.add_argument("--branch")
+    ap.add_argument("--pr")
+    ap.add_argument("--publish", action="store_true")
+    a = ap.parse_args()
+    main(a.spec, a.out, a.branch, a.pr, a.publish)
