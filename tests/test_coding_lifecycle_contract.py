@@ -105,6 +105,27 @@ class CodingLifecycleContract(unittest.TestCase):
         self.assertIn("Required final independent approvals", cs)
         self.assertNotIn("independent review lanes** every time", cs)
 
+    def test_goal_and_ironclad_entrypoints_delegate_instead_of_applying_universally(self):
+        goal = read("write-goal")
+        self.assertNotIn("no optional skips", goal)
+        self.assertNotIn("Run all of these at completion", goal)
+        self.assertIn("execute the phases that apply", goal)
+        self.assertIn("Run the applicable gates at completion", goal)
+        iron = read("ironclad")
+        self.assertIn("follow `draft-first-pr` § Coding lifecycle", iron)
+        self.assertIn("never forces history mining, a plan, or review onto a trivial direct edit", iron)
+        # The mandatory plan review for nontrivial plans must survive.
+        self.assertIn("`/advice` approval is mandatory by default", iron)
+
+    def test_mandatory_versus_skippable_is_stated_once_in_the_owner(self):
+        owner = read("draft-first-pr")
+        self.assertIn("Mandatory regardless of class", owner)
+        self.assertIn("Skippable by class", owner)
+        self.assertIn("none may apply universally", owner)
+        for name in ("write-goal", "ironclad"):
+            self.assertIn("high-risk/security", read(name))
+            self.assertIn("real-proof", read(name))
+
 
 if __name__ == "__main__":
     unittest.main()

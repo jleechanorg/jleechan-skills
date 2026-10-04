@@ -46,7 +46,7 @@ Before implementing any nontrivial plan, obtain an independent plan review. `/ad
 
 One planning pass and one independent verification pass do not waive mandatory plan review. Plan approval does not satisfy runtime evidence, code-review, deployment, or merge gates. Expensive final evidence remains last, after implementation and blocker triage; it does not postpone plan review until after implementation. Drafting the plan and review packet is preparation; this gate does not recursively gate its own preparation.
 
-For this gate, a nontrivial plan means a runtime, state, security, deployment, or contract change; multiple coordinated steps or files; or a material decision. An isolated low-risk wording or heading correction with no contract behavior change is a trivial direct edit. The model judges materiality; do not encode this decision as application heuristics.
+For this gate, a nontrivial plan means a runtime, state, security, deployment, or contract change; multiple coordinated steps or files; or a material decision. An isolated low-risk wording or heading correction with no contract behavior change is a trivial direct edit. The model judges materiality; do not encode this decision as application heuristics. Applicability and review timing follow `draft-first-pr` § Coding lifecycle: this gate never forces history mining, a plan, or review onto a trivial direct edit, and never waives user-required, high-risk/security, approval/merge, or real-proof gates.
 
 ## Procedure
 

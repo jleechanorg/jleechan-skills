@@ -50,7 +50,9 @@ Three failure modes that keep recurring in the user's last month of coding-CLI s
 - User asks for a goal to be designed with explicit evidence + green-CI + quality requirements
 - User wants to take an ambiguous ask ("ship the new campaign wizard step") and turn it into a contract the next agent (or `/harness` loop) can execute against
 
-## Pipeline (execute all phases in order; no optional skips)
+## Pipeline (execute the phases that apply, in order)
+
+Applicability and review timing follow `draft-first-pr` § Coding lifecycle. A trivial low-risk direct edit may skip history mining (Phase 2) and the heavier phases; user-required gates, high-risk/security gates, and real-proof requirements are never skipped.
 
 ### Phase 1 — Intake (≤1 turn)
 
@@ -160,7 +162,7 @@ Write the goal to `.converge/goal.md` in the session's cwd (the path `/harness` 
 - Failure on CI or merge conflicts = iterate the fix, push to PR head branch (pr-ci-fix-autopush rule: push without being asked), re-check. Do NOT report "fixed" until the new head SHA shows both gates PASS.
 
 ## Quality bar (adversarial gates this repo uses)
-Run all of these at completion (from /harness):
+Run the applicable gates at completion (from /harness). Applicability and timing follow `draft-first-pr` § Coding lifecycle; user-required, high-risk/security, and real-proof gates always apply:
 - **/es** — Evidence Standards (both ~/.claude/skills/evidence-standards/SKILL.md AND .claude/skills/evidence-standards.md if the repo has one)
 - **/er** — Evidence Review (adversarial, independent reviewer): a draft-phase gate per `draft-first-pr`, not part of `/green`; the `(advisory)` marks below refer to `/green` only
 - **/code_standards** — 3 parallel lanes:

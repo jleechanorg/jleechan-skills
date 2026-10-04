@@ -42,6 +42,13 @@ only the affected behavior.
 | Large change | May pause at the correctness checkpoint for human direction before expensive review (optional, never a gate). |
 | High-risk (security, permission, approval, merge, destructive, credential) | No layer skipping; the full gate chain and independent final coverage still apply. |
 
+**Mandatory regardless of class:** gates the user explicitly required;
+high-risk, security, permission, approval, and merge gates; and real proof for
+any production-behavior claim. **Skippable by class:** standalone spec/plan,
+history mining, and extra review lanes for trivial low-risk changes. Skill
+pipelines (`write-goal`, `ironclad`, `ready`) delegate applicability and review
+timing here; none may apply universally.
+
 Cheap real smoke (e.g. UI target check) may run early to catch a wrong target;
 expensive final evidence follows correct, frozen code.
 
