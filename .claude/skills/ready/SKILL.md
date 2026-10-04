@@ -25,13 +25,21 @@ A PR is READY when ALL of the following hold, verified at the CURRENT head SHA
    one marker only; stale markers with old head declarations make the
    Evidence Gate fail).
 2. **/er** — adversarial evidence review verdict PASS at the current head
-   (re-run after every head move; findings fixed RED-first).
+   (re-run after every head move; findings fixed RED-first). A test-only or
+   otherwise non-behavioral head move may instead be reaffirmed at the new SHA
+   under `draft-first-pr/SKILL.md`'s SHA-binding/staleness-tolerance rule —
+   document the diff and the prior verdict's provenance rather than relabeling
+   the old capture; a production/behavioral change still requires a fresh run.
 3. **/advice** — at least two independent full-coverage approval reviewers
    from the canonical `advice/SKILL.md` approval lanes approve the exact head, or
    every REQUEST_CHANGES finding is fixed and the two-reviewer quorum is rerun
    and approves. Research and the orchestrating agent do not vote. One approval
    can block but cannot approve; unavailable or partial-coverage reviewers do
-   not satisfy the approval quorum.
+   not satisfy the approval quorum. The same non-behavioral-delta reaffirmation
+   applies here (full original coverage plus the small reviewed delta,
+   documented at the new SHA) — it never reduces the two-reviewer quorum or the
+   named-reviewer requirement in `advice/SKILL.md`; changing that requirement
+   needs its own separate, explicitly approved change.
 4. **/green** — every current-head CI check green (rerun infra-signature
    failures: SIGKILL-during-rustc, Set-up-Python, sqlite3-amalgamation;
    diagnose real failures instead of rerunning) AND mergeable with no
