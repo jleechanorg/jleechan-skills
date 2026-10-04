@@ -6,7 +6,7 @@ description: Create or revise an executable engineering plan by writing one full
 # Plan micro
 
 Turn the current goal into a dependency-ordered bead plan and a durable
-`~/roadmap/` handoff. Plan only. Do not implement the code.
+`~/roadmap/` handoff. Plan only. Do not implement the code. Use `/e` for execution only when authorized.
 
 ## Timeline, parallel lanes, and milestones (mandatory)
 
@@ -36,16 +36,15 @@ path in the micro-plan and in the parent Bead, if one exists.
 - Reuse or revise the newest relevant roadmap plan and open beads before
   creating artifacts. Do not duplicate active work.
 - Use PST dates. Resolve current PR and branch state live before citing it.
-- Use `br` for bead operations. If the repository has an owning command such
-  as `bd`, follow its local instructions instead.
+- Use the repository’s configured Beads owner (`br` where applicable); never edit raw records to bypass it.
 
 ## Discover the work
 
-Run discovery through `/e` with `/p`: enumerate independent items and keep a
+Run discovery in parallel per `/p` (planning only, no execution): enumerate independent items and keep a
 single coordinating writer for Bead and roadmap mutations. Prefer cheaper
 parallel read-only subagents for independent discovery lanes, code-path
 tracing, evidence inventory, and adversarial contract review. Use the locally
-available lower-cost route (for example the canonical `codex-luna` wrapper)
+available lower-cost route (for example the canonical Luna wrapper)
 when it is capable of the bounded task. Gather these lanes in parallel:
 
 1. Read repo instructions, the active goal, recent commits, changed files, and
@@ -113,21 +112,93 @@ cycles into one large bead.
 ## Ironclad every bead
 
 Define each bead's goal through the full `/ironclad` document workflow,
-including test, implementation, docs, migration, and evidence beads.
+including test, implementation, docs, migration, and evidence beads. The
+`/ironclad` "Executor-grade contracts" block set is the only contract shape; the
+subsections below add plan-micro obligations and proof-grading checks, never a
+second template. If a bead's Goal, Steps, and criteria disagree, the bead is
+not finished.
 
 1. Draft the exact bead goal and boundaries.
-2. Write or update a dedicated document at
+2. Write the dedicated document where the repository keeps plans (for example
+   `docs/superpowers/plans/ironclad/<bead-id>-goal-ironclad-<PST-date>.md` on
+   the PR branch) and leave a pointer at
    `~/roadmap/<project-slug>/ironclad/<bead-id>-goal-ironclad-<PST-date>.md`.
+   When the repository has no such convention, the roadmap path is canonical.
 3. Persist the resulting full contract in that bead's description and link the
    dedicated document. Preserve
-   its prior-failure warning and 3-7 binary, executable, externally anchored,
-   anti-gaming, iterate-until criteria.
+   its prior-failure warning and its binary, executable, externally anchored,
+   anti-gaming, iterate-until criteria (count per the `/ironclad` count rule).
 4. Add the bead-specific proof commands, independent verifier, failure
-   condition, LOC budget, owned files, and dependency IDs.
+   condition, LOC budget, owned files, dependency IDs, and the executor blocks
+   required by the weak-executor standard below.
 
 A shared parent contract does not satisfy this rule. Each bead carries a full,
-bead-specific contract with 3-7 criteria; a one-line acceptance summary is not
-sufficient. Planning remains document-only and must not start execution.
+bead-specific contract; a one-line acceptance summary is not sufficient. Planning remains document-only and must not start execution.
+
+### Weak-executor standard (mandatory for every bead)
+
+Write every bead as if Haiku 4.5, Gemini 3.8 Flash, or GPT Luna will execute it
+with only the bead text and a repo checkout, with no access to this planning
+session and no ability to make a judgment call. The planner makes every
+decision in the bead text. Each bead body embeds the `/ironclad`
+"Executor-grade contracts" block set verbatim and in order (Environment, Goal,
+Reuse, Steps, RED, GREEN, Do not, Stop when, Report), follows its rules, and
+ends with the criteria table. That section is normative; do not restate it
+here. Plan-micro adds only these obligations:
+
+- **Self-contained across beads.** When a value comes from another bead's
+  artifact (a runbook table, a branch SHA created later), the bead carries an
+  explicit `read <path> § <heading>` step and states what to do if the artifact
+  is absent. A bead may not rely on the executor having read the overall
+  contract or a sibling bead.
+- **Readback before saving.** Hand the bead text alone to a fresh weak-tier
+  agent and ask for its command list with GUESS marks. Record the GUESS count in
+  the plan document; a bead may not be created while any GUESS remains.
+- **No grandfathering.** A bead already in execution when the standard changes
+  is brought to the standard before its verify bead runs.
+- **Verifier tier.** Name the verifier tier per bead. A weak-tier verifier is
+  allowed only when every proof in the bead is self-grading; judge-graded
+  criteria name a judge model of a different family from the generator.
+
+### Definition-of-done is a literal, not a sentence
+
+Apply the `/ironclad` "Derived, not asserted" rules to every bead. A bead's
+proof is a **self-grading command** at a named SHA whose last line is
+`PASS <id>` or `FAIL <id>`, never prose the implementer can satisfy by writing
+it and never a literal the verifier must compare by eye.
+
+```
+BAD   "Add contract tests for the three spell-slot shapes and report results."
+BAD   proof: python3 -m pytest tests/test_feature.py -q ; expect `24 passed`
+GOOD  proof: N=$(python3 -m pytest tests/test_feature.py -q -p no:randomly | grep -oE '^[0-9]+ passed' | cut -d' ' -f1); [ "${N:-0}" -ge 24 ] && echo PASS T1 || echo FAIL T1 n=$N
+      at:     the bead's final committed SHA, re-executed by the verifier
+      fail:   last line is not `PASS T1`, or output pasted rather than re-run
+```
+
+Rules the bead table must satisfy:
+
+1. **One self-grading proof command per criterion.** "Tests pass" is not a
+   proof; a command whose last line is `PASS T1` is. "CI green" is not a proof;
+   the `statusCheckRollup` filter that prints `PASS` only when 0 non-SUCCESS is.
+2. **The verifier re-executes** (ironclad Anti-gaming). The plan names who
+   re-runs each proof, and it is never the implementer and never the plan
+   author. The orchestrator that wrote the plan is an author for this purpose
+   and may not close its own beads; use a cross-model reviewer or CI.
+3. **Atomize in the script, not in the bead count.** Do not create one bead per
+   falsifiable number — past roughly 10–20 beads, implementers stop reading
+   contracts and the gate loses force. Keep one bead per reviewable deliverable
+   (each deliverable still carries its own TEST bead and IMPL bead per the pair
+   rule above) and put the individual assertions inside its proof script or
+   test file, so the agent-facing contract stays one command with one exit
+   code while the atoms live in code.
+4. **Bind outputs to SHAs.** Every proof references the SHA it was run at;
+   when HEAD moves, staleness follows ironclad's Materiality rule.
+5. **Name the tool traps in the bead when they apply**: `gh pr checks` summary
+   hides SKIPPED/NEUTRAL; empty git output renders as `ok` in the Claude Code
+   harness (other harnesses differ; use the canonical self-grading forms); a
+   published artifact drifts from its source after copy. A bead that reports CI
+   state, tree state, or publishes an artifact must state which trap it guards
+   against and how.
 
 ## Write and sync the plan
 
@@ -167,8 +238,9 @@ start execution.
 Return the roadmap path and a compact table of bead IDs, TEST or IMPL type,
 goal, dependency, files, line budget, and proof command. Report counts for
 beads created, beads reused, TDD pairs, integration tests, unit-test exceptions,
-and ironclad contracts, distinguishing the one overall contract from the
-per-bead contracts. Name the nextsteps doc that was updated. List only true
+ironclad contracts, distinguishing the one overall contract from the
+per-bead contracts, and weak-executor readiness as `N/N beads at zero GUESS
+on readback`, naming the executor tier and the verifier tier per bead. Name the nextsteps doc that was updated. List only true
 blockers that require human authority.
 
 The three-day baseline that informed these rules is in

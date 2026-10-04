@@ -216,7 +216,7 @@ Excel files created or modified by openpyxl contain formulas as strings but not 
 python "${CLAUDE_HOME:-$HOME/.claude}/skills/xlsx/scripts/recalc.py" <excel_file> [timeout_seconds] [--force]
 ```
 
-By default, workbooks with at-risk external links are rejected to avoid corrupting or losing cached reference data. Pass `--force` only if you intentionally want to bypass this check.
+By default, OOXML workbooks with external workbook parts or relationships are rejected before LibreOffice macro setup or execution to avoid losing cached reference data. Unreadable ZIP archives and malformed package XML (`.xml` or `.rels` members, including workbook and worksheet parts) fail preflight even with `--force`; that flag waives only a successfully parsed external-link finding. Ordinary hyperlink relationships do not count as external workbook links. This checks package structure, not every formula or macro's network behavior. Pass `--force` only after reviewing the workbook and intentionally accepting the external reference data risk.
 
 Example:
 ```bash
