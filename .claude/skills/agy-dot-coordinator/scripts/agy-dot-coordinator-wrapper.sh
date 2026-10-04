@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
 # .claude/skills/agy-dot-coordinator/scripts/agy-dot-coordinator-wrapper.sh
-# Canonical launchd wrapper for ai.gemini.agy-dot-coordinator
+# Canonical cross-platform launchd / systemd wrapper for ai.gemini.agy-dot-coordinator
 set -euo pipefail
 
-# 1. Source user profile with nounset temporarily disabled (launchd skill standard)
+# 1. Source user profile with nounset temporarily disabled (launchd/systemd skill standard)
 if [[ -f ~/.bash_profile ]]; then
   set +u
   source ~/.bash_profile 2>/dev/null || true
+  set -u
+elif [[ -f ~/.bashrc ]]; then
+  set +u
+  source ~/.bashrc 2>/dev/null || true
   set -u
 fi
 
