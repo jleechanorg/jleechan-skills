@@ -374,18 +374,19 @@ def classify_run(
 # ---------------------------------------------------------------------------
 
 
-def fetch_run_record(repo: str, run_id: int) -> Optional[Dict[str, Any]]:
-    """Return the canonical run record (None on error).
+def _normalize_run_record(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Map a raw ``actions/runs/{id}`` payload to the normalized internal dict.
 
-    Faithful to the live ``gh api /repos/<repo>/actions/runs/<id>`` shape:
-    the run's ``repository`` carries ``id`` + ``full_name``, while each
-    ``pull_requests[].head.repo`` carries only ``{id, name, url}`` — NOT
-    ``full_name``. Identity verification therefore uses the stable
-    numeric ``repo.id``, not ``full_name``.
+    Pure: consumes the already-fetched payload, performs no network I/O
+    and no validation. Both ``fetch_run_record`` and the per-item
+    pre-cancel refresh in ``cancel_with_per_item_refresh`` call this
+    helper, so the audit-time and pre-mutation record shape stays
+    identical without a second API fetch.
+
+    Validation lives in the callers — they need the raw ``data`` to
+    enforce ``data.id == run_id`` strict equality, required-field
+    presence, and repository identity before normalization.
     """
-    data = _gh_api(f"repos/{repo}/actions/runs/{run_id}")
-    if not data:
-        return None
     repo_data = data.get("repository") or {}
     return {
         "databaseId": data.get("id") or data.get("databaseId"),
@@ -423,6 +424,21 @@ def fetch_run_record(repo: str, run_id: int) -> Optional[Dict[str, Any]]:
             if p.get("number")
         ],
     }
+
+
+def fetch_run_record(repo: str, run_id: int) -> Optional[Dict[str, Any]]:
+    """Return the canonical run record (None on error).
+
+    Faithful to the live ``gh api /repos/<repo>/actions/runs/<id>`` shape:
+    the run's ``repository`` carries ``id`` + ``full_name``, while each
+    ``pull_requests[].head.repo`` carries only ``{id, name, url}`` — NOT
+    ``full_name``. Identity verification therefore uses the stable
+    numeric ``repo.id``, not ``full_name``.
+    """
+    data = _gh_api(f"repos/{repo}/actions/runs/{run_id}")
+    if not data:
+        return None
+    return _normalize_run_record(data)
 
 
 def fetch_pr_record(repo: str, pr_number: int) -> Optional[Dict[str, Any]]:
@@ -765,42 +781,7 @@ def cancel_with_per_item_refresh(
             continue
         if repo_full_name and repo_full_name != repo:
             continue
-        run = {
-            "databaseId": data.get("id"),
-            "name": data.get("name") or "",
-            "head_branch": data.get("head_branch") or "",
-            "head_sha": data.get("head_sha") or "",
-            "event": data.get("event") or "",
-            "workflow_path": data.get("path") or "",
-            "status": data.get("status") or "",
-            "repository": {
-                "id": repo_id,
-                "full_name": repo_full_name,
-                "name": (repo_data.get("name") or ""),
-            },
-            "pull_requests": [
-                {
-                    "number": p.get("number"),
-                    "head": {
-                        "sha": ((p.get("head") or {}).get("sha")) or "",
-                        "ref": ((p.get("head") or {}).get("ref")) or "",
-                        "repo": {
-                            "id": ((p.get("head") or {}).get("repo") or {}).get("id"),
-                            "name": ((p.get("head") or {}).get("repo") or {}).get("name") or "",
-                        },
-                    },
-                    "base": {
-                        "ref": ((p.get("base") or {}).get("ref")) or "",
-                        "repo": {
-                            "id": ((p.get("base") or {}).get("repo") or {}).get("id"),
-                            "name": ((p.get("base") or {}).get("repo") or {}).get("name") or "",
-                        },
-                    },
-                }
-                for p in (data.get("pull_requests") or [])
-                if p.get("number")
-            ],
-        }
+        run = _normalize_run_record(data)
         # 2. Confirm still queued.
         if (run.get("status") or "").lower() != "queued":
             continue

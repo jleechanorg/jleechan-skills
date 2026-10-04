@@ -236,11 +236,6 @@ def _patch_now() -> Any:
     return mock.patch.object(ci_queue_trim.datetime, "datetime", FrozenDateTime)
 
 
-def _reset_caches() -> None:
-    # No module-level caches in the refactored design.
-    return
-
-
 def _setup_queue(
     stub: _RunCmdStub,
     run_records: List[Dict[str, Any]],
@@ -318,7 +313,6 @@ def _audit_with(stub: _RunCmdStub, **overrides: Any) -> Tuple[List[Dict[str, Any
         "allowed_workflows": {".github/workflows/ci.yml"},
     }
     kwargs.update(overrides)
-    _reset_caches()
     with mock.patch.object(ci_queue_trim, "run_cmd", side_effect=stub), _patch_now():
         return ci_queue_trim.audit_queue("owner/repo", **kwargs)
 
