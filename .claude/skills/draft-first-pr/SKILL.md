@@ -26,6 +26,30 @@ DRAFT
 
 Each arrow is a gate, not a formality — do not skip ahead, and do not treat an earlier gate's pass as still valid once HEAD has moved (see "SHA-binding rule" below).
 
+## Coding lifecycle (pre-draft work) — scale layers to risk
+
+Order: explore → outcome spec (no code) → code-level design when useful → TDD
+(fresh failing test first) → unit + relevant integration tests → coder
+correctness checkpoint → formal code/evidence review → narrow fixes until a
+genuine human dependency. Batch findings, preserve passing lanes, and recheck
+only the affected behavior.
+
+| Change class | Layers |
+|---|---|
+| Wording-only / small low-risk | Skip standalone spec and plan; focused check, then the applicable gates below. |
+| Ordinary feature | Outcome spec, TDD, unit + relevant tests, correctness checkpoint, then formal review. |
+| Cross-service boundary | Add an integration-layer test; a mocked unit test cannot prove it. |
+| Large change | May pause at the correctness checkpoint for human direction before expensive review (optional, never a gate). |
+| High-risk (security, permission, approval, merge, destructive, credential) | No layer skipping; the full gate chain and independent final coverage still apply. |
+
+Cheap real smoke (e.g. UI target check) may run early to catch a wrong target;
+expensive final evidence follows correct, frozen code.
+
+**Execution handoff invariant.** An accepted next step must have an executing
+owner or started tool, or an exact blocker plus resumption trigger, before
+reporting `Working`. Creating a goal or checklist is not execution. Do not stop
+at a completed design when implementation was authorized.
+
 ## Draft-phase final acceptance gates (in order)
 
 Before this final sequence, run independent code-correctness reviews (including

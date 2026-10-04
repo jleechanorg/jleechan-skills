@@ -396,7 +396,10 @@ is rejected, or the composer does not render every exact packet filename.
 
 ### Stale evidence (verification FAIL)
 
-Symptom: `metadata.json:git_provenance.git_head` ≠ PR HEAD `headRefOid`.
+Symptom: `metadata.json:git_provenance.git_head` ≠ PR HEAD `headRefOid`
+**and** the delta from the tested SHA is material per the `evidence-standards`
+Staleness Tolerance test. A SHA-only move over docs, tests, skills, or other
+non-behavioral paths is not stale: re-affirm at the new SHA and record both SHAs.
 
 Recovery:
 1. Mark the evidence or production claim unverified; do not use it to support a recommendation.

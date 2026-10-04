@@ -162,13 +162,13 @@ Write the goal to `.converge/goal.md` in the session's cwd (the path `/harness` 
 ## Quality bar (adversarial gates this repo uses)
 Run all of these at completion (from /harness):
 - **/es** — Evidence Standards (both ~/.claude/skills/evidence-standards/SKILL.md AND .claude/skills/evidence-standards.md if the repo has one)
-- **/er** — Evidence Review (adversarial, independent reviewer)
+- **/er** — Evidence Review (adversarial, independent reviewer): a draft-phase gate per `draft-first-pr`, not part of `/green`; the `(advisory)` marks below refer to `/green` only
 - **/code_standards** — 3 parallel lanes:
   - ZFC (zero-framework cognition) — no keyword routing, no regex intent detection, no hand-tuned scoring
   - ZFC-leveling — no level-up fields leaking into non-leveled surfaces
   - root-cause-first — prompt/schema fixes tried before backend protection; document why if backend enforcement is added
 - **Independent Agent Review** — full-diff code review by an isolated subagent
-- 4/4 PASS = DONE. Any FAIL = fix & loop. Same score 2 iterations = STALLED → escalate to human.
+- All applicable gates PASS = DONE. Any FAIL = fix & loop with a changed approach. No cycle- or repeated-score count stops work; stop only at the autonomy deadline or a genuine human dependency (exact blocker + resumption trigger).
 
 ## Dispatch routing
 - Inline if: single tool call OR tight sequence with no fork, <10 lines changed

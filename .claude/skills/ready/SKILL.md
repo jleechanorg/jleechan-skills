@@ -25,7 +25,8 @@ A PR is READY when ALL of the following hold, verified at the CURRENT head SHA
    one marker only; stale markers with old head declarations make the
    Evidence Gate fail).
 2. **/er** — adversarial evidence review verdict PASS at the current head
-   (re-run after every head move; findings fixed RED-first).
+   (a material head move re-earns it; a non-behavioral move is re-affirmed per
+   `draft-first-pr` § SHA-binding rule; findings fixed RED-first).
 3. **/advice** — at least two independent full-coverage approval reviewers
    from the canonical `advice/SKILL.md` approval lanes approve the exact head, or
    every REQUEST_CHANGES finding is fixed and the two-reviewer quorum is rerun
