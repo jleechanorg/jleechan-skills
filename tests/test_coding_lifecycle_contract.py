@@ -7,13 +7,15 @@ SKILLS = Path(__file__).resolve().parent.parent / ".claude" / "skills"
 
 
 def read(name: str) -> str:
-    return (SKILLS / name / "SKILL.md").read_text(encoding="utf-8")
+    """Skill text with whitespace collapsed so assertions ignore line wrapping."""
+    text = (SKILLS / name / "SKILL.md").read_text(encoding="utf-8")
+    return " ".join(text.split())
 
 
 class CodingLifecycleContract(unittest.TestCase):
     def setUp(self):
         self.owner = read("draft-first-pr")
-        self.section = self.owner.split("## Coding lifecycle", 1)[1].split("\n## ", 1)[0]
+        self.section = self.owner.split("## Coding lifecycle", 1)[1].split(" ## ", 1)[0]
 
     def test_wording_only_small_changes_skip_spec_and_plan(self):
         self.assertIn("Wording-only / small low-risk", self.section)
@@ -36,21 +38,41 @@ class CodingLifecycleContract(unittest.TestCase):
 
     def test_execution_handoff_invariant(self):
         self.assertIn("Execution handoff invariant", self.section)
-        self.assertIn("exact blocker plus resumption trigger", self.section)
+        self.assertIn("executing owner or started tool before reporting `Working`", self.section)
+        self.assertIn("report `Blocked` or `Waiting`", self.section)
+        self.assertIn("a blocker never makes it `Working`", self.section)
         self.assertIn("not execution", self.section)
 
-    def test_docs_only_sha_move_is_reaffirmed_everywhere(self):
-        self.assertIn("re-affirmed", self.owner)
+    def test_docs_only_sha_move_is_reaffirmed_by_delta(self):
         ready = read("ready")
         self.assertNotIn("re-run after every head move", ready)
-        self.assertIn("non-behavioral move is re-affirmed", ready)
-        web = read("web-advice")
-        self.assertIn("SHA-only move", web)
-        self.assertIn("not stale", web)
+        self.assertIn("may instead be reaffirmed at the new SHA", ready)
+        self.assertIn("is not stale: re-affirm at the new SHA", read("web-advice"))
+
+    def test_reaffirmation_never_depends_on_path_category_alone(self):
+        self.assertIn("never by path category", self.owner)
+        for name in ("draft-first-pr", "ready", "web-advice", "evidence-standards"):
+            text = read(name)
+            self.assertNotIn("docs, tests, skills, ordinary PR-policy", text)
+            self.assertNotIn("test-only or otherwise non-behavioral", text)
+            self.assertNotIn("non-behavioral paths is not stale", text)
+            self.assertNotIn("test-only, docs-only", text)
+        self.assertIn("actual delta", read("web-advice"))
+        self.assertIn("actual delta", read("ready"))
+
+    def test_changed_assertion_driver_or_behavioral_skill_edit_invalidates_proof(self):
+        # Counterexamples: tests, drivers, and skill instructions are not auto-reaffirmed.
+        self.assertIn(
+            "a changed assertion, driver, or behavioral instruction invalidates", self.owner
+        )
+        hint = read("evidence-standards").split("Path category is a starting hint only", 1)[1][:400]
+        for cls in ("test", "evidence driver/capture", "prompt", "contract", "schema", "skill"):
+            self.assertIn(cls, hint)
+        self.assertIn("assertion, driver, or executable instruction changed", hint)
+        self.assertIn("changed assertion/driver requires a fresh run", read("ready"))
 
     def test_changed_driver_evidence_is_invalidated(self):
-        self.assertIn("A production behavior\nchange still requires fresh evidence", self.owner)
-        self.assertIn("material", read("web-advice"))
+        self.assertIn("A production behavior change still requires fresh evidence", self.owner)
 
     def test_no_undefined_reviewer_d(self):
         self.assertNotIn("Reviewer D", read("superpowers-quick"))

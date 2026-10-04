@@ -68,9 +68,11 @@ do **not** require a fresh evidence run. Flagging evidence "stale" because the h
 
 1. Determine the evidence SHA (from `metadata.json.provenance.git_head` or the bundle README).
 2. `git diff --name-only <evidence-sha> HEAD` — classify every changed file.
-3. If **every** changed file is non-behavioral (test-only, docs-only `*.md`/`docs/`/`CLAUDE.md`/`AGENTS.md`,
-   `.claude/`/`.codex/`/`.cursor/` skills & agents, test/lint CI workflows **excluding** `deploy*`/`*preview*`,
-   type-hints/comments) → evidence remains valid; document the tolerance and move on.
+3. If **every** changed file's content diff is non-behavioral (candidates: docs, comments, type-hints,
+   lint CI workflows **excluding** `deploy*`/`*preview*`) → evidence remains valid; document the tolerance and move on.
+   Path category is a starting hint only: a test, evidence driver/capture, prompt, contract, schema, or
+   `.claude/`/`.codex/`/`.cursor/` skill or agent file whose assertion, driver, or executable instruction
+   changed can invalidate the proof it supports — read its diff against the claim it backs.
 4. For any `.py` file you classify as "comment/type-hint only," run the full content diff
    (`git diff <evidence-sha> HEAD -- <file>`) — `--name-only` can't tell a comment edit from a behavior edit.
 

@@ -46,8 +46,9 @@ Cheap real smoke (e.g. UI target check) may run early to catch a wrong target;
 expensive final evidence follows correct, frozen code.
 
 **Execution handoff invariant.** An accepted next step must have an executing
-owner or started tool, or an exact blocker plus resumption trigger, before
-reporting `Working`. Creating a goal or checklist is not execution. Do not stop
+owner or started tool before reporting `Working`. With only an exact blocker plus
+resumption trigger, report `Blocked` or `Waiting` — a blocker never makes it
+`Working`. Creating a goal or checklist is not execution. Do not stop
 at a completed design when implementation was authorized.
 
 ## Draft-phase final acceptance gates (in order)
@@ -175,12 +176,19 @@ mixed diff uses the normal `/er` gate.
 `/es`, `/er`, `/advice`, and `/green` gate verdicts are each earned **at a specific commit SHA** — none of the production-gate verdicts carry forward across a HEAD move. If a new commit lands after a verdict (a nit fix, a rebase, a CI-requested change), that verdict is **STALE** and must be re-earned — or explicitly re-affirmed at the new SHA — before it counts toward the next gate in the chain.
 
 **This is a verdict-binding rule, not an automatic evidence-capture rule.** Apply
-the evidence-staleness tolerance in `evidence-standards`: a docs, tests,
-skills, ordinary PR-policy, or other non-behavioral HEAD change does not
+the evidence-staleness tolerance in `evidence-standards`: a HEAD change whose
+actual delta (not its path category) leaves every tested claim intact does not
 require a fresh production-evidence run. The reviewer may re-affirm `/es` at
-the new SHA after documenting the non-production diff. A production behavior
+the new SHA after documenting that delta and the claims checked. A production behavior
 change still requires fresh evidence, then fresh SHA-bound `/es`, `/er`, and
 `/advice` verdicts.
+
+**Classify by the actual delta and the claim it could invalidate, never by path
+category.** Tests, evidence drivers and captures, prompts, contracts, schemas, and
+executable skill instructions can change behavior or invalidate proof. Re-affirm only
+after reading the delta and documenting why no tested claim, driver, or assertion is
+affected; a changed assertion, driver, or behavioral instruction invalidates the
+evidence that depends on it.
 
 The verdict rule applies uniformly:
 
