@@ -160,6 +160,13 @@ class CodingLifecycleContract(unittest.TestCase):
         self.assertNotIn("a production-behavior file in the evidenced path changed", std)
         self.assertIn("delta-and-claim test above: the delta changes production behavior, or any test assertion", std)
 
+    def test_repo_defined_low_risk_review_exemptions_are_honored(self):
+        owner = read("draft-first-pr")
+        self.assertIn("may exempt defined low-risk classes", owner)
+        self.assertIn("docs-only, test-only, or small non-production changes", owner)
+        self.assertIn("default when the repo defines none", owner)
+        self.assertIn("No exemption covers changes to approval, merge, review, evidence, or security rules", owner)
+
 
 if __name__ == "__main__":
     unittest.main()

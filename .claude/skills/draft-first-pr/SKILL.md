@@ -89,6 +89,13 @@ rereading it; the orchestrator cannot promote an earlier review alone.
 
 While a PR is draft, accept these final gates in sequence — do not skip any:
 
+A repository's own instructions (for example its `AGENTS.md` coding lifecycle)
+may exempt defined low-risk classes, such as docs-only, test-only, or small
+non-production changes, from `/er` and `/advice`; when they do, follow that
+classification and its exclusions. The narrow documentation allowlist below is
+the default when the repo defines none. No exemption covers changes to approval,
+merge, review, evidence, or security rules.
+
 1. **`/es`** — evidence bundle passes (real evidence per `~/.claude/skills/evidence-standards/SKILL.md` + repo-specific extensions), verified at the PR's current HEAD SHA.
 2. **`/er`** — for every PR except the documentation-only class below, evidence review verdict is PASS (not PARTIAL/FAIL/INCONCLUSIVE), verified at the same current HEAD SHA — re-run if `/es` was earned at an older SHA.
 3. **`/advice`** — second-opinion approval on the change itself (`APPROVED at <SHA>` / `NOT APPROVED at <SHA>` / `WITHHELD at <SHA>` — see `~/.claude/skills/advice/SKILL.md`), bound to the same current HEAD SHA. `WITHHELD` does not satisfy the draft gate.
