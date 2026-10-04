@@ -103,4 +103,66 @@ class CatalogTests(unittest.TestCase):
   with tempfile.TemporaryDirectory() as t:
    m.install(ROOT,Path(t),'test-v1')
    with self.assertRaises(FileExistsError):m.install(ROOT,Path(t),'test-v1')
+class ReviewRegressionTests(unittest.TestCase):
+ def installer(self):
+  import os
+  path=Path(os.environ.get('CATALOG_INSTALLER_PATH',ROOT/'scripts/install_shared_catalog.py'))
+  spec=importlib.util.spec_from_file_location('review_catalog',path);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m);return m
+ def fixture(self,base):
+  src=base/'source';home=base/'home';home.mkdir()
+  for tree in ['.claude/skills/example','portable/skills/alias','portable/skills/retained','shared/aliases']:(src/tree).mkdir(parents=True)
+  (src/'shared/retain-local.json').write_text('["retained"]')
+  (src/'.claude/skills/example/SKILL.md').write_text('version one')
+  for name in ['alias','retained']:(src/'portable/skills'/name/'SKILL.md').write_text(name)
+  return src,home
+ def test_dry_run_matches_actual_canonical_and_consumer_destinations(self):
+  import subprocess,sys
+  m=self.installer()
+  with tempfile.TemporaryDirectory() as t:
+   src,home=self.fixture(Path(t).resolve())
+   output=subprocess.check_output([sys.executable,m.__file__,'--source',str(src),'--home',str(home),'--release','v1','--dry-run'],text=True)
+   planned=json.loads(output);receipt=m.install(src,home,'v1')
+   self.assertEqual(set(planned['claude']),set(receipt['managed']))
+   self.assertEqual(set(planned['agents']),set(receipt['managed']))
+   self.assertNotIn('retained',planned['agents'])
+   for n in receipt['managed']:self.assertEqual(planned['agents'][n],'.claude/skills/'+n)
+ def test_retired_managed_nested_skill_is_inactive_and_recoverable(self):
+  m=self.installer()
+  with tempfile.TemporaryDirectory() as t:
+   src,home=self.fixture(Path(t).resolve());old=src/'.claude/skills/example/skills/nested/SKILL.md';old.parent.mkdir(parents=True);old.write_text('old nested skill')
+   first=m.install(src,home,'v1');live=home/'.claude/skills/example/skills/nested/SKILL.md';extension=live.parent/'local-note.md';extension.write_text('user extension');old.unlink()
+   second=m.install(src,home,'v2',first['managed']);self.assertFalse(live.exists());self.assertEqual(m.verify(home,'v2'),[])
+   self.assertEqual((Path(second['backup'])/'files/example/skills/nested/SKILL.md').read_text(),'old nested skill')
+   live.write_text('new user skill');self.assertTrue(m.verify(home,'v2'))
+   with self.assertRaisesRegex(ValueError,'Later local edit'):m.rollback(home,'v2')
+   self.assertEqual(live.read_text(),'new user skill');live.unlink();m.rollback(home,'v2')
+   self.assertEqual(live.read_text(),'old nested skill');self.assertEqual(extension.read_text(),'user extension')
+ def test_changed_retired_file_refuses_whole_update_before_mutation(self):
+  m=self.installer()
+  with tempfile.TemporaryDirectory() as t:
+   src,home=self.fixture(Path(t).resolve());old=src/'.claude/skills/example/obsolete.md';old.write_text('owned old file');first=m.install(src,home,'v1')
+   (home/'.claude/skills/example/obsolete.md').write_text('local changed file');old.unlink();(src/'.claude/skills/example/SKILL.md').write_text('version two')
+   with self.assertRaisesRegex(ValueError,'Local retired content conflict'):m.install(src,home,'v2',first['managed'])
+   self.assertEqual((home/'.claude/skills/example/SKILL.md').read_text(),'version one');self.assertFalse(m.release_path(home,'v2').exists())
+ def test_successful_rollback_preserves_extensions_and_later_edits(self):
+  m=self.installer()
+  with tempfile.TemporaryDirectory() as t:
+   src,home=self.fixture(Path(t).resolve());consumer=home/'.agents/skills/example';consumer.mkdir(parents=True);(consumer/'SKILL.md').write_text('local consumer')
+   regular=consumer.parent/'alias';regular.write_text('local regular consumer')
+   first=m.install(src,home,'v1');live=home/'.claude/skills/example/SKILL.md';note=live.parent/'note.md';note.write_text('keep extension');(src/'.claude/skills/example/SKILL.md').write_text('version two');second=m.install(src,home,'v2',first['managed'])
+   live.write_text('later edit')
+   with self.assertRaisesRegex(ValueError,'Later local edit'):m.rollback(home,'v2')
+   self.assertEqual(live.read_text(),'later edit');self.assertTrue(consumer.is_symlink())
+   live.write_text('version two');m.rollback(home,'v2');self.assertEqual(live.read_text(),'version one');m.rollback(home,'v1')
+   self.assertFalse(consumer.is_symlink());self.assertEqual((consumer/'SKILL.md').read_text(),'local consumer');self.assertEqual(regular.read_text(),'local regular consumer');self.assertFalse(live.exists());self.assertEqual(note.read_text(),'keep extension')
+ def test_beads_export_checkers_are_complete_read_only_and_fail_closed(self):
+  import subprocess,sys
+  package=ROOT/'.claude/skills/beads-issue-tracking/scripts'
+  with tempfile.TemporaryDirectory() as t:
+   path=Path(t)/'issues.jsonl'
+   for content,valid,sorted_ids in [(' {"id":"a"}\n{"id":"b"}\n',True,True),('{"id":"b"}\n{"id":"a"}\n',True,False),('{"id":"a"}\n{"id":"a"}\n',False,False),('[]\n',False,False),('\n',False,False),('{oops}\n',False,False)]:
+    path.write_text(content)
+    validate=subprocess.run([sys.executable,str(package/'validate_beads_issues_jsonl.py'),str(path)],capture_output=True)
+    order=subprocess.run([sys.executable,str(package/'sort_beads_jsonl.py'),'--check',str(path)],capture_output=True)
+    self.assertEqual(validate.returncode==0,valid);self.assertEqual(order.returncode==0,sorted_ids);self.assertEqual(path.read_text(),content)
 if __name__=='__main__':unittest.main()

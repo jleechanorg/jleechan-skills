@@ -305,12 +305,15 @@ if (fileInput) {
   }
 }
 
-// Step 3b: Type structured prompt into composer (use keyboard.insertText for contenteditable)
+// Step 3b: Replace the complete composer content and verify it before sending.
 const reviewPrompt = `[web advice] <your review prompt citing attached code files AND evidence artifacts>`;
 const textbox = await modelPage.locator('div[aria-label="Enter a prompt for Gemini"], #prompt-textarea, [role="textbox"]').first();
-await textbox.click();
-await modelPage.keyboard.insertText(reviewPrompt);
+await textbox.fill(reviewPrompt);
 await sleep(1000);
+const composerReadback = await textbox.inputValue().catch(() => textbox.innerText());
+if (composerReadback !== reviewPrompt) {
+  throw new Error('Composer content differs from the complete review prompt; do not send');
+}
 
 // Step 3c: Submit (Click Send button for ChatGPT/Gemini, or Press Enter for Perplexity)
 const sendBtn = await modelPage.locator('button[aria-label="Send prompt"], button[data-testid="send-button"]').first();
@@ -421,10 +424,16 @@ Web chat LLM review sessions are stateful and interactive, not single-turn scrip
 
 **Decision rule:** 3-of-3 agreement is sufficient (or 2-of-3 if both verdicts strongly converge). 2-of-3 is acceptable when the two models are from different model families. If all 3 diverge, surface the disagreement to the user and ask which axis (speed / safety / cost) matters most. Perplexity's web grounding often breaks ties by surfacing external standards (D&D 5e SRD, RFC, etc.) that the other models lack.
 
-### Step 6 — Publish verdict to PR / commit (mandatory)
+### Step 6 — Save the verdict and publish to an authorized destination
 
-Every `/web-advice` run that produces a synthesis must leave a durable,
-self-contained record on the reviewed artifact — not only in the conversation.
+Every `/web-advice` run that produces a synthesis must save a durable,
+self-contained local record. Publish only when the current user request or
+repository policy authorizes the destination and disclosure of the reviewed
+material. An unlisted gist is link-accessible, not private storage. For private
+code or account details, retain the complete record locally and publish only a
+reviewed, authorized summary. If publication is not authorized, report the local
+receipt and the publication limitation; do not upload model snippets or edit a PR.
+The following publication steps apply only within that authorization.
 
 - **Subject is a PR**: publish the full synthesis table, verbatim per-model
   snippets, and share URLs as an unlisted gist, then

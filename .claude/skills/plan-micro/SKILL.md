@@ -10,7 +10,7 @@ Turn the current goal into a dependency-ordered bead plan and a durable
 
 ## Timeline, parallel lanes, and milestones (mandatory)
 
-Read and apply `~/.claude/skills/parallelize-to-ceiling/references/timeline-milestones.md`
+Read and apply `${CLAUDE_HOME:-$HOME/.claude}/skills/parallelize-to-ceiling/references/timeline-milestones.md`
 on every invocation. Always include a timeline, maximize useful independent
 lanes within the measured resource ceiling, and report milestones every
 20 minutes with an hourly rollup during active work. Preserve this command's
@@ -169,8 +169,8 @@ it and never a literal the verifier must compare by eye.
 
 ```
 BAD   "Add contract tests for the three spell-slot shapes and report results."
-BAD   proof: ./vpython -m pytest mvp_site/tests/test_x.py -q ; expect `24 passed`
-GOOD  proof: N=$(./vpython -m pytest mvp_site/tests/test_x.py -q -p no:randomly | grep -oE '^[0-9]+ passed' | cut -d' ' -f1); [ "${N:-0}" -ge 24 ] && echo PASS T1 || echo FAIL T1 n=$N
+BAD   proof: python3 -m pytest tests/test_feature.py -q ; expect `24 passed`
+GOOD  proof: N=$(python3 -m pytest tests/test_feature.py -q -p no:randomly | grep -oE '^[0-9]+ passed' | cut -d' ' -f1); [ "${N:-0}" -ge 24 ] && echo PASS T1 || echo FAIL T1 n=$N
       at:     the bead's final committed SHA, re-executed by the verifier
       fail:   last line is not `PASS T1`, or output pasted rather than re-run
 ```

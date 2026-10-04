@@ -21,8 +21,8 @@
         "repo"
       ]
     ],
-    "decision": "portable-for-agents",
-    "reason": "Use explicit cross-runtime derivative; retain separate canonical Claude workflow."
+    "decision": "live-canonical",
+    "reason": "Both runtimes consume .claude/skills/4layer installed as one live canonical package; same-name portable derivatives remain distribution inputs."
   },
   {
     "skill": "a",
@@ -996,8 +996,8 @@
         "portable"
       ]
     ],
-    "decision": "portable-for-agents",
-    "reason": "Use explicit cross-runtime derivative; retain separate canonical Claude workflow."
+    "decision": "live-canonical",
+    "reason": "Both runtimes consume .claude/skills/backend-first installed as one live canonical package; same-name portable derivatives remain distribution inputs."
   },
   {
     "skill": "backup-verification",
@@ -4365,8 +4365,8 @@
         "repo"
       ]
     ],
-    "decision": "portable-for-agents",
-    "reason": "Use explicit cross-runtime derivative; retain separate canonical Claude workflow."
+    "decision": "live-canonical",
+    "reason": "Both runtimes consume .claude/skills/cmux-backup installed as one live canonical package; same-name portable derivatives remain distribution inputs."
   },
   {
     "skill": "cmux-codex-autoapprove",
@@ -4411,8 +4411,8 @@
         "repo"
       ]
     ],
-    "decision": "portable-for-agents",
-    "reason": "Use explicit cross-runtime derivative; retain separate canonical Claude workflow."
+    "decision": "live-canonical",
+    "reason": "Both runtimes consume .claude/skills/cmux-goal installed as one live canonical package; same-name portable derivatives remain distribution inputs."
   },
   {
     "skill": "cmux-restore",
@@ -4434,8 +4434,8 @@
         "mac_claude"
       ]
     ],
-    "decision": "portable-for-agents",
-    "reason": "Use explicit cross-runtime derivative; retain separate canonical Claude workflow."
+    "decision": "live-canonical",
+    "reason": "Both runtimes consume portable/skills/cmux-restore installed as one live canonical package; same-name portable derivatives remain distribution inputs."
   },
   {
     "skill": "cmux-resume-watchdog",
@@ -4491,8 +4491,8 @@
         "repo"
       ]
     ],
-    "decision": "portable-for-agents",
-    "reason": "Use explicit cross-runtime derivative; retain separate canonical Claude workflow."
+    "decision": "live-canonical",
+    "reason": "Both runtimes consume .claude/skills/cmux-steer installed as one live canonical package; same-name portable derivatives remain distribution inputs."
   },
   {
     "skill": "code-centralization",
@@ -4842,8 +4842,8 @@
         "repo"
       ]
     ],
-    "decision": "portable-for-agents",
-    "reason": "Use explicit cross-runtime derivative; retain separate canonical Claude workflow."
+    "decision": "live-canonical",
+    "reason": "Both runtimes consume .claude/skills/conversation-history-sparse installed as one live canonical package; same-name portable derivatives remain distribution inputs."
   },
   {
     "skill": "copilot",
@@ -5388,8 +5388,8 @@
         "mac_claude"
       ]
     ],
-    "decision": "portable-for-agents",
-    "reason": "Use explicit cross-runtime derivative; retain separate canonical Claude workflow."
+    "decision": "live-canonical",
+    "reason": "Both runtimes consume portable/skills/diagnosing-bugs installed as one live canonical package; same-name portable derivatives remain distribution inputs."
   },
   {
     "skill": "dice-authenticity-standards",
@@ -5788,8 +5788,8 @@
         "mac_claude"
       ]
     ],
-    "decision": "portable-for-agents",
-    "reason": "Use explicit cross-runtime derivative; retain separate canonical Claude workflow."
+    "decision": "live-canonical",
+    "reason": "Both runtimes consume portable/skills/er installed as one live canonical package; same-name portable derivatives remain distribution inputs."
   },
   {
     "skill": "er-node",
@@ -5830,8 +5830,8 @@
         "mac_claude"
       ]
     ],
-    "decision": "portable-for-agents",
-    "reason": "Use explicit cross-runtime derivative; retain separate canonical Claude workflow."
+    "decision": "live-canonical",
+    "reason": "Both runtimes consume portable/skills/es installed as one live canonical package; same-name portable derivatives remain distribution inputs."
   },
   {
     "skill": "evidence-check",
@@ -5899,8 +5899,8 @@
         "repo"
       ]
     ],
-    "decision": "portable-for-agents",
-    "reason": "Use explicit cross-runtime derivative; retain separate canonical Claude workflow."
+    "decision": "live-canonical",
+    "reason": "Both runtimes consume .claude/skills/evidence-review installed as one live canonical package; same-name portable derivatives remain distribution inputs."
   },
   {
     "skill": "evidence-standards",
@@ -5928,8 +5928,8 @@
         "repo"
       ]
     ],
-    "decision": "portable-for-agents",
-    "reason": "Use explicit cross-runtime derivative; retain separate canonical Claude workflow."
+    "decision": "live-canonical",
+    "reason": "Both runtimes consume .claude/skills/evidence-standards installed as one live canonical package; same-name portable derivatives remain distribution inputs."
   },
   {
     "skill": "evolve-loop",
@@ -7728,8 +7728,8 @@
         "mac_claude"
       ]
     ],
-    "decision": "portable-for-agents",
-    "reason": "Use explicit cross-runtime derivative; retain separate canonical Claude workflow."
+    "decision": "live-canonical",
+    "reason": "Both runtimes consume portable/skills/harness installed as one live canonical package; same-name portable derivatives remain distribution inputs."
   },
   {
     "skill": "harness-engineering",
@@ -7753,8 +7753,8 @@
         "repo"
       ]
     ],
-    "decision": "portable-for-agents",
-    "reason": "Use explicit cross-runtime derivative; retain separate canonical Claude workflow."
+    "decision": "live-canonical",
+    "reason": "Both runtimes consume .claude/skills/harness-engineering installed as one live canonical package; same-name portable derivatives remain distribution inputs."
   },
   {
     "skill": "harness-fix-durability",
@@ -7942,8 +7942,8 @@
         "mac_claude"
       ]
     ],
-    "decision": "portable-for-agents",
-    "reason": "Use explicit cross-runtime derivative; retain separate canonical Claude workflow."
+    "decision": "live-canonical",
+    "reason": "Both runtimes consume portable/skills/history installed as one live canonical package; same-name portable derivatives remain distribution inputs."
   },
   {
     "skill": "history-resume",
@@ -8556,8 +8556,8 @@
         "portable"
       ]
     ],
-    "decision": "portable-for-agents",
-    "reason": "Use explicit cross-runtime derivative; retain separate canonical Claude workflow."
+    "decision": "live-canonical",
+    "reason": "Both runtimes consume .claude/skills/llm-first installed as one live canonical package; same-name portable derivatives remain distribution inputs."
   },
   {
     "skill": "llm-json-schema-documentation",
@@ -8951,8 +8951,8 @@
         "repo"
       ]
     ],
-    "decision": "portable-for-agents",
-    "reason": "Use explicit cross-runtime derivative; retain separate canonical Claude workflow."
+    "decision": "live-canonical",
+    "reason": "Both runtimes consume .claude/skills/memory-search installed as one live canonical package; same-name portable derivatives remain distribution inputs."
   },
   {
     "skill": "meta",
@@ -9160,8 +9160,8 @@
         "mac_claude"
       ]
     ],
-    "decision": "portable-for-agents",
-    "reason": "Use explicit cross-runtime derivative; retain separate canonical Claude workflow."
+    "decision": "live-canonical",
+    "reason": "Both runtimes consume portable/skills/ms installed as one live canonical package; same-name portable derivatives remain distribution inputs."
   },
   {
     "skill": "mvp-site-app-dev-i6xf2p72ka-uc-a-run-app",
@@ -9268,8 +9268,8 @@
         "repo"
       ]
     ],
-    "decision": "portable-for-agents",
-    "reason": "Use explicit cross-runtime derivative; retain separate canonical Claude workflow."
+    "decision": "live-canonical",
+    "reason": "Both runtimes consume .claude/skills/nextsteps installed as one live canonical package; same-name portable derivatives remain distribution inputs."
   },
   {
     "skill": "no-second-llm-calls",
@@ -9535,8 +9535,8 @@
         "mac_claude"
       ]
     ],
-    "decision": "portable-for-agents",
-    "reason": "Use explicit cross-runtime derivative; retain separate canonical Claude workflow."
+    "decision": "live-canonical",
+    "reason": "Both runtimes consume portable/skills/p installed as one live canonical package; same-name portable derivatives remain distribution inputs."
   },
   {
     "skill": "pair",
@@ -9668,8 +9668,8 @@
         "mac_claude"
       ]
     ],
-    "decision": "portable-for-agents",
-    "reason": "Use explicit cross-runtime derivative; retain separate canonical Claude workflow."
+    "decision": "live-canonical",
+    "reason": "Both runtimes consume portable/skills/parallel installed as one live canonical package; same-name portable derivatives remain distribution inputs."
   },
   {
     "skill": "parallelize-to-ceiling",
@@ -9697,8 +9697,8 @@
         "repo"
       ]
     ],
-    "decision": "portable-for-agents",
-    "reason": "Use explicit cross-runtime derivative; retain separate canonical Claude workflow."
+    "decision": "live-canonical",
+    "reason": "Both runtimes consume .claude/skills/parallelize-to-ceiling installed as one live canonical package; same-name portable derivatives remain distribution inputs."
   },
   {
     "skill": "pdf",
@@ -10695,8 +10695,8 @@
         "repo"
       ]
     ],
-    "decision": "portable-for-agents",
-    "reason": "Use explicit cross-runtime derivative; retain separate canonical Claude workflow."
+    "decision": "live-canonical",
+    "reason": "Both runtimes consume .claude/skills/ready installed as one live canonical package; same-name portable derivatives remain distribution inputs."
   },
   {
     "skill": "redgreen",
@@ -10720,8 +10720,8 @@
         "repo"
       ]
     ],
-    "decision": "portable-for-agents",
-    "reason": "Use explicit cross-runtime derivative; retain separate canonical Claude workflow."
+    "decision": "live-canonical",
+    "reason": "Both runtimes consume .claude/skills/redgreen installed as one live canonical package; same-name portable derivatives remain distribution inputs."
   },
   {
     "skill": "rename-chat",
@@ -11043,8 +11043,8 @@
         "repo"
       ]
     ],
-    "decision": "portable-for-agents",
-    "reason": "Use explicit cross-runtime derivative; retain separate canonical Claude workflow."
+    "decision": "live-canonical",
+    "reason": "Both runtimes consume .claude/skills/research installed as one live canonical package; same-name portable derivatives remain distribution inputs."
   },
   {
     "skill": "resolving-merge-conflicts",
@@ -11316,8 +11316,8 @@
         "portable"
       ]
     ],
-    "decision": "portable-for-agents",
-    "reason": "Use explicit cross-runtime derivative; retain separate canonical Claude workflow."
+    "decision": "live-canonical",
+    "reason": "Both runtimes consume .claude/skills/root-cause-first installed as one live canonical package; same-name portable derivatives remain distribution inputs."
   },
   {
     "skill": "runlocal",
@@ -14494,8 +14494,8 @@
         "mac_claude"
       ]
     ],
-    "decision": "portable-for-agents",
-    "reason": "Use explicit cross-runtime derivative; retain separate canonical Claude workflow."
+    "decision": "live-canonical",
+    "reason": "Both runtimes consume portable/skills/sq installed as one live canonical package; same-name portable derivatives remain distribution inputs."
   },
   {
     "skill": "statusline",
@@ -14680,8 +14680,8 @@
         "portable"
       ]
     ],
-    "decision": "portable-for-agents",
-    "reason": "Use explicit cross-runtime derivative; retain separate canonical Claude workflow."
+    "decision": "live-canonical",
+    "reason": "Both runtimes consume .claude/skills/superpowers-quick installed as one live canonical package; same-name portable derivatives remain distribution inputs."
   },
   {
     "skill": "superpowers-receiving-code-review",

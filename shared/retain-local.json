@@ -8,6 +8,6 @@
   "mac-mirror": "Local variant coordinates multiple in-flight branches; preserve ongoing host workflow.",
   "auto-factory": "Local variant has current factory host and repair-mode routing; preserve deployment-specific owner.",
   "swarm": "Local variant includes host resource and worktree lifecycle policies; retain until host-specific workflow is migrated.",
-  "advice": "Claude package has newer executable pair runner; keep native runner while agents uses verified portable derivative.",
-  "web-advice": "Claude package has local browser driver changes; keep native driver while agents uses verified portable derivative."
+  "advice": "Retain complete local canonical executable pair runner; installer excludes this name from both runtimes.",
+  "web-advice": "Retain complete local canonical browser integration; installer excludes this name from both runtimes."
 }

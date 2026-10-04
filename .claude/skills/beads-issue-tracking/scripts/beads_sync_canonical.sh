@@ -21,6 +21,10 @@ fail() {
     exit 1
 }
 
+for helper in validate_beads_issues_jsonl.py sort_beads_jsonl.py; do
+    [ -f "$SCRIPT_DIR/$helper" ] || fail "Missing bundled export checker: $helper"
+done
+
 if [ -z "${BEADS_EXPORT_BUNDLE_DIR:-}" ]; then
     fail "BEADS_EXPORT_BUNDLE_DIR is required."
 fi

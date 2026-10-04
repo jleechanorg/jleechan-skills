@@ -48,7 +48,7 @@ portable behavior and complete packages, not timestamp or word count:
 
 ## Install
 
-First run the isolated tests and review the dry-run names:
+First run the isolated tests and review the dry-run names and source destinations:
 
 ```bash
 python3 -m unittest discover -s tests -p 'test_cross_host_catalog.py'
@@ -65,8 +65,10 @@ missing names. Retained local integrations remain excluded.
 
 Local files that differ from the reviewed source cause a pre-mutation conflict.
 For a subsequent reviewed update, pass `--baseline-receipt <prior-receipt>`;
-only unchanged previously managed bytes may be updated. Local extensions are
-preserved. Reconcile divergent content explicitly before retrying. Existing
+only unchanged previously managed bytes may be updated. Previously managed files
+removed from that source are moved intact to undo only when their prior hashes
+still match; changed retired files cause a pre-mutation conflict. Unmanaged local
+extensions are preserved. Reconcile divergent content explicitly before retrying. Existing
 snapshot links must be reconciled into real canonical directories first.
 
 Each operation records exact replaced files and consumer entries in a private
@@ -74,9 +76,22 @@ undo directory under `~/.local/state/jleechan-shared-skills/<release>`. Undo is
 retained; no old backups or snapshot directories are deleted. Verification reads
 live managed bytes and consumer targets, so later local edits are visible.
 
+To restore a successful release, run
+`python3 scripts/install_shared_catalog.py --release <release> --rollback`.
+Rollback first checks every affected postimage and refuses later local edits,
+linked ancestors, or missing preimages before restoring anything. It restores
+replaced files and consumer entries, removes only this release's additions from
+active paths, and retains both original backups and moved postimages in the
+same undo directory. Unmanaged extensions and empty parent directories remain.
+Undo dependent later releases first. A partially interrupted rollback is recorded
+as `rolling-back` with a restore map; inspect that receipt and preserve intervening
+edits rather than automatically retrying or overwriting them.
+
 Use the same reviewed repository commit and installer on each host through an
-existing authorized transport. Compare the installed `catalog.json` file hashes
-and verify results. Do not synchronize whole home directories or profile data.
+existing authorized transport. Compare the `managed` file-hash maps in each
+generated `receipt.json` and the `--verify` results; host-specific backup paths
+and action records are not portable manifest identity. No `catalog.json` is
+generated. Do not synchronize whole home directories or profile data.
 
 ## Discovery and limits
 
