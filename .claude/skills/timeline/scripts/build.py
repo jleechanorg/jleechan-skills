@@ -148,7 +148,7 @@ def short_link(target, path):
     for api in ("tinyurl", "cleanuri", "spoo"):
         try:
             out = _shorten(api, target)
-        except (OSError, ValueError):
+        except (OSError, ValueError, AttributeError):
             continue
         if re.fullmatch(r"https://\S+", out) and _redirects_to(out, target):
             side.write_text(f"{target}\n{out}\n")
@@ -171,9 +171,8 @@ def publish_bead(spec, path, gist_url, preview):
                               f"Provenance: /timeline for {path.name}; tracks the live timeline."]))
         bid = bid[0]["id"] if isinstance(bid, list) else bid["id"]
     side.write_text(bid + "\n")
-    notes = (f"Timeline gist: {gist_url}\nPreview: {preview}\nHTML: {path}\n"
-             f"Updated: {spec.get('snapshot', '')}")
-    run(["br", "--db", db, "update", bid, "--notes", notes])
+    notes = f"Timeline gist: {gist_url}\nPreview: {preview}\nHTML: {path}"
+    run(["br", "--db", db, "update", bid, "--append-notes", notes])
     return bid
 
 
@@ -297,7 +296,7 @@ def main(spec_path, out_path=None, branch=None, pr=None, publish=False):
         try:
             bid = publish_bead(spec, dest, gist_url, preview)
             print(f"Bead: {bid}  (gist {t1 - t0:.1f}s, bead {time.time() - t1:.1f}s)")
-        except (RuntimeError, KeyError, ValueError, subprocess.TimeoutExpired) as err:
+        except (RuntimeError, OSError, KeyError, ValueError, subprocess.TimeoutExpired) as err:
             print(f"build.py: bead step failed, timeline still drawn: {err}", file=sys.stderr)
 
 
