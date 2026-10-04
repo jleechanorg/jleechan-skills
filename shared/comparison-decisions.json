@@ -5101,8 +5101,8 @@
         "repo"
       ]
     ],
-    "decision": "canonical-repository",
-    "reason": "Keep supported public canonical workflow; avoid mechanical vendor renames and project-specific rules."
+    "decision": "retain-local",
+    "reason": "Live Mac discovery links to the active dark-factory project; retain project-owned workflow on both hosts instead of replacing the integration with a portable snapshot."
   },
   {
     "skill": "debug",
@@ -6788,8 +6788,8 @@
         "mac_claude"
       ]
     ],
-    "decision": "preserve-unmanaged-local-package",
-    "reason": "Outside maintained public catalog; retain locally rather than publish or overwrite an unreviewed integration."
+    "decision": "retain-local",
+    "reason": "Live Mac discovery links to the active dark-factory project; retain project-owned workflow on both hosts instead of replacing the integration with a portable snapshot."
   },
   {
     "skill": "factory-spec",
@@ -6809,8 +6809,8 @@
         "repo"
       ]
     ],
-    "decision": "canonical-repository",
-    "reason": "Keep supported public canonical workflow; avoid mechanical vendor renames and project-specific rules."
+    "decision": "retain-local",
+    "reason": "Live Mac discovery links to the active dark-factory project; retain project-owned workflow on both hosts instead of replacing the integration with a portable snapshot."
   },
   {
     "skill": "factory-status",
