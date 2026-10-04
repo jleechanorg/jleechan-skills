@@ -272,7 +272,9 @@ unchanged.
 > **Mandatory Code & Evidence Artifact Attachment Pattern (Zero Truncation / Full Grounding)**:
 > For any PR or code review, you MUST attach:
 > 1. `raw_git_diff.patch`: Exact unified diff of the PR against base branch.
-> 2. `full_changed_files.txt`: Complete source text for all changed files at HEAD.
+> 2. `full_changed_files.txt`: Complete source text for all changed files at HEAD,
+>    or the disclosed function-context and supporting packets specified by the
+>    per-seat size budget above. Account for every changed file in coverage.
 > 3. **All Evidence Artifacts**: Visual screenshot PNGs/GIFs (from test output / unlisted gist URLs per /es), DOM measurement files (`readout.json`), test execution transcripts, and `/es` evidence bundles (`.hermes-tasks/*-evidence.md`).
 > Never substitute an inlined diff summary or omit visual/runtime artifacts when claiming evidence-backed review.
 >
