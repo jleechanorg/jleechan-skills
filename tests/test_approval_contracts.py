@@ -189,7 +189,7 @@ class ApprovalContractsTest(unittest.TestCase):
 
     def test_evidence_staleness_is_about_production_behavior(self) -> None:
         standards = skill("evidence-standards")
-        self.assertIn("only PRODUCTION changes stale evidence", standards)
+        self.assertIn("the delta and the claim decide, not the path", standards)
         self.assertIn("A moving HEAD does NOT invalidate evidence by itself.", standards)
 
     def test_draft_gate_requires_sha_bound_approval_not_withheld(self) -> None:

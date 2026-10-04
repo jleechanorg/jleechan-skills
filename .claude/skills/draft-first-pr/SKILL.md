@@ -45,7 +45,7 @@ only the affected behavior.
 | Ordinary feature | Outcome spec, TDD, unit + relevant tests, correctness checkpoint, then formal review. |
 | Cross-service boundary | Add an integration-layer test; a mocked unit test cannot prove it. |
 | Large change | May pause at the correctness checkpoint for human direction before expensive review (optional, never a gate). |
-| High-risk (security, permission, approval, merge, destructive, credential) | No layer skipping; the full gate chain and independent final coverage still apply. |
+| High-risk (security, data-integrity, permission, deployment, approval, merge, destructive, credential) | No layer skipping; the full gate chain and independent final coverage still apply. |
 
 **Mandatory regardless of class:** gates the user explicitly required;
 high-risk, security, data-integrity, permission, deployment, approval, and merge
@@ -211,7 +211,7 @@ The verdict rule applies uniformly:
 - A stale `/advice` APPROVED does not justify marking the PR ready.
 - A stale `/green` does not justify reporting merge-readiness.
 
-Before trusting any prior verdict, compare the SHA it was stamped with against the PR's live head: `gh pr view <N> --json headRefOid --jq '.headRefOid'`. On mismatch, run the staleness-tolerance diff test (`git diff --name-only <verdict-sha> HEAD`): a non-behavioral delta lets the verdict be re-affirmed at the new SHA after documenting the diff; a material delta means re-earning the gate. Never carry a verdict forward on memory alone — and never trigger an expensive rerun per finding: batch all pending fixes into one new SHA first (see `evidence-standards` § Evidence Sequencing).
+Before trusting any prior verdict, compare the SHA it was stamped with against the PR's live head: `gh pr view <N> --json headRefOid --jq '.headRefOid'`. On mismatch, run the staleness-tolerance diff test (read `git diff <verdict-sha> HEAD` against the verdict's claims): a delta that leaves those claims intact lets the verdict be re-affirmed at the new SHA after documenting the diff; a material delta means re-earning the gate. Never carry a verdict forward on memory alone — and never trigger an expensive rerun per finding: batch all pending fixes into one new SHA first (see `evidence-standards` § Evidence Sequencing).
 
 **Chain timing and quality.** The draft chain (`/es` → `/er` → `/advice`) is the FINAL pass: run it after code is complete and all known findings are resolved or deferred (`evidence-standards` § Evidence Sequencing) — not per push while fixes are still landing. Review findings remain subject to the required correctness gates: behavior-blocking findings must be fixed and reverified, while style/nit/doc feedback may be tracked as follow-ups. Batch pending behavioral fixes into one SHA before re-earning affected evidence.
 

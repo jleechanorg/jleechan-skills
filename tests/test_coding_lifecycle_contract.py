@@ -53,7 +53,7 @@ class CodingLifecycleContract(unittest.TestCase):
         self.assertIn("never by path category", self.owner)
         for name in ("draft-first-pr", "ready", "web-advice", "evidence-standards"):
             text = read(name)
-            self.assertNotIn("docs, tests, skills, ordinary PR-policy", text)
+            self.assertNotIn("docs, tests, skills, ordinary pr-policy", text.lower())
             self.assertNotIn("test-only or otherwise non-behavioral", text)
             self.assertNotIn("non-behavioral paths is not stale", text)
             self.assertNotIn("test-only, docs-only", text)
@@ -137,6 +137,15 @@ class CodingLifecycleContract(unittest.TestCase):
         self.assertIn("high-risk/security", read("write-goal"))
         for name in ("write-goal", "ironclad"):
             self.assertIn("real-proof", read(name))
+
+    def test_evidence_standards_canonical_section_has_no_path_only_rule(self):
+        std = read("evidence-standards")
+        self.assertNotIn("only PRODUCTION changes stale evidence", std)
+        self.assertNotIn("required only when a production change exists", std)
+        self.assertNotIn("git diff --name-only <evidence-sha> HEAD", std)
+        self.assertIn("the delta and the claim decide, not the path", std)
+        self.assertIn("a changed test assertion, evidence driver/capture", std)
+        self.assertNotIn("git diff --name-only <verdict-sha> HEAD", read("draft-first-pr"))
 
 
 if __name__ == "__main__":

@@ -73,7 +73,7 @@ Collect the goal topic and any constraints. If the user gave the topic as `$ARGU
 
 **If the user typed `/write-goal <topic>` with no constraints at all → make the call yourself per the user's standing rule (finish-the-job § Anti-patterns: "correct but misinterpret is fine"), do not block on Phase 1 questions.**
 
-### Phase 2 — Mine the last 30 days of coding-CLI history (mandatory)
+### Phase 2 — Mine the last 30 days of coding-CLI history (mandatory unless skipped per the applicability rule above)
 
 Pull the user's actual coding history so the goal is grounded. Run two parallel searches:
 
@@ -247,7 +247,7 @@ Post a single reply containing:
 - ❌ **`gh pr checks` as green proof** — env-preferences: `gh pr checks` can report stale passes; must verify current-head `statusCheckRollup` (CI green) and `mergeable == MERGEABLE` (no conflicts).
 - ❌ **Goal with no dispatch routing** — without an inline-vs-AO rule, a future agent will self-execute a 30-commit PR inline and drop it when the gateway session caps. Cite `scope-pivot-to-ao`.
 - ❌ **Goal with no "no follow-up question" in DoD** — finish-the-job's contract requires the agent drive to conclusion. A goal that allows "want me to X?" mid-stream reproduces the silent-stop pattern.
-- ❌ **Skipping Phase 2 mining** — without history+memory grounding the goal is generic; the third failure mode (vague goal → vague outcome) recurs. **Specific failure mode (2026-06-28):** substituting `session_search` (a different tool that searches message summaries) for actual `/history` queries against the SQLite databases. `session_search` does NOT query `state.db` or `state_5.sqlite` — it has different scope and returns different results. Phase 2 MUST use `session-history-search` to query the actual session stores with the SQL patterns documented in that skill.
+- ❌ **Skipping Phase 2 mining on a goal it applies to** — without history+memory grounding the goal is generic; the third failure mode (vague goal → vague outcome) recurs. **Specific failure mode (2026-06-28):** substituting `session_search` (a different tool that searches message summaries) for actual `/history` queries against the SQLite databases. `session_search` does NOT query `state.db` or `state_5.sqlite` — it has different scope and returns different results. Phase 2 MUST use `session-history-search` to query the actual session stores with the SQL patterns documented in that skill.
 - ❌ **Writing project-specific workflow names into the skill itself** — the SKILL.md stays general; the workflow names live in the generated `.converge/goal.md`. The skill is reusable across repos.
 - ❌ **Bare `#N` PR references** — pr-hyperlink rule: every PR number in the goal doc itself and in the final reply must be a markdown hyperlink.
 

@@ -105,18 +105,19 @@ Reachability is **computed, never a hardcoded list** (a frozen "X is unreachable
 
 **Generate the report from a per-item ledger, not free narration.** One row per requested element: `item | status (DELIVERED / GATE-EXCLUDED / NOT-YET-DRIVEN / UNDETERMINED) | reason | artifact`. Counts are computed from the ledger so no item is silently dropped and no cause is applied to a group without a per-row reason. **Before writing GATE-EXCLUDED, confirm the gate is intrinsic to the item, not to a turn/run type** — e.g. a gate on "turns emitting tool_requests" excludes turns, not agents, so a tool-capable agent is NOT-YET-DRIVEN/UNDETERMINED, never statically impossible. A static "impossible list" that is really a per-run property is a ZFC violation.
 
-## Evidence Staleness Tolerance — only PRODUCTION changes stale evidence
+## Evidence Staleness Tolerance — the delta and the claim decide, not the path
 
 **A moving HEAD does NOT invalidate evidence by itself.** Evidence captured at a prior SHA
-stays valid at HEAD as long as **no production-code change** landed between the evidence SHA
-and HEAD. Docs, tests, skills, ordinary PR-policy changes, CI-lint, type-hints, and comment-only commits stacked on top
-do **not** require a fresh evidence run. Flagging evidence "stale" because the head SHA moved
+stays valid at HEAD as long as the delta between the evidence SHA and HEAD leaves every
+claim the evidence backs intact. A docs typo, comment, type-hint, or lint-only commit usually
+does not require a fresh evidence run; a changed test assertion, evidence driver/capture,
+prompt, contract, or executable instruction that a claim depends on does. Flagging evidence "stale" because the head SHA moved
 — without checking *what* moved — is an over-correction; check the diff, not the SHA equality.
 
 **The check is a diff, not a SHA comparison:**
 
 1. Determine the evidence SHA (from `metadata.json.provenance.git_head` or the bundle README).
-2. `git diff --name-only <evidence-sha> HEAD` — classify every changed file.
+2. `git diff <evidence-sha> HEAD` — read every changed file's content diff against the claims it could affect.
 3. If **every** changed file's content diff is non-behavioral (candidates: docs, comments, type-hints,
    lint CI workflows **excluding** `deploy*`/`*preview*`) → evidence remains valid; document the tolerance and move on.
    Path category is a starting hint only: a test, evidence driver/capture, prompt, contract, schema, or
@@ -125,8 +126,9 @@ do **not** require a fresh evidence run. Flagging evidence "stale" because the h
 4. For any `.py` file you classify as "comment/type-hint only," run the full content diff
    (`git diff <evidence-sha> HEAD -- <file>`) — `--name-only` can't tell a comment edit from a behavior edit.
 
-**Fresh evidence IS required only when a production change exists** between the SHAs:
-production code (the repo's source tree excluding its test dirs, **including** prompt/template surfaces — the repo-level /es file names the exact paths),
+**Fresh evidence IS required when the delta changes production behavior or anything a claim
+depends on** between the SHAs: a test assertion, evidence driver/capture, or executable instruction
+backing the claim; production code (the repo's source tree excluding its test dirs, **including** prompt/template surfaces — the repo-level /es file names the exact paths),
 API/endpoints/game logic/agent routing, runtime config (env vars, feature flags), DB schema/migrations,
 or a deploy/preview workflow — or any **mixed** diff containing at least one such file.
 
