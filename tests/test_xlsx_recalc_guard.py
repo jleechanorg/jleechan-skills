@@ -66,6 +66,22 @@ class RecalcGuardTests(unittest.TestCase):
                 self.assertIn('Cannot verify', module.recalc(path, force=True)['error'])
                 setup.assert_not_called()
 
+    def test_malformed_core_and_package_xml_never_reaches_macro_setup(self):
+        module = self.module()
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'bad-core.xlsx'
+            for name in ['[Content_Types].xml', 'xl/workbook.xml', 'xl/worksheets/sheet1.xml', 'xl/styles.xml', 'xl/sharedStrings.xml', 'docProps/core.xml']:
+                for force in [False, True]:
+                    with self.subTest(part=name, force=force):
+                        with ZipFile(path, 'w') as archive:
+                            archive.writestr('xl/_rels/workbook.xml.rels', '<Relationships/>')
+                            archive.writestr(name, '<malformed')
+                        before = path.read_bytes()
+                        with patch.object(module, 'setup_libreoffice_macro', return_value=False) as setup:
+                            self.assertIn('Cannot verify', module.recalc(path, force=force)['error'])
+                            setup.assert_not_called()
+                        self.assertEqual(path.read_bytes(), before)
+
     def test_force_and_timeout_cli_contract(self):
         module = self.module()
         for arguments, seconds, force in [

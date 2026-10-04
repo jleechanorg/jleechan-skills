@@ -282,7 +282,7 @@ unchanged.
 > For `aside repl` / `aside-mcp`, files MUST be staged inside the active Aside session directory (`pwd`, e.g. `path.join(pwd, 'pr<N>', filename)`). Aside strictly rejects paths outside the session directory (`escapes the session directory`). Copy all packet files and evidence artifacts into `path.join(pwd, ...)` before calling `setInputFiles`.
 
 **Illustrative Playwright pattern:** inspect the current provider's composer
-and attachment-chip DOM first and replace the selector below. This template
+and attachment-chip DOM first, configure its provider name, and replace the selector below. This template
 assumes the existing `modelPage` and Aside `pwd`; it is not proof that any
 provider was exercised. Unsupported selectors or upload APIs must stop the seat,
 not become an attachment-grounded verdict.
@@ -292,6 +292,10 @@ not become an attachment-grounded verdict.
 {
 const path = await import('node:path');
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const provider = 'REPLACE_WITH_INSPECTED_PROVIDER';
+if (!['chatgpt', 'gemini', 'perplexity'].includes(provider)) {
+  throw new Error('Inspect and configure the provider before upload');
+}
 const attachmentChipSelector = 'REPLACE_WITH_INSPECTED_COMPOSER_ATTACHMENT_CHIP_SELECTOR';
 if (attachmentChipSelector.startsWith('REPLACE_')) {
   throw new Error('Inspect and configure the composer attachment-chip selector before upload');
@@ -339,14 +343,16 @@ if (composerReadback !== reviewPrompt) {
 }
 
 // Step 3c: Submit (Click Send button for ChatGPT/Gemini, or Press Enter for Perplexity)
-const sendBtn = await modelPage.locator('button[aria-label="Send prompt"], button[data-testid="send-button"]').first();
+const sendBtn = await modelPage.locator('button[aria-label="Send prompt"], button[aria-label="Send message"], button[aria-label="Send"], button[data-testid="send-button"]').last();
 if (await sendBtn.isVisible()) {
   if (!await sendBtn.isEnabled()) {
     throw new Error('Send button is disabled; do not submit');
   }
   await sendBtn.click();
-} else {
+} else if (provider === 'perplexity') {
   await modelPage.keyboard.press('Enter');
+} else {
+  throw new Error('No visible provider send control; do not submit with Enter');
 }
 }
 ```

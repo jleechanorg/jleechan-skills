@@ -71,13 +71,13 @@ def setup_libreoffice_macro():
 
 
 def external_workbook_links(filename):
-    """Detect OOXML external workbook parts/relationships before any rewrite."""
+    """Parse package XML and detect external workbook links before any rewrite."""
     external = False
     with ZipFile(filename) as archive:
         for name in archive.namelist():
             if name.startswith('xl/externalLinks/'):
                 external = True
-            if name.endswith('.rels') or (name.startswith('xl/externalLinks/') and name.endswith('.xml')):
+            if name.endswith(('.xml', '.rels')):
                 root = ElementTree.fromstring(archive.read(name))
                 for relationship in root:
                     kind = relationship.get('Type', '').rsplit('/', 1)[-1]
