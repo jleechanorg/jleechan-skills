@@ -478,7 +478,7 @@ class TestPRAssociation(unittest.TestCase):
         )
         _setup_queue(stub, [push_run], {7: same_branch_pr})
         # Override the branch-head response so push event sees a different head.
-        stub.add("/branches/feature/x", {"commit": {"name": "refs/heads/feature/x", "sha": "branch_new"}})
+        stub.add("/branches/feature%2Fx", {"name": "feature/x", "commit": {"sha": "branch_new"}})
 
         audited, _ = _audit_with(stub)
         self.assertEqual(len(audited), 1)
@@ -658,8 +658,8 @@ class TestWorkflowProtection(unittest.TestCase):
         )
         _setup_queue(stub, [run])
         stub.add(
-            "/branches/feature/x",
-            {"commit": {"name": "refs/heads/feature/x", "sha": "branch_new"}},
+            "/branches/feature%2Fx",
+            {"name": "feature/x", "commit": {"sha": "branch_new"}},
         )
 
         audited, _ = _audit_with(stub)
@@ -1125,8 +1125,8 @@ class TestNewReviewCoverage(unittest.TestCase):
         )
         _setup_queue(stub, [run])
         stub.add(
-            "/branches/feature/dormant",
-            {"commit": {"name": "refs/heads/feature/dormant", "sha": "new_head"}},
+            "/branches/feature%2Fdormant",
+            {"name": "feature/dormant", "commit": {"sha": "new_head"}},
         )
         stub.allow_cancel(770)
 
@@ -1433,6 +1433,41 @@ class TestBaseIdentityAndJSON(unittest.TestCase):
                 self.assertEqual(stub.cancel_calls, cancellations)
                 self.assertIn("Auditing queued CI", stderr.getvalue())
                 self.assertEqual(bool(payload["stats"].get("queue_fetch_failed")), queue == "failure")
+
+
+class TestExactPushBranchIdentity(unittest.TestCase):
+    def test_encoded_branch_identity_at_audit_and_refresh(self):
+        for branch, encoded in (("feature#2", "feature%232"),
+                                ("feature%2Ftwo", "feature%252Ftwo"),
+                                ("feature/two", "feature%2Ftwo")):
+            for returned_name in (branch, "wrong", None):
+                for current_sha in ("old", "new"):
+                    with self.subTest(branch=branch, returned=returned_name, current=current_sha):
+                        stub = _RunCmdStub()
+                        run = queued_run(910, event="push", branch=branch, head_sha="old")
+                        _setup_queue(stub, [run])
+                        response = {"commit": {"sha": current_sha}}
+                        if returned_name is not None:
+                            response["name"] = returned_name
+                        endpoint = f"repos/owner/repo/branches/{encoded}"
+                        # Exact argv equality avoids the older substring stub
+                        # hiding a malformed branch endpoint.
+                        def respond(cmd, timeout=60):
+                            if cmd[:2] == ["gh", "api"] and "/branches/" in cmd[2]:
+                                self.assertEqual(cmd[2], endpoint)
+                                return 0, json.dumps(response), ""
+                            return stub(cmd, timeout)
+                        with mock.patch.object(ci_queue_trim, "run_cmd", side_effect=respond):
+                            audited, _ = ci_queue_trim.audit_queue(
+                                "owner/repo", allowed_workflows={".github/workflows/ci.yml"})
+                            accepted = ci_queue_trim.cancel_with_per_item_refresh(
+                                "owner/repo", [{"run_id": 910, "verdict": "CANCEL"}],
+                                allowed_workflows={".github/workflows/ci.yml"})
+                        should_cancel = returned_name == branch and current_sha != "old"
+                        self.assertEqual(audited[0]["verdict"], "CANCEL" if should_cancel else "KEEP")
+                        self.assertEqual(audited[0]["audit_incomplete"], returned_name != branch)
+                        self.assertEqual(accepted, [910] if should_cancel else [])
+                        self.assertEqual(stub.cancel_calls, [910] if should_cancel else [])
 
 
 if __name__ == "__main__":

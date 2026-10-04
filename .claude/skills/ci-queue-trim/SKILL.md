@@ -66,7 +66,9 @@ to detect this without false-positive dormancy cancellations.
 - For `pull_request_target`: base-side semantics. The run's `head_sha`
   is the BASE branch SHA, not the PR head SHA. Tip advances on the PR
   are NOT proven supersede — always keep, including MERGED/CLOSED PRs.
-- For `push` events: comparison ref is the branch HEAD SHA.
+- For `push` events: comparison ref is the branch HEAD SHA. The branch
+  name is URL-encoded as one path component; the returned branch `name` must
+  exactly match the requested name, or the run is KEEP incomplete.
 - For `merge_group` and any unsupported event: never apply the generic
   stale-head comparison.
 
@@ -238,30 +240,31 @@ decisions.
 
 ---
 
-## Self-Healing & Remediation Recipes
+## Diagnostic Follow-up
 
-### 1. Colima Sockets Stuck / Multiple `limactl usernet` PIDs
-If `--check-host` reports orphaned `usernet` processes or missing sockets:
-```bash
-ps -Ao pid,command | grep '[l]imactl usernet'
-kill -9 <PID_1> <PID_2>
-rm -f ~/.colima/_lima/_networks/user-v2/user-v2_*.sock
-colima start
-```
+### 1. Colima Networking
+Host-health observations are diagnostic hints, not proof that a process or
+socket is orphaned. Resolve the host Colima installation and its owning
+configuration; inspect exact process arguments, socket ownership, and active
+VM connections using that installation's read-only status tools. Any repair
+must follow the owning service instructions and normal authorization boundary
+with exact validated targets. This skill does not authorize termination,
+socket removal, or service restart.
 
-### 2. Host Disk Floor Tripped (`free_disk_gb < 7.0`)
-```bash
-ls -la /private/tmp/
-lsof +D /private/tmp/<dir_name>
-rm -rf /private/tmp/<dir_name>
-```
+### 2. Host Disk Floor
+A low-space observation does not identify safe deletion targets. Follow the
+host's disk-diagnosis owner instructions, attribute usage to exact paths, and
+check their owners and active users. Cleanup requires a separate authorized
+scope with validated targets; this portable queue skill provides no deletion
+recipe.
 
-### 3. Verify Self-Hosted Runner Capacity
-After trimming stale runs:
-```bash
-./doctor-runner
-```
-Expect **16/16 healthy** (6 Mac + 10 Linux runners executing or cycling).
+### 3. Self-Hosted Runner Capacity
+Runner health belongs to the runner installation. Resolve the actual
+`ez-gh-actions` repository path and read its instructions before invoking its
+`doctor-runner` checker. That checker is not included in this portable skill;
+there is no working-directory-relative command here. Report observed worker
+execution per configured slot using the owning fleet contract; cycling alone
+is not execution proof.
 
 ### 4. Audit-Incomplete Runs
 If a run is reported with `audit_incomplete=True`, the script could not

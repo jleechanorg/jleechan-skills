@@ -55,6 +55,7 @@ import subprocess
 import sys
 from collections import namedtuple
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import quote
 
 DEFAULT_REPO = "jleechanorg/worldarchitect.ai"
 DEFAULT_MAX_AGE_HOURS = 2.0
@@ -467,8 +468,8 @@ def fetch_pr_record(repo: str, pr_number: int) -> Optional[Dict[str, Any]]:
 
 def fetch_branch_head(repo: str, branch: str) -> Optional[str]:
     """Return the branch HEAD SHA, or None on error."""
-    data = _gh_api(f"repos/{repo}/branches/{branch}")
-    if not data:
+    data = _gh_api(f"repos/{repo}/branches/{quote(branch, safe='')}")
+    if not data or data.get("name") != branch:
         return None
     return (data.get("commit") or {}).get("sha")
 

@@ -238,3 +238,34 @@ Raw receipts: /tmp/runner-approval-20261004-queue/fix-round3-tests.txt,
 fix-round3-installer.txt, and fix-round3-red.txt on Linux. No live
 cancellation, installed-skill change, service change or runtime-config
 change was performed by this review-fix lane.
+
+## Final branch identity and portable guidance correction — 2026-10-04
+
+Push branch lookup now encodes the complete branch name as one URL path
+component and requires the returned branch name to match exactly. Missing
+or mismatched names keep the run incomplete at both audit and refresh.
+Regressions cover legal names containing #, percent escapes and slashes,
+matching and superseded SHAs, and missing or wrong returned names.
+
+Inspected every remaining API interpolation: repository paths use the
+operator target or GitHub repository identity; run IDs and PR numbers come
+from numeric API fields; commit lookups use the API head SHA and only supply
+age reporting. No other endpoint inserts an arbitrary branch/ref name.
+
+Removed exported process-kill, socket-glob deletion, recursive cleanup,
+and service-start recipes. Host observations now lead only to read-only
+diagnosis under the owning service/disk instructions. Runner verification
+requires resolving the actual ez-gh-actions repository and its contract;
+this portable package does not supply a relative doctor-runner command.
+
+Linux focused suite: 43 tests pass. Installer suite: 26 tests pass.
+Raw receipts: /tmp/runner-approval-20261004-queue/fix-round4-tests.txt,
+fix-round4-installer.txt, fix-round4-red.txt and fix-round4-live-read.txt.
+No live cancellations or runtime changes were made.
+
+Nonblocking follow-ups retained from pair-4 review: cancellation failures
+currently exit zero with acceptance totals on stderr; JSON contains audit
+results rather than cancellation outcomes; queue limit truncation is not
+reported; repository full-name comparison is case-sensitive and safely
+skips mismatches; one missing-repository test also hits base-identity checks.
+These observations are not claims that those follow-ups were implemented.
