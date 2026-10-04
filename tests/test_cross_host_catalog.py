@@ -255,6 +255,8 @@ class ReviewRegressionTests(unittest.TestCase):
      if not re.search(r'(?:/advice|/web-advice|advice/SKILL)',text):continue
      checked.append(p.parent.name)
      self.assertIn('## Retained review integrations',text,p.parent.name)
+     before=text.split('## Retained review integrations',1)[0]
+     self.assertEqual(sum(line.startswith('```') for line in before.splitlines())%2,0,p.parent.name)
      self.assertIn('For a remote invocation, check',text,p.parent.name)
      self.assertIn('UNAVAILABLE',text,p.parent.name)
      self.assertIn('leave any dependent readiness or plan-approval gate unmet',text,p.parent.name)
