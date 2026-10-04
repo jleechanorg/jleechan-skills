@@ -93,6 +93,9 @@ class CatalogTests(unittest.TestCase):
     self.assertTrue(references,name)
     for ref in references:self.assertTrue((skill.parent/ref).is_file(),(name,ref))
     self.assertEqual((h/'.agents/skills'/name).resolve(),skill.parent)
+ def test_browserclaw_does_not_export_generated_nested_skills(self):
+  package=ROOT/'.claude/skills/browserclaw'
+  self.assertEqual(sorted(str(p.relative_to(package)) for p in package.rglob('SKILL.md')),['SKILL.md'])
  def test_refuses_reused_release(self):
   spec=importlib.util.spec_from_file_location('catalog',ROOT/'scripts/install_shared_catalog.py');m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
   with tempfile.TemporaryDirectory() as t:
