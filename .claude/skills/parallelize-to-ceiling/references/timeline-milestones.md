@@ -11,7 +11,7 @@ Identify the critical path and distinguish estimates from observed completion.
 For short work, one row and the final completion report are sufficient.
 
 Design as many useful independent parallel lanes as possible. Follow
-`${CLAUDE_HOME:-$HOME/.claude}/skills/parallelize-to-ceiling/SKILL.md` for resource admission,
+the parent skill [parallelize-to-ceiling](../SKILL.md) for runtime-aware resource admission,
 isolation, and live concurrency proof. State the independent lane count,
 measured runnable ceiling, planned simultaneous count, and the binding limit.
 When future execution capacity cannot yet be measured, label the ceiling
