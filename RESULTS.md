@@ -269,3 +269,31 @@ results rather than cancellation outcomes; queue limit truncation is not
 reported; repository full-name comparison is case-sensitive and safely
 skips mismatches; one missing-repository test also hits base-identity checks.
 These observations are not claims that those follow-ups were implemented.
+
+
+## 2026-10-04: run identity and ambiguous push namespace correction
+
+The shared run fetch now rejects missing or mismatched response IDs and
+missing/mismatched repository identity before both audit classification and
+pre-cancellation refresh. It requires repository.id and an exact requested
+repository.full_name. The duplicate mutation-only validation was removed.
+
+Push runs now always remain KEEP with audit_incomplete=true. The retained
+REST run metadata does not establish the original branch-versus-tag namespace;
+a branch-name match or present-day tag absence cannot exclude a historical
+tag push, including a deleted tag. Earlier push-cancellation statements and
+branch-encoding evidence above are historical and superseded by this limitation.
+The unused branch lookup was removed; neither audit nor refresh fetches refs
+or tries PR association for push runs. Explicit PR supersession remains enabled.
+Research provenance: /tmp/runner-opt-20261003/push-ref-research.md (parent review).
+
+Regressions exercise actual audit and refresh with invalid run/repository
+identity, current/stale push-looking records, same-name ref ambiguity, deleted
+tag-looking names, protected main, and both compatibility modes. No live
+cancellation, service, or runtime configuration change was performed.
+Authentic pre-fix receipt: /tmp/runner-opt-20261003/queue-identity-namespace-red.log
+(43 tests, 28 failing subcases). Final focused suite: 43 tests pass; installer suite: 26 tests pass.
+Receipts: /tmp/runner-opt-20261003/queue-identity-namespace-green.log and
+/tmp/runner-opt-20261003/queue-identity-namespace-installer.log.
+git diff --check passes. These are isolated fixture tests, not live
+cancellation proof or current-head production activation.

@@ -66,14 +66,15 @@ to detect this without false-positive dormancy cancellations.
 - For `pull_request_target`: base-side semantics. The run's `head_sha`
   is the BASE branch SHA, not the PR head SHA. Tip advances on the PR
   are NOT proven supersede — always keep, including MERGED/CLOSED PRs.
-- For `push` events: comparison ref is the branch HEAD SHA. The branch
-  name is URL-encoded as one path component; the returned branch `name` must
-  exactly match the requested name, or the run is KEEP incomplete.
+- For `push` events: always KEEP with `audit_incomplete=True`. The run
+  record does not prove the original branch/tag namespace. Current tag
+  absence cannot exclude a deleted tag; same-name branch/tag collisions
+  are ambiguous. No branch or tag lookup authorizes cancellation.
 - For `merge_group` and any unsupported event: never apply the generic
   stale-head comparison.
 
 ### 3. Lookup failure (PR / commit / run detail unknown)
-If the audit cannot verify the PR/branch head or run detail, the run is
+If the audit cannot verify the PR or run detail, the run is
 kept with `audit_incomplete=True`. A missing head-commit date marks
 matching-head age reporting incomplete; it does not block proven
 supersession. Run age never substitutes for head-commit age.
@@ -104,25 +105,23 @@ to the wrong PR.
 
 ### 5. Per-item refresh before cancellation
 Before every individual `gh run cancel`, the script re-fetches the run
-record and the exact PR (or branch HEAD for push events), re-runs the
+record and the exact PR for PR events, re-runs the
 **same pure classifier** the audit used, and only cancels if the verdict
 is still CANCEL. If state moved on between audit time and mutation
 time, the candidate is dropped.
 
-The fresh response is validated before any mutation:
+Both audit and refresh use the same run-response validation:
 - `data.id` MUST equal the requested `run_id` (mismatched id ⇒ drop,
   even if the rest looks valid).
 - `head_sha`, `event`, and `path` must be nonempty; `status` must be
   `queued` before mutation.
-- `repository` must contain a nonempty `id` or `full_name`. When
-  `full_name` is present, it must equal the requested `OWNER/REPO`.
-  With `id` alone, repository scope relies on the exact REST endpoint;
-  `repository.name` is not required.
+- `repository` must contain a nonempty `id` and `full_name`;
+  `full_name` must equal the requested `OWNER/REPO`. Missing or mismatched
+  identity keeps the audit row incomplete and prevents cancellation.
 - PR runs require exactly one `pull_requests` association with matching
   PR number and numeric `head.repo.id`, plus equal association/run/fetched-PR
-  base repository IDs. Thus PR cancellation requires `run.repository.id`,
-  even though push refresh can accept `repository.full_name` alone. Push runs require a successful
-  branch-head lookup. Incomplete identity or lookups keep the run.
+  base repository IDs. Incomplete identity or lookups keep the run.
+  Push events remain ambiguous and are never cancellation candidates.
 
 Every mode requires `superseded=True` before cancellation. Neither old
 commits nor MERGED/CLOSED state authorizes cancellation of current-head
@@ -285,7 +284,7 @@ that consumes pre-fetched facts and returns a `Classification` namedtuple
 (`verdict, superseded, audit_incomplete, reason, pr_state`):
 
 - `audit_queue` fetches each run's record + the exact PR (via the run
-  detail's `pull_requests` array) + the branch HEAD for push events,
+  detail's `pull_requests` array),
   then calls `classify_run` once per run.
 - `cancel_with_per_item_refresh` re-runs the same fetch + classifier
   pipeline per candidate immediately before each `gh run cancel`.

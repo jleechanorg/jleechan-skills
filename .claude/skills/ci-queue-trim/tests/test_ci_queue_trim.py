@@ -252,9 +252,7 @@ def _setup_queue(
     the audit has a starting queue. ``queue_fetch_rc`` is non-zero to
     simulate a failed queue fetch.
 
-    Push events DO NOT have a branch HEAD stub pre-registered here; tests
-    that need a particular branch HEAD must register one explicitly so
-    they retain control over the supersede-vs-not verdict.
+    Push events remain ambiguous and never fetch branch HEAD.
     """
     pr_by_number = pr_by_number or {}
     if queue_fetch_rc != 0:
@@ -336,11 +334,10 @@ class TestClassifierSemantics(unittest.TestCase):
     }
 
     def _classify(self, run: Dict[str, Any], pr: Optional[Dict[str, Any]],
-                  branch_head_sha: Optional[str], metadata_complete: bool = True):
+                  metadata_complete: bool = True):
         return ci_queue_trim.classify_run(
             run=run,
             pr=pr,
-            branch_head_sha=branch_head_sha,
             metadata_complete=metadata_complete,
             options=self.BASE_OPTS,
             now=FIXED_NOW,
@@ -355,7 +352,7 @@ class TestClassifierSemantics(unittest.TestCase):
             head_sha="new_tip",
             merge_commit_sha="merge_commit_xyz",  # separate field; not used
         )
-        cls = self._classify(run, pr, None)
+        cls = self._classify(run, pr)
         self.assertEqual(cls.verdict, "CANCEL")
         self.assertTrue(cls.superseded)
         self.assertFalse(cls.audit_incomplete)
@@ -363,7 +360,7 @@ class TestClassifierSemantics(unittest.TestCase):
     def test_pull_request_current_head_kept_when_run_sha_matches_tip(self):
         run = queued_run(2, head_sha="tip_a", pr_numbers=[42])
         pr = pr_record(42, head_sha="tip_a", head_commit_minutes_ago=10)
-        cls = self._classify(run, pr, None)
+        cls = self._classify(run, pr)
         self.assertEqual(cls.verdict, "KEEP")
         self.assertFalse(cls.superseded)
 
@@ -373,33 +370,34 @@ class TestClassifierSemantics(unittest.TestCase):
         run = queued_run(3, head_sha="base_at_v1", event="pull_request_target",
                          branch="feature/qt", pr_numbers=[42])
         pr_open = pr_record(42, head_sha="tip_v2")  # tip advanced
-        cls = self._classify(run, pr_open, None)
+        cls = self._classify(run, pr_open)
         # Open PR + base-side semantics → KEEP unless proven.
         self.assertEqual(cls.verdict, "KEEP")
         self.assertFalse(cls.superseded)
 
         pr_merged = pr_record(42, head_sha="tip_v2", state="closed", merged=True)
-        cls = self._classify(run, pr_merged, None)
+        cls = self._classify(run, pr_merged)
         self.assertEqual(cls.verdict, "KEEP")
         self.assertEqual(cls.pr_state, "MERGED")
 
-    def test_push_event_branch_head_mismatch_cancels(self):
+    def test_push_event_keeps_incomplete(self):
         run = queued_run(4, head_sha="branch_old", event="push", branch="feature/x",
                          pr_numbers=[])
-        cls = self._classify(run, None, branch_head_sha="branch_new")
-        self.assertEqual(cls.verdict, "CANCEL")
-        self.assertTrue(cls.superseded)
+        cls = self._classify(run, None)
+        self.assertEqual(cls.verdict, "KEEP")
+        self.assertFalse(cls.superseded)
+        self.assertTrue(cls.audit_incomplete)
 
     def test_merge_group_event_skips_stale_head_comparison(self):
         run = queued_run(5, head_sha="x", event="merge_group", branch="feature/mq",
                          pr_numbers=[], created_minutes_ago=6 * 60)
-        cls = self._classify(run, None, "anything")
+        cls = self._classify(run, None)
         self.assertEqual(cls.verdict, "KEEP")
         self.assertIn("merge_group", cls.reason.lower())
 
     def test_unknown_event_keeps_with_audit_incomplete(self):
         run = queued_run(6, head_sha="x", event="repository_dispatch", pr_numbers=[])
-        cls = self._classify(run, None, None)
+        cls = self._classify(run, None)
         self.assertEqual(cls.verdict, "KEEP")
         self.assertTrue(cls.audit_incomplete)
         self.assertIn("unsupported", cls.reason.lower())
@@ -477,17 +475,12 @@ class TestPRAssociation(unittest.TestCase):
             7, head_sha="branch_new", head_ref="feature/x"
         )
         _setup_queue(stub, [push_run], {7: same_branch_pr})
-        # Override the branch-head response so push event sees a different head.
-        stub.add("/branches/feature%2Fx", {"name": "feature/x", "commit": {"sha": "branch_new"}})
-
         audited, _ = _audit_with(stub)
-        self.assertEqual(len(audited), 1)
-        self.assertEqual(audited[0]["event"], "push")
-        # Push run is cancelled via branch-head mismatch, NOT via the PR.
-        self.assertEqual(audited[0]["verdict"], "CANCEL")
-        self.assertTrue(audited[0]["superseded"])
-        # The PR was not used to classify.
+        self.assertEqual(audited[0]["verdict"], "KEEP")
+        self.assertTrue(audited[0]["audit_incomplete"])
         self.assertIsNone(audited[0]["pr_number"])
+        self.assertFalse(any("/pulls/" in " ".join(cmd) or "/branches/" in " ".join(cmd)
+                             for cmd in stub.calls))
 
 
 # ---------------------------------------------------------------------------
@@ -652,15 +645,11 @@ class TestWorkflowProtection(unittest.TestCase):
     def test_deploy_yml_at_v2_kept_by_default(self):
         stub = _RunCmdStub()
         run = queued_run(
-            301, name="Deploy", event="push",
-            branch="feature/x", head_sha="branch_old", pr_numbers=[],
+            301, name="Deploy", event="pull_request",
+            branch="feature/x", head_sha="branch_old", pr_numbers=[42],
             workflow_path=".github/workflows/deploy.yml@v2",
         )
-        _setup_queue(stub, [run])
-        stub.add(
-            "/branches/feature%2Fx",
-            {"name": "feature/x", "commit": {"sha": "branch_new"}},
-        )
+        _setup_queue(stub, [run], {42: pr_record(42, head_sha="branch_new")})
 
         audited, _ = _audit_with(stub)
         # Default empty allowlist → KEEP "not in --allow-workflow list".
@@ -949,7 +938,7 @@ class TestNewReviewCoverage(unittest.TestCase):
         )
         pr_merged_qt = pr_record(42, head_sha="base_v1", state="closed", merged=True)
         cls = ci_queue_trim.classify_run(
-            run=run_t, pr=pr_merged_qt, branch_head_sha=None,
+            run=run_t, pr=pr_merged_qt,
             metadata_complete=True,
             options={**self.BASE_OPTS, "superseded_only": True},
             now=FIXED_NOW,
@@ -963,7 +952,7 @@ class TestNewReviewCoverage(unittest.TestCase):
         )
         pr_merged_p = pr_record(42, head_sha="tip_v1", state="closed", merged=True)
         cls = ci_queue_trim.classify_run(
-            run=run_p, pr=pr_merged_p, branch_head_sha=None,
+            run=run_p, pr=pr_merged_p,
             metadata_complete=True,
             options={**self.BASE_OPTS, "superseded_only": True},
             now=FIXED_NOW,
@@ -977,7 +966,7 @@ class TestNewReviewCoverage(unittest.TestCase):
         )
         pr_new = pr_record(42, head_sha="new_tip")
         cls = ci_queue_trim.classify_run(
-            run=run_s, pr=pr_new, branch_head_sha=None,
+            run=run_s, pr=pr_new,
             metadata_complete=True,
             options={**self.BASE_OPTS, "superseded_only": True},
             now=FIXED_NOW,
@@ -1112,37 +1101,6 @@ class TestNewReviewCoverage(unittest.TestCase):
         self.assertEqual(stub.cancel_calls, [])
 
     # ---- obsolete push preserved ----
-
-    def test_obsolete_push_cancels_at_mutation(self):
-        """Proven obsolete-head CANCEL propagates through the same classifier
-        + check path at mutation time (not silently dropped by separate
-        decision logic)."""
-        stub = _RunCmdStub()
-        # Push event with an old head; branch head advanced → CANCEL.
-        run = queued_run(
-            770, event="push", branch="feature/dormant", head_sha="old_head",
-            pr_numbers=[], workflow_path=".github/workflows/ci.yml",
-        )
-        _setup_queue(stub, [run])
-        stub.add(
-            "/branches/feature%2Fdormant",
-            {"name": "feature/dormant", "commit": {"sha": "new_head"}},
-        )
-        stub.allow_cancel(770)
-
-        audited, _ = _audit_with(
-            stub, allowed_workflows={".github/workflows/ci.yml"}
-        )
-        self.assertEqual(audited[0]["verdict"], "CANCEL")
-        self.assertTrue(audited[0]["superseded"])
-
-        with mock.patch.object(ci_queue_trim, "run_cmd", side_effect=stub), _patch_now():
-            cancelled = ci_queue_trim.cancel_with_per_item_refresh(
-                "owner/repo", audited,
-                allowed_workflows={".github/workflows/ci.yml"},
-            )
-        self.assertEqual(cancelled, [770])
-        self.assertEqual(stub.cancel_calls, [770])
 
     # ---- fetched pr_record.number must equal requested pr_number ----
 
@@ -1435,39 +1393,68 @@ class TestBaseIdentityAndJSON(unittest.TestCase):
                 self.assertEqual(bool(payload["stats"].get("queue_fetch_failed")), queue == "failure")
 
 
-class TestExactPushBranchIdentity(unittest.TestCase):
-    def test_encoded_branch_identity_at_audit_and_refresh(self):
-        for branch, encoded in (("feature#2", "feature%232"),
-                                ("feature%2Ftwo", "feature%252Ftwo"),
-                                ("feature/two", "feature%2Ftwo")):
-            for returned_name in (branch, "wrong", None):
-                for current_sha in ("old", "new"):
-                    with self.subTest(branch=branch, returned=returned_name, current=current_sha):
+class TestAmbiguousPushNamespace(unittest.TestCase):
+    def test_all_push_namespaces_keep_at_audit_and_refresh(self):
+        # Current/stale branch-looking names, same-name tag/branch collision,
+        # and a deleted-tag-looking name have the same insufficient REST shape.
+        for branch in ("feature/current", "feature/stale", "release", "deleted-tag", "main"):
+            for head_sha in ("current", "old"):
+                for superseded_only in (False, True):
+                    with self.subTest(branch=branch, head_sha=head_sha, mode=superseded_only):
                         stub = _RunCmdStub()
-                        run = queued_run(910, event="push", branch=branch, head_sha="old")
+                        run = queued_run(910, event="push", branch=branch, head_sha=head_sha)
                         _setup_queue(stub, [run])
-                        response = {"commit": {"sha": current_sha}}
-                        if returned_name is not None:
-                            response["name"] = returned_name
-                        endpoint = f"repos/owner/repo/branches/{encoded}"
-                        # Exact argv equality avoids the older substring stub
-                        # hiding a malformed branch endpoint.
-                        def respond(cmd, timeout=60):
-                            if cmd[:2] == ["gh", "api"] and "/branches/" in cmd[2]:
-                                self.assertEqual(cmd[2], endpoint)
-                                return 0, json.dumps(response), ""
-                            return stub(cmd, timeout)
-                        with mock.patch.object(ci_queue_trim, "run_cmd", side_effect=respond):
+                        with mock.patch.object(ci_queue_trim, "run_cmd", side_effect=stub):
                             audited, _ = ci_queue_trim.audit_queue(
-                                "owner/repo", allowed_workflows={".github/workflows/ci.yml"})
+                                "owner/repo", superseded_only=superseded_only,
+                                allowed_workflows={".github/workflows/ci.yml"})
                             accepted = ci_queue_trim.cancel_with_per_item_refresh(
                                 "owner/repo", [{"run_id": 910, "verdict": "CANCEL"}],
+                                superseded_only=superseded_only,
                                 allowed_workflows={".github/workflows/ci.yml"})
-                        should_cancel = returned_name == branch and current_sha != "old"
-                        self.assertEqual(audited[0]["verdict"], "CANCEL" if should_cancel else "KEEP")
-                        self.assertEqual(audited[0]["audit_incomplete"], returned_name != branch)
-                        self.assertEqual(accepted, [910] if should_cancel else [])
-                        self.assertEqual(stub.cancel_calls, [910] if should_cancel else [])
+                        self.assertEqual(audited[0]["verdict"], "KEEP")
+                        self.assertTrue(audited[0]["audit_incomplete"])
+                        self.assertFalse(audited[0]["superseded"])
+                        self.assertEqual(accepted, [])
+                        self.assertEqual(stub.cancel_calls, [])
+                        self.assertFalse(any("/branches/" in " ".join(cmd) or
+                                             "/git/ref" in " ".join(cmd) or
+                                             "/pulls/" in " ".join(cmd)
+                                             for cmd in stub.calls))
+
+
+class TestRunResponseIdentity(unittest.TestCase):
+    def test_invalid_run_identity_keeps_at_actual_audit_and_refresh(self):
+        for invalid in ("missing_id", "wrong_id", "missing_repo",
+                        "wrong_repo", "missing_full_name", "missing_repo_id"):
+            with self.subTest(invalid=invalid):
+                stub = _RunCmdStub()
+                run = queued_run(920, head_sha="old", pr_numbers=[42])
+                _setup_queue(stub, [run], {42: pr_record(42, head_sha="new")})
+                if invalid == "missing_id":
+                    run.pop("id")
+                elif invalid == "wrong_id":
+                    run["id"] = 921
+                elif invalid == "missing_repo":
+                    run.pop("repository")
+                elif invalid == "wrong_repo":
+                    run["repository"]["full_name"] = "other/repo"
+                elif invalid == "missing_full_name":
+                    run["repository"].pop("full_name")
+                else:
+                    run["repository"].pop("id")
+                with mock.patch.object(ci_queue_trim, "run_cmd", side_effect=stub):
+                    audited, _ = ci_queue_trim.audit_queue(
+                        "owner/repo", allowed_workflows={".github/workflows/ci.yml"})
+                    accepted = ci_queue_trim.cancel_with_per_item_refresh(
+                        "owner/repo", [{"run_id": 920, "verdict": "CANCEL"}],
+                        allowed_workflows={".github/workflows/ci.yml"})
+                self.assertEqual(audited[0]["run_id"], 920)
+                self.assertEqual(audited[0]["verdict"], "KEEP")
+                self.assertTrue(audited[0]["audit_incomplete"])
+                self.assertEqual(accepted, [])
+                self.assertEqual(stub.cancel_calls, [])
+                self.assertFalse(any("/pulls/" in " ".join(cmd) for cmd in stub.calls))
 
 
 if __name__ == "__main__":

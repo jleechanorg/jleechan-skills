@@ -3,7 +3,7 @@
 ci_queue_trim.py — CI Queue Inactivity Triage & Trimming Tool
 
 Audits and trims queued GitHub Actions workflow runs whose head SHA is no
-longer current (a newer push advanced the PR/branch head). PR closure and
+longer current (a newer push advanced the PR head). PR closure and
 commit age never authorize cancellation. Anything the audit cannot verify is kept
 with ``audit_incomplete=True``; the tool never substitutes the run's age
 for a missing head-commit age.
@@ -19,8 +19,8 @@ Event semantics:
   * ``pull_request_target``: base-side semantics. Always KEEP —
     base-side runs execute on the BASE SHA, not the PR
     head SHA, so a tip advance on the PR is not a supersede signal.
-  * ``push``: superseded when ``run.head_sha`` ≠ branch HEAD. Push events
-    are not associated with any PR; do not search for one.
+  * ``push``: always KEEP incomplete; the original branch/tag namespace
+    is unavailable. Do not infer it from current refs or search for a PR.
   * ``merge_group``: always kept.
   * unknown event: ``audit_incomplete=True``; never cancel.
 
@@ -55,7 +55,6 @@ import subprocess
 import sys
 from collections import namedtuple
 from typing import Any, Dict, List, Optional, Tuple
-from urllib.parse import quote
 
 DEFAULT_REPO = "jleechanorg/worldarchitect.ai"
 DEFAULT_MAX_AGE_HOURS = 2.0
@@ -166,7 +165,6 @@ def classify_run(
     *,
     run: Dict[str, Any],
     pr: Optional[Dict[str, Any]],
-    branch_head_sha: Optional[str],
     metadata_complete: bool,
     options: Dict[str, Any],
     now: datetime.datetime,
@@ -179,7 +177,7 @@ def classify_run(
     verdicts stay aligned.
 
     ``metadata_complete`` means the run detail was successfully fetched.
-    PR / branch-head fetches are tracked separately and degrade
+    PR fetches are tracked separately and degrade
     ``audit_incomplete`` only for the cases that actually need them.
     """
     pb = options.get("protected_branches", PROTECTED_BRANCHES)
@@ -200,8 +198,15 @@ def classify_run(
             pr_state="UNKNOWN",
         )
 
+    if event == "push":
+        return Classification(
+            verdict="KEEP", superseded=False, audit_incomplete=True,
+            reason="Push ref namespace is unverified; audit incomplete",
+            pr_state="N/A",
+        )
+
     # The remaining checks consume the run record directly and do NOT
-    # require the PR / branch head to have been fetched.
+    # require the PR to have been fetched.
     if branch in pb:
         return Classification(
             verdict="KEEP", superseded=False, audit_incomplete=False,
@@ -239,29 +244,6 @@ def classify_run(
         return Classification(
             verdict="KEEP", superseded=False, audit_incomplete=True,
             reason=f"Unsupported event '{event}'; audit incomplete", pr_state="N/A",
-        )
-
-    if event == "push":
-        # Push events are NEVER associated with a PR; the PR argument
-        # (if any) must be ignored here.
-        if not branch_head_sha:
-            return Classification(
-                verdict="KEEP", superseded=False, audit_incomplete=True,
-                reason="Branch HEAD lookup failed; audit incomplete",
-                pr_state="N/A",
-            )
-        if run_head_sha and branch_head_sha and run_head_sha != branch_head_sha:
-            return Classification(
-                verdict="CANCEL", superseded=True, audit_incomplete=False,
-                reason=(
-                    f"Run head {run_head_sha[:7]} no longer matches branch "
-                    f"HEAD {branch_head_sha[:7]} (superseded push)"
-                ),
-                pr_state="N/A",
-            )
-        return Classification(
-            verdict="KEEP", superseded=False, audit_incomplete=False,
-            reason="Push event: head matches branch HEAD", pr_state="N/A",
         )
 
     # pull_request and pull_request_target both require an exact PR
@@ -395,10 +377,16 @@ def fetch_run_record(repo: str, run_id: int) -> Optional[Dict[str, Any]]:
     the run's ``repository`` carries ``id`` + ``full_name``, while each
     ``pull_requests[].head.repo`` carries only ``{id, name, url}`` — NOT
     ``full_name``. Identity verification therefore uses the stable
-    numeric ``repo.id``, not ``full_name``.
+    numeric ``repo.id`` for PR associations; the run repository must also
+    match the requested full name before audit or refresh normalization.
     """
     data = _gh_api(f"repos/{repo}/actions/runs/{run_id}")
-    if not data:
+    if not data or run_id is None or data.get("id") != run_id:
+        return None
+    if not (data.get("head_sha") and data.get("event") and data.get("path")):
+        return None
+    repository = data.get("repository") or {}
+    if not repository.get("id") or repository.get("full_name") != repo:
         return None
     return _normalize_run_record(data)
 
@@ -466,14 +454,6 @@ def fetch_pr_record(repo: str, pr_number: int) -> Optional[Dict[str, Any]]:
     }
 
 
-def fetch_branch_head(repo: str, branch: str) -> Optional[str]:
-    """Return the branch HEAD SHA, or None on error."""
-    data = _gh_api(f"repos/{repo}/branches/{quote(branch, safe='')}")
-    if not data or data.get("name") != branch:
-        return None
-    return (data.get("commit") or {}).get("sha")
-
-
 def get_queued_runs(repo: str, limit: int = 100) -> Optional[List[Dict[str, Any]]]:
     """Return the list of queued runs or ``None`` on fetch failure.
 
@@ -503,13 +483,13 @@ def get_queued_runs(repo: str, limit: int = 100) -> Optional[List[Dict[str, Any]
 
 
 def _collect_inputs(repo: str, run_record: Dict[str, Any]) -> Tuple[
-    Optional[Dict[str, Any]], Optional[str], bool
+    Optional[Dict[str, Any]], bool
 ]:
-    """Fetch (pr_record, branch_head_sha) for the given run, plus a flag
+    """Fetch the exact PR for the given run, plus a flag
     saying whether all required fetches succeeded.
 
-    For ``push`` events we never look up a PR — push runs have no PR
-    association. For other events, the PR is fetched ONLY for the run's
+    For ``push`` events no lookup can prove the original ref namespace.
+    For other events, the PR is fetched ONLY for the run's
     own ``pull_requests`` array (no branch-name guessing), and we
     REQUIRE ``len(pr_array)==1`` plus an exact repo identity match between
     the PR association and the fetched PR. Multiple associations, zero
@@ -517,25 +497,19 @@ def _collect_inputs(repo: str, run_record: Dict[str, Any]) -> Tuple[
     """
     event = run_record.get("event") or ""
     pr_record: Optional[Dict[str, Any]] = None
-    branch_head: Optional[str] = None
-
-    ok_pr = True
-    ok_branch = True
 
     if event == "push":
-        branch = run_record.get("head_branch") or ""
-        branch_head = fetch_branch_head(repo, branch)
-        ok_branch = branch_head is not None
+        return None, False
     elif event in SUPPORTED_EVENTS:
         pr_refs = run_record.get("pull_requests") or []
         # Strict: require EXACTLY one PR association. 0 = nothing to
         # bind; >1 = ambiguous, refuse to guess which is canonical.
         if len(pr_refs) != 1:
-            return None, None, False
+            return None, False
         pr_ref = pr_refs[0]
         pr_number = pr_ref.get("number")
         if not pr_number:
-            return None, None, False
+            return None, False
         # Identity required from BOTH the run's PR association AND the
         # fetched PR. We match the stable numeric ``head.repo.id``
         # (the run's PR association has ``{id, name, url}`` but NOT
@@ -544,35 +518,34 @@ def _collect_inputs(repo: str, run_record: Dict[str, Any]) -> Tuple[
         expected_repo_id = ((pr_ref.get("head") or {}).get("repo") or {}).get("id")
         pr_record = fetch_pr_record(repo, pr_number)
         if pr_record is None:
-            return None, None, False
+            return None, False
         # The endpoint MUST return the PR whose `number` matches the
         # requested ``pr_number``. A wrong PR with the same
         # ``head.repo.id`` (same fork) is a misroute — refuse it.
         actual_number = pr_record.get("number")
         if actual_number != pr_number:
-            return None, None, False
+            return None, False
         actual_repo_id = (
             (pr_record.get("head") or {}).get("repo") or {}
         ).get("id")
         if not expected_repo_id or not actual_repo_id or expected_repo_id != actual_repo_id:
-            return None, None, False
+            return None, False
         # PR numbers are scoped to the base repository, not the head fork.
         run_repo_id = (run_record.get("repository") or {}).get("id")
         association_base_id = ((pr_ref.get("base") or {}).get("repo") or {}).get("id")
         actual_base_id = ((pr_record.get("base") or {}).get("repo") or {}).get("id")
         if not run_repo_id or not association_base_id or not actual_base_id:
-            return None, None, False
+            return None, False
         if not (association_base_id == run_repo_id == actual_base_id):
-            return None, None, False
+            return None, False
         # Historical association head.sha may differ from the current tip:
         # that difference is the supersession signal, not an identity failure.
-        ok_pr = True
     elif event in MERGE_GROUP_EVENTS:
-        pass  # neither PR nor branch head is required
+        pass  # no PR is required
     else:
-        return None, None, False
+        return None, False
 
-    return pr_record, branch_head, ok_pr and ok_branch
+    return pr_record, True
 
 
 def audit_queue(
@@ -622,15 +595,14 @@ def audit_queue(
                 "repository": {"full_name": ""},
                 "pull_requests": [],
             }
-            pr, branch_head = None, None
+            pr = None
         else:
             run = run_detail
-            pr, branch_head, _ = _collect_inputs(repo, run)
+            pr, _ = _collect_inputs(repo, run)
 
         cls = classify_run(
             run=run,
             pr=pr,
-            branch_head_sha=branch_head,
             metadata_complete=metadata_complete,
             options=options,
             now=now,
@@ -696,7 +668,7 @@ def cancel_with_per_item_refresh(
            (``id``, ``head_sha``, ``event``, ``path``) and repository
            identity. Refuse incomplete or mismatched responses.
         2. Confirm the run is still ``queued`` (not yet started).
-        3. Re-fetch the exact PR (or branch head for push events), with
+        3. Re-fetch the exact PR for PR events, with
            the same strict exactly-one + identity semantics.
         4. Re-classify using the pure ``classify_run`` (single
            classification path — no duplicate decision logic).
@@ -729,43 +701,20 @@ def cancel_with_per_item_refresh(
         if run_id is None:
             continue
 
-        # 1. Re-fetch run record.
-        data = _gh_api(f"repos/{repo}/actions/runs/{run_id}")
-        if data is None:
+        # 1. Use the same run identity validation as the audit.
+        run = fetch_run_record(repo, run_id)
+        if run is None:
             continue
-        # Validate required fields — malformed responses are refused.
-        # ``data.id`` MUST equal the requested run_id (no mismatch between
-        # the URL path and the returned identifier is acceptable).
-        if data.get("id") != run_id:
-            continue
-        if not (data.get("head_sha") and data.get("event") and data.get("path")):
-            continue
-        # Repository identity: the response's ``repository`` field
-        # carries ``id`` + ``full_name``. The URL path
-        # ``repos/{repo}/actions/runs/{run_id}`` implies the run is
-        # from the target repo, but we cross-check ``full_name`` when
-        # available. If ``full_name`` is missing, we trust the URL path
-        # (the alternative would mark every minimal-response run as
-        # UNKNOWN). Missing identity entirely → refuse.
-        repo_data = data.get("repository") or {}
-        repo_id = repo_data.get("id")
-        repo_full_name = (repo_data.get("full_name") or "").strip()
-        if not repo_id and not repo_full_name:
-            continue
-        if repo_full_name and repo_full_name != repo:
-            continue
-        run = _normalize_run_record(data)
         # 2. Confirm still queued.
         if (run.get("status") or "").lower() != "queued":
             continue
         # 3. Re-fetch exact inputs (strict exactly-one PR + identity).
-        pr, branch_head, fetches_ok = _collect_inputs(repo, run)
+        pr, fetches_ok = _collect_inputs(repo, run)
         # 4. Re-classify with the SAME pure classifier.
         cls = classify_run(
             run=run,
             pr=pr,
-            branch_head_sha=branch_head,
-            metadata_complete=fetches_ok,
+            metadata_complete=True,
             options=options,
             now=now,
         )
