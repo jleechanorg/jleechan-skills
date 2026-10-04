@@ -364,7 +364,8 @@ def main() -> None:
             except Exception:
                 pass
 
-        # Deploy skill to ~/.claude/skills/<slug>/SKILL.md AND browserclaw repo skills/ dir
+        # Deploy skill to ~/.claude/skills/<slug>/SKILL.md, and keep a
+        # version-controlled copy only when browserclaw is its own checkout.
         if getattr(args, "deploy_skill", False):
             skill_path = bundle.get("skill")
             if skill_path:
@@ -377,12 +378,25 @@ def main() -> None:
                 shutil.copy2(skill_path, dest_home)
                 bundle["deployed_skill"] = str(dest_home)
 
-                # 2. browserclaw repo skills/ dir (for version control)
-                repo_skills = Path(__file__).parent.parent.parent / "skills" / slug
-                repo_skills.mkdir(parents=True, exist_ok=True)
-                dest_repo = repo_skills / "SKILL.md"
-                shutil.copy2(skill_path, dest_repo)
-                bundle["repo_skill"] = str(dest_repo)
+                # 2. Version-controlled copy. Skill discovery is recursive, so a
+                # SKILL.md written under an installed skill package registers as
+                # a second, unreviewed top-level skill. Only write this copy when
+                # browserclaw is a real checkout, and never under a skills root.
+                package_root = Path(__file__).parent.parent.parent
+                installed_under_skills = any(
+                    parent.name == "skills" for parent in package_root.parents
+                )
+                if (package_root / ".git").exists() and not installed_under_skills:
+                    repo_skills = package_root / "generated" / slug
+                    repo_skills.mkdir(parents=True, exist_ok=True)
+                    dest_repo = repo_skills / "SKILL.md"
+                    shutil.copy2(skill_path, dest_repo)
+                    bundle["repo_skill"] = str(dest_repo)
+                else:
+                    bundle["repo_skill"] = (
+                        "skipped: browserclaw is installed as a skill, so a nested "
+                        "SKILL.md would leak into skill discovery"
+                    )
 
         print(json.dumps({key: str(value) for key, value in bundle.items()}, indent=2))
         return

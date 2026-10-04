@@ -8,7 +8,16 @@ description: "Reusable SSH-first-then-Tailscale transport ladder for reaching pe
 Single source of truth for the "try LAN, then Tailscale, then Slack" transport escalation. Re-used verbatim by:
 
 - [`mac-remote`](../mac-remote/SKILL.md) and [`linux-remote`](../linux-remote/SKILL.md) — ad hoc SSH steering
-- [`mac-mirror`](../mac-mirror/SKILL.md) and [`linux-mirror`](../linux-mirror/SKILL.md) — hand off a committed branch + tmux resume
+- Locally retained `mac-mirror` and `linux-mirror` integrations — hand off a committed branch + tmux resume when available
+
+The two mirror integrations are excluded from a fresh shared-catalog install.
+For a requested mirror handoff, resolve `../mac-mirror/SKILL.md` or
+`../linux-mirror/SKILL.md` relative to this package and read the named integration
+only when its SKILL.md already exists. If it is absent, that mirror handoff is unavailable:
+report the missing host integration, preserve local state, and do not invent
+branch-transfer/tmux-resume actions or install a replacement workflow. Ad hoc
+SSH steering through mac-remote/linux-remote is independent of mirror availability;
+use the existing authorized host configuration for that separately requested task.
 
 Keep this ladder in sync across all four consumers. If you change the tier definitions or the fallback policy, update the four consumers in the same commit.
 

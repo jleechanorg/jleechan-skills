@@ -1,0 +1,13 @@
+{
+  "social-poster": "Local package includes authenticated publishing integrations and generated workflows absent from the public export; retain complete local package.",
+  "test-realistic": "Local package includes a project-specific real-provider runner absent from the public export; retain its complete local package.",
+  "runner-health": "Fleet targets and helper behavior diverge; installed supervisor configuration owns counts, not a portable snapshot.",
+  "ezgha-watchdog": "Host-specific runner fleet configuration owns targets; retain local operational package.",
+  "levelup": "Local helper uses a different project scenario CLI; project checkout owns the executable contract.",
+  "linux-mirror": "Local variant coordinates multiple in-flight branches; preserve ongoing host workflow.",
+  "mac-mirror": "Local variant coordinates multiple in-flight branches; preserve ongoing host workflow.",
+  "auto-factory": "Local variant has current factory host and repair-mode routing; preserve deployment-specific owner.",
+  "swarm": "Local variant includes host resource and worktree lifecycle policies; retain until host-specific workflow is migrated.",
+  "advice": "Retain complete local canonical executable pair runner; installer excludes this name from both runtimes.",
+  "web-advice": "Retain complete local canonical browser integration; installer excludes this name from both runtimes."
+}
