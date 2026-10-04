@@ -1457,5 +1457,127 @@ class TestRunResponseIdentity(unittest.TestCase):
                 self.assertFalse(any("/pulls/" in " ".join(cmd) for cmd in stub.calls))
 
 
+class TestRawCancellationInputs(unittest.TestCase):
+    def assert_rejected(self, mutate, requested_run_id=None):
+        # Register faithful baseline endpoints, then poison the raw responses.
+        # Generic endpoint stubs ensure malformed IDs still receive the same
+        # poisoned payload, rather than passing via an accidental 404.
+        stub = _RunCmdStub()
+        run = queued_run(940, head_sha="old", pr_numbers=[42], branch="main")
+        pr = pr_record(42, head_sha="new")
+        _setup_queue(stub, [run], {42: pr})
+        run["head_branch"] = "feature/test"
+        mutate(run, pr)
+        run_id = run.get("id") if requested_run_id is None else requested_run_id
+        stub.responses[0][1][0]["databaseId"] = run_id
+        stub.add("/actions/runs/", run)
+        stub.add("/pulls/", pr)
+        for phase in ("audit", "refresh"):
+            with self.subTest(phase=phase):
+                with mock.patch.object(ci_queue_trim, "run_cmd", side_effect=stub):
+                    if phase == "audit":
+                        rows, _ = ci_queue_trim.audit_queue(
+                            "owner/repo", allowed_workflows={".github/workflows/ci.yml"})
+                        self.assertEqual(rows[0]["verdict"], "KEEP")
+                        self.assertTrue(rows[0]["audit_incomplete"])
+                    else:
+                        accepted = ci_queue_trim.cancel_with_per_item_refresh(
+                            "owner/repo", [{"run_id": run_id, "verdict": "CANCEL"}],
+                            allowed_workflows={".github/workflows/ci.yml"})
+                        self.assertEqual(accepted, [])
+                        self.assertEqual(stub.cancel_calls, [])
+
+    def test_ids_and_pr_numbers_require_positive_json_integers(self):
+        for field in ("run", "repository", "number", "head_repo", "base_repo"):
+            for value in (None, 0, -1, True, 1.5, "123", [], {}):
+                with self.subTest(field=field, value=value):
+                    def mutate(run, pr):
+                        association = run["pull_requests"][0]
+                        if field == "run":
+                            run["id"] = value
+                        elif field == "repository":
+                            run["repository"]["id"] = value
+                            association["base"]["repo"]["id"] = value
+                            pr["base"]["repo"]["id"] = value
+                        elif field == "number":
+                            association["number"] = value
+                            pr["number"] = value
+                        else:
+                            side = "head" if field == "head_repo" else "base"
+                            association[side]["repo"]["id"] = value
+                            pr[side]["repo"]["id"] = value
+                            if side == "base":
+                                run["repository"]["id"] = value
+                    self.assert_rejected(mutate)
+
+    def test_push_does_not_normalize_irrelevant_malformed_associations(self):
+        stub = _RunCmdStub()
+        run = queued_run(941, event="push", head_sha="old", pr_numbers=[])
+        _setup_queue(stub, [run])
+        run["pull_requests"] = [None, {"number": "invalid"}]
+        rows, _ = _audit_with(stub)
+        self.assertEqual(rows[0]["verdict"], "KEEP")
+        self.assertTrue(rows[0]["audit_incomplete"])
+        self.assertIn("namespace", rows[0]["reason"])
+        with mock.patch.object(ci_queue_trim, "run_cmd", side_effect=stub):
+            self.assertEqual(ci_queue_trim.cancel_with_per_item_refresh(
+                "owner/repo", [{"run_id": 941, "verdict": "CANCEL"}],
+                allowed_workflows={".github/workflows/ci.yml"}), [])
+        self.assertEqual(stub.cancel_calls, [])
+        self.assertFalse(any("/pulls/" in " ".join(cmd) for cmd in stub.calls))
+
+    def test_boolean_and_float_aliases_do_not_match_integer_identity(self):
+        for value in (True, 1.0):
+            with self.subTest(field="run_response", value=value):
+                self.assert_rejected(lambda run, pr: run.__setitem__("id", value),
+                                     requested_run_id=1)
+            for field in ("number", "head", "base"):
+                with self.subTest(field=field, value=value):
+                    def mutate(run, pr):
+                        association = run["pull_requests"][0]
+                        if field == "number":
+                            association["number"] = 1
+                            pr["number"] = value
+                        else:
+                            association[field]["repo"]["id"] = 1
+                            pr[field]["repo"]["id"] = value
+                            if field == "base":
+                                run["repository"]["id"] = 1
+                    self.assert_rejected(mutate)
+
+    def test_missing_or_malformed_branch_and_sha_cannot_bypass_protection(self):
+        for field in ("head_branch", "head_sha", "event", "path"):
+            for value in (None, "", "   ", True, 123, [], {}):
+                with self.subTest(field=field, value=value):
+                    self.assert_rejected(lambda run, pr: run.__setitem__(field, value))
+        self.assert_rejected(lambda run, pr: run.pop("head_branch"))
+
+    def test_raw_association_cardinality_is_preserved(self):
+        for extra in ({}, {"number": None}, {"number": 0}, None, "invalid"):
+            with self.subTest(extra=extra):
+                self.assert_rejected(lambda run, pr: run["pull_requests"].append(extra))
+        for value in (None, {}, "invalid", [None]):
+            with self.subTest(associations=value):
+                self.assert_rejected(lambda run, pr: run.__setitem__("pull_requests", value))
+
+    def test_malformed_nested_pr_identity_is_rejected_before_normalization(self):
+        for owner in ("association", "fetched"):
+            for path in (("head",), ("base",), ("head", "repo"), ("base", "repo")):
+                for value in (None, [], "invalid"):
+                    with self.subTest(owner=owner, path=path, value=value):
+                        def mutate(run, pr):
+                            target = run["pull_requests"][0] if owner == "association" else pr
+                            for key in path[:-1]:
+                                target = target[key]
+                            target[path[-1]] = value
+                        self.assert_rejected(mutate)
+        for value in (None, [], "invalid"):
+            with self.subTest(run_repository=value):
+                self.assert_rejected(lambda run, pr: run.__setitem__("repository", value))
+        for value in (None, "", "   ", True, 123, [], {}):
+            with self.subTest(fetched_sha=value):
+                self.assert_rejected(lambda run, pr: pr["head"].__setitem__("sha", value))
+
+
 if __name__ == "__main__":
     unittest.main()

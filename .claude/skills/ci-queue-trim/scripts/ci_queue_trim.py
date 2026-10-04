@@ -318,20 +318,44 @@ def classify_run(
 # ---------------------------------------------------------------------------
 
 
+def _positive_json_integer(value: Any) -> bool:
+    # bool is an int subclass in Python but is not a JSON integer identity.
+    return type(value) is int and value > 0
+
+
+def _nonempty_string(value: Any) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _valid_pr_identity(data: Any) -> bool:
+    """Validate raw association/PR identity before normalization or comparison."""
+    if not isinstance(data, dict) or not _positive_json_integer(data.get("number")):
+        return False
+    for side in ("head", "base"):
+        ref = data.get(side)
+        if not isinstance(ref, dict):
+            return False
+        repo = ref.get("repo")
+        if not isinstance(repo, dict) or not _positive_json_integer(repo.get("id")):
+            return False
+    return _nonempty_string(data["head"].get("sha"))
+
+
 def _normalize_run_record(data: Dict[str, Any]) -> Dict[str, Any]:
     """Map a raw ``actions/runs/{id}`` payload to the normalized internal dict.
 
     Pure: consumes the already-fetched payload, performs no network I/O
-    and no validation. Both ``fetch_run_record`` and the per-item
-    pre-cancel refresh in ``cancel_with_per_item_refresh`` call this
-    helper, so the audit-time and pre-mutation record shape stays
+    and no validation. Shared ``fetch_run_record`` calls this helper
+    for both audit and per-item pre-cancel refresh, so the record shape stays
     identical without a second API fetch.
 
-    Validation lives in the callers — they need the raw ``data`` to
+    Validation lives in ``fetch_run_record``, which needs raw ``data`` to
     enforce ``data.id == run_id`` strict equality, required-field
     presence, and repository identity before normalization.
     """
     repo_data = data.get("repository") or {}
+    associations = (data["pull_requests"] if data["event"] in
+                    {"pull_request", "pull_request_target"} else [])
     return {
         "databaseId": data.get("id") or data.get("databaseId"),
         "name": data.get("name") or "",
@@ -364,8 +388,7 @@ def _normalize_run_record(data: Dict[str, Any]) -> Dict[str, Any]:
                     },
                 },
             }
-            for p in (data.get("pull_requests") or [])
-            if p.get("number")
+            for p in associations
         ],
     }
 
@@ -380,14 +403,24 @@ def fetch_run_record(repo: str, run_id: int) -> Optional[Dict[str, Any]]:
     numeric ``repo.id`` for PR associations; the run repository must also
     match the requested full name before audit or refresh normalization.
     """
+    if not _positive_json_integer(run_id):
+        return None
     data = _gh_api(f"repos/{repo}/actions/runs/{run_id}")
-    if not data or run_id is None or data.get("id") != run_id:
+    if not data or not _positive_json_integer(data.get("id")) or data["id"] != run_id:
         return None
-    if not (data.get("head_sha") and data.get("event") and data.get("path")):
+    if not all(_nonempty_string(data.get(key)) for key in
+               ("head_sha", "head_branch", "event", "path", "status")):
         return None
-    repository = data.get("repository") or {}
-    if not repository.get("id") or repository.get("full_name") != repo:
+    repository = data.get("repository")
+    if (not isinstance(repository, dict)
+            or not _positive_json_integer(repository.get("id"))
+            or repository.get("full_name") != repo):
         return None
+    if data["event"] in {"pull_request", "pull_request_target"}:
+        associations = data.get("pull_requests")
+        if (not isinstance(associations, list) or len(associations) != 1
+                or not _valid_pr_identity(associations[0])):
+            return None
     return _normalize_run_record(data)
 
 
@@ -407,8 +440,11 @@ def fetch_pr_record(repo: str, pr_number: int) -> Optional[Dict[str, Any]]:
     absent; the run is KEEP incomplete. ``updated_at`` is preserved
     separately for reporting only.
     """
+    if not _positive_json_integer(pr_number):
+        return None
     data = _gh_api(f"repos/{repo}/pulls/{pr_number}")
-    if not data:
+    if (not _valid_pr_identity(data) or data["number"] != pr_number
+            or not _nonempty_string(data.get("state"))):
         return None
     head = data.get("head") or {}
     base = data.get("base") or {}

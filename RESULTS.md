@@ -297,3 +297,21 @@ Receipts: /tmp/runner-opt-20261003/queue-identity-namespace-green.log and
 /tmp/runner-opt-20261003/queue-identity-namespace-installer.log.
 git diff --check passes. These are isolated fixture tests, not live
 cancellation proof or current-head production activation.
+
+
+## Raw cancellation-input validation correction (2026-10-04)
+
+Shared run fetching now validates raw identity and association structure
+before normalization. Run IDs, PR numbers, and all run/association/fetched-PR
+repository IDs must be positive JSON integers, excluding booleans and floats.
+Required run strings include the branch, preventing missing detail metadata
+from bypassing branch protection. PR events require exactly one raw, valid
+association; malformed entries cannot shrink an ambiguous array to one.
+Fetched PR identity and head SHA are validated at their input owner too.
+Non-PR events do not normalize irrelevant PR associations; push runs remain
+KEEP incomplete.
+
+New offline audit-and-refresh regressions reproduced 68 assertion failures
+and 36 parsing errors against the preceding implementation before the fix.
+These fixtures prove deterministic input handling; no live cancellation,
+deployment, or installed-skill activation is claimed.

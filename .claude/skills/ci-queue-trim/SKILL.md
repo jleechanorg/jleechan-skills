@@ -111,14 +111,18 @@ is still CANCEL. If state moved on between audit time and mutation
 time, the candidate is dropped.
 
 Both audit and refresh use the same run-response validation:
+- Run IDs, PR numbers, and repository IDs must be positive JSON integers;
+  strings, booleans, floats, zero, and negative values are rejected.
 - `data.id` MUST equal the requested `run_id` (mismatched id ⇒ drop,
   even if the rest looks valid).
-- `head_sha`, `event`, and `path` must be nonempty; `status` must be
+- `head_sha`, `head_branch`, `event`, `path`, and `status` must be nonempty
+  strings; `status` must be
   `queued` before mutation.
 - `repository` must contain a nonempty `id` and `full_name`;
   `full_name` must equal the requested `OWNER/REPO`. Missing or mismatched
   identity keeps the audit row incomplete and prevents cancellation.
-- PR runs require exactly one `pull_requests` association with matching
+- PR runs require exactly one structurally valid raw `pull_requests`
+  association before normalization (malformed entries are never dropped), with matching
   PR number and numeric `head.repo.id`, plus equal association/run/fetched-PR
   base repository IDs. Incomplete identity or lookups keep the run.
   Push events remain ambiguous and are never cancellation candidates.
