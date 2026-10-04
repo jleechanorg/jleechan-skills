@@ -214,4 +214,26 @@ class ReviewRegressionTests(unittest.TestCase):
    for ref in refs:
     target=(restore/ref).resolve();self.assertTrue(target.is_file(),ref)
     self.assertEqual(target.read_bytes(),(ROOT/'portable/skills'/ref.removeprefix('../')).read_bytes())
+ def test_fresh_and_existing_hosts_handle_retained_mirror_dependencies(self):
+  import shutil,re
+  m=self.installer()
+  for existing in [False,True]:
+   with self.subTest(existing=existing),tempfile.TemporaryDirectory() as t:
+    src,home=self.fixture(Path(t).resolve())
+    names=['cross-machine-ssh-tier','mac-remote','linux-remote','mac-mirror','linux-mirror']
+    for name in names:shutil.copytree(ROOT/'.claude/skills'/name,src/'.claude/skills'/name)
+    (src/'shared/retain-local.json').write_text(json.dumps(['retained','mac-mirror','linux-mirror']))
+    if existing:
+     for name in ['mac-mirror','linux-mirror']:
+      root=home/'.claude/skills'/name;root.mkdir(parents=True);(root/'SKILL.md').write_text('existing host integration '+name)
+      link=home/'.agents/skills'/name;link.parent.mkdir(parents=True,exist_ok=True);link.symlink_to(root,target_is_directory=True)
+    m.install(src,home,'v1');self.assertEqual(m.verify(home,'v1'),[]);root=home/'.claude/skills/cross-machine-ssh-tier';body=(root/'SKILL.md').read_text()
+    for ref in re.findall(r'\]\((\.\./[^)]+)\)',body):self.assertTrue((root/ref).is_file(),ref)
+    self.assertIn('excluded from a fresh shared-catalog install',body)
+    self.assertIn('only when its SKILL.md already exists',body)
+    self.assertIn('mirror handoff is unavailable',body)
+    for name in ['mac-mirror','linux-mirror']:
+     target=home/'.claude/skills'/name/'SKILL.md'
+     if existing:self.assertEqual(target.read_text(),'existing host integration '+name);self.assertEqual((home/'.agents/skills'/name).resolve(),target.parent)
+     else:self.assertFalse(target.exists());self.assertFalse((home/'.agents/skills'/name).exists())
 if __name__=='__main__':unittest.main()
