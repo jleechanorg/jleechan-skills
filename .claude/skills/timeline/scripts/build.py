@@ -28,6 +28,8 @@ def fmt_est(r):
     if r.get("label"):
         return r["label"]
     lo, hi = r["lo"], r.get("hi")
+    if r.get("unknown"):
+        return "unknown"
     if hi is None:
         return f"{lo}m+"
     return f"{lo}m" if hi == lo else f"{lo}–{hi}m"
@@ -45,9 +47,14 @@ def main(spec_path, out_path):
     spec = json.loads(Path(spec_path).read_text())
     rows = [(p["title"], r) for p in spec["phases"] for r in p["rows"]]
     for _, r in rows:
+        # lo: null = duration unknown; draw a short grey stub, exclude from totals.
+        r["unknown"] = r["lo"] is None
+        if r["unknown"]:
+            r["lo"], r["hi"] = 10, None
         r.setdefault("hi", r["lo"])
-    lo_end = max(r["start"] + r["lo"] for _, r in rows)
-    hi_end = max(r["start"] + (r["hi"] if r["hi"] is not None else r["lo"]) for _, r in rows)
+    known = [r for _, r in rows if not r["unknown"]] or [r for _, r in rows]
+    lo_end = max(r["start"] + r["lo"] for r in known)
+    hi_end = max(r["start"] + (r["hi"] if r["hi"] is not None else r["lo"]) for r in known)
     span = spec.get("span") or max(10, int(math.ceil(hi_end / 10.0) * 10))
     est = f"≈ {lo_end}–{hi_end} min" if hi_end != lo_end else f"≈ {lo_end} min"
     f_lo, f_hi = finish_text(spec.get("snapshot"), lo_end), finish_text(spec.get("snapshot"), hi_end)
