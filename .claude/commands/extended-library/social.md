@@ -1,10 +1,10 @@
 ---
-description: Draft social-media posts for 9 platforms (LinkedIn, HN, Twitter, Reddit, Threads, Facebook, Instagram, Mastodon, Dev.to). Optionally stages in Aside browser with screenshots. Never publishes.
+description: Draft social-media posts for 9 platforms (LinkedIn, HN, Twitter, Reddit, Threads, Facebook, Instagram, Mastodon, Dev.to). Optionally stages in Aside browser with screenshots. Publishing requires explicit intent and the canonical POST APPROVED confirmation.
 type: execution
 execution_mode: deferred
 ---
 
-# /social — Draft + Stage Social Posts
+# /social — Draft, Stage, or Approved Publish
 
 Loads `~/.claude/skills/social-poster/SKILL.md` first, which routes to the canonical Hermes social-poster skill. `/social` is cross-platform: it applies only to the sites selected by `--platforms`, with platform-specific checks layered on top.
 
@@ -27,12 +27,12 @@ Loads `~/.claude/skills/social-poster/SKILL.md` first, which routes to the canon
 1. Read and execute `~/.claude/skills/social-poster/SKILL.md`.
 2. That skill should resolve to `~/.hermes/skills/social-poster/SKILL.md` as the canonical workflow.
 3. Follow the skill-defined draft + Aside staging flow for every selected site: verify actual field contents, carry the approved source/media assets, and use the site’s real compose controls rather than generic page controls.
-4. Never click Publish, Post, Submit, Share, or an equivalent live action. `POST APPROVED` is not a publishing trigger for `/social`.
-5. If staging is requested, verify the actual draft fields and capture evidence. Otherwise, return the draft files for the user to review or publish manually.
+4. Draft/stage requests never publish. For an explicit publish/crosspost request, follow the canonical approval gate and selected platform allowlist; obtain any missing mandatory `POST APPROVED` confirmation before a live action.
+5. Verify staged fields and capture evidence. For draft-only requests, return draft files for review. For authorized publishing, verify the final permalink and visible content after the gated action.
 
 ## Safety
 
-- `/social` never invokes `post_approved.py`. Publishing is intentionally outside this command.
+- Publishing follows the canonical `POST APPROVED` gate. `/social` invocation, login, and staging alone do not authorize publication.
 - Never treat a loaded compose form or login-wall screenshot as proof a draft was staged.
 - Drafting works without Aside. Optional browser staging requires an active Aside browser bridge and authenticated site session; if unavailable, return the drafts without staging.
 - Prefer canonical outbound links and explicit media assets over reposting LinkedIn shortlinks.

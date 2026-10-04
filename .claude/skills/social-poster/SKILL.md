@@ -1,13 +1,13 @@
 ---
 name: social-poster
-description: Route draft-only social-post workflows to the canonical Hermes social-poster skill.
+description: Route draft, stage, and explicitly approved publishing workflows to the canonical Hermes social-poster skill.
 version: 0.1.0
 summary: Local shim for the canonical Hermes social-poster skill.
 ---
 
 # Social Poster
 
-This is the local Claude skill entrypoint for social-post drafting and staging.
+This is the local Claude skill entrypoint for social-post drafting, staging, and explicitly approved publishing.
 
 Canonical implementation:
 - `~/.hermes/skills/social-poster/SKILL.md`
@@ -17,7 +17,7 @@ Canonical implementation:
 When this skill is invoked:
 1. Read and follow `~/.hermes/skills/social-poster/SKILL.md` as the source of truth.
 2. Prefer the skill-defined workflow over re-specifying individual script calls in slash commands.
-3. **Local `/social` override:** preserve draft-only behavior. Never invoke the canonical skill’s Phase 4, `post_approved.py`, or any site’s live publish control, even if the user supplies `POST APPROVED`.
+3. **Intent and approval:** draft/stage requests never publish. An explicit publish/crosspost request follows the canonical publishing workflow only after its mandatory `POST APPROVED` confirmation and platform allowlist. Requesting `/social`, logging in, or staging is not posting approval.
 4. Treat current live browser state as higher-confidence evidence than old logs, stale session notes, or previous failed runs.
 
 ## Operational rules added from the 2026-07-11 Fable run
@@ -41,12 +41,15 @@ When this skill is invoked:
 8. For Instagram media posts, leave “Share to Threads” and “Share to Facebook” enabled by default unless the user explicitly opts out. Mention the cross-post state in the staging summary.
 9. Do not trust screenshots of login walls or empty compose boxes as proof of staging.
 
+For Twitter/X, follow the canonical **Twitter/X browser workflow** before generic
+staging or auth recipes; it verifies identity, duplicates, media, limits, and results.
+
 ## Universal stage verification
 
 For every selected platform, whether running inside Aside or from another local harness:
 
 1. Drafting produces platform-specific files and works without Aside.
-2. If browser staging is requested and Aside’s live browser bridge is available, populate the actual draft fields and capture evidence. Never activate a live publish control.
+2. If browser staging is requested and Aside’s live browser bridge is available, populate the actual draft fields and capture evidence. Keep staging separate from the gated publishing phase.
 3. Use named/semantic fields and verify the visible text. A composer, redirect, login screen, or unchanged form is not a staged draft.
 4. If Aside/browser staging is unavailable, report the drafts as ready for manual use. Do not block drafting and do not substitute a fresh unauthenticated browser.
 
@@ -59,7 +62,7 @@ This is a Reddit-only supplement to the universal staging flow:
 3. Verify the staged visible title, body, and selected flair. A submit form, search page, unchanged fields, or a page that merely loaded is **not staged**.
 4. Exclude zero-self-promotion communities from default targets unless the user explicitly names them.
 
-Do not configure PRAW, OAuth credentials, or a Reddit posting MCP inside `/social`. Keep those tools separate from the draft-only workflow.
+Do not configure PRAW, OAuth credentials, or a Reddit posting MCP inside `/social`. Keep credential setup separate from this workflow.
 
 ## Why this shim exists
 
