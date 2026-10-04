@@ -1,15 +1,46 @@
 ---
 name: conversation-history-sparse
-description: Sparse conversation history triage across Claude Code, Codex, Hermes, agy CLI, and Cursor with strict context budgets. Default for `/history`; covers all five canonical sources.
+description: Sparse conversation history triage through available conversation connectors and permitted Claude Code, Codex, Hermes, agy CLI, and Cursor sources with strict context budgets. Default for `/history`; report actual source coverage.
 type: analysis
 scope: project
 ---
 
 # Conversation History Sparse
 
+## Runtime and source admission
+
+Use this same workflow on local and hosted runtimes. Before any filesystem
+probe, glob, helper invocation, or connector search, identify the live tools,
+current task scope, and explicitly permitted sources. The local paths below
+are supported examples, not a discovery mandate or evidence of permission.
+Never probe denied roots, credentials, backups, or unrelated profiles; do not
+request access to a policy-denied corpus or try another tool to bypass denial.
+If a source includes an excluded subtree and the helper cannot exclude it,
+skip that helper/source and use a bounded query over permitted inputs only.
+
+- **Conversation connectors:** When available, use the current runtime's
+  conversation search/read tools (for example, `user_message.search_messages`
+  and `read_messages` in dot), following their live schemas and access scope.
+  Search the current topic/project, select at most five relevant results per
+  source, and read only bounded surrounding turns when needed. Search may
+  require pagination before declaring no match; a stopped page/window is
+  partial coverage. Never describe dot-room search as all-account history.
+- **Local sources:** Use the source-specific sections below only for admitted
+  paths. Run fixed-home examples only when every path they can visit is
+  permitted and in scope; otherwise adapt to explicit permitted paths or skip.
+  A hosted runtime with connector history does not need local session access.
+- **Provenance:** Keep the returned message/thread ID or exact permitted file
+  path, timestamp, source/runtime, task scope, and at most 200 characters per
+  excerpt. Use only returned/verified links. Distinguish matched, no-match,
+  unavailable/denied, and not-searched/partial sources. Never invent history
+  or infer that an unavailable source contains no matches.
+
+Use plain text in nonterminal channels. Do not emit ANSI codes into chat.
+Preserve the five-result/200-character default budgets in every branch.
+
 ## Purpose
 
-Infer what the current directory/worktree/branch has been doing by sampling only high-signal history from:
+Infer the current topic or directory/worktree/branch intent from admitted conversation sources. Where local history is available and permitted, sample high-signal history from:
 - `~/.claude/projects`  (Claude Code JSONL)
 - Active `CODEX_HOME` and `~/.codex`, plus explicitly selected profiles: each home's `sessions/` rollout JSONL and `state_5.sqlite` threads
 - `~/.hermes/state.db`  (Hermes messages, FTS5)
@@ -21,24 +52,42 @@ without loading full transcripts, or when you want a quick multi-source sweep.
 
 ## Fast CLI Helper
 
-The installer places the source-owned `scripts/history_search.py` at
+The repository includes the optional source-owned `scripts/history_search.py`.
+A complete local installation may place this helper as follows; a skill-only
+installation may omit it. The installer places the source-owned `scripts/history_search.py` at
 `${CLAUDE_HOME:-$HOME/.claude}/scripts/history_search.py`. Invoke that absolute
 location from any task directory. If missing, locate the helper in the installed
 plugin/source checkout and use its resolved absolute path; do not assume the
 current repository contains it. If neither is available, continue bounded
 read-only source queries and report the missing helper.
 
-Run the dedicated sparse history search helper:
+Invoke the helper only after source admission. Its default searches all five
+local sources and its Codex default includes both active and default homes.
+Use one admitted `--source` per invocation and explicit `--codex-home` values
+for Codex. Do not invoke the default/all-source form unless every reachable
+source path is permitted. If the helper is missing or cannot restrict its
+search sufficiently, use the connector route or bounded read-only queries;
+do not install software or widen access just to satisfy this skill.
+
+An empty helper result does not prove no matches: legacy helpers can suppress
+missing-source/read/parse errors, search only a sample, or return an empty list
+without coverage metadata. Report `zero returned hits; coverage unverified` or
+`partial` unless separate permitted evidence establishes source availability,
+successful parsing/search, and completion of the declared search scope. Apply
+the same rule to direct examples and connector results with unknown coverage;
+do not label a source `no-match` solely from an empty result or exit code zero.
+
+Example commands after admitting the named source:
 
 ```bash
-# Sparse overview across all 5 sources
-python3 "${CLAUDE_HOME:-$HOME/.claude}/scripts/history_search.py"
+# Bounded overview of an admitted local source
+python3 "$HISTORY_HELPER" --source claude --limit 5 --max-chars 200
 
-# Query with substring highlight across all sources
-python3 "${CLAUDE_HOME:-$HOME/.claude}/scripts/history_search.py" "query string"
+# Query the same admitted source; HISTORY_HELPER is its resolved absolute path
+python3 "$HISTORY_HELPER" --source claude --limit 5 --max-chars 200 -- "$HIST_QUERY"
 
 # Single source with JSON output
-python3 "${CLAUDE_HOME:-$HOME/.claude}/scripts/history_search.py" "query" --source agy --json
+python3 "$HISTORY_HELPER" --source agy --limit 5 --max-chars 200 --json -- "$HIST_QUERY"
 ```
 
 ## Sparse defaults and explicit audit budgets
@@ -112,7 +161,12 @@ only); it never drives routing or intent — the workflow above decides.
 
 ## Workflow
 
-### 1) Establish local git intent first
+### 1) Establish task intent; inspect local git when available
+
+For repository work with a permitted checkout, use these read-only commands.
+Otherwise use the named project/topic and returned conversation metadata; do
+not assume a worktree or PR exists. Use `gh` only if already available and
+authorized, or an available read-only repository connector.
 
 ```bash
 git branch --show-current
@@ -120,13 +174,25 @@ git log --oneline -n 8
 gh pr view --json number,title,headRefName,baseRefName,state,url
 ```
 
-### 2) Find exact Claude project folder for cwd
+### 2) Find the Claude project folder for cwd using bounded metadata
 
-```bash
-find ~/.claude/projects -maxdepth 1 -type d | rg "worktree[-_]$(basename "$PWD")|$(basename "$PWD")"
-find ~/.claude/projects -type f -name '*.jsonl' -print0 | \
-  xargs -0 rg -n --max-count 20 --fixed-strings "\"cwd\":\"$PWD\"" 2>/dev/null
-```
+Within admitted roots, compare known project-directory names with the encoded
+cwd/worktree name. Return at most three candidate paths with modification times;
+do not print transcript content during discovery. Select at most three recent
+JSONL files from those candidate folders before any content probe. A pathname
+match is only a heuristic, not proof of the transcript's cwd.
+
+If cwd confirmation is needed, search only those selected files for the literal
+cwd marker with `rg --files-with-matches --fixed-strings --max-count 1 --`
+and a finite scan-time budget. Supply the marker and each selected filename as
+separate quoted data arguments. Return filenames only, never `rg -n` lines or
+raw JSONL. A limit of three selected files bounds filename output; a stopped
+scan is partial coverage, and filename-only search still reads file content.
+
+Pass the admitted selected filenames as a JSON array in `HISTORY_FILES_JSON`
+to the snippet parser below. It samples at most five user excerpts total, each
+200 characters. If selection finds nothing or fails, report that exact scope
+and coverage gap; do not broaden to every project or infer no history exists.
 
 ### 3) Sample Claude prompts only (sparse + colored)
 
@@ -151,16 +217,13 @@ def ansify(source, body, query=""):
     return f"{color(source, '[' + source.title() + ']')} {body}"
 
 query = os.environ.get("HIST_QUERY", "")
-# Broad recency is intentional on this developer machine: start with cwd-matched
-# files when available, then fill the bounded sample from other local projects.
-all_files = glob.glob(os.path.expanduser("~/.claude/projects/*/*.jsonl"))
-cwd_project_key = os.getcwd().replace("/", "-")
-cwd_matches = [p for p in all_files if cwd_project_key in os.path.dirname(p)]
-files = (
-    sorted(cwd_matches, key=os.path.getmtime, reverse=True)
-    + sorted([p for p in all_files if p not in cwd_matches], key=os.path.getmtime, reverse=True)
-)[:3]
+# Use only the admitted metadata/cwd selection from step 2.
+files = json.loads(os.environ.get("HISTORY_FILES_JSON", "[]"))
+if not isinstance(files, list) or not all(isinstance(path, str) for path in files):
+    raise ValueError("HISTORY_FILES_JSON must be an array of admitted filenames")
+files = files[:3]
 shown = 0
+remaining = 5  # total source budget across all sampled files
 for path in files:
     proj = os.path.basename(os.path.dirname(path))
     print(head(f"📁 Claude Code — {proj}"))
@@ -181,26 +244,30 @@ for path in files:
                         ts = obj.get("timestamp", "")[:16]
                         snippet = content[:200].replace("\n", " ")
                         print(ansify("claude", f"{ts} | {snippet}", query))
-                        if n >= 3: break
+                        remaining -= 1
+                        if n >= 3 or remaining == 0: break
             except Exception:
                 pass
     shown += 1
-    if shown >= 3: break
+    if shown >= 3 or remaining == 0: break
 ```
 
 ### 4) Sample the relevant Codex profiles
 
 The helper searches the effective `CODEX_HOME` and default `~/.codex` unless
-explicit `--codex-home` paths are supplied. Inspect the launchers used for the
-requested period and name additional homes explicitly; do not recursively treat
-backups or every similarly named directory as an active profile. Resolved home
+explicit `--codex-home` paths are supplied. Admit only specifically permitted
+homes, including their `sessions/` and index files, before invoking it. If any
+required path is denied, skip that profile without probing it. Use known
+non-secret launcher metadata only when permitted to resolve requested profiles;
+do not read authentication/configuration secrets or recursively treat backups
+or every similarly named directory as an active profile. Resolved home
 aliases and duplicate indexed thread IDs are deduplicated.
 
 ```bash
-python3 "${CLAUDE_HOME:-$HOME/.claude}/scripts/history_search.py" "query" --source codex --json
+python3 "$HISTORY_HELPER" --source codex --codex-home "$PERMITTED_CODEX_HOME" --limit 5 --max-chars 200 --json -- "$HIST_QUERY"
 
 # A selected profile; repeat --codex-home for each resolved home in the audit.
-python3 "${CLAUDE_HOME:-$HOME/.claude}/scripts/history_search.py" "query" --source codex --codex-home "$CODEX_HOME" --json
+python3 "$HISTORY_HELPER" --source codex --codex-home "$PERMITTED_CODEX_HOME" --json -- "$HIST_QUERY"
 ```
 
 This helper samples indexed titles/first prompts, then bounded rollout files
@@ -213,7 +280,7 @@ corrections from quoted instructions, assistant admissions, and automatic resume
 
 ### 5) Sample Hermes messages (sparse FTS5 + colored)
 
-Hermes is user-scoped, not cwd-scoped — search globally via FTS5 with a tight LIMIT.
+Hermes is user-scoped, not cwd-scoped — search its admitted database via FTS5 with a tight LIMIT.
 Always read `~/.hermes/state.db` in **read-only** mode and never dump full `content`.
 Wrap every result line with `ansify("hermes", ..., query)` so the label is magenta
 and matched substrings are yellow.
@@ -221,7 +288,7 @@ and matched substrings are yellow.
 ```python
 import sqlite3, os, sys
 
-query = "<QUERY>"  # injected by /history
+query = os.environ.get("HIST_QUERY", "")  # pass query as data, never interpolate code
 db = os.path.expanduser("~/.hermes/state.db")
 if not os.path.exists(db):
     print("[Hermes] state.db not found"); sys.exit()
@@ -279,7 +346,7 @@ label is yellow and matched substrings are yellow-highlighted.
 ```python
 import sqlite3, os
 
-query = "<QUERY>"  # injected by /history
+query = os.environ.get("HIST_QUERY", "")  # pass query as data, never interpolate code
 db = os.path.expanduser("~/.gemini/antigravity-cli/conversation_summaries.db")
 if not os.path.exists(db):
     print("[Agy] conversation_summaries.db not found")
@@ -336,70 +403,97 @@ are yellow.
 ```python
 import json, os, glob
 
-query = "<QUERY>"  # injected by /history
-q   = os.environ.get("HIST_QUERY", "")
+q = os.environ.get("HIST_QUERY", "")
 hist_path = os.path.expanduser("~/.cursor/prompt_history.json")
+chats_dir = os.path.expanduser("~/.cursor/chats")
 LIMIT = 3
 hits = 0
+coverage = {"prompt_history": "unavailable", "chats": "not searched",
+            "agent-transcripts": "not searched"}
 
-if os.path.exists(hist_path):
+try:
+    with open(hist_path, encoding="utf-8") as f:
+        data = json.load(f)
+    if not isinstance(data, list):
+        raise ValueError("unsupported prompt history schema")
+    coverage["prompt_history"] = "complete within prompt_history.json"
+    for entry in reversed(data):
+        if isinstance(entry, dict):
+            text = entry.get("prompt") or entry.get("text") or entry.get("content") or ""
+        elif isinstance(entry, str):
+            text = entry
+        else:
+            coverage["prompt_history"] = "partial: unsupported entries"
+            continue
+        if not isinstance(text, str):
+            coverage["prompt_history"] = "partial: nontext entries"
+            continue
+        if not text or (q and q.lower() not in text.lower()):
+            continue
+        snippet = text[:200].replace("\n", " ")
+        ts = str(entry.get("timestamp") or entry.get("ts") or "")[:16] if isinstance(entry, dict) else ""
+        print(ansify("cursor", f"prompt_history {ts} | {snippet}", q))
+        hits += 1
+        if hits >= LIMIT:
+            coverage["prompt_history"] = "partial: result limit reached"
+            break
+except FileNotFoundError:
+    coverage["prompt_history"] = "unavailable: missing source"
+except (OSError, UnicodeError, ValueError) as exc:
+    coverage["prompt_history"] = f"error: {type(exc).__name__}"
+
+if hits < LIMIT:
     try:
-        with open(hist_path, encoding="utf-8", errors="ignore") as f:
-            data = json.load(f)
-        if isinstance(data, list):
-            for entry in reversed(data):
-                text = ""
-                if isinstance(entry, dict):
-                    text = entry.get("prompt") or entry.get("text") or entry.get("content") or ""
-                elif isinstance(entry, str):
-                    text = entry
-                if not text:
+        # Check the admitted directory explicitly; glob alone can hide errors.
+        with os.scandir(chats_dir):
+            pass
+        chat_files = sorted(glob.glob(f"{chats_dir}/**/*.json*", recursive=True),
+                            key=os.path.getmtime, reverse=True)[:2]
+        coverage["chats"] = "partial: at most 2 files, first 2048 characters each"
+        chat_errors = 0
+        for path in chat_files:
+            try:
+                with open(path, encoding="utf-8") as f:
+                    chunk = f.read(2048)
+                match_at = chunk.lower().find(q.lower()) if q else 0
+                if match_at < 0:
                     continue
-                if q and q.lower() not in text.lower():
-                    continue
-                snippet = text[:200].replace("\n", " ")
-                ts = ""
-                if isinstance(entry, dict):
-                    ts = (entry.get("timestamp") or entry.get("ts") or "")[:16]
-                print(ansify("cursor", f"prompt_history {ts} | {snippet}", q))
+                start = max(0, match_at - 60)
+                snippet = chunk[start:start + 200].replace("\n", " ")
+                label = os.path.basename(path)[:50]
+                print(ansify("cursor", f"chat {label} | {snippet}", q))
                 hits += 1
                 if hits >= LIMIT:
                     break
-    except Exception:
-        pass
-
-# Then sample recent chat files (avoid full reads — first 1-2KB each).
-chats_dir = os.path.expanduser("~/.cursor/chats")
-if os.path.isdir(chats_dir) and hits < LIMIT:
-    chat_files = sorted(glob.glob(f"{chats_dir}/**/*.json*", recursive=True),
-                        key=lambda p: os.path.getmtime(p), reverse=True)[:2]
-    for path in chat_files:
-        try:
-            with open(path, encoding="utf-8", errors="ignore") as f:
-                chunk = f.read(2048)
-            snippet = chunk[:200].replace("\n", " ")
-            if q and q.lower() not in snippet.lower():
-                continue
-            label = os.path.basename(path)[:50]
-            print(ansify("cursor", f"chat {label} | {snippet}", q))
-            hits += 1
-            if hits >= LIMIT:
-                break
-        except Exception:
-            pass
+            except (OSError, UnicodeError) as exc:
+                chat_errors += 1
+        if chat_errors:
+            coverage["chats"] += f"; read errors in {chat_errors} selected files"
+    except FileNotFoundError:
+        coverage["chats"] = "unavailable: missing directory"
+    except (OSError, ValueError) as exc:
+        coverage["chats"] = f"error: {type(exc).__name__}; coverage incomplete"
 
 if hits == 0:
-    print(ansify("cursor", "no matches in prompt_history or chats/", q))
+    print(ansify("cursor", "zero returned hits; see source coverage", q))
+print(ansify("cursor", "source coverage: " + json.dumps(coverage, sort_keys=True), q))
 ```
 
 > Note: `prompt_history.json` may be very large (>150 KB). The snippet is read
 > as parsed JSON then sliced — never `cat` the raw file. Chat JSON files are
 > sampled via `f.read(2048)` so we never pull a full conversation into context.
+> A chat search examines the full sampled 2048-character prefix, then returns a
+> 200-character excerpt around a hit. Unread tails, other files, and agent
+> transcripts remain unsearched. Report these as partial coverage even with
+> zero hits; missing sources and read/parse errors have their own statuses.
+
 
 ### 8) Synthesize result
 
 Return:
-- Current branch/PR intent from git.
+- Current task intent, and branch/PR intent from git when available.
+- Connector conversation hits with returned message IDs, dates, and bounded snippets.
+- Explicit coverage gaps; omit unavailable local-source sections rather than fabricating results.
 - Recent request themes from Claude history.
 - Recent request themes from Codex history.
 - Recent Hermes hits with bounded snippets (200 characters by default).
@@ -458,5 +552,8 @@ historical transcripts to make them agree with present policy.
   or `~/.gemini/history.jsonl`.
 - Keep excerpts short to avoid pulling excessive context into the session.
 - ANSI highlighting is **display-only** — never let it influence search/routing.
-- When the user types `/history --deep`, escalate to
-  `~/.claude/skills/history-search/SKILL.md` (7 sources, larger budget).
+- When the user types `/history --deep`, load `history-search` from the live
+  skill catalog or its resolved installed path only if available. Keep the same
+  source admission and permissions, choose explicit finite larger budgets, and
+  report coverage. If unavailable, deepen only admitted connector/local queries
+  with stated budgets; do not assume seven sources or grant new access.
