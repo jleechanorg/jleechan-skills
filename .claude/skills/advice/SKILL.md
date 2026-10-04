@@ -27,6 +27,24 @@ Inline an artifact only when the reviewer genuinely cannot fetch: no repo access
 
 **A verdict built on a truncated inline artifact may not be `APPROVED`.** Record `REVIEWED: <n> of <total> lines (<what was omitted>)`, carry it into the synthesis, and emit `WITHHELD` — see Quorum. This is not a formality: across the last 300 merged PRs in `jleechanorg/worldarchitect.ai`, **65% exceed 150 changed lines** (median 349), and for those, a 150-line cap shows a reviewer a median **22.5%** of the diff. A gate that says `APPROVED at <SHA>` after seeing a fifth of the change is asserting something it did not check.
 
+## Document-only review (including /sq plans)
+
+For saved specifications or plans, add repeated `--document <repo-relative-path.md>`
+arguments to the same primary-pair runner. Read the complete documents; do not truncate
+them to the inline-artifact limit. Documents may be committed, staged, modified, or
+untracked. No commit, stash, clean checkout, or publication is required for this mode.
+The runner overlays only explicitly named, non-ignored, non-symlink Markdown documents
+into each independent reviewer clone, records their SHA256 hashes and bundle identity,
+and checks that source and reviewer copies remain unchanged. HEAD is context only;
+unrelated uncommitted code is outside this review and is not approved.
+
+Preserve normal reviewer selection, quorum, coverage, authorization, and failure rules.
+Bind the final verdict to `DOCUMENTS sha256:<document_bundle_sha256>` plus the per-file
+hashes in the receipt. This is document approval only, never `APPROVED at <HEAD>` for
+code or a PR. Save the synthesis with the local review receipt; the PR/commit publication
+section below applies only to revision reviews. External publication still requires
+applicable user authority. If a selected document changes, re-review its new bytes.
+
 ## Step 2: Fan out the reviewers in parallel
 
 **Size/risk gate first.** For low-risk diffs (docs/tests/config-only, or under ~100 changed production lines with no schema/security/prompt-contract surface), Reviewer A alone (Codex + Opus — two independent verdicts, so the ≥2-reviewer quorum for `APPROVED` still holds) satisfies the gate; skip B/C. Reserve the full A+B+C fan-out for diffs touching production behavior, schemas, security, or above that threshold. The quorum, coverage, and inline-artifact rules below apply unchanged regardless of which lanes run.
@@ -93,7 +111,9 @@ results directory for every invocation. Read `codex.txt`, `opus.txt`,
 and `receipt.json`; the receipt records the resolved SHA, each transport, launch
 times, each clone SHA, cleanup status, and any changed original-repository
 fingerprint components. The
-input checkout must be clean, including untracked files. The runner refuses a
+input checkout must be clean, including untracked files, for revision reviews only.
+For document-only review, use `--document` as described above; that mode accepts saved
+documents regardless of their commit status. The runner refuses a
 dirty checkout because those changes are not represented by the requested SHA.
 
 The runner creates two independent disposable clones with `git clone --no-local`,
