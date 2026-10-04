@@ -36,7 +36,7 @@ class RecalcGuardTests(unittest.TestCase):
                 with ZipFile(path, 'w') as archive:
                     archive.writestr(name, body)
                 before = path.read_bytes()
-                with patch.object(module, 'setup_libreoffice_macro') as setup:
+                with patch.object(module, 'setup_libreoffice_macro', return_value=False) as setup:
                     result = module.recalc(path)
                     self.assertIn('External workbook links', result['error'])
                     setup.assert_not_called()
@@ -54,8 +54,16 @@ class RecalcGuardTests(unittest.TestCase):
                 archive.writestr('xl/_rels/workbook.xml.rels', '<Relationships><Relationship Type="http://example.test/hyperlink" TargetMode="External" Target="https://example.test/"/></Relationships>')
             self.assertFalse(module.external_workbook_links(path))
             path.write_bytes(b'not a zip workbook')
-            with patch.object(module, 'setup_libreoffice_macro') as setup:
-                self.assertIn('Cannot verify', module.recalc(path)['error'])
+            for force in [False, True]:
+                with patch.object(module, 'setup_libreoffice_macro', return_value=False) as setup:
+                    self.assertIn('Cannot verify', module.recalc(path, force=force)['error'])
+                    setup.assert_not_called()
+            # An early external-link finding must not conceal later bad XML.
+            with ZipFile(path, 'w') as archive:
+                archive.writestr('xl/externalLinks/externalLink1.xml', '<externalLink/>')
+                archive.writestr('xl/_rels/workbook.xml.rels', '<broken')
+            with patch.object(module, 'setup_libreoffice_macro', return_value=False) as setup:
+                self.assertIn('Cannot verify', module.recalc(path, force=True)['error'])
                 setup.assert_not_called()
 
     def test_force_and_timeout_cli_contract(self):

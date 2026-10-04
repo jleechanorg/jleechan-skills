@@ -281,9 +281,21 @@ unchanged.
 > **Aside Session Staging Rule**:
 > For `aside repl` / `aside-mcp`, files MUST be staged inside the active Aside session directory (`pwd`, e.g. `path.join(pwd, 'pr<N>', filename)`). Aside strictly rejects paths outside the session directory (`escapes the session directory`). Copy all packet files and evidence artifacts into `path.join(pwd, ...)` before calling `setInputFiles`.
 
-**Pattern (proven to work across all 3 providers):**
+**Illustrative Playwright pattern:** inspect the current provider's composer
+and attachment-chip DOM first and replace the selector below. This template
+assumes the existing `modelPage` and Aside `pwd`; it is not proof that any
+provider was exercised. Unsupported selectors or upload APIs must stop the seat,
+not become an attachment-grounded verdict.
 
 ```javascript
+// Run this block in the existing session; local declarations avoid REPL clashes.
+{
+const path = await import('node:path');
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const attachmentChipSelector = 'REPLACE_WITH_INSPECTED_COMPOSER_ATTACHMENT_CHIP_SELECTOR';
+if (attachmentChipSelector.startsWith('REPLACE_')) {
+  throw new Error('Inspect and configure the composer attachment-chip selector before upload');
+}
 // 1. For each model tab (Gemini, ChatGPT, Perplexity):
 // Step 3a: Stage and attach lossless review packets + evidence artifacts via file input
 // In Aside: stage inside pwd first:
@@ -298,11 +310,22 @@ const uploadFiles = [
 ];
 
 const fileInput = await modelPage.locator('input[type="file"], #upload-files').first();
-if (fileInput) {
-  for (const f of uploadFiles) {
-    await fileInput.setInputFiles([f]);
-    await sleep(1500); // Allow UI to process and render the attachment chip
+await fileInput.setInputFiles(uploadFiles);
+const expectedNames = uploadFiles.map((f) => path.basename(f));
+const uploadDeadline = Date.now() + 120000;
+let attachmentProof = false;
+while (Date.now() < uploadDeadline) {
+  const chipTexts = await modelPage.locator(attachmentChipSelector).allTextContents();
+  const renderedNames = new Set(chipTexts.flatMap((text) => text.split(/\r?\n/).map((line) => line.trim())));
+  if (expectedNames.every((name) => renderedNames.has(name)) &&
+      !chipTexts.some((text) => /Uploading|Processing|Failed|Error/i.test(text))) {
+    attachmentProof = true;
+    break;
   }
+  await sleep(500);
+}
+if (!attachmentProof) {
+  throw new Error('Incomplete or unfinished attachment packet; do not send');
 }
 
 // Step 3b: Replace the complete composer content and verify it before sending.
@@ -321,6 +344,7 @@ if (sendBtn) {
   await sendBtn.click();
 } else {
   await modelPage.keyboard.press('Enter');
+}
 }
 ```
 

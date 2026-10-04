@@ -72,29 +72,30 @@ def setup_libreoffice_macro():
 
 def external_workbook_links(filename):
     """Detect OOXML external workbook parts/relationships before any rewrite."""
+    external = False
     with ZipFile(filename) as archive:
         for name in archive.namelist():
             if name.startswith('xl/externalLinks/'):
-                return True
-            if name.endswith('.rels'):
+                external = True
+            if name.endswith('.rels') or (name.startswith('xl/externalLinks/') and name.endswith('.xml')):
                 root = ElementTree.fromstring(archive.read(name))
                 for relationship in root:
                     kind = relationship.get('Type', '').rsplit('/', 1)[-1]
                     if kind in {'externalLink', 'externalLinkPath'}:
-                        return True
-    return False
+                        external = True
+    return external
 
 
 def recalc(filename, timeout=30, force=False):
     if not Path(filename).exists():
         return {"error": f"File {filename} does not exist"}
 
-    if not force:
-        try:
-            if external_workbook_links(filename):
-                return {'error': 'External workbook links detected; recalculation refused. Use --force only after reviewing cached reference data risk.'}
-        except (OSError, BadZipFile, ElementTree.ParseError) as error:
-            return {'error': f'Cannot verify workbook link safety: {error}'}
+    try:
+        linked = external_workbook_links(filename)
+    except (OSError, BadZipFile, ElementTree.ParseError) as error:
+        return {'error': f'Cannot verify workbook link safety: {error}'}
+    if linked and not force:
+        return {'error': 'External workbook links detected; recalculation refused. Use --force only after reviewing cached reference data risk.'}
 
     abs_path = str(Path(filename).absolute())
 
