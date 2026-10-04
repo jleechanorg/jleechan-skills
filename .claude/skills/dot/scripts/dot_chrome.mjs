@@ -25,6 +25,7 @@ let ctx = null;
 let clicked = false;
 
 async function waitAndCleanSingletonLock(dir) {
+  const resolvedDir = path.resolve(dir);
   const lockPath = path.join(dir, 'SingletonLock');
   for (let attempt = 0; attempt < 90; attempt++) {
     let hasLock = false;
@@ -43,7 +44,9 @@ async function waitAndCleanSingletonLock(dir) {
               // Ensure this is an orphaned Chrome process specifically using our target directory
               let cmd = '';
               try { cmd = execSync(`ps -o command= -p ${pid} 2>/dev/null`).toString(); } catch {}
-              if (cmd.includes('dot-headless-chrome') || cmd.includes(dir)) {
+              const argMatch = cmd.match(/--user-data-dir=([^\s]+)/);
+              const cmdDir = argMatch ? path.resolve(argMatch[1]) : '';
+              if (cmdDir && cmdDir === resolvedDir) {
                 try { process.kill(pid, 15); } catch {}
                 await sleep(300);
                 for (const f of ['SingletonLock', 'SingletonCookie', 'SingletonSocket']) {
@@ -134,8 +137,8 @@ async function send(page, file, dry) {
   if (composer !== '') {
     const normComposer = norm(composer);
     const userMessages = await getUserMessages();
-    const alreadySent = userMessages.some(m => m.includes(normComposer) || normComposer.includes(m));
-    const ownLeftover = normComposer === norm(msg);
+    const alreadySent = userMessages.some(m => m !== '' && m === normComposer);
+    const ownLeftover = normComposer !== '' && normComposer === norm(msg);
     if (ownLeftover || alreadySent) {
       await clear();
       composer = (await readComposer()).trim();
@@ -159,13 +162,16 @@ async function send(page, file, dry) {
   }
 
   const beforeMsgs = await getUserMessages();
+  const countMatches = (msgs, needle) => msgs.filter(m => m === needle).length;
+  const beforeCount = countMatches(beforeMsgs, norm(msg));
   clicked = true;
   await page.click('button[data-testid=send-button], button[aria-label*=Send]');
   await sleep(4000);
   const left = (await readComposer()).trim();
   const afterMsgs = await getUserMessages();
-  const sentAppeared = afterMsgs.length > beforeMsgs.length || afterMsgs.some(m => m.includes(norm(msg)));
-  console.log(left === '' && sentAppeared ? 'DOT_SENT_VERIFIED' : 'DOT_SEND_UNVERIFIED composer_left=' + left.length);
+  const afterCount = countMatches(afterMsgs, norm(msg));
+  const sentVerified = left === '' && (afterCount > beforeCount || afterMsgs.length > beforeMsgs.length);
+  console.log(sentVerified ? 'DOT_SENT_VERIFIED' : 'DOT_SEND_UNVERIFIED composer_left=' + left.length);
 }
 
 process.on('SIGTERM', async () => { try { await ctx?.close(); } catch {} process.exit(143); });

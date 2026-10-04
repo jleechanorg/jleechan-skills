@@ -129,7 +129,7 @@ cmd_send_once() {
 const dotMsg = $msg_json;
 const dotNorm = (t) => t.replace(/\s+/g, ' ').trim();
 const dotReadComposer = () => dotPage.evaluate(() => (document.querySelector('[contenteditable=true]')||{}).innerText || '');
-const dotGetUserMessages = () => dotPage.evaluate(() => Array.from(document.querySelectorAll('[data-message-author-role=user]')).map(el => el.innerText.replace(/\s+/g, ' ').trim()));
+const dotGetUserMessages = () => dotPage.evaluate(() => Array.from(document.querySelectorAll('[data-message-author-role=user]')).map(el => (el.innerText || '').replace(/\s+/g, ' ').trim()));
 
 // ChatGPT restores a saved draft lazily on focus, so focus first, then inspect.
 await dotPage.click('[contenteditable=true]');
@@ -141,9 +141,9 @@ if (dotComposer !== '') {
   const userMessages = await dotGetUserMessages();
   // Safe to clear only if:
   // 1) It exactly matches our own current message (from an interrupted prior attempt), OR
-  // 2) The exact text already exists in a previously submitted user message.
-  const dotAlreadySent = userMessages.some(m => m.includes(normComposer) || normComposer.includes(m));
-  const dotOwnLeftover = normComposer === dotNorm(dotMsg);
+  // 2) The exact text already exists as a completed user message in the conversation.
+  const dotAlreadySent = userMessages.some(m => m !== '' && m === normComposer);
+  const dotOwnLeftover = normComposer !== '' && normComposer === dotNorm(dotMsg);
   if (dotOwnLeftover || dotAlreadySent) {
     await dotPage.keyboard.press('Meta+A');
     await dotPage.keyboard.press('Backspace');
@@ -162,12 +162,15 @@ if (dotComposer !== '') {
     console.log('DOT_COMPOSER_MISMATCH: ' + typed.slice(0, 200));
   } else {
     const beforeMsgs = await dotGetUserMessages();
+    const countMatches = (msgs, needle) => msgs.filter(m => m === needle).length;
+    const beforeCount = countMatches(beforeMsgs, dotNorm(dotMsg));
     await dotPage.click('button[data-testid=send-button], button[aria-label*=Send]');
     await new Promise(r => setTimeout(r, 4000));
     const left = (await dotReadComposer()).trim();
     const afterMsgs = await dotGetUserMessages();
-    const sentAppeared = afterMsgs.length > beforeMsgs.length || afterMsgs.some(m => m.includes(dotNorm(dotMsg)));
-    console.log(left === '' && sentAppeared ? 'DOT_SENT_VERIFIED' : 'DOT_SEND_UNVERIFIED composer_left=' + left.length);
+    const afterCount = countMatches(afterMsgs, dotNorm(dotMsg));
+    const sentVerified = left === '' && (afterCount > beforeCount || afterMsgs.length > beforeMsgs.length);
+    console.log(sentVerified ? 'DOT_SENT_VERIFIED' : 'DOT_SEND_UNVERIFIED composer_left=' + left.length);
   }
 }")"
   fi
