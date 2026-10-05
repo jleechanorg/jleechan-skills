@@ -1,18 +1,77 @@
 #!/usr/bin/env bash
 # Talk to the user's ChatGPT "dot" assistant.
 # Platform-aware architecture:
-#   - macOS: Aside (account u0 default) primary, headless Chrome (dot_chrome.mjs) secondary/fallback.
-#   - Linux: Transparent SSH bridge to macOS host, or local headless Chrome.
-# Usage: dot.sh read [chars]        print the tail of the conversation (default 5000 chars)
-#        dot.sh send <message-file> send file contents; while the composer holds a peer's unsent
-#                                   draft, retry every DOT_RETRY_SECS (60) up to DOT_WAIT_SECS (1800)
-#        dot.sh send-once <file>    single attempt, no retry
+#   - macOS: Aside (account u0) or headless Chrome (default jleechan@worldarchitect.ai, test, etc.).
+#   - Linux: Local headless Chrome or transparent SSH bridge to macOS host.
+# Usage: dot.sh [--account <name>] [--url <url>] read [chars]        print tail of conversation (default 5000 chars)
+#        dot.sh [--account <name>] [--url <url>] send <message-file> send file contents; while composer holds peer draft,
+#                                                                    retry every DOT_RETRY_SECS (60) up to DOT_WAIT_SECS (1800)
+#        dot.sh [--account <name>] [--url <url>] send-once <file>    single attempt, no retry
+# DOT_ACCOUNT selects account: jleechan@worldarchitect.ai (default), u0 (jleechan@gmail.com), or custom.
 # DOT_BACKEND=aside|chrome|auto forces one backend. DOT_DRY_RUN=1 (chrome send): type, verify, clear, never send.
 # Exit codes: 0 ok, 2 usage/error, 3 composer still busy after the wait, 4 send not verified.
 set -euo pipefail
 
+# Parse optional --account / -a / --url / -u flags from arguments
+NEW_ARGS=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --account|-a)
+      DOT_ACCOUNT="$2"
+      shift 2
+      ;;
+    --account=*)
+      DOT_ACCOUNT="${1#*=}"
+      shift 1
+      ;;
+    --url|-u)
+      DOT_URL="$2"
+      shift 2
+      ;;
+    --url=*)
+      DOT_URL="${1#*=}"
+      shift 1
+      ;;
+    *)
+      NEW_ARGS+=("$1")
+      shift 1
+      ;;
+  esac
+done
+set -- "${NEW_ARGS[@]}"
+
+ACCOUNT="${DOT_ACCOUNT:-jleechan@worldarchitect.ai}"
+
+case "$ACCOUNT" in
+  u0|jleechan@gmail.com|gmail|personal)
+    DEFAULT_DOT_URL="https://chatgpt.com/dots/01a0f819-a779-775c-9d48-8c6035034033"
+    ;;
+  test|jleechantest@gmail.com|jleechantest|testdot)
+    DEFAULT_DOT_URL="https://chatgpt.com/dots/01a0fead-2ea7-71c9-9e87-ac4af984601c"
+    ;;
+  *)
+    DEFAULT_DOT_URL="https://chatgpt.com/dots/01a1032f-aa98-7703-91bf-a35b1f95f01c"
+    ;;
+esac
+DOT_URL="${DOT_URL:-$DEFAULT_DOT_URL}"
+
+if [[ -z "${DOT_BACKEND:-}" || "${DOT_BACKEND:-}" == "auto" ]]; then
+  case "$ACCOUNT" in
+    u0|jleechan@gmail.com|gmail|personal)
+      BACKEND="aside"
+      ;;
+    *)
+      # jleechan@worldarchitect.ai and other accounts use headless chrome
+      BACKEND="chrome"
+      ;;
+  esac
+else
+  BACKEND="$DOT_BACKEND"
+fi
+case "$BACKEND" in auto|chrome|aside) ;; *) echo "dot.sh: DOT_BACKEND must be chrome|aside|auto" >&2; exit 2 ;; esac
+
 # Transparent Linux -> Mac forwarding when Aside is not local
-if [[ "$(uname -s)" != "Darwin" && "${DOT_BACKEND:-auto}" != "chrome" ]]; then
+if [[ "$(uname -s)" != "Darwin" && "$BACKEND" != "chrome" ]]; then
   REMOTE_HOST="${DOT_REMOTE_HOST:-}"
   if [[ -z "$REMOTE_HOST" ]]; then
     if ssh -q -o BatchMode=yes -o ConnectTimeout=2 macbook true 2>/dev/null; then
@@ -25,11 +84,11 @@ if [[ "$(uname -s)" != "Darwin" && "${DOT_BACKEND:-auto}" != "chrome" ]]; then
     if [[ "${1:-}" == "read" ]]; then
       remote_cmd=$(python3 -c '
 import shlex, sys
-envs = ["DOT_URL", "DOT_ACCOUNT", "DOT_BACKEND"]
+envs = ["DOT_URL", "DOT_ACCOUNT", "DOT_BACKEND", "DOT_CLEAR_DRAFT"]
 env_str = " ".join(f"{k}={shlex.quote(sys.argv[1+i])}" for i, k in enumerate(envs) if sys.argv[1+i])
-args_str = " ".join(shlex.quote(a) for a in sys.argv[4:])
+args_str = " ".join(shlex.quote(a) for a in sys.argv[5:])
 print(f"{env_str} ~/.claude/skills/dot/scripts/dot.sh {args_str}".strip())
-' "${DOT_URL:-}" "${DOT_ACCOUNT:-}" "${DOT_BACKEND:-}" "$@")
+' "${DOT_URL:-}" "${DOT_ACCOUNT:-}" "${DOT_BACKEND:-}" "${DOT_CLEAR_DRAFT:-}" "$@")
       exec ssh "$REMOTE_HOST" "$remote_cmd"
     elif [[ "${1:-}" == "send" || "${1:-}" == "send-once" ]]; then
       file="${2:-}"
@@ -41,31 +100,18 @@ print(f"{env_str} ~/.claude/skills/dot/scripts/dot.sh {args_str}".strip())
       scp -q "$file" "$REMOTE_HOST:$remote_tmp"
       remote_cmd=$(python3 -c '
 import shlex, sys
-envs = ["DOT_URL", "DOT_ACCOUNT", "DOT_DRY_RUN", "DOT_WAIT_SECS", "DOT_RETRY_SECS", "DOT_BACKEND"]
+envs = ["DOT_URL", "DOT_ACCOUNT", "DOT_DRY_RUN", "DOT_WAIT_SECS", "DOT_RETRY_SECS", "DOT_BACKEND", "DOT_CLEAR_DRAFT"]
 env_str = " ".join(f"{k}={shlex.quote(sys.argv[1+i])}" for i, k in enumerate(envs) if sys.argv[1+i])
-cmd = f"{env_str} ~/.claude/skills/dot/scripts/dot.sh {shlex.quote(sys.argv[7])} {shlex.quote(sys.argv[8])}; rc=$?; rm -f {shlex.quote(sys.argv[8])}; exit $rc"
+cmd = f"{env_str} ~/.claude/skills/dot/scripts/dot.sh {shlex.quote(sys.argv[8])} {shlex.quote(sys.argv[9])}; rc=$?; rm -f {shlex.quote(sys.argv[9])}; exit $rc"
 print(cmd.strip())
-' "${DOT_URL:-}" "${DOT_ACCOUNT:-}" "${DOT_DRY_RUN:-}" "${DOT_WAIT_SECS:-}" "${DOT_RETRY_SECS:-}" "${DOT_BACKEND:-}" "$1" "$remote_tmp")
+' "${DOT_URL:-}" "${DOT_ACCOUNT:-}" "${DOT_DRY_RUN:-}" "${DOT_WAIT_SECS:-}" "${DOT_RETRY_SECS:-}" "${DOT_BACKEND:-}" "${DOT_CLEAR_DRAFT:-}" "$1" "$remote_tmp")
       ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=60 "$REMOTE_HOST" "$remote_cmd"
       exit $?
     fi
   fi
 fi
 
-DOT_URL="${DOT_URL:-https://chatgpt.com/dots/01a0f819-a779-775c-9d48-8c6035034033}"
-ACCOUNT="${DOT_ACCOUNT:-u0}"
 SETTLE_MS="${DOT_SETTLE_MS:-7000}"
-
-if [[ -z "${DOT_BACKEND:-}" || "${DOT_BACKEND:-}" == "auto" ]]; then
-  if [[ "$(uname -s)" == "Darwin" ]] && command -v aside >/dev/null 2>&1; then
-    BACKEND="aside"
-  else
-    BACKEND="chrome"
-  fi
-else
-  BACKEND="$DOT_BACKEND"
-fi
-case "$BACKEND" in auto|chrome|aside) ;; *) echo "dot.sh: DOT_BACKEND must be chrome|aside|auto" >&2; exit 2 ;; esac
 
 if [[ -n "${DOT_NODE:-}" ]]; then
   NODE="$DOT_NODE"
@@ -86,14 +132,15 @@ run_chrome() {
   CHROME_OUT=""
   if [[ ! -x "$NODE" || ! -f "$HERE/dot_chrome.mjs" ]]; then CHROME_OUT="DOT_CHROME_UNAVAILABLE: node or dot_chrome.mjs missing"; return 10; fi
   local rc=0
-  local node_lib="$(dirname "$NODE")/../lib/node_modules"
-  local extra_node_path=""
-  if [[ -d "$node_lib" ]]; then
-    extra_node_path="$node_lib:${NODE_PATH:-}"
+  local extra_node_path
+  if [[ -d "$HOME/.npm-global/lib/node_modules" ]]; then
+    extra_node_path="$HOME/.npm-global/lib/node_modules:${NODE_PATH:-}"
+  elif [[ -d "$(dirname "$NODE")/../lib/node_modules" ]]; then
+    extra_node_path="$(dirname "$NODE")/../lib/node_modules:${NODE_PATH:-}"
   else
     extra_node_path="${NODE_PATH:-}"
   fi
-  CHROME_OUT="$(NODE_PATH="$extra_node_path" timeout 130 "$NODE" "$HERE/dot_chrome.mjs" "$@" 2>/dev/null)" || rc=$?
+  CHROME_OUT="$(DOT_ACCOUNT="$ACCOUNT" DOT_URL="$DOT_URL" DOT_CLEAR_DRAFT="${DOT_CLEAR_DRAFT:-}" NODE_PATH="$extra_node_path" timeout 130 "$NODE" "$HERE/dot_chrome.mjs" "$@" 2>/dev/null)" || rc=$?
   return $rc
 }
 
@@ -145,9 +192,17 @@ cmd_send_once() {
   out="$(run_repl "$(prelude)
 try {
   const dotMsg = $msg_json;
-  const dotNorm = (t) => t.replace(/\s+/g, ' ').trim();
+  const dotNorm = (t) => t.replace(/\\s+/g, ' ').trim();
+  const stripReadReceipt = (t) => t.replace(/Read\\s+\\d{1,2}:\\d{2}\\s*(?:[AP]M)?/gi, '').replace(/\\s+/g, ' ').trim();
   const dotReadComposer = () => dotPage.evaluate(() => (document.querySelector('[contenteditable=true]')||{}).innerText || '');
-  const dotGetUserMessages = () => dotPage.evaluate(() => Array.from(document.querySelectorAll('[data-message-author-role=user]')).map(el => (el.innerText || '').replace(/\s+/g, ' ').trim()));
+  const dotGetUserMessages = () => dotPage.evaluate(() => Array.from(document.querySelectorAll('[data-message-author-role=user], article.self, article[class*=\"self\"]')).map(el => (el.innerText || '').replace(/\\s+/g, ' ').trim()));
+
+  const matchesMsg = (m, target) => {
+    if (!m || !target) return false;
+    const sm = stripReadReceipt(m);
+    const st = stripReadReceipt(target);
+    return sm === st || sm.includes(st) || st.includes(sm) || (st.length > 40 && sm.includes(st.slice(0, 40)));
+  };
 
   // ChatGPT restores a saved draft lazily on focus, so focus first, then inspect.
   await dotPage.click('[contenteditable=true]');
@@ -157,12 +212,9 @@ try {
   if (dotComposer !== '') {
     const normComposer = dotNorm(dotComposer);
     const userMessages = await dotGetUserMessages();
-    // Safe to clear only if:
-    // 1) It exactly matches our own current message (from an interrupted prior attempt), OR
-    // 2) The exact text already exists as a completed user message in the conversation.
-    const dotAlreadySent = userMessages.some(m => m !== '' && m === normComposer);
-    const dotOwnLeftover = normComposer !== '' && normComposer === dotNorm(dotMsg);
-    if (dotOwnLeftover || dotAlreadySent) {
+    const dotAlreadySent = userMessages.some(m => m !== '' && matchesMsg(m, normComposer));
+    const dotOwnLeftover = normComposer !== '' && (normComposer === dotNorm(dotMsg) || matchesMsg(dotNorm(dotMsg), normComposer));
+    if (process.env.DOT_CLEAR_DRAFT === '1' || dotOwnLeftover || dotAlreadySent) {
       await dotPage.keyboard.press('Meta+A');
       await dotPage.keyboard.press('Backspace');
       await new Promise(r => setTimeout(r, 800));
@@ -179,8 +231,14 @@ try {
     if (dotNorm(typed) !== dotNorm(dotMsg)) {
       console.log('DOT_COMPOSER_MISMATCH: ' + typed.slice(0, 200));
     } else {
+      const matchMsg = (m, needle) => {
+        if (!m || !needle) return false;
+        const sm = stripReadReceipt(m);
+        const sn = stripReadReceipt(needle);
+        return sm === sn || sm.includes(sn) || sn.includes(sm) || (sn.length > 40 && sm.includes(sn.slice(0, 40)));
+      };
       const beforeMsgs = await dotGetUserMessages();
-      const countMatches = (msgs, needle) => msgs.filter(m => m === needle).length;
+      const countMatches = (msgs, needle) => msgs.filter(m => matchMsg(m, needle)).length;
       const beforeCount = countMatches(beforeMsgs, dotNorm(dotMsg));
       await dotPage.click('button[data-testid=send-button], button[aria-label*=Send]');
       await new Promise(r => setTimeout(r, 4000));
@@ -218,5 +276,5 @@ case "${1:-}" in
   read) shift; cmd_read "$@" ;;
   send) shift; cmd_send "$@" ;;
   send-once) shift; cmd_send_once "$@" ;;
-  *) echo "usage: dot.sh read [chars] | send|send-once <message-file>" >&2; exit 2 ;;
+  *) echo "usage: dot.sh [--account <name>] [--url <url>] read [chars] | send|send-once <message-file>" >&2; exit 2 ;;
 esac
