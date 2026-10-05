@@ -1,63 +1,93 @@
 #!/usr/bin/env bash
 # Talk to the user's ChatGPT "dot" assistant.
 # Platform-aware architecture:
-#   - macOS: Aside (account u0 default) primary, headless Chrome (dot_chrome.mjs) secondary/fallback.
-#   - Linux: Transparent SSH bridge to macOS host, or local headless Chrome.
-# Usage: dot.sh read [chars]        print the tail of the conversation (default 5000 chars)
-#        dot.sh send <message-file> send file contents; while the composer holds a peer's unsent
-#                                   draft, retry every DOT_RETRY_SECS (60) up to DOT_WAIT_SECS (1800)
-#        dot.sh send-once <file>    single attempt, no retry
+#   - macOS: Aside or headless Chrome.
+#   - Linux: Local headless Chrome or transparent SSH bridge to macOS host.
+# Usage: dot.sh [--account <name>] [--url <url>] read [chars]        print tail of conversation (default 5000 chars)
+#        dot.sh [--account <name>] [--url <url>] send <message-file> send file contents; while composer holds peer draft,
+#                                                                    retry every DOT_RETRY_SECS (60) up to DOT_WAIT_SECS (1800)
+#        dot.sh [--account <name>] [--url <url>] send-once <file>    single attempt, no retry
+# DOT_ACCOUNT selects account (configured in ~/.config/dot/config.json or custom identifier).
 # DOT_BACKEND=aside|chrome|auto forces one backend. DOT_DRY_RUN=1 (chrome send): type, verify, clear, never send.
 # Exit codes: 0 ok, 2 usage/error, 3 composer still busy after the wait, 4 send not verified.
 set -euo pipefail
 
-# Transparent Linux -> Mac forwarding when Aside is not local
-if [[ "$(uname -s)" != "Darwin" && "${DOT_BACKEND:-auto}" != "chrome" ]]; then
-  REMOTE_HOST="${DOT_REMOTE_HOST:-}"
-  if [[ -z "$REMOTE_HOST" ]]; then
-    if ssh -q -o BatchMode=yes -o ConnectTimeout=2 macbook true 2>/dev/null; then
-      REMOTE_HOST="macbook"
-    elif ssh -q -o BatchMode=yes -o ConnectTimeout=2 macbook-ts true 2>/dev/null; then
-      REMOTE_HOST="macbook-ts"
-    fi
-  fi
-  if [[ -n "$REMOTE_HOST" ]]; then
-    if [[ "${1:-}" == "read" ]]; then
-      remote_cmd=$(python3 -c '
-import shlex, sys
-envs = ["DOT_URL", "DOT_ACCOUNT", "DOT_BACKEND"]
-env_str = " ".join(f"{k}={shlex.quote(sys.argv[1+i])}" for i, k in enumerate(envs) if sys.argv[1+i])
-args_str = " ".join(shlex.quote(a) for a in sys.argv[4:])
-print(f"{env_str} ~/.claude/skills/dot/scripts/dot.sh {args_str}".strip())
-' "${DOT_URL:-}" "${DOT_ACCOUNT:-}" "${DOT_BACKEND:-}" "$@")
-      exec ssh "$REMOTE_HOST" "$remote_cmd"
-    elif [[ "${1:-}" == "send" || "${1:-}" == "send-once" ]]; then
-      file="${2:-}"
-      if [[ ! -f "$file" || ! -s "$file" ]]; then
-        echo "dot.sh: message file missing or empty: $file" >&2
-        exit 2
-      fi
-      remote_tmp="/tmp/dot_remote_$(date +%s)_$$.txt"
-      scp -q "$file" "$REMOTE_HOST:$remote_tmp"
-      remote_cmd=$(python3 -c '
-import shlex, sys
-envs = ["DOT_URL", "DOT_ACCOUNT", "DOT_DRY_RUN", "DOT_WAIT_SECS", "DOT_RETRY_SECS", "DOT_BACKEND"]
-env_str = " ".join(f"{k}={shlex.quote(sys.argv[1+i])}" for i, k in enumerate(envs) if sys.argv[1+i])
-cmd = f"{env_str} ~/.claude/skills/dot/scripts/dot.sh {shlex.quote(sys.argv[7])} {shlex.quote(sys.argv[8])}; rc=$?; rm -f {shlex.quote(sys.argv[8])}; exit $rc"
-print(cmd.strip())
-' "${DOT_URL:-}" "${DOT_ACCOUNT:-}" "${DOT_DRY_RUN:-}" "${DOT_WAIT_SECS:-}" "${DOT_RETRY_SECS:-}" "${DOT_BACKEND:-}" "$1" "$remote_tmp")
-      ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=60 "$REMOTE_HOST" "$remote_cmd"
-      exit $?
-    fi
-  fi
-fi
+# Parse optional --account / -a / --url / -u flags from arguments
+NEW_ARGS=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --account|-a)
+      DOT_ACCOUNT="$2"
+      shift 2
+      ;;
+    --account=*)
+      DOT_ACCOUNT="${1#*=}"
+      shift 1
+      ;;
+    --url|-u)
+      DOT_URL="$2"
+      shift 2
+      ;;
+    --url=*)
+      DOT_URL="${1#*=}"
+      shift 1
+      ;;
+    *)
+      NEW_ARGS+=("$1")
+      shift 1
+      ;;
+  esac
+done
+set -- "${NEW_ARGS[@]}"
 
-DOT_URL="${DOT_URL:-https://chatgpt.com/dots/01a0f819-a779-775c-9d48-8c6035034033}"
-ACCOUNT="${DOT_ACCOUNT:-u0}"
-SETTLE_MS="${DOT_SETTLE_MS:-7000}"
+CONFIG_FILE="${DOT_CONFIG_FILE:-$HOME/.config/dot/config.json}"
+ACCOUNT="${DOT_ACCOUNT:-}"
+
+if [[ -z "$ACCOUNT" && -f "$CONFIG_FILE" ]]; then
+  ACCOUNT=$(node -e '
+    try {
+      const fs = require("fs");
+      const cfg = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+      process.stdout.write(cfg.default_account || "");
+    } catch {}
+  ' "$CONFIG_FILE" 2>/dev/null || true)
+fi
+ACCOUNT="${ACCOUNT:-default}"
+
+# Resolve DOT_URL from config if not explicitly set
+if [[ -z "${DOT_URL:-}" && -f "$CONFIG_FILE" ]]; then
+  DOT_URL=$(node -e '
+    try {
+      const fs = require("fs");
+      const cfg = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+      const acc = process.argv[2];
+      const accKey = (cfg.aliases && cfg.aliases[acc.toLowerCase()]) || acc;
+      const accCfg = (cfg.accounts && (cfg.accounts[accKey] || cfg.accounts[accKey.toLowerCase()])) || {};
+      const url = accCfg.url || cfg.default_url || "";
+      process.stdout.write(url);
+    } catch {}
+  ' "$CONFIG_FILE" "$ACCOUNT" 2>/dev/null || true)
+fi
+DOT_URL="${DOT_URL:-https://chatgpt.com/}"
 
 if [[ -z "${DOT_BACKEND:-}" || "${DOT_BACKEND:-}" == "auto" ]]; then
-  if [[ "$(uname -s)" == "Darwin" ]] && command -v aside >/dev/null 2>&1; then
+  CONFIG_BACKEND=""
+  if [[ -f "$CONFIG_FILE" ]]; then
+    CONFIG_BACKEND=$(node -e '
+      try {
+        const fs = require("fs");
+        const cfg = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+        const acc = process.argv[2];
+        const accKey = (cfg.aliases && cfg.aliases[acc.toLowerCase()]) || acc;
+        const accCfg = (cfg.accounts && (cfg.accounts[accKey] || cfg.accounts[accKey.toLowerCase()])) || {};
+        process.stdout.write(accCfg.backend || "");
+      } catch {}
+    ' "$CONFIG_FILE" "$ACCOUNT" 2>/dev/null || true)
+  fi
+
+  if [[ -n "$CONFIG_BACKEND" ]]; then
+    BACKEND="$CONFIG_BACKEND"
+  elif [[ "$ACCOUNT" == "aside" || "$ACCOUNT" == "u0" ]]; then
     BACKEND="aside"
   else
     BACKEND="chrome"
@@ -66,6 +96,110 @@ else
   BACKEND="$DOT_BACKEND"
 fi
 case "$BACKEND" in auto|chrome|aside) ;; *) echo "dot.sh: DOT_BACKEND must be chrome|aside|auto" >&2; exit 2 ;; esac
+
+forward_to_mac() {
+  local action="$1"
+  shift
+  local REMOTE_HOST="${DOT_REMOTE_HOST:-}"
+  if [[ -z "$REMOTE_HOST" && -f "$CONFIG_FILE" ]]; then
+    REMOTE_HOST=$(node -e '
+      try {
+        const fs = require("fs");
+        const cfg = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+        process.stdout.write(cfg.remote_host || "");
+      } catch {}
+    ' "$CONFIG_FILE" 2>/dev/null || true)
+  fi
+  if [[ -n "$REMOTE_HOST" ]]; then
+    if [[ "$action" == "read" ]]; then
+      local remote_cmd
+      remote_cmd=$(python3 -c '
+import shlex, sys
+envs = ["DOT_URL", "DOT_ACCOUNT", "DOT_BACKEND", "DOT_CLEAR_DRAFT", "DOT_NO_REMOTE"]
+env_str = " ".join(f"{k}={shlex.quote(sys.argv[1+i])}" for i, k in enumerate(envs) if sys.argv[1+i])
+args_str = " ".join(shlex.quote(a) for a in sys.argv[6:])
+print(f"{env_str} ~/.claude/skills/dot/scripts/dot.sh {args_str}".strip())
+' "${DOT_URL:-}" "${DOT_ACCOUNT:-}" "${DOT_BACKEND:-}" "${DOT_CLEAR_DRAFT:-}" "1" "$action" "$@")
+      exec ssh "$REMOTE_HOST" "$remote_cmd"
+    elif [[ "$action" == "send" || "$action" == "send-once" ]]; then
+      local file="${1:-}"
+      if [[ ! -f "$file" || ! -s "$file" ]]; then
+        echo "dot.sh: message file missing or empty: $file" >&2
+        exit 2
+      fi
+      local remote_tmp
+      remote_tmp="$(ssh "$REMOTE_HOST" "mktemp /tmp/dot_remote_XXXXXX.txt")"
+      scp -q "$file" "$REMOTE_HOST:$remote_tmp"
+      local remote_cmd
+      remote_cmd=$(python3 -c '
+import shlex, sys
+envs = ["DOT_URL", "DOT_ACCOUNT", "DOT_DRY_RUN", "DOT_WAIT_SECS", "DOT_RETRY_SECS", "DOT_BACKEND", "DOT_CLEAR_DRAFT", "DOT_NO_REMOTE"]
+env_str = " ".join(f"{k}={shlex.quote(sys.argv[1+i])}" for i, k in enumerate(envs) if sys.argv[1+i])
+cmd = f"{env_str} ~/.claude/skills/dot/scripts/dot.sh {shlex.quote(sys.argv[9])} {shlex.quote(sys.argv[10])}; rc=$?; rm -f {shlex.quote(sys.argv[10])}; exit $rc"
+print(cmd.strip())
+' "${DOT_URL:-}" "${DOT_ACCOUNT:-}" "${DOT_DRY_RUN:-}" "${DOT_WAIT_SECS:-}" "${DOT_RETRY_SECS:-}" "${DOT_BACKEND:-}" "${DOT_CLEAR_DRAFT:-}" "1" "$action" "$remote_tmp")
+      ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=60 "$REMOTE_HOST" "$remote_cmd"
+      exit $?
+    fi
+  fi
+  return 1
+}
+
+# Transparent Linux -> Mac forwarding when Aside is not local
+if [[ "$(uname -s)" != "Darwin" && "$BACKEND" != "chrome" ]]; then
+  forward_to_mac "$@"
+fi
+
+# Transparent Mac -> Linux forwarding ONLY when local Chrome is unavailable or explicitly forced
+if [[ "$(uname -s)" == "Darwin" && "$BACKEND" == "chrome" && -z "${DOT_NO_REMOTE:-}" ]]; then
+  has_local_chrome=0
+  if [[ -x "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" || -n "${DOT_CHROME_BIN:-}" ]]; then
+    has_local_chrome=1
+  fi
+  if [[ "$has_local_chrome" -eq 0 || "${DOT_FORCE_REMOTE_LINUX:-0}" == "1" ]]; then
+    REMOTE_LINUX="${DOT_REMOTE_LINUX:-}"
+    if [[ -z "$REMOTE_LINUX" && -f "$CONFIG_FILE" ]]; then
+      REMOTE_LINUX=$(node -e '
+        try {
+          const fs = require("fs");
+          const cfg = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+          process.stdout.write(cfg.remote_linux || "");
+        } catch {}
+      ' "$CONFIG_FILE" 2>/dev/null || true)
+    fi
+    if [[ -n "$REMOTE_LINUX" ]]; then
+      if [[ "${1:-}" == "read" ]]; then
+        remote_cmd=$(python3 -c '
+import shlex, sys
+envs = ["DOT_URL", "DOT_ACCOUNT", "DOT_BACKEND", "DOT_CLEAR_DRAFT"]
+env_str = " ".join(f"{k}={shlex.quote(sys.argv[1+i])}" for i, k in enumerate(envs) if sys.argv[1+i])
+args_str = " ".join(shlex.quote(a) for a in sys.argv[5:])
+print(f"{env_str} DOT_NO_REMOTE=1 ~/.claude/skills/dot/scripts/dot.sh {args_str}".strip())
+' "${DOT_URL:-}" "${DOT_ACCOUNT:-}" "${DOT_BACKEND:-}" "${DOT_CLEAR_DRAFT:-}" "$@")
+        exec ssh "$REMOTE_LINUX" "$remote_cmd"
+      elif [[ "${1:-}" == "send" || "${1:-}" == "send-once" ]]; then
+        file="${2:-}"
+        if [[ ! -f "$file" || ! -s "$file" ]]; then
+          echo "dot.sh: message file missing or empty: $file" >&2
+          exit 2
+        fi
+        remote_tmp="$(ssh "$REMOTE_LINUX" "mktemp /tmp/dot_remote_XXXXXX.txt")"
+        scp -q "$file" "$REMOTE_LINUX:$remote_tmp"
+        remote_cmd=$(python3 -c '
+import shlex, sys
+envs = ["DOT_URL", "DOT_ACCOUNT", "DOT_DRY_RUN", "DOT_WAIT_SECS", "DOT_RETRY_SECS", "DOT_BACKEND", "DOT_CLEAR_DRAFT"]
+env_str = " ".join(f"{k}={shlex.quote(sys.argv[1+i])}" for i, k in enumerate(envs) if sys.argv[1+i])
+cmd = f"{env_str} DOT_NO_REMOTE=1 ~/.claude/skills/dot/scripts/dot.sh {shlex.quote(sys.argv[8])} {shlex.quote(sys.argv[9])}; rc=$?; rm -f {shlex.quote(sys.argv[9])}; exit $rc"
+print(cmd.strip())
+' "${DOT_URL:-}" "${DOT_ACCOUNT:-}" "${DOT_DRY_RUN:-}" "${DOT_WAIT_SECS:-}" "${DOT_RETRY_SECS:-}" "${DOT_BACKEND:-}" "${DOT_CLEAR_DRAFT:-}" "$1" "$remote_tmp")
+        ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=60 "$REMOTE_LINUX" "$remote_cmd"
+        exit $?
+      fi
+    fi
+  fi
+fi
+
+SETTLE_MS="${DOT_SETTLE_MS:-7000}"
 
 if [[ -n "${DOT_NODE:-}" ]]; then
   NODE="$DOT_NODE"
@@ -86,14 +220,15 @@ run_chrome() {
   CHROME_OUT=""
   if [[ ! -x "$NODE" || ! -f "$HERE/dot_chrome.mjs" ]]; then CHROME_OUT="DOT_CHROME_UNAVAILABLE: node or dot_chrome.mjs missing"; return 10; fi
   local rc=0
-  local node_lib="$(dirname "$NODE")/../lib/node_modules"
-  local extra_node_path=""
-  if [[ -d "$node_lib" ]]; then
-    extra_node_path="$node_lib:${NODE_PATH:-}"
+  local extra_node_path
+  if [[ -d "$HOME/.npm-global/lib/node_modules" ]]; then
+    extra_node_path="$HOME/.npm-global/lib/node_modules:${NODE_PATH:-}"
+  elif [[ -d "$(dirname "$NODE")/../lib/node_modules" ]]; then
+    extra_node_path="$(dirname "$NODE")/../lib/node_modules:${NODE_PATH:-}"
   else
     extra_node_path="${NODE_PATH:-}"
   fi
-  CHROME_OUT="$(NODE_PATH="$extra_node_path" timeout 130 "$NODE" "$HERE/dot_chrome.mjs" "$@" 2>/dev/null)" || rc=$?
+  CHROME_OUT="$(DOT_ACCOUNT="$ACCOUNT" DOT_URL="$DOT_URL" DOT_CLEAR_DRAFT="${DOT_CLEAR_DRAFT:-}" NODE_PATH="$extra_node_path" timeout 130 "$NODE" "$HERE/dot_chrome.mjs" "$@" 2>/dev/null)" || rc=$?
   return $rc
 }
 
@@ -107,25 +242,93 @@ await new Promise(r => setTimeout(r, $SETTLE_MS));
 JS
 }
 
+is_limit_reached() {
+  local text="$1"
+  if echo "$text" | grep -qiE "(abuse prevention limit|usage limit|rate limit|hit our abuse|too many requests|your dot is on a break|check back in a bit)"; then
+    return 0
+  fi
+  return 1
+}
+
+get_next_account() {
+  local current="$1"
+  if [[ ! -f "$CONFIG_FILE" ]]; then
+    return 1
+  fi
+  node -e '
+    try {
+      const fs = require("fs");
+      const cfg = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+      const rot = cfg.rotation || Object.keys(cfg.accounts || {});
+      const cur = process.argv[2].toLowerCase();
+      const curKey = (cfg.aliases && cfg.aliases[cur]) || cur;
+      let idx = rot.findIndex(a => a.toLowerCase() === curKey);
+      if (idx === -1) {
+        idx = rot.findIndex(a => cur.includes(a.toLowerCase()) || a.toLowerCase().includes(cur));
+      }
+      if (rot.length > 1) {
+        const nextIdx = (idx === -1) ? 0 : (idx + 1) % rot.length;
+        process.stdout.write(rot[nextIdx]);
+      }
+    } catch {}
+  ' "$CONFIG_FILE" "$current" 2>/dev/null
+}
+
+rotate_account_if_needed() {
+  local output="$1"
+  local action="$2"
+  shift 2
+  # Never rotate on successful send
+  if [[ "$output" == *"DOT_SENT_VERIFIED"* ]]; then
+    return 0
+  fi
+  local check_text="$output"
+  if [[ "$action" == "read" ]]; then
+    check_text="$(echo "$output" | tail -n 25)"
+  fi
+  if [[ "${DOT_ROTATE_ON_LIMIT:-1}" == "1" ]] && is_limit_reached "$check_text"; then
+    local next_acc
+    next_acc="$(get_next_account "$ACCOUNT")"
+    local rotated="${DOT_ROTATED_ACCOUNTS:-}"
+    if [[ -n "$next_acc" && "$next_acc" != "$ACCOUNT" ]] && ! echo ",$rotated," | grep -q ",$next_acc,"; then
+      echo "dot.sh: account '$ACCOUNT' hit usage limit/break; rotating to '$next_acc'..." >&2
+      DOT_ROTATED_ACCOUNTS="${rotated:+$rotated,}$ACCOUNT" DOT_ACCOUNT="$next_acc" exec "$0" "$action" "$@"
+    fi
+  fi
+}
+
 cmd_read() {
   local n="${1:-5000}"
   [[ "$n" =~ ^[0-9]+$ ]] || { echo "chars must be an integer" >&2; exit 2; }
+  local out=""
   if [[ "$BACKEND" == "chrome" ]]; then
     local rc=0
     run_chrome read "$n" || rc=$?
-    if [[ $rc -eq 0 ]]; then echo "$CHROME_OUT"; return 0; fi
-    [[ $rc -eq 124 ]] && { CHROME_OUT="DOT_CHROME_UNAVAILABLE: timeout"; rc=10; }
-    if [[ $rc -ne 10 ]]; then echo "$CHROME_OUT"; exit "$rc"; fi
-    echo "$CHROME_OUT" >&2
-    exit 2
-  fi
-  run_repl "$(prelude)
+    if [[ $rc -eq 0 ]]; then
+      out="$CHROME_OUT"
+    else
+      [[ $rc -eq 124 ]] && { CHROME_OUT="DOT_CHROME_UNAVAILABLE: timeout"; rc=10; }
+      if [[ $rc -eq 10 && "$(uname -s)" != "Darwin" && -z "${DOT_NO_REMOTE:-}" ]]; then
+        echo "dot.sh: local chrome unavailable ($CHROME_OUT); attempting remote fallback to Mac..." >&2
+        if forward_to_mac read "$n"; then
+          exit 0
+        fi
+      fi
+      if [[ $rc -ne 10 ]]; then echo "$CHROME_OUT"; exit "$rc"; fi
+      echo "$CHROME_OUT" >&2
+      exit 2
+    fi
+  else
+    out="$(run_repl "$(prelude)
 try {
   const dotText = await dotPage.evaluate(() => document.body.innerText);
   console.log(dotText.slice(-$n));
 } finally {
   try { await dotPage.close(); } catch {}
-}"
+}")"
+  fi
+  rotate_account_if_needed "$out" read "$n"
+  echo "$out"
 }
 
 cmd_send_once() {
@@ -138,16 +341,35 @@ cmd_send_once() {
   if [[ "$BACKEND" == "chrome" ]]; then
     run_chrome send "$file" || rc=$?
     [[ $rc -ne 0 && $rc -ne 10 ]] && CHROME_OUT="DOT_SEND_UNVERIFIED chrome_rc=$rc"
-    if [[ $rc -ne 10 ]]; then out="$CHROME_OUT"
-    else echo "$CHROME_OUT" >&2; exit 2; fi
+    if [[ $rc -ne 10 ]]; then
+      out="$CHROME_OUT"
+    elif [[ "$(uname -s)" != "Darwin" && -z "${DOT_NO_REMOTE:-}" ]]; then
+      echo "dot.sh: local chrome unavailable ($CHROME_OUT); attempting remote fallback to Mac..." >&2
+      if forward_to_mac send-once "$file"; then
+        exit 0
+      fi
+      echo "$CHROME_OUT" >&2
+      exit 2
+    else
+      echo "$CHROME_OUT" >&2
+      exit 2
+    fi
   fi
   if [[ -z "$out" ]]; then
   out="$(run_repl "$(prelude)
 try {
   const dotMsg = $msg_json;
-  const dotNorm = (t) => t.replace(/\s+/g, ' ').trim();
+  const dotNorm = (t) => t.replace(/\\s+/g, ' ').trim();
+  const stripReadReceipt = (t) => t.replace(/Read\\s+\\d{1,2}:\\d{2}\\s*(?:[AP]M)?/gi, '').replace(/\\s+/g, ' ').trim();
   const dotReadComposer = () => dotPage.evaluate(() => (document.querySelector('[contenteditable=true]')||{}).innerText || '');
-  const dotGetUserMessages = () => dotPage.evaluate(() => Array.from(document.querySelectorAll('[data-message-author-role=user]')).map(el => (el.innerText || '').replace(/\s+/g, ' ').trim()));
+  const dotGetUserMessages = () => dotPage.evaluate(() => Array.from(document.querySelectorAll('[data-message-author-role=user], article.self, article[class*=\"self\"]')).map(el => (el.innerText || '').replace(/\\s+/g, ' ').trim()));
+
+  const matchesMsg = (m, target) => {
+    if (!m || !target) return false;
+    const sm = stripReadReceipt(m);
+    const st = stripReadReceipt(target);
+    return sm === st || sm.includes(st) || st.includes(sm) || (st.length > 40 && sm.includes(st.slice(0, 40)));
+  };
 
   // ChatGPT restores a saved draft lazily on focus, so focus first, then inspect.
   await dotPage.click('[contenteditable=true]');
@@ -157,12 +379,9 @@ try {
   if (dotComposer !== '') {
     const normComposer = dotNorm(dotComposer);
     const userMessages = await dotGetUserMessages();
-    // Safe to clear only if:
-    // 1) It exactly matches our own current message (from an interrupted prior attempt), OR
-    // 2) The exact text already exists as a completed user message in the conversation.
-    const dotAlreadySent = userMessages.some(m => m !== '' && m === normComposer);
-    const dotOwnLeftover = normComposer !== '' && normComposer === dotNorm(dotMsg);
-    if (dotOwnLeftover || dotAlreadySent) {
+    const dotAlreadySent = userMessages.some(m => m !== '' && matchesMsg(m, normComposer));
+    const dotOwnLeftover = normComposer !== '' && (normComposer === dotNorm(dotMsg) || matchesMsg(dotNorm(dotMsg), normComposer));
+    if (process.env.DOT_CLEAR_DRAFT === '1' || dotOwnLeftover || dotAlreadySent) {
       await dotPage.keyboard.press('Meta+A');
       await dotPage.keyboard.press('Backspace');
       await new Promise(r => setTimeout(r, 800));
@@ -179,8 +398,14 @@ try {
     if (dotNorm(typed) !== dotNorm(dotMsg)) {
       console.log('DOT_COMPOSER_MISMATCH: ' + typed.slice(0, 200));
     } else {
+      const matchMsg = (m, needle) => {
+        if (!m || !needle) return false;
+        const sm = stripReadReceipt(m);
+        const sn = stripReadReceipt(needle);
+        return sm === sn || sm.includes(sn) || sn.includes(sm) || (sn.length > 40 && sm.includes(sn.slice(0, 40)));
+      };
       const beforeMsgs = await dotGetUserMessages();
-      const countMatches = (msgs, needle) => msgs.filter(m => m === needle).length;
+      const countMatches = (msgs, needle) => msgs.filter(m => matchMsg(m, needle)).length;
       const beforeCount = countMatches(beforeMsgs, dotNorm(dotMsg));
       await dotPage.click('button[data-testid=send-button], button[aria-label*=Send]');
       await new Promise(r => setTimeout(r, 4000));
@@ -195,6 +420,7 @@ try {
   try { await dotPage.close(); } catch {}
 }")"
   fi
+  rotate_account_if_needed "$out" send-once "$file"
   echo "$out"
   case "$out" in
     *DOT_COMPOSER_MISMATCH*) echo "Composer text did not match the message after typing; nothing sent. Check with 'dot.sh read'." >&2; exit 4 ;;
@@ -218,5 +444,5 @@ case "${1:-}" in
   read) shift; cmd_read "$@" ;;
   send) shift; cmd_send "$@" ;;
   send-once) shift; cmd_send_once "$@" ;;
-  *) echo "usage: dot.sh read [chars] | send|send-once <message-file>" >&2; exit 2 ;;
+  *) echo "usage: dot.sh [--account <name>] [--url <url>] read [chars] | send|send-once <message-file>" >&2; exit 2 ;;
 esac

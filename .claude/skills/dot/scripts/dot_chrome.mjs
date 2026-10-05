@@ -8,14 +8,145 @@ import os from 'os';
 import path from 'path';
 
 const require = createRequire(process.env.DOT_PW_MODULES || path.join(path.dirname(process.execPath), '../lib/node_modules/'));
-const URL_ = process.env.DOT_URL || 'https://chatgpt.com/dots/01a0f819-a779-775c-9d48-8c6035034033';
-const CHROME = process.env.DOT_CHROME_BIN || (os.platform() === 'linux' ? '/usr/bin/google-chrome' : '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome');
-const USER_DATA_DIR = process.env.DOT_CHROME_USER_DATA || path.join(os.homedir(), '.config/dot-headless-chrome');
+
+const isMac = os.platform() === 'darwin';
+const sysChromeDir = isMac
+  ? path.join(os.homedir(), 'Library/Application Support/Google/Chrome')
+  : path.join(os.homedir(), '.config/google-chrome');
+const localStatePath = path.join(sysChromeDir, 'Local State');
+
+// Dynamic configuration loader supporting ~/.config/dot/config.json
+function loadDotConfig() {
+  const customConfig = process.env.DOT_CONFIG_FILE;
+  const configPath = customConfig || path.join(os.homedir(), '.config/dot/config.json');
+  try {
+    if (fs.existsSync(configPath)) {
+      return JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    }
+  } catch {}
+  return {};
+}
+
+function detectChromeProfile(requestedAccount) {
+  const dotConfig = loadDotConfig();
+  const defaultAccount = dotConfig.default_account || 'default';
+  let req = (requestedAccount || process.env.DOT_ACCOUNT || defaultAccount).trim();
+
+  // Resolve aliases if defined in local config
+  if (dotConfig.aliases && dotConfig.aliases[req.toLowerCase()]) {
+    req = dotConfig.aliases[req.toLowerCase()];
+  }
+
+  const reqLower = req.toLowerCase();
+  const accountConfig = (dotConfig.accounts && (dotConfig.accounts[req] || dotConfig.accounts[reqLower])) || {};
+
+  let localState = {};
+  try {
+    if (fs.existsSync(localStatePath)) {
+      localState = JSON.parse(fs.readFileSync(localStatePath, 'utf8'));
+    }
+  } catch {}
+
+  const infoCache = (localState.profile && localState.profile.info_cache) || {};
+  let matchedKey = null;
+  let matchedData = null;
+
+  const targetMatch = (accountConfig.profile_match || reqLower).toLowerCase();
+
+  // Search infoCache for matching profile
+  // Pass 1: exact matches on profile key, email, user name, or domain
+  for (const [profKey, profData] of Object.entries(infoCache)) {
+    const profKeyLower = profKey.toLowerCase();
+    const userName = (profData.user_name || '').toLowerCase();
+    const email = (profData.email || profData.user_name || '').toLowerCase();
+    const name = (profData.name || '').toLowerCase();
+    const domain = (profData.hosted_domain || '').toLowerCase();
+
+    if (
+      profKeyLower === targetMatch ||
+      userName === targetMatch ||
+      email === targetMatch ||
+      name === targetMatch ||
+      (domain !== 'no_hosted_domain' && domain === targetMatch)
+    ) {
+      matchedKey = profKey;
+      matchedData = profData;
+      break;
+    }
+  }
+
+  // Pass 2: substring matching if no exact match found
+  if (!matchedKey) {
+    for (const [profKey, profData] of Object.entries(infoCache)) {
+      const userName = (profData.user_name || '').toLowerCase();
+      const email = (profData.email || profData.user_name || '').toLowerCase();
+      const name = (profData.name || '').toLowerCase();
+      const domain = (profData.hosted_domain || '').toLowerCase();
+      const gaiaName = (profData.gaia_name || '').toLowerCase();
+
+      if (
+        userName.includes(targetMatch) ||
+        email.includes(targetMatch) ||
+        name.includes(targetMatch) ||
+        (gaiaName && gaiaName.includes(targetMatch)) ||
+        (domain !== 'no_hosted_domain' && domain.includes(targetMatch)) ||
+        (targetMatch && targetMatch.includes(userName) && userName.length > 3)
+      ) {
+        matchedKey = profKey;
+        matchedData = profData;
+        break;
+      }
+    }
+  }
+
+  // Derive account slug for persistent directory
+  let slug = 'default';
+  if (accountConfig.slug) {
+    slug = accountConfig.slug;
+  } else if (matchedData && matchedData.hosted_domain && matchedData.hosted_domain.toLowerCase() !== 'no_hosted_domain') {
+    const prefix = matchedData.hosted_domain.split('.')[0].toLowerCase().replace(/[^a-z0-9_-]/g, '_');
+    if (prefix) slug = prefix;
+  } else if (matchedData && matchedData.name) {
+    const cleanName = matchedData.name.toLowerCase().replace(/[^a-z0-9_-]/g, '_');
+    if (cleanName) slug = cleanName;
+  } else {
+    const base = req.split('@')[0] || req;
+    slug = base.toLowerCase().replace(/[^a-z0-9_-]/g, '_') || 'default';
+  }
+
+  // Target directory
+  let profileDir;
+  if (process.env.DOT_CHROME_USER_DATA) {
+    profileDir = path.resolve(process.env.DOT_CHROME_USER_DATA);
+  } else if (accountConfig.user_data_dir) {
+    profileDir = path.resolve(accountConfig.user_data_dir.replace(/^~/, os.homedir()));
+  } else {
+    profileDir = path.join(os.homedir(), `.config/dot-headless-chrome-${slug}`);
+  }
+
+  // Target URL
+  const url = process.env.DOT_URL || accountConfig.url || dotConfig.default_url || 'https://chatgpt.com/';
+
+  return {
+    account: req,
+    slug,
+    matchedKey,
+    matchedData,
+    profileDir,
+    url,
+  };
+}
+
+const accountInfo = detectChromeProfile(process.env.DOT_ACCOUNT);
+const URL_ = accountInfo.url;
+const CHROME = process.env.DOT_CHROME_BIN || (isMac ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : '/usr/bin/google-chrome');
+const USER_DATA_DIR = accountInfo.profileDir;
 // Cloudflare rejects the default HeadlessChrome UA; any current desktop Chrome UA passes.
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36';
-const COMPOSER = '[contenteditable=true]';
+const COMPOSER = '[contenteditable=true], #prompt-textarea, textarea[placeholder*="Message"]';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const norm = (t) => t.replace(/\s+/g, ' ').trim();
+const stripReadReceipt = (t) => t.replace(/Read\s+\d{1,2}:\d{2}\s*(?:[AP]M)?/gi, '').replace(/\s+/g, ' ').trim();
 
 class Unavailable extends Error {}
 const unavailable = (why) => { throw new Unavailable(why); };
@@ -24,9 +155,107 @@ const [mode, arg] = process.argv.slice(2);
 let ctx = null;
 let clicked = false;
 
+function ensurePersistentProfile(accInfo, targetDir) {
+  // Never recreate an existing persistent profile
+  const defaultDir = path.join(targetDir, 'Default');
+  if (fs.existsSync(defaultDir)) {
+    return;
+  }
+
+  if (!fs.existsSync(localStatePath)) {
+    fs.mkdirSync(defaultDir, { recursive: true });
+    return;
+  }
+
+  fs.mkdirSync(targetDir, { recursive: true });
+  try {
+    fs.copyFileSync(localStatePath, path.join(targetDir, 'Local State'));
+  } catch {}
+
+  if (accInfo.matchedKey) {
+    const srcProfilePath = path.join(sysChromeDir, accInfo.matchedKey);
+    if (fs.existsSync(srcProfilePath)) {
+      try {
+        execSync(`rsync -a --exclude='Singleton*' --exclude='*lock*' "${srcProfilePath}/" "${defaultDir}/" 2>/dev/null`);
+        execSync(`find "${defaultDir}" -name 'LOCK' -delete 2>/dev/null`);
+      } catch {
+        fs.mkdirSync(defaultDir, { recursive: true });
+      }
+      return;
+    }
+  }
+  fs.mkdirSync(defaultDir, { recursive: true });
+}
+
 async function waitAndCleanSingletonLock(dir) {
   const resolvedDir = path.resolve(dir);
   const lockPath = path.join(dir, 'SingletonLock');
+
+  const isDead = (p) => {
+    try {
+      const stat = execSync(`ps -o stat= -p ${p} 2>/dev/null`).toString().trim();
+      if (!stat || stat.startsWith('Z') || stat.startsWith('T')) return true;
+      return false;
+    } catch {
+      return true;
+    }
+  };
+
+  const killProcessTree = async (pid) => {
+    try { process.kill(pid, 15); } catch {}
+    let dead = false;
+    for (let k = 0; k < 10; k++) {
+      await sleep(200);
+      if (isDead(pid)) { dead = true; break; }
+    }
+    if (!dead) {
+      try { process.kill(pid, 9); } catch {}
+      for (let k = 0; k < 10; k++) {
+        await sleep(100);
+        if (isDead(pid)) { dead = true; break; }
+      }
+    }
+    return dead;
+  };
+
+  const removeLocks = () => {
+    for (const f of ['SingletonLock', 'SingletonCookie', 'SingletonSocket']) {
+      try { fs.unlinkSync(path.join(dir, f)); } catch {}
+    }
+  };
+
+  // Clean any stale orphaned Chrome processes tied to this profile directory
+  const cleanOrphans = async () => {
+    try {
+      const escaped = resolvedDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const userDirRegex = new RegExp('(?:^|\\s)--user-data-dir=(?:"' + escaped + '"|\'' + escaped + '\'|' + escaped + '(?=[\\s\'"]|$))');
+      const pidsOutput = execSync('pgrep -i -f "(chrome|chromium).*--user-data-dir=" 2>/dev/null || true').toString().trim();
+      if (!pidsOutput) return;
+      const pids = pidsOutput.split(/\s+/).map((p) => parseInt(p, 10)).filter(Boolean);
+      for (const p of pids) {
+        if (p === process.pid) continue;
+        let cmd = '';
+        try { cmd = execSync(`ps -o command= -p ${p} 2>/dev/null`).toString(); } catch {}
+        if (!userDirRegex.test(cmd)) continue;
+
+        let ppid = 0;
+        try { ppid = parseInt(execSync(`ps -o ppid= -p ${p} 2>/dev/null`).toString().trim(), 10); } catch {}
+        const isParentDead = ppid > 0 && isDead(ppid);
+        let isSystemd = false;
+        try {
+          const comm = execSync(`ps -o comm= -p ${ppid} 2>/dev/null`).toString().trim();
+          isSystemd = comm.includes('systemd') || comm === 'init';
+        } catch {}
+
+        if (ppid === 1 || isParentDead || isSystemd) {
+          await killProcessTree(p);
+        }
+      }
+    } catch {}
+  };
+
+  await cleanOrphans();
+
   for (let attempt = 0; attempt < 90; attempt++) {
     let hasLock = false;
     try {
@@ -36,54 +265,40 @@ async function waitAndCleanSingletonLock(dir) {
         const match = target.match(/-(\d+)$/);
         if (match) {
           const pid = parseInt(match[1], 10);
-          try {
-            process.kill(pid, 0); // Is process alive?
-            let ppid = 0;
-            try { ppid = parseInt(execSync(`ps -o ppid= -p ${pid} 2>/dev/null`).toString().trim(), 10); } catch {}
-            if (ppid === 1) {
-              // Ensure this is an orphaned Chrome process specifically using our target directory
-              let cmd = '';
-              try { cmd = execSync(`ps -o command= -p ${pid} 2>/dev/null`).toString(); } catch {}
-              const escaped = resolvedDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-              const userDirRegex = new RegExp('(?:^|\\s)--user-data-dir=(?:"' + escaped + '"|\'' + escaped + '\'|' + escaped + '(?=[\\s\'"]|$))');
-              if (userDirRegex.test(cmd)) {
-                const isDead = (p) => {
-                  try { process.kill(p, 0); return false; }
-                  catch (e) { return e.code === 'ESRCH'; }
-                };
-                try { process.kill(pid, 15); } catch {}
-                let dead = false;
-                for (let k = 0; k < 10; k++) {
-                  await sleep(200);
-                  if (isDead(pid)) { dead = true; break; }
-                }
-                if (!dead) {
-                  try { process.kill(pid, 9); } catch {}
-                  for (let k = 0; k < 10; k++) {
-                    await sleep(100);
-                    if (isDead(pid)) { dead = true; break; }
-                  }
-                }
+          if (isDead(pid)) {
+            removeLocks();
+            hasLock = false;
+          } else {
+            let cmd = '';
+            try { cmd = execSync(`ps -o command= -p ${pid} 2>/dev/null`).toString(); } catch {}
+            const escaped = resolvedDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const userDirRegex = new RegExp('(?:^|\\s)--user-data-dir=(?:"' + escaped + '"|\'' + escaped + '\'|' + escaped + '(?=[\\s\'"]|$))');
+            if (userDirRegex.test(cmd)) {
+              let ppid = 0;
+              try { ppid = parseInt(execSync(`ps -o ppid= -p ${pid} 2>/dev/null`).toString().trim(), 10); } catch {}
+              const isParentDead = ppid > 0 && isDead(ppid);
+              let isSystemd = false;
+              try {
+                const comm = execSync(`ps -o comm= -p ${ppid} 2>/dev/null`).toString().trim();
+                isSystemd = comm.includes('systemd') || comm === 'init';
+              } catch {}
+
+              if (ppid === 1 || isParentDead || isSystemd || attempt >= 6) {
+                const dead = await killProcessTree(pid);
                 if (dead) {
-                  for (const f of ['SingletonLock', 'SingletonCookie', 'SingletonSocket']) {
-                    try { fs.unlinkSync(path.join(dir, f)); } catch {}
-                  }
+                  removeLocks();
                   hasLock = false;
                 }
               }
             }
-          } catch (e) {
-            if (e.code === 'ESRCH') {
-              // Dead process, clean up stale locks
-              for (const f of ['SingletonLock', 'SingletonCookie', 'SingletonSocket']) {
-                try { fs.unlinkSync(path.join(dir, f)); } catch {}
-              }
-              hasLock = false;
-            }
           }
         }
       }
-    } catch {}
+    } catch (e) {
+      if (e.code === 'ENOENT') {
+        hasLock = false;
+      }
+    }
     if (!hasLock) return;
     await sleep(500);
   }
@@ -93,13 +308,15 @@ async function launch() {
   let chromium;
   try { ({ chromium } = require('playwright')); } catch { unavailable('playwright module not found'); }
   if (!fs.existsSync(CHROME)) unavailable('Chrome binary missing: ' + CHROME);
+
+  ensurePersistentProfile(accountInfo, USER_DATA_DIR);
   if (!fs.existsSync(USER_DATA_DIR)) unavailable('Profile directory missing: ' + USER_DATA_DIR);
 
   await waitAndCleanSingletonLock(USER_DATA_DIR);
 
   const extraArgs = ['--disable-blink-features=AutomationControlled'];
   if (os.platform() === 'linux') {
-    extraArgs.push('--no-sandbox', '--disable-setuid-sandbox', '--password-store=basic');
+    extraArgs.push('--no-sandbox', '--disable-setuid-sandbox');
   } else {
     extraArgs.push('--password-store=keychain');
   }
@@ -109,7 +326,7 @@ async function launch() {
       executablePath: CHROME,
       headless: true,
       userAgent: UA,
-      ignoreDefaultArgs: ['--use-mock-keychain', '--enable-automation'],
+      ignoreDefaultArgs: ['--use-mock-keychain', '--enable-automation', '--password-store=basic'],
       args: extraArgs,
     });
   } catch (e) {
@@ -117,14 +334,26 @@ async function launch() {
   }
   const page = await ctx.newPage();
   await page.goto(URL_, { waitUntil: 'domcontentloaded', timeout: 45000 });
-  // Wait for the Cloudflare interstitial to clear and the signed-in composer to render.
+  // Wait for the Cloudflare interstitial to clear and content to render.
   const deadline = Date.now() + 45000;
   let last = -1, stable = 0;
   while (Date.now() < deadline) {
     const title = await page.title();
     const composers = await page.locator(COMPOSER).count();
-    const len = (await page.evaluate(() => document.body.innerText)).length;
-    if (composers >= 1 && len > 200 && !/just a moment/i.test(title)) {
+    const bodyText = (await page.evaluate(() => document.body.innerText).catch(() => ''));
+    if (/ChatGPT hit a snag|Something went wrong/i.test(bodyText)) {
+      try {
+        const tryAgainBtn = page.locator('button:has-text("Try again"), button:has-text("Retry")');
+        if (await tryAgainBtn.count() > 0) {
+          await tryAgainBtn.first().click();
+          await sleep(2000);
+          continue;
+        }
+      } catch {}
+    }
+    const len = bodyText.length;
+    const canReturn = mode === 'read' ? (len > 200) : (composers >= 1 && len > 200);
+    if (canReturn && !/just a moment/i.test(title)) {
       stable = len === last ? stable + 1 : 0;
       if (stable >= 3) return page;
     }
@@ -134,18 +363,43 @@ async function launch() {
   const title = await page.title();
   if (/just a moment/i.test(title)) unavailable('Cloudflare challenge');
   if (/log in|sign up/i.test(await page.evaluate(() => document.body.innerText).catch(() => ''))) unavailable('not signed in');
+  if (mode === 'read') return page;
   return unavailable('composer not found');
 }
 
 async function read(page, n) {
-  console.log((await page.evaluate(() => document.body.innerText)).slice(-n));
+  let bodyText = (await page.evaluate(() => document.body.innerText)).trim();
+  if (/ChatGPT hit a snag|Something went wrong/i.test(bodyText)) {
+    try {
+      const tryAgainBtn = page.locator('button:has-text("Try again"), button:has-text("Retry")');
+      if (await tryAgainBtn.count() > 0) {
+        await tryAgainBtn.first().click();
+        await sleep(3000);
+        bodyText = (await page.evaluate(() => document.body.innerText)).trim();
+      }
+    } catch {}
+  }
+  console.log(bodyText.slice(-n));
 }
 
 async function send(page, file, dry) {
   const msg = fs.readFileSync(file, 'utf8').trim();
   const readComposer = () => page.evaluate((s) => (document.querySelector(s) || {}).innerText || '', COMPOSER);
-  const getUserMessages = () => page.evaluate(() => Array.from(document.querySelectorAll('[data-message-author-role=user]')).map(el => (el.innerText || '').replace(/\s+/g, ' ').trim()));
+  const getUserMessages = () => page.evaluate(() => Array.from(document.querySelectorAll('[data-message-author-role=user], article.self, article[class*="self"]')).map(el => (el.innerText || '').replace(/\s+/g, ' ').trim()));
   const clear = async () => { await page.keyboard.press('ControlOrMeta+A'); await page.keyboard.press('Backspace'); await sleep(800); };
+
+  const matchesMessage = (userMsg, comp) => {
+    if (!userMsg || !comp) return false;
+    const sMsg = stripReadReceipt(userMsg);
+    const sComp = stripReadReceipt(comp);
+    if (sMsg === sComp) return true;
+    const minLen = 20;
+    if (sComp.length >= minLen && sMsg.includes(sComp)) return true;
+    if (sMsg.length >= minLen && sComp.includes(sMsg)) return true;
+    if (sComp.length > 40 && sMsg.includes(sComp.slice(0, 40))) return true;
+    if (sMsg.length > 40 && sComp.includes(sMsg.slice(0, 40))) return true;
+    return false;
+  };
 
   await page.click(COMPOSER);
   await sleep(1500);
@@ -154,9 +408,9 @@ async function send(page, file, dry) {
   if (composer !== '') {
     const normComposer = norm(composer);
     const userMessages = await getUserMessages();
-    const alreadySent = userMessages.some(m => m !== '' && m === normComposer);
-    const ownLeftover = normComposer !== '' && normComposer === norm(msg);
-    if (ownLeftover || alreadySent) {
+    const alreadySent = userMessages.some(m => m !== '' && matchesMessage(m, normComposer));
+    const ownLeftover = normComposer !== '' && (normComposer === norm(msg) || matchesMessage(norm(msg), normComposer));
+    if (process.env.DOT_CLEAR_DRAFT === '1' || ownLeftover || alreadySent) {
       await clear();
       composer = (await readComposer()).trim();
       console.log('DOT_STALE_DRAFT_CLEARED');
@@ -178,8 +432,19 @@ async function send(page, file, dry) {
     return;
   }
 
+  const matchMsg = (m, needle) => {
+    if (!m || !needle) return false;
+    const sM = stripReadReceipt(m);
+    const sN = stripReadReceipt(needle);
+    if (sM === sN) return true;
+    const minLen = 20;
+    if (sN.length >= minLen && sM.includes(sN)) return true;
+    if (sM.length >= minLen && sN.includes(sM)) return true;
+    if (sN.length > 40 && sM.includes(sN.slice(0, 40))) return true;
+    return false;
+  };
+  const countMatches = (msgs, needle) => msgs.filter(m => matchMsg(m, needle)).length;
   const beforeMsgs = await getUserMessages();
-  const countMatches = (msgs, needle) => msgs.filter(m => m === needle).length;
   const beforeCount = countMatches(beforeMsgs, norm(msg));
   clicked = true;
   await page.click('button[data-testid=send-button], button[aria-label*=Send]');
