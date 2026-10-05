@@ -97,9 +97,10 @@ else
 fi
 case "$BACKEND" in auto|chrome|aside) ;; *) echo "dot.sh: DOT_BACKEND must be chrome|aside|auto" >&2; exit 2 ;; esac
 
-# Transparent Linux -> Mac forwarding when Aside is not local
-if [[ "$(uname -s)" != "Darwin" && "$BACKEND" != "chrome" ]]; then
-  REMOTE_HOST="${DOT_REMOTE_HOST:-}"
+forward_to_mac() {
+  local action="$1"
+  shift
+  local REMOTE_HOST="${DOT_REMOTE_HOST:-}"
   if [[ -z "$REMOTE_HOST" && -f "$CONFIG_FILE" ]]; then
     REMOTE_HOST=$(node -e '
       try {
@@ -110,75 +111,90 @@ if [[ "$(uname -s)" != "Darwin" && "$BACKEND" != "chrome" ]]; then
     ' "$CONFIG_FILE" 2>/dev/null || true)
   fi
   if [[ -n "$REMOTE_HOST" ]]; then
-    if [[ "${1:-}" == "read" ]]; then
+    if [[ "$action" == "read" ]]; then
+      local remote_cmd
       remote_cmd=$(python3 -c '
 import shlex, sys
-envs = ["DOT_URL", "DOT_ACCOUNT", "DOT_BACKEND", "DOT_CLEAR_DRAFT"]
+envs = ["DOT_URL", "DOT_ACCOUNT", "DOT_BACKEND", "DOT_CLEAR_DRAFT", "DOT_NO_REMOTE"]
 env_str = " ".join(f"{k}={shlex.quote(sys.argv[1+i])}" for i, k in enumerate(envs) if sys.argv[1+i])
-args_str = " ".join(shlex.quote(a) for a in sys.argv[5:])
+args_str = " ".join(shlex.quote(a) for a in sys.argv[6:])
 print(f"{env_str} ~/.claude/skills/dot/scripts/dot.sh {args_str}".strip())
-' "${DOT_URL:-}" "${DOT_ACCOUNT:-}" "${DOT_BACKEND:-}" "${DOT_CLEAR_DRAFT:-}" "$@")
+' "${DOT_URL:-}" "${DOT_ACCOUNT:-}" "${DOT_BACKEND:-}" "${DOT_CLEAR_DRAFT:-}" "1" "$action" "$@")
       exec ssh "$REMOTE_HOST" "$remote_cmd"
-    elif [[ "${1:-}" == "send" || "${1:-}" == "send-once" ]]; then
-      file="${2:-}"
+    elif [[ "$action" == "send" || "$action" == "send-once" ]]; then
+      local file="${1:-}"
       if [[ ! -f "$file" || ! -s "$file" ]]; then
         echo "dot.sh: message file missing or empty: $file" >&2
         exit 2
       fi
+      local remote_tmp
       remote_tmp="$(ssh "$REMOTE_HOST" "mktemp /tmp/dot_remote_XXXXXX.txt")"
       scp -q "$file" "$REMOTE_HOST:$remote_tmp"
+      local remote_cmd
       remote_cmd=$(python3 -c '
 import shlex, sys
-envs = ["DOT_URL", "DOT_ACCOUNT", "DOT_DRY_RUN", "DOT_WAIT_SECS", "DOT_RETRY_SECS", "DOT_BACKEND", "DOT_CLEAR_DRAFT"]
+envs = ["DOT_URL", "DOT_ACCOUNT", "DOT_DRY_RUN", "DOT_WAIT_SECS", "DOT_RETRY_SECS", "DOT_BACKEND", "DOT_CLEAR_DRAFT", "DOT_NO_REMOTE"]
 env_str = " ".join(f"{k}={shlex.quote(sys.argv[1+i])}" for i, k in enumerate(envs) if sys.argv[1+i])
-cmd = f"{env_str} ~/.claude/skills/dot/scripts/dot.sh {shlex.quote(sys.argv[8])} {shlex.quote(sys.argv[9])}; rc=$?; rm -f {shlex.quote(sys.argv[9])}; exit $rc"
+cmd = f"{env_str} ~/.claude/skills/dot/scripts/dot.sh {shlex.quote(sys.argv[9])} {shlex.quote(sys.argv[10])}; rc=$?; rm -f {shlex.quote(sys.argv[10])}; exit $rc"
 print(cmd.strip())
-' "${DOT_URL:-}" "${DOT_ACCOUNT:-}" "${DOT_DRY_RUN:-}" "${DOT_WAIT_SECS:-}" "${DOT_RETRY_SECS:-}" "${DOT_BACKEND:-}" "${DOT_CLEAR_DRAFT:-}" "$1" "$remote_tmp")
+' "${DOT_URL:-}" "${DOT_ACCOUNT:-}" "${DOT_DRY_RUN:-}" "${DOT_WAIT_SECS:-}" "${DOT_RETRY_SECS:-}" "${DOT_BACKEND:-}" "${DOT_CLEAR_DRAFT:-}" "1" "$action" "$remote_tmp")
       ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=60 "$REMOTE_HOST" "$remote_cmd"
       exit $?
     fi
   fi
+  return 1
+}
+
+# Transparent Linux -> Mac forwarding when Aside is not local
+if [[ "$(uname -s)" != "Darwin" && "$BACKEND" != "chrome" ]]; then
+  forward_to_mac "$@"
 fi
 
-# Transparent Mac -> Linux forwarding when Chrome backend is requested over SSH
+# Transparent Mac -> Linux forwarding ONLY when local Chrome is unavailable or explicitly forced
 if [[ "$(uname -s)" == "Darwin" && "$BACKEND" == "chrome" && -z "${DOT_NO_REMOTE:-}" ]]; then
-  REMOTE_LINUX="${DOT_REMOTE_LINUX:-}"
-  if [[ -z "$REMOTE_LINUX" && -f "$CONFIG_FILE" ]]; then
-    REMOTE_LINUX=$(node -e '
-      try {
-        const fs = require("fs");
-        const cfg = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-        process.stdout.write(cfg.remote_linux || "");
-      } catch {}
-    ' "$CONFIG_FILE" 2>/dev/null || true)
+  has_local_chrome=0
+  if [[ -x "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" || -n "${DOT_CHROME_BIN:-}" ]]; then
+    has_local_chrome=1
   fi
-  if [[ -n "$REMOTE_LINUX" ]]; then
-    if [[ "${1:-}" == "read" ]]; then
-      remote_cmd=$(python3 -c '
+  if [[ "$has_local_chrome" -eq 0 || "${DOT_FORCE_REMOTE_LINUX:-0}" == "1" ]]; then
+    REMOTE_LINUX="${DOT_REMOTE_LINUX:-}"
+    if [[ -z "$REMOTE_LINUX" && -f "$CONFIG_FILE" ]]; then
+      REMOTE_LINUX=$(node -e '
+        try {
+          const fs = require("fs");
+          const cfg = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+          process.stdout.write(cfg.remote_linux || "");
+        } catch {}
+      ' "$CONFIG_FILE" 2>/dev/null || true)
+    fi
+    if [[ -n "$REMOTE_LINUX" ]]; then
+      if [[ "${1:-}" == "read" ]]; then
+        remote_cmd=$(python3 -c '
 import shlex, sys
 envs = ["DOT_URL", "DOT_ACCOUNT", "DOT_BACKEND", "DOT_CLEAR_DRAFT"]
 env_str = " ".join(f"{k}={shlex.quote(sys.argv[1+i])}" for i, k in enumerate(envs) if sys.argv[1+i])
 args_str = " ".join(shlex.quote(a) for a in sys.argv[5:])
 print(f"{env_str} DOT_NO_REMOTE=1 ~/.claude/skills/dot/scripts/dot.sh {args_str}".strip())
 ' "${DOT_URL:-}" "${DOT_ACCOUNT:-}" "${DOT_BACKEND:-}" "${DOT_CLEAR_DRAFT:-}" "$@")
-      exec ssh "$REMOTE_LINUX" "$remote_cmd"
-    elif [[ "${1:-}" == "send" || "${1:-}" == "send-once" ]]; then
-      file="${2:-}"
-      if [[ ! -f "$file" || ! -s "$file" ]]; then
-        echo "dot.sh: message file missing or empty: $file" >&2
-        exit 2
-      fi
-      remote_tmp="$(ssh "$REMOTE_LINUX" "mktemp /tmp/dot_remote_XXXXXX.txt")"
-      scp -q "$file" "$REMOTE_LINUX:$remote_tmp"
-      remote_cmd=$(python3 -c '
+        exec ssh "$REMOTE_LINUX" "$remote_cmd"
+      elif [[ "${1:-}" == "send" || "${1:-}" == "send-once" ]]; then
+        file="${2:-}"
+        if [[ ! -f "$file" || ! -s "$file" ]]; then
+          echo "dot.sh: message file missing or empty: $file" >&2
+          exit 2
+        fi
+        remote_tmp="$(ssh "$REMOTE_LINUX" "mktemp /tmp/dot_remote_XXXXXX.txt")"
+        scp -q "$file" "$REMOTE_LINUX:$remote_tmp"
+        remote_cmd=$(python3 -c '
 import shlex, sys
 envs = ["DOT_URL", "DOT_ACCOUNT", "DOT_DRY_RUN", "DOT_WAIT_SECS", "DOT_RETRY_SECS", "DOT_BACKEND", "DOT_CLEAR_DRAFT"]
 env_str = " ".join(f"{k}={shlex.quote(sys.argv[1+i])}" for i, k in enumerate(envs) if sys.argv[1+i])
 cmd = f"{env_str} DOT_NO_REMOTE=1 ~/.claude/skills/dot/scripts/dot.sh {shlex.quote(sys.argv[8])} {shlex.quote(sys.argv[9])}; rc=$?; rm -f {shlex.quote(sys.argv[9])}; exit $rc"
 print(cmd.strip())
 ' "${DOT_URL:-}" "${DOT_ACCOUNT:-}" "${DOT_DRY_RUN:-}" "${DOT_WAIT_SECS:-}" "${DOT_RETRY_SECS:-}" "${DOT_BACKEND:-}" "${DOT_CLEAR_DRAFT:-}" "$1" "$remote_tmp")
-      ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=60 "$REMOTE_LINUX" "$remote_cmd"
-      exit $?
+        ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=60 "$REMOTE_LINUX" "$remote_cmd"
+        exit $?
+      fi
     fi
   fi
 fi
@@ -292,6 +308,12 @@ cmd_read() {
       out="$CHROME_OUT"
     else
       [[ $rc -eq 124 ]] && { CHROME_OUT="DOT_CHROME_UNAVAILABLE: timeout"; rc=10; }
+      if [[ $rc -eq 10 && "$(uname -s)" != "Darwin" && -z "${DOT_NO_REMOTE:-}" ]]; then
+        echo "dot.sh: local chrome unavailable ($CHROME_OUT); attempting remote fallback to Mac..." >&2
+        if forward_to_mac read "$n"; then
+          exit 0
+        fi
+      fi
       if [[ $rc -ne 10 ]]; then echo "$CHROME_OUT"; exit "$rc"; fi
       echo "$CHROME_OUT" >&2
       exit 2
@@ -319,8 +341,19 @@ cmd_send_once() {
   if [[ "$BACKEND" == "chrome" ]]; then
     run_chrome send "$file" || rc=$?
     [[ $rc -ne 0 && $rc -ne 10 ]] && CHROME_OUT="DOT_SEND_UNVERIFIED chrome_rc=$rc"
-    if [[ $rc -ne 10 ]]; then out="$CHROME_OUT"
-    else echo "$CHROME_OUT" >&2; exit 2; fi
+    if [[ $rc -ne 10 ]]; then
+      out="$CHROME_OUT"
+    elif [[ "$(uname -s)" != "Darwin" && -z "${DOT_NO_REMOTE:-}" ]]; then
+      echo "dot.sh: local chrome unavailable ($CHROME_OUT); attempting remote fallback to Mac..." >&2
+      if forward_to_mac send-once "$file"; then
+        exit 0
+      fi
+      echo "$CHROME_OUT" >&2
+      exit 2
+    else
+      echo "$CHROME_OUT" >&2
+      exit 2
+    fi
   fi
   if [[ -z "$out" ]]; then
   out="$(run_repl "$(prelude)
