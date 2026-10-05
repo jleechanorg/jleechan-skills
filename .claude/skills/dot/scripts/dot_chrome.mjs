@@ -322,7 +322,18 @@ async function launch() {
   while (Date.now() < deadline) {
     const title = await page.title();
     const composers = await page.locator(COMPOSER).count();
-    const len = (await page.evaluate(() => document.body.innerText)).length;
+    const bodyText = (await page.evaluate(() => document.body.innerText).catch(() => ''));
+    if (/ChatGPT hit a snag|Something went wrong/i.test(bodyText)) {
+      try {
+        const tryAgainBtn = page.locator('button:has-text("Try again"), button:has-text("Retry")');
+        if (await tryAgainBtn.count() > 0) {
+          await tryAgainBtn.first().click();
+          await sleep(2000);
+          continue;
+        }
+      } catch {}
+    }
+    const len = bodyText.length;
     const canReturn = mode === 'read' ? (len > 200) : (composers >= 1 && len > 200);
     if (canReturn && !/just a moment/i.test(title)) {
       stable = len === last ? stable + 1 : 0;
@@ -339,7 +350,18 @@ async function launch() {
 }
 
 async function read(page, n) {
-  console.log((await page.evaluate(() => document.body.innerText)).slice(-n));
+  let bodyText = (await page.evaluate(() => document.body.innerText)).trim();
+  if (/ChatGPT hit a snag|Something went wrong/i.test(bodyText)) {
+    try {
+      const tryAgainBtn = page.locator('button:has-text("Try again"), button:has-text("Retry")');
+      if (await tryAgainBtn.count() > 0) {
+        await tryAgainBtn.first().click();
+        await sleep(3000);
+        bodyText = (await page.evaluate(() => document.body.innerText)).trim();
+      }
+    } catch {}
+  }
+  console.log(bodyText.slice(-n));
 }
 
 async function send(page, file, dry) {
