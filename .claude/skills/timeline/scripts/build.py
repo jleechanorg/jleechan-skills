@@ -12,6 +12,7 @@ rebuilds. --publish secret-scans the HTML, creates or edits one secret gist
 (cached in <html>.short), and creates or updates one bead (id kept in <html>.bead).
 """
 import argparse
+import hashlib
 import html
 import json
 import math
@@ -192,15 +193,18 @@ def publish_bead(spec, path, gist_url, preview):
         if Path(top).resolve() not in Path(db).resolve().parents:
             raise RuntimeError(f"bead db {db} is outside this worktree; set spec bead_db")
     side = Path(f"{path}.bead")
-    bid = side.read_text().strip() if side.exists() else spec.get("bead", "")
+    saved = side.read_text().split() if side.exists() else []
+    bid = saved[0] if saved else spec.get("bead", "")
     if not bid:
         bid = json.loads(run(["br", "--db", db, "create", f"Timeline: {spec['title']}",
                               "--type", "task", "--priority", "3", "--json", "--description",
                               f"Provenance: /timeline for {path.name}; tracks the live timeline."]))
         bid = bid[0]["id"] if isinstance(bid, list) else bid["id"]
-    side.write_text(bid + "\n")
     notes = f"Timeline gist: {gist_url}\nPreview: {preview}\nHTML: {path}"
-    run(["br", "--db", db, "update", bid, "--append-notes", notes])
+    digest = hashlib.sha256(notes.encode()).hexdigest()
+    if saved[1:] != [digest]:
+        run(["br", "--db", db, "update", bid, "--append-notes", notes])
+    side.write_text(f"{bid}\n{digest}\n")
     return bid
 
 
