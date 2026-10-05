@@ -46,7 +46,7 @@ Never report a timeline you have not looked at.
 
 ## Always print it in chat (mandatory)
 
-The user may not open the files. Every reply includes the `build.py` stdout in a fenced block: one row per step, `█` low, `░` low→high, estimate plus color word at the row end, an axis line, and the header totals. Then give, in this order: the short link (`Timeline:` line, the primary link the user opens), the full preview link (`Preview (full):`), the gist URL, the local HTML as a bare absolute path alone on its own line (secondary; terminals such as cmux linkify bare paths but not markdown `file://` links), the bead id, and one line on what you checked. Never omit the `Timeline:` link.
+The user may not open the files. Every reply includes the `build.py` stdout in a fenced block: one row per step, `█` low, `░` low→high, estimate plus color word at the row end, an axis line, and the header totals. Then give, in this order: the short link (`Timeline:` line, the primary link the user opens), the full preview link (`Preview (full):`), the gist URL, the local HTML as a bare absolute path alone on its own line (secondary; terminals such as cmux linkify bare paths but not markdown `file://` links), the bead id, and one line on what you checked. Never omit the `Timeline:` link; when publishing failed or was refused (secret scan, `gh` error), `build.py` prints only the local HTML path and a `build.py:` reason on stderr, so give the local path and that reason instead.
 
 ## Refresh while work is active (mandatory)
 
