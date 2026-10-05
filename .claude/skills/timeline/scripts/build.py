@@ -200,6 +200,7 @@ def publish_bead(spec, path, gist_url, preview):
                               "--type", "task", "--priority", "3", "--json", "--description",
                               f"Provenance: /timeline for {path.name}; tracks the live timeline."]))
         bid = bid[0]["id"] if isinstance(bid, list) else bid["id"]
+        side.write_text(bid + "\n")
     notes = f"Timeline gist: {gist_url}\nPreview: {preview}\nHTML: {path}"
     digest = hashlib.sha256(notes.encode()).hexdigest()
     if saved[1:] != [digest]:
