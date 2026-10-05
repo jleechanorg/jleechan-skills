@@ -349,7 +349,10 @@ async function send(page, file, dry) {
     if (!userMsg || !comp) return false;
     const sMsg = stripReadReceipt(userMsg);
     const sComp = stripReadReceipt(comp);
-    if (sMsg === sComp || sMsg.includes(sComp) || sComp.includes(sMsg)) return true;
+    if (sMsg === sComp) return true;
+    const minLen = 20;
+    if (sComp.length >= minLen && sMsg.includes(sComp)) return true;
+    if (sMsg.length >= minLen && sComp.includes(sMsg)) return true;
     if (sComp.length > 40 && sMsg.includes(sComp.slice(0, 40))) return true;
     if (sMsg.length > 40 && sComp.includes(sMsg.slice(0, 40))) return true;
     return false;
@@ -390,7 +393,12 @@ async function send(page, file, dry) {
     if (!m || !needle) return false;
     const sM = stripReadReceipt(m);
     const sN = stripReadReceipt(needle);
-    return sM === sN || sM.includes(sN) || sN.includes(sM) || (sN.length > 40 && sM.includes(sN.slice(0, 40)));
+    if (sM === sN) return true;
+    const minLen = 20;
+    if (sN.length >= minLen && sM.includes(sN)) return true;
+    if (sM.length >= minLen && sN.includes(sM)) return true;
+    if (sN.length > 40 && sM.includes(sN.slice(0, 40))) return true;
+    return false;
   };
   const countMatches = (msgs, needle) => msgs.filter(m => matchMsg(m, needle)).length;
   const beforeMsgs = await getUserMessages();
