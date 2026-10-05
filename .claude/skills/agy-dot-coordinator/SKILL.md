@@ -32,8 +32,10 @@ description: Periodic background launchd agent (macOS) and systemd user timer (L
 - After sending, the worker monitors the conversation, checking every minute (up to 10 minutes) with `dot.sh read` until the dot finishes its response (no longer ending in `Thinking`/`Working`).
 - Logs each poll cycle (`[Poll X/10] Dot is actively working on reply...`) and extracts the confirmed reply.
 
-### 4. Stateful Debounce & Idle Detection
-- Schedulers wake every 15 minutes (`StartInterval: 900` or `OnUnitActiveSec=15min`).
+### 4. Stateful Debounce & Staggered 30-Minute Schedule
+- Schedulers wake every 30 minutes, staggered by 15 minutes across machines to prevent overlapping checks:
+  - **macOS**: At `:00` and `:30` of each hour via `StartCalendarInterval`.
+  - **Linux (`jeff-ubuntu`)**: At `:15` and `:45` of each hour via `OnCalendar=*:15,45:00`.
 - A 2-hour cooldown (7200 seconds) is enforced in `~/.local/state/ai.gemini.agy-dot-coordinator/state.json`.
 - If the dot is actively working (`Thinking`, `Working`, `Searching`), the check-in is skipped.
 

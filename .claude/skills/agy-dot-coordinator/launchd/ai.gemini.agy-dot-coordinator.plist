@@ -10,8 +10,17 @@
     <string>/bin/bash</string>
     <string>@HOME@/.claude/skills/agy-dot-coordinator/scripts/agy-dot-coordinator-wrapper.sh</string>
   </array>
-  <key>StartInterval</key>
-  <integer>900</integer>
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict>
+      <key>Minute</key>
+      <integer>0</integer>
+    </dict>
+    <dict>
+      <key>Minute</key>
+      <integer>30</integer>
+    </dict>
+  </array>
   <key>StandardOutPath</key>
   <string>@HOME@/Library/Logs/ai.gemini.agy-dot-coordinator.log</string>
   <key>StandardErrorPath</key>
