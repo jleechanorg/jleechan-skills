@@ -125,7 +125,7 @@ const CHROME = process.env.DOT_CHROME_BIN || (isMac ? '/Applications/Google Chro
 const USER_DATA_DIR = accountInfo.profileDir;
 // Cloudflare rejects the default HeadlessChrome UA; any current desktop Chrome UA passes.
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36';
-const COMPOSER = '[contenteditable=true]';
+const COMPOSER = '[contenteditable=true], #prompt-textarea, textarea[placeholder*="Message"]';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const norm = (t) => t.replace(/\s+/g, ' ').trim();
 const stripReadReceipt = (t) => t.replace(/Read\s+\d{1,2}:\d{2}\s*(?:[AP]M)?/gi, '').replace(/\s+/g, ' ').trim();
@@ -315,14 +315,15 @@ async function launch() {
   }
   const page = await ctx.newPage();
   await page.goto(URL_, { waitUntil: 'domcontentloaded', timeout: 45000 });
-  // Wait for the Cloudflare interstitial to clear and the signed-in composer to render.
+  // Wait for the Cloudflare interstitial to clear and content to render.
   const deadline = Date.now() + 45000;
   let last = -1, stable = 0;
   while (Date.now() < deadline) {
     const title = await page.title();
     const composers = await page.locator(COMPOSER).count();
     const len = (await page.evaluate(() => document.body.innerText)).length;
-    if (composers >= 1 && len > 200 && !/just a moment/i.test(title)) {
+    const canReturn = mode === 'read' ? (len > 200) : (composers >= 1 && len > 200);
+    if (canReturn && !/just a moment/i.test(title)) {
       stable = len === last ? stable + 1 : 0;
       if (stable >= 3) return page;
     }
@@ -332,6 +333,7 @@ async function launch() {
   const title = await page.title();
   if (/just a moment/i.test(title)) unavailable('Cloudflare challenge');
   if (/log in|sign up/i.test(await page.evaluate(() => document.body.innerText).catch(() => ''))) unavailable('not signed in');
+  if (mode === 'read') return page;
   return unavailable('composer not found');
 }
 
