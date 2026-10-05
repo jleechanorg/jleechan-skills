@@ -22,11 +22,15 @@ description: Periodic background launchd agent (macOS) and systemd user timer (L
 - **Linux**: Configured as paired `systemd` user service and timer (`systemd/ai.gemini.agy-dot-coordinator.service` and `systemd/ai.gemini.agy-dot-coordinator.timer`) managed via `systemctl --user`.
 - **Unified Installer**: `scripts/install-service.sh` auto-detects macOS vs Linux and delegates to `install-launchagent.sh` or `install-systemd.sh`.
 
-### 2. Single Message Ask & Resume/Goal Reminder
+### 2. Single Message Directive: 24h WIP Summary, Active Nudge & Prioritization
 - The coordinator dispatches a single structured directive:
-  - Inquires on active in-flight goals and track status.
-  - Directs the dot to resume any paused or stalled goal immediately in priority order using its cloud computer.
-  - Directs the dot to maintain its cloud computer environment and prefer driving execution there.
+  - Requests an explicit summary of all WIP tasks, PRs, and active goals from the last 24 hours across all tracks (PR #, branch/head, status, blockers, and next steps).
+  - Nudges the dot firmly to ensure it is actively driving and trying to advance all work rather than waiting passively.
+  - Enforces strict prioritization order:
+    1) UI redesign (PR 10095), OpenRouter preview/auth (PR 10092), and Single-Turn Level-Up (PR 10097).
+    2) Resource PRs (PR 8934, 10107, 10115, 10116, 10128) and Combat/XP bug fixes (PR 9867).
+    3) Background campaigns and research tasks.
+  - Directs the dot to keep its cloud computer fully provisioned and strictly prefer driving all execution there.
 
 ### 3. 1-Minute Reply Polling Loop
 - After sending, the worker monitors the conversation, checking every minute (up to 10 minutes) with `dot.sh read` until the dot finishes its response (no longer ending in `Thinking`/`Working`).

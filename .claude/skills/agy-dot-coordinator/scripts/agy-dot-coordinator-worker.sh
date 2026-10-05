@@ -109,11 +109,15 @@ Communicate with the ChatGPT coordinator (the dot) using the /dot skill.
 Instructions:
 1. Inspect what the dot is doing by reading its conversation with /dot.
 2. Send a single structured message starting with 'From Gemini (Antigravity Coordinator):':
-   - Ask to run /goal or report what work is currently in flight across all tracks and what active goals exist.
-   - Remind the dot to resume any paused or waiting work/goal and keep driving in strict priority order using its cloud computer.
-   - Remind the dot to set up the cloud computer environment with everything needed (repositories, tools, dependencies, and test harnesses) and to strictly prefer driving execution there.
+   - Request an explicit summary of all WIP tasks, PRs, and active goals from the last 24 hours across all tracks (including PR #, branch/head, status, blockers, and next actions).
+   - Nudge the dot firmly to ensure it is actively driving and trying to advance all work rather than waiting passively. Tell it to resume any paused or waiting work/goals immediately.
+   - Enforce strict prioritization:
+     1) UI redesign (PR 10095), OpenRouter preview/auth (PR 10092), and Single-Turn Level-Up (PR 10097).
+     2) Resource PRs (PR 8934, 10107, 10115, 10116, 10128) and Combat/XP bug fixes (PR 9867).
+     3) Background campaigns and research tasks.
+   - Direct the dot to keep its cloud computer fully provisioned with all tools, repositories, dependencies, and test harnesses, and strictly prefer driving all execution there.
 3. Make sure the message is sent cleanly using dot.sh with DOT_WAIT_SECS=60 and report the verified send status.
-4. After sending, check every minute for a reply (polling dot.sh read 3000) until the dot finishes its response (no longer ending in Thinking/Working), then report the in-flight work and confirm it has resumed."
+4. After sending, check every minute for a reply (polling dot.sh read 3000) until the dot finishes its response (no longer ending in Thinking/Working), then report the in-flight work and confirm what tasks have resumed."
 
 if [[ "$DRY_RUN" -eq 1 ]]; then
   echo "[DRY-RUN] Would run agy -p with prompt:"
