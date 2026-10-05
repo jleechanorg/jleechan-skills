@@ -111,6 +111,45 @@ print(cmd.strip())
   fi
 fi
 
+# Transparent Mac -> Linux forwarding when Chrome backend is requested over SSH
+if [[ "$(uname -s)" == "Darwin" && "$BACKEND" == "chrome" && -z "${DOT_NO_REMOTE:-}" ]]; then
+  REMOTE_LINUX="${DOT_REMOTE_LINUX:-}"
+  if [[ -z "$REMOTE_LINUX" ]]; then
+    if ssh -q -o BatchMode=yes -o ConnectTimeout=2 jeff-ubuntu true 2>/dev/null; then
+      REMOTE_LINUX="jeff-ubuntu"
+    fi
+  fi
+  if [[ -n "$REMOTE_LINUX" ]]; then
+    if [[ "${1:-}" == "read" ]]; then
+      remote_cmd=$(python3 -c '
+import shlex, sys
+envs = ["DOT_URL", "DOT_ACCOUNT", "DOT_BACKEND", "DOT_CLEAR_DRAFT"]
+env_str = " ".join(f"{k}={shlex.quote(sys.argv[1+i])}" for i, k in enumerate(envs) if sys.argv[1+i])
+args_str = " ".join(shlex.quote(a) for a in sys.argv[5:])
+print(f"{env_str} DOT_NO_REMOTE=1 ~/.claude/skills/dot/scripts/dot.sh {args_str}".strip())
+' "${DOT_URL:-}" "${DOT_ACCOUNT:-}" "${DOT_BACKEND:-}" "${DOT_CLEAR_DRAFT:-}" "$@")
+      exec ssh "$REMOTE_LINUX" "$remote_cmd"
+    elif [[ "${1:-}" == "send" || "${1:-}" == "send-once" ]]; then
+      file="${2:-}"
+      if [[ ! -f "$file" || ! -s "$file" ]]; then
+        echo "dot.sh: message file missing or empty: $file" >&2
+        exit 2
+      fi
+      remote_tmp="/tmp/dot_remote_$(date +%s)_$$.txt"
+      scp -q "$file" "$REMOTE_LINUX:$remote_tmp"
+      remote_cmd=$(python3 -c '
+import shlex, sys
+envs = ["DOT_URL", "DOT_ACCOUNT", "DOT_DRY_RUN", "DOT_WAIT_SECS", "DOT_RETRY_SECS", "DOT_BACKEND", "DOT_CLEAR_DRAFT"]
+env_str = " ".join(f"{k}={shlex.quote(sys.argv[1+i])}" for i, k in enumerate(envs) if sys.argv[1+i])
+cmd = f"{env_str} DOT_NO_REMOTE=1 ~/.claude/skills/dot/scripts/dot.sh {shlex.quote(sys.argv[8])} {shlex.quote(sys.argv[9])}; rc=$?; rm -f {shlex.quote(sys.argv[9])}; exit $rc"
+print(cmd.strip())
+' "${DOT_URL:-}" "${DOT_ACCOUNT:-}" "${DOT_DRY_RUN:-}" "${DOT_WAIT_SECS:-}" "${DOT_RETRY_SECS:-}" "${DOT_BACKEND:-}" "${DOT_CLEAR_DRAFT:-}" "$1" "$remote_tmp")
+      ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=60 "$REMOTE_LINUX" "$remote_cmd"
+      exit $?
+    fi
+  fi
+fi
+
 SETTLE_MS="${DOT_SETTLE_MS:-7000}"
 
 if [[ -n "${DOT_NODE:-}" ]]; then
