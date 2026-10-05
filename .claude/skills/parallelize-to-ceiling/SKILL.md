@@ -34,6 +34,11 @@ available lane (subagents, CLI delegates, the dot) instead of queueing it
 behind your own turn. Merges, force-pushes, and destructive actions keep
 their own gates and are never "overlapped" past them.
 
+Every subagent or lane launched under `/parallel` drives its unit to done:
+implement, verify, and push or produce the artifact. It does not return a
+plan or analysis for the parent to execute, unless the lane is explicitly a
+read-only review lane. Say so in the lane's prompt.
+
 ## Timeline, parallel lanes, and milestones (mandatory)
 
 Read and apply `${CLAUDE_HOME:-$HOME/.claude}/skills/parallelize-to-ceiling/references/timeline-milestones.md`
