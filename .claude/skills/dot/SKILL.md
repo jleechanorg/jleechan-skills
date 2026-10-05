@@ -80,7 +80,7 @@ Always rotate across configured accounts when hitting a rate limit, usage limit,
   - "Your dot is on a break" / "hit our abuse prevention limit" / "Check back in a bit"
   - "You've reached your usage limit" / "usage limit reached"
   - "Too many requests in 1 hour" / "rate limit exceeded"
-- **Mandatory Rotation:** When an account hits a limit or cooldown, immediately rotate to the next configured account (e.g. `worldarchitect` -> `test` -> `u0` -> ...) using `--account <next>`.
+- **Mandatory Rotation:** When an account hits a limit or cooldown, immediately rotate to the next configured account (e.g. `primary` -> `secondary` -> `tertiary` -> ...) using `--account <next>`.
 - **Never Stall on Cooldown:** Do not wait idle or block execution when an account is on a break if other accounts are available. Continue driving work across the remaining active accounts.
 - **Automatic Script Support:** `dot.sh` implements automatic account rotation (`DOT_ROTATE_ON_LIMIT=1` by default) using the `rotation` sequence declared in `~/.config/dot/config.json`.
 

@@ -54,30 +54,48 @@ function detectChromeProfile(requestedAccount) {
   const targetMatch = (accountConfig.profile_match || reqLower).toLowerCase();
 
   // Search infoCache for matching profile
+  // Pass 1: exact matches on profile key, email, user name, or domain
   for (const [profKey, profData] of Object.entries(infoCache)) {
     const profKeyLower = profKey.toLowerCase();
     const userName = (profData.user_name || '').toLowerCase();
     const email = (profData.email || profData.user_name || '').toLowerCase();
     const name = (profData.name || '').toLowerCase();
     const domain = (profData.hosted_domain || '').toLowerCase();
-    const gaiaName = (profData.gaia_name || '').toLowerCase();
 
     if (
       profKeyLower === targetMatch ||
       userName === targetMatch ||
       email === targetMatch ||
       name === targetMatch ||
-      (domain !== 'no_hosted_domain' && domain === targetMatch) ||
-      userName.includes(targetMatch) ||
-      email.includes(targetMatch) ||
-      name.includes(targetMatch) ||
-      (gaiaName && gaiaName.includes(targetMatch)) ||
-      (domain !== 'no_hosted_domain' && domain.includes(targetMatch)) ||
-      (targetMatch && targetMatch.includes(userName) && userName.length > 3)
+      (domain !== 'no_hosted_domain' && domain === targetMatch)
     ) {
       matchedKey = profKey;
       matchedData = profData;
       break;
+    }
+  }
+
+  // Pass 2: substring matching if no exact match found
+  if (!matchedKey) {
+    for (const [profKey, profData] of Object.entries(infoCache)) {
+      const userName = (profData.user_name || '').toLowerCase();
+      const email = (profData.email || profData.user_name || '').toLowerCase();
+      const name = (profData.name || '').toLowerCase();
+      const domain = (profData.hosted_domain || '').toLowerCase();
+      const gaiaName = (profData.gaia_name || '').toLowerCase();
+
+      if (
+        userName.includes(targetMatch) ||
+        email.includes(targetMatch) ||
+        name.includes(targetMatch) ||
+        (gaiaName && gaiaName.includes(targetMatch)) ||
+        (domain !== 'no_hosted_domain' && domain.includes(targetMatch)) ||
+        (targetMatch && targetMatch.includes(userName) && userName.length > 3)
+      ) {
+        matchedKey = profKey;
+        matchedData = profData;
+        break;
+      }
     }
   }
 

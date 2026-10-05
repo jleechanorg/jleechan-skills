@@ -100,12 +100,14 @@ case "$BACKEND" in auto|chrome|aside) ;; *) echo "dot.sh: DOT_BACKEND must be ch
 # Transparent Linux -> Mac forwarding when Aside is not local
 if [[ "$(uname -s)" != "Darwin" && "$BACKEND" != "chrome" ]]; then
   REMOTE_HOST="${DOT_REMOTE_HOST:-}"
-  if [[ -z "$REMOTE_HOST" ]]; then
-    if ssh -q -o BatchMode=yes -o ConnectTimeout=2 macbook true 2>/dev/null; then
-      REMOTE_HOST="macbook"
-    elif ssh -q -o BatchMode=yes -o ConnectTimeout=2 macbook-ts true 2>/dev/null; then
-      REMOTE_HOST="macbook-ts"
-    fi
+  if [[ -z "$REMOTE_HOST" && -f "$CONFIG_FILE" ]]; then
+    REMOTE_HOST=$(node -e '
+      try {
+        const fs = require("fs");
+        const cfg = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+        process.stdout.write(cfg.remote_host || "");
+      } catch {}
+    ' "$CONFIG_FILE" 2>/dev/null || true)
   fi
   if [[ -n "$REMOTE_HOST" ]]; then
     if [[ "${1:-}" == "read" ]]; then
@@ -123,7 +125,7 @@ print(f"{env_str} ~/.claude/skills/dot/scripts/dot.sh {args_str}".strip())
         echo "dot.sh: message file missing or empty: $file" >&2
         exit 2
       fi
-      remote_tmp="/tmp/dot_remote_$(date +%s)_$$.txt"
+      remote_tmp="$(ssh "$REMOTE_HOST" "mktemp /tmp/dot_remote_XXXXXX.txt")"
       scp -q "$file" "$REMOTE_HOST:$remote_tmp"
       remote_cmd=$(python3 -c '
 import shlex, sys
@@ -141,12 +143,14 @@ fi
 # Transparent Mac -> Linux forwarding when Chrome backend is requested over SSH
 if [[ "$(uname -s)" == "Darwin" && "$BACKEND" == "chrome" && -z "${DOT_NO_REMOTE:-}" ]]; then
   REMOTE_LINUX="${DOT_REMOTE_LINUX:-}"
-  if [[ -z "$REMOTE_LINUX" ]]; then
-    if ssh -q -o BatchMode=yes -o ConnectTimeout=2 jeff-ubuntu true 2>/dev/null; then
-      REMOTE_LINUX="jeff-ubuntu"
-    elif ssh -q -o BatchMode=yes -o ConnectTimeout=2 jeff-ubuntu-ts true 2>/dev/null; then
-      REMOTE_LINUX="jeff-ubuntu-ts"
-    fi
+  if [[ -z "$REMOTE_LINUX" && -f "$CONFIG_FILE" ]]; then
+    REMOTE_LINUX=$(node -e '
+      try {
+        const fs = require("fs");
+        const cfg = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+        process.stdout.write(cfg.remote_linux || "");
+      } catch {}
+    ' "$CONFIG_FILE" 2>/dev/null || true)
   fi
   if [[ -n "$REMOTE_LINUX" ]]; then
     if [[ "${1:-}" == "read" ]]; then
@@ -164,7 +168,7 @@ print(f"{env_str} DOT_NO_REMOTE=1 ~/.claude/skills/dot/scripts/dot.sh {args_str}
         echo "dot.sh: message file missing or empty: $file" >&2
         exit 2
       fi
-      remote_tmp="/tmp/dot_remote_$(date +%s)_$$.txt"
+      remote_tmp="$(ssh "$REMOTE_LINUX" "mktemp /tmp/dot_remote_XXXXXX.txt")"
       scp -q "$file" "$REMOTE_LINUX:$remote_tmp"
       remote_cmd=$(python3 -c '
 import shlex, sys
@@ -258,7 +262,15 @@ rotate_account_if_needed() {
   local output="$1"
   local action="$2"
   shift 2
-  if [[ "${DOT_ROTATE_ON_LIMIT:-1}" == "1" ]] && is_limit_reached "$output"; then
+  # Never rotate on successful send
+  if [[ "$output" == *"DOT_SENT_VERIFIED"* ]]; then
+    return 0
+  fi
+  local check_text="$output"
+  if [[ "$action" == "read" ]]; then
+    check_text="$(echo "$output" | tail -n 25)"
+  fi
+  if [[ "${DOT_ROTATE_ON_LIMIT:-1}" == "1" ]] && is_limit_reached "$check_text"; then
     local next_acc
     next_acc="$(get_next_account "$ACCOUNT")"
     local rotated="${DOT_ROTATED_ACCOUNTS:-}"
