@@ -1,15 +1,41 @@
 ---
 name: dot
-description: Use when the user invokes /dot or asks to "message the dot", "ask dot", "tell dot", "tell chatgpt dot", "check the dot", or read replies from their ChatGPT "dot" assistant (the one that coordinates coders and PRs). Platform-aware backend: headless Chrome (jleechan@worldarchitect.ai default) or Aside browser (u0 default).
+description: Use when the user invokes /dot or asks to "message the dot", "ask dot", "tell dot", "tell chatgpt dot", "check the dot", or read replies from their ChatGPT "dot" assistant (the one that coordinates coders and PRs). Platform-aware backend: headless Chrome or Aside browser with dynamic multi-account routing.
 ---
 
 # /dot
 
 Talk to the user's ChatGPT dot assistant using `scripts/dot.sh`. Platform-aware architecture:
-- **Default Account (`jleechan@worldarchitect.ai`):** Runs headless Google Chrome against a dedicated persistent profile (`~/.config/dot-headless-chrome-worldarchitect`) on Linux and macOS (`https://chatgpt.com/dots/01a1032f-aa98-7703-91bf-a35b1f95f01c`).
-- **Account `u0` (`jleechan@gmail.com`):** Uses Aside browser on macOS, or transparent SSH bridge from Linux (`https://chatgpt.com/dots/01a0f819-a779-775c-9d48-8c6035034033`).
-- **Account `test` (`jleechantest@gmail.com`):** Runs headless Google Chrome against a dedicated persistent profile (`~/.config/dot-headless-chrome-test`) on Linux and macOS (`https://chatgpt.com/dots/01a0fead-2ea7-71c9-9e87-ac4af984601c`).
-- **Dynamic Multi-Account Support:** Specify any account via `--account <name>` or `DOT_ACCOUNT=<name>`. The engine auto-detects matching profiles from Chrome's `Local State` by matching `user_name`, `email`, `name`, or `hosted_domain`, and manages a dedicated persistent profile directory (`~/.config/dot-headless-chrome-<account_slug>`). Custom dot URLs can be supplied via `--url <url>` or `DOT_URL=<url>`.
+- **Dynamic Multi-Account Support:** Target any ChatGPT dot account via `--account <name>` or `DOT_ACCOUNT=<name>`.
+- **Machine-Local Configuration:** Configured in `~/.config/dot/config.json` mapping accounts to URLs, backends, and profile match selectors.
+- **Headless Chrome Backend:** Runs headless Google Chrome against dedicated persistent profiles (`~/.config/dot-headless-chrome-<account_slug>`) on Linux and macOS with automatic process lifecycle and lock cleanup.
+- **Aside Backend:** Uses Aside browser when configured or running on macOS.
+- **Transparent Cross-Host Forwarding:** Automatically bridges between Linux and macOS hosts when specialized backends (e.g. Aside on macOS or headless Chrome on Linux) are required.
+
+## Machine Configuration (`~/.config/dot/config.json`)
+
+Accounts, target dot URLs, and preferred backends can be declared per-machine in `~/.config/dot/config.json` without hardcoding personal data into the repository:
+
+```json
+{
+  "default_account": "primary",
+  "accounts": {
+    "primary": {
+      "url": "https://chatgpt.com/dots/<dot-id>",
+      "backend": "chrome",
+      "profile_match": "work-domain.com"
+    },
+    "aside_account": {
+      "url": "https://chatgpt.com/dots/<dot-id>",
+      "backend": "aside",
+      "profile_match": "Default"
+    }
+  },
+  "aliases": {
+    "work": "primary"
+  }
+}
+```
 
 ## Default: delegate, then monitor
 
@@ -49,20 +75,22 @@ The dot runs its own coders. When /dot is used for work, hand the work to the do
 
 ## Backends & Persistent Profiles
 
-- **Headless Chrome (`scripts/dot_chrome.mjs`):** Default backend for `jleechan@worldarchitect.ai` and custom accounts.
-  - Dynamically auto-detects profile configuration from system Google Chrome's `Local State` (`~/.config/google-chrome/Local State` on Linux, `~/Library/Application Support/Google/Chrome/Local State` on macOS) matching `user_name`, `email`, `name`, or `hosted_domain`.
-  - Uses dedicated persistent profiles (`~/.config/dot-headless-chrome-<account_slug>`, e.g. `~/.config/dot-headless-chrome-worldarchitect`).
+- **Headless Chrome (`scripts/dot_chrome.mjs`):** Default backend for custom and multi-account configurations.
+  - Dynamically auto-detects profile configuration from system Google Chrome's `Local State` matching `user_name`, `email`, `name`, or `hosted_domain`.
+  - Uses dedicated persistent profiles (`~/.config/dot-headless-chrome-<account_slug>`).
   - Profiles are persistent across calls — never recreated afresh or re-seeded on subsequent invocations.
   - Automatically clears stale `SingletonLock` and terminates orphaned headless Chrome processes for that specific profile directory without interfering with user desktop Chrome.
   - Tolerates appended read-receipt timestamps (`Read 1:15 AM`) to prevent false draft conflicts.
-- **Aside (macOS only):** Used for account `u0` (`jleechan@gmail.com`). Fast (8-10s), zero-copy, handles concurrent multi-agent traffic without profile locks.
+- **Aside (macOS only):** Fast (8-10s), zero-copy, handles concurrent multi-agent traffic without profile locks.
 
 ## Configuration & Environment Variables
 
-- `DOT_ACCOUNT`: Account identifier (`jleechan@worldarchitect.ai` by default, or `u0`, `test`, `worldarchitect`, or custom email/profile name). Can also be passed via `--account <name>`.
-- `DOT_URL`: Target ChatGPT dot assistant URL (automatically defaults based on selected account or custom). Can also be passed via `--url <url>`.
+- `DOT_ACCOUNT`: Account identifier (matched against `~/.config/dot/config.json` or local Chrome profiles). Can also be passed via `--account <name>`.
+- `DOT_URL`: Target ChatGPT dot assistant URL. Can also be passed via `--url <url>`.
 - `DOT_BACKEND`: Force backend (`chrome`, `aside`, or `auto`).
+- `DOT_CONFIG_FILE`: Custom path to dot JSON configuration (defaults to `~/.config/dot/config.json`).
 - `DOT_REMOTE_HOST`: SSH host for Linux-to-Mac forwarding when using Aside (probes `macbook`, `macbook-ts`).
+- `DOT_REMOTE_LINUX`: SSH host for Mac-to-Linux forwarding when using Chrome backend (probes `jeff-ubuntu`, `jeff-ubuntu-ts`).
 - `DOT_CHROME_USER_DATA`: Explicit Chrome user data directory (defaults to account-specific persistent dir `~/.config/dot-headless-chrome-<account_slug>`).
 - `DOT_CLEAR_DRAFT`: When set to `1`, forces clearing any existing draft in the composer before typing and sending.
 - `DOT_DRY_RUN`: When `1` (Chrome backend), types, verifies exact match, clears composer, and prints `DOT_DRYRUN_OK` without sending.

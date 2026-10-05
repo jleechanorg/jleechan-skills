@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Talk to the user's ChatGPT "dot" assistant.
 # Platform-aware architecture:
-#   - macOS: Aside (account u0) or headless Chrome (default jleechan@worldarchitect.ai, test, etc.).
+#   - macOS: Aside or headless Chrome.
 #   - Linux: Local headless Chrome or transparent SSH bridge to macOS host.
 # Usage: dot.sh [--account <name>] [--url <url>] read [chars]        print tail of conversation (default 5000 chars)
 #        dot.sh [--account <name>] [--url <url>] send <message-file> send file contents; while composer holds peer draft,
 #                                                                    retry every DOT_RETRY_SECS (60) up to DOT_WAIT_SECS (1800)
 #        dot.sh [--account <name>] [--url <url>] send-once <file>    single attempt, no retry
-# DOT_ACCOUNT selects account: jleechan@worldarchitect.ai (default), u0 (jleechan@gmail.com), or custom.
+# DOT_ACCOUNT selects account (configured in ~/.config/dot/config.json or custom identifier).
 # DOT_BACKEND=aside|chrome|auto forces one backend. DOT_DRY_RUN=1 (chrome send): type, verify, clear, never send.
 # Exit codes: 0 ok, 2 usage/error, 3 composer still busy after the wait, 4 send not verified.
 set -euo pipefail
@@ -40,31 +40,58 @@ while [[ $# -gt 0 ]]; do
 done
 set -- "${NEW_ARGS[@]}"
 
-ACCOUNT="${DOT_ACCOUNT:-jleechan@worldarchitect.ai}"
+CONFIG_FILE="${DOT_CONFIG_FILE:-$HOME/.config/dot/config.json}"
+ACCOUNT="${DOT_ACCOUNT:-}"
 
-case "$ACCOUNT" in
-  u0|jleechan@gmail.com|gmail|personal)
-    DEFAULT_DOT_URL="https://chatgpt.com/dots/01a0f819-a779-775c-9d48-8c6035034033"
-    ;;
-  test|jleechantest@gmail.com|jleechantest|testdot)
-    DEFAULT_DOT_URL="https://chatgpt.com/dots/01a0fead-2ea7-71c9-9e87-ac4af984601c"
-    ;;
-  *)
-    DEFAULT_DOT_URL="https://chatgpt.com/dots/01a1032f-aa98-7703-91bf-a35b1f95f01c"
-    ;;
-esac
-DOT_URL="${DOT_URL:-$DEFAULT_DOT_URL}"
+if [[ -z "$ACCOUNT" && -f "$CONFIG_FILE" ]]; then
+  ACCOUNT=$(node -e '
+    try {
+      const fs = require("fs");
+      const cfg = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+      process.stdout.write(cfg.default_account || "");
+    } catch {}
+  ' "$CONFIG_FILE" 2>/dev/null || true)
+fi
+ACCOUNT="${ACCOUNT:-default}"
+
+# Resolve DOT_URL from config if not explicitly set
+if [[ -z "${DOT_URL:-}" && -f "$CONFIG_FILE" ]]; then
+  DOT_URL=$(node -e '
+    try {
+      const fs = require("fs");
+      const cfg = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+      const acc = process.argv[2];
+      const accKey = (cfg.aliases && cfg.aliases[acc.toLowerCase()]) || acc;
+      const accCfg = (cfg.accounts && (cfg.accounts[accKey] || cfg.accounts[accKey.toLowerCase()])) || {};
+      const url = accCfg.url || cfg.default_url || "";
+      process.stdout.write(url);
+    } catch {}
+  ' "$CONFIG_FILE" "$ACCOUNT" 2>/dev/null || true)
+fi
+DOT_URL="${DOT_URL:-https://chatgpt.com/}"
 
 if [[ -z "${DOT_BACKEND:-}" || "${DOT_BACKEND:-}" == "auto" ]]; then
-  case "$ACCOUNT" in
-    u0|jleechan@gmail.com|gmail|personal)
-      BACKEND="aside"
-      ;;
-    *)
-      # jleechan@worldarchitect.ai and other accounts use headless chrome
-      BACKEND="chrome"
-      ;;
-  esac
+  CONFIG_BACKEND=""
+  if [[ -f "$CONFIG_FILE" ]]; then
+    CONFIG_BACKEND=$(node -e '
+      try {
+        const fs = require("fs");
+        const cfg = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+        const acc = process.argv[2];
+        const accKey = (cfg.aliases && cfg.aliases[acc.toLowerCase()]) || acc;
+        const accCfg = (cfg.accounts && (cfg.accounts[accKey] || cfg.accounts[accKey.toLowerCase()])) || {};
+        process.stdout.write(accCfg.backend || "");
+      } catch {}
+    ' "$CONFIG_FILE" "$ACCOUNT" 2>/dev/null || true)
+  fi
+
+  if [[ -n "$CONFIG_BACKEND" ]]; then
+    BACKEND="$CONFIG_BACKEND"
+  elif [[ "$ACCOUNT" == "aside" || "$ACCOUNT" == "u0" ]]; then
+    BACKEND="aside"
+  else
+    BACKEND="chrome"
+  fi
 else
   BACKEND="$DOT_BACKEND"
 fi
@@ -117,6 +144,8 @@ if [[ "$(uname -s)" == "Darwin" && "$BACKEND" == "chrome" && -z "${DOT_NO_REMOTE
   if [[ -z "$REMOTE_LINUX" ]]; then
     if ssh -q -o BatchMode=yes -o ConnectTimeout=2 jeff-ubuntu true 2>/dev/null; then
       REMOTE_LINUX="jeff-ubuntu"
+    elif ssh -q -o BatchMode=yes -o ConnectTimeout=2 jeff-ubuntu-ts true 2>/dev/null; then
+      REMOTE_LINUX="jeff-ubuntu-ts"
     fi
   fi
   if [[ -n "$REMOTE_LINUX" ]]; then

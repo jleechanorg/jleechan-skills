@@ -15,16 +15,31 @@ const sysChromeDir = isMac
   : path.join(os.homedir(), '.config/google-chrome');
 const localStatePath = path.join(sysChromeDir, 'Local State');
 
-// Default target dot URLs by known account / slug
-const DEFAULT_URLS = {
-  worldarchitect: 'https://chatgpt.com/dots/01a1032f-aa98-7703-91bf-a35b1f95f01c',
-  u0: 'https://chatgpt.com/dots/01a0f819-a779-775c-9d48-8c6035034033',
-  test: 'https://chatgpt.com/dots/01a0fead-2ea7-71c9-9e87-ac4af984601c',
-};
-const DEFAULT_FALLBACK_URL = DEFAULT_URLS.worldarchitect;
+// Dynamic configuration loader supporting ~/.config/dot/config.json
+function loadDotConfig() {
+  const customConfig = process.env.DOT_CONFIG_FILE;
+  const configPath = customConfig || path.join(os.homedir(), '.config/dot/config.json');
+  try {
+    if (fs.existsSync(configPath)) {
+      return JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    }
+  } catch {}
+  return {};
+}
 
 function detectChromeProfile(requestedAccount) {
-  const req = (requestedAccount || 'jleechan@worldarchitect.ai').trim().toLowerCase();
+  const dotConfig = loadDotConfig();
+  const defaultAccount = dotConfig.default_account || 'default';
+  let req = (requestedAccount || process.env.DOT_ACCOUNT || defaultAccount).trim();
+
+  // Resolve aliases if defined in local config
+  if (dotConfig.aliases && dotConfig.aliases[req.toLowerCase()]) {
+    req = dotConfig.aliases[req.toLowerCase()];
+  }
+
+  const reqLower = req.toLowerCase();
+  const accountConfig = (dotConfig.accounts && (dotConfig.accounts[req] || dotConfig.accounts[reqLower])) || {};
+
   let localState = {};
   try {
     if (fs.existsSync(localStatePath)) {
@@ -36,51 +51,29 @@ function detectChromeProfile(requestedAccount) {
   let matchedKey = null;
   let matchedData = null;
 
-  const isU0 = ['u0', 'jleechan@gmail.com', 'gmail', 'personal', 'default'].includes(req);
-  const isWA = ['worldarchitect', 'worldarchitect.ai', 'jleechan@worldarchitect.ai', 'wa'].includes(req);
-  const isTest = ['test', 'jleechantest@gmail.com', 'jleechantest', 'testdot'].includes(req);
+  const targetMatch = (accountConfig.profile_match || reqLower).toLowerCase();
 
+  // Search infoCache for matching profile
   for (const [profKey, profData] of Object.entries(infoCache)) {
+    const profKeyLower = profKey.toLowerCase();
     const userName = (profData.user_name || '').toLowerCase();
     const email = (profData.email || profData.user_name || '').toLowerCase();
     const name = (profData.name || '').toLowerCase();
     const domain = (profData.hosted_domain || '').toLowerCase();
     const gaiaName = (profData.gaia_name || '').toLowerCase();
 
-    if (isU0) {
-      if (profKey === 'Default' || userName.includes('jleechan@gmail.com') || name === 'jeffrey') {
-        matchedKey = profKey;
-        matchedData = profData;
-        break;
-      }
-    }
-    if (isWA) {
-      if (domain === 'worldarchitect.ai' || userName.includes('worldarchitect.ai') || name.includes('worldarchitect')) {
-        matchedKey = profKey;
-        matchedData = profData;
-        break;
-      }
-    }
-    if (isTest) {
-      if (userName.includes('jleechantest') || name.includes('test') || email.includes('test')) {
-        matchedKey = profKey;
-        matchedData = profData;
-        break;
-      }
-    }
-
-    // Dynamic matching against requested account
     if (
-      req === userName ||
-      req === email ||
-      req === name ||
-      (domain !== 'no_hosted_domain' && req === domain) ||
-      userName.includes(req) ||
-      email.includes(req) ||
-      name.includes(req) ||
-      (gaiaName && gaiaName.includes(req)) ||
-      (domain !== 'no_hosted_domain' && (domain.includes(req) || req.includes(domain))) ||
-      (userName && req.includes(userName))
+      profKeyLower === targetMatch ||
+      userName === targetMatch ||
+      email === targetMatch ||
+      name === targetMatch ||
+      (domain !== 'no_hosted_domain' && domain === targetMatch) ||
+      userName.includes(targetMatch) ||
+      email.includes(targetMatch) ||
+      name.includes(targetMatch) ||
+      (gaiaName && gaiaName.includes(targetMatch)) ||
+      (domain !== 'no_hosted_domain' && domain.includes(targetMatch)) ||
+      (targetMatch && targetMatch.includes(userName) && userName.length > 3)
     ) {
       matchedKey = profKey;
       matchedData = profData;
@@ -88,14 +81,10 @@ function detectChromeProfile(requestedAccount) {
     }
   }
 
-  // Derive account slug
+  // Derive account slug for persistent directory
   let slug = 'default';
-  if (isWA) {
-    slug = 'worldarchitect';
-  } else if (isU0) {
-    slug = 'u0';
-  } else if (isTest) {
-    slug = 'test';
+  if (accountConfig.slug) {
+    slug = accountConfig.slug;
   } else if (matchedData && matchedData.hosted_domain && matchedData.hosted_domain.toLowerCase() !== 'no_hosted_domain') {
     const prefix = matchedData.hosted_domain.split('.')[0].toLowerCase().replace(/[^a-z0-9_-]/g, '_');
     if (prefix) slug = prefix;
@@ -104,24 +93,21 @@ function detectChromeProfile(requestedAccount) {
     if (cleanName) slug = cleanName;
   } else {
     const base = req.split('@')[0] || req;
-    slug = base.replace(/[^a-z0-9_-]/g, '_') || 'default';
+    slug = base.toLowerCase().replace(/[^a-z0-9_-]/g, '_') || 'default';
   }
 
   // Target directory
   let profileDir;
   if (process.env.DOT_CHROME_USER_DATA) {
     profileDir = path.resolve(process.env.DOT_CHROME_USER_DATA);
+  } else if (accountConfig.user_data_dir) {
+    profileDir = path.resolve(accountConfig.user_data_dir.replace(/^~/, os.homedir()));
   } else {
-    const specificDir = path.join(os.homedir(), `.config/dot-headless-chrome-${slug}`);
-    if (slug === 'u0' && !fs.existsSync(specificDir) && fs.existsSync(path.join(os.homedir(), '.config/dot-headless-chrome'))) {
-      profileDir = path.join(os.homedir(), '.config/dot-headless-chrome');
-    } else {
-      profileDir = specificDir;
-    }
+    profileDir = path.join(os.homedir(), `.config/dot-headless-chrome-${slug}`);
   }
 
   // Target URL
-  const url = process.env.DOT_URL || DEFAULT_URLS[slug] || DEFAULT_FALLBACK_URL;
+  const url = process.env.DOT_URL || accountConfig.url || dotConfig.default_url || 'https://chatgpt.com/';
 
   return {
     account: req,
@@ -224,7 +210,7 @@ async function waitAndCleanSingletonLock(dir) {
     try {
       const escaped = resolvedDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const userDirRegex = new RegExp('(?:^|\\s)--user-data-dir=(?:"' + escaped + '"|\'' + escaped + '\'|' + escaped + '(?=[\\s\'"]|$))');
-      const pidsOutput = execSync('pgrep -f "chrome.*--user-data-dir=" 2>/dev/null || true').toString().trim();
+      const pidsOutput = execSync('pgrep -i -f "(chrome|chromium).*--user-data-dir=" 2>/dev/null || true').toString().trim();
       if (!pidsOutput) return;
       const pids = pidsOutput.split(/\s+/).map((p) => parseInt(p, 10)).filter(Boolean);
       for (const p of pids) {
