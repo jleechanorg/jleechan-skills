@@ -222,25 +222,79 @@ await new Promise(r => setTimeout(r, $SETTLE_MS));
 JS
 }
 
+is_limit_reached() {
+  local text="$1"
+  if echo "$text" | grep -qiE "(abuse prevention limit|usage limit|rate limit|hit our abuse|too many requests|your dot is on a break|check back in a bit)"; then
+    return 0
+  fi
+  return 1
+}
+
+get_next_account() {
+  local current="$1"
+  if [[ ! -f "$CONFIG_FILE" ]]; then
+    return 1
+  fi
+  node -e '
+    try {
+      const fs = require("fs");
+      const cfg = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+      const rot = cfg.rotation || Object.keys(cfg.accounts || {});
+      const cur = process.argv[2].toLowerCase();
+      const curKey = (cfg.aliases && cfg.aliases[cur]) || cur;
+      let idx = rot.findIndex(a => a.toLowerCase() === curKey);
+      if (idx === -1) {
+        idx = rot.findIndex(a => cur.includes(a.toLowerCase()) || a.toLowerCase().includes(cur));
+      }
+      if (rot.length > 1) {
+        const nextIdx = (idx === -1) ? 0 : (idx + 1) % rot.length;
+        process.stdout.write(rot[nextIdx]);
+      }
+    } catch {}
+  ' "$CONFIG_FILE" "$current" 2>/dev/null
+}
+
+rotate_account_if_needed() {
+  local output="$1"
+  local action="$2"
+  shift 2
+  if [[ "${DOT_ROTATE_ON_LIMIT:-1}" == "1" ]] && is_limit_reached "$output"; then
+    local next_acc
+    next_acc="$(get_next_account "$ACCOUNT")"
+    local rotated="${DOT_ROTATED_ACCOUNTS:-}"
+    if [[ -n "$next_acc" && "$next_acc" != "$ACCOUNT" ]] && ! echo ",$rotated," | grep -q ",$next_acc,"; then
+      echo "dot.sh: account '$ACCOUNT' hit usage limit/break; rotating to '$next_acc'..." >&2
+      DOT_ROTATED_ACCOUNTS="${rotated:+$rotated,}$ACCOUNT" DOT_ACCOUNT="$next_acc" exec "$0" "$action" "$@"
+    fi
+  fi
+}
+
 cmd_read() {
   local n="${1:-5000}"
   [[ "$n" =~ ^[0-9]+$ ]] || { echo "chars must be an integer" >&2; exit 2; }
+  local out=""
   if [[ "$BACKEND" == "chrome" ]]; then
     local rc=0
     run_chrome read "$n" || rc=$?
-    if [[ $rc -eq 0 ]]; then echo "$CHROME_OUT"; return 0; fi
-    [[ $rc -eq 124 ]] && { CHROME_OUT="DOT_CHROME_UNAVAILABLE: timeout"; rc=10; }
-    if [[ $rc -ne 10 ]]; then echo "$CHROME_OUT"; exit "$rc"; fi
-    echo "$CHROME_OUT" >&2
-    exit 2
-  fi
-  run_repl "$(prelude)
+    if [[ $rc -eq 0 ]]; then
+      out="$CHROME_OUT"
+    else
+      [[ $rc -eq 124 ]] && { CHROME_OUT="DOT_CHROME_UNAVAILABLE: timeout"; rc=10; }
+      if [[ $rc -ne 10 ]]; then echo "$CHROME_OUT"; exit "$rc"; fi
+      echo "$CHROME_OUT" >&2
+      exit 2
+    fi
+  else
+    out="$(run_repl "$(prelude)
 try {
   const dotText = await dotPage.evaluate(() => document.body.innerText);
   console.log(dotText.slice(-$n));
 } finally {
   try { await dotPage.close(); } catch {}
-}"
+}")"
+  fi
+  rotate_account_if_needed "$out" read "$n"
+  echo "$out"
 }
 
 cmd_send_once() {
@@ -321,6 +375,7 @@ try {
   try { await dotPage.close(); } catch {}
 }")"
   fi
+  rotate_account_if_needed "$out" send-once "$file"
   echo "$out"
   case "$out" in
     *DOT_COMPOSER_MISMATCH*) echo "Composer text did not match the message after typing; nothing sent. Check with 'dot.sh read'." >&2; exit 4 ;;

@@ -73,6 +73,17 @@ The dot runs its own coders. When /dot is used for work, hand the work to the do
 - Send only what the user asked to send. Do not post test messages.
 - Avoid line-leading list markers (`1)`, `-`, `*`): the composer converts them to list formatting, which can cause mismatch detection. Use plain sentences.
 
+## Account Rotation on Limits (Mandatory)
+
+Always rotate across configured accounts when hitting a rate limit, usage limit, abuse prevention cooldown, or message cap:
+- **Limit Detection:** Watch for limit signatures in read output, error banners, or send failures:
+  - "Your dot is on a break" / "hit our abuse prevention limit" / "Check back in a bit"
+  - "You've reached your usage limit" / "usage limit reached"
+  - "Too many requests in 1 hour" / "rate limit exceeded"
+- **Mandatory Rotation:** When an account hits a limit or cooldown, immediately rotate to the next configured account (e.g. `worldarchitect` -> `test` -> `u0` -> ...) using `--account <next>`.
+- **Never Stall on Cooldown:** Do not wait idle or block execution when an account is on a break if other accounts are available. Continue driving work across the remaining active accounts.
+- **Automatic Script Support:** `dot.sh` implements automatic account rotation (`DOT_ROTATE_ON_LIMIT=1` by default) using the `rotation` sequence declared in `~/.config/dot/config.json`.
+
 ## Backends & Persistent Profiles
 
 - **Headless Chrome (`scripts/dot_chrome.mjs`):** Default backend for custom and multi-account configurations.
