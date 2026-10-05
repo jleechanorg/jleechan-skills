@@ -175,10 +175,11 @@ async function waitAndCleanSingletonLock(dir) {
 
   const isDead = (p) => {
     try {
-      process.kill(p, 0);
+      const stat = execSync(`ps -o stat= -p ${p} 2>/dev/null`).toString().trim();
+      if (!stat || stat.startsWith('Z') || stat.startsWith('T')) return true;
       return false;
-    } catch (e) {
-      return e.code === 'ESRCH';
+    } catch {
+      return true;
     }
   };
 
@@ -264,7 +265,7 @@ async function waitAndCleanSingletonLock(dir) {
                 isSystemd = comm.includes('systemd') || comm === 'init';
               } catch {}
 
-              if (ppid === 1 || isParentDead || isSystemd) {
+              if (ppid === 1 || isParentDead || isSystemd || attempt >= 6) {
                 const dead = await killProcessTree(pid);
                 if (dead) {
                   removeLocks();
