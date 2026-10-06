@@ -50,6 +50,8 @@ set -- ${NEW_ARGS[@]+"${NEW_ARGS[@]}"}
 # Resolve Node runtime before any inline node invocations
 if [[ -n "${DOT_NODE:-}" ]]; then
   NODE="$DOT_NODE"
+elif [[ -x "$HOME/.nvm/versions/node/v22.22.0/bin/node" ]]; then
+  NODE="$HOME/.nvm/versions/node/v22.22.0/bin/node"
 elif command -v node >/dev/null 2>&1; then
   NODE="$(command -v node)"
 elif [[ -d "$HOME/.nvm/versions/node" ]]; then
