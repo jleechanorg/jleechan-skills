@@ -161,6 +161,7 @@ const unavailable = (why) => { throw new Unavailable(why); };
 const [mode, arg] = process.argv.slice(2);
 let ctx = null;
 let clicked = false;
+let aborted = false;
 
 function ensurePersistentProfile(accInfo, targetDir) {
   // Never recreate or overwrite an existing persistent profile
@@ -503,6 +504,7 @@ async function send(page, file, dry) {
   const countMatches = (msgs, needle) => msgs.filter(m => matchMsg(m, needle)).length;
   const beforeMsgs = await getUserMessages();
   const beforeCount = countMatches(beforeMsgs, norm(msg));
+  if (aborted) return;
   clicked = true;
   await page.click('button[data-testid=send-button], button[aria-label*=Send]');
   await sleep(4000);
@@ -521,7 +523,10 @@ let launchTimer = null;
 try {
   if (mode === 'send' && !(arg && fs.existsSync(arg) && fs.statSync(arg).size > 0)) unavailable('no message file');
   const timeoutPromise = new Promise((_, reject) => {
-    launchTimer = setTimeout(() => reject(new Unavailable('timeout')), 120000);
+    launchTimer = setTimeout(() => {
+      aborted = true;
+      reject(new Unavailable('timeout'));
+    }, 120000);
   });
   try {
     await Promise.race([
