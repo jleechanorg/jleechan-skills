@@ -34,7 +34,7 @@ class PilotTests(unittest.TestCase):
             self.assertEqual(path.stat().st_mode & 0o777, 0o755)
 
     def test_sender_exit_zero_is_not_verified_delivery(self):
-        def deferred(argv):
+        def deferred(argv, source_callback=None):
             print('COORDINATOR_RESULT {"outcome":"deferred","delivery_verified":false}')
             return 0
         with mock.patch("modules.sender.run_sender_cli", side_effect=deferred):
@@ -44,7 +44,7 @@ class PilotTests(unittest.TestCase):
 
     def test_sender_preserves_full_prompt_and_restores_environment(self):
         text = "begin\n" + "complete guidance " * 300 + "\nend"
-        def delivered(argv):
+        def delivered(argv, source_callback=None):
             self.assertEqual(os.environ["COORDINATOR_CHANGE_SUMMARY"], text)
             print('COORDINATOR_RESULT {"outcome":"delivered","delivery_verified":true}')
             return 0

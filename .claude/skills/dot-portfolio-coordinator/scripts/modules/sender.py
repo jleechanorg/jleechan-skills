@@ -306,29 +306,38 @@ def run_sender_cli(
             try:
                 raw_frame = child.read_frame()
                 frame_text = raw_frame.decode("utf-8").strip()
-            except Exception as exc:
-                delivery_result = {"status": "uncertain", "reason": f"prepare_failed_{exc}"}
+            except Exception:
+                delivery_result = {
+                    "status": "uncertain", "reason": "prepared_transport_unavailable"
+                }
                 return
 
-            tokens = frame_text.split()
-            if not tokens or tokens[0] != "prepared":
+            prepared_match = re.fullmatch(r"prepared ([a-f0-9]{32})", frame_text)
+            if prepared_match is None:
                 try:
-                    child.send_frame("abort")
+                    if frame_text.startswith("prepared"):
+                        child.send_frame("abort")
+                        try:
+                            child.read_frame()
+                        except Exception:
+                            pass
                 except Exception:
                     pass
-                delivery_result = {"status": "uncertain", "reason": "bad_protocol_expected_prepared"}
+                delivery_result = {
+                    "status": "uncertain", "reason": "invalid_prepared_frame"
+                }
                 return
 
-            nonce = tokens[1] if len(tokens) > 1 else None
-            abort_cmd = f"abort {nonce}" if nonce else "abort"
-            commit_cmd = f"commit {nonce}" if nonce else "commit"
+            nonce = prepared_match.group(1)
+            abort_cmd = f"abort {nonce}"
+            commit_cmd = f"commit {nonce}"
 
             # 2. Source callback (if provided) rerun exact source binding
             if source_callback is not None:
                 try:
                     source_ok, source_reason = source_callback()
-                except Exception as exc:
-                    source_ok, source_reason = False, f"source_callback_exception_{exc}"
+                except Exception:
+                    source_ok, source_reason = False, "source_callback_failed"
                 if not source_ok:
                     try:
                         child.send_frame(abort_cmd)
@@ -363,8 +372,10 @@ def run_sender_cli(
             # 4. Both source and grant revalidations passed; send commit to same prepared context
             try:
                 child.send_frame(commit_cmd)
-            except Exception as exc:
-                delivery_result = {"status": "uncertain", "reason": f"commit_send_failed_{exc}"}
+            except Exception:
+                delivery_result = {
+                    "status": "uncertain", "reason": "commit_send_failed"
+                }
                 return
 
             # 5. Read response frame(s)

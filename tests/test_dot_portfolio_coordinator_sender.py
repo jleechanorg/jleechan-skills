@@ -12,6 +12,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SKILL_DIR = REPO_ROOT / ".claude" / "skills" / "dot-portfolio-coordinator"
+PREPARED_NONCE = "0123456789abcdef0123456789abcdef"
 sys_path = str(SKILL_DIR / "scripts")
 import sys
 if sys_path not in sys.path:
@@ -59,9 +60,9 @@ class TestDotPortfolioCoordinatorSender(unittest.TestCase):
             '  echo "INVALID_ARGV: $*" >&2\n'
             '  exit 2\n'
             'fi\n'
-            'echo "prepared"\n'
+            f'echo "prepared {PREPARED_NONCE}"\n'
             'read -t 5 -r cmd || cmd="timeout"\n'
-            'if [[ "$cmd" == commit* ]]; then\n'
+            f'if [[ "$cmd" == "commit {PREPARED_NONCE}" ]]; then\n'
             '  echo "DOT_SENT_VERIFIED"\n'
             '  exit 0\n'
             'else\n'
@@ -168,7 +169,7 @@ class TestDotPortfolioCoordinatorSender(unittest.TestCase):
         with open(self.fake_dot_script, "w") as f:
             f.write(
                 '#!/usr/bin/env bash\n'
-                'echo "prepared"\n'
+                f'echo "prepared {PREPARED_NONCE}"\n'
                 'read -t 5 -r cmd || cmd="timeout"\n'
                 'echo "FAILED: DOT_SENT_VERIFIED was not reached"\n'
                 'exit 1\n'
@@ -302,7 +303,9 @@ class TestDotPortfolioCoordinatorSender(unittest.TestCase):
 
         def fake_interactive_run(cmd, interact, **kwargs):
             child = mock.Mock()
-            child.read_frame.side_effect = [b"prepared", b"DOT_SENT_VERIFIED"]
+            child.read_frame.side_effect = [
+                f"prepared {PREPARED_NONCE}".encode(), b"DOT_SENT_VERIFIED"
+            ]
             interact(child)
             return None
 
@@ -373,9 +376,9 @@ class TestDotPortfolioCoordinatorSender(unittest.TestCase):
         with open(self.fake_dot_script, "w", encoding="utf-8") as f:
             f.write(
                 '#!/usr/bin/env bash\n'
-                'echo "prepared"\n'
+                f'echo "prepared {PREPARED_NONCE}"\n'
                 'read -t 5 -r cmd || cmd="timeout"\n'
-                'if [[ "$cmd" == commit* ]]; then\n'
+                f'if [[ "$cmd" == "commit {PREPARED_NONCE}" ]]; then\n'
                 '  echo "DOT_SENT_VERIFIED "\n'
                 '  exit 0\n'
                 'fi\n'
@@ -397,14 +400,14 @@ class TestDotPortfolioCoordinatorSender(unittest.TestCase):
         fake_transport = root / "fake_transport_test2.sh"
         fake_transport.write_text(
             "#!/bin/sh\n"
-            f"echo 'prepared' > {shlex.quote(str(prepared_marker))}\n"
+            f"echo 'prepared {PREPARED_NONCE}' > {shlex.quote(str(prepared_marker))}\n"
             f"chmod 0600 {shlex.quote(self.grant_file)}\n"
             f"echo '{{\"corrupted\": true}}' > {shlex.quote(self.grant_file)}\n"
             f"chmod 0400 {shlex.quote(self.grant_file)}\n"
-            "printf 'prepared\\n'\n"
+            f"printf 'prepared {PREPARED_NONCE}\\n'\n"
             "read -t 5 -r cmd || cmd='timeout'\n"
             "case \"$cmd\" in\n"
-            "  commit*)\n"
+            f"  'commit {PREPARED_NONCE}')\n"
             f"    echo 'clicked' > {shlex.quote(str(click_marker))}\n"
             "    echo 'DOT_SENT_VERIFIED'\n"
             "    exit 0\n"
@@ -447,11 +450,11 @@ class TestDotPortfolioCoordinatorSender(unittest.TestCase):
         fake_transport = root / "fake_transport_test3.sh"
         fake_transport.write_text(
             "#!/bin/sh\n"
-            f"echo 'prepared' > {shlex.quote(str(prepared_marker))}\n"
-            "printf 'prepared\\n'\n"
+            f"echo 'prepared {PREPARED_NONCE}' > {shlex.quote(str(prepared_marker))}\n"
+            f"printf 'prepared {PREPARED_NONCE}\\n'\n"
             "read -t 5 -r cmd || cmd='timeout'\n"
             "case \"$cmd\" in\n"
-            "  commit*)\n"
+            f"  'commit {PREPARED_NONCE}')\n"
             f"    echo \"$cmd\" > {shlex.quote(str(commit_received))}\n"
             f"    echo 'clicked' > {shlex.quote(str(click_marker))}\n"
             "    echo 'DOT_SENT_VERIFIED'\n"
@@ -491,8 +494,96 @@ class TestDotPortfolioCoordinatorSender(unittest.TestCase):
         self.assertTrue(prepared_marker.exists(), "Transport must have reached prepared state")
         self.assertTrue(source_checked, "Source callback must have run after prepared")
         self.assertTrue(commit_received.exists(), "Transport must have received commit command")
-        self.assertTrue(commit_received.read_text().strip().startswith("commit"))
+        self.assertEqual(
+            commit_received.read_text().strip(), f"commit {PREPARED_NONCE}"
+        )
         self.assertTrue(click_marker.exists(), "Transport must only click after valid commit received")
+
+    def test_sender_rejects_prepared_frame_without_nonce(self):
+        env = {
+            "COORDINATOR_CHANGE_ID": "ev-missing-nonce",
+            "COORDINATOR_CHANGE_SUMMARY": "Reject a prepared frame without nonce",
+        }
+        child = mock.Mock()
+        child.read_frame.side_effect = [b"prepared", b"aborted"]
+        source_callback = mock.Mock(return_value=(True, "ok"))
+
+        def fake_interactive_run(cmd, interact, **kwargs):
+            interact(child)
+
+        with mock.patch.dict(os.environ, env), \
+                mock.patch.object(sender_module, "run_bounded_interactive_command",
+                                  side_effect=fake_interactive_run), \
+                mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            rc = sender_module.run_sender_cli(
+                ["--account", "default", "--state-dir", self.state_dir,
+                 "--lock-file", self.lock_file, "--grant-file", self.grant_file,
+                 "--grant-sha256", self.grant_sha256,
+                 "--transport-script", self.fake_dot_script],
+                source_callback=source_callback,
+            )
+
+        results = [json.loads(line.removeprefix("COORDINATOR_RESULT "))
+                   for line in stdout.getvalue().splitlines()
+                   if line.startswith("COORDINATOR_RESULT ")]
+        self.assertNotEqual(rc, 0)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["outcome"], "uncertain")
+        self.assertEqual(results[0]["reason"], "invalid_prepared_frame")
+        source_callback.assert_not_called()
+        self.assertIn("abort", [call.args[0] for call in child.send_frame.call_args_list])
+
+    def test_sender_exceptions_use_fixed_reason_codes(self):
+        cases = (
+            ("read", b"unused", 4, "prepared_transport_unavailable"),
+            ("source", f"prepared {PREPARED_NONCE}".encode(),
+             0, "source_callback_failed"),
+            ("commit", f"prepared {PREPARED_NONCE}".encode(),
+             4, "commit_send_failed"),
+        )
+        for index, (case, prepared_frame, expected_rc, expected_reason) in enumerate(cases):
+            with self.subTest(case=case):
+                state_dir = Path(self.temp_dir.name) / f"state-{index}"
+                state_dir.mkdir(mode=0o700)
+                lock_file = state_dir / "sender.lock"
+                env = {
+                    "COORDINATOR_CHANGE_ID": f"ev-private-error-{index}",
+                    "COORDINATOR_CHANGE_SUMMARY": "Keep transport errors private",
+                }
+                child = mock.Mock()
+                if case == "read":
+                    child.read_frame.side_effect = RuntimeError("private transport detail")
+                else:
+                    child.read_frame.side_effect = [prepared_frame, b"aborted"]
+                if case == "commit":
+                    child.send_frame.side_effect = RuntimeError("private commit detail")
+                callback = mock.Mock(return_value=(True, "ok"))
+                if case == "source":
+                    callback.side_effect = RuntimeError("private callback detail")
+
+                def fake_interactive_run(cmd, interact, **kwargs):
+                    interact(child)
+
+                with mock.patch.dict(os.environ, env), \
+                        mock.patch.object(sender_module, "run_bounded_interactive_command",
+                                          side_effect=fake_interactive_run), \
+                        mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+                    rc = sender_module.run_sender_cli(
+                        ["--account", "default", "--state-dir", str(state_dir),
+                         "--lock-file", str(lock_file), "--grant-file", self.grant_file,
+                         "--grant-sha256", self.grant_sha256,
+                         "--transport-script", self.fake_dot_script],
+                        source_callback=callback,
+                    )
+
+                output = stdout.getvalue()
+                results = [json.loads(line.removeprefix("COORDINATOR_RESULT "))
+                           for line in output.splitlines()
+                           if line.startswith("COORDINATOR_RESULT ")]
+                self.assertEqual(rc, expected_rc)
+                self.assertEqual(len(results), 1)
+                self.assertEqual(results[0]["reason"], expected_reason)
+                self.assertNotIn("private ", output)
 
 
 if __name__ == "__main__":

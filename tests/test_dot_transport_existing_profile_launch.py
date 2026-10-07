@@ -2,11 +2,13 @@
 
 import json
 import os
+import selectors
 import shlex
 import shutil
 import stat
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -110,6 +112,179 @@ exports.chromium = {
             timeout=40,
             check=False,
         )
+
+    def _install_fake_send_playwright(self, initial_composer=""):
+        state_path = self.root / "prepared-send-state.json"
+        external_composer_path = self.root / "external-composer.txt"
+        self.external_composer_path = external_composer_path
+        modules = self.root / "node_modules" / "playwright"
+        script = r'''const fs = require("node:fs");
+const statePath = __STATE_PATH__;
+const externalComposerPath = __EXTERNAL_COMPOSER_PATH__;
+const state = {composer: __INITIAL_COMPOSER__, clicked: false, userMessages: []};
+function locator(selector) {
+  if (selector.includes("data-message-author-role=user")) {
+    return {async allInnerTexts() { return state.userMessages; }};
+  }
+  return {
+    async count() { return 1; },
+    first() { return this; },
+    async innerText() {
+      if (fs.existsSync(externalComposerPath)) return fs.readFileSync(externalComposerPath, "utf8");
+      return state.composer;
+    },
+    async focus() {},
+    async click() {},
+  };
+}
+const page = {
+  async goto() {},
+  async title() { return "ChatGPT"; },
+  locator,
+  async evaluate(fn) {
+    if (fn.toString().includes("/api/auth/session")) {
+      return {status: 200, hasUser: true, isJson: true};
+    }
+    if (fn.toString().includes("usage limit")) return "";
+    return "Fixture conversation";
+  },
+  async click(selector) {
+    if (selector.includes("send-button")) {
+      state.clicked = true;
+      state.userMessages.push(state.composer);
+      state.composer = "";
+    }
+  },
+  keyboard: {
+    selected: false,
+    async press(key) {
+      if (key.endsWith("+A")) this.selected = true;
+      else if (key === "Backspace" && this.selected) state.composer = "";
+    },
+    async insertText(text) { state.composer += text; },
+  },
+};
+exports.chromium = {
+  async launchPersistentContext() {
+    return {
+      async newPage() { return page; },
+      async close() { fs.writeFileSync(statePath, JSON.stringify(state)); },
+    };
+  },
+};
+'''.replace("__STATE_PATH__", json.dumps(str(state_path)))
+        script = script.replace(
+            "__EXTERNAL_COMPOSER_PATH__", json.dumps(str(external_composer_path))
+        )
+        script = script.replace("__INITIAL_COMPOSER__", json.dumps(initial_composer))
+        (modules / "index.js").write_text(script, encoding="utf-8")
+        return state_path
+
+    def _run_prepared_send(self, control):
+        message_path = self.root / "prepared-message.txt"
+        message_path.write_text("Coordinator-owned fixture message", encoding="utf-8")
+        state_path = self._install_fake_send_playwright()
+        env = dict(self.env, DOT_PREPARED="1")
+        proc = subprocess.Popen(
+            [str(NODE22), str(SCRIPT), "send-prepared", str(message_path)],
+            env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        selector = selectors.DefaultSelector()
+        selector.register(proc.stdout, selectors.EVENT_READ)
+        output = bytearray()
+        nonce = None
+        deadline = time.monotonic() + 30
+        try:
+            while nonce is None:
+                remaining = deadline - time.monotonic()
+                self.assertGreater(remaining, 0, "Node did not prepare the message")
+                self.assertTrue(selector.select(remaining), "Node did not prepare the message")
+                output.extend(os.read(proc.stdout.fileno(), 4096))
+                for line in output.splitlines():
+                    if line.startswith(b"prepared "):
+                        tokens = line.decode("utf-8").split()
+                        if len(tokens) == 2:
+                            nonce = tokens[1]
+                            break
+            proc.stdin.write((control(nonce) + "\n").encode("utf-8"))
+            proc.stdin.flush()
+            rest, stderr = proc.communicate(timeout=10)
+            output.extend(rest)
+            return proc.returncode, output.decode("utf-8"), stderr.decode("utf-8"), json.loads(state_path.read_text())
+        finally:
+            selector.close()
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=5)
+
+    def test_prepared_send_requires_matching_nonce_and_clears_only_its_draft(self):
+        for control in (lambda nonce: "commit", lambda nonce: "commit " + "0" * 32):
+            with self.subTest(control=control("ignored")):
+                rc, stdout, stderr, state = self._run_prepared_send(control)
+                self.assertEqual(rc, 0, stderr)
+                self.assertNotIn("DOT_SENT_VERIFIED", stdout)
+                self.assertFalse(state["clicked"])
+                self.assertEqual(state["composer"], "")
+
+    def test_prepared_send_keeps_existing_drafts_untouched(self):
+        message = "Coordinator-owned fixture message"
+        drafts = (
+            ("near_match", "Coordinator-owned fixture messag", [], True),
+            ("clear_flag", "Unrelated human draft", [], True),
+            ("already_sent", message, [message], False),
+        )
+        for case, draft, prior_messages, clear_flag in drafts:
+            with self.subTest(case=case):
+                state_path = self._install_fake_send_playwright(draft)
+                (self.root / "node_modules" / "playwright" / "index.js").write_text(
+                    (self.root / "node_modules" / "playwright" / "index.js")
+                    .read_text(encoding="utf-8")
+                    .replace("userMessages: []", f"userMessages: {json.dumps(prior_messages)}"),
+                    encoding="utf-8",
+                )
+                message_path = self.root / "prepared-message-with-draft.txt"
+                message_path.write_text(message, encoding="utf-8")
+                env = dict(self.env, DOT_PREPARED="1")
+                if clear_flag:
+                    env["DOT_CLEAR_DRAFT"] = "1"
+                proc = subprocess.run(
+                    [str(NODE22), str(SCRIPT), "send-prepared", str(message_path)],
+                    env=env, capture_output=True, text=True, timeout=30, check=False,
+                )
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                self.assertIn(
+                    "DOT_PREPARED_ABORTED reason=composer_not_empty", proc.stdout
+                )
+                self.assertNotIn(draft[:20], proc.stdout)
+                state = json.loads(state_path.read_text())
+                self.assertEqual(state["composer"], draft)
+                self.assertFalse(state["clicked"])
+
+    def test_prepared_send_does_not_click_after_composer_changes(self):
+        def alter_then_commit(nonce):
+            self.external_composer_path.write_text("User edited this draft", encoding="utf-8")
+            return "commit " + nonce
+
+        rc, stdout, stderr, state = self._run_prepared_send(alter_then_commit)
+        self.assertEqual(rc, 0, stderr)
+        self.assertNotIn("DOT_SENT_VERIFIED", stdout)
+        self.assertFalse(state["clicked"])
+        self.assertEqual(state["composer"], "Coordinator-owned fixture message")
+        self.assertEqual(
+            self.external_composer_path.read_text(encoding="utf-8"),
+            "User edited this draft",
+        )
+
+    def test_prepared_send_commits_only_matching_nonce(self):
+        rc, stdout, stderr, state = self._run_prepared_send(
+            lambda nonce: "commit " + nonce
+        )
+        self.assertEqual(rc, 0, stderr)
+        self.assertIn("DOT_SENT_VERIFIED", stdout)
+        self.assertTrue(state["clicked"])
+        self.assertEqual(state["userMessages"], ["Coordinator-owned fixture message"])
+        self.assertEqual(state["composer"], "")
 
     @staticmethod
     def _result(stdout):

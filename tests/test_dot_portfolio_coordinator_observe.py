@@ -19,6 +19,7 @@ if sys_path not in sys.path:
     sys.path.insert(0, sys_path)
 
 CLI_SCRIPT = str(SKILL_DIR / "scripts" / "coordinator-portfolio.py")
+PREPARED_NONCE = "0123456789abcdef0123456789abcdef"
 WRAPPER_SCRIPT = str(SKILL_DIR / "scripts" / "dot-portfolio-coordinator-wrapper.sh")
 SCRIPTS_DIR = str(SKILL_DIR / "scripts")
 if SCRIPTS_DIR not in sys.path:
@@ -331,10 +332,12 @@ class TestDotPortfolioCoordinatorObserve(unittest.TestCase):
             fake_dot.write_text(
                 "#!/bin/sh\n"
                 "if [ \"$3\" = send-once ]; then\n"
-                "  echo prepared\n"
+                f"  echo prepared {PREPARED_NONCE}\n"
                 "  read -r cmd\n"
-                "  cat \"$4\" > \"$DOT_CAPTURE_FILE\"\n"
-                "  echo DOT_SENT_VERIFIED\n"
+                f"  if [ \"$cmd\" = 'commit {PREPARED_NONCE}' ]; then\n"
+                "    cat \"$4\" > \"$DOT_CAPTURE_FILE\"\n"
+                "    echo DOT_SENT_VERIFIED\n"
+                "  fi\n"
                 "fi\n"
             )
             fake_dot.chmod(0o700)
@@ -567,11 +570,11 @@ class TestDotPortfolioCoordinatorObserve(unittest.TestCase):
             fake_transport = root / "fake_transport.sh"
             fake_transport.write_text(
                 "#!/bin/sh\n"
-                f"echo 'prepared' > {shlex.quote(str(prepared_marker))}\n"
-                "printf 'prepared\\n'\n"
+                f"echo 'prepared {PREPARED_NONCE}' > {shlex.quote(str(prepared_marker))}\n"
+                f"printf 'prepared {PREPARED_NONCE}\\n'\n"
                 "read -t 5 -r cmd || cmd='timeout'\n"
                 "case \"$cmd\" in\n"
-                "  commit*)\n"
+                f"  'commit {PREPARED_NONCE}')\n"
                 f"    echo 'clicked' > {shlex.quote(str(click_marker))}\n"
                 "    echo 'DOT_SENT_VERIFIED'\n"
                 "    exit 0\n"

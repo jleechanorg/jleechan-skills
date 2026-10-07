@@ -524,6 +524,11 @@ async function send(page, file, dry, opts = {}) {
     await page.keyboard.press('Backspace');
     await sleep(800);
   };
+  const clearPreparedDraft = async () => {
+    try {
+      if (norm((await readComposer()).trim()) === norm(msg)) await clear();
+    } catch {}
+  };
   const getUserMessages = () => page.locator('[data-message-author-role=user], article.self, article[class*="self"]')
     .allInnerTexts()
     .then(arr => arr.map(norm))
@@ -560,6 +565,11 @@ async function send(page, file, dry, opts = {}) {
   await page.click(COMPOSER);
   await sleep(1500);
   let composer = (await readComposer()).trim();
+
+  if (opts.prepared && composer !== '') {
+    console.log('DOT_PREPARED_ABORTED reason=composer_not_empty');
+    return;
+  }
 
   if (composer !== '') {
     const normComposer = norm(composer);
@@ -611,8 +621,17 @@ async function send(page, file, dry, opts = {}) {
       break;
     }
     rl.close();
-    if (decision !== `commit ${nonce}` && decision !== 'commit') {
+    if (decision !== `commit ${nonce}`) {
       aborted = true;
+      await clearPreparedDraft();
+      process.stdout.write(`aborted ${nonce}\n`);
+      return;
+    }
+    if (norm((await readComposer()).trim()) !== norm(msg)) {
+      aborted = true;
+      await clearPreparedDraft();
+      process.stdout.write(`aborted ${nonce}\n`);
+      console.log('DOT_PREPARED_ABORTED reason=composer_changed');
       return;
     }
   }
