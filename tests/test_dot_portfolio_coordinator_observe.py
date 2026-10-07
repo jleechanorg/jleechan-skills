@@ -21,7 +21,7 @@ WRAPPER_SCRIPT = str(SKILL_DIR / "scripts" / "dot-portfolio-coordinator-wrapper.
 
 class TestDotPortfolioCoordinatorObserve(unittest.TestCase):
     def setUp(self):
-        self.temp_dir = tempfile.TemporaryDirectory()
+        self.temp_dir = tempfile.TemporaryDirectory(dir="/tmp")
         self.run_dir = os.path.join(self.temp_dir.name, "observe_run")
 
         # Create a valid test sources registry in temp_dir
@@ -133,56 +133,59 @@ class TestDotPortfolioCoordinatorObserve(unittest.TestCase):
         self.assertIn("error", proc.stderr.lower() + proc.stdout.lower())
 
     def test_observe_active_mode_with_grant_sends_messages(self):
-        grant_dir = tempfile.TemporaryDirectory()
-        os.chmod(grant_dir.name, 0o700)
-        grant_data = {
-            "grant_version": 1,
-            "task_id": "dot-coordinator-separated-20261007",
-            "account_id": "test-account",
-            "action": "send_dot_test_message",
-            "max_messages": 5,
-            "min_interval_secs": 1,
-            "expiry_epoch": int(time.time()) + 3600
-        }
-        grant_file = os.path.join(grant_dir.name, "grant.json")
-        grant_bytes = json.dumps(grant_data, sort_keys=True).encode("utf-8")
-        with open(grant_file, "wb") as f:
-            f.write(grant_bytes)
-        os.chmod(grant_file, 0o400)
-        grant_sha = hashlib.sha256(grant_bytes).hexdigest()
-
-        # Fake transport
-        fake_dot = os.path.join(grant_dir.name, "fake_dot.sh")
-        with open(fake_dot, "w") as f:
-            f.write("#!/bin/sh\necho 'DOT_SENT_VERIFIED'\nexit 0\n")
-        os.chmod(fake_dot, 0o755)
-
-        env = os.environ.copy()
-        env["DOT_TRANSPORT_SCRIPT"] = fake_dot
-
-        cmd = [
-            CLI_SCRIPT,
-            "--sources", self.sources_file,
-            "observe",
-            "--duration", "2",
-            "--interval", "1",
-            "--notification-interval", "1",
-            "--send-messages",
-            "--grant-file", grant_file,
-            "--grant-sha256", grant_sha,
-            "--account", "test-account",
-            "--run-dir", self.run_dir
-        ]
-        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
-        self.assertEqual(proc.returncode, 0, f"STDOUT: {proc.stdout}, STDERR: {proc.stderr}")
-
-        receipt_file = os.path.join(self.run_dir, "final_receipt.json")
-        self.assertTrue(os.path.exists(receipt_file))
-        with open(receipt_file, "r") as f:
-            receipt = json.load(f)
-        self.assertGreaterEqual(receipt.get("sent_messages", 0), 1)
-        self.assertEqual(receipt.get("mode"), "active")
-        grant_dir.cleanup()
+        with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
+            root = Path(tmp)
+            started = time.time()
+            accounts = []
+            for name in ("first", "second", "third"):
+                grant = {"grant_version": 1, "task_id": "dot-coordinator-separated-20261007",
+                         "account_id": name, "action": "coordination_message", "max_messages": 12,
+                         "min_interval_secs": 3600, "activated_at_epoch": started,
+                         "expiry_epoch": started + 900}
+                path = root / (name + ".json")
+                path.write_text(json.dumps(grant)); path.chmod(0o400)
+                accounts.append({"account": name, "grant_file": str(path),
+                                 "grant_sha256": hashlib.sha256(path.read_bytes()).hexdigest()})
+            config = {"run_id": "integration", "task_id": "dot-coordinator-separated-20261007",
+                      "activated_at_epoch": started, "duration_secs": 900,
+                      "authority": "Continue the fixture task; no merge or destructive authority.",
+                      "state_dir": self.run_dir,
+                      "accounts": accounts}
+            pilot = root / "pilot.json"
+            pilot.write_text(json.dumps(config)); pilot.chmod(0o400)
+            fake_dot = root / "dot"
+            fake_dot.write_text("#!/bin/sh\nif [ \"$3\" = read ]; then echo 'fixture reply'; else echo DOT_SENT_VERIFIED; fi\n")
+            fake_dot.chmod(0o700)
+            fake_gh = root / "gh"
+            fake_gh.write_text("#!/bin/sh\necho '[]'\n"); fake_gh.chmod(0o700)
+            fake_agy = root / "agy"
+            fake_agy.write_text("#!/usr/bin/env python3\nimport json,sys\nevent=json.loads(sys.stdin.readline())\np=json.loads(event['message']['content'].split('Packet JSON:' + chr(10))[-1])\nd={'event_id':p['event_id'],'task_id':p['task_id'],'stage':p['dialogue_stage'],'blockers':[],'message':'List current blockers with evidence.'}\nprint(json.dumps({'event':'result','result':{'status':'SUCCESS','response':json.dumps(d)}}))\n")
+            fake_agy.chmod(0o700)
+            env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ["PATH"])
+            cmd = [CLI_SCRIPT, "--sources", self.sources_file, "observe", "--interval", "1",
+                   "--send-messages", "--pilot-config", str(pilot), "--transport-script", str(fake_dot),
+                   "--run-dir", self.run_dir]
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
+            observed = None
+            try:
+                deadline = time.monotonic() + 10
+                while time.monotonic() < deadline and proc.poll() is None:
+                    state_file = Path(self.run_dir) / "run_state.json"
+                    if state_file.exists():
+                        observed = json.loads(state_file.read_text()).get("slots", {}).get("0")
+                        if observed and observed.get("outcome") != "in_progress_hold":
+                            break
+                    time.sleep(0.05)
+            finally:
+                if proc.poll() is None:
+                    proc.terminate()
+                stdout, stderr = proc.communicate(timeout=5)
+            self.assertIsNotNone(observed, (stdout, stderr))
+            self.assertTrue(observed.get("delivery_verified"), (observed, stdout, stderr))
+            receipt = json.loads((Path(self.run_dir) / "final_receipt.json").read_text())
+            self.assertEqual(receipt["sent_messages"], 1)
+            self.assertEqual(receipt["stop_reason"], "interrupted")
+            self.assertEqual(receipt["mode"], "active")
 
     def test_wrapper_computes_outer_grace_period(self):
         # Inspect dot-portfolio-coordinator-wrapper.sh to ensure observe duration has + 120s grace

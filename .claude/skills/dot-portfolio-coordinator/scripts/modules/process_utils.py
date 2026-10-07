@@ -51,10 +51,9 @@ def run_bounded_command(
     except subprocess.TimeoutExpired:
         # Terminate the entire process group
         try:
-            pgid = os.getpgid(proc.pid)
-            os.killpg(pgid, signal.SIGTERM)
+            os.killpg(proc.pid, signal.SIGTERM)
             time.sleep(0.2)
-            os.killpg(pgid, signal.SIGKILL)
+            os.killpg(proc.pid, signal.SIGKILL)
         except (ProcessLookupError, OSError):
             pass
         # Drain buffers to prevent resource leaks
@@ -63,10 +62,15 @@ def run_bounded_command(
         except Exception:
             pass
         raise ProcessTimeoutError(f"Command exceeded deadline of {timeout}s")
-    except Exception as e:
+    except BaseException as e:
         try:
-            pgid = os.getpgid(proc.pid)
-            os.killpg(pgid, signal.SIGKILL)
+            os.killpg(proc.pid, signal.SIGKILL)
         except Exception:
             pass
+        try:
+            proc.communicate(timeout=1)
+        except Exception:
+            pass
+        if not isinstance(e, Exception):
+            raise
         raise ProcessExecutionError(f"Command execution error: {e}")

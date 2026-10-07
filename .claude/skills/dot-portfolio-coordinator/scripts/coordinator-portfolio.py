@@ -5,12 +5,18 @@ Entry point for portfolio collection, review validation, journal persistence,
 budget reservations, notification binding resolution, and observation loops.
 """
 import argparse
+import contextlib
+import fcntl
 import hashlib
+import io
 import json
+import math
 import os
 import signal
+import stat
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -60,11 +66,149 @@ def compute_dir_manifest(base_dir: Path) -> Dict[str, str]:
 
 def atomic_write_json(file_path: Path, data: Any, mode: int = 0o600) -> None:
     """Writes JSON data atomically with restricted permissions."""
-    tmp_path = file_path.with_suffix(f".tmp.{os.getpid()}")
-    with open(tmp_path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
-    os.chmod(str(tmp_path), mode)
-    os.replace(str(tmp_path), str(file_path))
+    from modules.sender import _atomic_write
+    _atomic_write(str(file_path), data, str(file_path.parent))
+
+
+def private_run_directory(value: Optional[str]) -> Path:
+    root = Path(value) if value else Path(tempfile.mkdtemp(prefix="dot-portfolio-", dir="/tmp"))
+    if not root.resolve().is_relative_to(Path("/tmp").resolve()):
+        raise ValueError("run_directory_must_be_under_tmp")
+    if root.is_symlink():
+        raise ValueError("run_directory_symlink")
+    root.mkdir(mode=0o700, parents=False, exist_ok=True)
+    info = root.lstat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+        raise ValueError("run_directory_must_be_owned_and_private")
+    return root
+
+
+def load_run_state(root: Path, binding: str, duration: int, started: float) -> Dict[str, Any]:
+    from modules.sender import _read_json_file
+    state, reason = _read_json_file(str(root / "run_state.json"), "state")
+    if state is None:
+        if reason != "state_missing":
+            raise ValueError("run_state_corrupt_hold")
+        state = {"binding": binding, "started_at_epoch": started,
+                 "duration_secs": duration, "slots": {}, "dialogue": {}}
+        atomic_write_json(root / "run_state.json", state)
+    if (state.get("binding") != binding or state.get("duration_secs") != duration or
+            not isinstance(state.get("slots"), dict) or not isinstance(state.get("dialogue"), dict) or
+            type(state.get("started_at_epoch")) not in (int, float) or
+            not math.isfinite(state["started_at_epoch"])):
+        raise ValueError("run_state_binding_or_schema_mismatch")
+    return state
+
+
+def pilot_slots(config: Dict[str, Any]) -> List[Dict[str, Any]]:
+    slots = []
+    for index, offset in enumerate(range(0, config["duration_secs"], 1200)):
+        identity = f"{config['run_id']}:{index}"
+        slots.append({"index": index, "account_index": index % 3,
+                      "due_epoch": config["activated_at_epoch"] + offset,
+                      "event_id": hashlib.sha256(identity.encode()).hexdigest()})
+    return slots
+
+
+def call_sender(argv: List[str], event_id: str, message: str) -> Dict[str, Any]:
+    from modules.sender import run_sender_cli
+    changes = {"COORDINATOR_CHANGE_ID": event_id, "COORDINATOR_CHANGE_SUMMARY": message,
+               "DOT_NO_REMOTE": "1"}
+    previous = {key: os.environ.get(key) for key in changes}
+    output = io.StringIO()
+    try:
+        os.environ.update(changes)
+        with contextlib.redirect_stdout(output):
+            rc = run_sender_cli(argv)
+    finally:
+        for key, value in previous.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+    records = [json.loads(line.removeprefix("COORDINATOR_RESULT "))
+               for line in output.getvalue().splitlines() if line.startswith("COORDINATOR_RESULT ")]
+    if len(records) != 1:
+        return {"outcome": "uncertain", "reason": "invalid_sender_receipt", "delivery_verified": False}
+    result = records[0]
+    return {"outcome": result.get("outcome"), "reason": result.get("reason"),
+            "delivery_verified": rc == 0 and result.get("outcome") == "delivered"
+            and result.get("delivery_verified") is True}
+
+
+def load_pilot_config(path: str) -> Dict[str, Any]:
+    from modules.sender import _read_json_file, ACCOUNT_RE, validate_operator_grant
+    config, reason = _read_json_file(path, "pilot")
+    if config is None:
+        raise ValueError(reason)
+    if (not isinstance(config.get("run_id"), str) or not config["run_id"] or
+            config.get("task_id") != "dot-coordinator-separated-20261007" or
+            not isinstance(config.get("authority"), str) or not config["authority"] or
+            not isinstance(config.get("state_dir"), str) or not config["state_dir"] or
+            type(config.get("duration_secs")) is not int or
+            not 1 <= config["duration_secs"] <= 43200 or
+            type(config.get("activated_at_epoch")) not in (int, float) or
+            not math.isfinite(config["activated_at_epoch"])):
+        raise ValueError("invalid_pilot_config")
+    accounts = config.get("accounts")
+    if not isinstance(accounts, list) or len(accounts) != 3:
+        raise ValueError("pilot_requires_three_accounts")
+    seen = set()
+    for account in accounts:
+        if (not isinstance(account, dict) or not isinstance(account.get("account"), str) or
+                not ACCOUNT_RE.fullmatch(account["account"]) or account["account"] in seen):
+            raise ValueError("invalid_or_duplicate_pilot_account")
+        seen.add(account["account"])
+        valid, _, grant = validate_operator_grant(account.get("grant_file"), account.get("grant_sha256"), account["account"])
+        if not valid or grant["activated_at_epoch"] != config["activated_at_epoch"] or grant["expiry_epoch"] < config["activated_at_epoch"] + config["duration_secs"]:
+            raise ValueError("pilot_grant_invalid_or_window_mismatch")
+    return config
+
+
+def run_pilot_slot(config: Dict[str, Any], slot: Dict[str, Any], state: Dict[str, Any],
+                   snapshot: Dict[str, Any], root: Path, driver: str,
+                   transport: str, deadline: float) -> Dict[str, Any]:
+    from modules.driver_adapter import DriverAdapter
+    from modules.process_utils import run_bounded_command
+    account_index = slot["account_index"]
+    account = config["accounts"][account_index]
+    stage = state["dialogue"].get(str(account_index), "inventory")
+    remaining = deadline - time.monotonic()
+    if remaining < 180:
+        return {"outcome": "deadline_hold", "delivery_verified": False}
+    env = os.environ.copy()
+    env["DOT_ROTATE_ON_LIMIT"] = "0"
+    env["DOT_NO_REMOTE"] = "1"
+    try:
+        rc, reply, _ = run_bounded_command(
+            [transport, "--account", account["account"], "read", "12000"],
+            env=env, timeout_secs=min(180, int(remaining)))
+    except Exception:
+        return {"outcome": "read_unavailable", "delivery_verified": False}
+    if rc != 0:
+        return {"outcome": "read_unavailable", "delivery_verified": False}
+    packet = {"task_id": config["task_id"], "event_id": slot["event_id"],
+              "authority": {"instruction": config["authority"], "source": "local_operator_pilot"}, "snapshot": snapshot,
+              "previous_dot_reply": reply, "dialogue_stage": stage}
+    workspace = private_run_directory(str(root / ("driver-" + slot["event_id"])))
+    remaining = deadline - time.monotonic()
+    if remaining < 180:
+        return {"outcome": "deadline_hold", "delivery_verified": False}
+    decision = DriverAdapter(driver=driver).decide(packet, workspace, timeout_secs=min(600, int(remaining)))
+    if decision.get("status") != "ok":
+        return {"outcome": "driver_failed", "reason": decision.get("reason", "invalid_result"), "delivery_verified": False}
+    guidance = (SCRIPT_DIR.parent / "references" / "dot-self-unblock.md").read_text()
+    message = guidance + "\n\n" + decision["decision"]["message"]
+    sender_root = private_run_directory(str(root / f"sender-{account_index}"))
+    argv = ["--account", account["account"], "--state-dir", str(sender_root),
+            "--grant-file", account["grant_file"], "--grant-sha256", account["grant_sha256"],
+            "--transport-script", transport, "--full-rollup"]
+    if deadline - time.monotonic() < 600:
+        return {"outcome": "deadline_hold", "delivery_verified": False}
+    result = call_sender(argv, slot["event_id"], message)
+    if result["delivery_verified"]:
+        state["dialogue"][str(account_index)] = "challenge" if stage == "inventory" else "inventory"
+    return result
 
 
 def cmd_reserve(args: argparse.Namespace, registry: SourceRegistry) -> None:
@@ -126,189 +270,150 @@ def cmd_collect(args: argparse.Namespace, registry: SourceRegistry) -> None:
         print(out)
 
 
+def process_due_slots(config, state, root, snapshot, driver, transport, deadline, now):
+    for slot in pilot_slots(config):
+        key = str(slot["index"])
+        if key in state["slots"] or now < slot["due_epoch"]:
+            continue
+        if now >= slot["due_epoch"] + 1200:
+            state["slots"][key] = {"outcome": "missed_slot", "delivery_verified": False}
+            atomic_write_json(root / "run_state.json", state)
+            continue
+        state["slots"][key] = {"outcome": "in_progress_hold", "delivery_verified": False}
+        atomic_write_json(root / "run_state.json", state)
+        try:
+            result = run_pilot_slot(config, slot, state, snapshot, root, driver, transport, deadline)
+        except Exception:
+            result = {"outcome": "slot_failed_hold", "delivery_verified": False}
+        state["slots"][key] = result
+        atomic_write_json(root / "run_state.json", state)
+
+
 def cmd_observe(args: argparse.Namespace, registry: SourceRegistry) -> None:
-    """Runs explicit finite observation caller with private /tmp state, heartbeats, and source hashes."""
-    # 1. Private directory creation and validation
-    if args.run_dir:
-        run_dir = Path(args.run_dir)
-        run_dir.mkdir(parents=True, exist_ok=True)
-        os.chmod(str(run_dir), 0o700)
-    else:
-        run_dir = Path(tempfile.mkdtemp(prefix="dot-portfolio-observe-", dir="/tmp"))
-        os.chmod(str(run_dir), 0o700)
+    """Run one finite, restart-bound coordinator with independent heartbeats."""
+    from modules.sender import _read_json_file
+    if not 1 <= args.duration <= 43200 or not 1 <= args.interval <= 3600:
+        raise ValueError("invalid_observation_duration_or_interval")
+    config = load_pilot_config(args.pilot_config) if args.send_messages and args.pilot_config else None
+    if args.send_messages and config is None:
+        raise ValueError("active_mode_requires_pinned_pilot_config")
+    if config is not None and not registry.sources:
+        raise ValueError("active_mode_requires_registered_sources")
+    if config and args.run_dir and Path(args.run_dir).resolve() != Path(config["state_dir"]).resolve():
+        raise ValueError("pilot_state_directory_mismatch")
+    root = private_run_directory(config["state_dir"] if config else args.run_dir)
+    lock_fd = os.open(root / "coordinator.lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    info = os.fstat(lock_fd)
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+        os.close(lock_fd)
+        raise ValueError("invalid_coordinator_lock")
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        os.close(lock_fd)
+        raise ValueError("coordinator_already_running")
+    stopped = threading.Event()
+    heartbeat_failed = threading.Event()
+    heartbeat_thread = None
+    old_handlers = {}
+    state = None
+    stop_reason = "completed"
+    totals = {"completed_cycles": 0, "partial_cycles": 0, "fault_cycles": 0}
+    try:
+        manifest = compute_dir_manifest(SCRIPT_DIR.parent)
+        registry_hash = hashlib.sha256(Path(args.sources).read_bytes()).hexdigest()
+        pilot_hash = hashlib.sha256(Path(args.pilot_config).read_bytes()).hexdigest() if config else None
+        binding = hashlib.sha256(json.dumps({"manifest": manifest, "registry": registry_hash,
+                                             "pilot": pilot_hash, "driver": args.driver}, sort_keys=True).encode()).hexdigest()
+        duration = config["duration_secs"] if config else args.duration
+        started = config["activated_at_epoch"] if config else time.time()
+        state = load_run_state(root, binding, duration, started)
+        if time.time() < state.get("last_observed_epoch", state["started_at_epoch"]):
+            raise ValueError("clock_rollback_hold")
+        deadline_epoch = state["started_at_epoch"] + duration
+        deadline = time.monotonic() + max(0, deadline_epoch - time.time())
+        atomic_write_json(root / "source_manifest.json", manifest)
+        atomic_write_json(root / "registry_hash.json", {"sha256": registry_hash})
+        prior, reason = _read_json_file(str(root / "latest_snapshot.json"), "snapshot")
+        if prior is None and reason != "snapshot_missing":
+            raise ValueError("snapshot_corrupt_hold")
+        prior_snapshots = (prior or {}).get("snapshots", {})
 
-    # Invariant: Directory owner must be current UID and mode 0700
-    dir_st = os.stat(str(run_dir))
-    if dir_st.st_uid != os.getuid():
-        print(json.dumps({"error": f"Run dir owner UID {dir_st.st_uid} does not match current UID {os.getuid()}"}), file=sys.stderr)
-        sys.exit(1)
+        def heartbeat():
+            try:
+                while not stopped.is_set():
+                    entry = {"event": "heartbeat", "timestamp_epoch": time.time(),
+                             "elapsed_secs": max(0, time.time() - state["started_at_epoch"]),
+                             "remaining_secs": max(0, deadline - time.monotonic())}
+                    fd = os.open(root / "heartbeat.jsonl", os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+                    with os.fdopen(fd, "w") as stream:
+                        info = os.fstat(stream.fileno())
+                        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+                            raise ValueError("invalid_heartbeat_file")
+                        stream.write(json.dumps(entry) + "\n")
+                    stopped.wait(min(60, args.interval))
+            except Exception:
+                heartbeat_failed.set()
 
-    if getattr(args, "send_messages", False):
-        if not getattr(args, "grant_file", None) or not getattr(args, "grant_sha256", None):
-            print(json.dumps({"error": "--send-messages requires --grant-file and --grant-sha256"}), file=sys.stderr)
-            sys.exit(1)
-        if not os.path.exists(args.grant_file):
-            print(json.dumps({"error": f"Grant file {args.grant_file} does not exist"}), file=sys.stderr)
-            sys.exit(1)
+        def stop_signal(sig, frame):
+            raise KeyboardInterrupt
 
-    # 2. Write initial source manifest and registry hash
-    skill_root = SCRIPT_DIR.parent
-    manifest_start = compute_dir_manifest(skill_root)
-    atomic_write_json(run_dir / "source_manifest.json", manifest_start, mode=0o600)
-
-    with open(args.sources, "rb") as fp:
-        reg_hash_start = hashlib.sha256(fp.read()).hexdigest()
-
-    reg_hash_file = run_dir / "registry_hash.txt"
-    with open(reg_hash_file, "w", encoding="utf-8") as fp:
-        fp.write(reg_hash_start)
-    os.chmod(str(reg_hash_file), 0o600)
-
-    hb_path = run_dir / "heartbeat.jsonl"
-    interrupted = False
-    stop_reason = None
-
-    def handle_signal(sig, frame):
-        nonlocal interrupted, stop_reason
-        interrupted = True
-        stop_reason = f"signal_{sig}"
-        entry = {
-            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            "event": "interrupted",
-            "signal": sig
-        }
-        with open(hb_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(entry) + "\n")
-        try:
-            os.chmod(str(hb_path), 0o600)
-        except Exception:
-            pass
-
-    signal.signal(signal.SIGINT, handle_signal)
-    signal.signal(signal.SIGTERM, handle_signal)
-
-    duration = max(1, int(args.duration))
-    interval = max(1, int(args.interval))
-    notification_interval = max(1, int(getattr(args, "notification_interval", 7200)))
-    start_mono = time.monotonic()
-    deadline_mono = start_mono + duration
-
-    startup_entry = {
-        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "event": "observation_started",
-        "duration_secs": duration,
-        "interval_secs": interval,
-        "mode": "active" if getattr(args, "send_messages", False) else "observe-only",
-        "run_dir": str(run_dir)
-    }
-    with open(hb_path, "a", encoding="utf-8") as f:
-        f.write(json.dumps(startup_entry) + "\n")
-    os.chmod(str(hb_path), 0o600)
-
-    prior_snapshots: Dict[str, Any] = {}
-    completed_cycles = 0
-    partial_cycles = 0
-    fault_cycles = 0
-    sent_messages = 0
-    last_notification_time = 0.0
-    tick = 0
-
-    while time.monotonic() < deadline_mono and not interrupted:
-        tick += 1
-        now_mono = time.monotonic()
-        elapsed = int(now_mono - start_mono)
-        remaining = max(0, int(deadline_mono - now_mono))
-
-        # 3. Check for manifest or registry drift
-        curr_manifest = compute_dir_manifest(skill_root)
-        try:
-            with open(args.sources, "rb") as fp:
-                curr_reg_hash = hashlib.sha256(fp.read()).hexdigest()
-        except Exception:
-            curr_reg_hash = ""
-
-        if curr_manifest != manifest_start or curr_reg_hash != reg_hash_start:
-            stop_reason = "manifest_drift_detected"
-            interrupted = True
-            break
-
-        # 4. Real collection each cycle
-        collector = PortfolioCollector(registry)
-        cycle_status = "healthy"
-        try:
-            coll_res = collector.collect_all(prior_snapshots=prior_snapshots)
-            prior_snapshots = coll_res.get("snapshots", {})
-            atomic_write_json(run_dir / "latest_snapshot.json", coll_res, mode=0o600)
-
-            if coll_res.get("unavailable_count", 0) > 0 or coll_res.get("stale_count", 0) > 0:
-                cycle_status = "partial"
-                partial_cycles += 1
-            else:
-                cycle_status = "fresh"
-                completed_cycles += 1
-        except Exception as e:
-            cycle_status = "fault"
-            fault_cycles += 1
-            coll_res = {"error": str(e)}
-
-        # 5. Active messaging path if explicitly requested
-        if getattr(args, "send_messages", False):
-            if (now_mono - last_notification_time) >= notification_interval:
-                prompt_path = SCRIPT_DIR.parent / "references" / "dot-self-unblock.md"
-                prompt_text = prompt_path.read_text(encoding="utf-8") if prompt_path.exists() else "Continue authorized work."
-                summary_msg = f"{prompt_text[:1500]}\nTracking: {coll_res.get('fresh_count', 0)} fresh, {coll_res.get('unavailable_count', 0)} unavailable."
-                ev_id = f"ev_obs_{int(time.time())}_{tick}"
-
-                from modules.sender import run_sender_cli
-                sender_argv = [
-                    "--account", getattr(args, "account", "default"),
-                    "--state-dir", str(run_dir / "sender_state"),
-                    "--grant-file", getattr(args, "grant_file", "") or "",
-                    "--grant-sha256", getattr(args, "grant_sha256", "") or ""
-                ]
-                os.environ["COORDINATOR_CHANGE_ID"] = ev_id
-                os.environ["COORDINATOR_CHANGE_SUMMARY"] = summary_msg
-                try:
-                    s_rc = run_sender_cli(sender_argv)
-                    if s_rc == 0:
-                        sent_messages += 1
-                        last_notification_time = now_mono
-                except Exception:
-                    pass
-
-        # 6. Heartbeat record
-        hb_entry = {
-            "tick": tick,
-            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            "elapsed_secs": elapsed,
-            "remaining_secs": remaining,
-            "status": cycle_status
-        }
-        with open(hb_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(hb_entry) + "\n")
-        os.chmod(str(hb_path), 0o600)
-
-        sleep_time = min(interval, max(0.1, deadline_mono - time.monotonic()))
-        if sleep_time > 0 and time.monotonic() < deadline_mono and not interrupted:
-            time.sleep(sleep_time)
-
-    # 7. Final receipt
-    if not stop_reason:
-        stop_reason = "interrupted" if interrupted else "completed"
-
-    elapsed_total = int(time.monotonic() - start_mono)
-    receipt_data = {
-        "event": "observation_summary",
-        "duration_secs": duration,
-        "elapsed_secs": elapsed_total,
-        "completed_cycles": completed_cycles,
-        "partial_cycles": partial_cycles,
-        "fault_cycles": fault_cycles,
-        "sent_messages": sent_messages,
-        "stop_reason": stop_reason,
-        "mode": "active" if getattr(args, "send_messages", False) else "observe-only"
-    }
-    atomic_write_json(run_dir / "final_receipt.json", receipt_data, mode=0o600)
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            old_handlers[sig] = signal.signal(sig, stop_signal)
+        heartbeat_thread = threading.Thread(target=heartbeat, daemon=True)
+        heartbeat_thread.start()
+        transport = args.transport_script or str(SCRIPT_DIR.parent.parent / "dot/scripts/dot.sh")
+        while time.monotonic() < deadline:
+            if heartbeat_failed.is_set():
+                stop_reason = "heartbeat_failed"
+                break
+            if (compute_dir_manifest(SCRIPT_DIR.parent) != manifest or
+                    hashlib.sha256(Path(args.sources).read_bytes()).hexdigest() != registry_hash or
+                    (config and hashlib.sha256(Path(args.pilot_config).read_bytes()).hexdigest() != pilot_hash)):
+                stop_reason = "manifest_drift_detected"
+                break
+            state["last_observed_epoch"] = time.time()
+            atomic_write_json(root / "run_state.json", state)
+            try:
+                collector = PortfolioCollector(registry)
+                collected = collector.collect_all(prior_snapshots=prior_snapshots,
+                                                  deadline_mono=min(deadline, time.monotonic() + 120))
+                prior_snapshots = collected.get("snapshots", {})
+                atomic_write_json(root / "latest_snapshot.json", collected)
+                counter = "partial_cycles" if collected.get("unavailable_count") or collected.get("stale_count") else "completed_cycles"
+                totals[counter] += 1
+            except Exception:
+                totals["fault_cycles"] += 1
+                collected = {"snapshots": prior_snapshots, "coverage": "collection_failed"}
+            if config:
+                model_snapshot = {"coverage": {key: collected.get(key) for key in
+                                  ("registered_count", "fresh_count", "stale_count", "unavailable_count")}, "sources": {}}
+                for sid, source in collected.get("snapshots", {}).items():
+                    model_snapshot["sources"][sid] = {"status": source.get("status"), "version": source.get("version"),
+                        "items": [registry.filter_by_audience(sid, item, "model") for item in source.get("items", [])]}
+                process_due_slots(config, state, root, model_snapshot, args.driver, transport, deadline, time.time())
+            stopped.wait(min(args.interval, max(0, deadline - time.monotonic())))
+    except KeyboardInterrupt:
+        stop_reason = "interrupted"
+    except Exception:
+        stop_reason = "failed"
+        raise
+    finally:
+        stopped.set()
+        if heartbeat_thread:
+            heartbeat_thread.join(timeout=2)
+        for sig, handler in old_handlers.items():
+            signal.signal(sig, handler)
+        if state is not None:
+            outcomes = list(state["slots"].values())
+            receipt = {"event": "observation_summary", "duration_secs": state["duration_secs"],
+                       "elapsed_secs": max(0, time.time() - state["started_at_epoch"]),
+                       "sent_messages": sum(item.get("delivery_verified") is True for item in outcomes),
+                       "slots_accounted": len(outcomes), "expected_slots": len(pilot_slots(config)) if config else 0,
+                       "stop_reason": stop_reason, "mode": "active" if config else "observe-only", **totals}
+            atomic_write_json(root / "final_receipt.json", receipt)
+        fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        os.close(lock_fd)
 
 
 def main() -> None:
@@ -355,7 +460,10 @@ def main() -> None:
     p_obs.add_argument("--send-messages", action="store_true", help="Enable task-scoped message sending")
     p_obs.add_argument("--grant-file", help="Root operator grant file")
     p_obs.add_argument("--grant-sha256", help="Pinned SHA256 of grant file")
-    p_obs.add_argument("--account", default="default", help="Account identifier")
+    p_obs.add_argument("--account", default="default", help="Legacy account option; active mode uses pilot config")
+    p_obs.add_argument("--pilot-config", help="Private operator configuration binding three grants and the original run window")
+    p_obs.add_argument("--driver", choices=("agy", "claude", "codex"), default="agy")
+    p_obs.add_argument("--transport-script", help="Explicit trusted dot transport path")
 
     args = parser.parse_args()
 
@@ -381,4 +489,8 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except ValueError as error:
+        print(json.dumps({"error": str(error)}), file=sys.stderr)
+        sys.exit(2)

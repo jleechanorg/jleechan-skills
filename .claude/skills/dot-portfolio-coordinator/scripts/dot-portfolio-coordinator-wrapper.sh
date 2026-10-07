@@ -1,61 +1,28 @@
 #!/usr/bin/env bash
-# dot-portfolio-coordinator-wrapper.sh
-# Supervision wrapper with flock, shared deadline, and clean descendant process termination.
+# Bound the finite controller; its private run lock owns concurrency.
 set -euo pipefail
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PYTHON_CLI="$SCRIPT_DIR/coordinator-portfolio.py"
-LOCKFILE="/tmp/ai.gemini.dot-portfolio-coordinator.lock"
-
-# Calculate timeout: for observe, deadline must be duration + 120s grace
 DEADLINE_SECS=600
 IS_OBSERVE=0
 DURATION=43200
-
 PREV_ARG=""
 for arg in "$@"; do
-  if [[ "$arg" == "observe" ]]; then
-    IS_OBSERVE=1
-  fi
-  if [[ "$PREV_ARG" == "--duration" ]]; then
-    DURATION="$arg"
-  fi
+  if [[ "$arg" == "observe" ]]; then IS_OBSERVE=1; fi
+  if [[ "$PREV_ARG" == "--duration" ]]; then DURATION="$arg"; fi
+  if [[ "$arg" == --duration=* ]]; then DURATION="${arg#--duration=}"; fi
   PREV_ARG="$arg"
 done
-
+if [[ ! "$DURATION" =~ ^[0-9]+$ ]] || (( DURATION < 1 || DURATION > 43200 )); then
+  echo "Invalid finite duration" >&2
+  exit 2
+fi
 if [[ "$IS_OBSERVE" -eq 1 ]]; then
   DEADLINE_SECS=$(( DURATION + 120 ))
 fi
-
-# Concurrency lease
-exec 200>"$LOCKFILE"
-if command -v flock >/dev/null 2>&1; then
-  if ! flock -n 200; then
-    echo "[dot-portfolio-coordinator] Another coordinator instance is active. Exiting."
-    exit 0
-  fi
+TIMEOUT_BIN="$(command -v timeout || command -v gtimeout || true)"
+if [[ -z "$TIMEOUT_BIN" ]]; then
+  echo "A bounded timeout executable is required" >&2
+  exit 2
 fi
-
-# Process group supervision and cleanup on interrupt / exit
-CHILD_PID=""
-cleanup() {
-  if [[ -n "$CHILD_PID" ]] && kill -0 "$CHILD_PID" 2>/dev/null; then
-    echo "[dot-portfolio-coordinator] Cleaning up child process tree ($CHILD_PID)..." >&2
-    pkill -P "$CHILD_PID" 2>/dev/null || true
-    kill -TERM "$CHILD_PID" 2>/dev/null || true
-    sleep 1
-    kill -KILL "$CHILD_PID" 2>/dev/null || true
-  fi
-}
-trap cleanup EXIT INT TERM
-
-# Run target CLI under timeout
-if command -v timeout >/dev/null 2>&1; then
-  timeout "$DEADLINE_SECS" python3 "$PYTHON_CLI" "$@" &
-  CHILD_PID=$!
-  wait "$CHILD_PID"
-else
-  python3 "$PYTHON_CLI" "$@" &
-  CHILD_PID=$!
-  wait "$CHILD_PID"
-fi
+exec "$TIMEOUT_BIN" --signal=TERM --kill-after=10 "$DEADLINE_SECS" python3 "$PYTHON_CLI" "$@"
