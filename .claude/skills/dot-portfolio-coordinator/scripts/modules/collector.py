@@ -24,11 +24,32 @@ class CollectorError(Exception):
 
     def __init__(self, message: str, code: str = "collection_error") -> None:
         super().__init__(message)
-        self.code = code
+        self.code = code if code in DIAGNOSTIC_CODES else "collection_error"
 
 
 MAX_GITHUB_PAGES = 100
 MAX_COLLECTION_SECS = 600
+DIAGNOSTIC_CODES = {
+    "beads_command_failed",
+    "beads_fetch_failed",
+    "beads_store_mismatch",
+    "beads_where_failed",
+    "collection_error",
+    "deadline_exceeded",
+    "execution_error",
+    "github_fetch_failed",
+    "incomplete_envelope",
+    "invalid_304",
+    "invalid_cursor",
+    "invalid_envelope",
+    "invalid_json",
+    "missing_host_binding",
+    "missing_pr_head",
+    "missing_repository",
+    "page_limit",
+    "repeated_cursor",
+    "timeout",
+}
 SAFE_STRING_FIELDS = {
     "title", "status", "created_at", "updated_at", "head_sha", "url", "checks"
 }
@@ -204,7 +225,8 @@ class PortfolioCollector:
         if not db_path or not str(db_path).strip():
             raise CollectorError(
                 f"Source '{source.get('id')}' missing required 'host_binding' DB path. "
-                "Ambient DB fallback is strictly forbidden."
+                "Ambient DB fallback is strictly forbidden.",
+                code="missing_host_binding",
             )
 
         deadline = self._deadline(deadline_mono)
@@ -316,7 +338,7 @@ class PortfolioCollector:
                 total = checks.get("total_count") if isinstance(checks, dict) else None
                 if not isinstance(runs, list):
                     raise CollectorError("Check response is invalid", code="invalid_envelope")
-                if total is not None and (
+                if total is None or (
                     isinstance(total, bool) or not isinstance(total, int) or total < 0
                 ):
                     raise CollectorError("Check count is invalid", code="invalid_envelope")

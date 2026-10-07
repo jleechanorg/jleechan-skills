@@ -287,7 +287,10 @@ class TestDotPortfolioCoordinatorCollector(unittest.TestCase):
                 "pull_request": {"url": "https://github.example.test/api/v3/repos/example-org/web-app/pulls/4"},
             }]),
             json.dumps({"head": {"sha": "abc123"}}),
-            json.dumps({"check_runs": [{"status": "completed", "conclusion": "success"}]}),
+            json.dumps({
+                "total_count": 1,
+                "check_runs": [{"status": "completed", "conclusion": "success"}],
+            }),
         ]
 
         def fake_command(argv, **_kwargs):
