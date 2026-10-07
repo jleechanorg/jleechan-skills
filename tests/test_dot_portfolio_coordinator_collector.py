@@ -1,12 +1,12 @@
 import json
-import os
+import sys
+import time
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SKILL_DIR = REPO_ROOT / ".claude" / "skills" / "dot-portfolio-coordinator"
-import sys
 sys.path.insert(0, str(SKILL_DIR / "scripts"))
 
 from modules.registry import SourceRegistry
@@ -17,6 +17,11 @@ class TestDotPortfolioCoordinatorCollector(unittest.TestCase):
     def setUp(self):
         self.sources_json_path = SKILL_DIR / "references" / "sources.json"
         self.registry = SourceRegistry.from_file(str(self.sources_json_path))
+        # Snapshot tests model the private coordinator audience explicitly.
+        for source in self.registry.sources.values():
+            policy = source["audience_policy"]
+            for field in ("title", "status", "owner", "priority", "head_sha", "checks", "is_draft"):
+                policy[field] = sorted(set(policy.get(field, [])) | {"internal"})
         self.collector = PortfolioCollector(self.registry)
 
     def test_github_paginated_collection_including_draft_prs_and_checks(self):
@@ -89,6 +94,7 @@ class TestDotPortfolioCoordinatorCollector(unittest.TestCase):
         prior_snapshot = {
             "source_id": "web-app",
             "version": "v-304",
+            "collected_at": 123,
             "etag": "prior-etag",
             "items": [{"id": 101, "title": "Cached Issue", "state": "open"}]
         }
@@ -107,6 +113,8 @@ class TestDotPortfolioCoordinatorCollector(unittest.TestCase):
         self.assertTrue(res["checkpoint_committed"])
         self.assertEqual(len(res["items"]), 1)
         self.assertEqual(res["items"][0]["title"], "Cached Issue")
+        self.assertEqual(res["collected_at"], 123)
+        self.assertIn("validated_at", res)
 
     def test_beads_all_status_collection(self):
         mock_beads_output = [
@@ -176,6 +184,207 @@ class TestDotPortfolioCoordinatorCollector(unittest.TestCase):
         self.assertEqual(item["title"], "Clean Task")
         self.assertNotIn("notes", item)
         self.assertNotIn("description", item)
+
+    def test_incomplete_beads_envelope_does_not_commit_and_preserves_sanitized_prior(self):
+        source = self.registry.get_source("core-skills")
+        source["audience_policy"] = {
+            "title": [],
+            "status": ["internal"],
+            "owner": ["internal"],
+            "principal_id": ["internal"],
+            "notes": ["internal"],
+        }
+        prior_snapshot = {
+            "source_id": "core-skills",
+            "status": "fresh",
+            "version": "prior",
+            "collected_at": 42,
+            "items": [
+                {
+                    "id": "bd-old",
+                    "title": "Prior item",
+                    "status": "open",
+                    "owner": {"login": "alice", "token": "PRIVATE"},
+                    "notes": "PRIVATE NOTES",
+                    "principal_id": "PRIVATE PRINCIPAL",
+                    "body": "PRIVATE BODY",
+                }
+            ],
+        }
+        response = {
+            "issues": [
+                {
+                    "id": "bd-new",
+                    "title": "Partial item",
+                    "status": "open",
+                    "owner": {"login": "bob", "token": "PRIVATE"},
+                    "notes": "PRIVATE NOTES",
+                    "principal_id": "PRIVATE PRINCIPAL",
+                    "description": "PRIVATE DESCRIPTION",
+                }
+            ],
+            "total": 2,
+            "limit": 1,
+            "offset": 0,
+            "has_more": True,
+        }
+
+        result = self.collector.collect_source_snapshot(
+            "core-skills",
+            prior_snapshot=prior_snapshot,
+            fetch_fn=lambda _source: response,
+        )
+
+        self.assertEqual(result["status"], "partial")
+        self.assertFalse(result["checkpoint_committed"])
+        self.assertEqual(result["error_code"], "incomplete_envelope")
+        self.assertIsNone(result["version"])
+        self.assertEqual(result["collected_at"], 42)
+        self.assertIn("attempted_at", result)
+        self.assertEqual({item["id"] for item in result["items"]}, {"bd-old", "bd-new"})
+        self.assertNotIn("title", result["items"][0])
+        self.assertNotIn("title", result["items"][1])
+        serialized = json.dumps(result)
+        for private_value in ("PRIVATE", "PRIVATE NOTES", "PRIVATE PRINCIPAL", "PRIVATE BODY", "PRIVATE DESCRIPTION", "token"):
+            self.assertNotIn(private_value, serialized)
+        self.assertEqual(result["items"][0]["owner"], "alice")
+
+    def test_github_pagination_repeated_cursor_and_caller_deadline_are_bounded(self):
+        calls = []
+
+        def repeated_page(_source, page, etag=None):
+            calls.append(page)
+            return {"items": [{"id": page}], "has_next": True, "next_page": 1}
+
+        result = self.collector.collect_source_snapshot(
+            "web-app",
+            fetch_fn=repeated_page,
+            deadline_mono=time.monotonic() + 5,
+        )
+        self.assertEqual(result["status"], "partial")
+        self.assertFalse(result["checkpoint_committed"])
+        self.assertEqual(result["error_code"], "repeated_cursor")
+        self.assertEqual(calls, [1])
+
+        expired = self.collector.collect_source_snapshot(
+            "web-app",
+            fetch_fn=lambda *_args, **_kwargs: self.fail("fetch called after deadline"),
+            deadline_mono=time.monotonic() - 1,
+        )
+        self.assertEqual(expired["error_code"], "deadline_exceeded")
+        self.assertFalse(expired["checkpoint_committed"])
+
+    def test_github_fetch_honors_configured_host_and_hydrates_pr_head_and_checks(self):
+        source = self.registry.get_source("web-app")
+        source["github_host"] = "github.example.test"
+        calls = []
+        responses = [
+            json.dumps([{
+                "id": 4,
+                "number": 4,
+                "title": "Pull request",
+                "state": "open",
+                "pull_request": {"url": "https://github.example.test/api/v3/repos/example-org/web-app/pulls/4"},
+            }]),
+            json.dumps({"head": {"sha": "abc123"}}),
+            json.dumps({"check_runs": [{"status": "completed", "conclusion": "success"}]}),
+        ]
+
+        def fake_command(argv, **_kwargs):
+            calls.append(argv)
+            return 0, responses.pop(0), ""
+
+        with patch("modules.collector.run_bounded_command", side_effect=fake_command):
+            result = self.collector._default_gh_fetch(source)
+
+        self.assertTrue(all(argv[0:3] == ["gh", "api", "--hostname"] for argv in calls))
+        self.assertTrue(all(argv[3] == "github.example.test" for argv in calls))
+        self.assertEqual(len(calls), 3)
+        pr = result["items"][0]
+        self.assertEqual(pr["head_sha"], "abc123")
+        self.assertEqual(pr["checks"], "success")
+
+    def test_github_command_error_does_not_persist_stderr(self):
+        with patch(
+            "modules.collector.run_bounded_command",
+            return_value=(1, "", "SECRET GitHub stderr"),
+        ):
+            result = self.collector.collect_source_snapshot("web-app")
+
+        self.assertEqual(result["status"], "unavailable")
+        self.assertEqual(result["error_code"], "github_fetch_failed")
+        self.assertNotIn("SECRET", json.dumps(result))
+
+    def test_github_page_limit_is_finite(self):
+        calls = []
+
+        def pages(_source, page, etag=None):
+            calls.append(page)
+            return {"items": [{"id": page}], "has_next": True, "next_page": page + 1}
+
+        with patch("modules.collector.MAX_GITHUB_PAGES", 2):
+            result = self.collector.collect_source_snapshot(
+                "web-app", fetch_fn=pages, deadline_mono=time.monotonic() + 5
+            )
+
+        self.assertEqual(calls, [1, 2])
+        self.assertEqual(result["error_code"], "page_limit")
+        self.assertEqual(result["status"], "partial")
+        self.assertFalse(result["checkpoint_committed"])
+
+    def test_beads_resolves_and_reads_only_the_exact_configured_store(self):
+        source = self.registry.get_source("core-skills")
+        source["host_binding"] = "/tmp/portfolio-test/beads.db"
+        calls = []
+
+        def fake_command(argv, **_kwargs):
+            calls.append(argv)
+            if "where" in argv:
+                return 0, json.dumps({"database_path": source["host_binding"]}), ""
+            return 0, json.dumps([{"id": "bd-exact", "title": "Exact store"}]), ""
+
+        with patch("modules.collector.run_bounded_command", side_effect=fake_command):
+            result = self.collector.collect_source_snapshot("core-skills")
+
+        self.assertEqual(result["status"], "fresh")
+        self.assertEqual(len(calls), 2)
+        self.assertIn("where", calls[0])
+        self.assertIn("list", calls[1])
+        self.assertIn("--no-auto-flush", calls[0])
+        self.assertIn("--no-auto-import", calls[0])
+        self.assertIn("--no-auto-flush", calls[1])
+        self.assertIn("--no-auto-import", calls[1])
+        self.assertIn(source["host_binding"], calls[1])
+
+    def test_beads_command_error_does_not_persist_stderr(self):
+        source = self.registry.get_source("core-skills")
+        source["host_binding"] = "/tmp/portfolio-test/beads.db"
+        with patch(
+            "modules.collector.run_bounded_command",
+            return_value=(1, "", "SECRET stderr content"),
+        ):
+            result = self.collector.collect_source_snapshot("core-skills")
+
+        self.assertEqual(result["status"], "unavailable")
+        self.assertEqual(result["error_code"], "beads_where_failed")
+        self.assertNotIn("SECRET", json.dumps(result))
+
+    def test_beads_where_mismatch_stops_before_list(self):
+        source = self.registry.get_source("core-skills")
+        source["host_binding"] = "/tmp/portfolio-test/beads.db"
+        calls = []
+
+        def fake_command(argv, **_kwargs):
+            calls.append(argv)
+            return 0, json.dumps({"database_path": "/tmp/other/beads.db"}), ""
+
+        with patch("modules.collector.run_bounded_command", side_effect=fake_command):
+            result = self.collector.collect_source_snapshot("core-skills")
+
+        self.assertEqual(result["error_code"], "beads_store_mismatch")
+        self.assertFalse(result["checkpoint_committed"])
+        self.assertEqual(len(calls), 1)
+        self.assertIn("where", calls[0])
 
     def test_beads_blocks_ambient_fallback_when_host_binding_missing(self):
         # A beads source without host_binding must NOT fall back to ambient br
