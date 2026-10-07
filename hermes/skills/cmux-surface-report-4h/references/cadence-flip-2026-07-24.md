@@ -41,7 +41,7 @@ launchctl print                → "Hour" => 8, "Minute" => 0, state=not running
 First `ao spawn --harness codex --branch fix/cmux-report-daily-8am` returned `spawned session jleechanclaw-19 (idle)` but the worker immediately logged:
 
 ```
-■ You've hit your usage limit for GPT-5.6-Luna. Switch to another model now,
+■ You've hit your usage limit for GPT-5.3-Codex-Spark. (historical verbatim error; model retired in favor of gpt-6-luna for Codex, haiku for Claude) Switch to another model now,
   or try again at Jul 29th, 2026 4:22 PM.
 ```
 

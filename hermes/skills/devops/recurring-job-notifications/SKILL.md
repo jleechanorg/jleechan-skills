@@ -541,7 +541,7 @@ means a preflight is needed.
     model, the report must say "agents deployed: codex (×3, identical)"
     or similar — and the script should fail closed if it cannot
     instantiate the named agents. Verified: all three error logs from
-    20260722_162942 showed `model: gpt-5.6-luna` despite
+    20260722_162942 showed `model: gpt-5.3-codex-spark` (historical run; current routing uses gpt-6-luna for Codex, haiku for Claude) despite
     `Agents deployed: claude codex minimax` in the Slack summary.
 
 17. **Workers receiving empty input should reply `[]`, not prose**

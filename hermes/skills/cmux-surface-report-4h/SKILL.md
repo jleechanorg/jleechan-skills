@@ -89,12 +89,12 @@ silent no-op because the job wasn't registered yet — `launchctl bootstrap`
 re-registers; verify again. Bug-ref: Slack thread
 `C0AJQ5M0A0Y / p1784891379.012009` (2026-07-24).
 
-## Cadence-change pitfall — Codex Luna usage-limit retry (2026-07-24)
+## Cadence-change pitfall — Codex Spark usage-limit retry (retired; now gpt-6-luna / haiku) (2026-07-24)
 
 The first AO spawn for this cadence change was `--harness codex` and hit
 its account usage limit before editing anything. The worker reported
-*"You've hit your usage limit for GPT-5.6-Luna. Switch to another
-model now, or try again at Jul 29th, 2026 4:22 PM."* and the session
+*"You've hit your usage limit for GPT-5.3-Codex-Spark. Switch to another
+model now, or try again at Jul 29th, 2026 4:22 PM."* (historical verbatim quote; model retired — current routing uses gpt-6-luna for Codex, haiku for Claude) and the session
 went idle with no commits.
 
 **Correct retry recipe (no time spent debugging the Codex harness):**
@@ -371,7 +371,7 @@ This skill is part of the **hermes-deploy-pipeline** deploy set. Stage 4.5 of `s
 
 ## Reference
 
-- `references/cadence-flip-2026-07-24.md` — verbatim transcript of the every-4h → daily 08:00 PT cadence change, including the live rendered LaunchAgent reload recipe, the Codex Luna usage-limit retry pivot to `--harness agy`, the cron-duplicate audit, and the Green Gate FAIL→fix loop on PR #799.
+- `references/cadence-flip-2026-07-24.md` — verbatim transcript of the every-4h → daily 08:00 PT cadence change, including the live rendered LaunchAgent reload recipe, the Codex Spark usage-limit retry (retired; now gpt-6-luna / haiku) pivot to `--harness agy`, the cron-duplicate audit, and the Green Gate FAIL→fix loop on PR #799.
 
 ## Worked example — 2026-06-22 healthy tick
 

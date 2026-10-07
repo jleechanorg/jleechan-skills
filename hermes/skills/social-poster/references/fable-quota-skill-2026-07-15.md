@@ -46,7 +46,7 @@ Use `curl` + Python regex on `og:description`. `web_extract` cannot fetch Linked
 | Mastodon | Short, single paragraph |
 | Dev.to | Markdown article with `/sidekick` + `/swarm` sections, install instructions |
 | r/LocalLLaMA | Methodology-focused (local/open model routing) |
-| r/OpenAI | OpenAI-specific angle (Codex Luna as primary cheap worker) |
+| r/OpenAI | OpenAI-specific angle (Codex Luna (gpt-6-luna) as primary cheap worker) |
 | r/ClaudeAI | Claude Team as comms backbone for /sidekick |
 | r/MachineLearning | Research-grade framing with reproducibility table |
 | r/singularity | Brief observation, not announcement |
@@ -161,7 +161,7 @@ Reply appears as `$USER` (not Hermes bot). Say so in the body if it might confus
 
 - **Single-tweet vs thread**: chose 5-tweet thread because the source has 4 distinct claims (mechanism names, quota numbers, pattern source, CTA) — fits Twitter's per-tweet structure better than a single wall of text.
 - **r/Rag not used**: the source isn't about retrieval. Skipped.
-- **Reddit 5 subs chosen on their relevance to the mechanism**: LocalLLaMA (model routing), OpenAI (Codex Luna), ClaudeAI (Claude Team), MachineLearning (research-grade reproducibility), singularity (observation).
+- **Reddit 5 subs chosen on their relevance to the mechanism**: LocalLLaMA (model routing), OpenAI (Codex Luna (gpt-6-luna)), ClaudeAI (Claude Team), MachineLearning (research-grade reproducibility), singularity (observation).
 - **r/singularity only got one short paragraph** because that sub bans zero self-promo announcements (verified 2026-07-05 rule set in `references/subreddit-rules.md`).
 - **Mastodon URL correction**: hit the 404 on `/compose`, switched to `/publish`, then caught the login requirement via vision. Documented as lesson 16.
 - **LinkedIn manual click**: 2 attempts failed, switched to manual-paste guidance. Did NOT keep retrying — 3 attempts is the budget per skill rule.

@@ -10,9 +10,9 @@ The agent-failures warning fired correctly — but the **root cause** was a para
 
 | Lane (cosmetic label) | CLI binary that actually ran | Model | `.json` size | `.err` size |
 |---|---|---|---|---|
-| `claude` | `codex review` (Codex CLI v0.144.5) | `gpt-5.6-luna` | 0 bytes | **0 bytes** |
-| `codex` | `codex review` (Codex CLI v0.144.5) | `gpt-5.6-luna` | 0 bytes | **0 bytes** |
-| `minimax` | `codex review` (Codex CLI v0.144.5) | `gpt-5.6-luna` | 0 bytes | **4083 bytes** |
+| `claude` | `codex review` (Codex CLI v0.144.5) | `gpt-5.3-codex-spark` (historical; now gpt-6-luna / haiku) | 0 bytes | **0 bytes** |
+| `codex` | `codex review` (Codex CLI v0.144.5) | `gpt-5.3-codex-spark` (historical; now gpt-6-luna / haiku) | 0 bytes | **0 bytes** |
+| `minimax` | `codex review` (Codex CLI v0.144.5) | `gpt-5.3-codex-spark` (historical; now gpt-6-luna / haiku) | 0 bytes | **4083 bytes** |
 
 All three labels resolved to the same `codex review -c "model=\"gpt-5.6-luna\"" -` invocation — the labels are cosmetic. The `minimax` `.err` contained the actual error:
 
@@ -21,7 +21,7 @@ All three labels resolved to the same `codex review -c "model=\"gpt-5.6-luna\"" 
 OpenAI Codex v0.144.5
 --------
 workdir: $HOME/.hermes
-model: gpt-5.6-luna
+model: gpt-5.3-codex-spark (historical run; now gpt-6-luna for Codex, haiku for Claude)
 provider: openai
 approval: never
 sandbox: danger-full-access
@@ -54,9 +54,9 @@ for AGENT in "${AGENTS[@]}"; do
 done
 ```
 
-Three backgrounded subshells, each `codex review`-ing the same prompt against the same `gpt-5.6-luna` model, each trying to refresh the same local model-list cache. Single-writer lock → first process wins, others time out.
+Three backgrounded subshells, each `codex review`-ing the same prompt against the same `gpt-5.3-codex-spark` model (historical; now gpt-6-luna / haiku), each trying to refresh the same local model-list cache. Single-writer lock → first process wins, others time out.
 
-### `REVIEW_MODEL="${BUG_HUNT_REVIEW_MODEL:-gpt-5.6-luna}"` (line 38)
+### `REVIEW_MODEL="${BUG_HUNT_REVIEW_MODEL:-gpt-6-luna}"` (line 38)
 
 The single model tier is hardcoded as a script-level default. There is no per-agent model variation; the cosmetic labels don't change what CLI/model runs.
 
@@ -67,7 +67,7 @@ The single model tier is hardcoded as a script-level default. There is no per-ag
 ```
 [INFO] Found 8 merged PRs in $GITHUB_REPOSITORY
 [INFO] Found 1 merged PRs in jleechanorg/ai_universe
-[INFO] Starting bug hunt review lanes via codex review (gpt-5.6-luna)...
+[INFO] Starting bug hunt review lanes via codex review (historical: gpt-5.3-codex-spark; active: gpt-6-luna / haiku)...
 [INFO] Starting claude agent for bug hunt...
 [INFO] Starting codex agent for bug hunt...
 [INFO] Starting minimax agent for bug hunt...

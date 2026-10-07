@@ -55,7 +55,7 @@ Other CLI options work similarly:
 In this environment, `~/.bashrc` defines:
 
 ```bash
-alias codexs='codexd -m gpt-5.6-luna --config model_reasoning_effort=high'
+alias codexs='codexd -m gpt-6-luna --config model_reasoning_effort=high'
 ```
 
 `pair_execute_v2.py` does not accept `codexs` as a `--coder-cli`/`--verifier-cli` value.
@@ -66,11 +66,11 @@ Use `codex` for both roles, then pass the alias settings through extra args:
   --coder-cli codex \
   --verifier-cli codex \
   --coder-extra-arg=-m \
-  --coder-extra-arg=gpt-5.6-luna \
+  --coder-extra-arg=gpt-6-luna \
   --coder-extra-arg=--config \
   --coder-extra-arg=model_reasoning_effort=high \
   --verifier-extra-arg=-m \
-  --verifier-extra-arg=gpt-5.6-luna \
+  --verifier-extra-arg=gpt-6-luna \
   --verifier-extra-arg=--config \
   --verifier-extra-arg=model_reasoning_effort=high \
   --max-cycles 1 \

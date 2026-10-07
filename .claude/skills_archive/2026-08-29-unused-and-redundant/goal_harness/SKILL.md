@@ -30,10 +30,10 @@ Define a goal and iterate until 4 adversarial gates all pass:
 When spawning subagents for harness gates, route by task complexity across the model spectrum:
 
 - **Gate 1 `/es` (Evidence Format Check):**
-  - Codex: `model: 'gpt-5.6-luna'` (`reasoning_effort: medium`)
+  - Codex: `model: 'gpt-6-luna'` (`reasoning_effort: medium`)
   - Claude: `model: 'haiku'`
 - **Gate 3 `/code-standards` (ZFC, ZFC-leveling, Root-Cause Scans):**
-  - Codex: `model: 'gpt-5.6-luna'` (Fast 5.6 Tier)
+  - Codex: `model: 'gpt-6-luna'` (Fast 5.6 Tier)
   - Claude: `model: 'haiku'` / `'sonnet'`
 - **Gate 2 `/er` (Evidence Review Synthesis):**
   - Codex: `model: 'gpt-5.6-terra'` (Mid 5.6 Tier)

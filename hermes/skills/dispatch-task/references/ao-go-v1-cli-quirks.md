@@ -126,7 +126,7 @@ Therefore:
   already running.
 - **DO NOT** push `/model` slash commands to a Codex worker unless you have a
   specific reason: the `gpt-5.6-sol high` mid-tier default is correct for
-  standard fix/review/evidence lanes; the `gpt-5.6-luna` tier is faster
+  standard fix/review/evidence lanes; the `gpt-6-luna` tier is faster
   but may not satisfy all skill auto-loads.
 
 ## Benign noise to ignore
