@@ -10,18 +10,18 @@ The agent-failures warning fired correctly — but the **root cause** was a para
 
 | Lane (cosmetic label) | CLI binary that actually ran | Model | `.json` size | `.err` size |
 |---|---|---|---|---|
-| `claude` | `codex review` (Codex CLI v0.144.5) | `gpt-5.3-codex-spark` | 0 bytes | **0 bytes** |
-| `codex` | `codex review` (Codex CLI v0.144.5) | `gpt-5.3-codex-spark` | 0 bytes | **0 bytes** |
-| `minimax` | `codex review` (Codex CLI v0.144.5) | `gpt-5.3-codex-spark` | 0 bytes | **4083 bytes** |
+| `claude` | `codex review` (Codex CLI v0.144.5) | `gpt-5.6-luna` | 0 bytes | **0 bytes** |
+| `codex` | `codex review` (Codex CLI v0.144.5) | `gpt-5.6-luna` | 0 bytes | **0 bytes** |
+| `minimax` | `codex review` (Codex CLI v0.144.5) | `gpt-5.6-luna` | 0 bytes | **4083 bytes** |
 
-All three labels resolved to the same `codex review -c "model=\"gpt-5.3-codex-spark\"" -` invocation — the labels are cosmetic. The `minimax` `.err` contained the actual error:
+All three labels resolved to the same `codex review -c "model=\"gpt-5.6-luna\"" -` invocation — the labels are cosmetic. The `minimax` `.err` contained the actual error:
 
 ```
 2026-07-23T16:46:24.841708Z ERROR codex_models_manager::manager: failed to refresh available models: timeout waiting for child process to exit
 OpenAI Codex v0.144.5
 --------
 workdir: $HOME/.hermes
-model: gpt-5.3-codex-spark
+model: gpt-5.6-luna
 provider: openai
 approval: never
 sandbox: danger-full-access
@@ -54,9 +54,9 @@ for AGENT in "${AGENTS[@]}"; do
 done
 ```
 
-Three backgrounded subshells, each `codex review`-ing the same prompt against the same `gpt-5.3-codex-spark` model, each trying to refresh the same local model-list cache. Single-writer lock → first process wins, others time out.
+Three backgrounded subshells, each `codex review`-ing the same prompt against the same `gpt-5.6-luna` model, each trying to refresh the same local model-list cache. Single-writer lock → first process wins, others time out.
 
-### `REVIEW_MODEL="${BUG_HUNT_REVIEW_MODEL:-gpt-5.3-codex-spark}"` (line 38)
+### `REVIEW_MODEL="${BUG_HUNT_REVIEW_MODEL:-gpt-5.6-luna}"` (line 38)
 
 The single model tier is hardcoded as a script-level default. There is no per-agent model variation; the cosmetic labels don't change what CLI/model runs.
 
@@ -67,7 +67,7 @@ The single model tier is hardcoded as a script-level default. There is no per-ag
 ```
 [INFO] Found 8 merged PRs in $GITHUB_REPOSITORY
 [INFO] Found 1 merged PRs in jleechanorg/ai_universe
-[INFO] Starting bug hunt review lanes via codex review (gpt-5.3-codex-spark)...
+[INFO] Starting bug hunt review lanes via codex review (gpt-5.6-luna)...
 [INFO] Starting claude agent for bug hunt...
 [INFO] Starting codex agent for bug hunt...
 [INFO] Starting minimax agent for bug hunt...

@@ -15,8 +15,8 @@ Read `~/.claude/skills/goal-harness/SKILL.md` and execute the full workflow.
 ## 🚨 CODEX MODEL ROUTING (mandatory for Codex sessions)
 
 Policy: `~/.codex/rules/model-routing-policy.md`.
-Subagents for the 4 adversarial gates MUST be cost-routed across the Codex 5.6 spectrum (`luna` → `terra` → `sol` + `spark`):
-- **Gate 1 (`/es`)**: `gpt-5.3-codex-spark` (fast format scan)
+Subagents for the 4 adversarial gates MUST be cost-routed across the Codex 5.6 spectrum (`luna` → `terra` → `sol`):
+- **Gate 1 (`/es`)**: `gpt-5.6-luna` (fast format scan)
 - **Gate 3 (`/code-standards`)**: `gpt-5.6-luna` (fast 5.6 standards scan)
 - **Gate 2 (`/er`)**: `gpt-5.6-terra` (mid 5.6 evidence review synthesis)
 - **Gate 4 (`Independent Agent Review`)**: `gpt-5.6-sol` (top 5.6 deep bug & security review)
@@ -42,7 +42,7 @@ If count > 0, **steer the existing thread** instead of launching a fresh harness
 
 | Gate | Checks | Model (Codex) |
 |------|--------|---------------|
-| `/es` | Evidence Standards (user-scope + project-scope) | `gpt-5.3-codex-spark` |
+| `/es` | Evidence Standards (user-scope + project-scope) | `gpt-5.6-luna` |
 | `/code-standards` | ZFC + ZFC-leveling + root-cause-first (3 parallel lanes) | `gpt-5.6-luna` |
 | `/er` | Evidence Review (adversarial synthesis) | `gpt-5.6-terra` |
 | Independent Agent Review | Full-diff code review — bugs, anti-patterns, missing tests | `gpt-5.6-sol` |

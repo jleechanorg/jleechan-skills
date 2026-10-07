@@ -43,7 +43,7 @@ GraphQL rate limit, so no workers should have been spawned at all.**
    hunt agents failed to run`.
 
 Bonus finding: all three `.err` files showed `OpenAI Codex v0.144.5 /
-model: gpt-5.3-codex-spark` — so the "Agents deployed: claude codex
+model: gpt-5.6-luna` — so the "Agents deployed: claude codex
 minimax" header was fabricating three distinct agents when there was
 really one Codex instance (the historical `hermes agent --agent <name>`
 subcommand no longer exists in this Hermes profile, but the script was
