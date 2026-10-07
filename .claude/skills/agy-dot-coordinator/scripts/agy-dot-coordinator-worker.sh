@@ -171,19 +171,23 @@ if "accounts" in s:
 # If state.json lacks "accounts", it is a legacy single-account file.
 # Attribute it only to a verifiable primary account from config (default_account first,
 # then rotation[0]) so peer accounts do not inherit its cooldown. If config is absent
-# or unverifiable, do not guess.
+# or unverifiable, fail closed if an unverified hold is present; never guess.
 elif s:
     primary_acc = None
     if os.path.exists(config_file):
         try:
             cfg = json.load(open(config_file))
-            cand = cfg.get("default_account")
-            if not cand:
-                rot = cfg.get("rotation") or list(cfg.get("accounts", {}).keys())
-                if rot and isinstance(rot, list) and len(rot) > 0:
-                    cand = rot[0]
-            if cand and isinstance(cand, str) and re.match(r'^[a-zA-Z0-9_-]+$', cand):
-                primary_acc = cand
+            if isinstance(cfg, dict):
+                raw_configured = cfg.get("rotation") or list(cfg.get("accounts", {}).keys())
+                configured = [
+                    a for a in raw_configured
+                    if isinstance(a, str) and re.match(r'^[a-zA-Z0-9_-]+$', a)
+                ]
+                cand = cfg.get("default_account")
+                if isinstance(cand, str) and re.match(r'^[a-zA-Z0-9_-]+$', cand) and cand in configured:
+                    primary_acc = cand
+                elif configured:
+                    primary_acc = configured[0]
         except Exception:
             pass
 
@@ -202,6 +206,8 @@ elif s:
             except Exception:
                 pass
         atomic_json(state_file, upgraded)
+    elif s.get("delivery_unverified"):
+        raise ValueError("Cannot attribute unverified delivery hold from legacy state; refusing execution")
 PY_MIGRATE
 }
 if ! migrate_prior_state; then
@@ -314,6 +320,8 @@ if os.path.exists(state_file):
         top_data = json.load(f)
     if not isinstance(top_data, dict):
         raise ValueError("Corrupt state.json: root must be a JSON object")
+    if "accounts" in top_data and not isinstance(top_data["accounts"], dict):
+        raise ValueError("Corrupt state.json: 'accounts' must be a dictionary")
 
 top_data["last_tick_epoch"] = int(time.time())
 top_data["last_tick_iso"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -392,8 +400,14 @@ elif os.path.exists(state_file):
     top = json.load(open(state_file))
     if not isinstance(top, dict):
         raise ValueError("Corrupt state.json: root must be a JSON object")
-    if "accounts" in top and isinstance(top["accounts"], dict) and acc in top["accounts"]:
-        state = top["accounts"][acc]
+    if "accounts" in top:
+        if not isinstance(top["accounts"], dict):
+            raise ValueError("Corrupt state.json: 'accounts' must be a dictionary")
+        if acc in top["accounts"]:
+            state = top["accounts"][acc]
+    elif top.get("delivery_unverified"):
+        print(0)
+        sys.exit(0)
 if not state:
     state = {"last_sent_epoch": int(legacy_sent)}
 if state.get("delivery_unverified"):

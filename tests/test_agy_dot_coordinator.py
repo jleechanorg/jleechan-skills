@@ -141,4 +141,21 @@ class CoordinatorTests(unittest.TestCase):
   (self.state/'state.json').write_text(json.dumps({'last_sent_epoch':0,'delivery_unverified':True,'delivered_change_ids':[]}))
   self.run_worker('--account','beta','--force');self.assertEqual(self.calls(),[])
   self.run_worker('--account','alpha','--force');self.assertEqual(self.calls(),['read','send'])
+ def test_invalid_default_account_falls_back_to_rotation(self):
+  self.event()
+  self.cfg.write_text(json.dumps({'default_account':'ghost','rotation':['alpha','beta']}))
+  (self.state/'state.json').write_text(json.dumps({'last_sent_epoch':0,'delivery_unverified':True,'delivered_change_ids':[]}))
+  self.run_worker('--account','alpha','--force');self.assertEqual(self.calls(),[])
+  self.run_worker('--account','beta','--force');self.assertEqual(self.calls(),['read','send'])
+ def test_non_string_default_account_falls_back_to_rotation(self):
+  self.event()
+  self.cfg.write_text(json.dumps({'default_account':123,'rotation':['alpha','beta']}))
+  (self.state/'state.json').write_text(json.dumps({'last_sent_epoch':0,'delivery_unverified':True,'delivered_change_ids':[]}))
+  self.run_worker('--account','alpha','--force');self.assertEqual(self.calls(),[])
+  self.run_worker('--account','beta','--force');self.assertEqual(self.calls(),['read','send'])
+ def test_legacy_hold_with_missing_config_refuses_execution(self):
+  self.event()
+  if self.cfg.exists(): self.cfg.unlink()
+  (self.state/'state.json').write_text(json.dumps({'last_sent_epoch':0,'delivery_unverified':True,'delivered_change_ids':[]}))
+  r=self.run_worker('--account','alpha','--force');self.assertEqual(r.returncode,2);self.assertEqual(self.calls(),[])
 if __name__=='__main__':unittest.main(verbosity=2)
