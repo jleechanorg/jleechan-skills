@@ -143,6 +143,15 @@ import json, os, re, sys, tempfile
 state_dir, state_file, config_file = sys.argv[1:4]
 accounts = sys.argv[4:]
 
+# 0. Fail closed on corrupt or non-object existing per-account state.
+for acc in accounts:
+    acc_file = os.path.join(state_dir, f"state_{acc}.json")
+    if os.path.exists(acc_file):
+        with open(acc_file) as pf:
+            loaded = json.load(pf)
+        if not isinstance(loaded, dict):
+            raise ValueError(f"Corrupt per-account state: {acc_file} root must be a JSON object")
+
 if not os.path.exists(state_file):
     sys.exit(0)
 
@@ -485,7 +494,7 @@ if state.get("delivery_unverified"):
     sys.exit(0)
 print(int(key not in state.get("delivered_change_ids", [])))
 PY_GATE
-  ) || { echo "Account [$acc]: Unreadable delivery state; deferred."; continue; }
+  ) || { echo "Account [$acc]: Unreadable delivery state; refusing execution." >&2; exit 2; }
   if [[ "$eligible" != 1 ]]; then
     echo "Account [$acc]: No new request/change, or unresolved delivery hold."
     continue

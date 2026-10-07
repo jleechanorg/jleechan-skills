@@ -51,7 +51,7 @@ class CoordinatorTests(unittest.TestCase):
   self.env.update(RECEIPT='DOT_DRAFT_PRESENT',SEND_RC='3');self.run_worker('--account','alpha');self.assertEqual(self.saved()['last_status'],'SKIPPED_COMPOSER_BUSY');self.assertEqual(self.saved()['last_sent_epoch'],0)
  def test_corrupt_state_fails_closed(self):
   self.event()
-  (self.state/'state_alpha.json').write_text('{');self.run_worker('--account','alpha');self.assertNotIn('send',self.calls())
+  (self.state/'state_alpha.json').write_text('{');r=self.run_worker('--account','alpha');self.assertEqual(r.returncode,2);self.assertNotIn('send',self.calls())
  def test_changes_require_single_recipient(self):
   self.event();self.assertEqual(self.run_worker().returncode,2);self.assertEqual(self.calls(),[])
  def test_invalid_account_rejected(self):
@@ -128,13 +128,13 @@ class CoordinatorTests(unittest.TestCase):
   self.run_worker('--account','alpha');self.assertEqual(self.calls(),['read'])
   self.run_worker('--account','beta');self.assertEqual(self.calls(),['read','read','send'])
  def test_corrupt_consolidated_state_fails_closed(self):
-  self.event();(self.state/'state.json').write_text('{');self.run_worker('--account','alpha','--force');self.assertEqual(self.calls(),[])
+  self.event();(self.state/'state.json').write_text('{');r=self.run_worker('--account','alpha','--force');self.assertEqual(r.returncode,2);self.assertEqual(self.calls(),[])
  def test_unverifiable_config_does_not_assign_legacy_state(self):
   (self.state/'state.json').write_text(json.dumps({'last_sent_epoch':int(time.time()),'last_status':'SUCCESS'}))
   if self.cfg.exists(): self.cfg.unlink()
   self.run_worker('--account','beta');self.assertFalse((self.state/'state_beta.json').exists())
  def test_malformed_accounts_list_fails_closed(self):
-  self.event();(self.state/'state.json').write_text(json.dumps({'accounts':[]}));self.run_worker('--account','alpha','--force');self.assertEqual(self.calls(),[])
+  self.event();(self.state/'state.json').write_text(json.dumps({'accounts':[]}));r=self.run_worker('--account','alpha','--force');self.assertEqual(r.returncode,2);self.assertEqual(self.calls(),[])
  def test_legacy_migration_prefers_default_account_over_rotation(self):
   self.event()
   self.cfg.write_text(json.dumps({'default_account':'beta','rotation':['alpha','beta']}))
