@@ -22,8 +22,9 @@ WORKER_SHA = "dot-portfolio-coordinator-sender-v3"
 COOLDOWN_SECS = 7200
 MAX_GRANT_WINDOW_SECS = 43200
 MAX_SUMMARY_CHARS = 32000
-STANDALONE_VERIFIED_REGEX = re.compile(r"(?m)^DOT_SENT_VERIFIED\s*$")
+VERIFIED_MARKER = "DOT_SENT_VERIFIED"
 ACCOUNT_RE = re.compile(r"^[A-Za-z0-9_.-]{1,80}$")
+WORKER_SHA = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 
 
 def emit_result(outcome: str, reason: str, account: str,
@@ -75,7 +76,8 @@ def validate_operator_grant(grant_file: str, expected_sha: str,
         parent_stat = os.stat(os.path.dirname(os.path.abspath(grant_file)),
                               follow_symlinks=False)
         if (not stat.S_ISREG(grant_stat.st_mode) or
-                grant_stat.st_uid != os.getuid() or grant_stat.st_mode & 0o077 or
+                grant_stat.st_uid != os.getuid() or
+                stat.S_IMODE(grant_stat.st_mode) != 0o400 or
                 not stat.S_ISDIR(parent_stat.st_mode) or
                 parent_stat.st_uid != os.getuid() or parent_stat.st_mode & 0o077):
             return False, "invalid_grant_owner_mode_or_type", None
@@ -161,17 +163,21 @@ def run_sender_cli(argv: List[str]) -> int:
     account_file = os.path.join(state_dir, f"account_{account}.json") if state_dir else ""
     if args.status:
         state, reason = _read_json_file(account_file, "state") if account_file else (None, "state_missing")
+        corrupt = state is None and reason != "state_missing"
         payload = {"schema_version": 1, "account": account,
                    "state_sha256": hashlib.sha256(json.dumps(state, sort_keys=True).encode()).hexdigest()
                    if state is not None else ("corrupt" if reason != "state_missing" else None),
                    "last_sent_epoch": state.get("last_sent_epoch", 0) if state else 0,
-                   "delivery_unverified": bool(state and state.get("pending_delivery")),
+                   "delivery_unverified": corrupt or bool(state and state.get("pending_delivery")),
                    "pending_delivery": state.get("pending_delivery") if state else None,
                    "retained_event_ids": state.get("retained_event_ids", []) if state else [],
                    "worker_sha256": WORKER_SHA}
+        if corrupt:
+            payload["outcome"] = "hold"
+            payload["reason"] = "state_corrupt_hold"
         if args.json:
             print("COORDINATOR_STATUS " + json.dumps(payload))
-        return 0
+        return 3 if corrupt else 0
     if args.poll_reply:
         emit_result("invalid", "unsupported_poll", account)
         return 2
@@ -206,12 +212,13 @@ def run_sender_cli(argv: List[str]) -> int:
     if not valid:
         emit_result("invalid", f"grant_validation_failed_{reason}", account)
         return 2
-    transport = args.transport_script or os.environ.get("DOT_TRANSPORT_SCRIPT")
+    transport = args.transport_script
     if not transport:
-        transport = str(Path(__file__).resolve().parent.parent.parent / "dot" / "scripts" / "dot.sh")
+        transport = str(Path(__file__).resolve().parent.parent.parent.parent /
+                        "dot" / "scripts" / "dot.sh")
     lock_path = args.lock_file or os.path.join(state_dir, "sender.lock")
-    if os.path.dirname(os.path.abspath(lock_path)) != os.path.abspath(state_dir):
-        emit_result("invalid", "lock_must_be_in_state_dir", account)
+    if os.path.abspath(lock_path) != os.path.join(os.path.abspath(state_dir), "sender.lock"):
+        emit_result("invalid", "canonical_lock_file_required", account)
         return 2
     try:
         lock_fd = os.open(lock_path, os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0), 0o600)
@@ -246,7 +253,12 @@ def run_sender_cli(argv: List[str]) -> int:
         now = time.time()
         attempts = acc.get("attempted_count")
         last_attempt = acc.get("last_attempt_epoch")
-        if type(attempts) is not int or type(last_attempt) not in (int, float):
+        last_sent = acc.get("last_sent_epoch")
+        if (type(attempts) is not int or attempts < 0 or
+                type(last_attempt) not in (int, float) or
+                not math.isfinite(last_attempt) or last_attempt < 0 or
+                type(last_sent) not in (int, float) or
+                not math.isfinite(last_sent) or last_sent < 0):
             emit_result("uncertain", "state_corrupt_hold", account)
             return 3
         if attempts >= grant["max_messages"]:
@@ -255,7 +267,7 @@ def run_sender_cli(argv: List[str]) -> int:
         if attempts and now - last_attempt < grant["min_interval_secs"]:
             emit_result("deferred", "grant_min_interval", account)
             return 0
-        if not urgent and not args.full_rollup and not args.force and now - acc.get("last_sent_epoch", 0) < COOLDOWN_SECS:
+        if not urgent and not args.full_rollup and not args.force and now - last_sent < COOLDOWN_SECS:
             emit_result("deferred", "cooldown", account)
             return 0
         msg_hash = hashlib.sha256(summary.encode("utf-8")).hexdigest()
@@ -295,7 +307,7 @@ def run_sender_cli(argv: List[str]) -> int:
         finally:
             if os.path.exists(message_path):
                 os.unlink(message_path)
-        if rc == 0 and STANDALONE_VERIFIED_REGEX.search(stdout):
+        if rc == 0 and VERIFIED_MARKER in stdout.splitlines():
             acc["pending_delivery"] = None
             acc["last_sent_epoch"] = time.time()
             retained.append(event_id)

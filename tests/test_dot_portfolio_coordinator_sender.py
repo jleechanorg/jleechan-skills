@@ -1,4 +1,5 @@
 import hashlib
+import io
 import json
 import os
 import stat
@@ -6,6 +7,7 @@ import subprocess
 import tempfile
 import time
 import unittest
+from unittest import mock
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -16,6 +18,7 @@ if sys_path not in sys.path:
     sys.path.insert(0, sys_path)
 
 from modules.registry import SourceRegistry
+from modules import sender as sender_module
 
 
 class TestDotPortfolioCoordinatorSender(unittest.TestCase):
@@ -277,6 +280,84 @@ class TestDotPortfolioCoordinatorSender(unittest.TestCase):
         })
         self.assertEqual(rc, 3)
         self.assertEqual(res["reason"], "state_corrupt_hold")
+
+    def test_default_transport_path_is_sibling_dot_skill(self):
+        env = {
+            "COORDINATOR_CHANGE_ID": "ev-default-transport",
+            "COORDINATOR_CHANGE_SUMMARY": "Verify default path without sending",
+        }
+        expected_transport = str(SKILL_DIR.parent / "dot" / "scripts" / "dot.sh")
+        with mock.patch.dict(os.environ, env), \
+                mock.patch.dict(os.environ, {"DOT_TRANSPORT_SCRIPT": "/tmp/ambient-must-be-ignored"}), \
+                mock.patch.object(sender_module, "run_bounded_command",
+                                  return_value=(0, "DOT_SENT_VERIFIED\n", "")) as run, \
+                mock.patch("sys.stdout", new_callable=io.StringIO):
+            rc = sender_module.run_sender_cli([
+                "--account", "default", "--state-dir", self.state_dir,
+                "--lock-file", self.lock_file, "--grant-file", self.grant_file,
+                "--grant-sha256", self.grant_sha256,
+            ])
+        self.assertEqual(rc, 0)
+        self.assertEqual(run.call_args.args[0][0], expected_transport)
+
+    def test_grant_requires_exact_read_only_mode(self):
+        os.chmod(self.grant_file, 0o600)
+        rc, res, _ = self._run_sender({
+            "COORDINATOR_CHANGE_ID": "ev-grant-mode",
+            "COORDINATOR_CHANGE_SUMMARY": "Reject writable grant"
+        })
+        self.assertEqual(rc, 2)
+        self.assertIn("grant", res["reason"])
+
+    def test_invalid_state_numbers_are_corrupt_holds(self):
+        account_file = os.path.join(self.state_dir, "account_default.json")
+        for attempts, last_attempt, last_sent in (
+            (1, float("inf"), 0), (-1, 0, 0), (1, 0, float("nan")),
+        ):
+            state = {"schema_version": 1, "grant_sha256": self.grant_sha256,
+                     "attempted_count": attempts, "last_attempt_epoch": last_attempt,
+                     "last_sent_epoch": last_sent, "retained_event_ids": [],
+                     "pending_delivery": None}
+            with open(account_file, "w", encoding="utf-8") as f:
+                json.dump(state, f)
+            os.chmod(account_file, 0o600)
+            rc, res, _ = self._run_sender({
+                "COORDINATOR_CHANGE_ID": f"ev-state-invalid-{attempts}-{last_attempt}",
+                "COORDINATOR_CHANGE_SUMMARY": "Reject non-finite state"
+            })
+            self.assertEqual(rc, 3)
+            self.assertEqual(res["reason"], "state_corrupt_hold")
+
+    def test_worker_sha_is_actual_module_digest(self):
+        self.assertEqual(sender_module.WORKER_SHA,
+                         hashlib.sha256(Path(sender_module.__file__).read_bytes()).hexdigest())
+
+    def test_corrupt_status_is_explicit_hold(self):
+        account_file = os.path.join(self.state_dir, "account_default.json")
+        with open(account_file, "w", encoding="utf-8") as f:
+            f.write("{")
+        os.chmod(account_file, 0o600)
+        rc, res, _ = self._run_sender(args=["--status", "--json"])
+        self.assertEqual(rc, 3)
+        self.assertEqual(res["outcome"], "hold")
+        self.assertTrue(res["delivery_unverified"])
+
+    def test_custom_lock_filename_is_rejected(self):
+        rc, res, _ = self._run_sender({
+            "COORDINATOR_CHANGE_ID": "ev-lock-name",
+            "COORDINATOR_CHANGE_SUMMARY": "Reject split lock"
+        }, args=["--lock-file", os.path.join(self.state_dir, "other.lock")])
+        self.assertEqual(rc, 2)
+        self.assertEqual(res["reason"], "canonical_lock_file_required")
+
+    def test_verification_marker_must_be_exact_line(self):
+        with open(self.fake_dot_script, "w", encoding="utf-8") as f:
+            f.write('#!/usr/bin/env bash\necho "DOT_SENT_VERIFIED "\nexit 0\n')
+        env = {"COORDINATOR_CHANGE_ID": "ev-marker-space",
+               "COORDINATOR_CHANGE_SUMMARY": "Trailing whitespace is not marker"}
+        rc, res, _ = self._run_sender(env)
+        self.assertEqual(rc, 4)
+        self.assertEqual(res["reason"], "send_unverified")
 
 
 if __name__ == "__main__":
