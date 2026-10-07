@@ -10,6 +10,7 @@ import json
 import os
 import signal
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -48,10 +49,22 @@ def compute_dir_manifest(base_dir: Path) -> Dict[str, str]:
             if f.endswith((".py", ".sh", ".json", ".md")):
                 full_path = Path(root) / f
                 rel_path = full_path.relative_to(base_dir)
-                with open(full_path, "rb") as fp:
-                    digest = hashlib.sha256(fp.read()).hexdigest()
-                manifest[str(rel_path)] = digest
+                try:
+                    with open(full_path, "rb") as fp:
+                        digest = hashlib.sha256(fp.read()).hexdigest()
+                    manifest[str(rel_path)] = digest
+                except Exception:
+                    pass
     return manifest
+
+
+def atomic_write_json(file_path: Path, data: Any, mode: int = 0o600) -> None:
+    """Writes JSON data atomically with restricted permissions."""
+    tmp_path = file_path.with_suffix(f".tmp.{os.getpid()}")
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+    os.chmod(str(tmp_path), mode)
+    os.replace(str(tmp_path), str(file_path))
 
 
 def cmd_reserve(args: argparse.Namespace, registry: SourceRegistry) -> None:
@@ -92,10 +105,7 @@ def cmd_status(args: argparse.Namespace, registry: SourceRegistry) -> None:
 
 
 def cmd_resolve_notification(args: argparse.Namespace, registry: SourceRegistry) -> None:
-    bindings_file = os.environ.get(
-        "DOT_PORTFOLIO_BINDINGS_FILE",
-        str(SCRIPT_DIR.parent / "references" / "bindings.json")
-    )
+    bindings_file = getattr(args, "bindings_file", None) or str(SCRIPT_DIR.parent / "references" / "bindings.json")
     mgr = NotificationBindingManager(registry, bindings_file)
     resolved = mgr.resolve_notification(args.ref)
     if resolved:
@@ -118,23 +128,50 @@ def cmd_collect(args: argparse.Namespace, registry: SourceRegistry) -> None:
 
 def cmd_observe(args: argparse.Namespace, registry: SourceRegistry) -> None:
     """Runs explicit finite observation caller with private /tmp state, heartbeats, and source hashes."""
-    run_dir = Path(args.run_dir)
-    run_dir.mkdir(parents=True, exist_ok=True)
+    # 1. Private directory creation and validation
+    if args.run_dir:
+        run_dir = Path(args.run_dir)
+        run_dir.mkdir(parents=True, exist_ok=True)
+        os.chmod(str(run_dir), 0o700)
+    else:
+        run_dir = Path(tempfile.mkdtemp(prefix="dot-portfolio-observe-", dir="/tmp"))
+        os.chmod(str(run_dir), 0o700)
 
-    # 1. Write source manifest
+    # Invariant: Directory owner must be current UID and mode 0700
+    dir_st = os.stat(str(run_dir))
+    if dir_st.st_uid != os.getuid():
+        print(json.dumps({"error": f"Run dir owner UID {dir_st.st_uid} does not match current UID {os.getuid()}"}), file=sys.stderr)
+        sys.exit(1)
+
+    if getattr(args, "send_messages", False):
+        if not getattr(args, "grant_file", None) or not getattr(args, "grant_sha256", None):
+            print(json.dumps({"error": "--send-messages requires --grant-file and --grant-sha256"}), file=sys.stderr)
+            sys.exit(1)
+        if not os.path.exists(args.grant_file):
+            print(json.dumps({"error": f"Grant file {args.grant_file} does not exist"}), file=sys.stderr)
+            sys.exit(1)
+
+    # 2. Write initial source manifest and registry hash
     skill_root = SCRIPT_DIR.parent
-    manifest = compute_dir_manifest(skill_root)
-    manifest_path = run_dir / "source_manifest.json"
-    with open(manifest_path, "w", encoding="utf-8") as f:
-        json.dump(manifest, f, indent=2)
+    manifest_start = compute_dir_manifest(skill_root)
+    atomic_write_json(run_dir / "source_manifest.json", manifest_start, mode=0o600)
+
+    with open(args.sources, "rb") as fp:
+        reg_hash_start = hashlib.sha256(fp.read()).hexdigest()
+
+    reg_hash_file = run_dir / "registry_hash.txt"
+    with open(reg_hash_file, "w", encoding="utf-8") as fp:
+        fp.write(reg_hash_start)
+    os.chmod(str(reg_hash_file), 0o600)
 
     hb_path = run_dir / "heartbeat.jsonl"
-
     interrupted = False
+    stop_reason = None
 
     def handle_signal(sig, frame):
-        nonlocal interrupted
+        nonlocal interrupted, stop_reason
         interrupted = True
+        stop_reason = f"signal_{sig}"
         entry = {
             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "event": "interrupted",
@@ -142,61 +179,143 @@ def cmd_observe(args: argparse.Namespace, registry: SourceRegistry) -> None:
         }
         with open(hb_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry) + "\n")
-        sys.exit(0)
+        try:
+            os.chmod(str(hb_path), 0o600)
+        except Exception:
+            pass
 
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
 
-    duration = int(args.duration)
-    interval = int(args.interval)
-    start_time = time.time()
-    end_time = start_time + duration
+    duration = max(1, int(args.duration))
+    interval = max(1, int(args.interval))
+    notification_interval = max(1, int(getattr(args, "notification_interval", 7200)))
+    start_mono = time.monotonic()
+    deadline_mono = start_mono + duration
 
     startup_entry = {
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "event": "observation_started",
         "duration_secs": duration,
         "interval_secs": interval,
+        "mode": "active" if getattr(args, "send_messages", False) else "observe-only",
         "run_dir": str(run_dir)
     }
     with open(hb_path, "a", encoding="utf-8") as f:
         f.write(json.dumps(startup_entry) + "\n")
+    os.chmod(str(hb_path), 0o600)
 
+    prior_snapshots: Dict[str, Any] = {}
+    completed_cycles = 0
+    partial_cycles = 0
+    fault_cycles = 0
+    sent_messages = 0
+    last_notification_time = 0.0
     tick = 0
-    while time.time() < end_time and not interrupted:
-        tick += 1
-        now_ts = time.time()
-        elapsed = int(now_ts - start_time)
-        remaining = int(end_time - now_ts)
 
+    while time.monotonic() < deadline_mono and not interrupted:
+        tick += 1
+        now_mono = time.monotonic()
+        elapsed = int(now_mono - start_mono)
+        remaining = max(0, int(deadline_mono - now_mono))
+
+        # 3. Check for manifest or registry drift
+        curr_manifest = compute_dir_manifest(skill_root)
+        try:
+            with open(args.sources, "rb") as fp:
+                curr_reg_hash = hashlib.sha256(fp.read()).hexdigest()
+        except Exception:
+            curr_reg_hash = ""
+
+        if curr_manifest != manifest_start or curr_reg_hash != reg_hash_start:
+            stop_reason = "manifest_drift_detected"
+            interrupted = True
+            break
+
+        # 4. Real collection each cycle
+        collector = PortfolioCollector(registry)
+        cycle_status = "healthy"
+        try:
+            coll_res = collector.collect_all(prior_snapshots=prior_snapshots)
+            prior_snapshots = coll_res.get("snapshots", {})
+            atomic_write_json(run_dir / "latest_snapshot.json", coll_res, mode=0o600)
+
+            if coll_res.get("unavailable_count", 0) > 0 or coll_res.get("stale_count", 0) > 0:
+                cycle_status = "partial"
+                partial_cycles += 1
+            else:
+                cycle_status = "fresh"
+                completed_cycles += 1
+        except Exception as e:
+            cycle_status = "fault"
+            fault_cycles += 1
+            coll_res = {"error": str(e)}
+
+        # 5. Active messaging path if explicitly requested
+        if getattr(args, "send_messages", False):
+            if (now_mono - last_notification_time) >= notification_interval:
+                prompt_path = SCRIPT_DIR.parent / "references" / "dot-self-unblock.md"
+                prompt_text = prompt_path.read_text(encoding="utf-8") if prompt_path.exists() else "Continue authorized work."
+                summary_msg = f"{prompt_text[:1500]}\nTracking: {coll_res.get('fresh_count', 0)} fresh, {coll_res.get('unavailable_count', 0)} unavailable."
+                ev_id = f"ev_obs_{int(time.time())}_{tick}"
+
+                from modules.sender import run_sender_cli
+                sender_argv = [
+                    "--account", getattr(args, "account", "default"),
+                    "--state-dir", str(run_dir / "sender_state"),
+                    "--grant-file", getattr(args, "grant_file", "") or "",
+                    "--grant-sha256", getattr(args, "grant_sha256", "") or ""
+                ]
+                os.environ["COORDINATOR_CHANGE_ID"] = ev_id
+                os.environ["COORDINATOR_CHANGE_SUMMARY"] = summary_msg
+                try:
+                    s_rc = run_sender_cli(sender_argv)
+                    if s_rc == 0:
+                        sent_messages += 1
+                        last_notification_time = now_mono
+                except Exception:
+                    pass
+
+        # 6. Heartbeat record
         hb_entry = {
             "tick": tick,
             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "elapsed_secs": elapsed,
             "remaining_secs": remaining,
-            "status": "healthy"
+            "status": cycle_status
         }
         with open(hb_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(hb_entry) + "\n")
+        os.chmod(str(hb_path), 0o600)
 
-        sleep_time = min(interval, max(0.1, end_time - time.time()))
-        if sleep_time > 0:
+        sleep_time = min(interval, max(0.1, deadline_mono - time.monotonic()))
+        if sleep_time > 0 and time.monotonic() < deadline_mono and not interrupted:
             time.sleep(sleep_time)
 
-    completion_entry = {
-        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "event": "observation_completed",
-        "total_ticks": tick
+    # 7. Final receipt
+    if not stop_reason:
+        stop_reason = "interrupted" if interrupted else "completed"
+
+    elapsed_total = int(time.monotonic() - start_mono)
+    receipt_data = {
+        "event": "observation_summary",
+        "duration_secs": duration,
+        "elapsed_secs": elapsed_total,
+        "completed_cycles": completed_cycles,
+        "partial_cycles": partial_cycles,
+        "fault_cycles": fault_cycles,
+        "sent_messages": sent_messages,
+        "stop_reason": stop_reason,
+        "mode": "active" if getattr(args, "send_messages", False) else "observe-only"
     }
-    with open(hb_path, "a", encoding="utf-8") as f:
-        f.write(json.dumps(completion_entry) + "\n")
+    atomic_write_json(run_dir / "final_receipt.json", receipt_data, mode=0o600)
 
 
 def main() -> None:
     common_parser = argparse.ArgumentParser(add_help=False)
     common_parser.add_argument(
         "--sources",
-        default=str(SCRIPT_DIR.parent / "references" / "sources.json"),
+        default=argparse.SUPPRESS,
         help="Path to reviewed sources registry JSON"
     )
 
@@ -231,11 +350,18 @@ def main() -> None:
     p_obs = subparsers.add_parser("observe", parents=[common_parser], help="Run finite observation loop")
     p_obs.add_argument("--duration", type=int, default=43200, help="Duration in seconds (default: 43200 / 12h)")
     p_obs.add_argument("--interval", type=int, default=300, help="Heartbeat interval in seconds (default: 300)")
-    p_obs.add_argument("--run-dir", default=f"/tmp/dot-portfolio-observe-{int(time.time())}", help="Private run directory")
+    p_obs.add_argument("--notification-interval", type=int, default=7200, help="Notification interval in seconds")
+    p_obs.add_argument("--run-dir", help="Private run directory (created with mode 0700 if omitted)")
+    p_obs.add_argument("--send-messages", action="store_true", help="Enable task-scoped message sending")
+    p_obs.add_argument("--grant-file", help="Root operator grant file")
+    p_obs.add_argument("--grant-sha256", help="Pinned SHA256 of grant file")
+    p_obs.add_argument("--account", default="default", help="Account identifier")
 
     args = parser.parse_args()
 
-    registry = SourceRegistry.from_file(args.sources)
+    sources_path = getattr(args, "sources", str(SCRIPT_DIR.parent / "references" / "sources.json"))
+    args.sources = sources_path
+    registry = SourceRegistry.from_file(sources_path)
 
     if args.command == "reserve":
         cmd_reserve(args, registry)

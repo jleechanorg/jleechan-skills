@@ -6,7 +6,26 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PYTHON_CLI="$SCRIPT_DIR/coordinator-portfolio.py"
 LOCKFILE="/tmp/ai.gemini.dot-portfolio-coordinator.lock"
+
+# Calculate timeout: for observe, deadline must be duration + 120s grace
 DEADLINE_SECS=600
+IS_OBSERVE=0
+DURATION=43200
+
+PREV_ARG=""
+for arg in "$@"; do
+  if [[ "$arg" == "observe" ]]; then
+    IS_OBSERVE=1
+  fi
+  if [[ "$PREV_ARG" == "--duration" ]]; then
+    DURATION="$arg"
+  fi
+  PREV_ARG="$arg"
+done
+
+if [[ "$IS_OBSERVE" -eq 1 ]]; then
+  DEADLINE_SECS=$(( DURATION + 120 ))
+fi
 
 # Concurrency lease
 exec 200>"$LOCKFILE"
