@@ -147,5 +147,119 @@ class TestDotPortfolioCoordinatorCollector(unittest.TestCase):
         self.assertEqual(res["unavailable_count"], 0)
 
 
+    def test_beads_parses_json_envelope_and_strips_notes_and_descriptions(self):
+        mock_envelope = {
+            "issues": [
+                {
+                    "id": "bd-10",
+                    "title": "Clean Task",
+                    "status": "open",
+                    "notes": "SECRET_RAW_NOTES_MUST_NOT_PERSIST",
+                    "description": "SECRET_DESCRIPTION_MUST_NOT_PERSIST",
+                    "owner": "alice"
+                }
+            ],
+            "total": 1,
+            "limit": 0,
+            "offset": 0,
+            "has_more": False
+        }
+
+        def fake_envelope_fetch(source):
+            return mock_envelope
+
+        res = self.collector.collect_source_snapshot("core-skills", fetch_fn=fake_envelope_fetch)
+        self.assertEqual(res["status"], "fresh")
+        self.assertEqual(len(res["items"]), 1)
+        item = res["items"][0]
+        self.assertEqual(item["id"], "bd-10")
+        self.assertEqual(item["title"], "Clean Task")
+        self.assertNotIn("notes", item)
+        self.assertNotIn("description", item)
+
+    def test_beads_blocks_ambient_fallback_when_host_binding_missing(self):
+        # A beads source without host_binding must NOT fall back to ambient br
+        source_without_db = {
+            "id": "orphan-beads",
+            "namespace": "orphan",
+            "type": "beads_store",
+            "github_host": "github.com",
+            "repository": "org/repo",
+            "canonical_tracker": "beads",
+            "authority": "read_only",
+            "audience_policy": {"title": ["public"]}
+        }
+        with patch.object(self.registry, "get_source", return_value=source_without_db):
+            with self.assertRaises(CollectorError) as ctx:
+                self.collector._default_beads_fetch(source_without_db)
+            self.assertIn("host_binding", str(ctx.exception).lower())
+
+    def test_partial_github_preserves_union_of_old_unseen_records(self):
+        prior_snapshot = {
+            "source_id": "web-app",
+            "version": "prior-v1",
+            "items": [
+                {"id": 101, "title": "Old Item 101", "task_composite_key": ["github.com", "example-org/web-app", "webapp", "101"]},
+                {"id": 102, "title": "Old Item 102", "task_composite_key": ["github.com", "example-org/web-app", "webapp", "102"]}
+            ],
+            "cursor": {"last_completed_page": 2, "completed": True}
+        }
+
+        # Page 1 returns item 101 (updated) and item 103 (new), then page 2 fails
+        def failing_page2(source, page, etag=None):
+            if page == 1:
+                return {
+                    "items": [
+                        {"id": 101, "title": "Updated Item 101"},
+                        {"id": 103, "title": "New Item 103"}
+                    ],
+                    "has_next": True,
+                    "next_page": 2
+                }
+            raise CollectorError("Network connection reset on page 2")
+
+        res = self.collector.collect_source_snapshot(
+            "web-app",
+            prior_snapshot=prior_snapshot,
+            fetch_fn=failing_page2
+        )
+        self.assertEqual(res["status"], "partial")
+        self.assertFalse(res["checkpoint_committed"])
+        # Should preserve UNION of old unseen (102), updated (101), and new (103)
+        item_ids = {i["id"] for i in res["items"]}
+        self.assertIn(101, item_ids)
+        self.assertIn(102, item_ids)  # preserved from prior unseen!
+        self.assertIn(103, item_ids)  # collected from partial page 1!
+        self.assertEqual(len(item_ids), 3)
+
+    def test_duplicate_items_deduped_across_pages(self):
+        pages = [
+            {
+                "items": [
+                    {"id": 201, "title": "Issue 201"}
+                ],
+                "has_next": True,
+                "next_page": 2
+            },
+            {
+                "items": [
+                    {"id": 201, "title": "Issue 201 Duplicate"},
+                    {"id": 202, "title": "Issue 202"}
+                ],
+                "has_next": False,
+                "next_page": None
+            }
+        ]
+
+        def fake_fetch(source, page, etag=None):
+            return pages[page - 1]
+
+        res = self.collector.collect_source_snapshot("web-app", fetch_fn=fake_fetch)
+        self.assertEqual(res["status"], "fresh")
+        item_ids = [i["id"] for i in res["items"]]
+        self.assertEqual(len(item_ids), 2)
+        self.assertEqual(item_ids, [201, 202])
+
+
 if __name__ == "__main__":
     unittest.main()
