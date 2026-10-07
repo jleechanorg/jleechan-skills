@@ -10,8 +10,9 @@ from modules.process_utils import ProcessTimeoutError, run_bounded_command
 
 ALLOWED_DRIVERS = ("agy", "claude", "codex")
 PACKET_FIELDS = {
-    "task_id", "event_id", "authority", "snapshot", "previous_dot_reply",
-    "dialogue_stage",
+    "schema_version", "task_id", "event_id", "authority", "snapshot",
+    "previous_dot_reply", "dialogue_stage", "phase", "candidate_bindings",
+    "source_binding", "grant_binding", "correlation",
 }
 MAX_PACKET_BYTES = 96_000
 MAX_RESPONSE_BYTES = 64_000
@@ -21,25 +22,105 @@ BLOCKER_FIELDS = {
     "description", "evidence", "attempts", "missing_capability_or_approval",
     "independent_work",
 }
-DECISION_FIELDS = {"event_id", "task_id", "stage", "blockers", "message"}
+DECISION_FIELDS = {
+    "schema_version", "event_id", "task_id", "outcome", "stage",
+    "source_binding", "grant_binding", "correlation", "judgment", "blockers",
+    "action", "message",
+}
+SOURCE_BINDING_FIELDS = {
+    "source_id", "task_composite_key", "record_version", "record_digest",
+}
+GRANT_BINDING_FIELDS = {"grant_version", "grant_sha256"}
+CORRELATION_FIELDS = {
+    "parent_event_id", "user_message_id", "assistant_message_id", "start_cursor",
+    "end_cursor", "complete",
+}
+JUDGMENT_FIELDS = {"assessment", "safe_next_action"}
 
 
 def _failure(reason: str) -> Dict[str, str]:
     return {"status": "driver_failed", "reason": reason}
 
 
+def _valid_digest(value: Any) -> bool:
+    return (isinstance(value, str) and len(value) == 64 and
+            all(char in "0123456789abcdef" for char in value))
+
+
+def _valid_source_binding(binding: Any) -> bool:
+    if not isinstance(binding, dict) or set(binding) != SOURCE_BINDING_FIELDS:
+        return False
+    key = binding["task_composite_key"]
+    return (
+        isinstance(binding["source_id"], str) and bool(binding["source_id"]) and
+        isinstance(key, list) and len(key) == 4 and
+        all(isinstance(part, str) and bool(part) for part in key) and
+        isinstance(binding["record_version"], str) and
+        bool(binding["record_version"]) and
+        _valid_digest(binding["record_digest"])
+    )
+
+
+def _valid_grant_binding(binding: Any) -> bool:
+    return (
+        isinstance(binding, dict) and set(binding) == GRANT_BINDING_FIELDS and
+        type(binding["grant_version"]) is int and binding["grant_version"] > 0 and
+        _valid_digest(binding["grant_sha256"])
+    )
+
+
+def _valid_correlation(correlation: Any) -> bool:
+    return (
+        isinstance(correlation, dict) and set(correlation) == CORRELATION_FIELDS and
+        all(isinstance(correlation[field], str) and bool(correlation[field])
+            for field in CORRELATION_FIELDS - {"complete"}) and
+        correlation["complete"] is True
+    )
+
+
 def _validate_packet(packet: Any) -> Tuple[Optional[Dict[str, Any]], str]:
     if not isinstance(packet, dict) or set(packet) != PACKET_FIELDS:
         return None, "invalid_packet"
-    if (not isinstance(packet["task_id"], str) or not packet["task_id"] or
-            len(packet["task_id"]) > 160 or not isinstance(packet["event_id"], str) or
+    if (type(packet["schema_version"]) is not int or packet["schema_version"] != 1 or
+            not isinstance(packet["event_id"], str) or
             not packet["event_id"] or len(packet["event_id"]) > 160):
         return None, "invalid_packet"
-    if packet["dialogue_stage"] not in ("inventory", "challenge"):
+    stage = packet["dialogue_stage"]
+    phase = packet["phase"]
+    if stage not in ("inventory", "challenge", "final_judgment"):
+        return None, "invalid_packet"
+    if ((stage == "inventory" and phase not in ("inventory_due", "cycle_complete")) or
+            (stage != "inventory" and phase != "challenge_reply_due")):
         return None, "invalid_packet"
     if (not isinstance(packet["authority"], dict) or
             not isinstance(packet["snapshot"], dict) or
             not isinstance(packet["previous_dot_reply"], str)):
+        return None, "invalid_packet"
+    candidates = packet["candidate_bindings"]
+    if not isinstance(candidates, list):
+        return None, "invalid_packet"
+    if stage == "inventory":
+        if (packet["task_id"] is not None or packet["source_binding"] is not None or
+                packet["correlation"] is not None):
+            return None, "invalid_packet"
+        if any(
+            not isinstance(candidate, dict) or
+            set(candidate) != {"task_id", "source_binding"} or
+            not isinstance(candidate["task_id"], str) or not candidate["task_id"] or
+            not _valid_source_binding(candidate["source_binding"])
+            for candidate in candidates
+        ):
+            return None, "invalid_packet"
+        candidate_ids = [candidate["task_id"] for candidate in candidates]
+        if len(candidate_ids) != len(set(candidate_ids)):
+            return None, "invalid_packet"
+    else:
+        if (not isinstance(packet["task_id"], str) or not packet["task_id"] or
+                len(packet["task_id"]) > 160 or
+                not _valid_source_binding(packet["source_binding"]) or
+                not _valid_correlation(packet["correlation"])):
+            return None, "invalid_packet"
+    if not _valid_grant_binding(packet["grant_binding"]):
         return None, "invalid_packet"
     try:
         packet_bytes = json.dumps(packet, ensure_ascii=False, allow_nan=False,
@@ -60,6 +141,9 @@ def _build_prompt(packet: Dict[str, Any], guidance: str) -> str:
         "continue. Ask concise questions that let dot provide the missing facts. "
         "Do not call a task blocked because evidence is absent or a tool failed."
         if stage == "inventory" else
+        "Final-judgment stage: assess the completed challenge reply and return a "
+        "judgment only. Do not select or draft another inventory message."
+        if stage == "final_judgment" else
         "Challenge stage: inspect every blocker asserted in previous_dot_reply against "
         "the supplied authority and snapshot. Challenge blockers that are unsupported, "
         "stale, or avoidable. For each truly blocking item, ask for the concrete next "
@@ -81,16 +165,19 @@ def _build_prompt(packet: Dict[str, Any], guidance: str) -> str:
         "blocker.\n\n"
         f"Reviewed self-unblock guidance:\n{guidance}\n\n"
         f"Current dialogue stage: {stage}\n{stage_instructions}\n\n"
-        "Return exactly one JSON object with these fields and no markdown or "
-        "surrounding "
-        "text: event_id, task_id, stage, blockers, message. Copy event_id and task_id "
-        "exactly from the packet; stage must equal dialogue_stage. blockers must be an "
-        "array of objects, each containing string fields description, evidence, "
-        "attempts, missing_capability_or_approval, independent_work. Use an "
-        "empty array "
-        "when no blocker is evidenced. message must be the complete next message "
-        "to dot; "
-        "never truncate it.\n\n"
+        "Return exactly one JSON object with schema_version, event_id, task_id, "
+        "outcome, stage, source_binding, grant_binding, correlation, judgment, "
+        "blockers, action, and message. Copy all bindings exactly from the packet. "
+        "Inventory send_proposal selects exactly one supplied candidate. If no task "
+        "is eligible, return no_eligible_task/no_action with null task_id and "
+        "source_binding whether the candidate list is empty or nonempty. A challenge "
+        "must use send_proposal/send with an explicit question. Final judgment must "
+        "use cycle_complete/no_action and message null. For no_action, message is "
+        "null; for send, message is the complete proposed text. Do not call transport. "
+        "blockers remains a bounded array of objects with string fields description, "
+        "evidence, attempts, missing_capability_or_approval, independent_work. "
+        "judgment has assessment blocked, not_blocked, or unknown and a string "
+        "safe_next_action.\n\n"
         "Packet JSON:\n" + json.dumps(packet, ensure_ascii=False, separators=(",", ":"))
     )
 
@@ -140,18 +227,60 @@ def _validate_decision(
     except (json.JSONDecodeError, TypeError):
         return None
     if (not isinstance(decision, dict) or set(decision) != DECISION_FIELDS or
+            type(decision.get("schema_version")) is not int or
+            decision.get("schema_version") != 1 or
             decision.get("event_id") != packet["event_id"] or
-            decision.get("task_id") != packet["task_id"] or
             decision.get("stage") != packet["dialogue_stage"] or
-            not isinstance(decision.get("message"), str) or
-            not decision["message"] or len(decision["message"]) > MAX_MESSAGE_CHARS or
             not isinstance(decision.get("blockers"), list) or
             len(decision["blockers"]) > MAX_BLOCKERS):
         return None
     for blocker in decision["blockers"]:
         if (not isinstance(blocker, dict) or set(blocker) != BLOCKER_FIELDS or
-                not all(isinstance(blocker[field], str) for field in BLOCKER_FIELDS)):
+            not all(isinstance(blocker[field], str) for field in BLOCKER_FIELDS)):
             return None
+    judgment = decision.get("judgment")
+    if (not isinstance(judgment, dict) or set(judgment) != JUDGMENT_FIELDS or
+            judgment.get("assessment") not in ("blocked", "not_blocked", "unknown") or
+            not isinstance(judgment.get("safe_next_action"), str)):
+        return None
+    if (decision.get("grant_binding") != packet["grant_binding"] or
+            not _valid_grant_binding(decision.get("grant_binding")) or
+            decision.get("correlation") != packet["correlation"]):
+        return None
+
+    outcome = decision.get("outcome")
+    action = decision.get("action")
+    task_id = decision.get("task_id")
+    source_binding = decision.get("source_binding")
+    message = decision.get("message")
+    stage = packet["dialogue_stage"]
+    if action == "send":
+        if (outcome != "send_proposal" or stage not in ("inventory", "challenge") or
+                not isinstance(message, str) or not message or
+                len(message) > MAX_MESSAGE_CHARS):
+            return None
+        if stage == "inventory":
+            matches = [candidate for candidate in packet["candidate_bindings"]
+                       if candidate["task_id"] == task_id and
+                       candidate["source_binding"] == source_binding]
+            if len(matches) != 1:
+                return None
+        elif (task_id != packet["task_id"] or
+              source_binding != packet["source_binding"]):
+            return None
+    elif action == "no_action" and message is None:
+        if outcome == "no_eligible_task":
+            if (stage != "inventory" or task_id is not None or
+                    source_binding is not None):
+                return None
+        elif outcome == "cycle_complete":
+            if (stage != "final_judgment" or task_id != packet["task_id"] or
+                    source_binding != packet["source_binding"]):
+                return None
+        else:
+            return None
+    else:
+        return None
     return decision
 
 
@@ -170,7 +299,7 @@ class DriverAdapter:
         if packet is None:
             return _failure(reason)
         if self.driver not in ALLOWED_DRIVERS:
-            return _failure("unsupported_driver")
+            return {"status": "configuration_error", "reason": "unsupported_driver"}
         if type(timeout_secs) is not int or not 1 <= timeout_secs <= 600:
             return _failure("invalid_timeout")
         try:

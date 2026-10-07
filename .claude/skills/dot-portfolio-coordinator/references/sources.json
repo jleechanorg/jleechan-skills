@@ -19,7 +19,8 @@
         "next_action": ["model", "public"],
         "blocker": ["model", "public"],
         "notes": ["model", "internal"],
-        "principal_id": ["internal"]
+        "principal_id": ["internal"],
+        "updated_at": ["internal"]
       }
     },
     {
@@ -40,7 +41,8 @@
         "next_action": ["model", "public"],
         "blocker": ["model", "public"],
         "notes": ["model", "internal"],
-        "principal_id": ["internal"]
+        "principal_id": ["internal"],
+        "updated_at": ["internal"]
       }
     },
     {
@@ -61,7 +63,8 @@
         "next_action": ["model", "public"],
         "blocker": ["model", "public"],
         "notes": ["model", "internal"],
-        "principal_id": ["internal"]
+        "principal_id": ["internal"],
+        "updated_at": ["internal"]
       }
     }
   ],

@@ -6,7 +6,10 @@ import subprocess
 import tempfile
 import time
 import unittest
+import importlib.util
+import sys
 from pathlib import Path
+from unittest import mock
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SKILL_DIR = REPO_ROOT / ".claude" / "skills" / "dot-portfolio-coordinator"
@@ -17,6 +20,14 @@ if sys_path not in sys.path:
 
 CLI_SCRIPT = str(SKILL_DIR / "scripts" / "coordinator-portfolio.py")
 WRAPPER_SCRIPT = str(SKILL_DIR / "scripts" / "dot-portfolio-coordinator-wrapper.sh")
+SCRIPTS_DIR = str(SKILL_DIR / "scripts")
+if SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, SCRIPTS_DIR)
+COORDINATOR_SPEC = importlib.util.spec_from_file_location(
+    "coordinator_portfolio", CLI_SCRIPT
+)
+coordinator_portfolio = importlib.util.module_from_spec(COORDINATOR_SPEC)
+COORDINATOR_SPEC.loader.exec_module(coordinator_portfolio)
 
 
 class TestDotPortfolioCoordinatorObserve(unittest.TestCase):
@@ -36,7 +47,8 @@ class TestDotPortfolioCoordinatorObserve(unittest.TestCase):
                     "repository": "example-org/test-repo",
                     "canonical_tracker": "github_issues",
                     "authority": "read_only",
-                    "audience_policy": {"title": ["public"]}
+                    "audience_policy": {"title": ["model", "internal"],
+                                        "updated_at": ["internal"]}
                 }
             ]
         }
@@ -132,6 +144,38 @@ class TestDotPortfolioCoordinatorObserve(unittest.TestCase):
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("error", proc.stderr.lower() + proc.stdout.lower())
 
+    def test_default_registry_supports_private_item_version_receipts(self):
+        sources_path = SKILL_DIR / "references" / "sources.json"
+        sources_data = json.loads(sources_path.read_text(encoding="utf-8"))
+        registry = coordinator_portfolio.SourceRegistry(sources_data)
+        fetched_at = "2026-10-07T00:00:00Z"
+
+        def fetch(source, *args, **kwargs):
+            item = {"id": "17", "title": "Fixture task", "status": "open",
+                    "updated_at": fetched_at}
+            if source["type"] == "github_repo":
+                return {"items": [item], "has_next": False}
+            return [item]
+
+        collected = coordinator_portfolio.PortfolioCollector(registry).collect_all(
+            fetch_fn=fetch
+        )
+        candidates, reason = coordinator_portfolio.build_driver_candidates(
+            collected, registry
+        )
+        self.assertEqual(reason, "ok")
+        self.assertEqual(len(candidates), len(registry.sources))
+        for candidate in candidates:
+            self.assertEqual(candidate["source_binding"]["record_version"], fetched_at)
+        internal_item = collected["snapshots"]["web-app"]["items"][0]
+        self.assertIn("updated_at", internal_item)
+        self.assertNotIn("updated_at", registry.filter_by_audience(
+            "web-app", internal_item, "model"
+        ))
+        self.assertNotIn("updated_at", registry.filter_by_audience(
+            "web-app", internal_item, "public"
+        ))
+
     def test_observe_active_mode_with_grant_sends_messages(self):
         with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
             root = Path(tmp)
@@ -154,14 +198,51 @@ class TestDotPortfolioCoordinatorObserve(unittest.TestCase):
             pilot = root / "pilot.json"
             pilot.write_text(json.dumps(config)); pilot.chmod(0o400)
             fake_dot = root / "dot"
-            fake_dot.write_text("#!/bin/sh\nif [ \"$3\" = read ]; then echo 'fixture reply'; else echo DOT_SENT_VERIFIED; fi\n")
+            fake_dot.write_text(
+                "#!/bin/sh\n"
+                "if [ \"$3\" = send-once ]; then cat \"$4\" > \"$DOT_CAPTURE_FILE\"; "
+                "echo DOT_SENT_VERIFIED; fi\n"
+            )
             fake_dot.chmod(0o700)
             fake_gh = root / "gh"
-            fake_gh.write_text("#!/bin/sh\necho '[]'\n"); fake_gh.chmod(0o700)
+            fake_gh.write_text(
+                "#!/bin/sh\nprintf '%s\\n' '[{\"number\":7,\"id\":7,"
+                "\"title\":\"Fixture authorized task\",\"state\":\"open\","
+                "\"updated_at\":\"2026-10-07T00:00:00Z\"}]'\n"
+            )
+            fake_gh.chmod(0o700)
             fake_agy = root / "agy"
-            fake_agy.write_text("#!/usr/bin/env python3\nimport json,sys\nevent=json.loads(sys.stdin.readline())\np=json.loads(event['message']['content'].split('Packet JSON:' + chr(10))[-1])\nd={'event_id':p['event_id'],'task_id':p['task_id'],'stage':p['dialogue_stage'],'blockers':[],'message':'List current blockers with evidence.'}\nprint(json.dumps({'event':'result','result':{'status':'SUCCESS','response':json.dumps(d)}}))\n")
+            fake_agy.write_text(
+                "#!/usr/bin/env python3\nimport json,sys\n"
+                "event=json.loads(sys.stdin.readline())\n"
+                "p=json.loads(event['message']['content'].split('Packet JSON:' + chr(10))[-1])\n"
+                "source=p['snapshot']['sources']['test-repo']\n"
+                "assert isinstance(source.get('collected_at'),int) and not isinstance(source['collected_at'],bool)\n"
+                "for field in ('validated_at','attempted_at'):\n"
+                " value=source.get(field)\n"
+                " assert field not in source or (isinstance(value,int) and not isinstance(value,bool))\n"
+                "candidate=p['candidate_bindings'][0]\n"
+                "assert candidate['source_binding']['source_id']=='test-repo'\n"
+                "assert candidate['source_binding']['record_version']=='2026-10-07T00:00:00Z'\n"
+                "sanitized={'task_composite_key':candidate['source_binding']['task_composite_key'],"
+                "'id':7,'title':'Fixture authorized task',"
+                "'updated_at':'2026-10-07T00:00:00Z'}\n"
+                "digest=__import__('hashlib').sha256(json.dumps(sanitized,sort_keys=True,"
+                "ensure_ascii=False,separators=(',',':')).encode()).hexdigest()\n"
+                "assert candidate['source_binding']['record_digest']==digest\n"
+                "d={'schema_version':1,'event_id':p['event_id'],"
+                "'task_id':candidate['task_id'],'outcome':'send_proposal',"
+                "'stage':p['dialogue_stage'],'source_binding':candidate['source_binding'],"
+                "'grant_binding':p['grant_binding'],'correlation':None,"
+                "'judgment':{'assessment':'unknown','safe_next_action':'ask Dot'},"
+                "'blockers':[],'action':'send','message':'List current blockers with evidence.'}\n"
+                "print(json.dumps({'event':'result','result':{'status':'SUCCESS',"
+                "'response':json.dumps(d)}}))\n"
+            )
             fake_agy.chmod(0o700)
-            env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ["PATH"])
+            sent_message_path = root / "sent-message.txt"
+            env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ["PATH"],
+                       DOT_CAPTURE_FILE=str(sent_message_path))
             cmd = [CLI_SCRIPT, "--sources", self.sources_file, "observe", "--interval", "1",
                    "--send-messages", "--pilot-config", str(pilot), "--transport-script", str(fake_dot),
                    "--run-dir", self.run_dir]
@@ -182,10 +263,112 @@ class TestDotPortfolioCoordinatorObserve(unittest.TestCase):
                 stdout, stderr = proc.communicate(timeout=5)
             self.assertIsNotNone(observed, (stdout, stderr))
             self.assertTrue(observed.get("delivery_verified"), (observed, stdout, stderr))
+            sent_message = sent_message_path.read_text()
+            guidance = (SKILL_DIR / "references" / "dot-self-unblock.md").read_text()
+            self.assertTrue(sent_message.startswith(guidance + "\n\n"))
+            self.assertTrue(sent_message.endswith("List current blockers with evidence."))
             receipt = json.loads((Path(self.run_dir) / "final_receipt.json").read_text())
             self.assertEqual(receipt["sent_messages"], 1)
             self.assertEqual(receipt["stop_reason"], "interrupted")
             self.assertEqual(receipt["mode"], "active")
+
+    def test_typed_no_eligible_task_never_invokes_sender(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
+            root = Path(tmp)
+            started = time.time()
+            grant = {"grant_version": 1, "task_id": "dot-coordinator-separated-20261007",
+                     "account_id": "first", "action": "coordination_message", "max_messages": 12,
+                     "min_interval_secs": 3600, "activated_at_epoch": started,
+                     "expiry_epoch": started + 900.0}
+            grant_path = root / "grant.json"
+            grant_path.write_text(json.dumps(grant))
+            grant_path.chmod(0o400)
+            grant_sha = hashlib.sha256(grant_path.read_bytes()).hexdigest()
+            key = ["github.com", "example-org/test-repo", "test", "7"]
+            source_binding = {"source_id": "test-repo", "task_composite_key": key,
+                              "record_version": "2026-10-07T00:00:00Z",
+                              "record_digest": "a" * 64}
+            snapshot = {"candidate_bindings": [{"task_id": "task-7",
+                                                "source_binding": source_binding}]}
+            config = {"task_id": "dot-coordinator-separated-20261007",
+                      "authority": "Continue the fixture task.",
+                      "accounts": [{"account": "first", "grant_file": str(grant_path),
+                                    "grant_sha256": grant_sha}]}
+            packet = {"schema_version": 1, "task_id": None, "event_id": "event-7",
+                      "authority": {"instruction": config["authority"],
+                                    "source": "local_operator_pilot"},
+                      "snapshot": {}, "previous_dot_reply": "",
+                      "dialogue_stage": "inventory", "phase": "inventory_due",
+                      "candidate_bindings": snapshot["candidate_bindings"],
+                      "source_binding": None,
+                      "grant_binding": {"grant_version": 1, "grant_sha256": grant_sha},
+                      "correlation": None}
+            no_eligible = {"schema_version": 1, "event_id": "event-7", "task_id": None,
+                           "outcome": "no_eligible_task", "stage": "inventory",
+                           "source_binding": None, "grant_binding": packet["grant_binding"],
+                           "correlation": None,
+                           "judgment": {"assessment": "not_blocked",
+                                        "safe_next_action": "wait for a viable task"},
+                           "blockers": [], "action": "no_action", "message": None}
+            with mock.patch("modules.driver_adapter.DriverAdapter") as adapter, \
+                    mock.patch.object(coordinator_portfolio, "call_sender") as sender:
+                adapter.return_value.decide.return_value = {
+                    "status": "ok", "decision": no_eligible,
+                }
+                outcome = coordinator_portfolio.run_pilot_slot(
+                    config, {"account_index": 0, "event_id": "event-7"},
+                    {"dialogue": {"0": "inventory"}}, snapshot, root, "agy", "unused",
+                    time.monotonic() + 600,
+                )
+            self.assertEqual(outcome["outcome"], "no_eligible_task")
+            sender.assert_not_called()
+
+    def test_source_change_after_draft_never_invokes_sender(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
+            root = Path(tmp)
+            started = time.time()
+            grant = {"grant_version": 1, "task_id": "dot-coordinator-separated-20261007",
+                     "account_id": "first", "action": "coordination_message", "max_messages": 12,
+                     "min_interval_secs": 3600, "activated_at_epoch": started,
+                     "expiry_epoch": started + 900}
+            grant_path = root / "grant.json"
+            grant_path.write_text(json.dumps(grant))
+            grant_path.chmod(0o400)
+            grant_sha = hashlib.sha256(grant_path.read_bytes()).hexdigest()
+            binding = {"source_id": "test-repo",
+                       "task_composite_key": ["github.com", "example-org/test-repo", "test", "7"],
+                       "record_version": "2026-10-07T00:00:00Z", "record_digest": "a" * 64}
+            task_id = json.dumps(["test-repo", *binding["task_composite_key"]],
+                                 separators=(",", ":"))
+            candidate = {"task_id": task_id, "source_binding": binding}
+            snapshot = {"candidate_bindings": [candidate]}
+            config = {"task_id": "dot-coordinator-separated-20261007",
+                      "authority": "Continue the fixture task.",
+                      "accounts": [{"account": "first", "grant_file": str(grant_path),
+                                    "grant_sha256": grant_sha}]}
+            decision = {"schema_version": 1, "event_id": "event-8", "task_id": task_id,
+                        "outcome": "send_proposal", "stage": "inventory",
+                        "source_binding": binding,
+                        "grant_binding": {"grant_version": 1, "grant_sha256": grant_sha},
+                        "correlation": None,
+                        "judgment": {"assessment": "unknown", "safe_next_action": "ask Dot"},
+                        "blockers": [], "action": "send", "message": "Request evidence."}
+            changed = dict(binding, record_digest="c" * 64)
+            with mock.patch("modules.driver_adapter.DriverAdapter") as adapter, \
+                    mock.patch.object(coordinator_portfolio, "call_sender") as sender:
+                adapter.return_value.decide.return_value = {
+                    "status": "ok", "decision": decision,
+                }
+                outcome = coordinator_portfolio.run_pilot_slot(
+                    config, {"account_index": 0, "event_id": "event-8"},
+                    {"dialogue": {"0": "inventory"}}, snapshot, root, "agy", "unused",
+                    time.monotonic() + 600,
+                    source_receipt_reader=lambda expected, timeout: (changed, "ok"),
+                )
+            self.assertEqual(outcome, {"outcome": "no_action",
+                                       "reason": "source_changed_after_draft",
+                                       "delivery_verified": False})
+            sender.assert_not_called()
 
     def test_wrapper_computes_outer_grace_period(self):
         # Inspect dot-portfolio-coordinator-wrapper.sh to ensure observe duration has + 120s grace

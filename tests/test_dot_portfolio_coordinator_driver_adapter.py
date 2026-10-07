@@ -12,7 +12,7 @@ SCRIPTS_DIR = REPO_ROOT / ".claude" / "skills" / "dot-portfolio-coordinator" / "
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-from modules.driver_adapter import DriverAdapter
+from modules.driver_adapter import DriverAdapter, _validate_decision, _validate_packet
 from modules.process_utils import ProcessTimeoutError
 
 
@@ -24,27 +24,17 @@ class TestDriverAdapter(unittest.TestCase):
         self.workspace.mkdir()
         self.bin_dir = self.root / "bin"
         self.bin_dir.mkdir()
-        self.packet = {
-            "task_id": "task-123",
-            "event_id": "event-456",
-            "authority": {"scope": "authorized task only"},
-            "snapshot": {"status": "in progress", "evidence": []},
-            "previous_dot_reply": "The first dialogue turn.",
-            "dialogue_stage": "inventory",
-        }
-        self.decision = {
-            "event_id": "event-456",
-            "task_id": "task-123",
-            "stage": "inventory",
-            "blockers": [{
-                "description": "None identified",
-                "evidence": "The supplied snapshot shows no blocker.",
-                "attempts": "No attempt is needed.",
-                "missing_capability_or_approval": "None.",
-                "independent_work": "Proceed with the authorized next step.",
-            }],
-            "message": "Please proceed with the authorized next step.",
-        }
+        self.packet = self._schema_v1_packet()
+        self.packet["previous_dot_reply"] = "The first dialogue turn."
+        self.decision = self._schema_v1_decision(self.packet)
+        self.decision["blockers"] = [{
+            "description": "None identified",
+            "evidence": "The supplied snapshot shows no blocker.",
+            "attempts": "No attempt is needed.",
+            "missing_capability_or_approval": "None.",
+            "independent_work": "Proceed with the authorized next step.",
+        }]
+        self.decision["message"] = "Please proceed with the authorized next step."
         self.response_text = json.dumps(self.decision)
 
     def tearDown(self):
@@ -58,6 +48,130 @@ class TestDriverAdapter(unittest.TestCase):
 
     def _path_env(self):
         return {"PATH": f"{self.bin_dir}{os.pathsep}{os.environ['PATH']}"}
+
+    def _schema_v1_packet(self, stage="inventory", candidates=None):
+        source_binding = {
+            "source_id": "roadmap",
+            "task_composite_key": ["github.com", "org/repo", "beads", "wa-1"],
+            "record_version": "17",
+            "record_digest": "a" * 64,
+        }
+        grant_binding = {"grant_version": 2, "grant_sha256": "b" * 64}
+        correlation = None if stage == "inventory" else {
+            "parent_event_id": "parent-1",
+            "user_message_id": "user-1",
+            "assistant_message_id": "assistant-1",
+            "start_cursor": "cursor-a",
+            "end_cursor": "cursor-b",
+            "complete": True,
+        }
+        candidates = candidates if candidates is not None else [{
+            "task_id": "task-123", "source_binding": source_binding,
+        }]
+        return {
+            "schema_version": 1,
+            "task_id": "task-123" if stage != "inventory" else None,
+            "event_id": "event-456",
+            "authority": {"scope": "authorized task only"},
+            "snapshot": {"status": "in progress", "evidence": []},
+            "previous_dot_reply": "private correlated reply",
+            "dialogue_stage": stage,
+            "phase": {"inventory": "inventory_due", "challenge": "challenge_reply_due",
+                      "final_judgment": "challenge_reply_due"}[stage],
+            "candidate_bindings": candidates,
+            "source_binding": source_binding if stage != "inventory" else None,
+            "grant_binding": grant_binding,
+            "correlation": correlation,
+        }
+
+    def _schema_v1_decision(self, packet, outcome="send_proposal", action="send"):
+        stage = packet["dialogue_stage"]
+        if outcome == "no_eligible_task":
+            task_id = source_binding = None
+        else:
+            task_id = packet["task_id"] or packet["candidate_bindings"][0]["task_id"]
+            source_binding = packet["source_binding"] or packet["candidate_bindings"][0]["source_binding"]
+        return {
+            "schema_version": 1,
+            "event_id": packet["event_id"],
+            "task_id": task_id,
+            "outcome": outcome,
+            "stage": stage,
+            "source_binding": source_binding,
+            "grant_binding": packet["grant_binding"],
+            "correlation": packet["correlation"],
+            "judgment": {"assessment": "unknown", "safe_next_action": "continue safely"},
+            "blockers": [],
+            "action": action,
+            "message": "Please report blockers." if action == "send" else None,
+        }
+
+    def test_schema_v1_accepts_exact_inventory_binding(self):
+        packet = self._schema_v1_packet()
+        decision = self._schema_v1_decision(packet)
+        self.assertEqual(_validate_decision(json.dumps(decision), packet), decision)
+
+    def test_schema_v1_packet_rejects_unknown_version_and_unapproved_fields(self):
+        packet = self._schema_v1_packet()
+        self.assertEqual(_validate_packet(packet)[1], "ok")
+        for changed in (dict(packet, schema_version=2),
+                        dict(packet, api_key="must not enter model packet")):
+            with self.subTest(keys=set(changed)):
+                self.assertEqual(_validate_packet(changed), (None, "invalid_packet"))
+
+    def test_schema_v1_rejects_missing_or_unknown_version_and_wrong_stage(self):
+        packet = self._schema_v1_packet()
+        valid = self._schema_v1_decision(packet)
+        for field, value in (("schema_version", None), ("schema_version", 2),
+                             ("stage", "challenge")):
+            decision = dict(valid)
+            if value is None:
+                decision.pop(field)
+            else:
+                decision[field] = value
+            with self.subTest(field=field, value=value):
+                self.assertIsNone(_validate_decision(json.dumps(decision), packet))
+
+    def test_schema_v1_rejects_binding_and_action_mismatches(self):
+        packet = self._schema_v1_packet()
+        valid = self._schema_v1_decision(packet)
+        for field, value in (("source_binding", {**valid["source_binding"], "record_version": "18"}),
+                             ("grant_binding", {**valid["grant_binding"], "grant_version": 3}),
+                             ("correlation", {"parent_event_id": "wrong"}),
+                             ("action", "no_action"), ("message", None),
+                             ("outcome", "cycle_complete")):
+            decision = dict(valid)
+            decision[field] = value
+            with self.subTest(field=field):
+                self.assertIsNone(_validate_decision(json.dumps(decision), packet))
+
+    def test_schema_v1_no_eligible_task_is_typed_for_empty_or_nonempty_candidates(self):
+        for candidates in ([], self._schema_v1_packet()["candidate_bindings"]):
+            packet = self._schema_v1_packet(candidates=candidates)
+            decision = self._schema_v1_decision(packet, "no_eligible_task", "no_action")
+            self.assertIsNotNone(_validate_decision(json.dumps(decision), packet))
+
+    def test_schema_v1_requires_exactly_one_matching_inventory_candidate(self):
+        packet = self._schema_v1_packet(candidates=[])
+        valid_packet = self._schema_v1_packet()
+        decision = self._schema_v1_decision(valid_packet)
+        self.assertIsNone(_validate_decision(json.dumps(decision), packet))
+        packet = self._schema_v1_packet(candidates=[
+            self._schema_v1_packet()["candidate_bindings"][0],
+            self._schema_v1_packet()["candidate_bindings"][0],
+        ])
+        decision = self._schema_v1_decision(valid_packet)
+        self.assertIsNone(_validate_decision(json.dumps(decision), packet))
+
+    def test_schema_v1_challenge_and_final_judgment_are_distinct(self):
+        challenge = self._schema_v1_packet(stage="challenge")
+        self.assertIsNotNone(_validate_decision(
+            json.dumps(self._schema_v1_decision(challenge)), challenge))
+        final = self._schema_v1_packet(stage="final_judgment")
+        decision = self._schema_v1_decision(final, "cycle_complete", "no_action")
+        self.assertIsNotNone(_validate_decision(json.dumps(decision), final))
+        self.assertIsNone(_validate_decision(
+            json.dumps(self._schema_v1_decision(final)), final))
 
     def test_agy_default_uses_real_stream_protocol_and_full_permission_mode(self):
         response = self.response_text
@@ -166,6 +280,14 @@ out.write_text({response!r})
             result, {"status": "driver_failed", "reason": "driver_unavailable"}
         )
 
+    def test_unknown_driver_is_configuration_error_without_fallback(self):
+        with mock.patch("modules.driver_adapter.shutil.which") as which:
+            result = DriverAdapter("unconfigured").decide(self.packet, self.workspace)
+        self.assertEqual(
+            result, {"status": "configuration_error", "reason": "unsupported_driver"}
+        )
+        which.assert_not_called()
+
     def test_extra_packet_fields_are_rejected_without_prompt_leak(self):
         packet = dict(self.packet, access_token="secret-must-not-leak")
         result = DriverAdapter().decide(packet, self.workspace)
@@ -216,8 +338,8 @@ print(json.dumps({{"event": "result", "result": {{"status": "SUCCESS",
         self.assertEqual(result, {"status": "driver_failed", "reason": "timeout"})
 
     def test_challenge_stage_is_preserved(self):
-        packet = dict(self.packet, dialogue_stage="challenge")
-        decision = dict(self.decision, stage="challenge")
+        packet = self._schema_v1_packet(stage="challenge")
+        decision = self._schema_v1_decision(packet)
         response = json.dumps(decision)
         self._fake_driver("agy", f'''import json, sys
 message = json.loads(sys.stdin.readline())

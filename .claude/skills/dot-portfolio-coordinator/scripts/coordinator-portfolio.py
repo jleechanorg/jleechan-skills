@@ -19,7 +19,7 @@ import tempfile
 import threading
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 # Add modules directory to sys.path
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -34,6 +34,10 @@ from modules.proposal_validator import ProposalValidator
 from modules.beads_journal import BeadsControlJournal
 from modules.authority_adapter import AuthorityAdapter
 from modules.budget_ledger import BudgetLedger, BudgetError
+
+SourceReceiptReader = Callable[
+    [Dict[str, Any], float], Tuple[Optional[Dict[str, Any]], str]
+]
 from modules.publisher import RoadmapPublisher
 from modules.sender_protocol import NotificationBindingManager
 
@@ -136,6 +140,64 @@ def call_sender(argv: List[str], event_id: str, message: str) -> Dict[str, Any]:
             and result.get("delivery_verified") is True}
 
 
+def build_driver_candidates(
+    collected: Dict[str, Any], registry: SourceRegistry
+) -> Tuple[Optional[List[Dict[str, Any]]], str]:
+    """Bind every item in the complete fresh collector snapshot to its receipt."""
+    snapshots = collected.get("snapshots")
+    if not isinstance(snapshots, dict) or set(snapshots) != set(registry.sources):
+        return None, "source_snapshot_incomplete"
+    candidates = []
+    task_ids = set()
+    for source_id, source_def in registry.sources.items():
+        source = snapshots.get(source_id)
+        cursor = source.get("cursor") if isinstance(source, dict) else None
+        items = source.get("items") if isinstance(source, dict) else None
+        if (not isinstance(source, dict) or source.get("status") != "fresh" or
+                not isinstance(source.get("version"), str) or not source["version"] or
+                not isinstance(cursor, dict) or cursor.get("completed") is not True or
+                source.get("checkpoint_committed") is not True or
+                not isinstance(items, list) or
+                source_def.get("authority") not in (
+                    "read_only", "authoritative_control"
+                )):
+            return None, "source_snapshot_incomplete"
+        for item in items:
+            if not isinstance(item, dict):
+                return None, "source_snapshot_incomplete"
+            binding, reason = task_source_binding(source_id, item)
+            if binding is None:
+                return None, reason
+            task_id = json.dumps([source_id, *binding["task_composite_key"]],
+                                 ensure_ascii=False, separators=(",", ":"))
+            if task_id in task_ids:
+                return None, "source_receipt_ambiguous"
+            task_ids.add(task_id)
+            candidates.append({"task_id": task_id, "source_binding": binding})
+    return candidates, "ok"
+
+
+def task_source_binding(
+    source_id: str, item: Dict[str, Any]
+) -> Tuple[Optional[Dict[str, Any]], str]:
+    key = item.get("task_composite_key")
+    item_id = item.get("id")
+    version = item.get("updated_at")
+    if (not isinstance(key, list) or len(key) != 4 or
+            not all(isinstance(part, str) and part for part in key) or
+            not isinstance(item_id, (str, int)) or isinstance(item_id, bool) or
+            not isinstance(version, str) or not version):
+        return None, "source_receipt_unavailable"
+    canonical = json.dumps(item, sort_keys=True, ensure_ascii=False,
+                           allow_nan=False, separators=(",", ":")).encode("utf-8")
+    return {
+        "source_id": source_id,
+        "task_composite_key": key,
+        "record_version": version,
+        "record_digest": hashlib.sha256(canonical).hexdigest(),
+    }, "ok"
+
+
 def load_pilot_config(path: str) -> Dict[str, Any]:
     from modules.sender import _read_json_file, ACCOUNT_RE, validate_operator_grant
     config, reason = _read_json_file(path, "pilot")
@@ -167,38 +229,80 @@ def load_pilot_config(path: str) -> Dict[str, Any]:
 
 def run_pilot_slot(config: Dict[str, Any], slot: Dict[str, Any], state: Dict[str, Any],
                    snapshot: Dict[str, Any], root: Path, driver: str,
-                   transport: str, deadline: float) -> Dict[str, Any]:
+                   transport: str, deadline: float,
+                   source_receipt_reader: Optional[SourceReceiptReader] = None
+                   ) -> Dict[str, Any]:
     from modules.driver_adapter import DriverAdapter
-    from modules.process_utils import run_bounded_command
     account_index = slot["account_index"]
     account = config["accounts"][account_index]
     stage = state["dialogue"].get(str(account_index), "inventory")
+    if stage != "inventory":
+        return {"outcome": "no_challenge_hold", "reason": "correlation_unavailable",
+                "delivery_verified": False}
+    candidate_bindings = snapshot.get("candidate_bindings")
+    if not isinstance(candidate_bindings, list):
+        return {"outcome": "driver_failed", "reason": "source_snapshot_incomplete",
+                "delivery_verified": False}
+    from modules.sender import validate_operator_grant
+    valid, grant_reason, grant = validate_operator_grant(
+        account.get("grant_file"), account.get("grant_sha256"), account["account"]
+    )
+    if not valid or grant is None:
+        return {"outcome": "grant_invalid", "reason": grant_reason,
+                "delivery_verified": False}
     remaining = deadline - time.monotonic()
     if remaining < 180:
         return {"outcome": "deadline_hold", "delivery_verified": False}
-    env = os.environ.copy()
-    env["DOT_ROTATE_ON_LIMIT"] = "0"
-    env["DOT_NO_REMOTE"] = "1"
-    try:
-        rc, reply, _ = run_bounded_command(
-            [transport, "--account", account["account"], "read", "12000"],
-            env=env, timeout_secs=min(180, int(remaining)))
-    except Exception:
-        return {"outcome": "read_unavailable", "delivery_verified": False}
-    if rc != 0:
-        return {"outcome": "read_unavailable", "delivery_verified": False}
-    packet = {"task_id": config["task_id"], "event_id": slot["event_id"],
-              "authority": {"instruction": config["authority"], "source": "local_operator_pilot"}, "snapshot": snapshot,
-              "previous_dot_reply": reply, "dialogue_stage": stage}
+    packet = {
+        "schema_version": 1,
+        "task_id": None,
+        "event_id": slot["event_id"],
+        "authority": {
+            "instruction": config["authority"], "source": "local_operator_pilot"
+        },
+        "snapshot": {key: value for key, value in snapshot.items()
+                     if key != "candidate_bindings"},
+        "previous_dot_reply": "",
+        "dialogue_stage": "inventory",
+        "phase": "inventory_due",
+        "candidate_bindings": candidate_bindings,
+        "source_binding": None,
+        "grant_binding": {"grant_version": grant["grant_version"],
+                           "grant_sha256": account["grant_sha256"]},
+        "correlation": None,
+    }
     workspace = private_run_directory(str(root / ("driver-" + slot["event_id"])))
     remaining = deadline - time.monotonic()
     if remaining < 180:
         return {"outcome": "deadline_hold", "delivery_verified": False}
-    decision = DriverAdapter(driver=driver).decide(packet, workspace, timeout_secs=min(600, int(remaining)))
+    decision = DriverAdapter(driver=driver).decide(
+        packet, workspace, timeout_secs=min(600, int(remaining))
+    )
     if decision.get("status") != "ok":
-        return {"outcome": "driver_failed", "reason": decision.get("reason", "invalid_result"), "delivery_verified": False}
+        return {"outcome": "driver_failed",
+                "reason": decision.get("reason", "invalid_result"),
+                "delivery_verified": False}
+    decision_payload = decision["decision"]
+    if decision_payload["action"] == "no_action":
+        return {"outcome": decision_payload["outcome"], "delivery_verified": False}
+    if decision_payload["action"] != "send":
+        return {"outcome": "driver_failed", "reason": "invalid_output",
+                "delivery_verified": False}
+    if source_receipt_reader is None:
+        return {"outcome": "no_action", "reason": "source_revalidation_unavailable",
+                "delivery_verified": False}
+    refreshed_binding, refresh_reason = source_receipt_reader(
+        decision_payload["source_binding"],
+        min(120.0, max(0.0, deadline - time.monotonic())),
+    )
+    if refreshed_binding is None:
+        return {"outcome": "no_action", "reason": refresh_reason,
+                "delivery_verified": False}
+    if refreshed_binding != decision_payload["source_binding"]:
+        return {"outcome": "no_action", "reason": "source_changed_after_draft",
+                "delivery_verified": False}
     guidance = (SCRIPT_DIR.parent / "references" / "dot-self-unblock.md").read_text()
-    message = guidance + "\n\n" + decision["decision"]["message"]
+    message = guidance + "\n\n" + decision_payload["message"]
     sender_root = private_run_directory(str(root / f"sender-{account_index}"))
     argv = ["--account", account["account"], "--state-dir", str(sender_root),
             "--grant-file", account["grant_file"], "--grant-sha256", account["grant_sha256"],
@@ -270,7 +374,8 @@ def cmd_collect(args: argparse.Namespace, registry: SourceRegistry) -> None:
         print(out)
 
 
-def process_due_slots(config, state, root, snapshot, driver, transport, deadline, now):
+def process_due_slots(config, state, root, snapshot, driver, transport, deadline, now,
+                      source_receipt_reader=None):
     for slot in pilot_slots(config):
         key = str(slot["index"])
         if key in state["slots"] or now < slot["due_epoch"]:
@@ -282,7 +387,10 @@ def process_due_slots(config, state, root, snapshot, driver, transport, deadline
         state["slots"][key] = {"outcome": "in_progress_hold", "delivery_verified": False}
         atomic_write_json(root / "run_state.json", state)
         try:
-            result = run_pilot_slot(config, slot, state, snapshot, root, driver, transport, deadline)
+            result = run_pilot_slot(
+                config, slot, state, snapshot, root, driver, transport, deadline,
+                source_receipt_reader=source_receipt_reader,
+            )
         except Exception:
             result = {"outcome": "slot_failed_hold", "delivery_verified": False}
         state["slots"][key] = result
@@ -380,18 +488,59 @@ def cmd_observe(args: argparse.Namespace, registry: SourceRegistry) -> None:
                                                   deadline_mono=min(deadline, time.monotonic() + 120))
                 prior_snapshots = collected.get("snapshots", {})
                 atomic_write_json(root / "latest_snapshot.json", collected)
+                driver_candidates, candidate_reason = build_driver_candidates(collected, registry)
                 counter = "partial_cycles" if collected.get("unavailable_count") or collected.get("stale_count") else "completed_cycles"
                 totals[counter] += 1
             except Exception:
                 totals["fault_cycles"] += 1
                 collected = {"snapshots": prior_snapshots, "coverage": "collection_failed"}
+                driver_candidates, candidate_reason = None, "source_snapshot_incomplete"
             if config:
                 model_snapshot = {"coverage": {key: collected.get(key) for key in
-                                  ("registered_count", "fresh_count", "stale_count", "unavailable_count")}, "sources": {}}
+                                  ("registered_count", "fresh_count", "stale_count", "unavailable_count")},
+                                  "sources": {}, "candidate_bindings": driver_candidates}
                 for sid, source in collected.get("snapshots", {}).items():
-                    model_snapshot["sources"][sid] = {"status": source.get("status"), "version": source.get("version"),
-                        "items": [registry.filter_by_audience(sid, item, "model") for item in source.get("items", [])]}
-                process_due_slots(config, state, root, model_snapshot, args.driver, transport, deadline, time.time())
+                    model_source = {"status": source.get("status"), "version": source.get("version"),
+                        "cursor": source.get("cursor"),
+                        "checkpoint_committed": source.get("checkpoint_committed"),
+                        "authority": registry.get_source(sid).get("authority"),
+                        "items": [registry.filter_by_audience(sid, item, "model")
+                                  for item in source.get("items", [])]}
+                    for field in ("collected_at", "validated_at", "attempted_at"):
+                        value = source.get(field)
+                        if isinstance(value, int) and not isinstance(value, bool):
+                            model_source[field] = value
+                    model_snapshot["sources"][sid] = model_source
+                if candidate_reason != "ok":
+                    model_snapshot["candidate_bindings"] = None
+
+                def source_receipt_reader(
+                    binding: Dict[str, Any], timeout_secs: float
+                ) -> Tuple[Optional[Dict[str, Any]], str]:
+                    source_id = binding.get("source_id")
+                    prior_source = collected.get("snapshots", {}).get(source_id)
+                    if (source_id not in registry.sources or
+                            type(timeout_secs) not in (int, float) or timeout_secs <= 0):
+                        return None, "source_receipt_unavailable"
+                    refreshed = PortfolioCollector(registry).collect_source_snapshot(
+                        source_id, prior_snapshot=prior_source,
+                        deadline_mono=min(deadline, time.monotonic() + timeout_secs),
+                    )
+                    cursor = refreshed.get("cursor") if isinstance(refreshed, dict) else None
+                    if (not isinstance(refreshed, dict) or refreshed.get("status") != "fresh" or
+                            not isinstance(cursor, dict) or cursor.get("completed") is not True or
+                            refreshed.get("checkpoint_committed") is not True):
+                        return None, "source_snapshot_incomplete"
+                    matches = [item for item in refreshed.get("items", [])
+                               if item.get("task_composite_key") == binding["task_composite_key"]]
+                    if len(matches) != 1:
+                        return None, "source_task_missing_or_ambiguous"
+                    return task_source_binding(source_id, matches[0])
+
+                process_due_slots(
+                    config, state, root, model_snapshot, args.driver, transport,
+                    deadline, time.time(), source_receipt_reader=source_receipt_reader,
+                )
             stopped.wait(min(args.interval, max(0, deadline - time.monotonic())))
     except KeyboardInterrupt:
         stop_reason = "interrupted"

@@ -1,19 +1,191 @@
-"""Process execution utilities with process-group isolation and bounded timeouts."""
+"""Process execution utilities with bounded process-group lifetimes."""
+
 import os
+import selectors
 import signal
 import subprocess
 import time
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple, TypeVar, Union
 
 
 class ProcessTimeoutError(Exception):
     """Raised when a subprocess exceeds its execution deadline."""
-    pass
 
 
 class ProcessExecutionError(Exception):
-    """Raised when a subprocess fails execution."""
-    pass
+    """Raised when a subprocess or its private frame protocol fails."""
+
+
+class ProcessCleanupError(ProcessExecutionError):
+    """Raised when the owned process group cannot be proven stopped."""
+
+
+class InteractiveChild:
+    """Private newline-frame pipe access bounded by one absolute deadline."""
+
+    def __init__(
+        self, process: subprocess.Popen, deadline: float, max_frame_bytes: int
+    ):
+        if process.stdin is None or process.stdout is None:
+            raise ProcessExecutionError("Interactive child pipes are unavailable")
+        self._process = process
+        self._stdin_fd = process.stdin.fileno()
+        self._stdout_fd = process.stdout.fileno()
+        self._deadline = deadline
+        self._max_frame_bytes = max_frame_bytes
+        self._read_buffer = bytearray()
+        os.set_blocking(self._stdin_fd, False)
+        os.set_blocking(self._stdout_fd, False)
+
+    def send_frame(self, frame: Union[str, bytes]) -> None:
+        """Write one UTF-8 or raw-byte frame, terminated by a single LF."""
+        self._check_deadline("write")
+        payload = frame.encode("utf-8") if isinstance(frame, str) else frame
+        if not isinstance(payload, bytes):
+            raise ProcessExecutionError("Frame must be text or bytes")
+        if b"\n" in payload or b"\r" in payload:
+            raise ProcessExecutionError("Frame contains a line delimiter")
+        if len(payload) > self._max_frame_bytes:
+            raise ProcessExecutionError("Frame exceeds configured byte limit")
+        packet = memoryview(payload + b"\n")
+        with selectors.DefaultSelector() as selector:
+            selector.register(self._stdin_fd, selectors.EVENT_WRITE)
+            while packet:
+                self._wait(selector, "write")
+                try:
+                    written = os.write(self._stdin_fd, packet)
+                except (BrokenPipeError, OSError) as exc:
+                    raise ProcessExecutionError(
+                        "Interactive child closed its input"
+                    ) from exc
+                if written <= 0:
+                    raise ProcessExecutionError("Interactive child input made no progress")
+                packet = packet[written:]
+
+    def read_frame(self) -> bytes:
+        """Read one LF-terminated frame without exceeding the configured bound."""
+        with selectors.DefaultSelector() as selector:
+            selector.register(self._stdout_fd, selectors.EVENT_READ)
+            while True:
+                self._check_deadline("read")
+                delimiter = self._read_buffer.find(b"\n")
+                if delimiter >= 0:
+                    if delimiter > self._max_frame_bytes:
+                        raise ProcessExecutionError(
+                            "Child frame exceeds configured byte limit"
+                        )
+                    frame = bytes(self._read_buffer[:delimiter])
+                    del self._read_buffer[: delimiter + 1]
+                    return frame
+                if len(self._read_buffer) > self._max_frame_bytes:
+                    raise ProcessExecutionError(
+                        "Child frame exceeds configured byte limit"
+                    )
+                self._wait(selector, "read")
+                try:
+                    chunk = os.read(self._stdout_fd, 4096)
+                except OSError as exc:
+                    raise ProcessExecutionError("Could not read child frame") from exc
+                if not chunk:
+                    raise ProcessExecutionError("Interactive child closed its output")
+                self._read_buffer.extend(chunk)
+
+    def _wait(self, selector: selectors.BaseSelector, operation: str) -> None:
+        remaining = self._remaining(operation)
+        if not selector.select(remaining):
+            raise ProcessTimeoutError(f"Interactive child {operation} deadline expired")
+
+    def _remaining(self, operation: str) -> float:
+        remaining = self._deadline - time.monotonic()
+        if remaining <= 0:
+            raise ProcessTimeoutError(f"Interactive child {operation} deadline expired")
+        return remaining
+
+    def _check_deadline(self, operation: str) -> None:
+        self._remaining(operation)
+
+
+def _group_exists(pgid: int) -> bool:
+    try:
+        os.killpg(pgid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return _group_has_live_members(pgid)
+    except OSError as exc:
+        raise ProcessCleanupError("Could not verify owned process group") from exc
+
+
+def _group_has_live_members(pgid: int) -> bool:
+    """Treat zombies as stopped; they cannot execute and are reaped by their parent."""
+    try:
+        result = subprocess.run(
+            ["ps", "-axo", "pgid=,stat="],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=1,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ProcessCleanupError("Could not inspect owned process group") from exc
+    if result.returncode != 0:
+        raise ProcessCleanupError("Could not inspect owned process group")
+    for line in result.stdout.splitlines():
+        fields = line.split(None, 1)
+        if len(fields) == 2 and fields[0].isdigit() and int(fields[0]) == pgid:
+            if not fields[1].startswith("Z"):
+                return True
+    return False
+
+
+def _terminate_owned_group(proc: subprocess.Popen, grace_secs: float = 0.2) -> None:
+    """Stop only the session/process group created for this child and verify it."""
+    pgid = proc.pid
+    if _group_exists(pgid):
+        try:
+            os.killpg(pgid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        except OSError as exc:
+            raise ProcessCleanupError("Could not terminate owned process group") from exc
+
+        deadline = time.monotonic() + max(0.0, grace_secs)
+        while _group_exists(pgid) and time.monotonic() < deadline:
+            time.sleep(min(0.02, max(0.0, deadline - time.monotonic())))
+
+        if _group_exists(pgid):
+            try:
+                os.killpg(pgid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            except OSError as exc:
+                raise ProcessCleanupError("Could not kill owned process group") from exc
+
+            deadline = time.monotonic() + 1.0
+            while _group_exists(pgid) and time.monotonic() < deadline:
+                time.sleep(min(0.02, max(0.0, deadline - time.monotonic())))
+
+            if _group_exists(pgid) and _group_has_live_members(pgid):
+                raise ProcessCleanupError("Owned process group remains alive after SIGKILL")
+
+    try:
+        proc.wait(timeout=1)
+    except subprocess.TimeoutExpired as exc:
+        raise ProcessCleanupError("Owned process leader did not exit") from exc
+
+
+def _close_pipe(pipe) -> None:
+    if pipe is not None:
+        try:
+            pipe.close()
+        except OSError:
+            pass
+
+
+def _close_process_pipes(proc: subprocess.Popen) -> None:
+    for pipe in (proc.stdin, proc.stdout, proc.stderr):
+        _close_pipe(pipe)
 
 
 def run_bounded_command(
@@ -21,19 +193,10 @@ def run_bounded_command(
     cwd: Optional[str] = None,
     env: Optional[Dict[str, str]] = None,
     timeout_secs: int = 600,
-    input_text: Optional[str] = None
+    input_text: Optional[str] = None,
 ) -> Tuple[int, str, str]:
-    """Runs a command in a new session / process group with bounded timeout.
-
-    Guarantees:
-    - start_new_session=True (new process group)
-    - Clean termination of the entire process group (including grandchildren) on timeout or interrupt
-    - No shell execution
-    - No raw credentials printed
-    - Maximum timeout ceiling of 600s by default
-    """
-    timeout = min(max(1, int(timeout_secs)), 3600)  # bounded positive timeout
-
+    """Run a command without a shell and clean its complete owned process group."""
+    timeout = min(max(1, int(timeout_secs)), 3600)
     proc = subprocess.Popen(
         cmd,
         cwd=cwd,
@@ -42,35 +205,93 @@ def run_bounded_command(
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
-        start_new_session=True
+        start_new_session=True,
     )
-
     try:
         stdout, stderr = proc.communicate(input=input_text, timeout=timeout)
-        return proc.returncode, stdout, stderr
-    except subprocess.TimeoutExpired:
-        # Terminate the entire process group
+    except subprocess.TimeoutExpired as exc:
         try:
-            os.killpg(proc.pid, signal.SIGTERM)
-            time.sleep(0.2)
-            os.killpg(proc.pid, signal.SIGKILL)
-        except (ProcessLookupError, OSError):
-            pass
-        # Drain buffers to prevent resource leaks
+            _terminate_owned_group(proc)
+        except ProcessCleanupError as cleanup_error:
+            _close_process_pipes(proc)
+            raise cleanup_error from exc
         try:
             proc.communicate(timeout=1)
         except Exception:
             pass
-        raise ProcessTimeoutError(f"Command exceeded deadline of {timeout}s")
-    except BaseException as e:
+        finally:
+            _close_process_pipes(proc)
+        raise ProcessTimeoutError(f"Command exceeded deadline of {timeout}s") from None
+    except BaseException as exc:
         try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except Exception:
-            pass
+            _terminate_owned_group(proc)
+        except ProcessCleanupError as cleanup_error:
+            _close_process_pipes(proc)
+            raise cleanup_error from exc
         try:
             proc.communicate(timeout=1)
         except Exception:
             pass
-        if not isinstance(e, Exception):
+        finally:
+            _close_process_pipes(proc)
+        if not isinstance(exc, Exception):
             raise
-        raise ProcessExecutionError(f"Command execution error: {e}")
+        raise ProcessExecutionError(f"Command execution error: {exc}") from exc
+
+    try:
+        _terminate_owned_group(proc)
+    finally:
+        _close_process_pipes(proc)
+    return proc.returncode, stdout, stderr
+
+
+Result = TypeVar("Result")
+
+
+def run_bounded_interactive_command(
+    cmd: List[str],
+    interaction: Callable[[InteractiveChild], Result],
+    cwd: Optional[str] = None,
+    env: Optional[Dict[str, str]] = None,
+    timeout_secs: int = 180,
+    max_frame_bytes: int = 65536,
+) -> Result:
+    """Run bounded private newline-framed I/O, then clean the owned process group.
+
+    The callback must do only bounded local work and use ``child`` for I/O. The
+    absolute deadline bounds every pipe operation and is checked again on return;
+    Python cannot preempt arbitrary blocking callback code.
+    """
+    timeout = min(max(1, int(timeout_secs)), 3600)
+    if max_frame_bytes < 1:
+        raise ValueError("max_frame_bytes must be positive")
+    proc = subprocess.Popen(
+        cmd,
+        cwd=cwd,
+        env=env,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=False,
+        bufsize=0,
+        start_new_session=True,
+    )
+    try:
+        deadline = time.monotonic() + timeout
+        child = InteractiveChild(proc, deadline, max_frame_bytes)
+        result = interaction(child)
+        if time.monotonic() > deadline:
+            raise ProcessTimeoutError("Interactive child deadline expired")
+    except BaseException as exc:
+        try:
+            _terminate_owned_group(proc)
+        except ProcessCleanupError as cleanup_error:
+            _close_process_pipes(proc)
+            raise cleanup_error from exc
+        _close_process_pipes(proc)
+        raise
+    try:
+        _terminate_owned_group(proc)
+    finally:
+        _close_process_pipes(proc)
+    return result

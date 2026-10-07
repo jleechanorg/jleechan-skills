@@ -2,7 +2,7 @@
 // Exit 10 + "DOT_CHROME_UNAVAILABLE: <reason>" means nothing was sent.
 // DOT_DRY_RUN=1 types + verifies the message, clears it, never sends.
 import { createRequire } from 'module';
-import { execSync } from 'child_process';
+import { execFileSync, execSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -151,11 +151,80 @@ const stripReadReceipt = (t) => t.replace(/Read\s+\d{1,2}:\d{2}\s*(?:[AP]M)?/gi,
 
 class Unavailable extends Error {}
 const unavailable = (why) => { throw new Unavailable(why); };
+class ExistingProfileUnavailable extends Unavailable {
+  constructor(code) {
+    super(code);
+    this.code = code;
+  }
+}
+const existingProfileUnavailable = (code) => { throw new ExistingProfileUnavailable(code); };
 
 const [mode, arg] = process.argv.slice(2);
 let ctx = null;
 let clicked = false;
 let aborted = false;
+
+function chromeLaunchOptions() {
+  const isLinux = os.platform() === 'linux';
+  const hasDisplay = !!process.env.DISPLAY;
+  const args = [
+    '--no-first-run',
+    '--no-default-browser-check',
+    '--disable-blink-features=AutomationControlled',
+  ];
+  const ignoreDefaultArgs = ['--enable-automation'];
+
+  if (isLinux) {
+    args.push('--no-sandbox', '--disable-setuid-sandbox');
+    if (hasDisplay || process.env.DBUS_SESSION_BUS_ADDRESS) {
+      args.push('--password-store=gnome-libsecret');
+      ignoreDefaultArgs.push('--password-store=basic', '--use-mock-keychain');
+    }
+  } else if (isMac) {
+    args.push('--password-store=keychain');
+    ignoreDefaultArgs.push('--use-mock-keychain', '--password-store=basic');
+  }
+
+  return {
+    executablePath: CHROME,
+    headless: isLinux ? !hasDisplay : true,
+    userAgent: UA,
+    ignoreDefaultArgs,
+    args,
+  };
+}
+
+function assertExistingProfileAvailable(dir) {
+  try {
+    if (!fs.statSync(dir).isDirectory()) existingProfileUnavailable('profile_missing');
+  } catch (error) {
+    if (error instanceof ExistingProfileUnavailable) throw error;
+    existingProfileUnavailable('profile_missing');
+  }
+
+  const lockPath = path.join(dir, 'SingletonLock');
+  try {
+    fs.lstatSync(lockPath);
+    existingProfileUnavailable('profile_lock_present');
+  } catch (error) {
+    if (error instanceof ExistingProfileUnavailable) throw error;
+    if (error.code !== 'ENOENT') existingProfileUnavailable('profile_lock_unknown');
+  }
+
+  let processTable;
+  try {
+    processTable = execFileSync('ps', ['-A', '-o', 'command='], {
+      encoding: 'utf8',
+      timeout: 2000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+  } catch {
+    existingProfileUnavailable('profile_owner_unknown');
+  }
+  if (processTable.split('\n').some((line) => line.includes(dir))) {
+    existingProfileUnavailable('profile_owner_present');
+  }
+}
 
 function markAuthFailed(targetDir) {
   const defaultDir = path.join(targetDir, 'Default');
@@ -289,34 +358,8 @@ async function launch() {
   await waitAndCleanSingletonLock(USER_DATA_DIR);
   ensurePersistentProfile(accountInfo, USER_DATA_DIR);
 
-  const isLinux = os.platform() === 'linux';
-  const hasDisplay = !!process.env.DISPLAY;
-  const extraArgs = [
-    '--no-first-run',
-    '--no-default-browser-check',
-    '--disable-blink-features=AutomationControlled',
-  ];
-  const ignoreDefaultArgs = ['--enable-automation'];
-
-  if (isLinux) {
-    extraArgs.push('--no-sandbox', '--disable-setuid-sandbox');
-    if (hasDisplay || process.env.DBUS_SESSION_BUS_ADDRESS) {
-      extraArgs.push('--password-store=gnome-libsecret');
-      ignoreDefaultArgs.push('--password-store=basic', '--use-mock-keychain');
-    }
-  } else if (isMac) {
-    extraArgs.push('--password-store=keychain');
-    ignoreDefaultArgs.push('--use-mock-keychain', '--password-store=basic');
-  }
-
   try {
-    ctx = await chromium.launchPersistentContext(USER_DATA_DIR, {
-      executablePath: CHROME,
-      headless: isLinux ? !hasDisplay : true,
-      userAgent: UA,
-      ignoreDefaultArgs,
-      args: extraArgs,
-    });
+    ctx = await chromium.launchPersistentContext(USER_DATA_DIR, chromeLaunchOptions());
   } catch (e) {
     unavailable('failed to launch persistent Chrome context: ' + e.message);
   }
@@ -409,6 +452,25 @@ async function launch() {
     return page;
   }
   return unavailable('composer not found');
+}
+
+async function launchExistingProfileOnly() {
+  if (!fs.existsSync(CHROME)) existingProfileUnavailable('chrome_missing');
+  assertExistingProfileAvailable(USER_DATA_DIR);
+
+  let chromium;
+  try {
+    ({ chromium } = require('playwright'));
+  } catch {
+    existingProfileUnavailable('playwright_missing');
+  }
+
+  try {
+    ctx = await chromium.launchPersistentContext(USER_DATA_DIR, chromeLaunchOptions());
+  } catch {
+    existingProfileUnavailable('chrome_launch_failed');
+  }
+  return ctx;
 }
 
 async function read(page, n) {
@@ -530,24 +592,47 @@ if (isMainModule()) {
   let code = 0;
   let launchTimer = null;
   try {
-    if (mode === 'send' && !(arg && fs.existsSync(arg) && fs.statSync(arg).size > 0)) unavailable('no message file');
-    const timeoutPromise = new Promise((_, reject) => {
-      launchTimer = setTimeout(() => {
-        aborted = true;
-        reject(new Unavailable('timeout'));
-      }, 120000);
-    });
-    try {
-      await Promise.race([
-        (async () => {
-          const page = await launch();
-          if (mode === 'read') await read(page, Number(arg || 5000));
-          else await send(page, arg, process.env.DOT_DRY_RUN === '1');
-        })(),
-        timeoutPromise
-      ]);
-    } finally {
-      if (launchTimer) clearTimeout(launchTimer);
+    if (mode === 'existing-profile-only') {
+      try {
+        await launchExistingProfileOnly();
+        await ctx.close();
+        ctx = null;
+        console.log('DOT_PROFILE_LAUNCH_RESULT ' + JSON.stringify({
+          schema_version: 1,
+          launch_state: 'started',
+          browser_disposition: 'spawned',
+          cleanup_state: 'context_close_returned',
+        }));
+      } catch (e) {
+        console.log('DOT_PROFILE_LAUNCH_RESULT ' + JSON.stringify({
+          schema_version: 1,
+          launch_state: 'unavailable',
+          diagnostic: e instanceof ExistingProfileUnavailable
+            ? e.code
+            : (ctx ? 'context_cleanup_unverified' : 'launcher_error'),
+        }));
+        code = 10;
+      }
+    } else {
+      if (mode === 'send' && !(arg && fs.existsSync(arg) && fs.statSync(arg).size > 0)) unavailable('no message file');
+      const timeoutPromise = new Promise((_, reject) => {
+        launchTimer = setTimeout(() => {
+          aborted = true;
+          reject(new Unavailable('timeout'));
+        }, 120000);
+      });
+      try {
+        await Promise.race([
+          (async () => {
+            const page = await launch();
+            if (mode === 'read') await read(page, Number(arg || 5000));
+            else await send(page, arg, process.env.DOT_DRY_RUN === '1');
+          })(),
+          timeoutPromise
+        ]);
+      } finally {
+        if (launchTimer) clearTimeout(launchTimer);
+      }
     }
   } catch (e) {
     if (clicked) console.log('DOT_SEND_UNVERIFIED chrome_error=' + e.message);
