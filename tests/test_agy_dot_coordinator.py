@@ -15,14 +15,14 @@ class CoordinatorTests(unittest.TestCase):
  def saved(self):return json.loads((self.state/'state_alpha.json').read_text())
  def calls(self):return self.log.read_text().splitlines() if self.log.exists() else []
  def event(self,urgent=False):self.env.update(COORDINATOR_CHANGE_ID='task:revision1:ready',COORDINATOR_CHANGE_SUMMARY='Existing owner reports dependency ready',COORDINATOR_URGENT=str(int(urgent)))
- def test_daily_prompt_and_receipt(self):
+ def test_requested_rollup_prompt_and_receipt(self):
   self.event();self.assertEqual(self.run_worker('--account','alpha','--full-rollup').returncode,0);self.assertEqual(self.calls(),['read','send']);self.assertIn('Scope: rollup',self.msg.read_text());self.assertIn('Example workstream',self.msg.read_text());self.assertIn('Do not reopen cancelled work',self.msg.read_text());self.assertEqual(self.saved()['last_status'],'SUCCESS')
- def test_repeat_daily_does_not_read_profile(self):
+ def test_no_request_ignores_rollup_timestamp(self):
   self.seed(last_rollup_epoch=int(time.time()),last_sent_epoch=0);self.run_worker('--account','alpha','--force');self.assertEqual(self.calls(),[])
- def test_legacy_receipt_seeds_daily_cap(self):
-  self.seed(last_sent_epoch=int(time.time()),last_status='SUCCESS');self.run_worker('--account','alpha');self.assertEqual(self.calls(),[])
- def test_legacy_global_state_prevents_multirecipient_replay(self):
-  (self.state/'state.json').write_text(json.dumps({'last_sent_epoch':int(time.time()),'last_status':'SUCCESS'}));self.run_worker();self.assertEqual(self.calls(),[])
+ def test_legacy_receipt_preserves_delta_cooldown(self):
+  self.event();self.seed(last_sent_epoch=int(time.time()),last_status='SUCCESS');self.run_worker('--account','alpha');self.assertEqual(self.calls(),['read'])
+ def test_legacy_global_receipt_preserves_delta_cooldown(self):
+  self.event();(self.state/'state.json').write_text(json.dumps({'last_sent_epoch':int(time.time()),'last_status':'SUCCESS'}));self.run_worker('--account','alpha');self.assertEqual(self.calls(),['read'])
  def test_active_skips_even_force(self):
   self.event()
   self.env['READ_TEXT']='Working';self.run_worker('--account','alpha','--force');self.assertEqual(self.calls(),['read']);self.assertFalse(self.msg.exists())
@@ -30,7 +30,7 @@ class CoordinatorTests(unittest.TestCase):
   self.event();self.run_worker('--account','alpha');self.assertIn('Scope: change',self.msg.read_text());self.assertEqual(self.saved()['delivered_change_ids'],['task:revision1:ready'])
  def test_duplicate_change_no_profile_read(self):
   self.event();self.seed(delivered_change_ids=['task:revision1:ready']);self.run_worker('--account','alpha','--force');self.assertEqual(self.calls(),[])
- def test_urgent_bypasses_active_and_cooldown_not_daily(self):
+ def test_urgent_preserves_rollup_timestamp(self):
   self.event(True);now=int(time.time());self.seed(last_rollup_epoch=now,last_sent_epoch=now);self.env['READ_TEXT']='Working';self.run_worker('--account','alpha');self.assertEqual(self.calls(),['read','send']);self.assertIn('Scope: incident',self.msg.read_text());self.assertEqual(self.saved()['last_rollup_epoch'],now)
  def test_duplicate_urgent_no_read(self):
   self.event(True);self.seed(delivered_change_ids=['task:revision1:ready']);self.run_worker('--account','alpha');self.assertEqual(self.calls(),[])
@@ -100,4 +100,12 @@ class CoordinatorTests(unittest.TestCase):
   self.assertEqual(self.run_worker('--account','alpha','--full-rollup').returncode,2);self.assertEqual(self.calls(),[])
  def test_urgent_is_not_full_review(self):
   self.event(True);self.assertEqual(self.run_worker('--account','alpha','--full-rollup').returncode,2);self.assertEqual(self.calls(),[])
+ def test_dedup_eviction_allows_replay_of_old_id(self):
+  # Seed128 historical verified IDs, then deliver129th and replay evicted1st.
+  self.event();ids=['event:'+str(i) for i in range(128)];self.seed(delivered_change_ids=ids)
+  self.env['COORDINATOR_CHANGE_ID']='event:128';self.run_worker('--account','alpha','--full-rollup');self.assertEqual(self.saved()['delivered_change_ids'],ids[1:]+['event:128'])
+  self.env['COORDINATOR_CHANGE_ID']='event:0';self.run_worker('--account','alpha','--full-rollup');self.assertEqual(self.calls().count('send'),2);self.assertEqual(len(self.saved()['delivered_change_ids']),128)
+ def test_deferred_event_resumes_with_same_id(self):
+  self.event();self.env['READ_TEXT']='Working';self.run_worker('--account','alpha');self.assertFalse((self.state/'state_alpha.json').exists())
+  self.env['READ_TEXT']='Idle';self.run_worker('--account','alpha');self.assertEqual(self.calls(),['read','read','send']);self.assertEqual(self.saved()['delivered_change_ids'],['task:revision1:ready'])
 if __name__=='__main__':unittest.main(verbosity=2)

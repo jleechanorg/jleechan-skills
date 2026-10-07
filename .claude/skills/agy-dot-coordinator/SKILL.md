@@ -18,9 +18,9 @@ Store private contextual workstream defaults in `~/.config/dot/coordinator-prior
 - Scheduled wakes are quiet without an explicit owner-supplied change/request ID and summary. No automatic change detection or compulsory full rollup runs.
 - Skip routine sends whenever the dot read reports Thinking, Working or Searching; `--force` cannot bypass this, deduplication or unresolved receipt holds. This conservative text signal may defer a send when those words appear in ordinary text.
 - Delta/blocker messages require owner-supplied `COORDINATOR_CHANGE_ID` and `COORDINATOR_CHANGE_SUMMARY`, plus one `--account`. IDs identify meaningful task/incident revisions, not a timestamp generated every wake. Summaries are bounded to 2000 characters. No automatic change classifier or producer is installed.
-- `--full-rollup` (or `COORDINATOR_FULL_ROLLUP=1`) selects a complete cross-track review only for an explicit request or owner-reported material cross-track change. It requires the same single account, stable request/change ID and summary. There is no daily cap or cooldown barrier; different requests may run on the same day. Active owners and unresolved receipts still defer it; repeating the same ID never resends. It cannot combine with urgent-incident mode.
+- `--full-rollup` (or `COORDINATOR_FULL_ROLLUP=1`) selects a complete cross-track review only for an explicit request or owner-reported material cross-track change. It requires the same single account, stable request/change ID and summary. There is no daily cap or cooldown barrier; different requests may run on the same day. Active owners and unresolved receipts still defer it; repeating an ID still retained in the shared dedup ledger does not resend. It cannot combine with urgent-incident mode.
 - `COORDINATOR_URGENT=1` permits a material incident notification during active work/cooldown, with incident-only scope. It never requests a full WIP review or grants authority. Preserve draft and profile locking.
-- Remember the last 128 verified change IDs per account. Do not replay older events after they age out. Unchanged/duplicate events and quiet wakes do not open the browser.
+- The shared ledger for changes, rollups and incidents retains only the last 128 verified IDs per account. This is bounded deduplication: reusing an evicted ID can send again. Callers must not replay older events after they age out, or reuse an ID for a different request kind. Unchanged/duplicate events and quiet wakes do not open the browser.
 - Success requires rc=0 AND an exact standalone `DOT_SENT_VERIFIED` transport receipt. Empty composer, nonzero exit or a substring is insufficient. Unverified sends persist a delivery hold; resolve actual receipt with the owner before manually clearing it. Errors preserve the receipt ledger.
 - The optional legacy `--use-agy` sender is rejected because it lacks the direct receipt contract. No model is invoked by default.
 
@@ -43,3 +43,11 @@ COORDINATOR_CHANGE_SUMMARY="User requested a complete review of release dependen
 ```
 
 This sends a real message; do not invoke it merely to test installation. Omit `--full-rollup` for a brief delta/blocker notification. Default scheduled invocations have no signals and stay quiet. No producer for these signals is installed by this package.
+
+## Deferral and resumption
+
+This worker sends owner-supplied events; it does not autonomously observe, reprioritize, or review all work. Keep any separate periodic all-task review with its existing owner. There is no automatic stall detector or pending-event queue.
+
+A normal delta uses `--account`, `COORDINATOR_CHANGE_ID` and `COORDINATOR_CHANGE_SUMMARY`; it observes the default 1200-second cooldown (30-second scheduling tolerance) and active-owner gate. A material stall can be reported as that scoped delta only when an authorized owner has evidence. `COORDINATOR_URGENT=1` selects a bounded incident notification and bypasses active/cooldown gates, without bypassing receipt holds or retained-ID deduplication. Full-rollup requests use the same inputs plus `--full-rollup`.
+
+Deferrals for active work, cooldown, lock contention or unresolved receipts can return exit0 without delivery; exit0 is not an acknowledgement. The caller must retain its event and retry the same semantic ID after the owner is idle/cooldown expires or contention clears. Periodic no-input wakes do not resume it. Confirm the account's SUCCESS state and retained ID before acknowledging delivery. An uncertain-send hold requires the owner to reconcile the actual transport receipt before any manual state repair; never clear it blindly to retry. Do not mint a new ID for a deferred or uncertain attempt.
