@@ -236,4 +236,33 @@ class CoordinatorTests(unittest.TestCase):
   r=self.run_worker('--account','alpha','--force')
   self.assertEqual(r.returncode,2)
   self.assertEqual(self.calls(),[])
+ def test_negative_float_timestamp_fails_closed(self):
+  self.event()
+  (self.state/'state_alpha.json').write_text(json.dumps({'last_sent_epoch':-0.5,'account':'alpha'}))
+  r=self.run_worker('--account','alpha','--force')
+  self.assertEqual(r.returncode,2)
+  self.assertEqual(self.calls(),[])
+ def test_overflow_float_timestamp_fails_closed(self):
+  self.event()
+  (self.state/'state_alpha.json').write_text(json.dumps({'last_sent_epoch':4102444800.5,'account':'alpha'}))
+  r=self.run_worker('--account','alpha','--force')
+  self.assertEqual(r.returncode,2)
+  self.assertEqual(self.calls(),[])
+ def test_string_delivered_change_ids_fails_closed(self):
+  self.event()
+  (self.state/'state_alpha.json').write_text(json.dumps({'delivered_change_ids':'task:1','account':'alpha'}))
+  r=self.run_worker('--account','alpha','--force')
+  self.assertEqual(r.returncode,2)
+  self.assertEqual(self.calls(),[])
+ def test_corrupt_sibling_in_consolidated_state_fails_closed_even_with_target_account(self):
+  self.event()
+  (self.state/'state.json').write_text(json.dumps({'accounts':{'alpha':{'account':'alpha'},'beta':{'last_sent_epoch':-0.5}}}))
+  r=self.run_worker('--account','alpha','--force')
+  self.assertEqual(r.returncode,2)
+  self.assertEqual(self.calls(),[])
+ def test_status_with_invalid_timestamp_fails_closed(self):
+  (self.state/'state_alpha.json').write_text(json.dumps({'last_sent_epoch':1e20,'account':'alpha'}))
+  r=self.run_worker('--account','alpha','--status')
+  self.assertEqual(r.returncode,2)
+  self.assertEqual(self.calls(),[])
 if __name__=='__main__':unittest.main(verbosity=2)

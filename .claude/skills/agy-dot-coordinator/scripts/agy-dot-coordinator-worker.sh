@@ -149,37 +149,71 @@ accounts = sys.argv[4:]
 all_configured_accounts = list(accounts)
 if os.path.exists(config_file):
     try:
-        cfg = json.load(open(config_file))
-        if isinstance(cfg, dict):
-            raw_rot = cfg.get("rotation")
-            raw_accs = cfg.get("accounts")
-            items = []
-            if isinstance(raw_rot, list):
-                items.extend([a for a in raw_rot if isinstance(a, str)])
-            elif isinstance(raw_rot, str) and re.match(r'^[a-zA-Z0-9_-]+$', raw_rot):
-                items.append(raw_rot)
-            if isinstance(raw_accs, dict):
-                items.extend([k for k in raw_accs.keys() if isinstance(k, str)])
-            for a in items:
-                if re.match(r'^[a-zA-Z0-9_-]+$', a) and a not in all_configured_accounts:
-                    all_configured_accounts.append(a)
-    except Exception:
-        pass
+        with open(config_file) as cf:
+            cfg = json.load(cf)
+        if not isinstance(cfg, dict):
+            raise ValueError("Corrupt config.json: root must be a JSON object")
+        raw_rot = cfg.get("rotation")
+        raw_accs = cfg.get("accounts")
+        items = []
+        if isinstance(raw_rot, list):
+            items.extend([a for a in raw_rot if isinstance(a, str)])
+        elif isinstance(raw_rot, str) and re.match(r'^[a-zA-Z0-9_-]+$', raw_rot):
+            items.append(raw_rot)
+        if isinstance(raw_accs, dict):
+            items.extend([k for k in raw_accs.keys() if isinstance(k, str)])
+        for a in items:
+            if re.match(r'^[a-zA-Z0-9_-]+$', a) and a not in all_configured_accounts:
+                all_configured_accounts.append(a)
+    except Exception as e:
+        raise ValueError(f"Corrupt config.json: {e}")
+
+def validate_account_record(label, d):
+    if not isinstance(d, dict):
+        raise ValueError(f"Corrupt state: {label} root must be a JSON object")
+    if "account" in d and not isinstance(d["account"], str):
+        raise ValueError(f"Corrupt state: {label} 'account' must be a string")
+    if "last_sent_epoch" in d:
+        v = d["last_sent_epoch"]
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or (isinstance(v, float) and (math.isnan(v) or math.isinf(v))):
+            raise ValueError(f"Corrupt state: {label} 'last_sent_epoch' invalid")
+        if not (0 <= v <= 4102444800):
+            raise ValueError(f"Corrupt state: {label} 'last_sent_epoch' out of range")
+    if "last_rollup_epoch" in d:
+        v = d["last_rollup_epoch"]
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or (isinstance(v, float) and (math.isnan(v) or math.isinf(v))):
+            raise ValueError(f"Corrupt state: {label} 'last_rollup_epoch' invalid")
+        if not (0 <= v <= 4102444800):
+            raise ValueError(f"Corrupt state: {label} 'last_rollup_epoch' out of range")
+    if "delivered_change_ids" in d:
+        dci = d["delivered_change_ids"]
+        if not isinstance(dci, list):
+            raise ValueError(f"Corrupt state: {label} 'delivered_change_ids' must be a list")
+        if any(not isinstance(cid, str) for cid in dci):
+            raise ValueError(f"Corrupt state: {label} 'delivered_change_ids' entries must be strings")
+    if "delivery_unverified" in d and not isinstance(d["delivery_unverified"], bool):
+        raise ValueError(f"Corrupt state: {label} 'delivery_unverified' must be boolean")
+    if "last_status" in d and not isinstance(d["last_status"], str):
+        raise ValueError(f"Corrupt state: {label} 'last_status' must be a string")
+    if "last_summary" in d and not isinstance(d["last_summary"], str):
+        raise ValueError(f"Corrupt state: {label} 'last_summary' must be a string")
+    if "last_sent_iso" in d and not isinstance(d["last_sent_iso"], str):
+        raise ValueError(f"Corrupt state: {label} 'last_sent_iso' must be a string")
 
 for acc in all_configured_accounts:
     acc_file = os.path.join(state_dir, f"state_{acc}.json")
     if os.path.exists(acc_file):
         with open(acc_file) as pf:
             loaded = json.load(pf)
-        if not isinstance(loaded, dict):
-            raise ValueError(f"Corrupt per-account state: {acc_file} root must be a JSON object")
-        if "last_sent_epoch" in loaded:
-            lse = loaded["last_sent_epoch"]
-            if isinstance(lse, (int, float)) and not (isinstance(lse, float) and (math.isnan(lse) or math.isinf(lse))):
-                if not (0 <= int(lse) <= 4102444800):
-                    raise ValueError(f"Corrupt per-account state: {acc_file} 'last_sent_epoch' out of range")
-            else:
-                raise ValueError(f"Corrupt per-account state: {acc_file} 'last_sent_epoch' invalid")
+        validate_account_record(acc_file, loaded)
+
+if os.path.isdir(state_dir):
+    for fname in os.listdir(state_dir):
+        if fname.startswith("state_") and fname.endswith(".json"):
+            fpath = os.path.join(state_dir, fname)
+            with open(fpath) as pf:
+                loaded = json.load(pf)
+            validate_account_record(fpath, loaded)
 
 if not os.path.exists(state_file):
     sys.exit(0)
@@ -190,6 +224,11 @@ with open(state_file) as f:
 
 if not isinstance(s, dict):
     raise ValueError("Corrupt state.json: root must be a JSON object")
+
+if "last_tick_epoch" in s:
+    lte = s["last_tick_epoch"]
+    if isinstance(lte, bool) or not isinstance(lte, (int, float)) or (isinstance(lte, float) and (math.isnan(lte) or math.isinf(lte))) or not (0 <= lte <= 4102444800):
+        raise ValueError("Corrupt state.json: 'last_tick_epoch' invalid")
 
 def atomic_json(path, data):
     fd, tmp = tempfile.mkstemp(prefix=".coordinator-", dir=os.path.dirname(path))
@@ -210,8 +249,7 @@ if "accounts" in s:
     if not isinstance(s["accounts"], dict):
         raise ValueError("Corrupt state.json: 'accounts' must be a dictionary")
     for acc_k, acc_v in s["accounts"].items():
-        if not isinstance(acc_v, dict):
-            raise ValueError(f"Corrupt state.json: 'accounts.{acc_k}' must be a dictionary")
+        validate_account_record(f"state.json accounts.{acc_k}", acc_v)
     for acc in accounts:
         acc_file = os.path.join(state_dir, f"state_{acc}.json")
         if os.path.exists(acc_file):
@@ -235,6 +273,7 @@ if "accounts" in s:
 # then rotation[0]) so peer accounts do not inherit its cooldown. If config is absent
 # or unverifiable, fail closed if an unverified hold is present; never guess.
 elif s:
+    validate_account_record("legacy state.json", s)
     primary_acc = None
     if os.path.exists(config_file):
         try:
@@ -314,10 +353,9 @@ import json, math, sys
 try:
     s = json.load(open(sys.argv[1]))
     val = s.get("last_sent_epoch", 0)
-    if isinstance(val, (int, float)) and not (isinstance(val, float) and (math.isnan(val) or math.isinf(val))):
-        epoch = int(val)
-        if 0 <= epoch <= 4102444800:
-            print(epoch)
+    if not isinstance(val, bool) and isinstance(val, (int, float)) and not (isinstance(val, float) and (math.isnan(val) or math.isinf(val))):
+        if 0 <= val <= 4102444800:
+            print(int(val))
         else:
             print("INVALID")
     else:
@@ -333,10 +371,9 @@ try:
     accs = s.get("accounts", {})
     if "accounts" in s and isinstance(accs, dict):
         val = accs.get(sys.argv[2], {}).get("last_sent_epoch", 0)
-        if isinstance(val, (int, float)) and not (isinstance(val, float) and (math.isnan(val) or math.isinf(val))):
-            epoch = int(val)
-            if 0 <= epoch <= 4102444800:
-                print(epoch)
+        if not isinstance(val, bool) and isinstance(val, (int, float)) and not (isinstance(val, float) and (math.isnan(val) or math.isinf(val))):
+            if 0 <= val <= 4102444800:
+                print(int(val))
             else:
                 print("INVALID")
         else:
@@ -420,6 +457,8 @@ if status == "SUCCESS":
         data["last_rollup_epoch"] = epoch
     if sys.argv[8]:
         ids = data.get("delivered_change_ids", [])
+        if not isinstance(ids, list):
+            ids = []
         data["delivered_change_ids"] = (ids + [sys.argv[8]])[-128:]
 def atomic_json(path, value):
     fd, tmp = tempfile.mkstemp(prefix=".coordinator-", dir=os.path.dirname(path))
@@ -473,6 +512,10 @@ if [[ "$STATUS_ONLY" -eq 1 ]]; then
   echo "--- Account Status Summary ---"
   for acc in "${ACCOUNTS[@]}"; do
     last_sent=$(read_last_sent "$acc")
+    if [[ ! "$last_sent" =~ ^[0-9]+$ ]] || (( last_sent > 4102444800 )); then
+      echo "Account [$acc]: Invalid timestamp; refusing status." >&2
+      exit 2
+    fi
     elapsed=$((NOW - last_sent))
     last_status=$(read_last_status "$acc")
     echo "Account [$acc]: Last sent ${elapsed}s ago | Cooldown: ${COOLDOWN_SECS}s | Status: $last_status"
@@ -514,13 +557,27 @@ for acc in "${ACCOUNTS[@]}"; do
   if [[ "$URGENT" == 1 ]]; then MESSAGE_KIND="incident"; fi
   # Fail closed on corrupt state; every send requires a new owner-supplied ID.
   eligible=$(python3 - "$STATE_DIR/state_$acc.json" "$STATE_FILE" "$NOW" "$MESSAGE_KIND" "$DELIVERY_KEY" "$last_sent" "$acc" <<'PY_GATE'
-import json, os, sys
+import json, math, os, sys
 path, state_file, now, kind, key, legacy_sent, acc = sys.argv[1:]
+
+def check_rec(d):
+    if not isinstance(d, dict):
+        raise ValueError("Corrupt state record")
+    if "delivered_change_ids" in d:
+        dci = d["delivered_change_ids"]
+        if not isinstance(dci, list) or any(not isinstance(cid, str) for cid in dci):
+            raise ValueError("Corrupt delivered_change_ids")
+    if "delivery_unverified" in d and not isinstance(d["delivery_unverified"], bool):
+        raise ValueError("Corrupt delivery_unverified")
+    if "last_sent_epoch" in d:
+        v = d["last_sent_epoch"]
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or (isinstance(v, float) and (math.isnan(v) or math.isinf(v))) or not (0 <= v <= 4102444800):
+            raise ValueError("Corrupt last_sent_epoch")
+
 state = {}
 if os.path.exists(path):
     state = json.load(open(path))
-    if not isinstance(state, dict):
-        raise ValueError("Corrupt per-account state: root must be a JSON object")
+    check_rec(state)
 elif os.path.exists(state_file):
     top = json.load(open(state_file))
     if not isinstance(top, dict):
@@ -529,8 +586,7 @@ elif os.path.exists(state_file):
         if not isinstance(top["accounts"], dict):
             raise ValueError("Corrupt state.json: 'accounts' must be a dictionary")
         for acc_k, acc_v in top["accounts"].items():
-            if not isinstance(acc_v, dict):
-                raise ValueError(f"Corrupt state.json: 'accounts.{acc_k}' must be a dictionary")
+            check_rec(acc_v)
         if acc in top["accounts"]:
             state = top["accounts"][acc]
     elif top.get("delivery_unverified"):
@@ -547,8 +603,7 @@ if os.path.exists(state_file):
         if not isinstance(top["accounts"], dict):
             raise ValueError("Corrupt state.json: 'accounts' must be a dictionary")
         for acc_k, acc_v in top["accounts"].items():
-            if not isinstance(acc_v, dict):
-                raise ValueError(f"Corrupt state.json: 'accounts.{acc_k}' must be a dictionary")
+            check_rec(acc_v)
         if top["accounts"].get(acc, {}).get("delivery_unverified"):
             print(0)
             sys.exit(0)
@@ -559,7 +614,10 @@ if os.path.exists(state_file):
 if state.get("delivery_unverified"):
     print(0)
     sys.exit(0)
-print(int(key not in state.get("delivered_change_ids", [])))
+dci = state.get("delivered_change_ids", [])
+if not isinstance(dci, list):
+    raise ValueError("delivered_change_ids must be a list")
+print(int(key not in dci))
 PY_GATE
   ) || { echo "Account [$acc]: Unreadable delivery state; refusing execution." >&2; exit 2; }
   if [[ "$eligible" != 1 ]]; then
