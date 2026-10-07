@@ -176,6 +176,136 @@ class TestDotPortfolioCoordinatorObserve(unittest.TestCase):
             "web-app", internal_item, "public"
         ))
 
+    def test_real_shaped_187_item_packet_stays_within_driver_limit(self):
+        from modules.driver_adapter import MAX_PACKET_BYTES, _validate_packet
+
+        sources = []
+        for index in range(3):
+            source_id = f"fixture-source-{index}"
+            sources.append({
+                "id": source_id,
+                "namespace": f"fixture-{index}",
+                "type": "github_repo",
+                "github_host": "github.com",
+                "repository": f"fixture-org/repository-{index}",
+                "canonical_tracker": "github_issues",
+                "authority": "read_only",
+                "audience_policy": {
+                    field: ["model"]
+                    for field in ("title", "status", "priority", "owner",
+                                  "next_action", "blocker")
+                } | {"updated_at": ["internal"]},
+            })
+        registry = coordinator_portfolio.SourceRegistry({
+            "version": "1.0.0", "sources": sources,
+        })
+
+        snapshots = {}
+        item_index = 0
+        for source in sources:
+            items = []
+            for _ in range(63 if item_index == 0 else 62):
+                item_id = str(item_index + 1000)
+                items.append({
+                    "id": item_id,
+                    "task_composite_key": [
+                        "github.com", source["repository"],
+                        source["namespace"], item_id,
+                    ],
+                    "title": f"Review task {item_index:03d}",
+                    "status": "open",
+                    "priority": "P2",
+                    "owner": "owner",
+                    "next_action": "Record the current blocker and evidence.",
+                    "blocker": "Pending review.",
+                    "updated_at": f"2026-10-07T00:{item_index % 60:02d}:00Z",
+                })
+                item_index += 1
+            snapshots[source["id"]] = {
+                "status": "fresh",
+                "version": "fixture-cursor-v1",
+                "cursor": {"completed": True},
+                "checkpoint_committed": True,
+                "items": items,
+            }
+
+        candidates, reason = coordinator_portfolio.build_driver_candidates(
+            {"snapshots": snapshots}, registry
+        )
+        self.assertEqual(reason, "ok")
+        self.assertEqual(len(candidates), 187)
+        model_snapshot = {
+            "coverage": {
+                "registered_count": 3, "fresh_count": 3,
+                "stale_count": 0, "unavailable_count": 0,
+            },
+            "sources": {},
+            "candidate_bindings": candidates,
+        }
+        for source in sources:
+            source_id = source["id"]
+            collected = snapshots[source_id]
+            model_snapshot["sources"][source_id] = {
+                "status": "fresh",
+                "version": collected["version"],
+                "cursor": collected["cursor"],
+                "checkpoint_committed": True,
+                "authority": source["authority"],
+                "items": [
+                    registry.filter_by_audience(source_id, item, "model")
+                    for item in collected["items"]
+                ],
+            }
+        packet = {
+            "schema_version": 1,
+            "task_id": None,
+            "event_id": "fixture-event-187",
+            "authority": {"instruction": "Review fixture tasks.", "source": "fixture"},
+            "snapshot": {key: value for key, value in model_snapshot.items()
+                         if key != "candidate_bindings"},
+            "previous_dot_reply": "",
+            "dialogue_stage": "inventory",
+            "phase": "inventory_due",
+            "candidate_bindings": candidates,
+            "source_binding": None,
+            "grant_binding": {"grant_version": 1, "grant_sha256": "a" * 64},
+            "correlation": None,
+        }
+        validated, packet_reason = _validate_packet(packet)
+        self.assertEqual(packet_reason, "ok")
+        self.assertEqual(len(validated["candidate_bindings"]), 187)
+        packet_bytes = len(json.dumps(
+            packet, ensure_ascii=False, allow_nan=False, separators=(",", ":")
+        ).encode())
+        self.assertGreater(packet_bytes, 90_000)
+        self.assertLessEqual(
+            packet_bytes,
+            MAX_PACKET_BYTES,
+        )
+
+    def test_candidate_task_ids_are_stable_and_distinguish_source_items(self):
+        registry = coordinator_portfolio.SourceRegistry(self.sources_data)
+
+        def build(item_id):
+            item = {
+                "id": item_id,
+                "task_composite_key": ["github.com", "example-org/test-repo",
+                                       "test", item_id],
+                "updated_at": "2026-10-07T00:00:00Z",
+            }
+            collected = {"snapshots": {"test-repo": {
+                "status": "fresh", "version": "v1",
+                "cursor": {"completed": True},
+                "checkpoint_committed": True, "items": [item],
+            }}}
+            return coordinator_portfolio.build_driver_candidates(
+                collected, registry
+            )[0][0]["task_id"]
+
+        self.assertEqual(build("item-1"), build("item-1"))
+        self.assertNotEqual(build("item-1"), build("item-2"))
+        self.assertLessEqual(len(build("item-1")), 80)
+
     def test_observe_active_mode_with_grant_sends_messages(self):
         with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
             root = Path(tmp)
@@ -490,4 +620,3 @@ class TestDotPortfolioCoordinatorObserve(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

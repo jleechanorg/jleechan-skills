@@ -173,13 +173,19 @@ def build_driver_candidates(
             binding, reason = task_source_binding(source_id, item)
             if binding is None:
                 return None, reason
-            task_id = json.dumps([source_id, *binding["task_composite_key"]],
-                                 ensure_ascii=False, separators=(",", ":"))
+            task_id = _opaque_task_id(source_id, binding["task_composite_key"])
             if task_id in task_ids:
                 return None, "source_receipt_ambiguous"
             task_ids.add(task_id)
             candidates.append({"task_id": task_id, "source_binding": binding})
     return candidates, "ok"
+
+
+def _opaque_task_id(source_id: str, task_composite_key: List[str]) -> str:
+    identity = json.dumps(
+        [source_id, *task_composite_key], ensure_ascii=False, separators=(",", ":")
+    ).encode("utf-8")
+    return "task_" + hashlib.sha256(identity).hexdigest()
 
 
 def task_source_binding(
