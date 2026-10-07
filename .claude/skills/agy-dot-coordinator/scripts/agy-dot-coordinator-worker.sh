@@ -267,10 +267,10 @@ for acc in "${ACCOUNTS[@]}"; do
   if [[ -n "$CHANGE_ID" ]]; then MESSAGE_KIND="change"; fi
   if [[ "$URGENT" == 1 ]]; then MESSAGE_KIND="incident"; fi
   # Fail closed on corrupt state; absence is an initial daily-rollup opportunity.
-  eligible=$(python3 - "$STATE_DIR/state_$acc.json" "$NOW" "$MESSAGE_KIND" "$DELIVERY_KEY" <<'PY_GATE'
+  eligible=$(python3 - "$STATE_DIR/state_$acc.json" "$NOW" "$MESSAGE_KIND" "$DELIVERY_KEY" "$last_sent" <<'PY_GATE'
 import json, os, sys
-path, now, kind, key = sys.argv[1:]
-state = json.load(open(path)) if os.path.exists(path) else {}
+path, now, kind, key, legacy_sent = sys.argv[1:]
+state = json.load(open(path)) if os.path.exists(path) else {"last_sent_epoch": int(legacy_sent)}
 if state.get("delivery_unverified"):
     print(0)
     sys.exit(0)

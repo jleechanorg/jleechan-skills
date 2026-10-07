@@ -21,6 +21,8 @@ class CoordinatorTests(unittest.TestCase):
   self.seed(last_rollup_epoch=int(time.time()),last_sent_epoch=0);self.run_worker('--account','alpha','--force');self.assertEqual(self.calls(),[])
  def test_legacy_receipt_seeds_daily_cap(self):
   self.seed(last_sent_epoch=int(time.time()),last_status='SUCCESS');self.run_worker('--account','alpha');self.assertEqual(self.calls(),[])
+ def test_legacy_global_state_prevents_multirecipient_replay(self):
+  (self.state/'state.json').write_text(json.dumps({'last_sent_epoch':int(time.time()),'last_status':'SUCCESS'}));self.run_worker();self.assertEqual(self.calls(),[])
  def test_active_skips_even_force(self):
   self.env['READ_TEXT']='Working';self.run_worker('--account','alpha','--force');self.assertEqual(self.calls(),['read']);self.assertFalse(self.msg.exists())
  def test_new_change_is_scoped(self):
