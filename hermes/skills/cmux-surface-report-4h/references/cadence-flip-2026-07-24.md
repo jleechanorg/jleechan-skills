@@ -36,12 +36,12 @@ plutil StartCalendarInterval → [{"Hour":8,"Minute":0}]
 launchctl print                → "Hour" => 8, "Minute" => 0, state=not running (will fire at next 08:00 PT)
 ```
 
-## Codex Luna usage-limit retry (verbatim)
+## Codex Spark usage-limit retry (verbatim)
 
 First `ao spawn --harness codex --branch fix/cmux-report-daily-8am` returned `spawned session jleechanclaw-19 (idle)` but the worker immediately logged:
 
 ```
-■ You've hit your usage limit for GPT-5.3-Codex-Spark. (historical verbatim error; model retired in favor of gpt-6-luna for Codex, haiku for Claude) Switch to another model now,
+■ You've hit your usage limit for GPT-5.3-Codex-Spark. Switch to another model now,
   or try again at Jul 29th, 2026 4:22 PM.
 ```
 

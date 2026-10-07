@@ -27,7 +27,7 @@ type: reference
 | `minimax/MiniMax-M2.7` | ✅ **WORKING — current primary** | `api_key` → `minimax:default` | Can be slow; timeout set to 900s |
 | `minimax/MiniMax-M2.7-highspeed` | ❌ **PLAN NOT SUPPORTED** | `api_key` → `minimax:default` | HTTP 500 error 2061 — current API key plan does not include this model |
 | `openai-codex/gpt-5.3-codex` | ❌ **QUOTA-LIMITED** | OAuth → `openai-codex:default` | Weekly usage cap exhausts; DO NOT use as primary/fallback |
-| `openai-codex/gpt-5.6-luna` | ⚠️ Same quota | OAuth → `openai-codex:default` | Same weekly pool as gpt-5.3-codex; used by consensus agent |
+| `openai-codex/gpt-5.3-codex-spark` | ⚠️ Same quota | OAuth → `openai-codex:default` | Same weekly pool as gpt-5.3-codex; used by consensus agent |
 | `xai/grok-4-fast` | ❓ UNVERIFIED | `api_key` → `XAI_API_KEY` env | Key was flagged 403/revoked 2026-03-28; verify before using |
 | `xai/grok-3-mini` | ❓ UNVERIFIED | `api_key` → `XAI_API_KEY` env | Same key as above |
 | `openrouter/auto` | ❓ NOT CONFIGURED | `api_key` → `OPENROUTER_API_KEY` | Key not in openclaw.json env; add before using |
