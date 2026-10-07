@@ -143,8 +143,28 @@ import json, os, re, sys, tempfile
 state_dir, state_file, config_file = sys.argv[1:4]
 accounts = sys.argv[4:]
 
-# 0. Fail closed on corrupt or non-object existing per-account state.
-for acc in accounts:
+# 0. Fail closed on corrupt or non-object existing per-account state across all configured accounts.
+all_configured_accounts = list(accounts)
+if os.path.exists(config_file):
+    try:
+        cfg = json.load(open(config_file))
+        if isinstance(cfg, dict):
+            raw_rot = cfg.get("rotation")
+            raw_accs = cfg.get("accounts")
+            items = []
+            if isinstance(raw_rot, list):
+                items = raw_rot
+            elif isinstance(raw_rot, str) and re.match(r'^[a-zA-Z0-9_-]+$', raw_rot):
+                items = [raw_rot]
+            elif isinstance(raw_accs, dict):
+                items = list(raw_accs.keys())
+            for a in items:
+                if isinstance(a, str) and re.match(r'^[a-zA-Z0-9_-]+$', a) and a not in all_configured_accounts:
+                    all_configured_accounts.append(a)
+    except Exception:
+        pass
+
+for acc in all_configured_accounts:
     acc_file = os.path.join(state_dir, f"state_{acc}.json")
     if os.path.exists(acc_file):
         with open(acc_file) as pf:
@@ -180,6 +200,9 @@ def atomic_json(path, data):
 if "accounts" in s:
     if not isinstance(s["accounts"], dict):
         raise ValueError("Corrupt state.json: 'accounts' must be a dictionary")
+    for acc_k, acc_v in s["accounts"].items():
+        if not isinstance(acc_v, dict):
+            raise ValueError(f"Corrupt state.json: 'accounts.{acc_k}' must be a dictionary")
     for acc in accounts:
         acc_file = os.path.join(state_dir, f"state_{acc}.json")
         if os.path.exists(acc_file):
@@ -278,15 +301,23 @@ read_last_sent() {
     python3 - "$acc_file" <<'PY_SENT' 2>/dev/null || echo 0
 import json, sys
 s = json.load(open(sys.argv[1]))
-print(s.get("last_sent_epoch", 0))
+val = s.get("last_sent_epoch", 0)
+try:
+    print(int(float(val)))
+except Exception:
+    print(0)
 PY_SENT
   elif [[ -f "$STATE_FILE" ]]; then
     python3 - "$STATE_FILE" "$acc" <<'PY_SENT' 2>/dev/null || echo 0
 import json, sys
 s = json.load(open(sys.argv[1]))
 accs = s.get("accounts", {})
-if "accounts" in s:
-    print(accs.get(sys.argv[2], {}).get("last_sent_epoch", 0))
+if "accounts" in s and isinstance(accs, dict):
+    val = accs.get(sys.argv[2], {}).get("last_sent_epoch", 0)
+    try:
+        print(int(float(val)))
+    except Exception:
+        print(0)
 else:
     print(0)
 PY_SENT
@@ -441,6 +472,10 @@ for acc in "${ACCOUNTS[@]}"; do
   echo ""
   echo ">>> Processing account: [$acc] <<<"
   last_sent=$(read_last_sent "$acc")
+  if [[ ! "$last_sent" =~ ^[0-9]+$ ]]; then
+    echo "Account [$acc]: Invalid timestamp; refusing execution." >&2
+    exit 2
+  fi
   elapsed=$((NOW - last_sent))
 
   # A scheduler wake is not a semantic change or a request for a full review.
@@ -468,6 +503,9 @@ elif os.path.exists(state_file):
     if "accounts" in top:
         if not isinstance(top["accounts"], dict):
             raise ValueError("Corrupt state.json: 'accounts' must be a dictionary")
+        for acc_k, acc_v in top["accounts"].items():
+            if not isinstance(acc_v, dict):
+                raise ValueError(f"Corrupt state.json: 'accounts.{acc_k}' must be a dictionary")
         if acc in top["accounts"]:
             state = top["accounts"][acc]
     elif top.get("delivery_unverified"):
@@ -477,17 +515,21 @@ if not state:
     state = {"last_sent_epoch": int(legacy_sent)}
 
 if os.path.exists(state_file):
-    try:
-        top = json.load(open(state_file))
-        if isinstance(top, dict):
-            if "accounts" not in top and top.get("delivery_unverified"):
-                print(0)
-                sys.exit(0)
-            if isinstance(top.get("accounts"), dict) and top["accounts"].get(acc, {}).get("delivery_unverified"):
-                print(0)
-                sys.exit(0)
-    except Exception:
-        pass
+    top = json.load(open(state_file))
+    if not isinstance(top, dict):
+        raise ValueError("Corrupt state.json: root must be a JSON object")
+    if "accounts" in top:
+        if not isinstance(top["accounts"], dict):
+            raise ValueError("Corrupt state.json: 'accounts' must be a dictionary")
+        for acc_k, acc_v in top["accounts"].items():
+            if not isinstance(acc_v, dict):
+                raise ValueError(f"Corrupt state.json: 'accounts.{acc_k}' must be a dictionary")
+        if top["accounts"].get(acc, {}).get("delivery_unverified"):
+            print(0)
+            sys.exit(0)
+    elif top.get("delivery_unverified"):
+        print(0)
+        sys.exit(0)
 
 if state.get("delivery_unverified"):
     print(0)
