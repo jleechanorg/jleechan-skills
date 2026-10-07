@@ -135,22 +135,23 @@ accounts = sys.argv[4:]
 if not os.path.exists(state_file):
     sys.exit(0)
 
-try:
-    with open(state_file) as f:
-        s = json.load(f)
-except Exception:
-    sys.exit(0)
+# Fail closed on corrupt consolidated state.
+with open(state_file) as f:
+    s = json.load(f)
 
 if not isinstance(s, dict):
-    sys.exit(0)
+    raise ValueError("Corrupt state.json: root must be a JSON object")
 
 def atomic_json(path, data):
-    tmp = tempfile.mktemp(dir=os.path.dirname(path), prefix=".tmp_")
-    with open(tmp, "w") as f:
-        json.dump(data, f, indent=2)
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(tmp, path)
+    fd, tmp = tempfile.mkstemp(prefix=".coordinator-", dir=os.path.dirname(path))
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(data, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp): os.unlink(tmp)
 
 # 1. Consolidated state migration:
 # If state.json contains per-account records in s["accounts"], migrate any
@@ -166,19 +167,18 @@ if "accounts" in s and isinstance(s["accounts"], dict):
 
 # 2. Legacy pre-multi-account state migration:
 # If state.json lacks "accounts", it is a legacy single-account file.
-# Attribute it only to the primary account so peer accounts do not inherit its cooldown.
+# Attribute it only to a verifiable primary account from config so peer accounts
+# do not inherit its cooldown. If config is absent/unverifiable, do not guess.
 elif s:
     primary_acc = None
     if os.path.exists(config_file):
         try:
             cfg = json.load(open(config_file))
             rot = cfg.get("rotation") or list(cfg.get("accounts", {}).keys())
-            if rot:
+            if rot and isinstance(rot, list) and len(rot) > 0:
                 primary_acc = rot[0]
         except Exception:
             pass
-    if not primary_acc and accounts:
-        primary_acc = accounts[0]
 
     if primary_acc:
         primary_file = os.path.join(state_dir, f"state_{primary_acc}.json")
@@ -187,19 +187,20 @@ elif s:
             legacy_data["account"] = primary_acc
             atomic_json(primary_file, legacy_data)
 
-    upgraded = dict(s)
-    upgraded["accounts"] = {}
-    if primary_acc:
-        primary_file = os.path.join(state_dir, f"state_{primary_acc}.json")
+        upgraded = dict(s)
+        upgraded["accounts"] = {}
         if os.path.exists(primary_file):
             try:
                 upgraded["accounts"][primary_acc] = json.load(open(primary_file))
             except Exception:
                 pass
-    atomic_json(state_file, upgraded)
+        atomic_json(state_file, upgraded)
 PY_MIGRATE
 }
-migrate_prior_state
+if ! migrate_prior_state; then
+  echo "Unreadable or corrupt prior state; refusing execution." >&2
+  exit 2
+fi
 
 read_last_sent() {
   local acc="$1"
@@ -382,12 +383,11 @@ state = {}
 if os.path.exists(path):
     state = json.load(open(path))
 elif os.path.exists(state_file):
-    try:
-        top = json.load(open(state_file))
-        if isinstance(top, dict) and "accounts" in top and acc in top["accounts"]:
-            state = top["accounts"][acc]
-    except Exception:
-        state = {}
+    top = json.load(open(state_file))
+    if not isinstance(top, dict):
+        raise ValueError("Corrupt state.json: root must be a JSON object")
+    if "accounts" in top and isinstance(top["accounts"], dict) and acc in top["accounts"]:
+        state = top["accounts"][acc]
 if not state:
     state = {"last_sent_epoch": int(legacy_sent)}
 if state.get("delivery_unverified"):

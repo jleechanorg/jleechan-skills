@@ -127,4 +127,10 @@ class CoordinatorTests(unittest.TestCase):
   (self.state/'state.json').write_text(json.dumps({'last_sent_epoch':int(time.time()),'last_status':'SUCCESS'}))
   self.run_worker('--account','alpha');self.assertEqual(self.calls(),['read'])
   self.run_worker('--account','beta');self.assertEqual(self.calls(),['read','read','send'])
+ def test_corrupt_consolidated_state_fails_closed(self):
+  self.event();(self.state/'state.json').write_text('{');self.run_worker('--account','alpha','--force');self.assertEqual(self.calls(),[])
+ def test_unverifiable_config_does_not_assign_legacy_state(self):
+  (self.state/'state.json').write_text(json.dumps({'last_sent_epoch':int(time.time()),'last_status':'SUCCESS'}))
+  if self.cfg.exists(): self.cfg.unlink()
+  self.run_worker('--account','beta');self.assertFalse((self.state/'state_beta.json').exists())
 if __name__=='__main__':unittest.main(verbosity=2)
