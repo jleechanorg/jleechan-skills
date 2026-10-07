@@ -175,6 +175,9 @@ class TestDriverAdapter(unittest.TestCase):
 
     def test_agy_default_uses_real_stream_protocol_and_full_permission_mode(self):
         response = self.response_text
+        guidance = (
+            SCRIPTS_DIR.parent / "references" / "dot-self-unblock.md"
+        ).read_text(encoding="utf-8")
         self._fake_driver("agy", f'''import json, sys
 args = sys.argv[1:]
 assert "--dangerously-skip-permissions" in args
@@ -186,7 +189,7 @@ assert ("--output-format" in args and
 message = json.loads(sys.stdin.readline())
 assert message["event"] == "user"
 assert isinstance(message["message"]["content"], str)
-assert "Merge Integrity" in message["message"]["content"]
+assert {guidance!r} in message["message"]["content"]
 assert "Do not call dot transport or send messages" in message["message"]["content"]
 assert "do not edit repositories, access credentials" in message["message"]["content"]
 assert "perform any proposed action" in message["message"]["content"]
