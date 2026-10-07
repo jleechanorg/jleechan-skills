@@ -108,4 +108,7 @@ class CoordinatorTests(unittest.TestCase):
  def test_deferred_event_resumes_with_same_id(self):
   self.event();self.env['READ_TEXT']='Working';self.run_worker('--account','alpha');self.assertFalse((self.state/'state_alpha.json').exists())
   self.env['READ_TEXT']='Idle';self.run_worker('--account','alpha');self.assertEqual(self.calls(),['read','read','send']);self.assertEqual(self.saved()['delivered_change_ids'],['task:revision1:ready'])
+ def test_force_overrides_only_delta_cooldown(self):
+  self.event();self.seed(last_sent_epoch=int(time.time()));self.run_worker('--account','alpha');self.assertEqual(self.calls(),['read'])
+  self.run_worker('--account','alpha','--force');self.assertEqual(self.calls(),['read','read','send']);self.assertEqual(self.saved()['delivered_change_ids'],['task:revision1:ready'])
 if __name__=='__main__':unittest.main(verbosity=2)
