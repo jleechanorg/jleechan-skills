@@ -84,7 +84,10 @@ class CoordinatorTests(unittest.TestCase):
    self.assertEqual(self.saved()['last_status'],'SUCCESS');self.assertFalse(self.saved()['delivery_unverified'])
   finally:
    # Stop only this isolated test process and its sleep child; never a real worker.
-   os.killpg(proc.pid,signal.SIGTERM);proc.communicate(timeout=3)
+   try:
+    os.killpg(proc.pid,signal.SIGTERM);proc.communicate(timeout=3)
+   except subprocess.TimeoutExpired:
+    os.killpg(proc.pid,signal.SIGKILL);proc.communicate(timeout=3)
   before=self.calls();self.run_worker('--account','alpha');self.assertEqual(self.calls(),before)
  def test_no_signal_quiet_even_after_24_hours(self):
   self.seed(last_sent_epoch=1,last_rollup_epoch=1);self.run_worker('--account','alpha');self.assertEqual(self.calls(),[])
@@ -214,4 +217,23 @@ class CoordinatorTests(unittest.TestCase):
   r=self.run_worker('--account','alpha','--force')
   self.assertEqual(r.returncode,0)
   self.assertEqual(self.calls(),['read','send'])
+ def test_corrupt_sibling_in_accounts_dict_fails_closed_even_with_target_account(self):
+  self.event()
+  self.cfg.write_text(json.dumps({'rotation':['alpha'],'accounts':{'beta':{'user_data_dir':'/tmp'}}}))
+  (self.state/'state_beta.json').write_text('{')
+  r=self.run_worker('--account','alpha','--force')
+  self.assertEqual(r.returncode,2)
+  self.assertEqual(self.calls(),[])
+ def test_overflow_timestamp_fails_closed(self):
+  self.event()
+  (self.state/'state_alpha.json').write_text(json.dumps({'last_sent_epoch':1e20,'account':'alpha'}))
+  r=self.run_worker('--account','alpha','--force')
+  self.assertEqual(r.returncode,2)
+  self.assertEqual(self.calls(),[])
+ def test_negative_timestamp_fails_closed(self):
+  self.event()
+  (self.state/'state_alpha.json').write_text(json.dumps({'last_sent_epoch':-1,'account':'alpha'}))
+  r=self.run_worker('--account','alpha','--force')
+  self.assertEqual(r.returncode,2)
+  self.assertEqual(self.calls(),[])
 if __name__=='__main__':unittest.main(verbosity=2)

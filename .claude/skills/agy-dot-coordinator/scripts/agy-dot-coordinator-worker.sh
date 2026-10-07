@@ -105,17 +105,19 @@ import json, re, sys
 try:
     cfg = json.load(open(sys.argv[1]))
     if isinstance(cfg, dict):
-        rot = cfg.get("rotation")
-        accs = cfg.get("accounts")
+        raw_rot = cfg.get("rotation")
+        raw_accs = cfg.get("accounts")
         items = []
-        if isinstance(rot, list):
-            items = rot
-        elif isinstance(rot, str) and re.match(r'^[a-zA-Z0-9_-]+$', rot):
-            items = [rot]
-        elif isinstance(accs, dict):
-            items = list(accs.keys())
+        if isinstance(raw_rot, list):
+            items.extend([a for a in raw_rot if isinstance(a, str)])
+        elif isinstance(raw_rot, str) and re.match(r'^[a-zA-Z0-9_-]+$', raw_rot):
+            items.append(raw_rot)
+        if isinstance(raw_accs, dict):
+            items.extend([k for k in raw_accs.keys() if isinstance(k, str)])
+        seen = set()
         for a in items:
-            if isinstance(a, str) and re.match(r'^[a-zA-Z0-9_-]+$', a):
+            if re.match(r'^[a-zA-Z0-9_-]+$', a) and a not in seen:
+                seen.add(a)
                 print(a)
 except Exception:
     pass
@@ -138,7 +140,7 @@ done
 # Migrate prior consolidated or legacy state before reading eligibility or timestamps.
 migrate_prior_state() {
   python3 - "$STATE_DIR" "$STATE_FILE" "$CONFIG_FILE" "${ACCOUNTS[@]}" <<'PY_MIGRATE'
-import json, os, re, sys, tempfile
+import json, math, os, re, sys, tempfile
 
 state_dir, state_file, config_file = sys.argv[1:4]
 accounts = sys.argv[4:]
@@ -153,13 +155,13 @@ if os.path.exists(config_file):
             raw_accs = cfg.get("accounts")
             items = []
             if isinstance(raw_rot, list):
-                items = raw_rot
+                items.extend([a for a in raw_rot if isinstance(a, str)])
             elif isinstance(raw_rot, str) and re.match(r'^[a-zA-Z0-9_-]+$', raw_rot):
-                items = [raw_rot]
-            elif isinstance(raw_accs, dict):
-                items = list(raw_accs.keys())
+                items.append(raw_rot)
+            if isinstance(raw_accs, dict):
+                items.extend([k for k in raw_accs.keys() if isinstance(k, str)])
             for a in items:
-                if isinstance(a, str) and re.match(r'^[a-zA-Z0-9_-]+$', a) and a not in all_configured_accounts:
+                if re.match(r'^[a-zA-Z0-9_-]+$', a) and a not in all_configured_accounts:
                     all_configured_accounts.append(a)
     except Exception:
         pass
@@ -171,6 +173,13 @@ for acc in all_configured_accounts:
             loaded = json.load(pf)
         if not isinstance(loaded, dict):
             raise ValueError(f"Corrupt per-account state: {acc_file} root must be a JSON object")
+        if "last_sent_epoch" in loaded:
+            lse = loaded["last_sent_epoch"]
+            if isinstance(lse, (int, float)) and not (isinstance(lse, float) and (math.isnan(lse) or math.isinf(lse))):
+                if not (0 <= int(lse) <= 4102444800):
+                    raise ValueError(f"Corrupt per-account state: {acc_file} 'last_sent_epoch' out of range")
+            else:
+                raise ValueError(f"Corrupt per-account state: {acc_file} 'last_sent_epoch' invalid")
 
 if not os.path.exists(state_file):
     sys.exit(0)
@@ -235,16 +244,18 @@ elif s:
                 raw_accs = cfg.get("accounts")
                 raw_configured = []
                 if isinstance(raw_rot, list):
-                    raw_configured = raw_rot
+                    raw_configured.extend([a for a in raw_rot if isinstance(a, str)])
                 elif isinstance(raw_rot, str) and re.match(r'^[a-zA-Z0-9_-]+$', raw_rot):
-                    raw_configured = [raw_rot]
-                elif isinstance(raw_accs, dict):
-                    raw_configured = list(raw_accs.keys())
+                    raw_configured.append(raw_rot)
+                if isinstance(raw_accs, dict):
+                    raw_configured.extend([k for k in raw_accs.keys() if isinstance(k, str)])
 
-                configured = [
-                    a for a in raw_configured
-                    if isinstance(a, str) and re.match(r'^[a-zA-Z0-9_-]+$', a)
-                ]
+                configured = []
+                seen = set()
+                for a in raw_configured:
+                    if re.match(r'^[a-zA-Z0-9_-]+$', a) and a not in seen:
+                        seen.add(a)
+                        configured.append(a)
                 cand = cfg.get("default_account")
                 if isinstance(cand, str) and re.match(r'^[a-zA-Z0-9_-]+$', cand) and cand in configured:
                     primary_acc = cand
@@ -298,28 +309,42 @@ read_last_sent() {
   local acc="$1"
   local acc_file="$STATE_DIR/state_${acc}.json"
   if [[ -f "$acc_file" ]]; then
-    python3 - "$acc_file" <<'PY_SENT' 2>/dev/null || echo 0
-import json, sys
-s = json.load(open(sys.argv[1]))
-val = s.get("last_sent_epoch", 0)
+    python3 - "$acc_file" <<'PY_SENT' 2>/dev/null || echo "INVALID"
+import json, math, sys
 try:
-    print(int(float(val)))
+    s = json.load(open(sys.argv[1]))
+    val = s.get("last_sent_epoch", 0)
+    if isinstance(val, (int, float)) and not (isinstance(val, float) and (math.isnan(val) or math.isinf(val))):
+        epoch = int(val)
+        if 0 <= epoch <= 4102444800:
+            print(epoch)
+        else:
+            print("INVALID")
+    else:
+        print("INVALID")
 except Exception:
-    print(0)
+    print("INVALID")
 PY_SENT
   elif [[ -f "$STATE_FILE" ]]; then
-    python3 - "$STATE_FILE" "$acc" <<'PY_SENT' 2>/dev/null || echo 0
-import json, sys
-s = json.load(open(sys.argv[1]))
-accs = s.get("accounts", {})
-if "accounts" in s and isinstance(accs, dict):
-    val = accs.get(sys.argv[2], {}).get("last_sent_epoch", 0)
-    try:
-        print(int(float(val)))
-    except Exception:
+    python3 - "$STATE_FILE" "$acc" <<'PY_SENT' 2>/dev/null || echo "INVALID"
+import json, math, sys
+try:
+    s = json.load(open(sys.argv[1]))
+    accs = s.get("accounts", {})
+    if "accounts" in s and isinstance(accs, dict):
+        val = accs.get(sys.argv[2], {}).get("last_sent_epoch", 0)
+        if isinstance(val, (int, float)) and not (isinstance(val, float) and (math.isnan(val) or math.isinf(val))):
+            epoch = int(val)
+            if 0 <= epoch <= 4102444800:
+                print(epoch)
+            else:
+                print("INVALID")
+        else:
+            print("INVALID")
+    else:
         print(0)
-else:
-    print(0)
+except Exception:
+    print("INVALID")
 PY_SENT
   else
     echo 0
@@ -472,7 +497,7 @@ for acc in "${ACCOUNTS[@]}"; do
   echo ""
   echo ">>> Processing account: [$acc] <<<"
   last_sent=$(read_last_sent "$acc")
-  if [[ ! "$last_sent" =~ ^[0-9]+$ ]]; then
+  if [[ ! "$last_sent" =~ ^[0-9]+$ ]] || (( last_sent > 4102444800 )); then
     echo "Account [$acc]: Invalid timestamp; refusing execution." >&2
     exit 2
   fi
