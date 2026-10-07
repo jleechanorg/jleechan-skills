@@ -446,6 +446,7 @@ def main() -> None:
     # resolve-notification
     p_notif = subparsers.add_parser("resolve-notification", parents=[common_parser], help="Resolve notification authorization binding")
     p_notif.add_argument("--ref", required=True, help="Authorization ref (control/action/attempt)")
+    p_notif.add_argument("--bindings-file", help="Explicit local binding file; lookup does not establish authority")
 
     # collect
     p_col = subparsers.add_parser("collect", parents=[common_parser], help="Collect snapshot across registered sources")

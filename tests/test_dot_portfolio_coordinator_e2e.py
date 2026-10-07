@@ -1,5 +1,6 @@
 import json
 import os
+import pwd
 import subprocess
 import tempfile
 import unittest
@@ -12,7 +13,7 @@ CLI_SCRIPT = str(SKILL_DIR / "scripts" / "coordinator-portfolio.py")
 
 class TestDotPortfolioCoordinatorE2E(unittest.TestCase):
     def setUp(self):
-        self.temp_dir = tempfile.TemporaryDirectory()
+        self.temp_dir = tempfile.TemporaryDirectory(dir="/tmp")
         self.sources_file = str(SKILL_DIR / "references" / "sources.json")
         self.ledger_file = os.path.join(self.temp_dir.name, "ledger.json")
         self.bindings_file = os.path.join(self.temp_dir.name, "bindings.json")
@@ -42,46 +43,22 @@ class TestDotPortfolioCoordinatorE2E(unittest.TestCase):
         self.assertEqual(proc.returncode, 0)
         self.assertIn("Dot Portfolio Coordinator", proc.stdout)
 
-    def test_cli_reserve_and_settle(self):
-        # 1. Reserve
-        req = {
-            "task_key": {
-                "github_host": "github.com",
-                "repository": "example-org/roadmap",
-                "source_namespace": "roadmap",
-                "bead_id": "bd-1"
-            },
-            "grant_version": "v1",
-            "action_id": "act-e2e-1",
-            "attempt_id": "att-1",
-            "currency": "USD",
-            "max_cost": 0.15
-        }
-        proc_res = self._run_cli(["reserve", "--request", json.dumps(req), "--sources", self.sources_file])
-        self.assertEqual(proc_res.returncode, 0)
-        res_data = json.loads(proc_res.stdout)
-        self.assertEqual(res_data["status"], "reserved")
-        self.assertEqual(res_data["accepted_amount"], 0.15)
-        res_id = res_data["reservation_id"]
-
-        # 2. Status
-        proc_stat = self._run_cli(["status", "--reservation-id", res_id, "--sources", self.sources_file])
-        self.assertEqual(proc_stat.returncode, 0)
-        stat_data = json.loads(proc_stat.stdout)
-        self.assertEqual(stat_data["status"], "active")
-
-        # 3. Settle
-        settle_req = {
-            "reservation_id": res_id,
-            "actual_cost": 0.12,
-            "evidence_reference": "https://example.com/receipt/1",
-            "evidence_digest": "sha-rec-1"
-        }
-        proc_set = self._run_cli(["settle", "--request", json.dumps(settle_req), "--sources", self.sources_file])
-        self.assertEqual(proc_set.returncode, 0)
-        set_data = json.loads(proc_set.stdout)
-        self.assertEqual(set_data["status"], "settled")
-        self.assertEqual(set_data["settled_amount"], 0.12)
+    def test_cli_refuses_unverified_spend_despite_forged_environment(self):
+        for command in ("reserve", "settle"):
+            with self.subTest(command=command):
+                proc = self._run_cli([command, "--request", json.dumps({"max_cost": 0.15}),
+                                      "--sources", self.sources_file])
+                self.assertEqual(proc.returncode, 2)
+                data = json.loads(proc.stdout)
+                self.assertEqual(data["status"], "rejected")
+                self.assertEqual(data["reason"], "capability_blocked")
+                self.assertEqual(data["caller_principal"], pwd.getpwuid(os.getuid()).pw_name)
+        self.assertFalse(Path(self.ledger_file).exists())
+        proc = self._run_cli(["status", "--reservation-id", "caller-invented",
+                              "--sources", self.sources_file])
+        data = json.loads(proc.stdout)
+        self.assertEqual(data["status"], "unknown_reservation")
+        self.assertEqual(data["reason"], "capability_blocked")
 
     def test_cli_resolve_notification(self):
         # Register a binding directly in bindings_file
@@ -98,7 +75,7 @@ class TestDotPortfolioCoordinatorE2E(unittest.TestCase):
         with open(self.bindings_file, "w") as f:
             json.dump(data, f)
 
-        proc = self._run_cli(["resolve-notification", "--ref", ref, "--sources", self.sources_file])
+        proc = self._run_cli(["resolve-notification", "--ref", ref, "--bindings-file", self.bindings_file, "--sources", self.sources_file])
         self.assertEqual(proc.returncode, 0)
         out_json = json.loads(proc.stdout)
         self.assertEqual(out_json["event_id"], "ev-001")
