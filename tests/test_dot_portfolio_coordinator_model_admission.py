@@ -93,7 +93,8 @@ class TestDotPortfolioCoordinatorModelAdmission(unittest.TestCase):
         self.assertFalse(res["admitted"])
         self.assertEqual(res["reason"], "capability_blocked")
 
-    def test_admission_passes_when_all_isolation_guarantees_met(self):
+    def test_admission_always_capability_blocked_absent_genuine_isolation_adapter(self):
+        # Caller JSON booleans MUST NOT establish actual isolation
         env_isolated = {
             "sandbox_enforced": True,
             "host_mounts": [],
@@ -103,8 +104,9 @@ class TestDotPortfolioCoordinatorModelAdmission(unittest.TestCase):
             "write_credentials_excluded": True
         }
         res = self.admission.admit_model_transport(env_isolated)
-        self.assertTrue(res["admitted"])
-        self.assertIsNone(res["reason"])
+        self.assertFalse(res["admitted"])
+        self.assertEqual(res["reason"], "capability_blocked")
+        self.assertIn("isolation adapter", res["details"].lower())
 
     def test_minimized_snapshot_filters_prohibited_fields(self):
         minimized = self.admission.prepare_minimized_snapshot(self.sample_snapshot)
@@ -120,6 +122,22 @@ class TestDotPortfolioCoordinatorModelAdmission(unittest.TestCase):
             "schema_version": 1,
             "snapshot_id": "snap-20261007-001",
             "items": [
+                {
+                    "task_key": {
+                        "github_host": "github.com",
+                        "repository": "example-org/roadmap",
+                        "source_namespace": "roadmap",
+                        "bead_id": "bd-ctrl-1"
+                    },
+                    "source_version": "sha-road-1",
+                    "citations": ["example-org/roadmap#bd-ctrl-1@sha-road-1"],
+                    "owner": "admin",
+                    "priority": 0,
+                    "status": "open",
+                    "blocker": "none",
+                    "next_action": "track work",
+                    "uncertainty": "none"
+                },
                 {
                     "task_key": {
                         "github_host": "github.com",
@@ -152,6 +170,98 @@ class TestDotPortfolioCoordinatorModelAdmission(unittest.TestCase):
         # Re-running validation yields identical action_id (idempotence)
         res2 = self.validator.validate_proposal(proposal, self.sample_snapshot)
         self.assertEqual(res1["action_id"], res2["action_id"])
+
+    def test_prose_containing_curl_or_rm_not_rejected_by_keyword_classifier(self):
+        # Semantic keyword classifier was removed: arbitrary prose in append_note is allowed
+        proposal = {
+            "schema_version": 1,
+            "snapshot_id": "snap-20261007-001",
+            "items": [
+                {
+                    "task_key": {
+                        "github_host": "github.com",
+                        "repository": "example-org/roadmap",
+                        "source_namespace": "roadmap",
+                        "bead_id": "bd-ctrl-1"
+                    },
+                    "source_version": "sha-road-1",
+                    "citations": ["example-org/roadmap#bd-ctrl-1@sha-road-1"],
+                    "owner": "admin",
+                    "priority": 0,
+                    "status": "open",
+                    "next_action": "none"
+                },
+                {
+                    "task_key": {
+                        "github_host": "github.com",
+                        "repository": "example-org/skills",
+                        "source_namespace": "skills",
+                        "bead_id": "bd-s1"
+                    },
+                    "source_version": "sha-skill-1",
+                    "citations": ["example-org/skills#bd-s1@sha-skill-1"],
+                    "owner": "alice",
+                    "priority": 1,
+                    "status": "open",
+                    "next_action": "review curl documentation"
+                }
+            ],
+            "mutations": [
+                {
+                    "target_control_record_id": "bd-ctrl-1",
+                    "action_type": "tracking_observation",
+                    "append_note": "Investigating curl timeout on endpoint; do not rm files."
+                }
+            ]
+        }
+        res = self.validator.validate_proposal(proposal, self.sample_snapshot)
+        self.assertTrue(res["valid"])
+
+    def test_proposal_validation_rejects_unknown_structural_executable_fields(self):
+        # Reject unknown executable fields structurally
+        proposal = {
+            "schema_version": 1,
+            "snapshot_id": "snap-20261007-001",
+            "items": [],
+            "mutations": [
+                {
+                    "target_control_record_id": "bd-ctrl-1",
+                    "action_type": "tracking_observation",
+                    "append_note": "Valid note",
+                    "execute_command": "rm -rf /"  # unknown executable field
+                }
+            ]
+        }
+        with self.assertRaises(ProposalValidationError) as ctx:
+            self.validator.validate_proposal(proposal, self.sample_snapshot)
+        self.assertIn("unknown", str(ctx.exception).lower())
+
+    def test_proposal_validation_enforces_full_item_coverage(self):
+        # Proposal omits bd-s1 from items coverage
+        proposal = {
+            "schema_version": 1,
+            "snapshot_id": "snap-20261007-001",
+            "items": [
+                {
+                    "task_key": {
+                        "github_host": "github.com",
+                        "repository": "example-org/roadmap",
+                        "source_namespace": "roadmap",
+                        "bead_id": "bd-ctrl-1"
+                    },
+                    "source_version": "sha-road-1",
+                    "citations": ["example-org/roadmap#bd-ctrl-1@sha-road-1"],
+                    "owner": "admin",
+                    "priority": 0,
+                    "status": "open",
+                    "next_action": "track work"
+                }
+            ],
+            "mutations": []
+        }
+        with self.assertRaises(ProposalValidationError) as ctx:
+            self.validator.validate_proposal(proposal, self.sample_snapshot)
+        self.assertIn("coverage", str(ctx.exception).lower())
 
     def test_proposal_validation_rejects_invented_task_key(self):
         proposal = {
@@ -201,3 +311,4 @@ class TestDotPortfolioCoordinatorModelAdmission(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
