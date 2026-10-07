@@ -117,6 +117,72 @@ class TestDotPortfolioCoordinatorModelAdmission(unittest.TestCase):
         # principal_id only has ['internal'] in sources.json, so it must be stripped from 'model'
         self.assertNotIn("principal_id", road_items[0])
 
+    def test_minimized_snapshot_preserves_safe_coverage_freshness_and_error_code(
+        self,
+    ):
+        snapshot = {
+            "snapshot_id": "snap-partial",
+            "collected_at": 900,
+            "coverage": {
+                "registered_count": 3,
+                "fresh_count": 1,
+                "stale_count": 1,
+                "unavailable_count": 1,
+                "private_notes": "must not pass through",
+            },
+            "private_error": "raw failure details",
+            "sources": {
+                "core-skills": {
+                    "source_id": "core-skills",
+                    "status": "partial",
+                    "version": "sha-skill-2",
+                    "cursor": {"last_completed_page": 2, "completed": False},
+                    "checkpoint_committed": False,
+                    "collected_at": 700,
+                    "validated_at": 750,
+                    "attempted_at": 800,
+                    "error_code": "incomplete_envelope",
+                    "error": "private raw exception",
+                    "items": self.sample_snapshot["sources"]["core-skills"][
+                        "items"
+                    ],
+                }
+            },
+        }
+
+        minimized = self.admission.prepare_minimized_snapshot(snapshot)
+
+        self.assertEqual(minimized["collected_at"], 900)
+        self.assertEqual(
+            minimized["coverage"],
+            {
+                "registered_count": 3,
+                "fresh_count": 1,
+                "stale_count": 1,
+                "unavailable_count": 1,
+            },
+        )
+        source = minimized["sources"]["core-skills"]
+        self.assertEqual(source["status"], "partial")
+        self.assertEqual(
+            source["cursor"], {"last_completed_page": 2, "completed": False}
+        )
+        self.assertFalse(source["checkpoint_committed"])
+        self.assertEqual(source["collected_at"], 700)
+        self.assertEqual(source["validated_at"], 750)
+        self.assertEqual(source["attempted_at"], 800)
+        self.assertEqual(source["error_code"], "incomplete_envelope")
+        self.assertNotIn("private_error", minimized)
+        self.assertNotIn("private_notes", minimized["coverage"])
+        self.assertNotIn("error", source)
+        self.assertNotIn("principal_id", source["items"][0])
+
+        snapshot["sources"]["core-skills"]["error_code"] = "private raw exception"
+        unsafe_code_snapshot = self.admission.prepare_minimized_snapshot(snapshot)
+        self.assertNotIn(
+            "error_code", unsafe_code_snapshot["sources"]["core-skills"]
+        )
+
     def test_proposal_validation_valid_and_deterministic_action_id(self):
         proposal = {
             "schema_version": 1,
@@ -311,4 +377,3 @@ class TestDotPortfolioCoordinatorModelAdmission(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
