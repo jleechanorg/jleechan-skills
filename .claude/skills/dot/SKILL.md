@@ -8,7 +8,7 @@ description: Use when the user invokes /dot or asks to "message the dot", "ask d
 Talk to the user's ChatGPT dot assistant using `scripts/dot.sh`. Platform-aware architecture:
 - **Dynamic Multi-Account Support:** Target any ChatGPT dot account via `--account <name>` or `DOT_ACCOUNT=<name>`.
 - **Machine-Local Configuration:** Configured in `~/.config/dot/config.json` mapping accounts to URLs, backends, and profile match selectors.
-- **Headless Chrome Backend:** Runs headless Google Chrome against dedicated persistent profiles (`~/.config/dot-headless-chrome-<account_slug>`) on Linux and macOS with unified profile resolution and non-destructive lock recovery.
+- **Headless Chrome Backend:** Runs headless Google Chrome against dedicated persistent profiles (`~/.config/dot-headless-chrome-<account_slug>`) on Linux and macOS with automatic process lifecycle and lock cleanup.
 - **Transparent Cross-Host Forwarding:** Automatically bridges between Linux and macOS hosts when local Chrome is unavailable (e.g. forward to a Mac with a signed-in Chrome profile).
 
 ## Machine Configuration (`~/.config/dot/config.json`)
@@ -59,17 +59,8 @@ The dot runs its own coders. When /dot is used for work, hand the work to the do
 - Send: write the message to a `mktemp` file, then `dot.sh [--account <name>] [--url <url>] send <file>`. Prefix every message with the sender identity, e.g. `From Claude (<model>, <worktree>): ...`. Never interpolate raw text into JS; the script JSON-encodes the file.
   - **Mandatory after any send that hands off or asks for work:** in the same turn, without asking, harden the wait condition with `/ironclad` (binary, verified at the source, 4-hour cap), then set it via `/cmux-goal` (or native `/goal` when cmux is unavailable) using the condition in "Default: delegate, then monitor". Run `send` in the background, since it can wait up to 30 min on a busy composer; it posts once and never resends. A send without a goal is an unfinished step.
 - Single send attempt: `dot.sh [--account <name>] [--url <url>] send-once <file>`.
-- Interactive login / auth: `dot.sh [--account <name>] login` launches visible Chrome attached to that account's profile directory.
 - To ask and get an answer: send, then poll `dot.sh read 3000` (separate calls, each under 60s) until the tail no longer ends in `Thinking` or `Working`.
 - Run the script with a Bash timeout of at least 150s.
-
-### Exit codes
-
-- `0`: Success (read produced output, send verified, or dry-run verified).
-- `2`: Usage error, missing argument/message file, or unrecoverable error.
-- `3`: Composer busy with peer draft after retry deadline (`DOT_WAIT_SECS`).
-- `4`: Send could not be verified in page text.
-- `5`: ChatGPT usage limit, rate limit, or abuse prevention reached (rotation exhausted or unrotatable).
 
 ## Invocation banner (account + backend + profile directory)
 
@@ -79,32 +70,32 @@ Every `dot.sh` invocation prints a one-line banner to stderr identifying the res
 dot.sh: account=<name> backend=<chrome|auto> url=<host> dir=<path>
 ```
 
-Profile directory resolution is unified between `dot.sh` and `scripts/dot_chrome.mjs resolve-profile`, guaranteeing that the banner, interactive `login`, and headless runs always operate on the identical profile directory.
+Use it to confirm which account is being targeted and which exact directory will be accessed. If the banner shows the wrong directory or account, fix it in `~/.config/dot/config.json` before continuing — `--account <name>` overrides the default.
 
 ## Interactive Login & Session Recovery
 
 If an account returns `DOT_CHROME_UNAVAILABLE: not signed in`:
 1. **Canonical Login Command:** Run `login` on that exact account:
    ```bash
-   scripts/dot.sh --account <name> login
+   ~/.claude/skills/dot/scripts/dot.sh --account <name> login
    ```
-   This launches a visible Google Chrome window attached to the exact resolved profile directory for that account.
+   This launches a visible Google Chrome window attached to the exact `user_data_dir` for that account.
 2. Sign in to ChatGPT manually in the browser window.
 3. Once logged in and the ChatGPT chat/dot page loads, close the browser window. The session tokens and cookies are saved in that profile directory.
 4. Re-test with `dot.sh --account <name> read 500`.
 
 ## Cloudflare & Session Verification
 
-- The script directly evaluates ChatGPT's `/api/auth/session` endpoint within the authenticated page context.
-- **Cloudflare Challenges / 403s:** If Cloudflare returns a challenge or 403 on the session endpoint, the script reports `DOT_CHROME_UNAVAILABLE: Cloudflare challenge` or `Cloudflare 403 on session endpoint`. This is a transient challenge condition — it is never treated as a logged-out state and never invalidates local cookies.
-- **Genuine Logouts:** Only reported when `/api/auth/session` returns 200 with an empty user object or when explicit login action buttons are displayed.
+- The script directly checks ChatGPT's session endpoint (`/api/auth/session`) in the page context.
+- **Cloudflare Challenges / 403s:** If Cloudflare returns a challenge or 403, the script reports `DOT_CHROME_UNAVAILABLE: Cloudflare challenge` or `Cloudflare 403 on session endpoint`. This is a transient network/challenge condition — do NOT treat it as a logged-out state or discard cookies.
+- **Genuine Logouts:** Only reported when `/api/auth/session` returns 200 with an empty user payload and the composer is absent.
 
 ## Concurrency & Safety Rules
 
 - Other agent sessions share this composer. ChatGPT restores a saved draft lazily on focus, so `send` focuses first, then inspects.
 - **Stale draft:** A draft is only cleared if:
   1. It matches our own message from an interrupted prior attempt, OR
-  2. The text already appears in a previously submitted user message (`[data-message-author-role=user]`) matching the full normalized message content (never wiping on short prefix substrings), OR
+  2. The text already appears in a previously submitted user message (`[data-message-author-role=user]`) (with relaxed substring matching tolerant of read-receipt timestamps like 'Read 1:15 AM'), OR
   3. Forced via `DOT_CLEAR_DRAFT=1`.
   If cleared, `send` prints `DOT_STALE_DRAFT_CLEARED`.
 - **Unsent draft:** If an unsubmitted draft belonging to another session is present, `send` NEVER clears or overwrites it. It retries every 60s (`DOT_RETRY_SECS`) up to 30 min (`DOT_WAIT_SECS`) and sends once the composer is empty; exit 3 means still busy after the wait.
@@ -119,9 +110,12 @@ If an account returns `DOT_CHROME_UNAVAILABLE: not signed in`:
 ## Account Rotation on Limits (Mandatory)
 
 Always rotate across configured accounts when hitting a rate limit, usage limit, abuse prevention cooldown, or message cap:
-- **Limit Detection:** Detected directly from ChatGPT UI alert elements (`[role=alert]`, alert banners), emitting structured `DOT_USAGE_LIMIT_REACHED` events.
-- **Mandatory Rotation:** When an account hits a limit or cooldown, immediately rotate to the next configured account in `rotation` using `--account <next>`.
-- **Clean Profile Hand-off:** Rotation unsets both `DOT_CHROME_USER_DATA` and `DOT_URL` across the boundary so the next account automatically resolves its own dedicated profile directory and target URL.
+- **Limit Detection:** Watch for limit signatures in read output, error banners, or send failures:
+  - "Your dot is on a break" / "hit our abuse prevention limit" / "Check back in a bit"
+  - "You've reached your usage limit" / "usage limit reached"
+  - "Too many requests in 1 hour" / "rate limit exceeded"
+- **Mandatory Rotation:** When an account hits a limit or cooldown, immediately rotate to the next configured account (e.g. `primary` -> `secondary` -> `tertiary` -> ...) using `--account <next>`.
+- **Never Stall on Cooldown:** Do not wait idle or block execution when an account is on a break if other accounts are available. Continue driving work across the remaining active accounts.
 - **Automatic Script Support:** `dot.sh` implements automatic account rotation (`DOT_ROTATE_ON_LIMIT=1` by default) using the `rotation` sequence declared in `~/.config/dot/config.json`.
 
 ## Backend & Persistent Profiles
@@ -129,10 +123,10 @@ Always rotate across configured accounts when hitting a rate limit, usage limit,
 - **Headless Chrome (`scripts/dot_chrome.mjs`):** The only supported backend.
   - Dynamically auto-detects profile configuration from system Google Chrome's `Local State` matching `user_name`, `email`, `name`, or `hosted_domain`.
   - Explicitly configured via `user_data_dir` in `~/.config/dot/config.json` (e.g. `~/.config/dot-headless-chrome-<name>`).
-  - Initial seeding copies storage and cookies from matching system Chrome profile on first creation, then persists independently (never re-seeded if cookies or preferences exist).
-  - Safely handles `SingletonLock`: verifies lock holder PID liveness, waiting politely if held by an active Chrome process, clearing only genuinely dead locks without killing peer processes.
+  - Initial seeding copies storage and cookies from matching system Chrome profile on first creation, then persists independently.
+  - Automatically clears stale `SingletonLock` and terminates orphaned headless Chrome processes for that specific profile directory without interfering with user desktop Chrome.
   - Tolerates appended read-receipt timestamps (`Read 1:15 AM`) to prevent false draft conflicts.
-- **Cross-host fallback:** When the local host has no Chrome (e.g. a Linux runner with no Chrome installed), `dot.sh` forwards the call via SSH to the configured `remote_host`. Set `DOT_REMOTE_HOST=<host>` to override, or `DOT_NO_REMOTE=1` to disable forwarding.
+- **Cross-host fallback:** When the local host has no Chrome (e.g. a Linux runner with no Chrome installed), `dot.sh` forwards the call via SSH to the configured `remote_host` (typically the MacBook). Set `DOT_REMOTE_HOST=macbook` to override, or `DOT_NO_REMOTE=1` to disable forwarding.
 
 ## Configuration & Environment Variables
 
@@ -140,9 +134,8 @@ Always rotate across configured accounts when hitting a rate limit, usage limit,
 - `DOT_URL`: Target ChatGPT dot assistant URL. Can also be passed via `--url <url>`.
 - `DOT_BACKEND`: Force backend (`chrome` or `auto`). The `aside` backend was retired; selecting it is a usage error.
 - `DOT_CONFIG_FILE`: Custom path to dot JSON configuration (defaults to `~/.config/dot/config.json`).
-- `DOT_REMOTE_HOST`: SSH host for Linux→Mac forwarding when local Chrome is unavailable (configured in `~/.config/dot/config.json` or environment).
-- `DOT_ALLOW_REMOTE`: Set to 0 to disable remote SSH fallback (default: 1 on non-Darwin when local Chrome is unavailable and `remote_host` is configured). Set to 1 to attempt remote forwarding immediately before trying local Chrome.
-- `DOT_NO_REMOTE`: Set to 1 to disable remote SSH forwarding.
+- `DOT_REMOTE_HOST`: SSH host for Linux→Mac forwarding when local Chrome is unavailable (probes `macbook`, `macbook-ts`).
+- `DOT_REMOTE_LINUX`: SSH host for Mac→Linux forwarding (e.g. `remote-linux-host`).
 - `DOT_CHROME_USER_DATA`: Explicit Chrome user data directory (defaults to account-specific persistent dir configured in `~/.config/dot/config.json`).
 - `DOT_CLEAR_DRAFT`: When set to `1`, forces clearing any existing draft in the composer before typing and sending.
 - `DOT_DRY_RUN`: When `1` (Chrome backend), types, verifies exact match, clears composer, and prints `DOT_DRYRUN_OK` without sending.

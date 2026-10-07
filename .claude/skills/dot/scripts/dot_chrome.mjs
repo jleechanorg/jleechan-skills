@@ -343,7 +343,7 @@ async function launch() {
   try {
     ctx = await chromium.launchPersistentContext(USER_DATA_DIR, {
       executablePath: CHROME,
-      headless: isLinux ? !hasDisplay : true,
+      headless: true, // never open visible windows; headless reaches the keyring via the session bus
       userAgent: UA,
       ignoreDefaultArgs,
       args: extraArgs,
@@ -362,12 +362,12 @@ async function launch() {
     const composers = await page.locator(COMPOSER).count().catch(() => 0);
     const bodyText = (await page.evaluate(() => document.body ? document.body.innerText : '').catch(() => ''));
 
-    if (/ChatGPT hit a snag|Something went wrong/i.test(bodyText)) {
+    if (/ChatGPT hit a snag|Something went wrong|couldn[’']t load your account/i.test(bodyText)) {
       try {
-        const tryAgainBtn = page.locator('button:has-text("Try again"), button:has-text("Retry")');
+        const tryAgainBtn = page.locator('button:has-text("Try again"), button:has-text("Retry"), button:has-text("Reload")');
         if (await tryAgainBtn.count() > 0) {
           await tryAgainBtn.first().click();
-          await sleep(2000);
+          await sleep(3000);
           continue;
         }
       } catch {}
@@ -426,9 +426,9 @@ async function launch() {
 
 async function read(page, n) {
   let bodyText = (await page.evaluate(() => document.body.innerText)).trim();
-  if (/ChatGPT hit a snag|Something went wrong/i.test(bodyText)) {
+  if (/ChatGPT hit a snag|Something went wrong|couldn[’']t load your account/i.test(bodyText)) {
     try {
-      const tryAgainBtn = page.locator('button:has-text("Try again"), button:has-text("Retry")');
+      const tryAgainBtn = page.locator('button:has-text("Try again"), button:has-text("Retry"), button:has-text("Reload")');
       if (await tryAgainBtn.count() > 0) {
         await tryAgainBtn.first().click();
         await sleep(3000);
