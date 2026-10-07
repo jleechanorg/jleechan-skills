@@ -168,27 +168,13 @@ function ensurePersistentProfile(accInfo, targetDir) {
   const defaultDir = path.join(targetDir, 'Default');
   const networkCookies = path.join(defaultDir, 'Network', 'Cookies');
   const legacyCookies = path.join(defaultDir, 'Cookies');
+  const preferences = path.join(defaultDir, 'Preferences');
   const srcProfilePath = accInfo.matchedKey ? path.join(sysChromeDir, accInfo.matchedKey) : null;
   if (
     (fs.existsSync(networkCookies) && fs.statSync(networkCookies).size > 0) ||
     (fs.existsSync(legacyCookies) && fs.statSync(legacyCookies).size > 0) ||
     (fs.existsSync(preferences) && fs.statSync(preferences).size > 0)
   ) {
-    if (srcProfilePath && fs.existsSync(srcProfilePath)) {
-      try {
-        for (const rel of ['Cookies', path.join('Network', 'Cookies')]) {
-          const srcC = path.join(srcProfilePath, rel);
-          const dstC = path.join(defaultDir, rel);
-          if (fs.existsSync(srcC) && fs.existsSync(dstC)) {
-            const srcMtime = fs.statSync(srcC).mtimeMs;
-            const dstMtime = fs.statSync(dstC).mtimeMs;
-            if (srcMtime > dstMtime + 10000) {
-              fs.copyFileSync(srcC, dstC);
-            }
-          }
-        }
-      } catch {}
-    }
     return;
   }
 
@@ -343,7 +329,7 @@ async function launch() {
   try {
     ctx = await chromium.launchPersistentContext(USER_DATA_DIR, {
       executablePath: CHROME,
-      headless: isLinux ? !hasDisplay : true,
+      headless: true, // never open visible windows; headless reaches the keyring via the session bus
       userAgent: UA,
       ignoreDefaultArgs,
       args: extraArgs,
@@ -378,13 +364,13 @@ async function launch() {
     }
 
     if (composers >= 1) {
-      // Validate auth immediately even when composer is visible (distinguishes logged-out anonymous composer)
-      const session = await checkAuthSession(page);
-      if (session.status === 200 && session.isJson && !session.hasUser) {
+      // Validate auth when composer is visible (distinguishes logged-out anonymous composer)
+      const hasLoginButtons = await page.evaluate(() => {
+        const btns = Array.from(document.querySelectorAll('button, a'));
+        return btns.some(b => /^(log in|sign up)$/i.test((b.innerText || '').trim()));
+      }).catch(() => false);
+      if (hasLoginButtons) {
         unavailable('not signed in');
-      }
-      if (session.status === 403) {
-        unavailable('Cloudflare 403 on session endpoint');
       }
 
       if (mode === 'send') return page;
@@ -405,13 +391,6 @@ async function launch() {
   // Settle deadline elapsed without active composer: diagnose exact failure reason
   const title = await page.title().catch(() => '');
   if (/just a moment/i.test(title)) unavailable('Cloudflare challenge');
-
-  const session = await checkAuthSession(page);
-  if (session.status === 403) {
-    unavailable('Cloudflare 403 on session endpoint');
-  } else if (session.status === 200 && session.isJson && !session.hasUser) {
-    unavailable('not signed in');
-  }
 
   const hasLoginButtons = await page.evaluate(() => {
     const btns = Array.from(document.querySelectorAll('button, a'));
@@ -528,11 +507,28 @@ async function send(page, file, dry) {
   if (aborted) return;
   clicked = true;
   await page.click('button[data-testid=send-button], button[aria-label*=Send]');
-  await sleep(4000);
-  const left = (await readComposer()).trim();
-  const afterMsgs = await getUserMessages();
-  const afterCount = countMatches(afterMsgs, norm(msg));
-  const sentVerified = left === '' && afterCount > beforeCount;
+  let left = '';
+  let afterMsgs = [];
+  let afterCount = 0;
+  for (let i = 0; i < 10; i++) {
+    await sleep(1000);
+    left = (await readComposer()).trim();
+    afterMsgs = await getUserMessages();
+    afterCount = countMatches(afterMsgs, norm(msg));
+    if (left === '' && afterCount > beforeCount) break;
+  }
+  let sentVerified = left === '' && afterCount > beforeCount;
+  if (!sentVerified && left === '' && beforeMsgs.length === 0 && afterMsgs.length === 0) {
+    // Modern ChatGPT DOM lacks legacy author-role/article attributes.
+    // Verify that composer cleared and the message text appears in the rendered page text.
+    const bodyText = (await page.evaluate(() => document.body ? document.body.innerText : '')).trim();
+    const sBody = stripReadReceipt(norm(bodyText));
+    const sMsg = stripReadReceipt(norm(msg));
+    const prefix = sMsg.slice(0, Math.min(100, sMsg.length));
+    if (sBody.includes(prefix)) {
+      sentVerified = true;
+    }
+  }
   console.log(sentVerified ? 'DOT_SENT_VERIFIED' : 'DOT_SEND_UNVERIFIED composer_left=' + left.length);
 }
 
