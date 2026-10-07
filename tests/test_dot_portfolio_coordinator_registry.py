@@ -123,6 +123,77 @@ class TestDotPortfolioCoordinatorRegistry(unittest.TestCase):
         self.assertNotIn("example-org/roadmap", gaps)
         self.assertEqual(len(gaps), 2)
 
+    def test_reject_unknown_root_keys(self):
+        bad_data = {
+            "version": "1.0.0",
+            "sources": [],
+            "unknown_root_field": "disallowed"
+        }
+        with self.assertRaises(RegistryValidationError) as ctx:
+            SourceRegistry(bad_data)
+        self.assertIn("unknown root field", str(ctx.exception).lower())
+
+    def test_reject_unknown_source_keys(self):
+        bad_data = {
+            "version": "1.0.0",
+            "sources": [
+                {
+                    "id": "s1",
+                    "namespace": "s1-ns",
+                    "type": "github_repo",
+                    "github_host": "github.com",
+                    "repository": "org/repo1",
+                    "canonical_tracker": "github_issues",
+                    "authority": "read_only",
+                    "audience_policy": {"title": ["public"]},
+                    "unexpected_extra_field": "bad"
+                }
+            ]
+        }
+        with self.assertRaises(RegistryValidationError) as ctx:
+            SourceRegistry(bad_data)
+        self.assertIn("unknown source field", str(ctx.exception).lower())
+
+    def test_strict_types_and_enums_budget_validation(self):
+        # Case: boolean or NaN passed for budget
+        bad_budget = {
+            "version": "1.0.0",
+            "sources": [],
+            "budget_policy": {
+                "per_cycle_tokens": True,  # boolean should be rejected
+                "per_cycle_cost_usd": float("nan"),
+                "daily_tokens": 1000,
+                "daily_cost_usd": 10.0,
+                "allowed_models": ["m1"]
+            }
+        }
+        with self.assertRaises(RegistryValidationError) as ctx:
+            SourceRegistry(bad_budget)
+        self.assertIn("budget", str(ctx.exception).lower())
+
+    def test_observe_only_without_budget_policy(self):
+        # Observe-only registry should be valid without budget/endpoint policy
+        obs_data = {
+            "version": "1.0.0",
+            "sources": [
+                {
+                    "id": "s1",
+                    "namespace": "s1-ns",
+                    "type": "github_repo",
+                    "github_host": "github.com",
+                    "repository": "org/repo1",
+                    "canonical_tracker": "unknown",  # unknown intake supported
+                    "authority": "read_only",
+                    "audience_policy": {"title": ["public"]},
+                    "owner": "explicit-owner"
+                }
+            ]
+        }
+        reg = SourceRegistry(obs_data)
+        self.assertTrue(reg.is_observe_only)
+        self.assertEqual(reg.get_source("s1")["canonical_tracker"], "unknown")
+        self.assertEqual(reg.get_source("s1")["owner"], "explicit-owner")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -32,9 +32,10 @@
         "type": { "type": "string", "enum": ["github_repo", "beads_store", "roadmap_beads"] },
         "github_host": { "type": "string" },
         "repository": { "type": "string" },
-        "canonical_tracker": { "type": "string", "enum": ["beads", "github_issues"] },
+        "canonical_tracker": { "type": "string", "enum": ["beads", "github_issues", "unknown"] },
         "authority": { "type": "string", "enum": ["read_only", "authoritative_control"] },
         "host_binding": { "type": "string" },
+        "owner": { "type": "string" },
         "freshness_budget_secs": { "type": "integer", "minimum": 0 },
         "collection_mode": { "type": "string", "enum": ["full_census", "incremental"] },
         "audience_policy": { "$ref": "#/definitions/AudiencePolicy" }
@@ -76,9 +77,10 @@
         "caller_allowlist": {
           "type": "array",
           "items": { "type": "string" }
-        }
+        },
+        "designated_host": { "type": "string" }
       },
-      "required": ["version", "sources", "budget_policy", "endpoint_policy", "caller_allowlist"],
+      "required": ["version", "sources"],
       "additionalProperties": false
     },
     "ProposalItem": {
