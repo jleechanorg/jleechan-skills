@@ -154,7 +154,7 @@ class TestDotPortfolioCoordinatorSender(unittest.TestCase):
             "COORDINATOR_CHANGE_SUMMARY": "Valid test delivery message"
         }
         rc, res, err = self._run_sender(env_vars=env)
-        self.assertEqual(rc, 0)
+        self.assertEqual(rc, 0, (res, err))
         self.assertIsNotNone(res)
         self.assertEqual(res.get("outcome"), "delivered")
         self.assertTrue(res.get("delivery_verified"))
