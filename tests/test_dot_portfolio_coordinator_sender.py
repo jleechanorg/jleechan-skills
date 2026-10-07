@@ -24,7 +24,8 @@ class TestDotPortfolioCoordinatorSender(unittest.TestCase):
         # Set temp_dir mode to 0700 for grant parent dir requirement
         os.chmod(self.temp_dir.name, 0o700)
         self.state_dir = os.path.join(self.temp_dir.name, "state")
-        self.lock_file = os.path.join(self.temp_dir.name, "sender.lock")
+        os.mkdir(self.state_dir, 0o700)
+        self.lock_file = os.path.join(self.state_dir, "sender.lock")
 
         # Create valid root grant file (mode 0400, owner current uid, valid bounds)
         self.grant_data = {
@@ -32,8 +33,9 @@ class TestDotPortfolioCoordinatorSender(unittest.TestCase):
             "task_id": "dot-coordinator-separated-20261007",
             "account_id": "default",
             "action": "send_dot_test_message",
-            "max_messages": 10,
-            "min_interval_secs": 1,
+            "activated_at_epoch": int(time.time()) - 10,
+            "max_messages": 3,
+            "min_interval_secs": 3600,
             "expiry_epoch": int(time.time()) + 3600
         }
         self.grant_file = os.path.join(self.temp_dir.name, "test_grant.json")
@@ -72,10 +74,10 @@ class TestDotPortfolioCoordinatorSender(unittest.TestCase):
             pass
         self.temp_dir.cleanup()
 
-    def _run_sender(self, env_vars=None, args=None):
+    def _run_sender(self, env_vars=None, args=None, account="default"):
         cmd = [
             self.sender_script,
-            "--account", "default",
+            "--account", account,
             "--state-dir", self.state_dir,
             "--lock-file", self.lock_file,
             "--grant-file", self.grant_file,
@@ -193,6 +195,88 @@ class TestDotPortfolioCoordinatorSender(unittest.TestCase):
         self.assertNotEqual(rc, 0)
         self.assertEqual(res.get("outcome"), "invalid")
         self.assertIn("poll", res.get("reason", "").lower())
+
+    def test_non_finite_grant_expiry_rejected(self):
+        self.grant_data["expiry_epoch"] = float("nan")
+        grant_bytes = json.dumps(self.grant_data, sort_keys=True).encode("utf-8")
+        os.chmod(self.grant_file, 0o600)
+        with open(self.grant_file, "wb") as f:
+            f.write(grant_bytes)
+        os.chmod(self.grant_file, 0o400)
+        self.grant_sha256 = hashlib.sha256(grant_bytes).hexdigest()
+        rc, res, _ = self._run_sender({
+            "COORDINATOR_CHANGE_ID": "ev-nan",
+            "COORDINATOR_CHANGE_SUMMARY": "NaN must not pass"
+        })
+        self.assertEqual(rc, 2)
+        self.assertEqual(res["outcome"], "invalid")
+
+    def test_state_directory_is_required_and_private(self):
+        cmd = [self.sender_script, "--account", "default", "--grant-file", self.grant_file,
+               "--grant-sha256", self.grant_sha256, "--transport-script", self.fake_dot_script]
+        env = dict(os.environ, DOT_PORTFOLIO_STATE_DIR=self.state_dir,
+                   COORDINATOR_CHANGE_ID="ev-no-state",
+                   COORDINATOR_CHANGE_SUMMARY="No implicit state")
+        proc = subprocess.run(cmd, env=env, capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("state_dir", proc.stdout)
+
+    def test_full_prompt_is_not_truncated(self):
+        summary = "x" * 6000
+        rc, res, _ = self._run_sender({
+            "COORDINATOR_CHANGE_ID": "ev-long",
+            "COORDINATOR_CHANGE_SUMMARY": summary
+        })
+        self.assertEqual(rc, 0)
+        self.assertEqual(res["outcome"], "delivered")
+
+    def test_reconcile_option_is_rejected_until_supported(self):
+        rc, res, _ = self._run_sender({
+            "COORDINATOR_CHANGE_ID": "ev-reconcile",
+            "COORDINATOR_CHANGE_SUMMARY": "Must not ignore reconcile"
+        }, args=["--reconcile-receipt", "/tmp/receipt"])
+        self.assertEqual(rc, 2)
+        self.assertEqual(res["outcome"], "invalid")
+
+    def test_grant_interval_and_message_cap_are_enforced(self):
+        state = {
+            "schema_version": 1,
+            "grant_sha256": self.grant_sha256,
+            "attempted_count": 1,
+            "last_attempt_epoch": time.time() - 30,
+            "last_sent_epoch": 0,
+            "retained_event_ids": [],
+            "pending_delivery": None,
+        }
+        account_file = os.path.join(self.state_dir, "account_default.json")
+        with open(account_file, "w", encoding="utf-8") as f:
+            json.dump(state, f)
+        os.chmod(account_file, 0o600)
+        env = {"COORDINATOR_CHANGE_ID": "ev-too-soon",
+               "COORDINATOR_CHANGE_SUMMARY": "Hourly interval"}
+        rc, res, _ = self._run_sender(env, args=["--force"])
+        self.assertEqual(rc, 0)
+        self.assertEqual(res["reason"], "grant_min_interval")
+
+        state["attempted_count"] = self.grant_data["max_messages"]
+        state["last_attempt_epoch"] = time.time() - 3601
+        with open(account_file, "w", encoding="utf-8") as f:
+            json.dump(state, f)
+        rc, res, _ = self._run_sender(env, args=["--force"])
+        self.assertEqual(rc, 0)
+        self.assertEqual(res["reason"], "grant_message_limit")
+
+    def test_corrupt_state_holds_without_transport(self):
+        account_file = os.path.join(self.state_dir, "account_default.json")
+        with open(account_file, "w", encoding="utf-8") as f:
+            f.write("{")
+        os.chmod(account_file, 0o600)
+        rc, res, _ = self._run_sender({
+            "COORDINATOR_CHANGE_ID": "ev-corrupt",
+            "COORDINATOR_CHANGE_SUMMARY": "Do not reset corrupted state"
+        })
+        self.assertEqual(rc, 3)
+        self.assertEqual(res["reason"], "state_corrupt_hold")
 
 
 if __name__ == "__main__":

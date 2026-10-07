@@ -1,326 +1,314 @@
-"""Hardened, receipt-safe message delivery worker for dot-portfolio-coordinator.
-
-Implements:
-- Local operator pilot grant validation (owner UID, mode 0400/0600, parent dir 0700, SHA256 binding, schema bounds)
-- Dedicated private state directory and fcntl lock
-- Quiet wake on empty event
-- Atomic pending delivery persistence before transport execution
-- Strict standalone regex matching of DOT_SENT_VERIFIED on transport exit 0
-- Uncertainty hold on transport failure or substring match
-- Bounded deduplication across last 128 IDs (duplicate cannot be forced)
-- Read-only status query creating zero files or directories
-- Rejection of unsupported options (e.g. --poll-reply)
-"""
+"""Receipt-safe sender bounded by a trusted local operator grant."""
 import argparse
+import fcntl
 import hashlib
 import json
+import math
 import os
 import re
 import stat
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-MODULES_DIR = Path(__file__).resolve().parent
-SCRIPTS_DIR = MODULES_DIR.parent
+SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
-
 from modules.process_utils import run_bounded_command
 
-
-WORKER_SHA = "dot-portfolio-coordinator-sender-v2"
+WORKER_SHA = "dot-portfolio-coordinator-sender-v3"
 COOLDOWN_SECS = 7200
+MAX_GRANT_WINDOW_SECS = 43200
+MAX_SUMMARY_CHARS = 32000
 STANDALONE_VERIFIED_REGEX = re.compile(r"(?m)^DOT_SENT_VERIFIED\s*$")
+ACCOUNT_RE = re.compile(r"^[A-Za-z0-9_.-]{1,80}$")
 
 
-def emit_result(outcome: str, reason: str, account: str, delivery_verified: bool = False, event_id: Optional[str] = None) -> None:
-    res = {
-        "schema_version": 1,
-        "account": account,
-        "outcome": outcome,
-        "reason": reason,
-        "delivery_verified": delivery_verified,
-        "worker_sha256": WORKER_SHA
-    }
+def emit_result(outcome: str, reason: str, account: str,
+                delivery_verified: bool = False,
+                event_id: Optional[str] = None) -> None:
+    res = {"schema_version": 1, "account": account, "outcome": outcome,
+           "reason": reason, "delivery_verified": delivery_verified,
+           "worker_sha256": WORKER_SHA}
     if event_id:
         res["event_id"] = event_id
     print("COORDINATOR_RESULT " + json.dumps(res))
 
 
-def emit_status(account: str, state_file: str) -> None:
-    if os.path.exists(state_file):
-        try:
-            with open(state_file, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            raw = json.dumps(data, sort_keys=True)
-            state_sha = hashlib.sha256(raw.encode("utf-8")).hexdigest()
-            last_sent = data.get("last_sent_epoch", 0)
-            pending = data.get("pending_delivery")
-            retained = data.get("retained_event_ids", [])
-        except Exception:
-            state_sha = "corrupt"
-            last_sent = 0
-            pending = None
-            retained = []
-    else:
-        state_sha = None
-        last_sent = 0
-        pending = None
-        retained = []
-
-    status_rec = {
-        "schema_version": 1,
-        "account": account,
-        "state_sha256": state_sha,
-        "last_sent_epoch": last_sent,
-        "delivery_unverified": pending is not None,
-        "pending_delivery": pending,
-        "retained_event_ids": retained,
-        "worker_sha256": WORKER_SHA
-    }
-    print("COORDINATOR_STATUS " + json.dumps(status_rec))
+def _read_json_file(path: str, label: str) -> Tuple[Optional[Dict[str, Any]], str]:
+    """Read a private, owner-owned regular file without following symlinks."""
+    try:
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        with os.fdopen(fd, "rb") as stream:
+            st = os.fstat(stream.fileno())
+            if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid():
+                return None, f"{label}_invalid_owner_or_type"
+            if st.st_mode & 0o077:
+                return None, f"{label}_not_private"
+            raw = stream.read(1_000_001)
+        if len(raw) > 1_000_000:
+            return None, f"{label}_too_large"
+        data = json.loads(raw, parse_constant=lambda value: (_ for _ in ()).throw(
+            ValueError(f"non_finite_{value}")))
+        if not isinstance(data, dict):
+            return None, f"{label}_not_object"
+        return data, "ok"
+    except FileNotFoundError:
+        return None, f"{label}_missing"
+    except Exception:
+        return None, f"{label}_corrupt_or_unreadable"
 
 
-def validate_operator_grant(
-    grant_file: str,
-    expected_sha: str,
-    account: str
-) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
-    """Validates root operator pilot grant under strict security invariants."""
+def validate_operator_grant(grant_file: str, expected_sha: str,
+                            account: str) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
+    """Check a grant pinned by the trusted local operator invocation.
+
+    The path and digest are caller-supplied pins; this does not authenticate the
+    operator, the native dot client, or Slack delivery independently.
+    """
     if not grant_file or not expected_sha:
         return False, "missing_grant_parameters", None
-
-    # Invariant: regular file, no symlinks
-    if not os.path.isfile(grant_file) or os.path.islink(grant_file):
-        return False, "invalid_grant_file_symlink_or_missing", None
-
     try:
-        st = os.stat(grant_file)
-    except Exception as e:
-        return False, f"grant_stat_failed_{e}", None
-
-    # Invariant: Owner UID must equal current OS UID
-    if st.st_uid != os.getuid():
-        return False, "invalid_grant_owner_uid_mismatch", None
-
-    # Invariant: Mode must be 0400 or 0600
-    file_mode = st.st_mode & 0o777
-    if file_mode not in (0o400, 0o600):
-        return False, f"invalid_grant_permissions_{oct(file_mode)}", None
-
-    # Invariant: Parent directory mode must be 0700
-    try:
-        parent_dir = os.path.dirname(os.path.abspath(grant_file))
-        parent_st = os.stat(parent_dir)
-        parent_mode = parent_st.st_mode & 0o777
-        if parent_mode != 0o700:
-            return False, f"invalid_grant_parent_dir_permissions_{oct(parent_mode)}", None
-    except Exception as e:
-        return False, f"grant_parent_stat_failed_{e}", None
-
-    # Invariant: Pinned SHA256 must match exactly
-    try:
-        with open(grant_file, "rb") as fp:
-            grant_bytes = fp.read()
-    except Exception as e:
-        return False, f"grant_read_failed_{e}", None
-
-    actual_sha = hashlib.sha256(grant_bytes).hexdigest()
-    if actual_sha != expected_sha:
-        return False, "grant_sha256_mismatch", None
-
-    # Parse and validate schema bounds
-    try:
-        grant_data = json.loads(grant_bytes)
-    except Exception as e:
-        return False, f"grant_json_parse_error_{e}", None
-
-    if not isinstance(grant_data, dict):
+        grant_stat = os.lstat(grant_file)
+        parent_stat = os.stat(os.path.dirname(os.path.abspath(grant_file)),
+                              follow_symlinks=False)
+        if (not stat.S_ISREG(grant_stat.st_mode) or
+                grant_stat.st_uid != os.getuid() or grant_stat.st_mode & 0o077 or
+                not stat.S_ISDIR(parent_stat.st_mode) or
+                parent_stat.st_uid != os.getuid() or parent_stat.st_mode & 0o077):
+            return False, "invalid_grant_owner_mode_or_type", None
+        fd = os.open(grant_file, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        with os.fdopen(fd, "rb") as stream:
+            grant_bytes = stream.read(1_000_001)
+        if len(grant_bytes) > 1_000_000:
+            return False, "grant_too_large", None
+        if hashlib.sha256(grant_bytes).hexdigest() != expected_sha:
+            return False, "grant_sha256_mismatch", None
+        data = json.loads(grant_bytes, parse_constant=lambda value: (_ for _ in ()).throw(
+            ValueError(f"non_finite_{value}")))
+    except Exception:
+        return False, "grant_invalid_or_unreadable", None
+    if not isinstance(data, dict):
         return False, "grant_not_a_json_object", None
-
-    if grant_data.get("task_id") != "dot-coordinator-separated-20261007":
+    if data.get("grant_version") != 1:
+        return False, "grant_version_invalid", None
+    if data.get("task_id") != "dot-coordinator-separated-20261007":
         return False, "grant_task_id_mismatch", None
-
-    allowed_accounts = [grant_data.get("account_id")]
-    if account not in allowed_accounts:
+    if data.get("account_id") != account:
         return False, "grant_account_mismatch", None
-
-    action = grant_data.get("action")
-    if action not in ("send_dot_test_message", "coordination_message"):
+    if data.get("action") not in ("send_dot_test_message", "coordination_message"):
         return False, "grant_action_disallowed", None
+    activated, expiry = data.get("activated_at_epoch"), data.get("expiry_epoch")
+    maximum, interval = data.get("max_messages"), data.get("min_interval_secs")
+    if (type(activated) not in (int, float) or not math.isfinite(activated) or
+            type(expiry) not in (int, float) or not math.isfinite(expiry) or
+            type(maximum) is not int or type(interval) not in (int, float) or
+            not math.isfinite(interval)):
+        return False, "grant_numeric_fields_invalid", None
+    now = time.time()
+    if activated > now or expiry <= now or expiry <= activated or expiry - activated > MAX_GRANT_WINDOW_SECS:
+        return False, "grant_window_invalid_or_expired", None
+    if maximum < 1 or maximum > 12:
+        return False, "grant_max_messages_out_of_bounds", None
+    if interval < 3600:
+        return False, "grant_min_interval_too_short", None
+    return True, "ok", data
 
-    expiry = grant_data.get("expiry_epoch", 0)
-    if not isinstance(expiry, (int, float)) or time.time() > expiry:
-        return False, "grant_expired", None
 
-    return True, "ok", grant_data
+def _atomic_write(path: str, data: Dict[str, Any], state_dir: str) -> None:
+    fd, temp_path = tempfile.mkstemp(prefix=".sender-state-", dir=state_dir)
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            json.dump(data, stream, sort_keys=True)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temp_path, path)
+        dir_fd = os.open(state_dir, os.O_RDONLY)
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
+    finally:
+        if os.path.exists(temp_path):
+            os.unlink(temp_path)
 
 
 def run_sender_cli(argv: List[str]) -> int:
     parser = argparse.ArgumentParser(description="Receipt-safe dot delivery subcomponent")
-    parser.add_argument("--account", default="default", help="Account identifier")
-    parser.add_argument("--state-dir", help="Private state directory")
-    parser.add_argument("--lock-file", help="Exclusive lock file")
-    parser.add_argument("--grant-file", help="Root operator grant file")
-    parser.add_argument("--grant-sha256", help="Pinned SHA256 of grant file")
-    parser.add_argument("--transport-script", help="Path to dot.sh transport script")
-    parser.add_argument("--authorization-ref", help="Legacy authorization ref (optional)")
-    parser.add_argument("--status", action="store_true", help="Read-only status query")
-    parser.add_argument("--json", action="store_true", help="Emit JSON output")
-    parser.add_argument("--force", action="store_true", help="Force send overriding cooldown only")
-    parser.add_argument("--full-rollup", action="store_true", help="Full rollup message")
-    parser.add_argument("--poll-reply", action="store_true", help="Poll for replies (unsupported)")
-    parser.add_argument("--no-poll", action="store_true", help="Do not poll for replies")
-    parser.add_argument("--reconcile-receipt", help="Reconcile receipt file")
-
+    parser.add_argument("--account", default="default")
+    parser.add_argument("--state-dir")
+    parser.add_argument("--lock-file")
+    parser.add_argument("--grant-file")
+    parser.add_argument("--grant-sha256")
+    parser.add_argument("--transport-script")
+    parser.add_argument("--authorization-ref")
+    parser.add_argument("--status", action="store_true")
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("--force", action="store_true")
+    parser.add_argument("--full-rollup", action="store_true")
+    parser.add_argument("--poll-reply", action="store_true")
+    parser.add_argument("--no-poll", action="store_true")
+    parser.add_argument("--reconcile-receipt")
     args = parser.parse_args(argv)
-
     account = args.account
-    state_dir = args.state_dir or os.environ.get("DOT_PORTFOLIO_STATE_DIR") or f"/tmp/dot-sender-state-{os.getuid()}"
-    account_state_file = os.path.join(state_dir, f"account_{account}.json")
-    lock_file = args.lock_file or os.path.join(state_dir, "sender.lock")
-    transport_script = args.transport_script or os.environ.get("DOT_TRANSPORT_SCRIPT")
-
-    if not transport_script:
-        # Default relative sibling transport
-        script_dir = Path(__file__).resolve().parent
-        transport_script = str(script_dir.parent.parent.parent / "dot" / "scripts" / "dot.sh")
-
-    # 1. Read-only status mode
+    if not ACCOUNT_RE.fullmatch(account) or account in (".", ".."):
+        emit_result("invalid", "invalid_account", account)
+        return 2
+    state_dir = args.state_dir
+    account_file = os.path.join(state_dir, f"account_{account}.json") if state_dir else ""
     if args.status:
+        state, reason = _read_json_file(account_file, "state") if account_file else (None, "state_missing")
+        payload = {"schema_version": 1, "account": account,
+                   "state_sha256": hashlib.sha256(json.dumps(state, sort_keys=True).encode()).hexdigest()
+                   if state is not None else ("corrupt" if reason != "state_missing" else None),
+                   "last_sent_epoch": state.get("last_sent_epoch", 0) if state else 0,
+                   "delivery_unverified": bool(state and state.get("pending_delivery")),
+                   "pending_delivery": state.get("pending_delivery") if state else None,
+                   "retained_event_ids": state.get("retained_event_ids", []) if state else [],
+                   "worker_sha256": WORKER_SHA}
         if args.json:
-            emit_status(account, account_state_file)
+            print("COORDINATOR_STATUS " + json.dumps(payload))
         return 0
-
-    # 2. Unsupported poll check
     if args.poll_reply:
         emit_result("invalid", "unsupported_poll", account)
         return 2
-
-    # 3. Quiet wake check
+    if args.reconcile_receipt:
+        emit_result("invalid", "unsupported_reconcile", account)
+        return 2
+    if not state_dir:
+        emit_result("invalid", "state_dir_required", account)
+        return 2
+    try:
+        state_stat = os.lstat(state_dir)
+        if (not stat.S_ISDIR(state_stat.st_mode) or state_stat.st_uid != os.getuid() or
+                state_stat.st_mode & 0o077):
+            raise ValueError
+    except Exception:
+        emit_result("invalid", "state_dir_must_be_private_existing_directory", account)
+        return 2
     event_id = os.environ.get("COORDINATOR_CHANGE_ID", "").strip()
     summary = os.environ.get("COORDINATOR_CHANGE_SUMMARY", "").strip()
     urgent = os.environ.get("COORDINATOR_URGENT", "0").strip() in ("1", "true")
-
     if not event_id and not summary:
         emit_result("quiet", "no_input_event", account)
         return 0
-
-    # 4. Input validation
     if not event_id or len(event_id) > 160 or "\n" in event_id:
         emit_result("invalid", "invalid_event_id", account)
         return 2
-
-    if not summary or len(summary) > 2000:
+    if not summary or len(summary) > MAX_SUMMARY_CHARS:
         emit_result("invalid", "invalid_summary", account)
         return 2
-
-    # 5. Operator grant validation
-    grant_file = args.grant_file or os.environ.get("DOT_PORTFOLIO_GRANT_FILE", "")
-    grant_sha = args.grant_sha256 or os.environ.get("DOT_PORTFOLIO_GRANT_SHA256", "")
-
-    valid_grant, grant_reason, grant_obj = validate_operator_grant(grant_file, grant_sha, account)
-    if not valid_grant:
-        emit_result("invalid", f"grant_validation_failed_{grant_reason}", account)
+    # Grant/hash must be pinned by the trusted operator command line, never environment.
+    valid, reason, grant = validate_operator_grant(args.grant_file, args.grant_sha256, account)
+    if not valid:
+        emit_result("invalid", f"grant_validation_failed_{reason}", account)
         return 2
-
-    # 6. Acquire exclusive lock on dedicated lock file
-    os.makedirs(os.path.dirname(os.path.abspath(lock_file)), exist_ok=True)
+    transport = args.transport_script or os.environ.get("DOT_TRANSPORT_SCRIPT")
+    if not transport:
+        transport = str(Path(__file__).resolve().parent.parent.parent / "dot" / "scripts" / "dot.sh")
+    lock_path = args.lock_file or os.path.join(state_dir, "sender.lock")
+    if os.path.dirname(os.path.abspath(lock_path)) != os.path.abspath(state_dir):
+        emit_result("invalid", "lock_must_be_in_state_dir", account)
+        return 2
     try:
-        import fcntl
-        lock_fd = open(lock_file, "a+")
-        fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except (IOError, OSError):
-        emit_result("deferred", "lock_contention", account)
+        lock_fd = os.open(lock_path, os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0), 0o600)
+        os.fchmod(lock_fd, 0o600)
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        emit_result("deferred", "lock_contention_or_invalid_lock", account)
         return 0
-
     try:
-        os.makedirs(state_dir, exist_ok=True)
-
-        # 7. Check account state: existing hold and deduplication
-        acc_data = {"retained_event_ids": [], "last_sent_epoch": 0, "pending_delivery": None}
-        if os.path.exists(account_state_file):
-            try:
-                with open(account_state_file, "r", encoding="utf-8") as f:
-                    acc_data = json.load(f)
-            except Exception:
-                pass
-
-        if acc_data.get("pending_delivery"):
+        acc, state_reason = _read_json_file(account_file, "state")
+        if acc is None and state_reason != "state_missing":
+            emit_result("uncertain", "state_corrupt_hold", account)
+            return 3
+        if acc is None:
+            acc = {"schema_version": 1, "grant_sha256": args.grant_sha256,
+                   "attempted_count": 0, "last_attempt_epoch": 0,
+                   "last_sent_epoch": 0, "retained_event_ids": [],
+                   "pending_delivery": None}
+        if acc.get("grant_sha256") != args.grant_sha256:
+            emit_result("uncertain", "grant_binding_hold_new_run_required", account)
+            return 3
+        if acc.get("pending_delivery"):
             emit_result("uncertain", "receipt_hold", account)
             return 3
-
-        retained = acc_data.get("retained_event_ids", [])
+        retained = acc.get("retained_event_ids")
+        if not isinstance(retained, list) or not all(isinstance(item, str) for item in retained):
+            emit_result("uncertain", "state_corrupt_hold", account)
+            return 3
         if event_id in retained:
             emit_result("duplicate", "already_received", account)
             return 0
-
-        now_epoch = int(time.time())
-        last_sent = acc_data.get("last_sent_epoch", 0)
-
-        # Delta Cooldown
-        if not urgent and not args.full_rollup and not args.force:
-            elapsed = now_epoch - last_sent
-            if elapsed < COOLDOWN_SECS:
-                emit_result("deferred", "cooldown", account)
-                return 0
-
-        # 8. Atomically persist pending attempt BEFORE transport
-        msg_hash = hashlib.sha256(summary.encode("utf-8")).hexdigest()
-        acc_data["pending_delivery"] = {
-            "account": account,
-            "event_id": event_id,
-            "kind": "full_rollup" if args.full_rollup else "delta",
-            "message_sha256": msg_hash,
-            "attempt_timestamp": now_epoch,
-            "grant_sha256": grant_sha
-        }
-        tmp_acc = f"{account_state_file}.tmp"
-        with open(tmp_acc, "w", encoding="utf-8") as f:
-            json.dump(acc_data, f, indent=2)
-        os.replace(tmp_acc, account_state_file)
-
-        # 9. Transport invocation
-        import tempfile
-        with tempfile.NamedTemporaryFile(mode="w", delete=False, dir="/tmp", prefix="dot_msg_") as tmp_msg:
-            tmp_msg.write(summary)
-            tmp_msg_path = tmp_msg.name
-
-        try:
-            cmd = [transport_script, "--account", account, "send-once", tmp_msg_path]
-            rc, stdout, stderr = run_bounded_command(cmd, timeout_secs=30)
-        finally:
-            if os.path.exists(tmp_msg_path):
-                os.remove(tmp_msg_path)
-
-        # 10. Receipt Verification
-        # Invariant: Standalone regex match on DOT_SENT_VERIFIED and exit 0
-        if rc == 0 and STANDALONE_VERIFIED_REGEX.search(stdout):
-            # Delivery verified
-            acc_data["pending_delivery"] = None
-            acc_data["last_sent_epoch"] = int(time.time())
-            if event_id not in retained:
-                retained.append(event_id)
-            acc_data["retained_event_ids"] = retained[-128:]  # bounded dedup window
-
-            with open(tmp_acc, "w", encoding="utf-8") as f:
-                json.dump(acc_data, f, indent=2)
-            os.replace(tmp_acc, account_state_file)
-
-            emit_result("delivered", "verified_by_transport", account, delivery_verified=True, event_id=event_id)
+        now = time.time()
+        attempts = acc.get("attempted_count")
+        last_attempt = acc.get("last_attempt_epoch")
+        if type(attempts) is not int or type(last_attempt) not in (int, float):
+            emit_result("uncertain", "state_corrupt_hold", account)
+            return 3
+        if attempts >= grant["max_messages"]:
+            emit_result("deferred", "grant_message_limit", account)
             return 0
-        else:
-            # Send unverified / failed: Uncertainty hold is RETAINED!
-            emit_result("uncertain", "send_unverified", account, delivery_verified=False, event_id=event_id)
+        if attempts and now - last_attempt < grant["min_interval_secs"]:
+            emit_result("deferred", "grant_min_interval", account)
+            return 0
+        if not urgent and not args.full_rollup and not args.force and now - acc.get("last_sent_epoch", 0) < COOLDOWN_SECS:
+            emit_result("deferred", "cooldown", account)
+            return 0
+        msg_hash = hashlib.sha256(summary.encode("utf-8")).hexdigest()
+        acc["attempted_count"] = attempts + 1
+        acc["last_attempt_epoch"] = now
+        acc["pending_delivery"] = {"account": account, "event_id": event_id,
+            "kind": "full_rollup" if args.full_rollup else "delta",
+            "message_sha256": msg_hash, "attempt_timestamp": now,
+            "grant_sha256": args.grant_sha256}
+        _atomic_write(account_file, acc, state_dir)
+        # Re-pin the grant directly before sending; if it changed, retain the hold.
+        valid, reason, _ = validate_operator_grant(args.grant_file, args.grant_sha256, account)
+        if not valid:
+            emit_result("uncertain", f"grant_changed_after_reservation_{reason}", account)
             return 4
-    finally:
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, dir=state_dir,
+                                         prefix=".dot-message-") as message:
+            os.fchmod(message.fileno(), 0o600)
+            message.write(summary)
+            message.flush()
+            os.fsync(message.fileno())
+            message_path = message.name
         try:
-            fcntl.flock(lock_fd.fileno(), fcntl.LOCK_UN)
-            lock_fd.close()
+            valid, reason, _ = validate_operator_grant(
+                args.grant_file, args.grant_sha256, account)
+            if not valid:
+                emit_result("uncertain", f"grant_changed_after_reservation_{reason}", account)
+                return 4
+            transport_env = os.environ.copy()
+            transport_env["DOT_ROTATE_ON_LIMIT"] = "0"
+            rc, stdout, _stderr = run_bounded_command(
+                [transport, "--account", account, "send-once", message_path],
+                env=transport_env, timeout_secs=600)
         except Exception:
-            pass
+            emit_result("uncertain", "send_unverified", account, event_id=event_id)
+            return 4
+        finally:
+            if os.path.exists(message_path):
+                os.unlink(message_path)
+        if rc == 0 and STANDALONE_VERIFIED_REGEX.search(stdout):
+            acc["pending_delivery"] = None
+            acc["last_sent_epoch"] = time.time()
+            retained.append(event_id)
+            acc["retained_event_ids"] = retained
+            _atomic_write(account_file, acc, state_dir)
+            emit_result("delivered", "verified_by_transport", account,
+                        delivery_verified=True, event_id=event_id)
+            return 0
+        emit_result("uncertain", "send_unverified", account, event_id=event_id)
+        return 4
+    finally:
+        fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        os.close(lock_fd)
 
 
 if __name__ == "__main__":
