@@ -517,6 +517,7 @@ async function read(page, n) {
 
 async function send(page, file, dry, opts = {}) {
   const msg = fs.readFileSync(file, 'utf8').trim();
+  let preparedDraft = null;
   const readComposer = () => page.locator(COMPOSER).first().innerText().catch(() => '');
   const clear = async () => {
     await page.locator(COMPOSER).first().focus();
@@ -526,7 +527,7 @@ async function send(page, file, dry, opts = {}) {
   };
   const clearPreparedDraft = async () => {
     try {
-      if (norm((await readComposer()).trim()) === norm(msg)) await clear();
+      if (preparedDraft !== null && (await readComposer()) === preparedDraft) await clear();
     } catch {}
   };
   const getUserMessages = () => page.locator('[data-message-author-role=user], article.self, article[class*="self"]')
@@ -586,11 +587,12 @@ async function send(page, file, dry, opts = {}) {
 
   await page.keyboard.insertText(msg);
   await sleep(800);
-  const typed = (await readComposer()).trim();
-  if (norm(typed) !== norm(msg)) {
+  const typed = await readComposer();
+  if (norm(typed.trim()) !== norm(msg)) {
     console.log('DOT_COMPOSER_MISMATCH: ' + typed.slice(0, 200));
     return;
   }
+  if (opts.prepared) preparedDraft = typed;
   if (dry) {
     await clear();
     const left = (await readComposer()).trim();
@@ -627,7 +629,7 @@ async function send(page, file, dry, opts = {}) {
       process.stdout.write(`aborted ${nonce}\n`);
       return;
     }
-    if (norm((await readComposer()).trim()) !== norm(msg)) {
+    if ((await readComposer()) !== preparedDraft) {
       aborted = true;
       await clearPreparedDraft();
       process.stdout.write(`aborted ${nonce}\n`);

@@ -116,6 +116,8 @@ exports.chromium = {
     def _install_fake_send_playwright(self, initial_composer=""):
         state_path = self.root / "prepared-send-state.json"
         external_composer_path = self.root / "external-composer.txt"
+        state_path.unlink(missing_ok=True)
+        external_composer_path.unlink(missing_ok=True)
         self.external_composer_path = external_composer_path
         modules = self.root / "node_modules" / "playwright"
         script = r'''const fs = require("node:fs");
@@ -275,6 +277,58 @@ exports.chromium = {
             self.external_composer_path.read_text(encoding="utf-8"),
             "User edited this draft",
         )
+
+    def test_prepared_send_does_not_click_after_whitespace_change(self):
+        edited_composers = (
+            "Coordinator-owned fixture  message",
+            " Coordinator-owned fixture message ",
+        )
+        for edited_composer in edited_composers:
+            with self.subTest(edited_composer=edited_composer):
+                def alter_spacing_then_commit(nonce):
+                    self.external_composer_path.write_text(
+                        edited_composer, encoding="utf-8"
+                    )
+                    return "commit " + nonce
+
+                rc, stdout, stderr, state = self._run_prepared_send(
+                    alter_spacing_then_commit
+                )
+                self.assertEqual(rc, 0, stderr)
+                self.assertIn("DOT_PREPARED_ABORTED reason=composer_changed", stdout)
+                self.assertNotIn("DOT_SENT_VERIFIED", stdout)
+                self.assertFalse(state["clicked"])
+                self.assertEqual(state["composer"], "Coordinator-owned fixture message")
+                self.assertEqual(
+                    self.external_composer_path.read_text(encoding="utf-8"),
+                    edited_composer,
+                )
+
+    def test_prepared_send_preserves_whitespace_changes_on_abort(self):
+        edited_composers = (
+            "Coordinator-owned fixture  message",
+            " Coordinator-owned fixture message ",
+        )
+        for edited_composer in edited_composers:
+            with self.subTest(edited_composer=edited_composer):
+                def alter_spacing_then_abort(nonce):
+                    self.external_composer_path.write_text(
+                        edited_composer, encoding="utf-8"
+                    )
+                    return "abort " + nonce
+
+                rc, stdout, stderr, state = self._run_prepared_send(
+                    alter_spacing_then_abort
+                )
+                self.assertEqual(rc, 0, stderr)
+                self.assertIn("aborted ", stdout)
+                self.assertNotIn("DOT_SENT_VERIFIED", stdout)
+                self.assertFalse(state["clicked"])
+                self.assertEqual(state["composer"], "Coordinator-owned fixture message")
+                self.assertEqual(
+                    self.external_composer_path.read_text(encoding="utf-8"),
+                    edited_composer,
+                )
 
     def test_prepared_send_commits_only_matching_nonce(self):
         rc, stdout, stderr, state = self._run_prepared_send(

@@ -399,7 +399,7 @@ class TestDotPortfolioCoordinatorSender(unittest.TestCase):
 
         fake_transport = root / "fake_transport_test2.sh"
         fake_transport.write_text(
-            "#!/bin/sh\n"
+            "#!/usr/bin/env bash\n"
             f"echo 'prepared {PREPARED_NONCE}' > {shlex.quote(str(prepared_marker))}\n"
             f"chmod 0600 {shlex.quote(self.grant_file)}\n"
             f"echo '{{\"corrupted\": true}}' > {shlex.quote(self.grant_file)}\n"
@@ -449,7 +449,7 @@ class TestDotPortfolioCoordinatorSender(unittest.TestCase):
 
         fake_transport = root / "fake_transport_test3.sh"
         fake_transport.write_text(
-            "#!/bin/sh\n"
+            "#!/usr/bin/env bash\n"
             f"echo 'prepared {PREPARED_NONCE}' > {shlex.quote(str(prepared_marker))}\n"
             f"printf 'prepared {PREPARED_NONCE}\\n'\n"
             "read -t 5 -r cmd || cmd='timeout'\n"

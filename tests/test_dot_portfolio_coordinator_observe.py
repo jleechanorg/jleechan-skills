@@ -569,7 +569,7 @@ class TestDotPortfolioCoordinatorObserve(unittest.TestCase):
             prepared_marker = root / "prepared.txt"
             fake_transport = root / "fake_transport.sh"
             fake_transport.write_text(
-                "#!/bin/sh\n"
+                "#!/usr/bin/env bash\n"
                 f"echo 'prepared {PREPARED_NONCE}' > {shlex.quote(str(prepared_marker))}\n"
                 f"printf 'prepared {PREPARED_NONCE}\\n'\n"
                 "read -t 5 -r cmd || cmd='timeout'\n"
