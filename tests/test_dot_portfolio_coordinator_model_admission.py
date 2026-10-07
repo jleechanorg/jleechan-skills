@@ -1,0 +1,203 @@
+import json
+import unittest
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+SKILL_DIR = REPO_ROOT / ".claude" / "skills" / "dot-portfolio-coordinator"
+import sys
+sys.path.insert(0, str(SKILL_DIR / "scripts"))
+
+from modules.registry import SourceRegistry
+from modules.model_admission import ModelAdmissionChecker
+from modules.proposal_validator import ProposalValidator, ProposalValidationError
+
+
+class TestDotPortfolioCoordinatorModelAdmission(unittest.TestCase):
+    def setUp(self):
+        self.sources_json_path = SKILL_DIR / "references" / "sources.json"
+        self.registry = SourceRegistry.from_file(str(self.sources_json_path))
+        self.admission = ModelAdmissionChecker(self.registry)
+        self.validator = ProposalValidator(self.registry)
+
+        self.sample_snapshot = {
+            "snapshot_id": "snap-20261007-001",
+            "sources": {
+                "roadmap-main": {
+                    "source_id": "roadmap-main",
+                    "version": "sha-road-1",
+                    "items": [
+                        {
+                            "id": "bd-ctrl-1",
+                            "title": "Roadmap Control Record",
+                            "status": "open",
+                            "task_composite_key": ["github.com", "example-org/roadmap", "roadmap", "bd-ctrl-1"],
+                            "notes": "control notes",
+                            "principal_id": "admin-1"
+                        }
+                    ]
+                },
+                "core-skills": {
+                    "source_id": "core-skills",
+                    "version": "sha-skill-1",
+                    "items": [
+                        {
+                            "id": "bd-s1",
+                            "title": "Skills Task 1",
+                            "status": "open",
+                            "task_composite_key": ["github.com", "example-org/skills", "skills", "bd-s1"],
+                            "notes": "some notes",
+                            "principal_id": "usr-42"
+                        }
+                    ]
+                }
+            }
+        }
+
+    def test_admission_blocked_when_unisolated_or_arbitrary_egress(self):
+        # Case 1: unisolated host mounts
+        env_with_host_mounts = {
+            "sandbox_enforced": True,
+            "host_mounts": ["/Users/jleechan", "/etc"],
+            "network_egress_allowlist_enforced": True,
+            "allowed_endpoints": ["https://generativelanguage.googleapis.com/v1beta/models"],
+            "tool_inventory": ["read_only_snapshot"],
+            "write_credentials_excluded": True
+        }
+        res = self.admission.admit_model_transport(env_with_host_mounts)
+        self.assertFalse(res["admitted"])
+        self.assertEqual(res["reason"], "capability_blocked")
+
+        # Case 2: arbitrary network egress (no endpoint allowlist enforcement)
+        env_with_open_network = {
+            "sandbox_enforced": True,
+            "host_mounts": [],
+            "network_egress_allowlist_enforced": False,
+            "allowed_endpoints": ["*"],
+            "tool_inventory": ["read_only_snapshot"],
+            "write_credentials_excluded": True
+        }
+        res = self.admission.admit_model_transport(env_with_open_network)
+        self.assertFalse(res["admitted"])
+        self.assertEqual(res["reason"], "capability_blocked")
+
+        # Case 3: write credentials present
+        env_with_creds = {
+            "sandbox_enforced": True,
+            "host_mounts": [],
+            "network_egress_allowlist_enforced": True,
+            "allowed_endpoints": ["https://generativelanguage.googleapis.com/v1beta/models"],
+            "tool_inventory": ["read_only_snapshot"],
+            "write_credentials_excluded": False
+        }
+        res = self.admission.admit_model_transport(env_with_creds)
+        self.assertFalse(res["admitted"])
+        self.assertEqual(res["reason"], "capability_blocked")
+
+    def test_admission_passes_when_all_isolation_guarantees_met(self):
+        env_isolated = {
+            "sandbox_enforced": True,
+            "host_mounts": [],
+            "network_egress_allowlist_enforced": True,
+            "allowed_endpoints": ["https://generativelanguage.googleapis.com/v1beta/models"],
+            "tool_inventory": ["read_only_snapshot"],
+            "write_credentials_excluded": True
+        }
+        res = self.admission.admit_model_transport(env_isolated)
+        self.assertTrue(res["admitted"])
+        self.assertIsNone(res["reason"])
+
+    def test_minimized_snapshot_filters_prohibited_fields(self):
+        minimized = self.admission.prepare_minimized_snapshot(self.sample_snapshot)
+        road_items = minimized["sources"]["roadmap-main"]["items"]
+        self.assertEqual(len(road_items), 1)
+        self.assertIn("title", road_items[0])
+        self.assertIn("notes", road_items[0])
+        # principal_id only has ['internal'] in sources.json, so it must be stripped from 'model'
+        self.assertNotIn("principal_id", road_items[0])
+
+    def test_proposal_validation_valid_and_deterministic_action_id(self):
+        proposal = {
+            "schema_version": 1,
+            "snapshot_id": "snap-20261007-001",
+            "items": [
+                {
+                    "task_key": {
+                        "github_host": "github.com",
+                        "repository": "example-org/skills",
+                        "source_namespace": "skills",
+                        "bead_id": "bd-s1"
+                    },
+                    "source_version": "sha-skill-1",
+                    "citations": ["example-org/skills#bd-s1@sha-skill-1"],
+                    "owner": "alice",
+                    "priority": 1,
+                    "status": "open",
+                    "blocker": "none",
+                    "next_action": "review test results",
+                    "uncertainty": "none"
+                }
+            ],
+            "mutations": [
+                {
+                    "target_control_record_id": "bd-ctrl-1",
+                    "action_type": "tracking_observation",
+                    "append_note": "[2026-10-07T12:00:00Z] Observed bd-s1 open."
+                }
+            ]
+        }
+        res1 = self.validator.validate_proposal(proposal, self.sample_snapshot)
+        self.assertTrue(res1["valid"])
+        self.assertTrue(res1["action_id"].startswith("act_"))
+
+        # Re-running validation yields identical action_id (idempotence)
+        res2 = self.validator.validate_proposal(proposal, self.sample_snapshot)
+        self.assertEqual(res1["action_id"], res2["action_id"])
+
+    def test_proposal_validation_rejects_invented_task_key(self):
+        proposal = {
+            "schema_version": 1,
+            "snapshot_id": "snap-20261007-001",
+            "items": [
+                {
+                    "task_key": {
+                        "github_host": "github.com",
+                        "repository": "example-org/skills",
+                        "source_namespace": "skills",
+                        "bead_id": "bd-invented-999"
+                    },
+                    "source_version": "sha-skill-1",
+                    "citations": ["example-org/skills#bd-invented-999"],
+                    "owner": "alice",
+                    "priority": 1,
+                    "status": "open",
+                    "blocker": "none",
+                    "next_action": "do something"
+                }
+            ],
+            "mutations": []
+        }
+        with self.assertRaises(ProposalValidationError) as ctx:
+            self.validator.validate_proposal(proposal, self.sample_snapshot)
+        self.assertIn("not found in snapshot", str(ctx.exception))
+
+    def test_proposal_validation_rejects_domain_store_mutation(self):
+        # Attempting to mutate a task in core-skills (domain store is read-only!)
+        proposal = {
+            "schema_version": 1,
+            "snapshot_id": "snap-20261007-001",
+            "items": [],
+            "mutations": [
+                {
+                    "target_control_record_id": "bd-s1",  # bd-s1 is in core-skills, not roadmap-main
+                    "action_type": "tracking_observation",
+                    "append_note": "illegal mutation"
+                }
+            ]
+        }
+        with self.assertRaises(ProposalValidationError) as ctx:
+            self.validator.validate_proposal(proposal, self.sample_snapshot)
+        self.assertIn("domain store", str(ctx.exception).lower())
+
+
+if __name__ == "__main__":
+    unittest.main()
