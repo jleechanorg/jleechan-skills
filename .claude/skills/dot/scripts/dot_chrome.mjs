@@ -168,12 +168,27 @@ function ensurePersistentProfile(accInfo, targetDir) {
   const defaultDir = path.join(targetDir, 'Default');
   const networkCookies = path.join(defaultDir, 'Network', 'Cookies');
   const legacyCookies = path.join(defaultDir, 'Cookies');
-  const preferences = path.join(defaultDir, 'Preferences');
+  const srcProfilePath = accInfo.matchedKey ? path.join(sysChromeDir, accInfo.matchedKey) : null;
   if (
     (fs.existsSync(networkCookies) && fs.statSync(networkCookies).size > 0) ||
     (fs.existsSync(legacyCookies) && fs.statSync(legacyCookies).size > 0) ||
     (fs.existsSync(preferences) && fs.statSync(preferences).size > 0)
   ) {
+    if (srcProfilePath && fs.existsSync(srcProfilePath)) {
+      try {
+        for (const rel of ['Cookies', path.join('Network', 'Cookies')]) {
+          const srcC = path.join(srcProfilePath, rel);
+          const dstC = path.join(defaultDir, rel);
+          if (fs.existsSync(srcC) && fs.existsSync(dstC)) {
+            const srcMtime = fs.statSync(srcC).mtimeMs;
+            const dstMtime = fs.statSync(dstC).mtimeMs;
+            if (srcMtime > dstMtime + 10000) {
+              fs.copyFileSync(srcC, dstC);
+            }
+          }
+        }
+      } catch {}
+    }
     return;
   }
 
@@ -314,7 +329,13 @@ async function launch() {
   ];
   const ignoreDefaultArgs = ['--enable-automation'];
 
-  if (isMac) {
+  if (isLinux) {
+    extraArgs.push('--no-sandbox', '--disable-setuid-sandbox');
+    if (hasDisplay || process.env.DBUS_SESSION_BUS_ADDRESS) {
+      extraArgs.push('--password-store=gnome-libsecret');
+      ignoreDefaultArgs.push('--password-store=basic', '--use-mock-keychain');
+    }
+  } else if (isMac) {
     extraArgs.push('--password-store=keychain');
     ignoreDefaultArgs.push('--use-mock-keychain', '--password-store=basic');
   }
