@@ -177,4 +177,21 @@ class CoordinatorTests(unittest.TestCase):
   r=self.run_worker()
   self.assertEqual(r.returncode,0)
   self.assertIn("Configured accounts: alpha",r.stdout)
+ def test_malformed_per_account_state_with_legacy_state_fails_closed_without_overwrite(self):
+  self.event()
+  corrupt_content='{"last_sent_epoch": corrupt}'
+  (self.state/'state_alpha.json').write_text(corrupt_content)
+  (self.state/'state.json').write_text(json.dumps({'last_sent_epoch':2000,'delivery_unverified':True,'delivered_change_ids':[]}))
+  r=self.run_worker('--account','alpha','--force')
+  self.assertEqual(r.returncode,2)
+  self.assertEqual(self.calls(),[])
+  self.assertEqual((self.state/'state_alpha.json').read_text(),corrupt_content)
+ def test_non_dict_per_account_state_fails_closed_without_overwrite(self):
+  self.event()
+  (self.state/'state_alpha.json').write_text(json.dumps(["not","an","object"]))
+  (self.state/'state.json').write_text(json.dumps({'last_sent_epoch':2000,'delivery_unverified':True,'delivered_change_ids':[]}))
+  r=self.run_worker('--account','alpha','--force')
+  self.assertEqual(r.returncode,2)
+  self.assertEqual(self.calls(),[])
+  self.assertEqual((self.state/'state_alpha.json').read_text(),json.dumps(["not","an","object"]))
 if __name__=='__main__':unittest.main(verbosity=2)

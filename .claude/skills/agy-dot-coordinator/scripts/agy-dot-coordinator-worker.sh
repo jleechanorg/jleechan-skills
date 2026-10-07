@@ -173,19 +173,20 @@ if "accounts" in s:
         raise ValueError("Corrupt state.json: 'accounts' must be a dictionary")
     for acc in accounts:
         acc_file = os.path.join(state_dir, f"state_{acc}.json")
-        if acc in s["accounts"]:
+        if os.path.exists(acc_file):
+            with open(acc_file) as pf:
+                cur = json.load(pf)
+            if not isinstance(cur, dict):
+                raise ValueError(f"Corrupt per-account state: {acc_file} root must be a JSON object")
+            if acc in s["accounts"]:
+                acc_data = s["accounts"][acc]
+                if isinstance(acc_data, dict) and acc_data.get("delivery_unverified") and not cur.get("delivery_unverified"):
+                    cur["delivery_unverified"] = True
+                    atomic_json(acc_file, cur)
+        elif acc in s["accounts"]:
             acc_data = s["accounts"][acc]
             if isinstance(acc_data, dict):
-                if not os.path.exists(acc_file):
-                    atomic_json(acc_file, acc_data)
-                elif acc_data.get("delivery_unverified"):
-                    try:
-                        cur = json.load(open(acc_file))
-                        if isinstance(cur, dict) and not cur.get("delivery_unverified"):
-                            cur["delivery_unverified"] = True
-                            atomic_json(acc_file, cur)
-                    except Exception:
-                        pass
+                atomic_json(acc_file, acc_data)
 
 # 2. Legacy pre-multi-account state migration:
 # If state.json lacks "accounts", it is a legacy single-account file.
@@ -222,16 +223,15 @@ elif s:
 
     if primary_acc:
         primary_file = os.path.join(state_dir, f"state_{primary_acc}.json")
-        existing_acc = {}
+        existing_acc = None
         if os.path.exists(primary_file):
-            try:
-                loaded = json.load(open(primary_file))
-                if isinstance(loaded, dict):
-                    existing_acc = loaded
-            except Exception:
-                pass
+            with open(primary_file) as pf:
+                loaded = json.load(pf)
+            if not isinstance(loaded, dict):
+                raise ValueError(f"Corrupt per-account state: {primary_file} root must be a JSON object")
+            existing_acc = loaded
 
-        if not existing_acc:
+        if existing_acc is None:
             acc_data = dict(s)
             acc_data["account"] = primary_acc
         else:
@@ -266,18 +266,21 @@ read_last_sent() {
   local acc="$1"
   local acc_file="$STATE_DIR/state_${acc}.json"
   if [[ -f "$acc_file" ]]; then
-    python3 -c 'import json; s=json.load(open("'"$acc_file"'")); print(s.get("last_sent_epoch", 0))' 2>/dev/null || echo 0
+    python3 - "$acc_file" <<'PY_SENT' 2>/dev/null || echo 0
+import json, sys
+s = json.load(open(sys.argv[1]))
+print(s.get("last_sent_epoch", 0))
+PY_SENT
   elif [[ -f "$STATE_FILE" ]]; then
-    python3 -c '
-import json
-s = json.load(open("'"$STATE_FILE"'"))
+    python3 - "$STATE_FILE" "$acc" <<'PY_SENT' 2>/dev/null || echo 0
+import json, sys
+s = json.load(open(sys.argv[1]))
 accs = s.get("accounts", {})
 if "accounts" in s:
-    # Current consolidated state is per-account; a peer timestamp is not ours.
-    print(accs.get("'"$acc"'", {}).get("last_sent_epoch", 0))
+    print(accs.get(sys.argv[2], {}).get("last_sent_epoch", 0))
 else:
     print(0)
-' 2>/dev/null || echo 0
+PY_SENT
   else
     echo 0
   fi
@@ -287,17 +290,21 @@ read_last_status() {
   local acc="$1"
   local acc_file="$STATE_DIR/state_${acc}.json"
   if [[ -f "$acc_file" ]]; then
-    python3 -c 'import json; s=json.load(open("'"$acc_file"'")); print(s.get("last_status", "UNKNOWN"))' 2>/dev/null || echo "UNKNOWN"
+    python3 - "$acc_file" <<'PY_STATUS' 2>/dev/null || echo "UNKNOWN"
+import json, sys
+s = json.load(open(sys.argv[1]))
+print(s.get("last_status", "UNKNOWN"))
+PY_STATUS
   elif [[ -f "$STATE_FILE" ]]; then
-    python3 -c '
-import json
-s = json.load(open("'"$STATE_FILE"'"))
+    python3 - "$STATE_FILE" "$acc" <<'PY_STATUS' 2>/dev/null || echo "UNKNOWN"
+import json, sys
+s = json.load(open(sys.argv[1]))
 accs = s.get("accounts", {})
 if "accounts" in s:
-    print(accs.get("'"$acc"'", {}).get("last_status", "UNKNOWN"))
+    print(accs.get(sys.argv[2], {}).get("last_status", "UNKNOWN"))
 else:
     print("NEVER_SENT")
-' 2>/dev/null || echo "UNKNOWN"
+PY_STATUS
   else
     echo "NEVER_SENT"
   fi
