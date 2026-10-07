@@ -224,7 +224,7 @@ run_chrome() {
   if [[ "$(uname -s)" == "Linux" ]]; then
     export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=/run/user/$(id -u)/bus}"
     export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
-    if [[ -z "${DISPLAY:-}" ]] && command -v xvfb-run >/dev/null 2>&1; then
+    if command -v xvfb-run >/dev/null 2>&1; then
       runner=(xvfb-run -a)
     fi
   fi
