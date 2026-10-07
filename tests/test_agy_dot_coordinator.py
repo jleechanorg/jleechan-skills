@@ -158,4 +158,23 @@ class CoordinatorTests(unittest.TestCase):
   if self.cfg.exists(): self.cfg.unlink()
   (self.state/'state.json').write_text(json.dumps({'last_sent_epoch':0,'delivery_unverified':True,'delivered_change_ids':[]}))
   r=self.run_worker('--account','alpha','--force');self.assertEqual(r.returncode,2);self.assertEqual(self.calls(),[])
+ def test_legacy_hold_preserved_when_primary_per_account_state_already_exists(self):
+  self.event()
+  (self.state/'state_alpha.json').write_text(json.dumps({'last_sent_epoch':1000,'account':'alpha'}))
+  (self.state/'state.json').write_text(json.dumps({'last_sent_epoch':2000,'delivery_unverified':True,'delivered_change_ids':[]}))
+  self.run_worker('--account','alpha','--force');self.assertEqual(self.calls(),[])
+  migrated=json.loads((self.state/'state_alpha.json').read_text())
+  self.assertTrue(migrated.get('delivery_unverified'))
+ def test_scalar_rotation_string_attributes_hold_to_full_string_not_characters(self):
+  self.event()
+  self.cfg.write_text(json.dumps({'rotation':'alpha'}))
+  (self.state/'state.json').write_text(json.dumps({'last_sent_epoch':0,'delivery_unverified':True,'delivered_change_ids':[]}))
+  self.run_worker('--account','alpha','--force');self.assertEqual(self.calls(),[])
+  self.assertTrue((self.state/'state_alpha.json').exists())
+  self.assertFalse((self.state/'state_a.json').exists())
+ def test_scalar_rotation_string_resolves_cleanly_for_quiet_wake(self):
+  self.cfg.write_text(json.dumps({'rotation':'alpha'}))
+  r=self.run_worker()
+  self.assertEqual(r.returncode,0)
+  self.assertIn("Configured accounts: alpha",r.stdout)
 if __name__=='__main__':unittest.main(verbosity=2)

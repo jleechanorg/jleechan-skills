@@ -100,16 +100,27 @@ if [[ -n "$TARGET_ACCOUNT" ]]; then
 elif [[ -f "$CONFIG_FILE" ]]; then
   while IFS= read -r acc; do
     [[ -n "$acc" ]] && ACCOUNTS+=("$acc")
-  done < <(python3 -c '
-import json, sys
+  done < <(python3 - "$CONFIG_FILE" <<'PY_CFG'
+import json, re, sys
 try:
-    cfg = json.load(open("'"$CONFIG_FILE"'"))
-    rot = cfg.get("rotation") or list(cfg.get("accounts", {}).keys())
-    for a in rot:
-        print(a)
+    cfg = json.load(open(sys.argv[1]))
+    if isinstance(cfg, dict):
+        rot = cfg.get("rotation")
+        accs = cfg.get("accounts")
+        items = []
+        if isinstance(rot, list):
+            items = rot
+        elif isinstance(rot, str) and re.match(r'^[a-zA-Z0-9_-]+$', rot):
+            items = [rot]
+        elif isinstance(accs, dict):
+            items = list(accs.keys())
+        for a in items:
+            if isinstance(a, str) and re.match(r'^[a-zA-Z0-9_-]+$', a):
+                print(a)
 except Exception:
     pass
-' 2>/dev/null)
+PY_CFG
+  2>/dev/null)
 fi
 
 if [[ ${#ACCOUNTS[@]} -eq 0 ]]; then
@@ -162,10 +173,19 @@ if "accounts" in s:
         raise ValueError("Corrupt state.json: 'accounts' must be a dictionary")
     for acc in accounts:
         acc_file = os.path.join(state_dir, f"state_{acc}.json")
-        if not os.path.exists(acc_file) and acc in s["accounts"]:
+        if acc in s["accounts"]:
             acc_data = s["accounts"][acc]
             if isinstance(acc_data, dict):
-                atomic_json(acc_file, acc_data)
+                if not os.path.exists(acc_file):
+                    atomic_json(acc_file, acc_data)
+                elif acc_data.get("delivery_unverified"):
+                    try:
+                        cur = json.load(open(acc_file))
+                        if isinstance(cur, dict) and not cur.get("delivery_unverified"):
+                            cur["delivery_unverified"] = True
+                            atomic_json(acc_file, cur)
+                    except Exception:
+                        pass
 
 # 2. Legacy pre-multi-account state migration:
 # If state.json lacks "accounts", it is a legacy single-account file.
@@ -178,7 +198,16 @@ elif s:
         try:
             cfg = json.load(open(config_file))
             if isinstance(cfg, dict):
-                raw_configured = cfg.get("rotation") or list(cfg.get("accounts", {}).keys())
+                raw_rot = cfg.get("rotation")
+                raw_accs = cfg.get("accounts")
+                raw_configured = []
+                if isinstance(raw_rot, list):
+                    raw_configured = raw_rot
+                elif isinstance(raw_rot, str) and re.match(r'^[a-zA-Z0-9_-]+$', raw_rot):
+                    raw_configured = [raw_rot]
+                elif isinstance(raw_accs, dict):
+                    raw_configured = list(raw_accs.keys())
+
                 configured = [
                     a for a in raw_configured
                     if isinstance(a, str) and re.match(r'^[a-zA-Z0-9_-]+$', a)
@@ -193,18 +222,36 @@ elif s:
 
     if primary_acc:
         primary_file = os.path.join(state_dir, f"state_{primary_acc}.json")
-        if not os.path.exists(primary_file):
-            legacy_data = dict(s)
-            legacy_data["account"] = primary_acc
-            atomic_json(primary_file, legacy_data)
-
-        upgraded = dict(s)
-        upgraded["accounts"] = {}
+        existing_acc = {}
         if os.path.exists(primary_file):
             try:
-                upgraded["accounts"][primary_acc] = json.load(open(primary_file))
+                loaded = json.load(open(primary_file))
+                if isinstance(loaded, dict):
+                    existing_acc = loaded
             except Exception:
                 pass
+
+        if not existing_acc:
+            acc_data = dict(s)
+            acc_data["account"] = primary_acc
+        else:
+            acc_data = existing_acc
+            if s.get("delivery_unverified"):
+                acc_data["delivery_unverified"] = True
+            if "last_sent_epoch" in s and isinstance(s["last_sent_epoch"], (int, float)):
+                acc_data["last_sent_epoch"] = max(acc_data.get("last_sent_epoch", 0), int(s["last_sent_epoch"]))
+            if "delivered_change_ids" in s and isinstance(s["delivered_change_ids"], list):
+                cur_ids = acc_data.get("delivered_change_ids", [])
+                if isinstance(cur_ids, list):
+                    acc_data["delivered_change_ids"] = list(dict.fromkeys(s["delivered_change_ids"] + cur_ids))[-128:]
+                else:
+                    acc_data["delivered_change_ids"] = s["delivered_change_ids"][-128:]
+
+        atomic_json(primary_file, acc_data)
+
+        upgraded = dict(s)
+        upgraded.pop("delivery_unverified", None)
+        upgraded["accounts"] = {primary_acc: acc_data}
         atomic_json(state_file, upgraded)
     elif s.get("delivery_unverified"):
         raise ValueError("Cannot attribute unverified delivery hold from legacy state; refusing execution")
@@ -396,6 +443,8 @@ path, state_file, now, kind, key, legacy_sent, acc = sys.argv[1:]
 state = {}
 if os.path.exists(path):
     state = json.load(open(path))
+    if not isinstance(state, dict):
+        raise ValueError("Corrupt per-account state: root must be a JSON object")
 elif os.path.exists(state_file):
     top = json.load(open(state_file))
     if not isinstance(top, dict):
@@ -410,6 +459,20 @@ elif os.path.exists(state_file):
         sys.exit(0)
 if not state:
     state = {"last_sent_epoch": int(legacy_sent)}
+
+if os.path.exists(state_file):
+    try:
+        top = json.load(open(state_file))
+        if isinstance(top, dict):
+            if "accounts" not in top and top.get("delivery_unverified"):
+                print(0)
+                sys.exit(0)
+            if isinstance(top.get("accounts"), dict) and top["accounts"].get(acc, {}).get("delivery_unverified"):
+                print(0)
+                sys.exit(0)
+    except Exception:
+        pass
+
 if state.get("delivery_unverified"):
     print(0)
     sys.exit(0)
