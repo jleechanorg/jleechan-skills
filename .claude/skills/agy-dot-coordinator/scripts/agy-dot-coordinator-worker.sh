@@ -127,7 +127,7 @@ done
 # Migrate prior consolidated or legacy state before reading eligibility or timestamps.
 migrate_prior_state() {
   python3 - "$STATE_DIR" "$STATE_FILE" "$CONFIG_FILE" "${ACCOUNTS[@]}" <<'PY_MIGRATE'
-import json, os, sys, tempfile
+import json, os, re, sys, tempfile
 
 state_dir, state_file, config_file = sys.argv[1:4]
 accounts = sys.argv[4:]
@@ -157,7 +157,9 @@ def atomic_json(path, data):
 # If state.json contains per-account records in s["accounts"], migrate any
 # missing state_<account>.json so its receipt hold, delivered IDs, and timestamp
 # are preserved before eligibility checks run.
-if "accounts" in s and isinstance(s["accounts"], dict):
+if "accounts" in s:
+    if not isinstance(s["accounts"], dict):
+        raise ValueError("Corrupt state.json: 'accounts' must be a dictionary")
     for acc in accounts:
         acc_file = os.path.join(state_dir, f"state_{acc}.json")
         if not os.path.exists(acc_file) and acc in s["accounts"]:
@@ -167,16 +169,21 @@ if "accounts" in s and isinstance(s["accounts"], dict):
 
 # 2. Legacy pre-multi-account state migration:
 # If state.json lacks "accounts", it is a legacy single-account file.
-# Attribute it only to a verifiable primary account from config so peer accounts
-# do not inherit its cooldown. If config is absent/unverifiable, do not guess.
+# Attribute it only to a verifiable primary account from config (default_account first,
+# then rotation[0]) so peer accounts do not inherit its cooldown. If config is absent
+# or unverifiable, do not guess.
 elif s:
     primary_acc = None
     if os.path.exists(config_file):
         try:
             cfg = json.load(open(config_file))
-            rot = cfg.get("rotation") or list(cfg.get("accounts", {}).keys())
-            if rot and isinstance(rot, list) and len(rot) > 0:
-                primary_acc = rot[0]
+            cand = cfg.get("default_account")
+            if not cand:
+                rot = cfg.get("rotation") or list(cfg.get("accounts", {}).keys())
+                if rot and isinstance(rot, list) and len(rot) > 0:
+                    cand = rot[0]
+            if cand and isinstance(cand, str) and re.match(r'^[a-zA-Z0-9_-]+$', cand):
+                primary_acc = cand
         except Exception:
             pass
 
@@ -303,11 +310,10 @@ atomic_json(acc_file, data)
 
 top_data = {}
 if os.path.exists(state_file):
-    try:
-        with open(state_file, "r") as f:
-            top_data = json.load(f)
-    except Exception:
-        top_data = {}
+    with open(state_file, "r") as f:
+        top_data = json.load(f)
+    if not isinstance(top_data, dict):
+        raise ValueError("Corrupt state.json: root must be a JSON object")
 
 top_data["last_tick_epoch"] = int(time.time())
 top_data["last_tick_iso"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())

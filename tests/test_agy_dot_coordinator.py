@@ -133,4 +133,12 @@ class CoordinatorTests(unittest.TestCase):
   (self.state/'state.json').write_text(json.dumps({'last_sent_epoch':int(time.time()),'last_status':'SUCCESS'}))
   if self.cfg.exists(): self.cfg.unlink()
   self.run_worker('--account','beta');self.assertFalse((self.state/'state_beta.json').exists())
+ def test_malformed_accounts_list_fails_closed(self):
+  self.event();(self.state/'state.json').write_text(json.dumps({'accounts':[]}));self.run_worker('--account','alpha','--force');self.assertEqual(self.calls(),[])
+ def test_legacy_migration_prefers_default_account_over_rotation(self):
+  self.event()
+  self.cfg.write_text(json.dumps({'default_account':'beta','rotation':['alpha','beta']}))
+  (self.state/'state.json').write_text(json.dumps({'last_sent_epoch':0,'delivery_unverified':True,'delivered_change_ids':[]}))
+  self.run_worker('--account','beta','--force');self.assertEqual(self.calls(),[])
+  self.run_worker('--account','alpha','--force');self.assertEqual(self.calls(),['read','send'])
 if __name__=='__main__':unittest.main(verbosity=2)
