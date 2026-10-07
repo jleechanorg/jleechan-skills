@@ -114,4 +114,17 @@ class CoordinatorTests(unittest.TestCase):
  def test_new_account_does_not_inherit_peer_cooldown(self):
   self.event();self.run_worker('--account','alpha');self.run_worker('--account','beta');self.assertEqual(self.calls(),['read','send','read','send'])
   self.assertEqual(json.loads((self.state/'state_beta.json').read_text())['last_status'],'SUCCESS')
+ def test_consolidated_state_migration_preserves_unverified_hold(self):
+  self.event()
+  (self.state/'state.json').write_text(json.dumps({'accounts':{'alpha':{'last_sent_epoch':0,'delivery_unverified':True,'delivered_change_ids':[]}}}))
+  self.run_worker('--account','alpha','--force');self.assertEqual(self.calls(),[]);self.assertTrue(self.saved()['delivery_unverified'])
+ def test_consolidated_state_migration_preserves_delivered_ledger(self):
+  self.event()
+  (self.state/'state.json').write_text(json.dumps({'accounts':{'alpha':{'last_sent_epoch':int(time.time())-3600,'delivery_unverified':False,'delivered_change_ids':['task:revision1:ready']}}}))
+  self.run_worker('--account','alpha','--force');self.assertEqual(self.calls(),[]);self.assertIn('task:revision1:ready',self.saved()['delivered_change_ids'])
+ def test_legacy_global_state_does_not_impose_cooldown_on_peer(self):
+  self.event()
+  (self.state/'state.json').write_text(json.dumps({'last_sent_epoch':int(time.time()),'last_status':'SUCCESS'}))
+  self.run_worker('--account','alpha');self.assertEqual(self.calls(),['read'])
+  self.run_worker('--account','beta');self.assertEqual(self.calls(),['read','read','send'])
 if __name__=='__main__':unittest.main(verbosity=2)

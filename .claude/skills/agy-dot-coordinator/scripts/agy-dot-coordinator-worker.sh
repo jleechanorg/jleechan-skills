@@ -124,6 +124,83 @@ for acc in "${ACCOUNTS[@]}"; do
   fi
 done
 
+# Migrate prior consolidated or legacy state before reading eligibility or timestamps.
+migrate_prior_state() {
+  python3 - "$STATE_DIR" "$STATE_FILE" "$CONFIG_FILE" "${ACCOUNTS[@]}" <<'PY_MIGRATE'
+import json, os, sys, tempfile
+
+state_dir, state_file, config_file = sys.argv[1:4]
+accounts = sys.argv[4:]
+
+if not os.path.exists(state_file):
+    sys.exit(0)
+
+try:
+    with open(state_file) as f:
+        s = json.load(f)
+except Exception:
+    sys.exit(0)
+
+if not isinstance(s, dict):
+    sys.exit(0)
+
+def atomic_json(path, data):
+    tmp = tempfile.mktemp(dir=os.path.dirname(path), prefix=".tmp_")
+    with open(tmp, "w") as f:
+        json.dump(data, f, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
+
+# 1. Consolidated state migration:
+# If state.json contains per-account records in s["accounts"], migrate any
+# missing state_<account>.json so its receipt hold, delivered IDs, and timestamp
+# are preserved before eligibility checks run.
+if "accounts" in s and isinstance(s["accounts"], dict):
+    for acc in accounts:
+        acc_file = os.path.join(state_dir, f"state_{acc}.json")
+        if not os.path.exists(acc_file) and acc in s["accounts"]:
+            acc_data = s["accounts"][acc]
+            if isinstance(acc_data, dict):
+                atomic_json(acc_file, acc_data)
+
+# 2. Legacy pre-multi-account state migration:
+# If state.json lacks "accounts", it is a legacy single-account file.
+# Attribute it only to the primary account so peer accounts do not inherit its cooldown.
+elif s:
+    primary_acc = None
+    if os.path.exists(config_file):
+        try:
+            cfg = json.load(open(config_file))
+            rot = cfg.get("rotation") or list(cfg.get("accounts", {}).keys())
+            if rot:
+                primary_acc = rot[0]
+        except Exception:
+            pass
+    if not primary_acc and accounts:
+        primary_acc = accounts[0]
+
+    if primary_acc:
+        primary_file = os.path.join(state_dir, f"state_{primary_acc}.json")
+        if not os.path.exists(primary_file):
+            legacy_data = dict(s)
+            legacy_data["account"] = primary_acc
+            atomic_json(primary_file, legacy_data)
+
+    upgraded = dict(s)
+    upgraded["accounts"] = {}
+    if primary_acc:
+        primary_file = os.path.join(state_dir, f"state_{primary_acc}.json")
+        if os.path.exists(primary_file):
+            try:
+                upgraded["accounts"][primary_acc] = json.load(open(primary_file))
+            except Exception:
+                pass
+    atomic_json(state_file, upgraded)
+PY_MIGRATE
+}
+migrate_prior_state
+
 read_last_sent() {
   local acc="$1"
   local acc_file="$STATE_DIR/state_${acc}.json"
@@ -138,8 +215,7 @@ if "accounts" in s:
     # Current consolidated state is per-account; a peer timestamp is not ours.
     print(accs.get("'"$acc"'", {}).get("last_sent_epoch", 0))
 else:
-    # Preserve the pre-multi-account legacy receipt fallback only.
-    print(s.get("last_sent_epoch", 0))
+    print(0)
 ' 2>/dev/null || echo 0
   else
     echo 0
@@ -151,6 +227,16 @@ read_last_status() {
   local acc_file="$STATE_DIR/state_${acc}.json"
   if [[ -f "$acc_file" ]]; then
     python3 -c 'import json; s=json.load(open("'"$acc_file"'")); print(s.get("last_status", "UNKNOWN"))' 2>/dev/null || echo "UNKNOWN"
+  elif [[ -f "$STATE_FILE" ]]; then
+    python3 -c '
+import json
+s = json.load(open("'"$STATE_FILE"'"))
+accs = s.get("accounts", {})
+if "accounts" in s:
+    print(accs.get("'"$acc"'", {}).get("last_status", "UNKNOWN"))
+else:
+    print("NEVER_SENT")
+' 2>/dev/null || echo "UNKNOWN"
   else
     echo "NEVER_SENT"
   fi
@@ -176,6 +262,14 @@ data = {}
 if os.path.exists(acc_file):
     with open(acc_file) as f:
         data = json.load(f)
+elif os.path.exists(state_file):
+    try:
+        with open(state_file) as f:
+            top_pre = json.load(f)
+        if isinstance(top_pre, dict) and "accounts" in top_pre and acc in top_pre["accounts"]:
+            data = top_pre["accounts"][acc]
+    except Exception:
+        data = {}
 data.update({
     "account": acc,
     "last_sent_epoch": epoch,
@@ -281,10 +375,21 @@ for acc in "${ACCOUNTS[@]}"; do
   if [[ "$FULL_ROLLUP" == 1 ]]; then MESSAGE_KIND="rollup"; fi
   if [[ "$URGENT" == 1 ]]; then MESSAGE_KIND="incident"; fi
   # Fail closed on corrupt state; every send requires a new owner-supplied ID.
-  eligible=$(python3 - "$STATE_DIR/state_$acc.json" "$NOW" "$MESSAGE_KIND" "$DELIVERY_KEY" "$last_sent" <<'PY_GATE'
+  eligible=$(python3 - "$STATE_DIR/state_$acc.json" "$STATE_FILE" "$NOW" "$MESSAGE_KIND" "$DELIVERY_KEY" "$last_sent" "$acc" <<'PY_GATE'
 import json, os, sys
-path, now, kind, key, legacy_sent = sys.argv[1:]
-state = json.load(open(path)) if os.path.exists(path) else {"last_sent_epoch": int(legacy_sent)}
+path, state_file, now, kind, key, legacy_sent, acc = sys.argv[1:]
+state = {}
+if os.path.exists(path):
+    state = json.load(open(path))
+elif os.path.exists(state_file):
+    try:
+        top = json.load(open(state_file))
+        if isinstance(top, dict) and "accounts" in top and acc in top["accounts"]:
+            state = top["accounts"][acc]
+    except Exception:
+        state = {}
+if not state:
+    state = {"last_sent_epoch": int(legacy_sent)}
 if state.get("delivery_unverified"):
     print(0)
     sys.exit(0)
