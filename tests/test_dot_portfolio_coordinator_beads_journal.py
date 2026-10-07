@@ -110,9 +110,12 @@ class TestDotPortfolioCoordinatorBeadsJournal(unittest.TestCase):
 
     def test_domain_store_readonly_enforcement(self):
         self.journal.acquire_writer_lock()
+        _, _, digest = self.journal.read_control_record(self.domain_id)
         # Attempting to append to domain issue lacking 'coordinator-control' label
         with self.assertRaises(DomainStoreReadOnlyError) as ctx:
-            self.journal.append_journal_entry(self.domain_id, "act_illegal", "Bad append")
+            self.journal.append_journal_entry(
+                self.domain_id, "act_illegal", "Bad append", expected_digest=digest
+            )
         self.assertIn("read-only", str(ctx.exception).lower())
         self.journal.release_writer_lock()
 
@@ -127,6 +130,64 @@ class TestDotPortfolioCoordinatorBeadsJournal(unittest.TestCase):
                 expected_digest=bad_digest
             )
         self.assertIn("digest", str(ctx.exception).lower())
+    def test_conflicting_replay_payload_rejected(self):
+        self.journal.acquire_writer_lock()
+        _, _, digest1 = self.journal.read_control_record(self.control_id)
+        action_id = "act_conflict_test"
+
+        # First append
+        res1 = self.journal.append_journal_entry(
+            self.control_id,
+            action_id,
+            "Original payload for action",
+            expected_digest=digest1
+        )
+        self.assertEqual(res1["status"], "applied")
+
+        # Second append with same action_id but DIFFERENT payload must be rejected
+        _, _, digest2 = self.journal.read_control_record(self.control_id)
+        with self.assertRaises(JournalConflictError) as ctx:
+            self.journal.append_journal_entry(
+                self.control_id,
+                action_id,
+                "Conflicting different payload!",
+                expected_digest=digest2
+            )
+        self.assertIn("conflict", str(ctx.exception).lower())
+        self.journal.release_writer_lock()
+
+    def test_mandatory_expected_digest(self):
+        self.journal.acquire_writer_lock()
+        with self.assertRaises(JournalError) as ctx:
+            self.journal.append_journal_entry(
+                self.control_id,
+                "act_no_digest",
+                "Payload without digest",
+                expected_digest=None
+            )
+        self.assertIn("expected_digest", str(ctx.exception).lower())
+        self.journal.release_writer_lock()
+
+    def test_cas_conflict_stops_without_blind_retry(self):
+        self.journal.acquire_writer_lock()
+        _, _, digest = self.journal.read_control_record(self.control_id)
+
+        # Mutate the record in the background to advance its updated_at
+        subprocess.check_call(
+            ["br", "update", self.control_id, "--append-notes", "External edit", "--no-auto-flush"],
+            cwd=self.roadmap_dir,
+            stdout=subprocess.DEVNULL
+        )
+
+        # Now attempting to append with the old digest should stop on conflict
+        with self.assertRaises(JournalConflictError) as ctx:
+            self.journal.append_journal_entry(
+                self.control_id,
+                "act_cas_conflict",
+                "Payload that should fail CAS",
+                expected_digest=digest
+            )
+        self.assertIn("conflict", str(ctx.exception).lower())
         self.journal.release_writer_lock()
 
 

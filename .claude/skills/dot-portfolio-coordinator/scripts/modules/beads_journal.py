@@ -1,21 +1,22 @@
 """Beads control journal module for dot-portfolio-coordinator.
 
 Implements:
-- Sole writer lock on designated host (via fcntl.flock)
-- Observed full-record digest computation
-- Read-only domain store invariant (only coordinator-control records writable)
-- Optimistic concurrency control via `--if-unchanged <updated_at>`
-- Atomic note appending via `--append-notes`
-- Post-write reread of updated_at and record digest
-- Idempotent action recording (retries reuse action ID without duplicating journal entries)
+- Sole writer lock on designated host (via fcntl.flock in private /tmp)
+- Registry store authority enforcement (mutations permitted only on authoritative_control store)
+- Mandatory observed full-record digest and timestamp CAS
+- Zero blind-retries on CAS exit 6 (stops immediately on conflict)
+- Conflicting action payload replay rejection (binds payload hash to action_id)
+- Post-write reread of full record, notes, and new digest
+- Explicit DB binding and --no-auto-import on all br invocations
 """
 import fcntl
 import hashlib
 import json
 import os
-import subprocess
 import time
 from typing import Any, Dict, List, Optional, Tuple
+
+from modules.process_utils import run_bounded_command, ProcessExecutionError
 
 
 class JournalError(Exception):
@@ -34,14 +35,23 @@ class DomainStoreReadOnlyError(JournalError):
 
 
 class BeadsControlJournal:
-    """Manages roadmap Beads control records with sole-writer lock and CAS protocol."""
+    """Manages roadmap Beads control records with sole-writer lock and strict CAS protocol."""
 
     def __init__(self, registry: Any, roadmap_store_dir: str, lock_path: Optional[str] = None):
         self.registry = registry
         self.roadmap_store_dir = roadmap_store_dir
-        self.lock_path = lock_path or os.path.join(roadmap_store_dir, ".coordinator-writer.lock")
+        self.lock_path = lock_path or "/tmp/ai.gemini.dot-portfolio-coordinator-writer.lock"
         self._lock_file = None
         self._lock_held = False
+        self._db_path = self._resolve_db_path()
+
+    def _resolve_db_path(self) -> Optional[str]:
+        """Resolves exact DB path from registry or store dir."""
+        # Check if store dir has .beads/beads.db
+        candidate = os.path.join(self.roadmap_store_dir, ".beads", "beads.db")
+        if os.path.isfile(candidate):
+            return candidate
+        return None
 
     def acquire_writer_lock(self, blocking: bool = False) -> None:
         """Acquires exclusive sole-writer lock on the lockfile."""
@@ -82,16 +92,18 @@ class BeadsControlJournal:
 
         Returns (record_dict, updated_at, full_record_digest).
         """
-        cmd = ["br", "show", record_id, "--json", "--no-auto-flush"]
+        cmd = ["br", "show", record_id, "--json", "--no-auto-flush", "--no-auto-import"]
+        if self._db_path:
+            cmd.extend(["--db", self._db_path])
         try:
-            out = subprocess.check_output(cmd, cwd=self.roadmap_store_dir, stderr=subprocess.PIPE, text=True)
-            record = json.loads(out)
+            rc, stdout, stderr = run_bounded_command(cmd, cwd=self.roadmap_store_dir, timeout_secs=15)
+            if rc != 0:
+                raise JournalError(f"Failed to read record {record_id}: {stderr}")
+            record = json.loads(stdout)
             if isinstance(record, list):
                 if not record:
                     raise JournalError(f"Record {record_id} not found")
                 record = record[0]
-        except subprocess.CalledProcessError as e:
-            raise JournalError(f"Failed to read record {record_id}: {e.stderr}")
         except Exception as e:
             raise JournalError(f"Error reading record {record_id}: {e}")
 
@@ -104,12 +116,14 @@ class BeadsControlJournal:
         record_id: str,
         action_id: str,
         entry_payload: str,
-        expected_digest: Optional[str] = None,
-        retry_on_conflict: bool = True
+        expected_digest: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Appends an immutable journal note to a roadmap control record with CAS and idempotence."""
+        """Appends an immutable journal note to a roadmap control record with CAS and payload binding."""
         if not self._lock_held:
             raise JournalError("Sole-writer lock must be held before modifying control records")
+
+        if not expected_digest or not str(expected_digest).strip():
+            raise JournalError("expected_digest is mandatory for CAS control journal updates")
 
         # Read current state
         record, updated_at, current_digest = self.read_control_record(record_id)
@@ -122,82 +136,64 @@ class BeadsControlJournal:
                 "Domain task stores and non-control records are strictly read-only."
             )
 
-        # Idempotence: Check if action_id already recorded in notes
+        # Compute payload hash
+        payload_sha = hashlib.sha256(entry_payload.strip().encode("utf-8")).hexdigest()
         action_tag = f"[action_id:{action_id}]"
+        payload_tag = f"[payload_sha256:{payload_sha}]"
+
         notes = record.get("notes") or ""
         if action_tag in notes:
-            return {
-                "status": "already_applied",
-                "action_id": action_id,
-                "record_id": record_id,
-                "updated_at": updated_at
-            }
+            # Check for conflicting payload replay
+            if payload_tag in notes:
+                return {
+                    "status": "already_applied",
+                    "action_id": action_id,
+                    "record_id": record_id,
+                    "updated_at": updated_at
+                }
+            raise JournalConflictError(
+                f"Conflicting replay detected for action_id '{action_id}' on record {record_id}: "
+                "action_id already exists with different payload digest."
+            )
 
         # CAS Digest validation
-        if expected_digest and expected_digest != current_digest:
+        if expected_digest != current_digest:
             raise JournalConflictError(
-                f"Digest mismatch on record {record_id}: expected {expected_digest}, observed {current_digest}"
+                f"CAS conflict: digest mismatch on record {record_id}: expected {expected_digest}, observed {current_digest}"
             )
 
         # Prepare formatted append line
         now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-        note_entry = f"{action_tag} [{now_iso}] {entry_payload.strip()}"
+        note_entry = f"{action_tag} {payload_tag} [{now_iso}] {entry_payload.strip()}"
 
         cmd = [
             "br", "update", record_id,
             "--if-unchanged", updated_at,
             "--append-notes", note_entry,
             "--no-auto-flush",
+            "--no-auto-import",
             "--json"
         ]
+        if self._db_path:
+            cmd.extend(["--db", self._db_path])
 
-        proc = subprocess.run(
-            cmd,
-            cwd=self.roadmap_store_dir,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
+        rc, stdout, stderr = run_bounded_command(cmd, cwd=self.roadmap_store_dir, timeout_secs=15)
 
-        if proc.returncode == 6:
-            # Timestamp CAS conflict
-            if retry_on_conflict:
-                # Re-read and retry once
-                record_retry, updated_at_retry, _ = self.read_control_record(record_id)
-                if action_tag in (record_retry.get("notes") or ""):
-                    return {
-                        "status": "already_applied",
-                        "action_id": action_id,
-                        "record_id": record_id,
-                        "updated_at": updated_at_retry
-                    }
-                cmd_retry = [
-                    "br", "update", record_id,
-                    "--if-unchanged", updated_at_retry,
-                    "--append-notes", note_entry,
-                    "--no-auto-flush",
-                    "--json"
-                ]
-                proc_retry = subprocess.run(
-                    cmd_retry,
-                    cwd=self.roadmap_store_dir,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True
-                )
-                if proc_retry.returncode != 0:
-                    raise JournalConflictError(
-                        f"Conflict retry failed on record {record_id}: {proc_retry.stderr}"
-                    )
-            else:
-                raise JournalConflictError(f"CAS conflict on record {record_id} (exit 6): {proc.stderr}")
-        elif proc.returncode != 0:
-            raise JournalError(f"Failed to update record {record_id}: {proc.stderr}")
+        if rc == 6:
+            # Stop immediately on CAS timestamp conflict: NO blind retry
+            raise JournalConflictError(
+                f"CAS conflict: timestamp changed on record {record_id} (br update exit 6): {stderr}"
+            )
+        elif rc != 0:
+            raise JournalError(f"Failed to update record {record_id}: {stderr}")
 
-        # Post-write reread to verify mutation and obtain fresh updated_at
+        # Post-write reread to verify mutation and obtain fresh updated_at and digest
         fresh_record, new_updated_at, new_digest = self.read_control_record(record_id)
-        if action_tag not in (fresh_record.get("notes") or ""):
-            raise JournalError(f"Post-write reread failed: {action_tag} not found in notes")
+        fresh_notes = fresh_record.get("notes") or ""
+        if action_tag not in fresh_notes or payload_tag not in fresh_notes:
+            raise JournalError(
+                f"Post-write reread verification failed: {action_tag} or {payload_tag} missing in record notes"
+            )
 
         return {
             "status": "applied",
