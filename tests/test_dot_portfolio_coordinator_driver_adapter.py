@@ -73,6 +73,9 @@ message = json.loads(sys.stdin.readline())
 assert message["event"] == "user"
 assert isinstance(message["message"]["content"], str)
 assert "Merge Integrity" in message["message"]["content"]
+assert "Do not call dot transport or send messages" in message["message"]["content"]
+assert "do not edit repositories, access credentials" in message["message"]["content"]
+assert "perform any proposed action" in message["message"]["content"]
 print(json.dumps({{"event": "result", "result": {{"status": "SUCCESS",
     "response": {response!r}}}}}))
 ''')
@@ -104,6 +107,21 @@ print(json.dumps({{"type": "result", "subtype": "success",
             result = DriverAdapter("claude").decide(self.packet, self.workspace)
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["decision"]["stage"], "inventory")
+
+    def test_claude_verbose_json_array_uses_terminal_result(self):
+        response = self.response_text
+        self._fake_driver("claude", f'''import json
+print(json.dumps([
+  {{"type":"system","subtype":"init"}},
+  {{"type":"assistant","message":{{"role":"assistant","content":[{{"type":"text","text":"working"}}]}}}},
+  {{"type":"rate_limit_event"}},
+  {{"type":"result","subtype":"success","is_error":False,"result":{response!r}}}
+]))
+''')
+        with mock.patch.dict(os.environ, self._path_env()):
+            result = DriverAdapter("claude").decide(self.packet, self.workspace)
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["decision"]["event_id"], "event-456")
 
     def test_codex_reads_prompt_from_stdin_and_last_message_file(self):
         response = self.response_text
