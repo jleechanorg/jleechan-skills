@@ -46,7 +46,7 @@ done
 set -- ${NEW_ARGS[@]+"${NEW_ARGS[@]}"}
 
 # Existing-profile-only launch is local by contract and never falls back to another host.
-if [[ "${1:-}" == "existing-profile-only" ]]; then
+if [[ "${1:-}" == "existing-profile-only" || "${DOT_PREPARED:-0}" == "1" || "${1:-}" == "send-prepared" ]]; then
   DOT_NO_REMOTE=1
   export DOT_NO_REMOTE
 fi
@@ -130,7 +130,7 @@ URL_HOST=$("$NODE" -e '
     process.stdout.write(process.argv[1] || "");
   }
 ' "$DOT_URL" 2>/dev/null || echo "$DOT_URL")
-if [[ "${1:-}" != "existing-profile-only" ]]; then
+if [[ "${1:-}" != "existing-profile-only" && "${DOT_PREPARED:-0}" != "1" && "${1:-}" != "send-prepared" ]]; then
   PROFILE_DIR_DISPLAY="${DOT_CHROME_USER_DATA:-~/.config/dot-headless-chrome-${ACCOUNT}}"
   echo "dot.sh: account=$ACCOUNT backend=$BACKEND url=$URL_HOST dir=$PROFILE_DIR_DISPLAY" >&2
 fi
@@ -231,6 +231,17 @@ cmd_read() {
 cmd_send_once() {
   local file="${1:-}"
   [[ -f "$file" && -s "$file" ]] || { echo "usage: dot.sh send <non-empty message-file>" >&2; exit 2; }
+  if [[ "${DOT_PREPARED:-0}" == "1" ]]; then
+    local extra_node_path
+    if [[ -d "$HOME/.npm-global/lib/node_modules" ]]; then
+      extra_node_path="$HOME/.npm-global/lib/node_modules:${NODE_PATH:-}"
+    elif [[ -d "$(dirname "$NODE")/../lib/node_modules" ]]; then
+      extra_node_path="$(dirname "$NODE")/../lib/node_modules:${NODE_PATH:-}"
+    else
+      extra_node_path="${NODE_PATH:-}"
+    fi
+    exec env DOT_ACCOUNT="$ACCOUNT" DOT_URL="$DOT_URL" DOT_CHROME_USER_DATA="${DOT_CHROME_USER_DATA:-}" DOT_CLEAR_DRAFT="${DOT_CLEAR_DRAFT:-}" DOT_PREPARED="1" DOT_NO_REMOTE="1" NODE_PATH="$extra_node_path" "$NODE" "$HERE/dot_chrome.mjs" send-prepared "$file"
+  fi
   local out="" rc=0
   run_chrome send "$file" || rc=$?
   [[ $rc -ne 0 && $rc -ne 10 ]] && CHROME_OUT="DOT_SEND_UNVERIFIED chrome_rc=$rc"
@@ -306,7 +317,8 @@ case "${1:-}" in
   read) shift; cmd_read "$@" ;;
   send) shift; cmd_send "$@" ;;
   send-once) shift; cmd_send_once "$@" ;;
+  send-prepared) shift; export DOT_PREPARED=1; cmd_send_once "$@" ;;
   existing-profile-only) shift; cmd_existing_profile_only "$@" ;;
   login|auth) shift; cmd_login "$@" ;;
-  *) echo "usage: dot.sh [--account <name>] [--url <url>] read [chars] | send|send-once <message-file> | existing-profile-only | login" >&2; exit 2 ;;
+  *) echo "usage: dot.sh [--account <name>] [--url <url>] read [chars] | send|send-once|send-prepared <message-file> | existing-profile-only | login" >&2; exit 2 ;;
 esac

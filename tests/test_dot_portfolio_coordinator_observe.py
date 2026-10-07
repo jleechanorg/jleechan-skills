@@ -200,8 +200,12 @@ class TestDotPortfolioCoordinatorObserve(unittest.TestCase):
             fake_dot = root / "dot"
             fake_dot.write_text(
                 "#!/bin/sh\n"
-                "if [ \"$3\" = send-once ]; then cat \"$4\" > \"$DOT_CAPTURE_FILE\"; "
-                "echo DOT_SENT_VERIFIED; fi\n"
+                "if [ \"$3\" = send-once ]; then\n"
+                "  echo prepared\n"
+                "  read -r cmd\n"
+                "  cat \"$4\" > \"$DOT_CAPTURE_FILE\"\n"
+                "  echo DOT_SENT_VERIFIED\n"
+                "fi\n"
             )
             fake_dot.chmod(0o700)
             fake_gh = root / "gh"
@@ -323,7 +327,7 @@ class TestDotPortfolioCoordinatorObserve(unittest.TestCase):
             self.assertEqual(outcome["outcome"], "no_eligible_task")
             sender.assert_not_called()
 
-    def test_source_change_after_draft_never_invokes_sender(self):
+    def test_source_change_after_draft_passes_callback_to_sender(self):
         with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
             root = Path(tmp)
             started = time.time()
@@ -359,16 +363,123 @@ class TestDotPortfolioCoordinatorObserve(unittest.TestCase):
                 adapter.return_value.decide.return_value = {
                     "status": "ok", "decision": decision,
                 }
+                def fake_call_sender(argv, event_id, message, source_callback=None):
+                    self.assertIsNotNone(source_callback)
+                    ok, reason = source_callback()
+                    self.assertFalse(ok)
+                    self.assertEqual(reason, "source_changed_after_draft")
+                    return {"outcome": "no_action", "reason": reason, "delivery_verified": False}
+
+                sender.side_effect = fake_call_sender
                 outcome = coordinator_portfolio.run_pilot_slot(
                     config, {"account_index": 0, "event_id": "event-8"},
                     {"dialogue": {"0": "inventory"}}, snapshot, root, "agy", "unused",
-                    time.monotonic() + 600,
+                    time.monotonic() + 1000,
                     source_receipt_reader=lambda expected, timeout: (changed, "ok"),
                 )
             self.assertEqual(outcome, {"outcome": "no_action",
                                        "reason": "source_changed_after_draft",
                                        "delivery_verified": False})
-            sender.assert_not_called()
+            sender.assert_called_once()
+
+    def test_fake_transport_reports_prepared_source_changes_warmup_aborts_without_click(self):
+        import shlex
+        with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
+            root = Path(tmp)
+            started = time.time()
+            grant = {
+                "grant_version": 1,
+                "task_id": "dot-coordinator-separated-20261007",
+                "account_id": "first",
+                "action": "coordination_message",
+                "max_messages": 12,
+                "min_interval_secs": 3600,
+                "activated_at_epoch": started,
+                "expiry_epoch": started + 900,
+            }
+            grant_path = root / "grant.json"
+            grant_path.write_text(json.dumps(grant))
+            grant_path.chmod(0o400)
+            grant_sha = hashlib.sha256(grant_path.read_bytes()).hexdigest()
+
+            binding = {
+                "source_id": "test-repo",
+                "task_composite_key": ["github.com", "example-org/test-repo", "test", "7"],
+                "record_version": "2026-10-07T00:00:00Z",
+                "record_digest": "a" * 64,
+            }
+            task_id = json.dumps(["test-repo", *binding["task_composite_key"]], separators=(",", ":"))
+            candidate = {"task_id": task_id, "source_binding": binding}
+            snapshot = {"candidate_bindings": [candidate]}
+            config = {
+                "task_id": "dot-coordinator-separated-20261007",
+                "authority": "Continue the fixture task.",
+                "accounts": [{"account": "first", "grant_file": str(grant_path), "grant_sha256": grant_sha}],
+            }
+            decision = {
+                "schema_version": 1,
+                "event_id": "event-abort-test",
+                "task_id": task_id,
+                "outcome": "send_proposal",
+                "stage": "inventory",
+                "source_binding": binding,
+                "grant_binding": {"grant_version": 1, "grant_sha256": grant_sha},
+                "correlation": None,
+                "judgment": {"assessment": "unknown", "safe_next_action": "ask Dot"},
+                "blockers": [],
+                "action": "send",
+                "message": "Request evidence.",
+            }
+
+            click_marker = root / "clicked.txt"
+            abort_marker = root / "aborted.txt"
+            prepared_marker = root / "prepared.txt"
+            fake_transport = root / "fake_transport.sh"
+            fake_transport.write_text(
+                "#!/bin/sh\n"
+                f"echo 'prepared' > {shlex.quote(str(prepared_marker))}\n"
+                "printf 'prepared\\n'\n"
+                "read -t 5 -r cmd || cmd='timeout'\n"
+                "case \"$cmd\" in\n"
+                "  commit*)\n"
+                f"    echo 'clicked' > {shlex.quote(str(click_marker))}\n"
+                "    echo 'DOT_SENT_VERIFIED'\n"
+                "    exit 0\n"
+                "    ;;\n"
+                "  *)\n"
+                f"    echo \"$cmd\" > {shlex.quote(str(abort_marker))}\n"
+                "    exit 0\n"
+                "    ;;\n"
+                "esac\n"
+            )
+            fake_transport.chmod(0o700)
+
+            changed_binding = dict(binding, record_digest="b" * 64)
+            with mock.patch("modules.driver_adapter.DriverAdapter") as adapter:
+                adapter.return_value.decide.return_value = {
+                    "status": "ok",
+                    "decision": decision,
+                }
+                outcome = coordinator_portfolio.run_pilot_slot(
+                    config,
+                    {"account_index": 0, "event_id": "event-abort-test"},
+                    {"dialogue": {"0": "inventory"}},
+                    snapshot,
+                    root,
+                    "agy",
+                    str(fake_transport),
+                    time.monotonic() + 1000,
+                    source_receipt_reader=lambda expected, timeout: (changed_binding, "ok"),
+                )
+
+            self.assertTrue(prepared_marker.exists(), "Transport must have reported prepared")
+            self.assertTrue(abort_marker.exists(), "Coordinator must have sent abort to transport")
+            self.assertIn("abort", abort_marker.read_text())
+            self.assertFalse(click_marker.exists(), "Click must never occur on aborted transport")
+            self.assertEqual(
+                outcome,
+                {"outcome": "no_action", "reason": "source_changed_after_draft", "delivery_verified": False},
+            )
 
     def test_wrapper_computes_outer_grace_period(self):
         # Inspect dot-portfolio-coordinator-wrapper.sh to ensure observe duration has + 120s grace
@@ -379,3 +490,4 @@ class TestDotPortfolioCoordinatorObserve(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

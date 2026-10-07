@@ -241,6 +241,57 @@ exports.chromium = {
         )
         self.assertFalse(self.launch_record.exists())
 
+    def test_prepared_send_mode_blocks_when_profile_missing_without_seeding(self):
+        self.profile.rmdir()
+        msg_file = self.root / "msg.txt"
+        msg_file.write_text("Hello dot", encoding="utf-8")
+        env = dict(self.env)
+        env["DOT_PREPARED"] = "1"
+        proc = subprocess.run(
+            [str(NODE22), str(SCRIPT), "send-prepared", str(msg_file)],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        self.assertEqual(proc.returncode, 10, proc.stderr)
+        self.assertEqual(
+            self._result(proc.stdout),
+            {
+                "schema_version": 1,
+                "launch_state": "unavailable",
+                "diagnostic": "profile_missing",
+            },
+        )
+        self.assertFalse(self.profile.exists())
+
+    def test_dot_sh_prepared_send_mode_blocks_when_lock_present(self):
+        lock = self.profile / "SingletonLock"
+        lock.symlink_to("unknown-host-12345")
+        msg_file = self.root / "msg.txt"
+        msg_file.write_text("Hello dot", encoding="utf-8")
+        env = dict(self.env)
+        env["DOT_PREPARED"] = "1"
+        proc = subprocess.run(
+            [str(DOT_SH), "send-once", str(msg_file)],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        self.assertEqual(proc.returncode, 10, proc.stderr)
+        self.assertEqual(
+            self._result(proc.stdout),
+            {
+                "schema_version": 1,
+                "launch_state": "unavailable",
+                "diagnostic": "profile_lock_present",
+            },
+        )
+        self.assertTrue(lock.is_symlink())
+
 
 if __name__ == "__main__":
     unittest.main()

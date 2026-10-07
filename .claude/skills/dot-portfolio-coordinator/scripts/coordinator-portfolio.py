@@ -114,7 +114,12 @@ def pilot_slots(config: Dict[str, Any]) -> List[Dict[str, Any]]:
     return slots
 
 
-def call_sender(argv: List[str], event_id: str, message: str) -> Dict[str, Any]:
+def call_sender(
+    argv: List[str],
+    event_id: str,
+    message: str,
+    source_callback: Optional[Callable[[], Tuple[bool, str]]] = None,
+) -> Dict[str, Any]:
     from modules.sender import run_sender_cli
     changes = {"COORDINATOR_CHANGE_ID": event_id, "COORDINATOR_CHANGE_SUMMARY": message,
                "DOT_NO_REMOTE": "1"}
@@ -123,7 +128,7 @@ def call_sender(argv: List[str], event_id: str, message: str) -> Dict[str, Any]:
     try:
         os.environ.update(changes)
         with contextlib.redirect_stdout(output):
-            rc = run_sender_cli(argv)
+            rc = run_sender_cli(argv, source_callback=source_callback)
     finally:
         for key, value in previous.items():
             if value is None:
@@ -291,16 +296,20 @@ def run_pilot_slot(config: Dict[str, Any], slot: Dict[str, Any], state: Dict[str
     if source_receipt_reader is None:
         return {"outcome": "no_action", "reason": "source_revalidation_unavailable",
                 "delivery_verified": False}
-    refreshed_binding, refresh_reason = source_receipt_reader(
-        decision_payload["source_binding"],
-        min(120.0, max(0.0, deadline - time.monotonic())),
-    )
-    if refreshed_binding is None:
-        return {"outcome": "no_action", "reason": refresh_reason,
-                "delivery_verified": False}
-    if refreshed_binding != decision_payload["source_binding"]:
-        return {"outcome": "no_action", "reason": "source_changed_after_draft",
-                "delivery_verified": False}
+
+    expected_binding = decision_payload["source_binding"]
+
+    def check_source() -> Tuple[bool, str]:
+        remaining = min(120.0, max(0.0, deadline - time.monotonic()))
+        refreshed_binding, refresh_reason = source_receipt_reader(
+            expected_binding, remaining
+        )
+        if refreshed_binding is None:
+            return False, refresh_reason
+        if refreshed_binding != expected_binding:
+            return False, "source_changed_after_draft"
+        return True, "ok"
+
     guidance = (SCRIPT_DIR.parent / "references" / "dot-self-unblock.md").read_text()
     message = guidance + "\n\n" + decision_payload["message"]
     sender_root = private_run_directory(str(root / f"sender-{account_index}"))
@@ -309,7 +318,7 @@ def run_pilot_slot(config: Dict[str, Any], slot: Dict[str, Any], state: Dict[str
             "--transport-script", transport, "--full-rollup"]
     if deadline - time.monotonic() < 600:
         return {"outcome": "deadline_hold", "delivery_verified": False}
-    result = call_sender(argv, slot["event_id"], message)
+    result = call_sender(argv, slot["event_id"], message, source_callback=check_source)
     if result["delivery_verified"]:
         state["dialogue"][str(account_index)] = "challenge" if stage == "inventory" else "inventory"
     return result

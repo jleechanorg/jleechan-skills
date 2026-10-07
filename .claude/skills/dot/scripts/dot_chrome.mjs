@@ -3,9 +3,11 @@
 // DOT_DRY_RUN=1 types + verifies the message, clears it, never sends.
 import { createRequire } from 'module';
 import { execFileSync, execSync } from 'child_process';
+import crypto from 'crypto';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import readline from 'readline';
 
 const require = createRequire(process.env.DOT_PW_MODULES || path.join(path.dirname(process.execPath), '../lib/node_modules/'));
 
@@ -346,26 +348,7 @@ async function checkAuthSession(page) {
   }
 }
 
-async function launch() {
-  if (!fs.existsSync(CHROME)) unavailable('Chrome not found at ' + CHROME);
-  let chromium;
-  try {
-    ({ chromium } = require('playwright'));
-  } catch {
-    unavailable('playwright not installed for ' + process.execPath);
-  }
-
-  await waitAndCleanSingletonLock(USER_DATA_DIR);
-  ensurePersistentProfile(accountInfo, USER_DATA_DIR);
-
-  try {
-    ctx = await chromium.launchPersistentContext(USER_DATA_DIR, chromeLaunchOptions());
-  } catch (e) {
-    unavailable('failed to launch persistent Chrome context: ' + e.message);
-  }
-  const page = await ctx.newPage();
-  await page.goto(URL_, { waitUntil: 'domcontentloaded', timeout: 45000 });
-
+async function settlePage(page, currentMode) {
   // Settle loop: wait for Cloudflare challenge to clear and page to render
   const deadline = Date.now() + 45000;
   let last = -1, stable = 0;
@@ -403,7 +386,7 @@ async function launch() {
       if (session.status === 200 && session.isJson && session.hasUser) {
         clearAuthFailed(USER_DATA_DIR);
       }
-      if (mode === 'send') return page;
+      if (currentMode === 'send' || currentMode === 'send-prepared') return page;
       // For read mode, wait for narrative content length to stabilize
       const len = bodyText.length;
       if (len > 50) {
@@ -445,13 +428,56 @@ async function launch() {
     unavailable('not signed in');
   }
 
-  if (mode === 'read') {
+  if (currentMode === 'read') {
     if (session.status === 200 && session.isJson && session.hasUser) {
       clearAuthFailed(USER_DATA_DIR);
     }
     return page;
   }
   return unavailable('composer not found');
+}
+
+async function launch() {
+  if (!fs.existsSync(CHROME)) unavailable('Chrome not found at ' + CHROME);
+  let chromium;
+  try {
+    ({ chromium } = require('playwright'));
+  } catch {
+    unavailable('playwright not installed for ' + process.execPath);
+  }
+
+  ensurePersistentProfile(accountInfo, USER_DATA_DIR);
+  await waitAndCleanSingletonLock(USER_DATA_DIR);
+
+  try {
+    ctx = await chromium.launchPersistentContext(USER_DATA_DIR, chromeLaunchOptions());
+  } catch (e) {
+    unavailable('failed to launch persistent Chrome context: ' + e.message);
+  }
+  const page = await ctx.newPage();
+  await page.goto(URL_, { waitUntil: 'domcontentloaded', timeout: 45000 });
+  return await settlePage(page, mode);
+}
+
+async function launchPrepared() {
+  if (!fs.existsSync(CHROME)) existingProfileUnavailable('chrome_missing');
+  assertExistingProfileAvailable(USER_DATA_DIR);
+
+  let chromium;
+  try {
+    ({ chromium } = require('playwright'));
+  } catch {
+    existingProfileUnavailable('playwright_missing');
+  }
+
+  try {
+    ctx = await chromium.launchPersistentContext(USER_DATA_DIR, chromeLaunchOptions());
+  } catch {
+    existingProfileUnavailable('chrome_launch_failed');
+  }
+  const page = await ctx.newPage();
+  await page.goto(URL_, { waitUntil: 'domcontentloaded', timeout: 45000 });
+  return await settlePage(page, 'send-prepared');
 }
 
 async function launchExistingProfileOnly() {
@@ -489,7 +515,7 @@ async function read(page, n) {
   console.log(bodyText.slice(-n));
 }
 
-async function send(page, file, dry) {
+async function send(page, file, dry, opts = {}) {
   const msg = fs.readFileSync(file, 'utf8').trim();
   const readComposer = () => page.locator(COMPOSER).first().innerText().catch(() => '');
   const clear = async () => {
@@ -574,6 +600,23 @@ async function send(page, file, dry) {
   const countMatches = (msgs, needle) => msgs.filter(m => matchMsg(m, needle)).length;
   const beforeMsgs = await getUserMessages();
   const beforeCount = countMatches(beforeMsgs, norm(msg));
+
+  if (opts.prepared) {
+    const nonce = crypto.randomBytes(16).toString('hex');
+    process.stdout.write(`prepared ${nonce}\n`);
+    const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+    let decision = null;
+    for await (const line of rl) {
+      decision = line.trim();
+      break;
+    }
+    rl.close();
+    if (decision !== `commit ${nonce}` && decision !== 'commit') {
+      aborted = true;
+      return;
+    }
+  }
+
   if (aborted) return;
   clicked = true;
   await page.click('button[data-testid=send-button], button[aria-label*=Send]');
@@ -614,7 +657,10 @@ if (isMainModule()) {
         code = 10;
       }
     } else {
-      if (mode === 'send' && !(arg && fs.existsSync(arg) && fs.statSync(arg).size > 0)) unavailable('no message file');
+      const isPreparedMode = mode === 'send-prepared' || (mode === 'send' && process.env.DOT_PREPARED === '1');
+      if (isPreparedMode || mode === 'send') {
+        if (!(arg && fs.existsSync(arg) && fs.statSync(arg).size > 0)) unavailable('no message file');
+      }
       const timeoutPromise = new Promise((_, reject) => {
         launchTimer = setTimeout(() => {
           aborted = true;
@@ -624,9 +670,14 @@ if (isMainModule()) {
       try {
         await Promise.race([
           (async () => {
-            const page = await launch();
-            if (mode === 'read') await read(page, Number(arg || 5000));
-            else await send(page, arg, process.env.DOT_DRY_RUN === '1');
+            if (isPreparedMode) {
+              const page = await launchPrepared();
+              await send(page, arg, process.env.DOT_DRY_RUN === '1', { prepared: true });
+            } else {
+              const page = await launch();
+              if (mode === 'read') await read(page, Number(arg || 5000));
+              else await send(page, arg, process.env.DOT_DRY_RUN === '1');
+            }
           })(),
           timeoutPromise
         ]);
@@ -636,7 +687,17 @@ if (isMainModule()) {
     }
   } catch (e) {
     if (clicked) console.log('DOT_SEND_UNVERIFIED chrome_error=' + e.message);
-    else { console.log('DOT_CHROME_UNAVAILABLE: ' + (e instanceof Unavailable ? e.message : 'error: ' + e.message.split('\n')[0])); code = 10; }
+    else if (e instanceof ExistingProfileUnavailable) {
+      console.log('DOT_PROFILE_LAUNCH_RESULT ' + JSON.stringify({
+        schema_version: 1,
+        launch_state: 'unavailable',
+        diagnostic: e.code,
+      }));
+      code = 10;
+    } else {
+      console.log('DOT_CHROME_UNAVAILABLE: ' + (e instanceof Unavailable ? e.message : 'error: ' + e.message.split('\n')[0]));
+      code = 10;
+    }
   } finally {
     try {
       await ctx?.close();

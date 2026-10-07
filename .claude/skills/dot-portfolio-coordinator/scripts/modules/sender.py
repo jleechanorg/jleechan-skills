@@ -11,12 +11,16 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
-from modules.process_utils import run_bounded_command
+from modules.process_utils import (
+    run_bounded_command,
+    run_bounded_interactive_command,
+    InteractiveChild,
+)
 
 WORKER_SHA = "dot-portfolio-coordinator-sender-v3"
 COOLDOWN_SECS = 7200
@@ -138,7 +142,10 @@ def _atomic_write(path: str, data: Dict[str, Any], state_dir: str) -> None:
             os.unlink(temp_path)
 
 
-def run_sender_cli(argv: List[str]) -> int:
+def run_sender_cli(
+    argv: List[str],
+    source_callback: Optional[Callable[[], Tuple[bool, str]]] = None,
+) -> int:
     parser = argparse.ArgumentParser(description="Receipt-safe dot delivery subcomponent")
     parser.add_argument("--account", default="default")
     parser.add_argument("--state-dir")
@@ -290,24 +297,108 @@ def run_sender_cli(argv: List[str]) -> int:
             message.flush()
             os.fsync(message.fileno())
             message_path = message.name
+
+        delivery_result = {"status": "uncertain", "reason": "send_unverified"}
+
+        def interact(child: InteractiveChild):
+            nonlocal delivery_result
+            # 1. Wait for child to report prepared
+            try:
+                raw_frame = child.read_frame()
+                frame_text = raw_frame.decode("utf-8").strip()
+            except Exception as exc:
+                delivery_result = {"status": "uncertain", "reason": f"prepare_failed_{exc}"}
+                return
+
+            tokens = frame_text.split()
+            if not tokens or tokens[0] != "prepared":
+                try:
+                    child.send_frame("abort")
+                except Exception:
+                    pass
+                delivery_result = {"status": "uncertain", "reason": "bad_protocol_expected_prepared"}
+                return
+
+            nonce = tokens[1] if len(tokens) > 1 else None
+            abort_cmd = f"abort {nonce}" if nonce else "abort"
+            commit_cmd = f"commit {nonce}" if nonce else "commit"
+
+            # 2. Source callback (if provided) rerun exact source binding
+            if source_callback is not None:
+                try:
+                    source_ok, source_reason = source_callback()
+                except Exception as exc:
+                    source_ok, source_reason = False, f"source_callback_exception_{exc}"
+                if not source_ok:
+                    try:
+                        child.send_frame(abort_cmd)
+                        try:
+                            child.read_frame()
+                        except Exception:
+                            pass
+                    except Exception:
+                        pass
+                    delivery_result = {"status": "source_aborted", "reason": source_reason}
+                    return
+
+            # 3. Revalidate grant immediately after source callback and immediately before commit
+            valid, grant_reason, grant_data = validate_operator_grant(
+                args.grant_file, args.grant_sha256, account
+            )
+            if not valid or grant_data is None:
+                try:
+                    child.send_frame(abort_cmd)
+                    try:
+                        child.read_frame()
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+                delivery_result = {
+                    "status": "grant_aborted",
+                    "reason": f"grant_changed_after_reservation_{grant_reason}",
+                }
+                return
+
+            # 4. Both source and grant revalidations passed; send commit to same prepared context
+            try:
+                child.send_frame(commit_cmd)
+            except Exception as exc:
+                delivery_result = {"status": "uncertain", "reason": f"commit_send_failed_{exc}"}
+                return
+
+            # 5. Read response frame(s)
+            try:
+                while True:
+                    out_frame = child.read_frame().decode("utf-8")
+                    if out_frame == VERIFIED_MARKER or any(
+                        line == VERIFIED_MARKER for line in out_frame.splitlines()
+                    ):
+                        delivery_result = {"status": "verified", "reason": "verified_by_transport"}
+                        break
+            except Exception:
+                pass
+
         try:
-            valid, reason, _ = validate_operator_grant(
-                args.grant_file, args.grant_sha256, account)
-            if not valid:
-                emit_result("uncertain", f"grant_changed_after_reservation_{reason}", account)
-                return 4
             transport_env = os.environ.copy()
             transport_env["DOT_ROTATE_ON_LIMIT"] = "0"
-            rc, stdout, _stderr = run_bounded_command(
+            transport_env["DOT_PREPARED"] = "1"
+            transport_env["DOT_NO_REMOTE"] = "1"
+            transport_env["DOT_EXISTING_PROFILE_ONLY"] = "1"
+            run_bounded_interactive_command(
                 [transport, "--account", account, "send-once", message_path],
-                env=transport_env, timeout_secs=600)
+                interact,
+                env=transport_env,
+                timeout_secs=600,
+            )
         except Exception:
-            emit_result("uncertain", "send_unverified", account, event_id=event_id)
-            return 4
+            if delivery_result.get("status") not in ("source_aborted", "grant_aborted"):
+                delivery_result = {"status": "uncertain", "reason": "send_unverified"}
         finally:
             if os.path.exists(message_path):
                 os.unlink(message_path)
-        if rc == 0 and VERIFIED_MARKER in stdout.splitlines():
+
+        if delivery_result["status"] == "verified":
             acc["pending_delivery"] = None
             acc["last_sent_epoch"] = time.time()
             retained.append(event_id)
@@ -316,8 +407,19 @@ def run_sender_cli(argv: List[str]) -> int:
             emit_result("delivered", "verified_by_transport", account,
                         delivery_verified=True, event_id=event_id)
             return 0
-        emit_result("uncertain", "send_unverified", account, event_id=event_id)
-        return 4
+        elif delivery_result["status"] == "source_aborted":
+            acc["pending_delivery"] = None
+            acc["attempted_count"] = attempts
+            acc["last_attempt_epoch"] = last_attempt
+            _atomic_write(account_file, acc, state_dir)
+            emit_result("no_action", delivery_result["reason"], account, event_id=event_id)
+            return 0
+        elif delivery_result["status"] == "grant_aborted":
+            emit_result("uncertain", delivery_result["reason"], account, event_id=event_id)
+            return 4
+        else:
+            emit_result("uncertain", delivery_result.get("reason", "send_unverified"), account, event_id=event_id)
+            return 4
     finally:
         fcntl.flock(lock_fd, fcntl.LOCK_UN)
         os.close(lock_fd)

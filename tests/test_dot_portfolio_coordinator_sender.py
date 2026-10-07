@@ -59,8 +59,14 @@ class TestDotPortfolioCoordinatorSender(unittest.TestCase):
             '  echo "INVALID_ARGV: $*" >&2\n'
             '  exit 2\n'
             'fi\n'
-            'echo "DOT_SENT_VERIFIED"\n'
-            'exit 0\n'
+            'echo "prepared"\n'
+            'read -t 5 -r cmd || cmd="timeout"\n'
+            'if [[ "$cmd" == commit* ]]; then\n'
+            '  echo "DOT_SENT_VERIFIED"\n'
+            '  exit 0\n'
+            'else\n'
+            '  exit 1\n'
+            'fi\n'
         )
         with open(self.fake_dot_script, "w") as f:
             f.write(script_content)
@@ -160,7 +166,13 @@ class TestDotPortfolioCoordinatorSender(unittest.TestCase):
     def test_receipt_requires_standalone_verified_not_substring(self):
         # Fake dot script returns substring inside error line
         with open(self.fake_dot_script, "w") as f:
-            f.write('#!/usr/bin/env bash\necho "FAILED: DOT_SENT_VERIFIED was not reached"\nexit 1\n')
+            f.write(
+                '#!/usr/bin/env bash\n'
+                'echo "prepared"\n'
+                'read -t 5 -r cmd || cmd="timeout"\n'
+                'echo "FAILED: DOT_SENT_VERIFIED was not reached"\n'
+                'exit 1\n'
+            )
 
         env = {
             "COORDINATOR_CHANGE_ID": "ev-substr-1",
@@ -287,10 +299,17 @@ class TestDotPortfolioCoordinatorSender(unittest.TestCase):
             "COORDINATOR_CHANGE_SUMMARY": "Verify default path without sending",
         }
         expected_transport = str(SKILL_DIR.parent / "dot" / "scripts" / "dot.sh")
+
+        def fake_interactive_run(cmd, interact, **kwargs):
+            child = mock.Mock()
+            child.read_frame.side_effect = [b"prepared", b"DOT_SENT_VERIFIED"]
+            interact(child)
+            return None
+
         with mock.patch.dict(os.environ, env), \
                 mock.patch.dict(os.environ, {"DOT_TRANSPORT_SCRIPT": "/tmp/ambient-must-be-ignored"}), \
-                mock.patch.object(sender_module, "run_bounded_command",
-                                  return_value=(0, "DOT_SENT_VERIFIED\n", "")) as run, \
+                mock.patch.object(sender_module, "run_bounded_interactive_command",
+                                  side_effect=fake_interactive_run) as run, \
                 mock.patch("sys.stdout", new_callable=io.StringIO):
             rc = sender_module.run_sender_cli([
                 "--account", "default", "--state-dir", self.state_dir,
@@ -352,12 +371,128 @@ class TestDotPortfolioCoordinatorSender(unittest.TestCase):
 
     def test_verification_marker_must_be_exact_line(self):
         with open(self.fake_dot_script, "w", encoding="utf-8") as f:
-            f.write('#!/usr/bin/env bash\necho "DOT_SENT_VERIFIED "\nexit 0\n')
+            f.write(
+                '#!/usr/bin/env bash\n'
+                'echo "prepared"\n'
+                'read -t 5 -r cmd || cmd="timeout"\n'
+                'if [[ "$cmd" == commit* ]]; then\n'
+                '  echo "DOT_SENT_VERIFIED "\n'
+                '  exit 0\n'
+                'fi\n'
+                'exit 1\n'
+            )
         env = {"COORDINATOR_CHANGE_ID": "ev-marker-space",
                "COORDINATOR_CHANGE_SUMMARY": "Trailing whitespace is not marker"}
         rc, res, _ = self._run_sender(env)
         self.assertEqual(rc, 4)
         self.assertEqual(res["reason"], "send_unverified")
+
+    def test_grant_invalid_or_expired_after_prepared_aborts_without_delivered_receipt(self):
+        import shlex
+        root = Path(self.temp_dir.name)
+        click_marker = root / "click_marker_test2.txt"
+        abort_marker = root / "abort_marker_test2.txt"
+        prepared_marker = root / "prepared_marker_test2.txt"
+
+        fake_transport = root / "fake_transport_test2.sh"
+        fake_transport.write_text(
+            "#!/bin/sh\n"
+            f"echo 'prepared' > {shlex.quote(str(prepared_marker))}\n"
+            f"chmod 0600 {shlex.quote(self.grant_file)}\n"
+            f"echo '{{\"corrupted\": true}}' > {shlex.quote(self.grant_file)}\n"
+            f"chmod 0400 {shlex.quote(self.grant_file)}\n"
+            "printf 'prepared\\n'\n"
+            "read -t 5 -r cmd || cmd='timeout'\n"
+            "case \"$cmd\" in\n"
+            "  commit*)\n"
+            f"    echo 'clicked' > {shlex.quote(str(click_marker))}\n"
+            "    echo 'DOT_SENT_VERIFIED'\n"
+            "    exit 0\n"
+            "    ;;\n"
+            "  *)\n"
+            f"    echo \"$cmd\" > {shlex.quote(str(abort_marker))}\n"
+            "    exit 0\n"
+            "    ;;\n"
+            "esac\n"
+        )
+        fake_transport.chmod(0o700)
+
+        env = {
+            "COORDINATOR_CHANGE_ID": "ev-grant-expired-post-prep",
+            "COORDINATOR_CHANGE_SUMMARY": "Test abort on grant expiry",
+        }
+        rc, res, _ = self._run_sender(
+            env_vars=env,
+            args=["--transport-script", str(fake_transport)],
+        )
+
+        self.assertTrue(prepared_marker.exists(), "Transport must have reached prepared state")
+        self.assertTrue(abort_marker.exists(), "Sender must have sent abort after grant became invalid")
+        self.assertIn("abort", abort_marker.read_text())
+        self.assertFalse(click_marker.exists(), "Irreversible click must not happen when grant is invalid")
+        self.assertNotEqual(rc, 0)
+        self.assertIsNotNone(res)
+        self.assertNotEqual(res.get("outcome"), "delivered")
+        self.assertFalse(res.get("delivery_verified", False))
+        self.assertEqual(res.get("outcome"), "uncertain")
+        self.assertIn("grant", res.get("reason", ""))
+
+    def test_successful_source_and_grant_revalidation_commits_and_clicks_in_same_context(self):
+        import shlex
+        root = Path(self.temp_dir.name)
+        click_marker = root / "click_marker_test3.txt"
+        prepared_marker = root / "prepared_marker_test3.txt"
+        commit_received = root / "commit_received_test3.txt"
+
+        fake_transport = root / "fake_transport_test3.sh"
+        fake_transport.write_text(
+            "#!/bin/sh\n"
+            f"echo 'prepared' > {shlex.quote(str(prepared_marker))}\n"
+            "printf 'prepared\\n'\n"
+            "read -t 5 -r cmd || cmd='timeout'\n"
+            "case \"$cmd\" in\n"
+            "  commit*)\n"
+            f"    echo \"$cmd\" > {shlex.quote(str(commit_received))}\n"
+            f"    echo 'clicked' > {shlex.quote(str(click_marker))}\n"
+            "    echo 'DOT_SENT_VERIFIED'\n"
+            "    exit 0\n"
+            "    ;;\n"
+            "  *)\n"
+            "    exit 1\n"
+            "    ;;\n"
+            "esac\n"
+        )
+        fake_transport.chmod(0o700)
+
+        source_checked = []
+
+        def source_cb():
+            source_checked.append(True)
+            return True, "ok"
+
+        env = {
+            "COORDINATOR_CHANGE_ID": "ev-success-test3",
+            "COORDINATOR_CHANGE_SUMMARY": "Test commit on valid revalidation",
+        }
+        with mock.patch.dict(os.environ, env):
+            rc = sender_module.run_sender_cli(
+                [
+                    "--account", "default",
+                    "--state-dir", self.state_dir,
+                    "--lock-file", self.lock_file,
+                    "--grant-file", self.grant_file,
+                    "--grant-sha256", self.grant_sha256,
+                    "--transport-script", str(fake_transport),
+                ],
+                source_callback=source_cb,
+            )
+
+        self.assertEqual(rc, 0)
+        self.assertTrue(prepared_marker.exists(), "Transport must have reached prepared state")
+        self.assertTrue(source_checked, "Source callback must have run after prepared")
+        self.assertTrue(commit_received.exists(), "Transport must have received commit command")
+        self.assertTrue(commit_received.read_text().strip().startswith("commit"))
+        self.assertTrue(click_marker.exists(), "Transport must only click after valid commit received")
 
 
 if __name__ == "__main__":

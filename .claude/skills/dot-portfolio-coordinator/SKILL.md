@@ -19,10 +19,9 @@ The Dot Portfolio Coordinator is an authorized, separate coordination system tha
    - Version-bound cursors committed only upon complete final-page collection.
    - 304 Not Modified reuses recorded snapshots.
    - Partial or failed collections preserve last-known items as stale/partial rather than erasing unseen work.
-3. **Model Admission & Sandboxed Reasoning**:
-   - Inference requires verified sandbox isolation, endpoint allowlists, read-only isolated snapshots, and absence of host mounts or write credentials.
-   - If isolation guarantees cannot be proven, the admission gate MUST return `capability_blocked`.
-   - Never run unisolated full-permissions models and pretend output validation establishes isolation.
+3. **Model Admission & Schema-Bound Decision**:
+   - The selected canonical driver runs full-permission and is schema-bound decision-only; admission is completeness checking, not OS or sandbox isolation.
+   - Proposals must adhere strictly to the coordination dialogue packet schema, validating candidate bindings, task keys, and grant bindings without claiming sandbox isolation.
 4. **Deterministic Structural Proposal Validation**:
    - Validates that every proposed item references a genuine snapshot task key with matching citations and source versions.
    - Rejects invented entities, endpoints, or injected shell commands.
@@ -48,8 +47,9 @@ The Dot Portfolio Coordinator is an authorized, separate coordination system tha
    - Reuses relative sibling dot transport (`../../dot/scripts/dot.sh`).
    - Quiet exit 0 on empty input.
    - Persists pending immutable authorization binding and uncertainty hold before transport invocation.
+   - Two-phase interactive prepare/commit/abort protocol: waits for prepared transport context before final source and grant revalidation immediately prior to commit.
    - Requires standalone `DOT_SENT_VERIFIED` and exit 0 for verified delivery.
-   - Uncertainty holds block subsequent sends until deliberate owner reconciliation (`--reconcile-receipt`).
+   - Uncertainty holds block subsequent sends until deliberate operator ledger recovery; `--reconcile-receipt` is unsupported/unavailable.
    - Emits exactly one machine-readable `COORDINATOR_RESULT` JSON line.
 
 ## CLI Usage
@@ -79,6 +79,7 @@ The sender subcomponent is located at `scripts/dot-portfolio-coordinator-sender.
 # Read-only status query
 ./scripts/dot-portfolio-coordinator-sender.sh --status --json --account default
 
-# Deliver material event with explicit authorization reference
-COORDINATOR_CHANGE_ID="ev-001" COORDINATOR_CHANGE_SUMMARY="Update" ./scripts/dot-portfolio-coordinator-sender.sh --authorization-ref bd-ctrl-1/act-1/att-1 --account default
+# Deliver material event with validated operator grant file and sha256
+# (Note: --authorization-ref is inert/unsupported and not used for grant enforcement; --reconcile-receipt is unavailable)
+COORDINATOR_CHANGE_ID="ev-001" COORDINATOR_CHANGE_SUMMARY="Update" ./scripts/dot-portfolio-coordinator-sender.sh --account default --state-dir /path/to/state --grant-file /path/to/grant.json --grant-sha256 <sha256> message.txt
 ```
