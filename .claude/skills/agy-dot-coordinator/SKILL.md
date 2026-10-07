@@ -1,6 +1,6 @@
 ---
 name: agy-dot-coordinator
-description: Coordinate existing dot work with collaborative priorities, quiet daily rollups, explicit state-change events and verified delivery.
+description: Coordinate existing dot work with collaborative priorities, quiet delta coordination, explicit state-change events and verified delivery.
 ---
 
 # Antigravity dot coordinator
@@ -15,11 +15,12 @@ Store private contextual workstream defaults in `~/.config/dot/coordinator-prior
 
 ## Send gates
 
-- Scheduled wakes request at most one rollup per 86400 seconds/account. Legacy last-sent time conservatively initializes this limit.
-- Skip routine sends whenever the dot read reports Thinking, Working or Searching; `--force` cannot bypass this, deduplication or daily limits. This conservative text signal may defer a send when those words appear in ordinary text.
-- Extra messages require owner-supplied `COORDINATOR_CHANGE_ID` and `COORDINATOR_CHANGE_SUMMARY`, plus one `--account`. IDs identify meaningful task/incident revisions, not a timestamp generated every wake. Summaries are bounded to 2000 characters. No automatic change classifier or producer is installed.
+- Scheduled wakes are quiet without an explicit owner-supplied change/request ID and summary. No automatic change detection or compulsory full rollup runs.
+- Skip routine sends whenever the dot read reports Thinking, Working or Searching; `--force` cannot bypass this, deduplication or unresolved receipt holds. This conservative text signal may defer a send when those words appear in ordinary text.
+- Delta/blocker messages require owner-supplied `COORDINATOR_CHANGE_ID` and `COORDINATOR_CHANGE_SUMMARY`, plus one `--account`. IDs identify meaningful task/incident revisions, not a timestamp generated every wake. Summaries are bounded to 2000 characters. No automatic change classifier or producer is installed.
+- `--full-rollup` (or `COORDINATOR_FULL_ROLLUP=1`) selects a complete cross-track review only for an explicit request or owner-reported material cross-track change. It requires the same single account, stable request/change ID and summary. There is no daily cap or cooldown barrier; different requests may run on the same day. Active owners and unresolved receipts still defer it; repeating the same ID never resends. It cannot combine with urgent-incident mode.
 - `COORDINATOR_URGENT=1` permits a material incident notification during active work/cooldown, with incident-only scope. It never requests a full WIP review or grants authority. Preserve draft and profile locking.
-- Remember the last 128 verified change IDs per account. Do not replay older events after they age out. Unchanged/duplicate events and daily-cap skips do not open the browser.
+- Remember the last 128 verified change IDs per account. Do not replay older events after they age out. Unchanged/duplicate events and quiet wakes do not open the browser.
 - Success requires rc=0 AND an exact standalone `DOT_SENT_VERIFIED` transport receipt. Empty composer, nonzero exit or a substring is insufficient. Unverified sends persist a delivery hold; resolve actual receipt with the owner before manually clearing it. Errors preserve the receipt ledger.
 - The optional legacy `--use-agy` sender is rejected because it lacks the direct receipt contract. No model is invoked by default.
 
@@ -30,3 +31,15 @@ State: `~/.local/state/ai.gemini.agy-dot-coordinator/state_<account>.json` and c
 Existing host schedules are independent of send eligibility. The Mac template wakes at :00/:20/:40; Linux template at :15/:45. Do not replace a live schedule merely to change gates. The existing installer scripts register/restart services: do not run them for a no-restart package refresh. With the execution lock held and no competing package editor, preserve the complete old package, verify source/destination hashes, then atomically replace changed files and keep undo receipts. Never copy credentials or browser profiles for deployment.
 
 `--status` reads account timestamps; `--dry-run` still reads the dot UI, so neither replaces an isolated transport test. Use tests with a fake dot transport for verification. For live proof, observe the next natural scheduler tick and its Worker SHA256 plus gate result; never send duplicate messages merely to test delivery.
+
+## Explicit full-rollup example
+
+After a direct user request or an owner-reported material cross-track change, use an ID unique to that semantic request (not a timestamp minted on every wake):
+
+```bash
+COORDINATOR_CHANGE_ID="request:review-release-dependencies" \
+COORDINATOR_CHANGE_SUMMARY="User requested a complete review of release dependencies" \
+  scripts/agy-dot-coordinator-worker.sh --account <configured-account> --full-rollup
+```
+
+This sends a real message; do not invoke it merely to test installation. Omit `--full-rollup` for a brief delta/blocker notification. Default scheduled invocations have no signals and stay quiet. No producer for these signals is installed by this package.

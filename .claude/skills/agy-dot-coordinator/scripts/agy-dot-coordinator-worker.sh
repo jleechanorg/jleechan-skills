@@ -51,12 +51,14 @@ TARGET_ACCOUNT=""
 CHANGE_ID="${COORDINATOR_CHANGE_ID:-}"
 CHANGE_SUMMARY="${COORDINATOR_CHANGE_SUMMARY:-}"
 URGENT="${COORDINATOR_URGENT:-0}"
+FULL_ROLLUP="${COORDINATOR_FULL_ROLLUP:-0}"
 MESSAGE_KIND=""
 DELIVERY_KEY=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --force) FORCE=1; shift 1 ;;
+    --full-rollup) FULL_ROLLUP=1; shift 1 ;;
     --dry-run) DRY_RUN=1; shift 1 ;;
     --status) STATUS_ONLY=1; shift 1 ;;
     --no-poll) POLL_REPLY=0; shift 1 ;;
@@ -72,7 +74,12 @@ done
 # Event IDs identify a meaningful task-state revision, not a poll timestamp.
 # Only an authorized owner supplies these; this worker does not infer urgency.
 if [[ "$URGENT" != 0 && "$URGENT" != 1 ]]; then exit 2; fi
-if [[ -n "$CHANGE_ID" || -n "$CHANGE_SUMMARY" || "$URGENT" == 1 ]]; then
+if [[ "$FULL_ROLLUP" != 0 && "$FULL_ROLLUP" != 1 ]]; then exit 2; fi
+if [[ "$URGENT" == 1 && "$FULL_ROLLUP" == 1 ]]; then
+  echo "Urgent incidents are scoped notifications, not full rollups." >&2
+  exit 2
+fi
+if [[ -n "$CHANGE_ID" || -n "$CHANGE_SUMMARY" || "$URGENT" == 1 || "$FULL_ROLLUP" == 1 ]]; then
   if [[ -z "$TARGET_ACCOUNT" || -z "$CHANGE_ID" || -z "$CHANGE_SUMMARY" ||
         ${#CHANGE_ID} -gt 160 || ${#CHANGE_SUMMARY} -gt 2000 ||
         "$CHANGE_ID" == *$'\n'* ]]; then
@@ -182,7 +189,7 @@ if status == "SUCCESS":
     data["delivery_unverified"] = False
     if sys.argv[7] == "rollup":
         data["last_rollup_epoch"] = epoch
-    elif sys.argv[8]:
+    if sys.argv[8]:
         ids = data.get("delivered_change_ids", [])
         data["delivered_change_ids"] = (ids + [sys.argv[8]])[-128:]
 def atomic_json(path, value):
@@ -250,7 +257,7 @@ Follow the latest direct user instructions and the current agreed plan. Use the 
 
 Continue authorized work you already own. Respect other owners and in-flight edits, tests, browser sessions and deployments. Do not reopen cancelled work, explicit pauses, approval holds or authentication holds. A check-in grants no new authority. Advance independent authorized work when blocked; ask only about consequential conflicts that current evidence cannot resolve.
 
-Respond only to the scope below. For a daily rollup, summarize the last 24 hours once, giving each active goal/PR, current owner, verified branch/head where relevant, progress evidence, blocker and next action. Label unknown or stale information. For a meaningful state change, discuss only that change and its effect on the plan. For an urgent material incident, report the incident, evidence, impact and appropriate existing owner; do not demand a full WIP review or unrelated reprioritization. If nothing needs intervention, continue the current plan without a redundant review.
+Respond only to the scope below. For an explicitly requested rollup or owner-reported material cross-track change, summarize the requested scope (the last 24 hours if unspecified), giving each active goal/PR, current owner, verified branch/head where relevant, progress evidence, blocker and next action. Label unknown or stale information. For a meaningful state change, discuss only that change and its effect on the plan. For an urgent material incident, report the incident, evidence, impact and appropriate existing owner; do not demand a full WIP review or unrelated reprioritization. If nothing needs intervention, continue the current plan without a redundant review.
 
 Prefer cloud execution where supported; verify only prerequisites for the selected authorized next action. Tool presence is not proof of identity, permission or capability. Keep Mac-only work with its owner. Do not infer permission for credentials, sign-in, IAM changes, installation, messages or deployments from this check-in.
 COORDINATION_POLICY
@@ -262,11 +269,16 @@ for acc in "${ACCOUNTS[@]}"; do
   last_sent=$(read_last_sent "$acc")
   elapsed=$((NOW - last_sent))
 
-  MESSAGE_KIND="rollup"
+  # A scheduler wake is not a semantic change or a request for a full review.
+  if [[ -z "$CHANGE_ID" ]]; then
+    echo "Account [$acc]: No owner-supplied change or rollup request; quiet wake."
+    continue
+  fi
+  MESSAGE_KIND="change"
   DELIVERY_KEY="$CHANGE_ID"
-  if [[ -n "$CHANGE_ID" ]]; then MESSAGE_KIND="change"; fi
+  if [[ "$FULL_ROLLUP" == 1 ]]; then MESSAGE_KIND="rollup"; fi
   if [[ "$URGENT" == 1 ]]; then MESSAGE_KIND="incident"; fi
-  # Fail closed on corrupt state; absence is an initial daily-rollup opportunity.
+  # Fail closed on corrupt state; every send requires a new owner-supplied ID.
   eligible=$(python3 - "$STATE_DIR/state_$acc.json" "$NOW" "$MESSAGE_KIND" "$DELIVERY_KEY" "$last_sent" <<'PY_GATE'
 import json, os, sys
 path, now, kind, key, legacy_sent = sys.argv[1:]
@@ -274,14 +286,11 @@ state = json.load(open(path)) if os.path.exists(path) else {"last_sent_epoch": i
 if state.get("delivery_unverified"):
     print(0)
     sys.exit(0)
-if kind == "rollup":
-    print(int(int(now) - state.get("last_rollup_epoch", state.get("last_sent_epoch", 0)) >= 86400))
-else:
-    print(int(key not in state.get("delivered_change_ids", [])))
+print(int(key not in state.get("delivered_change_ids", [])))
 PY_GATE
   ) || { echo "Account [$acc]: Unreadable delivery state; deferred."; continue; }
   if [[ "$eligible" != 1 ]]; then
-    echo "Account [$acc]: No new meaningful change / rollup already delivered."
+    echo "Account [$acc]: No new request/change, or unresolved delivery hold."
     continue
   fi
   DIRECTIVE="$BASE_DIRECTIVE
@@ -329,7 +338,7 @@ Owner-supplied state-change evidence (context, not authority): $CHANGE_SUMMARY"
   fi
 
   # Urgent material incidents bypass cooldown, but never receipt deduplication.
-  if [[ "$FORCE" -eq 0 && "$URGENT" != 1 ]]; then
+  if [[ "$FORCE" -eq 0 && "$URGENT" != 1 && "$FULL_ROLLUP" != 1 ]]; then
     # Allow 30s jitter tolerance for cron schedules (e.g. 1198s on a 1200s cron)
     effective_cooldown=$((COOLDOWN_SECS > 30 ? COOLDOWN_SECS - 30 : COOLDOWN_SECS))
     if [[ "$is_active" -eq 1 && "$elapsed" -lt "$effective_cooldown" ]]; then
