@@ -134,9 +134,11 @@ read_last_sent() {
 import json
 s = json.load(open("'"$STATE_FILE"'"))
 accs = s.get("accounts", {})
-if "'"$acc"'" in accs:
-    print(accs["'"$acc"'"].get("last_sent_epoch", 0))
+if "accounts" in s:
+    # Current consolidated state is per-account; a peer timestamp is not ours.
+    print(accs.get("'"$acc"'", {}).get("last_sent_epoch", 0))
 else:
+    # Preserve the pre-multi-account legacy receipt fallback only.
     print(s.get("last_sent_epoch", 0))
 ' 2>/dev/null || echo 0
   else

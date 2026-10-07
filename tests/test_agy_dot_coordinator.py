@@ -111,4 +111,7 @@ class CoordinatorTests(unittest.TestCase):
  def test_force_overrides_only_delta_cooldown(self):
   self.event();self.seed(last_sent_epoch=int(time.time()));self.run_worker('--account','alpha');self.assertEqual(self.calls(),['read'])
   self.run_worker('--account','alpha','--force');self.assertEqual(self.calls(),['read','read','send']);self.assertEqual(self.saved()['delivered_change_ids'],['task:revision1:ready'])
+ def test_new_account_does_not_inherit_peer_cooldown(self):
+  self.event();self.run_worker('--account','alpha');self.run_worker('--account','beta');self.assertEqual(self.calls(),['read','send','read','send'])
+  self.assertEqual(json.loads((self.state/'state_beta.json').read_text())['last_status'],'SUCCESS')
 if __name__=='__main__':unittest.main(verbosity=2)
