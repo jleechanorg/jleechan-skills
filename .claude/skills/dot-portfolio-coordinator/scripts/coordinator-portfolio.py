@@ -34,16 +34,11 @@ from modules.sender_protocol import NotificationBindingManager
 def get_caller_principal() -> str:
     """Resolves authenticated local OS caller principal.
 
-    Checks DOT_TEST_CALLER_PRINCIPAL for test environments or os.getlogin() / USER.
-    Never accepts untrusted JSON payload caller assertions.
+    MANDATORY: Uses pwd.getpwuid(os.getuid()).pw_name only.
+    Zero test switches or environment variable overrides allowed.
     """
-    test_principal = os.environ.get("DOT_TEST_CALLER_PRINCIPAL")
-    if test_principal:
-        return test_principal
-    try:
-        return os.getlogin()
-    except Exception:
-        return os.environ.get("USER", "unknown-os-user")
+    import pwd
+    return pwd.getpwuid(os.getuid()).pw_name
 
 
 def compute_dir_manifest(base_dir: Path) -> Dict[str, str]:
@@ -60,37 +55,40 @@ def compute_dir_manifest(base_dir: Path) -> Dict[str, str]:
 
 
 def cmd_reserve(args: argparse.Namespace, registry: SourceRegistry) -> None:
-    ledger_file = os.environ.get("DOT_PORTFOLIO_LEDGER_FILE")
-    ledger = BudgetLedger(registry, ledger_file)
     caller = get_caller_principal()
-    try:
-        req = json.loads(args.request)
-        receipt = ledger.reserve(req, caller)
-        print(json.dumps(receipt, indent=2))
-    except BudgetError as e:
-        print(json.dumps({"status": "rejected", "reason": str(e)}), file=sys.stderr)
-        sys.exit(2)
+    # Remote/model spend reserve remains capability_blocked pending genuine original grant+usage integration
+    res = {
+        "status": "rejected",
+        "reason": "capability_blocked",
+        "caller_principal": caller,
+        "details": "Remote/model spend reserve capability_blocked pending genuine original grant+usage integration."
+    }
+    print(json.dumps(res, indent=2))
+    sys.exit(2)
 
 
 def cmd_settle(args: argparse.Namespace, registry: SourceRegistry) -> None:
-    ledger_file = os.environ.get("DOT_PORTFOLIO_LEDGER_FILE")
-    ledger = BudgetLedger(registry, ledger_file)
     caller = get_caller_principal()
-    try:
-        req = json.loads(args.request)
-        receipt = ledger.settle(req, caller)
-        print(json.dumps(receipt, indent=2))
-    except BudgetError as e:
-        print(json.dumps({"status": "rejected", "reason": str(e)}), file=sys.stderr)
-        sys.exit(2)
+    # Remote/model spend settle remains capability_blocked pending genuine original grant+usage integration
+    res = {
+        "status": "rejected",
+        "reason": "capability_blocked",
+        "caller_principal": caller,
+        "details": "Remote/model spend settle capability_blocked pending genuine original grant+usage integration."
+    }
+    print(json.dumps(res, indent=2))
+    sys.exit(2)
 
 
 def cmd_status(args: argparse.Namespace, registry: SourceRegistry) -> None:
-    ledger_file = os.environ.get("DOT_PORTFOLIO_LEDGER_FILE")
-    ledger = BudgetLedger(registry, ledger_file)
     caller = get_caller_principal()
-    receipt = ledger.status(args.reservation_id, caller)
-    print(json.dumps(receipt, indent=2))
+    res = {
+        "status": "unknown_reservation",
+        "reason": "capability_blocked",
+        "reservation_id": args.reservation_id,
+        "caller_principal": caller
+    }
+    print(json.dumps(res, indent=2))
 
 
 def cmd_resolve_notification(args: argparse.Namespace, registry: SourceRegistry) -> None:

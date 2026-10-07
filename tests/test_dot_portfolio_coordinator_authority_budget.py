@@ -31,7 +31,7 @@ class TestDotPortfolioCoordinatorAuthorityBudget(unittest.TestCase):
     def tearDown(self):
         self.temp_dir.cleanup()
 
-    def test_authority_github_comment_valid(self):
+    def test_authority_github_comment_valid_returns_source_verified(self):
         body = "Approved bounded test up to $0.50 on feature branch"
         digest = hashlib.sha256(body.encode("utf-8")).hexdigest()
         envelope = {
@@ -53,8 +53,30 @@ class TestDotPortfolioCoordinatorAuthorityBudget(unittest.TestCase):
             }
 
         res = self.authority.resolve_authorization(envelope, fetch_fn=mock_fetch)
-        self.assertEqual(res["decision"], "authorized_in_scope")
+        # Invariant: Arbitrary comment is NOT authorized_in_scope for caller-chosen budget
+        # Must return source_verified distinct from model scope judgment
+        self.assertEqual(res["decision"], "source_verified")
         self.assertEqual(res["verified_principal"], "verified-local-principal")
+        self.assertIn("scope", res.get("details", "").lower())
+
+    def test_caller_principal_pwd_getpwuid_only(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "coordinator_portfolio",
+            str(SKILL_DIR / "scripts" / "coordinator-portfolio.py")
+        )
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        get_caller_principal = mod.get_caller_principal
+
+        import pwd
+        expected = pwd.getpwuid(os.getuid()).pw_name
+        # Test that environment variables are strictly ignored
+        os.environ["DOT_TEST_CALLER_PRINCIPAL"] = "fake-bypassed-user"
+        os.environ["USER"] = "fake-user"
+        actual = get_caller_principal()
+        self.assertEqual(actual, expected)
+        del os.environ["DOT_TEST_CALLER_PRINCIPAL"]
 
     def test_authority_github_comment_modified_digest_mismatch(self):
         orig_body = "Approved bounded test"

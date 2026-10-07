@@ -2,9 +2,10 @@
 
 Implements:
 - Original-source GitHub adapters binding tenant, principal, comment ID, version, and content digest
-- Re-reads and checks for newer edits/revocations
+- Truthful source_verified status (distinct from model scope evaluation)
 - Truthful capability blocks for unsupported sources (Slack, native conversation)
 - Zero consent keyword classifiers: requires authenticated human principal binding
+- Re-reads and checks for newer edits/revocations
 """
 import hashlib
 import json
@@ -103,11 +104,13 @@ class AuthorityAdapter:
                 "reason": f"Content digest mismatch: comment was edited (expected {expected_digest}, got {fetched_digest})"
             }
 
+        # Invariant: An arbitrary comment does NOT grant arbitrary caller-chosen budget!
+        # Return source_verified distinct from model scope judgment
         return {
-            "decision": "authorized_in_scope",
+            "decision": "source_verified",
             "verified_principal": principal_id,
             "repository": repo,
             "comment_id": comment_id,
             "version": version,
-            "max_budget_usd": grant_envelope.get("max_budget_usd")
+            "details": "Source comment identity verified; model semantic scope evaluation capability_blocked absent isolated model."
         }
