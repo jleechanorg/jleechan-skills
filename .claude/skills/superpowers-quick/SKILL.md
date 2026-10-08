@@ -6,6 +6,11 @@ disable-model-invocation: false
 
 # Superpowers Quick
 
+## Retained review integrations
+
+The shared catalog preserves host-installed `/advice` and `/web-advice` integrations instead of installing them. Before invoking either, resolve its `../advice/SKILL.md` or `../web-advice/SKILL.md` relative to this package and read the existing skill. For a remote invocation, check the corresponding skill on the target host. If absent, report that integration as `UNAVAILABLE` and identify the missing package; do not invent a replacement runner, claim an approval, or treat a required gate as passed. Continue independent authorized work, but leave any dependent readiness or plan-approval gate unmet. Existing review quorum, external-disclosure authorization, and optional-review rules still apply.
+
+
 ## Contract
 
 Run the full design-to-plan workflow autonomously. The invocation is the user's explicit authorization to select every recommended option and approve each recommended design and specification checkpoint for this invocation only.
@@ -30,9 +35,9 @@ Complete the required architectural design, specification self-review, implement
 6. **Execute advice reviews (`/advice` and conditional `/web-advice`):**
    - Use `/advice` document-review mode for the two saved Markdown paths: pass `--document <repo-relative-spec-path> --document <repo-relative-plan-path>` to its primary-pair runner, retaining the normal reviewer selection and parent authorization constraints. This reviews their exact current bytes regardless of Git status, without committing or pushing. The checkout HEAD supplies context only; bind the document verdict to the recorded document hashes, never claim PR/code approval from it. Do not invoke the revision-only clean-checkout mode for this handoff.
    - Determine whether the user's current request separately and explicitly authorizes submitting both documents to external browser reviewers before invoking `/advice`.
-   - Run `/advice` on both the design specification and implementation plan. Without that separate authorization, pass this explicit parent constraint in the `/advice` request: `Reviewer D /web-advice is disabled; do not invoke it or any external browser transport.` Verify that the synthesis lists Reviewer D as `unavailable (disabled by parent authorization boundary)`. Treat an omitted row or an attempted Reviewer D/browser submission as an incomplete `/advice` run and record it as `FAILED`. If `/advice` attempts Reviewer D or any external browser submission without authorization, record `/web-advice` as `FAILED` with the attempted-submission reason; never label that path `SKIPPED`.
+   - Run `/advice` on both the design specification and implementation plan. Without that separate authorization, pass this explicit parent constraint in the `/advice` request: `/web-advice is disabled; do not invoke it or any external browser transport.` (`/web-advice` is not an `/advice` lane; A1/A2/B/C are the lanes.) Verify the synthesis records no browser submission. Treat an attempted browser submission as an incomplete `/advice` run and record it as `FAILED`. If `/advice` attempts any external browser submission without authorization, record `/web-advice` as `FAILED` with the attempted-submission reason; never label that path `SKIPPED`.
    - Retry `/advice` once only for a transient transport or reviewer-launch failure. Retry the whole `/advice` invocation only when it failed before any reviewer launched; the preceding retry permission never permits rerunning a partial fan-out. If any reviewer launched, do not rerun `/advice`; preserve completed lane results, record the incomplete run as `FAILED` with its failure reason, and continue to the terminal report. If the pre-launch retry also fails, record `/advice` as `FAILED` with both failure reasons. A `FAILED` state permits the terminal report but prohibits claiming that advice passed or approved the documents. A returned `APPROVED`, `NOT APPROVED`, or `WITHHELD` synthesis counts as `RAN`; report that exact verdict without rewriting it.
-   - `/web-advice` is applicable only when the user's current request separately and explicitly authorizes submitting the documents to external browser reviewers. Any Reviewer D attempt consumes the single `/web-advice` run. If Reviewer D returned a verdict covering both documents, reuse it. If its attempt was unavailable or failed, record `/web-advice` as `UNAVAILABLE` or `FAILED` with that reason and do not submit the documents again. Do not run a second standalone `/web-advice`. Only when `/advice` did not attempt Reviewer D may you run one standalone `/web-advice` review.
+   - `/web-advice` is applicable only when the user's current request separately and explicitly authorizes submitting the documents to external browser reviewers. Any browser submission made during `/advice` consumes the single `/web-advice` run. If it returned a verdict covering both documents, reuse it. If it was unavailable or failed, record `/web-advice` as `UNAVAILABLE` or `FAILED` with that reason and do not submit the documents again. Run at most one standalone `/web-advice`, and only when `/advice` made no browser submission.
    - If browser authentication or transport is unavailable, record `/web-advice` as `UNAVAILABLE` and continue. Do not pause or ask the user to log in. When no external attempt occurred and explicit authorization is absent, record `/web-advice` as `SKIPPED` and continue.
    - Record `/advice` and `/web-advice` execution states and verdicts separately.
 7. **Report to user:** In the final response, you MUST always include:
@@ -40,10 +45,12 @@ Complete the required architectural design, specification self-review, implement
    - **Questions asked & answers auto-picked:** A structured list or table detailing all questions considered, the specific choices auto-picked, and their rationale.
    - **Advice status:** Two separate entries using these exact state sets:
      - `/advice`: `RAN | FAILED` — exact verdict or failure reason.
-     - `/web-advice`: `RAN | SKIPPED | UNAVAILABLE | FAILED` — exact verdict or reason, and whether the result came from `/advice` Reviewer D or a standalone review.
+     - `/web-advice`: `RAN | SKIPPED | UNAVAILABLE | FAILED` — exact verdict or reason, and whether the result came from a submission during `/advice` or a standalone review.
    Do not begin implementation or ask which execution mode to use.
 
 ## Terminal Condition
+
+This skill is planning-only: it never starts implementation. If implementation was already authorized by the user, the calling workflow must continue explicitly after this report (per `draft-first-pr` § Coding lifecycle); do not treat the report as the end of that work.
 
 Finish only when both documents exist, cover the requested outcome, pass their respective self-reviews, contain no `TBD`, `TODO`, or deferred decision, and the advice attempts and required status records are complete. The final response must include both absolute document paths, the questions and auto-picked answers with rationale, and the two separate advice status entries.
 

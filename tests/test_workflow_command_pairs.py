@@ -66,12 +66,21 @@ class WorkflowCommandPairTest(unittest.TestCase):
             "## Coding and verification lane routing",
             "${CLAUDE_HOME:-$HOME/.claude}/agents/agy-pair-coder.md",
             "${CLAUDE_HOME:-$HOME/.claude}/agents/agy-pair-verifier.md",
-            "## Current model routing",
+            (
+                "FALLBACK: if an AGY lane concretely fails, retry that lane with "
+                "a gpt-6-luna subagent, then codex-luna as the gpt-5.6-luna "
+                "fallback if gpt-6-luna is unavailable or fails, while preserving "
+                "isolation and independent verification."
+            ),
+            "## Codex model routing",
             "## Fallback precedence",
-            "retry only that bounded lane",
-            "fresh workspace/context and unchanged evidence contracts",
-            "only within existing explicit authorization",
-            "If no admitted route works, stop that lane",
+            "`FALLBACK` template above is governed by this order:",
+            "retry the same bounded lane with",
+            "`gpt-6-luna` subagent. If `gpt-6-luna` is unavailable or fails, use",
+            "invoke\n   the Codex CLI explicitly",
+            "-m gpt-5.6-terra`, then `-m gpt-5.6-sol`",
+            "Use `claudem` or an own cheap agent only when the ordered Codex",
+            "unavailable; preserve the same bounded scope",
             "## Isolation contract",
             "distinct lanes and contexts",
             "disjoint workspace/output",
@@ -82,9 +91,38 @@ class WorkflowCommandPairTest(unittest.TestCase):
                 self.assertIn(required, skill)
 
         normalized_skill = " ".join(skill.split())
-        self.assertIn("Record the concrete per-lane failure", normalized_skill)
-        self.assertIn("fresh native agent context", normalized_skill)
-        self.assertIn("scope, fresh context, isolation, and independent verification on retry", normalized_skill)
+        self.assertIn(
+            "prefer the native `gpt-6-luna` subagent for bounded coding and "
+            "simple task-driving",
+            normalized_skill,
+        )
+        self.assertIn(
+            "`gpt-6-luna` → `gpt-5.6-luna` → `gpt-5.6-terra` → `gpt-5.6-sol`",
+            normalized_skill,
+        )
+        self.assertIn(
+            "If `gpt-6-luna` is unavailable or fails, use `codex-luna` as the "
+            "`gpt-5.6-luna` implementation fallback; it is not a multi-model router.",
+            normalized_skill,
+        )
+        self.assertIn(
+            "For simple independent tasks, the Luna lane may also drive the task "
+            "through its focused checks and deliver the result; keep the root "
+            "session responsible for scope and integration.",
+            normalized_skill,
+        )
+        self.assertIn(
+            "Work you can finish in a handful of tool calls, do in the root session",
+            normalized_skill,
+        )
+        self.assertIn(
+            "retry the same bounded lane with the next explicit model",
+            normalized_skill,
+        )
+        self.assertIn(
+            "advancing only after a concrete failure in that lane",
+            normalized_skill,
+        )
 
     def test_retry_isolation_covers_every_attempt_and_prior_attempts(self):
         skill = (SKILLS / "parallelize-to-ceiling" / "SKILL.md").read_text(
@@ -156,38 +194,21 @@ class WorkflowCommandPairTest(unittest.TestCase):
                 self.assertIn("Worktree: <absolute path>", content)
         self.assertIn("git rev-parse HEAD", coder)
 
-    def test_runtime_model_fallback_requires_live_capability_and_authority(self):
-        skill = (SKILLS / "parallelize-to-ceiling" / "SKILL.md").read_text()
-        normalized = " ".join(skill.split())
-        for requirement in (
-            "Resolve model choices from the live runtime catalog",
-            "current user/runtime selection rules",
-            "inherit the required runtime default otherwise",
-            "A model rejection is not permission to name an obsolete model or reach another provider",
-            "Use an external CLI route only within existing explicit authorization and established capability",
-            "A missing local profile is an unavailable route, not authorization to install tools, change permissions, or call a provider",
-        ):
-            with self.subTest(requirement=requirement):
-                self.assertIn(requirement, normalized)
-        for obsolete in ("codex-luna", "gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"):
-            self.assertNotIn(obsolete, skill)
-
-    def test_native_lane_admission_uses_live_slots_and_never_expands_permissions(self):
-        skill = (SKILLS / "parallelize-to-ceiling" / "SKILL.md").read_text()
-        gate = " ".join(skill.split("## Runtime capability and permission gate", 1)[1].split("## Core law", 1)[0].split())
-        for requirement in (
-            "Prefer available native delegation tools",
-            "`followup_task` to resume an idle lane",
-            "runtime's declared total slot limit, including the parent and other active agents",
-            "no more lanes than its remaining slots and useful ready work",
-            "Local CPU/RAM cannot increase that limit",
-            "Do not inspect credentials, invoke external providers, log in, provision hosts/containers, purchase capacity, start persistent services",
-            "batch ready lanes and report it without expanding access",
-        ):
-            with self.subTest(requirement=requirement):
-                self.assertIn(requirement, gate)
-        self.assertIn("when the user selected that route", gate)
-        self.assertIn("Follow live tool, model, sandbox, and user constraints", gate)
+    def test_codex_luna_fallback_does_not_claim_multi_model_routing(self):
+        skill = (SKILLS / "parallelize-to-ceiling" / "SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        normalized_skill = " ".join(skill.split())
+        self.assertIn(
+            "If `gpt-6-luna` is unavailable or fails, use `codex-luna` as the "
+            "`gpt-5.6-luna` implementation fallback; it is not a multi-model router.",
+            normalized_skill,
+        )
+        self.assertIn(
+            "invoke the Codex CLI explicitly with `-m gpt-5.6-terra`, then "
+            "`-m gpt-5.6-sol`",
+            normalized_skill,
+        )
 
     def test_initial_pair_attempts_enter_fresh_disjoint_worktrees(self):
         coder = (REPO_ROOT / ".claude" / "agents" / "agy-pair-coder.md").read_text(

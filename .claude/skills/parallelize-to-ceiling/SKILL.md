@@ -5,36 +5,7 @@ description: Use when designing, debugging, reviewing, or scripting any work tha
 
 # Parallelize to Ceiling
 
-**Slash command:** `/parallel` → the installed `parallelize-to-ceiling` skill. Resolve it through the current skill catalog or its installed path.
-
-## Runtime capability and permission gate
-
-Use the same skill and timeline reference on Mac, Linux, and hosted runtimes.
-Read the live tool schemas and current permissions before selecting a launch
-route. A profile, CLI binary, model name, or machine mentioned here is not proof
-that it is present, authorized, authenticated, or supported now.
-
-- Prefer available native delegation tools. With `collaboration`, use
-  `spawn_agent` for an independent lane, `send_message` for a running lane,
-  `followup_task` to resume an idle lane, and `list_agents`/notifications for
-  state. Use these names only when exposed by the live runtime; otherwise use
-  the equivalent supported API. Do not pretend imported agent files register
-  roles, models, or sandbox permissions automatically.
-- Native agent capacity is the runtime's declared total slot limit, including
-  the parent and other active agents. Admit no more lanes than its remaining
-  slots and useful ready work. Local CPU/RAM cannot increase that limit. If
-  remote host metrics are not exposed, report that limit and observed lane
-  states; do not substitute this computer's metrics as proof of remote capacity.
-- Probe CPU, memory, cgroups, and process liveness only for local subprocesses
-  or explicitly authorized machines where those metrics are available. The
-  local admission gates below do not require shell access for native agents.
-- Local CLI/AGY pairs remain available when the user selected that route and
-  its installed tools/profiles and current account access are established by
-  permitted non-secret checks. Follow live tool, model, sandbox, and user
-  constraints. Do not inspect credentials, invoke external providers, log in,
-  provision hosts/containers, purchase capacity, start persistent services, or
-  create Work/Codex tasks merely to increase parallelism. Missing capacity is
-  a named bound: batch ready lanes and report it without expanding access.
+**Slash command:** `/parallel` → `${CLAUDE_HOME:-$HOME/.claude}/skills/parallelize-to-ceiling/SKILL.md`
 
 ## Core law
 
@@ -42,21 +13,35 @@ For ANY work with independent items, the speed ceiling is the workload's
 **real resource bound** — per-item CPU / IO / network, or per-machine
 capacity — NOT an arbitrary worker count and NOT "one at a time."
 
-When a full set of N useful items fits admitted capacity, run **all N at once**.
-Use additional already-authorized capacity when available; provisioning or
-paid capacity requires separate authority and is never implied by this skill.
+When a full set of N items can run concurrently, run **all N at once**;
+**scale to more machines/containers rather than serialize onto fewer.**
 
-Serialize only with a named dependency, determinism/corruption constraint, or
-measured resource, tool, permission, or concurrency bound. A driver that
+Serialize only with a named determinism/corruption constraint. A driver that
 only supports serial for parallelizable work is **fixable tooling debt**, not
 the answer.
 
 This applies to local CLI work and to remote/distributed compute equally, to
 one-off scripts and to production pipelines alike.
 
+`/parallel` means **maximum parallelism**: when invoked, schedule every step
+from its true dependencies, not from list order, and overlap everything that
+can overlap. A step waits only on outputs it actually consumes. Read-only
+verification (reviews, audits, evidence checks) never blocks a reversible
+action (push, CI start, preview deploy); run them side by side and handle a
+finding with a follow-up commit. Start the longest pole (CI, real-LLM runs,
+slow builds) as early as its inputs allow. Hand idle-capable work to every
+available lane (subagents, CLI delegates, the dot) instead of queueing it
+behind your own turn. Merges, force-pushes, and destructive actions keep
+their own gates and are never "overlapped" past them.
+
+Every subagent or lane launched under `/parallel` drives its unit to done:
+implement, verify, and push or produce the artifact. It does not return a
+plan or analysis for the parent to execute, unless the lane is explicitly a
+read-only review lane. Say so in the lane's prompt.
+
 ## Timeline, parallel lanes, and milestones (mandatory)
 
-Read and apply the bundled [timeline and milestones contract](references/timeline-milestones.md), resolved relative to this skill package,
+Read and apply `${CLAUDE_HOME:-$HOME/.claude}/skills/parallelize-to-ceiling/references/timeline-milestones.md`
 on every invocation. Always include a timeline, maximize useful independent
 lanes within the measured resource ceiling, and report milestones every
 20 minutes with an hourly rollup during active work. Preserve this command's
@@ -71,26 +56,22 @@ planning, handoff, and execution authorization boundaries.
    heavy (self-saturates a machine: many cores, large memory, or long
    runtime). Measure with a quick probe; don't guess.
 3. **Pick the parallelism unit.**
-   - For local/distributed subprocess work, shard into disjoint units across
-     already available, authorized machines/containers when useful. For native
-     agents, the parallelism unit is a runtime slot, not a local CPU core.
+   - **Machine-level sharding is primary** — split the item set into disjoint
+     shards across every available machine/container. This is the biggest,
+     safest win.
    - **Within a machine, run light items to machine concurrency** (cores /
      per-item cores). Heavy items get their own machine — a high
      `--max-workers` can't make a CPU-saturated item faster and just thrashes.
-4. **Fill admitted capacity.** If N independent items exceed available slots,
-   machine resources, quota, or authorization, state the binding limit and
-   refill slots as lanes finish. Propose additional capacity only if useful;
-   never provision it, spend money, or expand access without authorization.
-5. **Prove the concurrency** using live native lane states/notifications or
-   permitted local process/container counts and load, not by trusting the flag. A passed `--max-workers N` that yields
+4. **Scale the fleet to the workload.** If N items are independent and you
+   have fewer machines than the ideal, **provision more** so all N run at
+   once. Don't serialize a parallelizable set onto the machines you happen
+   to have.
+5. **Prove the concurrency** by sampling live (process/container counts, load
+   average), not by trusting the flag. A passed `--max-workers N` that yields
    1 running worker is a red flag — find the serializer (a lock, a saturated
    resource, or a serial driver).
 
 ## Resource-bound table
-
-These are local subprocess examples; native agents obey runtime slots and
-service quotas. Measurements and current workload replace the illustrative
-counts below; authorized capacity is an upper bound.
 
 | Item profile | Per-machine concurrency | Parallelism unit | Why |
 |---|---|---|---|
@@ -117,10 +98,8 @@ counts below; authorized capacity is an upper bound.
   measured per-item bound. Ask: what does one item actually use?
 - **The passed-flag mirage.** `--max-workers 4` passed but 1 worker running
   (a hidden lock / saturated resource / serial driver). Measure live.
-- **Leaving admitted capacity idle.** "I have 4 machines so I'll run 4 at a
-  time" when measured light-item capacity can fit 12. Fill existing capacity;
-  if more machines are actually needed, name that bound rather than provision
-  them without authority.
+- **Serializing onto the machines you have.** "I have 4 machines so I'll run
+  4 at a time" when the set could use 12 — provision more.
 - **Broad-parallel without isolation.** Parallel writers sharing a mutable
   file/db → the real failure is the shared state, not the parallelism. Give
   each worker a disjoint workspace/output; single-writer for any merged
@@ -139,16 +118,14 @@ a serial run as if the ceiling were zero.
 **Do not gate on swap used/total ratio.** macOS sizes the swapfile
 dynamically, so `vm.swapusage` used-vs-current-size can read >80% "full" on
 a perfectly healthy machine indefinitely — used/total is not a saturation
-metric. `kern.memorystatus_vm_pressure_level = 2` is WARNING/amber, not
-critical (critical is 4); treating 2 as a hard stop over-triggers. (Observed
-2026-09-02: 8.9GB/10.24GB swap + pressure=2 read as "stop" under the old
-wording, while real available memory was 12.9GB and the pressure source was
-a steady-state 11GB Virtualization.framework VM — a constant that doesn't
-change whether you spawn 0 or 3 lanes. That was a false stop.)
+metric. `kern.memorystatus_vm_pressure_level = 2` is Urgent, not
+critical (critical is 3, jetsam is 4); treating 2 as a hard stop over-triggers
+when available memory is ample. (Observed 2026-09-02: 8.9GB/10.24GB swap +
+pressure=2 read as "stop" under the old wording, while real available memory
+was 12.9GB and the pressure source was a steady-state 11GB Virtualization.framework
+VM — a constant that doesn't change whether you spawn 0 or 3 lanes. That was a false stop.)
 
-Before spawning a new **local subprocess** lane/fleet or CLI delegate, apply
-the host-appropriate checks below. Native lanes instead use the runtime slot
-and permission gate above; do not probe inaccessible remote hosts:
+Before spawning any new lane, subprocess fleet, or CLI delegation:
 
 1. **Probe available memory — the primary signal.**
    - macOS: `vm_stat | awk -v ps=$(sysctl -n hw.pagesize) '/Pages free/{f=$3}
@@ -157,48 +134,32 @@ and permission gate above; do not probe inaccessible remote hosts:
      printf "%.1f GB available\n",(f+i+p+s)*ps/1073741824}'` — available =
      free + inactive + purgeable + speculative, not free alone.
    - Read `sysctl kern.memorystatus_vm_pressure_level` as a secondary signal
-     (1=normal, 2=warning, 3=urgent, 4=critical).
-   - Linux: use `/proc/meminfo` `MemAvailable` (or `free -b`) and
-     `/proc/pressure/memory` PSI. Resolve the current process's cgroup and
-     mount from permitted `/proc/self/cgroup` and `/proc/self/mountinfo`.
-     For cgroup v2, account for finite `memory.max` and `memory.high` headroom
-     against `memory.current`, plus `memory.events`/`memory.pressure`; for
-     v1 use available equivalent memory limit/usage files. Use the tightest
-     applicable finite limit, not host RAM, for container admission. CPU
-     concurrency is also bounded by affinity/cpuset and effective CPU quota
-     (`cpu.max` on v2), not merely host core count. If metrics are unavailable,
-     report that gap and keep admission conservative/provisional.
-   - These are read-only probes; do not change cgroup or host settings.
-2. **Attribute the pressure before reacting.** On macOS use
-   `ps -Ao rss,comm -r | head`; on Linux use
-   `ps -eo rss,comm --sort=-rss | head`
+     (0=normal, 1=warning, 2=urgent, 3=critical, 4=jetsam).
+   - Linux: `free -g` available column.
+   - Takes one second.
+2. **Attribute the pressure before reacting.** `ps -Ao rss,comm -m | head`
    to find the top-RSS consumer. If it's a steady-state VM/daemon
    (Virtualization.framework, colima, docker, qemu, lima), the pressure is
    structural — it won't improve by refusing to spawn, and it barely moves
    whether you spawn 0 or a few lanes.
-3. **Apply graduated thresholds, not a binary stop.** The following numbers
-   and pressure levels are macOS heuristics, not Linux PSI values. On Linux,
-   admit lanes against measured per-lane demand, cgroup headroom, pressure
-   trend and OOM events with a safety margin; never compare PSI percentages
-   to macOS pressure levels. Recalibrate per host:
-   - Available >8GB **and** pressure ≤2 → spawn normally.
-   - Available 4-8GB **or** pressure = 3 → reduce lane count / prefer
-     cheaper models, rather than deferring entirely.
-   - Available <4GB **or** pressure = 4 → defer. Finish or stop only your own
-     authorized heavy children first; spawning into genuine starvation risks killing
-     the *parent* session, losing all lanes at once.
+3. **Apply graduated thresholds, not a binary stop** (heuristics, not
+   physics — recalibrate per host):
+   - Available <4GB **or** pressure ≥3 (Critical/Jetsam) → **defer**. Finish or
+     kill existing heavy children first; spawning into genuine starvation risks killing
+     the *parent* session, losing all lanes at once. This defer condition takes
+     precedence below 4GB or under critical pressure and cannot be overridden by
+     the reduce-lane rule.
+   - Available 4–8GB (with pressure ≤2) **or** pressure = 2 (Urgent with available ≥4GB) →
+     **reduce lane count** / prefer cheaper models, rather than deferring entirely.
+   - Available >8GB **and** pressure ≤1 (Normal/Warning) → **spawn normally**.
 4. **Swap is a stop signal only when it's actively growing**, not from a
-   used/total ratio. On macOS sample twice, seconds apart
+   static used/total ratio. Sample twice, seconds apart
    (`sysctl vm.swapusage; sleep 5; sysctl vm.swapusage`), and compare
-   `used`. On Linux use permitted swap/pressure metrics and cgroup limits.
-   Flat-but-high used/total is not evidence of saturation; `used` climbing
-   between samples while available memory is also low is.
+   `used`. Flat-but-high used/total is not evidence of saturation; `used`
+   climbing between samples while available memory is also low is.
 5. **Never fork a multi-minute CLI delegation (agy, codex, claude -p) as a
-   foreground shell call.** Use the runtime's supported asynchronous process
-   API with an explicit timeout and observable completion handle. A local
-   `run_in_background` option applies only where documented; do not invent it.
-   If asynchronous execution is unavailable, report that limit rather than
-   launch a detached/unobservable process.
+   foreground Bash call.** Always `run_in_background` + explicit timeout —
+   a foreground fork pins the parent at the worst possible moment.
 6. **Cap concurrent pytest lanes** in gRPC-loaded repos (macOS
    fork-unsafety: "multi-threaded process forked" SIGTRAP storms). 2-3
    lanes max per host unless measured safe; prefer sharding across
@@ -212,46 +173,84 @@ and permission gate above; do not probe inaccessible remote hosts:
 - Single-writer for any shared ledger/manifest.
 - Order-deterministic merged results (sort by id, never completion order).
 - Instance-scoped container/process names so concurrent workers can't collide.
+- Lanes clean up their own `mktemp` scratch without a permission prompt: delete
+  it inside the script that created it (`trap`/`finally`), or `mv` it under
+  `/tmp`. Never `rm -rf "$(...)"` or `rm -rf "$VAR"`; the harness cannot resolve
+  those targets and stops the lane to ask.
 - Never relax a correctness/validation contract for speed — if a result's
   determinism can't be preserved, THAT is the written justification for serial.
 
 ## Coding and verification lane routing
 
-Keep coder and verifier in separate contexts. Prefer the currently supported
-native lane tools under the runtime gate. When an explicitly selected local
-AGY route is already available and authorized, load its installed coder/verifier
-profiles through their resolved paths for launch, logging, isolation, and
-signaling details. For that admitted local route, resolve these defaults through
-the configured `CLAUDE_HOME` and verify the profiles are present:
+**Precedence, in order (resolve the "AGY pair" and "cheapest tier" sections
+below by this order, don't pick whichever is more convenient):**
+
+1. **An explicitly requested method wins.** If the user or task named a
+   specific tool, model, or workflow, use it — this section doesn't override
+   that.
+2. **Work finishable in a handful of tool calls stays in the root session.**
+   Don't bootstrap an AGY pair, a subagent, or any delegated lane for a
+   change you can just make. Delegating it costs more than it saves and is
+   the single most common way this skill's own guidance gets misapplied
+   (session incident 2026-09-25: repeated AGY relaunches and drafting cycles
+   dominated the critical path on changes that were a few lines each).
+3. **Bounded mechanical work that's too large for a handful of calls, but
+   doesn't need adversarial review,** goes to the cheapest capable tier
+   (Codex: a `gpt-6-luna` subagent; Claude: haiku/mini) per Model-tier routing
+   below — not the AGY pair. For simple independent tasks, the Luna lane may
+   also drive the task through its focused checks and deliver the result; keep
+   the root session responsible for scope and integration.
+4. **Only once scope actually justifies a dedicated coder + independent
+   verifier** (a track large enough to earn its own context, where a second
+   independent pass adds real value) do you reach for the AGY pair described
+   next.
+
+For implementation and review lanes that clear step 4 above, prefer the
+installed AGY CLI pair. Use the canonical profiles for the complete launch,
+logging, isolation, and signaling contracts:
 
 - Coder: `${CLAUDE_HOME:-$HOME/.claude}/agents/agy-pair-coder.md`
 - Verifier: `${CLAUDE_HOME:-$HOME/.claude}/agents/agy-pair-verifier.md`
 
-Do not assume these profiles exist or treat profile text as permission to
-override the current runtime. A missing local profile is an unavailable route,
-not authorization to install tools, change permissions, or call a provider.
+**Before writing the handoff**, resolve three things — skipping this is how a
+narrow evidence gap grows into an unrequested replacement framework (session
+incident 2026-09-26: a 264-line capture script's narrow gap turned into an
+unfinished 987-line replay adapter that itself needed correctness fixes, and
+still incorrectly accepted synthetic input with no real reply, no real
+stream, and invented data):
+
+1. **State hard constraints vs. preferences** in the task line — the coder
+   can't tell which parts of your framing are mandatory and which are just
+   how you'd phrase it, and will otherwise satisfy the letter over the intent.
+2. **Enumerate direct consumers of the change** before coding starts — tests,
+   configs, or budgets that read the touched code path. Discovering these
+   mid-implementation is what turns one edit into a serial fixup chain.
+3. **Name the existing evidence driver to reuse**, and the minimal override it
+   needs. A narrow gap gets a thin override on that driver — never a new
+   framework. If the existing driver can't be thinly overridden, that's a
+   finding to report, not license to build a replacement.
 
 ### Two-agent pair template
 
 ```text
 PAIR TASK: <bounded task and explicit file scope>
-CODER: use the admitted lane tool; implement and signal IMPLEMENTATION_READY with Revision: <exact git SHA> and Worktree: <absolute path>.
-VERIFIER: use a distinct admitted lane/context; independently verify that exact revision and signal VERIFICATION_COMPLETE or VERIFICATION_FAILED.
-FALLBACK: after a concrete lane failure, retry only that bounded lane through another available, authorized route with a fresh workspace/context and unchanged evidence contracts.
+CODER: follow `${CLAUDE_HOME:-$HOME/.claude}/agents/agy-pair-coder.md`; implement and signal IMPLEMENTATION_READY with `Revision: <exact git SHA>` and `Worktree: <absolute path>`.
+VERIFIER: follow `${CLAUDE_HOME:-$HOME/.claude}/agents/agy-pair-verifier.md`; independently verify the handed-off revision and signal VERIFICATION_COMPLETE or VERIFICATION_FAILED.
+FALLBACK: if an AGY lane concretely fails, retry that lane with a gpt-6-luna subagent, then codex-luna as the gpt-5.6-luna fallback if gpt-6-luna is unavailable or fails, while preserving isolation and independent verification.
 ```
 
 ## Fallback precedence
 
-1. Use supported native lanes unless the user's selected environment/route
-   requires an already admitted local CLI pair.
-2. Record the concrete per-lane failure. Prefer another supported native lane
-   or a currently available capable model allowed by live model-selection
-   rules. A model rejection is not permission to name an obsolete model or
-   reach another provider. Retry transient capacity failures only as allowed
-   by the live tool; otherwise wait for a slot or report the blocker.
-3. Use an external CLI route only within existing explicit authorization and
-   established capability. If no admitted route works, stop that lane and
-   report its blocker while independent work continues.
+The `FALLBACK` template above is governed by this order:
+
+1. Start with the AGY pair as the primary implementation and verification lanes.
+2. After a concrete AGY lane failure, retry the same bounded lane with a
+   `gpt-6-luna` subagent. If `gpt-6-luna` is unavailable or fails, use
+   `codex-luna` as the `gpt-5.6-luna` fallback; if that Luna lane fails, invoke
+   the Codex CLI explicitly with `-m gpt-5.6-terra`, then `-m gpt-5.6-sol`,
+   advancing only after a concrete failure in that lane.
+3. Use `claudem` or an own cheap agent only when the ordered Codex route is
+   unavailable; preserve the same bounded scope and verification requirements.
 
 ## Isolation contract
 
@@ -264,39 +263,40 @@ from both coder and verifier lanes and from all previous attempts.
 Attempts must not read or reuse partial files, logs, or outputs from another
 attempt, and the verifier must independently rerun focused checks before signaling completion.
 When worktree isolation is used, every retry uses a fresh detached worktree and
-unique output/log paths. Start a fresh native agent context or, only on an
-admitted AGY route, a fresh `agy --new-project` invocation for each attempt;
-never reuse a prior attempt's conversation. If the runtime cannot allocate
-the required isolated workspace or exact revision, report the lane blocked
-rather than silently weakening this contract.
+unique output/log paths. Start a fresh `agy --new-project` invocation for every
+attempt; never pass a conversation-resume option or use an equivalent conversation-reuse mechanism.
 Each coder retry must carry the exact prior `Revision`, pin its workspace to
 that revision before making changes, rerun focused checks, and finish with an
 explicit scoped commit plus an empty status before sending the next handoff.
 Verifier retries must carry the exact handed-off `Revision`, pin their workspace
 to that revision, rerun focused checks read-only, and never modify files or create a commit.
 When worktree isolation is allocated, coder and verifier attempts enter fresh,
-per-lane worktrees and unique per-attempt output paths before invoking the admitted lane tool;
+per-lane worktrees and unique per-attempt output paths before invoking AGY;
 each worktree and output path must be disjoint from the other lane and all
 previous attempts. `Revision` is the committed clean implementation revision:
 the coder must make a final scoped commit and confirm its worktree is clean
 before sending IMPLEMENTATION_READY. The verifier must reject dirty inherited
 state and verify against `Revision`.
 
-## Current model routing
+## Codex model routing
 
-Resolve model choices from the live runtime catalog and current user/runtime
-selection rules. Prefer the cheapest capable allowed tier when explicit
-selection is supported; inherit the required runtime default otherwise.
-Record per-lane failures and preserve task scope, fresh context, isolation,
-and independent verification on retry. Historical wrapper names or model IDs
-are not an active fallback ladder or permission to call another provider.
+For Codex parallel lanes, prefer the native `gpt-6-luna` subagent for bounded
+coding and simple task-driving. Advance only after a concrete per-lane failure
+or when the requested model is unavailable:
+
+`gpt-6-luna` → `gpt-5.6-luna` → `gpt-5.6-terra` → `gpt-5.6-sol`
+
+If `gpt-6-luna` is unavailable or fails, use `codex-luna` as the
+`gpt-5.6-luna` implementation fallback; it is not a multi-model router. Record
+the rejection and retry the same bounded lane with the next explicit model.
+Never skip directly from Luna to Sol.
 
 ## One-line form (for config files)
 
 > Parallelize any task to its real ceiling — any independent-item work runs to
 > its real resource bound, not an arbitrary worker count or one-at-a-time;
-> fill all useful, admitted capacity; batch when constrained by measured
-> resources, runtime slots, permissions, or dependencies.
+> shard across ALL available capacity and scale to more machines rather than
+> serialize.
 
 ## Quick diagnostic — "why is it slow?"
 
@@ -311,8 +311,7 @@ Run this in order; stop at the first that explains it:
 4. **Is the per-item bound actually IO/network?** Workers/machine can go high
    (10s); the ceiling is rate limits, not cores.
 5. **Are you on the right number of machines?** If N items want N machines
-   and you have 4, use already-authorized spare capacity or state the limit;
-   additional provisioning needs its own authority.
+   and you have 4, add machines — don't serialize.
 
 ## Resource admission gate (macOS) — source of truth
 
@@ -320,43 +319,46 @@ Origin: session crash 2026-08-30 (a foreground multi-minute CLI fork under
 apparent swap starvation killed the parent session and every lane); thresholds
 corrected 2026-09-02 after the swap-ratio model proved wrong.
 
-On macOS only, run this before local subprocess lanes/fleets or CLI
-delegations, or when diagnosing that Mac's memory pressure. Native agents use
-their runtime slot gate; Linux subprocesses use the Linux/cgroup gate above:
+Run this before spawning lanes, subprocess fleets, or CLI delegations — or any
+time diagnosing whether this Mac is under memory pressure:
 
 1. **Available RAM** from `vm_stat`:
    `(free + inactive + purgeable + speculative) × page_size`.
-2. **Top RSS consumer**: `ps -Ao rss,comm -r | head`.
+2. **Top RSS consumer**: `ps -Ao rss,comm -m | head`.
 3. **Pressure**: `sysctl kern.memorystatus_vm_pressure_level` — 2 is
-   amber/informational, not a stop condition; only 4 is critical.
+   Urgent, not a stop condition when available memory is ample; 3 (critical)
+   and 4 (jetsam) are stop conditions.
 
 **Never gate on `vm.swapusage` used/total.** macOS sizes the swapfile
 dynamically, so an "89% full" swapfile can coexist with 12+ GB available.
 
 | Available RAM | Pressure | Action |
 |---|---|---|
-| > 8 GB | ≤ 2 | spawn normally |
-| 4–8 GB | 3 | reduce lane count |
-| < 4 GB | 4 | defer spawns |
+| < 4 GB | ≥ 3 (Critical/Jetsam) | defer spawns (precedence) |
+| 4–8 GB (and pressure ≤ 2) | 2 (Urgent, available ≥ 4 GB) | reduce lane count |
+| > 8 GB | ≤ 1 (Normal/Warning) | spawn normally |
 
 Even when deferring, attribute the pressure to its real top-RSS source first —
 it is often a steady-state VM or daemon, not the agent fleet.
 
 Never fork a multi-minute CLI delegation (`agy`, `codex`, `claude -p`) as a
-foreground shell call: use a supported asynchronous API with an explicit
-timeout, then read its output artifact on completion notification.
+foreground Bash call: always `run_in_background` with an explicit timeout, then
+read the output file on the task notification.
 
-## Model-tier routing and delegation defaults
+## Model-tier routing and delegation defaults — source of truth
 
 Origin: `${CLAUDE_HOME:-$HOME/.claude}/CLAUDE.md` § Parallel subagents and model routing (compressed
-there to a pointer 2026-09-06). Apply these preferences only within the live
-runtime's model-selection, delegation, and permission rules.
+there to a pointer 2026-09-06; this section is the full policy).
 
-- Prefer the **cheapest capable available tier** when the runtime permits
-  explicit selection; otherwise retain its default/inherited model.
-- For small/mechanical coding and polling, use a capable lower-cost current
-  model if allowed. Do not assume local wrappers, imported roles, or retired
-  model identifiers are available.
+- Route every independent unit to the **cheapest capable tier** — never
+  silently inherit an expensive session model for delegated work.
+- Small/mechanical bounded coding:
+  - Codex: spawn a `gpt-6-luna` subagent when available. If it is unavailable
+    or fails, use `codex-luna` (on PATH) as the `gpt-5.6-luna` fallback, then
+    `luna_worker` if the CLI wrapper is unavailable.
+  - Claude: `haiku` subagent.
+- Simple task-driving, polling, and mechanical sweeps: the available Luna or
+  haiku/mini tier.
 - Top tier (the session's own model): reserve for adversarial judgment, or
   only after a cheaper tier has already failed on that unit.
 - Before you repeat a delegated claim **or act on it**, read the artifact it
@@ -373,28 +375,36 @@ runtime's model-selection, delegation, and permission rules.
   pair above: a verifier reviewing a *different* agent's revision is an
   independent lane, not a re-check of your own output, and stays required
   wherever the pair template is used.
-- Delegate coding (edits, new files, generated code) through available native
-  tools or an already admitted local sidekick route when the track is independent
-  and large enough to earn its own
+- Delegate coding (edits, new files, generated code) to `/s` (sidekick) or a
+  subagent when the track is independent and large enough to earn its own
   context. Work you can finish in a handful of tool calls, do in the root
   session — delegating it costs more than it saves.
 
-Use the live runtime's lane-status/read/notification tools for liveness.
-If an admitted local sidekick route provides transcript-proof liveness, load
-its installed skill and use only permitted transcript paths. Never inspect
-restricted session roots or infer completion solely from an idle state.
+Teammate/subagent stall detection (transcript-proof liveness) is owned by
+`${CLAUDE_HOME:-$HOME/.claude}/skills/sidekick/SKILL.md` § Transcript-proof liveness — do not
+duplicate that procedure here.
 
 ## Collecting results — check every channel before redoing the work
 
 A finished lane is not a delivered lane. Direct result delivery to the parent
-can fail silently: a supported lane-status tool shows `idle` (its turn ended) and no report
+can fail silently: `ListAgents` shows `idle` (its turn ended) and no report
 ever arrives. **`idle` means "finished", not "reported".**
+
+The inverse trap is just as real: `running` means "active", not "progressing".
+A lane producing frequent transcript updates, tool calls, or status pings is
+not evidence of progress by itself — only a promised artifact, test result,
+or completed acceptance criterion is (session incident 2026-09-25: repeated
+"still exploring wording" updates from an active lane were mistaken for
+progress while no patch landed). If a lane has been running for a while with
+activity but no artifact, reassess and re-scope or switch it to a cheaper
+path per the routing precedence above — don't wait longer just because it's
+still "running", and don't restart an equivalent job automatically without
+changing what it's being asked to do.
 
 Before re-doing any lane's work yourself:
 
-1. **Ask the lane.** Use its supported message API; if it is idle, use the
-   documented resume/follow-up action so it can resend. Do not assume a plain
-   message starts a new turn or that another runtime's `SendMessage` exists.
+1. **Ask the lane.** `SendMessage` to it by name re-enters its transcript and it
+   can resend. This is cheap and usually works.
 2. **Check the side channels it was told to write.** If lanes were instructed to
    post to beads (`br comments add`), write files, or comment on a PR, read
    those. A lane whose direct message vanished has usually still written its

@@ -103,14 +103,18 @@ class ApprovalContractsTest(unittest.TestCase):
             "A bare `/superpowers-quick` invocation does not authorize external browser review",
             quick,
         )
-        self.assertIn("Do not run a second standalone `/web-advice`", quick)
+        self.assertIn("Run at most one standalone `/web-advice`", quick)
         self.assertIn("Do not pause or ask the user to log in", quick)
         self.assertIn(
-            "Reviewer D /web-advice is disabled; do not invoke it or any external browser transport",
+            "`/web-advice is disabled; do not invoke it or any external browser transport.`",
             quick,
         )
         self.assertIn(
-            "lists Reviewer D as `unavailable (disabled by parent authorization boundary)`",
+            "Verify the synthesis records no browser submission",
+            quick,
+        )
+        self.assertIn(
+            "Treat an attempted browser submission as an incomplete `/advice` run and record it as `FAILED`",
             quick,
         )
         self.assertIn(
@@ -134,11 +138,11 @@ class ApprovalContractsTest(unittest.TestCase):
             quick,
         )
         self.assertIn(
-            "Any Reviewer D attempt consumes the single `/web-advice` run",
+            "Any browser submission made during `/advice` consumes the single `/web-advice` run",
             quick,
         )
         self.assertIn(
-            "Only when `/advice` did not attempt Reviewer D",
+            "only when `/advice` made no browser submission",
             quick,
         )
         self.assertIn("`/advice`: `RAN | FAILED`", quick)
@@ -181,7 +185,7 @@ class ApprovalContractsTest(unittest.TestCase):
         advice = skill("advice")
         web_advice_command = (COMMANDS / "web-advice.md").read_text()
 
-        self.assertIn("/advice\napproved", (COMMANDS / "ready.md").read_text())
+        self.assertIn("/er and /advice\nwhere `draft-first-pr` (including repo-defined exemptions) requires them", (COMMANDS / "ready.md").read_text())
         self.assertIn("**/advice**", ready)
         self.assertIn("→ /advice APPROVED @ SHA", draft_first)
         self.assertNotIn("/web-advice", advice)
@@ -226,7 +230,7 @@ class ApprovalContractsTest(unittest.TestCase):
 
     def test_evidence_staleness_is_about_production_behavior(self) -> None:
         standards = skill("evidence-standards")
-        self.assertIn("only PRODUCTION changes stale evidence", standards)
+        self.assertIn("the delta and the claim decide, not the path", standards)
         self.assertIn("A moving HEAD does NOT invalidate evidence by itself.", standards)
 
     def test_draft_gate_requires_sha_bound_approval_not_withheld(self) -> None:
@@ -246,7 +250,11 @@ class ApprovalContractsTest(unittest.TestCase):
         self.assertIn("`README.md`", draft_first)
         self.assertIn("`docs/**`", draft_first)
         self.assertIn("`.claude/**`", draft_first)
-        self.assertRegex(draft_first, r"still require `/es` and\s+`/advice`")
+        self.assertRegex(
+            draft_first,
+            r"still require `/es`\s+and, unless a repo-exempted class applies,"
+            r"\s+`/advice`",
+        )
         allowlist = re.search(
             r"For this `/er` exemption, every changed path must be one of:\n\n"
             r"(?P<paths>(?:- `[^`]+`\n)+)",
@@ -270,7 +278,8 @@ class ApprovalContractsTest(unittest.TestCase):
             evidence_review,
             r"Mixed diffs and every path outside that allowlist follow the normal gate",
         )
-        self.assertIn("Every PR outside that exception requires `/er` = **PASS**", evidence_review)
+        self.assertIn("requires `/er` = **PASS** at the current SHA", evidence_review)
+        self.assertIn("outside any low-risk class the repo's own\ninstructions exempt per `draft-first-pr`", evidence_review)
         self.assertNotIn("Acceptable for `/green` on NON_PRODUCTION", evidence_review)
         self.assertIn("when `/er` is required by that lifecycle", green)
         self.assertNotIn("DRAFT → `/es` → `/er` → `/advice`", green)
@@ -291,6 +300,22 @@ class ApprovalContractsTest(unittest.TestCase):
         self.assertIn("HISTORY_FILES_JSON", history)
         self.assertIn("Always tell the user the **actual command** you ran", factory)
         self.assertIn("The top-level session owns named visible lanes", swarm)
+
+    def test_github_cli_reference_fallback_and_merge_authority(self) -> None:
+        ref = skill("github-cli-reference")
+        norm = " ".join(ref.split())
+        self.assertIn("read-only or idempotent", ref)
+        self.assertIn("must read back", ref)
+        self.assertIn("Human merge authority", ref)
+        self.assertIn(
+            "When an uncertain response occurs on a non-idempotent mutation (such as creating a comment, creating a release, or modifying state), the client must read back the current state or check idempotency before any retry attempt; never retry a mutation blindly to avoid creating duplicate comments, releases, or side effects.",
+            norm,
+        )
+        self.assertIn(
+            "Human merge authority and approval gates remain strictly preserved; automated fallbacks must never merge pull requests without explicit authorization.",
+            norm,
+        )
+
 
 
     def test_history_source_admission_and_empty_results_fail_closed(self) -> None:
