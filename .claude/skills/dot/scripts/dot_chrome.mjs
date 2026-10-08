@@ -137,8 +137,17 @@ function detectChromeProfile(requestedAccount) {
   };
 }
 
+function isMainModule() {
+  if (!process.argv[1]) return false;
+  try {
+    return fs.realpathSync(process.argv[1]) === fs.realpathSync(import.meta.filename);
+  } catch {
+    return false;
+  }
+}
+
 // Single-command profile directory resolution helper for dot.sh
-if (process.argv[2] === 'resolve-profile') {
+if (isMainModule() && process.argv[2] === 'resolve-profile') {
   const info = detectChromeProfile(process.env.DOT_ACCOUNT);
   console.log(JSON.stringify(info));
   process.exit(0);
@@ -163,12 +172,158 @@ let ctx = null;
 let clicked = false;
 let aborted = false;
 
+function syncCookiesFromSource(srcProfilePath, defaultDir, force = false) {
+  if (!srcProfilePath || !fs.existsSync(srcProfilePath)) return false;
+  const syncMarker = path.join(defaultDir, '.src_cookies_synced_mtime');
+  const authFailedMarker = path.join(defaultDir, '.auth_failed');
+  const manualLoginMarker = path.join(defaultDir, '.manual_login');
+
+  let syncedMtimes = {};
+  let lastSyncTimestamp = 0;
+  if (!force && fs.existsSync(syncMarker)) {
+    try {
+      const raw = fs.readFileSync(syncMarker, 'utf8').trim();
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        syncedMtimes = parsed;
+        lastSyncTimestamp = Number(parsed._syncedAt) || 0;
+      }
+    } catch {
+      try {
+        const num = Number(fs.readFileSync(syncMarker, 'utf8').trim());
+        if (num) {
+          syncedMtimes = { 'Cookies': num, [path.join('Network', 'Cookies')]: num };
+        }
+      } catch {}
+    }
+  }
+
+  let authFailedAt = 0;
+  if (fs.existsSync(authFailedMarker)) {
+    try {
+      const data = JSON.parse(fs.readFileSync(authFailedMarker, 'utf8'));
+      authFailedAt = Number(data.failedAt) || fs.statSync(authFailedMarker).mtimeMs;
+    } catch {
+      try { authFailedAt = fs.statSync(authFailedMarker).mtimeMs; } catch {}
+    }
+  }
+
+  let manualLoginAt = 0;
+  if (fs.existsSync(manualLoginMarker)) {
+    try {
+      manualLoginAt = fs.statSync(manualLoginMarker).mtimeMs;
+    } catch {}
+  }
+
+  let copied = false;
+  for (const rel of ['Cookies', path.join('Network', 'Cookies')]) {
+    const srcC = path.join(srcProfilePath, rel);
+    const dstC = path.join(defaultDir, rel);
+    if (fs.existsSync(srcC)) {
+      const srcStat = fs.statSync(srcC);
+      const srcMtime = srcStat.mtimeMs;
+      const lastSyncedMtime = Number(syncedMtimes[rel]) || 0;
+      const dstExists = fs.existsSync(dstC);
+      const dstMtime = dstExists ? fs.statSync(dstC).mtimeMs : 0;
+
+      // Distinguish a valid manual headless login from a routine cookie-file touch:
+      // 1. If explicit manual login marker is newer than both last sync and any auth failure,
+      //    preserve it as a manual login unless source is even newer.
+      // 2. If auth has failed (authFailedAt > 0) and no newer manual login occurred,
+      //    routine cookie writes (shutdown flushes) must not be mistaken for a manual login.
+      // 3. In normal authenticated state, if lastSyncedMtime === 0 (initial un-synced destination),
+      //    protect dst if it is newer than source.
+      // 4. In normal authenticated state, once a sync is already recorded (lastSyncedMtime > 0),
+      //    allow newer source mtime to trigger syncing even if routine headless usage touched dst.
+      let hasNewerManualLogin = false;
+      if (dstExists) {
+        if (manualLoginAt > 0 && manualLoginAt > lastSyncedMtime && manualLoginAt > authFailedAt) {
+          if (srcMtime <= manualLoginAt + 1000) {
+            hasNewerManualLogin = true;
+          }
+        } else if (authFailedAt > 0) {
+          hasNewerManualLogin = false;
+        } else if (lastSyncedMtime === 0) {
+          if (srcMtime <= dstMtime + 1000) {
+            hasNewerManualLogin = true;
+          }
+        } else {
+          hasNewerManualLogin = false;
+        }
+      }
+
+      if (!force && hasNewerManualLogin) {
+        continue;
+      }
+
+      const needsFailedAuthSync = authFailedAt > 0 && (!lastSyncTimestamp || lastSyncTimestamp < authFailedAt);
+      if (force || needsFailedAuthSync || lastSyncedMtime === 0 || srcMtime > lastSyncedMtime + 1000) {
+        try {
+          fs.mkdirSync(path.dirname(dstC), { recursive: true });
+          fs.copyFileSync(srcC, dstC);
+          try {
+            fs.utimesSync(dstC, srcStat.atime, srcStat.mtime);
+          } catch {}
+          copied = true;
+          syncedMtimes[rel] = srcMtime;
+          syncedMtimes._syncedAt = Date.now();
+          try {
+            fs.writeFileSync(syncMarker, JSON.stringify(syncedMtimes));
+          } catch {}
+        } catch {}
+      }
+    }
+  }
+
+  return copied;
+}
+
+function clearSyncMarker(targetDir) {
+  const defaultDir = path.join(targetDir, 'Default');
+  try {
+    fs.unlinkSync(path.join(defaultDir, '.src_cookies_synced_mtime'));
+  } catch (err) {
+    if (err && err.code !== 'ENOENT') {
+      console.error('dot: failed to clear cookie sync marker: ' + err.message);
+    }
+  }
+  try {
+    fs.unlinkSync(path.join(defaultDir, '.manual_login'));
+  } catch (err) {
+    if (err && err.code !== 'ENOENT') {
+      console.error('dot: failed to clear manual login marker: ' + err.message);
+    }
+  }
+  try {
+    fs.mkdirSync(defaultDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(defaultDir, '.auth_failed'),
+      JSON.stringify({ failedAt: Date.now() })
+    );
+  } catch (err) {
+    console.error('dot: failed to write auth_failed marker: ' + err.message);
+  }
+}
+
+function clearAuthFailed(targetDir) {
+  try {
+    fs.unlinkSync(path.join(targetDir, 'Default', '.auth_failed'));
+  } catch (err) {
+    if (err && err.code !== 'ENOENT') {
+      console.error('dot: failed to clear auth_failed marker: ' + err.message);
+    }
+  }
+}
+
 function ensurePersistentProfile(accInfo, targetDir) {
   // Never recreate or overwrite an existing persistent profile
   const defaultDir = path.join(targetDir, 'Default');
   const networkCookies = path.join(defaultDir, 'Network', 'Cookies');
   const legacyCookies = path.join(defaultDir, 'Cookies');
+  const preferences = path.join(defaultDir, 'Preferences');
   const srcProfilePath = accInfo.matchedKey ? path.join(sysChromeDir, accInfo.matchedKey) : null;
+  const forceSync = process.env.DOT_FORCE_SYNC_COOKIES === '1';
+
   if (
     (fs.existsSync(networkCookies) && fs.statSync(networkCookies).size > 0) ||
     (fs.existsSync(legacyCookies) && fs.statSync(legacyCookies).size > 0) ||
@@ -176,17 +331,7 @@ function ensurePersistentProfile(accInfo, targetDir) {
   ) {
     if (srcProfilePath && fs.existsSync(srcProfilePath)) {
       try {
-        for (const rel of ['Cookies', path.join('Network', 'Cookies')]) {
-          const srcC = path.join(srcProfilePath, rel);
-          const dstC = path.join(defaultDir, rel);
-          if (fs.existsSync(srcC) && fs.existsSync(dstC)) {
-            const srcMtime = fs.statSync(srcC).mtimeMs;
-            const dstMtime = fs.statSync(dstC).mtimeMs;
-            if (srcMtime > dstMtime + 10000) {
-              fs.copyFileSync(srcC, dstC);
-            }
-          }
-        }
+        syncCookiesFromSource(srcProfilePath, defaultDir, forceSync);
       } catch {}
     }
     return;
@@ -317,8 +462,8 @@ async function launch() {
     unavailable('playwright not installed for ' + process.execPath);
   }
 
-  ensurePersistentProfile(accountInfo, USER_DATA_DIR);
   await waitAndCleanSingletonLock(USER_DATA_DIR);
+  ensurePersistentProfile(accountInfo, USER_DATA_DIR);
 
   const isLinux = os.platform() === 'linux';
   const hasDisplay = !!process.env.DISPLAY;
@@ -381,18 +526,27 @@ async function launch() {
       // Validate auth immediately even when composer is visible (distinguishes logged-out anonymous composer)
       const session = await checkAuthSession(page);
       if (session.status === 200 && session.isJson && !session.hasUser) {
+        clearSyncMarker(USER_DATA_DIR);
         unavailable('not signed in');
       }
       if (session.status === 403) {
         unavailable('Cloudflare 403 on session endpoint');
       }
 
+      if (session.status === 200 && session.isJson && session.hasUser) {
+        clearAuthFailed(USER_DATA_DIR);
+      }
       if (mode === 'send') return page;
       // For read mode, wait for narrative content length to stabilize
       const len = bodyText.length;
       if (len > 50) {
         stable = len === last ? stable + 1 : 0;
-        if (stable >= 2) return page;
+        if (stable >= 2) {
+          if (session.status === 200 && session.isJson && session.hasUser) {
+            clearAuthFailed(USER_DATA_DIR);
+          }
+          return page;
+        }
       }
       last = len;
       await sleep(1000);
@@ -410,6 +564,7 @@ async function launch() {
   if (session.status === 403) {
     unavailable('Cloudflare 403 on session endpoint');
   } else if (session.status === 200 && session.isJson && !session.hasUser) {
+    clearSyncMarker(USER_DATA_DIR);
     unavailable('not signed in');
   }
 
@@ -418,9 +573,17 @@ async function launch() {
     return btns.some(b => /^(log in|sign up)$/i.test((b.innerText || '').trim()));
   }).catch(() => false);
 
-  if (hasLoginButtons) unavailable('not signed in');
+  if (hasLoginButtons) {
+    clearSyncMarker(USER_DATA_DIR);
+    unavailable('not signed in');
+  }
 
-  if (mode === 'read') return page;
+  if (mode === 'read') {
+    if (session.status === 200 && session.isJson && session.hasUser) {
+      clearAuthFailed(USER_DATA_DIR);
+    }
+    return page;
+  }
   return unavailable('composer not found');
 }
 
@@ -536,38 +699,49 @@ async function send(page, file, dry) {
   console.log(sentVerified ? 'DOT_SENT_VERIFIED' : 'DOT_SEND_UNVERIFIED composer_left=' + left.length);
 }
 
-process.on('SIGTERM', async () => { try { await ctx?.close(); } catch {} process.exit(143); });
-process.on('SIGINT', async () => { try { await ctx?.close(); } catch {} process.exit(130); });
+if (isMainModule()) {
+  process.on('SIGTERM', async () => { try { await ctx?.close(); } catch {} process.exit(143); });
+  process.on('SIGINT', async () => { try { await ctx?.close(); } catch {} process.exit(130); });
 
-let code = 0;
-let launchTimer = null;
-try {
-  if (mode === 'send' && !(arg && fs.existsSync(arg) && fs.statSync(arg).size > 0)) unavailable('no message file');
-  const timeoutPromise = new Promise((_, reject) => {
-    launchTimer = setTimeout(() => {
-      aborted = true;
-      reject(new Unavailable('timeout'));
-    }, 120000);
-  });
+  let code = 0;
+  let launchTimer = null;
   try {
-    await Promise.race([
-      (async () => {
-        const page = await launch();
-        if (mode === 'read') await read(page, Number(arg || 5000));
-        else await send(page, arg, process.env.DOT_DRY_RUN === '1');
-      })(),
-      timeoutPromise
-    ]);
+    if (mode === 'send' && !(arg && fs.existsSync(arg) && fs.statSync(arg).size > 0)) unavailable('no message file');
+    const timeoutPromise = new Promise((_, reject) => {
+      launchTimer = setTimeout(() => {
+        aborted = true;
+        reject(new Unavailable('timeout'));
+      }, 120000);
+    });
+    try {
+      await Promise.race([
+        (async () => {
+          const page = await launch();
+          if (mode === 'read') await read(page, Number(arg || 5000));
+          else await send(page, arg, process.env.DOT_DRY_RUN === '1');
+        })(),
+        timeoutPromise
+      ]);
+    } finally {
+      if (launchTimer) clearTimeout(launchTimer);
+    }
+  } catch (e) {
+    if (clicked) console.log('DOT_SEND_UNVERIFIED chrome_error=' + e.message);
+    else { console.log('DOT_CHROME_UNAVAILABLE: ' + (e instanceof Unavailable ? e.message : 'error: ' + e.message.split('\n')[0])); code = 10; }
   } finally {
-    if (launchTimer) clearTimeout(launchTimer);
+    try {
+      await ctx?.close();
+      await sleep(300);
+    } catch {}
   }
-} catch (e) {
-  if (clicked) console.log('DOT_SEND_UNVERIFIED chrome_error=' + e.message);
-  else { console.log('DOT_CHROME_UNAVAILABLE: ' + (e instanceof Unavailable ? e.message : 'error: ' + e.message.split('\n')[0])); code = 10; }
-} finally {
-  try {
-    await ctx?.close();
-    await sleep(300);
-  } catch {}
+  process.exit(code);
 }
-process.exit(code);
+
+export {
+  syncCookiesFromSource,
+  clearSyncMarker,
+  clearAuthFailed,
+  ensurePersistentProfile,
+  waitAndCleanSingletonLock,
+  isMainModule,
+};

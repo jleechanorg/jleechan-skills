@@ -370,7 +370,13 @@ cmd_login() {
     echo "dot.sh: Google Chrome binary not found: $chrome_bin" >&2
     exit 2
   fi
-  exec "$chrome_bin" --user-data-dir="$dir" --no-first-run --no-default-browser-check "$target_url"
+  mkdir -p "$dir/Default"
+  rm -f "$dir/Default/.auth_failed"
+  touch "$dir/Default/.manual_login"
+  "$chrome_bin" --user-data-dir="$dir" --no-first-run --no-default-browser-check "$target_url"
+  mkdir -p "$dir/Default"
+  rm -f "$dir/Default/.auth_failed"
+  touch "$dir/Default/.manual_login"
 }
 
 case "${1:-}" in
