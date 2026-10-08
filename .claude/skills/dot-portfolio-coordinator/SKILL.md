@@ -74,12 +74,12 @@ run_dir="$(mktemp -d /tmp/dot-portfolio-observe.XXXXXX)"
 python3 scripts/coordinator-portfolio.py observe --duration 43200 --interval 300 --run-dir "$run_dir"
 ```
 
-Active messaging requires a pinned pilot config and account grants. Set `run_dir` to the config's `state_dir`, an owner-owned private directory under `/tmp` (mode `0700`). Use a separate directory from an observe-only run; the controller creates it privately if missing.
+Active messaging requires a pinned pilot config, account grants, and an explicitly supplied approved private source registry. The registry must name concrete repositories and provide an exact `host_binding` for every Beads source; the shipped portable `references/sources.json` is a template, not an active registry. Set `run_dir` to the config's `state_dir`, an owner-owned private directory under `/tmp` (mode `0700`). Use a separate directory from an observe-only run; the controller creates it privately if missing.
 
 ```bash
 # Active current-work check-ins, bounded by the pilot config and grants
 run_dir=/tmp/dot-portfolio-pilot
-python3 scripts/coordinator-portfolio.py observe --interval 300 --send-messages --pilot-config /path/to/pilot.json --run-dir "$run_dir"
+python3 scripts/coordinator-portfolio.py observe --sources /path/to/private-approved-sources.json --interval 300 --send-messages --pilot-config /path/to/pilot.json --run-dir "$run_dir"
 ```
 
 The sender subcomponent is located at `scripts/dot-portfolio-coordinator-sender.sh`:
