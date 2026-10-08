@@ -3,7 +3,7 @@ import importlib.util
 import os
 from pathlib import Path
 import plistlib
-import subprocess
+import shutil
 import sys
 import tempfile
 import unittest
@@ -22,7 +22,7 @@ def load_renderer():
 class NativeRenderTests(unittest.TestCase):
     def setUp(self):
         self.native = load_renderer()
-        self.config = dict(python=sys.executable, node=os.environ['REMINDER_TEST_NODE'],
+        self.config = dict(python=sys.executable, node=os.environ.get('DOT_NODE') or os.environ.get('REMINDER_TEST_NODE') or shutil.which('node'),
                            worker='/opt/reminder package/coordinator-reminder.py',
                            config='/opt/private config/account.json', state='/opt/private state')
 
