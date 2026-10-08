@@ -104,6 +104,52 @@ class TestDotPortfolioCoordinatorAuthorityBudget(unittest.TestCase):
             BudgetLedger(self.registry, self.ledger_file)
         self.assertEqual(path.read_bytes(), before)
 
+    def test_lossy_persisted_integer_amounts_reject_without_mutation(self):
+        path = Path(self.ledger_file)
+        for amount in (9007199254740993, 9007199254740995):
+            rounded = float(amount)
+            for fields in (("max_cost", "reserved_amount"), ("max_cost",),
+                           ("reserved_amount",), ("settled_amount",)):
+                record = dict(reservation_id="res_large_1", caller_principal=self.authorized_principal,
+                              max_cost=rounded, reserved_amount=rounded, settled_amount=0,
+                              status="active")
+                for field in fields:
+                    record[field] = amount
+                terminal = "settled_amount" in fields
+                if terminal:
+                    record["status"] = "settled"
+                data = dict(ledger_version=3 if terminal else 2,
+                            total_reserved=0 if terminal else rounded,
+                            total_settled=rounded if terminal else 0,
+                            reservations={"res_large_1": record})
+                path.write_text(json.dumps(data)); before = path.read_bytes()
+                memory = copy.deepcopy(self.ledger.reservations)
+                with self.subTest(amount=amount, fields=fields):
+                    for operation in (
+                            lambda: BudgetLedger(self.registry, self.ledger_file),
+                            lambda: self.ledger.reserve({"action_id": "new", "attempt_id": "1", "max_cost": 0}, self.authorized_principal),
+                            lambda: self.ledger.settle({"reservation_id": "res_large_1", "actual_cost": rounded}, self.authorized_principal)):
+                        with self.assertRaises(BudgetError):
+                            operation()
+                        self.assertEqual(path.read_bytes(), before)
+                        self.assertEqual(self.ledger.reservations, memory)
+
+    def test_exact_large_persisted_integers_settle_and_reload(self):
+        for amount in (0, 2 ** 53, 2 ** 53 + 4, 2 ** 60):
+            record = dict(reservation_id="res_large_1", caller_principal=self.authorized_principal,
+                          max_cost=amount, reserved_amount=amount, settled_amount=0, status="active")
+            data = dict(ledger_version=2, total_reserved=amount, total_settled=0,
+                        reservations={"res_large_1": record})
+            path = Path(self.ledger_file); path.write_text(json.dumps(data)); before = path.read_bytes()
+            with self.subTest(amount=amount):
+                loaded = BudgetLedger(self.registry, self.ledger_file)
+                self.assertEqual(path.read_bytes(), before)
+                result = loaded.settle({"reservation_id": "res_large_1", "actual_cost": amount}, self.authorized_principal)
+                self.assertEqual(result["status"], "settled")
+                reloaded = BudgetLedger(self.registry, self.ledger_file)
+                self.assertEqual(reloaded.total_settled, amount)
+                self.assertEqual(reloaded.reservations["res_large_1"]["status"], "settled")
+
     def test_all_published_base_histories_reconcile_without_rewriting(self):
         fixture = json.loads((REPO_ROOT / "tests/fixtures/coordinator-budget-bc2439ec-histories.json").read_text())
         self.assertEqual(len(fixture["histories"]), 90)

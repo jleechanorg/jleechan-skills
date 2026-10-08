@@ -57,6 +57,11 @@ class BudgetLedger:
                 maximum = self._amount(record, "max_cost")
                 allocation = self._amount(record, "reserved_amount")
                 actual = self._amount(record, "settled_amount")
+                # Retained amounts are used again by settle/replay without conversion.
+                if any(record[field] != value for field, value in (
+                        ("max_cost", maximum), ("reserved_amount", allocation),
+                        ("settled_amount", actual))):
+                    raise ValueError("persisted reservation amount loses binary64 precision")
                 allocation = Fraction(allocation)
                 actual = Fraction(actual)
                 reserved_volume += allocation
