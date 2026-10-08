@@ -174,6 +174,32 @@ is_worktree_git_clean() {
     return 1
   fi
 
+  # Check if standalone clone vs linked worktree
+  local git_common_dir
+  git_common_dir="$(git -C "$wt" rev-parse --git-common-dir 2>/dev/null || true)"
+  if [[ -n "$git_common_dir" && "$git_common_dir" != /* ]]; then
+    git_common_dir="$wt/$git_common_dir"
+  fi
+  local is_standalone=false
+  if [[ -z "$git_common_dir" || "$git_dir" == "$git_common_dir" || -d "$wt/.git/refs" ]]; then
+    is_standalone=true
+  fi
+
+  if [[ "$is_standalone" == true ]]; then
+    # Standalone clone: deleting the folder destroys .git, so protect stashes
+    if git -C "$wt" stash list 2>/dev/null | grep -q .; then
+      return 1
+    fi
+    # If upstream tracking branch exists, ensure HEAD has been pushed
+    if git -C "$wt" rev-parse --verify "@{u}" >/dev/null 2>&1; then
+      local unpushed
+      unpushed="$(git -C "$wt" log '@{u}..HEAD' --oneline 2>/dev/null || true)"
+      if [[ -n "$unpushed" ]]; then
+        return 1
+      fi
+    fi
+  fi
+
   return 0
 }
 

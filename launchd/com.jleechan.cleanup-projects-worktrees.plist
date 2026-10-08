@@ -12,13 +12,15 @@
   </array>
   <key>StartCalendarInterval</key>
   <dict>
+    <key>Weekday</key>
+    <integer>0</integer>
     <key>Hour</key>
     <integer>3</integer>
     <key>Minute</key>
     <integer>45</integer>
   </dict>
   <key>StandardOutPath</key>
-  <string>@HOME@/Library/Logs/cleanup-projects-worktrees.log</string>
+  <string>@HOME@/Library/Logs/cleanup-projects-worktrees.stdout.log</string>
   <key>StandardErrorPath</key>
   <string>@HOME@/Library/Logs/cleanup-projects-worktrees.error.log</string>
   <key>WorkingDirectory</key>
