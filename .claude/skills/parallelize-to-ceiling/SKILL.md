@@ -118,12 +118,12 @@ a serial run as if the ceiling were zero.
 **Do not gate on swap used/total ratio.** macOS sizes the swapfile
 dynamically, so `vm.swapusage` used-vs-current-size can read >80% "full" on
 a perfectly healthy machine indefinitely — used/total is not a saturation
-metric. `kern.memorystatus_vm_pressure_level = 2` is WARNING/amber, not
-critical (critical is 4); treating 2 as a hard stop over-triggers. (Observed
-2026-09-02: 8.9GB/10.24GB swap + pressure=2 read as "stop" under the old
-wording, while real available memory was 12.9GB and the pressure source was
-a steady-state 11GB Virtualization.framework VM — a constant that doesn't
-change whether you spawn 0 or 3 lanes. That was a false stop.)
+metric. `kern.memorystatus_vm_pressure_level = 2` is Urgent, not
+critical (critical is 3, jetsam is 4); treating 2 as a hard stop over-triggers
+when available memory is ample. (Observed 2026-09-02: 8.9GB/10.24GB swap +
+pressure=2 read as "stop" under the old wording, while real available memory
+was 12.9GB and the pressure source was a steady-state 11GB Virtualization.framework
+VM — a constant that doesn't change whether you spawn 0 or 3 lanes. That was a false stop.)
 
 Before spawning any new lane, subprocess fleet, or CLI delegation:
 
@@ -134,22 +134,24 @@ Before spawning any new lane, subprocess fleet, or CLI delegation:
      printf "%.1f GB available\n",(f+i+p+s)*ps/1073741824}'` — available =
      free + inactive + purgeable + speculative, not free alone.
    - Read `sysctl kern.memorystatus_vm_pressure_level` as a secondary signal
-     (1=normal, 2=warning, 3=urgent, 4=critical).
-   - Linux: `free -g` available column, or `/proc/pressure/memory` (PSI).
+     (0=normal, 1=warning, 2=urgent, 3=critical, 4=jetsam).
+   - Linux: `free -g` available column.
    - Takes one second.
-2. **Attribute the pressure before reacting.** `ps -Ao rss,comm -r | head`
+2. **Attribute the pressure before reacting.** `ps -Ao rss,comm -m | head`
    to find the top-RSS consumer. If it's a steady-state VM/daemon
    (Virtualization.framework, colima, docker, qemu, lima), the pressure is
    structural — it won't improve by refusing to spawn, and it barely moves
    whether you spawn 0 or a few lanes.
 3. **Apply graduated thresholds, not a binary stop** (heuristics, not
    physics — recalibrate per host):
-   - Available >8GB **and** pressure ≤2 → spawn normally.
-   - Available 4-8GB **or** pressure = 3 → reduce lane count / prefer
-     cheaper models, rather than deferring entirely.
-   - Available <4GB **or** pressure = 4 → defer. Finish or kill existing
-     heavy children first; spawning into genuine starvation risks killing
-     the *parent* session, losing all lanes at once.
+   - Available <4GB **or** pressure ≥3 (Critical/Jetsam) → **defer**. Finish or
+     kill existing heavy children first; spawning into genuine starvation risks killing
+     the *parent* session, losing all lanes at once. This defer condition takes
+     precedence below 4GB or under critical pressure and cannot be overridden by
+     the reduce-lane rule.
+   - Available 4–8GB (with pressure ≤2) **or** pressure = 2 (Urgent with available ≥4GB) →
+     **reduce lane count** / prefer cheaper models, rather than deferring entirely.
+   - Available >8GB **and** pressure ≤1 (Normal/Warning) → **spawn normally**.
 4. **Swap is a stop signal only when it's actively growing**, not from a
    static used/total ratio. Sample twice, seconds apart
    (`sysctl vm.swapusage; sleep 5; sysctl vm.swapusage`), and compare
@@ -322,18 +324,19 @@ time diagnosing whether this Mac is under memory pressure:
 
 1. **Available RAM** from `vm_stat`:
    `(free + inactive + purgeable + speculative) × page_size`.
-2. **Top RSS consumer**: `ps -Ao rss,comm -r | head`.
+2. **Top RSS consumer**: `ps -Ao rss,comm -m | head`.
 3. **Pressure**: `sysctl kern.memorystatus_vm_pressure_level` — 2 is
-   amber/informational, not a stop condition; only 4 is critical.
+   Urgent, not a stop condition when available memory is ample; 3 (critical)
+   and 4 (jetsam) are stop conditions.
 
 **Never gate on `vm.swapusage` used/total.** macOS sizes the swapfile
 dynamically, so an "89% full" swapfile can coexist with 12+ GB available.
 
 | Available RAM | Pressure | Action |
 |---|---|---|
-| > 8 GB | ≤ 2 | spawn normally |
-| 4–8 GB | 3 | reduce lane count |
-| < 4 GB | 4 | defer spawns |
+| < 4 GB | ≥ 3 (Critical/Jetsam) | defer spawns (precedence) |
+| 4–8 GB (and pressure ≤ 2) | 2 (Urgent, available ≥ 4 GB) | reduce lane count |
+| > 8 GB | ≤ 1 (Normal/Warning) | spawn normally |
 
 Even when deferring, attribute the pressure to its real top-RSS source first —
 it is often a steady-state VM or daemon, not the agent fleet.
