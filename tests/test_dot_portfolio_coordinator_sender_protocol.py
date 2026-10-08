@@ -21,7 +21,7 @@ class TestNotificationBindingManager(unittest.TestCase):
             control_record_id="control", action_id="action", attempt_id="attempt",
             account="account", event_id="event", kind="status",
             message_sha256="a" * 64,
-            task_key={"repository": "example-org/project", "bead_id": "item"},
+            task_key={"github_host": "github.com", "source_namespace": "issues", "repository": "example-org/project", "bead_id": "item"},
             grant_version="v1", control_entry_digest="b" * 64,
         )
         self.ref = "control/action/attempt"
@@ -30,10 +30,14 @@ class TestNotificationBindingManager(unittest.TestCase):
         self.manager.register_binding(**self.args)
         valid = json.loads(self.path.read_text())
         corrupt = ["{broken", "null", "[]", json.dumps({self.ref: {}})]
-        for field, value in (("task_key", []), ("event_id", None),
+        for field, value in (("task_key", []), ("task_key", {}), ("task_key", {"unknown": "field"}),
+                             ("task_key", dict(self.args["task_key"], extra="field")),
+                             ("task_key", dict(self.args["task_key"], bead_id=1)), ("event_id", None),
                              ("control_record_id", "wrong"), ("message_sha256", "invalid")):
             bad = copy.deepcopy(valid); bad[self.ref][field] = value
             corrupt.append(json.dumps(bad))
+        entry = json.dumps(valid[self.ref])
+        corrupt.append("{" + json.dumps(self.ref) + ":" + entry + "," + json.dumps(self.ref) + ":" + entry + "}")
         for raw in corrupt:
             with self.subTest(raw=raw):
                 self.path.write_text(raw)
@@ -49,6 +53,22 @@ class TestNotificationBindingManager(unittest.TestCase):
                     self.assertEqual(self.manager.bindings, state)
         self.path.write_text(json.dumps(valid))
         self.assertEqual(NotificationBindingManager(None, str(self.path)).resolve_notification(self.ref), valid[self.ref])
+
+    def test_contract_valid_base_binding_loads_and_replays_without_write(self):
+        raw = (Path(__file__).parent / "fixtures/coordinator-binding-bc2439ec-valid.json").read_bytes()
+        self.path.write_bytes(raw)
+        manager = NotificationBindingManager(None, str(self.path))
+        expected = json.loads(raw)[self.ref]
+        self.assertEqual(manager.resolve_notification(self.ref), expected)
+        self.assertEqual(manager.register_binding(**self.args), expected)
+        self.assertEqual(self.path.read_bytes(), raw)
+
+    def test_invalid_new_task_key_does_not_write_or_mutate(self):
+        for key in ({}, {"unknown": "field"}, dict(self.args["task_key"], extra="field")):
+            with self.subTest(key=key), self.assertRaises(SenderProtocolError):
+                self.manager.register_binding(**dict(self.args, task_key=key))
+            self.assertFalse(self.path.exists())
+            self.assertEqual(self.manager.bindings, {})
 
     def test_unreadable_bindings_reject_without_changing_bytes(self):
         self.manager.register_binding(**self.args)

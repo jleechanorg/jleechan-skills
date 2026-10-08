@@ -57,6 +57,28 @@ class TestJournalReplayBoundary(unittest.TestCase):
                 self.journal.append_journal_entry("record", "forged", "other", expected_digest="digest")
             self.assertEqual(run.call_count, 1)
 
+    def test_base_written_spaced_action_replays_and_new_append_verifies(self):
+        record = json.loads((REPO_ROOT / "tests/fixtures/coordinator-journal-bc2439ec-spaces.json").read_text())
+        with patch.object(self.journal, "read_control_record", return_value=(record, "v", "digest")), patch("modules.beads_journal.run_bounded_command") as run:
+            self.assertEqual(self.journal.append_journal_entry("record", "human action", "payload", expected_digest="digest")["status"], "already_applied")
+            run.assert_not_called()
+        record["notes"] = ""
+        def append(command, **kwargs):
+            record["notes"] += command[command.index("--append-notes") + 1]
+            return 0, "{}", ""
+        with patch.object(self.journal, "read_control_record", return_value=(record, "v", "digest")), patch("modules.beads_journal.run_bounded_command", side_effect=append) as run:
+            self.assertEqual(self.journal.append_journal_entry("record", "human action", "payload", expected_digest="digest")["status"], "applied")
+            self.assertEqual(self.journal.append_journal_entry("record", "human action", "payload", expected_digest="digest")["status"], "already_applied")
+            self.assertEqual(run.call_count, 1)
+
+    def test_line_breaking_action_ids_reject_before_read_or_write(self):
+        for separator in ("\n", "\r", "\v", "\f", "\x1c", "\x1d", "\x1e", "\x85", "\u2028", "\u2029"):
+            with self.subTest(separator=repr(separator)), patch.object(self.journal, "read_control_record") as read, patch("modules.beads_journal.run_bounded_command") as run:
+                with self.assertRaises(JournalError):
+                    self.journal.append_journal_entry("record", "human" + separator + "action", "payload", expected_digest="digest")
+                read.assert_not_called()
+                run.assert_not_called()
+
     def test_postwrite_verification_requires_same_entry_binding(self):
         before = {"labels": ["coordinator-control"], "notes": ""}
         wrong = {"labels": ["coordinator-control"], "notes": self.entry("a", "original") + "\n" + self.entry("b", "other")}

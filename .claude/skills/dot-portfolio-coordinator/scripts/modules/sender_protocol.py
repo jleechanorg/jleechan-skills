@@ -17,6 +17,22 @@ class SenderProtocolError(Exception):
     pass
 
 
+def _unique_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate binding JSON key")
+        result[key] = value
+    return result
+
+
+def _validate_task_key(task_key):
+    required = {"github_host", "repository", "source_namespace", "bead_id"}
+    if (not isinstance(task_key, dict) or set(task_key) != required
+            or any(not isinstance(value, str) for value in task_key.values())):
+        raise SenderProtocolError("Invalid task composite key")
+
+
 class NotificationBindingManager:
     """Validates/reloads bindings; overlapping writers still require external serialization."""
 
@@ -31,7 +47,7 @@ class NotificationBindingManager:
             return
         try:
             with open(self.storage_file, "r", encoding="utf-8") as f:
-                bindings = json.load(f)
+                bindings = json.load(f, object_pairs_hook=_unique_object)
             if not isinstance(bindings, dict):
                 raise ValueError("invalid binding store")
             for ref, binding in bindings.items():
@@ -43,9 +59,7 @@ class NotificationBindingManager:
                 expected_ref = "/".join(binding[field] for field in fields[:3])
                 if ref != expected_ref or not isinstance(binding.get("task_key"), dict):
                     raise ValueError("invalid binding identity")
-                if any(not isinstance(k, str) or not isinstance(v, str)
-                       for k, v in binding["task_key"].items()):
-                    raise ValueError("invalid task key")
+                _validate_task_key(binding["task_key"])
                 for field in ("message_sha256", "control_entry_digest"):
                     digest = binding[field]
                     if len(digest) != 64 or any(c not in "0123456789abcdefABCDEF" for c in digest):
@@ -80,6 +94,7 @@ class NotificationBindingManager:
         control_entry_digest: str
     ) -> Dict[str, Any]:
         """Registers immutable notification authorization binding."""
+        _validate_task_key(task_key)
         self._load()
         ref_key = f"{control_record_id}/{action_id}/{attempt_id}"
         binding = {

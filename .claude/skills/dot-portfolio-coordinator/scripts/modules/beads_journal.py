@@ -138,9 +138,9 @@ class BeadsControlJournal:
     @staticmethod
     def _entry_matches(notes: str, action_tag: str, payload_tag: str) -> bool:
         # Tags must belong to one leading journal header, never unrelated notes.
-        entries = [line.split(" ", 2) for line in notes.splitlines()
+        entries = [line[len(action_tag) + 1:].split(" ", 1) for line in notes.splitlines()
                    if line.startswith(action_tag + " ")]
-        return bool(entries) and all(len(parts) == 3 and parts[1] == payload_tag
+        return bool(entries) and all(len(parts) == 2 and parts[0] == payload_tag
                                      for parts in entries)
 
     def append_journal_entry(
@@ -151,6 +151,9 @@ class BeadsControlJournal:
         expected_digest: Optional[str] = None
     ) -> Dict[str, Any]:
         """Appends an immutable journal note to a roadmap control record with CAS and payload binding."""
+        if not isinstance(action_id, str) or any(
+                char in action_id for char in "\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029"):
+            raise JournalError("action_id must not contain line breaks")
         if not self._lock_held:
             raise JournalError("Sole-writer lock must be held before modifying control records")
 

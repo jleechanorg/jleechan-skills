@@ -72,7 +72,7 @@ class TestDotPortfolioCoordinatorE2E(unittest.TestCase):
                 "event_id": "ev-001",
                 "kind": "status",
                 "message_sha256": "a" * 64,
-                "task_key": {"repository": "example-org/project", "bead_id": "item"},
+                "task_key": {"github_host": "github.com", "source_namespace": "issues", "repository": "example-org/project", "bead_id": "item"},
                 "grant_version": "v1",
                 "control_entry_digest": "b" * 64,
                 "registered_at": "2026-01-01T00:00:00Z"

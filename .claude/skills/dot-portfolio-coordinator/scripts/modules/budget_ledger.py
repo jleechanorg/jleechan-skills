@@ -42,18 +42,20 @@ class BudgetLedger:
                 data = json.load(f)
             if not isinstance(data, dict) or type(data.get("ledger_version")) is not int or data["ledger_version"] < 1:
                 raise ValueError("invalid ledger version")
-            reserved = self._amount(data, "total_reserved")
+            reserved = self._amount(data, "total_reserved", allow_negative=True)
             settled = self._amount(data, "total_settled")
             reservations = data.get("reservations")
             if not isinstance(reservations, dict):
                 raise ValueError("invalid reservations")
             expected_reserved = expected_settled = 0.0
+            allocations = []
             for key, record in reservations.items():
                 if not isinstance(record, dict) or record.get("reservation_id") != key:
                     raise ValueError("invalid reservation identity")
                 maximum = self._amount(record, "max_cost")
                 allocation = self._amount(record, "reserved_amount")
                 actual = self._amount(record, "settled_amount")
+                allocations.append(allocation)
                 status = record.get("status")
                 if maximum != allocation or not isinstance(record.get("caller_principal"), str):
                     raise ValueError("invalid reservation")
@@ -65,6 +67,19 @@ class BudgetLedger:
                     expected_settled += actual
                 else:
                     raise ValueError("invalid reservation state")
+            if reserved < 0:
+                # Legacy writer: prove this exact residue by replaying a valid
+                # all-reserve/then-settle sequence, rather than accepting epsilon.
+                replayed = 0.0
+                for allocation in allocations:
+                    replayed += allocation
+                for allocation in allocations:
+                    replayed -= allocation
+                if (expected_reserved != 0 or not allocations or
+                        any(record["status"] == "active" for record in reservations.values()) or
+                        reserved != replayed):
+                    raise ValueError("unproven negative ledger balance")
+                reserved = 0.0
             if not (math.isclose(reserved, expected_reserved, rel_tol=1e-9, abs_tol=1e-12) and
                     math.isclose(settled, expected_settled, rel_tol=1e-9, abs_tol=1e-12)):
                 raise ValueError("inconsistent ledger totals")
@@ -102,7 +117,7 @@ class BudgetLedger:
             )
 
     @staticmethod
-    def _amount(request: Dict[str, Any], field: str) -> float:
+    def _amount(request: Dict[str, Any], field: str, *, allow_negative: bool = False) -> float:
         """Require a finite, nonnegative JSON number before changing the ledger."""
         value = request.get(field)
         if type(value) not in (int, float):
@@ -111,7 +126,7 @@ class BudgetLedger:
             amount = float(value)
         except OverflowError:
             raise BudgetError(f"{field} exceeds the supported numeric range") from None
-        if not math.isfinite(amount) or amount < 0:
+        if not math.isfinite(amount) or (amount < 0 and not allow_negative):
             raise BudgetError(f"{field} must be a finite nonnegative JSON number")
         return amount
 

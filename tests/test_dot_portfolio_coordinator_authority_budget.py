@@ -80,6 +80,28 @@ class TestDotPortfolioCoordinatorAuthorityBudget(unittest.TestCase):
         self.assertEqual(reloaded.total_reserved, .1)
         self.assertEqual(reloaded.reservations, valid["reservations"])
 
+    def test_published_base_ledger_residue_reload_preserves_source_bytes(self):
+        # Actual bc2439ec output: reserve .1/.4/.2, then settle each at zero.
+        raw = (REPO_ROOT / "tests/fixtures/coordinator-budget-bc2439ec-residue.json").read_bytes()
+        self.assertEqual(hashlib.sha256(raw).hexdigest(), "d08b3ab59b945385eae210715622b12493ab7f2a0596e2db3c6803bc1b34f723")
+        path = Path(self.ledger_file); path.write_bytes(raw)
+        self.assertEqual(json.loads(raw)["total_reserved"], -5.551115123125783e-17)
+        restored = BudgetLedger(self.registry, self.ledger_file)
+        self.assertEqual((restored.total_reserved, restored.total_settled, restored.ledger_version), (0, 0, 7))
+        self.assertEqual(path.read_bytes(), raw)
+        for negative in (-.01, -1e-13, -1e-17):
+            invalid = json.loads(raw); invalid["total_reserved"] = negative
+            path.write_text(json.dumps(invalid)); before = path.read_bytes()
+            with self.subTest(negative=negative), self.assertRaises(BudgetError):
+                BudgetLedger(self.registry, self.ledger_file)
+            self.assertEqual(path.read_bytes(), before)
+        invalid = json.loads(raw)
+        invalid["reservations"]["res_0_1"]["status"] = "active"
+        path.write_text(json.dumps(invalid)); before = path.read_bytes()
+        with self.assertRaises(BudgetError):
+            BudgetLedger(self.registry, self.ledger_file)
+        self.assertEqual(path.read_bytes(), before)
+
     def test_valid_fractional_settlements_can_reload_without_negative_residue(self):
         self.registry.budget_policy["per_cycle_cost_usd"] = 1
         ledger = BudgetLedger(self.registry, self.ledger_file)
