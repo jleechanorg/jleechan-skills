@@ -382,6 +382,10 @@ const perpPage = await attachBrowserTab(perpTab.targetId);
 const textbox = await perpPage.locator('[role="textbox"]').first();
 await textbox.click();
 await perpPage.keyboard.type(perpPrompt, {delay: 3});
+const perpReadback = await textbox.inputValue().catch(() => textbox.innerText());
+if (perpReadback !== perpPrompt) {
+  throw new Error('Composer content differs from the complete review prompt; do not send');
+}
 await perpPage.keyboard.press('Enter');  // Enter submits; no separate button click
 console.log('sent to Perplexity');
 ```

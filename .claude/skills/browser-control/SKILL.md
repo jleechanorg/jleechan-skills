@@ -80,15 +80,17 @@ set -euo pipefail
 # write because browserclaw's writer uses Path.write_text()
 # which honors the process umask.
 umask 077
-TMP_COOKIES="$(mktemp -t browserclaw-XXXXXX.json)"
-TMP_PAGE="$(mktemp -t browserclaw-page-XXXXXX.txt)"
-chmod 600 "$TMP_COOKIES" "$TMP_PAGE"
+# Pre-initialize variables and arm cleanup traps BEFORE allocating
+# temp files so INT/TERM/HUP cannot leave orphaned artifacts during
+# the allocation window.
+TMP_COOKIES=""
+TMP_PAGE=""
 # INT/TERM/HUP handlers MUST terminate nonzero after cleanup so
 # a signal during a long decrypt/inject does not let bash
 # continue past the trap and recreate credential files.
 cleanup_browser_creds() {
   local rc=$?
-  rm -f "$TMP_COOKIES" "$TMP_PAGE"
+  rm -f ${TMP_COOKIES:+"$TMP_COOKIES"} ${TMP_PAGE:+"$TMP_PAGE"}
   return "$rc"
 }
 exit_on_signal() {
@@ -113,6 +115,10 @@ trap 'exit_on_signal TERM' TERM
 trap 'exit_on_signal HUP' HUP
 trap 'exit_on_signal INT' INT
 trap cleanup_browser_creds EXIT
+
+TMP_COOKIES="$(mktemp -t browserclaw-XXXXXX.json)"
+TMP_PAGE="$(mktemp -t browserclaw-page-XXXXXX.txt)"
+chmod 600 "$TMP_COOKIES" "$TMP_PAGE"
 
 # 1. Multi-profile sweep runs FIRST, Aside first — the canonical
 #    recipe does NOT depend on Chrome Default being non-empty
@@ -195,13 +201,15 @@ set -euo pipefail
 # write because browserclaw's writer uses Path.write_text()
 # which honors the process umask.
 umask 077
-TMP_COOKIES="$(mktemp -t browserclaw-XXXXXX.json)"
-TMP_PAGE="$(mktemp -t browserclaw-page-XXXXXX.txt)"
-SECRET_STDOUT_BUF="$(mktemp -t browserclaw-secret-out-XXXXXX.txt)"
-chmod 600 "$TMP_COOKIES" "$TMP_PAGE" "$SECRET_STDOUT_BUF"
+# Pre-initialize variables and arm cleanup traps BEFORE allocating
+# temp files so INT/TERM/HUP cannot leave orphaned artifacts during
+# the allocation window.
+TMP_COOKIES=""
+TMP_PAGE=""
+SECRET_STDOUT_BUF=""
 cleanup_secret_branch() {
   local rc=$?
-  rm -f "$TMP_COOKIES" "$TMP_PAGE" "$SECRET_STDOUT_BUF"
+  rm -f ${TMP_COOKIES:+"$TMP_COOKIES"} ${TMP_PAGE:+"$TMP_PAGE"} ${SECRET_STDOUT_BUF:+"$SECRET_STDOUT_BUF"}
   return "$rc"
 }
 exit_on_signal() {
@@ -226,6 +234,11 @@ trap 'exit_on_signal TERM' TERM
 trap 'exit_on_signal HUP' HUP
 trap 'exit_on_signal INT' INT
 trap cleanup_secret_branch EXIT
+
+TMP_COOKIES="$(mktemp -t browserclaw-XXXXXX.json)"
+TMP_PAGE="$(mktemp -t browserclaw-page-XXXXXX.txt)"
+SECRET_STDOUT_BUF="$(mktemp -t browserclaw-secret-out-XXXXXX.txt)"
+chmod 600 "$TMP_COOKIES" "$TMP_PAGE" "$SECRET_STDOUT_BUF"
 
 # 1a. Multi-profile sweep — same body as the canonical recipe.
 set +e

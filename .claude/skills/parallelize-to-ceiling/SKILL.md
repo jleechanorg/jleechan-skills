@@ -34,6 +34,11 @@ available lane (subagents, CLI delegates, the dot) instead of queueing it
 behind your own turn. Merges, force-pushes, and destructive actions keep
 their own gates and are never "overlapped" past them.
 
+Every subagent or lane launched under `/parallel` drives its unit to done:
+implement, verify, and push or produce the artifact. It does not return a
+plan or analysis for the parent to execute, unless the lane is explicitly a
+read-only review lane. Say so in the lane's prompt.
+
 ## Timeline, parallel lanes, and milestones (mandatory)
 
 Read and apply `${CLAUDE_HOME:-$HOME/.claude}/skills/parallelize-to-ceiling/references/timeline-milestones.md`
@@ -113,12 +118,12 @@ a serial run as if the ceiling were zero.
 **Do not gate on swap used/total ratio.** macOS sizes the swapfile
 dynamically, so `vm.swapusage` used-vs-current-size can read >80% "full" on
 a perfectly healthy machine indefinitely — used/total is not a saturation
-metric. `kern.memorystatus_vm_pressure_level = 2` is WARNING/amber, not
-critical (critical is 4); treating 2 as a hard stop over-triggers. (Observed
-2026-09-02: 8.9GB/10.24GB swap + pressure=2 read as "stop" under the old
-wording, while real available memory was 12.9GB and the pressure source was
-a steady-state 11GB Virtualization.framework VM — a constant that doesn't
-change whether you spawn 0 or 3 lanes. That was a false stop.)
+metric. `kern.memorystatus_vm_pressure_level = 2` is Urgent, not
+critical (critical is 3, jetsam is 4); treating 2 as a hard stop over-triggers
+when available memory is ample. (Observed 2026-09-02: 8.9GB/10.24GB swap +
+pressure=2 read as "stop" under the old wording, while real available memory
+was 12.9GB and the pressure source was a steady-state 11GB Virtualization.framework
+VM — a constant that doesn't change whether you spawn 0 or 3 lanes. That was a false stop.)
 
 Before spawning any new lane, subprocess fleet, or CLI delegation:
 
@@ -129,22 +134,24 @@ Before spawning any new lane, subprocess fleet, or CLI delegation:
      printf "%.1f GB available\n",(f+i+p+s)*ps/1073741824}'` — available =
      free + inactive + purgeable + speculative, not free alone.
    - Read `sysctl kern.memorystatus_vm_pressure_level` as a secondary signal
-     (1=normal, 2=warning, 3=urgent, 4=critical).
-   - Linux: `free -g` available column, or `/proc/pressure/memory` (PSI).
+     (0=normal, 1=warning, 2=urgent, 3=critical, 4=jetsam).
+   - Linux: `free -g` available column.
    - Takes one second.
-2. **Attribute the pressure before reacting.** `ps -Ao rss,comm -r | head`
+2. **Attribute the pressure before reacting.** `ps -Ao rss,comm -m | head`
    to find the top-RSS consumer. If it's a steady-state VM/daemon
    (Virtualization.framework, colima, docker, qemu, lima), the pressure is
    structural — it won't improve by refusing to spawn, and it barely moves
    whether you spawn 0 or a few lanes.
 3. **Apply graduated thresholds, not a binary stop** (heuristics, not
    physics — recalibrate per host):
-   - Available >8GB **and** pressure ≤2 → spawn normally.
-   - Available 4-8GB **or** pressure = 3 → reduce lane count / prefer
-     cheaper models, rather than deferring entirely.
-   - Available <4GB **or** pressure = 4 → defer. Finish or kill existing
-     heavy children first; spawning into genuine starvation risks killing
-     the *parent* session, losing all lanes at once.
+   - Available <4GB **or** pressure ≥3 (Critical/Jetsam) → **defer**. Finish or
+     kill existing heavy children first; spawning into genuine starvation risks killing
+     the *parent* session, losing all lanes at once. This defer condition takes
+     precedence below 4GB or under critical pressure and cannot be overridden by
+     the reduce-lane rule.
+   - Available 4–8GB (with pressure ≤2) **or** pressure = 2 (Urgent with available ≥4GB) →
+     **reduce lane count** / prefer cheaper models, rather than deferring entirely.
+   - Available >8GB **and** pressure ≤1 (Normal/Warning) → **spawn normally**.
 4. **Swap is a stop signal only when it's actively growing**, not from a
    static used/total ratio. Sample twice, seconds apart
    (`sysctl vm.swapusage; sleep 5; sysctl vm.swapusage`), and compare
@@ -189,8 +196,10 @@ below by this order, don't pick whichever is more convenient):**
    dominated the critical path on changes that were a few lines each).
 3. **Bounded mechanical work that's too large for a handful of calls, but
    doesn't need adversarial review,** goes to the cheapest capable tier
-   (`codex-luna`, `luna_worker`, haiku/mini) per Model-tier routing below —
-   not the AGY pair.
+   (Codex: a `gpt-6-luna` subagent; Claude: haiku/mini) per Model-tier routing
+   below — not the AGY pair. For simple independent tasks, the Luna lane may
+   also drive the task through its focused checks and deliver the result; keep
+   the root session responsible for scope and integration.
 4. **Only once scope actually justifies a dedicated coder + independent
    verifier** (a track large enough to earn its own context, where a second
    independent pass adds real value) do you reach for the AGY pair described
@@ -227,7 +236,7 @@ stream, and invented data):
 PAIR TASK: <bounded task and explicit file scope>
 CODER: follow `${CLAUDE_HOME:-$HOME/.claude}/agents/agy-pair-coder.md`; implement and signal IMPLEMENTATION_READY with `Revision: <exact git SHA>` and `Worktree: <absolute path>`.
 VERIFIER: follow `${CLAUDE_HOME:-$HOME/.claude}/agents/agy-pair-verifier.md`; independently verify the handed-off revision and signal VERIFICATION_COMPLETE or VERIFICATION_FAILED.
-FALLBACK: if an AGY lane concretely fails, retry that lane with codex-luna, claudem, or an own cheap agent while preserving isolation and independent verification.
+FALLBACK: if an AGY lane concretely fails, retry that lane with a gpt-6-luna subagent, then codex-luna as the gpt-5.6-luna fallback if gpt-6-luna is unavailable or fails, while preserving isolation and independent verification.
 ```
 
 ## Fallback precedence
@@ -235,11 +244,11 @@ FALLBACK: if an AGY lane concretely fails, retry that lane with codex-luna, clau
 The `FALLBACK` template above is governed by this order:
 
 1. Start with the AGY pair as the primary implementation and verification lanes.
-2. After a concrete AGY lane failure, retry the same bounded lane with `codex-luna`
-   as the Luna fallback; codex-luna is not a multi-model router. If that lane
-   also fails, invoke the Codex CLI explicitly with `-m gpt-5.6-terra`, then
-   `-m gpt-5.6-sol`, advancing only after a concrete
-   failure in that lane.
+2. After a concrete AGY lane failure, retry the same bounded lane with a
+   `gpt-6-luna` subagent. If `gpt-6-luna` is unavailable or fails, use
+   `codex-luna` as the `gpt-5.6-luna` fallback; if that Luna lane fails, invoke
+   the Codex CLI explicitly with `-m gpt-5.6-terra`, then `-m gpt-5.6-sol`,
+   advancing only after a concrete failure in that lane.
 3. Use `claudem` or an own cheap agent only when the ordered Codex route is
    unavailable; preserve the same bounded scope and verification requirements.
 
@@ -271,14 +280,16 @@ state and verify against `Revision`.
 
 ## Codex model routing
 
-For Codex parallel lanes, use this ordered fallback and advance only after a
-concrete per-lane failure. Invoke `codex-luna` as the Luna fallback; codex-luna is
-not a multi-model router:
+For Codex parallel lanes, prefer the native `gpt-6-luna` subagent for bounded
+coding and simple task-driving. Advance only after a concrete per-lane failure
+or when the requested model is unavailable:
 
-`gpt-5.6-luna` → `gpt-5.6-terra` → `gpt-5.6-sol`
+`gpt-6-luna` → `gpt-5.6-luna` → `gpt-5.6-terra` → `gpt-5.6-sol`
 
-Record the rejection and retry the same bounded lane with the next explicit
-model. Never skip directly from Luna to Sol.
+If `gpt-6-luna` is unavailable or fails, use `codex-luna` as the
+`gpt-5.6-luna` implementation fallback; it is not a multi-model router. Record
+the rejection and retry the same bounded lane with the next explicit model.
+Never skip directly from Luna to Sol.
 
 ## One-line form (for config files)
 
@@ -313,18 +324,19 @@ time diagnosing whether this Mac is under memory pressure:
 
 1. **Available RAM** from `vm_stat`:
    `(free + inactive + purgeable + speculative) × page_size`.
-2. **Top RSS consumer**: `ps -Ao rss,comm -r | head`.
+2. **Top RSS consumer**: `ps -Ao rss,comm -m | head`.
 3. **Pressure**: `sysctl kern.memorystatus_vm_pressure_level` — 2 is
-   amber/informational, not a stop condition; only 4 is critical.
+   Urgent, not a stop condition when available memory is ample; 3 (critical)
+   and 4 (jetsam) are stop conditions.
 
 **Never gate on `vm.swapusage` used/total.** macOS sizes the swapfile
 dynamically, so an "89% full" swapfile can coexist with 12+ GB available.
 
 | Available RAM | Pressure | Action |
 |---|---|---|
-| > 8 GB | ≤ 2 | spawn normally |
-| 4–8 GB | 3 | reduce lane count |
-| < 4 GB | 4 | defer spawns |
+| < 4 GB | ≥ 3 (Critical/Jetsam) | defer spawns (precedence) |
+| 4–8 GB (and pressure ≤ 2) | 2 (Urgent, available ≥ 4 GB) | reduce lane count |
+| > 8 GB | ≤ 1 (Normal/Warning) | spawn normally |
 
 Even when deferring, attribute the pressure to its real top-RSS source first —
 it is often a steady-state VM or daemon, not the agent fleet.
@@ -340,9 +352,13 @@ there to a pointer 2026-09-06; this section is the full policy).
 
 - Route every independent unit to the **cheapest capable tier** — never
   silently inherit an expensive session model for delegated work.
-- Small/mechanical bounded coding: `codex-luna` (on PATH)
-  (`gpt-5.6-luna`) when capacity exists, falling back to `luna_worker`.
-- Polling or mechanical sweeps: haiku/mini tier.
+- Small/mechanical bounded coding:
+  - Codex: spawn a `gpt-6-luna` subagent when available. If it is unavailable
+    or fails, use `codex-luna` (on PATH) as the `gpt-5.6-luna` fallback, then
+    `luna_worker` if the CLI wrapper is unavailable.
+  - Claude: `haiku` subagent.
+- Simple task-driving, polling, and mechanical sweeps: the available Luna or
+  haiku/mini tier.
 - Top tier (the session's own model): reserve for adversarial judgment, or
   only after a cheaper tier has already failed on that unit.
 - Before you repeat a delegated claim **or act on it**, read the artifact it

@@ -87,6 +87,10 @@ ls -la /opt/homebrew/bin/ezgha
 EOF
 ```
 
+## Agent submission and response proof — mandatory
+
+Read and follow the shared [submission and response contract](../linux-remote/SKILL.md#agent-submission-and-response-proof--mandatory) for every Mac agent launch and follow-up, locally or over SSH. For cmux, verify the exact surface and its CLI controls; sending text alone is not submission. Echo a fresh, attributable agent response into the calling terminal before claiming delivery.
+
 ## sudo with known password
 
 ```bash
