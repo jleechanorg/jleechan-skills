@@ -92,6 +92,8 @@ def main():
             file.flush()
             sent = subprocess.run([dot, '--account', account, 'send-once', file.name], env=env,
                                   capture_output=True, text=True, timeout=180)
+        sys.stdout.write(sent.stdout)
+        sys.stderr.write(sent.stderr)
         verified = sent.returncode == 0 and 'DOT_SENT_VERIFIED' in sent.stdout.splitlines()
         print(account+(': sent' if verified else ': send not verified; inspect the existing Dot tool before retrying'))
         return 0 if verified else 1
@@ -102,4 +104,6 @@ if __name__ == '__main__':
         raise SystemExit(main())
     except (OSError, ValueError, subprocess.SubprocessError) as error:
         print('Dot ping failed: '+str(error), file=sys.stderr)
+        if isinstance(error, subprocess.CalledProcessError) and error.stderr:
+            print(error.stderr[:4000], file=sys.stderr)
         raise SystemExit(1)

@@ -23,7 +23,7 @@ class SimplePingTests(unittest.TestCase):
         self.generator = self.root/'generator'
         self.generator.write_text('#!/usr/bin/env python3\nimport os,sys\nargs=sys.argv\nassert args[1:5]==["exec","--yolo","-m","gpt-6-luna"]\nassert "--ephemeral" in args and "--skip-git-repo-check" in args\nassert args[args.index("--config")+1]=="project_doc_max_bytes=0"\nopen(os.environ["CALLS"],"a").write("generator\\n")\nopen(args[args.index("--output-last-message")+1],"w").write("Advance each authorized goal now and report the next safe action.")\n')
         self.dot = self.root/'dot'
-        self.dot.write_text('#!/usr/bin/env python3\nimport os,sys\nfrom pathlib import Path\nassert sys.argv[1:4]==["--account","alpha","send-once"]\nassert os.environ["DOT_ALLOW_REMOTE"]=="0" and os.environ["DOT_ROTATE_ON_LIMIT"]=="0"\nopen(os.environ["CALLS"],"a").write("dot\\n")\nPath(os.environ["MESSAGE"]).write_text(Path(sys.argv[4]).read_text())\nprint(os.environ.get("RECEIPT","DOT_SENT_VERIFIED"))\nsys.exit(int(os.environ.get("SEND_RC","0")))\n')
+        self.dot.write_text('#!/usr/bin/env python3\nimport os,sys\nfrom pathlib import Path\nassert sys.argv[1:4]==["--account","alpha","send-once"]\nassert os.environ["DOT_ALLOW_REMOTE"]=="0" and os.environ["DOT_ROTATE_ON_LIMIT"]=="0"\nopen(os.environ["CALLS"],"a").write("dot\\n")\nPath(os.environ["MESSAGE"]).write_text(Path(sys.argv[4]).read_text())\nprint(os.environ.get("RECEIPT","DOT_SENT_VERIFIED"))\nprint("dot diagnostic",file=sys.stderr)\nsys.exit(int(os.environ.get("SEND_RC","0")))\n')
         self.generator.chmod(0o700)
         self.dot.chmod(0o700)
         self.env = dict(os.environ, DOT_CONFIG_FILE=str(self.config), COORDINATOR_STATE_DIR=str(self.root/'state'), COORDINATOR_LOCK_FILE=str(self.root/'state/ping.lock'), COORDINATOR_GENERATOR=str(self.generator), COORDINATOR_DOT_SCRIPT=str(self.dot), CALLS=str(self.calls), MESSAGE=str(self.message))
@@ -40,14 +40,18 @@ class SimplePingTests(unittest.TestCase):
         self.assertIn('sent', result.stdout)
 
     def test_generation_failure_does_not_send(self):
-        self.generator.write_text('#!/bin/sh\nexit 7\n')
-        self.assertNotEqual(self.run_ping().returncode, 0)
+        self.generator.write_text('#!/bin/sh\necho generator diagnostic >&2\nexit 7\n')
+        result = self.run_ping()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('generator diagnostic', result.stderr)
         self.assertFalse(self.message.exists())
 
     def test_unverified_send_is_reported_once_without_retry(self):
         self.env['RECEIPT'] = 'DOT_SEND_UNVERIFIED'
         result = self.run_ping()
         self.assertNotEqual(result.returncode, 0)
+        self.assertIn('DOT_SEND_UNVERIFIED', result.stdout)
+        self.assertIn('dot diagnostic', result.stderr)
         self.assertEqual(self.calls.read_text().splitlines(), ['generator','dot'])
 
     def test_stop_and_existing_hold_prevent_generation(self):
