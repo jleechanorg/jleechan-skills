@@ -118,3 +118,12 @@ parsing. This change does not harden parsing or make every failure diagnosable.
 The containing private run directory owns retention; this adds no global log,
 publication, automatic cleanup, or total-run quota. The size bound applies to
 the persisted receipt, not the existing subprocess capture buffer.
+
+Retrieve receipts manually at
+`<configured state_dir>/driver-<event_id>/.driver-diagnostic-*.json`.
+Normal coordinator event IDs bind `run_id` and slot index; the coordinator lock
+serializes attempts. No production consumer currently reads these receipts or
+returns their paths, so diagnostics are not surfaced automatically. A unique
+filename distinguishes each saved occurrence, but repeated standalone adapter
+calls sharing a workspace have no explicit attempt ID, timestamp, or returned
+receipt path for correlation.
