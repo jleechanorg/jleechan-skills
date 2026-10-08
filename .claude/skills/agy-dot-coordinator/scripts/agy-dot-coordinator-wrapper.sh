@@ -14,8 +14,13 @@ elif [[ -f ~/.bashrc ]]; then
   set -u
 fi
 
-# Ensure critical paths in PATH
-export PATH="$HOME/.local/bin:$HOME/.nvm/versions/node/$(ls -1 "$HOME/.nvm/versions/node" 2>/dev/null | tail -1)/bin:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+# Ensure critical paths in PATH (prefer pinned Node 22 v22.22.0 where Playwright is installed)
+if [[ -d "$HOME/.nvm/versions/node/v22.22.0/bin" ]]; then
+  export PATH="$HOME/.local/bin:$HOME/.nvm/versions/node/v22.22.0/bin:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+  export DOT_NODE="$HOME/.nvm/versions/node/v22.22.0/bin/node"
+else
+  export PATH="$HOME/.local/bin:$HOME/.nvm/versions/node/$(ls -1 "$HOME/.nvm/versions/node" 2>/dev/null | tail -1)/bin:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+fi
 
 # Dynamic credential resolution fallback
 if [[ -z "${GH_TOKEN:-}" ]]; then
@@ -23,15 +28,7 @@ if [[ -z "${GH_TOKEN:-}" ]]; then
   export GH_TOKEN
 fi
 
-# 2. Concurrency Lock
-LOCKFILE="/tmp/ai.gemini.agy-dot-coordinator.lock"
-exec 200>"$LOCKFILE"
-if command -v flock >/dev/null 2>&1; then
-  if ! flock -n 200; then
-    echo "[agy-dot-coordinator] Another instance is already running. Exiting."
-    exit 0
-  fi
-fi
+# Worker owns the single execution lock; installer uses the same lock.
 
 # 3. Standard execution logs
 LOG_PREFIX="[agy-dot-coordinator]"

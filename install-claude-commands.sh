@@ -352,6 +352,9 @@ install_component() {
     fi
 
     if [ -d "$src_dir" ]; then
+        if [ -d "$dest_dir" ] && [ ! -w "$dest_dir" ]; then
+            chmod u+w "$dest_dir"
+        fi
         mkdir -p "$dest_dir"
         local preserved_count=0
         while IFS= read -r -d '' relative; do
@@ -371,6 +374,8 @@ install_component() {
                         skip_file=true
                         linked_owner="$cur_dir"
                         break
+                    elif [ -d "$cur_dir" ] && [ ! -w "$cur_dir" ]; then
+                        chmod u+w "$cur_dir"
                     fi
                 done
             fi
@@ -379,8 +384,14 @@ install_component() {
                 preserved_count=$((preserved_count + 1))
                 continue
             fi
-            mkdir -p "$(dirname "$dest_dir/$relative")"
-            rm -f "$dest_dir/$relative"
+            local target_parent; target_parent="$(dirname "$dest_dir/$relative")"
+            if [ -d "$target_parent" ] && [ ! -w "$target_parent" ]; then
+                chmod u+w "$target_parent"
+            fi
+            mkdir -p "$target_parent"
+            if [ -e "$dest_dir/$relative" ] || [ -L "$dest_dir/$relative" ]; then
+                rm -rf "$dest_dir/$relative"
+            fi
             cp -a "$src_dir/$relative" "$dest_dir/$relative"
         done < <(
             cd "$src_dir"

@@ -21,6 +21,7 @@ class InstallerIntegrationTest(unittest.TestCase):
         files = {
             "agents/nested/agent.md": "agent\n",
             "commands/command.md": "command\n",
+            "commands/newbranch.py": "#!/usr/bin/env python3\nprint('newbranch v2')\n",
             "commands/nested/helper.sh": "#!/bin/sh\n",
             "commands_archive/2026-retired/retired-command.md": "archived command\n",
             "scripts/nested/tool.py": "print('tool')\n",
@@ -348,6 +349,73 @@ class InstallerIntegrationTest(unittest.TestCase):
             self.assertEqual(managed_file.read_text(encoding="utf-8"), "command\n")
             self.assertEqual(user_file.read_text(encoding="utf-8"), "retain me\n")
             self.assertFalse((target / "skills/_archive").exists())
+
+    def test_merge_overwrites_stale_managed_files_including_readonly_and_symlinks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            target = temp_dir / "claude-home"
+            target.mkdir()
+
+            # 1. Stale managed python command (simulating bd-n38 newbranch.py) that is write-protected (0o444)
+            stale_cmd_file = target / "commands/newbranch.py"
+            stale_cmd_file.parent.mkdir(parents=True, exist_ok=True)
+            stale_cmd_file.write_text(
+                "#!/usr/bin/env python3\nprint('stale newbranch v1')\n",
+                encoding="utf-8",
+            )
+            stale_cmd_file.chmod(0o444)
+
+            # 2. Stale managed shell command inside a write-protected directory (0o555)
+            nested_cmd_dir = target / "commands/nested"
+            nested_cmd_dir.mkdir(parents=True, exist_ok=True)
+            nested_cmd_file = nested_cmd_dir / "helper.sh"
+            nested_cmd_file.write_text("#!/bin/sh\necho stale-helper\n", encoding="utf-8")
+            nested_cmd_file.chmod(0o444)
+            nested_cmd_dir.chmod(0o555)
+
+            # 3. Stale managed command that was symlinked to an external file
+            external_file = temp_dir / "external_command.md"
+            external_file.write_text("external command\n", encoding="utf-8")
+            symlink_cmd_file = target / "commands/command.md"
+            symlink_cmd_file.symlink_to(external_file)
+
+            # 4. Unrelated user files that should be preserved
+            user_setting = target / "user-settings.txt"
+            user_setting.write_text("retain user setting\n", encoding="utf-8")
+            user_custom_cmd = target / "commands/user-custom.md"
+            user_custom_cmd.write_text("retain custom command\n", encoding="utf-8")
+
+            try:
+                result = self.run_installer(fixture, target, "--merge")
+
+                # Must succeed and validate manifest
+                self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+                self.assertIn("Source-derived manifest validation passed", result.stdout)
+
+                # 1. Stale managed file replaced with source content
+                self.assertEqual(
+                    stale_cmd_file.read_text(encoding="utf-8"),
+                    "#!/usr/bin/env python3\nprint('newbranch v2')\n",
+                )
+
+                # 2. Nested managed file in protected directory replaced with source content
+                self.assertEqual(
+                    nested_cmd_file.read_text(encoding="utf-8"),
+                    "#!/bin/sh\n",
+                )
+
+                # 3. Symlinked managed command replaced with real file and external target untouched
+                self.assertFalse(symlink_cmd_file.is_symlink())
+                self.assertEqual(symlink_cmd_file.read_text(encoding="utf-8"), "command\n")
+                self.assertEqual(external_file.read_text(encoding="utf-8"), "external command\n")
+
+                # 4. Unrelated user files preserved untouched
+                self.assertEqual(user_setting.read_text(encoding="utf-8"), "retain user setting\n")
+                self.assertEqual(user_custom_cmd.read_text(encoding="utf-8"), "retain custom command\n")
+            finally:
+                # Restore permissions for clean tempfile cleanup
+                nested_cmd_dir.chmod(0o755)
 
     def test_merge_migrates_retired_packages_out_of_discovery(self):
         with tempfile.TemporaryDirectory() as directory:
