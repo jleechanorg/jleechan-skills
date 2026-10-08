@@ -11,6 +11,14 @@ aliases: [plan]
 
 ## 🚨 EXECUTION WORKFLOW
 
+## Timeline, parallel lanes, and milestones (mandatory)
+
+Read and apply `${CLAUDE_HOME:-$HOME/.claude}/skills/parallelize-to-ceiling/references/timeline-milestones.md`
+on every invocation. Always include a timeline, maximize useful independent
+lanes within the measured resource ceiling, and report milestones every
+20 minutes with an hourly rollup during active work. Preserve this command's
+planning, handoff, and execution authorization boundaries.
+
 ### Phase 0: Context Assessment (MANDATORY FIRST STEP)
 
 **Action Steps:**
@@ -117,13 +125,17 @@ fi
 7. **Validation**: Context-appropriate testing depth
 
 **🔀 Execution Method Decision** (Context-Optimized):
-8. **Parallel Tasks** (0 additional tokens): For simple, independent operations <30 seconds
-  9. Method: Background processes (&), GNU parallel, xargs, or batched tool calls
-  10. Best for: File searches, test runs, lint operations, data aggregation
-11. **Sequential Tasks**: For complex workflows requiring coordination >5 minutes
-  12. Method: Step-by-step with context monitoring
-  13. Best for: Feature implementation, architectural changes, complex integrations
-14. **Parallel ceiling (mandatory for any fan-out):** Load `/parallel` → `~/.claude/skills/parallelize-to-ceiling/SKILL.md` before sizing workers, shards, or agent lanes. **LLM vs tool parallelism:** see [parallel-vs-subagents.md](./parallel-vs-subagents.md) for when to use subagents vs batched tool calls.
+8. **Parallel lanes:** Design the maximum useful independent lanes for both
+   short operations and complex work. Use subagents for bounded independent
+   reasoning/implementation; batch independent tool operations.
+9. **Dependencies and isolation:** Assign exclusive write ownership and order
+   only dependent or conflicting work; complexity and duration are not serial
+   execution criteria.
+10. **Parallel ceiling:** Load `/parallel` →
+    `${CLAUDE_HOME:-$HOME/.claude}/skills/parallelize-to-ceiling/SKILL.md` before sizing lanes.
+    State the measured ceiling, ready lane count, planned concurrency, and
+    binding constraint; refill capacity as lanes finish. See
+    [parallel-vs-subagents.md](./parallel-vs-subagents.md) for tool vs agent work.
 
 **🚀 Execution Sequence** (Context-Optimized):
 15. **Quick Discovery**: Use Serena MCP for targeted analysis
@@ -141,7 +153,9 @@ fi
    - `in_progress` → `closed` (when completed)
    - If blocked: Keep as `open` or `in_progress`, add blocking info to description/notes
 
-**Timeline**: _____ minutes (context-optimized approach)
+**Timeline (required):** Elapsed start/end estimates by lane, dependencies,
+critical path, deliverables/proof, and milestones at +20m, +40m, +60m
+(hourly rollup), repeating during active execution. Label estimates explicitly.
 
 ### Phase 3: Approval Requirement
 

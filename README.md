@@ -102,6 +102,11 @@ safe rollback.
 Read a skill before using it: some skills require a local binary, browser
 session, or integration that is not bundled with this export.
 
+An opt-in [curated portable edition](portable/README.md) provides native-tool
+derivatives with a hash manifest and isolated installation. Canonical Claude
+packages retain their existing behavior; file installation, runtime discovery,
+and successful workflow execution are verified separately.
+
 ---
 
 ## 📋 Skills at a Glance
@@ -112,6 +117,7 @@ pointers and are intentionally not the documentation target.
 | Command | Full name / skill | When to use it / expected outcome |
 |---|---|---|
 | `/advice` (`/smart-advisor`) | [`advice`](.claude/skills/advice/SKILL.md) | Use at a design or implementation decision. Give the question plus a PR, ref, or path; independent reviewers read the real scope and return a synthesized recommendation. For a PR gate, incomplete or truncated review context can only yield `WITHHELD`, never approval. |
+| `/ablation` (`/abal`) | [`ablation`](.claude/skills/ablation/SKILL.md) | Use when diagnosing a bug in LLM behavior or stochastic systems where the cause is disputed. Manipulates the real captured input and replays it through the real production path, one variable per arm, with a verbatim control arm run first. |
 | `/repro` | [`repro-evidence`](.claude/skills/repro-evidence/SKILL.md) | Use before fixing a reported bug that needs proof. State the symptom and real target; it creates an isolated replay, captures provenance, and returns `REPRO`, `RELATED`, or `NON-REPRO` rather than guessing. |
 | `/research` | [`research`](.claude/skills/research/SKILL.md) | Use when a decision depends on facts rather than recollection. Ask a focused question; a background agent gathers primary sources and writes a cited Markdown finding in the repo’s established notes location. |
 | `/memory-search` (`/ms`) | [`memory-search`](.claude/skills/memory-search/SKILL.md) | Use to recover prior work, decisions, or incidents. Ask a specific query; it searches the configured roadmap, Beads, local memories, history, wiki, and Slack in parallel, then returns merged, cacheable leads. |
@@ -120,7 +126,7 @@ pointers and are intentionally not the documentation target.
 | `/es` | [`evidence-standards`](.claude/skills/evidence-standards/SKILL.md) | Use before claiming a production behavior is fixed or before asking for `/er`. State the claim and its scope; it tells you which real-path artifacts are needed and what those artifacts can, and cannot, prove. |
 | `/web-advice` (`/webadvice`) | [`web-advice`](.claude/skills/web-advice/SKILL.md) | Use for an independent external perspective on code, plans, documents, designs, or decisions. Provide the review scope and relevant links/material; authenticated web models are compared with declared coverage and any unavailable-model gap is disclosed. |
 | `/browser` | [`browser-control`](.claude/skills/browser-control/SKILL.md) | Use to inspect or complete an approved live-browser task. Name the site, target state, and allowed side effect; it selects the right browser tool, works from current page state, and confirms the resulting UI state. |
-| `/skillify` | [`skillify`](.claude/skills/skillify/SKILL.md) | Use when a useful script, feature, or repeatable procedure should become a durable skill. Give the target path and purpose; it audits the completeness contract and identifies or creates the missing skill, test, resolver, and command pieces. |
+| `/skillify` | [`skillify`](.claude/skills/skillify/SKILL.md) | Use when a useful script, feature, or repeatable procedure should become a reusable Claude skill. Give the target path and purpose; it finds the canonical owner, reuses or updates the smallest needed package, and validates only applicable behavior, export, or installer requirements. |
 | `/harness` | [`harness-engineering`](.claude/skills/harness-engineering/SKILL.md) | Use after a recurring agent mistake, review escape, or workflow failure. Describe the incident; it traces the cause through instructions, skills, memory, tests, and automation, then fixes the most durable layer. |
 | `/learn` | [`learn`](.claude/skills/learn/SKILL.md) | Use to preserve a concrete correction or recovery pattern after it is understood. State the lesson and context; it files it in the configured durable stores and reports any persistence destination that is unavailable. |
 | `/4layer` | [`4layer`](.claude/skills/4layer/SKILL.md) | Use to locate a PR blocker with the smallest credible reproduction. Give the bug and target repo; it discovers the project’s runner, tries unit → end-to-end → API → browser, and stops at the first conclusive layer. |
@@ -141,6 +147,14 @@ Use this when you need independent reasoning at a real decision point. Give it a
 
 ```bash
 /advice "Should we switch this cache from LRU to LFU eviction?"
+```
+
+### [`ablation`](.claude/skills/ablation/SKILL.md) — `/ablation`, alias `/abal`
+
+Use when diagnosing a bug in LLM behavior or stochastic systems where the cause is disputed or theorized rather than measured. Enforces the rule that you manipulate the real captured input and replay it through the real production call path, one variable per arm, with a verbatim control arm (N≥5) run first to establish the baseline rate. N=1 is never evidence when the control is stochastic.
+
+```bash
+/ablation "Investigate whether history entry 0 is the trigger for opening scene regression"
 ```
 
 ### [`repro-evidence`](.claude/skills/repro-evidence/SKILL.md) — `/repro`
@@ -209,7 +223,7 @@ General-purpose live-browser task router: Aside first for authenticated sessions
 
 ### [`skillify`](.claude/skills/skillify/SKILL.md) — `/skillify`
 
-Audits a target script, feature, or workflow against a completeness checklist (SKILL.md frontmatter, tests, evals if it calls an LLM, resolver trigger, E2E test, memory filing) and generates whatever's missing, so useful procedures stop living only as ad-hoc scripts. If the result exposes a slash command, it also requires a thin pointer command so workflow logic lives only in `SKILL.md`.
+Finds the canonical Claude skill owner for a target script, feature, or workflow, then reuses or updates the smallest useful `SKILL.md` package. Validation is conditional: instruction-only edits get structural checks, behavior changes get baseline/candidate and independent checks, and exports run the repository's relevant installer and portability checks. A slash command is optional and remains a thin pointer when the workflow needs one.
 
 ```bash
 /skillify scripts/deploy-staging.sh

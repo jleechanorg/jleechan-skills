@@ -19,6 +19,18 @@ Mirror of `/linux` (jeff-ubuntu), but targeting the MacBook. Runs from any machi
 | **SSH port** | 22 (default) |
 | **OS** | macOS 14+ (Sonoma/Sequoia), aarch64 |
 
+## Off-LAN fallback: Tailscale, then Slack
+
+If `ssh macbook` times out or is refused (off home LAN, or the LAN link is just down), use the dedicated Tailscale alias instead — proven working 2026-09-16/17, including a double-hop from jeff-ubuntu with the LAN link fully down:
+
+```bash
+ssh macbook-ts '<command>'
+```
+
+`macbook-ts` is a real `~/.ssh/config` stanza on the SSHing machine (same `IdentityFile` as the LAN alias) — no manual `-i`/IP lookup needed, it's a drop-in replacement for `macbook` in every command in this skill. `ssh macbook` does **not** fail over automatically; try the LAN alias first, fall to `-ts` on failure. Re-verify with `tailscale status | grep macbook` if it ever seems dead.
+
+If both the LAN alias and `macbook-ts` fail, see [cross-machine-ssh-tier](../cross-machine-ssh-tier/SKILL.md) for the Tier 3 messaging-gateway fallback and its debugging caveats (OAuth-scope-vs-connection, bot-message filtering) — that skill is the shared source of truth for this whole ladder, used identically by `linux-remote`, `linux-mirror`, and `mac-mirror`.
+
 ## Detect local-vs-remote automatically
 
 Before SSHing, check if you're already on the MacBook:
@@ -74,6 +86,10 @@ brew install ez-gh-actions
 ls -la /opt/homebrew/bin/ezgha
 EOF
 ```
+
+## Agent submission and response proof — mandatory
+
+Read and follow the shared [submission and response contract](../linux-remote/SKILL.md#agent-submission-and-response-proof--mandatory) for every Mac agent launch and follow-up, locally or over SSH. For cmux, verify the exact surface and its CLI controls; sending text alone is not submission. Echo a fresh, attributable agent response into the calling terminal before claiming delivery.
 
 ## sudo with known password
 
@@ -138,7 +154,7 @@ ssh macbook 'git clone https://github.com/$GITHUB_REPOSITORY.git /tmp/your-proje
 
 ## Caveats
 
-- **LAN-only by default**: `192.168.254.199` only reachable when both machines on the same home LAN. Use Tailscale (`100.67.70.24`) for off-LAN access.
+- **LAN-only by default**: `192.168.254.199` only reachable when both machines on the same home LAN. Use the Tailscale fallback above for off-LAN access — `ssh macbook-ts` already includes its `IdentityFile`, no `-i` needed; `-i` is only required if you connect to the raw Tailscale IP directly instead of through that alias.
 - **macOS SSH keychain**: First SSH attempt may prompt for keychain access; use `ssh-add --apple-use-keychain ~/.ssh/id_macbook` to cache.
 - **No headless Docker**: MacBook uses colima for Docker; running Docker on the MacBook requires colima VM to be Running (the `ezgha-fleet-watchdog` script auto-starts it).
 - **macOS sandboxing**: Some `~/Library/...` paths may need Full Disk Access for the terminal app to read them.
