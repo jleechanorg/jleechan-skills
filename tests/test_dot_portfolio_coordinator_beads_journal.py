@@ -79,6 +79,18 @@ class TestJournalReplayBoundary(unittest.TestCase):
                 read.assert_not_called()
                 run.assert_not_called()
 
+    def test_reserved_action_delimiters_reject_before_read_or_write(self):
+        forged = self.entry("victim", "forged payload")[len("[action_id:"):]
+        for action in ("ordinary]suffix", forged):
+            record = {"labels": ["coordinator-control"], "notes": self.entry(action, "legacy")}
+            original = record["notes"]
+            with self.subTest(action=action), patch.object(self.journal, "read_control_record", return_value=(record, "v", "digest")) as read, patch("modules.beads_journal.run_bounded_command") as run:
+                with self.assertRaises(JournalError):
+                    self.journal.append_journal_entry("record", action, "legacy", expected_digest="digest")
+                read.assert_not_called()
+                run.assert_not_called()
+                self.assertEqual(record["notes"], original)
+
     def test_postwrite_verification_requires_same_entry_binding(self):
         before = {"labels": ["coordinator-control"], "notes": ""}
         wrong = {"labels": ["coordinator-control"], "notes": self.entry("a", "original") + "\n" + self.entry("b", "other")}

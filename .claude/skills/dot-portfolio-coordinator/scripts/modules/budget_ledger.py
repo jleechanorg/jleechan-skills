@@ -8,6 +8,7 @@ Implements:
 - Terminal overrun accounting (no global reservation freeze)
 - Settlement of actual costs and release of unspent allocations
 """
+from fractions import Fraction
 import json
 import math
 import os
@@ -47,15 +48,19 @@ class BudgetLedger:
             reservations = data.get("reservations")
             if not isinstance(reservations, dict):
                 raise ValueError("invalid reservations")
-            expected_reserved = expected_settled = 0.0
-            allocations = []
+            expected_reserved = expected_settled = Fraction()
+            reserved_volume = settled_volume = Fraction()
+            reserve_operations = settlement_operations = 0
             for key, record in reservations.items():
                 if not isinstance(record, dict) or record.get("reservation_id") != key:
                     raise ValueError("invalid reservation identity")
                 maximum = self._amount(record, "max_cost")
                 allocation = self._amount(record, "reserved_amount")
                 actual = self._amount(record, "settled_amount")
-                allocations.append(allocation)
+                allocation = Fraction(allocation)
+                actual = Fraction(actual)
+                reserved_volume += allocation
+                reserve_operations += 1
                 status = record.get("status")
                 if maximum != allocation or not isinstance(record.get("caller_principal"), str):
                     raise ValueError("invalid reservation")
@@ -67,32 +72,55 @@ class BudgetLedger:
                     expected_settled += actual
                 else:
                     raise ValueError("invalid reservation state")
-            if reserved < 0:
-                # Legacy writer: prove this exact residue by replaying a valid
-                # all-reserve/then-settle sequence, rather than accepting epsilon.
-                replayed = 0.0
-                for allocation in allocations:
-                    replayed += allocation
-                for allocation in allocations:
-                    replayed -= allocation
-                if (expected_reserved != 0 or not allocations or
-                        any(record["status"] == "active" for record in reservations.values()) or
-                        reserved != replayed):
-                    raise ValueError("unproven negative ledger balance")
-                reserved = 0.0
-            if not (math.isclose(reserved, expected_reserved, rel_tol=1e-9, abs_tol=1e-12) and
-                    math.isclose(settled, expected_settled, rel_tol=1e-9, abs_tol=1e-12)):
-                raise ValueError("inconsistent ledger totals")
+                if status != "active":
+                    reserved_volume += allocation
+                    settled_volume += actual
+                    reserve_operations += 1
+                    settlement_operations += 1
+            # Each retained record proves one reserve and at most one settlement.
+            # Reject histories with missing/unrepresented accounting operations.
+            if data["ledger_version"] != 1 + reserve_operations:
+                raise ValueError("unsupported ledger operation history")
+            reserved = self._reconcile_total(reserved, expected_reserved,
+                                             reserved_volume, reserve_operations)
+            settled = self._reconcile_total(settled, expected_settled,
+                                            settled_volume, settlement_operations)
         except FileNotFoundError as exc:
             if self.reservations:
                 raise BudgetError("Persisted budget ledger disappeared") from exc
             return
-        except (OSError, ValueError, TypeError, BudgetError) as exc:
+        except (OSError, ValueError, TypeError, OverflowError, BudgetError) as exc:
             raise BudgetError("Invalid or unreadable persisted budget ledger") from exc
         # Validate the complete replacement before changing any in-memory state.
         self.ledger_version = data["ledger_version"]
         self.total_reserved, self.total_settled = reserved, settled
         self.reservations = reservations
+
+    @staticmethod
+    def _reconcile_total(stored: float, exact: Fraction, volume: Fraction,
+                         operations: int) -> float:
+        """Compatibility envelope for binary64 add/subtract in any valid order.
+
+        With u=2^-53, n operations and S=sum(abs(operands)), accumulated
+        rounding error is at most (n*u*S + n*eta)/(1-n*u), eta=2^-1075
+        allowing gradual underflow. Exact rationals avoid rounding the bound.
+        Clamping at zero cannot increase error against nonnegative accounting.
+        Reload reconciliation resets error to one correctly rounded exact sum.
+
+        Records do not retain order/provenance: this is an explicit acceptance
+        envelope, not proof that a particular history occurred. Corruption
+        inside it is indistinguishable; outside it fails without a write.
+        """
+        nu = Fraction(operations, 1 << 53)
+        if nu >= 1:
+            raise ValueError("unsupported rounding history")
+        bound = (nu * volume + Fraction(operations, 1 << 1075)) / (1 - nu)
+        if abs(Fraction(stored) - exact) > bound:
+            raise ValueError("inconsistent ledger total beyond accounting bound")
+        result = float(exact)
+        if not math.isfinite(result):
+            raise ValueError("unrepresentable ledger total")
+        return result
 
     def _save(self) -> None:
         if self.ledger_file:
@@ -118,7 +146,7 @@ class BudgetLedger:
 
     @staticmethod
     def _amount(request: Dict[str, Any], field: str, *, allow_negative: bool = False) -> float:
-        """Require a finite, nonnegative JSON number before changing the ledger."""
+        """Require a finite JSON number; negativity is allowed only for load reconciliation."""
         value = request.get(field)
         if type(value) not in (int, float):
             raise BudgetError(f"{field} must be a finite nonnegative JSON number")

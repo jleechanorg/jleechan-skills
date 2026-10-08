@@ -151,9 +151,10 @@ class BeadsControlJournal:
         expected_digest: Optional[str] = None
     ) -> Dict[str, Any]:
         """Appends an immutable journal note to a roadmap control record with CAS and payload binding."""
+        # Legacy IDs containing ] are ambiguous headers: reject, never rewrite.
         if not isinstance(action_id, str) or any(
-                char in action_id for char in "\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029"):
-            raise JournalError("action_id must not contain line breaks")
+                char in action_id for char in "]\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029"):
+            raise JournalError("action_id must not contain a closing bracket or line breaks")
         if not self._lock_held:
             raise JournalError("Sole-writer lock must be held before modifying control records")
 

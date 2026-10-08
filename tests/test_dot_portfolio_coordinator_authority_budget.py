@@ -1,6 +1,8 @@
 import copy
 import hashlib
+from fractions import Fraction
 import json
+import math
 import os
 import tempfile
 import unittest
@@ -89,7 +91,7 @@ class TestDotPortfolioCoordinatorAuthorityBudget(unittest.TestCase):
         restored = BudgetLedger(self.registry, self.ledger_file)
         self.assertEqual((restored.total_reserved, restored.total_settled, restored.ledger_version), (0, 0, 7))
         self.assertEqual(path.read_bytes(), raw)
-        for negative in (-.01, -1e-13, -1e-17):
+        for negative in (-.01, -1e-13):
             invalid = json.loads(raw); invalid["total_reserved"] = negative
             path.write_text(json.dumps(invalid)); before = path.read_bytes()
             with self.subTest(negative=negative), self.assertRaises(BudgetError):
@@ -101,6 +103,57 @@ class TestDotPortfolioCoordinatorAuthorityBudget(unittest.TestCase):
         with self.assertRaises(BudgetError):
             BudgetLedger(self.registry, self.ledger_file)
         self.assertEqual(path.read_bytes(), before)
+
+    def test_all_published_base_histories_reconcile_without_rewriting(self):
+        fixture = json.loads((REPO_ROOT / "tests/fixtures/coordinator-budget-bc2439ec-histories.json").read_text())
+        self.assertEqual(len(fixture["histories"]), 90)
+        for history in fixture["histories"]:
+            for snapshot in history["snapshots"]:
+                with self.subTest(amounts=history["amounts"], order=history["settlement_order"],
+                                  mixed=history["interleaved"], operation=snapshot["operation"]):
+                    raw = fixture["outputs"][snapshot["sha256"]].encode()
+                    self.assertEqual(hashlib.sha256(raw).hexdigest(), snapshot["sha256"])
+                    Path(self.ledger_file).write_bytes(raw)
+                    loaded = BudgetLedger(self.registry, self.ledger_file)
+                    records = json.loads(raw)["reservations"].values()
+                    reserved = sum((Fraction(r["reserved_amount"]) for r in records if r["status"] == "active"), Fraction())
+                    settled = sum((Fraction(r["settled_amount"]) for r in records if r["status"] != "active"), Fraction())
+                    self.assertEqual(loaded.total_reserved, float(reserved))
+                    self.assertEqual(loaded.total_settled, float(settled))
+                    self.assertEqual(Path(self.ledger_file).read_bytes(), raw)
+
+    def test_material_corruption_rejects_across_accounting_scales(self):
+        fixture = json.loads((REPO_ROOT / "tests/fixtures/coordinator-budget-bc2439ec-histories.json").read_text())
+        for history in fixture["histories"]:
+            data = json.loads(fixture["outputs"][history["snapshots"][-1]["sha256"]])
+            material = max(sum(history["amounts"]) * 1e-10, 100 * math.ulp(0.0))
+            for field, delta in (("total_reserved", material), ("total_reserved", -material), ("total_settled", material)):
+                with self.subTest(amounts=history["amounts"], field=field, delta=delta):
+                    invalid = copy.deepcopy(data); invalid[field] += delta
+                    path = Path(self.ledger_file); path.write_text(json.dumps(invalid)); before = path.read_bytes()
+                    with self.assertRaises(BudgetError):
+                        BudgetLedger(self.registry, self.ledger_file)
+                    self.assertEqual(path.read_bytes(), before)
+
+    def test_within_bound_difference_is_explicitly_reconciled_not_proven_history(self):
+        # The schema cannot distinguish tiny corruption from roundoff. This
+        # accepted envelope is explicit, and loading never repairs disk bytes.
+        data = json.loads((REPO_ROOT / "tests/fixtures/coordinator-budget-bc2439ec-residue.json").read_text())
+        data["total_reserved"] = -1e-17
+        path = Path(self.ledger_file); path.write_text(json.dumps(data)); before = path.read_bytes()
+        self.assertEqual(BudgetLedger(self.registry, self.ledger_file).total_reserved, 0)
+        self.assertEqual(path.read_bytes(), before)
+
+    def test_accounting_bound_rejects_inconsistent_totals_and_history(self):
+        raw = (REPO_ROOT / "tests/fixtures/coordinator-budget-bc2439ec-residue.json").read_bytes()
+        for field, value in (("total_reserved", -1e-13), ("total_reserved", 1e-13),
+                             ("total_settled", 1e-14), ("ledger_version", 6), ("ledger_version", 8)):
+            with self.subTest(field=field, value=value):
+                data = json.loads(raw); data[field] = value
+                path = Path(self.ledger_file); path.write_text(json.dumps(data)); before = path.read_bytes()
+                with self.assertRaises(BudgetError):
+                    BudgetLedger(self.registry, self.ledger_file)
+                self.assertEqual(path.read_bytes(), before)
 
     def test_valid_fractional_settlements_can_reload_without_negative_residue(self):
         self.registry.budget_policy["per_cycle_cost_usd"] = 1
