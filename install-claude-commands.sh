@@ -536,13 +536,31 @@ validate_installation() {
                 continue
             fi
             destination_file="$INSTALL_ROOT/$component/$relative"
-            if [ ! -f "$destination_file" ] && [ ! -L "$destination_file" ]; then
-                log_error "Manifest validation failed for $component/$relative"
-                return 1
-            fi
-            if [ -f "$destination_file" ] && ! cmp -s "$source_dir/$relative" "$destination_file"; then
-                log_error "Manifest validation failed for $component/$relative"
-                return 1
+            source_file="$source_dir/$relative"
+            if [ -L "$source_file" ]; then
+                if [ ! -L "$destination_file" ]; then
+                    log_error "Manifest validation failed for $component/$relative: expected destination symlink"
+                    return 1
+                fi
+                src_target="$(readlink "$source_file")"
+                dst_target="$(readlink "$destination_file")"
+                if [ "$src_target" != "$dst_target" ]; then
+                    log_error "Manifest validation failed for $component/$relative: symlink target mismatch"
+                    return 1
+                fi
+            else
+                if [ -L "$destination_file" ]; then
+                    log_error "Manifest validation failed for $component/$relative: destination must not be a symlink for regular file"
+                    return 1
+                fi
+                if [ ! -f "$destination_file" ]; then
+                    log_error "Manifest validation failed for $component/$relative: missing destination file"
+                    return 1
+                fi
+                if ! cmp -s "$source_file" "$destination_file"; then
+                    log_error "Manifest validation failed for $component/$relative: content mismatch"
+                    return 1
+                fi
             fi
             files_checked=$((files_checked + 1))
         done < <(
