@@ -31,6 +31,11 @@ class DotAuthSyncTest(unittest.TestCase):
             "waitAndCleanSingletonLock must precede ensurePersistentProfile in launch()",
         )
 
+        # Regression check: clearAuthFailed must only be called when auth is confirmed
+        self.assertIn("if (session.status === 200 && session.isJson && session.hasUser)", source)
+        # Ensure clearAuthFailed is not called unconditionally on indeterminate status 0 or 500
+        self.assertNotIn("clearAuthFailed(USER_DATA_DIR);\n      if (mode === 'send')", source)
+
     def test_production_sync_cookies_and_failed_auth_recovery(self):
         # Run isolated Node test importing actual production functions from dot_chrome.mjs
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -74,43 +79,58 @@ if (!fs.existsSync(syncMarker)) {{
 const copied2 = syncCookiesFromSource(srcProfilePath, dstDefaultDir);
 if (copied2) throw new Error("Step 2 failed: second sync without changes should return false");
 
-// 3. REGRESSION TEST: Failed-auth recovery
-// Headless Chrome launches, touches dstCookies (routine touch), and fails auth.
-// Desktop Chrome has valid cookies that are OLDER than the routine touch.
-// clearSyncMarker clears syncMarker and records .auth_failed.
-const touchTime = new Date();
-fs.writeFileSync(dstCookies, 'unauthenticated_stale_data');
-fs.utimesSync(dstCookies, touchTime, touchTime);
-
+// 3. REGRESSION TEST: Browser shutdown flush 2 seconds after failedAt without manual login marker
+// When auth fails, clearSyncMarker writes .auth_failed.
+// Browser shutdown flushes cookies 2s AFTER failedAt.
+// syncCookiesFromSource must NOT mistake this routine flush for a manual login.
 clearSyncMarker(dstRootDir);
-if (fs.existsSync(syncMarker)) {{
-  throw new Error("Step 3 failed: clearSyncMarker did not remove marker");
-}}
-if (!fs.existsSync(authFailedMarker)) {{
-  throw new Error("Step 3 failed: clearSyncMarker did not write .auth_failed");
-}}
+const failedAt = JSON.parse(fs.readFileSync(authFailedMarker, 'utf8')).failedAt;
+const flushTime = new Date(failedAt + 2000);
+fs.writeFileSync(dstCookies, 'stale_expired_session_flushed_on_shutdown');
+fs.utimesSync(dstCookies, flushTime, flushTime);
 
-// srcCookies mtime is older than the unauthenticated routine touch (e.g. 5s before touch)
-const desktopTime = new Date(touchTime.getTime() - 5000);
+// Source desktop cookies are older than the shutdown flush
+const desktopTime = new Date(failedAt - 5000);
 fs.writeFileSync(path.join(srcProfilePath, 'Cookies'), 'authenticated_desktop_cookie');
 fs.utimesSync(path.join(srcProfilePath, 'Cookies'), desktopTime, desktopTime);
 
-// syncCookiesFromSource MUST recover by syncing srcCookies despite dst being touched more recently
-const recovered = syncCookiesFromSource(srcProfilePath, dstDefaultDir);
-if (!recovered) {{
-  throw new Error("Step 3 failed: failed-auth recovery was blocked by destination routine touch mtime!");
-}}
-if (fs.readFileSync(dstCookies, 'utf8') !== 'authenticated_desktop_cookie') {{
-  throw new Error("Step 3 failed: dstCookies was not updated with authenticated desktop cookies");
-}}
-if (fs.existsSync(authFailedMarker)) {{
-  throw new Error("Step 3 failed: successful recovery should remove .auth_failed marker");
+// Multiple recovery attempts must succeed and update dstCookies
+for (let i = 1; i <= 3; i++) {{
+  const res = syncCookiesFromSource(srcProfilePath, dstDefaultDir);
+  if (i === 1 && !res) {{
+    throw new Error("Step 3 failed: recovery attempt 1 failed to sync desktop cookies!");
+  }}
+  if (fs.readFileSync(dstCookies, 'utf8') !== 'authenticated_desktop_cookie') {{
+    throw new Error(`Step 3 failed: dstCookies was left expired on attempt ${{i}}!`);
+  }}
 }}
 
-// 4. MANUAL LOGIN PRESERVATION
-// If the user performs a manual login on dst after an auth failure, it must NOT be overwritten.
+// Verify failure state is preserved until explicit confirmation (not deleted merely by copying)
+if (!fs.existsSync(authFailedMarker)) {{
+  throw new Error("Step 3 failed: .auth_failed should remain until session is confirmed");
+}}
+
+// 4. SESSION CHECK CONTRACT: Indeterminate responses (0, 500) must NOT clear .auth_failed
+// Only confirmed session (200 with hasUser) clears it
+function handleSessionCheck(status, isJson, hasUser) {{
+  if (status === 200 && isJson && hasUser) {{
+    clearAuthFailed(dstRootDir);
+  }}
+}}
+
+handleSessionCheck(0, false, false);
+if (!fs.existsSync(authFailedMarker)) throw new Error("Step 4 failed: status 0 cleared authFailedMarker");
+handleSessionCheck(500, false, false);
+if (!fs.existsSync(authFailedMarker)) throw new Error("Step 4 failed: status 500 cleared authFailedMarker");
+
+// Confirmed auth clears it
+handleSessionCheck(200, true, true);
+if (fs.existsSync(authFailedMarker)) throw new Error("Step 4 failed: confirmed auth did not clear authFailedMarker");
+
+// 5. MANUAL LOGIN PRESERVATION
+// An explicit manual login marker (.manual_login) touched via dot.sh login is preserved
 clearSyncMarker(dstRootDir); // auth failed again
-const manualTime = new Date(Date.now() + 20000);
+const manualTime = new Date(Date.now() + 30000);
 fs.writeFileSync(dstCookies, 'manual_headless_login_session');
 fs.utimesSync(dstCookies, manualTime, manualTime);
 fs.writeFileSync(manualLoginMarker, '');
@@ -118,34 +138,34 @@ fs.utimesSync(manualLoginMarker, manualTime, manualTime);
 
 const copiedAfterManual = syncCookiesFromSource(srcProfilePath, dstDefaultDir);
 if (copiedAfterManual) {{
-  throw new Error("Step 4 failed: syncCookiesFromSource must not overwrite newer manual login!");
+  throw new Error("Step 5 failed: syncCookiesFromSource must not overwrite newer manual login!");
 }}
 if (fs.readFileSync(dstCookies, 'utf8') !== 'manual_headless_login_session') {{
-  throw new Error("Step 4 failed: manual login session was overwritten!");
+  throw new Error("Step 5 failed: manual login session was overwritten!");
 }}
 
-// 5. Desktop Chrome newer login overrides manual login
+// 6. Desktop Chrome newer login overrides manual login
 const newestDesktopTime = new Date(manualTime.getTime() + 10000);
 fs.writeFileSync(path.join(srcProfilePath, 'Cookies'), 'newest_desktop_session');
 fs.utimesSync(path.join(srcProfilePath, 'Cookies'), newestDesktopTime, newestDesktopTime);
 
-const copied5 = syncCookiesFromSource(srcProfilePath, dstDefaultDir);
-if (!copied5) throw new Error("Step 5 failed: newest desktop login should sync");
+const copied6 = syncCookiesFromSource(srcProfilePath, dstDefaultDir);
+if (!copied6) throw new Error("Step 6 failed: newest desktop login should sync");
 if (fs.readFileSync(dstCookies, 'utf8') !== 'newest_desktop_session') {{
-  throw new Error("Step 5 failed: dstCookies not updated to newest desktop session");
+  throw new Error("Step 6 failed: dstCookies not updated to newest desktop session");
 }}
 
-// 6. Independent tracking for Network/Cookies
+// 7. Independent tracking for Network/Cookies
 const srcNetworkCookies = path.join(srcProfilePath, 'Network', 'Cookies');
 fs.writeFileSync(srcNetworkCookies, 'network_cookie_data');
-const copied6 = syncCookiesFromSource(srcProfilePath, dstDefaultDir);
-if (!copied6) throw new Error("Step 6 failed: Network/Cookies sync should succeed");
+const copied7 = syncCookiesFromSource(srcProfilePath, dstDefaultDir);
+if (!copied7) throw new Error("Step 7 failed: Network/Cookies sync should succeed");
 const markerContent = JSON.parse(fs.readFileSync(syncMarker, 'utf8'));
 if (!markerContent['Cookies'] || !markerContent[path.join('Network', 'Cookies')]) {{
-  throw new Error("Step 6 failed: marker should independently track Cookies and Network/Cookies");
+  throw new Error("Step 7 failed: marker should independently track Cookies and Network/Cookies");
 }}
 
-// 7. Error handling: clearSyncMarker and clearAuthFailed on missing markers handle ENOENT cleanly
+// 8. Error handling: clearSyncMarker and clearAuthFailed on missing markers handle ENOENT cleanly
 clearSyncMarker(dstRootDir);
 clearAuthFailed(dstRootDir);
 clearAuthFailed(dstRootDir);

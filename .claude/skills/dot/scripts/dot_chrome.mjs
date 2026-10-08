@@ -179,12 +179,14 @@ function syncCookiesFromSource(srcProfilePath, defaultDir, force = false) {
   const manualLoginMarker = path.join(defaultDir, '.manual_login');
 
   let syncedMtimes = {};
+  let lastSyncTimestamp = 0;
   if (!force && fs.existsSync(syncMarker)) {
     try {
       const raw = fs.readFileSync(syncMarker, 'utf8').trim();
       const parsed = JSON.parse(raw);
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
         syncedMtimes = parsed;
+        lastSyncTimestamp = Number(parsed._syncedAt) || 0;
       }
     } catch {
       try {
@@ -225,8 +227,9 @@ function syncCookiesFromSource(srcProfilePath, defaultDir, force = false) {
       const dstMtime = dstExists ? fs.statSync(dstC).mtimeMs : 0;
 
       // Distinguish a valid manual headless login from a routine cookie-file touch:
-      // If auth recently failed on dst (authFailedAt > 0), dst's mtime is just the routine touch
-      // from the failed unauthenticated run UNLESS dst was modified after the failure (e.g. via manual login).
+      // When auth has failed (authFailedAt > 0), dst is unauthenticated. Routine cookie writes
+      // (such as Chrome shutdown flushes) occurring after failedAt must NOT be mistaken for a manual login.
+      // Only an explicit manual login marker newer than the failure timestamp proves a manual login.
       let hasNewerManualLogin = false;
       if (dstExists) {
         if (manualLoginAt > 0 && manualLoginAt > lastSyncedMtime && manualLoginAt > authFailedAt) {
@@ -234,10 +237,10 @@ function syncCookiesFromSource(srcProfilePath, defaultDir, force = false) {
             hasNewerManualLogin = true;
           }
         } else if (authFailedAt > 0) {
-          if (dstMtime > authFailedAt + 1000 && srcMtime <= dstMtime + 1000) {
-            hasNewerManualLogin = true;
-          }
+          // Failure state active and no manual-login marker: do not treat later dst mtime as manual login
+          hasNewerManualLogin = false;
         } else {
+          // Normal authenticated state: protect dst if it is newer than src
           if (srcMtime <= dstMtime + 1000) {
             hasNewerManualLogin = true;
           }
@@ -248,7 +251,8 @@ function syncCookiesFromSource(srcProfilePath, defaultDir, force = false) {
         continue;
       }
 
-      if (force || authFailedAt > 0 || lastSyncedMtime === 0 || srcMtime > lastSyncedMtime + 1000) {
+      const needsFailedAuthSync = authFailedAt > 0 && (!lastSyncTimestamp || lastSyncTimestamp < authFailedAt);
+      if (force || needsFailedAuthSync || lastSyncedMtime === 0 || srcMtime > lastSyncedMtime + 1000) {
         try {
           fs.mkdirSync(path.dirname(dstC), { recursive: true });
           fs.copyFileSync(srcC, dstC);
@@ -257,6 +261,7 @@ function syncCookiesFromSource(srcProfilePath, defaultDir, force = false) {
           } catch {}
           copied = true;
           syncedMtimes[rel] = srcMtime;
+          syncedMtimes._syncedAt = Date.now();
           try {
             fs.writeFileSync(syncMarker, JSON.stringify(syncedMtimes));
           } catch {}
@@ -265,9 +270,6 @@ function syncCookiesFromSource(srcProfilePath, defaultDir, force = false) {
     }
   }
 
-  if (copied) {
-    try { fs.unlinkSync(authFailedMarker); } catch {}
-  }
   return copied;
 }
 
@@ -519,13 +521,20 @@ async function launch() {
         unavailable('Cloudflare 403 on session endpoint');
       }
 
-      clearAuthFailed(USER_DATA_DIR);
+      if (session.status === 200 && session.isJson && session.hasUser) {
+        clearAuthFailed(USER_DATA_DIR);
+      }
       if (mode === 'send') return page;
       // For read mode, wait for narrative content length to stabilize
       const len = bodyText.length;
       if (len > 50) {
         stable = len === last ? stable + 1 : 0;
-        if (stable >= 2) return page;
+        if (stable >= 2) {
+          if (session.status === 200 && session.isJson && session.hasUser) {
+            clearAuthFailed(USER_DATA_DIR);
+          }
+          return page;
+        }
       }
       last = len;
       await sleep(1000);
