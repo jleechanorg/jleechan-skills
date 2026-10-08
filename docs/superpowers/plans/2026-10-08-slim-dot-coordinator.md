@@ -9,11 +9,13 @@ The archived framework and its 1,000-line design are superseded, not dependencie
 
 ## Flow and responsibilities
 
-`launchd/systemd -> existing wrapper -> ping-dots.py -> codex exec -> existing dot.sh send-once`
+`launchd/systemd -> existing wrapper -> ping-dots.py -> AGY -> Codex Luna -> Claude Haiku 5.5 -> existing dot.sh send-once`
 
 The wrapper owns runtime setup and start logging. The Python script selects an
 account, takes the existing host lock, observes STOP and historical delivery holds,
-asks Codex for one short plain-text reminder, and sends once through the existing Dot tool.
+tries AGY, Codex Luna, and Claude Haiku 5.5 in order for one short reminder, then
+sends at most once through the existing Dot tool. A failed or invalid provider
+response advances to the next provider; a Dot send result never does.
 Dot and its existing task owners decide and execute the next safe actions. The
 reminder asks them to verify actual progress, resolve reversible blockers, use
 cloud coders for independent work, and route unavailable or quota-limited executors
@@ -31,9 +33,9 @@ Existing state and transport overrides support isolated focused tests.
 
 ## Bounded execution and observable results
 
-One Codex CLI call has a 180-second subprocess timeout and writes its final
-plain-text response to a temporary file. One Dot call has a 180-second timeout,
-with no remote forwarding or account
+Each generator call has a 180-second subprocess timeout. Codex writes its final
+plain-text response to a temporary file; Claude runs without session persistence
+or tools. One Dot call has a 180-second timeout, with no remote forwarding or account
 rotation. There is no retry loop, new ledger, journal, browser transport, process
 supervisor, or semantic routing in application code. The generated message is
 limited to 1,200 characters. A successful generator exit does not prove delivery:
@@ -48,6 +50,8 @@ uncertain send. A ping does not prove completion of the Dot's underlying tasks.
 - [x] Replace the existing wrapper's worker target with the small Python script.
 - [x] Reuse existing account configuration, lock, STOP and Dot safety behavior.
 - [x] Keep coordination judgment in the model prompt and Dot task owners.
+- [x] Try AGY, Codex Luna, and Claude Haiku 5.5 in order; never send until one
+  returns a valid plain-text reminder.
 - [x] Add focused fake-provider tests for selection, one send, generation failures,
   unverified receipt, STOP, historical holds, lock contention and actual caller wiring.
 - [x] Independently run `python3 -m unittest discover -s tests -p test_simple_dot_ping.py -v`.

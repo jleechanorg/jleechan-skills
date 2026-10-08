@@ -1,4 +1,4 @@
-"""Tiny scheduled ping tests use fake generator/Dot executables and temporary state."""
+"""Scheduled ping tests use fake generation providers and Dot executables."""
 import importlib.util
 import json
 import os
@@ -9,6 +9,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT/'.claude/skills/agy-dot-coordinator/scripts/ping-dots.py'
+MESSAGE = 'Advance each authorized goal now and report the next safe action.'
 
 
 class SimplePingTests(unittest.TestCase):
@@ -16,34 +17,96 @@ class SimplePingTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
+        self.bindir = self.root/'bin'
+        self.bindir.mkdir()
         self.config = self.root/'config.json'
         self.config.write_text(json.dumps({'rotation': ['alpha', 'beta', 'gamma'], 'accounts': {a: {} for a in ['alpha','beta','gamma']}}))
         self.calls = self.root/'calls'
         self.message = self.root/'message'
-        self.generator = self.root/'generator'
-        self.generator.write_text('#!/usr/bin/env python3\nimport os,sys\nargs=sys.argv\nassert args[1:5]==["exec","--yolo","-m","gpt-6-luna"]\nassert "--ephemeral" in args and "--skip-git-repo-check" in args\nassert args[args.index("--config")+1]=="project_doc_max_bytes=0"\nopen(os.environ["CALLS"],"a").write("generator\\n")\nopen(args[args.index("--output-last-message")+1],"w").write("Advance each authorized goal now and report the next safe action.")\n')
+        self.agy = self.bindir/'agy'
+        self.agy.write_text('#!/usr/bin/env python3\nimport json,os,sys\nopen(os.environ["CALLS"],"a").write("agy\\n")\nmode=os.environ.get("AGY_MODE","success")\nif mode=="error": print("agy diagnostic",file=sys.stderr);sys.exit(7)\nif mode=="malformed": print("not-json");sys.exit(0)\nresponse="" if mode=="empty" else ("x"*1201 if mode=="long" else os.environ.get("GENERATED",'+repr(MESSAGE)+'))\nprint(json.dumps({"event":"result","result":{"status":"SUCCESS","response":response}}))\n')
+        self.codex = self.bindir/'codex'
+        self.codex.write_text('#!/usr/bin/env python3\nimport os,sys\nargs=sys.argv\nassert args[1:5]==["exec","--yolo","-m","gpt-6-luna"]\nassert "--ephemeral" in args and "--skip-git-repo-check" in args\nassert args[args.index("--config")+1]=="project_doc_max_bytes=0"\nopen(os.environ["CALLS"],"a").write("codex\\n")\nmode=os.environ.get("CODEX_MODE","success")\nif mode=="error": print("codex diagnostic",file=sys.stderr);sys.exit(8)\ncontent="" if mode=="empty" else ("x"*1201 if mode=="long" else os.environ.get("GENERATED",'+repr(MESSAGE)+'))\nopen(args[args.index("--output-last-message")+1],"w").write(content)\n')
+        self.haiku = self.bindir/'claude'
+        self.haiku.write_text('#!/usr/bin/env python3\nimport json,os,sys\nargs=sys.argv\nassert "--model" in args and args[args.index("--model")+1]=="claude-haiku-5-5"\nassert args[args.index("--tools")+1]=="" and "--no-session-persistence" in args\nopen(os.environ["CALLS"],"a").write("haiku\\n")\nmode=os.environ.get("HAIKU_MODE","success")\nif mode=="error": print("haiku diagnostic",file=sys.stderr);sys.exit(9)\nprint(json.dumps({"is_error":False,"result":os.environ.get("GENERATED",'+repr(MESSAGE)+')}))\n')
         self.dot = self.root/'dot'
         self.dot.write_text('#!/usr/bin/env python3\nimport os,sys\nfrom pathlib import Path\nassert sys.argv[1:4]==["--account","alpha","send-once"]\nassert os.environ["DOT_ALLOW_REMOTE"]=="0" and os.environ["DOT_ROTATE_ON_LIMIT"]=="0"\nopen(os.environ["CALLS"],"a").write("dot\\n")\nPath(os.environ["MESSAGE"]).write_text(Path(sys.argv[4]).read_text())\nprint(os.environ.get("RECEIPT","DOT_SENT_VERIFIED"))\nprint("dot diagnostic",file=sys.stderr)\nsys.exit(int(os.environ.get("SEND_RC","0")))\n')
-        self.generator.chmod(0o700)
-        self.dot.chmod(0o700)
-        self.env = dict(os.environ, DOT_CONFIG_FILE=str(self.config), COORDINATOR_STATE_DIR=str(self.root/'state'), COORDINATOR_LOCK_FILE=str(self.root/'state/ping.lock'), COORDINATOR_GENERATOR=str(self.generator), COORDINATOR_DOT_SCRIPT=str(self.dot), CALLS=str(self.calls), MESSAGE=str(self.message))
+        for executable in (self.agy, self.codex, self.haiku, self.dot):
+            executable.chmod(0o700)
+        self.env = dict(os.environ, PATH=str(self.bindir)+os.pathsep+os.environ['PATH'],
+                        DOT_CONFIG_FILE=str(self.config), COORDINATOR_STATE_DIR=str(self.root/'state'),
+                        COORDINATOR_LOCK_FILE=str(self.root/'state/ping.lock'),
+                        COORDINATOR_AGY=str(self.agy), COORDINATOR_GENERATOR=str(self.codex),
+                        COORDINATOR_DOT_SCRIPT=str(self.dot), CALLS=str(self.calls), MESSAGE=str(self.message))
 
-    def run_ping(self):
-        return subprocess.run(['python3', str(SCRIPT), '--account', 'alpha'], env=self.env, text=True, capture_output=True, timeout=5)
+    def run_ping(self, *args):
+        return subprocess.run(['python3', str(SCRIPT), '--account', 'alpha', *args], env=self.env,
+                              text=True, capture_output=True, timeout=8)
 
-    def test_one_generator_and_one_existing_send_once(self):
+    def calls_made(self):
+        return self.calls.read_text().splitlines() if self.calls.exists() else []
+
+    def test_primary_agy_success_uses_one_send(self):
         result = self.run_ping()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.calls.read_text().splitlines(), ['generator','dot'])
-        self.assertIn('Advance each authorized goal', self.message.read_text())
-        self.assertIn('From Codex coordinator', self.message.read_text())
-        self.assertIn('sent', result.stdout)
+        self.assertEqual(self.calls_made(), ['agy', 'dot'])
+        self.assertIn(MESSAGE, self.message.read_text())
+        self.assertIn('From AGY coordinator', self.message.read_text())
+        self.assertIn('Generation succeeded with agy', result.stdout)
+        self.assertIn('DOT_SENT_VERIFIED', result.stdout)
+        self.assertIn('dot diagnostic', result.stderr)
 
-    def test_generation_failure_does_not_send(self):
-        self.generator.write_text('#!/bin/sh\necho generator diagnostic >&2\nexit 7\n')
+    def test_agy_failure_falls_back_to_codex(self):
+        self.env['AGY_MODE'] = 'error'
+        result = self.run_ping()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.calls_made(), ['agy', 'codex', 'dot'])
+        self.assertIn('From Codex coordinator', self.message.read_text())
+        self.assertIn('agy generation failed', result.stderr)
+
+    def test_agy_and_codex_failure_fall_back_to_haiku(self):
+        self.env.update(AGY_MODE='error', CODEX_MODE='error')
+        result = self.run_ping()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.calls_made(), ['agy', 'codex', 'haiku', 'dot'])
+        self.assertIn('From Claude Haiku coordinator', self.message.read_text())
+        self.assertIn('codex generation failed', result.stderr)
+
+    def test_all_provider_failures_do_not_send(self):
+        self.env.update(AGY_MODE='error', CODEX_MODE='error', HAIKU_MODE='error')
         result = self.run_ping()
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn('generator diagnostic', result.stderr)
+        self.assertEqual(self.calls_made(), ['agy', 'codex', 'haiku'])
+        self.assertFalse(self.message.exists())
+
+    def test_malformed_structured_results_fall_through_without_send(self):
+        self.agy.write_text('#!/usr/bin/env python3\nimport json,os\nopen(os.environ["CALLS"],"a").write("agy\\n")\nprint(json.dumps({"event":"result","result":[]}))\n')
+        self.codex.write_text('#!/usr/bin/env python3\nimport os,sys\nopen(os.environ["CALLS"],"a").write("codex\\n")\nprint("codex diagnostic",file=sys.stderr)\nsys.exit(8)\n')
+        self.haiku.write_text('#!/usr/bin/env python3\nimport json,os\nopen(os.environ["CALLS"],"a").write("haiku\\n")\nprint("[]")\n')
+        result = self.run_ping()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.calls_made(), ['agy', 'codex', 'haiku'])
+        self.assertIn('agy generation failed', result.stderr)
+        self.assertIn('haiku generation failed', result.stderr)
+        self.assertFalse(self.message.exists())
+
+    def test_malformed_primary_falls_back_and_generator_flag_forces_provider(self):
+        self.env['AGY_MODE'] = 'malformed'
+        result = self.run_ping()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.calls_made(), ['agy', 'codex', 'dot'])
+        self.calls.unlink()
+        self.message.unlink()
+        self.env['AGY_MODE'] = 'error'
+        result = self.run_ping('--generator', 'haiku')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.calls_made(), ['haiku', 'dot'])
+
+    def test_generate_only_exercises_provider_without_dot(self):
+        result = self.run_ping('--generator', 'haiku', '--generate-only')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.calls_made(), ['haiku'])
+        self.assertIn(MESSAGE, result.stdout)
         self.assertFalse(self.message.exists())
 
     def test_unverified_send_is_reported_once_without_retry(self):
@@ -52,7 +115,7 @@ class SimplePingTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('DOT_SEND_UNVERIFIED', result.stdout)
         self.assertIn('dot diagnostic', result.stderr)
-        self.assertEqual(self.calls.read_text().splitlines(), ['generator','dot'])
+        self.assertEqual(self.calls_made(), ['agy', 'dot'])
 
     def test_stop_and_existing_hold_prevent_generation(self):
         state = self.root/'state'
@@ -97,8 +160,3 @@ class SimplePingTests(unittest.TestCase):
         timer = (SCRIPT.parents[1]/'systemd/ai.gemini.agy-dot-coordinator.timer').read_text()
         self.assertIn('OnCalendar=*:10,30,50:00', timer)
         self.assertIn('Persistent=false', timer)
-
-    def test_empty_generation_output_does_not_send(self):
-        self.generator.write_text('#!/bin/sh\nfor arg do target="$arg"; done\n: > "$target"\n')
-        self.assertNotEqual(self.run_ping().returncode, 0)
-        self.assertFalse(self.message.exists())
