@@ -95,12 +95,15 @@ COORDINATOR_CHANGE_ID="ev-001" COORDINATOR_CHANGE_SUMMARY="Update" ./scripts/dot
 
 ## Private driver failure diagnostics
 
-A failed subprocess attempt writes a unique `.driver-diagnostic-*.json` receipt
-in its existing driver workspace, separate from the deleted prompt directory.
+Handled nonzero exits, rejected envelopes or decisions, process timeouts, and
+exceptions from process execution attempt to write a unique
+`.driver-diagnostic-*.json` receipt in the existing driver workspace, separate
+from the deleted prompt directory.
 Receipts are mode `0600`, at most 2048 UTF-8 bytes each, and contain the driver,
 legacy failure reason, distinct failure stage, exit code, and stdout/stderr
 `decoded_utf8_bytes`: the UTF-8 re-encoded size of decoded text after subprocess
-universal-newline normalization (CRLF and CR become LF), not raw pipe bytes. All nonempty output text is replaced with `[REDACTED]`: credentials,
+universal-newline normalization (CRLF and CR become LF), not raw pipe bytes.
+All nonempty output text is replaced with `[REDACTED]`: credentials,
 private communications, and echoed prompts cannot be reliably removed with
 pattern filters. No packet identifiers, prompts, environment, argv, exception
 text, output hashes, or raw excerpts are retained. Empty streams remain empty;
@@ -109,6 +112,9 @@ them. Receipts do not diagnose the underlying provider failure.
 
 Receipt writes are best effort; inability to write does not change the failure
 result or authorize a send. Preflight failures do not create attempt receipts.
+Inherited exceptions outside the handled paths can still escape without a
+receipt: deeply nested valid JSON can raise `RecursionError` during envelope
+parsing. This change does not harden parsing or make every failure diagnosable.
 The containing private run directory owns retention; this adds no global log,
 publication, automatic cleanup, or total-run quota. The size bound applies to
 the persisted receipt, not the existing subprocess capture buffer.
