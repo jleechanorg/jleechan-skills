@@ -1,4 +1,4 @@
-// Headless Google Chrome backend for dot.sh (read | send).
+// Headless Google Chrome backend for dot.sh (read | send | probe).
 // Exit 10 + "DOT_CHROME_UNAVAILABLE: <reason>" means nothing was sent.
 // DOT_DRY_RUN=1 types + verifies the message, clears it, never sends.
 import { createRequire } from 'module';
@@ -15,6 +15,9 @@ const isMac = os.platform() === 'darwin';
 const systemChromeDir = isMac
   ? path.join(os.homedir(), 'Library/Application Support/Google/Chrome')
   : path.join(os.homedir(), '.config/google-chrome');
+const PROBE_DEADLINE_MS = 15000;
+const PROBE_FETCH_TIMEOUT_MS = 5000;
+const PROBE_LAUNCH_TIMEOUT_MS = 15000;
 
 // Dynamic configuration loader supporting ~/.config/dot/config.json
 function loadDotConfig() {
@@ -129,7 +132,7 @@ function isMainModule() {
 }
 
 // Single-command profile directory resolution helper for dot.sh
-if (isMainModule() && process.argv[2] === 'resolve-profile') {
+if (isMainModule() && (process.argv[2] === 'resolve-profile' || process.argv[2] === 'resolve-profile-existing')) {
   try {
     const info = detectChromeProfile(process.env.DOT_ACCOUNT);
     console.log(JSON.stringify(info));
@@ -326,23 +329,43 @@ async function waitAndCleanSingletonLock(dir) {
   removeLocks();
 }
 
-async function checkAuthSession(page) {
+async function checkAuthSession(page, fetchTimeoutMs = 0) {
   try {
-    return await page.evaluate(async () => {
+    return await page.evaluate(async (fetchTimeout) => {
+      const controller = fetchTimeout > 0 ? new AbortController() : null;
+      const timeout = controller
+        ? setTimeout(() => controller.abort(), fetchTimeout)
+        : null;
       try {
-        const res = await fetch('/api/auth/session', { credentials: 'include' });
+        const options = { credentials: 'include' };
+        if (controller) options.signal = controller.signal;
+        const res = await fetch('/api/auth/session', options);
         const text = await res.text();
         let json = null;
         try { json = JSON.parse(text); } catch {}
+        const isSessionObject = json !== null && typeof json === 'object' && !Array.isArray(json);
+        const hasUserProperty = isSessionObject && Object.prototype.hasOwnProperty.call(json, 'user');
+        const userIsObject = hasUserProperty && json.user !== null && typeof json.user === 'object' && !Array.isArray(json.user);
+        const email = userIsObject && typeof json.user.email === 'string' && json.user.email.length > 0
+          ? json.user.email
+          : null;
         return {
           status: res.status,
+          // Preserve the legacy read/send interpretation; the probe uses the
+          // stricter session-object fields below.
           hasUser: !!(json && json.user && json.user.email),
+          hasSessionUser: userIsObject,
+          email,
           isJson: !!json,
+          isSessionObject,
+          isLogoutSession: isSessionObject && (!hasUserProperty || json.user === null),
         };
       } catch (err) {
         return { status: 0, error: err.message };
+      } finally {
+        if (timeout) clearTimeout(timeout);
       }
-    });
+    }, fetchTimeoutMs);
   } catch {
     return { status: 0 };
   }
@@ -480,7 +503,7 @@ async function launchPrepared() {
   return await settlePage(page, 'send-prepared');
 }
 
-async function launchExistingProfileOnly() {
+async function launchExistingProfileOnly(launchTimeoutMs) {
   if (!fs.existsSync(CHROME)) existingProfileUnavailable('chrome_missing');
   assertExistingProfileAvailable(USER_DATA_DIR);
 
@@ -492,11 +515,185 @@ async function launchExistingProfileOnly() {
   }
 
   try {
-    ctx = await chromium.launchPersistentContext(USER_DATA_DIR, chromeLaunchOptions());
+    const options = chromeLaunchOptions();
+    if (launchTimeoutMs !== undefined) options.timeout = launchTimeoutMs;
+    ctx = await chromium.launchPersistentContext(USER_DATA_DIR, options);
   } catch {
     existingProfileUnavailable('chrome_launch_failed');
   }
   return ctx;
+}
+
+async function closeProbeContext(activeContext) {
+  let contextCloseTimer;
+  const contextClose = Promise.resolve()
+    .then(() => activeContext.close())
+    .then(() => 'context_closed', () => 'context_close_failed');
+  const contextCloseState = await Promise.race([
+    contextClose,
+    new Promise((resolve) => {
+      contextCloseTimer = setTimeout(() => resolve('context_close_timeout'), 1000);
+    }),
+  ]);
+  clearTimeout(contextCloseTimer);
+  if (contextCloseState === 'context_closed') return contextCloseState;
+
+  let browser = null;
+  try {
+    if (typeof activeContext.browser === 'function') browser = activeContext.browser();
+  } catch {}
+  if (
+    !browser ||
+    typeof browser.close !== 'function' ||
+    typeof browser.isConnected !== 'function' ||
+    typeof browser.once !== 'function'
+  ) {
+    return 'unresolved';
+  }
+
+  let disconnectedEvent = false;
+  const disconnected = new Promise((resolve) => {
+    browser.once('disconnected', () => {
+      disconnectedEvent = true;
+      resolve();
+    });
+  });
+  try {
+    await browser.close();
+  } catch {}
+  if (browser.isConnected() === false || disconnectedEvent) return 'browser_disconnected';
+
+  let disconnectTimer;
+  await Promise.race([
+    disconnected,
+    new Promise((resolve) => {
+      disconnectTimer = setTimeout(resolve, 1000);
+    }),
+  ]);
+  clearTimeout(disconnectTimer);
+  return browser.isConnected() === false || disconnectedEvent
+    ? 'browser_disconnected'
+    : 'unresolved';
+}
+
+function sessionProbeResult(status, identityMatch, composerAvailable, endpointStatus, cleanupState) {
+  const profileSlot = crypto.createHash('sha256')
+    .update(USER_DATA_DIR)
+    .digest('hex')
+    .slice(0, 24);
+  return {
+    schema_version: 1,
+    status,
+    identity_match: identityMatch,
+    composer_available: composerAvailable,
+    endpoint_status: endpointStatus,
+    cleanup_state: cleanupState,
+    profile_slot: 'slot_' + profileSlot,
+    probe_id: crypto.randomUUID(),
+    timestamp: new Date().toISOString(),
+  };
+}
+
+async function probeSession(expectedDigest) {
+  let status = 'unknown';
+  let identityMatch = null;
+  let composerAvailable = null;
+  let endpointStatus = null;
+  let cleanupState = 'not_started';
+
+  let timedOut = false;
+  let deadlineTimer;
+  try {
+    await launchExistingProfileOnly(PROBE_LAUNCH_TIMEOUT_MS);
+    const operation = (async () => {
+      const page = await ctx.newPage();
+      await page.goto(URL_, { waitUntil: 'domcontentloaded', timeout: PROBE_DEADLINE_MS });
+
+      const session = await checkAuthSession(page, PROBE_FETCH_TIMEOUT_MS);
+      const hasHttpStatus = Number.isInteger(session.status) &&
+        session.status >= 100 && session.status <= 599;
+      endpointStatus = hasHttpStatus ? session.status : null;
+      const title = await page.title().catch(() => '');
+      const composer = page.locator(COMPOSER);
+      const composerCount = await composer.count().catch(() => null);
+      if (composerCount === null) {
+        composerAvailable = null;
+      } else if (composerCount === 0) {
+        composerAvailable = false;
+      } else {
+        composerAvailable = await composer.first().isVisible().catch(() => null);
+      }
+
+      if (
+        session.status === 403 ||
+        /^just a moment(?:\.\.\.)?$/i.test(title.trim())
+      ) {
+        status = 'challenge';
+      } else if (session.status === 200 && session.isSessionObject) {
+        if (session.hasSessionUser) {
+          if (session.hasUser && typeof session.email === 'string') {
+            status = 'authenticated';
+            const actualDigest = crypto.createHash('sha256')
+              .update(session.email, 'utf8')
+              .digest('hex');
+            identityMatch = actualDigest === expectedDigest;
+          }
+        } else if (session.isLogoutSession && composerAvailable === false) {
+          status = 'logged_out';
+        }
+      }
+    })();
+    await Promise.race([
+      operation,
+      new Promise((resolve) => {
+        deadlineTimer = setTimeout(() => {
+          timedOut = true;
+          resolve();
+        }, PROBE_DEADLINE_MS);
+      }),
+    ]);
+    if (timedOut) {
+      status = 'unknown';
+      identityMatch = null;
+      composerAvailable = null;
+      endpointStatus = null;
+    }
+  } catch (error) {
+    status = error instanceof ExistingProfileUnavailable ? 'unavailable' : 'unknown';
+    if (error instanceof ExistingProfileUnavailable && error.code === 'chrome_launch_failed') {
+      cleanupState = 'unresolved';
+    }
+  } finally {
+    clearTimeout(deadlineTimer);
+    if (ctx) {
+      const activeContext = ctx;
+      ctx = null;
+      try {
+        cleanupState = await closeProbeContext(activeContext);
+      } catch {
+        cleanupState = 'unresolved';
+      }
+      if (cleanupState === 'unresolved') {
+        status = 'unavailable';
+        identityMatch = null;
+        composerAvailable = null;
+      }
+    }
+  }
+
+  if (cleanupState === 'unresolved') {
+    status = 'unavailable';
+    identityMatch = null;
+    composerAvailable = null;
+    endpointStatus = null;
+  } else if (timedOut) {
+    status = 'unknown';
+    identityMatch = null;
+    composerAvailable = null;
+    endpointStatus = null;
+  }
+
+  return sessionProbeResult(status, identityMatch, composerAvailable, endpointStatus, cleanupState);
 }
 
 async function read(page, n) {
@@ -656,7 +853,14 @@ if (isMainModule()) {
   let code = 0;
   let launchTimer = null;
   try {
-    if (mode === 'existing-profile-only') {
+    if (mode === 'probe') {
+      if (!/^[a-f0-9]{64}$/.test(arg || '')) {
+        console.error('usage: dot_chrome.mjs probe <expected-email-sha256>');
+        code = 2;
+      } else {
+        console.log('DOT_SESSION_PROBE ' + JSON.stringify(await probeSession(arg)));
+      }
+    } else if (mode === 'existing-profile-only') {
       try {
         await launchExistingProfileOnly();
         await ctx.close();
