@@ -58,8 +58,10 @@ For each bundle, extract:
 
 Compare the captured source SHA with the current change:
 ```bash
-git diff <evidence_sha>..HEAD --name-only -- $PROJECT_ROOT/ | grep -v tests/
+git diff <evidence_sha>..HEAD -- $PROJECT_ROOT/
 ```
+
+Read the full diff, including test files, against the claims the evidence backs.
 
 Apply `~/.claude/skills/evidence-standards/SKILL.md` sections Evidence Staleness
 Tolerance and Evidence Sequencing. Re-run evidence affected by a material behavior

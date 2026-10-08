@@ -5,6 +5,11 @@ description: "Steering work on $USER's Ubuntu machine (jeff-ubuntu) via SSH. Use
 
 # Linux Remote — jeff-ubuntu SSH Steering
 
+## Retained review integrations
+
+The shared catalog preserves host-installed `/advice` and `/web-advice` integrations instead of installing them. Before invoking either, resolve its `../advice/SKILL.md` or `../web-advice/SKILL.md` relative to this package and read the existing skill. For a remote invocation, check the corresponding skill on the target host. If absent, report that integration as `UNAVAILABLE` and identify the missing package; do not invent a replacement runner, claim an approval, or treat a required gate as passed. Continue independent authorized work, but leave any dependent readiness or plan-approval gate unmet. Existing review quorum, external-disclosure authorization, and optional-review rules still apply.
+
+
 ## Connection
 
 ```bash
@@ -48,6 +53,44 @@ sudo apt install -y openssh-server
 sudo systemctl enable --now ssh
 EOF
 ```
+
+## Agent submission and response proof — mandatory
+
+For every instruction sent to an interactive agent, including initial launches,
+resumed sessions, follow-ups, and existing composer drafts:
+
+1. Resolve the exact tmux pane or cmux surface and verify its foreground application
+   and screen before typing. Capture a baseline and retain the intended instruction.
+   Never send agent prose to a shell, trust dialog, or unknown foreground process.
+   Preserve unrelated composer text and queued work.
+2. Submit explicitly using the application's current controls. In Codex, a busy
+   composer displaying “tab to queue message” requires Tab to queue; an idle
+   composer uses Enter to submit. Send text and the submit key in separate calls
+   after verifying the text arrived. Inspect other CLIs' actual controls rather
+   than assuming Enter submits. Initial prompt argv still requires response proof.
+3. Re-read after submission. Text remaining in the editable composer is NOT
+   submitted. A queue entry proves only QUEUED, not received or acted upon.
+   Do not resend queued instructions or interrupt active work merely to obtain
+   acknowledgment. Inspect the queue and transcript before retrying uncertain
+   submissions to avoid duplicate execution.
+4. Wait for a fresh agent-authored response attributable to that instruction.
+   Request a brief acknowledgment naming the task or a unique dispatch marker
+   when composing new instructions. Verify chronology against the baseline and
+   inspect the actual transcript when screen output is ambiguous. Echoed input,
+   prompts, spinners, process liveness, transport exit status, READY/RESUMED, and
+   queue entries are never substitutes for an agent response.
+5. Echo the actual response excerpt into the calling/main terminal and the
+   user-facing update, labeled with host, session/pane or surface, observation time,
+   and instruction or dispatch marker. Redact secrets. Report ACKNOWLEDGED only
+   when that response exists; acknowledgment proves delivery, not task completion.
+   Validate completion claims against the requested artifacts or checks.
+6. Continue monitoring with bounded asynchronous waits and regular progress
+   updates. Set a response deadline appropriate to the active job. If it expires
+   or the agent fails, report QUEUED/UNCONFIRMED/BLOCKED with the observed reason,
+   preserve the instruction, and perform scoped recovery. Never claim success
+   from submitted text alone.
+
+This contract applies through SSH, tmux, cmux, and terminals such as Warp.
 
 ## sudo with known password
 

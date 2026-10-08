@@ -1,0 +1,9 @@
+[Unit]
+Description=Periodic 30-minute trigger for Antigravity Dot Cloud Coordinator (staggered at :15 and :45)
+
+[Timer]
+OnCalendar=*:15,45:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

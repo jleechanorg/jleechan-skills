@@ -116,8 +116,14 @@ try:
 except ImportError as e:
     raise AssertionError(f"mem0 package missing: {e}")
 hooks = Path.home() / ".hermes/.claude/hooks"
-repo = Path(subprocess.check_output(["git", "rev-parse", "--show-toplevel"], text=True).strip())
-helpers = [hooks / "mem0_save.py", repo / ".claude/hooks/mem0_save.py"]
+helpers = [hooks / "mem0_save.py"]
+if not helpers[0].is_file():
+    result = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"],
+        capture_output=True, text=True, timeout=10,
+    )
+    if result.returncode == 0:
+        helpers.append(Path(result.stdout.strip()) / ".claude/hooks/mem0_save.py")
 assert any(h.is_file() for h in helpers), f"mem0_save.py missing: {helpers}"
 assert (hooks / "mem0_config.py").is_file(), f"mem0_config.py missing: {hooks}"
 sys.path.insert(0, str(hooks))

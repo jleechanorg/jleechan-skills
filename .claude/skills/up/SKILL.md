@@ -1,6 +1,6 @@
 ---
 name: up
-description: Use when the user invokes /up or asks to persist a coding-agent rule or preference. Default: repo-level Markdown under the active repo. Use /up --repo for any repo, /up --global for the cross-runtime surfaces.
+description: "Use when the user invokes /up or asks to persist a coding-agent rule or preference. Default: repo-level Markdown under the active repo. Use /up --repo for any repo, /up --global for the cross-runtime surfaces."
 ---
 
 # Update Coding-Agent Instructions

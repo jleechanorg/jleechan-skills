@@ -1,6 +1,6 @@
 ---
 name: repro
-description: Reproduce a bug, then drive a root-cause-classified fix. Use when asked to /repro a bug, file a REPRO issue, or escalate a regression. Triggers on the words: repro, reproduce, regression, root cause, "what broke", "file an issue".
+description: "Reproduce a bug, then drive a root-cause-classified fix. Use when asked to /repro a bug, file a REPRO issue, or escalate a regression. Triggers on the words: repro, reproduce, regression, root cause, \"what broke\", \"file an issue\"."
 metadata:
   type: skill
 ---

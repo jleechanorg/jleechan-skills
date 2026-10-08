@@ -21,6 +21,116 @@ explicitly stating what the evidence proves vs what it does NOT prove — this
 applies to the response you give the user, not just the bundle's own
 "What This Evidence Does NOT Prove" section (below).
 
+## Aiming gate — run BEFORE spending on an evidence campaign
+
+Before the first expensive call (real-LLM batch, browser run, replay sweep),
+write one sentence:
+
+> "This campaign will explain **<the reported symptom>**, and if it comes back
+> <expected result>, the explanation is <X>."
+
+If you cannot name a reported symptom — a user complaint, a production rate, a
+failing turn — **you are not gathering evidence, you are decorating a claim.**
+Stop and re-aim.
+
+Hard rules:
+
+- **A "Known gaps" / "unproven" list is a disclosure artifact, not a work
+  queue.** It records what is unproven, which is not the same as what matters.
+  Working it top-to-bottom is documentation gravity, not prioritization.
+- **The originating symptom outranks every listed gap.** If a gap and the
+  symptom disagree about where to spend, spend on the symptom.
+- **If you find yourself writing "this proves nothing about <the actual bug>"
+  into your own bundle, that is a stop signal, not a disclosure.** You have
+  just written down that you aimed at the wrong target. Re-aim before
+  continuing; do not ship the caveat as a substitute for hitting the target.
+- For a model-behavior bug, prefer replaying **real captured production input
+  through the real path** (`~/.claude/skills/ablation/SKILL.md`) over
+  synthesizing new prompts. Synthetic prompts test the schema; captured
+  payloads test the bug.
+- Forensics on already-captured data (logs, BigQuery, Firestore) is usually
+  cheaper AND closer to the symptom than any new generation campaign. Cost it
+  first.
+
+Recurrence log: violated 2026-08-16 (research fanout instead of ablation),
+2026-08-18 (ranked a 4-6% lever while a 58% one sat unranked), and 2026-09-07
+(360 real Gemini calls proving schema conformance while the reported ~75% memory
+miss went unmeasured; a zero-LLM-call forensics pass on the same day found the
+two real root causes).
+
+## Derived-artifact rule: a number in prose must exist in an artifact
+
+If a README, PR body, or commit message states a computed figure (p-value,
+denominator, interval, rate), that figure must be readable from a committed
+artifact — not only from the prose asserting it.
+
+- **"summary.json now carries X" requires that file's checksum to have
+  changed.** If you edited only the prose, you did not regenerate anything.
+  Re-run the producer, then diff the artifact, then make the claim.
+- **Commit the computation, not just the result.** A p-value produced by a
+  shell one-liner is unreproducible the moment the shell scrolls away. Put the
+  function in the script the bundle names.
+- **Then actually run it and confirm it reproduces the published number.** A
+  committed function that returns a different value than the README is worse
+  than no function: it looks reproducible and is wrong.
+- Recompute every headline figure from the raw rows, not from your own summary,
+  before publishing. Summaries inherit their bugs silently.
+
+Observed 2026-09-07: a bundle claimed `fisher_exact_greater()` "reproduces both
+values" while the committed filter used a different cohort (n=70 vs n=50) and
+returned different p-values, and claimed `summary.json` "now carries the data"
+while that file's hash was unchanged. Both were caught by review, not by
+self-check.
+
+## Aiming gate — run BEFORE spending on an evidence campaign
+
+Before the first expensive call (real-LLM batch, browser run, replay sweep),
+write one sentence:
+
+> "This campaign will explain **<the reported symptom>**, and if it comes back
+> <expected result>, the explanation is <X>."
+
+If you cannot name a reported symptom — a user complaint, a production rate, a
+failing turn — **you are not gathering evidence, you are decorating a claim.**
+Stop and re-aim.
+
+Hard rules:
+
+- **A "Known gaps" / "unproven" list is a disclosure artifact, not a work
+  queue.** It records what is unproven, which is not the same as what matters.
+  Working it top-to-bottom is documentation gravity, not prioritization.
+- **The originating symptom outranks every listed gap.** If a gap and the
+  symptom disagree about where to spend, spend on the symptom.
+- **If you find yourself writing "this proves nothing about <the actual bug>"
+  into your own bundle, that is a stop signal, not a disclosure.** You have
+  just written down that you aimed at the wrong target. Re-aim before
+  continuing; do not ship the caveat as a substitute for hitting the target.
+- For a model-behavior bug, prefer replaying **real captured production input
+  through the real path** (`~/.claude/skills/ablation/SKILL.md`) over
+  synthesizing new prompts. Synthetic prompts test the schema; captured
+  payloads test the bug.
+- Forensics on already-captured data (logs, BigQuery, Firestore) is usually
+  cheaper AND closer to the symptom than any new generation campaign. Cost it
+  first.
+
+## Derived-artifact rule: a number in prose must exist in an artifact
+
+If a README, PR body, or commit message states a computed figure (p-value,
+denominator, interval, rate), that figure must be readable from a committed
+artifact — not only from the prose asserting it.
+
+- **"summary.json now carries X" requires that file's checksum to have
+  changed.** If you edited only the prose, you did not regenerate anything.
+  Re-run the producer, then diff the artifact, then make the claim.
+- **Commit the computation, not just the result.** A p-value produced by a
+  shell one-liner is unreproducible the moment the shell scrolls away. Put the
+  function in the script the bundle names.
+- **Then actually run it and confirm it reproduces the published number.** A
+  committed function that returns a different value than the README is worse
+  than no function: it looks reproducible and is wrong.
+- Recompute every headline figure from the raw rows, not from your own summary,
+  before publishing. Summaries inherit their bugs silently.
+
 ## Core principle: raw req/resp > unit tests > nothing
 
 Ordered by strength, for a production behavior claim:
@@ -56,34 +166,39 @@ Reachability is **computed, never a hardcoded list** (a frozen "X is unreachable
 
 **Generate the report from a per-item ledger, not free narration.** One row per requested element: `item | status (DELIVERED / GATE-EXCLUDED / NOT-YET-DRIVEN / UNDETERMINED) | reason | artifact`. Counts are computed from the ledger so no item is silently dropped and no cause is applied to a group without a per-row reason. **Before writing GATE-EXCLUDED, confirm the gate is intrinsic to the item, not to a turn/run type** — e.g. a gate on "turns emitting tool_requests" excludes turns, not agents, so a tool-capable agent is NOT-YET-DRIVEN/UNDETERMINED, never statically impossible. A static "impossible list" that is really a per-run property is a ZFC violation.
 
-## Evidence Staleness Tolerance — only PRODUCTION changes stale evidence
+## Evidence Staleness Tolerance — the delta and the claim decide, not the path
 
 **A moving HEAD does NOT invalidate evidence by itself.** Evidence captured at a prior SHA
-stays valid at HEAD as long as **no production-code change** landed between the evidence SHA
-and HEAD. Docs, tests, skills, ordinary PR-policy changes, CI-lint, type-hints, and comment-only commits stacked on top
-do **not** require a fresh evidence run. Flagging evidence "stale" because the head SHA moved
+stays valid at HEAD as long as the delta between the evidence SHA and HEAD leaves every
+claim the evidence backs intact. A docs typo, comment, type-hint, or lint-only commit usually
+does not require a fresh evidence run; a changed test assertion, evidence driver/capture,
+prompt, contract, or executable instruction that a claim depends on does. Flagging evidence "stale" because the head SHA moved
 — without checking *what* moved — is an over-correction; check the diff, not the SHA equality.
 
 **The check is a diff, not a SHA comparison:**
 
 1. Determine the evidence SHA (from `metadata.json.provenance.git_head` or the bundle README).
-2. `git diff --name-only <evidence-sha> HEAD` — classify every changed file.
-3. If **every** changed file is non-behavioral (test-only, docs-only `*.md`/`docs/`/`CLAUDE.md`/`AGENTS.md`,
-   `.claude/`/`.codex/`/`.cursor/` skills & agents, test/lint CI workflows **excluding** `deploy*`/`*preview*`,
-   type-hints/comments) → evidence remains valid; document the tolerance and move on.
-4. For any `.py` file you classify as "comment/type-hint only," run the full content diff
-   (`git diff <evidence-sha> HEAD -- <file>`) — `--name-only` can't tell a comment edit from a behavior edit.
+2. `git diff <evidence-sha> HEAD` — read every changed file's content diff against the claims it could affect.
+3. If **every** changed file's content diff is non-behavioral (candidates: docs, comments, type-hints,
+   lint CI workflows **excluding** `deploy*`/`*preview*`) → evidence remains valid; document the tolerance and move on.
+   Path category is a starting hint only: a test, evidence driver/capture, prompt, contract, schema, or
+   `.claude/`/`.codex/`/`.cursor/` skill or agent file whose assertion, driver, or executable instruction
+   changed can invalidate the proof it supports — read its diff against the claim it backs.
+4. Never classify from file names alone; a comment edit and a behavior edit look identical in a name list.
 
-**Fresh evidence IS required only when a production change exists** between the SHAs:
-production code (the repo's source tree excluding its test dirs, **including** prompt/template surfaces — the repo-level /es file names the exact paths),
+**Fresh evidence IS required when the delta changes production behavior or anything a claim
+depends on** between the SHAs: a test assertion, evidence driver/capture, or executable instruction
+backing the claim; production code (the repo's source tree excluding its test dirs, **including** prompt/template surfaces — the repo-level /es file names the exact paths),
 API/endpoints/game logic/agent routing, runtime config (env vars, feature flags), DB schema/migrations,
 or a deploy/preview workflow — or any **mixed** diff containing at least one such file.
 
 **Rationale:** rerunning real-server + real-LLM evidence for a docs typo or test rename burns
 hours of LLM time for zero added confidence. The evidence proves a *behavior*; if the behavior's
-code is byte-identical at HEAD, the proof is byte-valid at HEAD. Repo-level files may add
+code is byte-identical at HEAD and no assertion or driver backing it changed, the proof is
+byte-valid at HEAD. Repo-level files may add
 path-specific context (e.g. `<repo>/.claude/skills/evidence-standards.md` §"Evidence Staleness
-Tolerance for Test/Docs-Only Changes") and take precedence on conflict.
+Tolerance for Test/Docs-Only Changes") and take precedence on conflict, but cannot waive the
+delta-and-claim test above.
 
 ## Evidence Sequencing — expensive evidence runs LAST, once
 
@@ -109,8 +224,8 @@ the completed candidate; scheduling that package last does not defer the initial
 failure reproduction until after the behavior fix.
 
 Rerun expensive evidence ONLY on a material change per the Staleness Tolerance
-diff test above: a production-behavior file in the evidenced path changed, or
-the artifact producer changed in a way that alters captured bytes. When review
+delta-and-claim test above: the delta changes production behavior, or any test
+assertion, evidence driver/capture, or executable instruction a claim depends on. When review
 findings arrive after evidence, classify materiality FIRST; batch ALL pending
 fixes into ONE new SHA before any rerun — never a rerun per finding.
 
@@ -122,6 +237,14 @@ behavioral fixes into one new SHA before rerunning affected evidence.
 Evidence harness/infra code is not the feature: building or hardening capture
 harnesses inside the feature PR moves the HEAD and voids gates. Land harness
 changes in their own PR first, then freeze the feature head.
+
+Before an expensive FINAL run, record a reusable launch capsule: FINAL or
+DIAGNOSTIC, exact worktree and SHA, absolute interpreter, command and output
+paths, nonsecret effective provider/model settings, and dedicated test-account
+scope. Run cheap import, browser, and provider-selection preflight through that
+same invocation before provider calls; confirm behavior work is settled for
+FINAL. Reviewers must reuse the exact capsule. Setup failures remain setup
+failures until raw provider proof supports a product or auth diagnosis.
 
 ## Evidence class table
 
@@ -145,8 +268,8 @@ integration — real callstack exercised, mocks only at external API boundaries
 LLM or external service, real-service evidence is required (no mocked
 provider).
 
-**Exception 1:** non-production changes (docs, tests, tooling/scripts) — no
-evidence required.
+**Exception 1:** non-production changes (docs, tests, tooling/scripts) that
+back no production-behavior claim — no evidence required.
 
 **Exception 2:** production changes under 100 delta lines of non-test code —
 unit-only IS acceptable.

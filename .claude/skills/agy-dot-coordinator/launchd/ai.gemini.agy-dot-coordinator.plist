@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>ai.gemini.agy-dot-coordinator</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>@HOME@/.claude/skills/agy-dot-coordinator/scripts/agy-dot-coordinator-wrapper.sh</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict>
+      <key>Minute</key>
+      <integer>0</integer>
+    </dict>
+    <dict>
+      <key>Minute</key>
+      <integer>20</integer>
+    </dict>
+    <dict>
+      <key>Minute</key>
+      <integer>40</integer>
+    </dict>
+  </array>
+  <key>StandardOutPath</key>
+  <string>@HOME@/Library/Logs/ai.gemini.agy-dot-coordinator.log</string>
+  <key>StandardErrorPath</key>
+  <string>@HOME@/Library/Logs/ai.gemini.agy-dot-coordinator.error.log</string>
+  <key>WorkingDirectory</key>
+  <string>@HOME@</string>
+</dict>
+</plist>
