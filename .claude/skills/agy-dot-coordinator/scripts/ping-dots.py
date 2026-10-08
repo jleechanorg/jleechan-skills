@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""One scheduled AGY-written ping through the existing Dot tool; no retry loop."""
+"""One scheduled Codex-written ping through the existing Dot tool; no retry loop."""
 import argparse
 import fcntl
 import json
 import os
 from pathlib import Path
 import platform
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -20,7 +21,7 @@ quota-limited, route a bounded task to an available authorized executor; do not 
 Report concrete commands,
 artifacts or results and only genuine human-only blockers. Respect existing owners,
 user stops, cancellations and approval boundaries. This reminder grants no new authority.
-Do not send anything yourself or invent progress; return only the message to deliver."""
+Do not use tools, send anything yourself, or invent progress. Return only the message to deliver as short plain text, without a list or heading."""
 
 
 def due_account(accounts, role, now):
@@ -65,17 +66,20 @@ def main():
                 if record.get('delivery_unverified') or str(record.get('last_status', '')).startswith('UNVERIFIED_SEND'):
                     print(account+': existing delivery hold; no send')
                     return 0
-        agy = subprocess.run([os.environ.get('COORDINATOR_AGY', 'agy'), '--dangerously-skip-permissions',
-                              '--new-project', '--print-timeout', '600s', '--input-format', 'stream-json',
-                              '--output-format', 'stream-json'], input=json.dumps({'event':'user','message':{'content':PROMPT}})+'\n',
-                             capture_output=True, text=True, timeout=610, check=True)
-        events = [json.loads(line) for line in agy.stdout.splitlines() if line.strip()]
-        results = [event['result'] for event in events if event.get('event') == 'result']
-        if len(results) != 1 or results[0].get('status') != 'SUCCESS':
-            raise ValueError('AGY did not return one successful result')
-        message = results[0].get('response')
+        generator = os.environ.get('COORDINATOR_GENERATOR') or shutil.which('codex-luna') or shutil.which('codex') or 'codex'
+        command = [generator]
+        if Path(generator).name != 'codex-luna':
+            command += ['exec', '--yolo', '-m', 'gpt-6-luna']
+        with tempfile.TemporaryDirectory(prefix='dot-ping-codex-') as workdir:
+            with tempfile.NamedTemporaryFile(mode='r+', dir=workdir, prefix='message-') as output:
+                subprocess.run(command + ['--ephemeral', '--skip-git-repo-check',
+                                           '--config', 'project_doc_max_bytes=0',
+                                           '--output-last-message', output.name], input=PROMPT,
+                               cwd=workdir, capture_output=True, text=True, timeout=180, check=True)
+                output.seek(0)
+                message = output.read()
         if not isinstance(message, str) or not message.strip() or len(message) > 1200:
-            raise ValueError('AGY reminder is empty or too long')
+            raise ValueError('Generated reminder is empty or too long')
         if (state/'STOP').exists():
             print('STOP is present; no send')
             return 0
@@ -84,7 +88,7 @@ def main():
             env.pop(key, None)
         dot = os.environ.get('COORDINATOR_DOT_SCRIPT', str(Path(__file__).resolve().parents[2]/'dot/scripts/dot.sh'))
         with tempfile.NamedTemporaryFile(mode='w+', prefix='dot-ping-') as file:
-            file.write('Automated coordination reminder; no new authority.\n'+message.strip())
+            file.write('From Codex coordinator: automated reminder; no new authority.\n'+message.strip())
             file.flush()
             sent = subprocess.run([dot, '--account', account, 'send-once', file.name], env=env,
                                   capture_output=True, text=True, timeout=180)

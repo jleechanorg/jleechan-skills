@@ -9,11 +9,11 @@ The archived framework and its 1,000-line design are superseded, not dependencie
 
 ## Flow and responsibilities
 
-`launchd/systemd -> existing wrapper -> ping-dots.py -> AGY -> existing dot.sh send-once`
+`launchd/systemd -> existing wrapper -> ping-dots.py -> codex exec -> existing dot.sh send-once`
 
 The wrapper owns runtime setup and start logging. The Python script selects an
 account, takes the existing host lock, observes STOP and historical delivery holds,
-asks AGY for one short reminder, and sends once through the existing Dot tool.
+asks Codex for one short plain-text reminder, and sends once through the existing Dot tool.
 Dot and its existing task owners decide and execute the next safe actions. The
 reminder asks them to verify actual progress, resolve reversible blockers, use
 cloud coders for independent work, and route unavailable or quota-limited executors
@@ -31,11 +31,12 @@ Existing state and transport overrides support isolated focused tests.
 
 ## Bounded execution and observable results
 
-One AGY call has a 610-second subprocess timeout and a 600-second print timeout.
-One Dot call has a 180-second timeout, with no remote forwarding or account
+One Codex CLI call has a 180-second subprocess timeout and writes its final
+plain-text response to a temporary file. One Dot call has a 180-second timeout,
+with no remote forwarding or account
 rotation. There is no retry loop, new ledger, journal, browser transport, process
-supervisor, or semantic routing in application code. The AGY-generated message is
-limited to 1,200 characters. A successful AGY exit does not prove delivery:
+supervisor, or semantic routing in application code. The generated message is
+limited to 1,200 characters. A successful generator exit does not prove delivery:
 `sent` requires Dot exit zero and an exact `DOT_SENT_VERIFIED` output line.
 A failed or uncertain send reports failure and is not retried within that run.
 No new persistent receipt hold is created: future scheduled ticks remain periodic
@@ -46,7 +47,7 @@ uncertain send. A ping does not prove completion of the Dot's underlying tasks.
 
 - [x] Replace the existing wrapper's worker target with the small Python script.
 - [x] Reuse existing account configuration, lock, STOP and Dot safety behavior.
-- [x] Keep coordination judgment in the AGY prompt and Dot task owners.
+- [x] Keep coordination judgment in the model prompt and Dot task owners.
 - [x] Add focused fake-provider tests for selection, one send, generation failures,
   unverified receipt, STOP, historical holds, lock contention and actual caller wiring.
 - [x] Independently run `python3 -m unittest discover -s tests -p test_simple_dot_ping.py -v`.
@@ -62,5 +63,5 @@ by preparing or publishing this branch.
 
 A real AGY transport probe on 2026-10-08 accepted the stream-JSON arguments but
 returned exit 3 and `RESOURCE_EXHAUSTED` (individual quota), with zero generated
-tokens. The result envelope matched the parser; generation remains unverified
-until provider quota is available. No Dot call or delivery followed this probe.
+tokens. Generation now uses the installed Codex CLI; no Dot call or delivery
+followed the failed AGY probe.

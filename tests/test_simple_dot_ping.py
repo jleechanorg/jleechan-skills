@@ -1,4 +1,4 @@
-"""Tiny scheduled ping tests use fake AGY/Dot executables and temporary state."""
+"""Tiny scheduled ping tests use fake generator/Dot executables and temporary state."""
 import importlib.util
 import json
 import os
@@ -20,13 +20,13 @@ class SimplePingTests(unittest.TestCase):
         self.config.write_text(json.dumps({'rotation': ['alpha', 'beta', 'gamma'], 'accounts': {a: {} for a in ['alpha','beta','gamma']}}))
         self.calls = self.root/'calls'
         self.message = self.root/'message'
-        self.agy = self.root/'agy'
-        self.agy.write_text('#!/usr/bin/env python3\nimport json,os,sys\nopen(os.environ["CALLS"],"a").write("agy\\n")\njson.load(sys.stdin)\nprint(json.dumps({"event":"result","result":{"status":"SUCCESS","response":"Advance each authorized goal now and report the next safe action."}}))\n')
+        self.generator = self.root/'generator'
+        self.generator.write_text('#!/usr/bin/env python3\nimport os,sys\nargs=sys.argv\nassert args[1:5]==["exec","--yolo","-m","gpt-6-luna"]\nassert "--ephemeral" in args and "--skip-git-repo-check" in args\nassert args[args.index("--config")+1]=="project_doc_max_bytes=0"\nopen(os.environ["CALLS"],"a").write("generator\\n")\nopen(args[args.index("--output-last-message")+1],"w").write("Advance each authorized goal now and report the next safe action.")\n')
         self.dot = self.root/'dot'
         self.dot.write_text('#!/usr/bin/env python3\nimport os,sys\nfrom pathlib import Path\nassert sys.argv[1:4]==["--account","alpha","send-once"]\nassert os.environ["DOT_ALLOW_REMOTE"]=="0" and os.environ["DOT_ROTATE_ON_LIMIT"]=="0"\nopen(os.environ["CALLS"],"a").write("dot\\n")\nPath(os.environ["MESSAGE"]).write_text(Path(sys.argv[4]).read_text())\nprint(os.environ.get("RECEIPT","DOT_SENT_VERIFIED"))\nsys.exit(int(os.environ.get("SEND_RC","0")))\n')
-        self.agy.chmod(0o700)
+        self.generator.chmod(0o700)
         self.dot.chmod(0o700)
-        self.env = dict(os.environ, DOT_CONFIG_FILE=str(self.config), COORDINATOR_STATE_DIR=str(self.root/'state'), COORDINATOR_LOCK_FILE=str(self.root/'state/ping.lock'), COORDINATOR_AGY=str(self.agy), COORDINATOR_DOT_SCRIPT=str(self.dot), CALLS=str(self.calls), MESSAGE=str(self.message))
+        self.env = dict(os.environ, DOT_CONFIG_FILE=str(self.config), COORDINATOR_STATE_DIR=str(self.root/'state'), COORDINATOR_LOCK_FILE=str(self.root/'state/ping.lock'), COORDINATOR_GENERATOR=str(self.generator), COORDINATOR_DOT_SCRIPT=str(self.dot), CALLS=str(self.calls), MESSAGE=str(self.message))
 
     def run_ping(self):
         return subprocess.run(['python3', str(SCRIPT), '--account', 'alpha'], env=self.env, text=True, capture_output=True, timeout=5)
@@ -34,12 +34,13 @@ class SimplePingTests(unittest.TestCase):
     def test_one_generator_and_one_existing_send_once(self):
         result = self.run_ping()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.calls.read_text().splitlines(), ['agy','dot'])
+        self.assertEqual(self.calls.read_text().splitlines(), ['generator','dot'])
         self.assertIn('Advance each authorized goal', self.message.read_text())
+        self.assertIn('From Codex coordinator', self.message.read_text())
         self.assertIn('sent', result.stdout)
 
     def test_generation_failure_does_not_send(self):
-        self.agy.write_text('#!/bin/sh\nexit 7\n')
+        self.generator.write_text('#!/bin/sh\nexit 7\n')
         self.assertNotEqual(self.run_ping().returncode, 0)
         self.assertFalse(self.message.exists())
 
@@ -47,7 +48,7 @@ class SimplePingTests(unittest.TestCase):
         self.env['RECEIPT'] = 'DOT_SEND_UNVERIFIED'
         result = self.run_ping()
         self.assertNotEqual(result.returncode, 0)
-        self.assertEqual(self.calls.read_text().splitlines(), ['agy','dot'])
+        self.assertEqual(self.calls.read_text().splitlines(), ['generator','dot'])
 
     def test_stop_and_existing_hold_prevent_generation(self):
         state = self.root/'state'
@@ -93,7 +94,7 @@ class SimplePingTests(unittest.TestCase):
         self.assertIn('OnCalendar=*:10,30,50:00', timer)
         self.assertIn('Persistent=false', timer)
 
-    def test_malformed_generation_output_does_not_send(self):
-        self.agy.write_text('#!/bin/sh\necho not-json\n')
+    def test_empty_generation_output_does_not_send(self):
+        self.generator.write_text('#!/bin/sh\nfor arg do target="$arg"; done\n: > "$target"\n')
         self.assertNotEqual(self.run_ping().returncode, 0)
         self.assertFalse(self.message.exists())
