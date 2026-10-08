@@ -288,7 +288,7 @@ out.write_text({response!r})
         for path in receipts:
             raw = path.read_text()
             receipt = json.loads(raw)
-            self.assertGreater(receipt["stdout"]["bytes"], 1000000)
+            self.assertGreater(receipt["stdout"]["decoded_utf8_bytes"], 1000000)
             self.assertEqual(receipt["stdout"]["text"], "[REDACTED]")
             self.assertEqual(receipt["stderr"]["text"], "[REDACTED]")
             self.assertLessEqual(path.stat().st_size, 2048)
@@ -330,8 +330,8 @@ out.write_text({response!r})
         receipt = json.loads(receipts[0].read_text())
         self.assertEqual(receipt["failure_stage"], "timeout")
         self.assertIsNone(receipt["exit_code"])
-        self.assertEqual(receipt["stdout"], {"bytes": None, "text": None})
-        self.assertEqual(receipt["stderr"], {"bytes": None, "text": None})
+        self.assertEqual(receipt["stdout"], {"decoded_utf8_bytes": None, "text": None})
+        self.assertEqual(receipt["stderr"], {"decoded_utf8_bytes": None, "text": None})
         self.assertNotIn("private partial text", receipts[0].read_text())
 
     def test_failed_attempt_distinguishes_envelope_and_decision(self):
@@ -351,7 +351,20 @@ out.write_text({response!r})
                 receipt = json.loads(created.pop().read_text())
                 self.assertEqual(receipt["failure_stage"], stage)
                 self.assertEqual(receipt["exit_code"], 0)
-                self.assertEqual(receipt["stderr"], {"bytes": 0, "text": ""})
+                self.assertEqual(receipt["stderr"], {"decoded_utf8_bytes": 0, "text": ""})
+
+    def test_receipt_size_labels_decoded_utf8_after_newline_normalization(self):
+        self._fake_driver("agy", "import os\nos.write(1, b'A\\r\\nB\\rC\\n')\nos.write(2, b'D\\r\\nE\\rF\\n')\nraise SystemExit(23)\n")
+        with mock.patch.dict(os.environ, self._path_env()):
+            result = DriverAdapter().decide(self.packet, self.workspace)
+        self.assertEqual(result, {"status": "driver_failed", "reason": "nonzero_exit"})
+        receipts = list(self.workspace.glob(".driver-diagnostic-*.json"))
+        self.assertEqual(len(receipts), 1)
+        receipt = json.loads(receipts[0].read_text())
+        # Seven raw bytes become six decoded UTF-8 bytes after universal newlines.
+        for stream in ("stdout", "stderr"):
+            self.assertEqual(receipt[stream], {
+                "decoded_utf8_bytes": 6, "text": "[REDACTED]"})
 
     def test_failed_attempt_retains_private_exit_receipt(self):
         self._fake_driver("agy", "import sys\nsys.stdin.read()\nprint('known stdout')\nprint('known stderr', file=sys.stderr)\nsys.exit(23)\n")
@@ -363,8 +376,8 @@ out.write_text({response!r})
         receipt = json.loads(receipts[0].read_text())
         self.assertEqual(receipt["exit_code"], 23)
         self.assertEqual(receipt["failure_stage"], "process_exit")
-        self.assertEqual(receipt["stdout"], {"bytes": 13, "text": "[REDACTED]"})
-        self.assertEqual(receipt["stderr"], {"bytes": 13, "text": "[REDACTED]"})
+        self.assertEqual(receipt["stdout"], {"decoded_utf8_bytes": 13, "text": "[REDACTED]"})
+        self.assertEqual(receipt["stderr"], {"decoded_utf8_bytes": 13, "text": "[REDACTED]"})
         self.assertEqual(stat.S_IMODE(receipts[0].stat().st_mode), 0o600)
         self.assertLessEqual(receipts[0].stat().st_size, 2048)
 

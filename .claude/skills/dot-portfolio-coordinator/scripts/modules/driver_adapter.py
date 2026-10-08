@@ -47,13 +47,14 @@ def _attempt_failure(workspace: Path, driver: str, reason: str, stage: str,
     """Best-effort private receipt; never retain arbitrary CLI or prompt text.
 
     Full content redaction is deliberate: pattern filters cannot exclude private
-    communications or unknown credentials. Byte counts retain output presence
-    and size; None means unavailable, distinct from an observed empty stream.
+    communications or unknown credentials. Sizes count UTF-8 re-encoded decoded
+    text after subprocess universal-newline normalization, not raw pipe bytes.
+    None means unavailable, distinct from an observed empty stream.
     """
     def output_summary(output):
         if output is None:
-            return {"bytes": None, "text": None}
-        return {"bytes": len(output.encode("utf-8", errors="replace")),
+            return {"decoded_utf8_bytes": None, "text": None}
+        return {"decoded_utf8_bytes": len(output.encode("utf-8", errors="replace")),
                 "text": "[REDACTED]" if output else ""}
 
     receipt = {"schema_version": 1, "driver": driver, "reason": reason,

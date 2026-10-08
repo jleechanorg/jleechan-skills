@@ -98,8 +98,9 @@ COORDINATOR_CHANGE_ID="ev-001" COORDINATOR_CHANGE_SUMMARY="Update" ./scripts/dot
 A failed subprocess attempt writes a unique `.driver-diagnostic-*.json` receipt
 in its existing driver workspace, separate from the deleted prompt directory.
 Receipts are mode `0600`, at most 2048 UTF-8 bytes each, and contain the driver,
-legacy failure reason, distinct failure stage, exit code, and stdout/stderr byte
-counts. All nonempty output text is replaced with `[REDACTED]`: credentials,
+legacy failure reason, distinct failure stage, exit code, and stdout/stderr
+`decoded_utf8_bytes`: the UTF-8 re-encoded size of decoded text after subprocess
+universal-newline normalization (CRLF and CR become LF), not raw pipe bytes. All nonempty output text is replaced with `[REDACTED]`: credentials,
 private communications, and echoed prompts cannot be reliably removed with
 pattern filters. No packet identifiers, prompts, environment, argv, exception
 text, output hashes, or raw excerpts are retained. Empty streams remain empty;
