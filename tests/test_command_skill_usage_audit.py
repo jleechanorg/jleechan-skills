@@ -68,13 +68,21 @@ def build_audit_fixture(
             sk_path.write_text(f"---\nname: {sk['skill']}\ndescription: Test skill\n---\n# {sk['skill']}\n")
 
     for cmd in commands:
-        if "content_sha256" not in cmd and "content_encoding" not in cmd:
+        if (
+            "content_sha256" not in cmd
+            and "content_encoding" not in cmd
+            and cmd.get("content_captured") is not False
+        ):
             cp = Path(cmd["path"])
             if cp.is_file():
                 cmd["content_sha256"] = digest(cp.read_bytes())
 
     for sk in skills:
-        if "content_sha256" not in sk and "content_encoding" not in sk:
+        if (
+            "content_sha256" not in sk
+            and "content_encoding" not in sk
+            and sk.get("content_captured") is not False
+        ):
             sp = Path(sk["path"])
             if sp.is_file():
                 sk["content_sha256"] = digest(sp.read_bytes())
