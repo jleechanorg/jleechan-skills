@@ -1,9 +1,19 @@
 ---
 name: agy-dot-coordinator
-description: Coordinate existing dot work with collaborative priorities, quiet delta coordination, explicit state-change events and verified delivery.
+description: Send short AGY-written coordination pings through the existing Dot tool and native scheduler.
 ---
 
 # Antigravity dot coordinator
+
+The default native wrapper now runs `scripts/ping-dots.py`: one due configured account, one AGY-generated short reminder, and one existing Dot `send-once` call. It asks each Dot to advance every authorized goal and show actual progress or a genuine human-only blocker.
+
+Configure exactly three accounts in the existing Dot rotation. Mac slots are :00/:20/:40; Linux slots are :30/:50/:10 for those accounts respectively. Missed slots are not replayed. The existing lock, STOP file, historical delivery holds, and Dot draft/authentication safeguards remain. There is no new ledger, browser transport, retry loop, or process framework.
+
+`python3 scripts/ping-dots.py --account <configured-key>` sends one real ping. Do not use it merely to test installation. Native service installation/activation still requires the authorized owner handoff. A tested script or enabled timer is not proof that all six host/account pairs delivered.
+
+## Legacy event-driven worker reference
+
+The following documents the retained `agy-dot-coordinator-worker.sh` manual interface, not the new default scheduler path.
 
 The worker sends through the existing dot Chrome transport. It does not infer new authority or execute repository work. Latest direct user instructions override contextual priorities; respect task owners, cancellations, approvals and authentication holds.
 
