@@ -284,6 +284,294 @@ class TestDotPortfolioCoordinatorObserve(unittest.TestCase):
             MAX_PACKET_BYTES,
         )
 
+    def _production_shaped_174_packet(self, item_count=174):
+        """Pinned synthetic lengths, not a copy/byte claim about a private census."""
+        sources = []
+        snapshots = {}
+        for index in range(3):
+            source = {
+                "id": f"fixture-source-component-{index}",
+                "namespace": f"fixture-{index}",
+                "type": "beads_store", "github_host": "github.com",
+                "repository": f"fixture-org/component-{index}",
+                "canonical_tracker": "beads", "authority": "read_only",
+                "audience_policy": {
+                    field: ["model"] for field in
+                    ("id", "task_composite_key", "title", "status", "priority")
+                } | {"updated_at": ["internal"]},
+            }
+            sources.append(source)
+            items = []
+            for row in range((item_count + 2 - index) // 3):
+                item_index = sum(len(entry["items"]) for entry in snapshots.values()) + row
+                item_id = f"fixture-{item_index:06d}"
+                items.append({
+                    "id": item_id,
+                    "task_composite_key": ["github.com", source["repository"],
+                                           source["namespace"], item_id],
+                    "title": (f"Review portfolio component {item_index:03d}: verify "
+                              "current work, next task, and pending evidence."),
+                    "status": ("open", "in_progress", "deferred")[row % 3],
+                    "priority": row % 5,
+                    "updated_at": f"2026-10-08T00:{item_index % 60:02d}:00Z",
+                })
+            snapshots[source["id"]] = {
+                "status": "fresh", "version": "fixture-cursor-v1",
+                "cursor": {"completed": True}, "checkpoint_committed": True,
+                "items": items,
+            }
+        registry = coordinator_portfolio.SourceRegistry({
+            "version": "1.0.0", "sources": sources,
+        })
+        candidates, reason = coordinator_portfolio.build_driver_candidates(
+            {"snapshots": snapshots}, registry
+        )
+        self.assertEqual(reason, "ok")
+        model_snapshot = {
+            "coverage": {"registered_count": 3, "fresh_count": 3,
+                         "stale_count": 0, "unavailable_count": 0},
+            "sources": {}, "candidate_bindings": candidates,
+        }
+        for source in sources:
+            collected = snapshots[source["id"]]
+            model_snapshot["sources"][source["id"]] = {
+                **{key: value for key, value in collected.items() if key != "items"},
+                "authority": source["authority"],
+                "items": [registry.filter_by_audience(source["id"], item, "model")
+                          for item in collected["items"]],
+            }
+        config = {
+            "authority": ("Check every registered current task, ask about blockers "
+                          "and next work, and continue within existing authority."),
+            "accounts": [{"account": "fixture", "grant_file": "unused-fixture-grant.json",
+                          "grant_sha256": "a" * 64}],
+        }
+        # Exercise production packet assembly without a provider, grant file or send.
+        with mock.patch("modules.sender.validate_operator_grant",
+                        return_value=(True, "ok", {"grant_version": 1})), \
+                mock.patch("modules.driver_adapter.DriverAdapter.decide",
+                           return_value={"status": "ok", "decision": {
+                               "action": "no_action", "outcome": "no_eligible_task"}
+                           }) as decide, \
+                mock.patch.object(coordinator_portfolio, "private_run_directory",
+                                  return_value=Path(self.temp_dir.name)):
+            result = coordinator_portfolio.run_pilot_slot(
+                config, {"account_index": 0, "event_id": "e" * 64}, {},
+                model_snapshot, Path(self.temp_dir.name), "agy", "existing_profile",
+                time.monotonic() + 600,
+            )
+        self.assertEqual(result["outcome"], "no_eligible_task")
+        return decide.call_args.args[0], snapshots
+
+    def _expand_driver_packet_json(self, wire):
+        """Independent decoder for the documented candidate-only wire schema."""
+        packet = json.loads(json.dumps(wire, ensure_ascii=False, allow_nan=False))
+        table = packet["candidate_bindings"]
+        if isinstance(table, list):
+            return packet
+        self.assertEqual(set(table), {"encoding", "columns", "groups"})
+        self.assertEqual(table["encoding"], "source-grouped-rows-v1")
+        self.assertEqual(table["columns"], ["task_id", "task_composite_key_last",
+                                            "record_version", "record_digest"])
+        candidates = []
+        for group in table["groups"]:
+            self.assertEqual(set(group), {"source_id", "task_composite_key_prefix", "rows"})
+            for row in group["rows"]:
+                self.assertEqual(len(row), len(table["columns"]))
+                values = dict(zip(table["columns"], row))
+                candidates.append({
+                    "task_id": values["task_id"],
+                    "source_binding": {
+                        "source_id": group["source_id"],
+                        "task_composite_key": group["task_composite_key_prefix"] +
+                                              [values["task_composite_key_last"]],
+                        "record_version": values["record_version"],
+                        "record_digest": values["record_digest"],
+                    },
+                })
+        packet["candidate_bindings"] = candidates
+        return packet
+
+    def test_real_shaped_174_item_packet_stays_within_driver_limit(self):
+        from modules.driver_adapter import MAX_PACKET_BYTES, _build_prompt, _validate_packet
+
+        packet, snapshots = self._production_shaped_174_packet()
+        original_json = json.dumps(packet, ensure_ascii=False, allow_nan=False,
+                                   separators=(",", ":"))
+        # Fixture-specific: authority, 64-character event ID and grant are pinned above.
+        self.assertEqual(len(original_json.encode("utf-8")), 105_841)
+        self.assertGreater(len(original_json.encode("utf-8")), MAX_PACKET_BYTES)
+        validated, reason = _validate_packet(packet)
+        self.assertEqual(reason, "ok")
+        self.assertIs(validated, packet)
+        self.assertEqual(len(packet["candidate_bindings"]), 174)
+        model_items = []
+        candidate_index = 0
+        for source_id, source in packet["snapshot"]["sources"].items():
+            model_items.extend(source["items"])
+            for item, internal in zip(source["items"], snapshots[source_id]["items"]):
+                self.assertEqual(set(item), {"id", "task_composite_key", "title",
+                                            "status", "priority"})
+                self.assertNotIn("updated_at", item)
+                expected_binding = {
+                    "source_id": source_id,
+                    "task_composite_key": internal["task_composite_key"],
+                    "record_version": internal["updated_at"],
+                    "record_digest": hashlib.sha256(json.dumps(
+                        internal, sort_keys=True, ensure_ascii=False, allow_nan=False,
+                        separators=(",", ":")
+                    ).encode("utf-8")).hexdigest(),
+                }
+                candidate = packet["candidate_bindings"][candidate_index]
+                candidate_index += 1
+                self.assertEqual(candidate["source_binding"], expected_binding)
+                self.assertEqual(candidate["source_binding"]["record_version"],
+                                 internal["updated_at"])
+        self.assertEqual(len(model_items), 174)
+        self.assertEqual(sum(len(item) for item in model_items), 870)
+        guidance = (SKILL_DIR / "references" / "dot-self-unblock.md").read_text()
+        prompt = _build_prompt(validated, guidance)
+        wire_json = prompt.split("Packet JSON:\n", 1)[1]
+        wire = json.loads(wire_json)
+        self.assertEqual(wire["snapshot"], packet["snapshot"])
+        self.assertEqual(self._expand_driver_packet_json(wire), packet)
+        self.assertLessEqual(len(wire_json.encode("utf-8")), MAX_PACKET_BYTES)
+        self.assertEqual(json.dumps(packet, ensure_ascii=False, allow_nan=False,
+                                    separators=(",", ":")), original_json)
+
+    def test_187_five_field_items_use_lossless_compact_packet(self):
+        from modules.driver_adapter import MAX_PACKET_BYTES, _build_prompt, _validate_packet
+
+        packet, _ = self._production_shaped_174_packet(item_count=187)
+        self.assertEqual(_validate_packet(packet)[1], "ok")
+        self.assertEqual(len(packet["candidate_bindings"]), 187)
+        self.assertEqual(sum(len(item) for source in packet["snapshot"]["sources"].values()
+                             for item in source["items"]), 187 * 5)
+        wire_json = _build_prompt(packet, "").split("Packet JSON:\n", 1)[1]
+        wire = json.loads(wire_json)
+        self.assertIsInstance(wire["candidate_bindings"], dict)
+        self.assertEqual(self._expand_driver_packet_json(wire), packet)
+        self.assertLessEqual(len(wire_json.encode("utf-8")), MAX_PACKET_BYTES)
+
+    def test_large_packet_encoding_preserves_order_types_and_arbitrary_evidence(self):
+        from modules.driver_adapter import _build_prompt, _validate_packet
+
+        packet, _ = self._production_shaped_174_packet()
+        packet["snapshot"]["extra"] = {
+            "missing_is_different_from_null": None,
+            "values": [False, 0, True, 1, 1.25, "é漢字😀", "quotes\"\\\n"],
+            "nested": {"encoding": "source-grouped-rows-v1", "rows": [[1, 1]]},
+        }
+        source = next(iter(packet["snapshot"]["sources"].values()))
+        source.update({"collected_at": 1_791_417_600, "validated_at": 1_791_417_601,
+                       "attempted_at": 1_791_417_599})
+        items = source["items"]
+        items[0]["arbitrary_field"] = {"present": None, "list": [True, 1, "1"]}
+        items[1]["title"] = items[0]["title"]  # Equal values are not deduplicated away.
+        candidates = packet["candidate_bindings"]
+        candidates[1], candidates[58] = candidates[58], candidates[1]
+        candidates[0]["source_binding"]["source_id"] += "é漢字😀"
+        candidates[0]["source_binding"]["task_composite_key"][0] += "é漢字😀"
+        self.assertEqual(_validate_packet(packet)[1], "ok")
+        wire = json.loads(_build_prompt(packet, "").split("Packet JSON:\n", 1)[1])
+        restored = self._expand_driver_packet_json(wire)
+        # Canonical JSON distinguishes bool/int and keeps list order and absence/null.
+        canonical = lambda value: json.dumps(value, ensure_ascii=False, allow_nan=False,
+                                             separators=(",", ":"), sort_keys=True)
+        self.assertEqual(canonical(restored), canonical(packet))
+        self.assertGreater(len(wire["candidate_bindings"]["groups"]), 3)
+
+    def test_small_packet_keeps_original_json_serialization(self):
+        from modules.driver_adapter import _build_prompt
+
+        packet, _ = self._production_shaped_174_packet()
+        packet["candidate_bindings"] = packet["candidate_bindings"][:1]
+        packet["snapshot"]["sources"] = {}
+        prompt = _build_prompt(packet, "fixture guidance")
+        self.assertNotIn("source-grouped-rows-v1", prompt)
+        self.assertEqual(prompt.split("Packet JSON:\n", 1)[1], json.dumps(
+            packet, ensure_ascii=False, separators=(",", ":")
+        ))
+
+    def test_large_packet_rejects_oversized_encoding_and_invalid_unicode(self):
+        from modules.driver_adapter import _validate_packet
+
+        packet, _ = self._production_shaped_174_packet()
+        packet["previous_dot_reply"] = "é" * 50_000
+        self.assertEqual(_validate_packet(packet), (None, "input_too_large"))
+        packet["previous_dot_reply"] = "\ud800"
+        self.assertEqual(_validate_packet(packet), (None, "invalid_packet"))
+
+    def test_non_inventory_candidates_do_not_enter_table_encoding(self):
+        from modules.driver_adapter import _validate_packet
+
+        packet, _ = self._production_shaped_174_packet()
+        selected = packet["candidate_bindings"][0]
+        packet.update({
+            "dialogue_stage": "challenge", "phase": "challenge_reply_due",
+            "task_id": selected["task_id"], "source_binding": selected["source_binding"],
+            "candidate_bindings": [None, {"arbitrary": True}],
+            "correlation": {"parent_event_id": "p", "user_message_id": "u",
+                            "assistant_message_id": "a", "start_cursor": "s",
+                            "end_cursor": "e", "complete": True},
+            "previous_dot_reply": "x" * 100_000,
+        })
+        self.assertEqual(_validate_packet(packet), (None, "input_too_large"))
+
+    def test_large_packet_driver_preserves_output_binding_checks(self):
+        from modules.driver_adapter import DriverAdapter, MAX_PACKET_BYTES
+
+        packet, _ = self._production_shaped_174_packet()
+        selected = packet["candidate_bindings"][-1]
+        decision = {
+            "schema_version": 1, "event_id": packet["event_id"],
+            "task_id": selected["task_id"], "outcome": "send_proposal",
+            "stage": "inventory", "source_binding": selected["source_binding"],
+            "grant_binding": packet["grant_binding"], "correlation": None,
+            "judgment": {"assessment": "unknown", "safe_next_action": "Ask current work."},
+            "blockers": [], "action": "send", "message": "What work comes next?",
+        }
+
+        def run(_cmd, **kwargs):
+            stdin = kwargs["input_text"]
+            self.assertLessEqual(len(stdin.encode("utf-8")), MAX_PACKET_BYTES + 24_000)
+            event = json.loads(stdin)
+            wire = json.loads(event["message"]["content"].split("Packet JSON:\n", 1)[1])
+            self.assertEqual(self._expand_driver_packet_json(wire), packet)
+            return 0, json.dumps({"event": "result", "result": {
+                "status": "SUCCESS", "response": json.dumps(decision)}}), ""
+
+        with mock.patch("modules.driver_adapter.shutil.which", return_value="/fixture/agy"), \
+                mock.patch("modules.driver_adapter.run_bounded_command", side_effect=run):
+            result = DriverAdapter().decide(packet, Path(self.temp_dir.name))
+            self.assertEqual(result, {"status": "ok", "decision": decision})
+            for field in ("source_id", "task_composite_key", "record_version", "record_digest"):
+                with self.subTest(changed_binding=field):
+                    decision["source_binding"] = dict(selected["source_binding"])
+                    decision["source_binding"][field] = (["wrong"] * 4 if
+                        field == "task_composite_key" else "b" * 64)
+                    self.assertEqual(DriverAdapter().decide(packet, Path(self.temp_dir.name)),
+                                     {"status": "driver_failed", "reason": "invalid_output"})
+        with mock.patch("modules.driver_adapter.shutil.which", return_value="/fixture/agy"), \
+                mock.patch("modules.driver_adapter.run_bounded_command", return_value=(
+                    0, '{"event":"result","result":{"status":"SUCCESS","response":""}}', "")):
+            self.assertEqual(DriverAdapter().decide(packet, Path(self.temp_dir.name)),
+                             {"status": "driver_failed", "reason": "invalid_output"})
+
+    def test_agy_rejects_oversized_stdin_envelope_before_execution(self):
+        from modules.driver_adapter import DriverAdapter, _validate_packet
+
+        packet, _ = self._production_shaped_174_packet()
+        packet["candidate_bindings"] = packet["candidate_bindings"][:1]
+        packet["snapshot"]["sources"] = {}
+        packet["previous_dot_reply"] = '\\"' * 18_000
+        self.assertEqual(_validate_packet(packet)[1], "ok")
+        with mock.patch("modules.driver_adapter.shutil.which", return_value="/fixture/agy"), \
+                mock.patch("modules.driver_adapter.run_bounded_command") as run:
+            self.assertEqual(DriverAdapter().decide(packet, Path(self.temp_dir.name)),
+                             {"status": "driver_failed", "reason": "input_too_large"})
+            run.assert_not_called()
+
     def test_candidate_task_ids_are_stable_and_distinguish_source_items(self):
         registry = coordinator_portfolio.SourceRegistry(self.sources_data)
 
