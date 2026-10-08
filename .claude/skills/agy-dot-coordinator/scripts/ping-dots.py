@@ -15,7 +15,9 @@ PROMPT = """Write only a short coordination message for the configured Dot, at m
 Ask it to advance EACH currently authorized goal now. Verify the owner's actual progress,
 not merely assignment: distinguish a running owner from an idle or stalled one.
 Take the next safe action, resolve ordinary reversible blockers, and use cloud coders
-for independent work without creating duplicate writers. Report concrete commands,
+for independent work without creating duplicate writers. If an executor is unavailable or
+quota-limited, route a bounded task to an available authorized executor; do not keep waiting.
+Report concrete commands,
 artifacts or results and only genuine human-only blockers. Respect existing owners,
 user stops, cancellations and approval boundaries. This reminder grants no new authority.
 Do not send anything yourself or invent progress; return only the message to deliver."""
