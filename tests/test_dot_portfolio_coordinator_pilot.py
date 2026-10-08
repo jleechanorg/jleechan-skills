@@ -202,6 +202,34 @@ class RecurringPilotTests(unittest.TestCase):
         self.assertEqual(self.state["duration_secs"], 10800)
         print("verified same-account receipts:", json.dumps(ids))
 
+    def test_diagnostic_failures_never_reach_sender(self):
+        from modules.process_utils import ProcessTimeoutError
+        cases = [
+            ((23, "known stdout", "known stderr"), "nonzero_exit"),
+            ((0, "not json", ""), "invalid_output"),
+            ((0, json.dumps({"event": "result", "result": {
+                "status": "SUCCESS", "response": "{}"}}), ""), "invalid_output"),
+            (ProcessTimeoutError("private details"), "timeout"),
+        ]
+        for execution, reason in cases:
+            with self.subTest(reason=reason):
+                behavior = ({"side_effect": execution} if isinstance(execution, Exception)
+                            else {"return_value": execution})
+                with mock.patch("modules.driver_adapter.run_bounded_command", **behavior) as run:
+                    result = cli.run_pilot_slot(
+                        self.config, self.slots[0], self.state, self.snapshot,
+                        self.root, "agy", str(self.transport), time.monotonic() + 1000,
+                        source_receipt_reader=self.source_reader,
+                    )
+                run.assert_called_once()
+                self.assertEqual(result, {"outcome": "driver_failed", "reason": reason,
+                                          "delivery_verified": False})
+                self.send.assert_not_called()
+                self.source_reader.assert_not_called()
+        self.assertEqual(len(list(self.root.glob("driver-*/.driver-diagnostic-*.json"))), 4)
+        self.assertFalse(self.capture.exists())
+        self.assertFalse((self.root / "sender-0").exists())
+
     def test_two_same_account_slots_each_invoke_driver_and_sender(self):
         self.driver_delay = 120
         self.process()

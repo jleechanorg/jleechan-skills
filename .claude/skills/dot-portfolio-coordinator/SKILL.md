@@ -92,3 +92,22 @@ The sender subcomponent is located at `scripts/dot-portfolio-coordinator-sender.
 # (Note: --authorization-ref is inert/unsupported and not used for grant enforcement; --reconcile-receipt is unavailable)
 COORDINATOR_CHANGE_ID="ev-001" COORDINATOR_CHANGE_SUMMARY="Update" ./scripts/dot-portfolio-coordinator-sender.sh --account default --state-dir /path/to/state --grant-file /path/to/grant.json --grant-sha256 <sha256> message.txt
 ```
+
+## Private driver failure diagnostics
+
+A failed subprocess attempt writes a unique `.driver-diagnostic-*.json` receipt
+in its existing driver workspace, separate from the deleted prompt directory.
+Receipts are mode `0600`, at most 2048 UTF-8 bytes each, and contain the driver,
+legacy failure reason, distinct failure stage, exit code, and stdout/stderr byte
+counts. All nonempty output text is replaced with `[REDACTED]`: credentials,
+private communications, and echoed prompts cannot be reliably removed with
+pattern filters. No packet identifiers, prompts, environment, argv, exception
+text, output hashes, or raw excerpts are retained. Empty streams remain empty;
+timeouts and execution exceptions have null exit/output fields because the process helper does not return
+them. Receipts do not diagnose the underlying provider failure.
+
+Receipt writes are best effort; inability to write does not change the failure
+result or authorize a send. Preflight failures do not create attempt receipts.
+The containing private run directory owns retention; this adds no global log,
+publication, automatic cleanup, or total-run quota. The size bound applies to
+the persisted receipt, not the existing subprocess capture buffer.

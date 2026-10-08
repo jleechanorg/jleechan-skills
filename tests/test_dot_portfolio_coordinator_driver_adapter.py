@@ -275,6 +275,99 @@ out.write_text({response!r})
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["decision"]["task_id"], "task-123")
 
+    def test_receipts_redact_secrets_communications_and_oversized_prompt_echo(self):
+        # Synthetic fixtures only; unknown/private prose must be redacted too.
+        self._fake_driver("agy", "import sys\nprompt = sys.stdin.read()\nsys.stdout.write(prompt + 'Bearer synthetic-token ' + 'x' * 1000000)\nsys.stderr.write('password=synthetic-secret private personal communication')\nsys.exit(23)\n")
+        with mock.patch.dict(os.environ, self._path_env()):
+            first = DriverAdapter().decide(self.packet, self.workspace)
+            second = DriverAdapter().decide(self.packet, self.workspace)
+        self.assertEqual(first, {"status": "driver_failed", "reason": "nonzero_exit"})
+        self.assertEqual(second, first)
+        receipts = list(self.workspace.glob(".driver-diagnostic-*.json"))
+        self.assertEqual(len(receipts), 2)
+        for path in receipts:
+            raw = path.read_text()
+            receipt = json.loads(raw)
+            self.assertGreater(receipt["stdout"]["bytes"], 1000000)
+            self.assertEqual(receipt["stdout"]["text"], "[REDACTED]")
+            self.assertEqual(receipt["stderr"]["text"], "[REDACTED]")
+            self.assertLessEqual(path.stat().st_size, 2048)
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+            for private in ("synthetic-token", "synthetic-secret", "personal communication",
+                            self.packet["previous_dot_reply"], "Packet JSON", "event-456"):
+                self.assertNotIn(private, raw)
+        self.assertEqual(set(self.workspace.iterdir()), set(receipts))
+
+    def test_receipt_write_failure_preserves_driver_failure(self):
+        self._fake_driver("agy", "raise SystemExit(23)\n")
+        with mock.patch.dict(os.environ, self._path_env()), mock.patch(
+                "modules.driver_adapter.tempfile.mkstemp", side_effect=OSError("private path")):
+            result = DriverAdapter().decide(self.packet, self.workspace)
+        self.assertEqual(result, {"status": "driver_failed", "reason": "nonzero_exit"})
+        self.assertEqual(list(self.workspace.iterdir()), [])
+
+    def test_execution_error_retains_stage_without_exception_text(self):
+        self._fake_driver("agy", "raise SystemExit(0)\n")
+        with mock.patch.dict(os.environ, self._path_env()), mock.patch(
+                "modules.driver_adapter.run_bounded_command",
+                side_effect=OSError("synthetic secret and private path")):
+            result = DriverAdapter().decide(self.packet, self.workspace)
+        self.assertEqual(result, {"status": "driver_failed", "reason": "execution_failed"})
+        receipts = list(self.workspace.glob(".driver-diagnostic-*.json"))
+        self.assertEqual(len(receipts), 1)
+        receipt = json.loads(receipts[0].read_text())
+        self.assertEqual(receipt["failure_stage"], "execution")
+        self.assertIsNone(receipt["exit_code"])
+        self.assertNotIn("synthetic secret", receipts[0].read_text())
+
+    def test_timeout_retains_receipt_without_inventing_exit_or_output(self):
+        self._fake_driver("agy", "import sys, time\nsys.stdin.read()\nprint('private partial text', flush=True)\ntime.sleep(30)\n")
+        with mock.patch.dict(os.environ, self._path_env()):
+            result = DriverAdapter().decide(self.packet, self.workspace, timeout_secs=1)
+        self.assertEqual(result, {"status": "driver_failed", "reason": "timeout"})
+        receipts = list(self.workspace.glob(".driver-diagnostic-*.json"))
+        self.assertEqual(len(receipts), 1)
+        receipt = json.loads(receipts[0].read_text())
+        self.assertEqual(receipt["failure_stage"], "timeout")
+        self.assertIsNone(receipt["exit_code"])
+        self.assertEqual(receipt["stdout"], {"bytes": None, "text": None})
+        self.assertEqual(receipt["stderr"], {"bytes": None, "text": None})
+        self.assertNotIn("private partial text", receipts[0].read_text())
+
+    def test_failed_attempt_distinguishes_envelope_and_decision(self):
+        for output, stage in [
+            ("not json", "envelope_parse"),
+            (json.dumps({"event": "result", "result": {
+                "status": "SUCCESS", "response": "{}"}}), "decision_validation"),
+        ]:
+            with self.subTest(stage=stage):
+                self._fake_driver("agy", f"print({output!r})\n")
+                before = set(self.workspace.glob(".driver-diagnostic-*.json"))
+                with mock.patch.dict(os.environ, self._path_env()):
+                    result = DriverAdapter().decide(self.packet, self.workspace)
+                self.assertEqual(result, {"status": "driver_failed", "reason": "invalid_output"})
+                created = set(self.workspace.glob(".driver-diagnostic-*.json")) - before
+                self.assertEqual(len(created), 1)
+                receipt = json.loads(created.pop().read_text())
+                self.assertEqual(receipt["failure_stage"], stage)
+                self.assertEqual(receipt["exit_code"], 0)
+                self.assertEqual(receipt["stderr"], {"bytes": 0, "text": ""})
+
+    def test_failed_attempt_retains_private_exit_receipt(self):
+        self._fake_driver("agy", "import sys\nsys.stdin.read()\nprint('known stdout')\nprint('known stderr', file=sys.stderr)\nsys.exit(23)\n")
+        with mock.patch.dict(os.environ, self._path_env()):
+            result = DriverAdapter().decide(self.packet, self.workspace)
+        self.assertEqual(result, {"status": "driver_failed", "reason": "nonzero_exit"})
+        receipts = list(self.workspace.glob(".driver-diagnostic-*.json"))
+        self.assertEqual(len(receipts), 1)
+        receipt = json.loads(receipts[0].read_text())
+        self.assertEqual(receipt["exit_code"], 23)
+        self.assertEqual(receipt["failure_stage"], "process_exit")
+        self.assertEqual(receipt["stdout"], {"bytes": 13, "text": "[REDACTED]"})
+        self.assertEqual(receipt["stderr"], {"bytes": 13, "text": "[REDACTED]"})
+        self.assertEqual(stat.S_IMODE(receipts[0].stat().st_mode), 0o600)
+        self.assertLessEqual(receipts[0].stat().st_size, 2048)
+
     def test_cli_failure_is_driver_failed_not_semantic_blocked(self):
         self._fake_driver(
             "agy", "import sys\nsys.stderr.write('private output')\nsys.exit(9)\n"

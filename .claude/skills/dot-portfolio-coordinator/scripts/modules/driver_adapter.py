@@ -42,6 +42,38 @@ def _failure(reason: str) -> Dict[str, str]:
     return {"status": "driver_failed", "reason": reason}
 
 
+def _attempt_failure(workspace: Path, driver: str, reason: str, stage: str,
+                     exit_code=None, stdout=None, stderr=None) -> dict:
+    """Best-effort private receipt; never retain arbitrary CLI or prompt text.
+
+    Full content redaction is deliberate: pattern filters cannot exclude private
+    communications or unknown credentials. Byte counts retain output presence
+    and size; None means unavailable, distinct from an observed empty stream.
+    """
+    def output_summary(output):
+        if output is None:
+            return {"bytes": None, "text": None}
+        return {"bytes": len(output.encode("utf-8", errors="replace")),
+                "text": "[REDACTED]" if output else ""}
+
+    receipt = {"schema_version": 1, "driver": driver, "reason": reason,
+               "failure_stage": stage, "exit_code": exit_code,
+               "stdout": output_summary(stdout), "stderr": output_summary(stderr)}
+    # Only fixed labels and scalar metadata; no packet IDs, paths, exception
+    # messages, argv, environment, output excerpts or output hashes.
+    payload = json.dumps(receipt, separators=(",", ":")).encode("utf-8")
+    try:
+        if len(payload) <= 2048:
+            fd, _ = tempfile.mkstemp(prefix=".driver-diagnostic-", suffix=".json",
+                                        dir=workspace)
+            with os.fdopen(fd, "wb") as stream:
+                stream.write(payload)
+    except OSError:
+        # Receipt failure must never turn a driver failure into a send decision.
+        pass
+    return _failure(reason)
+
+
 def _valid_digest(value: Any) -> bool:
     return (isinstance(value, str) and len(value) == 64 and
             all(char in "0123456789abcdef" for char in value))
@@ -397,15 +429,17 @@ class DriverAdapter:
             elif self.driver == "codex":
                 child_env.pop("OPENAI_API_KEY", None)
             try:
-                rc, stdout, _stderr = run_bounded_command(
+                rc, stdout, stderr = run_bounded_command(
                     cmd, cwd=str(workspace_path), timeout_secs=timeout_secs,
                     input_text=input_text, env=child_env)
             except ProcessTimeoutError:
-                return _failure("timeout")
+                return _attempt_failure(workspace_path, self.driver, "timeout", "timeout")
             except Exception:
-                return _failure("execution_failed")
+                return _attempt_failure(workspace_path, self.driver, "execution_failed",
+                                        "execution")
             if rc != 0:
-                return _failure("nonzero_exit")
+                return _attempt_failure(workspace_path, self.driver, "nonzero_exit",
+                                        "process_exit", rc, stdout, stderr)
             if self.driver == "agy":
                 response = _parse_agy(stdout)
             elif self.driver == "claude":
@@ -416,8 +450,10 @@ class DriverAdapter:
                 except OSError:
                     response = None
             if response is None:
-                return _failure("invalid_output")
+                return _attempt_failure(workspace_path, self.driver, "invalid_output",
+                                        "envelope_parse", rc, stdout, stderr)
             decision = _validate_decision(response, packet)
             if decision is None:
-                return _failure("invalid_output")
+                return _attempt_failure(workspace_path, self.driver, "invalid_output",
+                                        "decision_validation", rc, stdout, stderr)
             return {"status": "ok", "decision": decision}
