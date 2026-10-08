@@ -227,9 +227,14 @@ function syncCookiesFromSource(srcProfilePath, defaultDir, force = false) {
       const dstMtime = dstExists ? fs.statSync(dstC).mtimeMs : 0;
 
       // Distinguish a valid manual headless login from a routine cookie-file touch:
-      // When auth has failed (authFailedAt > 0), dst is unauthenticated. Routine cookie writes
-      // (such as Chrome shutdown flushes) occurring after failedAt must NOT be mistaken for a manual login.
-      // Only an explicit manual login marker newer than the failure timestamp proves a manual login.
+      // 1. If explicit manual login marker is newer than both last sync and any auth failure,
+      //    preserve it as a manual login unless source is even newer.
+      // 2. If auth has failed (authFailedAt > 0) and no newer manual login occurred,
+      //    routine cookie writes (shutdown flushes) must not be mistaken for a manual login.
+      // 3. In normal authenticated state, if lastSyncedMtime === 0 (initial un-synced destination),
+      //    protect dst if it is newer than source.
+      // 4. In normal authenticated state, once a sync is already recorded (lastSyncedMtime > 0),
+      //    allow newer source mtime to trigger syncing even if routine headless usage touched dst.
       let hasNewerManualLogin = false;
       if (dstExists) {
         if (manualLoginAt > 0 && manualLoginAt > lastSyncedMtime && manualLoginAt > authFailedAt) {
@@ -237,13 +242,13 @@ function syncCookiesFromSource(srcProfilePath, defaultDir, force = false) {
             hasNewerManualLogin = true;
           }
         } else if (authFailedAt > 0) {
-          // Failure state active and no manual-login marker: do not treat later dst mtime as manual login
           hasNewerManualLogin = false;
-        } else {
-          // Normal authenticated state: protect dst if it is newer than src
+        } else if (lastSyncedMtime === 0) {
           if (srcMtime <= dstMtime + 1000) {
             hasNewerManualLogin = true;
           }
+        } else {
+          hasNewerManualLogin = false;
         }
       }
 
@@ -280,6 +285,13 @@ function clearSyncMarker(targetDir) {
   } catch (err) {
     if (err && err.code !== 'ENOENT') {
       console.error('dot: failed to clear cookie sync marker: ' + err.message);
+    }
+  }
+  try {
+    fs.unlinkSync(path.join(defaultDir, '.manual_login'));
+  } catch (err) {
+    if (err && err.code !== 'ENOENT') {
+      console.error('dot: failed to clear manual login marker: ' + err.message);
     }
   }
   try {
@@ -567,7 +579,9 @@ async function launch() {
   }
 
   if (mode === 'read') {
-    clearAuthFailed(USER_DATA_DIR);
+    if (session.status === 200 && session.isJson && session.hasUser) {
+      clearAuthFailed(USER_DATA_DIR);
+    }
     return page;
   }
   return unavailable('composer not found');

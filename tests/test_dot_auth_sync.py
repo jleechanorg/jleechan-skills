@@ -35,6 +35,7 @@ class DotAuthSyncTest(unittest.TestCase):
         self.assertIn("if (session.status === 200 && session.isJson && session.hasUser)", source)
         # Ensure clearAuthFailed is not called unconditionally on indeterminate status 0 or 500
         self.assertNotIn("clearAuthFailed(USER_DATA_DIR);\n      if (mode === 'send')", source)
+        self.assertNotIn("clearAuthFailed(USER_DATA_DIR);\n    return page;", source)
 
     def test_production_sync_cookies_and_failed_auth_recovery(self):
         # Run isolated Node test importing actual production functions from dot_chrome.mjs
@@ -78,6 +79,21 @@ if (!fs.existsSync(syncMarker)) {{
 // 2. Second sync with unchanged source should return false
 const copied2 = syncCookiesFromSource(srcProfilePath, dstDefaultDir);
 if (copied2) throw new Error("Step 2 failed: second sync without changes should return false");
+
+// 2b. When sync is already recorded, allow a newer source mtime to trigger copying
+// even if routine headless runs touched dst to a later timestamp
+const routineHeadlessTouch = new Date(Date.now() + 10000);
+fs.utimesSync(dstCookies, routineHeadlessTouch, routineHeadlessTouch);
+
+const newerDesktopLogin = new Date(Date.now() + 5000);
+fs.writeFileSync(path.join(srcProfilePath, 'Cookies'), 'fresh_desktop_login_v2');
+fs.utimesSync(path.join(srcProfilePath, 'Cookies'), newerDesktopLogin, newerDesktopLogin);
+
+const copied2b = syncCookiesFromSource(srcProfilePath, dstDefaultDir);
+if (!copied2b) throw new Error("Step 2b failed: newer desktop login should sync over routine dst touch when sync already recorded");
+if (fs.readFileSync(dstCookies, 'utf8') !== 'fresh_desktop_login_v2') {{
+  throw new Error("Step 2b failed: dstCookies content mismatch after 2b sync");
+}}
 
 // 3. REGRESSION TEST: Browser shutdown flush 2 seconds after failedAt without manual login marker
 // When auth fails, clearSyncMarker writes .auth_failed.
