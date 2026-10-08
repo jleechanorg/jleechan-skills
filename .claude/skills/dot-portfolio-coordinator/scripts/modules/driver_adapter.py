@@ -25,7 +25,7 @@ BLOCKER_FIELDS = {
 DECISION_FIELDS = {
     "schema_version", "event_id", "task_id", "outcome", "stage",
     "source_binding", "grant_binding", "correlation", "judgment", "blockers",
-    "action", "message",
+    "message",
 }
 SOURCE_BINDING_FIELDS = {
     "source_id", "task_composite_key", "record_version", "record_digest",
@@ -236,13 +236,13 @@ def _build_prompt(packet: Dict[str, Any], guidance: str) -> str:
         f"Current dialogue stage: {stage}\n{stage_instructions}\n\n"
         "Return exactly one JSON object with schema_version, event_id, task_id, "
         "outcome, stage, source_binding, grant_binding, correlation, judgment, "
-        "blockers, action, and message. Copy all bindings exactly from the packet. "
+        "blockers and message. Copy all bindings exactly from the packet. "
         "Inventory send_proposal selects exactly one supplied candidate. If no task "
-        "is eligible, return no_eligible_task/no_action with null task_id and "
+        "is eligible, return no_eligible_task with null task_id and "
         "source_binding whether the candidate list is empty or nonempty. A challenge "
-        "must use send_proposal/send with an explicit question. Final judgment must "
-        "use cycle_complete/no_action and message null. For no_action, message is "
-        "null; for send, message is the complete proposed text. Do not call transport. "
+        "must use send_proposal with an explicit question. Final judgment must "
+        "use cycle_complete and message null. For non-send outcomes, message is "
+        "null; for send_proposal, message is the complete proposed text. Do not call transport. "
         "blockers remains a bounded array of objects with string fields description, "
         "evidence, attempts, missing_capability_or_approval, independent_work. "
         "judgment has assessment blocked, not_blocked, or unknown and a string "
@@ -318,13 +318,12 @@ def _validate_decision(
         return None
 
     outcome = decision.get("outcome")
-    action = decision.get("action")
     task_id = decision.get("task_id")
     source_binding = decision.get("source_binding")
     message = decision.get("message")
     stage = packet["dialogue_stage"]
-    if action == "send":
-        if (outcome != "send_proposal" or stage not in ("inventory", "challenge") or
+    if outcome == "send_proposal":
+        if (stage not in ("inventory", "challenge") or
                 not isinstance(message, str) or not message or
                 len(message) > MAX_MESSAGE_CHARS):
             return None
@@ -337,7 +336,7 @@ def _validate_decision(
         elif (task_id != packet["task_id"] or
               source_binding != packet["source_binding"]):
             return None
-    elif action == "no_action" and message is None:
+    elif message is None:
         if outcome == "no_eligible_task":
             if (stage != "inventory" or task_id is not None or
                     source_binding is not None):

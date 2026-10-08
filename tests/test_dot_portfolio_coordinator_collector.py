@@ -24,6 +24,28 @@ class TestDotPortfolioCoordinatorCollector(unittest.TestCase):
                 policy[field] = sorted(set(policy.get(field, [])) | {"internal"})
         self.collector = PortfolioCollector(self.registry)
 
+    def test_collection_audience_switch_refetches_and_preserves_destination_fields(self):
+        policy = self.registry.sources["web-app"]["audience_policy"]
+        policy.update({"title": ["model", "public"], "owner": ["internal"]})
+        raw = {"id": 7, "title": "Authorized model fact", "owner": "private owner"}
+        internal = self.collector.collect_source_snapshot(
+            "web-app", fetch_fn=lambda *args, **kwargs: {"items": [raw], "etag": "internal-v1"})
+        self.assertNotIn("title", internal["items"][0])
+        self.assertEqual(internal["items"][0]["owner"], "private owner")
+        seen_etags = []
+        def fetch(source, page, etag=None):
+            seen_etags.append(etag)
+            return {"items": [raw], "etag": "model-v1"}
+        model = PortfolioCollector(self.registry, audience="model")
+        snapshot = model.collect_source_snapshot("web-app", prior_snapshot=internal, fetch_fn=fetch)
+        self.assertEqual(seen_etags, [None])
+        self.assertEqual(snapshot["items"][0]["title"], "Authorized model fact")
+        self.assertNotIn("owner", snapshot["items"][0])
+        wrong_304 = model.collect_source_snapshot(
+            "web-app", prior_snapshot=internal,
+            fetch_fn=lambda *args, **kwargs: {"status_code": 304})
+        self.assertNotEqual(wrong_304["status"], "fresh")
+
     def test_github_paginated_collection_including_draft_prs_and_checks(self):
         pages = [
             {

@@ -84,7 +84,7 @@ class TestDriverAdapter(unittest.TestCase):
             "correlation": correlation,
         }
 
-    def _schema_v1_decision(self, packet, outcome="send_proposal", action="send"):
+    def _schema_v1_decision(self, packet, outcome="send_proposal"):
         stage = packet["dialogue_stage"]
         if outcome == "no_eligible_task":
             task_id = source_binding = None
@@ -102,8 +102,7 @@ class TestDriverAdapter(unittest.TestCase):
             "correlation": packet["correlation"],
             "judgment": {"assessment": "unknown", "safe_next_action": "continue safely"},
             "blockers": [],
-            "action": action,
-            "message": "Please report blockers." if action == "send" else None,
+            "message": "Please report blockers." if outcome == "send_proposal" else None,
         }
 
     def test_schema_v1_accepts_exact_inventory_binding(self):
@@ -148,7 +147,7 @@ class TestDriverAdapter(unittest.TestCase):
     def test_schema_v1_no_eligible_task_is_typed_for_empty_or_nonempty_candidates(self):
         for candidates in ([], self._schema_v1_packet()["candidate_bindings"]):
             packet = self._schema_v1_packet(candidates=candidates)
-            decision = self._schema_v1_decision(packet, "no_eligible_task", "no_action")
+            decision = self._schema_v1_decision(packet, "no_eligible_task")
             self.assertIsNotNone(_validate_decision(json.dumps(decision), packet))
 
     def test_schema_v1_requires_exactly_one_matching_inventory_candidate(self):
@@ -168,7 +167,7 @@ class TestDriverAdapter(unittest.TestCase):
         self.assertIsNotNone(_validate_decision(
             json.dumps(self._schema_v1_decision(challenge)), challenge))
         final = self._schema_v1_packet(stage="final_judgment")
-        decision = self._schema_v1_decision(final, "cycle_complete", "no_action")
+        decision = self._schema_v1_decision(final, "cycle_complete")
         self.assertIsNotNone(_validate_decision(json.dumps(decision), final))
         self.assertIsNone(_validate_decision(
             json.dumps(self._schema_v1_decision(final)), final))

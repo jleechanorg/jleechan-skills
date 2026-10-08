@@ -57,7 +57,7 @@ class TestDotPortfolioCoordinatorModelAdmission(unittest.TestCase):
         # Case 1: unisolated host mounts
         env_with_host_mounts = {
             "sandbox_enforced": True,
-            "host_mounts": ["/Users/jleechan", "/etc"],
+            "host_mounts": ["/example/host-home", "/etc"],
             "network_egress_allowlist_enforced": True,
             "allowed_endpoints": ["https://generativelanguage.googleapis.com/v1beta/models"],
             "tool_inventory": ["read_only_snapshot"],

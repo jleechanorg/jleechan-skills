@@ -9,6 +9,7 @@ Implements:
 - Settlement of actual costs and release of unspent allocations
 """
 import json
+import math
 import os
 from typing import Any, Dict, List, Optional
 
@@ -67,6 +68,20 @@ class BudgetLedger:
                 "JSON caller field is not accepted as authentication."
             )
 
+    @staticmethod
+    def _amount(request: Dict[str, Any], field: str) -> float:
+        """Require a finite, nonnegative JSON number before changing the ledger."""
+        value = request.get(field)
+        if type(value) not in (int, float):
+            raise BudgetError(f"{field} must be a finite nonnegative JSON number")
+        try:
+            amount = float(value)
+        except OverflowError:
+            raise BudgetError(f"{field} exceeds the supported numeric range") from None
+        if not math.isfinite(amount) or amount < 0:
+            raise BudgetError(f"{field} must be a finite nonnegative JSON number")
+        return amount
+
     @property
     def remaining_ceiling(self) -> float:
         rem = self.per_cycle_ceiling - self.total_reserved - self.total_settled
@@ -78,7 +93,7 @@ class BudgetLedger:
 
         action_id = request.get("action_id", "")
         attempt_id = request.get("attempt_id", "")
-        max_cost = float(request.get("max_cost", 0.0))
+        max_cost = self._amount(request, "max_cost")
         res_id = f"res_{action_id}_{attempt_id}"
 
         # Idempotence check
@@ -132,7 +147,7 @@ class BudgetLedger:
         self._verify_caller(caller_os_principal)
 
         res_id = request.get("reservation_id", "")
-        actual_cost = float(request.get("actual_cost", 0.0))
+        actual_cost = self._amount(request, "actual_cost")
 
         if res_id not in self.reservations:
             return {

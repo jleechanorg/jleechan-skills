@@ -4,6 +4,7 @@ Implements:
 - Registration and read-only resolution of immutable notification authorization bindings
 - Reconciliation validation and state transition verification
 """
+import copy
 import hashlib
 import json
 import os
@@ -64,16 +65,22 @@ class NotificationBindingManager:
             "event_id": event_id,
             "kind": kind,
             "message_sha256": message_sha256,
-            "task_key": task_key,
+            "task_key": copy.deepcopy(task_key),
             "grant_version": grant_version,
-            "control_entry_digest": control_entry_digest,
-            "registered_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            "control_entry_digest": control_entry_digest
         }
+        existing = self.bindings.get(ref_key)
+        if existing is not None:
+            immutable = {key: value for key, value in existing.items() if key != "registered_at"}
+            if immutable != binding:
+                raise SenderProtocolError("Notification binding is immutable")
+            return copy.deepcopy(existing)
+        binding["registered_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         self.bindings[ref_key] = binding
         self._save()
-        return binding
+        return copy.deepcopy(binding)
 
     def resolve_notification(self, auth_ref: str) -> Optional[Dict[str, Any]]:
         """Resolves notification binding by authorization reference."""
         self._load()
-        return self.bindings.get(auth_ref)
+        return copy.deepcopy(self.bindings.get(auth_ref))

@@ -59,7 +59,7 @@ class RoadmapPublisher:
             for it in items:
                 # Audience policy filtering for 'public'
                 pub = self.registry.filter_by_audience(sid, it, "public")
-                item_id = it.get("id", "-")
+                item_id = pub.get("id", "-")
                 title = pub.get("title", "*(redacted)*")
                 status = pub.get("status", "unknown")
                 priority = str(pub.get("priority", "-"))

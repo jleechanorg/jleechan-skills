@@ -112,8 +112,11 @@ def sanitize_item(raw_item: Dict[str, Any], composite_key: Tuple[str, str, str, 
 class PortfolioCollector:
     """Collects snapshots from registered GitHub repositories and Beads stores."""
 
-    def __init__(self, registry: Any):
+    def __init__(self, registry: Any, audience: str = "internal"):
+        if audience not in ("internal", "model"):
+            raise ValueError("unsupported_collection_audience")
         self.registry = registry
+        self.audience = audience
 
     def _deadline(self, deadline_mono: Optional[float]) -> float:
         if deadline_mono is not None:
@@ -144,7 +147,12 @@ class PortfolioCollector:
         composite_key: Tuple[str, str, str, str],
     ) -> Dict[str, Any]:
         safe = sanitize_item(raw_item, composite_key)
-        audience_safe = self.registry.filter_by_audience(source_id, safe, "internal")
+        audience_safe = self.registry.filter_by_audience(source_id, safe, self.audience)
+        # Private collection retains only the internal version needed for source
+        # receipts in addition to destination facts. Packet assembly filters again.
+        internal = self.registry.filter_by_audience(source_id, safe, "internal")
+        if "updated_at" in internal:
+            audience_safe["updated_at"] = internal["updated_at"]
         for field in ("id", "task_composite_key"):
             if field in safe:
                 audience_safe[field] = safe[field]
@@ -197,6 +205,7 @@ class PortfolioCollector:
         )
         snapshot = {
             "source_id": source_id,
+            "audience": self.audience,
             "status": status,
             "version": None,
             "items": items,
@@ -446,6 +455,7 @@ class PortfolioCollector:
                 digest = self._compute_digest(items)
                 return {
                     "source_id": source_id,
+                    "audience": self.audience,
                     "status": "fresh",
                     "version": digest,
                     "items": items,
@@ -467,7 +477,9 @@ class PortfolioCollector:
         # 2. GitHub repo collection (paginated)
         elif src_type == "github_repo":
             fn = fetch_fn or self._default_gh_fetch
-            prior_etag = prior_snapshot.get("etag") if prior_snapshot else None
+            same_audience = (bool(prior_snapshot) and
+                             prior_snapshot.get("audience", "internal") == self.audience)
+            prior_etag = prior_snapshot.get("etag") if same_audience else None
 
             collected_by_id: Dict[Any, Dict[str, Any]] = {}
             page = 1
@@ -494,12 +506,13 @@ class PortfolioCollector:
                     if isinstance(resp, dict) and resp.get("status_code") == 304:
                         # 304 Not Modified: Reuse prior snapshot ONLY IF prior was fresh and complete
                         prior_status = prior_snapshot.get("status", "fresh") if prior_snapshot else None
-                        if prior_snapshot and prior_status == "fresh" and prior_snapshot.get("version"):
+                        if same_audience and prior_status == "fresh" and prior_snapshot.get("version"):
                             safe_items = self._sanitize_snapshot_items(
                                 source_id, source, prior_snapshot.get("items", [])
                             )
                             fresh_304 = {
                                 "source_id": source_id,
+                                "audience": self.audience,
                                 "status": "fresh",
                                 "version": self._compute_digest(safe_items),
                                 "items": safe_items,
@@ -552,6 +565,7 @@ class PortfolioCollector:
                 digest = self._compute_digest(all_items)
                 return {
                     "source_id": source_id,
+                    "audience": self.audience,
                     "status": "fresh",
                     "version": digest,
                     "etag": latest_etag,

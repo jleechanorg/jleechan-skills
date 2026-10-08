@@ -17,10 +17,11 @@ The Dot Portfolio Coordinator is an authorized, separate coordination system tha
    - Beads stores collected via native `br list --status all --json --limit 0`.
    - GitHub inventories collected with full pagination (including draft PRs, head SHAs, and check statuses).
    - Version-bound cursors committed only upon complete final-page collection.
-   - 304 Not Modified reuses recorded snapshots.
+   - Collection preserves facts authorized for its destination (internal observation or active model packets); packet assembly filters again. A destination change forces a fresh fetch instead of reusing another audience's 304 snapshot. Private task/version bindings remain separate from model facts.
    - Partial or failed collections preserve last-known items as stale/partial rather than erasing unseen work.
 3. **Model Admission & Schema-Bound Decision**:
    - The selected canonical driver runs full-permission and is schema-bound decision-only; admission is completeness checking, not OS or sandbox isolation.
+   - Driver decisions use `outcome` as the sole dispatch discriminator: `send_proposal`, `no_eligible_task`, or `cycle_complete`. A redundant model `action` field is rejected.
    - Proposals must adhere strictly to the coordination dialogue packet schema, validating candidate bindings, task keys, and grant bindings without claiming sandbox isolation.
 4. **Deterministic Structural Proposal Validation**:
    - Validates that every proposed item references a genuine snapshot task key with matching citations and source versions.
@@ -28,6 +29,7 @@ The Dot Portfolio Coordinator is an authorized, separate coordination system tha
    - Generates deterministic, stable action IDs (`act_<hash>`) for restart idempotence.
 5. **Real Beads Control Journal & CAS Protocol**:
    - Designated host sole-writer lock (`fcntl.flock`).
+   - Journal reads and writes require one registered `authoritative_control` roadmap binding, the exact store database, explicit `--db`, and matching `br where` resolution.
    - Domain repository task stores are strictly read-only; mutations are permitted ONLY on roadmap control records (`coordinator-control`).
    - Optimistic concurrency control via `--if-unchanged <updated_at>` and `--append-notes`.
    - Compares observed full-record digest immediately before write and rereads post-write state.
@@ -35,6 +37,7 @@ The Dot Portfolio Coordinator is an authorized, separate coordination system tha
    - Binds authenticated human principals to original GitHub comments via immutable comment IDs, versions, and content digests.
    - Unsupported channels (Slack, native conversation) return `capability_blocked`.
    - No keyword consent classifiers: words like "I approve" or "routine" do not bypass principal binding.
+   - Reserve and settlement amounts must be finite, nonnegative JSON numbers; malformed values are rejected before ledger mutation.
    - Cumulative budget ledger tracks allocations, idempotently handles repeat reservations, settles verified spend, and blocks overruns.
 7. **Audience-Filtered Roadmap Publication**:
    - Renders only two allowlisted derived projections: `coordinator/WORK.md` and `coordinator/COVERAGE.json`.
@@ -46,6 +49,7 @@ The Dot Portfolio Coordinator is an authorized, separate coordination system tha
 8. **Receipt-Safe Sender Subcomponent**:
    - Reuses relative sibling dot transport (`../../dot/scripts/dot.sh`).
    - Quiet exit 0 on empty input.
+   - Identical notification registrations are idempotent; changed immutable bindings are refused. Public item IDs obey the destination field policy.
    - Persists pending immutable authorization binding and uncertainty hold before transport invocation.
    - Two-phase interactive prepare/commit/abort protocol: waits for prepared transport context before final source and grant revalidation immediately prior to commit.
    - Requires standalone `DOT_SENT_VERIFIED` and exit 0 for verified delivery.

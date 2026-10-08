@@ -172,7 +172,7 @@ class RecurringPilotTests(unittest.TestCase):
             "outcome": "send_proposal", "stage": packet["dialogue_stage"],
             "source_binding": self.binding, "grant_binding": packet["grant_binding"],
             "correlation": None, "judgment": {"assessment": "unknown", "safe_next_action": "ask Dot"},
-            "blockers": [], "action": "send", "message": "Check current fixture work.",
+            "blockers": [], "message": "Check current fixture work.",
         }
         return 0, json.dumps({"event": "result", "result": {
             "status": "SUCCESS", "response": json.dumps(decision),

@@ -45,13 +45,37 @@ class BeadsControlJournal:
         self._lock_held = False
         self._db_path = self._resolve_db_path()
 
-    def _resolve_db_path(self) -> Optional[str]:
-        """Resolves exact DB path from registry or store dir."""
-        # Check if store dir has .beads/beads.db
-        candidate = os.path.join(self.roadmap_store_dir, ".beads", "beads.db")
-        if os.path.isfile(candidate):
-            return candidate
-        return None
+    def _resolve_db_path(self) -> str:
+        """Require an exact registered authoritative roadmap database; never fall back."""
+        candidate = os.path.realpath(os.path.join(self.roadmap_store_dir, ".beads", "beads.db"))
+        matches = [
+            source for source in self.registry.sources.values()
+            if isinstance(source.get("host_binding"), str)
+            and os.path.isabs(source["host_binding"])
+            and os.path.realpath(source["host_binding"]) == candidate
+        ]
+        if (not os.path.isfile(candidate) or len(matches) != 1
+                or matches[0].get("type") != "roadmap_beads"
+                or matches[0].get("canonical_tracker") != "beads"
+                or matches[0].get("authority") != "authoritative_control"):
+            raise DomainStoreReadOnlyError(
+                "Journal requires one exact authoritative_control roadmap DB binding; store is read-only"
+            )
+        return candidate
+
+    def _verify_db_binding(self) -> None:
+        db_path = self._resolve_db_path()
+        if db_path != self._db_path:
+            raise JournalError("Journal database binding changed")
+        cmd = ["br", "where", "--json", "--db", db_path, "--no-auto-flush", "--no-auto-import"]
+        try:
+            rc, stdout, _ = run_bounded_command(cmd, cwd=self.roadmap_store_dir, timeout_secs=15)
+            resolved = json.loads(stdout) if rc == 0 else None
+            resolved_db = resolved.get("database_path") if isinstance(resolved, dict) else None
+            if not isinstance(resolved_db, str) or os.path.realpath(resolved_db) != db_path:
+                raise JournalError("br resolved a different journal database")
+        except (ValueError, ProcessExecutionError) as exc:
+            raise JournalError("Unable to verify journal database binding") from exc
 
     def acquire_writer_lock(self, blocking: bool = False) -> None:
         """Acquires exclusive sole-writer lock on the lockfile."""
@@ -92,9 +116,9 @@ class BeadsControlJournal:
 
         Returns (record_dict, updated_at, full_record_digest).
         """
+        self._verify_db_binding()
         cmd = ["br", "show", record_id, "--json", "--no-auto-flush", "--no-auto-import"]
-        if self._db_path:
-            cmd.extend(["--db", self._db_path])
+        cmd.extend(["--db", self._db_path])
         try:
             rc, stdout, stderr = run_bounded_command(cmd, cwd=self.roadmap_store_dir, timeout_secs=15)
             if rc != 0:
@@ -174,9 +198,9 @@ class BeadsControlJournal:
             "--no-auto-import",
             "--json"
         ]
-        if self._db_path:
-            cmd.extend(["--db", self._db_path])
+        cmd.extend(["--db", self._db_path])
 
+        self._verify_db_binding()
         rc, stdout, stderr = run_bounded_command(cmd, cwd=self.roadmap_store_dir, timeout_secs=15)
 
         if rc == 6:

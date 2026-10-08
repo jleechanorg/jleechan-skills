@@ -291,9 +291,9 @@ def run_pilot_slot(config: Dict[str, Any], slot: Dict[str, Any], state: Dict[str
                 "reason": decision.get("reason", "invalid_result"),
                 "delivery_verified": False}
     decision_payload = decision["decision"]
-    if decision_payload["action"] == "no_action":
+    if decision_payload["outcome"] in ("no_eligible_task", "cycle_complete"):
         return {"outcome": decision_payload["outcome"], "delivery_verified": False}
-    if decision_payload["action"] != "send":
+    if decision_payload["outcome"] != "send_proposal":
         return {"outcome": "driver_failed", "reason": "invalid_output",
                 "delivery_verified": False}
     if source_receipt_reader is None:
@@ -498,7 +498,7 @@ def cmd_observe(args: argparse.Namespace, registry: SourceRegistry) -> None:
             state["last_observed_epoch"] = time.time()
             atomic_write_json(root / "run_state.json", state)
             try:
-                collector = PortfolioCollector(registry)
+                collector = PortfolioCollector(registry, audience="model" if config else "internal")
                 collected = collector.collect_all(prior_snapshots=prior_snapshots,
                                                   deadline_mono=min(deadline, time.monotonic() + 120))
                 prior_snapshots = collected.get("snapshots", {})
@@ -537,7 +537,7 @@ def cmd_observe(args: argparse.Namespace, registry: SourceRegistry) -> None:
                     if (source_id not in registry.sources or
                             type(timeout_secs) not in (int, float) or timeout_secs <= 0):
                         return None, "source_receipt_unavailable"
-                    refreshed = PortfolioCollector(registry).collect_source_snapshot(
+                    refreshed = PortfolioCollector(registry, audience="model").collect_source_snapshot(
                         source_id, prior_snapshot=prior_source,
                         deadline_mono=min(deadline, time.monotonic() + timeout_secs),
                     )

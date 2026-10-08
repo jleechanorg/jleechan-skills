@@ -3,6 +3,7 @@ import os
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -29,9 +30,15 @@ class TestDotPortfolioCoordinatorBeadsJournal(unittest.TestCase):
         self.roadmap_dir = os.path.join(self.temp_dir.name, "roadmap")
         os.makedirs(self.roadmap_dir, exist_ok=True)
 
+        self.db_path = os.path.join(self.roadmap_dir, ".beads", "beads.db")
+        self.env_patch = patch.dict(os.environ, {"BEADS_DB": self.db_path, "BEADS_DIR": os.path.dirname(self.db_path)})
+        self.env_patch.start()
+        self.addCleanup(self.env_patch.stop)
+        self.registry.sources["roadmap-main"]["host_binding"] = self.db_path
+
         # Initialize real br store inside self.roadmap_dir
         subprocess.check_call(
-            ["br", "init", "--prefix", "bd", "--no-auto-flush", "--json"],
+            ["br", "--db", self.db_path, "init", "--prefix", "bd", "--no-auto-flush", "--json"],
             cwd=self.roadmap_dir,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL
@@ -39,7 +46,7 @@ class TestDotPortfolioCoordinatorBeadsJournal(unittest.TestCase):
 
         # Create a valid coordinator-control record
         res = subprocess.check_output(
-            ["br", "create", "Roadmap Control Record", "--labels", "coordinator-control", "--no-auto-flush", "--json"],
+            ["br", "--db", self.db_path, "create", "Roadmap Control Record", "--labels", "coordinator-control", "--no-auto-flush", "--json"],
             cwd=self.roadmap_dir,
             text=True
         )
@@ -48,7 +55,7 @@ class TestDotPortfolioCoordinatorBeadsJournal(unittest.TestCase):
 
         # Create a non-control domain record (without coordinator-control label)
         res_domain = subprocess.check_output(
-            ["br", "create", "Domain Task Without Label", "--no-auto-flush", "--json"],
+            ["br", "--db", self.db_path, "create", "Domain Task Without Label", "--no-auto-flush", "--json"],
             cwd=self.roadmap_dir,
             text=True
         )
@@ -59,7 +66,57 @@ class TestDotPortfolioCoordinatorBeadsJournal(unittest.TestCase):
         self.journal = BeadsControlJournal(self.registry, self.roadmap_dir, self.lock_path)
 
     def tearDown(self):
+        self.journal.release_writer_lock()
         self.temp_dir.cleanup()
+
+    def test_registry_binding_rejections_before_any_command(self):
+        source = self.registry.sources["roadmap-main"]
+        original = dict(source)
+        for case in ("read_only", "unregistered", "missing_binding", "mismatched_binding", "missing_db", "wrong_type", "wrong_tracker", "relative_binding"):
+            with self.subTest(case=case):
+                source.clear()
+                source.update(original)
+                self.registry.sources["roadmap-main"] = source
+                if case == "read_only":
+                    source["authority"] = "read_only"
+                elif case == "unregistered":
+                    self.registry.sources.pop("roadmap-main")
+                elif case == "missing_binding":
+                    source.pop("host_binding")
+                elif case == "mismatched_binding":
+                    source["host_binding"] = os.path.join(self.temp_dir.name, "other.db")
+                elif case == "wrong_tracker":
+                    source["canonical_tracker"] = "github_issues"
+                elif case == "relative_binding":
+                    source["host_binding"] = ".beads/beads.db"
+                elif case == "wrong_type":
+                    source["type"] = "github_repo"
+                else:
+                    os.rename(self.db_path, self.db_path + ".saved")
+                self.journal.acquire_writer_lock()
+                try:
+                    with patch("modules.beads_journal.run_bounded_command") as run:
+                        with self.assertRaises(JournalError):
+                            self.journal.append_journal_entry(self.control_id, "rejected", "payload", expected_digest="digest")
+                        run.assert_not_called()
+                finally:
+                    self.journal.release_writer_lock()
+                    if case == "missing_db":
+                        os.rename(self.db_path + ".saved", self.db_path)
+        source.clear()
+        source.update(original)
+        self.registry.sources["roadmap-main"] = source
+
+    def test_resolved_database_mismatch_rejected_before_read_or_write(self):
+        self.journal.acquire_writer_lock()
+        with patch("modules.beads_journal.run_bounded_command", return_value=(0, json.dumps({"database_path": "/tmp/unregistered.db"}), "")) as run:
+            with self.assertRaises(JournalError):
+                self.journal.append_journal_entry(self.control_id, "rejected", "payload", expected_digest="digest")
+        self.assertEqual(run.call_count, 1)
+        command = run.call_args.args[0]
+        self.assertIn("where", command)
+        self.assertEqual(command[command.index("--db") + 1], os.path.realpath(self.db_path))
+        self.assertIn("--no-auto-import", command)
 
     def test_sole_writer_lock_mutual_exclusion(self):
         self.journal.acquire_writer_lock()
@@ -174,7 +231,7 @@ class TestDotPortfolioCoordinatorBeadsJournal(unittest.TestCase):
 
         # Mutate the record in the background to advance its updated_at
         subprocess.check_call(
-            ["br", "update", self.control_id, "--append-notes", "External edit", "--no-auto-flush"],
+            ["br", "--db", self.db_path, "update", self.control_id, "--append-notes", "External edit", "--no-auto-flush"],
             cwd=self.roadmap_dir,
             stdout=subprocess.DEVNULL
         )

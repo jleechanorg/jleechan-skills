@@ -351,7 +351,7 @@ class TestDotPortfolioCoordinatorObserve(unittest.TestCase):
                         return_value=(True, "ok", {"grant_version": 1})), \
                 mock.patch("modules.driver_adapter.DriverAdapter.decide",
                            return_value={"status": "ok", "decision": {
-                               "action": "no_action", "outcome": "no_eligible_task"}
+                               "outcome": "no_eligible_task"}
                            }) as decide, \
                 mock.patch.object(coordinator_portfolio, "private_run_directory",
                                   return_value=Path(self.temp_dir.name)):
@@ -529,7 +529,7 @@ class TestDotPortfolioCoordinatorObserve(unittest.TestCase):
             "stage": "inventory", "source_binding": selected["source_binding"],
             "grant_binding": packet["grant_binding"], "correlation": None,
             "judgment": {"assessment": "unknown", "safe_next_action": "Ask current work."},
-            "blockers": [], "action": "send", "message": "What work comes next?",
+            "blockers": [], "message": "What work comes next?",
         }
 
         def run(_cmd, **kwargs):
@@ -596,6 +596,12 @@ class TestDotPortfolioCoordinatorObserve(unittest.TestCase):
         self.assertLessEqual(len(build("item-1")), 80)
 
     def test_observe_active_mode_with_grant_sends_messages(self):
+        self._assert_active_destination_fields("github_repo")
+
+    def test_native_beads_fields_reach_actual_model_packet(self):
+        self._assert_active_destination_fields("beads_store")
+
+    def _assert_active_destination_fields(self, source_type):
         with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
             root = Path(tmp)
             started = time.time()
@@ -609,6 +615,18 @@ class TestDotPortfolioCoordinatorObserve(unittest.TestCase):
                 path.write_text(json.dumps(grant)); path.chmod(0o400)
                 accounts.append({"account": name, "grant_file": str(path),
                                  "grant_sha256": hashlib.sha256(path.read_bytes()).hexdigest()})
+            source = self.sources_data["sources"][0]
+            source["type"] = source_type
+            source["canonical_tracker"] = "beads" if source_type == "beads_store" else "github_issues"
+            source["audience_policy"] = {
+                "title": ["model", "public"], "status": ["model", "public"],
+                "owner": ["internal"], "priority": ["public"],
+                "updated_at": ["internal"], "notes": ["model", "internal"],
+            }
+            db = root / "beads.db"
+            db.touch()
+            source["host_binding"] = str(db)
+            Path(self.sources_file).write_text(json.dumps(self.sources_data))
             config = {"run_id": "integration", "task_id": "dot-coordinator-separated-20261007",
                       "activated_at_epoch": started, "duration_secs": 900,
                       "authority": "Continue the fixture task; no merge or destructive authority.",
@@ -629,19 +647,31 @@ class TestDotPortfolioCoordinatorObserve(unittest.TestCase):
                 "fi\n"
             )
             fake_dot.chmod(0o700)
+            raw = {"id": 7, "number": 7, "title": "Fixture authorized task",
+                   "status": "open", "updated_at": "2026-10-07T00:00:00Z",
+                   "owner": "internal-owner-only", "priority": 4,
+                   "notes": "raw-notes-private", "description": "raw-description-private"}
             fake_gh = root / "gh"
-            fake_gh.write_text(
-                "#!/bin/sh\nprintf '%s\\n' '[{\"number\":7,\"id\":7,"
-                "\"title\":\"Fixture authorized task\",\"state\":\"open\","
-                "\"updated_at\":\"2026-10-07T00:00:00Z\"}]'\n"
-            )
+            fake_gh.write_text("#!/usr/bin/env python3\nprint(" + repr(json.dumps([raw])) + ")\n")
             fake_gh.chmod(0o700)
+            fake_br = root / "br"
+            envelope = {"issues": [raw], "total": 1, "limit": 0, "offset": 0, "has_more": False}
+            fake_br.write_text(
+                "#!/usr/bin/env python3\nimport sys\n"
+                "assert sys.argv[sys.argv.index('--db')+1] == " + repr(str(db)) + "\n"
+                "print(" + repr(json.dumps({"database_path": str(db)})) + " if 'where' in sys.argv else "
+                + repr(json.dumps(envelope)) + ")\n"
+            )
+            fake_br.chmod(0o700)
             fake_agy = root / "agy"
             fake_agy.write_text(
                 "#!/usr/bin/env python3\nimport json,sys\n"
                 "event=json.loads(sys.stdin.readline())\n"
                 "p=json.loads(event['message']['content'].split('Packet JSON:' + chr(10))[-1])\n"
+                "__import__('pathlib').Path(__import__('os').environ['PACKET_CAPTURE_FILE']).write_text(json.dumps(p))\n"
                 "source=p['snapshot']['sources']['test-repo']\n"
+                "assert source['items']==[{'title':'Fixture authorized task','status':'open'}], source['items']\n"
+                "assert all(value not in json.dumps(p) for value in ('internal-owner-only','raw-notes-private','raw-description-private'))\n"
                 "assert isinstance(source.get('collected_at'),int) and not isinstance(source['collected_at'],bool)\n"
                 "for field in ('validated_at','attempted_at'):\n"
                 " value=source.get(field)\n"
@@ -650,7 +680,7 @@ class TestDotPortfolioCoordinatorObserve(unittest.TestCase):
                 "assert candidate['source_binding']['source_id']=='test-repo'\n"
                 "assert candidate['source_binding']['record_version']=='2026-10-07T00:00:00Z'\n"
                 "sanitized={'task_composite_key':candidate['source_binding']['task_composite_key'],"
-                "'id':7,'title':'Fixture authorized task',"
+                "'id':7,'title':'Fixture authorized task','status':'open',"
                 "'updated_at':'2026-10-07T00:00:00Z'}\n"
                 "digest=__import__('hashlib').sha256(json.dumps(sanitized,sort_keys=True,"
                 "ensure_ascii=False,separators=(',',':')).encode()).hexdigest()\n"
@@ -660,14 +690,14 @@ class TestDotPortfolioCoordinatorObserve(unittest.TestCase):
                 "'stage':p['dialogue_stage'],'source_binding':candidate['source_binding'],"
                 "'grant_binding':p['grant_binding'],'correlation':None,"
                 "'judgment':{'assessment':'unknown','safe_next_action':'ask Dot'},"
-                "'blockers':[],'action':'send','message':'List current blockers with evidence.'}\n"
+                "'blockers':[],'message':'List current blockers with evidence.'}\n"
                 "print(json.dumps({'event':'result','result':{'status':'SUCCESS',"
                 "'response':json.dumps(d)}}))\n"
             )
             fake_agy.chmod(0o700)
             sent_message_path = root / "sent-message.txt"
             env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ["PATH"],
-                       DOT_CAPTURE_FILE=str(sent_message_path))
+                       DOT_CAPTURE_FILE=str(sent_message_path), PACKET_CAPTURE_FILE=str(root / "packet.json"))
             cmd = [CLI_SCRIPT, "--sources", self.sources_file, "observe", "--interval", "1",
                    "--send-messages", "--pilot-config", str(pilot), "--transport-script", str(fake_dot),
                    "--run-dir", self.run_dir]
@@ -687,6 +717,9 @@ class TestDotPortfolioCoordinatorObserve(unittest.TestCase):
                     proc.terminate()
                 stdout, stderr = proc.communicate(timeout=5)
             self.assertIsNotNone(observed, (stdout, stderr))
+            packet = json.loads((root / "packet.json").read_text())
+            self.assertEqual(packet["snapshot"]["sources"]["test-repo"]["items"],
+                             [{"title": "Fixture authorized task", "status": "open"}])
             self.assertTrue(observed.get("delivery_verified"), (observed, stdout, stderr))
             sent_message = sent_message_path.read_text()
             guidance = (SKILL_DIR / "references" / "dot-self-unblock.md").read_text()
@@ -734,7 +767,7 @@ class TestDotPortfolioCoordinatorObserve(unittest.TestCase):
                            "correlation": None,
                            "judgment": {"assessment": "not_blocked",
                                         "safe_next_action": "wait for a viable task"},
-                           "blockers": [], "action": "no_action", "message": None}
+                           "blockers": [], "message": None}
             with mock.patch("modules.driver_adapter.DriverAdapter") as adapter, \
                     mock.patch.object(coordinator_portfolio, "call_sender") as sender:
                 adapter.return_value.decide.return_value = {
@@ -777,7 +810,7 @@ class TestDotPortfolioCoordinatorObserve(unittest.TestCase):
                         "grant_binding": {"grant_version": 1, "grant_sha256": grant_sha},
                         "correlation": None,
                         "judgment": {"assessment": "unknown", "safe_next_action": "ask Dot"},
-                        "blockers": [], "action": "send", "message": "Request evidence."}
+                        "blockers": [], "message": "Request evidence."}
             changed = dict(binding, record_digest="c" * 64)
             with mock.patch("modules.driver_adapter.DriverAdapter") as adapter, \
                     mock.patch.object(coordinator_portfolio, "call_sender") as sender:
@@ -848,7 +881,6 @@ class TestDotPortfolioCoordinatorObserve(unittest.TestCase):
                 "correlation": None,
                 "judgment": {"assessment": "unknown", "safe_next_action": "ask Dot"},
                 "blockers": [],
-                "action": "send",
                 "message": "Request evidence.",
             }
 

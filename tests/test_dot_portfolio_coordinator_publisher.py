@@ -50,6 +50,21 @@ class TestDotPortfolioCoordinatorPublisher(unittest.TestCase):
         self.assertNotIn("Secret internal design notes", work_md)
         self.assertNotIn("admin-99", work_md)
 
+    def test_public_id_obeys_destination_policy(self):
+        for destinations in (["internal"], ["model"], None, ["public"]):
+            with self.subTest(destinations=destinations):
+                policy = self.registry.sources["roadmap-main"]["audience_policy"]
+                if destinations is None:
+                    policy.pop("id", None)
+                else:
+                    policy["id"] = destinations
+                rendered = self.publisher.render_work_md(self.sample_snapshot)
+                if destinations == ["public"]:
+                    self.assertIn("| bd-1 |", rendered)
+                else:
+                    self.assertNotIn("bd-1", rendered)
+                    self.assertIn("| - |", rendered)
+
     def test_render_coverage_json(self):
         metrics = {
             "registered_count": 3,

@@ -1,3 +1,4 @@
+import copy
 import hashlib
 import json
 import os
@@ -190,6 +191,59 @@ class TestDotPortfolioCoordinatorAuthorityBudget(unittest.TestCase):
         self.assertEqual(settle_rec["settled_amount"], 0.08)
         # Remaining ceiling is now 0.50 - 0.08 = 0.42
         self.assertAlmostEqual(settle_rec["remaining_ceiling"], 0.42)
+
+    def _budget_snapshot(self):
+        path = Path(self.ledger_file)
+        stat = path.stat() if path.exists() else None
+        return (
+            self.ledger.total_reserved, self.ledger.total_settled,
+            self.ledger.ledger_version, copy.deepcopy(self.ledger.reservations),
+            path.read_bytes() if stat else None,
+            (stat.st_ino, stat.st_mtime_ns) if stat else None,
+            sorted(p.name for p in Path(self.temp_dir.name).iterdir()),
+        )
+
+    def test_budget_invalid_amounts_rejected_before_any_mutation(self):
+        missing = object()
+        invalid = [missing, None, True, False, -0.01, float("nan"),
+                   float("inf"), float("-inf"), "0.1", "NaN", "bad", [], {},
+                   10 ** 1000]
+        for operation in ("reserve", "settle"):
+            for value in invalid:
+                for persisted in (False, True):
+                    with self.subTest(operation=operation, value=repr(value),
+                                      persisted=persisted):
+                        path = Path(self.ledger_file)
+                        path.unlink(missing_ok=True)
+                        self.ledger = BudgetLedger(self.registry, self.ledger_file)
+                        if persisted:
+                            self.ledger.reserve({"action_id": "seed", "attempt_id": "1",
+                                                 "max_cost": 0.1}, self.authorized_principal)
+                        request = {"action_id": "new", "attempt_id": "1"} if operation == "reserve" else {
+                            "reservation_id": "res_seed_1"}
+                        field = "max_cost" if operation == "reserve" else "actual_cost"
+                        if value is not missing:
+                            request[field] = value
+                        before = self._budget_snapshot()
+                        with self.assertRaises(BudgetError):
+                            getattr(self.ledger, operation)(request, self.authorized_principal)
+                        self.assertEqual(self._budget_snapshot(), before)
+
+    def test_budget_zero_and_bounded_replays_do_not_mutate(self):
+        for amount in (0, 0.1):
+            with self.subTest(amount=amount):
+                request = {"action_id": str(amount), "attempt_id": "1", "max_cost": amount}
+                receipt = self.ledger.reserve(request, self.authorized_principal)
+                self.assertEqual(receipt["status"], "reserved")
+                before = self._budget_snapshot()
+                self.assertEqual(self.ledger.reserve(request, self.authorized_principal), receipt)
+                self.assertEqual(self._budget_snapshot(), before)
+                settlement = {"reservation_id": receipt["reservation_id"], "actual_cost": amount}
+                settled = self.ledger.settle(settlement, self.authorized_principal)
+                self.assertEqual(settled["status"], "settled")
+                before = self._budget_snapshot()
+                self.assertEqual(self.ledger.settle(settlement, self.authorized_principal), settled)
+                self.assertEqual(self._budget_snapshot(), before)
 
     def test_budget_overrun_blocks_further_spend(self):
         req = {
