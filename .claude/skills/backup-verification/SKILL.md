@@ -42,7 +42,7 @@ After ANY invocation of a multi-target backup script (git + dropbox, git + s3, e
 |---|---|---|---|
 | `small` | 60 s | single file `<1 GiB` | codex_history, claude_history, configs, bashrc |
 | `medium` | 300 s | 1–5 GiB or normal directory | codex_archived_sessions, memory, cursor/chats |
-| `large_dir` | 2400 s | `>5 GiB` or high-file-count (millions of jsonl/sqlite) | codex_sessions, claude_sessions, claude/projects, mcp_daemon |
+| `large_dir` | 2400 s | `>5 GiB` or high-file-count (millions of jsonl/sqlite) | codex_sessions, codex_sessions_archive, claude_sessions, claude/projects, mcp_daemon |
 
 Override per-row via `_PER_SOURCE_TIMEOUT_OVERRIDES` associative array in `scripts/backup-home.sh`.
 

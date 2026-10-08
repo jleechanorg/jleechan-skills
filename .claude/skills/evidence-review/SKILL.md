@@ -5,6 +5,11 @@ description: Enforcement rules for reviewing evidence artifacts against the evid
 
 # Evidence Review Skill
 
+## Retained review integrations
+
+The shared catalog preserves host-installed `/advice` and `/web-advice` integrations instead of installing them. Before invoking either, resolve its `../advice/SKILL.md` or `../web-advice/SKILL.md` relative to this package and read the existing skill. For a remote invocation, check the corresponding skill on the target host. If absent, report that integration as `UNAVAILABLE` and identify the missing package; do not invent a replacement runner, claim an approval, or treat a required gate as passed. Continue independent authorized work, but leave any dependent readiness or plan-approval gate unmet. Existing review quorum, external-disclosure authorization, and optional-review rules still apply.
+
+
 **Purpose**: Review evidence for a claim, a path, or a PR. Produce a PASS / PARTIAL / FAIL verdict with specific artifact-level citations. This skill is the enforcement layer for the `evidence-standards` skill (the "what to produce") — this file is the "how to judge it".
 
 **Invoked by**: `/er [subject or path]`
@@ -26,7 +31,7 @@ description: Enforcement rules for reviewing evidence artifacts against the evid
 
 ## Draft-lifecycle integration
 
-The canonical lifecycle, its changed-path classification, and the SHA-binding /
+The canonical lifecycle, its documentation-only `/er` allowlist, and the SHA-binding /
 staleness-tolerance rule (`draft-first-pr` § "SHA-binding rule") live in
 `draft-first-pr`; apply that policy — including the staleness-tolerance diff
 test — before invoking this skill. Do not run a fresh `/er` pass on a HEAD
@@ -39,7 +44,8 @@ prior verdict at the new SHA instead (see `evidence-standards` §
   `/er: NOT REQUIRED — documentation-only (<changed paths>)` at the reviewed
   SHA. Mixed diffs and every path outside that allowlist follow the normal gate.
 
-Every PR outside that exception requires `/er` = **PASS** at the current SHA
+Every PR outside that exception, and outside any low-risk class the repo's own
+instructions exempt per `draft-first-pr`, requires `/er` = **PASS** at the current SHA
 before `/advice`. PARTIAL, FAIL, or INCONCLUSIVE remains informative reviewer
 output but does not satisfy the gate.
 
@@ -55,16 +61,37 @@ itself remains the separate two-gate check defined by `pr-green-definition`.
 ### 1. Bundle integrity
 
 ```bash
-cd '<bundle_dir>'
+(
+  bundle_dir='<bundle_dir>'
+  cd "$bundle_dir" || { echo "Failed to enter bundle directory" >&2; exit 1; }
 
-if [[ -f checksums.sha256 ]]; then
-  sha256sum -c checksums.sha256
-elif find . -name "*.sha256" -print -quit | grep -q .; then
-  find . -name "*.sha256" -execdir sha256sum -c '{}' \;
-else
-  echo "No checksum files found"
-  exit 2
-fi
+  if [[ -f checksums.sha256 ]]; then
+    sha256sum -c checksums.sha256
+  else
+    cs_list="$(mktemp)" || exit 1
+    if ! find . -name "*.sha256" -type f -print0 > "$cs_list"; then
+      echo "Failed to discover checksum files" >&2
+      rm -f "$cs_list"
+      exit 1
+    fi
+
+    found_any=false
+    status=0
+    while IFS= read -r -d '' cs_file; do
+      found_any=true
+      dir="$(dirname "$cs_file")"
+      base="$(basename "$cs_file")"
+      ( cd "$dir" && sha256sum -c "$base" ) || status=1
+    done < "$cs_list"
+    rm -f "$cs_list"
+
+    if [ "$found_any" = false ]; then
+      echo "No checksum files found" >&2
+      exit 2
+    fi
+    exit "$status"
+  fi
+)
 ```
 
 - Top-level `checksums.sha256` means bundle-checksum mode.
@@ -134,13 +161,13 @@ GIFs and MP4s must be on a **public** repository — private repo release assets
 
 ```bash
 # For each <owner>/<repo> hosting a video asset:
-gh api repos/<owner>/<repo> --jq '.private'
+gh api 'repos/<owner>/<repo>' --jq '.private'
 # Must be: false
 ```
 
 ```bash
 # And verify the asset itself is uploaded and accessible:
-gh api repos/<owner>/<repo>/releases/tags/<tag> \
+gh api 'repos/<owner>/<repo>/releases/tags/<tag>' \
   --jq '.assets[] | {name: .name, state: .state}'
 # All states must be "uploaded"
 ```
@@ -209,11 +236,13 @@ without exact commands and expected results → PARTIAL.
 
 Resolve the SHA of the last posted `ER-VERDICT:` comment's `HEAD=` value and
 compare to the subject's current HEAD. If they match, skip to the verdict phase
-and re-emit the prior verdict. If they differ, run `git diff --name-only
-<prior-verdict-sha> <current-sha>` per the staleness-tolerance test in
-`evidence-standards`: a non-behavioral diff lets you re-affirm the prior
-verdict at the new SHA without rerunning the later phases; only a material
-production-behavior diff requires a full rerun. Never rerun once per finding —
+and re-emit the prior verdict. If they differ, read `git diff
+<prior-verdict-sha> <current-sha>` against the verdict's claims per the
+staleness-tolerance test in `evidence-standards`: a delta that leaves every
+claim intact lets you re-affirm the prior verdict at the new SHA without
+rerunning the later phases; a delta that changes production behavior or any
+assertion, driver, or executable instruction a claim depends on requires a full
+rerun. Never rerun once per finding —
 if fixes are still landing, wait until they are batched into one new SHA
 (`evidence-standards` § "Evidence Sequencing") before spending a full pass.
 Continue necessary review and already-authorized fixes within the applicable task

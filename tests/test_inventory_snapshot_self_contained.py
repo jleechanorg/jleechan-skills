@@ -517,5 +517,98 @@ class PytestPathContractTest(unittest.TestCase):
         self.assertIn(".", parser["pytest"]["pythonpath"].split())
 
 
+class LegacyLiveReadAttestationTest(unittest.TestCase):
+    """Legacy rows without content_encoding must attest bytes and never return unattested disk content (rev-o7x6k)."""
+
+    def test_legacy_row_with_missing_digest_fails_closed_on_nonempty_file(self):
+        """A legacy row with no content_sha256 must fail closed instead of returning unattested live bytes."""
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "SKILL.md"
+            path.write_text("# REAL DISK CONTENT\n")
+            row = {
+                "skill": "demo",
+                "path": str(path),
+            }
+            with self.assertRaisesRegex(ValueError, "missing attestation"):
+                inventory_text(row)
+
+    def test_legacy_row_with_empty_digest_fails_closed_on_nonempty_file(self):
+        """A legacy row with content_sha256='' must fail closed instead of returning unattested live bytes."""
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "SKILL.md"
+            path.write_text("# REAL DISK CONTENT\n")
+            row = {
+                "skill": "demo",
+                "path": str(path),
+                "content_sha256": "",
+            }
+            with self.assertRaisesRegex(ValueError, "missing attestation"):
+                inventory_text(row)
+
+    def test_legacy_uncaptured_row_does_not_read_live_bytes(self):
+        """An uncaptured row without content_encoding must return '' without reading live bytes from disk."""
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "SKILL.md"
+            path.write_text("# THE REAL LIVE FILE\n")
+            row = {
+                "skill": "demo",
+                "path": str(path),
+                "content_captured": False,
+            }
+            self.assertEqual(inventory_text(row), "")
+
+    def test_legacy_uncaptured_row_carrying_digest_fails_closed(self):
+        """An uncaptured legacy row declaring a digest is inconsistent and must fail closed."""
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "SKILL.md"
+            path.write_text("# THE REAL LIVE FILE\n")
+            row = {
+                "skill": "demo",
+                "path": str(path),
+                "content_captured": False,
+                "content_sha256": digest(b"# THE REAL LIVE FILE\n"),
+            }
+            with self.assertRaisesRegex(ValueError, "inventory content drift"):
+                inventory_text(row)
+
+    def test_legacy_row_with_matching_digest_returns_live_content(self):
+        """A legacy row whose content_sha256 matches disk bytes returns the content."""
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "SKILL.md"
+            body = "# LEGACY VERIFIED CONTENT\n"
+            path.write_text(body)
+            row = {
+                "skill": "demo",
+                "path": str(path),
+                "content_sha256": digest(body.encode("utf-8")),
+            }
+            self.assertEqual(inventory_text(row), body)
+
+    def test_legacy_empty_file_with_blank_or_matching_digest_returns_empty(self):
+        """A zero-byte file on disk with absent, blank, or EMPTY_DIGEST returns ''."""
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "SKILL.md"
+            path.write_bytes(b"")
+            for sha in (None, "", digest(b"")):
+                with self.subTest(sha=sha):
+                    row = {"skill": "demo", "path": str(path)}
+                    if sha is not None:
+                        row["content_sha256"] = sha
+                    self.assertEqual(inventory_text(row), "")
+
+    def test_legacy_empty_file_with_foreign_digest_fails_closed(self):
+        """A zero-byte file on disk claiming a non-empty digest must fail closed."""
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "SKILL.md"
+            path.write_bytes(b"")
+            row = {
+                "skill": "demo",
+                "path": str(path),
+                "content_sha256": digest(b"# some other content\n"),
+            }
+            with self.assertRaisesRegex(ValueError, "inventory content drift"):
+                inventory_text(row)
+
+
 if __name__ == "__main__":
     unittest.main()

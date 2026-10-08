@@ -86,6 +86,83 @@ class PrimaryPairTest(unittest.TestCase):
             env=self.env,
         )
 
+    def test_reviewers_accepts_codex_opus_subset_and_rejects_unknown_or_duplicates(self) -> None:
+        self.executable("codex", "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
+        self.executable("claude", "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
+
+        for reviewers in ("", "codex,codex", "gemini"):
+            result = self.invoke("--reviewers", reviewers)
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertIn("--reviewers", result.stderr)
+
+    def test_single_reviewer_runs_one_clone_and_barrier_lane(self) -> None:
+        self.executable("codex", "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
+        self.executable("claude", "touch \"$ADVICE_TEST_SYNC_DIR/unexpected-opus.ran\"\n")
+
+        result = self.invoke("--reviewers", "codex")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        receipt = json.loads((self.output / "receipt.json").read_text())
+        self.assertEqual(set(receipt["reviewers"]), {"codex"})
+        self.assertEqual(receipt["clone_shas"], {"codex": self.sha})
+        self.assertFalse(receipt["parallel_dispatch"])
+        self.assertFalse(receipt["overlap_proven"])
+        self.assertFalse((self.sync / "unexpected-opus.ran").exists())
+
+    def test_opus_only_runs_only_opus_and_records_non_parallel_dispatch(self) -> None:
+        self.executable("codex", "touch \"$ADVICE_TEST_SYNC_DIR/unexpected-codex.ran\"\n")
+        self.executable(
+            "claude",
+            "printf '%s\\n' \"$@\" > \"$ADVICE_TEST_SYNC_DIR/opus.args\"\n"
+            "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n",
+        )
+
+        result = self.invoke("--reviewers", "opus")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        receipt = json.loads((self.output / "receipt.json").read_text())
+        self.assertEqual(set(receipt["reviewers"]), {"opus"})
+        self.assertEqual(receipt["clone_shas"], {"opus": self.sha})
+        self.assertFalse(receipt["parallel_dispatch"])
+        self.assertFalse(receipt["overlap_proven"])
+        self.assertFalse((self.sync / "unexpected-codex.ran").exists())
+        opus_args = (self.sync / "opus.args").read_text().splitlines()
+        self.assertIn("--dangerously-skip-permissions", opus_args)
+        self.assertIn("opus", opus_args)
+
+    def test_rejects_reused_output_dir_before_subset_dispatch_and_preserves_receipts(self) -> None:
+        self.executable(
+            "codex",
+            "touch \"$ADVICE_TEST_SYNC_DIR/codex.ran\"\n"
+            "printf 'VERDICT: CODEX\\nCOVERAGE: all\\n'\n",
+        )
+        self.executable(
+            "claude",
+            "touch \"$ADVICE_TEST_SYNC_DIR/opus.ran\"\n"
+            "printf 'VERDICT: OPUS\\nCOVERAGE: all\\n'\n",
+        )
+
+        first = self.invoke("--reviewers", "codex,opus")
+
+        self.assertEqual(first.returncode, 0, first.stderr)
+        original_files = {
+            path.name: path.read_bytes() for path in self.output.iterdir()
+        }
+        second = self.invoke("--reviewers", "opus")
+
+        self.assertEqual(second.returncode, 2, second.stderr)
+        self.assertIn("fresh path", second.stderr.lower())
+        self.assertEqual(
+            {path.name: path.read_bytes() for path in self.output.iterdir()},
+            original_files,
+        )
+        self.assertTrue((self.sync / "codex.ran").exists())
+        self.assertEqual(
+            len(list(self.sync.glob("opus.ran"))),
+            1,
+            "rejected subset rerun must not launch opus against stale output",
+        )
+
     def test_runs_codex_and_opus_concurrently_in_independent_exact_sha_clones(self) -> None:
         peer_wait = """
 touch "$ADVICE_TEST_SYNC_DIR/%s.started"
@@ -101,7 +178,7 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         self.executable("codex", peer_wait % ("codex", "opus", "opus", "codex"))
         self.executable("claude", peer_wait % ("opus", "codex", "codex", "opus"))
 
-        result = self.invoke()
+        result = self.invoke("--reviewers", "codex,opus")
 
         self.assertEqual(result.returncode, 0, result.stderr)
         receipt = json.loads((self.output / "receipt.json").read_text())
@@ -179,6 +256,83 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
             run("git", "show-ref", "--verify", "--quiet", "refs/heads/reviewer-evil", cwd=self.repo).returncode,
             0,
         )
+
+    def test_document_review_accepts_all_git_states_without_changing_source(self) -> None:
+        import shutil
+        import hashlib
+        doc = self.repo / "plan.md"
+        doc.write_text("complete plan\n")
+        self.executable("codex", "test \"$(cat .advice-review-documents/0.md)\" = \"complete plan\"\n"
+                        "printf 'VERDICT: APPROVED\\nCOVERAGE: entire document\\n'\n")
+        for state in ("untracked", "staged", "committed", "modified"):
+            if state == "staged":
+                run("git", "add", "plan.md", cwd=self.repo)
+            if state == "committed":
+                run("git", "commit", "-qm", "document", cwd=self.repo)
+            if state == "modified":
+                doc.write_text("older committed plan\n")
+                run("git", "add", "plan.md", cwd=self.repo)
+                run("git", "commit", "-qm", "older content", cwd=self.repo)
+                doc.write_text("complete plan\n")
+            self.sha = run("git", "rev-parse", "HEAD", cwd=self.repo).stdout.strip()
+            before = run("git", "status", "--porcelain", cwd=self.repo).stdout
+            result = self.invoke("--reviewers", "codex", "--document", "plan.md")
+            self.assertEqual(0, result.returncode, (state, result.stderr))
+            receipt = json.loads((self.output / "receipt.json").read_text())
+            self.assertEqual("documents", receipt["review_kind"])
+            self.assertEqual(hashlib.sha256(doc.read_bytes()).hexdigest(), receipt["document_hashes"]["plan.md"])
+            self.assertEqual(before, run("git", "status", "--porcelain", cwd=self.repo).stdout)
+            shutil.rmtree(self.output)
+
+    def test_document_paths_refuse_escape_symlinks_and_ignored_files(self) -> None:
+        (self.repo / "secret.md").write_text("not for review")
+        (self.repo / ".gitignore").write_text("secret.md\n")
+        (self.repo / "alias.md").symlink_to(self.repo / "tracked.txt")
+        for name in ("../packet.md", "alias.md", "secret.md"):
+            result = self.invoke("--document", name)
+            self.assertEqual(2, result.returncode, result.stderr)
+            self.assertFalse(self.output.exists())
+
+    def test_modified_reviewer_document_invalidates_review(self) -> None:
+        (self.repo / "plan.md").write_text("original document")
+        self.executable("codex", "printf 'changed' > .advice-review-documents/0.md\n"
+                        "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
+        result = self.invoke("--reviewers", "codex", "--document", "plan.md")
+        self.assertEqual(6, result.returncode, result.stderr)
+        self.assertIn("review document copy changed", result.stderr)
+        self.assertEqual("original document", (self.repo / "plan.md").read_text())
+
+    def assert_completed_document_evidence_survives(self):
+        receipt = json.loads((self.output / "receipt.json").read_text())
+        self.assertFalse(receipt["operation"]["success"])
+        self.assertTrue(receipt["cleanup"]["success"])
+        self.assertEqual({"codex", "opus"}, set(receipt["reviewers"]))
+        for name in ("codex", "opus"):
+            self.assertIn("VERDICT:", (self.output / f"{name}.txt").read_text())
+            self.assertGreater(receipt["reviewers"][name]["started_ns"], 0)
+            self.assertGreaterEqual(receipt["reviewers"][name]["ended_ns"],
+                                    receipt["reviewers"][name]["started_ns"])
+
+    def test_document_copy_mutation_preserves_completed_lanes(self):
+        (self.repo / "plan.md").write_text("original document")
+        self.executable("codex", "printf 'changed' > .advice-review-documents/0.md\n"
+                        "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
+        self.executable("claude", "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
+        result = self.invoke("--reviewers", "codex,opus", "--document", "plan.md")
+        self.assertEqual(6, result.returncode, result.stderr)
+        self.assertIn("review document copy changed", result.stderr)
+        self.assert_completed_document_evidence_survives()
+
+    def test_source_document_mutation_preserves_completed_lanes(self):
+        (self.repo / "plan.md").write_text("original document")
+        self.env["ADVICE_TEST_ORIGINAL_REPO"] = str(self.repo)
+        self.executable("codex", 'printf "changed" > "$ADVICE_TEST_ORIGINAL_REPO/plan.md"\n'
+                        "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
+        self.executable("claude", "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
+        result = self.invoke("--reviewers", "codex,opus", "--document", "plan.md")
+        self.assertEqual(6, result.returncode, result.stderr)
+        self.assertIn("source documents changed", result.stderr)
+        self.assert_completed_document_evidence_survives()
 
     def test_refuses_dirty_input_checkout_before_dispatch(self) -> None:
         (self.repo / "untracked.txt").write_text("not represented by the SHA\n")

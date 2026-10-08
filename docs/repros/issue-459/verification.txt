@@ -1,0 +1,33 @@
+Python 3.12.14
+COMMAND: python3 scripts/repro/autonomy_replay.py selftest
+ci_recovery: good PASS; known-bad REJECTED
+local_patch: good PASS; known-bad REJECTED
+handoff_recover: good PASS; known-bad REJECTED
+handoff_blocked: good PASS; known-bad REJECTED
+approval_isolation: good PASS; known-bad REJECTED
+workspace_loss: good PASS; known-bad REJECTED
+PASS: 12 controls; wrong-head and unapproved purge rejected; independent order accepted
+COMMAND: python3 scripts/repro/test_autonomy_replay.py
+test_adapter_all_positive_capture_controls (__main__.ReplayTests.test_adapter_all_positive_capture_controls) ... ok
+test_adapter_never_overwrites_trace (__main__.ReplayTests.test_adapter_never_overwrites_trace) ... ok
+test_adapter_preserves_rejected_call (__main__.ReplayTests.test_adapter_preserves_rejected_call) ... ok
+test_adapter_rejects_nonempty_arguments (__main__.ReplayTests.test_adapter_rejects_nonempty_arguments) ... ok
+test_all_twelve_controls (__main__.ReplayTests.test_all_twelve_controls) ... ok
+test_bad_receipt_and_unavailable_tool (__main__.ReplayTests.test_bad_receipt_and_unavailable_tool) ... ok
+test_cli_selftest (__main__.ReplayTests.test_cli_selftest) ... ok
+test_independent_work_both_orders (__main__.ReplayTests.test_independent_work_both_orders) ... ok
+test_jsonl_bridge_workspace_control_and_eof (__main__.ReplayTests.test_jsonl_bridge_workspace_control_and_eof) ... ok
+test_missing_and_wrong_blocker (__main__.ReplayTests.test_missing_and_wrong_blocker) ... ok
+test_missing_final_and_after_final (__main__.ReplayTests.test_missing_final_and_after_final) ... ok
+test_original_issue_fixture_unchanged (__main__.ReplayTests.test_original_issue_fixture_unchanged) ... ok
+test_public_timeline_integrity (__main__.ReplayTests.test_public_timeline_integrity) ... ok
+test_unapproved_purge (__main__.ReplayTests.test_unapproved_purge) ... ok
+test_wrong_head_receipt (__main__.ReplayTests.test_wrong_head_receipt) ... ok
+
+----------------------------------------------------------------------
+Ran 15 tests in 0.082s
+
+OK
+COMMAND: python3 -m py_compile scripts/repro/autonomy_replay.py scripts/repro/autonomy_agent_adapter.py scripts/repro/test_autonomy_replay.py
+EXIT: 0
+SCOPE: Offline synthetic controls and harness tests only; no model/provider calls, no actual-agent failure reproduction, no full-repository test pass claimed.
