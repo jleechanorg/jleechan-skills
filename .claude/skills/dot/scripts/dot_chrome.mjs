@@ -137,8 +137,17 @@ function detectChromeProfile(requestedAccount) {
   };
 }
 
+function isMainModule() {
+  if (!process.argv[1]) return false;
+  try {
+    return fs.realpathSync(process.argv[1]) === fs.realpathSync(import.meta.filename);
+  } catch {
+    return false;
+  }
+}
+
 // Single-command profile directory resolution helper for dot.sh
-if (process.argv[2] === 'resolve-profile') {
+if (isMainModule() && process.argv[2] === 'resolve-profile') {
   const info = detectChromeProfile(process.env.DOT_ACCOUNT);
   console.log(JSON.stringify(info));
   process.exit(0);
@@ -166,25 +175,50 @@ let aborted = false;
 function syncCookiesFromSource(srcProfilePath, defaultDir, force = false) {
   if (!srcProfilePath || !fs.existsSync(srcProfilePath)) return false;
   const syncMarker = path.join(defaultDir, '.src_cookies_synced_mtime');
-  let lastSyncedMtime = 0;
+  let syncedMtimes = {};
   if (!force && fs.existsSync(syncMarker)) {
     try {
-      lastSyncedMtime = Number(fs.readFileSync(syncMarker, 'utf8').trim()) || 0;
-    } catch {}
+      const raw = fs.readFileSync(syncMarker, 'utf8').trim();
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        syncedMtimes = parsed;
+      }
+    } catch {
+      try {
+        const num = Number(fs.readFileSync(syncMarker, 'utf8').trim());
+        if (num) {
+          syncedMtimes = { 'Cookies': num, [path.join('Network', 'Cookies')]: num };
+        }
+      } catch {}
+    }
   }
   let copied = false;
   for (const rel of ['Cookies', path.join('Network', 'Cookies')]) {
     const srcC = path.join(srcProfilePath, rel);
     const dstC = path.join(defaultDir, rel);
     if (fs.existsSync(srcC)) {
-      const srcMtime = fs.statSync(srcC).mtimeMs;
+      const srcStat = fs.statSync(srcC);
+      const srcMtime = srcStat.mtimeMs;
+      const lastSyncedMtime = Number(syncedMtimes[rel]) || 0;
+      const dstExists = fs.existsSync(dstC);
+      const dstMtime = dstExists ? fs.statSync(dstC).mtimeMs : 0;
+
+      // Never overwrite a newer manual login in persistent profile unless forced
+      if (!force && dstExists && srcMtime <= dstMtime + 1000) {
+        continue;
+      }
+
       if (force || lastSyncedMtime === 0 || srcMtime > lastSyncedMtime + 1000) {
         try {
           fs.mkdirSync(path.dirname(dstC), { recursive: true });
           fs.copyFileSync(srcC, dstC);
-          copied = true;
           try {
-            fs.writeFileSync(syncMarker, String(srcMtime));
+            fs.utimesSync(dstC, srcStat.atime, srcStat.mtime);
+          } catch {}
+          copied = true;
+          syncedMtimes[rel] = srcMtime;
+          try {
+            fs.writeFileSync(syncMarker, JSON.stringify(syncedMtimes));
           } catch {}
         } catch {}
       }
@@ -196,7 +230,11 @@ function syncCookiesFromSource(srcProfilePath, defaultDir, force = false) {
 function clearSyncMarker(targetDir) {
   try {
     fs.unlinkSync(path.join(targetDir, 'Default', '.src_cookies_synced_mtime'));
-  } catch {}
+  } catch (err) {
+    if (err && err.code !== 'ENOENT') {
+      console.error('dot: failed to clear cookie sync marker: ' + err.message);
+    }
+  }
 }
 
 function ensurePersistentProfile(accInfo, targetDir) {
@@ -346,8 +384,8 @@ async function launch() {
     unavailable('playwright not installed for ' + process.execPath);
   }
 
-  ensurePersistentProfile(accountInfo, USER_DATA_DIR);
   await waitAndCleanSingletonLock(USER_DATA_DIR);
+  ensurePersistentProfile(accountInfo, USER_DATA_DIR);
 
   const isLinux = os.platform() === 'linux';
   const hasDisplay = !!process.env.DISPLAY;
@@ -570,38 +608,48 @@ async function send(page, file, dry) {
   console.log(sentVerified ? 'DOT_SENT_VERIFIED' : 'DOT_SEND_UNVERIFIED composer_left=' + left.length);
 }
 
-process.on('SIGTERM', async () => { try { await ctx?.close(); } catch {} process.exit(143); });
-process.on('SIGINT', async () => { try { await ctx?.close(); } catch {} process.exit(130); });
+if (isMainModule()) {
+  process.on('SIGTERM', async () => { try { await ctx?.close(); } catch {} process.exit(143); });
+  process.on('SIGINT', async () => { try { await ctx?.close(); } catch {} process.exit(130); });
 
-let code = 0;
-let launchTimer = null;
-try {
-  if (mode === 'send' && !(arg && fs.existsSync(arg) && fs.statSync(arg).size > 0)) unavailable('no message file');
-  const timeoutPromise = new Promise((_, reject) => {
-    launchTimer = setTimeout(() => {
-      aborted = true;
-      reject(new Unavailable('timeout'));
-    }, 120000);
-  });
+  let code = 0;
+  let launchTimer = null;
   try {
-    await Promise.race([
-      (async () => {
-        const page = await launch();
-        if (mode === 'read') await read(page, Number(arg || 5000));
-        else await send(page, arg, process.env.DOT_DRY_RUN === '1');
-      })(),
-      timeoutPromise
-    ]);
+    if (mode === 'send' && !(arg && fs.existsSync(arg) && fs.statSync(arg).size > 0)) unavailable('no message file');
+    const timeoutPromise = new Promise((_, reject) => {
+      launchTimer = setTimeout(() => {
+        aborted = true;
+        reject(new Unavailable('timeout'));
+      }, 120000);
+    });
+    try {
+      await Promise.race([
+        (async () => {
+          const page = await launch();
+          if (mode === 'read') await read(page, Number(arg || 5000));
+          else await send(page, arg, process.env.DOT_DRY_RUN === '1');
+        })(),
+        timeoutPromise
+      ]);
+    } finally {
+      if (launchTimer) clearTimeout(launchTimer);
+    }
+  } catch (e) {
+    if (clicked) console.log('DOT_SEND_UNVERIFIED chrome_error=' + e.message);
+    else { console.log('DOT_CHROME_UNAVAILABLE: ' + (e instanceof Unavailable ? e.message : 'error: ' + e.message.split('\n')[0])); code = 10; }
   } finally {
-    if (launchTimer) clearTimeout(launchTimer);
+    try {
+      await ctx?.close();
+      await sleep(300);
+    } catch {}
   }
-} catch (e) {
-  if (clicked) console.log('DOT_SEND_UNVERIFIED chrome_error=' + e.message);
-  else { console.log('DOT_CHROME_UNAVAILABLE: ' + (e instanceof Unavailable ? e.message : 'error: ' + e.message.split('\n')[0])); code = 10; }
-} finally {
-  try {
-    await ctx?.close();
-    await sleep(300);
-  } catch {}
+  process.exit(code);
 }
-process.exit(code);
+
+export {
+  syncCookiesFromSource,
+  clearSyncMarker,
+  ensurePersistentProfile,
+  waitAndCleanSingletonLock,
+  isMainModule,
+};
