@@ -1,0 +1,11 @@
+[Unit]
+Description=Antigravity Dot Cloud Coordinator
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h
+ExecStart=/bin/bash %h/.claude/skills/agy-dot-coordinator/scripts/agy-dot-coordinator-wrapper.sh
+StandardOutput=journal
+StandardError=journal

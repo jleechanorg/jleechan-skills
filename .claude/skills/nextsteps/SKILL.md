@@ -198,15 +198,24 @@ The independent `.md` file is the **handoff artifact**: a reader must be able to
 
 ### Stage 1: Local Updates (Default & `--full` Modes)
 
-#### Phase 1a — Memory Search Context (parallel subagent)
-**Run as a parallel subagent** (Agent tool, subagent_type=Explore) so Phase 1b can start simultaneously:
+#### Phase 1a — Memory Search Context
+Reuse relevant context and source reads already gathered in this session. Delegate
+this phase alongside Phase 1b only when they contain independent unanswered
+questions worth separate lanes; otherwise perform the remaining bounded reads
+locally. Do not repeat completed discovery merely to satisfy a phase label.
+If a discovery lane fails because its transport or quota is unavailable, finish
+its bounded reads locally rather than retrying that unavailable transport.
+Refresh mutable tracker and PR state when reporting current facts.
+
+For context still missing:
 1. Search memory files for key terms from the user-provided context after `/nextsteps`
 2. Check `~/roadmap/nextsteps-*.md` for most recent session doc (target for append vs new file)
 3. Check `~/roadmap/learnings-YYYY-MM.md` tail for existing entries
 4. Report: existing bead IDs, open items from prior sessions, path of most recent nextsteps doc
 
-#### Phase 1b — Gather context (parallel subagent)
-**Run as a parallel subagent** (Agent tool, subagent_type=Explore) concurrently with Phase 1a:
+#### Phase 1b — Gather context
+Apply Phase 1a's reuse and delegation decision; share this inspection with other
+commands composed in the same request. Gather only the context still needed:
 - `git log --oneline -10`
 - `br list --status open --limit 0`
 - `ls roadmap/` (and `ls ~/roadmap/` for home docs)
