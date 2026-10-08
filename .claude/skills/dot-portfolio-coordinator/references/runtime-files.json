@@ -1,0 +1,19 @@
+{
+  "baseline": "12552a133b7b4fef66ce9b9cf48bad4ac5a1189f",
+  "owner_source": "2ddb01080ae636ec116797b955529351709ee46d",
+  "limit": 1000,
+  "reserve": 50,
+  "files": {
+    "scripts/coordinator-reminder.py": 120,
+    "scripts/reminder_ledger.py": 220,
+    "scripts/reminder_driver.py": 50,
+    "scripts/reminder_process.py": 120,
+    "scripts/reminder_native.py": 150,
+    "references/reminder.md": 20,
+    "references/runtime-files.json": 20,
+    "scripts/reminder_journal.py": 70,
+    "SKILL.md": 30
+  },
+  "shared_allocation": 150,
+  "shared": {".claude/skills/dot/scripts/dot.sh": "1b770ab266ea78ef622ab856e86487e2929f94dec662e2183a6266c696dca794", ".claude/skills/dot/scripts/dot_chrome.mjs": "82dffdc0488301258de6b38b4472919a994a06f76e23ed85fbd065f2e10672f9"}
+}

@@ -6,6 +6,7 @@ import { execSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { observeReminder, sendReminderOnce, lookupReminder, reminderDigest } from './dot_reminder.mjs';
 
 const require = createRequire(process.env.DOT_PW_MODULES || path.join(path.dirname(process.execPath), '../lib/node_modules/'));
 
@@ -453,7 +454,7 @@ async function checkAuthSession(page) {
   }
 }
 
-async function launch() {
+async function launch(reminder = null) {
   if (!fs.existsSync(CHROME)) unavailable('Chrome not found at ' + CHROME);
   let chromium;
   try {
@@ -462,8 +463,10 @@ async function launch() {
     unavailable('playwright not installed for ' + process.execPath);
   }
 
-  await waitAndCleanSingletonLock(USER_DATA_DIR);
-  ensurePersistentProfile(accountInfo, USER_DATA_DIR);
+  if (!reminder) {
+    await waitAndCleanSingletonLock(USER_DATA_DIR);
+    ensurePersistentProfile(accountInfo, USER_DATA_DIR);
+  } else if (!fs.existsSync(USER_DATA_DIR)) unavailable('existing profile required');
 
   const isLinux = os.platform() === 'linux';
   const hasDisplay = !!process.env.DISPLAY;
@@ -497,7 +500,9 @@ async function launch() {
     unavailable('failed to launch persistent Chrome context: ' + e.message);
   }
   const page = await ctx.newPage();
+  if (reminder) reminder.evidence = observeReminder(page, reminder);
   await page.goto(URL_, { waitUntil: 'domcontentloaded', timeout: 45000 });
+  if (reminder) return page;
 
   // Settle loop: wait for Cloudflare challenge to clear and page to render
   const deadline = Date.now() + 45000;
@@ -700,8 +705,39 @@ async function send(page, file, dry) {
 }
 
 if (isMainModule()) {
-  process.on('SIGTERM', async () => { try { await ctx?.close(); } catch {} process.exit(143); });
-  process.on('SIGINT', async () => { try { await ctx?.close(); } catch {} process.exit(130); });
+  for (const [signal, code] of [['SIGTERM', 143], ['SIGINT', 130]]) process.on(signal, async () => {
+    aborted = true;
+    try { await ctx?.close(); } catch {}
+    process.exit(code);
+  });
+}
+
+if (isMainModule() && mode.startsWith('reminder-')) {
+  let expected = {};
+  const timer = setTimeout(() => {
+    aborted = true;
+    ctx?.close().catch(() => {});
+  }, 160000);
+  try {
+    if (!['reminder-send-once', 'reminder-lookup'].includes(mode)) unavailable('invalid strict action');
+    const config = loadDotConfig().accounts?.[process.env.DOT_ACCOUNT];
+    if (process.versions.node.split('.')[0] !== '22' || !config?.expected_sender_id || !config?.expected_room_id || !config?.user_data_dir) unavailable('strict configuration or Node 22 missing');
+    expected = { sender: config.expected_sender_id, room: config.expected_room_id, deadline: Date.now()+160000, cancelled: () => aborted, onClick: () => { clicked = true; } };
+    const input = fs.readFileSync(arg, 'utf8');
+    Object.assign(expected, mode === 'reminder-lookup' ? JSON.parse(input) : { body: input, digest: reminderDigest(input), marker: input.match(/\[event:[a-f0-9]{64}\]/g)?.[0] });
+    if (!expected.marker || (expected.body && (expected.body.length > 1500 || (expected.body.match(/\[event:[a-f0-9]{64}\]/g) || []).length !== 1)) || expected.sender !== config.expected_sender_id || expected.room !== config.expected_room_id) unavailable('invalid reminder binding');
+    const page = await launch(expected);
+    const readyBy = Date.now()+10000;
+    while ((!expected.evidence.sender || !expected.evidence.room || !expected.evidence.messages.size) && Date.now()<readyBy) await sleep(100);
+    const result = mode === 'reminder-lookup' ? await lookupReminder(page, expected, expected.evidence) : await sendReminderOnce(page, expected, expected.evidence);
+    console.log('DOT_REMINDER '+JSON.stringify(result || { kind: 'unknown' }));
+  } catch (error) {
+    console.log('DOT_REMINDER '+JSON.stringify({ kind: clicked ? 'uncertain' : 'no_send', before_click: !clicked, reason: error.message }));
+  } finally { clearTimeout(timer); await ctx?.close(); }
+  process.exit(0);
+}
+
+if (isMainModule()) {
 
   let code = 0;
   let launchTimer = null;
@@ -745,3 +781,5 @@ export {
   waitAndCleanSingletonLock,
   isMainModule,
 };
+
+export { sendReminderOnce, lookupReminder } from './dot_reminder.mjs';

@@ -19,8 +19,10 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$PATH"
 # Parse optional --account / -a / --url / -u flags from arguments
 NEW_ARGS=()
 URL_EXPLICIT=0
+STRICT_REMINDER=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --strict-reminder) STRICT_REMINDER=1; shift ;;
     --account|-a)
       DOT_ACCOUNT="$2"
       shift 2
@@ -74,6 +76,10 @@ if [[ -z "$ACCOUNT" && -f "$CONFIG_FILE" ]]; then
   ' "$CONFIG_FILE" 2>/dev/null || true)
 fi
 ACCOUNT="${ACCOUNT:-default}"
+if [[ "$STRICT_REMINDER" == 1 ]]; then
+  [[ $# == 2 && ( "$1" == send-once || "$1" == lookup ) && -n "${DOT_ACCOUNT:-}" ]] || exit 2
+  exec env -u DOT_REMOTE_HOST -u DOT_CHROME_USER_DATA -u DOT_URL -u DOT_CLEAR_DRAFT -u DOT_DRY_RUN DOT_ACCOUNT="$DOT_ACCOUNT" DOT_CONFIG_FILE="$CONFIG_FILE" DOT_ALLOW_REMOTE=0 DOT_ROTATE_ON_LIMIT=0 "$NODE" "$HERE/dot_chrome.mjs" "reminder-$1" "$2"
+fi
 
 # Unify profile directory and URL resolution via dot_chrome.mjs resolve-profile
 PROFILE_DIR=""
