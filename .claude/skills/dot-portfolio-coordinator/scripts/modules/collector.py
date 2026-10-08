@@ -2,7 +2,7 @@
 
 Deterministic collectors for:
 - GitHub REST pagination (issues, draft PRs, checks, terminal changes)
-- Native beads all-status collection (`br --db <exact> --no-auto-flush --no-auto-import list --status all --deferred --limit 0 --json`)
+- Native beads all-status collection (`br --db <exact> --no-auto-flush --no-auto-import list --all --deferred --limit 0 --json`)
 - Strict envelope parsing `{issues, total, limit, offset, has_more}`
 - Absolute exclusion of ambient DB fallback
 - Strict sanitization of raw bodies, descriptions, and notes
@@ -263,7 +263,7 @@ class PortfolioCollector:
                 "--no-auto-flush",
                 "--no-auto-import",
                 "list",
-                "--status", "all",
+                "--all",
                 "--deferred",
                 "--limit", "0",
                 "--json"

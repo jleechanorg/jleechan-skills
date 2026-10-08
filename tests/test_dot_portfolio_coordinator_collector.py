@@ -136,6 +136,56 @@ class TestDotPortfolioCoordinatorCollector(unittest.TestCase):
             self.assertIn("task_composite_key", item)
             self.assertEqual(item["task_composite_key"][2], "skills")
 
+    def test_native_beads_all_status_command_preserves_every_task(self):
+        source = self.registry.get_source("core-skills")
+        source["host_binding"] = "/tmp/portfolio-fixture/beads.db"
+        tasks = [
+            {"id": "fixture-" + status, "title": "Task " + status, "status": status}
+            for status in ("open", "in_progress", "deferred", "closed")
+        ]
+        common = ["br", "--db", source["host_binding"],
+                  "--no-auto-flush", "--no-auto-import"]
+        calls = []
+
+        def native_fixture(argv, **kwargs):
+            calls.append((argv, kwargs))
+            if "where" in argv:
+                return 0, json.dumps({"database_path": source["host_binding"]}), ""
+            # Compatibility fixture for br versions where --status is a literal
+            # filter. An unconditional response would hide fresh-but-empty data.
+            selected = tasks
+            if "--status" in argv:
+                status = argv[argv.index("--status") + 1]
+                selected = [task for task in selected if task["status"] == status]
+            elif "--all" not in argv:
+                selected = [task for task in selected if task["status"] != "closed"]
+            if "--deferred" not in argv:
+                selected = [task for task in selected if task["status"] != "deferred"]
+            limit = int(argv[argv.index("--limit") + 1]) if "--limit" in argv else 1
+            if limit:
+                selected = selected[:limit]
+            return 0, json.dumps(selected), ""
+
+        with patch("modules.collector.run_bounded_command", side_effect=native_fixture), \
+                patch("modules.collector.time.monotonic", return_value=1000):
+            result = self.collector.collect_source_snapshot("core-skills", deadline_mono=1023)
+
+        self.assertEqual(result["status"], "fresh")
+        self.assertTrue(result["checkpoint_committed"])
+        self.assertTrue(result["cursor"]["completed"])
+        self.assertEqual({task["id"]: task["status"] for task in result["items"]},
+                         {task["id"]: task["status"] for task in tasks})
+        for task in result["items"]:
+            self.assertEqual(task["task_composite_key"], [
+                source["github_host"], source["repository"], source["namespace"], task["id"],
+            ])
+        self.assertEqual(calls, [
+            (common + ["where", "--json"], {"timeout_secs": 23}),
+            (common + ["list", "--all", "--deferred", "--limit", "0", "--json"],
+             {"timeout_secs": 23}),
+        ])
+        print("native fixture retained open/in_progress/deferred/closed; exact DB, flags, and timeout verified")
+
     def test_aggregate_metrics_reporting(self):
         prior = {}
         def mock_fetch(source, page=1, etag=None):

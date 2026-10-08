@@ -69,8 +69,17 @@ python3 scripts/coordinator-portfolio.py status --reservation-id res_act-1_att-1
 # Resolve notification authorization reference
 python3 scripts/coordinator-portfolio.py resolve-notification --ref bd-ctrl-1/act-1/att-1
 
-# Run finite observation loop (12-hour default)
-python3 scripts/coordinator-portfolio.py observe --duration 43200 --interval 300 --run-dir /tmp/dot-portfolio-observe
+# Generic observe-only loop (no messages; 12-hour default)
+run_dir="$(mktemp -d /tmp/dot-portfolio-observe.XXXXXX)"
+python3 scripts/coordinator-portfolio.py observe --duration 43200 --interval 300 --run-dir "$run_dir"
+```
+
+Active messaging requires a pinned pilot config and account grants. Set `run_dir` to the config's `state_dir`, an owner-owned private directory under `/tmp` (mode `0700`). Use a separate directory from an observe-only run; the controller creates it privately if missing.
+
+```bash
+# Active current-work check-ins, bounded by the pilot config and grants
+run_dir=/tmp/dot-portfolio-pilot
+python3 scripts/coordinator-portfolio.py observe --interval 300 --send-messages --pilot-config /path/to/pilot.json --run-dir "$run_dir"
 ```
 
 The sender subcomponent is located at `scripts/dot-portfolio-coordinator-sender.sh`:

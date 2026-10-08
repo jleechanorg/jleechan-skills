@@ -246,10 +246,7 @@ def run_pilot_slot(config: Dict[str, Any], slot: Dict[str, Any], state: Dict[str
     from modules.driver_adapter import DriverAdapter
     account_index = slot["account_index"]
     account = config["accounts"][account_index]
-    stage = state["dialogue"].get(str(account_index), "inventory")
-    if stage != "inventory":
-        return {"outcome": "no_challenge_hold", "reason": "correlation_unavailable",
-                "delivery_verified": False}
+    # Each scheduled slot checks current work independently of prior dialogue.
     candidate_bindings = snapshot.get("candidate_bindings")
     if not isinstance(candidate_bindings, list):
         return {"outcome": "driver_failed", "reason": "source_snapshot_incomplete",
@@ -324,10 +321,7 @@ def run_pilot_slot(config: Dict[str, Any], slot: Dict[str, Any], state: Dict[str
             "--transport-script", transport, "--full-rollup"]
     if deadline - time.monotonic() < 600:
         return {"outcome": "deadline_hold", "delivery_verified": False}
-    result = call_sender(argv, slot["event_id"], message, source_callback=check_source)
-    if result["delivery_verified"]:
-        state["dialogue"][str(account_index)] = "challenge" if stage == "inventory" else "inventory"
-    return result
+    return call_sender(argv, slot["event_id"], message, source_callback=check_source)
 
 
 def cmd_reserve(args: argparse.Namespace, registry: SourceRegistry) -> None:
@@ -391,9 +385,13 @@ def cmd_collect(args: argparse.Namespace, registry: SourceRegistry) -> None:
 
 def process_due_slots(config, state, root, snapshot, driver, transport, deadline, now,
                       source_receipt_reader=None):
+    # This exact defer is emitted before sender reservation or transport work.
+    spacing_defer = {"outcome": "deferred", "reason": "grant_min_interval",
+                     "delivery_verified": False}
     for slot in pilot_slots(config):
         key = str(slot["index"])
-        if key in state["slots"] or now < slot["due_epoch"]:
+        if ((key in state["slots"] and state["slots"][key] != spacing_defer) or
+                now < slot["due_epoch"]):
             continue
         if now >= slot["due_epoch"] + 1200:
             state["slots"][key] = {"outcome": "missed_slot", "delivery_verified": False}
@@ -408,6 +406,8 @@ def process_due_slots(config, state, root, snapshot, driver, transport, deadline
             )
         except Exception:
             result = {"outcome": "slot_failed_hold", "delivery_verified": False}
+        if result == spacing_defer and time.time() >= slot["due_epoch"] + 1200:
+            result = {"outcome": "missed_slot", "delivery_verified": False}
         state["slots"][key] = result
         atomic_write_json(root / "run_state.json", state)
 
