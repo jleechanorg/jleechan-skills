@@ -175,6 +175,9 @@ let aborted = false;
 function syncCookiesFromSource(srcProfilePath, defaultDir, force = false) {
   if (!srcProfilePath || !fs.existsSync(srcProfilePath)) return false;
   const syncMarker = path.join(defaultDir, '.src_cookies_synced_mtime');
+  const authFailedMarker = path.join(defaultDir, '.auth_failed');
+  const manualLoginMarker = path.join(defaultDir, '.manual_login');
+
   let syncedMtimes = {};
   if (!force && fs.existsSync(syncMarker)) {
     try {
@@ -192,6 +195,24 @@ function syncCookiesFromSource(srcProfilePath, defaultDir, force = false) {
       } catch {}
     }
   }
+
+  let authFailedAt = 0;
+  if (fs.existsSync(authFailedMarker)) {
+    try {
+      const data = JSON.parse(fs.readFileSync(authFailedMarker, 'utf8'));
+      authFailedAt = Number(data.failedAt) || fs.statSync(authFailedMarker).mtimeMs;
+    } catch {
+      try { authFailedAt = fs.statSync(authFailedMarker).mtimeMs; } catch {}
+    }
+  }
+
+  let manualLoginAt = 0;
+  if (fs.existsSync(manualLoginMarker)) {
+    try {
+      manualLoginAt = fs.statSync(manualLoginMarker).mtimeMs;
+    } catch {}
+  }
+
   let copied = false;
   for (const rel of ['Cookies', path.join('Network', 'Cookies')]) {
     const srcC = path.join(srcProfilePath, rel);
@@ -203,12 +224,31 @@ function syncCookiesFromSource(srcProfilePath, defaultDir, force = false) {
       const dstExists = fs.existsSync(dstC);
       const dstMtime = dstExists ? fs.statSync(dstC).mtimeMs : 0;
 
-      // Never overwrite a newer manual login in persistent profile unless forced
-      if (!force && dstExists && srcMtime <= dstMtime + 1000) {
+      // Distinguish a valid manual headless login from a routine cookie-file touch:
+      // If auth recently failed on dst (authFailedAt > 0), dst's mtime is just the routine touch
+      // from the failed unauthenticated run UNLESS dst was modified after the failure (e.g. via manual login).
+      let hasNewerManualLogin = false;
+      if (dstExists) {
+        if (manualLoginAt > 0 && manualLoginAt > lastSyncedMtime && manualLoginAt > authFailedAt) {
+          if (srcMtime <= manualLoginAt + 1000) {
+            hasNewerManualLogin = true;
+          }
+        } else if (authFailedAt > 0) {
+          if (dstMtime > authFailedAt + 1000 && srcMtime <= dstMtime + 1000) {
+            hasNewerManualLogin = true;
+          }
+        } else {
+          if (srcMtime <= dstMtime + 1000) {
+            hasNewerManualLogin = true;
+          }
+        }
+      }
+
+      if (!force && hasNewerManualLogin) {
         continue;
       }
 
-      if (force || lastSyncedMtime === 0 || srcMtime > lastSyncedMtime + 1000) {
+      if (force || authFailedAt > 0 || lastSyncedMtime === 0 || srcMtime > lastSyncedMtime + 1000) {
         try {
           fs.mkdirSync(path.dirname(dstC), { recursive: true });
           fs.copyFileSync(srcC, dstC);
@@ -224,15 +264,39 @@ function syncCookiesFromSource(srcProfilePath, defaultDir, force = false) {
       }
     }
   }
+
+  if (copied) {
+    try { fs.unlinkSync(authFailedMarker); } catch {}
+  }
   return copied;
 }
 
 function clearSyncMarker(targetDir) {
+  const defaultDir = path.join(targetDir, 'Default');
   try {
-    fs.unlinkSync(path.join(targetDir, 'Default', '.src_cookies_synced_mtime'));
+    fs.unlinkSync(path.join(defaultDir, '.src_cookies_synced_mtime'));
   } catch (err) {
     if (err && err.code !== 'ENOENT') {
       console.error('dot: failed to clear cookie sync marker: ' + err.message);
+    }
+  }
+  try {
+    fs.mkdirSync(defaultDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(defaultDir, '.auth_failed'),
+      JSON.stringify({ failedAt: Date.now() })
+    );
+  } catch (err) {
+    console.error('dot: failed to write auth_failed marker: ' + err.message);
+  }
+}
+
+function clearAuthFailed(targetDir) {
+  try {
+    fs.unlinkSync(path.join(targetDir, 'Default', '.auth_failed'));
+  } catch (err) {
+    if (err && err.code !== 'ENOENT') {
+      console.error('dot: failed to clear auth_failed marker: ' + err.message);
     }
   }
 }
@@ -455,6 +519,7 @@ async function launch() {
         unavailable('Cloudflare 403 on session endpoint');
       }
 
+      clearAuthFailed(USER_DATA_DIR);
       if (mode === 'send') return page;
       // For read mode, wait for narrative content length to stabilize
       const len = bodyText.length;
@@ -492,7 +557,10 @@ async function launch() {
     unavailable('not signed in');
   }
 
-  if (mode === 'read') return page;
+  if (mode === 'read') {
+    clearAuthFailed(USER_DATA_DIR);
+    return page;
+  }
   return unavailable('composer not found');
 }
 
@@ -649,6 +717,7 @@ if (isMainModule()) {
 export {
   syncCookiesFromSource,
   clearSyncMarker,
+  clearAuthFailed,
   ensurePersistentProfile,
   waitAndCleanSingletonLock,
   isMainModule,
