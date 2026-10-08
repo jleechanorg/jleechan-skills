@@ -77,6 +77,57 @@ class TestDotPortfolioCoordinatorProcessUtils(unittest.TestCase):
             ).stdout.strip()
             self.assertTrue(not state or state.startswith("Z"), state)
 
+    def test_natural_exit_result_preserves_callback_and_nonzero_code(self):
+        for rc in (0, 7):
+            with self.subTest(rc=rc):
+                completed = process_utils.run_bounded_interactive_command(
+                    [sys.executable, "-c", f"import sys; print('marker',flush=True); sys.exit({rc})"],
+                    lambda child: child.read_frame(), timeout_secs=2,
+                    wait_for_exit=True,
+                )
+                self.assertEqual(completed.result, b"marker")
+                self.assertEqual(completed.returncode, rc)
+
+    def test_natural_exit_wait_uses_remaining_absolute_deadline(self):
+        proc = mock.Mock(pid=43210)
+        proc.wait.return_value = 0
+        with mock.patch.object(process_utils.subprocess, "Popen", return_value=proc), \
+                mock.patch.object(process_utils, "InteractiveChild"), \
+                mock.patch.object(process_utils.time, "monotonic", side_effect=[100, 100.75, 100.8]), \
+                mock.patch.object(process_utils, "_group_exists", return_value=False), \
+                mock.patch.object(process_utils, "_terminate_owned_group"):
+            completed = process_utils.run_bounded_interactive_command(
+                ["unused"], lambda child: "marker", timeout_secs=1, wait_for_exit=True,
+            )
+        self.assertEqual(completed.returncode, 0)
+        proc.wait.assert_called_once_with(timeout=0.25)
+
+    def test_natural_exit_completed_after_original_deadline_is_rejected(self):
+        proc = mock.Mock(pid=43210)
+        proc.wait.return_value = 0
+        with mock.patch.object(process_utils.subprocess, "Popen", return_value=proc), \
+                mock.patch.object(process_utils, "InteractiveChild"), \
+                mock.patch.object(process_utils.time, "monotonic", side_effect=[100, 100.75, 101.01]), \
+                mock.patch.object(process_utils, "_group_exists", return_value=False), \
+                mock.patch.object(process_utils, "_terminate_owned_group"), \
+                self.assertRaises(ProcessTimeoutError):
+            process_utils.run_bounded_interactive_command(
+                ["unused"], lambda child: "marker", timeout_secs=1, wait_for_exit=True,
+            )
+
+    def test_natural_exit_rejects_marker_then_hang_or_live_descendant(self):
+        cases = (
+            "import time; print('marker',flush=True); time.sleep(30)",
+            "import subprocess,sys; subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL); print('marker',flush=True)",
+        )
+        for code in cases:
+            with self.subTest(code=code):
+                with self.assertRaises((ProcessTimeoutError, process_utils.ProcessExecutionError)):
+                    process_utils.run_bounded_interactive_command(
+                        [sys.executable, "-c", code], lambda child: child.read_frame(),
+                        timeout_secs=1, wait_for_exit=True,
+                    )
+
     def test_interactive_child_timeout_cleans_group(self):
         code = "import time; print('prepared',flush=True); time.sleep(30)"
 

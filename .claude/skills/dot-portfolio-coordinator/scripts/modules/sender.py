@@ -20,6 +20,7 @@ from modules.process_utils import (
     run_bounded_command,
     run_bounded_interactive_command,
     InteractiveChild,
+    InteractiveCompletion,
 )
 
 WORKER_SHA = "dot-portfolio-coordinator-sender-v3"
@@ -27,6 +28,9 @@ COOLDOWN_SECS = 7200
 MAX_GRANT_WINDOW_SECS = 43200
 MAX_SUMMARY_CHARS = 32000
 VERIFIED_MARKER = "DOT_SENT_VERIFIED"
+NO_SEND_PREFIX = "DOT_PRECOMMIT_NO_SEND "
+NO_SEND_EXIT_CODES = {"usage_limit": 0, "composer_not_empty": 0,
+                      "composer_mismatch": 0, "profile_unavailable": 10}
 ACCOUNT_RE = re.compile(r"^[A-Za-z0-9_.-]{1,80}$")
 WORKER_SHA = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 
@@ -299,18 +303,35 @@ def run_sender_cli(
             message_path = message.name
 
         delivery_result = {"status": "uncertain", "reason": "send_unverified"}
+        commit_attempted = False
 
         def interact(child: InteractiveChild):
-            nonlocal delivery_result
+            nonlocal delivery_result, commit_attempted
             # 1. Wait for child to report prepared
             try:
                 raw_frame = child.read_frame()
-                frame_text = raw_frame.decode("utf-8").strip()
+                frame_text = raw_frame.decode("utf-8")
             except Exception:
                 delivery_result = {
                     "status": "uncertain", "reason": "prepared_transport_unavailable"
                 }
                 return
+
+            # Only a message-bound, typed terminal frame before prepare/commit can
+            # prove no send. Legacy diagnostics and unknown schema stay uncertain.
+            if frame_text.startswith(NO_SEND_PREFIX):
+                try:
+                    proof = json.loads(frame_text[len(NO_SEND_PREFIX):])
+                    if (isinstance(proof, dict) and
+                            set(proof) == {"schema_version", "phase", "reason", "message_sha256"} and
+                            type(proof["schema_version"]) is int and proof["schema_version"] == 1 and
+                            proof["phase"] == "precommit" and
+                            isinstance(proof["reason"], str) and proof["reason"] in NO_SEND_EXIT_CODES and
+                            proof["message_sha256"] == msg_hash):
+                        delivery_result = {"status": "no_send", "reason": proof["reason"]}
+                        return
+                except (ValueError, TypeError):
+                    pass
 
             prepared_match = re.fullmatch(r"prepared ([a-f0-9]{32})", frame_text)
             if prepared_match is None:
@@ -339,15 +360,13 @@ def run_sender_cli(
                 except Exception:
                     source_ok, source_reason = False, "source_callback_failed"
                 if not source_ok:
+                    delivery_result = {"status": "uncertain", "reason": "source_abort_unverified"}
                     try:
                         child.send_frame(abort_cmd)
-                        try:
-                            child.read_frame()
-                        except Exception:
-                            pass
+                        if child.read_frame() == f"aborted {nonce}".encode("utf-8"):
+                            delivery_result = {"status": "source_aborted", "reason": source_reason}
                     except Exception:
                         pass
-                    delivery_result = {"status": "source_aborted", "reason": source_reason}
                     return
 
             # 3. Revalidate grant immediately after source callback and immediately before commit
@@ -371,6 +390,8 @@ def run_sender_cli(
 
             # 4. Both source and grant revalidations passed; send commit to same prepared context
             try:
+                # A failed/partial pipe write may already have released the draft.
+                commit_attempted = True
                 child.send_frame(commit_cmd)
             except Exception:
                 delivery_result = {
@@ -382,9 +403,7 @@ def run_sender_cli(
             try:
                 while True:
                     out_frame = child.read_frame().decode("utf-8")
-                    if out_frame == VERIFIED_MARKER or any(
-                        line == VERIFIED_MARKER for line in out_frame.splitlines()
-                    ):
+                    if out_frame == VERIFIED_MARKER:
                         delivery_result = {"status": "verified", "reason": "verified_by_transport"}
                         break
             except Exception:
@@ -396,15 +415,22 @@ def run_sender_cli(
             transport_env["DOT_PREPARED"] = "1"
             transport_env["DOT_NO_REMOTE"] = "1"
             transport_env["DOT_EXISTING_PROFILE_ONLY"] = "1"
-            run_bounded_interactive_command(
+            completed = run_bounded_interactive_command(
                 [transport, "--account", account, "send-once", message_path],
                 interact,
                 env=transport_env,
                 timeout_secs=600,
+                wait_for_exit=True,
             )
-        except Exception:
-            if delivery_result.get("status") not in ("source_aborted", "grant_aborted"):
+            expected_exit = (NO_SEND_EXIT_CODES[delivery_result["reason"]]
+                             if delivery_result["status"] == "no_send" else 0)
+            if (not isinstance(completed, InteractiveCompletion) or
+                    completed.returncode != expected_exit or completed.trailing_output or
+                    (delivery_result["status"] == "no_send" and commit_attempted)):
                 delivery_result = {"status": "uncertain", "reason": "send_unverified"}
+        except Exception:
+            # Marker/proof candidates cannot survive timeout or forced cleanup.
+            delivery_result = {"status": "uncertain", "reason": "send_unverified"}
         finally:
             if os.path.exists(message_path):
                 os.unlink(message_path)
@@ -418,7 +444,7 @@ def run_sender_cli(
             emit_result("delivered", "verified_by_transport", account,
                         delivery_verified=True, event_id=event_id)
             return 0
-        elif delivery_result["status"] == "source_aborted":
+        elif delivery_result["status"] in ("source_aborted", "no_send"):
             acc["pending_delivery"] = None
             acc["attempted_count"] = attempts
             acc["last_attempt_epoch"] = last_attempt

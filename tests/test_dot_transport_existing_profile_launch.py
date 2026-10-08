@@ -1,5 +1,6 @@
 """Exercise the Dot existing-profile launcher without starting a browser."""
 
+import hashlib
 import json
 import os
 import selectors
@@ -182,6 +183,132 @@ exports.chromium = {
         (modules / "index.js").write_text(script, encoding="utf-8")
         return state_path
 
+    def _run_clocked_prepared(self, *, decision="commit", advance_ms=120000,
+                              initial_composer="", usage_limit=False,
+                              mismatched_composer=False, missing_profile=False,
+                              hang_launch=False, hang_after_commit=False,
+                              send_advance_ms=120000):
+        state_path = self._install_fake_send_playwright(initial_composer)
+        module = self.root / "node_modules" / "playwright" / "index.js"
+        source = module.read_text()
+        if usage_limit:
+            source = source.replace('includes("usage limit")) return ""', 'includes("usage limit")) return "synthetic usage limit"')
+        if mismatched_composer:
+            source = source.replace('state.composer += text', 'state.composer += "different fixture"')
+        if hang_launch:
+            source = source.replace('async launchPersistentContext() {', 'async launchPersistentContext() { setImmediate(() => globalThis.advanceClock(120000)); await new Promise(() => {});')
+        if hang_after_commit:
+            source = source.replace('state.clicked = true;',
+                                    f'state.clicked = true; globalThis.advanceClock({send_advance_ms}); await new Promise(() => {{}});')
+        module.write_text(source)
+        if missing_profile:
+            self.profile.rmdir()
+        message_path = self.root / "clocked-message.txt"
+        message_path.write_text("Synthetic proof")
+        preload = self.root / "clock.cjs"
+        preload.write_text(r'''const originalSetTimeout = global.setTimeout;
+const originalClearTimeout = global.clearTimeout;
+let now = 1000000;
+const timers = new Map();
+Date.now = () => now;
+global.setTimeout = (callback, ms, ...args) => {
+  if (ms < 10000) return originalSetTimeout(() => { now += ms; callback(...args); }, 0);
+  const id = {};
+  timers.set(id, {at: now + ms, callback: () => callback(...args)});
+  return id;
+};
+global.clearTimeout = (id) => { timers.delete(id); originalClearTimeout(id); };
+global.advanceClock = (ms) => {
+  now += ms;
+  for (const [id, timer] of [...timers]) {
+    if (timer.at <= now) { timers.delete(id); timer.callback(); }
+  }
+};
+const write = process.stdout.write.bind(process.stdout);
+process.stdout.write = (chunk, ...args) => {
+  const result = write(chunk, ...args);
+  const match = /^prepared ([a-f0-9]{32})\n$/.exec(String(chunk));
+  if (match) setImmediate(() => {
+    global.advanceClock(__ADVANCE__);
+    setImmediate(() => process.stdin.emit('data', Buffer.from('__DECISION__ ' + match[1] + '\n')));
+  });
+  return result;
+};
+'''.replace("__ADVANCE__", str(advance_ms)).replace("__DECISION__", decision))
+        command = [str(NODE22), "--require", str(preload), str(SCRIPT), "send-prepared", str(message_path)]
+        with subprocess.Popen(command, env=dict(self.env, DOT_PREPARED="1"),
+                              stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE, text=True) as child:
+            try:
+                child.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                child.kill()
+                raise
+            stdout, stderr = child.communicate()
+            proc = subprocess.CompletedProcess(command, child.returncode, stdout, stderr)
+        state = json.loads(state_path.read_text()) if state_path.exists() else None
+        return proc, state
+
+    def test_prepared_callback_can_outlast_launch_deadline(self):
+        proc, state = self._run_clocked_prepared()
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("DOT_SENT_VERIFIED", proc.stdout)
+        self.assertTrue(state["clicked"])
+
+    def test_prepared_delayed_abort_clears_only_owned_draft(self):
+        proc, state = self._run_clocked_prepared(decision="abort")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("aborted ", proc.stdout)
+        self.assertFalse(state["clicked"])
+        self.assertEqual(state["composer"], "")
+
+    def test_prepared_absolute_timeout_never_clicks(self):
+        proc, state = self._run_clocked_prepared(advance_ms=600000)
+        self.assertEqual(proc.returncode, 10, proc.stdout + proc.stderr)
+        self.assertNotIn("DOT_SENT_VERIFIED", proc.stdout)
+        self.assertFalse(state["clicked"])
+
+    def test_prepared_readiness_still_has_launch_timeout(self):
+        proc, state = self._run_clocked_prepared(hang_launch=True)
+        self.assertEqual(proc.returncode, 10, proc.stdout + proc.stderr)
+        self.assertIn("timeout", proc.stdout)
+        self.assertIsNone(state)
+
+    def test_prepared_postcommit_work_has_a_phase_timeout(self):
+        proc, state = self._run_clocked_prepared(hang_after_commit=True)
+        self.assertIn("DOT_SEND_UNVERIFIED", proc.stdout)
+        self.assertNotIn("DOT_SENT_VERIFIED", proc.stdout)
+        self.assertNotIn("DOT_PRECOMMIT_NO_SEND", proc.stdout)
+        self.assertTrue(state["clicked"])
+
+    def test_prepared_commit_cannot_extend_absolute_operation_budget(self):
+        proc, state = self._run_clocked_prepared(
+            advance_ms=590000, hang_after_commit=True, send_advance_ms=20000,
+        )
+        self.assertIn("DOT_SEND_UNVERIFIED", proc.stdout)
+        self.assertNotIn("DOT_SENT_VERIFIED", proc.stdout)
+        self.assertTrue(state["clicked"])
+
+    def test_prepared_known_failures_emit_message_bound_no_send_proof(self):
+        cases = (("usage_limit", {"usage_limit": True}),
+                 ("composer_not_empty", {"initial_composer": "Existing draft"}),
+                 ("composer_mismatch", {"mismatched_composer": True}),
+                 ("profile_unavailable", {"missing_profile": True}))
+        for reason, options in cases:
+            with self.subTest(reason=reason):
+                proc, state = self._run_clocked_prepared(**options)
+                frames = [json.loads(line.removeprefix("DOT_PRECOMMIT_NO_SEND "))
+                          for line in proc.stdout.splitlines()
+                          if line.startswith("DOT_PRECOMMIT_NO_SEND ")]
+                self.assertEqual(frames, [{"schema_version": 1, "phase": "precommit",
+                                          "reason": reason,
+                                          "message_sha256": hashlib.sha256(b"Synthetic proof").hexdigest()}])
+                self.assertEqual(proc.returncode, 10 if reason == "profile_unavailable" else 0)
+                if state:
+                    self.assertFalse(state["clicked"])
+                    if reason == "composer_not_empty":
+                        self.assertEqual(state["composer"], "Existing draft")
+
     def _run_prepared_send(self, control):
         message_path = self.root / "prepared-message.txt"
         message_path.write_text("Coordinator-owned fixture message", encoding="utf-8")
@@ -256,7 +383,7 @@ exports.chromium = {
                 )
                 self.assertEqual(proc.returncode, 0, proc.stderr)
                 self.assertIn(
-                    "DOT_PREPARED_ABORTED reason=composer_not_empty", proc.stdout
+                    '"reason":"composer_not_empty"', proc.stdout
                 )
                 self.assertNotIn(draft[:20], proc.stdout)
                 state = json.loads(state_path.read_text())
@@ -486,12 +613,9 @@ exports.chromium = {
         )
         self.assertEqual(proc.returncode, 10, proc.stderr)
         self.assertEqual(
-            self._result(proc.stdout),
-            {
-                "schema_version": 1,
-                "launch_state": "unavailable",
-                "diagnostic": "profile_missing",
-            },
+            json.loads(proc.stdout.removeprefix("DOT_PRECOMMIT_NO_SEND ")),
+            {"schema_version": 1, "phase": "precommit", "reason": "profile_unavailable",
+             "message_sha256": hashlib.sha256(b"Hello dot").hexdigest()},
         )
         self.assertFalse(self.profile.exists())
 
@@ -512,12 +636,9 @@ exports.chromium = {
         )
         self.assertEqual(proc.returncode, 10, proc.stderr)
         self.assertEqual(
-            self._result(proc.stdout),
-            {
-                "schema_version": 1,
-                "launch_state": "unavailable",
-                "diagnostic": "profile_lock_present",
-            },
+            json.loads(proc.stdout.removeprefix("DOT_PRECOMMIT_NO_SEND ")),
+            {"schema_version": 1, "phase": "precommit", "reason": "profile_unavailable",
+             "message_sha256": hashlib.sha256(b"Hello dot").hexdigest()},
         )
         self.assertTrue(lock.is_symlink())
 

@@ -168,6 +168,18 @@ const [mode, arg] = process.argv.slice(2);
 let ctx = null;
 let clicked = false;
 let aborted = false;
+let commitReceived = false;
+const isPreparedMode = mode === 'send-prepared' || (mode === 'send' && process.env.DOT_PREPARED === '1');
+
+function reportPrecommitNoSend(reason, file) {
+  if (!isPreparedMode || commitReceived || clicked || aborted) return;
+  process.stdout.write('DOT_PRECOMMIT_NO_SEND ' + JSON.stringify({
+    schema_version: 1,
+    phase: 'precommit',
+    reason,
+    message_sha256: crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex'),
+  }) + '\n');
+}
 
 function chromeLaunchOptions() {
   const isLinux = os.platform() === 'linux';
@@ -745,7 +757,8 @@ async function send(page, file, dry, opts = {}) {
   }).catch(() => '');
 
   if (alertText) {
-    console.log('DOT_USAGE_LIMIT_REACHED: ' + alertText.replace(/\s+/g, ' ').slice(0, 200));
+    if (opts.prepared) reportPrecommitNoSend('usage_limit', file);
+    else console.log('DOT_USAGE_LIMIT_REACHED: ' + alertText.replace(/\s+/g, ' ').slice(0, 200));
     return;
   }
 
@@ -765,7 +778,7 @@ async function send(page, file, dry, opts = {}) {
   let composer = (await readComposer()).trim();
 
   if (opts.prepared && composer !== '') {
-    console.log('DOT_PREPARED_ABORTED reason=composer_not_empty');
+    reportPrecommitNoSend('composer_not_empty', file);
     return;
   }
 
@@ -786,7 +799,8 @@ async function send(page, file, dry, opts = {}) {
   await sleep(800);
   const typed = await readComposer();
   if (norm(typed.trim()) !== norm(msg)) {
-    console.log('DOT_COMPOSER_MISMATCH: ' + typed.slice(0, 200));
+    if (opts.prepared) reportPrecommitNoSend('composer_mismatch', file);
+    else console.log('DOT_COMPOSER_MISMATCH: ' + typed.slice(0, 200));
     return;
   }
   if (opts.prepared) preparedDraft = typed;
@@ -812,6 +826,7 @@ async function send(page, file, dry, opts = {}) {
 
   if (opts.prepared) {
     const nonce = crypto.randomBytes(16).toString('hex');
+    opts.onPrepared?.();
     process.stdout.write(`prepared ${nonce}\n`);
     const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
     let decision = null;
@@ -820,12 +835,14 @@ async function send(page, file, dry, opts = {}) {
       break;
     }
     rl.close();
+    opts.onDecision?.();
     if (decision !== `commit ${nonce}`) {
       aborted = true;
       await clearPreparedDraft();
       process.stdout.write(`aborted ${nonce}\n`);
       return;
     }
+    commitReceived = true;
     if ((await readComposer()) !== preparedDraft) {
       aborted = true;
       await clearPreparedDraft();
@@ -852,6 +869,7 @@ if (isMainModule()) {
 
   let code = 0;
   let launchTimer = null;
+  let operationTimer = null;
   try {
     if (mode === 'probe') {
       if (!/^[a-f0-9]{64}$/.test(arg || '')) {
@@ -882,22 +900,36 @@ if (isMainModule()) {
         code = 10;
       }
     } else {
-      const isPreparedMode = mode === 'send-prepared' || (mode === 'send' && process.env.DOT_PREPARED === '1');
       if (isPreparedMode || mode === 'send') {
         if (!(arg && fs.existsSync(arg) && fs.statSync(arg).size > 0)) unavailable('no message file');
       }
+      let startPhaseTimer;
       const timeoutPromise = new Promise((_, reject) => {
-        launchTimer = setTimeout(() => {
-          aborted = true;
-          reject(new Unavailable('timeout'));
-        }, 120000);
+        startPhaseTimer = () => {
+          launchTimer = setTimeout(() => {
+            aborted = true;
+            reject(new Unavailable('timeout'));
+          }, 120000);
+        };
+        startPhaseTimer();
+        if (isPreparedMode) {
+          // Never reset this absolute bound across readiness, revalidation or send.
+          operationTimer = setTimeout(() => {
+            aborted = true;
+            reject(new Unavailable('timeout'));
+          }, 600000);
+        }
       });
       try {
         await Promise.race([
           (async () => {
             if (isPreparedMode) {
               const page = await launchPrepared();
-              await send(page, arg, process.env.DOT_DRY_RUN === '1', { prepared: true });
+              await send(page, arg, process.env.DOT_DRY_RUN === '1', {
+                prepared: true,
+                onPrepared: () => { clearTimeout(launchTimer); launchTimer = null; },
+                onDecision: startPhaseTimer,
+              });
             } else {
               const page = await launch();
               if (mode === 'read') await read(page, Number(arg || 5000));
@@ -908,12 +940,14 @@ if (isMainModule()) {
         ]);
       } finally {
         if (launchTimer) clearTimeout(launchTimer);
+        if (operationTimer) clearTimeout(operationTimer);
       }
     }
   } catch (e) {
     if (clicked) console.log('DOT_SEND_UNVERIFIED chrome_error=' + e.message);
     else if (e instanceof ExistingProfileUnavailable) {
-      console.log('DOT_PROFILE_LAUNCH_RESULT ' + JSON.stringify({
+      if (isPreparedMode) reportPrecommitNoSend('profile_unavailable', arg);
+      else console.log('DOT_PROFILE_LAUNCH_RESULT ' + JSON.stringify({
         schema_version: 1,
         launch_state: 'unavailable',
         diagnostic: e.code,

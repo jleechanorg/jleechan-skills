@@ -869,6 +869,7 @@ class TestDotPortfolioCoordinatorObserve(unittest.TestCase):
                 "    ;;\n"
                 "  *)\n"
                 f"    echo \"$cmd\" > {shlex.quote(str(abort_marker))}\n"
+                f"    echo 'aborted {PREPARED_NONCE}'\n"
                 "    exit 0\n"
                 "    ;;\n"
                 "esac\n"

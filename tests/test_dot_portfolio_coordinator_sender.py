@@ -116,6 +116,166 @@ class TestDotPortfolioCoordinatorSender(unittest.TestCase):
 
         return proc.returncode, result_line, proc.stderr
 
+    def _run_synthetic_child(self, body, *, timeout_secs=2, callback=None):
+        Path(self.fake_dot_script).write_text("#!" + sys.executable + "\n" + body)
+        env = {"COORDINATOR_CHANGE_ID": "ev-proof", "COORDINATOR_CHANGE_SUMMARY": "Synthetic proof"}
+        real_run = sender_module.run_bounded_interactive_command
+
+        def bounded_run(*args, **kwargs):
+            self.assertEqual(kwargs["timeout_secs"], 600)
+            kwargs["timeout_secs"] = timeout_secs
+            return real_run(*args, **kwargs)
+
+        with mock.patch.dict(os.environ, env), \
+                mock.patch.object(sender_module, "run_bounded_interactive_command", side_effect=bounded_run), \
+                mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            rc = sender_module.run_sender_cli(
+                ["--account", "default", "--state-dir", self.state_dir,
+                 "--grant-file", self.grant_file, "--grant-sha256", self.grant_sha256,
+                 "--transport-script", self.fake_dot_script], source_callback=callback,
+            )
+        result = json.loads(stdout.getvalue().split("COORDINATOR_RESULT ", 1)[1])
+        state = json.loads((Path(self.state_dir) / "account_default.json").read_text())
+        return rc, result, state
+
+    @staticmethod
+    def _proof_frame(reason, **overrides):
+        proof = {"schema_version": 1, "phase": "precommit", "reason": reason,
+                 "message_sha256": hashlib.sha256(b"Synthetic proof").hexdigest()}
+        proof.update(overrides)
+        return "DOT_PRECOMMIT_NO_SEND " + json.dumps(proof)
+
+    def _assert_held(self, result):
+        rc, res, state = result
+        self.assertEqual(rc, 4, res)
+        self.assertEqual(res["outcome"], "uncertain")
+        self.assertFalse(res["delivery_verified"])
+        self.assertIsNotNone(state["pending_delivery"])
+        self.assertEqual(state["attempted_count"], 1)
+        self.assertEqual(state["retained_event_ids"], [])
+        self.assertEqual(state["last_sent_epoch"], 0)
+
+    def test_marker_then_exit_seven_is_uncertain(self):
+        self._assert_held(self._run_synthetic_child(
+            f"import sys; print('prepared {PREPARED_NONCE}',flush=True); input(); print('DOT_SENT_VERIFIED',flush=True); sys.exit(7)"
+        ))
+
+    def test_marker_then_timeout_is_uncertain_even_when_sigterm_exits_zero(self):
+        self._assert_held(self._run_synthetic_child(
+            "import signal,sys,time; signal.signal(signal.SIGTERM, lambda *_: sys.exit(0)); "
+            f"print('prepared {PREPARED_NONCE}',flush=True); input(); print('DOT_SENT_VERIFIED',flush=True); time.sleep(30)",
+            timeout_secs=1,
+        ))
+
+    def test_marker_then_natural_zero_with_live_descendant_is_uncertain(self):
+        self._assert_held(self._run_synthetic_child(
+            "import subprocess,sys; subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL); "
+            f"print('prepared {PREPARED_NONCE}',flush=True); input(); print('DOT_SENT_VERIFIED',flush=True)"
+        ))
+
+    def test_exact_marker_and_natural_zero_verify(self):
+        rc, res, state = self._run_synthetic_child(
+            f"print('prepared {PREPARED_NONCE}',flush=True); input(); print('DOT_SENT_VERIFIED',flush=True)"
+        )
+        self.assertEqual(rc, 0, res)
+        self.assertTrue(res["delivery_verified"])
+        self.assertEqual(state["retained_event_ids"], ["ev-proof"])
+        self.assertIsNone(state["pending_delivery"])
+
+    def test_prepared_child_exit_before_commit_stays_held(self):
+        self._assert_held(self._run_synthetic_child(
+            f"print('prepared {PREPARED_NONCE}',flush=True)",
+            callback=lambda: (time.sleep(0.05) or True, "ok"),
+        ))
+
+    def test_cleanup_error_cannot_preserve_candidate_receipt(self):
+        from modules import process_utils
+        cleanup = process_utils._terminate_owned_group
+
+        def cleanup_then_fail(proc):
+            cleanup(proc)
+            raise process_utils.ProcessCleanupError("synthetic cleanup error")
+
+        with mock.patch.object(process_utils, "_terminate_owned_group", side_effect=cleanup_then_fail):
+            self._assert_held(self._run_synthetic_child(
+                f"import time; print('prepared {PREPARED_NONCE}',flush=True); input(); print('DOT_SENT_VERIFIED',flush=True); time.sleep(30)",
+                timeout_secs=1,
+            ))
+
+    def test_source_abort_requires_exact_nonce_acknowledgment(self):
+        for frame in ("aborted", "aborted " + "0" * 32, "DOT_SENT_VERIFIED"):
+            with self.subTest(frame=frame):
+                (Path(self.state_dir) / "account_default.json").unlink(missing_ok=True)
+                self._assert_held(self._run_synthetic_child(
+                    f"print('prepared {PREPARED_NONCE}',flush=True); input(); print({frame!r},flush=True)",
+                    callback=lambda: (False, "source_changed_after_draft"),
+                ))
+
+    def test_source_abort_with_exact_nonce_and_natural_exit_restores_reservation(self):
+        rc, res, state = self._run_synthetic_child(
+            f"print('prepared {PREPARED_NONCE}',flush=True); input(); print('aborted {PREPARED_NONCE}',flush=True)",
+            callback=lambda: (False, "source_changed_after_draft"),
+        )
+        self.assertEqual(rc, 0, res)
+        self.assertEqual(res["outcome"], "no_action")
+        self.assertEqual(res["reason"], "source_changed_after_draft")
+        self.assertIsNone(state["pending_delivery"])
+        self.assertEqual(state["attempted_count"], 0)
+
+    def test_typed_precommit_no_send_restores_reservation(self):
+        for reason, exit_code in (("usage_limit", 0), ("composer_not_empty", 0),
+                                  ("composer_mismatch", 0), ("profile_unavailable", 10)):
+            with self.subTest(reason=reason):
+                account_file = Path(self.state_dir) / "account_default.json"
+                prior = {"schema_version": 1, "grant_sha256": self.grant_sha256,
+                         "attempted_count": 1, "last_attempt_epoch": 1,
+                         "last_sent_epoch": 1, "retained_event_ids": ["prior"],
+                         "pending_delivery": None}
+                account_file.write_text(json.dumps(prior)); account_file.chmod(0o600)
+                rc, res, state = self._run_synthetic_child(
+                    f"import sys; print({self._proof_frame(reason)!r},flush=True); sys.exit({exit_code})"
+                )
+                self.assertEqual(rc, 0, res)
+                self.assertEqual(res["outcome"], "no_action")
+                self.assertEqual(res["reason"], reason)
+                self.assertFalse(res["delivery_verified"])
+                self.assertEqual(state, prior)
+
+    def test_ambiguous_or_postcommit_no_send_stays_held(self):
+        proof = self._proof_frame("usage_limit")
+        cases = (
+            ("legacy diagnostic", "DOT_USAGE_LIMIT_REACHED: synthetic", False, 0),
+            ("wrong digest", self._proof_frame("usage_limit", message_sha256="0" * 64), False, 0),
+            ("wrong phase", self._proof_frame("usage_limit", phase="postcommit"), False, 0),
+            ("unknown reason", self._proof_frame("unknown"), False, 0),
+            ("wrong schema", self._proof_frame("usage_limit", schema_version=True), False, 0),
+            ("padded frame", " " + proof, False, 0),
+            ("nonzero exit", proof, False, 7),
+            ("after commit", proof, True, 0),
+        )
+        for case, frame, postcommit, rc in cases:
+            with self.subTest(case=case):
+                (Path(self.state_dir) / "account_default.json").unlink(missing_ok=True)
+                body = "import sys; "
+                if postcommit:
+                    body += f"print('prepared {PREPARED_NONCE}',flush=True); input(); "
+                body += f"print({frame!r},flush=True); sys.exit({rc})"
+                self._assert_held(self._run_synthetic_child(body))
+
+    def test_typed_no_send_with_trailing_protocol_output_stays_held(self):
+        for tail in ("DOT_SENT_VERIFIED", f"prepared {PREPARED_NONCE}", "unframed"):
+            with self.subTest(tail=tail):
+                (Path(self.state_dir) / "account_default.json").unlink(missing_ok=True)
+                self._assert_held(self._run_synthetic_child(
+                    f"print({(self._proof_frame('usage_limit') + chr(10) + tail)!r},flush=True)"
+                ))
+
+    def test_typed_no_send_then_hang_stays_held(self):
+        self._assert_held(self._run_synthetic_child(
+            f"import time; print({self._proof_frame('usage_limit')!r},flush=True); time.sleep(30)",
+            timeout_secs=1,
+        ))
+
     def test_quiet_wake_on_no_input(self):
         rc, res, err = self._run_sender()
         self.assertEqual(rc, 0)
@@ -307,7 +467,7 @@ class TestDotPortfolioCoordinatorSender(unittest.TestCase):
                 f"prepared {PREPARED_NONCE}".encode(), b"DOT_SENT_VERIFIED"
             ]
             interact(child)
-            return None
+            return sender_module.InteractiveCompletion(None, 0, b"")
 
         with mock.patch.dict(os.environ, env), \
                 mock.patch.dict(os.environ, {"DOT_TRANSPORT_SCRIPT": "/tmp/ambient-must-be-ignored"}), \
@@ -510,6 +670,7 @@ class TestDotPortfolioCoordinatorSender(unittest.TestCase):
 
         def fake_interactive_run(cmd, interact, **kwargs):
             interact(child)
+            return sender_module.InteractiveCompletion(None, 0, b"")
 
         with mock.patch.dict(os.environ, env), \
                 mock.patch.object(sender_module, "run_bounded_interactive_command",
@@ -554,7 +715,7 @@ class TestDotPortfolioCoordinatorSender(unittest.TestCase):
                 if case == "read":
                     child.read_frame.side_effect = RuntimeError("private transport detail")
                 else:
-                    child.read_frame.side_effect = [prepared_frame, b"aborted"]
+                    child.read_frame.side_effect = [prepared_frame, f"aborted {PREPARED_NONCE}".encode()]
                 if case == "commit":
                     child.send_frame.side_effect = RuntimeError("private commit detail")
                 callback = mock.Mock(return_value=(True, "ok"))
@@ -563,6 +724,7 @@ class TestDotPortfolioCoordinatorSender(unittest.TestCase):
 
                 def fake_interactive_run(cmd, interact, **kwargs):
                     interact(child)
+                    return sender_module.InteractiveCompletion(None, 0, b"")
 
                 with mock.patch.dict(os.environ, env), \
                         mock.patch.object(sender_module, "run_bounded_interactive_command",

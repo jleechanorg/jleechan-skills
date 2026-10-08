@@ -5,6 +5,7 @@ import selectors
 import signal
 import subprocess
 import time
+from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Tuple, TypeVar, Union
 
 
@@ -89,6 +90,21 @@ class InteractiveChild:
                 if not chunk:
                     raise ProcessExecutionError("Interactive child closed its output")
                 self._read_buffer.extend(chunk)
+
+    def read_remaining_output(self) -> bytes:
+        """Drain through EOF, including buffered bytes, under the original deadline."""
+        output = bytearray(self._read_buffer)
+        self._read_buffer.clear()
+        with selectors.DefaultSelector() as selector:
+            selector.register(self._stdout_fd, selectors.EVENT_READ)
+            while True:
+                if len(output) > self._max_frame_bytes:
+                    raise ProcessExecutionError("Trailing child output exceeds byte limit")
+                self._wait(selector, "exit output")
+                chunk = os.read(self._stdout_fd, 4096)
+                if not chunk:
+                    return bytes(output)
+                output.extend(chunk)
 
     def _wait(self, selector: selectors.BaseSelector, operation: str) -> None:
         remaining = self._remaining(operation)
@@ -248,6 +264,15 @@ def run_bounded_command(
 Result = TypeVar("Result")
 
 
+@dataclass(frozen=True)
+class InteractiveCompletion:
+    """Callback result and natural leader exit, before any forced cleanup."""
+
+    result: object
+    returncode: int
+    trailing_output: bytes
+
+
 def run_bounded_interactive_command(
     cmd: List[str],
     interaction: Callable[[InteractiveChild], Result],
@@ -255,12 +280,16 @@ def run_bounded_interactive_command(
     env: Optional[Dict[str, str]] = None,
     timeout_secs: int = 180,
     max_frame_bytes: int = 65536,
-) -> Result:
+    wait_for_exit: bool = False,
+) -> Union[Result, InteractiveCompletion]:
     """Run bounded private newline-framed I/O, then clean the owned process group.
 
     The callback must do only bounded local work and use ``child`` for I/O. The
     absolute deadline bounds every pipe operation and is checked again on return;
-    Python cannot preempt arbitrary blocking callback code.
+    Python cannot preempt arbitrary blocking callback code. With ``wait_for_exit``,
+    drain bounded trailing output and await natural exit using only the remaining
+    deadline. A live descendant requiring forced cleanup invalidates completion.
+    Legacy callers retain their callback-only result and cleanup behavior.
     """
     timeout = min(max(1, int(timeout_secs)), 3600)
     if max_frame_bytes < 1:
@@ -280,7 +309,21 @@ def run_bounded_interactive_command(
         deadline = time.monotonic() + timeout
         child = InteractiveChild(proc, deadline, max_frame_bytes)
         result = interaction(child)
-        if time.monotonic() > deadline:
+        if wait_for_exit:
+            trailing_output = child.read_remaining_output()
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise ProcessTimeoutError("Interactive child deadline expired")
+            try:
+                returncode = proc.wait(timeout=remaining)
+            except subprocess.TimeoutExpired:
+                raise ProcessTimeoutError("Interactive child exit deadline expired") from None
+            if _group_exists(proc.pid) and _group_has_live_members(proc.pid):
+                raise ProcessExecutionError("Interactive child required forced cleanup")
+            if time.monotonic() >= deadline:
+                raise ProcessTimeoutError("Interactive child exit deadline expired")
+            result = InteractiveCompletion(result, returncode, trailing_output)
+        elif time.monotonic() > deadline:
             raise ProcessTimeoutError("Interactive child deadline expired")
     except BaseException as exc:
         try:
@@ -291,7 +334,8 @@ def run_bounded_interactive_command(
         _close_process_pipes(proc)
         raise
     try:
-        _terminate_owned_group(proc)
+        if not wait_for_exit:
+            _terminate_owned_group(proc)
     finally:
         _close_process_pipes(proc)
     return result
