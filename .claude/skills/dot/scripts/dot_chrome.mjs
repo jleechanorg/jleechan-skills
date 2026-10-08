@@ -163,12 +163,51 @@ let ctx = null;
 let clicked = false;
 let aborted = false;
 
+function syncCookiesFromSource(srcProfilePath, defaultDir, force = false) {
+  if (!srcProfilePath || !fs.existsSync(srcProfilePath)) return false;
+  const syncMarker = path.join(defaultDir, '.src_cookies_synced_mtime');
+  let lastSyncedMtime = 0;
+  if (!force && fs.existsSync(syncMarker)) {
+    try {
+      lastSyncedMtime = Number(fs.readFileSync(syncMarker, 'utf8').trim()) || 0;
+    } catch {}
+  }
+  let copied = false;
+  for (const rel of ['Cookies', path.join('Network', 'Cookies')]) {
+    const srcC = path.join(srcProfilePath, rel);
+    const dstC = path.join(defaultDir, rel);
+    if (fs.existsSync(srcC)) {
+      const srcMtime = fs.statSync(srcC).mtimeMs;
+      if (force || lastSyncedMtime === 0 || srcMtime > lastSyncedMtime + 1000) {
+        try {
+          fs.mkdirSync(path.dirname(dstC), { recursive: true });
+          fs.copyFileSync(srcC, dstC);
+          copied = true;
+          try {
+            fs.writeFileSync(syncMarker, String(srcMtime));
+          } catch {}
+        } catch {}
+      }
+    }
+  }
+  return copied;
+}
+
+function clearSyncMarker(targetDir) {
+  try {
+    fs.unlinkSync(path.join(targetDir, 'Default', '.src_cookies_synced_mtime'));
+  } catch {}
+}
+
 function ensurePersistentProfile(accInfo, targetDir) {
   // Never recreate or overwrite an existing persistent profile
   const defaultDir = path.join(targetDir, 'Default');
   const networkCookies = path.join(defaultDir, 'Network', 'Cookies');
   const legacyCookies = path.join(defaultDir, 'Cookies');
+  const preferences = path.join(defaultDir, 'Preferences');
   const srcProfilePath = accInfo.matchedKey ? path.join(sysChromeDir, accInfo.matchedKey) : null;
+  const forceSync = process.env.DOT_FORCE_SYNC_COOKIES === '1';
+
   if (
     (fs.existsSync(networkCookies) && fs.statSync(networkCookies).size > 0) ||
     (fs.existsSync(legacyCookies) && fs.statSync(legacyCookies).size > 0) ||
@@ -176,17 +215,7 @@ function ensurePersistentProfile(accInfo, targetDir) {
   ) {
     if (srcProfilePath && fs.existsSync(srcProfilePath)) {
       try {
-        for (const rel of ['Cookies', path.join('Network', 'Cookies')]) {
-          const srcC = path.join(srcProfilePath, rel);
-          const dstC = path.join(defaultDir, rel);
-          if (fs.existsSync(srcC) && fs.existsSync(dstC)) {
-            const srcMtime = fs.statSync(srcC).mtimeMs;
-            const dstMtime = fs.statSync(dstC).mtimeMs;
-            if (srcMtime > dstMtime + 10000) {
-              fs.copyFileSync(srcC, dstC);
-            }
-          }
-        }
+        syncCookiesFromSource(srcProfilePath, defaultDir, forceSync);
       } catch {}
     }
     return;
@@ -381,6 +410,7 @@ async function launch() {
       // Validate auth immediately even when composer is visible (distinguishes logged-out anonymous composer)
       const session = await checkAuthSession(page);
       if (session.status === 200 && session.isJson && !session.hasUser) {
+        clearSyncMarker(USER_DATA_DIR);
         unavailable('not signed in');
       }
       if (session.status === 403) {
@@ -410,6 +440,7 @@ async function launch() {
   if (session.status === 403) {
     unavailable('Cloudflare 403 on session endpoint');
   } else if (session.status === 200 && session.isJson && !session.hasUser) {
+    clearSyncMarker(USER_DATA_DIR);
     unavailable('not signed in');
   }
 
@@ -418,7 +449,10 @@ async function launch() {
     return btns.some(b => /^(log in|sign up)$/i.test((b.innerText || '').trim()));
   }).catch(() => false);
 
-  if (hasLoginButtons) unavailable('not signed in');
+  if (hasLoginButtons) {
+    clearSyncMarker(USER_DATA_DIR);
+    unavailable('not signed in');
+  }
 
   if (mode === 'read') return page;
   return unavailable('composer not found');
