@@ -184,7 +184,7 @@ def test_get_action_resolution_handles_none(self):
     result = get_action_resolution(None)
     self.assertEqual(result, {})
 
-# ... 15+ more edge case tests
+# ... additional tests for the helper’s actual branches and boundaries
 ```
 
 ### Step 2: Extract Helper Functions (GREEN)
@@ -217,7 +217,9 @@ def action_resolution(self) -> dict[str, Any]:
 
 ### Step 4: Verify No Regressions
 
-Run all existing tests to ensure behavior unchanged:
+Run the relevant existing and new checks selected by the repository's testing
+owner. Compare unexplained failures with the unchanged baseline and record their
+disposition; a failed required check is not green.
 
 ```bash
 # ✅ GOOD - Verify backward compatibility
@@ -327,7 +329,9 @@ Add comprehensive tests for helpers:
 - ✅ Backward compatibility verification
 - ✅ Integration tests with refactored code
 
-**Minimum**: 15-20 test cases per helper function to cover all edge cases.
+Choose tests for the helper’s actual branches, boundary conditions, and caller contracts.
+Test count is not a coverage target; use the scoped testing and evidence owners
+to select sufficient checks for the change.
 
 ## Code Reduction Metrics
 
@@ -361,20 +365,17 @@ user_model.py           # Modify in place
 
 **Why banned:** Creates confusion about which file is authoritative. Use git for version history.
 
-### 2. "Pre-existing Issue" Excuse
+### 2. Dismissing or Misclassifying Test Failures
 
-```python
-# ❌ BANNED PHRASES - Never use these
-"This is a pre-existing issue"
-"This test was already failing"
-"Not caused by my changes"
-"Unrelated to this PR"
+Investigate failures and compare against the unchanged baseline when attribution
+is uncertain. Fix failures caused by the change and other failures within the
+authorized task scope. Record the command, output, baseline, and relevant SHA when
+a failure predates the change; do not label it pre-existing without that evidence.
 
-# ✅ CORRECT - Fix ALL failures
-# If a test fails vs origin/main, FIX IT. No excuses.
-```
-
-**Why banned:** All test failures must be fixed in the current PR. There are no "pre-existing" issues - if it fails, fix it.
+A baseline failure does not authorize unrelated repairs or automatically stop
+independent work. Continue useful in-scope checks and fixes, and report any
+required check that remains unproven. Follow the repository's readiness rules;
+never call a failed required check green.
 
 ### 3. Direct `import logging` (in `$PROJECT_ROOT/`)
 
@@ -447,11 +448,12 @@ Before extracting duplicated code:
 - [ ] Identified 2+ locations with similar logic
 - [ ] Written comprehensive tests for helper functions (TDD)
 - [ ] Verified existing tests provide safety net
-- [ ] Extracted helper functions that pass all tests
+- [ ] Extracted helper functions pass the applicable scoped checks
 - [ ] Refactored consuming code to use helpers
-- [ ] All existing tests still pass (no regressions)
-- [ ] Helper functions have 15+ test cases covering edge cases
-- [ ] Code reduction achieved (net lines saved)
+- [ ] No regressions in the affected behavior; any pre-existing failure has an evidence-backed baseline disposition
+- [ ] Current required checks satisfy the repository's readiness rules; no failed required check is described as green
+- [ ] Helper tests cover the actual branches, boundaries, and caller contracts
+- [ ] Duplication reduced; net LOC recorded as an outcome rather than a readiness quota
 - [ ] Documentation updated if needed
 
 ## Related Patterns

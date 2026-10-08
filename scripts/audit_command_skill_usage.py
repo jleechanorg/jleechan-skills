@@ -340,6 +340,11 @@ def load_bound_json(base: Path, manifest: dict, path_key: str, hash_key: str) ->
     return payload
 
 
+# sha256 of the empty document. An empty inventory row may attest this or
+# nothing at all; anything else is a digest borrowed from another document.
+EMPTY_DIGEST = digest(b"")
+
+
 def inventory_text(row: dict) -> str:
     """Return the attested bytes for an inventory row as text.
 
@@ -357,16 +362,14 @@ def inventory_text(row: dict) -> str:
     Rows from snapshots captured before this contract carry no
     ``content_encoding`` and keep the original live-read drift guard, so
     replaying a historical snapshot still depends on a quiet filesystem.
+    Like the frozen branch, non-empty live bytes require an attested digest,
+    and uncaptured rows cannot read live disk bytes to substitute for unread content.
     """
     path = Path(row["path"])
     expected = row.get("content_sha256")
     if "content_encoding" in row:
         if row["content_encoding"] != "base64":
             raise ValueError(f"inventory content drift: {path}")
-        if not row.get("content_captured", True):
-            # Capture could not read this file, so the row attests nothing.
-            # The live filesystem is not a substitute for bytes never captured.
-            return ""
         encoded = row.get("content_b64")
         if not isinstance(encoded, str):
             raise ValueError(f"inventory content drift: {path}")
@@ -374,22 +377,50 @@ def inventory_text(row: dict) -> str:
             content = base64.b64decode(encoded, validate=True)
         except (ValueError, binascii.Error):
             raise ValueError(f"inventory content drift: {path}") from None
-        # Bytes without a digest are unattested, and a digest without bytes is
-        # an inconsistent row. Both fail closed rather than being trusted.
-        if content and not expected:
-            raise ValueError(f"inventory content drift: missing attestation for {path}")
-        if content and digest(content) != expected:
-            raise ValueError(f"inventory content drift: {path}")
-        if not content and expected:
+        if not row.get("content_captured", True):
+            # Capture could not read this file, so the row attests nothing and
+            # must carry nothing. The flag is not a way past the checks below,
+            # and the live filesystem is not a substitute for bytes never read.
+            if content or expected:
+                raise ValueError(f"inventory content drift: {path}")
+            return ""
+        if content:
+            # Bytes are trusted only alongside a digest that matches them.
+            if not expected:
+                raise ValueError(
+                    f"inventory content drift: missing attestation for {path}"
+                )
+            if digest(content) != expected:
+                raise ValueError(f"inventory content drift: {path}")
+        elif expected and expected != EMPTY_DIGEST:
+            # An empty document may attest its own digest or none at all; a
+            # digest belonging to some other document is drift.
             raise ValueError(f"inventory content drift: {path}")
         return content.decode("utf-8", errors="replace")
+    if not row.get("content_captured", True):
+        # Capture could not read this file, so the row attests nothing and
+        # must carry nothing. The live filesystem is not a substitute for bytes
+        # never read.
+        if expected:
+            raise ValueError(f"inventory content drift: {path}")
+        return ""
     try:
         content = path.read_bytes()
     except OSError:
         if expected:
             raise ValueError(f"inventory content drift: missing {path}")
         return ""
-    if expected and digest(content) != expected:
+    if content:
+        # Bytes are trusted only alongside a digest that matches them.
+        if not expected:
+            raise ValueError(
+                f"inventory content drift: missing attestation for {path}"
+            )
+        if digest(content) != expected:
+            raise ValueError(f"inventory content drift: {path}")
+    elif expected and expected != EMPTY_DIGEST:
+        # An empty document may attest its own digest or none at all; a
+        # digest belonging to some other document is drift.
         raise ValueError(f"inventory content drift: {path}")
     if row.get("resolved_target") and str(path.resolve()) != row["resolved_target"]:
         raise ValueError(f"inventory target drift: {path}")

@@ -83,3 +83,29 @@ def test_generate_save_skill_without_url_errors(tmp_path: Path, monkeypatch) -> 
     with pytest.raises(SystemExit) as exc_info:
         main()
     assert exc_info.value.code == 2
+
+
+def test_learn_deploy_avoids_nested_discovery(tmp_path, monkeypatch, capsys):
+    """An installed package must deploy only to the canonical home skill root."""
+    from browserclaw import cli
+
+    package = tmp_path / "installed" / "skills" / "browserclaw"
+    package.mkdir(parents=True)
+    (package / ".git").mkdir()  # Even a checkout under discovery is unsafe.
+    monkeypatch.setattr(cli, "__file__", str(package / "src" / "browserclaw" / "cli.py"))
+    home = tmp_path / "home"
+    monkeypatch.setattr(Path, "home", lambda: home)
+    monkeypatch.setattr(cli, "capture_har", lambda *a, **kw: None)
+    monkeypatch.setattr(cli, "capture_responses_superpower", lambda *a: {})
+    output = tmp_path / "output"
+    output.mkdir()
+    source = output / "SKILL.md"
+    source.write_text("---\nname: example\ndescription: Test generated skill.\n---\n")
+    monkeypatch.setattr(cli, "generate_bundle", lambda *a, **kw: {"skill": source})
+    monkeypatch.setattr("sys.argv", ["browserclaw", "learn", "--url", "https://example.com", "--output-dir", str(output), "--headless", "--deploy-skill"])
+    cli.main()
+    result = json.loads(capsys.readouterr().out)
+    assert Path(result["deployed_skill"]).read_bytes() == source.read_bytes()
+    assert result["repo_skill"].startswith("skipped:")
+    assert not (package / "skills").exists()
+    assert not (package / "generated").exists()

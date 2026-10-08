@@ -30,8 +30,16 @@ description: Browser-based multi-model advice and review using ChatGPT, Gemini, 
 >
 > **Approved transport ladders**:
 > - **Interactive app:** `builtin_browser`, then `aside_mcp`, then `aside_repl`.
-> - **Coding CLI/Bash:** `chrome_headless_cookies`, then `playwright_mcp`, then
->   `chrome_headless_cdp`.
+> - **Coding CLI/Bash:** on macOS, `aside_repl` with an explicit signed-in
+>   `--account` and fresh tabs; then `chrome_headless_cookies`, then
+>   `playwright_mcp`, then `chrome_headless_cdp`. Any credential-backed fallback must remain within the current
+>   session's explicit authorization and supported tool boundaries; this skill
+>   does not grant additional access.
+>
+> **Aside account preflight**: run `aside account list`. The `*` (active)
+> account can drift to a signed-out profile, which makes Aside look down. Pick a
+> signed-in account and pass it on every call (`aside repl --account <signed-in-account> ...`);
+> a signed-out active account is not `aside_unavailable`.
 >
 > Each fallback must prove the affected vendor is authenticated, exposes a
 > writable composer, returns the submitted prompt's real response, and supports
@@ -92,6 +100,27 @@ For code, patch, and PR reviews, you **MUST** generate and upload the complete l
 > [!CAUTION]
 > **Private Repository Anti-Guesswork Invariant**:
 > Never submit a bare PR URL or a 5-line summary for private repositories. Web models operate in external sandboxes without repository credentials, receive HTTP 404, and will fail or fabricate assumptions. You **MUST attach or upload the raw diff patch and full source files** so the models perform genuine line-by-line AST and concurrency analysis.
+
+**Packet size budget (per seat).** Full-file packets for PRs touching very
+large modules fail on Gemini and Perplexity web uploads. Observed 2026-10-04:
+a 779 KB `full_changed_files.txt` (two 236–394 KB modules) got Gemini's
+generic "I'm having a hard time fulfilling your request" and a Perplexity
+upload failure, while ChatGPT read it. Keep each Gemini/Perplexity seat at or
+under ~300 KB total. When the full packet exceeds that, attach to those seats
+a function-context packet instead of the whole-file dump, and disclose the
+substitution in the synthesis:
+
+```bash
+# Whole enclosing function/class for every hunk; keeps line-level review
+# possible without uploading untouched parts of huge modules.
+git diff -W --no-color origin/main...HEAD -- <production paths> > function_context.patch
+git diff --no-color origin/main...HEAD -- <tests/docs paths> > supporting.patch
+```
+
+Still list every changed file with its HEAD sha256 in the prompt so `COVERAGE`
+can be checked. If the function-context packet alone still exceeds the budget,
+split it across two submissions in the same chat (production first) rather
+than dropping files. ChatGPT may receive the full packet.
 
 Build a concise prompt before opening the browser so you can paste the same request to each model. Include only the sections that apply.
 
@@ -181,9 +210,27 @@ If the user can't log in to one model, run /web-advice with the others as long a
 
 Create a new or temporary chat for each seat. Inspect the composer before the
 chooser opens: a stale draft or unrelated attachment invalidates the attempt.
-For `aside repl`, stage files inside that Aside session before opening its file
-chooser; it rejects paths outside the session directory. Never replace a
-failed upload with a bare URL.
+For `aside repl`, keep one interactive REPL process alive through staging,
+attachment verification, and submission. Start `aside repl` once, then run
+`console.log(pwd)` inside it to discover the active session directory. Copy the
+complete packet into a subdirectory of that exact path from the local shell
+while the REPL stays open; run the upload calls in that same REPL. A separate
+`aside repl "..."` invocation creates a different session: paths discovered by
+an earlier invocation cannot be reused. If the process restarts, rediscover
+`pwd` and restage the packet. Aside rejects upload paths outside the active
+session directory. Never replace a failed upload with a bare URL.
+
+Prefer the composer's supported `locator.fill(prompt)` operation, including
+contenteditable composers where available. Before sending, read back the
+complete composer text (`inputValue()` for input/textarea or `innerText()` for
+contenteditable) and compare it with the prepared prompt, including its prefix,
+final instruction, and total length.
+Successful `keyboard.type()` completion does not prove the full prompt arrived.
+If text is partial or duplicated, clear the composer, re-enter the complete
+prompt, and verify it again before submission; do not send the partial draft.
+Capture the verified prompt and every exact rendered attachment filename in
+the same pre-submit state. A clipped preview or matching prefix alone is
+insufficient. These checks also apply when using a persistent Aside MCP session.
 
 The only successful upload state is every exact packet filename rendered by
 the composer. A no-exception `set_input_files()` result, local file size, a
@@ -208,37 +255,105 @@ reason and retry only once in a clean chat.
 
 Submit one model at a time. Submitting in parallel can hit rate limits or trigger captchas. Wait for each response before submitting the next.
 
-> [!IMPORTANT]
-> **Mandatory File Attachment Pattern (Zero Diff-Only Inlining)**:
-> For any PR or code review, you MUST attach both `raw_git_diff.patch` and `full_changed_files.txt` via `page.locator('input[type="file"]').first().setInputFiles(...)` before submitting the prompt. Never substitute an inlined diff summary in the prompt text for the actual full source files.
+Response waits: Gemini "Pro Extended" and ChatGPT/Perplexity reasoning modes
+routinely take 3–10 minutes on a full packet. Poll until the stop/streaming
+control disappears (up to 15 minutes) before reading the verdict; a single
+`aside repl` script that exits after ~60 s loses the answer and the chat URL.
+Record the conversation URL immediately after submission.
 
-**Pattern (proven to work across all 3 providers):**
+Shared review composition and scheduling follows
+`~/.claude/skills/draft-first-pr/SKILL.md`: freeze one candidate/base and shared
+factual scope, run independent review groups concurrently where permitted, and
+collect findings before batching fixes. The vendor submissions below remain
+sequential; full-change coverage, upload, authentication, and quorum rules are
+unchanged.
+
+> [!IMPORTANT]
+> **Mandatory Code & Evidence Artifact Attachment Pattern (Zero Truncation / Full Grounding)**:
+> For any PR or code review, you MUST attach:
+> 1. `raw_git_diff.patch`: Exact unified diff of the PR against base branch.
+> 2. `full_changed_files.txt`: Complete source text for all changed files at HEAD,
+>    or the disclosed function-context and supporting packets specified by the
+>    per-seat size budget above. Account for every changed file in coverage.
+> 3. **All Evidence Artifacts**: Visual screenshot PNGs/GIFs (from test output / unlisted gist URLs per /es), DOM measurement files (`readout.json`), test execution transcripts, and `/es` evidence bundles (`.hermes-tasks/*-evidence.md`).
+> Never substitute an inlined diff summary or omit visual/runtime artifacts when claiming evidence-backed review.
+>
+> **Aside Session Staging Rule**:
+> For `aside repl` / `aside-mcp`, files MUST be staged inside the active Aside session directory (`pwd`, e.g. `path.join(pwd, 'pr<N>', filename)`). Aside strictly rejects paths outside the session directory (`escapes the session directory`). Copy all packet files and evidence artifacts into `path.join(pwd, ...)` before calling `setInputFiles`.
+
+**Illustrative Playwright pattern:** inspect the current provider's composer
+and attachment-chip DOM first, configure its provider name, and replace the selector below. This template
+assumes the existing `modelPage` and Aside `pwd`; it is not proof that any
+provider was exercised. Unsupported selectors or upload APIs must stop the seat,
+not become an attachment-grounded verdict.
 
 ```javascript
+// Run this block in the existing session; local declarations avoid REPL clashes.
+{
+const path = await import('node:path');
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const provider = 'REPLACE_WITH_INSPECTED_PROVIDER';
+if (!['chatgpt', 'gemini', 'perplexity'].includes(provider)) {
+  throw new Error('Inspect and configure the provider before upload');
+}
+const attachmentChipSelector = 'REPLACE_WITH_INSPECTED_COMPOSER_ATTACHMENT_CHIP_SELECTOR';
+if (attachmentChipSelector.startsWith('REPLACE_')) {
+  throw new Error('Inspect and configure the composer attachment-chip selector before upload');
+}
 // 1. For each model tab (Gemini, ChatGPT, Perplexity):
-// Step 3a: Attach lossless review packets via file input
-const fileInput = await modelPage.locator('input[type="file"]').first();
-if (fileInput) {
-  await fileInput.setInputFiles([
-    '/tmp/wa_packets/pr<N>/raw_git_diff.patch',
-    '/tmp/wa_packets/pr<N>/full_changed_files.txt'
-  ]);
-  // Allow UI to process and stage the file attachments
-  await new Promise(r => setTimeout(r, 2500));
+// Step 3a: Stage and attach lossless review packets + evidence artifacts via file input
+// In Aside: stage inside pwd first:
+// cp /tmp/wa_packets/pr<N>/* ${pwd}/pr<N>/
+const uploadFiles = [
+  path.join(pwd, 'pr<N>', 'raw_git_diff.patch'),
+  path.join(pwd, 'pr<N>', 'full_changed_files.txt'),
+  // Include all evidence artifacts (images, json readouts, test logs, manifests):
+  path.join(pwd, 'pr<N>', 'evidence_readout.json'),
+  path.join(pwd, 'pr<N>', 'after_desktop_1400.png'),
+  path.join(pwd, 'pr<N>', 'after_mobile_390.png'),
+];
+
+const fileInput = await modelPage.locator('input[type="file"], #upload-files').first();
+await fileInput.setInputFiles(uploadFiles);
+const expectedNames = uploadFiles.map((f) => path.basename(f));
+const uploadDeadline = Date.now() + 120000;
+let attachmentProof = false;
+while (Date.now() < uploadDeadline) {
+  const chipTexts = await modelPage.locator(attachmentChipSelector).allTextContents();
+  const renderedNames = new Set(chipTexts.flatMap((text) => text.split(/\r?\n/).map((line) => line.trim())));
+  if (expectedNames.every((name) => renderedNames.has(name)) &&
+      !chipTexts.some((text) => /Uploading|Processing|Failed|Error/i.test(text))) {
+    attachmentProof = true;
+    break;
+  }
+  await sleep(500);
+}
+if (!attachmentProof) {
+  throw new Error('Incomplete or unfinished attachment packet; do not send');
 }
 
-// Step 3b: Type structured prompt into the composer with [web advice] title prefix
-const reviewPrompt = `[web advice] <your review prompt citing the attached files>`;
+// Step 3b: Replace the complete composer content and verify it before sending.
+const reviewPrompt = `[web advice] <your review prompt citing attached code files AND evidence artifacts>`;
 const textbox = await modelPage.locator('div[aria-label="Enter a prompt for Gemini"], #prompt-textarea, [role="textbox"]').first();
-await textbox.click();
-await modelPage.keyboard.type(reviewPrompt, {delay: 1});
+await textbox.fill(reviewPrompt);
+await sleep(1000);
+const composerReadback = await textbox.inputValue().catch(() => textbox.innerText());
+if (composerReadback !== reviewPrompt) {
+  throw new Error('Composer content differs from the complete review prompt; do not send');
+}
 
 // Step 3c: Submit (Click Send button for ChatGPT/Gemini, or Press Enter for Perplexity)
-const sendBtn = await modelPage.locator('button[aria-label="Send prompt"], button[data-testid="send-button"]').first();
-if (sendBtn) {
+const sendBtn = await modelPage.locator('button[aria-label="Send prompt"], button[aria-label="Send message"], button[aria-label="Send"], button[data-testid="send-button"]').last();
+if (await sendBtn.isVisible()) {
+  if (!await sendBtn.isEnabled()) {
+    throw new Error('Send button is disabled; do not submit');
+  }
   await sendBtn.click();
-} else {
+} else if (provider === 'perplexity') {
   await modelPage.keyboard.press('Enter');
+} else {
+  throw new Error('No visible provider send control; do not submit with Enter');
+}
 }
 ```
 
@@ -251,9 +366,9 @@ await gemP.keyboard.press('Backspace');
 await new Promise(r => setTimeout(r, 500));
 ```
 
-**Gotcha — TrustedHTML errors:** Don't use `el.innerHTML = ...`; Gemini's textbox uses Trusted Types. Use `el.innerText = ...` (which works) OR use `keyboard.type()` (which always works).
+**Gotcha — TrustedHTML errors:** Don't use `el.innerHTML = ...`; Gemini's textbox uses Trusted Types. Use the composer’s supported `fill()` or typing operation, then verify the complete text as required in Step 2b; typing can silently truncate.
 
-**Gotcha — ChatGPT send:** ChatGPT requires clicking the "Send message" button, NOT pressing Enter. After typing, locate and click it.
+**Gotcha — ChatGPT send:** ChatGPT requires clicking the send button, NOT pressing Enter. Its accessible name has changed over time (`Send prompt`, `Send message`, and as of 2026-10 plain `Send`); locate it with `button[aria-label*="Send"], button[data-testid="send-button"]` and click the LAST match (the composer's), then confirm the URL changed to `/c/<id>` or the message echo appears.
 
 **Perplexity (proven working pattern):**
 
@@ -270,6 +385,8 @@ await perpPage.keyboard.type(perpPrompt, {delay: 3});
 await perpPage.keyboard.press('Enter');  // Enter submits; no separate button click
 console.log('sent to Perplexity');
 ```
+
+**Perplexity upload gate (2026-10-02 failure mode):** `setInputFiles` on the first hidden `input[type="file"]` can render all composer chips and yet Perplexity's answer may say the attachments are "not available in this chat context" (it ran Search mode over the prompt without reading the files). Treat a verdict that says the attachments were unavailable as **no verdict**. Before submitting, wait until every chip is present AND no `Uploading`/`Processing` text remains, then wait a further ~15 s; after the answer, check that `COVERAGE` lists the packet filenames. If a fresh tab yields 0 chips twice, record the seat as `UNAVAILABLE (upload)` and move on; do not count the Search-only answer.
 
 **Perplexity quirks:**
 - Textbox is a `DIV` with `role="textbox"` and no `aria-label` — use the role selector, not the aria-label pattern
@@ -340,6 +457,30 @@ Web chat LLM review sessions are stateful and interactive, not single-turn scrip
 
 **Decision rule:** 3-of-3 agreement is sufficient (or 2-of-3 if both verdicts strongly converge). 2-of-3 is acceptable when the two models are from different model families. If all 3 diverge, surface the disagreement to the user and ask which axis (speed / safety / cost) matters most. Perplexity's web grounding often breaks ties by surfacing external standards (D&D 5e SRD, RFC, etc.) that the other models lack.
 
+### Step 6 — Save the verdict and publish to an authorized destination
+
+Every `/web-advice` run that produces a synthesis must save a durable,
+self-contained local record. Publish only when the current user request or
+repository policy authorizes the destination and disclosure of the reviewed
+material. An unlisted gist is link-accessible, not private storage. For private
+code or account details, retain the complete record locally and publish only a
+reviewed, authorized summary. If publication is not authorized, report the local
+receipt and the publication limitation; do not upload model snippets or edit a PR.
+The following publication steps apply only within that authorization.
+
+- **Subject is a PR**: publish the full synthesis table, verbatim per-model
+  snippets, and share URLs as an unlisted gist, then
+  `gh pr edit <N> --body "$(...)"` to **append** a `## /web-advice round <n>`
+  section to the PR body with the gist URL and the `Recommended action:`
+  line. Append, never silently overwrite a prior round.
+- **Subject is a bare ref/commit with no open PR**: publish the same
+  synthesis as an unlisted gist, then attach it as a GitHub commit comment
+  (`gh api repos/<owner>/<repo>/commits/<sha>/comments -f body="..."`) linking
+  the gist. Never amend the commit message for this — that needs a separate
+  explicit user request.
+- Do this regardless of convergence — a recorded disagreement is exactly the
+  finding a later reader needs without re-running the review.
+
 ---
 
 ## Failure Recovery
@@ -381,15 +522,24 @@ Recovery:
 Symptoms: the chooser is disabled, the vendor asks for an upgrade, a file path
 is rejected, or the composer does not render every exact packet filename.
 
-1. Start one clean temporary/new chat and retry once.
-2. For an Aside session-path rejection, stage the files in that session directory.
-3. If still unavailable, do not submit a prompt or accept a verdict from that
+1. Check the packet against the size budget in Step 0c first; an oversized
+   packet also causes failed uploads and Gemini's generic "I'm having a hard
+   time fulfilling your request". An upload failure is not a login failure:
+   confirm login by the Step 1 signals before reporting a seat signed out.
+2. Start one clean temporary/new chat and retry once (with the budgeted
+   packet if size was the cause).
+3. For an Aside session-path rejection, stage the files in that session directory.
+4. If still unavailable, do not submit a prompt or accept a verdict from that
    seat. Record the vendor condition; when switching from Aside to a browser
    fallback, use `aside_upload_unavailable`.
 
 ### Stale evidence (verification FAIL)
 
-Symptom: `metadata.json:git_provenance.git_head` ≠ PR HEAD `headRefOid`.
+Symptom: `metadata.json:git_provenance.git_head` ≠ PR HEAD `headRefOid`
+**and** the actual delta from the tested SHA touches a claim the evidence backs
+(per the `evidence-standards` Staleness Tolerance test; path category alone never
+decides). A SHA move whose delta leaves every tested claim, assertion, and driver
+intact is not stale: re-affirm at the new SHA and record both SHAs and the delta.
 
 Recovery:
 1. Mark the evidence or production claim unverified; do not use it to support a recommendation.

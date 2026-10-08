@@ -45,10 +45,12 @@ MIGRATION_PREPARED=false
 MIGRATION_ACTIVE_PATHS=()
 MIGRATION_ARCHIVE_PATHS=()
 MIGRATION_SOURCE_IDENTITIES=()
+PORTABLE=false
 
 show_usage() {
     cat <<EOF
 Usage: $(basename "$0") [--merge [--migrate-archives] | --backup]
+       PORTABLE_HOME=/absolute/dedicated/package $(basename "$0") --portable [--backup]
 
 Installs into CLAUDE_HOME (default: ~/.claude). A nonempty target is refused
 by default. Use --merge to explicitly update source-managed files in place, or
@@ -64,6 +66,7 @@ parse_arguments() {
             --merge) INSTALL_MODE="merge" ;;
             --migrate-archives) MIGRATE_ARCHIVES=true ;;
             --backup) INSTALL_MODE="backup" ;;
+            --portable) PORTABLE=true ;;
             -h|--help) show_usage; exit 0 ;;
             *) log_error "Unknown option: $1"; show_usage >&2; return 1 ;;
         esac
@@ -73,6 +76,26 @@ parse_arguments() {
         log_error "--migrate-archives requires --merge"
         return 1
     fi
+}
+
+# Portable derivatives are opt-in and never merge into canonical agent homes.
+# Reuse the existing staged backup transaction, copying skills only.
+install_portable() {
+    local canonical_home="$CLAUDE_HOME"
+    if [ "$INSTALL_MODE" = "merge" ] || [ "$MIGRATE_ARCHIVES" = true ]; then
+        log_error "Portable packages do not support merge or archive migration"
+        return 1
+    fi
+    python3 "$PLUGIN_SRC_DIR/scripts/verify_portable_skills.py" "$PLUGIN_SRC_DIR/portable"
+    CLAUDE_HOME="$(python3 "$PLUGIN_SRC_DIR/scripts/verify_portable_skills.py" --target "${PORTABLE_HOME:-}" --canonical-home "$canonical_home")"
+    INSTALL_ROOT="$CLAUDE_HOME"
+    prepare_target
+    install_component "$PLUGIN_SRC_DIR/portable/skills" "$INSTALL_ROOT/skills" "skills"
+    cp "$PLUGIN_SRC_DIR/portable/manifest.json" "$INSTALL_ROOT/manifest.json"
+    python3 "$PLUGIN_SRC_DIR/scripts/verify_portable_skills.py" "$INSTALL_ROOT"
+    finalize_backup_install
+    log_success "Portable disk package verified at $CLAUDE_HOME"
+    log_info "Discovery and runtime execution are separate checks; see portable/README.md."
 }
 
 directory_is_nonempty() {
@@ -85,6 +108,16 @@ path_exists() {
 
 path_identity() {
     stat -c '%d:%i' "$1" 2>/dev/null || stat -f '%d:%i' "$1"
+}
+
+file_sha256() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" | awk '{print $1}'
+    elif command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "$1" | awk '{print $1}'
+    else
+        python3 -c 'import hashlib, sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$1"
+    fi
 }
 
 release_migration_lock() {
@@ -299,10 +332,10 @@ list_installable_files() {
             -name '_archived_*' -o \
             -name __pycache__ -o \
             -name .pytest_cache \
-        \) -prune -o -type f ! -name '*.py[co]' ! -name '.DS_Store' -print0
+        \) -prune -o \( -type f -o -type l \) ! -name '*.py[co]' ! -name '.DS_Store' -print0
     else
         find . -type d \( -name __pycache__ -o -name .pytest_cache \) -prune \
-            -o -type f ! -name '*.py[co]' ! -name '.DS_Store' -print0
+            -o \( -type f -o -type l \) ! -name '*.py[co]' ! -name '.DS_Store' -print0
     fi
 }
 
@@ -313,13 +346,24 @@ install_component() {
     local component_name="$3"
     local relative
 
+    if [ -L "$dest_dir" ]; then
+        log_info "Preserving externally owned $component_name directory link: $dest_dir"
+        return 0
+    fi
+
     if [ -d "$src_dir" ]; then
+        if [ -d "$dest_dir" ] && [ ! -w "$dest_dir" ]; then
+            chmod u+w "$dest_dir"
+        fi
         mkdir -p "$dest_dir"
+        local preserved_count=0
         while IFS= read -r -d '' relative; do
             relative="${relative#./}"
             local cur_dir="$dest_dir"
             local part
             local parent_rel; parent_rel="$(dirname "$relative")"
+            local skip_file=false
+            local linked_owner=""
             if [ "$parent_rel" != "." ]; then
                 local old_ifs="$IFS"
                 IFS='/' read -ra PARTS <<< "$parent_rel"
@@ -327,18 +371,37 @@ install_component() {
                 for part in "${PARTS[@]}"; do
                     cur_dir="$cur_dir/$part"
                     if [ -L "$cur_dir" ]; then
-                        rm -f "$cur_dir"
+                        skip_file=true
+                        linked_owner="$cur_dir"
+                        break
+                    elif [ -d "$cur_dir" ] && [ ! -w "$cur_dir" ]; then
+                        chmod u+w "$cur_dir"
                     fi
                 done
             fi
-            mkdir -p "$(dirname "$dest_dir/$relative")"
-            rm -f "$dest_dir/$relative"
+            if [ "$skip_file" = true ]; then
+                log_info "Preserving externally owned $component_name link ($linked_owner); skipping $dest_dir/$relative"
+                preserved_count=$((preserved_count + 1))
+                continue
+            fi
+            local target_parent; target_parent="$(dirname "$dest_dir/$relative")"
+            if [ -d "$target_parent" ] && [ ! -w "$target_parent" ]; then
+                chmod u+w "$target_parent"
+            fi
+            mkdir -p "$target_parent"
+            if [ -e "$dest_dir/$relative" ] || [ -L "$dest_dir/$relative" ]; then
+                rm -rf "$dest_dir/$relative"
+            fi
             cp -a "$src_dir/$relative" "$dest_dir/$relative"
         done < <(
             cd "$src_dir"
             list_installable_files "$component_name"
         )
-        log_success "Installed recursive $component_name tree"
+        if [ "$preserved_count" -gt 0 ]; then
+            log_success "Installed recursive $component_name tree (preserved $preserved_count externally owned path(s))"
+        else
+            log_success "Installed recursive $component_name tree"
+        fi
     else
         log_warning "No $component_name source directory found at $src_dir"
     fi
@@ -354,9 +417,81 @@ install_commands() {
     install_component "$SRC_COMMANDS_DIR" "$INSTALL_ROOT/commands" "commands"
 }
 
+preflight_history_helper() {
+    local source="$PLUGIN_SRC_DIR/scripts/history_search.py"
+    local scripts_dir="$INSTALL_ROOT/scripts"
+    local destination="$scripts_dir/history_search.py"
+    local receipt="$scripts_dir/.history_search.py.sha256"
+    [ -f "$source" ] || return 0
+
+    if [ -L "$scripts_dir" ] ||
+       { path_exists "$scripts_dir" && [ ! -d "$scripts_dir" ]; }; then
+        log_error "Refusing history helper installation through a non-directory or linked scripts path: $scripts_dir"
+        return 1
+    fi
+    if [ -L "$receipt" ]; then
+        log_error "Refusing history helper installation through unsafe receipt symlink: $receipt"
+        return 1
+    fi
+    if path_exists "$receipt"; then
+        if ! python3 -c 'import sys, os; st = os.lstat(sys.argv[1]); sys.exit(0 if (os.path.isfile(sys.argv[1]) and st.st_nlink == 1) else 1)' "$receipt" 2>/dev/null; then
+            log_error "Refusing history helper installation through unsafe hardlinked or non-regular receipt: $receipt"
+            return 1
+        fi
+    fi
+    if path_exists "$destination"; then
+        if [ -L "$destination" ] || [ ! -f "$destination" ]; then
+            log_error "Refusing to replace an existing history helper: $destination"
+            log_error "Inspect and preserve that file; --backup deliberately backs up and replaces the entire target."
+            return 1
+        fi
+        if ! python3 -c 'import sys, os; st = os.lstat(sys.argv[1]); sys.exit(0 if (os.path.isfile(sys.argv[1]) and st.st_nlink == 1) else 1)' "$destination" 2>/dev/null; then
+            log_error "Refusing to replace hardlinked history helper: $destination"
+            return 1
+        fi
+        if cmp -s "$source" "$destination"; then
+            return 0
+        fi
+
+        local is_owned=false
+        if [ -f "$receipt" ]; then
+            local expected_hash dest_hash
+            expected_hash="$(tr -d '[:space:]' < "$receipt" 2>/dev/null || true)"
+            dest_hash="$(file_sha256 "$destination" | tr -d '[:space:]')"
+            if [ -n "$expected_hash" ] && [ "$dest_hash" = "$expected_hash" ]; then
+                is_owned=true
+            fi
+        fi
+
+        if [ "$is_owned" = false ] && git -C "$PLUGIN_SRC_DIR" rev-parse --git-dir >/dev/null 2>&1; then
+            local blob_sha
+            blob_sha="$(git -C "$PLUGIN_SRC_DIR" hash-object "$destination" 2>/dev/null || true)"
+            if [ -n "$blob_sha" ] && git -C "$PLUGIN_SRC_DIR" rev-list --objects HEAD -- scripts/history_search.py 2>/dev/null | grep -E "^${blob_sha}[[:space:]]+scripts/history_search\.py$" >/dev/null 2>&1; then
+                is_owned=true
+            fi
+        fi
+
+        if [ "$is_owned" = false ]; then
+            log_error "Refusing to replace an existing history helper: $destination"
+            log_error "Inspect and preserve that file; --backup deliberately backs up and replaces the entire target."
+            return 1
+        fi
+    fi
+    return 0
+}
+
 # Copy scripts to ~/.claude/scripts/
 install_scripts() {
     install_component "$SRC_SCRIPTS_DIR" "$INSTALL_ROOT/scripts" "scripts"
+    if [ -f "$PLUGIN_SRC_DIR/scripts/history_search.py" ]; then
+        preflight_history_helper
+        mkdir -p "$INSTALL_ROOT/scripts"
+        rm -f "$INSTALL_ROOT/scripts/history_search.py"
+        cp -a "$PLUGIN_SRC_DIR/scripts/history_search.py" "$INSTALL_ROOT/scripts/history_search.py"
+        local receipt="$INSTALL_ROOT/scripts/.history_search.py.sha256"
+        rm -f "$receipt"
+        file_sha256 "$INSTALL_ROOT/scripts/history_search.py" > "$receipt"
+    fi
     if [ -f "$SRC_INTEGRATE_SCRIPT" ]; then
         mkdir -p "$INSTALL_ROOT/scripts"
         rm -f "$INSTALL_ROOT/scripts/integrate.sh"
@@ -375,15 +510,68 @@ install_skills() {
 # Environment validation
 validate_installation() {
     local component source_dir relative destination_file files_checked=0
+    if [ -f "$PLUGIN_SRC_DIR/scripts/history_search.py" ] &&
+       ! cmp -s "$PLUGIN_SRC_DIR/scripts/history_search.py" "$INSTALL_ROOT/scripts/history_search.py"; then
+        log_error "Manifest validation failed for scripts/history_search.py"
+        return 1
+    fi
     for component in agents commands scripts skills; do
         source_dir="$PLUGIN_SRC_DIR/.claude/$component"
         [ -d "$source_dir" ] || continue
+        if [ -L "$INSTALL_ROOT/$component" ]; then
+            log_info "Preserving externally owned $component directory link during validation: $INSTALL_ROOT/$component"
+            continue
+        fi
         while IFS= read -r -d '' relative; do
             relative="${relative#./}"
+            local cur_dir="$INSTALL_ROOT/$component"
+            local part
+            local parent_rel; parent_rel="$(dirname "$relative")"
+            local is_linked=false
+            local linked_owner=""
+            if [ "$parent_rel" != "." ]; then
+                local old_ifs="$IFS"
+                IFS='/' read -ra PARTS <<< "$parent_rel"
+                IFS="$old_ifs"
+                for part in "${PARTS[@]}"; do
+                    cur_dir="$cur_dir/$part"
+                    if [ -L "$cur_dir" ]; then
+                        is_linked=true
+                        linked_owner="$cur_dir"
+                        break
+                    fi
+                done
+            fi
+            if [ "$is_linked" = true ]; then
+                log_info "Preserving externally owned $component link ($linked_owner) during validation; skipping $INSTALL_ROOT/$component/$relative"
+                continue
+            fi
             destination_file="$INSTALL_ROOT/$component/$relative"
-            if [ ! -f "$destination_file" ] || ! cmp -s "$source_dir/$relative" "$destination_file"; then
-                log_error "Manifest validation failed for $component/$relative"
-                return 1
+            source_file="$source_dir/$relative"
+            if [ -L "$source_file" ]; then
+                if [ ! -L "$destination_file" ]; then
+                    log_error "Manifest validation failed for $component/$relative: expected destination symlink"
+                    return 1
+                fi
+                src_target="$(readlink "$source_file")"
+                dst_target="$(readlink "$destination_file")"
+                if [ "$src_target" != "$dst_target" ]; then
+                    log_error "Manifest validation failed for $component/$relative: symlink target mismatch"
+                    return 1
+                fi
+            else
+                if [ -L "$destination_file" ]; then
+                    log_error "Manifest validation failed for $component/$relative: destination must not be a symlink for regular file"
+                    return 1
+                fi
+                if [ ! -f "$destination_file" ]; then
+                    log_error "Manifest validation failed for $component/$relative: missing destination file"
+                    return 1
+                fi
+                if ! cmp -s "$source_file" "$destination_file"; then
+                    log_error "Manifest validation failed for $component/$relative: content mismatch"
+                    return 1
+                fi
             fi
             files_checked=$((files_checked + 1))
         done < <(
@@ -411,6 +599,10 @@ show_next_steps() {
 # Main installation flow
 main() {
     parse_arguments "$@"
+    if [ "$PORTABLE" = true ]; then
+        install_portable
+        return
+    fi
     echo
     log_info "Claude Commands Installation Script"
     log_info "Installing complete Claude Code command system..."
@@ -419,6 +611,7 @@ main() {
     echo
 
     prepare_target
+    preflight_history_helper
     prepare_archive_migration_on_merge
     install_agents
     install_commands

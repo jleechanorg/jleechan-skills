@@ -68,14 +68,17 @@ class WorkflowCommandPairTest(unittest.TestCase):
             "${CLAUDE_HOME:-$HOME/.claude}/agents/agy-pair-verifier.md",
             (
                 "FALLBACK: if an AGY lane concretely fails, retry that lane with "
-                "codexs, claudem, or an own cheap agent while preserving "
+                "a gpt-6-luna subagent, then codex-luna as the gpt-5.6-luna "
+                "fallback if gpt-6-luna is unavailable or fails, while preserving "
                 "isolation and independent verification."
             ),
             "## Codex model routing",
             "## Fallback precedence",
             "`FALLBACK` template above is governed by this order:",
             "retry the same bounded lane with",
-            "invoke the Codex CLI explicitly with `-m gpt-5.6-luna`, then",
+            "`gpt-6-luna` subagent. If `gpt-6-luna` is unavailable or fails, use",
+            "invoke\n   the Codex CLI explicitly",
+            "-m gpt-5.6-terra`, then `-m gpt-5.6-sol`",
             "Use `claudem` or an own cheap agent only when the ordered Codex",
             "unavailable; preserve the same bounded scope",
             "## Isolation contract",
@@ -89,12 +92,27 @@ class WorkflowCommandPairTest(unittest.TestCase):
 
         normalized_skill = " ".join(skill.split())
         self.assertIn(
-            "`codexs` as the Spark fallback; codexs is not a multi-model router",
+            "prefer the native `gpt-6-luna` subagent for bounded coding and "
+            "simple task-driving",
             normalized_skill,
         )
         self.assertIn(
-            "`gpt-5.3-codex-spark` → `gpt-5.6-luna` → "
-            "`gpt-5.6-terra` → `gpt-5.6-sol`",
+            "`gpt-6-luna` → `gpt-5.6-luna` → `gpt-5.6-terra` → `gpt-5.6-sol`",
+            normalized_skill,
+        )
+        self.assertIn(
+            "If `gpt-6-luna` is unavailable or fails, use `codex-luna` as the "
+            "`gpt-5.6-luna` implementation fallback; it is not a multi-model router.",
+            normalized_skill,
+        )
+        self.assertIn(
+            "For simple independent tasks, the Luna lane may also drive the task "
+            "through its focused checks and deliver the result; keep the root "
+            "session responsible for scope and integration.",
+            normalized_skill,
+        )
+        self.assertIn(
+            "Work you can finish in a handful of tool calls, do in the root session",
             normalized_skill,
         )
         self.assertIn(
@@ -176,18 +194,19 @@ class WorkflowCommandPairTest(unittest.TestCase):
                 self.assertIn("Worktree: <absolute path>", content)
         self.assertIn("git rev-parse HEAD", coder)
 
-    def test_codexs_fallback_does_not_claim_multi_model_routing(self):
+    def test_codex_luna_fallback_does_not_claim_multi_model_routing(self):
         skill = (SKILLS / "parallelize-to-ceiling" / "SKILL.md").read_text(
             encoding="utf-8"
         )
         normalized_skill = " ".join(skill.split())
         self.assertIn(
-            "`codexs` as the Spark fallback; codexs is not a multi-model router.",
+            "If `gpt-6-luna` is unavailable or fails, use `codex-luna` as the "
+            "`gpt-5.6-luna` implementation fallback; it is not a multi-model router.",
             normalized_skill,
         )
         self.assertIn(
-            "invoke the Codex CLI explicitly with `-m gpt-5.6-luna`, then "
-            "`-m gpt-5.6-terra`, then `-m gpt-5.6-sol`",
+            "invoke the Codex CLI explicitly with `-m gpt-5.6-terra`, then "
+            "`-m gpt-5.6-sol`",
             normalized_skill,
         )
 
