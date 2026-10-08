@@ -32,6 +32,11 @@ changelog:
 
 # write-goal
 
+## Retained review integrations
+
+The shared catalog preserves host-installed `/advice` and `/web-advice` integrations instead of installing them. Before invoking either, resolve its `../advice/SKILL.md` or `../web-advice/SKILL.md` relative to this package and read the existing skill. For a remote invocation, check the corresponding skill on the target host. If absent, report that integration as `UNAVAILABLE` and identify the missing package; do not invent a replacement runner, claim an approval, or treat a required gate as passed. Continue independent authorized work, but leave any dependent readiness or plan-approval gate unmet. Existing review quorum, external-disclosure authorization, and optional-review rules still apply.
+
+
 **Write a goal spec that drives agents to verifiable outcomes — solid evidence, green CI PRs, high code quality — grounded in your actual coding history, not invented acceptance criteria.**
 
 ## Why this skill exists
@@ -50,7 +55,9 @@ Three failure modes that keep recurring in the user's last month of coding-CLI s
 - User asks for a goal to be designed with explicit evidence + green-CI + quality requirements
 - User wants to take an ambiguous ask ("ship the new campaign wizard step") and turn it into a contract the next agent (or `/harness` loop) can execute against
 
-## Pipeline (execute all phases in order; no optional skips)
+## Pipeline (execute the phases that apply, in order)
+
+Applicability and review timing follow `draft-first-pr` § Coding lifecycle. A small low-risk change, including a small code fix, may skip history mining (Phase 2) and the heavier phases; user-required gates, high-risk/security gates, and real-proof requirements are never skipped.
 
 ### Phase 1 — Intake (≤1 turn)
 
@@ -66,7 +73,7 @@ Collect the goal topic and any constraints. If the user gave the topic as `$ARGU
 
 **If the user typed `/write-goal <topic>` with no constraints at all → make the call yourself per the user's standing rule (finish-the-job § Anti-patterns: "correct but misinterpret is fine"), do not block on Phase 1 questions.**
 
-### Phase 2 — Mine the last 30 days of coding-CLI history (mandatory)
+### Phase 2 — Mine the last 30 days of coding-CLI history (mandatory unless skipped per the applicability rule above)
 
 Pull the user's actual coding history so the goal is grounded. Run two parallel searches:
 
@@ -160,15 +167,15 @@ Write the goal to `.converge/goal.md` in the session's cwd (the path `/harness` 
 - Failure on CI or merge conflicts = iterate the fix, push to PR head branch (pr-ci-fix-autopush rule: push without being asked), re-check. Do NOT report "fixed" until the new head SHA shows both gates PASS.
 
 ## Quality bar (adversarial gates this repo uses)
-Run all of these at completion (from /harness):
+Run the applicable gates at completion (from /harness). Applicability and timing follow `draft-first-pr` § Coding lifecycle; user-required, high-risk/security, and real-proof gates always apply:
 - **/es** — Evidence Standards (both ~/.claude/skills/evidence-standards/SKILL.md AND .claude/skills/evidence-standards.md if the repo has one)
-- **/er** — Evidence Review (adversarial, independent reviewer)
+- **/er** — Evidence Review (adversarial, independent reviewer): a draft-phase gate per `draft-first-pr`, not part of `/green`; the `(advisory)` marks below refer to `/green` only
 - **/code_standards** — 3 parallel lanes:
   - ZFC (zero-framework cognition) — no keyword routing, no regex intent detection, no hand-tuned scoring
   - ZFC-leveling — no level-up fields leaking into non-leveled surfaces
   - root-cause-first — prompt/schema fixes tried before backend protection; document why if backend enforcement is added
 - **Independent Agent Review** — full-diff code review by an isolated subagent
-- 4/4 PASS = DONE. Any FAIL = fix & loop. Same score 2 iterations = STALLED → escalate to human.
+- All applicable gates PASS = DONE. Any FAIL = fix & loop with a changed approach. No cycle- or repeated-score count stops work; stop only at the autonomy deadline or a genuine human dependency (exact blocker + resumption trigger).
 
 ## Dispatch routing
 - Inline if: single tool call OR tight sequence with no fork, <10 lines changed
@@ -197,6 +204,7 @@ At the end, the agent's final reply MUST contain (finish-the-job Phase 4):
   - <finding 1 — e.g. "PR #7832 hit the same file in May 23 session; same fix shape applies">
   - <finding 2>
 - If no prior context: state explicitly "No prior CLI sessions or memory matched; first run on this topic."
+- If Phase 2 was skipped per the applicability rule: state "Phase 2 skipped — small low-risk change" instead of counts.
 
 ## Hand-off
 - Goal file written to: `.converge/goal.md` (this file)
@@ -240,7 +248,7 @@ Post a single reply containing:
 - ❌ **`gh pr checks` as green proof** — env-preferences: `gh pr checks` can report stale passes; must verify current-head `statusCheckRollup` (CI green) and `mergeable == MERGEABLE` (no conflicts).
 - ❌ **Goal with no dispatch routing** — without an inline-vs-AO rule, a future agent will self-execute a 30-commit PR inline and drop it when the gateway session caps. Cite `scope-pivot-to-ao`.
 - ❌ **Goal with no "no follow-up question" in DoD** — finish-the-job's contract requires the agent drive to conclusion. A goal that allows "want me to X?" mid-stream reproduces the silent-stop pattern.
-- ❌ **Skipping Phase 2 mining** — without history+memory grounding the goal is generic; the third failure mode (vague goal → vague outcome) recurs. **Specific failure mode (2026-06-28):** substituting `session_search` (a different tool that searches message summaries) for actual `/history` queries against the SQLite databases. `session_search` does NOT query `state.db` or `state_5.sqlite` — it has different scope and returns different results. Phase 2 MUST use `session-history-search` to query the actual session stores with the SQL patterns documented in that skill.
+- ❌ **Skipping Phase 2 mining on a goal it applies to** — without history+memory grounding the goal is generic; the third failure mode (vague goal → vague outcome) recurs. **Specific failure mode (2026-06-28):** substituting `session_search` (a different tool that searches message summaries) for actual `/history` queries against the SQLite databases. `session_search` does NOT query `state.db` or `state_5.sqlite` — it has different scope and returns different results. Phase 2 MUST use `session-history-search` to query the actual session stores with the SQL patterns documented in that skill.
 - ❌ **Writing project-specific workflow names into the skill itself** — the SKILL.md stays general; the workflow names live in the generated `.converge/goal.md`. The skill is reusable across repos.
 - ❌ **Bare `#N` PR references** — pr-hyperlink rule: every PR number in the goal doc itself and in the final reply must be a markdown hyperlink.
 

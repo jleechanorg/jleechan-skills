@@ -5,6 +5,11 @@ description: Use when dispatching work through the Hermes gateway with /claw, es
 
 # Claw Dispatch
 
+## Retained review integrations
+
+The shared catalog preserves host-installed `/advice` and `/web-advice` integrations instead of installing them. Before invoking either, resolve its `../advice/SKILL.md` or `../web-advice/SKILL.md` relative to this package and read the existing skill. For a remote invocation, check the corresponding skill on the target host. If absent, report that integration as `UNAVAILABLE` and identify the missing package; do not invent a replacement runner, claim an approval, or treat a required gate as passed. Continue independent authorized work, but leave any dependent readiness or plan-approval gate unmet. Existing review quorum, external-disclosure authorization, and optional-review rules still apply.
+
+
 ## Default behavior — AO workers first
 
 **`/claw` defaults to spawning AO workers directly. Hermes gateway is the fallback, not the default.**
@@ -62,8 +67,8 @@ if options:
     if not limit or not re.fullmatch(r"[1-9][0-9]*", limit):
         raise SystemExit("--max-attempts requires an exact positive integer")
     task = task[:option.start()] + task[option.end():]
-    if not task.strip():
-        raise SystemExit("--max-attempts also requires a task description")
+if not task.strip():
+    raise SystemExit("--max-attempts also requires a task description" if options else "A task description is required")
 if limit and not re.fullmatch(r"[1-9][0-9]*", limit):
     raise SystemExit("CLAW_MAX_ATTEMPTS requires an exact positive integer")
 print(limit)

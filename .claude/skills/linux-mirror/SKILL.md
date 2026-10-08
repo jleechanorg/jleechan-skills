@@ -240,9 +240,11 @@ EOF
 
 Note: `printf` (not `echo`) for the session-name sanitizing is deliberate — piping `echo`'s output through `tr -c '...' '-'` turns the trailing newline into a literal `-`, corrupting the session name.
 
-### 5. Hand off
+### 5. Continue with response proof
 
-Report the session name, target path, and commit SHA from the `READY:`/`RESUMED:` line — cross-check that SHA against your local `git rev-parse HEAD` before trusting the mirror is on the commit you think it is. `READY` means a fresh session was created and the agent was just launched with `$CONTEXT`; `RESUMED` means an existing session was found as-is and nothing was typed into it — check on that work directly (attach or send a follow-up) rather than assuming it's idle. This check isn't optional: `--ff-only` only guards against a genuinely diverged remote branch — if the remote already has local commits sitting *ahead* of `origin/$BRANCH` (not diverged, just ahead), the pull succeeds as a silent no-op and `READY` reports that ahead-of-origin SHA, not the one you just pushed. The SHA cross-check is what actually catches that case. Then give the user (or continue as) the attach command:
+Follow the mandatory [Agent submission and response proof contract](../linux-remote/SKILL.md#agent-submission-and-response-proof--mandatory) for every initial launch and follow-up. READY/RESUMED establish transport only; require a fresh, attributable agent response echoed into the calling terminal before reporting delivery or working status. Inspect the CLI controls, submit separately from typing, distinguish queued from acknowledged work, and preserve active jobs. Continue driving the session until the requested outcome or a verified blocker.
+
+Report the session name, target path, and commit SHA from the `READY:`/`RESUMED:` line — cross-check that SHA against your local `git rev-parse HEAD` before trusting the mirror is on the commit you think it is. `READY` reports a fresh session launch with `$CONTEXT`; it does not prove the agent received or acted on the instruction; `RESUMED` means an existing session was found as-is and nothing was typed into it — check on that work directly (attach or send a follow-up) rather than assuming it's idle. This check isn't optional: `--ff-only` only guards against a genuinely diverged remote branch — if the remote already has local commits sitting *ahead* of `origin/$BRANCH` (not diverged, just ahead), the pull succeeds as a silent no-op and `READY` reports that ahead-of-origin SHA, not the one you just pushed. The SHA cross-check is what actually catches that case. Then give the user (or continue as) the attach command:
 
 ```bash
 ssh -t "${SSH_ARGS[@]}" "$SSH_TARGET" "tmux attach -t <SESSION>"

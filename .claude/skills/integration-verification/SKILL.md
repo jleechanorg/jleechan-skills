@@ -130,3 +130,12 @@ Before claiming integration works:
 3. Show me the LOGS from an automatic (not manual) execution
 
 **If you cannot provide all three, the integration is NOT verified.**
+
+## Runtime and disclosure boundary
+
+These requirements apply identically across Claude, Codex, and cloud sessions.
+Use the selected runtime's supported tools to inspect evidence. Examples do not grant
+permission to trigger events, change configuration, call providers, read credential
+files, or publish private payloads. Redact secrets from configuration excerpts and logs.
+If automatic evidence is unavailable, report the integration unverified; preserve any
+separate manual-test result without representing it as automatic behavior.
