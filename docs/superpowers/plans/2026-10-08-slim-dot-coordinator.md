@@ -50,7 +50,7 @@ uncertain send. A ping does not prove completion of the Dot's underlying tasks.
 - [x] Add focused fake-provider tests for selection, one send, generation failures,
   unverified receipt, STOP, historical holds, lock contention and actual caller wiring.
 - [x] Independently run `python3 -m unittest discover -s tests -p test_simple_dot_ping.py -v`.
-- [ ] Commit and publish the fresh branch and draft PR with exact validation results.
+- [x] Commit and publish the fresh branch and draft PR with exact validation results.
 - [ ] Separately authorize service installation/activation and verify natural live ticks.
 
 ## Validation boundary
