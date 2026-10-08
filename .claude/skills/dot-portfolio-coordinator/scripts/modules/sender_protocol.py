@@ -18,7 +18,7 @@ class SenderProtocolError(Exception):
 
 
 class NotificationBindingManager:
-    """Manages immutable notification authorization bindings."""
+    """Validates/reloads bindings; overlapping writers still require external serialization."""
 
     def __init__(self, registry: Any, storage_file: Optional[str] = None):
         self.registry = registry
@@ -27,12 +27,36 @@ class NotificationBindingManager:
         self._load()
 
     def _load(self) -> None:
-        if self.storage_file and os.path.exists(self.storage_file):
-            try:
-                with open(self.storage_file, "r", encoding="utf-8") as f:
-                    self.bindings = json.load(f)
-            except Exception:
-                pass
+        if not self.storage_file:
+            return
+        try:
+            with open(self.storage_file, "r", encoding="utf-8") as f:
+                bindings = json.load(f)
+            if not isinstance(bindings, dict):
+                raise ValueError("invalid binding store")
+            for ref, binding in bindings.items():
+                fields = ("control_record_id", "action_id", "attempt_id", "account", "event_id",
+                          "kind", "message_sha256", "grant_version", "control_entry_digest", "registered_at")
+                if not isinstance(binding, dict) or any(
+                        not isinstance(binding.get(field), str) or not binding[field] for field in fields):
+                    raise ValueError("invalid binding")
+                expected_ref = "/".join(binding[field] for field in fields[:3])
+                if ref != expected_ref or not isinstance(binding.get("task_key"), dict):
+                    raise ValueError("invalid binding identity")
+                if any(not isinstance(k, str) or not isinstance(v, str)
+                       for k, v in binding["task_key"].items()):
+                    raise ValueError("invalid task key")
+                for field in ("message_sha256", "control_entry_digest"):
+                    digest = binding[field]
+                    if len(digest) != 64 or any(c not in "0123456789abcdefABCDEF" for c in digest):
+                        raise ValueError("invalid binding digest")
+        except FileNotFoundError as exc:
+            if self.bindings:
+                raise SenderProtocolError("Persisted notification bindings disappeared") from exc
+            return
+        except (OSError, ValueError, TypeError) as exc:
+            raise SenderProtocolError("Invalid or unreadable persisted notification bindings") from exc
+        self.bindings = bindings
 
     def _save(self) -> None:
         if self.storage_file:
@@ -56,6 +80,7 @@ class NotificationBindingManager:
         control_entry_digest: str
     ) -> Dict[str, Any]:
         """Registers immutable notification authorization binding."""
+        self._load()
         ref_key = f"{control_record_id}/{action_id}/{attempt_id}"
         binding = {
             "control_record_id": control_record_id,

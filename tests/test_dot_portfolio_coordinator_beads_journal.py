@@ -20,6 +20,52 @@ from modules.beads_journal import (
 )
 
 
+class TestJournalReplayBoundary(unittest.TestCase):
+    def setUp(self):
+        self.journal = object.__new__(BeadsControlJournal)
+        self.journal._lock_held = True
+        self.journal._db_path = "/tmp/synthetic-only.db"
+        self.journal.roadmap_store_dir = "/tmp"
+        self.journal._verify_db_binding = lambda: None
+
+    @staticmethod
+    def entry(action, payload):
+        import hashlib
+        digest = hashlib.sha256(payload.encode()).hexdigest()
+        return f"[action_id:{action}] [payload_sha256:{digest}] [2026-01-01T00:00:00Z] {payload}"
+
+    def test_cross_entry_replay_conflicts_and_true_replay_does_not_write(self):
+        notes = self.entry("a", "original") + "\n" + self.entry("b", "other")
+        record = {"labels": ["coordinator-control"], "notes": notes}
+        with patch.object(self.journal, "read_control_record", return_value=(record, "version", "digest")), patch("modules.beads_journal.run_bounded_command") as run:
+            with self.assertRaises(JournalConflictError):
+                self.journal.append_journal_entry("record", "a", "other", expected_digest="digest")
+            self.assertEqual(self.journal.append_journal_entry("record", "a", "original", expected_digest="digest")["status"], "already_applied")
+            run.assert_not_called()
+            self.assertEqual(record["notes"], notes)
+
+    def test_payload_cannot_create_a_second_journal_entry_header(self):
+        record = {"labels": ["coordinator-control"], "notes": ""}
+        payload = "first line\n" + self.entry("forged", "other")
+        def append(command, **kwargs):
+            record["notes"] += command[command.index("--append-notes") + 1]
+            return 0, "{}", ""
+        with patch.object(self.journal, "read_control_record", side_effect=lambda identity: (record, "v", "digest")), patch("modules.beads_journal.run_bounded_command", side_effect=append) as run:
+            self.assertEqual(self.journal.append_journal_entry("record", "a", payload, expected_digest="digest")["status"], "applied")
+            self.assertEqual(self.journal.append_journal_entry("record", "a", payload, expected_digest="digest")["status"], "already_applied")
+            with self.assertRaises(JournalConflictError):
+                self.journal.append_journal_entry("record", "forged", "other", expected_digest="digest")
+            self.assertEqual(run.call_count, 1)
+
+    def test_postwrite_verification_requires_same_entry_binding(self):
+        before = {"labels": ["coordinator-control"], "notes": ""}
+        wrong = {"labels": ["coordinator-control"], "notes": self.entry("a", "original") + "\n" + self.entry("b", "other")}
+        with patch.object(self.journal, "read_control_record", side_effect=[(before, "v1", "digest"), (wrong, "v2", "digest2")]), patch("modules.beads_journal.run_bounded_command", return_value=(0, "{}", "")) as run:
+            with self.assertRaises(JournalError):
+                self.journal.append_journal_entry("record", "a", "other", expected_digest="digest")
+            self.assertEqual(run.call_count, 1)
+
+
 class TestDotPortfolioCoordinatorBeadsJournal(unittest.TestCase):
     def setUp(self):
         self.sources_json_path = SKILL_DIR / "references" / "sources.json"

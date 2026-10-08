@@ -5,6 +5,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SKILL_DIR = REPO_ROOT / ".claude" / "skills" / "dot-portfolio-coordinator"
@@ -31,6 +32,74 @@ class TestDotPortfolioCoordinatorAuthorityBudget(unittest.TestCase):
 
     def tearDown(self):
         self.temp_dir.cleanup()
+
+    def test_overrun_settlement_replay_is_terminal_and_preserves_storage(self):
+        reservation = self.ledger.reserve({"action_id": "retry", "attempt_id": "1", "max_cost": .1}, self.authorized_principal)
+        request = {"reservation_id": reservation["reservation_id"], "actual_cost": .15}
+        first = self.ledger.settle(request, self.authorized_principal)
+        before = Path(self.ledger_file).read_bytes()
+        self.assertEqual(first["status"], "overrun_blocked")
+        for ledger in (self.ledger, BudgetLedger(self.registry, self.ledger_file)):
+            replay = ledger.settle(request, self.authorized_principal)
+            self.assertEqual(replay["status"], "overrun_blocked")
+            self.assertEqual((ledger.total_reserved, ledger.total_settled, ledger.ledger_version), (0, .15, 3))
+            self.assertEqual(Path(self.ledger_file).read_bytes(), before)
+            with self.assertRaises(BudgetError):
+                ledger.settle(dict(request, actual_cost=.05), self.authorized_principal)
+            self.assertEqual(Path(self.ledger_file).read_bytes(), before)
+
+    def test_corrupt_budget_load_and_mutations_preserve_existing_bytes(self):
+        self.ledger.reserve({"action_id": "stored", "attempt_id": "1", "max_cost": .1}, self.authorized_principal)
+        path = Path(self.ledger_file)
+        valid = json.loads(path.read_text())
+        corrupt = ["{broken", "null", "[]", "{}"]
+        for field, value in (("ledger_version", True), ("total_reserved", -1),
+                             ("total_settled", float("nan")), ("reservations", []),
+                             ("total_reserved", 0)):
+            bad = copy.deepcopy(valid); bad[field] = value
+            corrupt.append(json.dumps(bad))
+        for field, value in (("status", "unknown"), ("reserved_amount", "0.1"),
+                             ("settled_amount", -.1), ("reservation_id", "wrong")):
+            bad = copy.deepcopy(valid); bad["reservations"]["res_stored_1"][field] = value
+            corrupt.append(json.dumps(bad))
+        for raw in corrupt:
+            with self.subTest(raw=raw):
+                path.write_text(raw)
+                before = path.read_bytes()
+                memory = copy.deepcopy(self.ledger.reservations)
+                with self.assertRaises(BudgetError):
+                    BudgetLedger(self.registry, self.ledger_file)
+                for operation in (lambda: self.ledger.reserve({"action_id": "new", "attempt_id": "1", "max_cost": .1}, self.authorized_principal),
+                                  lambda: self.ledger.settle({"reservation_id": "res_stored_1", "actual_cost": .05}, self.authorized_principal)):
+                    with self.assertRaises(BudgetError):
+                        operation()
+                    self.assertEqual(path.read_bytes(), before)
+                    self.assertEqual(self.ledger.reservations, memory)
+        path.write_text(json.dumps(valid))
+        reloaded = BudgetLedger(self.registry, self.ledger_file)
+        self.assertEqual(reloaded.total_reserved, .1)
+        self.assertEqual(reloaded.reservations, valid["reservations"])
+
+    def test_valid_fractional_settlements_can_reload_without_negative_residue(self):
+        self.registry.budget_policy["per_cycle_cost_usd"] = 1
+        ledger = BudgetLedger(self.registry, self.ledger_file)
+        ids = [ledger.reserve({"action_id": str(i), "attempt_id": "1", "max_cost": value}, self.authorized_principal)["reservation_id"] for i, value in enumerate((.1, .4, .2))]
+        for identity in ids:
+            ledger.settle({"reservation_id": identity, "actual_cost": 0}, self.authorized_principal)
+        reloaded = BudgetLedger(self.registry, self.ledger_file)
+        self.assertEqual(reloaded.total_reserved, 0)
+        self.assertEqual(reloaded.total_settled, 0)
+
+    def test_unreadable_budget_is_rejected_and_preserved(self):
+        self.ledger.reserve({"action_id": "stored", "attempt_id": "1", "max_cost": .1}, self.authorized_principal)
+        before = Path(self.ledger_file).read_bytes()
+        with patch("builtins.open", side_effect=PermissionError("fixture denied")):
+            with self.assertRaises(BudgetError):
+                BudgetLedger(self.registry, self.ledger_file)
+            with self.assertRaises(BudgetError):
+                self.ledger.reserve({"action_id": "new", "attempt_id": "1", "max_cost": .1}, self.authorized_principal)
+        self.assertEqual(Path(self.ledger_file).read_bytes(), before)
+        self.assertEqual(self.ledger.total_reserved, .1)
 
     def test_authority_github_comment_valid_returns_source_verified(self):
         body = "Approved bounded test up to $0.50 on feature branch"

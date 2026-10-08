@@ -135,6 +135,14 @@ class BeadsControlJournal:
         digest = self._compute_record_digest(record)
         return record, updated_at, digest
 
+    @staticmethod
+    def _entry_matches(notes: str, action_tag: str, payload_tag: str) -> bool:
+        # Tags must belong to one leading journal header, never unrelated notes.
+        entries = [line.split(" ", 2) for line in notes.splitlines()
+                   if line.startswith(action_tag + " ")]
+        return bool(entries) and all(len(parts) == 3 and parts[1] == payload_tag
+                                     for parts in entries)
+
     def append_journal_entry(
         self,
         record_id: str,
@@ -168,7 +176,7 @@ class BeadsControlJournal:
         notes = record.get("notes") or ""
         if action_tag in notes:
             # Check for conflicting payload replay
-            if payload_tag in notes:
+            if self._entry_matches(notes, action_tag, payload_tag):
                 return {
                     "status": "already_applied",
                     "action_id": action_id,
@@ -188,7 +196,8 @@ class BeadsControlJournal:
 
         # Prepare formatted append line
         now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-        note_entry = f"{action_tag} {payload_tag} [{now_iso}] {entry_payload.strip()}"
+        # Encode payload line breaks so text cannot introduce another entry header.
+        note_entry = f"{action_tag} {payload_tag} [{now_iso}] {json.dumps(entry_payload.strip())}"
 
         cmd = [
             "br", "update", record_id,
@@ -214,7 +223,7 @@ class BeadsControlJournal:
         # Post-write reread to verify mutation and obtain fresh updated_at and digest
         fresh_record, new_updated_at, new_digest = self.read_control_record(record_id)
         fresh_notes = fresh_record.get("notes") or ""
-        if action_tag not in fresh_notes or payload_tag not in fresh_notes:
+        if not self._entry_matches(fresh_notes, action_tag, payload_tag):
             raise JournalError(
                 f"Post-write reread verification failed: {action_tag} or {payload_tag} missing in record notes"
             )

@@ -69,7 +69,13 @@ class TestDotPortfolioCoordinatorE2E(unittest.TestCase):
                 "action_id": "act-001",
                 "attempt_id": "att-1",
                 "account": "default",
-                "event_id": "ev-001"
+                "event_id": "ev-001",
+                "kind": "status",
+                "message_sha256": "a" * 64,
+                "task_key": {"repository": "example-org/project", "bead_id": "item"},
+                "grant_version": "v1",
+                "control_entry_digest": "b" * 64,
+                "registered_at": "2026-01-01T00:00:00Z"
             }
         }
         with open(self.bindings_file, "w") as f:
@@ -79,6 +85,13 @@ class TestDotPortfolioCoordinatorE2E(unittest.TestCase):
         self.assertEqual(proc.returncode, 0)
         out_json = json.loads(proc.stdout)
         self.assertEqual(out_json["event_id"], "ev-001")
+        del data[ref]["message_sha256"]
+        Path(self.bindings_file).write_text(json.dumps(data))
+        before = Path(self.bindings_file).read_bytes()
+        invalid = self._run_cli(["resolve-notification", "--ref", ref, "--bindings-file", self.bindings_file, "--sources", self.sources_file])
+        self.assertNotEqual(invalid.returncode, 0)
+        self.assertEqual(Path(self.bindings_file).read_bytes(), before)
+
 
     def test_cli_observe_finite_duration_and_heartbeat(self):
         run_dir = os.path.join(self.temp_dir.name, "observe_run")

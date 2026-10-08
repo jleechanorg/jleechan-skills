@@ -5,7 +5,7 @@ Implements:
 - Local OS principal verification against reviewed allowlist
 - Strict rejection of unauthenticated JSON caller IDs
 - Idempotent reservation replay
-- Overrun prevention and blocking
+- Terminal overrun accounting (no global reservation freeze)
 - Settlement of actual costs and release of unspent allocations
 """
 import json
@@ -35,16 +35,49 @@ class BudgetLedger:
         self._load()
 
     def _load(self) -> None:
-        if self.ledger_file and os.path.exists(self.ledger_file):
-            try:
-                with open(self.ledger_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                self.ledger_version = data.get("ledger_version", 1)
-                self.total_reserved = float(data.get("total_reserved", 0.0))
-                self.total_settled = float(data.get("total_settled", 0.0))
-                self.reservations = data.get("reservations", {})
-            except Exception:
-                pass
+        if not self.ledger_file:
+            return
+        try:
+            with open(self.ledger_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if not isinstance(data, dict) or type(data.get("ledger_version")) is not int or data["ledger_version"] < 1:
+                raise ValueError("invalid ledger version")
+            reserved = self._amount(data, "total_reserved")
+            settled = self._amount(data, "total_settled")
+            reservations = data.get("reservations")
+            if not isinstance(reservations, dict):
+                raise ValueError("invalid reservations")
+            expected_reserved = expected_settled = 0.0
+            for key, record in reservations.items():
+                if not isinstance(record, dict) or record.get("reservation_id") != key:
+                    raise ValueError("invalid reservation identity")
+                maximum = self._amount(record, "max_cost")
+                allocation = self._amount(record, "reserved_amount")
+                actual = self._amount(record, "settled_amount")
+                status = record.get("status")
+                if maximum != allocation or not isinstance(record.get("caller_principal"), str):
+                    raise ValueError("invalid reservation")
+                if status == "active" and actual == 0:
+                    expected_reserved += allocation
+                elif status == "settled" and actual <= allocation:
+                    expected_settled += actual
+                elif status == "overrun_blocked" and actual > allocation:
+                    expected_settled += actual
+                else:
+                    raise ValueError("invalid reservation state")
+            if not (math.isclose(reserved, expected_reserved, rel_tol=1e-9, abs_tol=1e-12) and
+                    math.isclose(settled, expected_settled, rel_tol=1e-9, abs_tol=1e-12)):
+                raise ValueError("inconsistent ledger totals")
+        except FileNotFoundError as exc:
+            if self.reservations:
+                raise BudgetError("Persisted budget ledger disappeared") from exc
+            return
+        except (OSError, ValueError, TypeError, BudgetError) as exc:
+            raise BudgetError("Invalid or unreadable persisted budget ledger") from exc
+        # Validate the complete replacement before changing any in-memory state.
+        self.ledger_version = data["ledger_version"]
+        self.total_reserved, self.total_settled = reserved, settled
+        self.reservations = reservations
 
     def _save(self) -> None:
         if self.ledger_file:
@@ -94,6 +127,7 @@ class BudgetLedger:
         action_id = request.get("action_id", "")
         attempt_id = request.get("attempt_id", "")
         max_cost = self._amount(request, "max_cost")
+        self._load()
         res_id = f"res_{action_id}_{attempt_id}"
 
         # Idempotence check
@@ -148,6 +182,7 @@ class BudgetLedger:
 
         res_id = request.get("reservation_id", "")
         actual_cost = self._amount(request, "actual_cost")
+        self._load()
 
         if res_id not in self.reservations:
             return {
@@ -160,11 +195,11 @@ class BudgetLedger:
             }
 
         res = self.reservations[res_id]
-        if res["status"] == "settled":
+        if res["status"] in ("settled", "overrun_blocked"):
             # Replay protection: return existing result
             if res["settled_amount"] == actual_cost:
                 return {
-                    "status": "settled",
+                    "status": res["status"],
                     "ledger_version": self.ledger_version,
                     "reservation_id": res_id,
                     "settled_amount": actual_cost,
@@ -174,10 +209,9 @@ class BudgetLedger:
 
         reserved_amt = res["reserved_amount"]
 
-        # Check overrun
+        # Mark this reservation terminal; this does not globally freeze reservations.
         if actual_cost > reserved_amt:
-            # Overrun blocks further spend
-            self.total_reserved -= reserved_amt
+            self.total_reserved = max(0.0, self.total_reserved - reserved_amt)
             self.total_settled += actual_cost
             self.ledger_version += 1
             res["status"] = "overrun_blocked"
@@ -193,7 +227,7 @@ class BudgetLedger:
             }
 
         # Normal settlement
-        self.total_reserved -= reserved_amt
+        self.total_reserved = max(0.0, self.total_reserved - reserved_amt)
         self.total_settled += actual_cost
         self.ledger_version += 1
         res["status"] = "settled"

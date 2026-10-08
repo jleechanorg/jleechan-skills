@@ -1,4 +1,5 @@
 import copy
+import json
 import sys
 import tempfile
 import unittest
@@ -24,6 +25,49 @@ class TestNotificationBindingManager(unittest.TestCase):
             grant_version="v1", control_entry_digest="b" * 64,
         )
         self.ref = "control/action/attempt"
+
+    def test_corrupt_binding_store_rejects_load_read_and_write_without_reset(self):
+        self.manager.register_binding(**self.args)
+        valid = json.loads(self.path.read_text())
+        corrupt = ["{broken", "null", "[]", json.dumps({self.ref: {}})]
+        for field, value in (("task_key", []), ("event_id", None),
+                             ("control_record_id", "wrong"), ("message_sha256", "invalid")):
+            bad = copy.deepcopy(valid); bad[self.ref][field] = value
+            corrupt.append(json.dumps(bad))
+        for raw in corrupt:
+            with self.subTest(raw=raw):
+                self.path.write_text(raw)
+                before = self.path.read_bytes()
+                state = copy.deepcopy(self.manager.bindings)
+                with self.assertRaises(SenderProtocolError):
+                    NotificationBindingManager(None, str(self.path))
+                for operation in (lambda: self.manager.resolve_notification(self.ref),
+                                  lambda: self.manager.register_binding(**dict(self.args, action_id="new"))):
+                    with self.assertRaises(SenderProtocolError):
+                        operation()
+                    self.assertEqual(self.path.read_bytes(), before)
+                    self.assertEqual(self.manager.bindings, state)
+        self.path.write_text(json.dumps(valid))
+        self.assertEqual(NotificationBindingManager(None, str(self.path)).resolve_notification(self.ref), valid[self.ref])
+
+    def test_unreadable_bindings_reject_without_changing_bytes(self):
+        self.manager.register_binding(**self.args)
+        before = self.path.read_bytes()
+        with patch("builtins.open", side_effect=PermissionError("fixture denied")):
+            with self.assertRaises(SenderProtocolError):
+                NotificationBindingManager(None, str(self.path))
+            with self.assertRaises(SenderProtocolError):
+                self.manager.register_binding(**dict(self.args, action_id="new"))
+        self.assertEqual(self.path.read_bytes(), before)
+
+    def test_prewrite_reload_rejects_sequential_stale_manager_conflict(self):
+        stale = NotificationBindingManager(None, str(self.path))
+        original = self.manager.register_binding(**self.args)
+        before = self.path.read_bytes()
+        with self.assertRaises(SenderProtocolError):
+            stale.register_binding(**dict(self.args, event_id="changed"))
+        self.assertEqual(self.path.read_bytes(), before)
+        self.assertEqual(stale.resolve_notification(self.ref), original)
 
     def test_identical_registration_preserves_timestamp_state_and_file(self):
         with patch("modules.sender_protocol.time.strftime", return_value="first"):
