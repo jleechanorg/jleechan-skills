@@ -1,9 +1,9 @@
 ---
 name: pr-blocker-min-repro
 description: "PR blocker minimal repro ladder for BYOK and related regressions"
-type: "workflow"
-scope: "github"
 ---
+
+Workflow type: workflow. Scope: github.
 
 ## Overview
 
@@ -27,6 +27,17 @@ If `beads list` is unstable, query the JSONL database directly (requires `.beads
 jq -r 'select(.labels // [] | index("pr-blocker")) | [.id, .title, .status, .priority] | @tsv' \
   .beads/issues.jsonl | sort -t$'\t' -k4 -n
 ```
+
+## Project-specific examples and runtime limits
+
+The commands below are retained BYOK examples. Resolve the actual project's documented
+runner, test paths, provider authorization, fixtures, and ports before using them.
+Do not assume `./vpython` exists or invoke providers merely to verify skill discovery.
+When invoked through 4layer, its ordered, pass-only ladder owns escalation: a missing
+runner/fixture is unsupported, not permission to jump layers. The environmental
+browser pattern below applies only after the required preceding layers pass.
+Use the existing authorized issue tracker; Beads commands do not authorize creating a
+new tracker or posting notes externally. Preserve evidence without exposing secrets.
 
 ## Quick Start Commands
 
