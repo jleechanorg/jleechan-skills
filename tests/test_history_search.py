@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 import shutil
 import sqlite3
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from scripts.history_search import (
     ALL_SOURCES,
@@ -15,6 +17,7 @@ from scripts.history_search import (
     ansify,
     color,
     format_results,
+    main,
     search_agy,
     search_claude,
     search_codex,
@@ -27,9 +30,37 @@ from scripts.history_search import (
 class TestHistorySearch(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = Path(tempfile.mkdtemp(prefix="test_hist_search_"))
+        # Default search locations must never read the invoking user's history.
+        fixture_home = self.temp_dir / "home"
+        fixture_home.mkdir()
+        home_patch = patch("scripts.history_search.Path.home", return_value=fixture_home)
+        home_patch.start()
+        self.addCleanup(home_patch.stop)
 
     def tearDown(self) -> None:
         shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def test_cli_rejects_nonpositive_budgets_before_search(self) -> None:
+        for option in ("--limit", "--max-chars"):
+            for value in ("0", "-1"):
+                with self.subTest(option=option, value=value):
+                    with patch(
+                        "scripts.history_search.search_history", return_value={}
+                    ) as search:
+                        with patch("sys.stderr"), patch("builtins.print"):
+                            with self.assertRaises(SystemExit) as error:
+                                main([option, value])
+                        self.assertEqual(error.exception.code, 2)
+                        search.assert_not_called()
+
+    def test_cli_accepts_explicit_audit_budgets_above_sparse_defaults(self) -> None:
+        with patch(
+            "scripts.history_search.search_history", return_value={}
+        ) as search:
+            with patch("builtins.print"):
+                self.assertEqual(main(["--limit", "50", "--max-chars", "500"]), 0)
+        self.assertEqual(search.call_args.kwargs["limit"], 50)
+        self.assertEqual(search.call_args.kwargs["max_chars"], 500)
 
     def test_search_claude_indexing_and_malformed_json_tolerance(self) -> None:
         proj_dir = self.temp_dir / "claude_projects" / "-Users-test-myproject"
@@ -134,6 +165,141 @@ class TestHistorySearch(unittest.TestCase):
         )
         self.assertEqual(len(rollout_results), 1)
         self.assertIn("Rollout prompt test", rollout_results[0].snippet)
+
+    def test_codex_search_includes_active_and_default_homes(self) -> None:
+        for directory, message in (
+            (".codex-astra", "active profile history"),
+            (".codex", "default profile history"),
+        ):
+            sessions = self.temp_dir / directory / "sessions"
+            sessions.mkdir(parents=True)
+            (sessions / "rollout-test.jsonl").write_text(json.dumps({
+                "timestamp": "2026-09-08",
+                "role": "user",
+                "content": message,
+            }) + "\n")
+        with patch("pathlib.Path.home", return_value=self.temp_dir), patch.dict(
+            "os.environ", {"CODEX_HOME": str(self.temp_dir / ".codex-astra")}
+        ):
+            results = search_codex(query="profile history")
+        self.assertEqual(
+            {entry.snippet for entry in results},
+            {"active profile history", "default profile history"},
+        )
+
+    def test_explicit_codex_homes_are_scoped_and_aliases_are_deduplicated(self) -> None:
+        profile = self.temp_dir / "custom-profile"
+        sessions = profile / "sessions"
+        sessions.mkdir(parents=True)
+        (sessions / "rollout-test.jsonl").write_text(json.dumps({
+            "timestamp": "2026-09-08",
+            "type": "response_item",
+            "payload": {
+                "type": "message", "role": "user",
+                "content": [{"type": "input_text", "text": "custom trace"}],
+            },
+        }) + "\n")
+        alias = self.temp_dir / "profile-alias"
+        alias.symlink_to(profile, target_is_directory=True)
+        results = search_codex(query="custom trace", codex_homes=[profile, alias])
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].snippet, "custom trace")
+        self.assertEqual(results[0].metadata["codex_home"], str(profile.resolve()))
+
+    def test_codex_profile_indexes_deduplicate_threads_and_sort_full_timestamps(self) -> None:
+        homes = [self.temp_dir / "first", self.temp_dir / "second"]
+        for index, home in enumerate(homes):
+            home.mkdir()
+            with sqlite3.connect(home / "state_5.sqlite") as con:
+                con.execute("CREATE TABLE threads (id TEXT, title TEXT, first_user_message TEXT, cwd TEXT, git_branch TEXT, created_at INTEGER, archived INTEGER)")
+                con.executemany("INSERT INTO threads VALUES (?, ?, ?, ?, ?, ?, ?)", [
+                    ("shared", "history", "shared history", "/work", "main", 1788283000, 0),
+                    (f"unique-{index}", "history", f"history {index}", "/work", "main", 1788283010 + index, 0),
+                ])
+        results = search_codex(query="history", codex_homes=homes)
+        self.assertEqual(
+            [entry.metadata["thread_id"] for entry in results],
+            ["unique-1", "unique-0", "shared"],
+        )
+
+    def test_codex_mixed_index_and_rollout_profiles_sort_actual_instants(self) -> None:
+        indexed = self.temp_dir / "indexed"
+        indexed.mkdir()
+        with sqlite3.connect(indexed / "state_5.sqlite") as con:
+            con.execute("CREATE TABLE threads (id TEXT, title TEXT, first_user_message TEXT, cwd TEXT, git_branch TEXT, created_at INTEGER, archived INTEGER)")
+            con.execute("INSERT INTO threads VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        ("indexed", "history", "indexed history", "/work", "main", 1788283000, 0))
+        rollouts = self.temp_dir / "rollouts"
+        (rollouts / "sessions").mkdir(parents=True)
+        (rollouts / "sessions/rollout-test.jsonl").write_text(json.dumps({
+            "timestamp": datetime.fromtimestamp(1788283060, timezone.utc).isoformat(),
+            "role": "user", "content": "newer rollout history",
+        }) + "\n")
+        results = search_codex(query="history", codex_homes=[indexed, rollouts])
+        self.assertEqual(
+            [entry.snippet for entry in results],
+            ["newer rollout history", "indexed history"],
+        )
+
+    def test_sqlite_searches_preserve_literal_path_characters(self) -> None:
+        for directory in (
+            "ordinary", "hash#profile", "query?profile",
+            "percent%23profile", "space ü profile",
+        ):
+            profile = self.temp_dir / directory
+            profile.mkdir()
+            database = profile / "state_5.sqlite"
+            with sqlite3.connect(database) as connection:
+                connection.executescript("""
+                    CREATE TABLE threads (
+                        id TEXT, title TEXT, first_user_message TEXT, cwd TEXT,
+                        git_branch TEXT, created_at INTEGER, archived INTEGER
+                    );
+                    INSERT INTO threads VALUES (
+                        't1', 'literalpath', 'literalpath', '/fixture/project',
+                        'main', 1788283033, 0
+                    );
+                    CREATE TABLE sessions (id TEXT, title TEXT, source TEXT);
+                    INSERT INTO sessions VALUES ('s1', 'literalpath', 'fixture');
+                    CREATE TABLE messages (
+                        id INTEGER, session_id TEXT, timestamp INTEGER,
+                        role TEXT, content TEXT, tool_name TEXT, tool_calls TEXT
+                    );
+                    INSERT INTO messages VALUES (
+                        1, 's1', 1788283033, 'user', 'literalpath', NULL, NULL
+                    );
+                    CREATE TABLE conversation_summaries (
+                        conversation_id TEXT, title TEXT, preview TEXT,
+                        step_count INTEGER, last_modified_time TEXT,
+                        workspace_uris TEXT, agent_name TEXT, killed INTEGER
+                    );
+                    INSERT INTO conversation_summaries VALUES (
+                        'c1', 'literalpath', 'literalpath', 1,
+                        '2026-09-01T12:00:00Z', '/fixture/project', 'agy', 0
+                    );
+                """)
+            before_bytes = database.read_bytes()
+            before_paths = set(self.temp_dir.rglob("*"))
+            searches = (
+                (search_codex, {"codex_homes": [profile]}),
+                (search_codex, {
+                    "db_path": database, "sessions_dir": profile / "sessions",
+                }),
+                (search_hermes, {"db_path": database}),
+                (search_agy, {
+                    "db_path": database, "brain_dir": profile / "brain",
+                    "history_file": profile / "history.jsonl",
+                }),
+            )
+            for search, options in searches:
+                with self.subTest(
+                    directory=directory, search=search.__name__, options=options
+                ):
+                    results = search(query="literalpath", **options)
+                    self.assertEqual(len(results), 1)
+                    self.assertEqual(results[0].snippet, "literalpath")
+                    self.assertEqual(database.read_bytes(), before_bytes)
+                    self.assertEqual(set(self.temp_dir.rglob("*")), before_paths)
 
     def test_search_hermes_fts5_and_like_fallback(self) -> None:
         db_path = self.temp_dir / "hermes_state.db"
@@ -369,6 +535,249 @@ class TestHistorySearch(unittest.TestCase):
         self.assertIn("⚡ Hermes (1 matches)", output)
         self.assertIn("🌐 agy CLI (1 matches)", output)
         self.assertIn("🖥️  Cursor (1 matches)", output)
+
+    def test_codex_search_profile_isolation_and_sibling_inference(self) -> None:
+        fake_home = self.temp_dir / "fake_home"
+        real_sessions = fake_home / ".codex" / "sessions" / "sub"
+        real_sessions.mkdir(parents=True)
+        (real_sessions / "rollout-secret.jsonl").write_text(
+            json.dumps({"role": "user", "content": "SECRET_FROM_REAL_HOME_SESSIONS"}) + "\n"
+        )
+        real_db = fake_home / ".codex" / "state_5.sqlite"
+        real_db.parent.mkdir(parents=True, exist_ok=True)
+        with sqlite3.connect(str(real_db)) as con:
+            con.execute("CREATE TABLE threads (id TEXT, title TEXT, first_user_message TEXT, cwd TEXT, git_branch TEXT, created_at INTEGER, archived INTEGER)")
+            con.execute("INSERT INTO threads VALUES ('t1', 'sec', 'SECRET_FROM_REAL_DB', '/p', 'm', 1788283033, 0)")
+
+        # 1. Explicit db only with empty db must not search real home sessions
+        isolated_profile = self.temp_dir / "isolated_profile"
+        isolated_profile.mkdir(parents=True)
+        empty_db = isolated_profile / "empty_state_5.sqlite"
+        with sqlite3.connect(str(empty_db)) as con:
+            con.execute("CREATE TABLE threads (id TEXT, title TEXT, first_user_message TEXT, cwd TEXT, git_branch TEXT, created_at INTEGER, archived INTEGER)")
+
+        with patch("pathlib.Path.home", return_value=fake_home):
+            results = search_codex(query="SECRET_FROM_REAL_HOME_SESSIONS", db_path=empty_db)
+            self.assertEqual(len(results), 0)
+
+        # 2. Explicit sessions only with empty sessions must not query default database
+        empty_sessions = isolated_profile / "empty_sessions"
+        empty_sessions.mkdir()
+        with patch("pathlib.Path.home", return_value=fake_home):
+            results = search_codex(query="SECRET_FROM_REAL_DB", sessions_dir=empty_sessions)
+            self.assertEqual(len(results), 0)
+
+        # 3. Sibling inference: explicit db finds rollouts in sibling sessions/ directory
+        sibling_sessions = isolated_profile / "sessions" / "rollouts"
+        sibling_sessions.mkdir(parents=True)
+        (sibling_sessions / "rollout-sibling.jsonl").write_text(
+            json.dumps({"role": "user", "content": "FIND_IN_SIBLING_SESSIONS"}) + "\n"
+        )
+        with patch("pathlib.Path.home", return_value=fake_home):
+            sibling_results = search_codex(query="FIND_IN_SIBLING_SESSIONS", db_path=empty_db)
+            self.assertEqual(len(sibling_results), 1)
+            self.assertIn("FIND_IN_SIBLING_SESSIONS", sibling_results[0].snippet)
+
+    def test_codex_search_empty_codex_home_does_not_become_cwd_nor_suppress_defaults(self) -> None:
+        fake_home = self.temp_dir / "fake_home_default"
+        default_sessions = fake_home / ".codex" / "sessions" / "sub"
+        default_sessions.mkdir(parents=True)
+        (default_sessions / "rollout-default.jsonl").write_text(
+            json.dumps({"role": "user", "content": "FROM_DEFAULT_HOME_PROFILE"}) + "\n"
+        )
+
+        cwd_dir = self.temp_dir / "cwd_dir"
+        cwd_sessions = cwd_dir / "sessions"
+        cwd_sessions.mkdir(parents=True)
+        (cwd_sessions / "rollout-cwd.jsonl").write_text(
+            json.dumps({"role": "user", "content": "SECRET_FROM_CWD"}) + "\n"
+        )
+
+        with patch.dict("os.environ", {"CODEX_HOME": ""}), patch("pathlib.Path.home", return_value=fake_home), patch("os.getcwd", return_value=str(cwd_dir)):
+            results_empty = search_codex(query="FROM_DEFAULT_HOME_PROFILE", codex_homes=["", "   "])
+            self.assertEqual(len(results_empty), 1)
+            self.assertIn("FROM_DEFAULT_HOME_PROFILE", results_empty[0].snippet)
+
+            results_cwd = search_codex(query="SECRET_FROM_CWD", codex_homes=[""])
+            self.assertEqual(len(results_cwd), 0)
+
+    def test_codex_model_metadata_attribution_per_turn(self) -> None:
+        profile_dir = self.temp_dir / "model_audit_profile"
+        sessions_dir = profile_dir / "sessions" / "sub"
+        sessions_dir.mkdir(parents=True)
+
+        rollout_file = sessions_dir / "rollout-model-change.jsonl"
+        lines = [
+            json.dumps({"type": "session_meta", "payload": {"model": "initial-meta-model"}}),
+            json.dumps({"type": "turn_context", "payload": {"turn_id": "1", "model": "gpt-5.1-codex"}}),
+            json.dumps({"type": "response_item", "payload": {"role": "user", "content": "Question in turn 1"}}),
+            json.dumps({"type": "turn_context", "payload": {"turn_id": "2", "model": "gpt-5.3-codex"}}),
+            json.dumps({"type": "response_item", "payload": {"role": "user", "content": "Question in turn 2"}}),
+        ]
+        rollout_file.write_text("\n".join(lines) + "\n")
+
+        results = search_codex(query="Question in turn", sessions_dir=sessions_dir, limit=10)
+        self.assertEqual(len(results), 2)
+        turn1 = next(r for r in results if "turn 1" in r.snippet)
+        turn2 = next(r for r in results if "turn 2" in r.snippet)
+        self.assertEqual(turn1.metadata.get("model"), "gpt-5.1-codex")
+        self.assertEqual(turn1.metadata.get("model_source"), "turn_context")
+        self.assertEqual(turn2.metadata.get("model"), "gpt-5.3-codex")
+        self.assertEqual(turn2.metadata.get("model_source"), "turn_context")
+
+        # Database search with model column
+        db_path = profile_dir / "state_5.sqlite"
+        with sqlite3.connect(str(db_path)) as con:
+            con.execute("CREATE TABLE threads (id TEXT, title TEXT, first_user_message TEXT, cwd TEXT, git_branch TEXT, created_at INTEGER, archived INTEGER, model TEXT)")
+            con.execute("INSERT INTO threads VALUES ('t_model', 'Model Thread', 'Database search query with model', '/proj', 'main', 1788283033, 0, 'claude-3-7-sonnet')")
+        db_results = search_codex(query="Database search query with model", db_path=db_path)
+        self.assertEqual(len(db_results), 1)
+        self.assertEqual(db_results[0].metadata.get("model"), "claude-3-7-sonnet")
+        self.assertEqual(db_results[0].metadata.get("model_source"), "database")
+
+    def test_codex_search_preserves_profile_directory_with_trailing_space(self) -> None:
+        profile_base = self.temp_dir / "profile"
+        profile_space = self.temp_dir / "profile "
+        (profile_base / "sessions").mkdir(parents=True)
+        (profile_space / "sessions").mkdir(parents=True)
+
+        (profile_base / "sessions" / "rollout-base.jsonl").write_text(
+            json.dumps({"role": "user", "content": "needle unselected owner"}) + "\n"
+        )
+        (profile_space / "sessions" / "rollout-space.jsonl").write_text(
+            json.dumps({"role": "user", "content": "needle selected owner"}) + "\n"
+        )
+
+        results = search_codex(query="needle", codex_homes=[str(profile_space)])
+        self.assertEqual(len(results), 1)
+        self.assertIn("needle selected owner", results[0].snippet)
+        self.assertEqual(results[0].metadata.get("codex_home"), str(profile_space.resolve()))
+
+    def test_codex_rollout_attribution_distinguishes_session_and_resets_missing_turns(self) -> None:
+        sess_dir = self.temp_dir / "attribution_test" / "sessions"
+        sess_dir.mkdir(parents=True)
+        rollout_file = sess_dir / "rollout-attribution.jsonl"
+        lines = [
+            json.dumps({"type": "session_meta", "payload": {"model": "session-hint-model"}}),
+            json.dumps({"type": "response_item", "payload": {"role": "user", "content": [{"type": "input_text", "text": "turn with session meta only"}]}}),
+            json.dumps({"type": "turn_context", "payload": {"turn_id": "1", "model": "turn-1-model"}}),
+            json.dumps({"type": "response_item", "payload": {"role": "user", "content": [{"type": "input_text", "text": "turn with turn context model"}]}}),
+            json.dumps({"type": "turn_context", "payload": {"turn_id": "2"}}),
+            json.dumps({"type": "response_item", "payload": {"role": "user", "content": [{"type": "input_text", "text": "turn with missing turn context model"}]}}),
+        ]
+        rollout_file.write_text("\n".join(lines) + "\n")
+
+        results = search_codex(query="turn with", sessions_dir=sess_dir, limit=10)
+        self.assertEqual(len(results), 3)
+        turn_session = next(r for r in results if "session meta only" in r.snippet)
+        turn_1 = next(r for r in results if "turn context model" in r.snippet and "missing" not in r.snippet)
+        turn_2 = next(r for r in results if "missing turn context model" in r.snippet)
+
+        # 1. Session-meta only must NOT report model_source as "turn_context"
+        self.assertNotEqual(turn_session.metadata.get("model_source"), "turn_context")
+        self.assertEqual(turn_session.metadata.get("model_source"), "session_meta")
+        self.assertEqual(turn_session.metadata.get("session_model"), "session-hint-model")
+
+        # 2. Turn 1 has turn_context model
+        self.assertEqual(turn_1.metadata.get("model"), "turn-1-model")
+        self.assertEqual(turn_1.metadata.get("model_source"), "turn_context")
+
+        # 3. Turn 2 omits model in turn_context: must NOT inherit turn 1 model
+        self.assertNotEqual(turn_2.metadata.get("model"), "turn-1-model")
+        self.assertIsNone(turn_2.metadata.get("model"))
+        self.assertNotEqual(turn_2.metadata.get("model_source"), "turn_context")
+
+    def test_codex_record_level_model_stays_local_and_does_not_leak_to_subsequent_records(self) -> None:
+        sess_dir = self.temp_dir / "record_model_test" / "sessions"
+        sess_dir.mkdir(parents=True)
+        rollout_file = sess_dir / "rollout-record-model.jsonl"
+        lines = [
+            json.dumps({"type": "response_item", "model": "record-only-model", "payload": {"role": "user", "content": [{"type": "input_text", "text": "needle record"}]}}),
+            json.dumps({"type": "response_item", "payload": {"role": "user", "content": [{"type": "input_text", "text": "needle later"}]}}),
+        ]
+        rollout_file.write_text("\n".join(lines) + "\n")
+
+        results = search_codex(query="needle", sessions_dir=sess_dir, limit=10)
+        self.assertEqual(len(results), 2)
+        rec_first = next(r for r in results if "needle record" in r.snippet)
+        rec_later = next(r for r in results if "needle later" in r.snippet)
+
+        # 1. Record-level model must not be labeled turn_context
+        self.assertNotEqual(rec_first.metadata.get("model_source"), "turn_context")
+        self.assertEqual(rec_first.metadata.get("model"), "record-only-model")
+        self.assertEqual(rec_first.metadata.get("model_source"), "record")
+
+        # 2. Later record lacking model must NOT inherit the first record's model
+        self.assertIsNone(rec_later.metadata.get("model"))
+        self.assertNotEqual(rec_later.metadata.get("model"), "record-only-model")
+
+    def test_codex_turn_model_does_not_leak_across_turn_boundaries(self) -> None:
+        sess_dir = self.temp_dir / "boundary_test" / "sessions"
+        sess_dir.mkdir(parents=True)
+        rollout_file = sess_dir / "rollout-boundary.jsonl"
+        lines = [
+            # Turn 1: has task_started, turn_context with model, and user prompt, then task_complete
+            json.dumps({"type": "event_msg", "payload": {"type": "task_started", "turn_id": "turn-1"}}),
+            json.dumps({"type": "turn_context", "payload": {"turn_id": "turn-1", "model": "model-turn-1"}}),
+            json.dumps({"type": "response_item", "payload": {"role": "user", "content": [{"type": "input_text", "text": "Turn 1 prompt with explicit model"}]}}),
+            json.dumps({"type": "event_msg", "payload": {"type": "task_complete", "turn_id": "turn-1"}}),
+            # Turn 2: starts a new turn without a turn_context, user prompt arrives
+            json.dumps({"type": "event_msg", "payload": {"type": "task_started", "turn_id": "turn-2"}}),
+            json.dumps({"type": "response_item", "payload": {"role": "user", "content": [{"type": "input_text", "text": "Turn 2 prompt lacking new context"}]}}),
+        ]
+        rollout_file.write_text("\n".join(lines) + "\n")
+
+        results = search_codex(query="prompt", sessions_dir=sess_dir, limit=10)
+        self.assertEqual(len(results), 2)
+        turn1_entry = next(r for r in results if "Turn 1 prompt" in r.snippet)
+        turn2_entry = next(r for r in results if "Turn 2 prompt" in r.snippet)
+
+        # Turn 1 must attribute turn_context model
+        self.assertEqual(turn1_entry.metadata.get("model"), "model-turn-1")
+        self.assertEqual(turn1_entry.metadata.get("model_source"), "turn_context")
+        self.assertEqual(turn1_entry.metadata.get("model_scope"), "turn")
+
+        # Turn 2 MUST NOT leak turn 1's model across task_complete / task_started boundary
+        self.assertNotEqual(turn2_entry.metadata.get("model"), "model-turn-1")
+        self.assertIsNone(turn2_entry.metadata.get("model"))
+        self.assertNotEqual(turn2_entry.metadata.get("model_source"), "turn_context")
+
+    def test_codex_delayed_turn_completion_does_not_clear_newer_active_context(self) -> None:
+        sess_dir = self.temp_dir / "delayed_completion_test" / "sessions"
+        sess_dir.mkdir(parents=True)
+        rollout_file = sess_dir / "rollout-delayed.jsonl"
+        lines = [
+            # startA / contextA
+            json.dumps({"type": "event_msg", "payload": {"type": "task_started", "turn_id": "turn-A"}}),
+            json.dumps({"type": "turn_context", "payload": {"turn_id": "turn-A", "model": "model-A"}}),
+            # startB / contextB
+            json.dumps({"type": "event_msg", "payload": {"type": "task_started", "turn_id": "turn-B"}}),
+            json.dumps({"type": "turn_context", "payload": {"turn_id": "turn-B", "model": "model-B"}}),
+            # completionA arrives while turn B is active
+            json.dumps({"type": "event_msg", "payload": {"type": "task_complete", "turn_id": "turn-A"}}),
+            # userB prompt
+            json.dumps({"type": "response_item", "payload": {"role": "user", "content": [{"type": "input_text", "text": "Turn B user prompt"}]}}),
+            # same-turn completion for turn B
+            json.dumps({"type": "event_msg", "payload": {"type": "task_complete", "turn_id": "turn-B"}}),
+            # next start without context
+            json.dumps({"type": "event_msg", "payload": {"type": "task_started", "turn_id": "turn-C"}}),
+            json.dumps({"type": "response_item", "payload": {"role": "user", "content": [{"type": "input_text", "text": "Turn C prompt without context"}]}}),
+        ]
+        rollout_file.write_text("\n".join(lines) + "\n")
+
+        results = search_codex(query="prompt", sessions_dir=sess_dir, limit=10)
+        self.assertEqual(len(results), 2)
+        turn_b = next(r for r in results if "Turn B user prompt" in r.snippet)
+        turn_c = next(r for r in results if "Turn C prompt without context" in r.snippet)
+
+        # Retain B attribution despite delayed completion of A
+        self.assertEqual(turn_b.metadata.get("model"), "model-B")
+        self.assertEqual(turn_b.metadata.get("model_source"), "turn_context")
+        self.assertEqual(turn_b.metadata.get("model_scope"), "turn")
+
+        # Same-turn completion still clears and next start without context never inherits A
+        self.assertIsNone(turn_c.metadata.get("model"))
+        self.assertNotEqual(turn_c.metadata.get("model_source"), "turn_context")
 
 
 if __name__ == "__main__":

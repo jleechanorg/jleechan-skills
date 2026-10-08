@@ -1,10 +1,16 @@
 ---
 name: draft-first-pr
-description: Lifecycle contract for opening PRs, driving them green, and fixing CI. Triggers on: opening a PR, driving a PR to green, fixing CI on a PR, /green, /es, /er, /advice on a PR.
-type: policy
+description: "Lifecycle contract for opening PRs, driving them green, and fixing CI. Triggers on: opening a PR, driving a PR to green, fixing CI on a PR, /green, /es, /er, /advice on a PR."
+metadata:
+  type: policy
 ---
 
 # Draft-First PR Policy
+
+## Retained review integrations
+
+The shared catalog preserves host-installed `/advice` and `/web-advice` integrations instead of installing them. Before invoking either, resolve its `../advice/SKILL.md` or `../web-advice/SKILL.md` relative to this package and read the existing skill. For a remote invocation, check the corresponding skill on the target host. If absent, report that integration as `UNAVAILABLE` and identify the missing package; do not invent a replacement runner, claim an approval, or treat a required gate as passed. Continue independent authorized work, but leave any dependent readiness or plan-approval gate unmet. Existing review quorum, external-disclosure authorization, and optional-review rules still apply.
+
 
 **Every new PR is opened as DRAFT** (`gh pr create --draft`) and stays draft until quality is proven. Flipping to ready-for-review is a deliberate, gated action — not a side effect of pushing code.
 
@@ -15,27 +21,93 @@ This is the full state machine — every other file (`pr-green-definition`, `/gr
 ```
 DRAFT
   → /es PASS @ SHA
-  → /er PASS @ SHA (non-documentation PRs only)
-  → /advice APPROVED @ SHA
+  → /er PASS @ SHA (unless the narrow /er documentation allowlist or a repo-exempted class applies)
+  → /advice APPROVED @ SHA (unless a repo-exempted class applies)
   → mark ready (gh pr ready <N>)
-  → /green: CI green + no merge conflicts, BOTH verified @ current HEAD SHA
+  → /green: applicable CI or documented exception + no merge conflicts @ current HEAD SHA
   → separate merge authorization: explicit human "MERGE APPROVED" (case-insensitive)
     in the most recent live user message
 ```
 
 Each arrow is a gate, not a formality — do not skip ahead, and do not treat an earlier gate's pass as still valid once HEAD has moved (see "SHA-binding rule" below).
 
-## Draft-phase gates (in order)
+## Coding lifecycle (pre-draft work) — scale layers to risk
 
-While a PR is draft, run these in sequence — do not skip ahead:
+Order: explore → outcome spec (no code) → code-level design when useful → TDD
+(fresh failing test first) → unit + relevant integration tests → coder
+correctness checkpoint → formal code/evidence review → narrow fixes until a
+genuine human dependency. Batch findings, preserve passing lanes, and recheck
+only the affected behavior.
+
+| Change class | Layers |
+|---|---|
+| Wording-only / small low-risk (including a small code fix) | Skip standalone spec, plan, and plan-review cycle; focused tests, then the applicable gates below. Runtime change or file count alone does not make a change non-small. |
+| Ordinary feature | Outcome spec, TDD, unit + relevant tests, correctness checkpoint, then formal review. |
+| Cross-service boundary | Add an integration-layer test; a mocked unit test cannot prove it. |
+| Large change | May pause at the correctness checkpoint for human direction before expensive review (optional, never a gate). |
+| High-risk (security, data-integrity, permission, deployment, approval, merge, destructive, credential) | No layer skipping; the full gate chain and independent final coverage still apply. |
+
+**Mandatory regardless of class:** gates the user explicitly required;
+high-risk, security, data-integrity, permission, deployment, approval, merge,
+destructive, and credential gates; and real proof for any production-behavior claim. **Skippable by class:**
+standalone spec/plan, plan-review cycle, history mining, and extra review lanes
+for small low-risk changes, including small code fixes. A standalone plan review
+applies only to high-risk or user-required cases, or an unresolved material
+decision. Skill pipelines (`write-goal`, `ironclad`, `ready`) delegate
+applicability and review timing here; none may apply universally.
+
+Cheap real smoke (e.g. UI target check) may run early to catch a wrong target;
+expensive final evidence follows correct, frozen code.
+
+**Execution handoff invariant.** An accepted next step must have an executing
+owner or started tool before reporting `Working`. With only an exact blocker plus
+resumption trigger, report `Blocked` or `Waiting` — a blocker never makes it
+`Working`. Creating a goal or checklist is not execution. Do not stop
+at a completed design when implementation was authorized.
+
+## Draft-phase final acceptance gates (in order)
+
+Before this final sequence, run independent code-correctness reviews (including
+/advice reviewers) and cheap focused checks in parallel when resources permit.
+Resolve or explicitly defer their findings, batch fixes, and freeze the code
+before expensive evidence. Reviewers may finish code inspection early; final
+approval must account for the finished evidence and exact current SHA. Do not
+run expensive evidence while known code-correctness work remains unfinished.
+
+When multiple reviews are requested, use one frozen candidate/base and one
+shared factual scope and defect inventory; shared inputs do not replace each
+review's independent judgment. Run independent review groups concurrently
+where transport and resource rules permit; each review covers the entire
+declared change, while focus lanes supplement rather than replace approval.
+Collect current findings in one batch. After repeated same-cause
+findings, inspect the shared representation before another local patch. Do not
+invent additional approval gates; existing approvals remain workflow-specific.
+Final evidence stays last; when evidence is in the declared review scope, the
+same independent reviewers must inspect it and reaffirm at the finished HEAD. A
+same-HEAD finished code review can account for unchanged code without blindly
+rereading it; the orchestrator cannot promote an earlier review alone.
+
+While a PR is draft, accept these final gates, where applicable, in sequence — do not skip any applicable gate:
+
+A repository's own instructions (for example its `AGENTS.md` coding lifecycle)
+may exempt defined low-risk classes, such as docs-only, test-only, or small
+non-production changes, from `/er` and `/advice`; when they do, follow that
+classification and its exclusions. The narrow documentation allowlist below is
+the default when the repo defines none. No exemption covers changes to approval,
+merge, review, evidence, or security rules, or to security, permission,
+credential, or merge-path code.
 
 1. **`/es`** — evidence bundle passes (real evidence per `~/.claude/skills/evidence-standards/SKILL.md` + repo-specific extensions), verified at the PR's current HEAD SHA.
-2. **`/er`** — for every PR except the documentation-only class below, evidence review verdict is PASS (not PARTIAL/FAIL/INCONCLUSIVE), verified at the same current HEAD SHA — re-run if `/es` was earned at an older SHA.
-3. **`/advice`** — second-opinion approval on the change itself (`APPROVED at <SHA>` / `NOT APPROVED at <SHA>` / `WITHHELD at <SHA>` — see `~/.claude/skills/advice/SKILL.md`), bound to the same current HEAD SHA. `WITHHELD` does not satisfy the draft gate.
+2. **`/er`** — for every PR except the documentation-only class below or a repo-exempted class, evidence review verdict is PASS (not PARTIAL/FAIL/INCONCLUSIVE), verified at the same current HEAD SHA — re-run if `/es` was earned at an older SHA.
+3. **`/advice`** — second-opinion approval on the change itself (`APPROVED at <SHA>` / `NOT APPROVED at <SHA>` / `WITHHELD at <SHA>` — see `~/.claude/skills/advice/SKILL.md`), bound to the same current HEAD SHA, unless a repo-exempted class applies. `WITHHELD` does not satisfy the draft gate.
 
 Only after every applicable gate passes **at the same current SHA**: flip the PR from draft to ready-for-review (`gh pr ready <N>`).
 
-### Documentation-only exception
+### Documentation-only CI exception
+
+Documentation-only changes, including instruction/skill documentation, do not require CI or waiting for runners. Apply `~/.claude/skills/pr-green-definition/SKILL.md` § Documentation-only CI exception for scope, proportionate local validation, and SHA-bound reporting. That exception is independent of the narrower `/er` allowlist below; it does not remove applicable draft-phase gates, conflict checks, or merge authorization.
+
+### Documentation-only `/er` exception (narrow allowlist)
 
 After `/es`, resolve the PR number (safe fallback `PR_NUMBER=$(gh pr view --json number --jq '.number')` if `<N>` is not known), query the supported pull-request API for the base branch and canonical repository URLs, require exactly one matching Git remote, fetch it, and classify the complete changed-path set against that base. Match the full host and repository path; an owner/repository suffix alone is ambiguous across hosts.
 
@@ -104,7 +176,7 @@ git fetch "$BASE_REMOTE" "$BASE_BRANCH"
 git diff --name-only "${BASE_REMOTE}/${BASE_BRANCH}...HEAD"
 ```
 
-A PR is documentation-only only when every changed path is one of:
+For this `/er` exemption, every changed path must be one of:
 
 - `README.md`
 - `CHANGELOG.md`
@@ -113,11 +185,10 @@ A PR is documentation-only only when every changed path is one of:
 
 For that class, do not run `/er`. Record
 `/er: NOT REQUIRED — documentation-only (<changed paths>)` on the PR, then
-continue directly to `/advice`. Documentation-only PRs still require `/es` and
-`/advice` at the current SHA, followed by `/green` and separate merge
-authorization.
+continue to `/advice` where required. Documentation-only PRs still require `/es`
+and, unless a repo-exempted class applies, `/advice` at the current SHA, followed by `/green` using its documentation-only CI exception and separate merge authorization.
 
-This is an exact allowlist, not a file-extension heuristic. Changes under
+This `/er` exemption is an exact allowlist, not a file-extension heuristic. Changes under
 `.claude/**`, `.codex/**`, `.github/**`, prompts, tests, scripts, configuration,
 schemas, or source code do not qualify even when the file is Markdown. Any
 mixed diff uses the normal `/er` gate.
@@ -127,12 +198,19 @@ mixed diff uses the normal `/er` gate.
 `/es`, `/er`, `/advice`, and `/green` gate verdicts are each earned **at a specific commit SHA** — none of the production-gate verdicts carry forward across a HEAD move. If a new commit lands after a verdict (a nit fix, a rebase, a CI-requested change), that verdict is **STALE** and must be re-earned — or explicitly re-affirmed at the new SHA — before it counts toward the next gate in the chain.
 
 **This is a verdict-binding rule, not an automatic evidence-capture rule.** Apply
-the evidence-staleness tolerance in `evidence-standards`: a docs, tests,
-skills, ordinary PR-policy, or other non-behavioral HEAD change does not
+the evidence-staleness tolerance in `evidence-standards`: a HEAD change whose
+actual delta (not its path category) leaves every tested claim intact does not
 require a fresh production-evidence run. The reviewer may re-affirm `/es` at
-the new SHA after documenting the non-production diff. A production behavior
+the new SHA after documenting that delta and the claims checked. A production behavior
 change still requires fresh evidence, then fresh SHA-bound `/es`, `/er`, and
 `/advice` verdicts.
+
+**Classify by the actual delta and the claim it could invalidate, never by path
+category.** Tests, evidence drivers and captures, prompts, contracts, schemas, and
+executable skill instructions can change behavior or invalidate proof. Re-affirm only
+after reading the delta and documenting why no tested claim, driver, or assertion is
+affected; a changed assertion, driver, or behavioral instruction invalidates the
+evidence that depends on it.
 
 The verdict rule applies uniformly:
 
@@ -141,23 +219,25 @@ The verdict rule applies uniformly:
 - A stale `/advice` APPROVED does not justify marking the PR ready.
 - A stale `/green` does not justify reporting merge-readiness.
 
-Before trusting any prior verdict, compare the SHA it was stamped with against the PR's live head: `gh pr view <N> --json headRefOid --jq '.headRefOid'`. On mismatch, run the staleness-tolerance diff test (`git diff --name-only <verdict-sha> HEAD`): a non-behavioral delta lets the verdict be re-affirmed at the new SHA after documenting the diff; a material delta means re-earning the gate. Never carry a verdict forward on memory alone — and never trigger an expensive rerun per finding: batch all pending fixes into one new SHA first (see `evidence-standards` § Evidence Sequencing).
+Before trusting any prior verdict, compare the SHA it was stamped with against the PR's live head: `gh pr view <N> --json headRefOid --jq '.headRefOid'`. On mismatch, run the staleness-tolerance diff test (read `git diff <verdict-sha> HEAD` against the verdict's claims): a delta that leaves those claims intact lets the verdict be re-affirmed at the new SHA after documenting the diff; a material delta means re-earning the gate. Never carry a verdict forward on memory alone — and never trigger an expensive rerun per finding: batch all pending fixes into one new SHA first (see `evidence-standards` § Evidence Sequencing).
 
-**Cycle cap and chain timing.** The draft chain (`/es` → `/er` → `/advice`) is the FINAL pass: run it once, after code is complete and all known findings are resolved or deferred (`evidence-standards` § Evidence Sequencing) — not per push while fixes are still landing. Re-earning is capped at **2 gate cycles per PR** (initial pass + one batched fix-and-reverify pass). Only behavior-blocking findings may open cycle 2; style/nit/doc feedback becomes tracked follow-ups without a new cycle. If a third material delta would require re-earning the chain, stop and escalate to the operator instead of re-running it.
+**Chain timing and quality.** The draft chain (`/es` → `/er` → `/advice`) is the FINAL pass: run it after code is complete and all known findings are resolved or deferred (`evidence-standards` § Evidence Sequencing) — not per push while fixes are still landing. Review findings remain subject to the required correctness gates: behavior-blocking findings must be fixed and reverified, while style/nit/doc feedback may be tracked as follow-ups. Batch pending behavioral fixes into one SHA before re-earning affected evidence.
 
 ## Ready phase — drive `/green`
 
-Once ready-for-review, drive `/green` per `~/.claude/skills/pr-green-definition/SKILL.md` (2-gate CI+mergeable definition, SHA-bound) — do not restate the gate mechanics here.
+Once ready-for-review, drive `/green` per `~/.claude/skills/pr-green-definition/SKILL.md` (applicable CI or documentation-only exception, plus mergeability, SHA-bound) — do not restate the gate mechanics here.
 
 Do NOT burn CI cycles chasing green on an unproven draft — that's what starved capacity before this policy. Get through every applicable draft gate first, *then* spend CI budget on the 2-gate `/green` loop.
 
 ## Slow CI — never block-wait
 
-If CI is running more than ~10 minutes past its normal runtime for the check in question: run the equivalent tests locally NOW and post proof labeled **"local run — CI still pending"** (exact command, output, timestamp, git SHA). Do not treat polling/waiting as the primary strategy; Gate 1 remains pending until remote CI itself resolves successfully.
+Documentation-only changes use the CI exception immediately; the ten-minute threshold below applies only to changes that require CI.
+
+For checks queued/pending more than 10 minutes, follow the local-equivalent exception in `~/.claude/skills/pr-green-definition/SKILL.md`: run the workflow's actual command and post current-head proof. Passing local equivalents satisfy Gate 1 for backlogged checks; remote completion is not required for those checks. Failed checks, no-conflict verification, and merge authorization remain separate requirements.
 
 ## Rationale
 
-Long-open PRs that skipped straight to chasing CI green (e.g. the level-up auto-PR class) were starved by CI contention — CI capacity is a shared resource, not a private queue. The `ci-value-audit-v2` findings (`green-gate` workflow: 341 hr/wk consumed, 50.7% cancel rate pre-[#8637](https://github.com/$GITHUB_REPOSITORY/pull/8637)) show that driving unproven work through full CI repeatedly is the dominant cost driver. Gating quality (`/es`, `/er` when required, and `/advice`) in draft — before CI spend — front-loads correctness and back-loads CI cost only onto PRs already known-good.
+Long-open PRs that skipped straight to chasing CI green (e.g. the level-up auto-PR class) were starved by CI contention — CI capacity is a shared resource, not a private queue. The `ci-value-audit-v2` findings (`green-gate` workflow: 341 hr/wk consumed, 50.7% cancel rate pre-[#8637](https://github.com/$GITHUB_REPOSITORY/pull/8637)) show that driving unproven work through full CI repeatedly is the dominant cost driver. Gating quality (`/es`, and `/er` and `/advice` when required) in draft — before CI spend — front-loads correctness and back-loads CI cost only onto PRs already known-good.
 
 ## CodeRabbit/Bugbot — optional advisory reviewers
 

@@ -1,6 +1,6 @@
 ---
 name: superpowers-writing-plans
-description: Use when you have a spec or requirements for a multi-step task, before touching code
+description: Use to turn requirements into an implementation plan when the task needs planning or the user requests a plan.
 ---
 
 # Writing Plans
@@ -46,7 +46,7 @@ Assume they are a skilled developer, but know almost nothing about our toolset o
 
 ## Task Structure
 
-```markdown
+````markdown
 ### Task N: [Component Name]
 
 **Files:**
@@ -85,7 +85,7 @@ Expected: PASS
 git add tests/path/test.py src/path/file.py
 git commit -m "feat: add specific feature"
 ```
-```
+````
 
 ## Remember
 - Exact file paths always
@@ -96,15 +96,19 @@ git commit -m "feat: add specific feature"
 
 ## Execution Handoff
 
-After saving the plan, offer execution choice:
+After saving the plan, follow the current requested endpoint. For a planning-only
+request, deliver the plan. If implementation is already authorized, continue with
+the available workflow and report progress; do not add an execution-choice gate.
+Honor a user-requested separate session or checkpoint.
 
-**"Plan complete and saved to `docs/plans/<filename>.md`. Two execution options:**
+When the user needs to choose between materially different execution methods,
+present their tradeoffs after preparing the concrete plan:
 
 **1. Subagent-Driven (this session)** - I dispatch fresh subagent per task, review between tasks, fast iteration
 
 **2. Parallel Session (separate)** - Open new session with executing-plans, batch execution with checkpoints
 
-**Which approach?"**
+Ask only when that unresolved choice affects the authorized work.
 
 **If Subagent-Driven chosen:**
 - **REQUIRED SUB-SKILL:** Use superpowers:subagent-driven-development

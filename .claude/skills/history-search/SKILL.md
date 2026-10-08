@@ -10,7 +10,7 @@ scope: user
 > ⚠️ **QUOTA GUARD — this is the DEEP/heavy search skill.**
 > The default `/history` command now uses `conversation-history-sparse/SKILL.md` (3 sources, tight budget).
 > This skill is invoked only via `/history --deep` or when the sparse search explicitly returns insufficient results.
-> **Model**: Default to `gpt-5.3-codex-spark` when parent session is Codex (for research/history lookup work). Override to `gpt-5.6-sol` only if Spark demonstrably fails.
+> **Model**: Default to `gpt-5.6-luna` when parent session is Codex (for research/history lookup work). Override to `gpt-5.6-sol` only if Luna demonstrably fails.
 > **Dedup**: Check for in-flight identical threads before spawning any parallel blocks:
 > `sqlite3 ~/.codex/state_5.sqlite "SELECT id FROM threads WHERE first_user_message LIKE '%QUERY%' AND tokens_used=0 AND created_at_ms>(unixepoch('now')-1800)*1000 LIMIT 1;"`
 

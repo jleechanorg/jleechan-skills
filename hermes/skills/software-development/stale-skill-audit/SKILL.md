@@ -44,7 +44,7 @@ Skills accumulate **sediment**: dead Provenance footers, drifted CLI names, head
 6. **Propagate to remote** via `github-pr-workflow` (branch from `origin/main`, commit, push, `gh pr create`). Do NOT include user-scope local additions — those are content additions, not cleanups.
 7. **Verify:** `gh pr view N --json headRefOid --jq .headRefOid` matches local SHA; indicator greps on the remote head return 0 hits for `bd`, `Provenance` header, and unnormalized `2026-07-06` header dates.
 
-The full recipe (exact grep commands, classification rules, `APPROVE DIR SWITCH` pitfall, and the safe-subset edge cases) is in `references/staleness-audit.md`.
+The full recipe (exact grep commands, classification rules, foreign-checkout pitfall, and the safe-subset edge cases) is in `references/staleness-audit.md`.
 
 ## The Safe-Subset Contract
 
@@ -65,7 +65,7 @@ The full recipe (exact grep commands, classification rules, `APPROVE DIR SWITCH`
 1. **"Medium cleanup" is not the default.** When the user says "let's cleanup", assume safe subset unless they explicitly escalate. Offer 2-3 scope options at most — don't make them pick from 4. If they pull back mid-conversation, narrow immediately, don't re-confirm.
 2. **Header dates ≠ incident dates.** Stripping `2026-07-07` from a rule that says "Hit twice on 2026-07-07: `pr-retro-gapfill` (15/15 verify agents died, ...)" removes the *evidence the rule is battle-tested*. That date is load-bearing. Header/frame dates are safe to normalize.
 3. **`bd` → `br` is not always safe.** Confirm against `~/.claude/CLAUDE.md` and `projects/AGENTS.md` before sweeping. Some projects genuinely still use `bd`.
-4. **`APPROVE DIR SWITCH` is real.** Don't open a fresh terminal in a foreign repo without the user's grant. Clone into `~/.hermes/state/worktrees/<repo>` instead — the user's grant was implicit when they pointed at the repo URL.
+4. **Don't edit a foreign repo's live checkout in place.** It may be on someone else's branch with dirty work. Clone into `~/.hermes/state/worktrees/<repo>` and work from there; no approval phrase is required to change directories.
 5. **Don't conflate local and remote.** The user-scope file at `~/.claude/skills/<name>/SKILL.md` may have *more* recent additions than the remote (Domain-general paragraphs, new rules added locally). Treat the remote as canonical for the cleanup PR; flag the local additions in the PR description under "Out of scope" so the user can promote them separately.
 6. **`git rev-parse origin/<branch>` lies after a fresh push.** The local ref-cache doesn't update immediately. Verify with `gh pr view N --json headRefOid` instead, or `git fetch origin <branch>` first.
 7. **Don't auto-run a sweep of every skill.** The user knows what's stale to them. A single targeted cleanup PR is welcome; a "I cleaned 14 skills at once" PR is not.

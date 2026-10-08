@@ -1,11 +1,11 @@
 ---
 name: goalexec
-description: Define a goal with success criteria and run autonomous convergence loop until criteria are met
+description: Define a goal with success criteria and run autonomous convergence loop until criteria are met, cancelled, or the eight-hour time-box is reached
 ---
 
 # /goalexec Skill
 
-Define a goal with measurable success criteria and run an autonomous convergence loop (plan→execute→validate→decide) until success criteria are met or convergence limits are reached.
+Define a goal with measurable success criteria and run an autonomous convergence loop (plan→execute→validate→decide) until success criteria are met, the goal is cancelled, or the eight-hour time-box is reached.
 
 ## Usage
 
@@ -77,7 +77,7 @@ For immediate mode, run iterative cycle:
 1. **Plan** → create actionable steps directly (no approval gate — autonomous mode)
 2. **Execute** → run each step using appropriate tools/commands
 3. **Validate** → check success criteria against reality
-4. **Decide** → continue if improving, stop if converged/stalled/max-iterations
+4. **Decide** → continue adapting until converged, cancelled, or the eight-hour time-box is reached
 
 ### Score Calculation
 
@@ -88,10 +88,15 @@ A criterion is "met" if its validation check passes (file exists with correct co
 ### Convergence Decision Logic (priority order)
 
 1. **100% criteria met** → CONVERGED, stop
-2. **Max iterations reached** (default: 10) → stop with partial progress
-3. **Same score 2 iterations** → STALLED, stop (checked before "good enough")
-4. **≥90% + no progress 2x** → "good enough", stop
-5. **Improving** → continue
+2. **Cancelled or blocked by an explicit external status** → stop and report the status
+3. **Score plateau or repeated validation result** → adapt the plan and continue; do not treat repetition as success or a stop condition
+4. **Improving** → continue
+5. **Eight-hour time-box reached** → stop and request an explicit time extension
+
+An explicit `--max-iterations N` option remains available as a user-requested
+iteration budget for compatibility. It has no default and is not an automatic
+stop rule; without that option, the eight-hour time-box is the only automatic
+resource limit.
 
 ### Scheduled Mode (`--cron`)
 
@@ -119,7 +124,7 @@ This is the same pattern as `scripts/monitoring/worldarchitect-ao-eloop.sh`:
 2. Saves target to `~/.goalexec-loop/cmux-target.env`
 3. Installs a launchd LaunchAgent that fires every N seconds
 4. Each fire reads the goal file and reinjects `/goalexec --validate` into the coder pane
-5. Auto-uninstalls on CONVERGED or max iterations
+5. Auto-uninstalls on CONVERGED, cancellation, or the eight-hour time-box
 
 ```bash
 # Commands
@@ -139,7 +144,7 @@ The bash script auto-detects which CLI to call (`opencode run` or `claude -p`) a
 1. Invokes `/goalexec --validate` each iteration
 2. Checks `goals/.current-goal` for convergence status
 3. Sleeps for the interval between iterations
-4. Stops on CONVERGED, STALLED (same score 2x), or max iterations
+4. Stops on CONVERGED, cancellation, an explicit user iteration budget, or the eight-hour time-box
 
 ```bash
 # Commands

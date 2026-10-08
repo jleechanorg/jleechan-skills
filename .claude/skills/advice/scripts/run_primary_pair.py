@@ -445,7 +445,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--repo", required=True, type=Path)
     parser.add_argument("--ref", required=True)
     parser.add_argument("--packet-file", required=True, type=Path)
+    parser.add_argument("--document", action="append", default=[],
+                        help="saved Markdown document relative to repo; repeat for document-only review")
     parser.add_argument("--output-dir", required=True, type=Path)
+    parser.add_argument(
+        "--reviewers",
+        default="codex,opus",
+        metavar="REVIEWER",
+        help="reviewer subset (codex and/or opus, comma-separated; default: codex,opus)",
+    )
     parser.add_argument(
         "--timeout-seconds",
         type=float,
@@ -458,7 +466,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=2.0,
         help="bounded output-drain grace after a timeout (default: 2)",
     )
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    reviewers = args.reviewers.split(",")
+    if not reviewers or any(name not in {"codex", "opus"} for name in reviewers):
+        parser.error("--reviewers must contain only codex and opus")
+    if len(set(reviewers)) != len(reviewers):
+        parser.error("--reviewers must not contain duplicates")
+    args.reviewers = reviewers
+    return args
 
 
 def cleanup_directory(path: Path) -> dict[str, Any]:
@@ -502,6 +517,24 @@ def descendant_termination_failures(reviewers: dict[str, Any]) -> list[str]:
     return sorted(failures)
 
 
+def read_review_documents(repo: Path, names: list[str]) -> dict[str, bytes]:
+    """Read only explicitly selected, non-ignored Markdown files inside this repo."""
+    documents = {}
+    for name in names:
+        relative = Path(name)
+        if relative.is_absolute() or ".." in relative.parts or ".git" in relative.parts:
+            raise ValueError("--document must be a repository-relative document path")
+        path = repo / relative
+        if relative.suffix.lower() != ".md" or not path.is_file():
+            raise ValueError("--document must name an existing Markdown file")
+        if any(p.is_symlink() for p in (path, *path.parents) if p != repo and repo in p.parents):
+            raise ValueError("linked document paths are not supported")
+        if git(repo, "check-ignore", "--no-index", "--", str(relative), check=False).returncode == 0:
+            raise ValueError("ignored documents must not be submitted implicitly")
+        documents[relative.as_posix()] = path.read_bytes()
+    return documents
+
+
 def main(
     argv: list[str] | None = None,
     *,
@@ -520,23 +553,55 @@ def main(
     if output_dir == repo or repo in output_dir.parents:
         print("output directory must be outside the original checkout", file=sys.stderr)
         return 2
-    if git(repo, "status", "--porcelain=v1", "--untracked-files=all").stdout:
+    if not args.document and git(repo, "status", "--porcelain=v1", "--untracked-files=all").stdout:
         print("input checkout must be clean; dirty state is not represented by an exact SHA", file=sys.stderr)
         return 2
     sha = git(repo, "rev-parse", f"{args.ref}^{{commit}}").stdout.decode().strip()
     before = repository_snapshot(repo)
+    try:
+        documents = read_review_documents(repo, args.document)
+    except (ValueError, OSError) as error:
+        print(f"document review refused: {error}", file=sys.stderr)
+        return 2
+    document_hashes = {name: hashlib.sha256(data).hexdigest() for name, data in documents.items()}
+    document_bundle_sha256 = hashlib.sha256(
+        json.dumps(document_hashes, sort_keys=True).encode()
+    ).hexdigest() if documents else None
     packet = args.packet_file.read_text()
     prompt = (
         f"EXACT REVIEW SHA: {sha}\n"
         "The current directory is an independent detached clone at that SHA. Review only this checkout.\n\n"
         f"{packet}"
     )
-    output_dir.mkdir(parents=True, exist_ok=True)
+    if documents:
+        prompt = (
+            "DOCUMENT-ONLY REVIEW; repository HEAD is context, not the document identity.\n"
+            f"CONTEXT SHA: {sha}\nDOCUMENT BUNDLE SHA256: {document_bundle_sha256}\n"
+            "Read the complete selected files under .advice-review-documents in this clone.\n"
+            "The mapping below identifies their original repository paths and exact SHA256 values.\n"
+            "Do not approve code, a PR, or HEAD from this document review.\n"
+            + json.dumps({f"{i}.md": {"source": name, "sha256": document_hashes[name]}
+                          for i, name in enumerate(documents)}, sort_keys=True)
+            + "\n\n" + packet
+        )
+    try:
+        # Reserve the result path before dispatch. Reusing a directory could
+        # leave an unselected review artifact beside a fresh receipt.
+        output_dir.mkdir(parents=True, exist_ok=False)
+    except FileExistsError:
+        print(
+            "output directory must be a fresh path per invocation; "
+            "refusing to reuse existing reviewer artifacts",
+            file=sys.stderr,
+        )
+        return 2
     temp_root = Path(tempfile.mkdtemp(prefix="advice-primary-pair-"))
-    clones = {"codex": temp_root / "codex", "opus": temp_root / "opus"}
     receipt: dict[str, Any] = {
         "sha": sha,
-        "parallel_dispatch": True,
+        "review_kind": "documents" if documents else "revision",
+        "document_hashes": document_hashes,
+        "document_bundle_sha256": document_bundle_sha256,
+        "parallel_dispatch": len(args.reviewers) > 1,
         "checkout_kind": "independent_clone_no_local",
         "timeout_seconds": args.timeout_seconds,
         "timeout_grace_seconds": args.timeout_grace_seconds,
@@ -544,33 +609,34 @@ def main(
     }
     operational_error: str | None = None
     try:
+        reviewer_names = args.reviewers
+        clones = {name: temp_root / name for name in reviewer_names}
         for path in clones.values():
             create_clone_fn(repo, path, sha)
+            if documents:
+                document_root = path / ".advice-review-documents"
+                document_root.mkdir(exist_ok=False)
+                for i, data in enumerate(documents.values()):
+                    (document_root / f"{i}.md").write_bytes(data)
         receipt["clone_shas"] = {
             name: git(path, "rev-parse", "HEAD").stdout.decode().strip()
             for name, path in clones.items()
         }
         if any(clone_sha != sha for clone_sha in receipt["clone_shas"].values()):
             raise RuntimeError("review clone did not resolve to the requested SHA")
-        barrier = threading.Barrier(2)
-        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        barrier = threading.Barrier(len(reviewer_names))
+        lane_functions = {"codex": codex_lane, "opus": opus_lane}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(reviewer_names)) as executor:
             futures = {
-                "codex": executor.submit(
-                    codex_lane,
-                    clones["codex"],
+                name: executor.submit(
+                    lane_functions[name],
+                    clones[name],
                     prompt,
                     barrier,
                     args.timeout_seconds,
                     args.timeout_grace_seconds,
-                ),
-                "opus": executor.submit(
-                    opus_lane,
-                    clones["opus"],
-                    prompt,
-                    barrier,
-                    args.timeout_seconds,
-                    args.timeout_grace_seconds,
-                ),
+                )
+                for name in reviewer_names
             }
             results = {name: future.result() for name, future in futures.items()}
         for name, result in results.items():
@@ -579,9 +645,16 @@ def main(
         receipt["descendant_termination_failures"] = descendant_termination_failures(
             results
         )
-        receipt["overlap_proven"] = max(r["started_ns"] for r in results.values()) <= min(
-            r["ended_ns"] for r in results.values()
-        )
+        receipt["overlap_proven"] = len(results) > 1 and max(
+            r["started_ns"] for r in results.values()
+        ) <= min(r["ended_ns"] for r in results.values())
+        # Preserve every completed lane before integrity checks invalidate approval.
+        for path in clones.values():
+            for i, data in enumerate(documents.values()):
+                if (path / ".advice-review-documents" / f"{i}.md").read_bytes() != data:
+                    raise RuntimeError("review document copy changed during review")
+        if documents and read_review_documents(repo, args.document) != documents:
+            raise RuntimeError("source documents changed during review")
         receipt["operation"] = {"success": True, "error": None}
     except Exception as error:
         operational_error = f"{type(error).__name__}: {error}"

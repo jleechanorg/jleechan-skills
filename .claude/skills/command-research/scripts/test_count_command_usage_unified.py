@@ -60,7 +60,7 @@ class TestCountCommandUsageUnified(unittest.TestCase):
 
     def test_skill_file_dump_not_counted(self):
         msg = (
-            "Base directory for this skill: /Users/jleechan/.claude/skills/fixpr\n\n"
+            "Base directory for this skill: /Users/testuser/.claude/skills/fixpr\n\n"
             "# /fixpr — PR Fix Analysis\n"
             "Analyze PR failure reasons and output recommendations."
         )

@@ -61,15 +61,15 @@ better, and the maintenance burden compounds.
 
 ---
 
-## Working directory lock
+## Working directory hygiene
 
-Only edit files inside the directory the session started in (the
-`primaryWorkingDirectory`). Do not `cd` into another repo or worktree
-without explicit user approval (`APPROVE DIR SWITCH`) in the current message.
+Work in whatever directory the task actually requires; no approval phrase is
+needed to `cd` into another repo or worktree. Use a worktree or a fresh clone
+when working on another repository, and never discard unrelated dirty work in
+a directory you enter.
 
-Read-only commands against other paths (`git log -C /other`) are fine. File
-writes, branch operations, and PR creation are not — they silently diverge
-from the editor's in-memory state and "succeed" without persisting.
+When you do write outside the session's starting directory, state the absolute
+path in your report — the editor's in-memory view of those files can be stale.
 
 ---
 

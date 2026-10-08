@@ -291,6 +291,35 @@ class BrowserSkillContractTest(_BrowserFilesBase):
             "## Fingerprint-sensitive", 1)[0]
         self.assertNotIn("trap -", canonical_block, "Canonical recipe must NOT disarm its trap")
 
+    def test_traps_armed_before_allocations(self) -> None:
+        """Prove that signal/exit traps are installed before any temp files are allocated,
+        preventing orphaned artifacts if interrupted during startup (bd-v83)."""
+        canonical_block = self.skill_text.split(
+            "## Authorized credential reuse", 1)[1].split(
+            "## Fingerprint-sensitive", 1)[0]
+        canonical_trap = canonical_block.find("trap 'exit_on_signal TERM' TERM")
+        canonical_mktemp = canonical_block.find("mktemp -t")
+        self.assertNotEqual(canonical_trap, -1, "Canonical recipe missing TERM trap")
+        self.assertNotEqual(canonical_mktemp, -1, "Canonical recipe missing mktemp")
+        self.assertLess(
+            canonical_trap,
+            canonical_mktemp,
+            "Canonical recipe must arm signal traps BEFORE allocating temp files",
+        )
+
+        secret_block = self.skill_text.split(
+            "**Secret-bearing page branch:**", 1)[1].split(
+            "**Safeguards**", 1)[0]
+        secret_trap = secret_block.find("trap 'exit_on_signal TERM' TERM")
+        secret_mktemp = secret_block.find("mktemp -t")
+        self.assertNotEqual(secret_trap, -1, "Secret-bearing branch missing TERM trap")
+        self.assertNotEqual(secret_mktemp, -1, "Secret-bearing branch missing mktemp")
+        self.assertLess(
+            secret_trap,
+            secret_mktemp,
+            "Secret-bearing branch must arm signal traps BEFORE allocating temp files",
+        )
+
     def test_no_screenshot_in_any_documented_bash_block(self) -> None:
         blocks = re.findall(r"```bash\n(.*?)\n```", self.skill_text, re.DOTALL)
         self.assertGreater(len(blocks), 0, "Skill must contain documented bash blocks")
@@ -663,6 +692,44 @@ class ExtractedRecipeExecutionTest(unittest.TestCase):
                 proc.wait()
             leftovers = sorted(p.name for p in Path(td).glob("browserclaw*"))
             self.assertEqual(leftovers, [])
+            self.assertGreater(proc.returncode, 128)
+
+    def test_canonical_recipe_pre_allocation_sigterm_removes_artifacts(self) -> None:
+        """Prove that a SIGTERM arriving after the first allocation but before second allocation
+        is cleanly caught by the pre-armed trap and leaves zero temp files (bd-v83)."""
+        recipe = self._extract_canonical_recipe()
+        m = re.search(r'(TMP_COOKIES="?\$\([^)]+browserclaw-[^)]+\)"?)', recipe)
+        self.assertIsNotNone(m, "Could not find TMP_COOKIES allocation in recipe")
+        alloc_line = m.group(1)
+        recipe = recipe.replace(alloc_line, alloc_line + "\nsleep 5 & wait $!")
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "recipe.sh"
+            path.write_text(recipe)
+            path.chmod(0o755)
+            env = os.environ.copy()
+            env["TMPDIR"] = td
+            proc = subprocess.Popen(
+                ["bash", str(path)],
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                cwd=td,
+            )
+            deadline = time.time() + 5
+            while time.time() < deadline:
+                if any(Path(td).glob("browserclaw-*.json")):
+                    break
+                time.sleep(0.05)
+            self.assertTrue(any(Path(td).glob("browserclaw-*.json")))
+            proc.send_signal(signal.SIGTERM)
+            try:
+                proc.wait(timeout=8)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+            leftovers = sorted(p.name for p in Path(td).glob("browserclaw*"))
+            self.assertEqual(leftovers, [], f"Leftover artifacts after pre-allocation SIGTERM: {leftovers}")
             self.assertGreater(proc.returncode, 128)
 
     def test_canonical_recipe_has_signal_handlers(self) -> None:
