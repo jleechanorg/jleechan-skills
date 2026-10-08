@@ -185,6 +185,12 @@ class WorktreeCleanupTests(unittest.TestCase):
         sub_dir.mkdir(parents=True, exist_ok=True)
         recent_file = sub_dir / "recent.py"
         recent_file.write_text("print('recent')\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(wt), "add", "src/deep/recent.py"], check=True)
+        subprocess.run(
+            ["git", "-C", str(wt), "commit", "-q", "--no-verify", "-m", "Add recent file"],
+            check=True,
+            env=dict(os.environ, HERMES_SKIP_EXAMPLE_COM_GUARD="1"),
+        )
         # Touch recent file to 5 days ago (< 14 days)
         recent_mtime = time.time() - (5 * 86400)
         os.utime(recent_file, (recent_mtime, recent_mtime))

@@ -120,14 +120,18 @@ get_worktree_newest_mtime() {
     fi
   done
 
-  # Search files
-  candidate="$(find "$wt" \( "${prune_expr[@]}" \) -prune -o -type f -exec stat -f '%m' {} + 2>/dev/null \
-    | awk '$1+0>m{m=$1+0} END{if (m>0) print m}')" || candidate=""
+  # Search files (GNU stat on Linux, BSD stat on macOS)
+  local stat_exec=(-exec stat -f '%m' {} +)
+  if stat -c '%Y' "$wt" >/dev/null 2>&1; then
+    stat_exec=(-exec stat -c '%Y' {} +)
+  fi
+  candidate="$(find "$wt" \( "${prune_expr[@]}" \) -prune -o -type f "${stat_exec[@]}" 2>/dev/null \
+    | awk '$1 ~ /^[0-9]+$/ && $1+0>m{m=$1+0} END{if (m>0) print m}')" || candidate=""
   [[ -n "$candidate" ]] && (( candidate > newest )) && newest="$candidate"
 
   # Fallback to directory mtime itself if no files found
   if (( newest <= 0 )); then
-    newest="$(stat -f '%m' "$wt" 2>/dev/null || echo "$now")"
+    newest="$(stat -c '%Y' "$wt" 2>/dev/null || stat -f '%m' "$wt" 2>/dev/null || echo "$now")"
   fi
 
   (( newest > now )) && newest="$now"
