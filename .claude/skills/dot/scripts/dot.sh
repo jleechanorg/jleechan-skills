@@ -279,8 +279,8 @@ cmd_login() {
     echo "dot.sh: Google Chrome binary not found: $chrome_bin" >&2
     exit 2
   fi
-  mkdir -p "$dir/Default"
-  "$chrome_bin" --user-data-dir="$dir" --profile-directory=Default --no-first-run --no-default-browser-check "$target_url"
+  "$chrome_bin" --user-data-dir="$dir" --no-first-run \
+    --no-default-browser-check "$target_url"
 }
 
 case "${1:-}" in

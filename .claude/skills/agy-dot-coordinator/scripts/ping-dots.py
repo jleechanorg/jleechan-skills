@@ -12,25 +12,21 @@ import sys
 import tempfile
 import time
 
-PROMPT = """Write a concise coordination request for the configured Dot, at most 1,200 characters.
-Ask it FIRST to inventory current authorized work in progress and count only distinct tasks
-that are demonstrably executing now. For every claimed active task, require an execution
-receipt: goal/item and owner, live run/session or worktree/PR, exact action happening now,
-current status, and a fresh artifact or command result. Assignment, rank, a busy claim, or a
-start time alone is not proof. Idle, stalled, finished, queued, or waiting-for-review work is
-not active. A capacity refusal is valid only when at least six distinct tasks are truly active
-and each has an exact present action plus fresh evidence; state the six or more receipts that
-prove it. Do not gate work on a priority rank or ask the user to rank it. If fewer than six
-active tasks are proven, take the authorized work and fill open capacity with the next safe
-actions, resolving ordinary reversible blockers. Keep all goals moving within real resources,
-avoid duplicate writes, and use cloud coders for independent coding work, never this Mac.
-Distinguish a genuine permission/approval hold or measured resource limit from a full six-task
-capacity refusal; name its evidence and exact blocked action, preserve owners and all approval
-boundaries,
-and continue work that remains authorized and feasible. Respect user stops and cancellations;
-this reminder grants no new authority. Do not use tools, send anything yourself, or invent
-progress. Return only the message to deliver as short plain text, without a list or heading."""
+PROMPT = """Write one plain-text reminder to the Dot, max 900 characters.
+Ask it FIRST to inventory authorized current WIP. Count only distinct tasks
+executing now. For every active task require item/goal, owner, live run/session or
+worktree/PR, exact action now, and fresh artifact/command result. Capacity refusal
+requires six or more distinct active tasks; state each receipt. Rank, assignment,
+start time, or “busy” alone proves nothing. Idle, stalled, finished, queued, and
+review-waiting tasks are not active. If fewer than six are proven, take authorized
+work and fill open capacity with safe next actions. Use cloud coders for independent
+coding, never this Mac. Keep permission/approval holds and measured resource limits
+separate; give evidence and exact blocked action. Preserve owners, user
+stops/cancellations, and all approval boundaries; continue feasible work. This grants
+no authority. Do not use tools or invent progress.
+Return only the reminder, no heading or list."""
 HAIKU_MODEL = 'claude-haiku-5-5'
+MAX_RESPONSE_CHARS = 1200
 
 
 def generate(provider):
@@ -87,15 +83,25 @@ def generate_message(providers):
     for provider in providers:
         try:
             message = generate(provider)
-            if not isinstance(message, str) or not message.strip() or len(message.strip()) > 1200:
-                raise ValueError('response is empty or exceeds 1,200 characters')
+            if not isinstance(message, str):
+                raise ValueError('response is not text')
+            stripped = message.strip()
+            if not stripped:
+                raise ValueError(
+                    f'response empty after trimming ({len(message):,} raw characters)'
+                )
+            if len(stripped) > MAX_RESPONSE_CHARS:
+                raise ValueError(
+                    f'response exceeds {MAX_RESPONSE_CHARS:,} characters '
+                    f'({len(stripped):,} stripped; {len(message):,} raw)'
+                )
         except (OSError, ValueError, subprocess.SubprocessError) as error:
             print(provider+' generation failed: '+str(error), file=sys.stderr)
             if isinstance(error, subprocess.CalledProcessError) and error.stderr:
                 print(error.stderr[:4000], file=sys.stderr)
             continue
         print('Generation succeeded with '+provider)
-        return provider, message.strip()
+        return provider, stripped
     raise ValueError('All generation providers failed; no Dot send')
 
 

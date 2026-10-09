@@ -49,16 +49,20 @@ class SimplePingTests(unittest.TestCase):
 
     def test_prompt_requires_receipts_for_six_actual_work_slots(self):
         source = SCRIPT.read_text()
-        prompt = source.split('PROMPT = """', 1)[1].split('"""', 1)[0]
+        prompt = source.split('PROMPT = """', 1)[1].split('"""', 1)[0].replace('\n', ' ')
+        self.assertLessEqual(len(prompt), 1000)
         for contract in (
-            'FIRST to inventory current authorized work in progress',
-            'count only distinct tasks', 'require an execution', 'receipt: goal/item',
-            'exact action happening now',
-            'fresh artifact or command result', 'Idle, stalled, finished, queued, or waiting-for-review',
-            'at least six distinct tasks are truly active', 'Do not gate work on a priority rank',
-            'If fewer than six', 'active tasks are proven', 'cloud coders', 'never this Mac',
-            'permission/approval hold or measured resource limit', 'name its evidence and exact blocked action',
-            'user stops', 'preserve owners and all approval', 'boundaries',
+            'max 900 characters', 'FIRST to inventory authorized current WIP',
+            'Count only distinct tasks executing now',
+            'For every active task require item/goal, owner, live run/session or worktree/PR',
+            'exact action now', 'fresh artifact/command result',
+            'Capacity refusal requires six or more distinct active tasks; state each receipt',
+            'Rank, assignment, start time, or “busy” alone proves nothing',
+            'Idle, stalled, finished, queued, and review-waiting tasks are not active',
+            'If fewer than six are proven', 'safe next actions', 'cloud coders',
+            'never this Mac', 'Keep permission/approval holds and measured resource limits separate',
+            'give evidence and exact blocked action',
+            'user stops/cancellations', 'all approval boundaries',
         ):
             self.assertIn(contract, prompt)
         self.assertNotIn('six highest-priority', prompt)
@@ -72,6 +76,19 @@ class SimplePingTests(unittest.TestCase):
         coordinator_skill = (SCRIPT.parents[1]/'SKILL.md').read_text()
         self.assertIn('inventory real active work first', coordinator_skill)
         self.assertIn('at least six distinct tasks', coordinator_skill)
+
+    def test_empty_and_oversized_provider_results_report_actual_lengths(self):
+        self.env.update(AGY_MODE='empty', CODEX_MODE='long', GENERATED='')
+        result = self.run_ping()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('agy generation failed: response empty after trimming (0 raw characters)',
+                      result.stderr)
+        self.assertIn('codex generation failed: response exceeds 1,200 characters '
+                      '(1,201 stripped; 1,201 raw)', result.stderr)
+        self.assertIn('haiku generation failed: response empty after trimming (0 raw characters)',
+                      result.stderr)
+        self.assertEqual(self.calls_made(), ['agy', 'codex', 'haiku'])
+        self.assertFalse(self.message.exists())
 
     def test_primary_agy_success_uses_one_send(self):
         result = self.run_ping()
