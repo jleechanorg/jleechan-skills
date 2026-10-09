@@ -39,7 +39,7 @@ def generate(provider):
                    '--dangerously-skip-permissions', '--new-project', '--print-timeout', '180s',
                    '--input-format', 'stream-json', '--output-format', 'stream-json']
         request = json.dumps({'event': 'user', 'message': {'content': PROMPT}})+'\n'
-        with tempfile.TemporaryDirectory(prefix='dot-ping-agy-') as workdir:
+        with tempfile.TemporaryDirectory(prefix='dot-ping-agy-', dir='/tmp') as workdir:
             result = subprocess.run(command, input=request, capture_output=True, text=True,
                                     cwd=workdir, timeout=180, check=True)
         events = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
@@ -59,7 +59,7 @@ def generate(provider):
         command = [generator]
         if Path(generator).name != 'codex-luna':
             command += ['exec', '--yolo', '-m', 'gpt-6-luna']
-        with tempfile.TemporaryDirectory(prefix='dot-ping-codex-') as workdir:
+        with tempfile.TemporaryDirectory(prefix='dot-ping-codex-', dir='/tmp') as workdir:
             with tempfile.NamedTemporaryFile(mode='r+', dir=workdir, prefix='message-') as output:
                 subprocess.run(command + ['--ephemeral', '--skip-git-repo-check',
                                            '--config', 'project_doc_max_bytes=0',
@@ -72,7 +72,7 @@ def generate(provider):
         command = [shutil.which('claude') or 'claude', '--dangerously-skip-permissions',
                    '--print', '--model', HAIKU_MODEL, '--output-format', 'json',
                    '--no-session-persistence', '--tools', '', '--disable-slash-commands', PROMPT]
-        result = subprocess.run(command, cwd=tempfile.gettempdir(), capture_output=True,
+        result = subprocess.run(command, cwd='/tmp', capture_output=True,
                                 text=True, timeout=180, check=True)
         response = json.loads(result.stdout)
         if (not isinstance(response, dict) or response.get('is_error') is not False
@@ -155,7 +155,7 @@ def main():
         for key in ('DOT_REMOTE_HOST', 'DOT_CHROME_USER_DATA', 'DOT_URL', 'DOT_CLEAR_DRAFT'):
             env.pop(key, None)
         dot = os.environ.get('COORDINATOR_DOT_SCRIPT', str(Path(__file__).resolve().parents[2]/'dot/scripts/dot.sh'))
-        with tempfile.NamedTemporaryFile(mode='w+', prefix='dot-ping-') as file:
+        with tempfile.NamedTemporaryFile(mode='w+', prefix='dot-ping-', dir='/tmp') as file:
             identity = {'agy': 'AGY', 'codex': 'Codex', 'haiku': 'Claude Haiku'}[provider]
             file.write('From '+identity+' coordinator: automated reminder; no new authority.\n'+message)
             file.flush()
