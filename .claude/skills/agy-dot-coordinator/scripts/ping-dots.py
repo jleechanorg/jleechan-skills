@@ -12,18 +12,14 @@ import sys
 import tempfile
 import time
 
-PROMPT = """Writer: draft plain-text Dot reminder (max 900 chars); recipient carries out
-the guidance. Recipient execution guidance: Ask it FIRST to inventory authorized
-current WIP. Count distinct tasks executing now. Each active task requires item/goal,
-owner, live run/session or worktree/PR, exact action now, fresh artifact/command
-result. Refuse capacity only when six or more distinct tasks are active; state each
-receipt. Rank, assignment, start time, or “busy” alone proves nothing. Idle, stalled,
-finished, queued, and review-waiting tasks are inactive. Fewer than six proven: use
-tools to advance authorized active WIP and fill open capacity with safe next actions.
-Use cloud coders for independent work, never this Mac. Separate permission/approval
-holds and measured resource limits; give evidence and exact blocked action. Preserve
-owners, user stops/cancellations, approval boundaries; continue feasible work. Do not
-claim progress without fresh evidence. Return reminder only; no heading or list."""
+REMINDER_OPENING = 'Inventory the work I asked for in the last 24 hours and verify what’s done versus not done.'
+REMINDER_BODY = "Inventory the work I asked for in the last 24 hours and verify what’s done versus not done. Start/resume every unfinished authorized request within capacity. Recover outcome, checkpoint and acceptance gap; check latest scope/stops. Give existing owners safe next actions, not status queries; verify owner state before reassignment. Diagnose ordinary failures and safely repair/retry; avoid duplicate writers. Before waiting, check EACH last-24h request and older commitment for feasible alternate execution, validation or design work; do it. A publication hold needn't block safe testing/design. Local substeps and blocked work aren't completed user outcomes. Name blocked action, cause, missing capability/approval and concrete unblock; recheck only on new evidence or due checks. Save durable checkpoints. Use authorized cloud coders; honor explicit environments. Six useful tasks is a target, not permission or filler. Preserve permissions, cancellations and owners; no bypasses. Report fresh action/results; Working/timestamps/HEARTBEAT_OK prove nothing. Wait quietly only when all such work is blocked, with exact blockers."
+PROMPT = (
+    'Writer: return the recipient paragraph below unchanged, at most 1,200 characters. '
+    'The recipient executes these instructions; you only write the reminder. '
+    'Return only that paragraph, without a heading, list, attribution, or claims of progress.\n\n'
+    + REMINDER_BODY
+)
 HAIKU_MODEL = 'claude-haiku-5-5'
 MAX_RESPONSE_CHARS = 1200
 
@@ -94,6 +90,10 @@ def generate_message(providers):
                     f'response exceeds {MAX_RESPONSE_CHARS:,} characters '
                     f'({len(stripped):,} stripped; {len(message):,} raw)'
                 )
+            if not stripped.startswith(REMINDER_OPENING):
+                raise ValueError('response does not begin with the required inventory sentence')
+            if stripped != REMINDER_BODY:
+                raise ValueError('response changed the required recovery instructions')
         except (OSError, ValueError, subprocess.SubprocessError) as error:
             print(provider+' generation failed: '+str(error), file=sys.stderr)
             if isinstance(error, subprocess.CalledProcessError) and error.stderr:
@@ -102,6 +102,13 @@ def generate_message(providers):
         print('Generation succeeded with '+provider)
         return provider, stripped
     raise ValueError('All generation providers failed; no Dot send')
+
+
+def delivery_message(provider, message):
+    if message != REMINDER_BODY:
+        raise ValueError('The complete required recovery instructions must be delivered')
+    identity = {'agy': 'AGY', 'codex': 'Codex', 'haiku': 'Claude Haiku'}[provider]
+    return message + '\nFrom ' + identity + ' coordinator: automated reminder; no new authority.'
 
 
 def due_account(accounts, role, now):
@@ -161,8 +168,7 @@ def main():
             env.pop(key, None)
         dot = os.environ.get('COORDINATOR_DOT_SCRIPT', str(Path(__file__).resolve().parents[2]/'dot/scripts/dot.sh'))
         with tempfile.NamedTemporaryFile(mode='w+', prefix='dot-ping-', dir='/tmp') as file:
-            identity = {'agy': 'AGY', 'codex': 'Codex', 'haiku': 'Claude Haiku'}[provider]
-            file.write('From '+identity+' coordinator: automated reminder; no new authority.\n'+message)
+            file.write(delivery_message(provider, message))
             file.flush()
             sent = subprocess.run([dot, '--account', account, 'send-once', file.name], env=env,
                                   capture_output=True, text=True, timeout=180)
