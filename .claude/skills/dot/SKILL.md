@@ -1,15 +1,14 @@
 ---
 name: dot
-description: Use when the user invokes /dot or asks to "message the dot", "ask dot", "tell dot", "tell chatgpt dot", "check the dot", or read replies from their ChatGPT "dot" assistant (the one that coordinates coders and PRs). Platform-aware backend: headless Chrome with dynamic multi-account routing.
+description: Use when the user invokes /dot or asks to "message the dot", "ask dot", "tell dot", "tell chatgpt dot", "check the dot", or read replies from their ChatGPT "dot" assistant (the one that coordinates coders and PRs). Each account uses its own local persistent Chrome session.
 ---
 
 # /dot
 
 Talk to the user's ChatGPT dot assistant using `scripts/dot.sh`. Platform-aware architecture:
 - **Dynamic Multi-Account Support:** Target any ChatGPT dot account via `--account <name>` or `DOT_ACCOUNT=<name>`.
-- **Machine-Local Configuration:** Configured in `~/.config/dot/config.json` mapping accounts to URLs, backends, and profile match selectors.
-- **Headless Chrome Backend:** Runs headless Google Chrome against dedicated persistent profiles (`~/.config/dot-headless-chrome-<account_slug>`) on Linux and macOS with unified profile resolution and non-destructive lock recovery.
-- **Transparent Cross-Host Forwarding:** Automatically bridges between Linux and macOS hosts when local Chrome is unavailable (e.g. forward to a Mac with a signed-in Chrome profile).
+- **Machine-Local Configuration:** Configured in `~/.config/dot/config.json` mapping accounts to URLs and dedicated profile directories.
+- **Independent Chrome Sessions:** Runs headless Google Chrome against dedicated persistent profiles (`~/.config/dot-headless-chrome-<account_slug>`) on Linux and macOS with unified profile resolution and non-destructive lock recovery. Every host/account pair signs in locally; sessions are never imported or forwarded from another browser or host.
 
 ## Machine Configuration (`~/.config/dot/config.json`)
 
@@ -23,12 +22,12 @@ Accounts, target dot URLs, and preferred backends can be declared per-machine in
     "primary": {
       "url": "https://chatgpt.com/dots/<dot-id>",
       "backend": "chrome",
-      "profile_match": "work-domain.com"
+      "user_data_dir": "~/.config/dot-headless-chrome-primary"
     },
     "secondary": {
       "url": "https://chatgpt.com/dots/<dot-id>",
       "backend": "chrome",
-      "profile_match": "personal-email"
+      "user_data_dir": "~/.config/dot-headless-chrome-secondary"
     }
   },
   "aliases": {
@@ -38,13 +37,13 @@ Accounts, target dot URLs, and preferred backends can be declared per-machine in
 }
 ```
 
-`profile_match` selects which signed-in Chrome profile is used for that account by matching `user_name`, `email`, `name`, or `hosted_domain` against the system Chrome `Local State`. Chrome is the only supported backend; the aside backend was retired.
+Each `user_data_dir` must be dedicated to that Dot account and must not point inside the system Google Chrome profile. The legacy `profile_match` field is ignored. If `user_data_dir` is omitted, Dot derives a separate local directory from the account key. Chrome is the only supported backend; the aside backend was retired.
 
 ## Default: delegate, then monitor
 
 The dot runs its own coders. When /dot is used for work, hand the work to the dot instead of coding it yourself: send a scoped request (goal, PR/branch, acceptance criteria, constraints such as merge gates), then monitor rather than block.
 
-- **Priority check first (mandatory):** the first message of every handoff asks whether the task is in the dot's current top 6, and asks it to reply "not top 6" or give its rank and start time. If the reply is "not top 6", or the composer stays blocked, or the account is limited: do small work yourself, or send the same check to the next account in `rotation` with `--account <next>`. Hand off only to an account that ranks it in its top 6.
+- **Priority check first (mandatory):** the first message of every handoff asks the Dot for its six highest-priority authorized work items and an execution receipt for each: goal/item, owner, actual run or worktree/PR, live status, and a recent concrete artifact or command result. A rank, assignment, "busy" claim, or bare "not top 6" is not evidence that all six slots are occupied. Vacant, idle, stalled, finished, and waiting-for-review work does not occupy a slot; ask the Dot to advance the next authorized priorities now, using cloud coders for independent coding and preserving owners. If it claims no actual capacity remains, require the specific resource or authorization constraint and its evidence, then keep advancing work that fits. If the composer stays blocked or the account is limited, send the same request to the next account in `rotation` with `--account <next>`.
 
 - Poll the dot with exponential backoff while it has work in flight: first poll 1 minute after the send, then 2 minutes later, then 5 minutes later, then every 10 minutes. Give up 4 hours after the first send if the dot has not started or done the work, and report that to the user with the last reply seen. Each poll runs `dot.sh read 3000`, then double-checks the claimed status at the source (`gh pr view`/`gh pr checks`, branch head SHA). Reply only when the dot asks something, stalls, or a check contradicts its claim. Any reply from the dot that shows real progress (a claimed lane, branch or PR) restarts the backoff at 1 minute and the 4-hour clock.
   - **Set a `/goal` for the wait** (via `/cmux-goal`): condition "the dot's deliverable exists and is verified at the source (PR open, RED then GREEN re-run by me, CI green), or 4 hours have passed since the first send". The goal keeps the session polling; do not rely on remembering to poll.
@@ -90,7 +89,7 @@ If an account returns `DOT_CHROME_UNAVAILABLE: not signed in`:
    ```
    This launches a visible Google Chrome window attached to the exact resolved profile directory for that account.
 2. Sign in to ChatGPT manually in the browser window.
-3. Once logged in and the ChatGPT chat/dot page loads, close the browser window. The session tokens and cookies are saved in that profile directory.
+3. Once logged in and the ChatGPT chat/dot page loads, close the browser window. The session is saved in that host/account's dedicated profile directory. Repeat login independently for each account on each host.
 4. Re-test with `dot.sh --account <name> read 500`.
 
 ## Cloudflare & Session Verification
@@ -127,22 +126,19 @@ Always rotate across configured accounts when hitting a rate limit, usage limit,
 ## Backend & Persistent Profiles
 
 - **Headless Chrome (`scripts/dot_chrome.mjs`):** The only supported backend.
-  - Dynamically auto-detects profile configuration from system Google Chrome's `Local State` matching `user_name`, `email`, `name`, or `hosted_domain`.
-  - Explicitly configured via `user_data_dir` in `~/.config/dot/config.json` (e.g. `~/.config/dot-headless-chrome-<name>`).
-  - Initial seeding copies storage and cookies from matching system Chrome profile on first creation, then persists independently (never re-seeded if cookies or preferences exist).
+  - Resolves one persistent profile per account from `user_data_dir` in `~/.config/dot/config.json` or `~/.config/dot-headless-chrome-<account_slug>`.
+  - Creates a blank profile and requires an independent interactive login on every host. It never reads, copies, imports, or synchronizes system Chrome profile data, cookies, Local State, or another host's session. `DOT_FORCE_SYNC_COOKIES` has no effect.
+  - Rejects profile paths that overlap the system Google Chrome profile, including symlink aliases.
   - Safely handles `SingletonLock`: verifies lock holder PID liveness, waiting politely if held by an active Chrome process, clearing only genuinely dead locks without killing peer processes.
   - Tolerates appended read-receipt timestamps (`Read 1:15 AM`) to prevent false draft conflicts.
-- **Cross-host fallback:** When the local host has no Chrome (e.g. a Linux runner with no Chrome installed), `dot.sh` forwards the call via SSH to the configured `remote_host`. Set `DOT_REMOTE_HOST=<host>` to override, or `DOT_NO_REMOTE=1` to disable forwarding.
+- **Local execution:** If Chrome is unavailable on a host, Dot reports that local prerequisite failure. It does not forward the request to another host, because doing so would reuse that host's signed-in session.
 
 ## Configuration & Environment Variables
 
-- `DOT_ACCOUNT`: Account identifier (matched against `~/.config/dot/config.json` or local Chrome profiles). Can also be passed via `--account <name>`.
+- `DOT_ACCOUNT`: Account identifier in `~/.config/dot/config.json`. Can also be passed via `--account <name>`.
 - `DOT_URL`: Target ChatGPT dot assistant URL. Can also be passed via `--url <url>`.
 - `DOT_BACKEND`: Force backend (`chrome` or `auto`). The `aside` backend was retired; selecting it is a usage error.
 - `DOT_CONFIG_FILE`: Custom path to dot JSON configuration (defaults to `~/.config/dot/config.json`).
-- `DOT_REMOTE_HOST`: SSH host for Linux→Mac forwarding when local Chrome is unavailable (configured in `~/.config/dot/config.json` or environment).
-- `DOT_ALLOW_REMOTE`: Set to 0 to disable remote SSH fallback (default: 1 on non-Darwin when local Chrome is unavailable and `remote_host` is configured). Set to 1 to attempt remote forwarding immediately before trying local Chrome.
-- `DOT_NO_REMOTE`: Set to 1 to disable remote SSH forwarding.
 - `DOT_CHROME_USER_DATA`: Explicit Chrome user data directory (defaults to account-specific persistent dir configured in `~/.config/dot/config.json`).
 - `DOT_CLEAR_DRAFT`: When set to `1`, forces clearing any existing draft in the composer before typing and sending.
 - `DOT_DRY_RUN`: When `1` (Chrome backend), types, verifies exact match, clears composer, and prints `DOT_DRYRUN_OK` without sending.

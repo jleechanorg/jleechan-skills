@@ -10,10 +10,9 @@ import path from 'path';
 const require = createRequire(process.env.DOT_PW_MODULES || path.join(path.dirname(process.execPath), '../lib/node_modules/'));
 
 const isMac = os.platform() === 'darwin';
-const sysChromeDir = isMac
+const systemChromeDir = isMac
   ? path.join(os.homedir(), 'Library/Application Support/Google/Chrome')
   : path.join(os.homedir(), '.config/google-chrome');
-const localStatePath = path.join(sysChromeDir, 'Local State');
 
 // Dynamic configuration loader supporting ~/.config/dot/config.json
 function loadDotConfig() {
@@ -25,6 +24,37 @@ function loadDotConfig() {
     }
   } catch {}
   return {};
+}
+
+function resolveThroughExistingParents(candidate) {
+  let resolved = path.resolve(candidate);
+  const suffix = [];
+  while (!fs.existsSync(resolved)) {
+    const parent = path.dirname(resolved);
+    if (parent === resolved) break;
+    suffix.unshift(path.basename(resolved));
+    resolved = parent;
+  }
+  try {
+    resolved = fs.realpathSync(resolved);
+  } catch {}
+  return path.join(resolved, ...suffix);
+}
+
+function pathsOverlap(left, right) {
+  const relative = path.relative(left, right);
+  const reverse = path.relative(right, left);
+  return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..') ||
+    reverse === '' || (!reverse.startsWith(`..${path.sep}`) && reverse !== '..');
+}
+
+function validateDedicatedProfileDir(profileDir) {
+  const target = resolveThroughExistingParents(profileDir);
+  const chrome = resolveThroughExistingParents(systemChromeDir);
+  if (pathsOverlap(target, chrome)) {
+    throw new Error('Dot profile directory must be separate from the system Google Chrome profile');
+  }
+  return path.resolve(profileDir);
 }
 
 function detectChromeProfile(requestedAccount) {
@@ -40,89 +70,40 @@ function detectChromeProfile(requestedAccount) {
   const reqLower = req.toLowerCase();
   const accountConfig = (dotConfig.accounts && (dotConfig.accounts[req] || dotConfig.accounts[reqLower])) || {};
 
-  let localState = {};
-  try {
-    if (fs.existsSync(localStatePath)) {
-      localState = JSON.parse(fs.readFileSync(localStatePath, 'utf8'));
-    }
-  } catch {}
-
-  const infoCache = (localState.profile && localState.profile.info_cache) || {};
-  let matchedKey = null;
-  let matchedData = null;
-
-  const targetMatch = (accountConfig.profile_match || reqLower).toLowerCase();
-
-  // Search infoCache for matching profile
-  // Pass 1: exact matches on profile key, email, user name, or domain
-  for (const [profKey, profData] of Object.entries(infoCache)) {
-    const profKeyLower = profKey.toLowerCase();
-    const userName = (profData.user_name || '').toLowerCase();
-    const email = (profData.email || profData.user_name || '').toLowerCase();
-    const name = (profData.name || '').toLowerCase();
-    const domain = (profData.hosted_domain || '').toLowerCase();
-
-    if (
-      profKeyLower === targetMatch ||
-      userName === targetMatch ||
-      email === targetMatch ||
-      name === targetMatch ||
-      (domain !== 'no_hosted_domain' && domain === targetMatch)
-    ) {
-      matchedKey = profKey;
-      matchedData = profData;
-      break;
-    }
-  }
-
-  // Pass 2: substring matching if no exact match found
-  if (!matchedKey) {
-    for (const [profKey, profData] of Object.entries(infoCache)) {
-      const userName = (profData.user_name || '').toLowerCase();
-      const email = (profData.email || profData.user_name || '').toLowerCase();
-      const name = (profData.name || '').toLowerCase();
-      const domain = (profData.hosted_domain || '').toLowerCase();
-      const gaiaName = (profData.gaia_name || '').toLowerCase();
-
-      if (
-        userName.includes(targetMatch) ||
-        email.includes(targetMatch) ||
-        name.includes(targetMatch) ||
-        (gaiaName && gaiaName.includes(targetMatch)) ||
-        (domain !== 'no_hosted_domain' && domain.includes(targetMatch)) ||
-        (targetMatch && targetMatch.includes(userName) && userName.length > 3)
-      ) {
-        matchedKey = profKey;
-        matchedData = profData;
-        break;
-      }
-    }
-  }
-
   // Derive account slug for persistent directory
   let slug = 'default';
   if (accountConfig.slug) {
     slug = accountConfig.slug;
-  } else if (matchedData && matchedData.hosted_domain && matchedData.hosted_domain.toLowerCase() !== 'no_hosted_domain') {
-    const prefix = matchedData.hosted_domain.split('.')[0].toLowerCase().replace(/[^a-z0-9_-]/g, '_');
-    if (prefix) slug = prefix;
-  } else if (matchedData && matchedData.name) {
-    const cleanName = matchedData.name.toLowerCase().replace(/[^a-z0-9_-]/g, '_');
-    if (cleanName) slug = cleanName;
   } else {
     const base = req.split('@')[0] || req;
     slug = base.toLowerCase().replace(/[^a-z0-9_-]/g, '_') || 'default';
   }
 
-  // Target directory
-  let profileDir;
+  // Each configured account resolves to a distinct local profile directory.
+  const configuredProfileDir = accountConfig.user_data_dir
+    ? accountConfig.user_data_dir.replace(/^~/, os.homedir())
+    : path.join(os.homedir(), `.config/dot-headless-chrome-${slug}`);
+  let profileDir = configuredProfileDir;
   if (process.env.DOT_CHROME_USER_DATA) {
-    profileDir = path.resolve(process.env.DOT_CHROME_USER_DATA);
-  } else if (accountConfig.user_data_dir) {
-    profileDir = path.resolve(accountConfig.user_data_dir.replace(/^~/, os.homedir()));
-  } else {
-    profileDir = path.join(os.homedir(), `.config/dot-headless-chrome-${slug}`);
+    profileDir = process.env.DOT_CHROME_USER_DATA;
+    if (Object.keys(dotConfig.accounts || {}).length > 1 &&
+        resolveThroughExistingParents(profileDir) !== resolveThroughExistingParents(configuredProfileDir)) {
+      throw new Error('DOT_CHROME_USER_DATA must resolve to this account’s configured profile');
+    }
   }
+  const resolvedProfileDir = resolveThroughExistingParents(profileDir);
+  for (const [otherAccount, otherConfig] of Object.entries(dotConfig.accounts || {})) {
+    if (otherAccount.toLowerCase() === reqLower) continue;
+    const otherSlug = otherConfig.slug ||
+      (otherAccount.split('@')[0] || otherAccount).toLowerCase().replace(/[^a-z0-9_-]/g, '_') || 'default';
+    const otherProfileDir = otherConfig.user_data_dir
+      ? otherConfig.user_data_dir.replace(/^~/, os.homedir())
+      : path.join(os.homedir(), `.config/dot-headless-chrome-${otherSlug}`);
+    if (pathsOverlap(resolvedProfileDir, resolveThroughExistingParents(otherProfileDir))) {
+      throw new Error(`Dot profile directory overlaps configured account ${otherAccount}`);
+    }
+  }
+  profileDir = validateDedicatedProfileDir(profileDir);
 
   // Target URL
   const url = process.env.DOT_URL || accountConfig.url || dotConfig.default_url || 'https://chatgpt.com/';
@@ -130,8 +111,7 @@ function detectChromeProfile(requestedAccount) {
   return {
     account: req,
     slug,
-    matchedKey,
-    matchedData,
+    matchedKey: null,
     profileDir,
     url,
   };
@@ -148,9 +128,14 @@ function isMainModule() {
 
 // Single-command profile directory resolution helper for dot.sh
 if (isMainModule() && process.argv[2] === 'resolve-profile') {
-  const info = detectChromeProfile(process.env.DOT_ACCOUNT);
-  console.log(JSON.stringify(info));
-  process.exit(0);
+  try {
+    const info = detectChromeProfile(process.env.DOT_ACCOUNT);
+    console.log(JSON.stringify(info));
+    process.exit(0);
+  } catch (error) {
+    console.error('dot: ' + error.message);
+    process.exit(2);
+  }
 }
 
 const accountInfo = detectChromeProfile(process.env.DOT_ACCOUNT);
@@ -172,128 +157,8 @@ let ctx = null;
 let clicked = false;
 let aborted = false;
 
-function syncCookiesFromSource(srcProfilePath, defaultDir, force = false) {
-  if (!srcProfilePath || !fs.existsSync(srcProfilePath)) return false;
-  const syncMarker = path.join(defaultDir, '.src_cookies_synced_mtime');
-  const authFailedMarker = path.join(defaultDir, '.auth_failed');
-  const manualLoginMarker = path.join(defaultDir, '.manual_login');
-
-  let syncedMtimes = {};
-  let lastSyncTimestamp = 0;
-  if (!force && fs.existsSync(syncMarker)) {
-    try {
-      const raw = fs.readFileSync(syncMarker, 'utf8').trim();
-      const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        syncedMtimes = parsed;
-        lastSyncTimestamp = Number(parsed._syncedAt) || 0;
-      }
-    } catch {
-      try {
-        const num = Number(fs.readFileSync(syncMarker, 'utf8').trim());
-        if (num) {
-          syncedMtimes = { 'Cookies': num, [path.join('Network', 'Cookies')]: num };
-        }
-      } catch {}
-    }
-  }
-
-  let authFailedAt = 0;
-  if (fs.existsSync(authFailedMarker)) {
-    try {
-      const data = JSON.parse(fs.readFileSync(authFailedMarker, 'utf8'));
-      authFailedAt = Number(data.failedAt) || fs.statSync(authFailedMarker).mtimeMs;
-    } catch {
-      try { authFailedAt = fs.statSync(authFailedMarker).mtimeMs; } catch {}
-    }
-  }
-
-  let manualLoginAt = 0;
-  if (fs.existsSync(manualLoginMarker)) {
-    try {
-      manualLoginAt = fs.statSync(manualLoginMarker).mtimeMs;
-    } catch {}
-  }
-
-  let copied = false;
-  for (const rel of ['Cookies', path.join('Network', 'Cookies')]) {
-    const srcC = path.join(srcProfilePath, rel);
-    const dstC = path.join(defaultDir, rel);
-    if (fs.existsSync(srcC)) {
-      const srcStat = fs.statSync(srcC);
-      const srcMtime = srcStat.mtimeMs;
-      const lastSyncedMtime = Number(syncedMtimes[rel]) || 0;
-      const dstExists = fs.existsSync(dstC);
-      const dstMtime = dstExists ? fs.statSync(dstC).mtimeMs : 0;
-
-      // Distinguish a valid manual headless login from a routine cookie-file touch:
-      // 1. If explicit manual login marker is newer than both last sync and any auth failure,
-      //    preserve it as a manual login unless source is even newer.
-      // 2. If auth has failed (authFailedAt > 0) and no newer manual login occurred,
-      //    routine cookie writes (shutdown flushes) must not be mistaken for a manual login.
-      // 3. In normal authenticated state, if lastSyncedMtime === 0 (initial un-synced destination),
-      //    protect dst if it is newer than source.
-      // 4. In normal authenticated state, once a sync is already recorded (lastSyncedMtime > 0),
-      //    allow newer source mtime to trigger syncing even if routine headless usage touched dst.
-      let hasNewerManualLogin = false;
-      if (dstExists) {
-        if (manualLoginAt > 0 && manualLoginAt > lastSyncedMtime && manualLoginAt > authFailedAt) {
-          if (srcMtime <= manualLoginAt + 1000) {
-            hasNewerManualLogin = true;
-          }
-        } else if (authFailedAt > 0) {
-          hasNewerManualLogin = false;
-        } else if (lastSyncedMtime === 0) {
-          if (srcMtime <= dstMtime + 1000) {
-            hasNewerManualLogin = true;
-          }
-        } else {
-          hasNewerManualLogin = false;
-        }
-      }
-
-      if (!force && hasNewerManualLogin) {
-        continue;
-      }
-
-      const needsFailedAuthSync = authFailedAt > 0 && (!lastSyncTimestamp || lastSyncTimestamp < authFailedAt);
-      if (force || needsFailedAuthSync || lastSyncedMtime === 0 || srcMtime > lastSyncedMtime + 1000) {
-        try {
-          fs.mkdirSync(path.dirname(dstC), { recursive: true });
-          fs.copyFileSync(srcC, dstC);
-          try {
-            fs.utimesSync(dstC, srcStat.atime, srcStat.mtime);
-          } catch {}
-          copied = true;
-          syncedMtimes[rel] = srcMtime;
-          syncedMtimes._syncedAt = Date.now();
-          try {
-            fs.writeFileSync(syncMarker, JSON.stringify(syncedMtimes));
-          } catch {}
-        } catch {}
-      }
-    }
-  }
-
-  return copied;
-}
-
-function clearSyncMarker(targetDir) {
+function markAuthFailed(targetDir) {
   const defaultDir = path.join(targetDir, 'Default');
-  try {
-    fs.unlinkSync(path.join(defaultDir, '.src_cookies_synced_mtime'));
-  } catch (err) {
-    if (err && err.code !== 'ENOENT') {
-      console.error('dot: failed to clear cookie sync marker: ' + err.message);
-    }
-  }
-  try {
-    fs.unlinkSync(path.join(defaultDir, '.manual_login'));
-  } catch (err) {
-    if (err && err.code !== 'ENOENT') {
-      console.error('dot: failed to clear manual login marker: ' + err.message);
-    }
-  }
   try {
     fs.mkdirSync(defaultDir, { recursive: true });
     fs.writeFileSync(
@@ -315,50 +180,9 @@ function clearAuthFailed(targetDir) {
   }
 }
 
-function ensurePersistentProfile(accInfo, targetDir) {
-  // Never recreate or overwrite an existing persistent profile
+function ensurePersistentProfile(_accInfo, targetDir) {
+  // Each account owns a blank persistent profile; login happens independently.
   const defaultDir = path.join(targetDir, 'Default');
-  const networkCookies = path.join(defaultDir, 'Network', 'Cookies');
-  const legacyCookies = path.join(defaultDir, 'Cookies');
-  const preferences = path.join(defaultDir, 'Preferences');
-  const srcProfilePath = accInfo.matchedKey ? path.join(sysChromeDir, accInfo.matchedKey) : null;
-  const forceSync = process.env.DOT_FORCE_SYNC_COOKIES === '1';
-
-  if (
-    (fs.existsSync(networkCookies) && fs.statSync(networkCookies).size > 0) ||
-    (fs.existsSync(legacyCookies) && fs.statSync(legacyCookies).size > 0) ||
-    (fs.existsSync(preferences) && fs.statSync(preferences).size > 0)
-  ) {
-    if (srcProfilePath && fs.existsSync(srcProfilePath)) {
-      try {
-        syncCookiesFromSource(srcProfilePath, defaultDir, forceSync);
-      } catch {}
-    }
-    return;
-  }
-
-  if (!fs.existsSync(localStatePath)) {
-    fs.mkdirSync(defaultDir, { recursive: true });
-    return;
-  }
-
-  fs.mkdirSync(targetDir, { recursive: true });
-  try {
-    fs.copyFileSync(localStatePath, path.join(targetDir, 'Local State'));
-  } catch {}
-
-  if (accInfo.matchedKey) {
-    const srcProfilePath = path.join(sysChromeDir, accInfo.matchedKey);
-    if (fs.existsSync(srcProfilePath)) {
-      try {
-        execSync(`rsync -a --exclude='Singleton*' --exclude='*lock*' "${srcProfilePath}/" "${defaultDir}/" 2>/dev/null`);
-        execSync(`find "${defaultDir}" -name 'LOCK' -delete 2>/dev/null`);
-      } catch {
-        fs.mkdirSync(defaultDir, { recursive: true });
-      }
-      return;
-    }
-  }
   fs.mkdirSync(defaultDir, { recursive: true });
 }
 
@@ -526,7 +350,7 @@ async function launch() {
       // Validate auth immediately even when composer is visible (distinguishes logged-out anonymous composer)
       const session = await checkAuthSession(page);
       if (session.status === 200 && session.isJson && !session.hasUser) {
-        clearSyncMarker(USER_DATA_DIR);
+        markAuthFailed(USER_DATA_DIR);
         unavailable('not signed in');
       }
       if (session.status === 403) {
@@ -564,7 +388,7 @@ async function launch() {
   if (session.status === 403) {
     unavailable('Cloudflare 403 on session endpoint');
   } else if (session.status === 200 && session.isJson && !session.hasUser) {
-    clearSyncMarker(USER_DATA_DIR);
+    markAuthFailed(USER_DATA_DIR);
     unavailable('not signed in');
   }
 
@@ -574,7 +398,7 @@ async function launch() {
   }).catch(() => false);
 
   if (hasLoginButtons) {
-    clearSyncMarker(USER_DATA_DIR);
+    markAuthFailed(USER_DATA_DIR);
     unavailable('not signed in');
   }
 
@@ -738,8 +562,7 @@ if (isMainModule()) {
 }
 
 export {
-  syncCookiesFromSource,
-  clearSyncMarker,
+  markAuthFailed,
   clearAuthFailed,
   ensurePersistentProfile,
   waitAndCleanSingletonLock,

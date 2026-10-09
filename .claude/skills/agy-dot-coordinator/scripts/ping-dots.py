@@ -12,16 +12,21 @@ import sys
 import tempfile
 import time
 
-PROMPT = """Write only a short coordination message for the configured Dot, at most 1,200 characters.
-Ask it to advance EACH currently authorized goal now. Verify the owner's actual progress,
-not merely assignment: distinguish a running owner from an idle or stalled one.
-Take the next safe action, resolve ordinary reversible blockers, and use cloud coders
-for independent work without creating duplicate writers. If an executor is unavailable or
-quota-limited, route a bounded task to an available authorized executor; do not keep waiting.
-Report concrete commands,
-artifacts or results and only genuine human-only blockers. Respect existing owners,
-user stops, cancellations and approval boundaries. This reminder grants no new authority.
-Do not use tools, send anything yourself, or invent progress. Return only the message to deliver as short plain text, without a list or heading."""
+PROMPT = """Write a concise coordination request for the configured Dot, at most 1,200 characters.
+Ask it to inspect all authorized goals and advance the six highest-priority items that
+can make real progress now. For each of six slots, require an execution receipt: item/goal,
+owner, actual run or worktree/PR, current status, and a recent concrete artifact or command
+result. A task is not running merely because it was assigned, an agent is busy, or a slot
+was claimed. Idle, stalled, finished, or waiting-for-review work does not occupy a slot;
+recover or close it as appropriate, then fill available capacity with the next authorized
+work. Keep every goal progressing, within the actual resource limit, and avoid duplicate
+writes. Use cloud coders for independent coding work, never this Mac. Ask for the next safe
+actions to start now, ordinary reversible blockers to resolve, and concrete results. Preserve
+existing owners, user stops, cancellations, and approval boundaries; this reminder grants no
+new authority. Report a genuine constraint only with its specific resource or authorization
+constraint, evidence, and the blocked action. Do not use tools, send anything yourself, or
+invent progress. Return only the message to deliver as short plain text, without a list or
+heading."""
 HAIKU_MODEL = 'claude-haiku-5-5'
 
 
@@ -143,7 +148,7 @@ def main():
         if (state/'STOP').exists():
             print('STOP is present; no send')
             return 0
-        env = dict(os.environ, DOT_ALLOW_REMOTE='0', DOT_ROTATE_ON_LIMIT='0')
+        env = dict(os.environ, DOT_ROTATE_ON_LIMIT='0')
         for key in ('DOT_REMOTE_HOST', 'DOT_CHROME_USER_DATA', 'DOT_URL', 'DOT_CLEAR_DRAFT'):
             env.pop(key, None)
         dot = os.environ.get('COORDINATOR_DOT_SCRIPT', str(Path(__file__).resolve().parents[2]/'dot/scripts/dot.sh'))

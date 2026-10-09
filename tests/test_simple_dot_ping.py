@@ -30,7 +30,7 @@ class SimplePingTests(unittest.TestCase):
         self.haiku = self.bindir/'claude'
         self.haiku.write_text('#!/usr/bin/env python3\nimport json,os,sys\nargs=sys.argv\nassert "--model" in args and args[args.index("--model")+1]=="claude-haiku-5-5"\nassert args[args.index("--tools")+1]=="" and "--no-session-persistence" in args\nopen(os.environ["CALLS"],"a").write("haiku\\n")\nmode=os.environ.get("HAIKU_MODE","success")\nif mode=="error": print("haiku diagnostic",file=sys.stderr);sys.exit(9)\nprint(json.dumps({"is_error":False,"result":os.environ.get("GENERATED",'+repr(MESSAGE)+')}))\n')
         self.dot = self.root/'dot'
-        self.dot.write_text('#!/usr/bin/env python3\nimport os,sys\nfrom pathlib import Path\nassert sys.argv[1:4]==["--account","alpha","send-once"]\nassert os.environ["DOT_ALLOW_REMOTE"]=="0" and os.environ["DOT_ROTATE_ON_LIMIT"]=="0"\nopen(os.environ["CALLS"],"a").write("dot\\n")\nPath(os.environ["MESSAGE"]).write_text(Path(sys.argv[4]).read_text())\nprint(os.environ.get("RECEIPT","DOT_SENT_VERIFIED"))\nprint("dot diagnostic",file=sys.stderr)\nsys.exit(int(os.environ.get("SEND_RC","0")))\n')
+        self.dot.write_text('#!/usr/bin/env python3\nimport os,sys\nfrom pathlib import Path\nassert sys.argv[1:4]==["--account","alpha","send-once"]\nassert os.environ["DOT_ROTATE_ON_LIMIT"]=="0"\nopen(os.environ["CALLS"],"a").write("dot\\n")\nPath(os.environ["MESSAGE"]).write_text(Path(sys.argv[4]).read_text())\nprint(os.environ.get("RECEIPT","DOT_SENT_VERIFIED"))\nprint("dot diagnostic",file=sys.stderr)\nsys.exit(int(os.environ.get("SEND_RC","0")))\n')
         for executable in (self.agy, self.codex, self.haiku, self.dot):
             executable.chmod(0o700)
         self.env = dict(os.environ, PATH=str(self.bindir)+os.pathsep+os.environ['PATH'],
@@ -45,6 +45,18 @@ class SimplePingTests(unittest.TestCase):
 
     def calls_made(self):
         return self.calls.read_text().splitlines() if self.calls.exists() else []
+
+    def test_prompt_requires_receipts_for_six_actual_work_slots(self):
+        source = SCRIPT.read_text()
+        prompt = source.split('PROMPT = """', 1)[1].split('"""', 1)[0]
+        for contract in (
+            'six highest-priority items', 'execution receipt', 'actual run',
+            'recent concrete artifact', 'Idle, stalled, finished, or waiting-for-review',
+            'fill available capacity', 'cloud coders', 'never this Mac',
+            'user stops', 'approval boundaries', 'specific resource or authorization',
+            'constraint, evidence, and the blocked action',
+        ):
+            self.assertIn(contract, prompt)
 
     def test_primary_agy_success_uses_one_send(self):
         result = self.run_ping()

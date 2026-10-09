@@ -54,6 +54,29 @@ sudo systemctl enable --now ssh
 EOF
 ```
 
+## Independent Dot sessions
+
+Follow the installed [Dot skill](../dot/SKILL.md) for browser setup and login.
+Deploy the same reviewed Dot package on each host, then authenticate each configured
+account independently in its own dedicated persistent browser profile on that host.
+Never copy or sync cookies, browser profiles, Chrome `Local State`, or authentication
+state between hosts, accounts, or the user's real browser and Dot. Separate profile
+directories alone do not prove separate login sessions.
+
+Verify the installed Dot package prevents source-browser credential imports before
+opening a profile. For an existing shared session, preserve the profile and pause
+only its owned reminder timer while preparing a clean replacement; preserve timer
+enablement and do not log out, revoke, or reset the user's real-browser sessions.
+Enter known account identifiers, then let the user complete password or MFA entry
+in the dedicated browser. Never recover a failed login by importing credentials.
+
+Before switching the configured profile or resuming reminders, verify the expected
+nonempty `user.email` from `/api/auth/session` and a successful normal Dot read for
+each account. `/backend-api/me` or HTTP 200 alone is not authentication proof.
+Verify independent session provenance without exposing cookie or token values.
+Report each account's actual result and any remaining authentication boundary;
+an installed package or enabled timer does not prove usable independent sessions.
+
 ## Agent submission and response proof — mandatory
 
 For every instruction sent to an interactive agent, including initial launches,

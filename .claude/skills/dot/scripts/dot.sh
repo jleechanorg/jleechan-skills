@@ -1,14 +1,12 @@
 #!/usr/bin/env bash
 # Talk to the user's ChatGPT "dot" assistant.
-# Platform-aware architecture:
-#   - macOS & Linux: local headless Chrome with multi-account routing. Cross-host SSH fallback to Mac when local Chrome is unavailable.
+# Platform-aware architecture: macOS and Linux each use local headless Chrome and dedicated account profiles.
 # Usage: dot.sh [--account <name>] [--url <url>] read [chars]        print tail of conversation (default 5000 chars)
 #        dot.sh [--account <name>] [--url <url>] send <message-file> send file contents; while composer holds peer draft,
 #                                                                    retry every DOT_RETRY_SECS (60) up to DOT_WAIT_SECS (1800)
 #        dot.sh [--account <name>] [--url <url>] send-once <file>    single attempt, no retry
 #        dot.sh [--account <name>] login|auth                        launch visible Chrome window on account profile for manual sign-in
 # DOT_ACCOUNT selects account (configured in ~/.config/dot/config.json or custom identifier).
-# DOT_ALLOW_REMOTE: set to 0 to disable remote fallback (default: enabled on non-Darwin if remote_host configured). Set to 1 to forward immediately.
 # DOT_BACKEND=chrome forces backend. DOT_DRY_RUN=1 (chrome send): type, verify, clear, never send.
 # Exit codes: 0 ok, 2 usage/error, 3 composer still busy after the wait, 4 send not verified, 5 usage limit reached.
 set -euo pipefail
@@ -79,7 +77,10 @@ ACCOUNT="${ACCOUNT:-default}"
 PROFILE_DIR=""
 RESOLVED_URL=""
 if [[ -x "$NODE" && -f "$HERE/dot_chrome.mjs" ]]; then
-  PROFILE_INFO=$(DOT_ACCOUNT="$ACCOUNT" DOT_CONFIG_FILE="$CONFIG_FILE" DOT_URL="${DOT_URL:-}" DOT_CHROME_USER_DATA="${DOT_CHROME_USER_DATA:-}" "$NODE" "$HERE/dot_chrome.mjs" resolve-profile 2>/dev/null || true)
+  if ! PROFILE_INFO=$(DOT_ACCOUNT="$ACCOUNT" DOT_CONFIG_FILE="$CONFIG_FILE" DOT_URL="${DOT_URL:-}" DOT_CHROME_USER_DATA="${DOT_CHROME_USER_DATA:-}" "$NODE" "$HERE/dot_chrome.mjs" resolve-profile 2>&1); then
+    echo "$PROFILE_INFO" >&2
+    exit 2
+  fi
   if [[ -n "$PROFILE_INFO" ]]; then
     PROFILE_DIR=$("$NODE" -e 'try { process.stdout.write(JSON.parse(process.argv[1]).profileDir || ""); } catch {}' "$PROFILE_INFO" 2>/dev/null || true)
     RESOLVED_URL=$("$NODE" -e 'try { process.stdout.write(JSON.parse(process.argv[1]).url || ""); } catch {}' "$PROFILE_INFO" 2>/dev/null || true)
@@ -125,86 +126,6 @@ URL_HOST=$("$NODE" -e '
 ' "$DOT_URL" 2>/dev/null || echo "$DOT_URL")
 PROFILE_DIR_DISPLAY="${DOT_CHROME_USER_DATA:-~/.config/dot-headless-chrome-${ACCOUNT}}"
 echo "dot.sh: account=$ACCOUNT backend=$BACKEND url=$URL_HOST dir=$PROFILE_DIR_DISPLAY" >&2
-
-forward_to_mac() {
-  if [[ $# -eq 0 ]]; then return 1; fi
-  local action="$1"
-  shift
-  local REMOTE_HOST="${DOT_REMOTE_HOST:-}"
-  if [[ -z "$REMOTE_HOST" && -f "$CONFIG_FILE" ]]; then
-    REMOTE_HOST=$("$NODE" -e '
-      try {
-        const fs = require("fs");
-        const cfg = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-        process.stdout.write(cfg.remote_host || "");
-      } catch {}
-    ' "$CONFIG_FILE" 2>/dev/null || true)
-  fi
-  if [[ -n "$REMOTE_HOST" ]]; then
-    if [[ "$action" == "read" ]]; then
-      local remote_cmd
-      remote_cmd=$(python3 -c '
-import shlex, sys
-url_explicit = sys.argv[1] == "1"
-envs = {}
-if url_explicit and sys.argv[2]:
-    envs["DOT_URL"] = sys.argv[2]
-if sys.argv[3]:
-    envs["DOT_ACCOUNT"] = sys.argv[3]
-if sys.argv[4]:
-    envs["DOT_BACKEND"] = sys.argv[4]
-if sys.argv[5]:
-    envs["DOT_CLEAR_DRAFT"] = sys.argv[5]
-envs["DOT_NO_REMOTE"] = "1"
-env_str = " ".join(f"{k}={shlex.quote(v)}" for k, v in envs.items())
-args_str = " ".join(shlex.quote(a) for a in sys.argv[6:])
-print(f"{env_str} ~/.claude/skills/dot/scripts/dot.sh {args_str}".strip())
-' "$URL_EXPLICIT" "${DOT_URL:-}" "${DOT_ACCOUNT:-}" "${DOT_BACKEND:-}" "${DOT_CLEAR_DRAFT:-}" "$action" "$@")
-      exec ssh "$REMOTE_HOST" "$remote_cmd"
-    elif [[ "$action" == "send" || "$action" == "send-once" ]]; then
-      local file="${1:-}"
-      if [[ ! -f "$file" || ! -s "$file" ]]; then
-        echo "dot.sh: message file missing or empty: $file" >&2
-        exit 2
-      fi
-      local remote_tmp
-      remote_tmp="$(ssh "$REMOTE_HOST" "mktemp /tmp/dot_remote_XXXXXX")"
-      scp -q "$file" "$REMOTE_HOST:$remote_tmp"
-      local remote_cmd
-      remote_cmd=$(python3 -c '
-import shlex, sys
-url_explicit = sys.argv[1] == "1"
-envs = {}
-if url_explicit and sys.argv[2]:
-    envs["DOT_URL"] = sys.argv[2]
-if sys.argv[3]:
-    envs["DOT_ACCOUNT"] = sys.argv[3]
-if sys.argv[4]:
-    envs["DOT_DRY_RUN"] = sys.argv[4]
-if sys.argv[5]:
-    envs["DOT_WAIT_SECS"] = sys.argv[5]
-if sys.argv[6]:
-    envs["DOT_RETRY_SECS"] = sys.argv[6]
-if sys.argv[7]:
-    envs["DOT_BACKEND"] = sys.argv[7]
-if sys.argv[8]:
-    envs["DOT_CLEAR_DRAFT"] = sys.argv[8]
-envs["DOT_NO_REMOTE"] = "1"
-env_str = " ".join(f"{k}={shlex.quote(v)}" for k, v in envs.items())
-cmd = f"{env_str} ~/.claude/skills/dot/scripts/dot.sh {shlex.quote(sys.argv[9])} {shlex.quote(sys.argv[10])}; rc=$?; rm -f {shlex.quote(sys.argv[10])}; exit $rc"
-print(cmd.strip())
-' "$URL_EXPLICIT" "${DOT_URL:-}" "${DOT_ACCOUNT:-}" "${DOT_DRY_RUN:-}" "${DOT_WAIT_SECS:-}" "${DOT_RETRY_SECS:-}" "${DOT_BACKEND:-}" "${DOT_CLEAR_DRAFT:-}" "$action" "$remote_tmp")
-      ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=60 "$REMOTE_HOST" "$remote_cmd"
-      exit $?
-    fi
-  fi
-  return 1
-}
-
-# Cross-host Linux -> Mac forwarding when opted in
-if [[ "$(uname -s)" != "Darwin" && "${DOT_ALLOW_REMOTE:-0}" == "1" && "${DOT_NO_REMOTE:-0}" != "1" ]]; then
-  forward_to_mac "$@" || true
-fi
 
 # Headless Chrome backend. Sets CHROME_OUT; returns 0 if it produced a result, 10 if unavailable
 # (nothing was sent), otherwise the script's own exit code.
@@ -292,12 +213,6 @@ cmd_read() {
     out="$CHROME_OUT"
   else
     [[ $rc -eq 124 ]] && { CHROME_OUT="DOT_CHROME_UNAVAILABLE: timeout"; rc=10; }
-    if [[ $rc -eq 10 && "$(uname -s)" != "Darwin" && "${DOT_NO_REMOTE:-0}" != "1" && "${DOT_ALLOW_REMOTE:-1}" != "0" ]]; then
-      echo "dot.sh: local chrome unavailable ($CHROME_OUT); attempting remote fallback to Mac..." >&2
-      if forward_to_mac read "$n"; then
-        exit 0
-      fi
-    fi
     if [[ $rc -ne 10 ]]; then echo "$CHROME_OUT"; exit "$rc"; fi
     echo "$CHROME_OUT" >&2
     exit 2
@@ -313,13 +228,6 @@ cmd_send_once() {
   [[ $rc -ne 0 && $rc -ne 10 ]] && CHROME_OUT="DOT_SEND_UNVERIFIED chrome_rc=$rc"
   if [[ $rc -ne 10 ]]; then
     out="$CHROME_OUT"
-  elif [[ "$(uname -s)" != "Darwin" && "${DOT_NO_REMOTE:-0}" != "1" && "${DOT_ALLOW_REMOTE:-1}" != "0" ]]; then
-    echo "dot.sh: local chrome unavailable ($CHROME_OUT); attempting remote fallback to Mac..." >&2
-    if forward_to_mac send-once "$file"; then
-      exit 0
-    fi
-    echo "$CHROME_OUT" >&2
-    exit 2
   else
     echo "$CHROME_OUT" >&2
     exit 2
@@ -349,7 +257,8 @@ cmd_send() {
 cmd_login() {
   local dir="${DOT_CHROME_USER_DATA:-}"
   if [[ -z "$dir" ]]; then
-    dir="$HOME/.config/dot-headless-chrome-${ACCOUNT}"
+    echo "dot.sh: refusing login because the dedicated account profile could not be resolved" >&2
+    exit 2
   fi
   mkdir -p "$dir"
   local target_url="${DOT_URL:-https://chatgpt.com}"
@@ -372,11 +281,9 @@ cmd_login() {
   fi
   mkdir -p "$dir/Default"
   rm -f "$dir/Default/.auth_failed"
-  touch "$dir/Default/.manual_login"
-  "$chrome_bin" --user-data-dir="$dir" --no-first-run --no-default-browser-check "$target_url"
+  "$chrome_bin" --user-data-dir="$dir" --profile-directory=Default --no-first-run --no-default-browser-check "$target_url"
   mkdir -p "$dir/Default"
   rm -f "$dir/Default/.auth_failed"
-  touch "$dir/Default/.manual_login"
 }
 
 case "${1:-}" in
