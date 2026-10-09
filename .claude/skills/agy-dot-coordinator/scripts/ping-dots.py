@@ -12,19 +12,18 @@ import sys
 import tempfile
 import time
 
-PROMPT = """Write one plain-text reminder to the Dot, max 900 characters.
-Ask it FIRST to inventory authorized current WIP. Count only distinct tasks
-executing now. For every active task require item/goal, owner, live run/session or
-worktree/PR, exact action now, and fresh artifact/command result. Capacity refusal
-requires six or more distinct active tasks; state each receipt. Rank, assignment,
-start time, or “busy” alone proves nothing. Idle, stalled, finished, queued, and
-review-waiting tasks are not active. If fewer than six are proven, take authorized
-work and fill open capacity with safe next actions. Use cloud coders for independent
-coding, never this Mac. Keep permission/approval holds and measured resource limits
-separate; give evidence and exact blocked action. Preserve owners, user
-stops/cancellations, and all approval boundaries; continue feasible work. This grants
-no authority. Do not use tools or invent progress.
-Return only the reminder, no heading or list."""
+PROMPT = """Writer: draft plain-text Dot reminder (max 900 chars); recipient carries out
+the guidance. Recipient execution guidance: Ask it FIRST to inventory authorized
+current WIP. Count distinct tasks executing now. Each active task requires item/goal,
+owner, live run/session or worktree/PR, exact action now, fresh artifact/command
+result. Refuse capacity only when six or more distinct tasks are active; state each
+receipt. Rank, assignment, start time, or “busy” alone proves nothing. Idle, stalled,
+finished, queued, and review-waiting tasks are inactive. Fewer than six proven: use
+tools to advance authorized active WIP and fill open capacity with safe next actions.
+Use cloud coders for independent work, never this Mac. Separate permission/approval
+holds and measured resource limits; give evidence and exact blocked action. Preserve
+owners, user stops/cancellations, approval boundaries; continue feasible work. Do not
+claim progress without fresh evidence. Return reminder only; no heading or list."""
 HAIKU_MODEL = 'claude-haiku-5-5'
 MAX_RESPONSE_CHARS = 1200
 

@@ -52,20 +52,25 @@ class SimplePingTests(unittest.TestCase):
         prompt = source.split('PROMPT = """', 1)[1].split('"""', 1)[0].replace('\n', ' ')
         self.assertLessEqual(len(prompt), 1000)
         for contract in (
-            'max 900 characters', 'FIRST to inventory authorized current WIP',
-            'Count only distinct tasks executing now',
-            'For every active task require item/goal, owner, live run/session or worktree/PR',
+            'max 900 chars', 'FIRST to inventory authorized current WIP',
+            'Count distinct tasks executing now',
+            'Each active task requires item/goal, owner, live run/session or worktree/PR',
             'exact action now', 'fresh artifact/command result',
-            'Capacity refusal requires six or more distinct active tasks; state each receipt',
+            'Refuse capacity only when six or more distinct tasks are active; state each receipt',
             'Rank, assignment, start time, or “busy” alone proves nothing',
-            'Idle, stalled, finished, queued, and review-waiting tasks are not active',
-            'If fewer than six are proven', 'safe next actions', 'cloud coders',
-            'never this Mac', 'Keep permission/approval holds and measured resource limits separate',
+            'Idle, stalled, finished, queued, and review-waiting tasks are inactive',
+            'Fewer than six proven', 'safe next actions', 'cloud coders',
+            'never this Mac', 'Separate permission/approval holds and measured resource limits',
             'give evidence and exact blocked action',
-            'user stops/cancellations', 'all approval boundaries',
+            'user stops/cancellations', 'approval boundaries',
         ):
             self.assertIn(contract, prompt)
         self.assertNotIn('six highest-priority', prompt)
+        self.assertIn('Recipient execution guidance', prompt)
+        self.assertIn('use tools to advance authorized active WIP', prompt)
+        self.assertIn('Do not claim progress without fresh evidence', prompt)
+        self.assertIn('Writer: draft plain-text Dot reminder', prompt)
+        self.assertNotIn('Do not use tools', prompt)
 
         dot_skill = (ROOT/'.claude/skills/dot/SKILL.md').read_text()
         self.assertIn('before declining an authorized task, ask the Dot to inventory current work',
