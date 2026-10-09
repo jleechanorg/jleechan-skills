@@ -110,6 +110,7 @@ class InstallerIntegrationTest(unittest.TestCase):
             temp_dir = Path(directory)
             fixture = self.make_fixture(temp_dir)
             relative_files = (
+                Path("commands/sq.md"),
                 Path("commands/superpowers-quick.md"),
                 Path("skills/superpowers-quick/SKILL.md"),
                 Path("skills/superpowers-brainstorming/SKILL.md"),
@@ -125,6 +126,11 @@ class InstallerIntegrationTest(unittest.TestCase):
             result = self.run_installer(fixture, target)
 
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            for relative in relative_files:
+                self.assertEqual(
+                    (target / relative).read_bytes(),
+                    (REPO_ROOT / ".claude" / relative).read_bytes(),
+                )
             quick = (target / "skills/superpowers-quick/SKILL.md").read_text()
             for dependency in ("superpowers-brainstorming", "superpowers-writing-plans"):
                 installed_dependency = target / f"skills/{dependency}/SKILL.md"
