@@ -56,16 +56,15 @@ uncertain send. A ping does not prove completion of the Dot's underlying tasks.
   unverified receipt, STOP, historical holds, lock contention and actual caller wiring.
 - [x] Independently run `python3 -m unittest discover -s tests -p test_simple_dot_ping.py -v`.
 - [x] Commit and publish the fresh branch and draft PR with exact validation results.
-- [ ] Separately authorize service installation/activation and verify natural live ticks.
+- [x] Install and activate the native Mac and Linux schedules; verify a natural tick on each host.
 
 ## Validation boundary
 
-Focused checks prove local control flow with fake AGY/Dot executables. They do not
-prove real AGY generation, browser delivery, installed service activation, or
-progress across six host/account combinations. No service is installed or changed
-by preparing or publishing this branch.
-
-A real AGY transport probe on 2026-10-08 accepted the stream-JSON arguments but
-returned exit 3 and `RESOURCE_EXHAUSTED` (individual quota), with zero generated
-tokens. Generation now uses the installed Codex CLI; no Dot call or delivery
-followed the failed AGY probe.
+The focused fake-provider tests prove control flow, not live delivery or task
+completion. On both Mac and Linux, the installed wrapper separately generated
+messages through AGY, Codex Luna, and Claude Haiku 5.5 using `--generate-only`.
+AGY quota was intermittent; the automatic path fell through after quota errors.
+Native schedules were active and produced natural ticks on both hosts. Exact
+delivery and readback were verified for two Mac accounts and one Linux account;
+not all six host/account combinations were delivered. No task completion is
+claimed from a reminder delivery.
