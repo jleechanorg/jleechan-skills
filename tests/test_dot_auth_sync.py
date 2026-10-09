@@ -3,6 +3,7 @@
 import json
 import os
 import platform
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -11,7 +12,7 @@ import unittest
 ROOT = Path(__file__).resolve().parent.parent
 DOT_CHROME = ROOT / ".claude" / "skills" / "dot" / "scripts" / "dot_chrome.mjs"
 DOT_SH = ROOT / ".claude" / "skills" / "dot" / "scripts" / "dot.sh"
-NODE22 = "/Users/jleechan/.nvm/versions/node/v22.22.0/bin/node"
+NODE = shutil.which("node") or "node"
 
 
 def system_chrome_dir(home):
@@ -30,7 +31,7 @@ class DotAuthSyncTest(unittest.TestCase):
         self.assertNotIn(".manual_login", source)
 
     def test_fresh_and_existing_destinations_are_not_seeded_even_when_forced(self):
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
             root = Path(tmp)
             chrome_root = system_chrome_dir(root)
             real_profile = chrome_root / "Profile 1"
@@ -71,7 +72,7 @@ if (fs.readFileSync({json.dumps(str(manual_marker))}, 'utf8') !== 'manual-marker
 console.log('DEDICATED_PROFILE_PRESERVED');
 """)
             env = dict(os.environ, HOME=tmp, DOT_FORCE_SYNC_COOKIES="1")
-            result = subprocess.run([NODE22, str(script)], env=env, capture_output=True,
+            result = subprocess.run([NODE, str(script)], env=env, capture_output=True,
                                     text=True, timeout=15)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("DEDICATED_PROFILE_PRESERVED", result.stdout)
@@ -89,13 +90,13 @@ if (fs.existsSync(target + '/Local State') || fs.existsSync(target + '/Default/C
   throw new Error('fresh profile imported real-browser state');
 console.log('FRESH_PROFILE_EMPTY');
 """)
-            result = subprocess.run([NODE22, str(script)], env=env, capture_output=True,
+            result = subprocess.run([NODE, str(script)], env=env, capture_output=True,
                                     text=True, timeout=15)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("FRESH_PROFILE_EMPTY", result.stdout)
 
     def test_real_chrome_paths_are_rejected_but_custom_dedicated_path_is_kept(self):
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
             root = Path(tmp)
             config = root / ".config" / "dot" / "config.json"
             config.parent.mkdir(parents=True)
@@ -108,7 +109,7 @@ console.log('FRESH_PROFILE_EMPTY');
             }}}))
             env = dict(os.environ, HOME=tmp, DOT_ACCOUNT="work", DOT_CONFIG_FILE=str(config))
             env.pop("DOT_CHROME_USER_DATA", None)
-            result = subprocess.run([NODE22, str(DOT_CHROME), "resolve-profile"], env=env,
+            result = subprocess.run([NODE, str(DOT_CHROME), "resolve-profile"], env=env,
                                     capture_output=True, text=True, timeout=15)
             self.assertNotEqual(result.returncode, 0,
                                 result.stderr or "a real Chrome profile must be rejected")
@@ -116,7 +117,7 @@ console.log('FRESH_PROFILE_EMPTY');
             config.write_text(json.dumps({"accounts": {"work": {
                 "user_data_dir": str(dedicated), "profile_match": "owner@example.com"
             }}}))
-            result = subprocess.run([NODE22, str(DOT_CHROME), "resolve-profile"], env=env,
+            result = subprocess.run([NODE, str(DOT_CHROME), "resolve-profile"], env=env,
                                     capture_output=True, text=True, timeout=15)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(json.loads(result.stdout)["profileDir"], str(dedicated))
@@ -125,7 +126,7 @@ console.log('FRESH_PROFILE_EMPTY');
                 "work": {"user_data_dir": str(dedicated)},
                 "other": {"user_data_dir": str(dedicated)},
             }}))
-            result = subprocess.run([NODE22, str(DOT_CHROME), "resolve-profile"], env=env,
+            result = subprocess.run([NODE, str(DOT_CHROME), "resolve-profile"], env=env,
                                     capture_output=True, text=True, timeout=15)
             self.assertNotEqual(result.returncode, 0, "two configured accounts cannot share a profile")
 
@@ -135,7 +136,7 @@ console.log('FRESH_PROFILE_EMPTY');
             config.write_text(json.dumps({"accounts": {"work": {
                 "user_data_dir": str(alias / "Profile 1")
             }}}))
-            result = subprocess.run([NODE22, str(DOT_CHROME), "resolve-profile"], env=env,
+            result = subprocess.run([NODE, str(DOT_CHROME), "resolve-profile"], env=env,
                                     capture_output=True, text=True, timeout=15)
             self.assertNotEqual(result.returncode, 0, "symlink aliases to real Chrome must be rejected")
 
@@ -145,7 +146,7 @@ console.log('FRESH_PROFILE_EMPTY');
         self.assertIn("if (session.status === 200 && session.isJson && session.hasUser) {\n        clearAuthFailed(USER_DATA_DIR);", source)
         self.assertNotIn("clearAuthFailed(USER_DATA_DIR);\n      if (mode === 'send')", source)
         self.assertNotIn("clearAuthFailed(USER_DATA_DIR);\n    return page;", source)
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
             root = Path(tmp)
             script = root / "auth-marker.mjs"
             marker = root / "profile" / "Default" / ".auth_failed"
@@ -155,15 +156,13 @@ import {{ markAuthFailed, clearAuthFailed }} from {json.dumps(DOT_CHROME.as_uri(
 const root = {json.dumps(str(root / 'profile'))};
 const marker = {json.dumps(str(marker))};
 markAuthFailed(root);
-for (const status of [0, 403, 500]) {{
-  if (!fs.existsSync(marker)) throw new Error(`status ${{status}} unexpectedly cleared auth failure`);
-}}
+if (!fs.existsSync(marker)) throw new Error("negative auth observation cleared auth failure");
 clearAuthFailed(root);
 if (fs.existsSync(marker)) throw new Error('explicit confirmed login cleanup did not clear auth failure marker');
 console.log('AUTH_FAILURE_MARKER_PRESERVED');
 """)
             env = dict(os.environ, HOME=tmp)
-            result = subprocess.run([NODE22, str(script)], env=env, capture_output=True,
+            result = subprocess.run([NODE, str(script)], env=env, capture_output=True,
                                     text=True, timeout=15)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("AUTH_FAILURE_MARKER_PRESERVED", result.stdout)
@@ -179,7 +178,7 @@ console.log('AUTH_FAILURE_MARKER_PRESERVED');
         self.assertIn('const USER_DATA_DIR = accountInfo.profileDir;', source)
         self.assertIn('chromium.launchPersistentContext(USER_DATA_DIR', source)
 
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
             root = Path(tmp)
             config = root / "config.json"
             dedicated = root / "dot-profile"
@@ -191,7 +190,7 @@ console.log('AUTH_FAILURE_MARKER_PRESERVED');
             chrome.write_text('#!/bin/sh\nprintf \'%s\\n\' "$@" > "$DOT_CHROME_ARGS"\n')
             chrome.chmod(0o700)
             env = dict(os.environ, HOME=tmp,
-                       PATH=str(Path(NODE22).parent) + os.pathsep + os.environ["PATH"],
+                       PATH=str(Path(NODE).resolve().parent) + os.pathsep + os.environ["PATH"],
                        DOT_CONFIG_FILE=str(config), DOT_CHROME_BIN=str(chrome),
                        DOT_CHROME_ARGS=str(args_file))
             env.pop("DOT_CHROME_USER_DATA", None)

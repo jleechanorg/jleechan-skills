@@ -14,7 +14,7 @@ MESSAGE = 'Advance each authorized goal now and report the next safe action.'
 
 class SimplePingTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
+        self.temp = tempfile.TemporaryDirectory(dir="/tmp")
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.bindir = self.root/'bin'
@@ -50,13 +50,27 @@ class SimplePingTests(unittest.TestCase):
         source = SCRIPT.read_text()
         prompt = source.split('PROMPT = """', 1)[1].split('"""', 1)[0]
         for contract in (
-            'six highest-priority items', 'execution receipt', 'actual run',
-            'recent concrete artifact', 'Idle, stalled, finished, or waiting-for-review',
-            'fill available capacity', 'cloud coders', 'never this Mac',
-            'user stops', 'approval boundaries', 'specific resource or authorization',
-            'constraint, evidence, and the blocked action',
+            'FIRST to inventory current authorized work in progress',
+            'count only distinct tasks', 'require an execution', 'receipt: goal/item',
+            'exact action happening now',
+            'fresh artifact or command result', 'Idle, stalled, finished, queued, or waiting-for-review',
+            'at least six distinct tasks are truly active', 'Do not gate work on a priority rank',
+            'If fewer than six', 'active tasks are proven', 'cloud coders', 'never this Mac',
+            'permission/approval hold or measured resource limit', 'name its evidence and exact blocked action',
+            'user stops', 'preserve owners and all approval', 'boundaries',
         ):
             self.assertIn(contract, prompt)
+        self.assertNotIn('six highest-priority', prompt)
+
+        dot_skill = (ROOT/'.claude/skills/dot/SKILL.md').read_text()
+        self.assertIn('before declining an authorized task, ask the Dot to inventory current work',
+                      dot_skill)
+        self.assertIn('at least six distinct active tasks', dot_skill)
+        self.assertNotIn('asks whether the task is in the dot\'s current top 6', dot_skill)
+
+        coordinator_skill = (SCRIPT.parents[1]/'SKILL.md').read_text()
+        self.assertIn('inventory real active work first', coordinator_skill)
+        self.assertIn('at least six distinct tasks', coordinator_skill)
 
     def test_primary_agy_success_uses_one_send(self):
         result = self.run_ping()

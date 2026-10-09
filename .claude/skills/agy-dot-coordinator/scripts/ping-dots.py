@@ -13,20 +13,23 @@ import tempfile
 import time
 
 PROMPT = """Write a concise coordination request for the configured Dot, at most 1,200 characters.
-Ask it to inspect all authorized goals and advance the six highest-priority items that
-can make real progress now. For each of six slots, require an execution receipt: item/goal,
-owner, actual run or worktree/PR, current status, and a recent concrete artifact or command
-result. A task is not running merely because it was assigned, an agent is busy, or a slot
-was claimed. Idle, stalled, finished, or waiting-for-review work does not occupy a slot;
-recover or close it as appropriate, then fill available capacity with the next authorized
-work. Keep every goal progressing, within the actual resource limit, and avoid duplicate
-writes. Use cloud coders for independent coding work, never this Mac. Ask for the next safe
-actions to start now, ordinary reversible blockers to resolve, and concrete results. Preserve
-existing owners, user stops, cancellations, and approval boundaries; this reminder grants no
-new authority. Report a genuine constraint only with its specific resource or authorization
-constraint, evidence, and the blocked action. Do not use tools, send anything yourself, or
-invent progress. Return only the message to deliver as short plain text, without a list or
-heading."""
+Ask it FIRST to inventory current authorized work in progress and count only distinct tasks
+that are demonstrably executing now. For every claimed active task, require an execution
+receipt: goal/item and owner, live run/session or worktree/PR, exact action happening now,
+current status, and a fresh artifact or command result. Assignment, rank, a busy claim, or a
+start time alone is not proof. Idle, stalled, finished, queued, or waiting-for-review work is
+not active. A capacity refusal is valid only when at least six distinct tasks are truly active
+and each has an exact present action plus fresh evidence; state the six or more receipts that
+prove it. Do not gate work on a priority rank or ask the user to rank it. If fewer than six
+active tasks are proven, take the authorized work and fill open capacity with the next safe
+actions, resolving ordinary reversible blockers. Keep all goals moving within real resources,
+avoid duplicate writes, and use cloud coders for independent coding work, never this Mac.
+Distinguish a genuine permission/approval hold or measured resource limit from a full six-task
+capacity refusal; name its evidence and exact blocked action, preserve owners and all approval
+boundaries,
+and continue work that remains authorized and feasible. Respect user stops and cancellations;
+this reminder grants no new authority. Do not use tools, send anything yourself, or invent
+progress. Return only the message to deliver as short plain text, without a list or heading."""
 HAIKU_MODEL = 'claude-haiku-5-5'
 
 
