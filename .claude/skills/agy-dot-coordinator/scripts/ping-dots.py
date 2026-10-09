@@ -12,17 +12,20 @@ import sys
 import tempfile
 import time
 
-PROMPT = """Write only a short coordination message for the configured Dot, at most 1,200 characters.
-Ask it to advance EACH currently authorized goal now. Verify the owner's actual progress,
-not merely assignment: distinguish a running owner from an idle or stalled one.
-Take the next safe action, resolve ordinary reversible blockers, and use cloud coders
-for independent work without creating duplicate writers. If an executor is unavailable or
-quota-limited, route a bounded task to an available authorized executor; do not keep waiting.
-Report concrete commands,
-artifacts or results and only genuine human-only blockers. Respect existing owners,
-user stops, cancellations and approval boundaries. This reminder grants no new authority.
-Do not use tools, send anything yourself, or invent progress. Return only the message to deliver as short plain text, without a list or heading."""
+PROMPT = """Writer: draft plain-text Dot reminder (max 900 chars); recipient carries out
+the guidance. Recipient execution guidance: Ask it FIRST to inventory authorized
+current WIP. Count distinct tasks executing now. Each active task requires item/goal,
+owner, live run/session or worktree/PR, exact action now, fresh artifact/command
+result. Refuse capacity only when six or more distinct tasks are active; state each
+receipt. Rank, assignment, start time, or “busy” alone proves nothing. Idle, stalled,
+finished, queued, and review-waiting tasks are inactive. Fewer than six proven: use
+tools to advance authorized active WIP and fill open capacity with safe next actions.
+Use cloud coders for independent work, never this Mac. Separate permission/approval
+holds and measured resource limits; give evidence and exact blocked action. Preserve
+owners, user stops/cancellations, approval boundaries; continue feasible work. Do not
+claim progress without fresh evidence. Return reminder only; no heading or list."""
 HAIKU_MODEL = 'claude-haiku-5-5'
+MAX_RESPONSE_CHARS = 1200
 
 
 def generate(provider):
@@ -31,7 +34,7 @@ def generate(provider):
                    '--dangerously-skip-permissions', '--new-project', '--print-timeout', '180s',
                    '--input-format', 'stream-json', '--output-format', 'stream-json']
         request = json.dumps({'event': 'user', 'message': {'content': PROMPT}})+'\n'
-        with tempfile.TemporaryDirectory(prefix='dot-ping-agy-') as workdir:
+        with tempfile.TemporaryDirectory(prefix='dot-ping-agy-', dir='/tmp') as workdir:
             result = subprocess.run(command, input=request, capture_output=True, text=True,
                                     cwd=workdir, timeout=180, check=True)
         events = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
@@ -51,7 +54,7 @@ def generate(provider):
         command = [generator]
         if Path(generator).name != 'codex-luna':
             command += ['exec', '--yolo', '-m', 'gpt-6-luna']
-        with tempfile.TemporaryDirectory(prefix='dot-ping-codex-') as workdir:
+        with tempfile.TemporaryDirectory(prefix='dot-ping-codex-', dir='/tmp') as workdir:
             with tempfile.NamedTemporaryFile(mode='r+', dir=workdir, prefix='message-') as output:
                 subprocess.run(command + ['--ephemeral', '--skip-git-repo-check',
                                            '--config', 'project_doc_max_bytes=0',
@@ -64,7 +67,7 @@ def generate(provider):
         command = [shutil.which('claude') or 'claude', '--dangerously-skip-permissions',
                    '--print', '--model', HAIKU_MODEL, '--output-format', 'json',
                    '--no-session-persistence', '--tools', '', '--disable-slash-commands', PROMPT]
-        result = subprocess.run(command, cwd=tempfile.gettempdir(), capture_output=True,
+        result = subprocess.run(command, cwd='/tmp', capture_output=True,
                                 text=True, timeout=180, check=True)
         response = json.loads(result.stdout)
         if (not isinstance(response, dict) or response.get('is_error') is not False
@@ -79,15 +82,25 @@ def generate_message(providers):
     for provider in providers:
         try:
             message = generate(provider)
-            if not isinstance(message, str) or not message.strip() or len(message.strip()) > 1200:
-                raise ValueError('response is empty or exceeds 1,200 characters')
+            if not isinstance(message, str):
+                raise ValueError('response is not text')
+            stripped = message.strip()
+            if not stripped:
+                raise ValueError(
+                    f'response empty after trimming ({len(message):,} raw characters)'
+                )
+            if len(stripped) > MAX_RESPONSE_CHARS:
+                raise ValueError(
+                    f'response exceeds {MAX_RESPONSE_CHARS:,} characters '
+                    f'({len(stripped):,} stripped; {len(message):,} raw)'
+                )
         except (OSError, ValueError, subprocess.SubprocessError) as error:
             print(provider+' generation failed: '+str(error), file=sys.stderr)
             if isinstance(error, subprocess.CalledProcessError) and error.stderr:
                 print(error.stderr[:4000], file=sys.stderr)
             continue
         print('Generation succeeded with '+provider)
-        return provider, message.strip()
+        return provider, stripped
     raise ValueError('All generation providers failed; no Dot send')
 
 
@@ -143,11 +156,11 @@ def main():
         if (state/'STOP').exists():
             print('STOP is present; no send')
             return 0
-        env = dict(os.environ, DOT_ALLOW_REMOTE='0', DOT_ROTATE_ON_LIMIT='0')
+        env = dict(os.environ, DOT_ROTATE_ON_LIMIT='0')
         for key in ('DOT_REMOTE_HOST', 'DOT_CHROME_USER_DATA', 'DOT_URL', 'DOT_CLEAR_DRAFT'):
             env.pop(key, None)
         dot = os.environ.get('COORDINATOR_DOT_SCRIPT', str(Path(__file__).resolve().parents[2]/'dot/scripts/dot.sh'))
-        with tempfile.NamedTemporaryFile(mode='w+', prefix='dot-ping-') as file:
+        with tempfile.NamedTemporaryFile(mode='w+', prefix='dot-ping-', dir='/tmp') as file:
             identity = {'agy': 'AGY', 'codex': 'Codex', 'haiku': 'Claude Haiku'}[provider]
             file.write('From '+identity+' coordinator: automated reminder; no new authority.\n'+message)
             file.flush()

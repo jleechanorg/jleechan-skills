@@ -14,7 +14,7 @@ MESSAGE = 'Advance each authorized goal now and report the next safe action.'
 
 class SimplePingTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
+        self.temp = tempfile.TemporaryDirectory(dir="/tmp")
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.bindir = self.root/'bin'
@@ -24,20 +24,21 @@ class SimplePingTests(unittest.TestCase):
         self.calls = self.root/'calls'
         self.message = self.root/'message'
         self.agy = self.bindir/'agy'
-        self.agy.write_text('#!/usr/bin/env python3\nimport json,os,sys\nopen(os.environ["CALLS"],"a").write("agy\\n")\nmode=os.environ.get("AGY_MODE","success")\nif mode=="error": print("agy diagnostic",file=sys.stderr);sys.exit(7)\nif mode=="malformed": print("not-json");sys.exit(0)\nresponse="" if mode=="empty" else ("x"*1201 if mode=="long" else os.environ.get("GENERATED",'+repr(MESSAGE)+'))\nprint(json.dumps({"event":"result","result":{"status":"SUCCESS","response":response}}))\n')
+        self.agy.write_text('#!/usr/bin/env python3\nimport json,os,sys\nopen(os.environ["CALLS"],"a").write("agy\\n")\nopen(os.environ["WORKDIR_CAPTURE"],"a").write("agy:"+os.getcwd()+"\\n")\nmode=os.environ.get("AGY_MODE","success")\nif mode=="error": print("agy diagnostic",file=sys.stderr);sys.exit(7)\nif mode=="malformed": print("not-json");sys.exit(0)\nresponse="" if mode=="empty" else ("x"*1201 if mode=="long" else os.environ.get("GENERATED",'+repr(MESSAGE)+'))\nprint(json.dumps({"event":"result","result":{"status":"SUCCESS","response":response}}))\n')
         self.codex = self.bindir/'codex'
-        self.codex.write_text('#!/usr/bin/env python3\nimport os,sys\nargs=sys.argv\nassert args[1:5]==["exec","--yolo","-m","gpt-6-luna"]\nassert "--ephemeral" in args and "--skip-git-repo-check" in args\nassert args[args.index("--config")+1]=="project_doc_max_bytes=0"\nopen(os.environ["CALLS"],"a").write("codex\\n")\nmode=os.environ.get("CODEX_MODE","success")\nif mode=="error": print("codex diagnostic",file=sys.stderr);sys.exit(8)\ncontent="" if mode=="empty" else ("x"*1201 if mode=="long" else os.environ.get("GENERATED",'+repr(MESSAGE)+'))\nopen(args[args.index("--output-last-message")+1],"w").write(content)\n')
+        self.codex.write_text('#!/usr/bin/env python3\nimport os,sys\nargs=sys.argv\nassert args[1:5]==["exec","--yolo","-m","gpt-6-luna"]\nassert "--ephemeral" in args and "--skip-git-repo-check" in args\nassert args[args.index("--config")+1]=="project_doc_max_bytes=0"\nopen(os.environ["CALLS"],"a").write("codex\\n")\nopen(os.environ["WORKDIR_CAPTURE"],"a").write("codex:"+os.getcwd()+"\\n")\nopen(os.environ["WORKDIR_CAPTURE"],"a").write("codex-output:"+args[args.index("--output-last-message")+1]+"\\n")\nmode=os.environ.get("CODEX_MODE","success")\nif mode=="error": print("codex diagnostic",file=sys.stderr);sys.exit(8)\ncontent="" if mode=="empty" else ("x"*1201 if mode=="long" else os.environ.get("GENERATED",'+repr(MESSAGE)+'))\nopen(args[args.index("--output-last-message")+1],"w").write(content)\n')
         self.haiku = self.bindir/'claude'
-        self.haiku.write_text('#!/usr/bin/env python3\nimport json,os,sys\nargs=sys.argv\nassert "--model" in args and args[args.index("--model")+1]=="claude-haiku-5-5"\nassert args[args.index("--tools")+1]=="" and "--no-session-persistence" in args\nopen(os.environ["CALLS"],"a").write("haiku\\n")\nmode=os.environ.get("HAIKU_MODE","success")\nif mode=="error": print("haiku diagnostic",file=sys.stderr);sys.exit(9)\nprint(json.dumps({"is_error":False,"result":os.environ.get("GENERATED",'+repr(MESSAGE)+')}))\n')
+        self.haiku.write_text('#!/usr/bin/env python3\nimport json,os,sys\nargs=sys.argv\nassert "--model" in args and args[args.index("--model")+1]=="claude-haiku-5-5"\nassert args[args.index("--tools")+1]=="" and "--no-session-persistence" in args\nopen(os.environ["CALLS"],"a").write("haiku\\n")\nopen(os.environ["WORKDIR_CAPTURE"],"a").write("haiku:"+os.getcwd()+"\\n")\nmode=os.environ.get("HAIKU_MODE","success")\nif mode=="error": print("haiku diagnostic",file=sys.stderr);sys.exit(9)\nprint(json.dumps({"is_error":False,"result":os.environ.get("GENERATED",'+repr(MESSAGE)+')}))\n')
         self.dot = self.root/'dot'
-        self.dot.write_text('#!/usr/bin/env python3\nimport os,sys\nfrom pathlib import Path\nassert sys.argv[1:4]==["--account","alpha","send-once"]\nassert os.environ["DOT_ALLOW_REMOTE"]=="0" and os.environ["DOT_ROTATE_ON_LIMIT"]=="0"\nopen(os.environ["CALLS"],"a").write("dot\\n")\nPath(os.environ["MESSAGE"]).write_text(Path(sys.argv[4]).read_text())\nprint(os.environ.get("RECEIPT","DOT_SENT_VERIFIED"))\nprint("dot diagnostic",file=sys.stderr)\nsys.exit(int(os.environ.get("SEND_RC","0")))\n')
+        self.dot.write_text('#!/usr/bin/env python3\nimport os,sys\nfrom pathlib import Path\nassert sys.argv[1:4]==["--account","alpha","send-once"]\nassert os.environ["DOT_ROTATE_ON_LIMIT"]=="0"\nopen(os.environ["CALLS"],"a").write("dot\\n")\nopen(os.environ["WORKDIR_CAPTURE"],"a").write("dot-message:"+sys.argv[4]+"\\n")\nPath(os.environ["MESSAGE"]).write_text(Path(sys.argv[4]).read_text())\nprint(os.environ.get("RECEIPT","DOT_SENT_VERIFIED"))\nprint("dot diagnostic",file=sys.stderr)\nsys.exit(int(os.environ.get("SEND_RC","0")))\n')
         for executable in (self.agy, self.codex, self.haiku, self.dot):
             executable.chmod(0o700)
         self.env = dict(os.environ, PATH=str(self.bindir)+os.pathsep+os.environ['PATH'],
                         DOT_CONFIG_FILE=str(self.config), COORDINATOR_STATE_DIR=str(self.root/'state'),
                         COORDINATOR_LOCK_FILE=str(self.root/'state/ping.lock'),
                         COORDINATOR_AGY=str(self.agy), COORDINATOR_GENERATOR=str(self.codex),
-                        COORDINATOR_DOT_SCRIPT=str(self.dot), CALLS=str(self.calls), MESSAGE=str(self.message))
+                        COORDINATOR_DOT_SCRIPT=str(self.dot), CALLS=str(self.calls), MESSAGE=str(self.message),
+                        WORKDIR_CAPTURE=str(self.root/'workdirs'))
 
     def run_ping(self, *args):
         return subprocess.run(['python3', str(SCRIPT), '--account', 'alpha', *args], env=self.env,
@@ -45,6 +46,54 @@ class SimplePingTests(unittest.TestCase):
 
     def calls_made(self):
         return self.calls.read_text().splitlines() if self.calls.exists() else []
+
+    def test_prompt_requires_receipts_for_six_actual_work_slots(self):
+        source = SCRIPT.read_text()
+        prompt = source.split('PROMPT = """', 1)[1].split('"""', 1)[0].replace('\n', ' ')
+        self.assertLessEqual(len(prompt), 1000)
+        for contract in (
+            'max 900 chars', 'FIRST to inventory authorized current WIP',
+            'Count distinct tasks executing now',
+            'Each active task requires item/goal, owner, live run/session or worktree/PR',
+            'exact action now', 'fresh artifact/command result',
+            'Refuse capacity only when six or more distinct tasks are active; state each receipt',
+            'Rank, assignment, start time, or “busy” alone proves nothing',
+            'Idle, stalled, finished, queued, and review-waiting tasks are inactive',
+            'Fewer than six proven', 'safe next actions', 'cloud coders',
+            'never this Mac', 'Separate permission/approval holds and measured resource limits',
+            'give evidence and exact blocked action',
+            'user stops/cancellations', 'approval boundaries',
+        ):
+            self.assertIn(contract, prompt)
+        self.assertNotIn('six highest-priority', prompt)
+        self.assertIn('Recipient execution guidance', prompt)
+        self.assertIn('use tools to advance authorized active WIP', prompt)
+        self.assertIn('Do not claim progress without fresh evidence', prompt)
+        self.assertIn('Writer: draft plain-text Dot reminder', prompt)
+        self.assertNotIn('Do not use tools', prompt)
+
+        dot_skill = (ROOT/'.claude/skills/dot/SKILL.md').read_text()
+        self.assertIn('before declining an authorized task, ask the Dot to inventory current work',
+                      dot_skill)
+        self.assertIn('at least six distinct active tasks', dot_skill)
+        self.assertNotIn('asks whether the task is in the dot\'s current top 6', dot_skill)
+
+        coordinator_skill = (SCRIPT.parents[1]/'SKILL.md').read_text()
+        self.assertIn('inventory real active work first', coordinator_skill)
+        self.assertIn('at least six distinct tasks', coordinator_skill)
+
+    def test_empty_and_oversized_provider_results_report_actual_lengths(self):
+        self.env.update(AGY_MODE='empty', CODEX_MODE='long', GENERATED='')
+        result = self.run_ping()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('agy generation failed: response empty after trimming (0 raw characters)',
+                      result.stderr)
+        self.assertIn('codex generation failed: response exceeds 1,200 characters '
+                      '(1,201 stripped; 1,201 raw)', result.stderr)
+        self.assertIn('haiku generation failed: response empty after trimming (0 raw characters)',
+                      result.stderr)
+        self.assertEqual(self.calls_made(), ['agy', 'codex', 'haiku'])
+        self.assertFalse(self.message.exists())
 
     def test_primary_agy_success_uses_one_send(self):
         result = self.run_ping()
@@ -78,6 +127,17 @@ class SimplePingTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(self.calls_made(), ['agy', 'codex', 'haiku'])
         self.assertFalse(self.message.exists())
+
+    def test_generator_and_send_scratch_paths_stay_under_tmp(self):
+        self.env.update(AGY_MODE='error', CODEX_MODE='error')
+        result = self.run_ping()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        paths = [line.split(':', 1)[1] for line in self.calls.parent.joinpath('workdirs').read_text().splitlines()]
+        self.assertEqual({line.split(':', 1)[0] for line in self.calls.parent.joinpath('workdirs').read_text().splitlines()},
+                         {'agy', 'codex', 'codex-output', 'haiku', 'dot-message'})
+        tmp_root = Path('/tmp').resolve()
+        for path in paths:
+            self.assertTrue(Path(path).resolve().is_relative_to(tmp_root), path)
 
     def test_malformed_structured_results_fall_through_without_send(self):
         self.agy.write_text('#!/usr/bin/env python3\nimport json,os\nopen(os.environ["CALLS"],"a").write("agy\\n")\nprint(json.dumps({"event":"result","result":[]}))\n')

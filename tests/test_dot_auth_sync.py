@@ -1,5 +1,9 @@
-"""Test contract for dot_chrome.mjs cookie synchronization and persistent profile setup."""
+"""Dot sessions use an independent persistent profile for every account."""
 
+import json
+import os
+import platform
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -7,191 +11,221 @@ import unittest
 
 ROOT = Path(__file__).resolve().parent.parent
 DOT_CHROME = ROOT / ".claude" / "skills" / "dot" / "scripts" / "dot_chrome.mjs"
+DOT_SH = ROOT / ".claude" / "skills" / "dot" / "scripts" / "dot.sh"
+NODE = shutil.which("node") or "node"
+
+
+def system_chrome_dir(home):
+    if platform.system() == "Darwin":
+        return home / "Library" / "Application Support" / "Google" / "Chrome"
+    return home / ".config" / "google-chrome"
 
 
 class DotAuthSyncTest(unittest.TestCase):
-    def test_syntax_and_lock_ordering(self):
+    def test_source_cannot_import_real_chrome_profiles_or_cookies(self):
         source = DOT_CHROME.read_text(encoding="utf-8")
-        self.assertIn("const preferences = path.join(defaultDir, 'Preferences');", source)
-        self.assertIn("function syncCookiesFromSource(", source)
-        self.assertIn("function clearSyncMarker(", source)
-        self.assertIn("function clearAuthFailed(", source)
+        self.assertNotIn("syncCookiesFromSource", source)
+        self.assertNotIn("DOT_FORCE_SYNC_COOKIES", source)
+        self.assertNotIn("rsync", source)
+        self.assertNotIn("Local State", source)
+        self.assertNotIn(".manual_login", source)
 
-        # Regression check: Singleton lock must be checked before profile synchronization
-        lock_call = "await waitAndCleanSingletonLock(USER_DATA_DIR);"
-        sync_call = "ensurePersistentProfile(accountInfo, USER_DATA_DIR);"
-        self.assertIn(lock_call, source)
-        self.assertIn(sync_call, source)
+    def test_fresh_and_existing_destinations_are_not_seeded_even_when_forced(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
+            root = Path(tmp)
+            chrome_root = system_chrome_dir(root)
+            real_profile = chrome_root / "Profile 1"
+            real_default = real_profile / "Default"
+            real_default.mkdir(parents=True)
+            (chrome_root / "Local State").write_text(json.dumps({
+                "profile": {"info_cache": {"Profile 1": {"email": "owner@example.com"}}}
+            }))
+            (real_default / "Cookies").write_text("real-browser-cookie-secret")
 
-        lock_pos = source.find(lock_call)
-        sync_pos = source.find(sync_call)
-        self.assertLess(
-            lock_pos,
-            sync_pos,
-            "waitAndCleanSingletonLock must precede ensurePersistentProfile in launch()",
-        )
+            destination = root / ".config" / "dot-headless-chrome-work"
+            destination_default = destination / "Default"
+            destination_default.mkdir(parents=True)
+            existing_cookie = destination_default / "Cookies"
+            existing_cookie.write_text("dedicated-login-cookie")
+            stale_marker = destination_default / ".src_cookies_synced_mtime"
+            stale_marker.write_text("stale-marker")
+            manual_marker = destination_default / ".manual_login"
+            manual_marker.write_text("manual-marker")
 
-        # Regression check: clearAuthFailed must only be called when auth is confirmed
-        self.assertIn("if (session.status === 200 && session.isJson && session.hasUser)", source)
-        # Ensure clearAuthFailed is not called unconditionally on indeterminate status 0 or 500
+            script = root / "verify.mjs"
+            script.write_text(f"""
+import fs from 'node:fs';
+import os from 'node:os';
+os.homedir = () => {json.dumps(str(root))};
+const {{ ensurePersistentProfile }} = await import({json.dumps(DOT_CHROME.as_uri())});
+const target = {json.dumps(str(destination))};
+const cookiePath = {json.dumps(str(existing_cookie))};
+const before = fs.statSync(cookiePath).mtimeMs;
+ensurePersistentProfile({{ matchedKey: 'Profile 1' }}, target);
+if (fs.readFileSync(cookiePath, 'utf8') !== 'dedicated-login-cookie' || fs.statSync(cookiePath).mtimeMs !== before)
+  throw new Error('existing dedicated session was overwritten');
+if (fs.existsSync(target + '/Local State')) throw new Error('real Local State was copied');
+if (fs.readFileSync({json.dumps(str(stale_marker))}, 'utf8') !== 'stale-marker')
+  throw new Error('old sync marker was modified');
+if (fs.readFileSync({json.dumps(str(manual_marker))}, 'utf8') !== 'manual-marker')
+  throw new Error('manual login marker was modified');
+console.log('DEDICATED_PROFILE_PRESERVED');
+""")
+            env = dict(os.environ, HOME=tmp, DOT_FORCE_SYNC_COOKIES="1")
+            result = subprocess.run([NODE, str(script)], env=env, capture_output=True,
+                                    text=True, timeout=15)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("DEDICATED_PROFILE_PRESERVED", result.stdout)
+            self.assertEqual((real_default / "Cookies").read_text(), "real-browser-cookie-secret")
+
+            fresh = root / ".config" / "dot-headless-chrome-fresh"
+            script.write_text(f"""
+import fs from 'node:fs';
+import os from 'node:os';
+os.homedir = () => {json.dumps(str(root))};
+const {{ ensurePersistentProfile }} = await import({json.dumps(DOT_CHROME.as_uri())});
+const target = {json.dumps(str(fresh))};
+ensurePersistentProfile({{ matchedKey: 'Profile 1' }}, target);
+if (fs.existsSync(target + '/Local State') || fs.existsSync(target + '/Default/Cookies'))
+  throw new Error('fresh profile imported real-browser state');
+console.log('FRESH_PROFILE_EMPTY');
+""")
+            result = subprocess.run([NODE, str(script)], env=env, capture_output=True,
+                                    text=True, timeout=15)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("FRESH_PROFILE_EMPTY", result.stdout)
+
+    def test_real_chrome_paths_are_rejected_but_custom_dedicated_path_is_kept(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
+            root = Path(tmp)
+            config = root / ".config" / "dot" / "config.json"
+            config.parent.mkdir(parents=True)
+            chrome_root = system_chrome_dir(root)
+            chrome_profile = chrome_root / "Profile 1"
+            dedicated = root / "custom" / "dot-profile"
+
+            config.write_text(json.dumps({"accounts": {"work": {
+                "user_data_dir": str(chrome_profile), "profile_match": "owner@example.com"
+            }}}))
+            env = dict(os.environ, HOME=tmp, DOT_ACCOUNT="work", DOT_CONFIG_FILE=str(config))
+            env.pop("DOT_CHROME_USER_DATA", None)
+            result = subprocess.run([NODE, str(DOT_CHROME), "resolve-profile"], env=env,
+                                    capture_output=True, text=True, timeout=15)
+            self.assertNotEqual(result.returncode, 0,
+                                result.stderr or "a real Chrome profile must be rejected")
+
+            config.write_text(json.dumps({"accounts": {"work": {
+                "user_data_dir": str(dedicated), "profile_match": "owner@example.com"
+            }}}))
+            result = subprocess.run([NODE, str(DOT_CHROME), "resolve-profile"], env=env,
+                                    capture_output=True, text=True, timeout=15)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(result.stdout)["profileDir"], str(dedicated))
+
+            config.write_text(json.dumps({"accounts": {
+                "work": {"user_data_dir": str(dedicated)},
+                "other": {"user_data_dir": str(dedicated)},
+            }}))
+            result = subprocess.run([NODE, str(DOT_CHROME), "resolve-profile"], env=env,
+                                    capture_output=True, text=True, timeout=15)
+            self.assertNotEqual(result.returncode, 0, "two configured accounts cannot share a profile")
+
+            chrome_root.mkdir(parents=True)
+            alias = root / "chrome-alias"
+            alias.symlink_to(chrome_root, target_is_directory=True)
+            config.write_text(json.dumps({"accounts": {"work": {
+                "user_data_dir": str(alias / "Profile 1")
+            }}}))
+            result = subprocess.run([NODE, str(DOT_CHROME), "resolve-profile"], env=env,
+                                    capture_output=True, text=True, timeout=15)
+            self.assertNotEqual(result.returncode, 0, "symlink aliases to real Chrome must be rejected")
+
+    def test_negative_auth_observations_do_not_clear_auth_failure(self):
+        source = DOT_CHROME.read_text(encoding="utf-8")
+        self.assertIn("session.status === 200 && session.isJson && session.hasUser", source)
+        self.assertIn("if (session.status === 200 && session.isJson && session.hasUser) {\n        clearAuthFailed(USER_DATA_DIR);", source)
         self.assertNotIn("clearAuthFailed(USER_DATA_DIR);\n      if (mode === 'send')", source)
         self.assertNotIn("clearAuthFailed(USER_DATA_DIR);\n    return page;", source)
-
-    def test_production_sync_cookies_and_failed_auth_recovery(self):
-        # Run isolated Node test importing actual production functions from dot_chrome.mjs
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_path = Path(temp_dir)
-            src_dir = temp_path / "src_profile"
-            src_network = src_dir / "Network"
-            dst_root = temp_path / "dst_profile"
-            dst_default = dst_root / "Default"
-
-            src_network.mkdir(parents=True)
-            dst_default.mkdir(parents=True)
-
-            src_cookies = src_dir / "Cookies"
-            src_cookies.write_text("src_cookie_v1")
-
-            test_script = temp_path / "test_runner.mjs"
-            test_script.write_text(f"""
-import fs from 'fs';
-import path from 'path';
-import {{ syncCookiesFromSource, clearSyncMarker, clearAuthFailed }} from {repr(DOT_CHROME.as_uri())};
-
-const srcProfilePath = {repr(str(src_dir))};
-const dstRootDir = {repr(str(dst_root))};
-const dstDefaultDir = {repr(str(dst_default))};
-const dstCookies = path.join(dstDefaultDir, 'Cookies');
-const syncMarker = path.join(dstDefaultDir, '.src_cookies_synced_mtime');
-const authFailedMarker = path.join(dstDefaultDir, '.auth_failed');
-const manualLoginMarker = path.join(dstDefaultDir, '.manual_login');
-
-// 1. Initial sync copies from src to dst and creates JSON sync marker
-const copied1 = syncCookiesFromSource(srcProfilePath, dstDefaultDir);
-if (!copied1) throw new Error("Step 1 failed: initial sync should return true");
-if (fs.readFileSync(dstCookies, 'utf8') !== 'src_cookie_v1') {{
-  throw new Error("Step 1 failed: dstCookies content mismatch");
-}}
-if (!fs.existsSync(syncMarker)) {{
-  throw new Error("Step 1 failed: syncMarker not created in dst Default dir");
-}}
-
-// 2. Second sync with unchanged source should return false
-const copied2 = syncCookiesFromSource(srcProfilePath, dstDefaultDir);
-if (copied2) throw new Error("Step 2 failed: second sync without changes should return false");
-
-// 2b. When sync is already recorded, allow a newer source mtime to trigger copying
-// even if routine headless runs touched dst to a later timestamp
-const routineHeadlessTouch = new Date(Date.now() + 10000);
-fs.utimesSync(dstCookies, routineHeadlessTouch, routineHeadlessTouch);
-
-const newerDesktopLogin = new Date(Date.now() + 5000);
-fs.writeFileSync(path.join(srcProfilePath, 'Cookies'), 'fresh_desktop_login_v2');
-fs.utimesSync(path.join(srcProfilePath, 'Cookies'), newerDesktopLogin, newerDesktopLogin);
-
-const copied2b = syncCookiesFromSource(srcProfilePath, dstDefaultDir);
-if (!copied2b) throw new Error("Step 2b failed: newer desktop login should sync over routine dst touch when sync already recorded");
-if (fs.readFileSync(dstCookies, 'utf8') !== 'fresh_desktop_login_v2') {{
-  throw new Error("Step 2b failed: dstCookies content mismatch after 2b sync");
-}}
-
-// 3. REGRESSION TEST: Browser shutdown flush 2 seconds after failedAt without manual login marker
-// When auth fails, clearSyncMarker writes .auth_failed.
-// Browser shutdown flushes cookies 2s AFTER failedAt.
-// syncCookiesFromSource must NOT mistake this routine flush for a manual login.
-clearSyncMarker(dstRootDir);
-const failedAt = JSON.parse(fs.readFileSync(authFailedMarker, 'utf8')).failedAt;
-const flushTime = new Date(failedAt + 2000);
-fs.writeFileSync(dstCookies, 'stale_expired_session_flushed_on_shutdown');
-fs.utimesSync(dstCookies, flushTime, flushTime);
-
-// Source desktop cookies are older than the shutdown flush
-const desktopTime = new Date(failedAt - 5000);
-fs.writeFileSync(path.join(srcProfilePath, 'Cookies'), 'authenticated_desktop_cookie');
-fs.utimesSync(path.join(srcProfilePath, 'Cookies'), desktopTime, desktopTime);
-
-// Multiple recovery attempts must succeed and update dstCookies
-for (let i = 1; i <= 3; i++) {{
-  const res = syncCookiesFromSource(srcProfilePath, dstDefaultDir);
-  if (i === 1 && !res) {{
-    throw new Error("Step 3 failed: recovery attempt 1 failed to sync desktop cookies!");
-  }}
-  if (fs.readFileSync(dstCookies, 'utf8') !== 'authenticated_desktop_cookie') {{
-    throw new Error(`Step 3 failed: dstCookies was left expired on attempt ${{i}}!`);
-  }}
-}}
-
-// Verify failure state is preserved until explicit confirmation (not deleted merely by copying)
-if (!fs.existsSync(authFailedMarker)) {{
-  throw new Error("Step 3 failed: .auth_failed should remain until session is confirmed");
-}}
-
-// 4. SESSION CHECK CONTRACT: Indeterminate responses (0, 500) must NOT clear .auth_failed
-// Only confirmed session (200 with hasUser) clears it
-function handleSessionCheck(status, isJson, hasUser) {{
-  if (status === 200 && isJson && hasUser) {{
-    clearAuthFailed(dstRootDir);
-  }}
-}}
-
-handleSessionCheck(0, false, false);
-if (!fs.existsSync(authFailedMarker)) throw new Error("Step 4 failed: status 0 cleared authFailedMarker");
-handleSessionCheck(500, false, false);
-if (!fs.existsSync(authFailedMarker)) throw new Error("Step 4 failed: status 500 cleared authFailedMarker");
-
-// Confirmed auth clears it
-handleSessionCheck(200, true, true);
-if (fs.existsSync(authFailedMarker)) throw new Error("Step 4 failed: confirmed auth did not clear authFailedMarker");
-
-// 5. MANUAL LOGIN PRESERVATION
-// An explicit manual login marker (.manual_login) touched via dot.sh login is preserved
-clearSyncMarker(dstRootDir); // auth failed again
-const manualTime = new Date(Date.now() + 30000);
-fs.writeFileSync(dstCookies, 'manual_headless_login_session');
-fs.utimesSync(dstCookies, manualTime, manualTime);
-fs.writeFileSync(manualLoginMarker, '');
-fs.utimesSync(manualLoginMarker, manualTime, manualTime);
-
-const copiedAfterManual = syncCookiesFromSource(srcProfilePath, dstDefaultDir);
-if (copiedAfterManual) {{
-  throw new Error("Step 5 failed: syncCookiesFromSource must not overwrite newer manual login!");
-}}
-if (fs.readFileSync(dstCookies, 'utf8') !== 'manual_headless_login_session') {{
-  throw new Error("Step 5 failed: manual login session was overwritten!");
-}}
-
-// 6. Desktop Chrome newer login overrides manual login
-const newestDesktopTime = new Date(manualTime.getTime() + 10000);
-fs.writeFileSync(path.join(srcProfilePath, 'Cookies'), 'newest_desktop_session');
-fs.utimesSync(path.join(srcProfilePath, 'Cookies'), newestDesktopTime, newestDesktopTime);
-
-const copied6 = syncCookiesFromSource(srcProfilePath, dstDefaultDir);
-if (!copied6) throw new Error("Step 6 failed: newest desktop login should sync");
-if (fs.readFileSync(dstCookies, 'utf8') !== 'newest_desktop_session') {{
-  throw new Error("Step 6 failed: dstCookies not updated to newest desktop session");
-}}
-
-// 7. Independent tracking for Network/Cookies
-const srcNetworkCookies = path.join(srcProfilePath, 'Network', 'Cookies');
-fs.writeFileSync(srcNetworkCookies, 'network_cookie_data');
-const copied7 = syncCookiesFromSource(srcProfilePath, dstDefaultDir);
-if (!copied7) throw new Error("Step 7 failed: Network/Cookies sync should succeed");
-const markerContent = JSON.parse(fs.readFileSync(syncMarker, 'utf8'));
-if (!markerContent['Cookies'] || !markerContent[path.join('Network', 'Cookies')]) {{
-  throw new Error("Step 7 failed: marker should independently track Cookies and Network/Cookies");
-}}
-
-// 8. Error handling: clearSyncMarker and clearAuthFailed on missing markers handle ENOENT cleanly
-clearSyncMarker(dstRootDir);
-clearAuthFailed(dstRootDir);
-clearAuthFailed(dstRootDir);
-
-console.log("ALL_AUTH_SYNC_TESTS_PASSED");
+        with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
+            root = Path(tmp)
+            script = root / "auth-marker.mjs"
+            marker = root / "profile" / "Default" / ".auth_failed"
+            script.write_text(f"""
+import fs from 'node:fs';
+import {{ markAuthFailed, clearAuthFailed }} from {json.dumps(DOT_CHROME.as_uri())};
+const root = {json.dumps(str(root / 'profile'))};
+const marker = {json.dumps(str(marker))};
+markAuthFailed(root);
+if (!fs.existsSync(marker)) throw new Error("negative auth observation cleared auth failure");
+clearAuthFailed(root);
+if (fs.existsSync(marker)) throw new Error('explicit confirmed login cleanup did not clear auth failure marker');
+console.log('AUTH_FAILURE_MARKER_PRESERVED');
 """)
-
-            result = subprocess.run(["node", str(test_script)], capture_output=True, text=True)
+            env = dict(os.environ, HOME=tmp)
+            result = subprocess.run([NODE, str(script)], env=env, capture_output=True,
+                                    text=True, timeout=15)
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn("ALL_AUTH_SYNC_TESTS_PASSED", result.stdout)
+            self.assertIn("AUTH_FAILURE_MARKER_PRESERVED", result.stdout)
+
+    def test_login_and_read_share_the_resolved_dedicated_profile(self):
+        shell = DOT_SH.read_text(encoding="utf-8")
+        self.assertIn('DOT_CHROME_USER_DATA="$PROFILE_DIR"', shell)
+        self.assertIn('DOT_CHROME_USER_DATA="${DOT_CHROME_USER_DATA:-}"', shell)
+        self.assertIn('local dir="${DOT_CHROME_USER_DATA:-}"', shell)
+        self.assertNotIn('--profile-directory=', shell)
+        self.assertNotIn("forward_to_mac", shell)
+        source = DOT_CHROME.read_text(encoding="utf-8")
+        self.assertIn('const USER_DATA_DIR = accountInfo.profileDir;', source)
+        self.assertIn('chromium.launchPersistentContext(USER_DATA_DIR', source)
+
+        with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
+            root = Path(tmp)
+            config = root / "config.json"
+            dedicated = root / "dot-profile"
+            config.write_text(json.dumps({"accounts": {"work": {
+                "user_data_dir": str(dedicated)
+            }}}))
+            chrome = root / "fake-chrome"
+            args_file = root / "login-args"
+            chrome.write_text('#!/bin/sh\nprintf \'%s\\n\' "$@" > "$DOT_CHROME_ARGS"\n')
+            chrome.chmod(0o700)
+            env = dict(os.environ, HOME=tmp,
+                       PATH=str(Path(NODE).resolve().parent) + os.pathsep + os.environ["PATH"],
+                       DOT_CONFIG_FILE=str(config), DOT_CHROME_BIN=str(chrome),
+                       DOT_CHROME_ARGS=str(args_file))
+            env.pop("DOT_CHROME_USER_DATA", None)
+            result = subprocess.run(["bash", str(DOT_SH), "--account", "work", "login"],
+                                    env=env, capture_output=True, text=True, timeout=15)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            args = args_file.read_text().splitlines()
+            self.assertIn(f"--user-data-dir={dedicated}", args)
+            self.assertFalse(
+                any(arg.startswith("--profile-directory=") for arg in args)
+            )
+
+    def test_canceled_login_preserves_existing_auth_failure_marker(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
+            root = Path(tmp)
+            config = root / "config.json"
+            dedicated = root / "dot-profile"
+            config.write_text(json.dumps({"accounts": {"work": {
+                "user_data_dir": str(dedicated)
+            }}}))
+            marker = dedicated / "Default" / ".auth_failed"
+            marker.parent.mkdir(parents=True)
+            marker.write_text('{"failedAt":123}')
+
+            chrome = root / "fake-chrome"
+            chrome.write_text("#!/bin/sh\nexit 130\n")
+            chrome.chmod(0o700)
+            env = dict(os.environ, HOME=tmp, DOT_CONFIG_FILE=str(config),
+                       DOT_CHROME_BIN=str(chrome))
+            env.pop("DOT_CHROME_USER_DATA", None)
+            result = subprocess.run(["bash", str(DOT_SH), "--account", "work", "login"],
+                                    env=env, capture_output=True, text=True, timeout=15)
+
+            self.assertEqual(result.returncode, 130, result.stderr)
+            self.assertEqual(marker.read_text(), '{"failedAt":123}')
 
 
 if __name__ == "__main__":
