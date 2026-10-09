@@ -5,6 +5,7 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
+TimeoutStartSec=800
 WorkingDirectory=%h
 ExecStart=/bin/bash %h/.claude/skills/agy-dot-coordinator/scripts/agy-dot-coordinator-wrapper.sh
 StandardOutput=journal

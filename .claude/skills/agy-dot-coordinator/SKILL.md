@@ -1,19 +1,29 @@
 ---
 name: agy-dot-coordinator
-description: Coordinate existing dot work with collaborative priorities, quiet delta coordination, explicit state-change events and verified delivery.
+description: Send short AGY-written coordination pings through the existing Dot tool and native scheduler.
 ---
 
 # Antigravity dot coordinator
 
+The default native wrapper now runs `scripts/ping-dots.py`: one due configured account, one short reminder generated in order by AGY, Codex Luna, then Claude Haiku 5.5, and one existing Dot `send-once` call. A failed, malformed, empty, or oversized provider result advances to the next provider. Only a valid reminder reaches the one Dot send attempt; a send failure never falls back to another provider or retries. `--generator agy|codex|haiku` selects one provider, and `--generate-only` exercises generation without sending. The reminder asks each Dot to advance every authorized goal and show actual progress or a genuine human-only blocker.
+
+Configure exactly three accounts in the existing Dot rotation. Mac slots are :00/:20/:40; Linux slots are :30/:50/:10 for those accounts respectively. Missed slots are not replayed. The existing lock, STOP file, historical delivery holds, and Dot draft/authentication safeguards remain. There is no new ledger, browser transport, retry loop, or process framework.
+
+`python3 scripts/ping-dots.py --account <configured-key>` sends one real ping. Do not use it merely to test installation. Native service installation/activation still requires the authorized owner handoff. A tested script or enabled timer is not proof that all six host/account pairs delivered.
+
+## Legacy event-driven worker reference
+
+The following documents only the retained `agy-dot-coordinator-worker.sh` manual interface. Its event gates, state mutations, cadence descriptions, and rejected AGY option do not apply to `ping-dots.py` or the current native wrapper.
+
 The worker sends through the existing dot Chrome transport. It does not infer new authority or execute repository work. Latest direct user instructions override contextual priorities; respect task owners, cancellations, approvals and authentication holds.
 
-## Sources and configuration
+### Sources and configuration
 
 Use one canonical host package, with optional discovery links pointing to it. Required companion: the installed `dot` skill with `scripts/dot.sh`, Python 3, Bash, flock, timeout and its supported Node/browser runtime. Recipients come only from `DOT_CONFIG_FILE` (default `~/.config/dot/config.json`) rotation/accounts, or explicit `--account`. No account rotation on quota errors.
 
 Store private contextual workstream defaults in `~/.config/dot/coordinator-priorities.txt` (or `COORDINATOR_PRIORITIES_FILE`), never in portable source. The message preserves these as defaults, suggests changes with reasons and does not reassign owners. Missing defaults retain the recipient's existing plan.
 
-## Send gates
+### Send gates
 
 - Scheduled wakes are quiet without an explicit owner-supplied change/request ID and summary. No automatic change detection or compulsory full rollup runs.
 - Skip routine sends whenever the dot read reports Thinking, Working or Searching; `--force` cannot bypass this, deduplication or unresolved receipt holds. This conservative text signal may defer a send when those words appear in ordinary text.
@@ -26,13 +36,13 @@ Store private contextual workstream defaults in `~/.config/dot/coordinator-prior
 
 State: `~/.local/state/ai.gemini.agy-dot-coordinator/state_<account>.json` and consolidated `state.json`. State overrides and `COORDINATOR_DOT_SCRIPT`/`COORDINATOR_LOCK_FILE` support isolated tests. Only the worker owns the flock execution lock; wrapper does not reacquire it.
 
-## Scheduling and deployment
+### Scheduling and deployment
 
 Existing host schedules are independent of send eligibility. The Mac template wakes at :00/:20/:40; Linux template at :15/:45. Do not replace a live schedule merely to change gates. The existing installer scripts register/restart services: do not run them for a no-restart package refresh. With the execution lock held and no competing package editor, preserve the complete old package, verify source/destination hashes, then atomically replace changed files and keep undo receipts. Never copy credentials or browser profiles for deployment.
 
 `--status` reads account timestamps; `--dry-run` still reads the dot UI, so neither replaces an isolated transport test. Use tests with a fake dot transport for verification. For live proof, observe the next natural scheduler tick and its Worker SHA256 plus gate result; never send duplicate messages merely to test delivery.
 
-## Explicit full-rollup example
+### Explicit full-rollup example
 
 After a direct user request or an owner-reported material cross-track change, use an ID unique to that semantic request (not a timestamp minted on every wake):
 
@@ -44,7 +54,7 @@ COORDINATOR_CHANGE_SUMMARY="User requested a complete review of release dependen
 
 This sends a real message; do not invoke it merely to test installation. Omit `--full-rollup` for a brief delta/blocker notification. Default scheduled invocations have no signals and stay quiet. No producer for these signals is installed by this package.
 
-## Deferral and resumption
+### Deferral and resumption
 
 This worker sends owner-supplied events; it does not autonomously observe, reprioritize, or review all work. Keep any separate periodic all-task review with its existing owner. There is no automatic stall detector or pending-event queue.
 
