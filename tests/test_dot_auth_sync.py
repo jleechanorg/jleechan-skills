@@ -201,6 +201,30 @@ console.log('AUTH_FAILURE_MARKER_PRESERVED');
             self.assertIn(f"--user-data-dir={dedicated}", args)
             self.assertIn("--profile-directory=Default", args)
 
+    def test_canceled_login_preserves_existing_auth_failure_marker(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
+            root = Path(tmp)
+            config = root / "config.json"
+            dedicated = root / "dot-profile"
+            config.write_text(json.dumps({"accounts": {"work": {
+                "user_data_dir": str(dedicated)
+            }}}))
+            marker = dedicated / "Default" / ".auth_failed"
+            marker.parent.mkdir(parents=True)
+            marker.write_text('{"failedAt":123}')
+
+            chrome = root / "fake-chrome"
+            chrome.write_text("#!/bin/sh\nexit 130\n")
+            chrome.chmod(0o700)
+            env = dict(os.environ, HOME=tmp, DOT_CONFIG_FILE=str(config),
+                       DOT_CHROME_BIN=str(chrome))
+            env.pop("DOT_CHROME_USER_DATA", None)
+            result = subprocess.run(["bash", str(DOT_SH), "--account", "work", "login"],
+                                    env=env, capture_output=True, text=True, timeout=15)
+
+            self.assertEqual(result.returncode, 130, result.stderr)
+            self.assertEqual(marker.read_text(), '{"failedAt":123}')
+
 
 if __name__ == "__main__":
     unittest.main()

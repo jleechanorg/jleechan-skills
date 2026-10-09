@@ -280,10 +280,7 @@ cmd_login() {
     exit 2
   fi
   mkdir -p "$dir/Default"
-  rm -f "$dir/Default/.auth_failed"
   "$chrome_bin" --user-data-dir="$dir" --profile-directory=Default --no-first-run --no-default-browser-check "$target_url"
-  mkdir -p "$dir/Default"
-  rm -f "$dir/Default/.auth_failed"
 }
 
 case "${1:-}" in
