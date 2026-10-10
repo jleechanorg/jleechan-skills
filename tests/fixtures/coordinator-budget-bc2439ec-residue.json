@@ -1,0 +1,37 @@
+{
+  "ledger_version": 7,
+  "total_reserved": -5.551115123125783e-17,
+  "total_settled": 0.0,
+  "reservations": {
+    "res_0_1": {
+      "reservation_id": "res_0_1",
+      "caller_principal": "fixture",
+      "max_cost": 0.1,
+      "reserved_amount": 0.1,
+      "settled_amount": 0.0,
+      "status": "settled",
+      "task_key": null,
+      "grant_version": null
+    },
+    "res_1_1": {
+      "reservation_id": "res_1_1",
+      "caller_principal": "fixture",
+      "max_cost": 0.4,
+      "reserved_amount": 0.4,
+      "settled_amount": 0.0,
+      "status": "settled",
+      "task_key": null,
+      "grant_version": null
+    },
+    "res_2_1": {
+      "reservation_id": "res_2_1",
+      "caller_principal": "fixture",
+      "max_cost": 0.2,
+      "reserved_amount": 0.2,
+      "settled_amount": 0.0,
+      "status": "settled",
+      "task_key": null,
+      "grant_version": null
+    }
+  }
+}

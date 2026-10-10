@@ -1,0 +1,20 @@
+{
+  "control/action/attempt": {
+    "control_record_id": "control",
+    "action_id": "action",
+    "attempt_id": "attempt",
+    "account": "account",
+    "event_id": "event",
+    "kind": "status",
+    "message_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "task_key": {
+      "github_host": "github.com",
+      "repository": "example-org/project",
+      "source_namespace": "issues",
+      "bead_id": "item"
+    },
+    "grant_version": "v1",
+    "control_entry_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "registered_at": "2026-10-08T15:57:46Z"
+  }
+}
