@@ -366,7 +366,7 @@ like X."
 # Claim: "real Gemini response is logged verbatim with DC set before roll"
 - Claim Y: real Gemini response is logged verbatim → [Layer 2 real-LLM, Layer 2 real-BQ]
 - evidence: artifacts/llm_request_responses.jsonl contains a `type:response`
-  entry with `model: gemini-3-pro`, a real `https://generativelanguage.googleapis.com/...`
+  entry with `model: gemini-3.8-flash`, a real `https://generativelanguage.googleapis.com/...`
   POST in the wire log, and a `dc_reasoning` field set before the `random.randint()` call.
 ```
 

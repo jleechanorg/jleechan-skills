@@ -105,7 +105,7 @@ Don't sort directly on raw values — `TypeError: '<' not supported between inst
 | `mode` | **USER INTENT mode** — what the player typed | `"character"`, `"god"`, `"think"`, `"(unset)"` |
 | `text` | Scene content (markdown narrative + quoted speech) | `"[CHARACTER CREATION - Review]\n\nVisenya..."` |
 | `debug_info.agent_name` | **THE ACTUAL AGENT that produced the scene** | `"HeavyDialogAgent"`, `"DialogAgent"`, `"StoryModeAgent"`, `"GodModeAgent"`, `"CombatAgent"`, `"LevelUpAgent"`, `"CharacterCreationAgent"`, `"PlanningAgent"`, `"FactionManagementAgent"`, `"RewardsAgent"`, `"InfoAgent"`, `"SpicyModeAgent"`, `"CampaignUpgradeAgent"` |
-| `debug_info.llm_model` | LLM model identifier | `"gemini-3-flash-preview"` |
+| `debug_info.llm_model` | LLM model identifier | `"gemini-3.8-flash"` |
 | `debug_info.system_instruction_files` | Which prompt files were loaded | (list of file basenames) |
 | `full_state_updates` | State changes emitted this turn | nested dict |
 | `planning_block` | Choices offered to the player | nested dict |

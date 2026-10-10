@@ -3487,7 +3487,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Spicy Mode Toggle Handler
   let SPICY_MODEL = window.APP_MODELS?.SPICY_MODEL || 'x-ai/grok-4.1-fast';
   let DEFAULT_GEMINI_MODEL =
-    window.APP_MODELS?.DEFAULT_GEMINI_MODEL || 'gemini-3-flash-preview';
+    window.APP_MODELS?.DEFAULT_GEMINI_MODEL || 'gemini-3.8-flash';
   let DEFAULT_OPENROUTER_MODEL =
     window.APP_MODELS?.DEFAULT_OPENROUTER_MODEL || 'meta-llama/llama-3.1-70b-instruct';
   let DEFAULT_CEREBRAS_MODEL =

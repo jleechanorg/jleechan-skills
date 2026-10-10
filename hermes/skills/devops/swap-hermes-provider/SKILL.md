@@ -180,7 +180,7 @@ When removing a provider BECAUSE it was failing (e.g., `GoUsageLimitError`, mont
 
 - **Provider alias vs. provider name.** The YAML provider block's KEY (e.g., `opencode-go:`) is a free-form identifier and may not match the provider's network name. Always grep for BOTH the block-key and the `name:` field inside it.
 - **The `models.<provider>: models:` pricing-table at the END of the file** is easy to miss because it's structurally similar to the top-level `providers.<x>:` block (both have `models:` subkeys), but it's in a different top-level namespace and serves a different purpose (audit/pricing, not network).
-- **Auxiliary task boundaries.** `auxiliary.compression.provider` and `auxiliary.vision.provider` are separate from the main provider route — you can have `minimax` as primary AND `gemini-3-flash-preview` as vision. Removing `auxiliary.compression.provider: zai` does NOT remove `opencode-go` as a network endpoint; they're orthogonal.
+- **Auxiliary task boundaries.** `auxiliary.compression.provider` and `auxiliary.vision.provider` are separate from the main provider route — you can have `minimax` as primary AND `gemini-3.8-flash` as vision. Removing `auxiliary.compression.provider: zai` does NOT remove `opencode-go` as a network endpoint; they're orthogonal.
 - **Casual use of "GLM" vs "glm-5.1" vs "zai"** as if they're synonymous. They are NOT: `GLM-5.1` is the model id, `glm-5.1` is a lowercase variant the YAML uses inconsistently, `zai` is the vendor code. Search for all three when removing GLM-compression.
 
 ## Verification — minimum bar before claiming "done"
