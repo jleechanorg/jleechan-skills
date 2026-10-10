@@ -8,7 +8,7 @@ description: Use when the user invokes /dot or asks to "message the dot", "ask d
 Talk to the user's ChatGPT dot assistant using `scripts/dot.sh`. Platform-aware architecture:
 - **Dynamic Multi-Account Support:** Target any ChatGPT dot account via `--account <name>` or `DOT_ACCOUNT=<name>`.
 - **Machine-Local Configuration:** Configured in `~/.config/dot/config.json` mapping accounts to URLs and dedicated profile directories.
-- **Independent Chrome Sessions:** Runs headless Google Chrome against dedicated persistent profiles (`~/.config/dot-headless-chrome-<account_slug>`) on Linux and macOS with unified profile resolution and non-destructive lock recovery. Every host/account pair signs in locally; sessions are never imported or forwarded from another browser or host.
+- **Independent Chrome Sessions:** Runs headless Google Chrome against dedicated persistent profiles (`~/.config/dot-headless-chrome-<account_slug>`) on Linux and macOS with unified profile resolution and non-destructive lock recovery. Every host/account pair signs in locally.
 
 ## Machine Configuration (`~/.config/dot/config.json`)
 
@@ -37,7 +37,7 @@ Accounts, target dot URLs, and preferred backends can be declared per-machine in
 }
 ```
 
-Each `user_data_dir` must be dedicated to that Dot account and must not point inside the system Google Chrome profile. The legacy `profile_match` field is ignored. If `user_data_dir` is omitted, Dot derives a separate local directory from the account key. Chrome is the only supported backend; the aside backend was retired.
+Each `user_data_dir` must be dedicated to that Dot account and must not point inside the system Google Chrome profile. If `user_data_dir` is omitted, Dot derives a separate local directory from the account key. Chrome is the only backend.
 
 ## Default: delegate, then monitor
 
@@ -130,7 +130,7 @@ Always rotate across configured accounts when hitting a rate limit, usage limit,
 
 - **Headless Chrome (`scripts/dot_chrome.mjs`):** The only supported backend.
   - Resolves one persistent profile per account from `user_data_dir` in `~/.config/dot/config.json` or `~/.config/dot-headless-chrome-<account_slug>`.
-  - Creates a blank profile and requires an independent interactive login on every host. It never reads, copies, imports, or synchronizes system Chrome profile data, cookies, Local State, or another host's session. `DOT_FORCE_SYNC_COOKIES` has no effect.
+  - Creates a blank profile; each host and account signs in on its own with `dot.sh --account <name> login`.
   - Rejects profile paths that overlap the system Google Chrome profile, including symlink aliases.
   - Safely handles `SingletonLock`: verifies lock holder PID liveness, waiting politely if held by an active Chrome process, clearing only genuinely dead locks without killing peer processes.
   - Tolerates appended read-receipt timestamps (`Read 1:15 AM`) to prevent false draft conflicts.
@@ -140,7 +140,7 @@ Always rotate across configured accounts when hitting a rate limit, usage limit,
 
 - `DOT_ACCOUNT`: Account identifier in `~/.config/dot/config.json`. Can also be passed via `--account <name>`.
 - `DOT_URL`: Target ChatGPT dot assistant URL. Can also be passed via `--url <url>`.
-- `DOT_BACKEND`: Force backend (`chrome` or `auto`). The `aside` backend was retired; selecting it is a usage error.
+- `DOT_BACKEND`: Force backend (`chrome` or `auto`). Both values select Chrome.
 - `DOT_CONFIG_FILE`: Custom path to dot JSON configuration (defaults to `~/.config/dot/config.json`).
 - `DOT_CHROME_USER_DATA`: Explicit Chrome user data directory (defaults to account-specific persistent dir configured in `~/.config/dot/config.json`).
 - `DOT_CLEAR_DRAFT`: When set to `1`, forces clearing any existing draft in the composer before typing and sending.
