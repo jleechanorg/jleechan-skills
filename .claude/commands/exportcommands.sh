@@ -344,14 +344,32 @@ done
 # the export portable. Missing dir = soft skip (Hermes may not be installed on
 # every machine), not a hard failure.
 echo "▶ Syncing ~/.hermes/ surfaces..."
-if [[ -f .claude/skills/code-review/SKILL.md ]]; then
-  for projection_parent in hermes hermes/skills hermes/skills/code-review/agents; do
+# Shared canonical skills are projected into Hermes, never overwritten by a
+# stale installed mirror. Preflight every projection before the rsync writes.
+shared_hermes_skills=()
+for shared_skill in code-review tdd; do
+  canonical=".claude/skills/$shared_skill"
+  projection="hermes/skills/$shared_skill"
+  [[ -f "$canonical/SKILL.md" ]] || continue
+  shared_hermes_skills+=("$shared_skill")
+  if [[ -L "$projection" && "$(readlink "$projection")" != "../../.claude/skills/$shared_skill" ]]; then
+    echo "Refusing to replace an unknown $shared_skill directory link" >&2
+    exit 1
+  fi
+  for projection_parent in hermes hermes/skills "$projection/agents"; do
     if [[ -L "$projection_parent" ]]; then
       echo "Export incomplete: refusing directory link at $projection_parent" >&2
       exit 1
     fi
   done
-fi
+  for resource in SKILL.md agents/openai.yaml tests.md mocking.md; do
+    [[ -f "$canonical/$resource" ]] || continue
+    if [[ -d "$projection/$resource" && ! -L "$projection/$resource" ]]; then
+      echo "Export incomplete: refusing resource directory at $projection/$resource" >&2
+      exit 1
+    fi
+  done
+done
 # shellcheck disable=SC2046
 for dir in "${HERMES_DIRS[@]}"; do
   src="$HERMES_HOME/$dir/"
@@ -362,8 +380,10 @@ for dir in "${HERMES_DIRS[@]}"; do
   fi
   mkdir -p "$dst"
   hermes_excludes=("${COMMON_RSYNC_EXCLUDES[@]}" "${HERMES_RSYNC_EXTRAS[@]}")
-  if [[ "$dir" == "skills" && -f .claude/skills/code-review/SKILL.md ]]; then
-    hermes_excludes+=('/code-review/')
+  if [[ "$dir" == "skills" ]]; then
+    for shared_skill in "${shared_hermes_skills[@]}"; do
+      hermes_excludes+=("/$shared_skill/")
+    done
   fi
   rsync -aL \
     $(rsync_excludes "${hermes_excludes[@]}") \
@@ -371,19 +391,22 @@ for dir in "${HERMES_DIRS[@]}"; do
   echo "  ✅ hermes/$dir"
 done
 
-# Materialize shared-skill projections on fresh and previously exported targets.
-if [[ -f .claude/skills/code-review/SKILL.md ]]; then
-  if [[ -L hermes/skills/code-review ]]; then
-    if [[ "$(readlink hermes/skills/code-review)" != "../../.claude/skills/code-review" ]]; then
-      echo "Refusing to replace an unknown code-review directory link" >&2
-      exit 1
-    fi
-    rm -- hermes/skills/code-review
+# Materialize file links so normal SKILL.md discovery sees both distributions.
+for shared_skill in "${shared_hermes_skills[@]}"; do
+  canonical=".claude/skills/$shared_skill"
+  projection="hermes/skills/$shared_skill"
+  if [[ -L "$projection" ]]; then
+    rm -- "$projection"  # The exact legacy target was checked before any writes.
   fi
-  mkdir -p hermes/skills/code-review/agents
-  ln -sfn ../../../.claude/skills/code-review/SKILL.md hermes/skills/code-review/SKILL.md
-  ln -sfn ../../../../.claude/skills/code-review/agents/openai.yaml hermes/skills/code-review/agents/openai.yaml
-fi
+  mkdir -p "$projection/agents"
+  for resource in SKILL.md tests.md mocking.md; do
+    [[ -f "$canonical/$resource" ]] || continue
+    ln -sfn "../../../$canonical/$resource" "$projection/$resource"
+  done
+  if [[ -f "$canonical/agents/openai.yaml" ]]; then
+    ln -sfn "../../../../$canonical/agents/openai.yaml" "$projection/agents/openai.yaml"
+  fi
+done
 
 # ── Rsync ~/.codex/<dir> → .codex/<dir> at target repo root ──────────────────
 # Deliberately NOT -L (no symlink following): ~/.codex/skills is heavily
