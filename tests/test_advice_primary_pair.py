@@ -598,11 +598,19 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         self.assertEqual(runner.validate_codex_model(""), "gpt-6-sol")
         self.assertEqual(runner.validate_codex_model("   "), "gpt-6-sol")
         self.assertEqual(runner.validate_codex_model("gpt-6-sol"), "gpt-6-sol")
+        self.assertEqual(runner.validate_codex_model("gpt-6-astra"), "gpt-6-astra")
         self.assertEqual(runner.validate_codex_model("gpt-6-luna"), "gpt-6-luna")
-        self.assertEqual(runner.validate_codex_model("gpt-6.1"), "gpt-6.1")
         self.assertEqual(runner.validate_codex_model("gpt-6.1-sol"), "gpt-6.1-sol")
 
-        for invalid in ("gpt-60-legacy", "gpt-6junk", "gpt-6-", "gpt-6.1-"):
+        for invalid in (
+            "gpt-6",
+            "gpt-6.1",
+            "gpt-6-not-a-real-model",
+            "gpt-60-legacy",
+            "gpt-6junk",
+            "gpt-6-",
+            "gpt-6.1-",
+        ):
             with self.assertRaises(ValueError):
                 runner.validate_codex_model(invalid)
 

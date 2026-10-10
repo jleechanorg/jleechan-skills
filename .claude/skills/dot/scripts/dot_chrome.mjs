@@ -457,9 +457,9 @@ async function settlePage(page, currentMode) {
     const composers = await page.locator(COMPOSER).count().catch(() => 0);
     const bodyText = (await page.evaluate(() => document.body ? document.body.innerText : '').catch(() => ''));
 
-    if (/ChatGPT hit a snag|Something went wrong|couldn.t load your account/i.test(bodyText)) {
+    if (/ChatGPT hit a snag|Something went wrong/i.test(bodyText)) {
       try {
-        const tryAgainBtn = page.locator('button:has-text("Try again"), button:has-text("Retry"), button:has-text("Reload")');
+        const tryAgainBtn = page.locator('button:has-text("Try again"), button:has-text("Retry")');
         if (await tryAgainBtn.count() > 0) {
           await tryAgainBtn.first().click();
           await sleep(2000);
