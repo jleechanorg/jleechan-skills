@@ -44,7 +44,8 @@ class PromptContractTests(unittest.TestCase):
         for phrase in ('older commitment', 'durable checkpoint', 'acceptance gap',
                        'safe next actions', 'safe testing/design', 'duplicate writers',
                        'missing capability/approval', 'new evidence',
-                       'target, not permission', 'Wait quietly', 'honor explicit environments'):
+                       'target, not permission', 'Wait quietly', 'honor explicit environments',
+                       'Owner-approved scope', 'Report commit URLs, PR URLs or artifacts as proof'):
             self.assertIn(phrase, ping.REMINDER_BODY)
 
     def test_attribution_is_after_body_for_every_provider(self):
