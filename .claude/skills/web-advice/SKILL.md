@@ -254,8 +254,9 @@ reason and retry only once in a clean chat.
 ### Step 3 — Attach full-context packets & submit prompt to each model (sequentially, not parallel)
 
 Submit one model at a time. Submitting in parallel can hit rate limits or trigger captchas. Wait for each response before submitting the next.
+For Gemini, select Gemini 3.8 Flash or later; never select a Gemini Pro model.
 
-Response waits: Gemini "Pro Extended" and ChatGPT/Perplexity reasoning modes
+Response waits: Gemini 3.8 Flash and ChatGPT/Perplexity reasoning modes
 routinely take 3–10 minutes on a full packet. Poll until the stop/streaming
 control disappears (up to 15 minutes) before reading the verdict; a single
 `aside repl` script that exits after ~60 s loses the answer and the chat URL.
@@ -415,7 +416,7 @@ console.log('coverage:', coverageMatch?.[1]);
 
 Models don't always format in the exact section headers. If the regex misses, look for the verdict line in the visible response:
 
-- **Gemini Pro**: Structured output, "Copy code" button visible, response in dedicated region
+- **Gemini 3.8 Flash**: Structured output, "Copy code" button visible, response in dedicated region
 - **ChatGPT**: Most conversational, may not return structured output unless explicitly reminded
 - **Perplexity**: Citation-rich, "Sources" accordion; "Helpful"/"Not helpful" footer; verdict usually at the end
 
@@ -445,7 +446,7 @@ Web chat LLM review sessions are stateful and interactive, not single-turn scrip
 | Model | Verdict | Confidence | Share URL | Coverage & Upload Confirmation | Key finding |
 |---|---|---|---|---|---|
 | ChatGPT | <verdict> | high/med/low | <share URL> | Files uploaded & confirmed | <one line> |
-| Gemini Pro | <verdict> | high/med/low | <share URL> | Files uploaded & confirmed | <one line> |
+| Gemini 3.8 Flash | <verdict> | high/med/low | <share URL> | Files uploaded & confirmed | <one line> |
 | Perplexity | <verdict> | high/med/low | <share URL> | Files uploaded & confirmed | <one line> (note: web-grounded) |
 
 ### Verbatim Conversation Snippets per PR / Subject:

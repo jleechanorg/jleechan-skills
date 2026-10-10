@@ -7,6 +7,8 @@ description: Use current google-genai parameters and thinking configuration for 
 
 Use this when wiring Gemini 3 models in the Python SDK to avoid outdated params.
 
+Model invariant: Never select Gemini 3.1 Pro or any Gemini Pro model. Use Gemini 3.8 Flash (`gemini-3.8-flash`, `gemini-3.8-flash-high`) or later.
+
 ## ThinkingConfig (Gemini 3)
 
 Use the google-genai SDK `ThinkingConfig` fields (thinking_budget, include_thoughts).
@@ -17,7 +19,7 @@ from google.genai import types
 
 client = genai.Client()
 response = client.models.generate_content(
-    model="gemini-3-pro-preview",
+    model="gemini-3.8-flash",
     contents="Explain how AI works.",
     config=types.GenerateContentConfig(
         thinking_config=types.ThinkingConfig(thinking_budget=1024),
@@ -40,7 +42,7 @@ from google.genai import types
 
 client = genai.Client()
 response = client.models.generate_content(
-    model="gemini-3-flash-preview",
+    model="gemini-3.8-flash",
     contents="Compute the sum of the first 50 primes using code.",
     config=types.GenerateContentConfig(
         tools=[types.Tool(code_execution=types.ToolCodeExecution)],
@@ -69,7 +71,7 @@ class Result(BaseModel):
 
 client = genai.Client()
 response = client.models.generate_content(
-    model="gemini-3-pro-preview",
+    model="gemini-3.8-flash",
     contents="Summarize this text in one sentence.",
     config=types.GenerateContentConfig(
         response_mime_type="application/json",
