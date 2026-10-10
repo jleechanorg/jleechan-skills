@@ -1,4 +1,4 @@
-"""Exercise the canonical code-review projection through the Hermes export pass."""
+"""Exercise canonical skill projections through the Hermes export pass."""
 
 import os
 from pathlib import Path
@@ -13,6 +13,8 @@ EXPORTER = ROOT / ".claude/commands/exportcommands.sh"
 
 
 class CodeReviewExportTest(unittest.TestCase):
+    skill = "code-review"
+
     def test_export_preserves_canonical_skill_and_find_discovery(self):
         for initial in (
             "projection", "legacy", "empty", "directory_alias", "unknown_alias",
@@ -24,7 +26,50 @@ class CodeReviewExportTest(unittest.TestCase):
     def test_hermes_only_export_still_imports_legacy_skill(self):
         self.exercise_export("empty", canonical_present=False)
 
+    def test_projection_survives_missing_hermes_installation(self):
+        source = EXPORTER.read_text()
+        start = source.index("# ── Rsync ~/.hermes")
+        end = source.index("# ── Rsync ~/.codex", start)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            canonical = root / f".claude/skills/{self.skill}"
+            shutil.copytree(ROOT / f".claude/skills/{self.skill}", canonical)
+            # No Hermes installation: exercise real projection code without
+            # rsync, rather than mocking the export's byte-copy behavior.
+            result = subprocess.run(
+                ["bash", "-c", "set -euo pipefail\nHERMES_DIRS=()\n" + source[start:end]],
+                cwd=root, capture_output=True, text=True, timeout=10,
+            )
+            self.assertEqual(0, result.returncode, result.stderr)
+            for resource in canonical.rglob("*"):
+                if resource.is_file():
+                    projected = root / f"hermes/skills/{self.skill}" / resource.relative_to(canonical)
+                    self.assertTrue(projected.is_symlink(), projected)
+                    self.assertEqual(resource.resolve(), projected.resolve())
+
+    def test_resource_directory_is_preserved_and_refused_before_writes(self):
+        source = EXPORTER.read_text()
+        start = source.index("# ── Rsync ~/.hermes")
+        end = source.index("# ── Rsync ~/.codex", start)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            shutil.copytree(ROOT / f".claude/skills/{self.skill}",
+                            root / f".claude/skills/{self.skill}")
+            collision = root / f"hermes/skills/{self.skill}/SKILL.md"
+            collision.mkdir(parents=True)
+            (collision / 'local.md').write_text('retain local work\n')
+            result = subprocess.run(
+                ["bash", "-c", "set -euo pipefail\nHERMES_DIRS=()\n" + source[start:end]],
+                cwd=root, capture_output=True, text=True, timeout=10,
+            )
+            self.assertNotEqual(0, result.returncode)
+            self.assertEqual('retain local work\n', (collision / 'local.md').read_text())
+            self.assertEqual(['local.md'], [path.name for path in collision.iterdir()])
+            self.assertFalse((collision.parent / 'agents').exists())
+
     def exercise_export(self, initial, canonical_present=True):
+        skill = self.skill
+        self.assertTrue((ROOT / f".claude/skills/{skill}/SKILL.md").is_file())
         source = EXPORTER.read_text()
         helper_start = source.index("COMMON_RSYNC_EXCLUDES=(")
         helper_end = source.index("# Compute Hermes-side file counts", helper_start)
@@ -32,12 +77,12 @@ class CodeReviewExportTest(unittest.TestCase):
         loop_end = source.index("# ── Rsync ~/.codex", loop_start)
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            canonical = root / ".claude/skills/code-review"
+            canonical = root / f".claude/skills/{skill}"
             if canonical_present:
-                shutil.copytree(ROOT / ".claude/skills/code-review", canonical)
-            projected = root / "hermes/skills/code-review"
+                shutil.copytree(ROOT / f".claude/skills/{skill}", canonical)
+            projected = root / f"hermes/skills/{skill}"
             projected.parent.mkdir(parents=True)
-            original = ROOT / "hermes/skills/code-review"
+            original = ROOT / f"hermes/skills/{skill}"
             if initial == "projection":
                 shutil.copytree(original, projected, symlinks=True)
             elif initial == "legacy":
@@ -45,7 +90,7 @@ class CodeReviewExportTest(unittest.TestCase):
                 (projected / "SKILL.md").write_text("legacy target skill\n")
             elif initial == "directory_alias":
                 projected.symlink_to(
-                    "../../.claude/skills/code-review", target_is_directory=True
+                    f"../../.claude/skills/{skill}", target_is_directory=True
                 )
             elif initial == "unknown_alias":
                 outside = root / "unrelated"
@@ -69,13 +114,13 @@ class CodeReviewExportTest(unittest.TestCase):
                     alias = root / "hermes/skills"
                     target = "../unrelated"
                 alias.symlink_to(target, target_is_directory=True)
-            upstream = root / "upstream/skills/code-review"
+            upstream = root / f"upstream/skills/{skill}"
             upstream.mkdir(parents=True)
             (upstream / "SKILL.md").write_text("stale upstream skill\n")
             unrelated = upstream.parent / "other-skill"
             unrelated.mkdir()
             (unrelated / "SKILL.md").write_text("other skill\n")
-            command = root / "upstream/commands/code-review"
+            command = root / f"upstream/commands/{skill}"
             command.mkdir(parents=True)
             (command / "command.md").write_text("command content\n")
             script = (
@@ -101,7 +146,7 @@ class CodeReviewExportTest(unittest.TestCase):
                 return
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertEqual(
-                (root / "hermes/commands/code-review/command.md").read_text(),
+                (root / f"hermes/commands/{skill}/command.md").read_text(),
                 "command content\n",
             )
             if canonical_present:
@@ -111,7 +156,7 @@ class CodeReviewExportTest(unittest.TestCase):
                 )
                 self.assertEqual(
                     (projected / "SKILL.md").read_bytes(),
-                    (ROOT / ".claude/skills/code-review/SKILL.md").read_bytes(),
+                    (ROOT / f".claude/skills/{skill}/SKILL.md").read_bytes(),
                 )
                 self.assertEqual(
                     (projected / "agents/openai.yaml").resolve(),
@@ -121,12 +166,21 @@ class CodeReviewExportTest(unittest.TestCase):
                 self.assertEqual(
                     (projected / "SKILL.md").read_text(), "stale upstream skill\n"
                 )
+            if canonical_present:
+                for resource in canonical.rglob("*"):
+                    if resource.is_file():
+                        projection = projected / resource.relative_to(canonical)
+                        self.assertEqual(projection.resolve(), resource.resolve())
             found = subprocess.check_output(
                 ["find", "hermes/skills", "-name", "SKILL.md"],
                 cwd=root, text=True, timeout=10,
             ).splitlines()
-            self.assertIn("hermes/skills/code-review/SKILL.md", found)
+            self.assertIn(f"hermes/skills/{skill}/SKILL.md", found)
             self.assertEqual(
                 (root / "hermes/skills/other-skill/SKILL.md").read_text(),
                 "other skill\n",
             )
+
+
+class TddExportTest(CodeReviewExportTest):
+    skill = "tdd"
