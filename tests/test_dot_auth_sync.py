@@ -172,7 +172,6 @@ console.log('AUTH_FAILURE_MARKER_PRESERVED');
         self.assertIn('DOT_CHROME_USER_DATA="$PROFILE_DIR"', shell)
         self.assertIn('DOT_CHROME_USER_DATA="${DOT_CHROME_USER_DATA:-}"', shell)
         self.assertIn('local dir="${DOT_CHROME_USER_DATA:-}"', shell)
-        self.assertNotIn('--profile-directory=', shell)
         self.assertNotIn("forward_to_mac", shell)
         source = DOT_CHROME.read_text(encoding="utf-8")
         self.assertIn('const USER_DATA_DIR = accountInfo.profileDir;', source)
@@ -183,7 +182,8 @@ console.log('AUTH_FAILURE_MARKER_PRESERVED');
             config = root / "config.json"
             dedicated = root / "dot-profile"
             config.write_text(json.dumps({"accounts": {"work": {
-                "user_data_dir": str(dedicated)
+                "user_data_dir": str(dedicated),
+                "profile_directory": "Profile 7"
             }}}))
             chrome = root / "fake-chrome"
             args_file = root / "login-args"
@@ -199,9 +199,7 @@ console.log('AUTH_FAILURE_MARKER_PRESERVED');
             self.assertEqual(result.returncode, 0, result.stderr)
             args = args_file.read_text().splitlines()
             self.assertIn(f"--user-data-dir={dedicated}", args)
-            self.assertFalse(
-                any(arg.startswith("--profile-directory=") for arg in args)
-            )
+            self.assertIn("--profile-directory=Profile 7", args)
 
     def test_canceled_login_preserves_existing_auth_failure_marker(self):
         with tempfile.TemporaryDirectory(dir="/tmp") as tmp:

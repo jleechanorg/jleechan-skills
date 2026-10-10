@@ -180,7 +180,8 @@ a recognizable verdict, invoke A3.
 **A1 — Codex CLI (primary):** `codex exec --yolo -m gpt-6-sol --config
 model_reasoning_effort=high`. The explicit command guarantees full-permission
 mode without relying on wrapper internals. All 5.6 models are forbidden; only
-models starting with `gpt-6` or `gpt-6.1` are permitted (default: `gpt-6-sol`).
+exact `gpt-6` or `gpt-6.1` IDs, optionally followed by nonempty hyphen-delimited
+alphanumeric variants, are permitted (default: `gpt-6-sol`).
 
 **A2 — Opus CLI (primary):** `claude -p --model opus
 --dangerously-skip-permissions`. It is dispatched concurrently with A1, not

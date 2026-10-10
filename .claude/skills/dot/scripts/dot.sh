@@ -86,6 +86,7 @@ ACCOUNT="${ACCOUNT:-default}"
 
 # Unify profile directory and URL resolution via dot_chrome.mjs resolve-profile
 PROFILE_DIR=""
+PROFILE_DIRECTORY=""
 RESOLVED_URL=""
 if [[ -x "$NODE" && -f "$HERE/dot_chrome.mjs" ]]; then
   if ! PROFILE_INFO=$(DOT_ACCOUNT="$ACCOUNT" DOT_CONFIG_FILE="$CONFIG_FILE" DOT_URL="${DOT_URL:-}" DOT_CHROME_USER_DATA="${DOT_CHROME_USER_DATA:-}" "$NODE" "$HERE/dot_chrome.mjs" "$PROFILE_RESOLVER_MODE" 2>&1); then
@@ -94,6 +95,7 @@ if [[ -x "$NODE" && -f "$HERE/dot_chrome.mjs" ]]; then
   fi
   if [[ -n "$PROFILE_INFO" ]]; then
     PROFILE_DIR=$("$NODE" -e 'try { process.stdout.write(JSON.parse(process.argv[1]).profileDir || ""); } catch {}' "$PROFILE_INFO" 2>/dev/null || true)
+    PROFILE_DIRECTORY=$("$NODE" -e 'try { process.stdout.write(JSON.parse(process.argv[1]).profileDirectory || ""); } catch {}' "$PROFILE_INFO" 2>/dev/null || true)
     RESOLVED_URL=$("$NODE" -e 'try { process.stdout.write(JSON.parse(process.argv[1]).url || ""); } catch {}' "$PROFILE_INFO" 2>/dev/null || true)
   fi
 fi
@@ -299,7 +301,12 @@ cmd_login() {
     echo "dot.sh: Google Chrome binary not found: $chrome_bin" >&2
     exit 2
   fi
+  local profile_args=()
+  if [[ -n "$PROFILE_DIRECTORY" ]]; then
+    profile_args+=("--profile-directory=$PROFILE_DIRECTORY")
+  fi
   "$chrome_bin" --user-data-dir="$dir" --no-first-run \
+    "${profile_args[@]}" \
     --no-default-browser-check "$target_url"
 }
 

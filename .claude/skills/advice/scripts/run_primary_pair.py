@@ -340,15 +340,22 @@ DEFAULT_CODEX_MODEL = "gpt-6-sol"
 
 
 def validate_codex_model(model: str | None = None) -> str:
-    """Validate Codex model: forbids 5.6 models and allows only gpt-6 or gpt-6.1."""
+    (
+        "Allow exact gpt-6/gpt-6.1 IDs or nonempty "
+        "hyphen-delimited variants; forbid 5.6."
+    )
     if model is None or not str(model).strip():
         return DEFAULT_CODEX_MODEL
     cleaned = str(model).strip()
     if "5.6" in cleaned:
         raise ValueError(f"Codex 5.6 models are forbidden: {cleaned}")
-    if not (cleaned.startswith("gpt-6") or cleaned.startswith("gpt-6.1")):
+    if not re.fullmatch(
+        r"gpt-6(?:\.1)?(?:-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*)?", cleaned
+    ):
         raise ValueError(
-            f"Codex model must start with 'gpt-6' or 'gpt-6.1': {cleaned}"
+            "Codex model must be exactly 'gpt-6' or 'gpt-6.1', optionally "
+            "followed by nonempty hyphen-delimited alphanumeric variants: "
+            f"{cleaned}"
         )
     return cleaned
 
@@ -477,7 +484,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--codex-model",
         default=DEFAULT_CODEX_MODEL,
         type=validate_codex_model,
-        help="Codex model for primary review (must start with 'gpt-6' or 'gpt-6.1'; default: gpt-6-sol; 5.6 models forbidden)",
+        help=(
+            "Codex model for primary review (exactly 'gpt-6' or 'gpt-6.1', "
+            "optionally followed by nonempty hyphen-delimited alphanumeric "
+            "variants; default: gpt-6-sol; 5.6 models forbidden)"
+        ),
     )
     parser.add_argument(
         "--timeout-seconds",

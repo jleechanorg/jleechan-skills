@@ -602,6 +602,10 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         self.assertEqual(runner.validate_codex_model("gpt-6.1"), "gpt-6.1")
         self.assertEqual(runner.validate_codex_model("gpt-6.1-sol"), "gpt-6.1-sol")
 
+        for invalid in ("gpt-60-legacy", "gpt-6junk", "gpt-6-", "gpt-6.1-"):
+            with self.assertRaises(ValueError):
+                runner.validate_codex_model(invalid)
+
         # Forbid all 5.6 models
         for forbidden in ("gpt-5.6-terra", "gpt-5.6-sol", "gpt-5.6-luna", "5.6", "my-5.6-model"):
             with self.assertRaises(ValueError) as ctx:
