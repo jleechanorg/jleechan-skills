@@ -165,6 +165,11 @@ function detectChromeProfile(requestedAccount) {
     : Object.prototype.hasOwnProperty.call(accountConfig, 'profile_directory')
       ? accountConfig.profile_directory
       : null;
+  if (profileDirectoryValue === null &&
+      Object.prototype.hasOwnProperty.call(accountConfig, 'profile_directory') &&
+      process.env.DOT_PROFILE_DIRECTORY === undefined) {
+    throw new Error('Configured Dot profile directory cannot be null');
+  }
   const profileDirectory = validateProfileDirectory(profileDirectoryValue);
   profileDirectoryPath(profileDir, profileDirectory);
   return {

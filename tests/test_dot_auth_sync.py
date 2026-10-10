@@ -154,6 +154,7 @@ console.log('FRESH_PROFILE_EMPTY');
                 "",
                 False,
                 0,
+                None,
                 "../other/Default",
                 "/tmp/foreign-profile",
                 r"..\other\Default",
