@@ -116,10 +116,6 @@ case "$BACKEND" in
   auto|chrome)
     BACKEND="chrome"
     ;;
-  aside)
-    echo "dot.sh: aside backend was retired; use chrome" >&2
-    exit 2
-    ;;
   *)
     echo "dot.sh: DOT_BACKEND must be chrome or auto" >&2
     exit 2
