@@ -2,8 +2,8 @@
 name: gemini-pair-verifier
 description: |
   Gemini CLI-powered pair programming verifier. Delegates verification to Gemini CLI
-  (gemini -m ${GEMINI_MODEL:-gemini-3-flash-preview} --yolo) for independent code review and test validation.
-  Works with any pair-coder teammate. Reference: orchestration/task_dispatcher.py CLI_PROFILES["gemini"]
+  (gemini -m ${GEMINI_MODEL:-gemini-3.8-flash} --yolo) for independent code review and test validation.
+  Works with any pair-coder teammate. (Gemini Model Invariant: Never use Gemini 3.1 Pro or older Pro models; always use Gemini 3.8 Flash or later). Reference: orchestration/task_dispatcher.py CLI_PROFILES["gemini"]
 ---
 
 ## Examples
@@ -69,8 +69,9 @@ Required fixes (if FAIL):
 PROMPT_EOF
 
 # Launch Gemini CLI (prompt via stdin)
-# Model overridable via GEMINI_MODEL env var (default: gemini-3-flash-preview)
-gemini -m ${GEMINI_MODEL:-gemini-3-flash-preview} --yolo < "$PROMPT_FILE"
+# Model overridable via GEMINI_MODEL env var (default: gemini-3.8-flash)
+# Gemini Invariant: Never use Gemini 3.1 Pro or older Pro models; always use gemini-3.8-flash or later
+gemini -m ${GEMINI_MODEL:-gemini-3.8-flash} --yolo < "$PROMPT_FILE"
 
 # Cleanup
 rm -f "$PROMPT_FILE"
@@ -170,7 +171,7 @@ echo "[$(date '+%Y-%m-%d %H:%M:%S')] [PHASE_TAG] message" >> $LOG
 |------|-----------|----------------|
 | IMPLEMENTATION_READY received | `[RECEIVED]` | `IMPLEMENTATION_READY from coder: <summary>` |
 | After choosing engine | `[ENGINE]` | `Using Gemini CLI` or `Gemini CLI unavailable (reason), falling back to native` |
-| CLI started | `[CLI_START]` | `gemini -m ${GEMINI_MODEL:-gemini-3-flash-preview} --yolo` |
+| CLI started | `[CLI_START]` | `gemini -m ${GEMINI_MODEL:-gemini-3.8-flash} --yolo` |
 | CLI completed | `[CLI_RESULT]` | `Gemini CLI exit code: X` |
 | After running tests | `[TESTS]` | Pipe: `python3 -m pytest ... 2>&1 \| tail -5 >> $LOG` |
 | After lint check | `[LINT]` | `ruff result: clean` or paste errors |

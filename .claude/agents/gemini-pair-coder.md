@@ -2,8 +2,8 @@
 name: gemini-pair-coder
 description: |
   Gemini CLI-powered pair programming coder. Delegates implementation to Gemini CLI
-  (gemini -m ${GEMINI_MODEL:-gemini-3-flash-preview} --yolo) for independent code generation. Works with
-  any pair-verifier teammate. Reference: orchestration/task_dispatcher.py CLI_PROFILES["gemini"]
+  (gemini -m ${GEMINI_MODEL:-gemini-3.8-flash} --yolo) for independent code generation. Works with
+  any pair-verifier teammate. (Gemini Model Invariant: Never use Gemini 3.1 Pro or older Pro models; always use Gemini 3.8 Flash or later). Reference: orchestration/task_dispatcher.py CLI_PROFILES["gemini"]
 ---
 
 ## Examples
@@ -45,8 +45,9 @@ cat > "$PROMPT_FILE" << 'PROMPT_EOF'
 PROMPT_EOF
 
 # Launch Gemini CLI (prompt via stdin)
-# Model overridable via GEMINI_MODEL env var (default: gemini-3-flash-preview)
-gemini -m ${GEMINI_MODEL:-gemini-3-flash-preview} --yolo < "$PROMPT_FILE"
+# Model overridable via GEMINI_MODEL env var (default: gemini-3.8-flash)
+# Gemini Invariant: Never use Gemini 3.1 Pro or older Pro models; always use gemini-3.8-flash or later
+gemini -m ${GEMINI_MODEL:-gemini-3.8-flash} --yolo < "$PROMPT_FILE"
 
 # Cleanup
 rm -f "$PROMPT_FILE"
@@ -129,8 +130,8 @@ echo "[$(date '+%Y-%m-%d %H:%M:%S')] [PHASE_TAG] message" >> $LOG
 
 | When | Phase tag | Message content |
 |------|-----------|----------------|
-| Before delegating | `[ENGINE]` | `Delegating to Gemini CLI (${GEMINI_MODEL:-gemini-3-flash-preview})` |
-| CLI started | `[CLI_START]` | `gemini -m ${GEMINI_MODEL:-gemini-3-flash-preview} --yolo < "$PROMPT_FILE"` |
+| Before delegating | `[ENGINE]` | `Delegating to Gemini CLI (${GEMINI_MODEL:-gemini-3.8-flash})` |
+| CLI started | `[CLI_START]` | `gemini -m ${GEMINI_MODEL:-gemini-3.8-flash} --yolo < "$PROMPT_FILE"` |
 | CLI completed | `[CLI_RESULT]` | `Gemini CLI exit code: X` |
 | After running tests | `[TESTS]` | Pipe: `python3 -m pytest ... 2>&1 \| tail -5 >> $LOG` |
 | After sending to verifier | `[SIGNAL]` | `IMPLEMENTATION_READY sent to verifier` |

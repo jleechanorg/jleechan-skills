@@ -177,8 +177,8 @@ line beginning with `VERDICT:`. Empty or malformed output records
 `missing_verdict` and counts as an errored lane. If neither primary lane returns
 a recognizable verdict, invoke A3.
 
-**A1 — Codex CLI (primary):** `codex exec --yolo -m gpt-5.6-terra --config
-model_reasoning_effort=high`. The explicit command guarantees full-permission
+**A1 — Codex CLI (primary):** `codex exec --yolo -m gpt-6-sol --config
+model_reasoning_effort=high` (GPT 6 and 6.1 models only; 5.6 models are forbidden). The explicit command guarantees full-permission
 mode without relying on wrapper internals.
 
 **A2 — Opus CLI (primary):** `claude -p --model opus
@@ -243,7 +243,7 @@ Read the change yourself. Return VERDICT, REASONING (3-4 sentences), RISK, COVER
 EOF
 )"
 ```
-Note: agy is the Antigravity CLI (reads CLAUDE.md on startup like any CC session, but starts fresh — no current conversation history). Independent perspective, slightly slower than cursor.
+Note: agy is the Antigravity CLI (reads CLAUDE.md on startup like any CC session, but starts fresh — no current conversation history). Independent perspective, slightly slower than cursor. When selecting Gemini models, never use `gemini-3.1-pro` (or older Gemini Pro models); always use `gemini-3.8-flash` or later (`gemini-3.8-flash-high`).
 
 If all options fail, note "Reviewer A unavailable" in the synthesis table.
 
@@ -369,7 +369,7 @@ Do not cite a percentage saving — none has ever been measured here. And do not
 
 | Priority | CLI | When |
 |---|---|---|
-| A1 | `codex exec --yolo -m gpt-5.6-terra --config model_reasoning_effort=high` | Primary — runs IN PARALLEL with A2 |
+| A1 | `codex exec --yolo -m gpt-6-sol --config model_reasoning_effort=high` | Primary — runs IN PARALLEL with A2 (GPT 6/6.1 only; 5.6 forbidden) |
 | A2 | `claude -p --model opus --dangerously-skip-permissions` | Primary — runs IN PARALLEL with A1 |
 | A3.1 | `claude -p --dangerously-skip-permissions` | Fallback when no primary leg produced a verdict (outside Claude Code) |
 | A3.2 | `cursor agent -p --force` | Fallback if A3.1 errors |

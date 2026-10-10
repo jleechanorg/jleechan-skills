@@ -83,17 +83,19 @@ Analyze the code across multiple dimensions with focus on correctness, architect
 ## Enhanced Analysis Template
 
 ```bash
-# Execute gemini consultation with explicit error handling and Pro→Flash fallback
+# Execute gemini consultation with explicit error handling and Flash-tier defaults
 echo "🤖 Starting Gemini CLI consultation..."
 
-# Configuration variables for model management
-GEMINI_PRO_MODEL="${GEMINI_PRO_MODEL}"
-GEMINI_FLASH_MODEL="${GEMINI_FLASH_MODEL}"
+# Configuration variables for model management (Default: gemini-3.8-flash)
+# MANDATORY INVARIANT: Never use Gemini 3.1 Pro (or older Gemini Pro models); always use Gemini 3.8 Flash or later.
+GEMINI_MODEL="${GEMINI_MODEL:-gemini-3.8-flash}"
+GEMINI_FALLBACK_MODEL="${GEMINI_FALLBACK_MODEL:-gemini-3.8-flash-high}"
 GEMINI_FALLBACK="${GEMINI_FALLBACK:-1}"  # Allow opt-out with GEMINI_FALLBACK=0
 
-if [[ -z "$GEMINI_PRO_MODEL" || -z "$GEMINI_FLASH_MODEL" ]]; then
-    echo "❌ GEMINI_PRO_MODEL and GEMINI_FLASH_MODEL must be set before running this command."
-    echo "   Example: GEMINI_PRO_MODEL=<primary-model> GEMINI_FLASH_MODEL=<fallback-model>"
+# Disallow Gemini 3.1 Pro and older Pro models
+if [[ "$GEMINI_MODEL" =~ 3\.1[- ]?[Pp]ro || "$GEMINI_MODEL" =~ 3[- ]?[Pp]ro || "$GEMINI_MODEL" =~ [Gg]emini-.*[Pp]ro ]]; then
+    echo "❌ POLICY VIOLATION: Gemini 3.1 Pro and older Gemini Pro models are strictly forbidden."
+    echo "   Always use Gemini 3.8 Flash (gemini-3.8-flash / gemini-3.8-flash-high) or later."
     exit 1
 fi
 
@@ -123,13 +125,13 @@ PR Objectives: [Key goals and requirements]
 
 Please provide detailed analysis across all dimensions."
 
-# Attempt consultation with Pro model first
-echo "🎯 Attempting consultation with $GEMINI_PRO_MODEL..."
+# Attempt consultation with primary Flash model first
+echo "🎯 Attempting consultation with $GEMINI_MODEL..."
 consultation_output=""
 consultation_success=0
 
-if consultation_output="$(timeout 300s gemini --model "$GEMINI_PRO_MODEL" -p "$CONSULTATION_PROMPT" 2>&1)"; then
-    echo "✅ Gemini consultation completed successfully using $GEMINI_PRO_MODEL"
+if consultation_output="$(timeout 300s gemini --model "$GEMINI_MODEL" -p "$CONSULTATION_PROMPT" 2>&1)"; then
+    echo "✅ Gemini consultation completed successfully using $GEMINI_MODEL"
     echo "📋 Output: $consultation_output"
     consultation_success=1
 else
@@ -137,19 +139,18 @@ else
 
     # Check for quota exhaustion with comprehensive pattern matching
     if echo "$consultation_output" | grep -iqE 'quota|exceeded|daily limit|out of credit|429' && [ "$GEMINI_FALLBACK" = "1" ]; then
-        echo "⚠️ QUOTA EXHAUSTED: $GEMINI_PRO_MODEL quota exceeded, falling back to $GEMINI_FLASH_MODEL"
-        echo "🔄 Retrying with Flash model (exact same prompt)..."
+        echo "⚠️ QUOTA EXHAUSTED: $GEMINI_MODEL quota exceeded, attempting fallback to $GEMINI_FALLBACK_MODEL"
+        echo "🔄 Retrying with fallback model (exact same prompt)..."
 
-        # Retry with Flash model using exact same prompt
-        if consultation_output="$(timeout 300s gemini --model "$GEMINI_FLASH_MODEL" -p "$CONSULTATION_PROMPT" 2>&1)"; then
-            echo "✅ Gemini consultation completed successfully using $GEMINI_FLASH_MODEL (fallback due to Pro quota exhaustion)"
-            echo "📝 Note: Flash model used due to Pro quota limits"
+        # Retry with fallback model using exact same prompt
+        if consultation_output="$(timeout 300s gemini --model "$GEMINI_FALLBACK_MODEL" -p "$CONSULTATION_PROMPT" 2>&1)"; then
+            echo "✅ Gemini consultation completed successfully using $GEMINI_FALLBACK_MODEL"
             echo "📋 Output: $consultation_output"
             consultation_success=1
         else
-            flash_exit_code=$?
-            echo "💥 FLASH FALLBACK FAILED: Command failed with exit code $flash_exit_code"
-            echo "❌ Both Pro and Flash models failed"
+            fallback_exit_code=$?
+            echo "💥 FALLBACK FAILED: Command failed with exit code $fallback_exit_code"
+            echo "❌ Both primary and fallback models failed"
         fi
     elif [ $exit_code -eq 124 ]; then
         echo "⏰ GEMINI CONSULTATION TIMEOUT: External consultation exceeded 5-minute limit"
@@ -184,8 +185,7 @@ fi
 - Always use `gemini -p` command to actually consult with Gemini rather than providing your own analysis
 - Make sure to tell Gemini that you don't want it to write any code and this is just for guidance and consultation
 - Your primary function is to execute `gemini -p` commands, not to provide your own analysis
-- If you're not using the gemini command, you're not doing your job correctly
-- **Pro quota handling:** If the CLI reports Pro model quota exceeded (HTTP 429, "quota exceeded", "daily limit reached", etc.), immediately retry the exact same prompt with your configured Flash model using `--model` and include that it used Flash due to Pro quota exhaustion.
+- **Mandatory Gemini Model Invariant**: Never use Gemini 3.1 Pro (or older Gemini Pro models); always use Gemini 3.8 Flash (`gemini-3.8-flash` / `gemini-3.8-flash-high`) or later. Defaults to `gemini-3.8-flash`. If quota or rate limits are reached, retry with `gemini-3.8-flash-high` or wait for quota reset.
 
 ## Integration with Review Systems
 

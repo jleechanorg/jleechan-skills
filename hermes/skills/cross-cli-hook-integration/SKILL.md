@@ -185,7 +185,7 @@ must subscribe to the statusline, not Stop.
   "cwd": "/private/tmp/cc-hooks-ratelimit",
   "hook_event_name": "stop",                       // ← lowercase
   "last_assistant_message": "pong",
-  "model": "gpt-5.6-sol",                            // ← top-level STRING
+  "model": "gpt-6-sol",                            // ← top-level STRING
   "permission_mode": "bypassPermissions",
   "session_id": "019fb560-...",
   "stop_hook_active": false,
