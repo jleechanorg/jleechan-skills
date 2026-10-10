@@ -9,7 +9,10 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT/'.claude/skills/agy-dot-coordinator/scripts/ping-dots.py'
-MESSAGE = 'Advance each authorized goal now and report the next safe action.'
+SPEC = importlib.util.spec_from_file_location('ping_test_source', SCRIPT)
+PING = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(PING)
+MESSAGE = PING.REMINDER_BODY
 
 
 class SimplePingTests(unittest.TestCase):
@@ -47,40 +50,17 @@ class SimplePingTests(unittest.TestCase):
     def calls_made(self):
         return self.calls.read_text().splitlines() if self.calls.exists() else []
 
-    def test_prompt_requires_receipts_for_six_actual_work_slots(self):
-        source = SCRIPT.read_text()
-        prompt = source.split('PROMPT = """', 1)[1].split('"""', 1)[0].replace('\n', ' ')
-        self.assertLessEqual(len(prompt), 1000)
-        for contract in (
-            'max 900 chars', 'FIRST to inventory authorized current WIP',
-            'Count distinct tasks executing now',
-            'Each active task requires item/goal, owner, live run/session or worktree/PR',
-            'exact action now', 'fresh artifact/command result',
-            'Refuse capacity only when six or more distinct tasks are active; state each receipt',
-            'Rank, assignment, start time, or “busy” alone proves nothing',
-            'Idle, stalled, finished, queued, and review-waiting tasks are inactive',
-            'Fewer than six proven', 'safe next actions', 'cloud coders',
-            'never this Mac', 'Separate permission/approval holds and measured resource limits',
-            'give evidence and exact blocked action',
-            'user stops/cancellations', 'approval boundaries',
-        ):
-            self.assertIn(contract, prompt)
-        self.assertNotIn('six highest-priority', prompt)
-        self.assertIn('Recipient execution guidance', prompt)
-        self.assertIn('use tools to advance authorized active WIP', prompt)
-        self.assertIn('Do not claim progress without fresh evidence', prompt)
-        self.assertIn('Writer: draft plain-text Dot reminder', prompt)
-        self.assertNotIn('Do not use tools', prompt)
-
-        dot_skill = (ROOT/'.claude/skills/dot/SKILL.md').read_text()
-        self.assertIn('before declining an authorized task, ask the Dot to inventory current work',
-                      dot_skill)
-        self.assertIn('at least six distinct active tasks', dot_skill)
-        self.assertNotIn('asks whether the task is in the dot\'s current top 6', dot_skill)
-
-        coordinator_skill = (SCRIPT.parents[1]/'SKILL.md').read_text()
-        self.assertIn('inventory real active work first', coordinator_skill)
-        self.assertIn('at least six distinct tasks', coordinator_skill)
+    def test_prompt_recovers_outcomes_and_executes_before_capacity_audits(self):
+        spec = importlib.util.spec_from_file_location('ping', SCRIPT)
+        ping = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ping)
+        self.assertTrue(ping.REMINDER_BODY.startswith(ping.REMINDER_OPENING))
+        self.assertLessEqual(len(ping.REMINDER_BODY), ping.MAX_RESPONSE_CHARS)
+        self.assertIn('durable checkpoint', ping.REMINDER_BODY)
+        self.assertIn('acceptance gap', ping.REMINDER_BODY)
+        self.assertIn('target, not permission', ping.REMINDER_BODY)
+        self.assertIn('recipient executes', ping.PROMPT)
+        self.assertNotIn('Fewer than six proven', ping.PROMPT)
 
     def test_empty_and_oversized_provider_results_report_actual_lengths(self):
         self.env.update(AGY_MODE='empty', CODEX_MODE='long', GENERATED='')
@@ -99,7 +79,7 @@ class SimplePingTests(unittest.TestCase):
         result = self.run_ping()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.calls_made(), ['agy', 'dot'])
-        self.assertIn(MESSAGE, self.message.read_text())
+        self.assertTrue(self.message.read_text().startswith(MESSAGE))
         self.assertIn('From AGY coordinator', self.message.read_text())
         self.assertIn('Generation succeeded with agy', result.stdout)
         self.assertIn('DOT_SENT_VERIFIED', result.stdout)
@@ -110,6 +90,7 @@ class SimplePingTests(unittest.TestCase):
         result = self.run_ping()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.calls_made(), ['agy', 'codex', 'dot'])
+        self.assertTrue(self.message.read_text().startswith(MESSAGE))
         self.assertIn('From Codex coordinator', self.message.read_text())
         self.assertIn('agy generation failed', result.stderr)
 
@@ -118,6 +99,7 @@ class SimplePingTests(unittest.TestCase):
         result = self.run_ping()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.calls_made(), ['agy', 'codex', 'haiku', 'dot'])
+        self.assertTrue(self.message.read_text().startswith(MESSAGE))
         self.assertIn('From Claude Haiku coordinator', self.message.read_text())
         self.assertIn('codex generation failed', result.stderr)
 
