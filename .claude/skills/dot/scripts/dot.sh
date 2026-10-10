@@ -276,10 +276,34 @@ cmd_send() {
   done
 }
 
+validate_login_profile() {
+  local expected_dir="$1"
+  local expected_profile_directory="$2"
+  local profile_info profile_dir profile_directory
+  if ! profile_info=$(DOT_ACCOUNT="$ACCOUNT" DOT_CONFIG_FILE="$CONFIG_FILE" \
+      DOT_URL="${DOT_URL:-}" DOT_CHROME_USER_DATA="$expected_dir" \
+      "$NODE" "$HERE/dot_chrome.mjs" resolve-profile 2>&1); then
+    echo "$profile_info" >&2
+    return 1
+  fi
+  profile_dir=$("$NODE" -e 'try { process.stdout.write(JSON.parse(process.argv[1]).profileDir || ""); } catch {}' \
+    "$profile_info" 2>/dev/null || true)
+  profile_directory=$("$NODE" -e 'try { process.stdout.write(JSON.parse(process.argv[1]).profileDirectory || ""); } catch {}' \
+    "$profile_info" 2>/dev/null || true)
+  if [[ "$profile_dir" != "$expected_dir" ||
+        "$profile_directory" != "$expected_profile_directory" ]]; then
+    echo "dot.sh: refusing login because the configured profile changed before launch" >&2
+    return 1
+  fi
+}
+
 cmd_login() {
   local dir="${DOT_CHROME_USER_DATA:-}"
   if [[ -z "$dir" ]]; then
     echo "dot.sh: refusing login because the dedicated account profile could not be resolved" >&2
+    exit 2
+  fi
+  if ! validate_login_profile "$dir" "$PROFILE_DIRECTORY"; then
     exit 2
   fi
   mkdir -p "$dir"
@@ -299,6 +323,9 @@ cmd_login() {
   fi
   if [[ ! -x "$chrome_bin" ]]; then
     echo "dot.sh: Google Chrome binary not found: $chrome_bin" >&2
+    exit 2
+  fi
+  if ! validate_login_profile "$dir" "$PROFILE_DIRECTORY"; then
     exit 2
   fi
   local profile_args=()

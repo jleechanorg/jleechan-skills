@@ -3,6 +3,7 @@
 import json
 import os
 import platform
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -421,6 +422,53 @@ console.log('AUTH_FAILURE_MARKER_PRESERVED');
             args = args_file.read_text().splitlines()
             self.assertIn(f"--user-data-dir={dedicated}", args)
             self.assertIn("--profile-directory=Profile 7", args)
+
+    def test_interactive_login_rejects_root_replaced_after_resolution(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
+            root = Path(tmp)
+            config = root / "config.json"
+            dedicated = root / "dot-profile"
+            dedicated.mkdir()
+            dedicated_original = root / "dot-profile-original"
+            outside = root / "outside-profile"
+            outside.mkdir()
+            config.write_text(json.dumps({"accounts": {"work": {
+                "user_data_dir": str(dedicated),
+                "profile_directory": "Profile 7",
+            }}}))
+
+            race_marker = root / "root-replaced"
+            node_wrapper = root / "node-wrapper"
+            node_wrapper.write_text(f"""#!/bin/bash
+{shlex.quote(str(Path(NODE).resolve()))} "$@"
+status=$?
+if [[ "$1" == {shlex.quote(str(DOT_CHROME))} && "$2" == "resolve-profile" &&
+      ! -e {shlex.quote(str(race_marker))} ]]; then
+  mv {shlex.quote(str(dedicated))} {shlex.quote(str(dedicated_original))}
+  ln -s {shlex.quote(str(outside))} {shlex.quote(str(dedicated))}
+  touch {shlex.quote(str(race_marker))}
+fi
+exit "$status"
+""")
+            node_wrapper.chmod(0o700)
+
+            args_file = root / "login-args"
+            chrome = root / "fake-chrome"
+            chrome.write_text('#!/bin/sh\nprintf \'%s\\n\' "$@" > "$DOT_CHROME_ARGS"\n')
+            chrome.chmod(0o700)
+            env = dict(os.environ, HOME=tmp, DOT_NODE=str(node_wrapper),
+                       DOT_CONFIG_FILE=str(config), DOT_CHROME_BIN=str(chrome),
+                       DOT_CHROME_ARGS=str(args_file))
+            env.pop("DOT_CHROME_USER_DATA", None)
+
+            result = subprocess.run(
+                ["bash", str(DOT_SH), "--account", "work", "login"],
+                env=env, capture_output=True, text=True, timeout=15,
+            )
+
+            self.assertTrue(race_marker.exists(), "test did not replace the root after initial resolution")
+            self.assertNotEqual(result.returncode, 0, result.stderr)
+            self.assertFalse(args_file.exists(), "Chrome launched after the profile root was replaced")
 
     def test_canceled_login_preserves_existing_auth_failure_marker(self):
         with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
