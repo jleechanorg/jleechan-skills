@@ -11,7 +11,7 @@ Model invariant: Never select Gemini 3.1 Pro or any Gemini Pro model. Use Gemini
 
 ## ThinkingConfig (Gemini 3)
 
-Use the google-genai SDK `ThinkingConfig` fields (thinking_budget, include_thoughts).
+For Gemini 3, use the google-genai SDK `ThinkingConfig` field `thinking_level`. Add `include_thoughts=True` only when thought summaries are needed.
 
 ```python
 from google import genai
@@ -22,15 +22,15 @@ response = client.models.generate_content(
     model="gemini-3.8-flash",
     contents="Explain how AI works.",
     config=types.GenerateContentConfig(
-        thinking_config=types.ThinkingConfig(thinking_budget=1024),
+        thinking_config=types.ThinkingConfig(thinking_level="high"),
     ),
 )
 print(response.text)
 ```
 
 Notes:
-- `ThinkingConfig` fields are `thinking_budget` and `include_thoughts` in the current SDK.
-- Use a non-trivial budget when enabling thinking for Gemini 3 models.
+- Use `thinking_level` (for example, `"high"`) to configure Gemini 3 thinking.
+- `thinking_budget` remains backward-compatible; do not set it together with `thinking_level`.
 
 ## Code execution tool (Gemini API)
 
