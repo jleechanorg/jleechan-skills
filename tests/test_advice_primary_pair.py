@@ -59,6 +59,7 @@ class PrimaryPairTest(unittest.TestCase):
         self.packet = self.root / "packet.txt"
         self.packet.write_text("DECISION:\nReview exact target.\n")
         self.env = os.environ.copy()
+        self.env.pop("ADVICE_CODEX_MODEL", None)
         self.env["PATH"] = f"{self.bin}:{self.env['PATH']}"
         self.env["ADVICE_TEST_SYNC_DIR"] = str(self.sync)
 
@@ -647,6 +648,43 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         res_invalid = self.invoke("--codex-model", "gpt-5.6-terra")
         self.assertEqual(res_invalid.returncode, 2, res_invalid.stderr)
         self.assertIn("5.6", res_invalid.stderr)
+
+    def test_codex_model_environment_default_is_validated_and_forwarded(self) -> None:
+        self.executable(
+            "codex",
+            "printf '%s\\n' \"$@\" > \"$ADVICE_TEST_SYNC_DIR/codex.args\"\n"
+            "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n",
+        )
+        self.env["ADVICE_CODEX_MODEL"] = "gpt-6.1-sol"
+
+        result = self.invoke("--reviewers", "codex")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        codex_args = (self.sync / "codex.args").read_text().splitlines()
+        self.assertIn("gpt-6.1-sol", codex_args)
+
+        self.output = self.root / "invalid-env-out"
+        self.env["ADVICE_CODEX_MODEL"] = "gpt-6-unknown"
+        invalid = self.invoke("--reviewers", "codex")
+        self.assertEqual(invalid.returncode, 2, invalid.stderr)
+        self.assertIn("Codex model must be one of", invalid.stderr)
+        self.assertIn("gpt-6-unknown", invalid.stderr)
+
+    def test_codex_lane_rejects_invalid_model_before_waiting_at_barrier(self) -> None:
+        runner = load_runner_module()
+        barrier = mock.Mock()
+
+        with self.assertRaisesRegex(ValueError, "Codex model must be one of"):
+            runner.codex_lane(
+                self.repo,
+                "review prompt",
+                barrier,
+                1.0,
+                0.1,
+                "gpt-6-unknown",
+            )
+
+        barrier.wait.assert_not_called()
 
 
 if __name__ == "__main__":

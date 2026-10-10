@@ -155,7 +155,7 @@ def process_snapshot() -> dict[int, tuple[int, str]]:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         check=True,
-        timeout=0.5,
+        timeout=2.0,
     )
     snapshot: dict[int, tuple[int, str]] = {}
     for line in completed.stdout.splitlines():
@@ -363,6 +363,8 @@ def validate_codex_model(model: str | None = None) -> str:
     if model is None or not str(model).strip():
         return DEFAULT_CODEX_MODEL
     cleaned = str(model).strip()
+    if "5.6" in cleaned:
+        raise ValueError(f"Codex 5.6 models are forbidden: {cleaned}")
     if cleaned not in CODEX_MODEL_ALLOWLIST:
         raise ValueError(
             "Codex model must be one of "
@@ -674,23 +676,32 @@ def main(
         if any(clone_sha != sha for clone_sha in receipt["clone_shas"].values()):
             raise RuntimeError("review clone did not resolve to the requested SHA")
         barrier = threading.Barrier(len(reviewer_names))
-        os.environ["ADVICE_CODEX_MODEL"] = args.codex_model
         lane_functions = {
             "codex": codex_lane,
             "opus": opus_lane,
         }
         with concurrent.futures.ThreadPoolExecutor(max_workers=len(reviewer_names)) as executor:
-            futures = {
-                name: executor.submit(
-                    lane_functions[name],
-                    clones[name],
-                    prompt,
-                    barrier,
-                    args.timeout_seconds,
-                    args.timeout_grace_seconds,
-                )
-                for name in reviewer_names
-            }
+            futures = {}
+            for name in reviewer_names:
+                if name == "codex":
+                    futures[name] = executor.submit(
+                        codex_lane,
+                        clones[name],
+                        prompt,
+                        barrier,
+                        args.timeout_seconds,
+                        args.timeout_grace_seconds,
+                        args.codex_model,
+                    )
+                else:
+                    futures[name] = executor.submit(
+                        opus_lane,
+                        clones[name],
+                        prompt,
+                        barrier,
+                        args.timeout_seconds,
+                        args.timeout_grace_seconds,
+                    )
             results = {name: future.result() for name, future in futures.items()}
         for name, result in results.items():
             (output_dir / f"{name}.txt").write_text(result.pop("stdout"))

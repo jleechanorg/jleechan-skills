@@ -17,9 +17,9 @@ Risk: Medium overall; high for the advice model validator and Dot profile launch
 
 **Conflict type:** Model validation and reviewer-process behavior.
 
-**Original conflict:** Main broadened validation to a `gpt-6` prefix and improved verdict parsing and timeout cleanup. The PR introduced a closed allowlist.
+**Original conflict:** Main broadened validation to a `gpt-6` prefix and improved verdict parsing and timeout cleanup. The PR introduced a closed allowlist and an explicit lane model argument. Git also auto-merged duplicate validator and `--codex-model` definitions outside the textual markers.
 
-**Resolution:** Kept main's verdict parser, timeout cleanup, environment override, CLI option, and receipt flow. Kept the PR's exact allowlist (`gpt-6-astra`, `gpt-6-luna`, `gpt-6-sol`, `gpt-6.1-sol`) and moved validation before the lane barrier so direct invalid calls fail before waiting.
+**Resolution:** Kept main's verdict parser, timeout cleanup, environment override, CLI option, and receipt flow. Kept the PR's 2-second process-snapshot bound, exact allowlist (`gpt-6-astra`, `gpt-6-luna`, `gpt-6-sol`, `gpt-6.1-sol`), and explicit lane argument; removed the duplicate definitions and moved validation before the lane barrier so direct invalid calls fail before waiting.
 
 **Reasoning:** This preserves main's reviewer reliability changes while enforcing the PR's stated model boundary.
 
