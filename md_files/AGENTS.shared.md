@@ -126,7 +126,7 @@ Before every push, verify and print current branch, upstream, and explicit targe
 
 ## Git and PR pointers
 
-Set upstream tracking whenever missing. Detached-head and identity checks are owned by `~/.claude/hooks/pre-commit-detached-guard.sh` and `~/.claude/hooks/pre-commit-git-identity.sh`. Do not use index-based stash pop/apply across concurrent worktrees. Commit messages must include the creating CLI and model. PR titles must end with `[<cli>][<model>]`, and PRs must include GitHub labels for both CLI and model. For Codex, `<model>` must include the family variant (`luna`, `terra`, `sol`, `spark`, or the live slug such as `gpt-5.6-sol`); never a bare `gpt-5.6` in the title suffix or GitHub label.
+Set upstream tracking whenever missing. Detached-head and identity checks are owned by `~/.claude/hooks/pre-commit-detached-guard.sh` and `~/.claude/hooks/pre-commit-git-identity.sh`. Do not use index-based stash pop/apply across concurrent worktrees. Commit messages must include the creating CLI and model. PR titles must end with `[<cli>][<model>]`, and PRs must include GitHub labels for both CLI and model. For Codex, `<model>` must include the family variant (`luna`, `terra`, `sol`, `spark`, or the live slug such as `gpt-6-sol`); never a bare `gpt-6` in the title suffix or GitHub label.
 
 Whenever you mention a PR or commit, give its full GitHub URL — never a bare number or SHA — and state its production-vs-non-production line delta (added/deleted for each side, e.g. "prod +42/-10, non-prod +18/-3"). Canonical: `~/.claude/CLAUDE-global-reference.md` § PR and commit references.
 

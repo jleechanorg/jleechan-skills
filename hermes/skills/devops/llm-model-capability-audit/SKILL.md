@@ -124,7 +124,7 @@ The "where's the key" question has 4 valid answers and they often disagree:
 
 ### Pitfall 7 — Codex is a UI, not an API
 
-GPT-5.6 Luna is only exposed in the Codex picker — but the underlying API is OpenRouter. `POST https://openrouter.ai/api/v1/chat/completions` with `model="openai/gpt-5.6-luna"` works directly. Same for any "Codex-only" model: it's almost always OpenRouter under the hood.
+GPT-6 Luna is only exposed in the Codex picker — but the underlying API is OpenRouter. `POST https://openrouter.ai/api/v1/chat/completions` with `model="openai/gpt-6-luna"` works directly. Same for any "Codex-only" model: it's almost always OpenRouter under the hood.
 
 ### Pitfall 8 — `claudem` worker with stale `.agent_prompt_*.txt`
 

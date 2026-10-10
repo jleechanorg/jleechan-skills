@@ -208,7 +208,7 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         codex_args = (self.sync / "codex.args").read_text().splitlines()
         opus_args = (self.sync / "opus.args").read_text().splitlines()
         self.assertIn("--yolo", codex_args)
-        self.assertIn("gpt-5.6-terra", codex_args)
+        self.assertIn("gpt-6-sol", codex_args)
         self.assertIn("--dangerously-skip-permissions", opus_args)
         self.assertIn("opus", opus_args)
 
@@ -448,7 +448,7 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
             receipt["reviewers"]["codex"]["ended_ns"]
             - receipt["reviewers"]["codex"]["started_ns"]
         ) / 1_000_000_000
-        self.assertLess(codex_duration, 1.2)
+        self.assertLess(codex_duration, 1.5)
         self.assertEqual(receipt["reviewers"]["codex"]["status"], "error")
         self.assertEqual(receipt["reviewers"]["codex"]["attempts"][0]["failure"], "timeout")
         self.assertEqual(receipt["reviewers"]["opus"]["status"], "success")

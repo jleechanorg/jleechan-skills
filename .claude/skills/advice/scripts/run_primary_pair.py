@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import functools
 import hashlib
 import json
 import os
@@ -292,6 +293,10 @@ def execute(
         terminated = set(supervisor.signal_active(signal.SIGTERM))
         try:
             os.killpg(process.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+        try:
+            process.kill()
         except ProcessLookupError:
             pass
         forced_pipe_close = False
@@ -333,7 +338,28 @@ def execute(
 
 
 def has_verdict(output: str) -> bool:
-    return re.search(r"(?m)^VERDICT:[ \t]*\S.*$", output) is not None
+    # Reviewers routinely wrap the VERDICT line in markdown (**VERDICT:**,
+    # ## VERDICT, an em/en dash instead of a colon) — a literal `^VERDICT:`
+    # anchor misclassifies those as missing_verdict even though the verdict is
+    # present and readable. Accept an optional leading **/*/# marker and any
+    # of the common separators between the word VERDICT and its content.
+    return (
+        re.search(
+            r"(?mi)^\s*(?:\*{1,2}|#{1,6}\s*)?VERDICT(?:\s*[:—–-]\s*|\s+)\S.*$",
+            output,
+        )
+        is not None
+    )
+
+
+def validate_codex_model(model: str) -> str:
+    cleaned = model.strip()
+    if "5.6" in cleaned or not (cleaned.startswith("gpt-6") or cleaned.startswith("gpt-6.1")):
+        raise ValueError(
+            f"Model {cleaned!r} is not allowed for /advice review. "
+            "5.6 models are forbidden; only GPT 6 or 6.1 models are permitted (default: gpt-6-sol)."
+        )
+    return cleaned
 
 
 def codex_lane(
@@ -342,19 +368,23 @@ def codex_lane(
     barrier: threading.Barrier,
     timeout_seconds: float,
     timeout_grace_seconds: float,
+    model: str | None = None,
 ) -> dict[str, Any]:
     barrier.wait()
     started = time.time_ns()
     attempts: list[dict[str, Any]] = []
     codex = command_path("codex")
     if codex:
+        resolved_model = validate_codex_model(
+            model or os.environ.get("ADVICE_CODEX_MODEL") or "gpt-6-sol"
+        )
         code, stdout, stderr, timed_out, forced_pipe_close, supervision = execute(
             [
                 codex,
                 "exec",
                 "--yolo",
                 "-m",
-                "gpt-5.6-terra",
+                resolved_model,
                 "--config",
                 "model_reasoning_effort=high",
             ],
@@ -466,7 +496,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=2.0,
         help="bounded output-drain grace after a timeout (default: 2)",
     )
+    parser.add_argument(
+        "--codex-model",
+        default=os.environ.get("ADVICE_CODEX_MODEL", "gpt-6-sol"),
+        help="Codex model for primary review (default: gpt-6-sol; 5.6 models forbidden, only gpt 6 or 6.1 allowed)",
+    )
     args = parser.parse_args(argv)
+    try:
+        args.codex_model = validate_codex_model(args.codex_model)
+    except ValueError as err:
+        parser.error(str(err))
     reviewers = args.reviewers.split(",")
     if not reviewers or any(name not in {"codex", "opus"} for name in reviewers):
         parser.error("--reviewers must contain only codex and opus")
@@ -605,6 +644,7 @@ def main(
         "checkout_kind": "independent_clone_no_local",
         "timeout_seconds": args.timeout_seconds,
         "timeout_grace_seconds": args.timeout_grace_seconds,
+        "codex_model": args.codex_model,
         "operation": {"success": False, "error": "operation did not complete"},
     }
     operational_error: str | None = None
@@ -625,7 +665,11 @@ def main(
         if any(clone_sha != sha for clone_sha in receipt["clone_shas"].values()):
             raise RuntimeError("review clone did not resolve to the requested SHA")
         barrier = threading.Barrier(len(reviewer_names))
-        lane_functions = {"codex": codex_lane, "opus": opus_lane}
+        os.environ["ADVICE_CODEX_MODEL"] = args.codex_model
+        lane_functions = {
+            "codex": codex_lane,
+            "opus": opus_lane,
+        }
         with concurrent.futures.ThreadPoolExecutor(max_workers=len(reviewer_names)) as executor:
             futures = {
                 name: executor.submit(

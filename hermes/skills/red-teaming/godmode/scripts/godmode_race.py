@@ -79,7 +79,7 @@ ULTRAPLINIAN_MODELS = [
     'meta-llama/llama-4-maverick',
     'qwen/qwen3-235b-a22b',
     'qwen/qwen3-coder',
-    'minimax/minimax-m2.5',
+    'minimax/minimax-m3.1',
     'xiaomi/mimo-v2-pro',
     'mistralai/mistral-large-2512',
     'moonshotai/kimi-k2',

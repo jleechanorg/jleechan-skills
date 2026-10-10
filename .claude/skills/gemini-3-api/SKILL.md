@@ -80,9 +80,15 @@ response = client.models.generate_content(
 )
 ```
 
+## Model Selection Requirement (Gemini Invariant)
+
+**Mandatory Invariant**: Never use Gemini 3.1 Pro (or older Gemini Pro models). Always use Gemini 3.8 Flash (`gemini-3.8-flash` / `gemini-3.8-flash-high`) or later.
+
 ## Checklist for Gemini 3 integrations
 
+- Model invariant: Never use Gemini 3.1 Pro (or older Gemini Pro models); always use Gemini 3.8 Flash (`gemini-3.8-flash` / `gemini-3.8-flash-high`) or later.
 - Use thinking_config with thinking_level (Gemini 3).
 - Enable code execution via tools=[types.Tool(code_execution=types.ToolCodeExecution)].
 - Use response_mime_type="application/json" (and optional response_json_schema) for JSON mode.
 - Extract code execution evidence from response parts (executable_code/code_execution_result).
+
