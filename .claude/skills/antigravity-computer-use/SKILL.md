@@ -1745,7 +1745,7 @@ done
 
 ## Known limitations
 
-- Rate limits are aggressive (especially Gemini 3 Pro free tier)
+- Free-tier quotas may constrain large batches; check the provider's current limits before planning around them.
 - The A11y tree does NOT provide frame/position data — use screenshots for spatial layout
 - Conversation scrolling in the Manager content pane DOES work with `peekaboo scroll --direction down/up --amount N` (tested 2026-03-26). Keyboard `pagedown`/`down`/`end` keys also work after clicking the conversation area first.
 - No right-click context menus on sidebar conversations (delete/rename must be done from within conversation)
