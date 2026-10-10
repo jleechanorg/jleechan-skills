@@ -366,7 +366,7 @@ like X."
 # Claim: "real Gemini response is logged verbatim with DC set before roll"
 - Claim Y: real Gemini response is logged verbatim → [Layer 2 real-LLM, Layer 2 real-BQ]
 - evidence: artifacts/llm_request_responses.jsonl contains a `type:response`
-  entry with `model: gemini-3-pro`, a real `https://generativelanguage.googleapis.com/...`
+  entry with `model: gemini-3.8-flash`, a real `https://generativelanguage.googleapis.com/...`
   POST in the wire log, and a `dc_reasoning` field set before the `random.randint()` call.
 ```
 
@@ -400,6 +400,46 @@ frames. When reviewing UI video (`/er`), **extract frames and look**
 (`ffmpeg -i <video> -vf fps=1 /tmp/frames/f_%02d.png`); if the element is never
 in-frame, or the only on-screen evidence is a caption overlay, the UI evidence is
 INSUFFICIENT even if the video exists, is captioned, and the test passed.
+
+## Visual Evidence & Mandatory Inline Rendering in PRs
+
+Visual comparisons under `## Visual Evidence` in PR descriptions must render images **directly inline** on GitHub so reviewers can visually inspect the differences without having to click away to external links:
+
+1. **Inline Image Tags (`<img>` or `![]()`)**:
+   - In Markdown, `[screenshot](https://...)` is a text hyperlink that renders only as plain blue clickable text. It fails the visual review requirement because the reviewer cannot see the image in the PR conversation.
+   - Use HTML `<img src="..." width="..." alt="...">` (strongly preferred in markdown tables) or markdown image syntax `![alt](url)`.
+   - HTML `<img>` tags inside markdown table cells allow precise width control so images do not distort or overflow table columns.
+
+2. **Standard Viewport Widths for Tables**:
+   - **Desktop screenshots** (in 2-column Before/After tables): `width="450"` (or `width="400"`)
+   - **Mobile screenshots** (375×812 in 2-column Before/After tables): `width="360"` (or `width="300"`)
+   - **Side-by-side comparison slides**: `width="800"`
+
+3. **Standard PR Table Format**:
+   ```markdown
+   ## Visual Evidence
+
+   ### Desktop (1440×900) Comparison
+
+   | Before (`origin/main`) | After (PR head `<sha>`) |
+   | :---: | :---: |
+   | <img src="<before_desktop_url>" width="450" alt="Before Desktop"> | <img src="<after_desktop_url>" width="450" alt="After Desktop"> |
+
+   ### Mobile (375×812) Comparison
+
+   | Before (`origin/main`) | After (PR head `<sha>`) |
+   | :---: | :---: |
+   | <img src="<before_mobile_url>" width="360" alt="Before Mobile"> | <img src="<after_mobile_url>" width="360" alt="After Mobile"> |
+
+   ### Walkthrough Video
+   - [walkthrough.mp4](<video_url>) (SHA256: `<sha256>`)
+   ```
+
+4. **Anti-Patterns (Reject in Review)**:
+   - ❌ `| [screenshot](url) | [screenshot](url) |` (text link only — fails inline rendering)
+   - ❌ Raw uncaptioned image dumps with no Before/After comparison table
+   - ❌ Testing only desktop and skipping mobile (375×812)
+   - ❌ Committing heavy image binaries directly into the git repository (use authorized storage or unlisted gists)
 
 ## Cross-references
 

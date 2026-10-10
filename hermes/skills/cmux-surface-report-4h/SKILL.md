@@ -100,7 +100,7 @@ went idle with no commits.
 **Correct retry recipe (no time spent debugging the Codex harness):**
 
 1. `ao session kill <old-id>` (clean up the orphan)
-2. Re-`ao spawn` with `--harness agy --model gemini-3.5-flash-high`
+2. Re-`ao spawn` with `--harness agy --model gemini-3.8-flash-high`
    (mid-tier — verified 2026-07-24). `--harness codex` was the
    failure mode; switching to antigravity/agy's Gemini path bypassed it.
 3. Preserve the verbatim user task and memory context in `/tmp/...AO-TASK-BRIEF.md`

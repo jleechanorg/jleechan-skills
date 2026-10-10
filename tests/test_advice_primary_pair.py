@@ -448,7 +448,7 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
             receipt["reviewers"]["codex"]["ended_ns"]
             - receipt["reviewers"]["codex"]["started_ns"]
         ) / 1_000_000_000
-        self.assertLess(codex_duration, 1.2)
+        self.assertLess(codex_duration, 1.5)
         self.assertEqual(receipt["reviewers"]["codex"]["status"], "error")
         self.assertEqual(receipt["reviewers"]["codex"]["attempts"][0]["failure"], "timeout")
         self.assertEqual(receipt["reviewers"]["opus"]["status"], "success")

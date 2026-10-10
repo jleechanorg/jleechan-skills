@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import functools
 import hashlib
 import json
 import os
@@ -154,7 +155,7 @@ def process_snapshot() -> dict[int, tuple[int, str]]:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         check=True,
-        timeout=2.0,
+        timeout=0.5,
     )
     snapshot: dict[int, tuple[int, str]] = {}
     for line in completed.stdout.splitlines():
@@ -292,6 +293,10 @@ def execute(
         terminated = set(supervisor.signal_active(signal.SIGTERM))
         try:
             os.killpg(process.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+        try:
+            process.kill()
         except ProcessLookupError:
             pass
         forced_pipe_close = False
@@ -333,7 +338,18 @@ def execute(
 
 
 def has_verdict(output: str) -> bool:
-    return re.search(r"(?m)^VERDICT:[ \t]*\S.*$", output) is not None
+    # Reviewers routinely wrap the VERDICT line in markdown (**VERDICT:**,
+    # ## VERDICT, an em/en dash instead of a colon) — a literal `^VERDICT:`
+    # anchor misclassifies those as missing_verdict even though the verdict is
+    # present and readable. Accept an optional leading **/*/# marker and any
+    # of the common separators between the word VERDICT and its content.
+    return (
+        re.search(
+            r"(?mi)^\s*(?:\*{1,2}|#{1,6}\s*)?VERDICT(?:\s*[:—–-]\s*|\s+)\S.*$",
+            output,
+        )
+        is not None
+    )
 
 
 DEFAULT_CODEX_MODEL = "gpt-6-sol"
@@ -347,8 +363,6 @@ def validate_codex_model(model: str | None = None) -> str:
     if model is None or not str(model).strip():
         return DEFAULT_CODEX_MODEL
     cleaned = str(model).strip()
-    if "5.6" in cleaned:
-        raise ValueError(f"Codex 5.6 models are forbidden: {cleaned}")
     if cleaned not in CODEX_MODEL_ALLOWLIST:
         raise ValueError(
             "Codex model must be one of "
@@ -363,13 +377,15 @@ def codex_lane(
     barrier: threading.Barrier,
     timeout_seconds: float,
     timeout_grace_seconds: float,
-    model: str = DEFAULT_CODEX_MODEL,
+    model: str | None = None,
 ) -> dict[str, Any]:
+    resolved_model = validate_codex_model(
+        model or os.environ.get("ADVICE_CODEX_MODEL") or DEFAULT_CODEX_MODEL
+    )
     barrier.wait()
     started = time.time_ns()
     attempts: list[dict[str, Any]] = []
     codex = command_path("codex")
-    resolved_model = validate_codex_model(model)
     if codex:
         code, stdout, stderr, timed_out, forced_pipe_close, supervision = execute(
             [
@@ -478,15 +494,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="reviewer subset (codex and/or opus, comma-separated; default: codex,opus)",
     )
     parser.add_argument(
-        "--codex-model",
-        default=DEFAULT_CODEX_MODEL,
-        type=validate_codex_model,
-        help=(
-            "Codex model for primary review (one of gpt-6-astra, gpt-6-luna, "
-            "gpt-6-sol, gpt-6.1-sol; default: gpt-6-sol; 5.6 models forbidden)"
-        ),
-    )
-    parser.add_argument(
         "--timeout-seconds",
         type=float,
         default=1200.0,
@@ -498,7 +505,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=2.0,
         help="bounded output-drain grace after a timeout (default: 2)",
     )
+    parser.add_argument(
+        "--codex-model",
+        default=os.environ.get("ADVICE_CODEX_MODEL", "gpt-6-sol"),
+        help="Codex model for primary review (default: gpt-6-sol; 5.6 models forbidden, only gpt 6 or 6.1 allowed)",
+    )
     args = parser.parse_args(argv)
+    try:
+        args.codex_model = validate_codex_model(args.codex_model)
+    except ValueError as err:
+        parser.error(str(err))
     reviewers = args.reviewers.split(",")
     if not reviewers or any(name not in {"codex", "opus"} for name in reviewers):
         parser.error("--reviewers must contain only codex and opus")
@@ -637,6 +653,7 @@ def main(
         "checkout_kind": "independent_clone_no_local",
         "timeout_seconds": args.timeout_seconds,
         "timeout_grace_seconds": args.timeout_grace_seconds,
+        "codex_model": args.codex_model,
         "operation": {"success": False, "error": "operation did not complete"},
     }
     operational_error: str | None = None
@@ -657,29 +674,23 @@ def main(
         if any(clone_sha != sha for clone_sha in receipt["clone_shas"].values()):
             raise RuntimeError("review clone did not resolve to the requested SHA")
         barrier = threading.Barrier(len(reviewer_names))
-        lane_functions = {"codex": codex_lane, "opus": opus_lane}
+        os.environ["ADVICE_CODEX_MODEL"] = args.codex_model
+        lane_functions = {
+            "codex": codex_lane,
+            "opus": opus_lane,
+        }
         with concurrent.futures.ThreadPoolExecutor(max_workers=len(reviewer_names)) as executor:
-            futures = {}
-            for name in reviewer_names:
-                if name == "codex":
-                    futures[name] = executor.submit(
-                        codex_lane,
-                        clones[name],
-                        prompt,
-                        barrier,
-                        args.timeout_seconds,
-                        args.timeout_grace_seconds,
-                        args.codex_model,
-                    )
-                else:
-                    futures[name] = executor.submit(
-                        opus_lane,
-                        clones[name],
-                        prompt,
-                        barrier,
-                        args.timeout_seconds,
-                        args.timeout_grace_seconds,
-                    )
+            futures = {
+                name: executor.submit(
+                    lane_functions[name],
+                    clones[name],
+                    prompt,
+                    barrier,
+                    args.timeout_seconds,
+                    args.timeout_grace_seconds,
+                )
+                for name in reviewer_names
+            }
             results = {name: future.result() for name, future in futures.items()}
         for name, result in results.items():
             (output_dir / f"{name}.txt").write_text(result.pop("stdout"))

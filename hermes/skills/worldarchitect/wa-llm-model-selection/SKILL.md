@@ -3,6 +3,9 @@ name: wa-llm-model-selection
 description: "Diagnose and fix your-project.com LLM model-selection bugs — wrong model in allowlist, missing from `MODELS_WITH_CODE_EXECUTION`, infinite-loop on code-execution calls, default-model changes that broke production. Triggers when the user reports 'dice stopped working after I picked X model', 'gemini-3-flash default broke something', 'why does Lite + 3.6 loop on code calls', 'swap Gemini model default', 'add new Gemini model to settings', or asks 'is model X supported for code execution / JSON / dice'. Distinct from `wa-cloud-run-deploy-failure-debug` (deploy infra), `wa-campaign-content-analysis` (LLM prose quality), and `campaign-bible-design` (new campaign creation). Verified 2026-07-30 on issue #8673 (gemini-3.5-flash-lite + 3.6-flash infinite-loop on code execution) and the historical PR #8571 → #8590 revert pair."
 ---
 
+For current model selection or a new default, use Gemini 3.8 Flash (`gemini-3.8-flash`) or a later Flash model. Never select Gemini Pro. If the target provider or application cannot use a compliant model, report that limitation instead of choosing an older model. Older model IDs below are retained only as diagnostic history.
+
+
 # WorldArchitect LLM Model Selection — diagnosis + fix recipe
 
 ## When to use this skill

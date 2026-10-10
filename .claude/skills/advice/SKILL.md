@@ -179,9 +179,9 @@ a recognizable verdict, invoke A3.
 
 **A1 — Codex CLI (primary):** `codex exec --yolo -m gpt-6-sol --config
 model_reasoning_effort=high`. The explicit command guarantees full-permission
-mode without relying on wrapper internals. All 5.6 models are forbidden; the
-Codex model must be one of the catalog IDs `gpt-6-astra`, `gpt-6-luna`,
-`gpt-6-sol`, or `gpt-6.1-sol` (default: `gpt-6-sol`).
+mode without relying on wrapper internals. Only the exact catalog IDs
+`gpt-6-astra`, `gpt-6-luna`, `gpt-6-sol`, and `gpt-6.1-sol` are accepted;
+5.6 and unknown model IDs are forbidden.
 
 **A2 — Opus CLI (primary):** `claude -p --model opus
 --dangerously-skip-permissions`. It is dispatched concurrently with A1, not
@@ -245,7 +245,7 @@ Read the change yourself. Return VERDICT, REASONING (3-4 sentences), RISK, COVER
 EOF
 )"
 ```
-Note: agy is the Antigravity CLI (reads CLAUDE.md on startup like any CC session, but starts fresh — no current conversation history). Independent perspective, slightly slower than cursor.
+Note: agy is the Antigravity CLI (reads CLAUDE.md on startup like any CC session, but starts fresh — no current conversation history). Independent perspective, slightly slower than cursor. When selecting Gemini models, never use `gemini-3.1-pro` (or older Gemini Pro models); always use `gemini-3.8-flash` or later (`gemini-3.8-flash-high`).
 
 If all options fail, note "Reviewer A unavailable" in the synthesis table.
 
@@ -371,7 +371,7 @@ Do not cite a percentage saving — none has ever been measured here. And do not
 
 | Priority | CLI | When |
 |---|---|---|
-| A1 | `codex exec --yolo -m gpt-6-sol --config model_reasoning_effort=high` | Primary — runs IN PARALLEL with A2 (Codex model must be one of `gpt-6-astra`, `gpt-6-luna`, `gpt-6-sol`, or `gpt-6.1-sol`; 5.6 models forbidden) |
+| A1 | `codex exec --yolo -m gpt-6-sol --config model_reasoning_effort=high` | Primary — runs IN PARALLEL with A2 (exact IDs: `gpt-6-astra`, `gpt-6-luna`, `gpt-6-sol`, `gpt-6.1-sol`; 5.6 and unknown IDs forbidden) |
 | A2 | `claude -p --model opus --dangerously-skip-permissions` | Primary — runs IN PARALLEL with A1 |
 | A3.1 | `claude -p --dangerously-skip-permissions` | Fallback when no primary leg produced a verdict (outside Claude Code) |
 | A3.2 | `cursor agent -p --force` | Fallback if A3.1 errors |

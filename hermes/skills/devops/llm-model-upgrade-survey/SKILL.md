@@ -13,6 +13,8 @@ metadata:
 
 # LLM model upgrade survey + dispatch (class-level)
 
+For current Gemini model selection or an upgrade target, use Gemini 3.8 Flash or later only; never select Gemini Pro or an earlier Gemini model. Older identifiers elsewhere are historical survey context.
+
 When a user asks to upgrade a model in a project-app (e.g. `jleechanorg/ai_universe`, `$GITHUB_REPOSITORY`), survey the available models across every provider the project uses, build a cost-vs-quality matrix, and dispatch an AO worker to land the upgrade PR. This skill is the **research + decision** phase; the **execution** phase is `always-pr-never-local-edit` + `drive-pr-to-green` + the AO dispatch path.
 
 The class-level survey has three principles:

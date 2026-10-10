@@ -325,8 +325,8 @@ dspy.settings.configure(lm=lm)
 
 ```python
 # Different models for different tasks
-cheap_lm = dspy.OpenAI(model="gpt-3.5-turbo")
-strong_lm = dspy.Claude(model="claude-sonnet-4-5-20250929")
+cheap_lm = dspy.OpenAI(model="gpt-4o-mini")
+strong_lm = dspy.Claude(model="claude-sonnet-4")
 
 # Use cheap model for retrieval, strong model for reasoning
 with dspy.settings.context(lm=cheap_lm):

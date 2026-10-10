@@ -67,12 +67,12 @@ recipe in `web-page-screenshots` / `references/worldarchitect-ai-gemini-3-6-sett
 # WRONG — returns 400 "Invalid settings data"
 curl -X POST http://127.0.0.1:8081/api/settings \
   -H "Content-Type: application/json" -H "X-Test-Bypass-Auth: true" \
-  -d '{"settings": {"gemini_model": "gemini-3.6-flash"}}'
+  -d '{"settings": {"gemini_model": "gemini-3.8-flash"}}'
 
 # RIGHT — payload is the raw settings dict, NOT wrapped
 curl -X POST http://127.0.0.1:8081/api/settings \
   -H "Content-Type: application/json" -H "X-Test-Bypass-Auth: true" \
-  -d '{"gemini_model": "gemini-3.6-flash", "llm_provider": "gemini"}'
+  -d '{"gemini_model": "gemini-3.8-flash", "llm_provider": "gemini"}'
 ```
 
 **Trap diagnosis:** `$PROJECT_ROOT/main.py` line ~4740+ does
@@ -167,7 +167,7 @@ missing from one of the columns above. The grep before you change:
 rg -n "gemini-3\.5-flash" --type py --type js --type html \
    -g '!*test*' -g '!*node_modules*' $PROJECT_ROOT/
 # Each hit is a candidate location for the new model. If a column of hits
-# doesn't have a matching "gemini-3.6-flash" entry, you've missed a spot.
+# doesn't have a matching "gemini-3.8-flash" entry, you've missed a spot.
 ```
 
 The classic omissions:
@@ -244,8 +244,8 @@ with sync_playwright() as p:
     page.goto(f"{BASE}/settings?test_mode=true&test_user_id=test-user-8512", wait_until="networkidle")
     page.wait_for_selector("select#geminiModel")  # wait for hydration
     opts = page.evaluate("() => Array.from(document.querySelectorAll('select#geminiModel option')).map(o => ({value: o.value, text: o.textContent.trim()}))")
-    assert {"gemini-3.6-flash", "gemini-3.5-flash-lite"} <= {o["value"] for o in opts}  # MANDATORY assertion
-    page.select_option("select#geminiModel", "gemini-3.6-flash")
+    assert {"gemini-3.8-flash", "gemini-3.5-flash-lite"} <= {o["value"] for o in opts}  # MANDATORY assertion
+    page.select_option("select#geminiModel", "gemini-3.8-flash")
     # ...after each select, page.screenshot(path=...)
     ctx.close()
 ```
@@ -323,7 +323,7 @@ Settings PRs that touch a `$PROJECT_ROOT/schemas/prompt_tool_contracts.json` has
 The `$PROJECT_ROOT/tests/test_prompts.py` rebase conflict is simpler — keep both test methods (the rebase-head AND the rebased-in commit each add their own test). Just remove the conflict markers and keep both `def test_game_state_prompt_carries_*` bodies intact.
 
 Re-runnable scripts (under `scripts/`):
-- `capture_settings_video.py` — argparse CLI driving Playwright headless Chromium: opens `/settings`, asserts the new `<option>` values are present, selects each, captures per-step PNGs + raw `.webm`. Usage: `python scripts/capture_settings_video.py --new-models gemini-3.6-flash,gemini-3.5-flash-lite --out /tmp/pr8512_proof`.
+- `capture_settings_video.py` — argparse CLI driving Playwright headless Chromium: opens `/settings`, asserts the new `<option>` values are present, selects each, captures per-step PNGs + raw `.webm`. Usage: `python scripts/capture_settings_video.py --new-models gemini-3.8-flash,gemini-3.5-flash-lite --out /tmp/pr8512_proof`.
 - `caption_and_stitch.py` — burns captions onto frames via PIL (NOT ffmpeg drawtext, which breaks on colons in PR URLs), then stitches with `ffmpeg -f concat` into a captioned MP4. Height must be divisible by 16 (`scale=1280:1808`).
 
 The pre-existing failure on `test_victory_ripple_protocol_present_in_narrative` (asserts `"VICTORY RIPPLE PROTOCOL"` section in `narrative_system_instruction.md`) is **unrelated** to settings PRs — it was red on `origin/main` before this worktree existed. Don't fix it in the settings PR; let it land via PR #8406 or follow-up.

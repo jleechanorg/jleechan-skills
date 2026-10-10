@@ -43,7 +43,7 @@ CODEX_LIVE_PAYLOAD = {
     "cwd": "/tmp/test-project",
     "hook_event_name": "stop",
     "last_assistant_message": "pong",
-    "model": "gpt-5.6-sol",
+    "model": "gpt-6-sol",
     "permission_mode": "bypassPermissions",
     "session_id": "019fb560-de6b-7320-a070-5642753ded3d",
     "stop_hook_active": False,
@@ -130,7 +130,7 @@ CURSOR_LOOP_STORM = {
 ANTIGRAVITY_FIXTURE = {
     "cwd": "/tmp/test-project",
     "session_id": "ag-session",
-    "model": "gemini-2.5-pro",
+    "model": "gemini-3.8-flash",
     "decision": "allow",
 }
 
@@ -284,7 +284,7 @@ class CrossCliHookTestCase(unittest.TestCase):
         proc = _run_hook(json.dumps(CODEX_LIVE_PAYLOAD))
         rec = json.loads(proc.stdout)
         self.assertEqual(rec["cli"], "codex")
-        self.assertEqual(rec["model"], "gpt-5.6-sol")
+        self.assertEqual(rec["model"], "gpt-6-sol")
         self.assertIsNone(rec["tokens_in"])
         self.assertIsNone(rec["tokens_out"])
 
@@ -374,7 +374,7 @@ class CrossCliHookTestCase(unittest.TestCase):
         )
         rec = json.loads(proc.stdout)
         self.assertEqual(rec["cli"], "antigravity")
-        self.assertEqual(rec["model"], "gemini-2.5-pro")
+        self.assertEqual(rec["model"], "gemini-3.8-flash")
         self.assertEqual(rec["decision"], "allow")
 
     def test_antigravity_detected_via_decision_shape(self) -> None:
