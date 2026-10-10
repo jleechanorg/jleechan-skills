@@ -36,17 +36,19 @@ Missed slots are not replayed. Scheduled runs outside a valid 120-second window 
 
 ```bash
 # Send one scheduled ping to the currently due account
-python3 scripts/ping-dots.py
+python3 "${CLAUDE_HOME:-$HOME/.claude}/skills/agy-dot-coordinator/scripts/ping-dots.py"
 
 # Send ping to an explicit account
-python3 scripts/ping-dots.py --account <configured-account-key>
+python3 "${CLAUDE_HOME:-$HOME/.claude}/skills/agy-dot-coordinator/scripts/ping-dots.py" --account <configured-account-key>
 
 # Generate and print reminder for an account without sending
-python3 scripts/ping-dots.py --account <configured-account-key> --generator codex --generate-only
+python3 "${CLAUDE_HOME:-$HOME/.claude}/skills/agy-dot-coordinator/scripts/ping-dots.py" --account <configured-account-key> --generator codex --generate-only
 
 # Send ping to an explicit account using a specific provider (delivers live message)
-python3 scripts/ping-dots.py --account alpha --generator agy
+python3 "${CLAUDE_HOME:-$HOME/.claude}/skills/agy-dot-coordinator/scripts/ping-dots.py" --account alpha --generator agy
 ```
+
+*(From within the skill directory, `python3 scripts/ping-dots.py ...` also works.)*
 
 ### Options
 
