@@ -210,6 +210,76 @@ console.log('FRESH_PROFILE_EMPTY');
                 "configured subprofile symlink outside the dedicated directory must be rejected",
             )
 
+    def test_dedicated_profile_root_symlink_is_rejected(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
+            root = Path(tmp)
+            config = root / "config.json"
+            outside = root / "outside-profile"
+            outside.mkdir()
+            dedicated_link = root / "dot-profile"
+            dedicated_link.symlink_to(outside, target_is_directory=True)
+            config.write_text(json.dumps({"accounts": {"work": {
+                "user_data_dir": str(dedicated_link),
+                "profile_directory": "Profile 7",
+            }}}))
+            env = dict(os.environ, HOME=tmp, DOT_ACCOUNT="work",
+                       DOT_CONFIG_FILE=str(config))
+            env.pop("DOT_CHROME_USER_DATA", None)
+
+            result = subprocess.run(
+                [NODE, str(DOT_CHROME), "resolve-profile"], env=env,
+                capture_output=True, text=True, timeout=15,
+            )
+            self.assertNotEqual(
+                result.returncode, 0,
+                "dedicated user-data root symlink must be rejected",
+            )
+
+    def test_profile_operations_reject_root_symlink_added_after_resolution(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
+            root = Path(tmp)
+            config = root / "config.json"
+            dedicated = root / "dot-profile"
+            outside = root / "outside-profile"
+            dedicated.mkdir()
+            config.write_text(json.dumps({"accounts": {"work": {
+                "user_data_dir": str(dedicated),
+                "profile_directory": "Profile 7",
+            }}}))
+            script = root / "root-symlink.mjs"
+            script.write_text(f"""
+import fs from 'node:fs';
+import os from 'node:os';
+os.homedir = () => {json.dumps(str(root))};
+const {{ markAuthFailed, clearAuthFailed, ensurePersistentProfile }} =
+  await import({json.dumps(DOT_CHROME.as_uri())});
+const dedicated = {json.dumps(str(dedicated))};
+const outside = {json.dumps(str(outside))};
+fs.mkdirSync(outside + '/Profile 7', {{ recursive: true }});
+const marker = outside + '/Profile 7/.auth_failed';
+fs.writeFileSync(marker, 'preserve');
+fs.renameSync(dedicated, dedicated + '-original');
+fs.symlinkSync(outside, dedicated, 'dir');
+markAuthFailed(dedicated);
+clearAuthFailed(dedicated);
+let rejected = false;
+try {{ ensurePersistentProfile({{ profileDirectory: 'Profile 7' }}, dedicated); }}
+catch {{ rejected = true; }}
+if (!rejected) throw new Error('profile setup accepted a replaced root symlink');
+if (fs.readFileSync(marker, 'utf8') !== 'preserve')
+  throw new Error('auth marker operation followed a replaced root symlink');
+console.log('OUTSIDE_ROOT_PRESERVED');
+""")
+            env = dict(os.environ, HOME=tmp, DOT_ACCOUNT="work",
+                       DOT_CONFIG_FILE=str(config))
+            env.pop("DOT_CHROME_USER_DATA", None)
+            result = subprocess.run(
+                [NODE, str(script)], env=env, capture_output=True,
+                text=True, timeout=15,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("OUTSIDE_ROOT_PRESERVED", result.stdout)
+
     def test_profile_filesystem_operations_reject_late_subprofile_symlink(self):
         with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
             root = Path(tmp)

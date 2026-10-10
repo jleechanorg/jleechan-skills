@@ -53,7 +53,18 @@ function pathsOverlap(left, right) {
     reverse === '' || (!reverse.startsWith(`..${path.sep}`) && reverse !== '..');
 }
 
+function assertProfileRootIsNotSymlink(profileDir) {
+  try {
+    if (fs.lstatSync(path.resolve(profileDir)).isSymbolicLink()) {
+      throw new Error('Dot profile directory cannot be a symbolic link');
+    }
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+}
+
 function validateDedicatedProfileDir(profileDir) {
+  assertProfileRootIsNotSymlink(profileDir);
   const target = resolveThroughExistingParents(profileDir);
   const chrome = resolveThroughExistingParents(systemChromeDir);
   if (pathsOverlap(target, chrome)) {
@@ -78,6 +89,7 @@ function validateProfileDirectory(profileDirectory) {
 
 function profileDirectoryPath(profileDir, profileDirectory) {
   const name = validateProfileDirectory(profileDirectory) || 'Default';
+  assertProfileRootIsNotSymlink(profileDir);
   const root = resolveThroughExistingParents(profileDir);
   const target = path.join(profileDir, name);
   try {
