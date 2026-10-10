@@ -86,10 +86,11 @@ Shows full app info including input/output schema.
 ## Popular Apps by Category
 
 ### Image Generation
+
+Gemini model policy: select Gemini 3.8 Flash or later; do not select Gemini Pro. If the requested image task has no compliant Gemini option, choose a non-Gemini image provider or report the capability gap.
 - `falai/flux-dev-lora` - FLUX.2 Dev (high quality)
 - `falai/flux-2-klein-lora` - FLUX.2 Klein (fastest)
 - `infsh/sdxl` - Stable Diffusion XL
-- `google/gemini-3-pro-image-preview` - Gemini 3 Pro
 - `xai/grok-imagine-image` - Grok image generation
 
 ### Video Generation

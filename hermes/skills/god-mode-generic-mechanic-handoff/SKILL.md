@@ -28,7 +28,7 @@ Replay-safe handoff for a Jeff-approved, setting-agnostic god-mode/divine mechan
 ## Spawn the right worker (lesson: MiniMax-M3 + agy gate)
 1. AO exposes 2-3 worker harnesses. Prefer mid-tier explicit override.
    - MiniMax-M3 (`ao spawn ... --agent minimax`) — fastest path, but verify it has not silently hung with `kill -CONT $(pgrep -P <pane>)` if pane stalls.
-   - `agy --prompt-interactive ... --model gemini-3.5-flash-high --dangerously-skip-permissions --new-project` — works well for TDD cycles; needs `HOME=$HOME GEMINI_CLI_TRUST_WORKSPACE=true` in the env block.
+   - `agy --prompt-interactive ... --model gemini-3.8-flash-high --dangerously-skip-permissions --new-project` — works well for TDD cycles; needs `HOME=$HOME GEMINI_CLI_TRUST_WORKSPACE=true` in the env block.
    - Codex harness — historical reliability issues; do NOT use it for prompt-only contracts.
 2. Heartbeat the agent before `ao spawn`: `agy --print --model <tier> --print-timeout 60s --prompt "pong"`. If it stalls >90s, kill and switch tiers. **Never** retry the same tier that failed.
 3. Provide the task brief via `env -i ... $AO spawn -p worldarchitect --agent minimax "<task text>"`. Pass full task brief as the task argument — never condense.

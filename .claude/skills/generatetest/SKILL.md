@@ -91,7 +91,7 @@ sys.path.insert(0, str(_project_root))
 from testing_mcp.lib.base_test import MCPTestBase, TestContext
 
 
-DEFAULT_MODEL = "gemini-3-flash-preview"
+DEFAULT_MODEL = "gemini-3.8-flash"
 
 
 class MyFeatureTest(MCPTestBase):
@@ -332,7 +332,7 @@ sys.path.insert(0, str(_project_root))
 from testing_mcp.lib.base_test import MCPTestBase, TestContext
 
 
-DEFAULT_MODEL = "gemini-3-flash-preview"
+DEFAULT_MODEL = "gemini-3.8-flash"
 
 
 class [TestClassName](MCPTestBase):
@@ -491,7 +491,7 @@ def verify_real_mode(server_url):
 ```python
 from lib.model_utils import settings_for_model, update_user_settings
 
-DEFAULT_MODEL = "gemini-3-flash-preview"
+DEFAULT_MODEL = "gemini-3.8-flash"
 
 # Pin model at test start to avoid fallback noise
 update_user_settings(
@@ -643,7 +643,7 @@ Test across multiple providers when behavior varies:
 
 ```python
 DEFAULT_MODEL_MATRIX = [
-    "gemini-3-flash-preview",      # code_execution strategy
+    "gemini-3.8-flash",      # code_execution strategy
     "qwen-3-235b-a22b-instruct",   # native_two_phase strategy
 ]
 
