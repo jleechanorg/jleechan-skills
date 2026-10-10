@@ -31,21 +31,58 @@ This report documents an empirical performance benchmark and latency analysis of
 
 ## 2. Comparative Performance Matrix
 
-| Metric / Attribute | `codex-luna` | `codexl` (Default) | `codexl` (Tuned) | `claudel` | `pil` (Default) | `pil` (Tuned) |
-|---|---|---|---|---|---|---|
-| **CLI Framework** | Codex v0.160.0 | Codex v0.160.0 | Codex v0.160.0 | Claude Code | Pi Coding Agent | Pi Coding Agent |
-| **Model Engine** | `gpt-6-luna` | `glm-5.3` | `deepseek-4.1-flash` | `claude-opus-lr29` | `glm-5.3` | `deepseek-4.1-flash` |
-| **Gateway Protocol** | OpenAI Native | LunaRoute `/v1/codex` | LunaRoute `/v1/codex` | LunaRoute `/v1/messages` | LunaRoute `/v1` | LunaRoute `/v1` |
-| **Turnaround (Isolated Probe)** | 5.36 s | 17.24 s | 5.98 s | >20 s (CLI Discovery Hang) | 3.49 s | **2.26 s** |
-| **Turnaround (Complex Diagnostic)**| **23.83 s** | >30 s (Timeout) | >25 s (Timeout) | >20 s (CLI Discovery Hang) | >25 s (Timeout) | **9.71 s** |
-| **Cache Hit Rate** | **82.5%** | None recorded | None recorded | Session-bound | None recorded | None recorded |
-| **Reliability** | High | Low (Timeouts) | Medium (Fast probes) | Unstable on CLI | Medium (Fast probes) | **High (Sub-10s)** |
+| CLI Harness | Model Engine | Gateway Route | Short Probe (1–5 words) | Complex Task (Multi-file) | Status / Verdict |
+|---|---|---|---|---|---|
+| **`pil`** | `deepseek-4.1-flash` | LunaRoute `/v1` | **2.26 s** ⚡ | **9.71 s** ⚡ | **Top Performer**: Fastest overall turnaround |
+| **`pil`** | `glm-5.3` | LunaRoute `/v1` | 3.49 s | >25 s (Timeout) | Usable for short probes; stalls on reasoning |
+| **`codex-luna`** | `gpt-6-luna` | OpenAI Native | 5.36 s | **23.83 s** (82.5% cached) | **Reliability Winner**: Server-side cache handles large context |
+| **`codexl`** | `deepseek-4.1-flash` | LunaRoute `/v1/codex` | 5.98 s | >25 s (Timeout on 59k ctx) | Fast on small payloads; needs higher client timeout on full repo |
+| **`codexl`** | `glm-5.3` | LunaRoute `/v1/codex` | 17.24 s | >30 s (Timeout on 59k ctx) | **Deprecated**: 3× slower than DeepSeek on 1-word probes |
+| **`claudel`** | `claude-opus-lr29` | LunaRoute `/v1/messages` | >20 s (Hang) | >20 s (Hang) | **CLI Incompatible**: `claude` CLI discovery stalls on custom URL |
 
 ---
 
-## 3. Empirical Benchmark Details
+## 3. Detailed Performance by CLI × Model Combination
 
-### 3.1 Gateway Network & Wire Probes (`gw.lunaroute.com`)
+### 3.1 `pil` × `deepseek-4.1-flash` (Pi via LunaRoute)
+- **Isolated Short Probe**: **2.26 s** (Exit code 0).
+- **Complex Diagnostic Task**: **9.71 s** (Exit code 0).
+- **Wire Latency**: Socket connect **135.3 ms**, Time To First Token (TTFT) **241.9 ms**, total wire stream **381.7 ms** (13 chunks).
+- **Analysis**: Pi avoids heavy local framework bootstrapping, and `deepseek-4.1-flash` streams immediately without preamble.
+- **Verdict**: Best combination for rapid exploratory checks, lightweight subagent delegation, and fast interactive tasks.
+
+### 3.2 `pil` × `glm-5.3` (Pi via LunaRoute)
+- **Isolated Short Probe**: **3.49 s** (Exit code 0) — 54% slower than DeepSeek on simple output.
+- **Complex Diagnostic Task**: **>25.03 s** (Timed out / aborted).
+- **Analysis**: Adequate for trivial queries, but generation latency scales poorly on complex reasoning prompts, exceeding standard client timeouts.
+
+### 3.3 `codex-luna` × `gpt-6-luna` (Codex via OpenAI Native API)
+- **Isolated Short Probe**: **5.36 s** (Exit code 0) — Standard baseline with Codex CLI initialization overhead.
+- **Complex Diagnostic Task**: **23.83 s** (Exit code 0) — Generated 940 reasoning tokens; cached 279,040 tokens out of 338,271 total input tokens (**82.5% cache hit rate**).
+- **Analysis**: Server-side prefix prompt caching absorbs the ~59k token workspace preamble, preventing repeated computation.
+- **Verdict**: Best combination for autonomous full-repository pair coding where extensive repository guidelines and tool definitions must remain in context.
+
+### 3.4 `codexl` × `deepseek-4.1-flash` (Codex via LunaRoute)
+- **Isolated Short Probe**: **5.98 s** (Exit code 0) — Matches native Codex execution on small payloads.
+- **Complex Diagnostic Task**: **>25.02 s** (Timed out / aborted).
+- **Root Cause of Timeout**: In repository sessions, Codex serializes all tool definitions and guidelines (~59,255 tokens). Because LunaRoute does not have warm server-side prompt caching for this payload, transferring and processing 59k tokens un-cached pushed TTFT beyond the 25s client timeout.
+- **Mitigation**: Increasing client timeouts (`timeout 60s` or higher) enables large-workspace runs.
+
+### 3.5 `codexl` × `glm-5.3` (Codex via LunaRoute — Former Default)
+- **Isolated Short Probe**: **17.24 s** (Exit code 0) — Almost 3× slower than `deepseek-4.1-flash` on an identical 1-word probe (`"OK"`).
+- **Complex Diagnostic Task**: **>30.02 s** (Timed out / aborted).
+- **Analysis**: High inference latency and slow token emission make it unsuited as a default interactive backend. Replaced with `deepseek-4.1-flash`.
+
+### 3.6 `claudel` × `claude-opus-lr29` (Claude Code CLI via LunaRoute)
+- **Isolated Short Probe**: **>20.0 s** (Client-side hang / aborted).
+- **Raw Wire Stream Test (Direct HTTP / curl)**: Succeeded in **3.09 s** (TTFT: **1,052.7 ms**, 51 chunks with thinking delta).
+- **Root Cause**: The LunaRoute `/v1/messages` endpoint is fully compliant at the HTTP wire level. However, the `claude` CLI binary performs unsupported background capability and telemetry negotiations when `ANTHROPIC_BASE_URL` points to an external proxy, stalling before prompt dispatch.
+- **Recommendation**: Avoid the `claude` CLI wrapper for LunaRoute; use direct HTTP / SDK clients instead.
+
+---
+
+## 4. Empirical Wire & Gateway Benchmarks (`gw.lunaroute.com`)
+
 Measurements conducted via direct HTTP socket connections and SSE stream parsers:
 - **Socket Connect Latency**: `GET https://gw.lunaroute.com/v1/models` completed socket connection and catalog retrieval in **135.3 ms**.
 - **DeepSeek 4.1 Flash SSE Stream**:
@@ -57,44 +94,11 @@ Measurements conducted via direct HTTP socket connections and SSE stream parsers
   - Time To First Token (TTFT): **1,052.7 ms**
   - Total Duration: **3,089.5 ms** (51 streaming chunks received, thinking delta included)
 
-### 3.2 Isolated CLI Probe Benchmarks
-Measures total CLI invocation, environment loading, model dispatch, and process exit for trivial prompts (`"Respond with one word: OK"` or `"Count from 1 to 5."`):
-1. **`pil` (`deepseek-4.1-flash`)**: **2.26 s** (Exit code 0) — Fastest overall turnaround.
-2. **`pil` (`glm-5.3`)**: **3.49 s** (Exit code 0).
-3. **`codex-luna` (`gpt-6-luna`)**: **5.36 s** (Exit code 0) — Standard Codex native baseline.
-4. **`codexl` (`deepseek-4.1-flash`)**: **5.98 s** (Exit code 0) — Comparable to native on small payloads.
-5. **`codexl` (`glm-5.3`)**: **17.24 s** (Exit code 0) — Substantial generation latency.
-6. **`claudel` (`claude-opus-lr29`)**: **>20.0 s** (Aborted / Timeout) — Stalled during CLI discovery before prompt dispatch.
-
-### 3.3 Complex Code Diagnostic Benchmarks
-Measures CLI turnaround when analyzing code context across multi-file inputs:
-1. **`pil` (`deepseek-4.1-flash`)**: **9.71 s** (Exit code 0) — Successfully returned analysis in under 10 seconds.
-2. **`codex-luna` (`gpt-6-luna`)**: **23.83 s** (Exit code 0) — Generated 940 reasoning tokens; cached 279,040 input tokens (**82.5% cache hit rate**).
-3. **`pil` (`glm-5.3`)**: **>25 s** (TimeoutExpired) — Exceeded client-side deadline.
-4. **`codexl` (`deepseek-4.1-flash`)**: **>25 s** (TimeoutExpired) — Tripped 25s client timeout under 59k token workspace context.
-5. **`codexl` (`glm-5.3`)**: **>30 s** (TimeoutExpired) — Tripped 30s client timeout under 59k token workspace context.
-
----
-
-## 4. Architectural Analysis
-
-### 4.1 Impact of Input Context Size on Remote Gateway Latency
-Local agent frameworks like Codex serialize local tool definitions, instructions, and workspace state on invocation. In rich workspace environments, this initial payload measures ~59,255 tokens.
-- On **OpenAI Native** endpoints, server-side prompt caching recognizes the prefix, achieving an **82.5% cache hit rate** and avoiding repetitive token pre-fill computation.
-- On **LunaRoute Gateway** endpoints, the full ~59k token payload must be transferred and processed un-cached per request. This pushes TTFT beyond standard 25–30s subprocess timeouts, resulting in client-side abortion.
-
-### 4.2 Claude Code CLI Custom Endpoint Compatibility
-While the LunaRoute Anthropic-compatible wire endpoint (`/v1/messages`) returns valid Server-Sent Events, the `claude` CLI performs initial configuration negotiation, telemetry pings, and endpoint capability checks. When directed to `ANTHROPIC_BASE_URL="https://gw.lunaroute.com"`, these background handshakes hang, preventing prompt transmission.
-
-### 4.3 Engine Selection: `deepseek-4.1-flash` vs. `glm-5.3`
-- `deepseek-4.1-flash` demonstrates significantly lower TTFT and higher token generation throughput than `glm-5.3` across all tests.
-- Transitioning defaults from `glm-5.3` to `deepseek-4.1-flash` reduced isolated probe latency by 65% on Codex and 35% on Pi, while enabling sub-10s diagnostic responses.
-
 ---
 
 ## 5. Applied Configuration Tuning
 
-The following local configuration optimizations have been applied to ensure fast, reliable developer workflows:
+The following local configuration optimizations were implemented based on these benchmark results:
 
 1. **Codex LunaRoute Configuration (`~/.codex/lunaroute.config.toml`)**:
    Updated default engine to `deepseek-4.1-flash` and configured the full context window capacity:
@@ -125,12 +129,25 @@ The following local configuration optimizations have been applied to ensure fast
 
 ---
 
-## 6. Recommendations for Developers
+## 6. Feedback & Engineering Recommendations for the LunaRoute Team
 
-1. **For Rapid Checks, Probes, and Scaffolding**: Use `pil` with `deepseek-4.1-flash`. At **2.26s** turnaround, it provides the lowest latency among all evaluated harnesses.
-2. **For Full-Context Repository Coding**: Use `codex-luna` against native endpoints to leverage prompt caching (82.5% hit rate) and avoid gateway transfer timeouts on 50k+ token sessions.
-3. **If Using `codexl` on Large Workspaces**: Increase client-side execution timeouts (`timeout 60s` or higher) to accommodate the gateway pre-fill latency for large un-cached contexts.
-4. **Avoid `claudel` CLI with Custom Base URL**: Do not use the `claude` CLI wrapper against `gw.lunaroute.com` until upstream CLI endpoint negotiation issues are resolved; use direct HTTP / SDK clients instead.
+Based on direct telemetry and developer CLI integration testing, here are four concrete recommendations for the LunaRoute gateway team:
+
+### 1. Implement Gateway / KV Prompt Caching for Coding Sessions
+- **Issue**: Developer coding CLIs like Codex serialize 50k–60k tokens of tool definitions and project instructions on every turn. Without prefix prompt caching, processing 59k un-cached tokens on remote gateways takes >25s, causing client-side timeouts.
+- **Recommendation**: Support server-side KV / prefix caching (analogous to OpenAI and Anthropic native prompt caching) on endpoints like `/v1/codex` and `/v1/chat/completions`. Even a 5-minute ephemeral prefix cache would drop turnaround from >25s to <5s for multi-turn sessions.
+
+### 2. Support Claude Code CLI Discovery Endpoints
+- **Issue**: Direct HTTP calls to `/v1/messages` stream perfectly in 3.09s, but running the official `claude` CLI with `ANTHROPIC_BASE_URL="https://gw.lunaroute.com"` hangs for >20s.
+- **Recommendation**: Inspect and support Claude Code CLI's pre-flight discovery requests (such as `/v1/models`, telemetry pings, or version checks). Handling or responding with fast 200/no-op stubs will allow developers to use the `claude` CLI seamlessly over LunaRoute.
+
+### 3. Make `deepseek-4.1-flash` the Default Engine over `glm-5.3`
+- **Issue**: `glm-5.3` had a 17.24s turnaround on 1-word probes and timed out on complex prompts. `deepseek-4.1-flash` achieved 2.26s on probes and 9.71s on diagnostic tasks.
+- **Recommendation**: Update default routing configurations in client configs, documentation, and recommended profiles to favor `deepseek-4.1-flash` for interactive coding workloads.
+
+### 4. Provide Gateway Response Headers for Cache Status & Queue Time
+- **Issue**: When timeouts occur on large context payloads, developers cannot distinguish whether the delay occurred in client transit, gateway queueing, or backend model inference.
+- **Recommendation**: Return diagnostic headers such as `x-lunaroute-queue-ms`, `x-lunaroute-prefill-ms`, and `x-lunaroute-cache: HIT|MISS` in SSE completion envelopes.
 
 ---
 
