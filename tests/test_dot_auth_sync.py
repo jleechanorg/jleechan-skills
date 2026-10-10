@@ -177,6 +177,21 @@ console.log('FRESH_PROFILE_EMPTY');
 
             config.write_text(json.dumps({"accounts": {"work": {
                 "user_data_dir": str(dedicated),
+                "profile_directory": None,
+            }}}))
+            env["DOT_PROFILE_DIRECTORY"] = "Profile 7"
+            result = subprocess.run(
+                [NODE, str(DOT_CHROME), "resolve-profile"], env=env,
+                capture_output=True, text=True, timeout=15,
+            )
+            self.assertNotEqual(
+                result.returncode, 0,
+                "environment override must not hide an explicit null profile",
+            )
+
+            env.pop("DOT_PROFILE_DIRECTORY", None)
+            config.write_text(json.dumps({"accounts": {"work": {
+                "user_data_dir": str(dedicated),
                 "profile_directory": "Profile 7",
             }}}))
             env["DOT_PROFILE_DIRECTORY"] = "../other/Default"
@@ -284,6 +299,47 @@ console.log('OUTSIDE_ROOT_PRESERVED');
             )
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("OUTSIDE_ROOT_PRESERVED", result.stdout)
+
+    def test_profile_operations_reject_parent_symlink_to_system_chrome(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
+            root = Path(tmp)
+            parent = root / "dedicated"
+            dedicated = parent / "dot-profile"
+            saved_parent = root / "dedicated-original"
+            chrome_root = system_chrome_dir(root)
+            parent.mkdir()
+            dedicated.mkdir()
+            chrome_root.mkdir(parents=True)
+            script = root / "parent-symlink.mjs"
+            script.write_text(f"""
+import fs from 'node:fs';
+import os from 'node:os';
+os.homedir = () => {json.dumps(str(root))};
+const {{ ensurePersistentProfile }} =
+  await import({json.dumps(DOT_CHROME.as_uri())});
+const parent = {json.dumps(str(parent))};
+const dedicated = {json.dumps(str(dedicated))};
+const savedParent = {json.dumps(str(saved_parent))};
+const chromeRoot = {json.dumps(str(chrome_root))};
+fs.renameSync(parent, savedParent);
+fs.symlinkSync(chromeRoot, parent, 'dir');
+let rejected = false;
+try {{ ensurePersistentProfile({{ profileDirectory: 'Default' }}, dedicated); }}
+catch {{ rejected = true; }}
+if (!rejected) {{
+  throw new Error('profile setup accepted a parent symlink into system Chrome');
+}}
+if (fs.existsSync(chromeRoot + '/dot-profile/Default'))
+  throw new Error('profile setup created data inside system Chrome');
+console.log('SYSTEM_CHROME_PRESERVED');
+""")
+            env = dict(os.environ, HOME=tmp)
+            result = subprocess.run(
+                [NODE, str(script)], env=env, capture_output=True,
+                text=True, timeout=15,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("SYSTEM_CHROME_PRESERVED", result.stdout)
 
     def test_profile_filesystem_operations_reject_late_subprofile_symlink(self):
         with tempfile.TemporaryDirectory(dir="/tmp") as tmp:

@@ -89,7 +89,7 @@ function validateProfileDirectory(profileDirectory) {
 
 function profileDirectoryPath(profileDir, profileDirectory) {
   const name = validateProfileDirectory(profileDirectory) || 'Default';
-  assertProfileRootIsNotSymlink(profileDir);
+  validateDedicatedProfileDir(profileDir);
   const root = resolveThroughExistingParents(profileDir);
   const target = path.join(profileDir, name);
   try {
@@ -165,9 +165,8 @@ function detectChromeProfile(requestedAccount) {
     : Object.prototype.hasOwnProperty.call(accountConfig, 'profile_directory')
       ? accountConfig.profile_directory
       : null;
-  if (profileDirectoryValue === null &&
-      Object.prototype.hasOwnProperty.call(accountConfig, 'profile_directory') &&
-      process.env.DOT_PROFILE_DIRECTORY === undefined) {
+  if (Object.prototype.hasOwnProperty.call(accountConfig, 'profile_directory') &&
+      accountConfig.profile_directory === null) {
     throw new Error('Configured Dot profile directory cannot be null');
   }
   const profileDirectory = validateProfileDirectory(profileDirectoryValue) ?? 'Default';
