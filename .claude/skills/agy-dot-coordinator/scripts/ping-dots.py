@@ -13,7 +13,22 @@ import tempfile
 import time
 
 REMINDER_OPENING = 'Inventory the work I asked for in the last 24 hours and verify what’s done versus not done.'
-REMINDER_BODY = "Inventory the work I asked for in the last 24 hours and verify what’s done versus not done. Start/resume every unfinished authorized request within capacity. Recover outcome, checkpoint and acceptance gap; check latest scope/stops. Give existing owners safe next actions, not status queries; verify owner state before reassignment. Diagnose ordinary failures and safely repair/retry; avoid duplicate writers. Before waiting, check EACH last-24h request and older commitment for feasible alternate execution, validation or design work; do it. A publication hold needn't block safe testing/design. Local substeps and blocked work aren't completed user outcomes. Name blocked action, cause, missing capability/approval and concrete unblock; recheck only on new evidence or due checks. Save durable checkpoints. Use authorized cloud coders; honor explicit environments. Six useful tasks is a target, not permission or filler. Preserve permissions, cancellations and owners; no bypasses. Report fresh action/results; Working/timestamps/HEARTBEAT_OK prove nothing. Wait quietly only when all such work is blocked, with exact blockers."
+REMINDER_BODY = (
+    'Inventory the work I asked for in the last 24 hours and verify what’s done versus not done. '
+    'Resume unfinished authorized requests in capacity. '
+    'Recover outcome, durable checkpoint and acceptance gap; check latest scope/stops. '
+    'Give owners safe next actions, not status queries; verify state before reassignment. '
+    'Diagnose failures; repair safely; avoid duplicate writers. '
+    'Before waiting, check EACH last-24h request and older commitment for feasible alternate execution, validation or design work; do it. '
+    'A publication hold needn\'t block safe testing/design. '
+    'Local substeps and blocked work aren\'t completed user outcomes. '
+    'Name blocked action, cause, missing capability/approval and concrete unblock; recheck only on new evidence. '
+    'Use cloud coders; honor explicit environments. '
+    'Six useful tasks is a target, not permission or filler. '
+    'Owner-approved scope needs no re-approval; preserve cancellations; merge, destructive, credential gates still need user. '
+    'Report commit URLs, PR URLs or artifacts as proof; Working/timestamps/HEARTBEAT_OK prove nothing. '
+    'Wait quietly only when all such work is blocked, with exact blockers.'
+)
 PROMPT = (
     'Writer: return the recipient paragraph below unchanged, at most 1,200 characters. '
     'The recipient executes these instructions; you only write the reminder. '

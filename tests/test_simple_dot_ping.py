@@ -59,6 +59,8 @@ class SimplePingTests(unittest.TestCase):
         self.assertIn('durable checkpoint', ping.REMINDER_BODY)
         self.assertIn('acceptance gap', ping.REMINDER_BODY)
         self.assertIn('target, not permission', ping.REMINDER_BODY)
+        self.assertIn('Owner-approved scope', ping.REMINDER_BODY)
+        self.assertIn('commit URLs, PR URLs or artifacts as proof', ping.REMINDER_BODY)
         self.assertIn('recipient executes', ping.PROMPT)
         self.assertNotIn('Fewer than six proven', ping.PROMPT)
 
