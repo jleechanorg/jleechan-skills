@@ -349,12 +349,26 @@ there to a pointer 2026-09-06; this section is the full policy).
 
 - Route every independent unit to the **cheapest capable tier** — never
   silently inherit an expensive session model for delegated work.
+- For every lane, name the model explicitly and verify the model that actually
+  ran from launch or runtime metadata before relying on its result. If the
+  cheapest capable tier cannot do the bounded task, state the concrete failure
+  or capability gap that justifies escalation. Honor an explicit user model
+  choice under the precedence above.
 - Small/mechanical bounded coding:
   - Codex: spawn a `gpt-6-luna` subagent when available. If it is unavailable
     or fails, use `gpt-6-sol` (5.6 models forbidden).
   - Claude: `haiku` subagent.
 - Simple task-driving, polling, and mechanical sweeps: the available Luna or
   haiku/mini tier.
+- Apply the same handoff discipline to bounded independent investigation,
+  tests, monitoring, and mechanical follow-through when it costs less than
+  keeping that work in the parent session. Give each lane an explicit output
+  and completion condition, and let it run asynchronously when supported.
+- A worker owns its assigned checks through completion and reports when done,
+  blocked, or awaiting a material decision. The parent should not duplicate
+  the worker's execution or repeatedly poll while it is progressing; use
+  asynchronous completion notifications, continue independent parent work,
+  and inspect the supporting artifact on delivery.
 - **Gemini Model Invariant**: Never use Gemini 3.1 Pro (or older Gemini Pro models). Always use Gemini 3.8 Flash (`gemini-3.8-flash`, `gemini-3.8-flash-high`) or later.
 - Top tier (the session's own model): reserve for adversarial judgment, or
   only after a cheaper tier has already failed on that unit.
@@ -375,7 +389,8 @@ there to a pointer 2026-09-06; this section is the full policy).
 - Delegate coding (edits, new files, generated code) to `/s` (sidekick) or a
   subagent when the track is independent and large enough to earn its own
   context. Work you can finish in a handful of tool calls, do in the root
-  session — delegating it costs more than it saves.
+  session — delegating it costs more than it saves. This exception applies to
+  checks and follow-through too when the handoff costs more than the work.
 
 Teammate/subagent stall detection (transcript-proof liveness) is owned by
 `${CLAUDE_HOME:-$HOME/.claude}/skills/sidekick/SKILL.md` § Transcript-proof liveness — do not
