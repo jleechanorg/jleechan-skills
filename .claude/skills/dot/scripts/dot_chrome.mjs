@@ -53,13 +53,60 @@ function pathsOverlap(left, right) {
     reverse === '' || (!reverse.startsWith(`..${path.sep}`) && reverse !== '..');
 }
 
+function assertProfileRootIsNotSymlink(profileDir) {
+  try {
+    if (fs.lstatSync(path.resolve(profileDir)).isSymbolicLink()) {
+      throw new Error('Dot profile directory cannot be a symbolic link');
+    }
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+}
+
 function validateDedicatedProfileDir(profileDir) {
+  assertProfileRootIsNotSymlink(profileDir);
   const target = resolveThroughExistingParents(profileDir);
   const chrome = resolveThroughExistingParents(systemChromeDir);
   if (pathsOverlap(target, chrome)) {
     throw new Error('Dot profile directory must be separate from the system Google Chrome profile');
   }
   return path.resolve(profileDir);
+}
+
+function validateProfileDirectory(profileDirectory) {
+  if (profileDirectory == null) return null;
+  if (typeof profileDirectory !== 'string' || profileDirectory.length === 0 ||
+      profileDirectory === '.' || profileDirectory === '..' ||
+      profileDirectory.includes('/') || profileDirectory.includes('\\') ||
+      [...profileDirectory].some((character) => {
+        const code = character.charCodeAt(0);
+        return code < 0x20 || code === 0x7f;
+      })) {
+    throw new Error('Dot profile directory must be a single safe directory name');
+  }
+  return profileDirectory;
+}
+
+function profileDirectoryPath(profileDir, profileDirectory) {
+  const name = validateProfileDirectory(profileDirectory) || 'Default';
+  validateDedicatedProfileDir(profileDir);
+  const root = resolveThroughExistingParents(profileDir);
+  const target = path.join(profileDir, name);
+  try {
+    if (fs.lstatSync(target).isSymbolicLink()) {
+      throw new Error('Dot Chrome subprofile cannot be a symbolic link');
+    }
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+
+  const resolvedTarget = resolveThroughExistingParents(target);
+  const relative = path.relative(root, resolvedTarget);
+  if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) ||
+      path.isAbsolute(relative)) {
+    throw new Error('Dot Chrome subprofile must stay within its dedicated profile directory');
+  }
+  return target;
 }
 
 function detectChromeProfile(requestedAccount) {
@@ -113,11 +160,23 @@ function detectChromeProfile(requestedAccount) {
   // Target URL
   const url = process.env.DOT_URL || accountConfig.url || dotConfig.default_url || 'https://chatgpt.com/';
 
+  const profileDirectoryValue = process.env.DOT_PROFILE_DIRECTORY !== undefined
+    ? process.env.DOT_PROFILE_DIRECTORY
+    : Object.prototype.hasOwnProperty.call(accountConfig, 'profile_directory')
+      ? accountConfig.profile_directory
+      : null;
+  if (Object.prototype.hasOwnProperty.call(accountConfig, 'profile_directory') &&
+      accountConfig.profile_directory === null) {
+    throw new Error('Configured Dot profile directory cannot be null');
+  }
+  const profileDirectory = validateProfileDirectory(profileDirectoryValue) ?? 'Default';
+  profileDirectoryPath(profileDir, profileDirectory);
   return {
     account: req,
     slug,
     matchedKey: null,
     profileDir,
+    profileDirectory,
     url,
   };
 }
@@ -181,14 +240,19 @@ function reportPrecommitNoSend(reason, file) {
   }) + '\n');
 }
 
-function chromeLaunchOptions() {
+function chromeLaunchOptions(profDir) {
   const isLinux = os.platform() === 'linux';
   const hasDisplay = !!process.env.DISPLAY;
+  const profileDirectory = profDir || accountInfo?.profileDirectory;
+  profileDirectoryPath(USER_DATA_DIR, profileDirectory);
   const args = [
     '--no-first-run',
     '--no-default-browser-check',
     '--disable-blink-features=AutomationControlled',
   ];
+  if (profileDirectory) {
+    args.push(`--profile-directory=${profileDirectory}`);
+  }
   const ignoreDefaultArgs = ['--enable-automation'];
 
   if (isLinux) {
@@ -244,13 +308,19 @@ function assertExistingProfileAvailable(dir) {
 }
 
 function markAuthFailed(targetDir) {
-  const defaultDir = path.join(targetDir, 'Default');
   try {
+    const defaultDir = profileDirectoryPath(targetDir, accountInfo?.profileDirectory);
     fs.mkdirSync(defaultDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(defaultDir, '.auth_failed'),
-      JSON.stringify({ failedAt: Date.now() })
-    );
+    profileDirectoryPath(targetDir, accountInfo?.profileDirectory);
+    const markerPath = path.join(defaultDir, '.auth_failed');
+    const markerFlags = fs.constants.O_WRONLY | fs.constants.O_CREAT |
+      fs.constants.O_TRUNC | fs.constants.O_NOFOLLOW;
+    const markerFd = fs.openSync(markerPath, markerFlags, 0o666);
+    try {
+      fs.writeFileSync(markerFd, JSON.stringify({ failedAt: Date.now() }));
+    } finally {
+      fs.closeSync(markerFd);
+    }
   } catch (err) {
     console.error('dot: failed to write auth_failed marker: ' + err.message);
   }
@@ -258,7 +328,8 @@ function markAuthFailed(targetDir) {
 
 function clearAuthFailed(targetDir) {
   try {
-    fs.unlinkSync(path.join(targetDir, 'Default', '.auth_failed'));
+    const defaultDir = profileDirectoryPath(targetDir, accountInfo?.profileDirectory);
+    fs.unlinkSync(path.join(defaultDir, '.auth_failed'));
   } catch (err) {
     if (err && err.code !== 'ENOENT') {
       console.error('dot: failed to clear auth_failed marker: ' + err.message);
@@ -266,10 +337,11 @@ function clearAuthFailed(targetDir) {
   }
 }
 
-function ensurePersistentProfile(_accInfo, targetDir) {
+function ensurePersistentProfile(accInfo, targetDir) {
   // Each account owns a blank persistent profile; login happens independently.
-  const defaultDir = path.join(targetDir, 'Default');
+  const defaultDir = profileDirectoryPath(targetDir, accInfo?.profileDirectory);
   fs.mkdirSync(defaultDir, { recursive: true });
+  profileDirectoryPath(targetDir, accInfo?.profileDirectory);
 }
 
 async function waitAndCleanSingletonLock(dir) {

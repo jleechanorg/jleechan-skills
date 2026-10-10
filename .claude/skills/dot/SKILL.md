@@ -22,12 +22,14 @@ Accounts, target dot URLs, and preferred backends can be declared per-machine in
     "primary": {
       "url": "https://chatgpt.com/dots/<dot-id>",
       "backend": "chrome",
-      "user_data_dir": "~/.config/dot-headless-chrome-primary"
+      "user_data_dir": "~/.config/dot-headless-chrome-primary",
+      "profile_directory": "Profile 1"
     },
     "secondary": {
       "url": "https://chatgpt.com/dots/<dot-id>",
       "backend": "chrome",
-      "user_data_dir": "~/.config/dot-headless-chrome-secondary"
+      "user_data_dir": "~/.config/dot-headless-chrome-secondary",
+      "profile_directory": "Profile 2"
     }
   },
   "aliases": {
@@ -37,7 +39,7 @@ Accounts, target dot URLs, and preferred backends can be declared per-machine in
 }
 ```
 
-Each `user_data_dir` must be dedicated to that Dot account and must not point inside the system Google Chrome profile. If `user_data_dir` is omitted, Dot derives a separate local directory from the account key. Chrome is the only backend.
+Each `user_data_dir` must be dedicated to that Dot account and must not point inside the system Google Chrome profile. If `user_data_dir` is omitted, Dot derives a separate local directory from the account key. `profile_directory` is optional: it selects a named Chrome subprofile and defaults to `Default` when absent. The value must be one safe directory name, such as `Profile 1`; path separators, `.` and `..`, and control characters are rejected. `DOT_PROFILE_DIRECTORY` may temporarily override the configured subprofile for one invocation, subject to the same validation. Chrome is the only backend.
 
 ## Default: delegate, then monitor
 
@@ -137,7 +139,7 @@ If an account returns `DOT_CHROME_UNAVAILABLE: not signed in`:
 Always rotate across configured accounts when hitting a rate limit, usage limit, abuse prevention cooldown, or message cap:
 - **Limit Detection:** Detected directly from ChatGPT UI alert elements (`[role=alert]`, alert banners), emitting structured `DOT_USAGE_LIMIT_REACHED` events.
 - **Mandatory Rotation:** When an account hits a limit or cooldown, immediately rotate to the next configured account in `rotation` using `--account <next>`.
-- **Clean Profile Hand-off:** Rotation unsets both `DOT_CHROME_USER_DATA` and `DOT_URL` across the boundary so the next account automatically resolves its own dedicated profile directory and target URL.
+- **Clean Profile Hand-off:** Rotation unsets `DOT_CHROME_USER_DATA`, `DOT_URL`, and `DOT_PROFILE_DIRECTORY` across the boundary so the next account automatically resolves its own dedicated profile directory, target URL, and configured subprofile.
 - **Automatic Script Support:** `dot.sh` implements automatic account rotation (`DOT_ROTATE_ON_LIMIT=1` by default) using the `rotation` sequence declared in `~/.config/dot/config.json`.
 
 ## Backend & Persistent Profiles
@@ -157,5 +159,6 @@ Always rotate across configured accounts when hitting a rate limit, usage limit,
 - `DOT_BACKEND`: Force backend (`chrome` or `auto`). Both values select Chrome.
 - `DOT_CONFIG_FILE`: Custom path to dot JSON configuration (defaults to `~/.config/dot/config.json`).
 - `DOT_CHROME_USER_DATA`: Explicit Chrome user data directory (defaults to account-specific persistent dir configured in `~/.config/dot/config.json`).
+- `DOT_PROFILE_DIRECTORY`: Explicit named Chrome subprofile override (defaults to the account's `profile_directory`, or `Default` when absent); it must pass the same single-directory-name validation.
 - `DOT_CLEAR_DRAFT`: When set to `1`, forces clearing any existing draft in the composer before typing and sending.
 - `DOT_DRY_RUN`: When `1` (Chrome backend), types, verifies exact match, clears composer, and prints `DOT_DRYRUN_OK` without sending.

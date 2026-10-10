@@ -178,8 +178,10 @@ line beginning with `VERDICT:`. Empty or malformed output records
 a recognizable verdict, invoke A3.
 
 **A1 — Codex CLI (primary):** `codex exec --yolo -m gpt-6-sol --config
-model_reasoning_effort=high` (GPT 6 and 6.1 models only; 5.6 models are forbidden). The explicit command guarantees full-permission
-mode without relying on wrapper internals.
+model_reasoning_effort=high`. The explicit command guarantees full-permission
+mode without relying on wrapper internals. Only the exact catalog IDs
+`gpt-6-astra`, `gpt-6-luna`, `gpt-6-sol`, and `gpt-6.1-sol` are accepted;
+5.6 and unknown model IDs are forbidden.
 
 **A2 — Opus CLI (primary):** `claude -p --model opus
 --dangerously-skip-permissions`. It is dispatched concurrently with A1, not
@@ -369,7 +371,7 @@ Do not cite a percentage saving — none has ever been measured here. And do not
 
 | Priority | CLI | When |
 |---|---|---|
-| A1 | `codex exec --yolo -m gpt-6-sol --config model_reasoning_effort=high` | Primary — runs IN PARALLEL with A2 (GPT 6/6.1 only; 5.6 forbidden) |
+| A1 | `codex exec --yolo -m gpt-6-sol --config model_reasoning_effort=high` | Primary — runs IN PARALLEL with A2 (exact IDs: `gpt-6-astra`, `gpt-6-luna`, `gpt-6-sol`, `gpt-6.1-sol`; 5.6 and unknown IDs forbidden) |
 | A2 | `claude -p --model opus --dangerously-skip-permissions` | Primary — runs IN PARALLEL with A1 |
 | A3.1 | `claude -p --dangerously-skip-permissions` | Fallback when no primary leg produced a verdict (outside Claude Code) |
 | A3.2 | `cursor agent -p --force` | Fallback if A3.1 errors |

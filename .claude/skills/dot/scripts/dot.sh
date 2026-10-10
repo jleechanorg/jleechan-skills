@@ -86,6 +86,7 @@ ACCOUNT="${ACCOUNT:-default}"
 
 # Unify profile directory and URL resolution via dot_chrome.mjs resolve-profile
 PROFILE_DIR=""
+PROFILE_DIRECTORY=""
 RESOLVED_URL=""
 if [[ -x "$NODE" && -f "$HERE/dot_chrome.mjs" ]]; then
   if ! PROFILE_INFO=$(DOT_ACCOUNT="$ACCOUNT" DOT_CONFIG_FILE="$CONFIG_FILE" DOT_URL="${DOT_URL:-}" DOT_CHROME_USER_DATA="${DOT_CHROME_USER_DATA:-}" "$NODE" "$HERE/dot_chrome.mjs" "$PROFILE_RESOLVER_MODE" 2>&1); then
@@ -94,6 +95,7 @@ if [[ -x "$NODE" && -f "$HERE/dot_chrome.mjs" ]]; then
   fi
   if [[ -n "$PROFILE_INFO" ]]; then
     PROFILE_DIR=$("$NODE" -e 'try { process.stdout.write(JSON.parse(process.argv[1]).profileDir || ""); } catch {}' "$PROFILE_INFO" 2>/dev/null || true)
+    PROFILE_DIRECTORY=$("$NODE" -e 'try { process.stdout.write(JSON.parse(process.argv[1]).profileDirectory || ""); } catch {}' "$PROFILE_INFO" 2>/dev/null || true)
     RESOLVED_URL=$("$NODE" -e 'try { process.stdout.write(JSON.parse(process.argv[1]).url || ""); } catch {}' "$PROFILE_INFO" 2>/dev/null || true)
   fi
 fi
@@ -207,7 +209,8 @@ rotate_account_if_needed() {
     local rotated="${DOT_ROTATED_ACCOUNTS:-}"
     if [[ -n "$next_acc" && "$next_acc" != "$ACCOUNT" ]] && ! echo ",$rotated," | grep -q ",$next_acc,"; then
       echo "dot.sh: account '$ACCOUNT' hit usage limit; rotating to '$next_acc'..." >&2
-      exec env -u DOT_CHROME_USER_DATA -u DOT_URL DOT_ROTATED_ACCOUNTS="${rotated:+$rotated,}$ACCOUNT" DOT_ACCOUNT="$next_acc" "$BASH" "${BASH_SOURCE[0]}" "$action" "$@"
+      # Clear all per-account overrides before resolving the rotated account.
+      exec env -u DOT_CHROME_USER_DATA -u DOT_URL -u DOT_PROFILE_DIRECTORY DOT_ROTATED_ACCOUNTS="${rotated:+$rotated,}$ACCOUNT" DOT_ACCOUNT="$next_acc" "$BASH" "${BASH_SOURCE[0]}" "$action" "$@"
     fi
   fi
 }
@@ -274,10 +277,34 @@ cmd_send() {
   done
 }
 
+validate_login_profile() {
+  local expected_dir="$1"
+  local expected_profile_directory="$2"
+  local profile_info profile_dir profile_directory
+  if ! profile_info=$(DOT_ACCOUNT="$ACCOUNT" DOT_CONFIG_FILE="$CONFIG_FILE" \
+      DOT_URL="${DOT_URL:-}" DOT_CHROME_USER_DATA="$expected_dir" \
+      "$NODE" "$HERE/dot_chrome.mjs" resolve-profile 2>&1); then
+    echo "$profile_info" >&2
+    return 1
+  fi
+  profile_dir=$("$NODE" -e 'try { process.stdout.write(JSON.parse(process.argv[1]).profileDir || ""); } catch {}' \
+    "$profile_info" 2>/dev/null || true)
+  profile_directory=$("$NODE" -e 'try { process.stdout.write(JSON.parse(process.argv[1]).profileDirectory || ""); } catch {}' \
+    "$profile_info" 2>/dev/null || true)
+  if [[ "$profile_dir" != "$expected_dir" ||
+        "$profile_directory" != "$expected_profile_directory" ]]; then
+    echo "dot.sh: refusing login because the configured profile changed before launch" >&2
+    return 1
+  fi
+}
+
 cmd_login() {
   local dir="${DOT_CHROME_USER_DATA:-}"
   if [[ -z "$dir" ]]; then
     echo "dot.sh: refusing login because the dedicated account profile could not be resolved" >&2
+    exit 2
+  fi
+  if ! validate_login_profile "$dir" "$PROFILE_DIRECTORY"; then
     exit 2
   fi
   mkdir -p "$dir"
@@ -299,7 +326,15 @@ cmd_login() {
     echo "dot.sh: Google Chrome binary not found: $chrome_bin" >&2
     exit 2
   fi
+  if ! validate_login_profile "$dir" "$PROFILE_DIRECTORY"; then
+    exit 2
+  fi
+  local profile_args=()
+  if [[ -n "$PROFILE_DIRECTORY" ]]; then
+    profile_args+=("--profile-directory=$PROFILE_DIRECTORY")
+  fi
   "$chrome_bin" --user-data-dir="$dir" --no-first-run \
+    "${profile_args[@]}" \
     --no-default-browser-check "$target_url"
 }
 

@@ -59,6 +59,7 @@ class PrimaryPairTest(unittest.TestCase):
         self.packet = self.root / "packet.txt"
         self.packet.write_text("DECISION:\nReview exact target.\n")
         self.env = os.environ.copy()
+        self.env.pop("ADVICE_CODEX_MODEL", None)
         self.env["PATH"] = f"{self.bin}:{self.env['PATH']}"
         self.env["ADVICE_TEST_SYNC_DIR"] = str(self.sync)
 
@@ -590,6 +591,100 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         self.assertEqual(receipt["operation"]["success"], False)
         self.assertEqual(receipt["cleanup"], cleanup)
         self.assertIn("primary reviewer operation failed", stderr.getvalue())
+
+    def test_validate_codex_model_allows_gpt6_and_forbids_5_6_models(self) -> None:
+        runner = load_runner_module()
+        self.assertEqual(runner.validate_codex_model(), "gpt-6-sol")
+        self.assertEqual(runner.validate_codex_model(None), "gpt-6-sol")
+        self.assertEqual(runner.validate_codex_model(""), "gpt-6-sol")
+        self.assertEqual(runner.validate_codex_model("   "), "gpt-6-sol")
+        self.assertEqual(runner.validate_codex_model("gpt-6-sol"), "gpt-6-sol")
+        self.assertEqual(runner.validate_codex_model("gpt-6-astra"), "gpt-6-astra")
+        self.assertEqual(runner.validate_codex_model("gpt-6-luna"), "gpt-6-luna")
+        self.assertEqual(runner.validate_codex_model("gpt-6.1-sol"), "gpt-6.1-sol")
+
+        for invalid in (
+            "gpt-6",
+            "gpt-6.1",
+            "gpt-6-not-a-real-model",
+            "gpt-60-legacy",
+            "gpt-6junk",
+            "gpt-6-",
+            "gpt-6.1-",
+        ):
+            with self.assertRaises(ValueError):
+                runner.validate_codex_model(invalid)
+
+        # Forbid all 5.6 models
+        for forbidden in ("gpt-5.6-terra", "gpt-5.6-sol", "gpt-5.6-luna", "5.6", "my-5.6-model"):
+            with self.assertRaises(ValueError) as ctx:
+                runner.validate_codex_model(forbidden)
+            self.assertIn("5.6", str(ctx.exception))
+
+        # Reject non-gpt-6 / non-gpt-6.1 models
+        for invalid in ("gpt-4o", "claude-3-opus", "gpt-5-mini", "o1"):
+            with self.assertRaises(ValueError) as ctx:
+                runner.validate_codex_model(invalid)
+            self.assertIn("gpt-6", str(ctx.exception))
+
+    def test_codex_model_cli_flag_accepts_valid_and_rejects_forbidden(self) -> None:
+        self.executable(
+            "codex",
+            "printf '%s\\n' \"$@\" > \"$ADVICE_TEST_SYNC_DIR/codex.args\"\n"
+            "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n",
+        )
+        self.executable(
+            "claude",
+            "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n",
+        )
+
+        # Valid custom gpt-6 model
+        res_valid = self.invoke("--codex-model", "gpt-6-luna")
+        self.assertEqual(res_valid.returncode, 0, res_valid.stderr)
+        codex_args = (self.sync / "codex.args").read_text().splitlines()
+        self.assertIn("gpt-6-luna", codex_args)
+
+        # Forbidden 5.6 model rejected by CLI parser
+        res_invalid = self.invoke("--codex-model", "gpt-5.6-terra")
+        self.assertEqual(res_invalid.returncode, 2, res_invalid.stderr)
+        self.assertIn("5.6", res_invalid.stderr)
+
+    def test_codex_model_environment_default_is_validated_and_forwarded(self) -> None:
+        self.executable(
+            "codex",
+            "printf '%s\\n' \"$@\" > \"$ADVICE_TEST_SYNC_DIR/codex.args\"\n"
+            "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n",
+        )
+        self.env["ADVICE_CODEX_MODEL"] = "gpt-6.1-sol"
+
+        result = self.invoke("--reviewers", "codex")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        codex_args = (self.sync / "codex.args").read_text().splitlines()
+        self.assertIn("gpt-6.1-sol", codex_args)
+
+        self.output = self.root / "invalid-env-out"
+        self.env["ADVICE_CODEX_MODEL"] = "gpt-6-unknown"
+        invalid = self.invoke("--reviewers", "codex")
+        self.assertEqual(invalid.returncode, 2, invalid.stderr)
+        self.assertIn("Codex model must be one of", invalid.stderr)
+        self.assertIn("gpt-6-unknown", invalid.stderr)
+
+    def test_codex_lane_rejects_invalid_model_before_waiting_at_barrier(self) -> None:
+        runner = load_runner_module()
+        barrier = mock.Mock()
+
+        with self.assertRaisesRegex(ValueError, "Codex model must be one of"):
+            runner.codex_lane(
+                self.repo,
+                "review prompt",
+                barrier,
+                1.0,
+                0.1,
+                "gpt-6-unknown",
+            )
+
+        barrier.wait.assert_not_called()
 
 
 if __name__ == "__main__":

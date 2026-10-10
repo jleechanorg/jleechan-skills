@@ -155,7 +155,7 @@ def process_snapshot() -> dict[int, tuple[int, str]]:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         check=True,
-        timeout=0.5,
+        timeout=2.0,
     )
     snapshot: dict[int, tuple[int, str]] = {}
     for line in completed.stdout.splitlines():
@@ -352,12 +352,23 @@ def has_verdict(output: str) -> bool:
     )
 
 
-def validate_codex_model(model: str) -> str:
-    cleaned = model.strip()
-    if "5.6" in cleaned or not (cleaned.startswith("gpt-6") or cleaned.startswith("gpt-6.1")):
+DEFAULT_CODEX_MODEL = "gpt-6-sol"
+CODEX_MODEL_ALLOWLIST = frozenset(
+    {"gpt-6-astra", "gpt-6-luna", "gpt-6-sol", "gpt-6.1-sol"}
+)
+
+
+def validate_codex_model(model: str | None = None) -> str:
+    """Return a supported Codex model ID, defaulting to the primary model."""
+    if model is None or not str(model).strip():
+        return DEFAULT_CODEX_MODEL
+    cleaned = str(model).strip()
+    if "5.6" in cleaned:
+        raise ValueError(f"Codex 5.6 models are forbidden: {cleaned}")
+    if cleaned not in CODEX_MODEL_ALLOWLIST:
         raise ValueError(
-            f"Model {cleaned!r} is not allowed for /advice review. "
-            "5.6 models are forbidden; only GPT 6 or 6.1 models are permitted (default: gpt-6-sol)."
+            "Codex model must be one of "
+            f"{', '.join(sorted(CODEX_MODEL_ALLOWLIST))}: {cleaned}"
         )
     return cleaned
 
@@ -370,14 +381,14 @@ def codex_lane(
     timeout_grace_seconds: float,
     model: str | None = None,
 ) -> dict[str, Any]:
+    resolved_model = validate_codex_model(
+        model or os.environ.get("ADVICE_CODEX_MODEL") or DEFAULT_CODEX_MODEL
+    )
     barrier.wait()
     started = time.time_ns()
     attempts: list[dict[str, Any]] = []
     codex = command_path("codex")
     if codex:
-        resolved_model = validate_codex_model(
-            model or os.environ.get("ADVICE_CODEX_MODEL") or "gpt-6-sol"
-        )
         code, stdout, stderr, timed_out, forced_pipe_close, supervision = execute(
             [
                 codex,
@@ -665,23 +676,32 @@ def main(
         if any(clone_sha != sha for clone_sha in receipt["clone_shas"].values()):
             raise RuntimeError("review clone did not resolve to the requested SHA")
         barrier = threading.Barrier(len(reviewer_names))
-        os.environ["ADVICE_CODEX_MODEL"] = args.codex_model
         lane_functions = {
             "codex": codex_lane,
             "opus": opus_lane,
         }
         with concurrent.futures.ThreadPoolExecutor(max_workers=len(reviewer_names)) as executor:
-            futures = {
-                name: executor.submit(
-                    lane_functions[name],
-                    clones[name],
-                    prompt,
-                    barrier,
-                    args.timeout_seconds,
-                    args.timeout_grace_seconds,
-                )
-                for name in reviewer_names
-            }
+            futures = {}
+            for name in reviewer_names:
+                if name == "codex":
+                    futures[name] = executor.submit(
+                        codex_lane,
+                        clones[name],
+                        prompt,
+                        barrier,
+                        args.timeout_seconds,
+                        args.timeout_grace_seconds,
+                        args.codex_model,
+                    )
+                else:
+                    futures[name] = executor.submit(
+                        opus_lane,
+                        clones[name],
+                        prompt,
+                        barrier,
+                        args.timeout_seconds,
+                        args.timeout_grace_seconds,
+                    )
             results = {name: future.result() for name, future in futures.items()}
         for name, result in results.items():
             (output_dir / f"{name}.txt").write_text(result.pop("stdout"))
