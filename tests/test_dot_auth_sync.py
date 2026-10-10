@@ -487,16 +487,66 @@ exit "$status"
             marker.write_text('{"failedAt":123}')
 
             chrome = root / "fake-chrome"
-            chrome.write_text("#!/bin/sh\nexit 130\n")
+            args_file = root / "login-args"
+            chrome.write_text(
+                "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$DOT_CHROME_ARGS\"\nexit 130\n"
+            )
             chrome.chmod(0o700)
             env = dict(os.environ, HOME=tmp, DOT_CONFIG_FILE=str(config),
-                       DOT_CHROME_BIN=str(chrome))
+                       DOT_CHROME_BIN=str(chrome), DOT_CHROME_ARGS=str(args_file))
             env.pop("DOT_CHROME_USER_DATA", None)
             result = subprocess.run(["bash", str(DOT_SH), "--account", "work", "login"],
                                     env=env, capture_output=True, text=True, timeout=15)
 
             self.assertEqual(result.returncode, 130, result.stderr)
+            self.assertIn("--profile-directory=Default", args_file.read_text().splitlines())
             self.assertEqual(marker.read_text(), '{"failedAt":123}')
+
+    def test_headless_probe_explicitly_selects_default_when_subprofile_is_unset(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
+            root = Path(tmp)
+            dedicated = root / "dot-profile"
+            (dedicated / "Default").mkdir(parents=True)
+            config = root / "config.json"
+            config.write_text(json.dumps({"accounts": {"work": {
+                "user_data_dir": str(dedicated),
+            }}}))
+            module_root = root / "node_modules" / "playwright"
+            module_root.mkdir(parents=True)
+            runner = root / "runner.cjs"
+            runner.write_text("")
+            (module_root / "index.js").write_text(
+                "const fs = require('fs'); "
+                "module.exports = {chromium: {launchPersistentContext: "
+                "async (dir, options) => { "
+                "fs.writeFileSync(process.env.CAPTURE_OPTIONS, "
+                "JSON.stringify({dir, args: options.args})); "
+                "throw new Error('intentional launch capture stop'); "
+                "}}};"
+            )
+            chrome = root / "fake-chrome"
+            chrome.write_text("#!/bin/sh\nexit 0\n")
+            chrome.chmod(0o700)
+            capture = root / "launch-options.json"
+            env = dict(
+                os.environ,
+                HOME=tmp,
+                DOT_ACCOUNT="work",
+                DOT_CONFIG_FILE=str(config),
+                DOT_CHROME_BIN=str(chrome),
+                DOT_PW_MODULES=str(runner),
+                CAPTURE_OPTIONS=str(capture),
+            )
+            env.pop("DOT_PROFILE_DIRECTORY", None)
+            result = subprocess.run(
+                [NODE, str(DOT_CHROME), "probe", "0" * 64],
+                env=env, capture_output=True, text=True, timeout=15,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            options = json.loads(capture.read_text())
+            self.assertEqual(options["dir"], str(dedicated))
+            self.assertIn("--profile-directory=Default", options["args"])
 
 
 if __name__ == "__main__":

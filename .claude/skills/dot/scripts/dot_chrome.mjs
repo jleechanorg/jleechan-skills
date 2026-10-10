@@ -170,7 +170,7 @@ function detectChromeProfile(requestedAccount) {
       process.env.DOT_PROFILE_DIRECTORY === undefined) {
     throw new Error('Configured Dot profile directory cannot be null');
   }
-  const profileDirectory = validateProfileDirectory(profileDirectoryValue);
+  const profileDirectory = validateProfileDirectory(profileDirectoryValue) ?? 'Default';
   profileDirectoryPath(profileDir, profileDirectory);
   return {
     account: req,
