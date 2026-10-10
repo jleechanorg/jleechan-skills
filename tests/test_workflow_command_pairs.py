@@ -447,6 +447,42 @@ class WorkflowCommandPairTest(unittest.TestCase):
         self.assertNotIn("LOG=$LOG_DIR/coder.log", coder)
         self.assertNotIn("LOG=$LOG_DIR/verifier.log", verifier)
 
+    def test_code_standards_and_cs_commands_target_valid_global_skill(self):
+        for name in ("code-standards", "cs"):
+            with self.subTest(command=name):
+                command = COMMANDS / f"{name}.md"
+                self.assertTrue(
+                    command.is_file(),
+                    f"Command {command} must exist as an active top-level command",
+                )
+                content = command.read_text(encoding="utf-8")
+                self.assertNotIn("~/.claude/", content)
+                self.assertNotIn(".claude/skills/", content)
+                self.assertIn(
+                    "${CLAUDE_HOME:-$HOME/.claude}/skills/code-standards/SKILL.md",
+                    content,
+                )
+
+        skill = SKILLS / "code-standards" / "SKILL.md"
+        self.assertTrue(skill.is_file(), f"Skill {skill} must exist")
+        skill_content = skill.read_text(encoding="utf-8")
+        self.assertNotIn("~/.claude/", skill_content)
+        for required_lane in (
+            "ponytail",
+            "zero-framework-cognition",
+            "zfc-leveling-roadmap",
+            "root-cause-first",
+        ):
+            with self.subTest(lane=required_lane):
+                self.assertIn(
+                    f"${{CLAUDE_HOME:-$HOME/.claude}}/skills/{required_lane}/SKILL.md",
+                    skill_content,
+                )
+                self.assertTrue(
+                    (SKILLS / required_lane / "SKILL.md").is_file(),
+                    f"Required lane skill {required_lane} must exist in repo",
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

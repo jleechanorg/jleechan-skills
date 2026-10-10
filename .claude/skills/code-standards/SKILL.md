@@ -7,19 +7,19 @@ description: User-scope code/diff/PR review against the user-wide standards — 
 
 Reviews code, diffs, PRs, or proposed implementations against four
 independent, user-wide standards. This skill is the source of truth for the
-four-lane workflow; `~/.claude/commands/code-standards.md` is a thin
+four-lane workflow; `${CLAUDE_HOME:-$HOME/.claude}/commands/code-standards.md` is a thin
 dispatcher that points here.
 
 ## Source skills (loaded by this workflow)
 
 | Skill | Path |
 |-------|------|
-| Ponytail — lazy senior dev mode | `~/.claude/skills/ponytail/SKILL.md` |
-| Zero-Framework Cognition (ZFC) | `~/.claude/skills/zero-framework-cognition/SKILL.md` |
-| ZFC Leveling Roadmap | `~/.claude/skills/zfc-leveling-roadmap/SKILL.md` |
-| Root-cause-first engineering | `~/.claude/skills/root-cause-first/SKILL.md` |
+| Ponytail — lazy senior dev mode | `${CLAUDE_HOME:-$HOME/.claude}/skills/ponytail/SKILL.md` |
+| Zero-Framework Cognition (ZFC) | `${CLAUDE_HOME:-$HOME/.claude}/skills/zero-framework-cognition/SKILL.md` |
+| ZFC Leveling Roadmap | `${CLAUDE_HOME:-$HOME/.claude}/skills/zfc-leveling-roadmap/SKILL.md` |
+| Root-cause-first engineering | `${CLAUDE_HOME:-$HOME/.claude}/skills/root-cause-first/SKILL.md` |
 
-`~/.claude/skills/ponytail/SKILL.md` is the canonical mirror of
+`${CLAUDE_HOME:-$HOME/.claude}/skills/ponytail/SKILL.md` is the canonical mirror of
 [ponytail/.github/copilot-instructions.md](https://github.com/DietrichGebert/ponytail/blob/main/.github/copilot-instructions.md).
 The same skill is mirrored at `~/.codex/skills/ponytail/SKILL.md` for Codex.
 
@@ -78,9 +78,9 @@ If the argument contains `smoke-test`, do not dispatch review lanes and do
 not edit files. Instead, report:
 
 - that the command file loaded,
-- the command file path (`~/.claude/commands/code-standards.md`),
-- this skill file path (`~/.claude/skills/code-standards/SKILL.md`),
-- the ponytail skill path (`~/.claude/skills/ponytail/SKILL.md`),
+- the command file path (`${CLAUDE_HOME:-$HOME/.claude}/commands/code-standards.md`),
+- this skill file path (`${CLAUDE_HOME:-$HOME/.claude}/skills/code-standards/SKILL.md`),
+- the ponytail skill path (`${CLAUDE_HOME:-$HOME/.claude}/skills/ponytail/SKILL.md`),
 - the marker for this revision.
 
 This is the same convention used by repo-local `.claude/commands/code-standards.md`
@@ -89,17 +89,17 @@ command is on PATH and loadable without paying for a real review.
 
 ## Bidirectional pointer contract
 
-The user-scope command at `~/.claude/commands/code-standards.md` is
+The user-scope command at `${CLAUDE_HOME:-$HOME/.claude}/commands/code-standards.md` is
 **project-agnostic**: it applies to every repo, including ones without a
 repo-local `.claude/commands/code-standards.md`. Any repo-local
 `.claude/commands/code-standards.md` (for example at
 `$GITHUB_REPOSITORY/.claude/commands/code-standards.md`) MUST:
 
 1. **Load BOTH files.** State that the user-scope command at
-   `~/.claude/commands/code-standards.md` / this skill are the source of
+   `${CLAUDE_HOME:-$HOME/.claude}/commands/code-standards.md` / this skill are the source of
    truth for the four-lane workflow (ponytail, ZFC, ZFC leveling,
    root-cause-first).
-2. **Always reference `~/.claude/skills/ponytail/SKILL.md`** so the
+2. **Always reference `${CLAUDE_HOME:-$HOME/.claude}/skills/ponytail/SKILL.md`** so the
    lazy-senior-dev ladder is always part of the review, not a per-repo
    choice.
 3. **Define repo-specific behavior** (e.g. an extra `/thermo` lane, a
@@ -109,7 +109,7 @@ repo-local `.claude/commands/code-standards.md`. Any repo-local
 4. **Stay loadable in codex debug smoke-test mode** by honoring the same
    `smoke-test` argument convention.
 5. **Reciprocal pointer** — the repo-local file MUST contain a
-   bidirectional pointer back to `~/.claude/commands/code-standards.md`
+   bidirectional pointer back to `${CLAUDE_HOME:-$HOME/.claude}/commands/code-standards.md`
    and document which lanes are added vs. inherited.
 
 When invoked inside a repo with a local copy, both files load. When invoked
