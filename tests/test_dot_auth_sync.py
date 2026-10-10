@@ -254,6 +254,43 @@ console.log('OUTSIDE_PROFILE_PRESERVED');
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("OUTSIDE_PROFILE_PRESERVED", result.stdout)
 
+    def test_auth_failure_marker_does_not_follow_symlink(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
+            root = Path(tmp)
+            config = root / "config.json"
+            dedicated = root / "dot-profile"
+            outside_marker = root / "outside-marker"
+            config.write_text(json.dumps({"accounts": {"work": {
+                "user_data_dir": str(dedicated),
+                "profile_directory": "Profile 7",
+            }}}))
+            script = root / "auth-marker-symlink.mjs"
+            script.write_text(f"""
+import fs from 'node:fs';
+import os from 'node:os';
+os.homedir = () => {json.dumps(str(root))};
+const {{ markAuthFailed, ensurePersistentProfile }} =
+  await import({json.dumps(DOT_CHROME.as_uri())});
+const dedicated = {json.dumps(str(dedicated))};
+const outsideMarker = {json.dumps(str(outside_marker))};
+ensurePersistentProfile({{ profileDirectory: 'Profile 7' }}, dedicated);
+fs.writeFileSync(outsideMarker, 'preserve');
+fs.symlinkSync(outsideMarker, dedicated + '/Profile 7/.auth_failed');
+markAuthFailed(dedicated);
+if (fs.readFileSync(outsideMarker, 'utf8') !== 'preserve')
+  throw new Error('auth failure marker write followed a symlink');
+console.log('OUTSIDE_MARKER_PRESERVED');
+""")
+            env = dict(os.environ, HOME=tmp, DOT_ACCOUNT="work",
+                       DOT_CONFIG_FILE=str(config))
+            env.pop("DOT_CHROME_USER_DATA", None)
+            result = subprocess.run(
+                [NODE, str(script)], env=env, capture_output=True,
+                text=True, timeout=15,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("OUTSIDE_MARKER_PRESERVED", result.stdout)
+
     def test_negative_auth_observations_do_not_clear_auth_failure(self):
         source = DOT_CHROME.read_text(encoding="utf-8")
         self.assertIn("session.status === 200 && session.isJson && session.hasUser", source)

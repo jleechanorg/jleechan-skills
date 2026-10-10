@@ -293,10 +293,15 @@ function markAuthFailed(targetDir) {
     const defaultDir = profileDirectoryPath(targetDir, accountInfo?.profileDirectory);
     fs.mkdirSync(defaultDir, { recursive: true });
     profileDirectoryPath(targetDir, accountInfo?.profileDirectory);
-    fs.writeFileSync(
-      path.join(defaultDir, '.auth_failed'),
-      JSON.stringify({ failedAt: Date.now() })
-    );
+    const markerPath = path.join(defaultDir, '.auth_failed');
+    const markerFlags = fs.constants.O_WRONLY | fs.constants.O_CREAT |
+      fs.constants.O_TRUNC | fs.constants.O_NOFOLLOW;
+    const markerFd = fs.openSync(markerPath, markerFlags, 0o666);
+    try {
+      fs.writeFileSync(markerFd, JSON.stringify({ failedAt: Date.now() }));
+    } finally {
+      fs.closeSync(markerFd);
+    }
   } catch (err) {
     console.error('dot: failed to write auth_failed marker: ' + err.message);
   }
