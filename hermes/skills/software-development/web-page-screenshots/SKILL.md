@@ -457,11 +457,13 @@ rule in `AGENTS.md`). The recipe was verified working against
 
 **Three-layer pre-check (run BEFORE the browser step):**
 
+Select Gemini 3.8 Flash or later for current model examples; do not select Gemini Pro or older Gemini models. Historical incident values below are diagnostic records only.
+
 ```bash
 # Layer A: served HTML carries the new <option> at the template level.
 # Catches backend→template→HTML pipe breaks before JS even loads.
 curl -fsS "http://127.0.0.1:8081/settings" \
-  | grep -E '<option value="(gemini-3\.6-flash|gemini-3\.5-flash-lite)"'
+  | grep -E '<option value="(gemini-3\.8-flash)"'
 
 # Layer B: model-constants endpoint exposes the new id (if the frontend
 # hydrates the dropdown via JS from /api/constants/models or similar).
@@ -471,7 +473,7 @@ curl -fsS "http://127.0.0.1:8081/api/constants/models" | jq .
 # Layer C: backend constants module exposes the new id end-to-end.
 ./vpython -c "
 from mvp_site import constants
-for m in ['gemini-3.6-flash', 'gemini-3.5-flash-lite']:
+for m in ['gemini-3.8-flash']:
     print(m, 'in ALLOWED=', m in constants.ALLOWED_GEMINI_MODELS,
           'mapping=', constants.GEMINI_MODEL_MAPPING.get(m),
           'code_exec=', m in constants.MODELS_WITH_CODE_EXECUTION,
@@ -493,7 +495,7 @@ from playwright.async_api import async_playwright
 OUT = Path("/tmp/selectable_option_proof"); OUT.mkdir(parents=True, exist_ok=True)
 URL = "http://127.0.0.1:8081/settings"
 SELECT_ID = "#geminiModel"
-NEW_OPTION_VALUES = ["gemini-3.6-flash", "gemini-3.5-flash-lite"]
+NEW_OPTION_VALUES = ["gemini-3.8-flash"]
 EXPECTED_TOTAL = 4 + len(NEW_OPTION_VALUES)   # 4 existing + N new
 
 async def run() -> int:
@@ -596,11 +598,11 @@ locations, not one. Verified 2026-07-21: adding `gemini-3.6-flash` and
 **The omission list to grep after the edit, to find any sister location:**
 
 ```bash
-# Find every place that names an existing sibling model (e.g. gemini-3.5-flash):
-rg -n "gemini-3\.5-flash" --type py --type js --type html \
+# Find every place that names an existing sibling model (e.g. gemini-3.8-flash):
+rg -n "gemini-3\.8-flash" --type py --type js --type html \
    -g '!*test*' -g '!*node_modules*' $PROJECT_ROOT/
 # Each hit is a candidate location for the new model. If a column of hits
-# doesn't have a matching "gemini-3.6-flash" entry, you've missed a spot.
+# doesn't have a matching "gemini-3.8-flash" entry, you've missed a spot.
 ```
 
 This is the project-level `grep-before-constant-change` from SOUL.md,
