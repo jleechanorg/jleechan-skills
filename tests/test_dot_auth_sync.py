@@ -604,6 +604,80 @@ exit "$status"
             self.assertEqual(options["dir"], str(dedicated))
             self.assertIn("--profile-directory=Default", options["args"])
 
+    def test_rotation_clears_profile_directory_override_before_resolving_next_account(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
+            root = Path(tmp)
+            account_a_dir = root / "account-a-profile"
+            account_b_dir = root / "account-b-profile"
+            config = root / "config.json"
+            config.write_text(json.dumps({
+                "default_account": "account-a",
+                "rotation": ["account-a", "account-b"],
+                "accounts": {
+                    "account-a": {
+                        "user_data_dir": str(account_a_dir),
+                        "profile_directory": "Profile A",
+                        "url": "https://chatgpt.com/dots/account-a",
+                    },
+                    "account-b": {
+                        "user_data_dir": str(account_b_dir),
+                        "profile_directory": "Profile B",
+                        "url": "https://chatgpt.com/dots/account-b",
+                    },
+                },
+            }))
+            message = root / "message.txt"
+            message.write_text("rotation profile handoff")
+            calls = root / "calls.tsv"
+            real_node = Path(NODE).resolve()
+            node_wrapper = root / "node-wrapper"
+            node_wrapper.write_text(f"""#!/bin/bash
+set -euo pipefail
+real_node={shlex.quote(str(real_node))}
+dot_chrome={shlex.quote(str(DOT_CHROME))}
+calls={shlex.quote(str(calls))}
+
+if [[ "${{1:-}}" == "$dot_chrome" && "${{2:-}}" == "send" ]]; then
+  profile_info=$(DOT_ACCOUNT="$DOT_ACCOUNT" DOT_CONFIG_FILE="$DOT_CONFIG_FILE" \\
+    "$real_node" "$dot_chrome" resolve-profile)
+  profile_directory=$("$real_node" -e \\
+    'process.stdout.write(JSON.parse(process.argv[1]).profileDirectory)' \\
+    "$profile_info")
+  printf '%s\\t%s\\t%s\\n' "$DOT_ACCOUNT" "$profile_directory" \\
+    "${{DOT_PROFILE_DIRECTORY:-}}" >> "$calls"
+  if [[ "$DOT_ACCOUNT" == "account-a" ]]; then
+    printf '%s\\n' 'DOT_USAGE_LIMIT_REACHED: fake account limit'
+  else
+    printf '%s\\n' 'DOT_SENT_VERIFIED'
+  fi
+  exit 0
+fi
+
+exec "$real_node" "$@"
+""")
+            node_wrapper.chmod(0o700)
+            env = dict(
+                os.environ,
+                HOME=tmp,
+                DOT_ACCOUNT="account-a",
+                DOT_CONFIG_FILE=str(config),
+                DOT_NODE=str(node_wrapper),
+                DOT_PROFILE_DIRECTORY="Override Profile",
+                DOT_BACKEND="chrome",
+            )
+            result = subprocess.run(
+                ["bash", str(DOT_SH), "send-once", str(message)],
+                env=env, capture_output=True, text=True, timeout=15,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("DOT_SENT_VERIFIED", result.stdout)
+            observations = [line.split("\t") for line in calls.read_text().splitlines()]
+            self.assertEqual(observations, [
+                ["account-a", "Override Profile", "Override Profile"],
+                ["account-b", "Profile B", ""],
+            ])
+
 
 if __name__ == "__main__":
     unittest.main()

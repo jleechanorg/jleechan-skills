@@ -209,7 +209,8 @@ rotate_account_if_needed() {
     local rotated="${DOT_ROTATED_ACCOUNTS:-}"
     if [[ -n "$next_acc" && "$next_acc" != "$ACCOUNT" ]] && ! echo ",$rotated," | grep -q ",$next_acc,"; then
       echo "dot.sh: account '$ACCOUNT' hit usage limit; rotating to '$next_acc'..." >&2
-      exec env -u DOT_CHROME_USER_DATA -u DOT_URL DOT_ROTATED_ACCOUNTS="${rotated:+$rotated,}$ACCOUNT" DOT_ACCOUNT="$next_acc" "$BASH" "${BASH_SOURCE[0]}" "$action" "$@"
+      # Clear all per-account overrides before resolving the rotated account.
+      exec env -u DOT_CHROME_USER_DATA -u DOT_URL -u DOT_PROFILE_DIRECTORY DOT_ROTATED_ACCOUNTS="${rotated:+$rotated,}$ACCOUNT" DOT_ACCOUNT="$next_acc" "$BASH" "${BASH_SOURCE[0]}" "$action" "$@"
     fi
   fi
 }
