@@ -236,7 +236,7 @@ stream, and invented data):
 PAIR TASK: <bounded task and explicit file scope>
 CODER: follow `${CLAUDE_HOME:-$HOME/.claude}/agents/agy-pair-coder.md`; implement and signal IMPLEMENTATION_READY with `Revision: <exact git SHA>` and `Worktree: <absolute path>`.
 VERIFIER: follow `${CLAUDE_HOME:-$HOME/.claude}/agents/agy-pair-verifier.md`; independently verify the handed-off revision and signal VERIFICATION_COMPLETE or VERIFICATION_FAILED.
-FALLBACK: if an AGY lane concretely fails, retry that lane with a gpt-6-luna subagent, then codex-luna as the gpt-5.6-luna fallback if gpt-6-luna is unavailable or fails, while preserving isolation and independent verification.
+FALLBACK: if an AGY lane concretely fails, retry that lane with a gpt-6-luna subagent, then codex-luna as the gpt-6-luna fallback if gpt-6-luna is unavailable or fails, while preserving isolation and independent verification.
 ```
 
 ## Fallback precedence
@@ -246,8 +246,8 @@ The `FALLBACK` template above is governed by this order:
 1. Start with the AGY pair as the primary implementation and verification lanes.
 2. After a concrete AGY lane failure, retry the same bounded lane with a
    `gpt-6-luna` subagent. If `gpt-6-luna` is unavailable or fails, use
-   `codex-luna` as the `gpt-5.6-luna` fallback; if that Luna lane fails, invoke
-   the Codex CLI explicitly with `-m gpt-5.6-terra`, then `-m gpt-5.6-sol`,
+   `codex-luna` as the `gpt-6-luna` fallback; if that Luna lane fails, invoke
+   the Codex CLI explicitly with `-m gpt-6-sol`,
    advancing only after a concrete failure in that lane.
 3. Use `claudem` or an own cheap agent only when the ordered Codex route is
    unavailable; preserve the same bounded scope and verification requirements.
@@ -284,10 +284,10 @@ For Codex parallel lanes, prefer the native `gpt-6-luna` subagent for bounded
 coding and simple task-driving. Advance only after a concrete per-lane failure
 or when the requested model is unavailable:
 
-`gpt-6-luna` → `gpt-5.6-luna` → `gpt-5.6-terra` → `gpt-5.6-sol`
+`gpt-6-luna` → `gpt-6-sol`
 
 If `gpt-6-luna` is unavailable or fails, use `codex-luna` as the
-`gpt-5.6-luna` implementation fallback; it is not a multi-model router. Record
+`gpt-6-luna` implementation fallback; it is not a multi-model router. Record
 the rejection and retry the same bounded lane with the next explicit model.
 Never skip directly from Luna to Sol.
 
@@ -354,7 +354,7 @@ there to a pointer 2026-09-06; this section is the full policy).
   silently inherit an expensive session model for delegated work.
 - Small/mechanical bounded coding:
   - Codex: spawn a `gpt-6-luna` subagent when available. If it is unavailable
-    or fails, use `codex-luna` (on PATH) as the `gpt-5.6-luna` fallback, then
+    or fails, use `codex-luna` (on PATH) as the `gpt-6-luna` fallback, then
     `luna_worker` if the CLI wrapper is unavailable.
   - Claude: `haiku` subagent.
 - Simple task-driving, polling, and mechanical sweeps: the available Luna or

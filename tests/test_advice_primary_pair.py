@@ -208,7 +208,7 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         codex_args = (self.sync / "codex.args").read_text().splitlines()
         opus_args = (self.sync / "opus.args").read_text().splitlines()
         self.assertIn("--yolo", codex_args)
-        self.assertIn("gpt-5.6-terra", codex_args)
+        self.assertIn("gpt-6-sol", codex_args)
         self.assertIn("--dangerously-skip-permissions", opus_args)
         self.assertIn("opus", opus_args)
 
@@ -590,6 +590,51 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         self.assertEqual(receipt["operation"]["success"], False)
         self.assertEqual(receipt["cleanup"], cleanup)
         self.assertIn("primary reviewer operation failed", stderr.getvalue())
+
+    def test_validate_codex_model_allows_gpt6_and_forbids_5_6_models(self) -> None:
+        runner = load_runner_module()
+        self.assertEqual(runner.validate_codex_model(), "gpt-6-sol")
+        self.assertEqual(runner.validate_codex_model(None), "gpt-6-sol")
+        self.assertEqual(runner.validate_codex_model(""), "gpt-6-sol")
+        self.assertEqual(runner.validate_codex_model("   "), "gpt-6-sol")
+        self.assertEqual(runner.validate_codex_model("gpt-6-sol"), "gpt-6-sol")
+        self.assertEqual(runner.validate_codex_model("gpt-6-luna"), "gpt-6-luna")
+        self.assertEqual(runner.validate_codex_model("gpt-6.1"), "gpt-6.1")
+        self.assertEqual(runner.validate_codex_model("gpt-6.1-sol"), "gpt-6.1-sol")
+
+        # Forbid all 5.6 models
+        for forbidden in ("gpt-5.6-terra", "gpt-5.6-sol", "gpt-5.6-luna", "5.6", "my-5.6-model"):
+            with self.assertRaises(ValueError) as ctx:
+                runner.validate_codex_model(forbidden)
+            self.assertIn("5.6", str(ctx.exception))
+
+        # Reject non-gpt-6 / non-gpt-6.1 models
+        for invalid in ("gpt-4o", "claude-3-opus", "gpt-5-mini", "o1"):
+            with self.assertRaises(ValueError) as ctx:
+                runner.validate_codex_model(invalid)
+            self.assertIn("gpt-6", str(ctx.exception))
+
+    def test_codex_model_cli_flag_accepts_valid_and_rejects_forbidden(self) -> None:
+        self.executable(
+            "codex",
+            "printf '%s\\n' \"$@\" > \"$ADVICE_TEST_SYNC_DIR/codex.args\"\n"
+            "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n",
+        )
+        self.executable(
+            "claude",
+            "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n",
+        )
+
+        # Valid custom gpt-6 model
+        res_valid = self.invoke("--codex-model", "gpt-6-luna")
+        self.assertEqual(res_valid.returncode, 0, res_valid.stderr)
+        codex_args = (self.sync / "codex.args").read_text().splitlines()
+        self.assertIn("gpt-6-luna", codex_args)
+
+        # Forbidden 5.6 model rejected by CLI parser
+        res_invalid = self.invoke("--codex-model", "gpt-5.6-terra")
+        self.assertEqual(res_invalid.returncode, 2, res_invalid.stderr)
+        self.assertIn("5.6", res_invalid.stderr)
 
 
 if __name__ == "__main__":

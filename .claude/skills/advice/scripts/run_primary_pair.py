@@ -154,7 +154,7 @@ def process_snapshot() -> dict[int, tuple[int, str]]:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         check=True,
-        timeout=0.5,
+        timeout=2.0,
     )
     snapshot: dict[int, tuple[int, str]] = {}
     for line in completed.stdout.splitlines():
@@ -336,17 +336,36 @@ def has_verdict(output: str) -> bool:
     return re.search(r"(?m)^VERDICT:[ \t]*\S.*$", output) is not None
 
 
+DEFAULT_CODEX_MODEL = "gpt-6-sol"
+
+
+def validate_codex_model(model: str | None = None) -> str:
+    """Validate Codex model: forbids 5.6 models and allows only gpt-6 or gpt-6.1."""
+    if model is None or not str(model).strip():
+        return DEFAULT_CODEX_MODEL
+    cleaned = str(model).strip()
+    if "5.6" in cleaned:
+        raise ValueError(f"Codex 5.6 models are forbidden: {cleaned}")
+    if not (cleaned.startswith("gpt-6") or cleaned.startswith("gpt-6.1")):
+        raise ValueError(
+            f"Codex model must start with 'gpt-6' or 'gpt-6.1': {cleaned}"
+        )
+    return cleaned
+
+
 def codex_lane(
     cwd: Path,
     prompt: str,
     barrier: threading.Barrier,
     timeout_seconds: float,
     timeout_grace_seconds: float,
+    model: str = DEFAULT_CODEX_MODEL,
 ) -> dict[str, Any]:
     barrier.wait()
     started = time.time_ns()
     attempts: list[dict[str, Any]] = []
     codex = command_path("codex")
+    resolved_model = validate_codex_model(model)
     if codex:
         code, stdout, stderr, timed_out, forced_pipe_close, supervision = execute(
             [
@@ -354,7 +373,7 @@ def codex_lane(
                 "exec",
                 "--yolo",
                 "-m",
-                "gpt-5.6-terra",
+                resolved_model,
                 "--config",
                 "model_reasoning_effort=high",
             ],
@@ -453,6 +472,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="codex,opus",
         metavar="REVIEWER",
         help="reviewer subset (codex and/or opus, comma-separated; default: codex,opus)",
+    )
+    parser.add_argument(
+        "--codex-model",
+        default=DEFAULT_CODEX_MODEL,
+        type=validate_codex_model,
+        help="Codex model for primary review (must start with 'gpt-6' or 'gpt-6.1'; default: gpt-6-sol; 5.6 models forbidden)",
     )
     parser.add_argument(
         "--timeout-seconds",
@@ -627,17 +652,27 @@ def main(
         barrier = threading.Barrier(len(reviewer_names))
         lane_functions = {"codex": codex_lane, "opus": opus_lane}
         with concurrent.futures.ThreadPoolExecutor(max_workers=len(reviewer_names)) as executor:
-            futures = {
-                name: executor.submit(
-                    lane_functions[name],
-                    clones[name],
-                    prompt,
-                    barrier,
-                    args.timeout_seconds,
-                    args.timeout_grace_seconds,
-                )
-                for name in reviewer_names
-            }
+            futures = {}
+            for name in reviewer_names:
+                if name == "codex":
+                    futures[name] = executor.submit(
+                        codex_lane,
+                        clones[name],
+                        prompt,
+                        barrier,
+                        args.timeout_seconds,
+                        args.timeout_grace_seconds,
+                        args.codex_model,
+                    )
+                else:
+                    futures[name] = executor.submit(
+                        opus_lane,
+                        clones[name],
+                        prompt,
+                        barrier,
+                        args.timeout_seconds,
+                        args.timeout_grace_seconds,
+                    )
             results = {name: future.result() for name, future in futures.items()}
         for name, result in results.items():
             (output_dir / f"{name}.txt").write_text(result.pop("stdout"))

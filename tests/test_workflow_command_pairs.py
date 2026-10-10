@@ -68,7 +68,7 @@ class WorkflowCommandPairTest(unittest.TestCase):
             "${CLAUDE_HOME:-$HOME/.claude}/agents/agy-pair-verifier.md",
             (
                 "FALLBACK: if an AGY lane concretely fails, retry that lane with "
-                "a gpt-6-luna subagent, then codex-luna as the gpt-5.6-luna "
+                "a gpt-6-luna subagent, then codex-luna as the gpt-6-luna "
                 "fallback if gpt-6-luna is unavailable or fails, while preserving "
                 "isolation and independent verification."
             ),
@@ -77,8 +77,7 @@ class WorkflowCommandPairTest(unittest.TestCase):
             "`FALLBACK` template above is governed by this order:",
             "retry the same bounded lane with",
             "`gpt-6-luna` subagent. If `gpt-6-luna` is unavailable or fails, use",
-            "invoke\n   the Codex CLI explicitly",
-            "-m gpt-5.6-terra`, then `-m gpt-5.6-sol`",
+            "invoke\n   the Codex CLI explicitly with `-m gpt-6-sol`",
             "Use `claudem` or an own cheap agent only when the ordered Codex",
             "unavailable; preserve the same bounded scope",
             "## Isolation contract",
@@ -97,12 +96,12 @@ class WorkflowCommandPairTest(unittest.TestCase):
             normalized_skill,
         )
         self.assertIn(
-            "`gpt-6-luna` → `gpt-5.6-luna` → `gpt-5.6-terra` → `gpt-5.6-sol`",
+            "`gpt-6-luna` → `gpt-6-sol`",
             normalized_skill,
         )
         self.assertIn(
             "If `gpt-6-luna` is unavailable or fails, use `codex-luna` as the "
-            "`gpt-5.6-luna` implementation fallback; it is not a multi-model router.",
+            "`gpt-6-luna` implementation fallback; it is not a multi-model router.",
             normalized_skill,
         )
         self.assertIn(
@@ -201,12 +200,11 @@ class WorkflowCommandPairTest(unittest.TestCase):
         normalized_skill = " ".join(skill.split())
         self.assertIn(
             "If `gpt-6-luna` is unavailable or fails, use `codex-luna` as the "
-            "`gpt-5.6-luna` implementation fallback; it is not a multi-model router.",
+            "`gpt-6-luna` implementation fallback; it is not a multi-model router.",
             normalized_skill,
         )
         self.assertIn(
-            "invoke the Codex CLI explicitly with `-m gpt-5.6-terra`, then "
-            "`-m gpt-5.6-sol`",
+            "invoke the Codex CLI explicitly with `-m gpt-6-sol`",
             normalized_skill,
         )
 

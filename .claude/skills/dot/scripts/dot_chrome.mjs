@@ -113,11 +113,13 @@ function detectChromeProfile(requestedAccount) {
   // Target URL
   const url = process.env.DOT_URL || accountConfig.url || dotConfig.default_url || 'https://chatgpt.com/';
 
+  const profileDirectory = process.env.DOT_PROFILE_DIRECTORY || accountConfig.profile_directory || null;
   return {
     account: req,
     slug,
     matchedKey: null,
     profileDir,
+    profileDirectory,
     url,
   };
 }
@@ -181,14 +183,18 @@ function reportPrecommitNoSend(reason, file) {
   }) + '\n');
 }
 
-function chromeLaunchOptions() {
+function chromeLaunchOptions(profDir) {
   const isLinux = os.platform() === 'linux';
   const hasDisplay = !!process.env.DISPLAY;
+  const profileDirectory = profDir || accountInfo?.profileDirectory;
   const args = [
     '--no-first-run',
     '--no-default-browser-check',
     '--disable-blink-features=AutomationControlled',
   ];
+  if (profileDirectory) {
+    args.push(`--profile-directory=${profileDirectory}`);
+  }
   const ignoreDefaultArgs = ['--enable-automation'];
 
   if (isLinux) {
@@ -244,7 +250,8 @@ function assertExistingProfileAvailable(dir) {
 }
 
 function markAuthFailed(targetDir) {
-  const defaultDir = path.join(targetDir, 'Default');
+  const profDir = accountInfo?.profileDirectory || 'Default';
+  const defaultDir = path.join(targetDir, profDir);
   try {
     fs.mkdirSync(defaultDir, { recursive: true });
     fs.writeFileSync(
@@ -257,8 +264,9 @@ function markAuthFailed(targetDir) {
 }
 
 function clearAuthFailed(targetDir) {
+  const profDir = accountInfo?.profileDirectory || 'Default';
   try {
-    fs.unlinkSync(path.join(targetDir, 'Default', '.auth_failed'));
+    fs.unlinkSync(path.join(targetDir, profDir, '.auth_failed'));
   } catch (err) {
     if (err && err.code !== 'ENOENT') {
       console.error('dot: failed to clear auth_failed marker: ' + err.message);
@@ -266,9 +274,10 @@ function clearAuthFailed(targetDir) {
   }
 }
 
-function ensurePersistentProfile(_accInfo, targetDir) {
+function ensurePersistentProfile(accInfo, targetDir) {
   // Each account owns a blank persistent profile; login happens independently.
-  const defaultDir = path.join(targetDir, 'Default');
+  const profDir = accInfo?.profileDirectory || 'Default';
+  const defaultDir = path.join(targetDir, profDir);
   fs.mkdirSync(defaultDir, { recursive: true });
 }
 
@@ -392,9 +401,9 @@ async function settlePage(page, currentMode) {
     const composers = await page.locator(COMPOSER).count().catch(() => 0);
     const bodyText = (await page.evaluate(() => document.body ? document.body.innerText : '').catch(() => ''));
 
-    if (/ChatGPT hit a snag|Something went wrong/i.test(bodyText)) {
+    if (/ChatGPT hit a snag|Something went wrong|couldn.t load your account/i.test(bodyText)) {
       try {
-        const tryAgainBtn = page.locator('button:has-text("Try again"), button:has-text("Retry")');
+        const tryAgainBtn = page.locator('button:has-text("Try again"), button:has-text("Retry"), button:has-text("Reload")');
         if (await tryAgainBtn.count() > 0) {
           await tryAgainBtn.first().click();
           await sleep(2000);

@@ -177,9 +177,10 @@ line beginning with `VERDICT:`. Empty or malformed output records
 `missing_verdict` and counts as an errored lane. If neither primary lane returns
 a recognizable verdict, invoke A3.
 
-**A1 — Codex CLI (primary):** `codex exec --yolo -m gpt-5.6-terra --config
+**A1 — Codex CLI (primary):** `codex exec --yolo -m gpt-6-sol --config
 model_reasoning_effort=high`. The explicit command guarantees full-permission
-mode without relying on wrapper internals.
+mode without relying on wrapper internals. All 5.6 models are forbidden; only
+models starting with `gpt-6` or `gpt-6.1` are permitted (default: `gpt-6-sol`).
 
 **A2 — Opus CLI (primary):** `claude -p --model opus
 --dangerously-skip-permissions`. It is dispatched concurrently with A1, not
@@ -369,7 +370,7 @@ Do not cite a percentage saving — none has ever been measured here. And do not
 
 | Priority | CLI | When |
 |---|---|---|
-| A1 | `codex exec --yolo -m gpt-5.6-terra --config model_reasoning_effort=high` | Primary — runs IN PARALLEL with A2 |
+| A1 | `codex exec --yolo -m gpt-6-sol --config model_reasoning_effort=high` | Primary — runs IN PARALLEL with A2 (Codex model must start with `gpt-6` or `gpt-6.1`; 5.6 models forbidden) |
 | A2 | `claude -p --model opus --dangerously-skip-permissions` | Primary — runs IN PARALLEL with A1 |
 | A3.1 | `claude -p --dangerously-skip-permissions` | Fallback when no primary leg produced a verdict (outside Claude Code) |
 | A3.2 | `cursor agent -p --force` | Fallback if A3.1 errors |
