@@ -76,6 +76,27 @@ function validateProfileDirectory(profileDirectory) {
   return profileDirectory;
 }
 
+function profileDirectoryPath(profileDir, profileDirectory) {
+  const name = validateProfileDirectory(profileDirectory) || 'Default';
+  const root = resolveThroughExistingParents(profileDir);
+  const target = path.join(profileDir, name);
+  try {
+    if (fs.lstatSync(target).isSymbolicLink()) {
+      throw new Error('Dot Chrome subprofile cannot be a symbolic link');
+    }
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+
+  const resolvedTarget = resolveThroughExistingParents(target);
+  const relative = path.relative(root, resolvedTarget);
+  if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) ||
+      path.isAbsolute(relative)) {
+    throw new Error('Dot Chrome subprofile must stay within its dedicated profile directory');
+  }
+  return target;
+}
+
 function detectChromeProfile(requestedAccount) {
   const dotConfig = loadDotConfig();
   const defaultAccount = dotConfig.default_account || 'default';
@@ -130,6 +151,7 @@ function detectChromeProfile(requestedAccount) {
   const profileDirectory = validateProfileDirectory(
     process.env.DOT_PROFILE_DIRECTORY || accountConfig.profile_directory || null
   );
+  profileDirectoryPath(profileDir, profileDirectory);
   return {
     account: req,
     slug,
@@ -203,6 +225,7 @@ function chromeLaunchOptions(profDir) {
   const isLinux = os.platform() === 'linux';
   const hasDisplay = !!process.env.DISPLAY;
   const profileDirectory = profDir || accountInfo?.profileDirectory;
+  profileDirectoryPath(USER_DATA_DIR, profileDirectory);
   const args = [
     '--no-first-run',
     '--no-default-browser-check',
@@ -266,10 +289,10 @@ function assertExistingProfileAvailable(dir) {
 }
 
 function markAuthFailed(targetDir) {
-  const profDir = accountInfo?.profileDirectory || 'Default';
-  const defaultDir = path.join(targetDir, profDir);
   try {
+    const defaultDir = profileDirectoryPath(targetDir, accountInfo?.profileDirectory);
     fs.mkdirSync(defaultDir, { recursive: true });
+    profileDirectoryPath(targetDir, accountInfo?.profileDirectory);
     fs.writeFileSync(
       path.join(defaultDir, '.auth_failed'),
       JSON.stringify({ failedAt: Date.now() })
@@ -280,9 +303,9 @@ function markAuthFailed(targetDir) {
 }
 
 function clearAuthFailed(targetDir) {
-  const profDir = accountInfo?.profileDirectory || 'Default';
   try {
-    fs.unlinkSync(path.join(targetDir, profDir, '.auth_failed'));
+    const defaultDir = profileDirectoryPath(targetDir, accountInfo?.profileDirectory);
+    fs.unlinkSync(path.join(defaultDir, '.auth_failed'));
   } catch (err) {
     if (err && err.code !== 'ENOENT') {
       console.error('dot: failed to clear auth_failed marker: ' + err.message);
@@ -292,9 +315,9 @@ function clearAuthFailed(targetDir) {
 
 function ensurePersistentProfile(accInfo, targetDir) {
   // Each account owns a blank persistent profile; login happens independently.
-  const profDir = accInfo?.profileDirectory || 'Default';
-  const defaultDir = path.join(targetDir, profDir);
+  const defaultDir = profileDirectoryPath(targetDir, accInfo?.profileDirectory);
   fs.mkdirSync(defaultDir, { recursive: true });
+  profileDirectoryPath(targetDir, accInfo?.profileDirectory);
 }
 
 async function waitAndCleanSingletonLock(dir) {
