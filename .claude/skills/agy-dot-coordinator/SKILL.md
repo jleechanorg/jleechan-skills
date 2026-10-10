@@ -41,10 +41,10 @@ python3 scripts/ping-dots.py
 # Send ping to an explicit account
 python3 scripts/ping-dots.py --account <configured-account-key>
 
-# Test generation with a specific model without sending
-python3 scripts/ping-dots.py --generator codex --generate-only
+# Generate and print reminder for an account without sending
+python3 scripts/ping-dots.py --account <configured-account-key> --generator codex --generate-only
 
-# Force generation with a specific provider
+# Send ping to an explicit account using a specific provider (delivers live message)
 python3 scripts/ping-dots.py --account alpha --generator agy
 ```
 
