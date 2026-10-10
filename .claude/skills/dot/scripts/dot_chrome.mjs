@@ -62,6 +62,20 @@ function validateDedicatedProfileDir(profileDir) {
   return path.resolve(profileDir);
 }
 
+function validateProfileDirectory(profileDirectory) {
+  if (profileDirectory == null) return null;
+  if (typeof profileDirectory !== 'string' || profileDirectory.length === 0 ||
+      profileDirectory === '.' || profileDirectory === '..' ||
+      profileDirectory.includes('/') || profileDirectory.includes('\\') ||
+      [...profileDirectory].some((character) => {
+        const code = character.charCodeAt(0);
+        return code < 0x20 || code === 0x7f;
+      })) {
+    throw new Error('Dot profile directory must be a single safe directory name');
+  }
+  return profileDirectory;
+}
+
 function detectChromeProfile(requestedAccount) {
   const dotConfig = loadDotConfig();
   const defaultAccount = dotConfig.default_account || 'default';
@@ -113,7 +127,9 @@ function detectChromeProfile(requestedAccount) {
   // Target URL
   const url = process.env.DOT_URL || accountConfig.url || dotConfig.default_url || 'https://chatgpt.com/';
 
-  const profileDirectory = process.env.DOT_PROFILE_DIRECTORY || accountConfig.profile_directory || null;
+  const profileDirectory = validateProfileDirectory(
+    process.env.DOT_PROFILE_DIRECTORY || accountConfig.profile_directory || null
+  );
   return {
     account: req,
     slug,

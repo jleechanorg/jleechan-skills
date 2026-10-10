@@ -140,6 +140,50 @@ console.log('FRESH_PROFILE_EMPTY');
                                     capture_output=True, text=True, timeout=15)
             self.assertNotEqual(result.returncode, 0, "symlink aliases to real Chrome must be rejected")
 
+    def test_chrome_subprofile_must_stay_within_account_profile(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
+            root = Path(tmp)
+            config = root / "config.json"
+            dedicated = root / "dot-profile"
+            env = dict(os.environ, HOME=tmp, DOT_ACCOUNT="work",
+                       DOT_CONFIG_FILE=str(config))
+            env.pop("DOT_CHROME_USER_DATA", None)
+
+            for profile_directory in (
+                "../other/Default",
+                "/tmp/foreign-profile",
+                r"..\other\Default",
+                ".",
+                "..",
+            ):
+                with self.subTest(profile_directory=profile_directory):
+                    config.write_text(json.dumps({"accounts": {"work": {
+                        "user_data_dir": str(dedicated),
+                        "profile_directory": profile_directory,
+                    }}}))
+                    result = subprocess.run(
+                        [NODE, str(DOT_CHROME), "resolve-profile"], env=env,
+                        capture_output=True, text=True, timeout=15,
+                    )
+                    self.assertNotEqual(
+                        result.returncode, 0,
+                        f"unsafe configured subprofile was accepted: {profile_directory!r}",
+                    )
+
+            config.write_text(json.dumps({"accounts": {"work": {
+                "user_data_dir": str(dedicated),
+                "profile_directory": "Profile 7",
+            }}}))
+            env["DOT_PROFILE_DIRECTORY"] = "../other/Default"
+            result = subprocess.run(
+                [NODE, str(DOT_CHROME), "resolve-profile"], env=env,
+                capture_output=True, text=True, timeout=15,
+            )
+            self.assertNotEqual(
+                result.returncode, 0,
+                "unsafe DOT_PROFILE_DIRECTORY override must be rejected",
+            )
+
     def test_negative_auth_observations_do_not_clear_auth_failure(self):
         source = DOT_CHROME.read_text(encoding="utf-8")
         self.assertIn("session.status === 200 && session.isJson && session.hasUser", source)
