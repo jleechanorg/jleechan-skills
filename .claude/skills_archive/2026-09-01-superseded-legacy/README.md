@@ -10,6 +10,7 @@ This directory contains historical skill packages that have zero 30-day usage ev
 | `dice-authenticity-standards` | `.claude/skills/dice-authenticity-standards/` | Historical WorldAI private dice campaign verification tests from 2025. |
 | `dice-real-mode-tests` | `.claude/skills/dice-real-mode-tests/` | Historical WorldAI private dice campaign verification tests from 2025. |
 | `worldai-mcp-server-usage` | `.claude/skills/worldai-mcp-server-usage/` | Historical documentation for private WorldAI MCP endpoints. |
+| `dot-portfolio-coordinator` | `.claude/skills/dot-portfolio-coordinator/` | Monolithic coordinator superseded by `agy-dot-coordinator`. |
 
 ## Recoverability
 All files in this directory are preserved in git history and can be restored using `git mv` at any time.
