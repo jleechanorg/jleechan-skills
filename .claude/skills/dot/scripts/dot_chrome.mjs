@@ -160,9 +160,12 @@ function detectChromeProfile(requestedAccount) {
   // Target URL
   const url = process.env.DOT_URL || accountConfig.url || dotConfig.default_url || 'https://chatgpt.com/';
 
-  const profileDirectory = validateProfileDirectory(
-    process.env.DOT_PROFILE_DIRECTORY || accountConfig.profile_directory || null
-  );
+  const profileDirectoryValue = process.env.DOT_PROFILE_DIRECTORY !== undefined
+    ? process.env.DOT_PROFILE_DIRECTORY
+    : Object.prototype.hasOwnProperty.call(accountConfig, 'profile_directory')
+      ? accountConfig.profile_directory
+      : null;
+  const profileDirectory = validateProfileDirectory(profileDirectoryValue);
   profileDirectoryPath(profileDir, profileDirectory);
   return {
     account: req,

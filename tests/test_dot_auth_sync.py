@@ -151,6 +151,9 @@ console.log('FRESH_PROFILE_EMPTY');
             env.pop("DOT_CHROME_USER_DATA", None)
 
             for profile_directory in (
+                "",
+                False,
+                0,
                 "../other/Default",
                 "/tmp/foreign-profile",
                 r"..\other\Default",
