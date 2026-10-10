@@ -30,7 +30,7 @@ print(response.text)
 
 Notes:
 - Use `thinking_level` (for example, `"high"`) to configure Gemini 3 thinking.
-- `thinking_budget` remains backward-compatible; do not set it together with `thinking_level`.
+- `thinking_budget` is a legacy parameter for older model integrations; use `thinking_level` for Gemini 3 and never send both fields in one request.
 
 ## Code execution tool (Gemini API)
 
