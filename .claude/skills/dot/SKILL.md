@@ -9,6 +9,20 @@ Talk to the user's ChatGPT dot assistant using `scripts/dot.sh`. The scripts are
 
 ## Default: delegate, then monitor
 
+### Small fixes stay local (do NOT delegate)
+
+**Never send the dot a request you can finish yourself in one edit.** Delegation has a real round-trip cost (transport, polling, backoff, source re-verification), and it consumes a shared composer. If the fix is small, do it locally and only report it.
+
+A fix is **small** (do it yourself) when all hold:
+- it touches one or two files;
+- it changes no more than roughly 30 lines;
+- it needs no new design decision, API, dependency, or provider call;
+- it can be verified with a command you can run right now (lint, compile, or a focused test).
+
+Delegate instead when the work is **not small**: multiple files or subsystems, a design or contract decision, an unfamiliar area needing investigation, long-running builds/tests, or anything requiring capabilities or access you do not have.
+
+When unsure, prefer doing it locally and reporting the result; escalating is cheap only after you have tried. If you catch yourself writing a dot message to describe a one-file edit, stop and just make the edit.
+
 The dot runs its own coders. When /dot is used for work, hand the work to the dot instead of coding it yourself: send a scoped request (goal, PR/branch, acceptance criteria, constraints such as merge gates), then monitor rather than block.
 
 - **Active work check first (mandatory):** before declining an authorized task, ask the Dot to inventory current work in progress and count only distinct tasks demonstrably executing now. Require a receipt for each claimed active task: item/goal, owner, live run/session or worktree/PR, the exact action happening now, and a fresh artifact or command result. Assignment, rank, "busy", or start time alone is not proof. Idle, stalled, finished, queued, and waiting-for-review tasks are not active. Capacity is a valid refusal only with evidence for at least six distinct active tasks, each showing its exact present action and fresh receipt; include those receipts in the reply. Do not gate acceptance on rank or ask the user to prioritize the task. If fewer than six active tasks are proven, take the authorized task and fill open capacity with safe work. Keep genuine permission/approval holds and measured resource limits separate from a full-capacity refusal: state the evidence and exact blocked action, preserve the approval boundary, and continue work that remains feasible. If the composer stays blocked or the account is limited, send the same request to the next account in `rotation` with `--account <next>`.
@@ -19,7 +33,7 @@ For a user-requested coordinator recovery cycle, this contract overrides the gen
 
 - Start only after an exact transport receipt for the initial reminder in the intended chat. Inter-check delays in seconds: `60, 120, 300, 300, 300, 300, 300, 300, 300, 300`. Measure each delay from the previous completed observation (first delay from the verified send). Record actual observations and source receipts in the existing checkpoint. New reminders and partial progress never reset the count.
 - Increment once per completed observation attempt, including a recorded timeout or read failure; resume an interrupted attempt under the same count. Later re-observation consumes the next scheduled count: no check eleven or disguised in-check re-observation.
-- This cycle also overrides the account-rotation rules: retain the verified account and intended chat. Set `DOT_ROTATE_ON_LIMIT=0` on each coordinator `dot.sh` invocation so automatic rotation cannot change its target. Do not rotate to another account or target on a busy composer or quota limit; report the exact transport blocker and preserve the checkpoint. A separately authorized reassignment requires a newly verified target and must not create duplicate ownership.
+- Preserve the cycle checkpoint and the intended chat.
 - Direct user messages take priority: respond promptly, apply changed scope/cancellations before further action, and preserve the cycle checkpoint. Use the existing supported interruptible wait/wake mechanism. Do not create jobs, daemons, senders or competing coordinators. Do not change providers, credentials or installed schedules. If timing is unsupported, name the exact capability gap; do not claim planned checks ran.
 - Resume unfinished authorized work with its existing owner; recover checkpoints, acceptance gaps and older commitments. Verify owner state before any separately authorized reassignment. A publication hold need not block authorized safe tests or design. Attempt a concrete permitted unblock route for each blocker and continue independent work within evidenced capacity, rather than repeating inventories.
 - At each check require fresh original task artifacts against the requested acceptance criteria and a disposition for every unfinished request. Daemon health, delivery success, Working, timestamps, HEARTBEAT_OK, assignments and chat claims do not prove task execution or completion. Empty/failed reads remain unverified. Passing tests do not prove unperformed activation or publication.
@@ -33,6 +47,36 @@ For a user-requested coordinator recovery cycle, this contract overrides the gen
   - **Codex (no `/loop`):** the same `/goal`; each turn runs the same poll, then waits the next backoff interval (`sleep 60`, `sleep 120`, `sleep 300`, then `sleep 600` in a backgrounded or bounded command).
   - Stop polling when the deliverable is done, blocked on the user, or the 4-hour limit passes.
 - Verify the dot's claims at the source (git SHAs, `gh pr checks`, PR diffs) before relaying them, and don't duplicate files it has claimed.
+
+### Cloud-computer capability gaps
+
+When Dot cannot perform a requested cloud-computer task (for example, a test,
+build, browser flow, deployment, or provider operation), handle the gap before
+calling the task blocked:
+
+1. Identify the exact missing capability and capture the command, working
+   directory or worktree, target PR/branch, and the relevant error or output.
+2. Ask Dot to inspect and attempt safe, authorized setup: install a repository-
+   declared dependency with the approved package manager, complete the
+   repository setup, use the canonical provider or browser login flow, or
+   request the needed account or workspace permission through its approved
+   mechanism. Never ask for, copy, or store secrets; never bypass security,
+   disable a guardrail, reuse another account's session, or claim that a
+   request was granted when it was only submitted.
+3. Re-run the exact blocked command after setup and verify the resulting
+   artifact or source state. If the capability remains unavailable, keep
+   independent authorized work moving and report the precise unblock rather
+   than waiting or claiming completion.
+4. Report the unresolved gap in the current chat, Slack, and email. Slack text
+   uses `mcp__slack__conversations_add_message` to the already verified
+   operator DM or channel (resolve the configured target; do not guess one).
+   For email, use the available `/opt/homebrew/bin/gog gmail send` command with
+   an authorized recipient and a `mktemp` body file; do not invent an email
+   tool, recipient, or credential. If an approved sender or recipient is not
+   available, state `email unavailable` explicitly in the chat and Slack
+   reports. Each report must include the exact blocked command or artifact,
+   setup/install/login/permission attempts and their results, the distinction
+   between requested and granted access, and the concrete unblock needed.
 
 ## Actions
 
