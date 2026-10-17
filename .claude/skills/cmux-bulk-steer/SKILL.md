@@ -109,8 +109,10 @@ cmux capture-pane --workspace <ws_ref> --surface <sf_ref> --scrollback --lines 1
 
 Wide markdown tables wrap and clip inside split `cmux` panes. Present the fleet report using **Narrow-Screen Vertical Cards** (`<= 65 chars/line`), grouped by action (`STEERED`, `WORKING`, `PARKED_OPERATOR`, `STOOD_DOWN_DUPLICATE`, `QUOTA_BLOCKED`):
 
+**Always name the workspace and surface. Never identify a surface to the operator by its numeric ref alone.** Numeric refs (`workspace:1000010002` / `surface:1000010241`) are not useful to a human — lead every line, card, table, and steer confirmation with the workspace **name** and the surface **title**, and treat the numeric ref as optional secondary detail (append it only when a steer needs a machine-exact target, e.g. `lvl up › c-big (surface:1000010241)`). If a surface title is generic (e.g. `c`, `agy`, `wiki`), disambiguate with the workspace name, the cwd/branch from the footer, or the PR it owns — never fall back to the bare number.
+
 ```markdown
-### [ws_title] workspace:N / surface:M (<cli>)
+### <workspace name> › <surface title> (<cli>)
 - **PR / Task**: PR #10379 (branch `fix/...`)
 - **State**: STEERED -> WORKING
 - **Sent**: "Re-run Green Gate check and report readiness..."
