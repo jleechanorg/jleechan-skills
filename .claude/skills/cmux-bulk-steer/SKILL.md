@@ -73,6 +73,8 @@ This augments the `DIALOG_BLOCKED` semantic category below (a stopped coding-age
 
 A Codex lane whose goal is paused reads as idle but is recoverable without any human decision. Look for a goal-status line near the tail: `Goal stalled (/goal resume)`, `Goal paused`, or a `Goal hit usage limits (/goal resume)` line that has no activity after it.
 
+0. Run the two-sample check first: a growing timer or a changing screen means the lane is working, and a stalled
+   footer over a changing screen is stale text that must not trigger `/goal resume`.
 1. First confirm the pause was not deliberate: if the operator (or the lane's own thread) paused the goal on purpose, or a hold/stop instruction is visible in the buffer, report it and do not resume. Otherwise send `/goal resume` through the same headless steer path (it resumes the *existing* goal — it authorizes no merge, spend, or scope change).
 2. Verify the status line becomes `Pursuing goal (Ns)` / `Pursuing goal (Xh Ym)` with a growing timer before reporting it as WORKING.
 3. If it stays stalled, or immediately re-prints the quota wall, classify from the fresh evidence (see next section) — do not retry in a loop.
@@ -85,7 +87,11 @@ Live evidence (2026-10-19): a single sweep resumed 8 such lanes (`iOS`, `lvl up`
 
 **Footers are history, not state.** A CLI writes `Goal hit usage limits (/goal resume)` (or `Goal stalled (/goal resume)`, `Working (…)`, a spinner line) once, at the moment it happened, and it survives in the scrollback window long after the condition cleared — including after a quota reset. Reading that line out of a 10,000-word buffer and classifying `QUOTA_BLOCKED` is the single most common misclassification in this skill.
 
-Before writing `QUOTA_BLOCKED` for a surface, confirm all of:
+**Gating.** These verdicts require `screen_changed == false` (surface absent from `working_surfaces.txt`) **plus**
+the absence of post-footer output, live timer growth, and CPU: `IDLE_NEEDS_STEER`, `IDLE_COMPLETE`,
+`PARKED_OPERATOR`, `DIALOG_BLOCKED`, `MALFORMED_TOOL_CALL`, `QUOTA_BLOCKED`. `STOOD_DOWN_DUPLICATE` (a duplicate
+writer can be actively churning) and `WEDGED_PROCESS` (proved from the process tree, not the screen) are
+**independent of this gate**. For the gated verdicts, confirm all of:
 1. **No activity after the footer.** Look for tool-call lines, assistant text, or user input lines that appear *below* the quota footer in the buffer. Any post-footer activity means the wall is not current.
 2. **No live progress label.** A `Working (1h33m)` / `Pursuing goal (…)` label with a timer longer than the footer's age is proof the lane is running.
 3. **Not just a scrolled artifact.** The quota line must be the last substantive line, not one of several historical occurrences deeper in the buffer.
@@ -114,8 +120,23 @@ Per `~/.claude/skills/zero-framework-cognition/SKILL.md` (`/zfc`), `scripts/scan
 Capture every terminal surface's deep scrollback (`~10,000` trailing words, preserving line breaks) to `/tmp` alongside `cmux top --all --flat`:
 
 ```bash
+# Two-sample sweep: ONE fleet-wide 20 s wait (never a per-verdict sleep).
 OUT_DIR="/tmp/cmux_fleet_$(date +%H%M%S)"
+FIRST="$OUT_DIR/first"
+python3 ~/.claude/skills/cmux-bulk-steer/scripts/scan.py --out-dir "$FIRST"   # no --with-gh: one GitHub query per sweep
+sleep 20
 python3 ~/.claude/skills/cmux-bulk-steer/scripts/scan.py --out-dir "$OUT_DIR" --with-gh
+: > "$OUT_DIR/working_surfaces.txt"; : > "$OUT_DIR/closed_surfaces.txt"
+for f in "$FIRST"/ws_*_sf_*.txt; do
+  b=$(basename "$f")
+  if [ ! -f "$OUT_DIR/$b" ]; then echo "$b" >> "$OUT_DIR/closed_surfaces.txt"; continue; fi
+  cmp -s "$f" "$OUT_DIR/$b" || echo "$b" >> "$OUT_DIR/working_surfaces.txt"
+done
+
+**Phase 2 must read `$OUT_DIR/working_surfaces.txt` and `closed_surfaces.txt` before classifying any surface.**
+A surface in `working_surfaces.txt` is `WORKING` unless it is `STOOD_DOWN_DUPLICATE` or `WEDGED_PROCESS`, and may
+otherwise receive no other label. A surface in `closed_surfaces.txt` was captured once, not twice, and is not
+classifiable from this sweep.
 ```
 
 What `scripts/scan.py` writes to `$OUT_DIR`:
@@ -220,17 +241,26 @@ End reports quoting agent output with the LLM-provenance footer:
 Published source of truth: `jleechanorg/jleechan-skills` → `.claude/skills/cmux-bulk-steer/`.
 Live working copies: `~/.claude/skills/cmux-bulk-steer/` on Mac and on `jeff-ubuntu`.
 
-Keep all three byte-identical. Verify with:
+**Sync direction is one-way: repo -> live.** Edit the repo worktree first; a live copy is never a source.
+
+**Baseline before editing** - confirm both live copies already match the committed file, so foreign drift is caught
+before your edit can hide it:
 
 ```bash
-# Repo vs Mac live
-shasum -a 256 .claude/skills/cmux-bulk-steer/SKILL.md \
-  .claude/skills/cmux-bulk-steer/scripts/scan.py \
-  ~/.claude/skills/cmux-bulk-steer/SKILL.md \
-  ~/.claude/skills/cmux-bulk-steer/scripts/scan.py
-# Linux live
-ssh jeff-ubuntu 'sha256sum ~/.claude/skills/cmux-bulk-steer/SKILL.md \
-  ~/.claude/skills/cmux-bulk-steer/scripts/scan.py'
+git -C <repo> show HEAD:.claude/skills/cmux-bulk-steer/SKILL.md > /tmp/baseline.skill.md
+diff -u /tmp/baseline.skill.md ~/.claude/skills/cmux-bulk-steer/SKILL.md
+ssh jeff-ubuntu cat ~/.claude/skills/cmux-bulk-steer/SKILL.md | diff -u /tmp/baseline.skill.md -
 ```
 
-After editing ANY copy, propagate to the other two in the same session and confirm all six SHA-256 digests match (3 copies × 2 files).
+Any non-empty baseline diff is foreign drift: stop and report it. Then edit and propagate:
+
+```bash
+git -C <repo> status --porcelain     # repo-wide: is anything else dirty?
+git -C <repo> diff -- <path>         # the intended change only?
+diff -u <repo-file> ~/.claude/skills/cmux-bulk-steer/SKILL.md
+ssh jeff-ubuntu cat <remote-live-file> | diff -u <repo-file> -
+```
+
+Stage by explicit path (`git add <path>`), never a directory or wildcard glob. After propagating, confirm all six
+SHA-256 digests match, covering exactly these two files in each of the three copies:
+`.claude/skills/cmux-bulk-steer/SKILL.md` and `.claude/skills/cmux-bulk-steer/scripts/scan.py`.
