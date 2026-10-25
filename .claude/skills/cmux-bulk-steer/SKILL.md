@@ -132,12 +132,12 @@ for f in "$FIRST"/ws_*_sf_*.txt; do
   if [ ! -f "$OUT_DIR/$b" ]; then echo "$b" >> "$OUT_DIR/closed_surfaces.txt"; continue; fi
   cmp -s "$f" "$OUT_DIR/$b" || echo "$b" >> "$OUT_DIR/working_surfaces.txt"
 done
+```
 
-**Phase 2 must read `$OUT_DIR/working_surfaces.txt` and `closed_surfaces.txt` before classifying any surface.**
-A surface in `working_surfaces.txt` is `WORKING` unless it is `STOOD_DOWN_DUPLICATE` or `WEDGED_PROCESS`, and may
+**Phase 2 must read `$OUT_DIR/working_surfaces.txt` and `closed_surfaces.txt` before classifying any surface.** A
+surface in `working_surfaces.txt` is `WORKING` unless it is `STOOD_DOWN_DUPLICATE` or `WEDGED_PROCESS`, and may
 otherwise receive no other label. A surface in `closed_surfaces.txt` was captured once, not twice, and is not
 classifiable from this sweep.
-```
 
 What `scripts/scan.py` writes to `$OUT_DIR`:
 - `manifest.json`: deterministic inventory of all terminal surfaces (`workspace`, `workspace_ref`, `surface`, `surface_ref`, `surface_title`, `cpu_percent`, `file_10k`, `pi_session_jsonl`, `total_words`, `captured_words`, `lines_read`, `tail_lines`). Non-terminal browser surfaces (`Surface is not a terminal`) are skipped automatically.
