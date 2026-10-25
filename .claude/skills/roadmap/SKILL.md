@@ -29,10 +29,11 @@ Required structure, in this order:
 2. **PR ledger table**, one row per PR:
    `| PR | Repo | Stage | State | Head | Δ (lines) | Next | Brief |`
    - `PR` links to the full GitHub URL (number visible in the link text).
-   - `Stage` = the explicit pr-lifecycle stage. Resolve `/prw` through
-     `../pr-workflow-manager/SKILL.md`; use a verified `/prw` command alias when
-     installed, otherwise follow that canonical skill directly. Do not require a
-     command file that is absent. Stage rules stay owned by
+   - `Stage` = the explicit pr-lifecycle stage. Use a verified `/prw` command alias
+     when installed; otherwise verify that
+     `~/.claude/skills/pr-workflow-manager/SKILL.md` is readable and follow that
+     canonical workflow entry point directly. Do not require a command file that is
+     absent or use a fallback packaged beside this skill. Stage rules stay owned by
      `~/.claude/skills/pr-lifecycle/SKILL.md` § Stage, title and labels — e.g.
      `2 evidence generation`, plus any `hold:*` label. In a repository that opts into
      the six-stage workflow, read the stage label, title suffix and `## PR Stage`
