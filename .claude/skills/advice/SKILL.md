@@ -64,7 +64,7 @@ Dispatch independent eligible reviewers concurrently where practical. If a prima
 
 ---
 
-**Reviewer A — Primary pair fired IN PARALLEL:**
+**Reviewer A — Primary pair, in parallel when the full-budget invocation is available:**
 
 **Codex + Opus run concurrently when both are available.** Each reviewer reads
 the change independently and returns its own verdict. If either seat is unavailable
@@ -74,10 +74,16 @@ concurrently; do not wait for one healthy reviewer before starting another.
 
 Use the same review packet for both reviewers:
 
-Use an existing supported execution path. Do not add a custom wrapper or
-implementation to impose the attempt limit. A missing primary vote may be paired
-with a separately bounded eligible CLI reviewer; it never shares or inherits
-another reviewer's vote.
+Before invoking the existing primary-pair runner, verify that the specific
+supported invocation bounds the complete attempt to its remaining 600-second
+budget, including queueing, setup, dispatch, review, output capture, receipt
+recording, and cleanup. Its legacy per-reviewer timeout or default timeout does
+not prove that whole-attempt bound. If no existing invocation can enforce it,
+mark the primary runner unavailable and use another independently bounded,
+eligible reviewer path; do not count that runner's output as an approval. Do not
+add a wrapper or implementation to impose the limit. A missing primary vote may
+be paired with a separately bounded eligible CLI reviewer; it never shares or
+inherits another reviewer's vote.
 
 ```
 You are a senior engineer giving a focused second opinion.
