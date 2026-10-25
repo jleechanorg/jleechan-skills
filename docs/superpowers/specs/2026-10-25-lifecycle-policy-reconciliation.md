@@ -65,6 +65,12 @@ lifecycle's policy-review safeguards still apply. At main
 | fixpr | Readiness wording needs reconciliation but is held by #532. |
 | pr-green-definition, evidence-review, ready, pr-workflow-manager | Already delegate relevant lifecycle scope; keep legitimate entrypoint pointers and domain proof. |
 
+Subsequent hunk-level reconciliation cleared only evidence-standards lines 11–13
+for direct lifecycle pointers; #549's domain/UI hunks stay untouched. The
+evidence-review entrypoint now resolves those same canonical anchors directly.
+Ready and pr-workflow-manager already link the stage-exit owner, so equivalent
+pointer repetition does not justify a second policy or unrelated churn.
+
 The direct owner instruction puts the stage bracket last. Any relayed provenance-
 last request conflicts with it; retain real provenance before the stage suffix
 without inventing a model identity. This specification adds no new merge grant.

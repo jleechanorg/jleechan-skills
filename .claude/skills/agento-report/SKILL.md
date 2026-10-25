@@ -135,11 +135,11 @@ For each non-[agento] PR, note WHY it wasn't zero-touch — common reasons:
 
 ### Step 6 — Post Slack summary via MCP
 
-Post to `#ai-slack-test` (channel ID: `C0AKALZ4CKW`):
+Post to the user-authorized Slack summary destination (verified channel ID: `<slack-channel>`):
 
 ```
 mcp__slack__conversations_add_message(
-  channel_id="C0AKALZ4CKW",
+  channel_id="<slack-channel>",
   text="*Agento Status Report — YYYY-MM-DD HH:MM*\n\nRepo: jleechanorg/agent-orchestrator-ts\nOpen: N PRs | GREEN: N | Not green: N\nMerged (24h): N | Zero-touch rate: X%\n\n<per-PR details>"
 )
 ```

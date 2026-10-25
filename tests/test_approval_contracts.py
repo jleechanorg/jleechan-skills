@@ -86,6 +86,23 @@ class ApprovalContractsTest(unittest.TestCase):
         self.assertNotIn("CR approved", factory)
         self.assertIn("**STOP. Do not merge.**", factory)
 
+    def test_evidence_consumers_point_directly_to_lifecycle_policy(self) -> None:
+        for name in ("evidence-review", "evidence-standards"):
+            with self.subTest(skill=name):
+                section = skill(name).split(
+                    "## Claim-proportionate evidence and publication", 1
+                )[1].split("\n## ", 1)[0]
+                self.assertIn("../pr-lifecycle/SKILL.md#proportional-exceptions-and-fast-paths", section)
+                self.assertIn("../pr-lifecycle/SKILL.md#evidence-attached-to-every-stage-exit", section)
+                self.assertNotIn("#claim-proportionate-evidence-and-publication", section)
+        self.assertIn("../evidence-standards/SKILL.md", skill("evidence-review"))
+
+    def test_agento_report_uses_an_authorized_portable_slack_destination(self) -> None:
+        report = skill("agento-report")
+        self.assertIn("user-authorized Slack summary destination", report)
+        self.assertIn('channel_id="<slack-channel>"', report)
+        self.assertNotIn("#ai-slack-test", report)
+
     def test_superpowers_quick_delegates_recommended_choices_and_finishes_documents(self) -> None:
         command = (COMMANDS / "superpowers-quick.md").read_text()
         quick = skill("superpowers-quick")

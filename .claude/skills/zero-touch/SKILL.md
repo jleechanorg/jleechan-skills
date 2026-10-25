@@ -53,7 +53,7 @@ this regardless of how autonomously it was produced.
 
 ## What does NOT break zero-touch
 
-- Jeffrey asking questions about the PR in Slack (observation, not intervention)
+- The operator asking questions about the PR in Slack (observation, not intervention)
 - Bot-to-bot interactions (CR, Bugbot, Skeptic, evidence-review-bot)
 - AO workers posting `@coderabbitai approve` or `@coderabbitai all good?` (worker doing its job)
 - Jeffrey approving the AO spawn itself (dispatch is expected; execution must be autonomous)

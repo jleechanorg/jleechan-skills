@@ -8,9 +8,7 @@ when-to-use: Before /er, /green, gate fixes, or AO worker dispatch on a PR that 
 
 ## Claim-proportionate evidence and publication
 
-Apply [pr-lifecycle](../pr-lifecycle/SKILL.md) proportional exceptions and stage-exit rules. They govern generic bundle/media requirements below without waiving explicit user requirements or risk-specific proof. A compact source-inspection, documentation, deterministic-test or log-emission claim may use one provenance receipt plus primary artifacts and hashes; mark irrelevant server/PID/provider fields and media N/A with reasons rather than inventing runtime metadata. All applicable integrity and claim-sufficiency checks remain mandatory. Source hashes alone do not prove execution; log emission does not prove ingestion, and mocks do not prove real service boundaries.
-
-Always link the evidence and sanitized gist receipt from the PR description. Embed applicable viewable screenshots/playable videos there with original media URLs; confirm intended reviewer access. Source-only harmless copy may justify media N/A; claimed static rendering requires rendered proof, and interaction/streaming retains applicable video proof. A compact or exempt class is not an independent PASS, and failed or missing required proof is never N/A. The review verdict covers the declared claim and applicable checks, not unrelated runtime behavior.
+For proportional evidence classes, follow [pr-lifecycle](../pr-lifecycle/SKILL.md#proportional-exceptions-and-fast-paths). For PR-description publication, follow its [stage-exit receipt contract](../pr-lifecycle/SKILL.md#evidence-attached-to-every-stage-exit). This skill owns the evidence-content and integrity checks below, not a second lifecycle policy.
 
 
 ## Summary
