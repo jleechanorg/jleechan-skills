@@ -204,7 +204,10 @@ hours of LLM time for zero added confidence. The evidence proves a *behavior*; i
 code is byte-identical at HEAD and no assertion or driver backing it changed, the proof is
 byte-valid at HEAD. Repo-level files may add
 project-specific context (e.g. `<repo>/.claude/skills/evidence-standards.md` §
-"Claim-scoped evidence revalidation"). Shared [pr-lifecycle precedence](../pr-lifecycle/SKILL.md#precedence-and-scope) governs conflicting lifecycle copies; domain-specific proof and separate safety/merge restrictions remain. Repo overlays cannot waive the delta-and-claim test above.
+"Claim-scoped evidence revalidation"). Follow explicit repository requirements for their domain;
+shared [pr-lifecycle defaults](../pr-lifecycle/SKILL.md#precedence-and-scope) fill only details the
+repository leaves silent. A local workflow may alter which shared gates apply, but an applicable evidence
+claim cannot waive the delta-and-claim test above.
 
 ## Evidence Sequencing — expensive evidence runs LAST, once
 
@@ -481,9 +484,10 @@ standards, always read both this skill and the relevant repo-level file:
 2. **Repo-level /es** — most repos mirror this skill at
    `<repo>/.claude/skills/evidence-standards.md` with project-specific
    extensions (e.g. `your-project.com` has dice-claim, campaign-isolation,
-   BigQuery, and Gemini specifics). **Always read both** and apply the
-   [scoped precedence rule](../pr-lifecycle/SKILL.md#precedence-and-scope);
-   repository domain proof does not override the shared lifecycle.
+   BigQuery, and Gemini specifics). **Always read both**. Explicit repository
+   requirements govern their domain; shared
+   [lifecycle defaults](../pr-lifecycle/SKILL.md#precedence-and-scope) apply
+   only where repository instructions are silent.
 3. **Companion files in this directory** — `bundle-anatomy.md` (bundle
    structure, JSONL shapes, integrity rules), `tmux-video-evidence.md`
    (tmux/asciinema recording), `ui-video-evidence.md` (browser/UI video).

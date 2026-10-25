@@ -9,15 +9,22 @@ scope: project
 
 ## One operational contract
 
-Read [pr-lifecycle](../pr-lifecycle/SKILL.md) before creating, staging or driving a PR.
-It is the self-contained owner of lifecycle, visible stages/title prefixes and suffixes/labels, specification placement,
-review routes and reasoned evidence/approval applicability. This entry point owns practical discovery,
-branch verification and publication steps. No dated design document is required.
+Before taking any workflow action, inspect the target repository's `AGENTS.md`, `CLAUDE.md`, and scoped
+instructions for an explicit PR-workflow contract, adapter, or opt-out. Do this before choosing a branch,
+worktree, PR stage, or gate. Follow an explicit local contract for its domain; do not infer an opt-out from
+the repository's name or apparent purpose. If no local opt-out or conflicting requirement is declared,
+use the shared defaults below.
 
-Keep these two skills in sync: a lifecycle or stage change updates the canonical contract and checks this
+Read [pr-lifecycle](../pr-lifecycle/SKILL.md) before creating, staging or driving a PR. It supplies shared
+defaults for lifecycle, visible stages/title prefixes and suffixes/labels, specification placement, review
+routes and reasoned evidence/approval applicability wherever local instructions are silent. This entry point
+owns practical discovery, branch verification and publication steps. No dated design document is required.
+
+Keep these two skills in sync: a lifecycle or stage change updates the shared default contract and checks this
 entry point and repository adapters for conflicting commands or summaries. Reference the contract rather
-than copying its tables. Preserve repository-specific evidence, safety, native and merge requirements.
-Apply pr-lifecycle's precedence and scope rule to conflicts. Do not invent stricter blanket lifecycle gates or bypass separate permissions.
+than copying its tables. Preserve repository-specific evidence, safety, native and merge requirements. When
+local instructions and shared defaults differ, follow the explicit local instruction in its domain and use
+the shared default only for unresolved details. Neither contract changes separate permissions.
 
 ## Find the skills before inventing a workflow
 

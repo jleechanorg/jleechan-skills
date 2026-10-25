@@ -7,13 +7,13 @@ metadata:
 
 # PR Lifecycle
 
-This is the self-contained operational lifecycle contract. [PR Workflow Manager](../pr-workflow-manager/SKILL.md) is the command/branch entry point; keep its draft, stage, evidence-applicability and safety guidance synchronized with this file. Repository adapters reference these skills and add only repository-specific requirements. Design documents explain rationale; they are not required to execute this workflow.
+This is the self-contained generic operational lifecycle contract. [PR Workflow Manager](../pr-workflow-manager/SKILL.md) is the command/branch entry point; keep its draft, stage, evidence-applicability and safety guidance synchronized with this file. Before applying a generic rule, inspect the target repository's `AGENTS.md`, `CLAUDE.md`, and scoped instructions. Explicit repository requirements govern their domain; this contract supplies defaults only where local instructions are silent. Do not infer an opt-out from a repository's name or apparent purpose. Design documents explain rationale; they are not required to execute this workflow.
 
-**Every new PR is opened as DRAFT** (`gh pr create --draft`) and stays draft until quality is proven. Flipping to ready-for-review is a deliberate, gated action — not a side effect of pushing code.
+**Shared default:** For repositories that have not explicitly opted out or specified a different local flow, every new PR is opened as DRAFT (`gh pr create --draft`) and stays draft until quality is proven. Inspect the target repository's instructions first; an explicit local contract governs its workflow. Flipping to ready-for-review is a deliberate, gated action — not a side effect of pushing code.
 
 ## Precedence and scope
 
-This skill owns PR lifecycle stages, generic review routing, proportional evidence, SHA applicability and receipt publication. It takes precedence over conflicting copied lifecycle rules in repository or user-scope skills; update those copies to pointers rather than choosing a stricter blanket rule by default. Preserve domain-specific proof for the actual claim and separate security, credential, source-ownership and merge-authority restrictions. Current explicit user instructions govern within those permissions.
+This skill owns shared defaults for PR lifecycle stages, generic review routing, proportional evidence, SHA applicability and receipt publication. A target repository's explicit local contract takes precedence within its domain, including a declared workflow opt-out or adapter. Apply shared defaults only to details the local contract does not address; never use this contract to remove a local requirement or infer an exception. Preserve domain-specific proof for the actual claim and separate security, credential, source-ownership and merge-authority restrictions. Current explicit user instructions govern within those permissions.
 
 ## Canonical lifecycle
 
