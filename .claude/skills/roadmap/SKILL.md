@@ -29,23 +29,23 @@ Required structure, in this order:
 2. **PR ledger table**, one row per PR:
    `| PR | Repo | Stage | State | Head | Δ (lines) | Next | Brief |`
    - `PR` links to the full GitHub URL (number visible in the link text).
-   - `Stage` = the explicit pr-lifecycle stage. Discover the workflow through
-     `../pr-workflow-manager/SKILL.md`; `/pr-workflow` and `/prw` are command aliases
-     only where they are installed and verified to resolve. Stage rules stay owned by
+   - `Stage` = the explicit pr-lifecycle stage. Resolve `/prw` through
+     `../pr-workflow-manager/SKILL.md`; use a verified `/prw` command alias when
+     installed, otherwise follow that canonical skill directly. Do not require a
+     command file that is absent. Stage rules stay owned by
      `~/.claude/skills/pr-lifecycle/SKILL.md` § Stage, title and labels — e.g.
      `2 evidence generation`, plus any `hold:*` label. In a repository that opts into
      the six-stage workflow, read the stage label, title suffix and `## PR Stage`
      block; if they disagree, report the earliest unmet stage and write
      `MISMATCH (label X / title Y / block Z)` instead of picking one. A PR with no stage
      marker is `unstaged`; never infer a stage from draft status or CI colour. For
-     PRs this session owns, run the workflow entry point first — `/pr-workflow` or
-     `/prw` where those aliases are installed and verified — so each one's markers
-     are synchronized before the board reads them. This is mandatory for every
-     `/roadmap` invocation, including status-only and concise-report modes, and it
-     must happen before the stage table is produced. When another owner controls a
-     PR, run `/prw` in its status/read-only mode, preserve that owner's markers, and
-     do not advance the stage without live workflow proof. If markers disagree,
-     report the earliest unmet stage and the exact mismatch
+     PRs this session owns, run the resolved `/prw` workflow entry point first so each
+     one's markers are synchronized before the board reads them. This is mandatory for
+     every `/roadmap` invocation, including status-only and concise-report modes, and
+     it must happen before the stage table is produced. When another owner controls a
+     PR, run the resolved workflow in its status/read-only mode, preserve that owner's
+     markers, and do not advance the stage without live workflow proof. If markers
+     disagree, report the earliest unmet stage and the exact mismatch
      (`MISMATCH (label X / title Y / block Z)`); do not select a stage from draft
      status, CI colour, or prose.
    - `State` = OPEN/draft/ready + MERGEABLE|BLOCKED|UNKNOWN at the measured head.
