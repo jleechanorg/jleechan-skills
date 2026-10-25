@@ -58,7 +58,7 @@ def cursor_coverage(output: str) -> dict:
 class ApprovalContractsTest(unittest.TestCase):
     def test_lifecycle_entrypoints_reference_the_canonical_owner(self) -> None:
         for name in (
-            "agento-report", "auton", "factory-evolve", "pr-report",
+            "agento-report", "auton", "factory-evolve", "ironclad", "pr-report",
             "superpowers-quick", "testing-layers", "write-goal", "zero-touch",
         ):
             with self.subTest(skill=name):
@@ -96,12 +96,33 @@ class ApprovalContractsTest(unittest.TestCase):
                 self.assertIn("../pr-lifecycle/SKILL.md#evidence-attached-to-every-stage-exit", section)
                 self.assertNotIn("#claim-proportionate-evidence-and-publication", section)
         self.assertIn("../evidence-standards/SKILL.md", skill("evidence-review"))
+        standards = skill("evidence-standards")
+        self.assertIn("mark irrelevant server/PID/provider fields N/A with reasons", standards)
+        self.assertIn("Source hashes alone do not prove execution", standards)
 
     def test_agento_report_uses_an_authorized_portable_slack_destination(self) -> None:
         report = skill("agento-report")
         self.assertIn("user-authorized Slack summary destination", report)
         self.assertIn('channel_id="<slack-channel>"', report)
         self.assertNotIn("#ai-slack-test", report)
+
+    def test_shared_policy_delegates_lifecycle_without_relaxing_merge_scope(self) -> None:
+        shared = (REPO_ROOT / "md_files" / "AGENTS.shared.md").read_text()
+        self.assertIn("~/.claude/skills/pr-lifecycle/SKILL.md", shared)
+        self.assertNotIn("~/.claude/skills/draft-first-pr/SKILL.md", shared)
+        self.assertNotIn("The original approving reviewers must reaffirm", shared)
+        self.assertNotIn("rerun only on a material production change", shared)
+        self.assertIn("generic lifecycle and evidence-reuse rules", shared)
+        for safeguard in (
+            "most recent live user message",
+            "Delegated worker sessions may never execute `gh pr merge`",
+            "more than 150 production lines changed **including deletions**",
+            "required `/cs` and `/advice` gates",
+            "Neither metric broadens merge permission",
+            "merge with `--match-head-commit`",
+        ):
+            with self.subTest(safeguard=safeguard):
+                self.assertIn(safeguard, shared)
 
     def test_superpowers_quick_delegates_recommended_choices_and_finishes_documents(self) -> None:
         command = (COMMANDS / "superpowers-quick.md").read_text()

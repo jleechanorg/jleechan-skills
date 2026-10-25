@@ -146,7 +146,7 @@ class CodingLifecycleContract(unittest.TestCase):
         self.assertIn("execute the phases that apply", goal)
         self.assertIn("Run the applicable gates at completion", goal)
         iron = read("ironclad")
-        self.assertIn("applicability follows `draft-first-pr` § Coding lifecycle", iron)
+        self.assertIn("applicability follows `pr-lifecycle` § Coding lifecycle", iron)
         self.assertIn("never waives user-required, high-risk, approval/merge, or real-proof gates", iron)
 
     def test_small_code_fix_is_eligible_for_the_proportional_path(self):

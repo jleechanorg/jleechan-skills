@@ -70,6 +70,13 @@ for direct lifecycle pointers; #549's domain/UI hunks stay untouched. The
 evidence-review entrypoint now resolves those same canonical anchors directly.
 Ready and pr-workflow-manager already link the stage-exit owner, so equivalent
 pointer repetition does not justify a second policy or unrelated churn.
+Shared-policy lifecycle/reuse paragraphs and old owner references were also
+cleared by hunk-level reconciliation with #518/#521/#525; their unrelated
+sections, production counters, `/cs` and merge safeguards are preserved.
+Ironclad line 54 and the matching existing assertion at lifecycle-test line 149
+were likewise cleared as disjoint from #565's added test near line 383.
+No #565 branch or canonical lifecycle edit is included. Fixpr remains owned
+by #532, whose Step-2 replacement already addresses the same readiness shortcut.
 
 The direct owner instruction puts the stage bracket last. Any relayed provenance-
 last request conflicts with it; retain real provenance before the stage suffix
