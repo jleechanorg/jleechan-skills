@@ -93,8 +93,9 @@ real, full pass when installed; substitute an equivalent if you have one.
      defect.
    - One voice, one tense (present for current state).
    - **PR descriptions**: when the target is a PR description (or the repo's
-     `.github/pull_request_template.md`), the Background/Summary section is
-     followed by a **User Story** stated in plain, non-technical language —
+     `.github/pull_request_template.md`), include a **User Story** in the
+     order required by `~/.codex/AGENTS.md` § PR descriptions and the target
+     repository's template. State it in plain, non-technical language —
      what does the user encounter today (the problem/friction/bug) and what
      changes for them after this PR, with no jargon or internal file/function
      names. An implementation summary ("refactors X to use Y") does not
