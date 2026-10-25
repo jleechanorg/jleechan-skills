@@ -128,6 +128,23 @@ class ApprovalContractsTest(unittest.TestCase):
             with self.subTest(safeguard=safeguard):
                 self.assertIn(safeguard, shared)
 
+    def test_shared_provenance_tags_precede_the_trailing_lifecycle_stage(self) -> None:
+        shared = (REPO_ROOT / "md_files" / "AGENTS.shared.md").read_text()
+        self.assertIn("provenance tags immediately before the trailing lifecycle stage suffix", shared)
+        self.assertIn("`[<cli>][<model>]`", shared)
+        self.assertIn("otherwise the provenance tags go last", shared)
+        self.assertNotIn("PR titles must end with `[<cli>][<model>]`", shared)
+        self.assertIn("the stage suffix goes last", skill("pr-lifecycle"))
+        self.assertIn("PRs must include GitHub labels for both CLI and model", shared)
+        self.assertIn("never a bare `gpt-6`", shared)
+
+    def test_claude_adapter_points_to_canonical_lifecycle(self) -> None:
+        adapter = (REPO_ROOT / "md_files" / "CLAUDE.adapter.md").read_text()
+        self.assertIn("~/.claude/skills/pr-lifecycle/SKILL.md", adapter)
+        self.assertNotIn("~/.claude/skills/draft-first-pr/SKILL.md", adapter)
+        self.assertIn("~/.claude/skills/pr-green-definition/SKILL.md", adapter)
+        self.assertIn("~/.claude/skills/pr-quantity-control/SKILL.md", adapter)
+
     def test_superpowers_quick_delegates_recommended_choices_and_finishes_documents(self) -> None:
         command = (COMMANDS / "superpowers-quick.md").read_text()
         quick = skill("superpowers-quick")
