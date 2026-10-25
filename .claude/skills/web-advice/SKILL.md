@@ -84,7 +84,7 @@ Use the evidence appropriate to the subject: current diff and tests for a PR, th
 
 Run the `/er` 4-gate check **only when an evidence bundle or production claim is in scope**—for example, when the advice must assess real-service proof or decide whether a bundle supports a production conclusion.
 
-Invoke `/er <bundle path or PR>` and record its current-HEAD verdict. Do not
+Require an applicable `/er` verdict, retaining the original tested/reviewed SHAs and a reasoned candidate-delta assessment. Invoke `/er <bundle path or PR>` only for missing or affected coverage, not solely to restamp a changed SHA. Do not
 replace `/er` with a partial checksum, file-existence, or metadata check: those
 checks do not establish the verifier verdict, claim coverage, or provenance.
 
