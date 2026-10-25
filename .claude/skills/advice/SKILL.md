@@ -206,9 +206,10 @@ if [ "$RUNNER_STATUS" -eq 124 ] || [ "$RUNNER_STATUS" -ge 128 ] || \
 fi
 ```
 
-The packet must be written before this block starts; create a fresh output
-directory for every attempt. Receipt and exit-status validation remain
-mandatory after the watchdog returns. Apply the same outer wrapper to the
+Prepare the packet before starting the watchdog dispatch. The output path must
+not already exist: the runner creates and reserves it, so use a fresh path for
+each attempt without pre-creating the directory. Receipt and exit-status
+validation remain mandatory after the watchdog returns. Apply the same outer wrapper to the
 entire alternate operation, including creation and cleanup of its independent
 clone; adapt its process timeout to the remaining time in that attempt. If the
 deadline has expired, do not start the alternate under the expired attempt.
