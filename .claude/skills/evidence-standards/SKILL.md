@@ -450,7 +450,7 @@ Visual comparisons under `## Visual Evidence` in PR descriptions must render ima
    ```
 
 4. **Google Cloud Storage media (default host)**:
-   - **Default host.** Upload media to the authorized evidence bucket (for example `gs://wa-test-evidence/agent-evidence/<repo>/<pr>-<topic>-<date>/`) and link it as `https://storage.googleapis.com/<bucket>/<object>`. These public URLs open and play directly in a browser.
+   - **Default host.** Upload media to the authorized evidence bucket (for example `gs://<evidence-bucket>/agent-evidence/<repo>/<pr>-<topic>-<date>/`) and link it as `https://storage.googleapis.com/<evidence-bucket>/<object>`. These public URLs open and play directly in a browser.
    - A GitHub attachment is also acceptable — for video it is the only form GitHub plays inline — as is any other host the current task authorizes. Media that must stay private stays in authorized private hosting; never make evidence public merely to satisfy a link check. What is never acceptable is a URL the intended reviewer cannot open and play.
    - Never link `gs://…` (not clickable) or `https://storage.cloud.google.com/…`, which redirects reviewers to a Google login.
    - GitHub plays inline only videos uploaded as GitHub attachments, so an external mp4 renders as a link. Every video therefore gets an **inline GIF** of the same run (`ffmpeg -i in.webm -vf "fps=6,scale=300:-1:flags=lanczos" out.gif`) next to a **playable mp4 link** (`-c:v libx264 -pix_fmt yuv420p`; never webm, which Safari will not play).
