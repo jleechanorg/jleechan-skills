@@ -113,6 +113,10 @@ class ApprovalContractsTest(unittest.TestCase):
         self.assertNotIn("The original approving reviewers must reaffirm", shared)
         self.assertNotIn("rerun only on a material production change", shared)
         self.assertIn("generic lifecycle and evidence-reuse rules", shared)
+        self.assertIn("Gate depth, including small low-risk changes, follows its § Coding lifecycle", shared)
+        self.assertIn("~/.claude/skills/evidence-standards/SKILL.md` § Evidence Sequencing", shared)
+        self.assertIn("## Coding lifecycle — scale layers to risk", skill("pr-lifecycle"))
+        self.assertIn("## Evidence Sequencing — expensive evidence runs LAST, once", skill("evidence-standards"))
         for safeguard in (
             "most recent live user message",
             "Delegated worker sessions may never execute `gh pr merge`",
