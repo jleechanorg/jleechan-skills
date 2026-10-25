@@ -29,16 +29,18 @@ Required structure, in this order:
 2. **PR ledger table**, one row per PR:
    `| PR | Repo | Stage | State | Head | Δ (lines) | Next | Brief |`
    - `PR` links to the full GitHub URL (number visible in the link text).
-   - `Stage` = the explicit pr-lifecycle stage recorded by the workflow entry point
-     (`/pr-workflow`, or a shorter `/prw` alias where one is installed), read from
+   - `Stage` = the explicit pr-lifecycle stage. Discover the workflow through
+     `../pr-workflow-manager/SKILL.md`; `/pr-workflow` and `/prw` are command aliases
+     only where they are installed and verified to resolve. Stage rules stay owned by
      `~/.claude/skills/pr-lifecycle/SKILL.md` § Stage, title and labels — e.g.
      `2 evidence generation`, plus any `hold:*` label. In a repository that opts into
      the six-stage workflow, read the stage label, title suffix and `## PR Stage`
      block; if they disagree, report the earliest unmet stage and write
      `MISMATCH (label X / title Y)` instead of picking one. A PR with no stage
      marker is `unstaged`; never infer a stage from draft status or CI colour. For
-     PRs this session owns, run the workflow entry point first (`/pr-workflow`, or the
-     `/prw` alias where installed) so each one's markers are synchronized
+     PRs this session owns, run the workflow entry point first — `/pr-workflow` or
+     `/prw` where those aliases are installed and verified — so each one's markers
+     are synchronized
      before the board reads them.
    - `State` = OPEN/draft/ready + MERGEABLE|BLOCKED|UNKNOWN at the measured head.
    - `Head` = first 8 chars of the head SHA.
