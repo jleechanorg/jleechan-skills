@@ -387,8 +387,9 @@ a synthetic-LLM claim.
 ```text
 # PR description includes:
 - Evidence bundle: /tmp/your-project.com/fix-attack-roll/iteration_001/
-- Video: https://<project-host>/releases/download/evidence-2026-06-16/attack-roll.mp4
-  (NOT github.com/.../releases/download/untagged-* — that is a red flag)
+- Video: https://storage.googleapis.com/<bucket>/agent-evidence/<repo>/<pr>-<topic>/attack-roll.mp4
+  (or another host the current task authorizes; NOT github.com/.../releases/download/untagged-* — that is a red flag)
+- Paired inline GIF of the same run, embedded in the PR body (see § Visual Evidence)
 - metadata.json contains browser_origin, gateway_url, server.pid, artifact_manifest
 - Video is pipeline output (asciinema .cast in bundle, converted to mp4
   for hosting), not a manual screen recording
@@ -449,14 +450,15 @@ Visual comparisons under `## Visual Evidence` in PR descriptions must render ima
    ```
 
 4. **Google Cloud Storage media (default host)**:
-   - Upload media to the authorized evidence bucket (for example `gs://wa-test-evidence/agent-evidence/<repo>/<pr>-<topic>-<date>/`) and link it **only** as `https://storage.googleapis.com/<bucket>/<object>`. These public URLs open and play directly in a browser.
+   - **Default host.** Upload media to the authorized evidence bucket (for example `gs://wa-test-evidence/agent-evidence/<repo>/<pr>-<topic>-<date>/`) and link it as `https://storage.googleapis.com/<bucket>/<object>`. These public URLs open and play directly in a browser.
+   - A GitHub attachment is also acceptable — for video it is the only form GitHub plays inline — as is any other host the current task authorizes. Media that must stay private stays in authorized private hosting; never make evidence public merely to satisfy a link check. What is never acceptable is a URL the intended reviewer cannot open and play.
    - Never link `gs://…` (not clickable) or `https://storage.cloud.google.com/…`, which redirects reviewers to a Google login.
    - GitHub plays inline only videos uploaded as GitHub attachments, so an external mp4 renders as a link. Every video therefore gets an **inline GIF** of the same run (`ffmpeg -i in.webm -vf "fps=6,scale=300:-1:flags=lanczos" out.gif`) next to a **playable mp4 link** (`-c:v libx264 -pix_fmt yuv420p`; never webm, which Safari will not play).
    - Screenshots are inline `<img>` from the same bucket, showing the real captured pixels of the claimed state, not placeholders, crops that hide the changed element, or icons.
    - Verify before claiming the stage exit:
-     - `curl -sI <url>` returns `200` with `content-type` `video/mp4`, `image/gif` or `image/png` for every URL.
-     - The **rendered** PR body has a camo-proxied image for every inline GIF and screenshot: `gh api repos/<owner>/<repo>/pulls/<n> -H "Accept: application/vnd.github.html+json" --jq .body_html | grep -c 'camo.githubusercontent.com'`.
-     - The sanitized gist receipt lists the same URLs and their sha256 hashes.
+     - Every URL resolves with the expected `content-type` (`video/mp4`, `image/gif`, `image/png`) **for the intended reviewer**: `curl -sI <url>` for a public object, or the reviewer's own authorized access when the task keeps the media private. Record which access mode applies instead of forcing public access to prove reachability.
+     - Every inline GIF and screenshot appears in the **rendered** PR body. Count images, not lines — `grep -c` reports `1` for any number of images sharing a line: `gh api repos/<owner>/<repo>/pulls/<n> -H "Accept: application/vnd.github.html+json" --jq .body_html | grep -o '<img[^>]*src="[^"]*"' | wc -l`, then compare that count with the number of inline images this receipt lists.
+     - The sanitized gist receipt lists the same URLs, their sha256 hashes and the access mode.
 
 5. **Anti-Patterns (Reject in Review)**:
    - ❌ `| [screenshot](url) | [screenshot](url) |` (text link only — fails inline rendering)
@@ -465,6 +467,7 @@ Visual comparisons under `## Visual Evidence` in PR descriptions must render ima
    - ❌ Committing heavy image binaries directly into the git repository (use authorized storage or unlisted gists)
    - ❌ A video only as a text link, with no inline GIF of the same run
    - ❌ `gs://` or `storage.cloud.google.com` media links, or webm-only video
+   - ❌ Making private evidence public, or changing bucket access, only to satisfy a reachability check
    - ❌ Media only in a gist, a comment or a bundle README instead of inline in the PR description
 
 ## Cross-references
