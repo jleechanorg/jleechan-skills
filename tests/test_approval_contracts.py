@@ -280,7 +280,7 @@ class ApprovalContractsTest(unittest.TestCase):
         self.assertIn("explicitly requested reviews remain required", draft_first)
         self.assertIn("this workflow policy cannot exempt its own review", draft_first)
         self.assertIn("A one-line change can be high risk", draft_first)
-        self.assertIn("outside any low-risk class the repo's own\ninstructions exempt per `draft-first-pr`", evidence_review)
+        self.assertIn("outside any low-risk class the repo's own\ninstructions exempt per `pr-lifecycle`", evidence_review)
         self.assertNotIn("Acceptable for `/green` on NON_PRODUCTION", evidence_review)
         self.assertIn("when `/er` is required by that lifecycle", green)
         self.assertNotIn("DRAFT → `/es` → `/er` → `/advice`", green)

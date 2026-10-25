@@ -13,6 +13,22 @@ def read(name: str) -> str:
 
 
 class CodingLifecycleContract(unittest.TestCase):
+    def test_generic_exceptions_preserve_opt_in_spec_and_review_route_scope(self):
+        raw = (SKILLS / "pr-lifecycle" / "SKILL.md").read_text()
+        self.assertIn("\n## Proportional exceptions and fast paths\n", raw)
+        self.assertIn("In opted-in repositories, the seven-element specification", self.owner)
+        self.assertIn("When /dot is necessary to satisfy the applicable route", self.owner)
+        self.assertIn("small PRs need /advice OR independent /dot approval", self.owner)
+        self.assertIn("this workflow policy cannot exempt its own review", self.owner)
+
+    def test_lifecycle_precedence_keeps_domain_and_merge_boundaries(self):
+        self.assertIn("## Precedence and scope", self.owner)
+        self.assertIn("separate security, credential, source-ownership and merge-authority restrictions", self.owner)
+        for name in ("evidence-review", "evidence-standards"):
+            self.assertIn("../pr-lifecycle/SKILL.md#precedence-and-scope", read(name))
+            self.assertNotIn("and take precedence on conflict", read(name))
+        self.assertIn("cannot waive the delta-and-claim test", read("evidence-standards"))
+
     def test_old_name_is_only_a_compatibility_pointer(self):
         alias = read("draft-first-pr")
         self.assertIn("../pr-lifecycle/SKILL.md", alias)

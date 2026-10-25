@@ -17,8 +17,7 @@ branch verification and publication steps. No dated design document is required.
 Keep these two skills in sync: a lifecycle or stage change updates the canonical contract and checks this
 entry point and repository adapters for conflicting commands or summaries. Reference the contract rather
 than copying its tables. Preserve repository-specific evidence, safety, native and merge requirements.
-An apparent conflict is resolved from current user direction and the applicable authoritative rule,
-not by silently choosing the weakest gate.
+Apply pr-lifecycle's precedence and scope rule to conflicts. Do not invent stricter blanket lifecycle gates or bypass separate permissions.
 
 ## Find the skills before inventing a workflow
 
@@ -62,11 +61,14 @@ CI/conflict diagnosis, and review/readiness coordination.
 | Scenario | Safe ordinary action |
 |---|---|
 | First branch push | Verify target, then `git push -u <verified-remote> HEAD`. |
-| Open the PR | `gh pr create --draft --base <verified-base> --head <verified-branch>`. |
+| Same-repository PR | `gh pr create --repo <verified-base-owner/repo> --draft --base <verified-base> --head <verified-branch>`; verify head and base repositories are identical first. |
+| User-owned fork PR | Use the same explicit `--repo`/`--base` with `--head <verified-head-user>:<verified-branch>`. |
 | Existing PR update | Scoped commit and ordinary push through its sole writer; verify remote SHA. |
 | Missing upstream | Verify remote branch, then `git branch --set-upstream-to=<remote>/<branch>`. |
 | Status | Read PR head/base, all applicable check attempts, reviews and mergeability. |
 | Connector publication | Use its authorized expected-head/non-forced update and exact readback; do not pretend it establishes native Git upstream tracking. |
+
+The [GitHub CLI manual](https://cli.github.com/manual/gh_pr_create) documents owner-qualified fork heads and an organization-owner limitation. If the tool cannot express the exact head repository, use an already-authorized interface that can, or report the blocker; never guess from a same-named branch. After creation, read back both repository identities, head/base branches and head SHA before updating or claiming the intended PR.
 
 An optional helper is usable only if it actually exists, has been inspected and preserves the draft,
 ownership and expected-head requirements. No bundled creation script is assumed by this skill.

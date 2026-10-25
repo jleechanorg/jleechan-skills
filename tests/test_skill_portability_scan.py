@@ -181,7 +181,7 @@ class PolicyFilesContractTest(unittest.TestCase):
         er_path = REPO_ROOT / ".claude" / "commands" / "er.md"
         er_content = er_path.read_text(encoding="utf-8")
         self.assertIn("evidence-review/SKILL.md", er_content)
-        self.assertIn("draft-first-pr/SKILL.md", er_content)
+        self.assertIn("pr-lifecycle/SKILL.md", er_content)
         self.assertNotIn("Two-Tier Verdicts", er_content)
 
         draft_pr_path = REPO_ROOT / ".claude" / "skills" / "pr-lifecycle" / "SKILL.md"

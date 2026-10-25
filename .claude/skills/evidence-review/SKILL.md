@@ -20,7 +20,7 @@ The shared catalog preserves host-installed `/advice` and `/web-advice` integrat
 
 **Standards source**: `evidence-standards` skill (`/es`). When in doubt about a requirement, read the standards first.
 
-**Repo overlay (always check)**: this is the **user-scope (global)** `/er` policy — the floor. Before judging, look for repo-level versions and read them too: `<repo>/.claude/skills/evidence-review.md` and `<repo>/.claude/skills/evidence-standards.md` add project-specific enforcement (e.g. worldarchitect.ai adds BQ/streaming/dice modes) and take precedence on conflict.
+**Repo overlay (always check)**: this is the **user-scope (global)** `/er` policy — the floor. Before judging, look for repo-level versions and read them too: `<repo>/.claude/skills/evidence-review.md` and `<repo>/.claude/skills/evidence-standards.md` add domain-specific proof (e.g. worldarchitect.ai adds BQ/streaming/dice modes). For lifecycle stages, generic review routing, proportionality and SHA reuse, the shared [pr-lifecycle precedence rule](../pr-lifecycle/SKILL.md#precedence-and-scope) governs conflicting copies. Domain proof, security and separate merge authority remain intact.
 
 ---
 
@@ -36,20 +36,20 @@ The shared catalog preserves host-installed `/advice` and `/web-advice` integrat
 ## Draft-lifecycle integration
 
 The canonical lifecycle, its documentation-only `/er` allowlist, and the SHA-binding /
-staleness-tolerance rule (`draft-first-pr` § "SHA-binding rule") live in
-`draft-first-pr`; apply that policy — including the staleness-tolerance diff
+staleness-tolerance rule (`pr-lifecycle` § "SHA-binding rule") live in
+`pr-lifecycle`; apply that policy — including the staleness-tolerance diff
 test — before invoking this skill. Do not run a fresh `/er` pass on a HEAD
 move the staleness-tolerance test classifies as non-behavioral; re-affirm the
 prior verdict at the new SHA instead (see `evidence-standards` §
 "Evidence Sequencing"):
 
 - **Documentation-only exception**: when the complete PR diff matches the exact
-  documentation allowlist in `draft-first-pr`, `/er` is not run. Record
+  documentation allowlist in `pr-lifecycle`, `/er` is not run. Record
   `/er: NOT REQUIRED — documentation-only (<changed paths>)` at the reviewed
-  SHA. Other diffs follow the normal gate unless the entire diff qualifies for the explicit trivial-change exception in draft-first-pr.
+  SHA. Other diffs follow the normal gate unless the entire diff qualifies for the explicit trivial-change exception in pr-lifecycle.
 
 Every PR outside that exception and the canonical trivial-change exception, and outside any low-risk class the repo's own
-instructions exempt per `draft-first-pr`, requires `/er` = **PASS** applicable to the candidate, retaining the original reviewed SHA and documented delta assessment when it differs
+instructions exempt per `pr-lifecycle`, requires `/er` = **PASS** applicable to the candidate, retaining the original reviewed SHA and documented delta assessment when it differs
 before `/advice`. PARTIAL, FAIL, or INCONCLUSIVE remains informative reviewer
 output but does not satisfy the gate.
 

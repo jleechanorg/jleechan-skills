@@ -11,6 +11,10 @@ This is the self-contained operational lifecycle contract. [PR Workflow Manager]
 
 **Every new PR is opened as DRAFT** (`gh pr create --draft`) and stays draft until quality is proven. Flipping to ready-for-review is a deliberate, gated action — not a side effect of pushing code.
 
+## Precedence and scope
+
+This skill owns PR lifecycle stages, generic review routing, proportional evidence, SHA applicability and receipt publication. It takes precedence over conflicting copied lifecycle rules in repository or user-scope skills; update those copies to pointers rather than choosing a stricter blanket rule by default. Preserve domain-specific proof for the actual claim and separate security, credential, source-ownership and merge-authority restrictions. Current explicit user instructions govern within those permissions.
+
 ## Canonical lifecycle
 
 This is the full state machine — every other file (`pr-green-definition`, `/green`, `CLAUDE.md`, `AGENTS.md`) points here rather than restating it:
@@ -78,7 +82,7 @@ Every specification records seven elements: outcome, non-goals, acceptance, user
 (or an explicit no-user-facing-change reason), proof plan, mock (or justified exemption), and risk.
 Keep the specification and implementation in the same PR. For the complete actual-base...head diff:
 - Under 50 total additions+deletions: use PR-body `## Specification`, including for high-risk small changes.
-- At least50, or an incomplete/uncountable/binary diff: commit the seven-element specification in the same PR.
+- At least 50, or an incomplete/uncountable/binary diff: commit the seven-element specification in the same PR.
 - Crossing that boundary without the committed specification returns to Stage 0.
 Artifact placement does not waive high-risk independent full-diff review or required real proof.
 Do not split coherent work merely to evade review thresholds.
@@ -94,7 +98,7 @@ unrelated tags/labels and all holds, including any repository-required author/to
 | 1 Coding | [coding] | stage:1-coding | Scoped implementation and applicable causal RED/GREEN, focused checks and correctness review complete. |
 | 2 Evidence generation | [evidence generation] | stage:2-evidence | Applicable /es proof generated and delivered, original tested SHA and claim map recorded, or justified exemption. |
 | 3 Evidence review | [evidence review] | stage:3-evidence-review | Applicable /er and draft review route satisfied by independent verdicts whose coverage applies to the candidate. The review SHA need not equal HEAD when the delta assessment supports reuse. |
-| 4 CI and undraft | [CI and undraft] | stage:4-ci-undraft | Undraft and complete /ready's CI, comments, conflicts and cross-thread regression work with current-candidate /green using only documented exceptions. Its closing reviews belong to Stage5, not this exit. |
+| 4 CI and undraft | [CI and undraft] | stage:4-ci-undraft | Undraft and complete /ready's CI, comments, conflicts and cross-thread regression work with current-candidate /green using only documented exceptions. Its closing reviews belong to Stage 5, not this exit. |
 | 5 Final approval | [final approval] | stage:5-final-approval | Final-phase review obligations satisfied by applicable independent approvals, with findings resolved or explicitly deferred as allowed. Earlier review SHAs may remain valid by reasoned assessment; merge authority is separate. |
 
 A stage name describes work remaining. [final approval] does not mean approved or merged.
@@ -113,7 +117,7 @@ Use the Advice applicability boundary and independent coverage rules in this ski
 At Stage 3: small PRs need /advice OR independent /dot approval unless the narrow trivial-change exception below applies; large PRs need both.
 At Stage 5: the same route applies to final obligations; large PRs attempt /wa best effort when authorized.
 Explicitly required reviews remain required. Honor existing standing authorization without asking again. When a governing workflow or user explicitly requires /wa, it remains required rather than best effort; unavailable required /wa leaves that gate open. Otherwise unavailable best-effort /wa is disclosed, not invented approval.
-An independent /dot receipt names its reviewer, declared source/evidence scope, original tested/reviewed SHAs, actual inspection/actions, verdict, coverage, findings/limits and retrievable receipt. An acknowledgment, capability claim or another reviewer's verdict is not /dot approval. Its covered scope must satisfy the requested gate; narrow visual approval is not full source approval.
+Resolve /dot through an existing authorized independent Dot reviewer, not the author/orchestrator. When /dot is necessary to satisfy the applicable route and no eligible route is available, record UNAVAILABLE and hold:reviewer; do not invent an integration or substitute an acknowledgment. An independent /dot receipt names its reviewer, declared source/evidence scope, original tested/reviewed SHAs, actual inspection/actions, verdict, coverage, findings/limits and retrievable receipt. An acknowledgment, capability claim or another reviewer's verdict is not /dot approval. Its covered scope must satisfy the requested gate; narrow visual approval is not full source approval.
 Reviewer eligibility and quorum remain owned by their review skills; the author/orchestrator cannot self-award
 an independent vote, and reusing a verdict never creates an extra voter. A technical /dot verdict is evidence of review, never human permission to merge, change policy or operate another scope. A bot or orchestrator acknowledgment does not qualify as an independent review.
 Draft and final obligations are distinct: evaluate whether the existing verdict's scope and phase cover the
@@ -134,9 +138,21 @@ names, title prefixes, labels, review routes or applicability rules. Repo adapte
 not copy its tables. Check affected references and report any installed copy that is stale or unavailable;
 a source push does not install or synchronize another computer.
 
-### Proportional exceptions and fast paths
+### Evidence attached to every stage exit
 
-Classify the complete diff by effects and claimed outcomes, not its extension, a non-production label, or the latest commit size. For an entirely harmless documentation/mechanical change or obvious display-copy-only change under 50 total additions+deletions, a compact `/es` receipt with source before/after inspection and proportionate checks can suffice. Record `/er` and the extra independent `/dot` lane as `NOT REQUIRED — trivial-change exception`, never a fabricated PASS or reviewer vote. This exception applies at both review phases; explicitly requested reviews remain required. The seven-element specification may be concise but remains required in its prescribed location. The >=50 advice boundary is unchanged.
+Always attach evidence to the PR description using retrievable artifact URLs and a sanitized gist receipt URL. Proof only in a comment, local path, chat or promised upload is insufficient. Every completed stage 0–5 has an appropriate receipt; specification proof does not require future runtime evidence. Stage 2 produces the acceptance-evidence package, not the first evidence of any kind: earlier stages publish their own specification or focused-check receipts. One version-pinned gist may contain distinct stage/event anchors without ceremonial duplicate uploads.
+
+The description's evidence index records stage, disposition (`COMPLETE`, `NOT REQUIRED`, `REUSED` or `BLOCKED`), candidate head/base, full diff classification, original tested/reviewed SHAs and execution timestamps, applicable commands/environment/results, artifact hashes, reviewer and coverage, limitations, and exemption or reuse rationale. Preserve original receipts and append superseding events instead of restamping evidence.
+
+Embed applicable screenshots and playable video inline in the PR description alongside direct original-media URLs. Verify URLs resolve and intended reviewers can view the media. A gist link alone does not satisfy applicable visual proof. Docs, logs and source-only trivial-copy claims may record a specific media `N/A` reason; never manufacture media to fill a field. Apply all applicable `/es` integrity, provenance, sanitization and claim-sufficiency requirements before declaring the stage passed.
+
+Missing, inaccessible or unauthorized publication is `PUBLICATION BLOCKED`: continue independent work, but do not claim that stage exit complete. Missing or failed required checks are not exemptions. Read back the description; preserve evidence history and title/stage-label consistency.
+
+## Proportional exceptions and fast paths
+
+These claim/risk rules apply to the generic lifecycle as well as opted-in repositories; the visible stage/title/label machinery remains opt-in.
+
+Classify the complete diff by effects and claimed outcomes, not its extension, a non-production label, or the latest commit size. For an entirely harmless documentation/mechanical change or obvious display-copy-only change under 50 total additions+deletions, a compact `/es` receipt with source before/after inspection and proportionate checks can suffice. Record `/er` and the extra independent `/dot` lane as `NOT REQUIRED — trivial-change exception`, never a fabricated PASS or reviewer vote. This exception applies at both review phases; explicitly requested reviews remain required. In opted-in repositories, the seven-element specification may be concise but remains required in its prescribed location. The >=50 advice boundary is unchanged.
 
 This exception excludes application prompts, schemas, selectors, URLs, interpolation, format/control strings, authentication, permissions, consent, payments, legal meaning, and approval, merge, review, evidence or security policy. Agent instructions changing these rules are not harmless documentation: this workflow policy cannot exempt its own review. A one-line change can be high risk. Mixed diffs follow the requirements of their affected claims.
 
@@ -145,16 +161,6 @@ For logging-only changes, use bounded execution showing the actual emitted log, 
 Non-production tests, fixtures, drivers and CI changes need proportionate checks of changed assertions and affected contracts, not automatic runtime capture and not automatic exemption. Never weaken assertions or mock away a claimed boundary to qualify.
 
 Source-only display-copy inspection proves the literal change, not rendering, accessibility or localization. Media may be explicitly `N/A` for that bounded claim. A claimed static appearance needs real rendered proof and an inline screenshot; interaction or streaming claims retain applicable video requirements. These explicit narrow exceptions govern generic all-UI-media wording in linked skills; named risk-specific requirements, explicit user-required proof and safety controls remain applicable.
-
-### Evidence attached to every stage exit
-
-Always attach evidence to the PR description using retrievable artifact URLs and a sanitized gist receipt URL. Proof only in a comment, local path, chat or promised upload is insufficient. Every completed stage 0–5 has an appropriate receipt; specification proof does not require future runtime evidence. One version-pinned gist may contain distinct stage/event anchors without ceremonial duplicate uploads.
-
-The description's evidence index records stage, disposition (`COMPLETE`, `NOT REQUIRED`, `REUSED` or `BLOCKED`), candidate head/base, full diff classification, original tested/reviewed SHAs and execution timestamps, applicable commands/environment/results, artifact hashes, reviewer and coverage, limitations, and exemption or reuse rationale. Preserve original receipts and append superseding events instead of restamping evidence.
-
-Embed applicable screenshots and playable video inline in the PR description alongside direct original-media URLs. Verify URLs resolve and intended reviewers can view the media. A gist link alone does not satisfy applicable visual proof. Docs, logs and source-only trivial-copy claims may record a specific media `N/A` reason; never manufacture media to fill a field. Apply all applicable `/es` integrity, provenance, sanitization and claim-sufficiency requirements before declaring the stage passed.
-
-Missing, inaccessible or unauthorized publication is `PUBLICATION BLOCKED`: continue independent work, but do not claim that stage exit complete. Missing or failed required checks are not exemptions. Read back the description; preserve evidence history and title/stage-label consistency.
 
 ## Coding lifecycle — scale layers to risk
 
@@ -166,7 +172,7 @@ only the affected behavior.
 
 | Change class | Layers |
 |---|---|
-| Wording-only / small low-risk (including a small code fix) | Skip standalone spec, plan, and plan-review cycle; focused tests, then the applicable gates below. Runtime change or file count alone does not make a change non-small. For an opted-in repository, the visible-stage size rule still determines specification placement; this row governs risk/review depth, not a conflicting artifact exemption. |
+| Wording-only / small low-risk (including a small code fix) | For an opted-in repository, retain the required same-PR specification placement; skip additional standalone design/plan review ceremony. Otherwise: Skip standalone spec, plan, and plan-review cycle. Use focused tests and applicable gates. Runtime change or file count alone does not make a change non-small. |
 | Ordinary feature | Outcome spec, TDD, unit + relevant tests, correctness checkpoint, then formal review. |
 | Cross-service boundary | Add an integration-layer test; a mocked unit test cannot prove it. |
 | Large change | May pause at the correctness checkpoint for human direction before expensive review (optional, never a gate). |

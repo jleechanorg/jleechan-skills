@@ -10,7 +10,7 @@ No runtime code, new scripts/tests/CI, live installation, credential change, pro
 
 ## Acceptance
 - The existing canonical lifecycle contains the complete opt-in six-stage mapping, title prefixes/labels and specification rules.
-- Stage2 is named evidence generation; stage title, label and PR body are synchronized without implying approval.
+- Stage 2 is named evidence generation; stage title, label and PR body are synchronized without implying approval.
 - Earlier tested/reviewed SHAs remain immutable; reasoned delta/claim assessment determines reuse or affected new proof in both draft and final phases.
 - Review quorum, independent coverage, current-candidate CI/mergeability and separate merge authority remain intact.
 - pr-workflow-manager references the contract, is referenced back, and contains safe clone-if-absent, draft creation and branch/source verification guidance.
