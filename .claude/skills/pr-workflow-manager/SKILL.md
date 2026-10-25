@@ -63,13 +63,17 @@ CI/conflict diagnosis, and review/readiness coordination.
   This skill grants none of those actions and no new writer/operator.
 - Re-read the remote head before publication. Unexpected movement requires reconciliation, not overwrite.
 
-## Draft-first publication
+## Shared-default publication
+
+The actions below are shared defaults only. After inspecting the target repository's instructions, use these
+creation and stage choices only where those instructions are silent; follow any explicit local creation state
+or workflow instead. Local instructions do not waive separate security, credential, ownership or merge gates.
 
 | Scenario | Safe ordinary action |
 |---|---|
 | First branch push | Verify target, then `git push -u <verified-remote> HEAD`. |
-| Same-repository PR | `gh pr create --repo <verified-base-owner/repo> --draft --base <verified-base> --head <verified-branch>`; verify head and base repositories are identical first. |
-| User-owned fork PR | Use the same explicit `--repo`/`--base` with `--head <verified-head-user>:<verified-branch>`. |
+| Same-repository PR | When local instructions are silent and the shared draft default applies, use `gh pr create --repo <verified-base-owner/repo> --draft --base <verified-base> --head <verified-branch>`; verify head and base repositories are identical first. |
+| User-owned fork PR | When local instructions are silent and the shared draft default applies, use the same explicit `--repo`/`--base` with `--head <verified-head-user>:<verified-branch>`. |
 | Existing PR update | Scoped commit and ordinary push through its sole writer; verify remote SHA. |
 | Missing upstream | Verify remote branch, then `git branch --set-upstream-to=<remote>/<branch>`. |
 | Status | Read PR head/base, all applicable check attempts, reviews and mergeability. |
@@ -77,8 +81,9 @@ CI/conflict diagnosis, and review/readiness coordination.
 
 The [GitHub CLI manual](https://cli.github.com/manual/gh_pr_create) documents owner-qualified fork heads and an organization-owner limitation. If the tool cannot express the exact head repository, use an already-authorized interface that can, or report the blocker; never guess from a same-named branch. After creation, read back both repository identities, head/base branches and head SHA before updating or claiming the intended PR.
 
-An optional helper is usable only if it actually exists, has been inspected and preserves the draft,
-ownership and expected-head requirements. No bundled creation script is assumed by this skill.
+An optional helper is usable only if it actually exists, has been inspected and preserves the applicable
+local or shared creation state, ownership and expected-head requirements. No bundled creation script is
+assumed by this skill.
 Do not execute a missing, unverified or incompatible helper just because old guidance names one.
 
 ## Stage changes and evidence

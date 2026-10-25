@@ -41,10 +41,10 @@ The shared catalog preserves host-installed `/advice` and `/web-advice` integrat
 
 ## Advice applicability
 
-`/advice` is optional for every PR under 50 changed lines, at both the draft and
+Within shared defaults, `/advice` is optional for every PR under 50 changed lines, at both the draft and
 final ready-review phases. A PR with 50 or more changed lines requires `/advice`
-at both phases. A specifically requested review still runs. This size rule
-supersedes broader docs/test/non-production `/advice` exemptions; it does not
+at both phases. A specifically requested review still runs. Within shared defaults,
+this size rule supersedes broader docs/test/non-production `/advice` exemptions; it does not
 waive independent safety/code review, security, evidence, CI, or merge authorization.
 High-risk changes retain their required independent coverage even when `/advice`
 itself is optional. Initial gate applicability and later re-review depth are
