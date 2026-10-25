@@ -153,82 +153,192 @@ descendants observed while the reviewer root is alive, a surviving verified PID
 is recorded as a termination failure rather than silently treated as contained;
 after successful cleanup the runner exits 7 even if the peer returned a verdict.
 
-The caller enforces a 600-second end-to-end attempt deadline beginning before
-any queueing, clone setup, or process startup. The runner's
-`--timeout-seconds` starts at reviewer-process launch and therefore cannot
-enforce that caller deadline alone. Wrap the *entire* invocation in the
-platform's GNU `timeout` command: use `gtimeout` on macOS when installed and
-`timeout` on Linux. The 600 seconds includes setup, reviewer work, and cleanup:
-send `INT` at 595 seconds so the runner can enter its `finally` cleanup, then
-send `KILL` at 600 seconds if it has not exited. Cleanup grace is inside the
-deadline, not extra time. A watchdog exit (124 or signal termination), absent
-or incomplete receipt, surviving reviewer process, or failed clone cleanup
-means that attempt is WITHHELD and cannot vote. Clean only clone paths owned by
-that attempt after confirming no
-reviewer process remains. The runner's raw `--timeout-seconds` default remains
-1200 seconds; pass 600 seconds to each lane and let the outer watchdog bound
-setup as well as reviewer execution. Never reset the original
-dispatch timestamp or grant a replacement reviewer a fresh budget for the
-same attempt. A new independent reviewer is a new attempt with its own 600
-seconds, started only after the prior attempt has stopped and its owned clones
-are clean.
+Each reviewer gets an independent maximum 600-second attempt, measured from
+the first adapter instruction after importing the monotonic clock. Shared
+immutable packet and exact-SHA clone preparation is preflight: complete it once
+before dispatching any reviewer, and record its timing separately; it is outside
+the per-reviewer attempt. Every per-reviewer adapter step, including argument
+parsing, remaining imports, input reads and verification, process startup,
+queueing, and dispatch, consumes that reviewer's 600 seconds. Never queue or
+wait for a reviewer after its clock begins. Use
+the runner's existing
+`execute()` supervisor API for exactly one reviewer process per attempt. It
+tracks the reviewer process tree, signals observed descendants on timeout,
+bounds pipe draining, and reports surviving PIDs. Never wrap the Python runner
+in an external timeout or kill the supervisor to enforce this deadline: that
+can strand detached reviewer children and skip clone cleanup.
+
+The reviewer-process timeout is the remaining time before the absolute
+600-second deadline, less a 30-second reserve for bounded process inspection,
+termination, receipt writing, and clone cleanup. The 600 seconds is a total
+attempt cap, not 600 seconds of model runtime. Import only `time`, then start
+the monotonic clock before argument parsing, importing the supervisor, or
+reading or verifying per-attempt inputs. Recompute the remaining budget
+immediately before calling `execute()`; do not pass a fresh 595 or 600 seconds
+after setup.
+The runner's raw `--timeout-seconds` default remains 1200, but the CLI wrapper
+does not expose a single-reviewer invocation with a caller-computed absolute
+deadline. Use the ephemeral `/tmp` driver below to call the existing `execute()`
+API directly. A timeout, absent/incomplete receipt, surviving owned reviewer
+process, or failed clone cleanup means WITHHELD. Before dispatching a successor,
+verify the prior reviewer stopped and its clone was cleaned; if either is
+unverified, stop and withhold. A successor is a new attempt with its own clock,
+started only after that verification.
 
 ```bash
-if command -v gtimeout >/dev/null 2>&1; then
-  WATCHDOG="$(command -v gtimeout)"
-elif command -v timeout >/dev/null 2>&1; then
-  WATCHDOG="$(command -v timeout)"
-else
-  echo "GNU timeout/gtimeout is required for a bounded attempt" >&2
-  exit 2
-fi
-
 ADVICE_TMP="$(mktemp -d)"
-# Write the complete packet to "$ADVICE_TMP/review-packet.txt" before dispatch.
+# Write the complete packet, fresh clone, and driver config before dispatch.
+PREFLIGHT_STARTED_NS="$(python3 -c 'import time; print(time.monotonic_ns())')"
 REVIEW_SHA="$(git rev-parse HEAD)"
+SOURCE_REPO="$(git rev-parse --show-toplevel)"
 ADVICE_RUNNER="${CLAUDE_HOME:-$HOME/.claude}/skills/advice/scripts/run_primary_pair.py"
-set +e
-"$WATCHDOG" --signal=INT --kill-after=5s 595s \
-  python3 "$ADVICE_RUNNER" \
-    --repo "$(git rev-parse --show-toplevel)" \
-    --ref "$REVIEW_SHA" \
-    --packet-file "$ADVICE_TMP/review-packet.txt" \
-    --output-dir "$ADVICE_TMP/results" \
-    --reviewers codex,opus \
-    --timeout-seconds 600 \
-    --timeout-grace-seconds 2
-RUNNER_STATUS=$?
-set -e
-if [ "$RUNNER_STATUS" -eq 124 ] || [ "$RUNNER_STATUS" -ge 128 ] || \
-   [ ! -s "$ADVICE_TMP/results/receipt.json" ]; then
-  echo "attempt timed out or lacks a complete receipt; WITHHELD" >&2
-  # Confirm reviewer processes have stopped, then remove only this attempt's
-  # clones if runner cleanup did not complete. Preserve receipt/output evidence.
-  exit 124
-fi
+git clone --no-local "$(git rev-parse --show-toplevel)" "$ADVICE_TMP/codex-clone"
+git -C "$ADVICE_TMP/codex-clone" remote remove origin
+git -C "$ADVICE_TMP/codex-clone" checkout --detach "$REVIEW_SHA"
+# Verify the immutable clone before dispatch and write command.json for the exact
+# full-permission CLI form selected below.
+test "$(git -C "$ADVICE_TMP/codex-clone" rev-parse HEAD)" = "$REVIEW_SHA"
+test -z "$(git -C "$ADVICE_TMP/codex-clone" remote)"
+test -z "$(git -C "$ADVICE_TMP/codex-clone" status --porcelain)"
+PREFLIGHT_ENDED_NS="$(python3 -c 'import time; print(time.monotonic_ns())')"
+cat > "$ADVICE_TMP/run_one_reviewer.py" <<'PY'
+import time
+started = time.monotonic()
+deadline = started + 600.0
+
+import argparse
+import importlib.util
+import json
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--runner", type=Path, required=True)
+parser.add_argument("--source", type=Path, required=True)
+parser.add_argument("--clone", type=Path, required=True)
+parser.add_argument("--packet", type=Path, required=True)
+parser.add_argument("--command", type=Path, required=True)
+parser.add_argument("--receipt", type=Path, required=True)
+parser.add_argument("--sha", required=True)
+parser.add_argument("--identity", required=True)
+parser.add_argument("--model", required=True)
+parser.add_argument("--preflight-started-ns", type=int, required=True)
+parser.add_argument("--preflight-ended-ns", type=int, required=True)
+args = parser.parse_args()
+if args.preflight_ended_ns < args.preflight_started_ns:
+    raise SystemExit("invalid preflight timing; WITHHELD")
+spec = importlib.util.spec_from_file_location("advice_runner", args.runner)
+runner = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(runner)
+clone = args.clone.resolve()
+source = args.source.resolve()
+if subprocess.check_output(["git", "-C", str(clone), "rev-parse", "HEAD"], text=True).strip() != args.sha:
+    raise SystemExit("clone SHA mismatch; WITHHELD")
+source_before = runner.repository_snapshot(source)
+clone_before = runner.repository_snapshot(clone)
+command = json.loads(args.command.read_text())
+if not isinstance(command, list) or not command or not all(isinstance(part, str) for part in command):
+    raise SystemExit("command must be a nonempty JSON string array; WITHHELD")
+prompt = args.packet.read_text()
+budget = max(0.0, deadline - time.monotonic() - 30.0)
+if budget <= 0:
+    raise SystemExit("600-second attempt budget already exhausted; WITHHELD")
+dispatch_ns = time.time_ns()
+code, stdout, stderr, timed_out, forced_pipe_close, supervision = runner.execute(
+    command, clone, prompt, budget, 0.5
+)
+ended_ns = time.time_ns()
+try:
+    source_after = runner.repository_snapshot(source)
+    clone_after = runner.repository_snapshot(clone)
+    source_unchanged = source_before == source_after
+    clone_unchanged = clone_before == clone_after
+    source_changed_components = sorted(
+        key for key in source_before if source_before[key] != source_after[key]
+    )
+    clone_changed_components = sorted(
+        key for key in clone_before if clone_before[key] != clone_after[key]
+    )
+except Exception as error:
+    source_unchanged = clone_unchanged = False
+    source_changed_components = clone_changed_components = [
+        f"fingerprint_error:{type(error).__name__}"
+    ]
+survivors = supervision["descendants_surviving"]
+cleanup_ok = False
+if not survivors and supervision["descendant_termination_verified"]:
+    shutil.rmtree(clone)
+    cleanup_ok = not clone.exists()
+elapsed = time.monotonic() - started
+receipt = {
+    "sha": args.sha,
+    "preflight_started_monotonic_ns": args.preflight_started_ns,
+    "preflight_ended_monotonic_ns": args.preflight_ended_ns,
+    "preflight_elapsed_seconds": (args.preflight_ended_ns - args.preflight_started_ns) / 1_000_000_000,
+    "identity": args.identity,
+    "model": args.model,
+    "command": command,
+    "dispatch_ns": dispatch_ns,
+    "ended_ns": ended_ns,
+    "elapsed_seconds": elapsed,
+    "exit_code": code,
+    "timed_out": timed_out,
+    "forced_pipe_close": forced_pipe_close,
+    "source_repository_unchanged": source_unchanged,
+    "source_changed_components": source_changed_components,
+    "reviewer_clone_unchanged": clone_unchanged,
+    "clone_changed_components": clone_changed_components,
+    "supervision": supervision,
+    "clone_cleanup_success": cleanup_ok,
+    "over_deadline": elapsed > 600.0,
+    "stdout": stdout,
+    "stderr": stderr,
+}
+args.receipt.write_text(json.dumps(receipt, indent=2) + "\n")
+approved_candidate = (
+    code == 0 and not timed_out and runner.has_verdict(stdout)
+    and not forced_pipe_close and "COVERAGE" in stdout
+    and source_unchanged and clone_unchanged and not survivors and cleanup_ok
+    and not receipt["over_deadline"]
+)
+raise SystemExit(0 if approved_candidate else 4)
+PY
+python3 "$ADVICE_TMP/run_one_reviewer.py" \
+  --runner "$ADVICE_RUNNER" \
+  --source "$SOURCE_REPO" \
+  --clone "$ADVICE_TMP/codex-clone" \
+  --packet "$ADVICE_TMP/review-packet.txt" \
+  --command "$ADVICE_TMP/command.json" \
+  --receipt "$ADVICE_TMP/codex-receipt.json" \
+  --sha "$REVIEW_SHA" \
+  --preflight-started-ns "$PREFLIGHT_STARTED_NS" \
+  --preflight-ended-ns "$PREFLIGHT_ENDED_NS" \
+  --identity codex \
+  --model gpt-6-sol
 ```
 
-Prepare the packet before starting the watchdog dispatch. The output path must
-not already exist: the runner creates and reserves it, so use a fresh path for
-each attempt without pre-creating the directory. Receipt and exit-status
-validation remain mandatory after the watchdog returns. Apply the same outer wrapper to the
-entire alternate operation, including creation and cleanup of its independent
-clone; adapt its process timeout to the remaining time in that attempt. If the
-deadline has expired, do not start the alternate under the expired attempt.
-Record dispatch and completion times so the deadline is auditable.
-`--timeout-grace-seconds` sets the bounded post-kill output-drain grace and
-defaults to 2 seconds; both values must be positive. A timeout kills the primary
-process group, drains output only for that grace, then closes inherited output
-pipes if they remain open. The attempt records `failure: timeout` and
-`forced_pipe_close`; the peer may still supply the sole primary verdict. If both
-time out, the runner exits 4 and alternate reviewer executions may be needed.
-Clone cleanup and receipt writing
-still run after timeouts. Cleanup itself is a gate:
-failure is recorded in `receipt.json` and the runner exits 5 rather than hiding
-leftover full-permission checkouts. Setup, reviewer, and result-output exceptions
-are captured under `operation` instead of escaping as traceback-only failures;
-after successful cleanup they exit 6. If operation and cleanup both fail,
-`receipt.json` records both and cleanup exit 5 takes precedence.
+This `/tmp` driver is a thin adapter around the existing supervisor, not a new
+reviewer runner. Put the exact approved CLI argv in `command.json`, excluding
+the final prompt argument (the adapter appends it). For Codex use
+`["codex", "exec", "--yolo", "-m", "gpt-6-sol", "--config", "model_reasoning_effort=high"]`;
+for Opus use `["claude", "-p", "--model", "opus", "--dangerously-skip-permissions"]`.
+For an alternate, use its listed full-permission argv only if that CLI is
+supported by the same adapter. The receipt preserves the return tuple,
+supervision evidence, exact SHA, identity/model, timestamps, output, and cleanup
+result. An over-deadline cleanup is WITHHELD even if the reviewer returned a
+verdict. If the driver reports survivors or cleanup failure, stop and verify
+the exact attempt-owned processes before any successor; do not remove a clone
+while a process may still use it. Preserve each attempt's output and receipt.
+
+Repeat with a fresh clone and receipt for Opus. The eligible alternate identities
+(`claude`/`claudewa`, Cursor, AGY, and Reviewer C) remain eligible in principle,
+but dispatch them only through the same `execute()` supervisor adapter, with
+their exact approved full-permission CLI argv and complete process-tree/cleanup
+evidence. The `run_primary_pair.py` CLI itself only accepts Codex and Opus; if
+the adapter cannot safely invoke an alternate, record it UNAVAILABLE and do not
+launch it with a raw CLI or outer timeout. Research remains nonvoting.
 
 Ignored regular files may contain credentials, so the fingerprint never opens
 or hashes their contents. It records each ignored relative path plus `lstat`

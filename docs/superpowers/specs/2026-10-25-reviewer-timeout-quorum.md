@@ -22,8 +22,10 @@ as an independent approval.
   remains WITHHELD; two complete independent approvals may satisfy the gate.
 - Known material findings remain actionable even if a reviewer times out or a
   late result arrives after the workflow advanced.
-- Instructions pass 600 explicitly to the existing primary-pair runner and do
-  not claim it supports alternate reviewer names that its parser rejects.
+- Each reviewer attempt has a 600-second total cap including adapter setup,
+  queueing, dispatch, and bounded cleanup. The adapter computes the remaining
+  budget and calls the existing process-tree supervisor API; it does not claim
+  the primary-pair CLI accepts alternate reviewer names its parser rejects.
 - Each verdict retains exact scope, reviewer identity, coverage, and source SHA
   or document hashes. Reusing a verdict never creates another vote.
 
