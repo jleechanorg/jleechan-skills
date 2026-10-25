@@ -168,14 +168,17 @@ bounds pipe draining, and reports surviving PIDs. Never wrap the Python runner
 in an external timeout or kill the supervisor to enforce this deadline: that
 can strand detached reviewer children and skip clone cleanup.
 
-The reviewer-process timeout is the remaining time before the absolute
-600-second deadline, less a 30-second reserve for bounded process inspection,
-termination, receipt writing, and clone cleanup. The 600 seconds is a total
-attempt cap, not 600 seconds of model runtime. Import only `time`, then start
-the monotonic clock before argument parsing, importing the supervisor, or
-reading or verifying per-attempt inputs. Recompute the remaining budget
-immediately before calling `execute()`; do not pass a fresh 595 or 600 seconds
-after setup.
+The 600 seconds is a total attempt cap, not 600 seconds of model runtime. The
+outer `execute()` call supervises the complete adapter worker, including its
+imports, input reads, repository snapshots, nested reviewer `execute()` call,
+post-run snapshots, and detailed receipt write. Start the attempt clock
+before the supervisor imports/parses inputs; the 600-second outer budget also
+includes that setup. Reserve time inside the same 600-second
+window for a separately supervised cleanup/finalization helper; a timeout,
+surviving process, missing worker receipt, failed cleanup, or deadline overrun
+leaves the pre-created receipt WITHHELD. Never start a successor unless the
+outer supervisor verified that the worker and reviewer descendants stopped and
+the prior clone was removed.
 The runner's raw `--timeout-seconds` default remains 1200, but the CLI wrapper
 does not expose a single-reviewer invocation with a caller-computed absolute
 deadline. Use the ephemeral `/tmp` driver below to call the existing `execute()`
@@ -201,19 +204,25 @@ test "$(git -C "$ADVICE_TMP/codex-clone" rev-parse HEAD)" = "$REVIEW_SHA"
 test -z "$(git -C "$ADVICE_TMP/codex-clone" remote)"
 test -z "$(git -C "$ADVICE_TMP/codex-clone" status --porcelain)"
 PREFLIGHT_ENDED_NS="$(python3 -c 'import time; print(time.monotonic_ns())')"
+# Keep a parent-created WITHHELD receipt if the worker is killed before writing.
+cat > "$ADVICE_TMP/codex-receipt.json" <<EOF_RECEIPT
+{"status":"WITHHELD","sha":"$REVIEW_SHA","identity":"codex","model":"gpt-6-sol"}
+EOF_RECEIPT
 cat > "$ADVICE_TMP/run_one_reviewer.py" <<'PY'
 import time
 started = time.monotonic()
-deadline = started + 600.0
+deadline = started + 450.0
 
 import argparse
 import importlib.util
 import json
-import shutil
 import subprocess
 import sys
 from pathlib import Path
 
+# The outer runner appends its prompt as the worker's final argv element.
+if sys.argv[-1:] == [""]:
+    sys.argv.pop()
 parser = argparse.ArgumentParser()
 parser.add_argument("--runner", type=Path, required=True)
 parser.add_argument("--source", type=Path, required=True)
@@ -244,10 +253,10 @@ if not isinstance(command, list) or not command or not all(isinstance(part, str)
 prompt = args.packet.read_text()
 budget = max(0.0, deadline - time.monotonic() - 30.0)
 if budget <= 0:
-    raise SystemExit("600-second attempt budget already exhausted; WITHHELD")
+    raise SystemExit("reviewer budget exhausted; WITHHELD")
 dispatch_ns = time.time_ns()
 code, stdout, stderr, timed_out, forced_pipe_close, supervision = runner.execute(
-    command, clone, prompt, budget, 0.5
+    command, clone, prompt, budget, 2.0
 )
 ended_ns = time.time_ns()
 try:
@@ -267,16 +276,11 @@ except Exception as error:
         f"fingerprint_error:{type(error).__name__}"
     ]
 survivors = supervision["descendants_surviving"]
-cleanup_ok = False
-if not survivors and supervision["descendant_termination_verified"]:
-    shutil.rmtree(clone)
-    cleanup_ok = not clone.exists()
 elapsed = time.monotonic() - started
 receipt = {
     "sha": args.sha,
     "preflight_started_monotonic_ns": args.preflight_started_ns,
     "preflight_ended_monotonic_ns": args.preflight_ended_ns,
-    "preflight_elapsed_seconds": (args.preflight_ended_ns - args.preflight_started_ns) / 1_000_000_000,
     "identity": args.identity,
     "model": args.model,
     "command": command,
@@ -291,8 +295,7 @@ receipt = {
     "reviewer_clone_unchanged": clone_unchanged,
     "clone_changed_components": clone_changed_components,
     "supervision": supervision,
-    "clone_cleanup_success": cleanup_ok,
-    "over_deadline": elapsed > 600.0,
+    "over_deadline": elapsed > 450.0,
     "stdout": stdout,
     "stderr": stderr,
 }
@@ -300,27 +303,141 @@ args.receipt.write_text(json.dumps(receipt, indent=2) + "\n")
 approved_candidate = (
     code == 0 and not timed_out and runner.has_verdict(stdout)
     and not forced_pipe_close and "COVERAGE" in stdout
-    and source_unchanged and clone_unchanged and not survivors and cleanup_ok
+    and source_unchanged and clone_unchanged and not survivors
+    and supervision["descendant_termination_verified"]
     and not receipt["over_deadline"]
 )
 raise SystemExit(0 if approved_candidate else 4)
 PY
-python3 "$ADVICE_TMP/run_one_reviewer.py" \
-  --runner "$ADVICE_RUNNER" \
-  --source "$SOURCE_REPO" \
-  --clone "$ADVICE_TMP/codex-clone" \
-  --packet "$ADVICE_TMP/review-packet.txt" \
-  --command "$ADVICE_TMP/command.json" \
-  --receipt "$ADVICE_TMP/codex-receipt.json" \
-  --sha "$REVIEW_SHA" \
-  --preflight-started-ns "$PREFLIGHT_STARTED_NS" \
-  --preflight-ended-ns "$PREFLIGHT_ENDED_NS" \
-  --identity codex \
-  --model gpt-6-sol
+cat > "$ADVICE_TMP/supervise_attempt.py" <<'PY'
+import time
+attempt_started = time.monotonic()
+
+import importlib.util
+import json
+import sys
+from pathlib import Path
+
+runner_path, worker, source, clone, packet, command_file, worker_receipt, receipt = map(Path, sys.argv[1:9])
+sha, identity, model, preflight_started, preflight_ended = sys.argv[9:14]
+def mark_withheld(reason, outer=None):
+    record = {"status": "WITHHELD", "sha": sha, "identity": identity,
+        "model": model, "reason": reason,
+        "full_attempt_elapsed_seconds": time.monotonic() - attempt_started}
+    if outer is not None:
+        record["outer_supervision"] = outer
+    receipt.write_text(json.dumps(record, indent=2) + "\n")
+
+spec = importlib.util.spec_from_file_location("advice_runner", runner_path)
+runner = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(runner)
+command = [sys.executable, str(worker), "--runner", str(runner_path),
+    "--source", str(source), "--clone", str(clone), "--packet", str(packet),
+    "--command", str(command_file), "--receipt", str(worker_receipt),
+    "--sha", sha, "--identity", identity, "--model", model,
+    "--preflight-started-ns", preflight_started, "--preflight-ended-ns", preflight_ended]
+outer_budget = min(500.0, 600.0 - (time.monotonic() - attempt_started) - 35.0)
+if outer_budget <= 0:
+    mark_withheld("attempt deadline reserve exhausted")
+    raise SystemExit(4)
+code, out, err, timed_out, forced, supervision = runner.execute(command, clone, "", outer_budget, 5.0)
+elapsed = time.monotonic() - attempt_started
+outer = {"exit_code": code, "timed_out": timed_out, "forced_pipe_close": forced,
+    "elapsed_seconds": elapsed, "supervision": supervision}
+if supervision["descendants_surviving"] or not supervision["descendant_termination_verified"]:
+    mark_withheld("outer process supervision incomplete", outer)
+    print(json.dumps({"status": "WITHHELD", "outer": outer, "stdout": out, "stderr": err}))
+    raise SystemExit(4)
+# A 20-second cleanup timeout and 1-second grace reserve fit inside the 600s
+# attempt cap after the 500s outer timeout and its bounded process-tree teardown.
+finalizer = '''
+import json, shutil, sys, time
+from pathlib import Path
+if sys.argv[-1:] == [""]:
+    sys.argv.pop()
+clone, worker_receipt, receipt = map(Path, sys.argv[1:4])
+outer = json.loads(sys.argv[4])
+record = json.loads(receipt.read_text())
+record["outer_supervision"] = outer
+record["full_attempt_elapsed_seconds"] = time.monotonic() - float(sys.argv[5])
+try:
+    detail = json.loads(worker_receipt.read_text())
+except Exception as error:
+    detail = {"worker_receipt_error": type(error).__name__}
+record["reviewer"] = detail
+try:
+    shutil.rmtree(clone)
+    record["clone_cleanup_success"] = not clone.exists()
+except Exception as error:
+    record["clone_cleanup_success"] = False
+    record["clone_cleanup_error"] = type(error).__name__
+candidate = (outer["exit_code"] == 0 and not outer["timed_out"]
+    and not outer["forced_pipe_close"] and detail.get("exit_code") == 0
+    and not detail.get("timed_out") and not detail.get("forced_pipe_close")
+    and detail.get("source_repository_unchanged") is True
+    and detail.get("reviewer_clone_unchanged") is True
+    and detail.get("supervision", {}).get("descendant_termination_verified") is True
+    and record["clone_cleanup_success"])
+record["status"] = "FINALIZED" if candidate else "WITHHELD"
+receipt.write_text(json.dumps(record, indent=2) + "\\n")
+raise SystemExit(0 if candidate else 4)
+'''
+remaining = 600.0 - (time.monotonic() - attempt_started)
+if remaining <= 31.0:
+    mark_withheld("cleanup reserve exhausted", outer)
+    print(json.dumps({"status": "WITHHELD", "reason": "cleanup reserve exhausted", "outer": outer}))
+    raise SystemExit(4)
+final_command = [sys.executable, "-c", finalizer, str(clone), str(worker_receipt),
+    str(receipt), json.dumps(outer), repr(attempt_started)]
+final_code, final_out, final_err, final_timed_out, final_forced, final_supervision = runner.execute(
+    final_command, clone.parent, "", min(20.0, remaining - 10.0), 1.0)
+if final_timed_out or final_forced or final_supervision["descendants_surviving"] or final_code not in (0, 4):
+    mark_withheld("cleanup/finalization supervision incomplete", outer)
+    print(json.dumps({"status": "WITHHELD", "reason": "cleanup/finalization incomplete",
+        "finalizer_exit": final_code, "finalizer_output": final_out,
+        "finalizer_error": final_err, "finalizer_timed_out": final_timed_out,
+        "finalizer_forced_pipe_close": final_forced,
+        "finalizer_supervision": final_supervision, "outer": outer}))
+    raise SystemExit(4)
+record = json.loads(receipt.read_text())
+full_elapsed = time.monotonic() - attempt_started
+record["full_attempt_elapsed_seconds"] = full_elapsed
+record["finalizer_supervision"] = final_supervision
+record["over_deadline"] = full_elapsed > 600.0
+reviewer = record.get("reviewer", {})
+candidate = (final_code == 0 and record.get("status") == "FINALIZED"
+    and not record["over_deadline"]
+    and final_supervision["descendant_termination_verified"]
+    and not final_supervision["descendants_surviving"]
+    and reviewer.get("over_deadline") is False
+    and reviewer.get("supervision", {}).get("descendants_surviving") == []
+    and reviewer.get("supervision", {}).get("descendant_termination_verified") is True
+    and record.get("clone_cleanup_success") is True)
+record["status"] = "CANDIDATE" if candidate else "WITHHELD"
+if not candidate:
+    record["withheld_reason"] = "final receipt validation failed"
+receipt.write_text(json.dumps(record, indent=2) + "\n")
+if not candidate:
+    raise SystemExit(4)
+print(json.dumps({"outer": outer, "finalizer_exit": final_code, "finalizer_output": final_out}))
+raise SystemExit(0)
+PY
+python3 "$ADVICE_TMP/supervise_attempt.py" \
+  "$ADVICE_RUNNER" "$ADVICE_TMP/run_one_reviewer.py" "$SOURCE_REPO" \
+  "$ADVICE_TMP/codex-clone" "$ADVICE_TMP/review-packet.txt" \
+  "$ADVICE_TMP/command.json" "$ADVICE_TMP/codex-worker-receipt.json" \
+  "$ADVICE_TMP/codex-receipt.json" "$REVIEW_SHA" codex gpt-6-sol \
+  "$PREFLIGHT_STARTED_NS" "$PREFLIGHT_ENDED_NS"
 ```
 
-This `/tmp` driver is a thin adapter around the existing supervisor, not a new
-reviewer runner. Put the exact approved CLI argv in `command.json`, excluding
+The outer call uses `execute()` with a 500-second timeout and 5-second grace;
+the helper call reserves at most 30 more seconds for cleanup, receipt
+finalization, process inspection, and teardown. This leaves over 40 seconds
+under the 600-second attempt cap for supervisor startup and bookkeeping. The
+model runtime is smaller still because adapter setup and verification consume
+the worker's budget. This `/tmp` driver is a thin adapter around the existing
+supervisor, not a new reviewer runner. Put the exact approved CLI argv in
+`command.json`, excluding
 the final prompt argument (the adapter appends it). For Codex use
 `["codex", "exec", "--yolo", "-m", "gpt-6-sol", "--config", "model_reasoning_effort=high"]`;
 for Opus use `["claude", "-p", "--model", "opus", "--dangerously-skip-permissions"]`.
