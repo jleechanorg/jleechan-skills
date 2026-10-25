@@ -67,7 +67,13 @@ later filter is `row['workspace_ref'] in scope`.
 FIRST="$OUT_DIR/first"
 python3 ~/.claude/skills/cmux-bulk-steer/scripts/scan.py --out-dir "$FIRST" --readonly
 sleep 20                       # ONE fleet-wide wait, never a per-verdict sleep
+# Step 0 leaves the shell in /tmp, where `gh pr list` has no repository context and
+# scan.py drops PR metadata silently (`gh_prs_file: null`, no gh_prs.json). Give the
+# sweep an explicit repo, then REFUSE to call the ownership map complete without it.
+export GH_REPO="${GH_REPO:?set GH_REPO=owner/repo for the primary audited repo}"
 python3 ~/.claude/skills/cmux-bulk-steer/scripts/scan.py --out-dir "$OUT_DIR" --with-gh --readonly
+python3 -c "import json,sys;m=json.load(open('$OUT_DIR/manifest.json'));\
+sys.exit(0) if m.get('gh_prs_file') else sys.exit('gh_prs_file is null: no PR metadata, ownership map incomplete')"
 : > "$OUT_DIR/working_surfaces.txt"; : > "$OUT_DIR/closed_surfaces.txt"
 for f in "$FIRST"/ws_*_sf_*.txt; do
   b=$(basename "$f")
@@ -80,7 +86,9 @@ Reuse the existing collector — do not write a second one. `scan.py` writes `ma
 `workspace_ref`/`surface_ref`/`surface_title`/`cpu_percent`/`file_10k`/`lines_read`, plus `"mode": "readonly"`),
 `ws_<ws>_sf_<sf>.txt` (≤10,000 trailing words; `pi` TUI panes get the prepended
 `=== PI SESSION TRANSCRIPT ===` section), `top_flat.tsv`, and `gh_prs.json`. Cite `mode=readonly` plus
-`working_surfaces.txt` / `closed_surfaces.txt` as proof the sweep issued no mutating `cmux` verb.
+`working_surfaces.txt` / `closed_surfaces.txt` as proof the sweep issued no mutating `cmux` verb. **`gh_prs_file:
+null` means `gh` had no repository context** (the sweep ran from `/tmp`): re-run with `GH_REPO=owner/repo` set rather
+than reporting a PR-less ownership map.
 
 Build the in-scope surface list from the manifest filtered by `scope.txt`, and print its scale (surfaces, words,
 lines) before spawning anything.
@@ -148,8 +156,9 @@ probe, a GitHub API read).
 **Ownership map first.** Group every in-scope surface by PR number, branch, and worktree path. Where two surfaces
 own the same PR/branch/worktree, name the one with the fresher accepted work as canonical and list the other with a
 `Proposed stand-down:` line and the evidence (merge SHA, newer push, later accepted turn). Check live state with
-read-only `gh pr view <N> --json state,isDraft,mergeable,mergeStateStatus,statusCheckRollup`: a surface still working
-an already-`MERGED` PR is a finding.
+read-only `gh pr view <N> -R <owner>/<repo> --json state,isDraft,mergeable,mergeStateStatus,statusCheckRollup`: a surface still working
+an already-`MERGED` PR is a finding. Always pass `-R owner/repo` — a scope that spans repos has no ambient repository
+context, and a bare `gh pr view` from `/tmp` fails instead of resolving the surface's PR.
 
 **Then the cards.** Narrow-Screen Vertical Cards, `<= 65 chars/line` (wide tables clip inside split panes), grouped
 by finding. Always lead with the workspace **name** and the surface **title**; a numeric ref alone
