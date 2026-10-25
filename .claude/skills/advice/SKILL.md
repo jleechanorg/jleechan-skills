@@ -75,13 +75,15 @@ do not wait for one healthy reviewer before starting another.
 
 Use the same review packet for both reviewers:
 
-The primary pair selection is explicit: pass `--reviewers codex,opus` to the
-canonical runner. The runner accepts only `codex` and `opus`; do not pass
-`claudewa`, `agy`, Cursor, or other unsupported reviewer names. When a primary
-vote is unavailable or fails, use a separately bounded invocation for another
-eligible CLI in its own independent clone. This alternate path supplements a
-successful primary vote when needed to reach quorum; it does not share or
-inherit the primary reviewer's vote.
+The raw runner CLI accepts `--reviewers codex,opus`, but that mode uses its
+1200-second per-reviewer default and does not enforce this skill's full
+600-second attempt deadline. Do not use that CLI mode for an approval attempt.
+The bounded recipe below supervises one reviewer execution. To run the Codex +
+Opus primary pair, prepare a separate scratch directory, clone, command file,
+and receipt for each reviewer, then launch both bounded attempts concurrently.
+Do not run one foreground attempt and then repeat it for the other. A missing
+primary vote may be paired with a separately bounded eligible CLI reviewer on
+its own clone; it never shares or inherits another reviewer's vote.
 
 ```
 You are a senior engineer giving a focused second opinion.
@@ -449,13 +451,18 @@ verdict. If the driver reports survivors or cleanup failure, stop and verify
 the exact attempt-owned processes before any successor; do not remove a clone
 while a process may still use it. Preserve each attempt's output and receipt.
 
-Repeat with a fresh clone and receipt for Opus. The eligible alternate identities
-(`claude`/`claudewa`, Cursor, AGY, and Reviewer C) remain eligible in principle,
-but dispatch them only through the same `execute()` supervisor adapter, with
-their exact approved full-permission CLI argv and complete process-tree/cleanup
-evidence. The `run_primary_pair.py` CLI itself only accepts Codex and Opus; if
-the adapter cannot safely invoke an alternate, record it UNAVAILABLE and do not
-launch it with a raw CLI or outer timeout. Research remains nonvoting.
+This code block describes one reviewer attempt. Run every reviewer in its own
+fresh scratch directory and clone, with its own command file and receipt. For
+the Codex + Opus pair, stage both attempts and launch both supervisor commands
+concurrently; do not wait for one healthy reviewer before launching the other.
+For a missing primary vote, an eligible alternate CLI may use this same adapter
+with its exact full-permission argv, identity, model, clone, and receipt. The
+raw `run_primary_pair.py` CLI does not supervise alternates; never launch an
+alternate with an unbounded raw CLI or outer timeout. Reviewer C may vote only
+through its native `/extended-library:secondo` route when that route provides
+the same independent scope, full-coverage verdict, and bounded attempt receipt;
+otherwise mark C unavailable. Do not represent C as a CLI invocation.
+Research remains nonvoting.
 
 Ignored regular files may contain credentials, so the fingerprint never opens
 or hashes their contents. It records each ignored relative path plus `lstat`
@@ -569,11 +576,11 @@ independent full-coverage votes succeed after viable options are attempted,
 record each unavailable, failed, or timed-out reviewer and emit `WITHHELD` (or
 `NOT APPROVED` if any competent reviewer blocks).
 
-The alternate CLI steps are invocation guidance, not features of
-`run_primary_pair.py`: it only accepts `codex,opus` and only supervises those
-two processes. The caller must enforce alternate attempt deadlines, create and
-clean independent clones, and record receipts. A single surviving primary or
-alternate vote can block, but cannot approve.
+The alternate CLI steps identify eligible transports; every attempt, primary
+or alternate, must use the bounded adapter and produce its own receipt. The raw
+`run_primary_pair.py` CLI only accepts `codex,opus` and does not supervise
+alternate attempts. A single surviving primary or alternate vote can block,
+but cannot approve.
 
 ---
 
