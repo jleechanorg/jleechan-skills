@@ -37,7 +37,13 @@ Required structure, in this order:
      `MISMATCH (label X / title Y)` instead of picking one. A PR with no stage
      marker is `unstaged`; never infer a stage from draft status or CI colour. For
      PRs this session owns, run `/prw` first so each one's markers are synchronized
-     before the board reads them.
+     before the board reads them. This is mandatory for every `/roadmap` invocation,
+     including status-only and concise-report modes, and it must happen before the
+     stage table is produced. When another owner controls a PR, run `/prw` in its
+     status/read-only mode, preserve that owner's markers, and do not advance the
+     stage without live workflow proof. If markers disagree, report the earliest
+     unmet stage and the exact mismatch (`MISMATCH (label X / title Y / block Z)`);
+     do not select a stage from draft status, CI colour, or prose.
    - `State` = OPEN/draft/ready + MERGEABLE|BLOCKED|UNKNOWN at the measured head.
    - `Head` = first 8 chars of the head SHA.
    - `Δ (lines)` = `+additions/−deletions` for the whole PR.
@@ -50,6 +56,11 @@ Required structure, in this order:
 5. **Owners (cmux surfaces)** — lane → workspace › surface title → PRs covered.
 6. **Later** — which PRs will need a `/pr-summary` (architecture diagram, Why It Is
    Needed, How It Works, prod vs non-prod deltas) and the condition for writing it.
+
+Every `/roadmap` report, including a concise chat or status reply, must include a
+stage table. A compact reply may shorten the surrounding prose, but it must retain
+one row per in-scope PR with the `Stage`, `State`, `Head`, `Next`, and exact marker
+status; a prose-only status is incomplete.
 
 ## Evidence rules
 
