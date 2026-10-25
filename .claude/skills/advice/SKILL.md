@@ -162,9 +162,10 @@ argument parsing, imports, input reads and verification, process startup, and
 dispatch, is inside that reviewer's deadline. The supervisor starts a monotonic
 clock before parsing or importing inputs and bounds the whole worker with its
 outer `execute()` call; the worker samples its monotonic clock as its first
-instruction. Record each reviewer's monotonic queued timestamp before launching
-the asynchronous attempt, and charge queue, process-startup, and setup time to
-the same 600-second cap. Do not pause or reset that clock.
+instruction. Capture each reviewer's shell watchdog start before launching the
+asynchronous attempt. The supervisor records its monotonic start as its first
+instruction; the shell watchdog covers interpreter startup and all supervisor
+setup. Do not pause or reset either clock.
 Use the runner's existing
 `execute()` supervisor API for exactly one reviewer process per attempt. It
 tracks the reviewer process tree, signals observed descendants on timeout,
@@ -378,7 +379,8 @@ raise SystemExit(0 if approved_candidate else 4)
 PY
 cat > "$ADVICE_TMP/supervise_attempt.py" <<'PY'
 import time
-supervisor_entered_at = time.monotonic()
+attempt_started = time.monotonic()
+supervisor_entered_at = attempt_started
 
 import importlib.util
 import json
@@ -387,10 +389,9 @@ from pathlib import Path
 
 runner_path, worker, source, clone, packet, command_file, worker_receipt, receipt = map(Path, sys.argv[1:9])
 sha, identity, model = sys.argv[9:12]
-queued_at = float(sys.argv[12])
-attempt_started = queued_at
-argv_json = sys.argv[13]
-document_names = sys.argv[14:]
+queued_at = attempt_started
+argv_json = sys.argv[12]
+document_names = sys.argv[13:]
 def mark_withheld(reason, outer=None):
     record = {"status": "WITHHELD", "sha": sha, "identity": identity,
         "model": model, "reason": reason,
@@ -507,7 +508,7 @@ print(json.dumps({"outer": outer, "finalizer_exit": final_code, "finalizer_outpu
 raise SystemExit(0)
 PY
 run_attempt() {
-  local identity="$1" model="$2" argv_json="$3" queued_at="$4" queued_shell_seconds="$5"
+  local identity="$1" model="$2" argv_json="$3" queued_shell_seconds="$4"
   local attempt_dir="$ADVICE_TMP/$identity-attempt"
   local receipt="$attempt_dir/receipt.json"
   local deadline_seconds controller_pid controller_state watchdog_expired=0
@@ -527,7 +528,7 @@ run_attempt() {
     "$ADVICE_RUNNER" "$ADVICE_TMP/run_one_reviewer.py" "$SOURCE_REPO" \
     "$attempt_dir/reviewer-clone" "$ADVICE_TMP/review-packet.txt" \
     "$attempt_dir/command.json" "$attempt_dir/worker-receipt.json" \
-    "$receipt" "$REVIEW_SHA" "$identity" "$model" "$queued_at" "$argv_json" \
+    "$receipt" "$REVIEW_SHA" "$identity" "$model" "$argv_json" \
     "${DOCUMENTS[@]}" \
     > "$ADVICE_TMP/$identity-console.log" 2>&1 &
   controller_pid=$!
@@ -580,16 +581,14 @@ run_attempt() {
   return "$status"
 }
 CODEX_QUEUED_SECONDS=$SECONDS
-CODEX_QUEUED_AT="$(python3 -c 'import time; print(time.monotonic())')"
 OPUS_QUEUED_SECONDS=$SECONDS
-OPUS_QUEUED_AT="$(python3 -c 'import time; print(time.monotonic())')"
 run_attempt codex gpt-6-sol \
   '["codex","exec","--yolo","-m","gpt-6-sol","--config","model_reasoning_effort=high"]' \
-  "$CODEX_QUEUED_AT" "$CODEX_QUEUED_SECONDS" &
+  "$CODEX_QUEUED_SECONDS" &
 CODEX_PID=$!
 run_attempt opus claude-opus \
   '["claude","-p","--model","opus","--dangerously-skip-permissions"]' \
-  "$OPUS_QUEUED_AT" "$OPUS_QUEUED_SECONDS" &
+  "$OPUS_QUEUED_SECONDS" &
 OPUS_PID=$!
 if wait "$CODEX_PID"; then CODEX_EXIT=0; else CODEX_EXIT=$?; fi
 if wait "$OPUS_PID"; then OPUS_EXIT=0; else OPUS_EXIT=$?; fi
