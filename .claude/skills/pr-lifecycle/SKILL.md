@@ -84,8 +84,19 @@ Keep the specification and implementation in the same PR. For the complete actua
 - Under 50 total additions+deletions: use PR-body `## Specification`, including for high-risk small changes.
 - At least 50, or an incomplete/uncountable/binary diff: commit the seven-element specification in the same PR.
 - Crossing that boundary without the committed specification returns to Stage 0.
+Stage 0 is complete only when its artifact is in a PR diff: the specification committed at the branch
+head AND an open PR whose diff contains it. A commit on a branch with no PR is not a Stage 0 artifact
+- no reviewer, `/advice` or `/dot` can bind to it.
 Artifact placement does not waive high-risk independent full-diff review or required real proof.
 Do not split coherent work merely to evade review thresholds.
+
+### State readback before reporting a blocker
+
+Before reporting that work is uncommitted, unpublished, missing a PR, or otherwise blocked, run and
+quote all three: `git status --porcelain`, `git log --oneline -1`, and
+`gh pr list --head <branch> --state all`. A blocker assertion without those outputs is unverified. A lane
+that reports work as uncommitted when the tree is clean, or as missing a PR when one is open, sends the
+next reader to fix the wrong thing; state the measured facts instead of the remembered ones.
 
 ### Stage, title and labels
 
