@@ -39,6 +39,9 @@ pinned") is **sidebar order**, and sidebar order is the `index` field — never 
 never a title guess.
 
 ```bash
+# OUT_DIR is created HERE, before the resolve, because scope.txt lives in it.
+# Step 1 reuses this exact value; never re-assign it later.
+OUT_DIR="/tmp/cmux_readonly_$(date +%H%M%S)"; mkdir -p "$OUT_DIR"
 cd /tmp && cmux workspace list --json > /tmp/cmux_ws.json
 python3 - <<'PY'
 import json
@@ -50,7 +53,7 @@ PY
 Then fix the scope by rule and write it down:
 - "above pinned X" / "before X" → every workspace with `index` **less than** X's index.
 - "below X" → greater than. "the pinned ones" → `pinned == true`. A list of names → resolve each to a `ref`.
-- Store the resolved `workspace_ref` set in `$OUT_DIR/scope.txt` (one `ref` per line) **and** echo the resolved
+- Store the resolved `workspace_ref` set in `$OUT_DIR/scope.txt` (one `ref` per line, written with `printf '%s\n'` or `python3`, never a bare `>` into an unset variable) **and** echo the resolved
   titles back to the operator in the first progress line. If a named scope token does not resolve to exactly one
   workspace, stop and report the ambiguity — never silently pick one.
 
@@ -60,7 +63,8 @@ later filter is `row['workspace_ref'] in scope`.
 ## Step 1 — Capture: one no-mutation two-sample sweep
 
 ```bash
-OUT_DIR="/tmp/cmux_readonly_$(date +%H%M%S)"; FIRST="$OUT_DIR/first"
+# OUT_DIR comes from Step 0; reusing it is what keeps scope.txt next to the captures.
+FIRST="$OUT_DIR/first"
 python3 ~/.claude/skills/cmux-bulk-steer/scripts/scan.py --out-dir "$FIRST" --readonly
 sleep 20                       # ONE fleet-wide wait, never a per-verdict sleep
 python3 ~/.claude/skills/cmux-bulk-steer/scripts/scan.py --out-dir "$OUT_DIR" --with-gh --readonly
