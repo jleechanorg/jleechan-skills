@@ -158,11 +158,13 @@ any queueing, clone setup, or process startup. The runner's
 `--timeout-seconds` starts at reviewer-process launch and therefore cannot
 enforce that caller deadline alone. Wrap the *entire* invocation in the
 platform's GNU `timeout` command: use `gtimeout` on macOS when installed and
-`timeout` on Linux. `--signal=INT` lets the runner enter its `finally` cleanup;
-the bounded kill-after is cleanup grace, not extra reviewer time. A watchdog
-exit (124 or signal termination), absent or incomplete receipt, surviving
-reviewer process, or failed clone cleanup means that attempt is WITHHELD and
-cannot vote. Clean only clone paths owned by that attempt after confirming no
+`timeout` on Linux. The 600 seconds includes setup, reviewer work, and cleanup:
+send `INT` at 595 seconds so the runner can enter its `finally` cleanup, then
+send `KILL` at 600 seconds if it has not exited. Cleanup grace is inside the
+deadline, not extra time. A watchdog exit (124 or signal termination), absent
+or incomplete receipt, surviving reviewer process, or failed clone cleanup
+means that attempt is WITHHELD and cannot vote. Clean only clone paths owned by
+that attempt after confirming no
 reviewer process remains. The runner's raw `--timeout-seconds` default remains
 1200 seconds; pass 600 seconds to each lane and let the outer watchdog bound
 setup as well as reviewer execution. Never reset the original
@@ -186,7 +188,7 @@ ADVICE_TMP="$(mktemp -d)"
 REVIEW_SHA="$(git rev-parse HEAD)"
 ADVICE_RUNNER="${CLAUDE_HOME:-$HOME/.claude}/skills/advice/scripts/run_primary_pair.py"
 set +e
-"$WATCHDOG" --signal=INT --kill-after=10s 600s \
+"$WATCHDOG" --signal=INT --kill-after=5s 595s \
   python3 "$ADVICE_RUNNER" \
     --repo "$(git rev-parse --show-toplevel)" \
     --ref "$REVIEW_SHA" \
