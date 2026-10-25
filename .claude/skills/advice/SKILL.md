@@ -1,6 +1,6 @@
 ---
 name: advice
-description: "Token-efficient second opinion /advice. Extracts a decision and change pointer, runs the Codex + Opus CLI primary pair concurrently where available, and uses eligible independent CLI reviewers to reach the mandatory two-vote quorum. Reviewer attempts are bounded to 600 seconds. /research is nonvoting; /secondo is an eligible approval reviewer. Use instead of advisor() which ships the full conversation uncached."
+description: "Token-efficient second opinion /advice. Extracts a decision and change pointer, runs the Codex + Opus CLI primary pair concurrently where available, and uses eligible independent CLI reviewers to reach the mandatory two-vote quorum. Reviewer attempts are bounded to 600 seconds. /research is nonvoting; /extended-library:secondo is an eligible approval reviewer. Use instead of advisor() which ships the full conversation uncached."
 ---
 
 # /advice — Token-Efficient Second Opinion
@@ -111,21 +111,8 @@ COVERAGE: [what you actually read; note anything you could not reach]
 CONFIDENCE: [high / medium / low]
 ```
 
-Write that packet to a temporary file, capture the exact review SHA, and invoke:
-
-```bash
-REVIEW_SHA="$(git rev-parse HEAD)"
-ADVICE_TMP="$(mktemp -d)"
-ADVICE_RUNNER="${CLAUDE_HOME:-$HOME/.claude}/skills/advice/scripts/run_primary_pair.py"
-python3 "$ADVICE_RUNNER" \
-  --repo "$(git rev-parse --show-toplevel)" \
-  --ref "$REVIEW_SHA" \
-  --packet-file "$ADVICE_TMP/review-packet.txt" \
-  --output-dir "$ADVICE_TMP/results" \
-  --reviewers codex,opus \
-  --timeout-seconds 600 \
-  --timeout-grace-seconds 2
-```
+Write that packet to a temporary file before starting the attempt clock, then
+use the bounded invocation below.
 
 Create `$ADVICE_TMP/review-packet.txt` before invoking the runner. The output
 directory is deliberately outside the repository and must be a fresh path that
@@ -166,19 +153,65 @@ descendants observed while the reviewer root is alive, a surviving verified PID
 is recorded as a termination failure rather than silently treated as contained;
 after successful cleanup the runner exits 7 even if the peer returned a verdict.
 
-The caller enforces a hard 600-second end-to-end attempt deadline from dispatch,
-including queueing, clone setup, and process startup. The runner's
-`--timeout-seconds` bounds each reviewer process from its launch; it does not
-bound queueing or clone setup. Track the remaining caller deadline and pass the
-smaller of 600 seconds or that remaining time to the process timeout. Do not
-start a reviewer process if setup has exhausted the deadline. Stop an attempt at the
-deadline, record the timeout, and continue with an eligible independent
-reviewer if fewer than two full-coverage votes have been returned. The runner's raw
-`--timeout-seconds` default remains 1200 seconds; every `/advice` invocation
-must explicitly pass a process timeout of at most 600 seconds, capped by the
-remaining end-to-end deadline, as shown above. This override
-applies to both concurrent primary lanes. Alternate CLI attempts must obey the
-same caller-enforced 600-second end-to-end deadline.
+The caller enforces a 600-second end-to-end attempt deadline beginning before
+any queueing, clone setup, or process startup. The runner's
+`--timeout-seconds` starts at reviewer-process launch and therefore cannot
+enforce that caller deadline alone. Wrap the *entire* invocation in the
+platform's GNU `timeout` command: use `gtimeout` on macOS when installed and
+`timeout` on Linux. `--signal=INT` lets the runner enter its `finally` cleanup;
+the bounded kill-after is cleanup grace, not extra reviewer time. A watchdog
+exit (124 or signal termination), absent or incomplete receipt, surviving
+reviewer process, or failed clone cleanup means that attempt is WITHHELD and
+cannot vote. Clean only clone paths owned by that attempt after confirming no
+reviewer process remains. The runner's raw `--timeout-seconds` default remains
+1200 seconds; pass 600 seconds to each lane and let the outer watchdog bound
+setup as well as reviewer execution. Never reset the original
+dispatch timestamp or grant a replacement reviewer a fresh budget for the
+same attempt. A new independent reviewer is a new attempt with its own 600
+seconds, started only after the prior attempt has stopped and its owned clones
+are clean.
+
+```bash
+if command -v gtimeout >/dev/null 2>&1; then
+  WATCHDOG="$(command -v gtimeout)"
+elif command -v timeout >/dev/null 2>&1; then
+  WATCHDOG="$(command -v timeout)"
+else
+  echo "GNU timeout/gtimeout is required for a bounded attempt" >&2
+  exit 2
+fi
+
+ADVICE_TMP="$(mktemp -d)"
+# Write the complete packet to "$ADVICE_TMP/review-packet.txt" before dispatch.
+REVIEW_SHA="$(git rev-parse HEAD)"
+ADVICE_RUNNER="${CLAUDE_HOME:-$HOME/.claude}/skills/advice/scripts/run_primary_pair.py"
+set +e
+"$WATCHDOG" --signal=INT --kill-after=10s 600s \
+  python3 "$ADVICE_RUNNER" \
+    --repo "$(git rev-parse --show-toplevel)" \
+    --ref "$REVIEW_SHA" \
+    --packet-file "$ADVICE_TMP/review-packet.txt" \
+    --output-dir "$ADVICE_TMP/results" \
+    --reviewers codex,opus \
+    --timeout-seconds 600 \
+    --timeout-grace-seconds 2
+RUNNER_STATUS=$?
+set -e
+if [ "$RUNNER_STATUS" -eq 124 ] || [ "$RUNNER_STATUS" -ge 128 ] || \
+   [ ! -s "$ADVICE_TMP/results/receipt.json" ]; then
+  echo "attempt timed out or lacks a complete receipt; WITHHELD" >&2
+  # Confirm reviewer processes have stopped, then remove only this attempt's
+  # clones if runner cleanup did not complete. Preserve receipt/output evidence.
+  exit 124
+fi
+```
+
+The packet must be written before this block starts; create a fresh output
+directory for every attempt. Receipt and exit-status validation remain
+mandatory after the watchdog returns. Apply the same outer wrapper to the
+entire alternate operation, including creation and cleanup of its independent
+clone; adapt its process timeout to the remaining time in that attempt. If the
+deadline has expired, do not start the alternate under the expired attempt.
 Record dispatch and completion times so the deadline is auditable.
 `--timeout-grace-seconds` sets the bounded post-kill output-drain grace and
 defaults to 2 seconds; both values must be positive. A timeout kills the primary
@@ -322,14 +355,14 @@ Invoke `/research [decision topic distilled to 6 words]`
 
 **Reviewer C — Secondo (optional — needs infrastructure):**
 
-Invoke `/secondo` with the decision and declared review scope, and let it gather
+Invoke `/extended-library:secondo` with the decision and declared review scope, and let it gather
 its own context — it already captures `git diff origin/main...HEAD` under its own
 budget (`SECOND_OPINION_MAX_DIFF_CHARS`, default 32,000 chars). Require
 `COVERAGE: <files/diff scope actually read>` in its response. Do **not** hand it
 a ≤150-line extract instead; that throttles it to a fraction of the context it
 would have collected on its own.
 
-Requires the AI-Universe MCP endpoint (`AI_UNIVERSE_MCP_ENDPOINT`) and its OAuth flow. `/secondo` bans substituting WebSearch or direct provider MCPs, so there is no portable fallback — if the endpoint is unreachable, mark **C unavailable** and continue.
+Requires the AI-Universe MCP endpoint (`AI_UNIVERSE_MCP_ENDPOINT`) and its OAuth flow. `/extended-library:secondo` bans substituting WebSearch or direct provider MCPs, so there is no portable fallback — if the endpoint is unreachable, mark **C unavailable** and continue.
 
 ---
 
@@ -376,7 +409,7 @@ Below quorum a lone reviewer may still block — one competent objection is enou
 | Codex unavailable + Opus unavailable + one alternate APPROVE | 1 | `WITHHELD` |
 | One primary PASS **plus** one distinct alternate APPROVE, both full coverage | 2 | `APPROVED` (or `NOT APPROVED` if either blocks) |
 | One primary PASS plus a retry, wrapper alias, or duplicate reviewer execution | 1 | `WITHHELD` |
-| A vote + C (`/secondo`) vote, both full `COVERAGE`, neither blocks | 2 (A + C) | `APPROVED` (or `NOT APPROVED` if either blocks) |
+| A vote + C (`/extended-library:secondo`) vote, both full `COVERAGE`, neither blocks | 2 (A + C) | `APPROVED` (or `NOT APPROVED` if either blocks) |
 
 No row relaxes coverage or single-objection blocking: one competent objection still stops the change.
 
@@ -420,7 +453,7 @@ What `/advice` saves is **the conversation**, not the change. `advisor()` ships 
 | A1 Codex | Decision + pointer (reviewer fetches the rest) |
 | A2 Opus CLI | Decision + pointer (reviewer fetches the rest) |
 | B — /research | Web queries only |
-| C — /secondo | Decision; it gathers its own diff under its own budget |
+| C — /extended-library:secondo | Decision; it gathers its own diff under its own budget |
 
 Do not cite a percentage saving — none has ever been measured here. And do not shrink the pointer to buy tokens: sending a 349-line diff is nothing like sending an 80K-token transcript, so trading review coverage for that margin is a bad trade in the only direction that matters.
 
