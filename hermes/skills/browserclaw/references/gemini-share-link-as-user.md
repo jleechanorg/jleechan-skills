@@ -2,7 +2,7 @@
 title: "Read a Gemini / ChatGPT / Google-Doc share link as the user"
 type: reference
 date: 2026-07-20
-verified_against: Gemini Flash share `Td7fA4pzuvMs` ("God of Murder Campaign Design")
+verified_against: a generic authenticated share-link fixture (no live identifier retained)
 status: HARDENED 2026-08-09 — guarded lifecycle, explicit authorization required, no fixed /tmp paths, no screenshots, EXIT-trap cleanup. Background only; the canonical lifecycle is in `~/.claude/commands/browser.md` and `~/.claude/skills/browser-control/SKILL.md` and MUST NOT be overridden by the snippets below.
 ---
 
@@ -12,9 +12,9 @@ status: HARDENED 2026-08-09 — guarded lifecycle, explicit authorization requir
 
 When the user gives you a `share.gemini.google/...`, `chatgpt.com/share/...`, or "anyone with the link" Google Doc URL and asks you to read the content, anonymous fetch (`curl`, `web_extract`, even headless `browser_navigate`) returns a **sign-in shell** with the conversation body loaded client-side only after Google / vendor auth.
 
-When the user has explicitly authorized access to the requested authenticated content, read the page *as the user* by decrypting their cookies and injecting them into a headless Chromium session, using the **canonical guarded lifecycle** referenced above. **Credential reuse requires explicit task authorization.** Key invariants the lifecycle enforces:
+When the user has explicitly authorized access to the requested authenticated content, read the page *as the user* by decrypting cookies from exactly one explicitly authorized, agent-owned source and injecting them into a headless Chromium session, using the **canonical guarded lifecycle** referenced above. **Credential reuse requires explicit task authorization.** Key invariants the lifecycle enforces:
 
-- **Explicit task authorization required:** Existing sign-in alone is not sufficient authorization to sweep or copy cookies. Use this flow only when the user explicitly authorized authenticated access for the task.
+- **Explicit task authorization required:** Existing sign-in alone is not sufficient authorization to inspect or copy cookies. Use this flow only when the user explicitly authorized authenticated access for the task and named an agent-owned source.
 - Cookie JSON + page text live only in **mktemp-generated private temp files** (`TMP_COOKIES`, `TMP_PAGE`), `chmod 600`, removed by EXIT trap on both success and failure. **No fixed predictable temp paths** — every credential-bearing write is a fresh `mktemp` file.
 - **No `--screenshot`** is written by default. Screenshots are only allowed when the user explicitly requested visual evidence AND the page is known not to display secrets.
 - **No HAR** is ever produced (the `browserclaw capture`/`learn`/`reverse` subcommands are banned for credential flows).
@@ -26,13 +26,15 @@ The canonical 5-step guarded lifecycle is in `~/.claude/commands/browser.md` and
 
 The historical snippets in earlier versions of this file (using predictable cookie / page-text / screenshot paths) are RETIRED. If you see those fixed-path snippets anywhere else in the repo or in your own notes, replace them with the canonical guarded lifecycle — fixed predictable paths leak credentials across processes and survive long after the script exits.
 
-## Why headless Chromium (not `channel=chrome`)
+## Why bundled headless Chromium with a fresh task-owned context
 
-`channel=chrome` spawns the system Chrome binary which:
-1. Briefly opens a visible window before transitioning to headless.
-2. Can pollute the user's existing Chrome session with new tabs.
-
-`channel=chromium` (bundled Chromium-for-Testing) is always headless, never opens a visible window, and is the right default for this workflow.
+Use bundled Chromium with explicit `--headless` and a fresh task-owned context by
+default. `channel=chrome` selects the system Chrome binary, while
+`channel=chromium` selects bundled Chromium-for-Testing; the channel alone does
+not determine headless mode or profile ownership. Do not target a personal
+profile or CDP endpoint, and do not claim that the browser binary itself
+guarantees focus isolation. Aside remains a separately authorized
+headed/background session; it is not a headless Chromium substitute.
 
 ## Truncation pitfall — scroll-to-bottom re-extraction
 
@@ -69,16 +71,16 @@ This prints every revision boundary. The final content to save is whatever comes
 
 ## What this DOES NOT bypass
 
-- **2FA / WebAuthn / passkey-only accounts** — the cookies decrypt, but the session might require re-prompt after N hours idle. Fix: user must have logged in within the cookie's lifetime.
+- **2FA / WebAuthn / passkey-only accounts** — the cookies decrypt, but the session might require re-prompt after N hours idle. The authorized source must contain a still-valid session; otherwise use provider-owned recovery.
 - **Cloudflare Turnstile / DataDome / fingerprint challenges** — these check JS-side fingerprint, not cookies. Sites that reject headless Chromium's fingerprint (LinkedIn, X/Twitter, Facebook — observed 2026-07-05) will still bounce even with valid session cookies. **For fingerprint-sensitive targets, the browser-control skill's Aside-only exception overrides this entire recipe** — post a ONE-LINE display blocker, do not run the lifecycle at all.
-- **MFA-gated Google accounts with no Chrome session** — if the user has never logged into Google in Chrome, there are no cookies to decrypt. Fall back to `gog`/`gws` CLI auth (separate Google OAuth flow) or ask the user to log into Chrome once.
+- **MFA-gated Google accounts with no authorized source session** — if the authorized agent-owned source has no valid session, there are no cookies to decrypt. Fall back to provider-owned CLI/OAuth recovery or report the authentication blocker; do not open or populate a personal browser profile.
 - **Secret-bearing pages** (API-key creation/rotation, token pages, password/banking/recovery-code pages) — the canonical lifecycle's secret-bearing branch applies: NO `--print-text`, NO screenshots, NO HAR, NO persisted DOM. Use a bare Playwright script that emits only a boolean/status result and persists nothing.
 
 ## Anti-pattern: declaring blocked and asking the user to paste
 
 The failure mode this recipe prevents:
 
-> User: "Read this campaign and make a PR to save it in world_reference: https://share.gemini.google/Td7fA4pzuvMs"
+> User: "Read this authorized share link and save the requested content"
 > Agent (wrong): "Stopped at a blocker. The Gemini share link redirects to a sign-in page... Please paste the text."
 > User: "use /browser or /browserclaw headless next time without asking"
 
@@ -86,8 +88,8 @@ The failure mode this recipe prevents:
 
 ## Related
 
-- Parent skill: `~/.hermes/skills/browserclaw/SKILL.md` (cookies decrypt + inject + CDP v20 bypass recipes)
+- Parent skill: `~/.hermes/skills/browserclaw/SKILL.md` (authorized-source cookies decrypt + guarded inject lifecycle)
 - Sibling policy: `~/.hermes/skills/browser-headless-default/SKILL.md` (headless-only mandate; this recipe is the canonical "headless + auth" answer)
 - Canonical guarded lifecycle: `~/.claude/commands/browser.md` and `~/.claude/skills/browser-control/SKILL.md` § **Authorized credential reuse** — these are authoritative.
-- `~/.claude/skills/google-credentials-fallback/SKILL.md` (fallback to `gog`/`gws` for Google Docs when the user has no Chrome session)
+- `~/.claude/skills/google-credentials-fallback/SKILL.md` (provider-owned CLI/OAuth fallback when the authorized source has no valid session)
 - SOUL.md `## COMMIT: finish-the-job` — declaring blocked without trying the auth-aware recipe is a finish-the-job violation

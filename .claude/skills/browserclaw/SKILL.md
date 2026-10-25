@@ -12,7 +12,7 @@ Inspect browser-driven API traffic and convert captured patterns into reusable a
 
 ## Scope
 
-**Any public website** — not limited to "the app" or "the auth handshake." browserclaw captures traffic from any URL you can reach in Chrome/Chromium. The "no login bypass" rule is about authentication (don't bypass logins/CAPTCHAs), NOT about which sites you can browse. For sites where you're already authenticated in Chrome, use `--storage-state` (or `browserclaw cookies decrypt --db <chrome-cookies-db>` + `browserclaw cookies inject --cookies <out.json>`) to reuse your existing session cookies. This works for any site where Chrome has cookies: GCP Console, Slack, GitHub, Firebase Console, etc.
+**Any public website** — not limited to "the app" or "the auth handshake." browserclaw captures traffic from any URL reachable in an agent-owned Chrome/Chromium session. The "no login bypass" rule is about authentication (don't bypass logins/CAPTCHAs), NOT about which sites you can browse. For an explicitly authorized agent-owned source, use `--storage-state` or the guarded `browserclaw cookies decrypt --db '<agent-owned-source-db>'` + `browserclaw cookies inject --cookies '<private-cookie-json>'` lifecycle. Personal desktop profiles, cookies, and login state are off-limits.
 
 ## What it does
 
@@ -284,34 +284,20 @@ print(result)
 
 Register the `mcp_tools.json` with your agent's MCP server, or parse it and wire each tool to a handler that calls `generated_client.py`.
 
-## When the browser path fails — Python GraphQL escape hatch
+## When the browser path fails — authorization ceiling
 
-`browserclaw cookies inject` into headless Chromium does not always carry the session across to the SPA's dashboard (cookies are bound to device UUIDs, Cloudflare clearances, etc.). When the headless Chromium lands on a login page despite 500+ cookies injected, do NOT declare the site unreachable. Walk this ladder:
-
-1. **Decrypt the source DB cookies** (Aside, Chrome, etc.) with `browserclaw cookies decrypt`. Read the file: `json.load(open(file))['cookies']` is the Playwright storage_state format.
-2. **Inspect for the actual session marker** — `session_id`, `cf_clearance`, `csrftoken`. If `document.cookie` in the browser shows only analytics/CSRF cookies but the DB has `session_id`, the DB cookies are stale OR the active page never inherited them.
-3. **Call the internal API directly with Python**:
-   ```python
-   import json, requests
-   blob = json.load(open('/tmp/cookies.json'))
-   s = requests.Session()
-   for c in blob['cookies']:
-       s.cookies.set(c['name'], c['value'], domain=c['domain'], path=c.get('path','/'))
-   csrf = s.cookies.get('csrftoken', domain='.example.com')
-   s.headers.update({
-       'X-CSRFToken': csrf,
-       'Origin': 'https://app.example.com',
-       'Referer': 'https://app.monarch.com/',  # exact referer the SPA sends
-       'Content-Type': 'application/json',
-       'User-Agent': 'Mozilla/5.0 (compatible)',
-   })
-   r = s.post('https://api.example.com/graphql', json={"query":"{ me { id } }"})
-   print(r.status_code, r.text[:200])
-   ```
-4. **Worked Monarch example (2026-07-22)**: 537 Aside cookies extracted → CSRF token `<csrf-token>` + `Origin: https://app.monarch.com` + `Referer: https://app.monarch.com/` → `{ me { id email } }` returned `id: <account-id>, email: '<account-email>'`. Then `{ accounts { id currentBalance } }` returned ~12 account balances including the `<eod-balance>` EOD balance on account ending `<account-suffix>` (the checking account that was `<prior-balance>` overdrawn the day before).
-5. **Schema probing**: introspection is often disabled for non-admin users. Try field names by pattern — most Monarch-style SPAs use plural field names without `get` prefix (`accounts`, `transactions`, `categories`, `merchants`). When opaque "Something went wrong" appears, query one leaf field at a time.
-
-**Anti-pattern**: declaring the dashboard inaccessible after `browserclaw cookies inject` into headless Chromium shows the login page. The dashboard may be unreachable BUT the API often is. Always try the API path before asking the user for credentials.
+The historical direct-API and cookie-inspection recipes that formerly appeared
+here are background only. They do not authorize a new route and MUST NOT be
+executed as a fallback. In particular, never run profile sweeps, read a
+personal cookie store, copy or decrypt stolen-cookie material, or use an
+alternate-browser recipe. The current
+[`browser-control` lifecycle](../browser-control/SKILL.md#authorized-credential-reuse-the-safe-cookie-copy-contract)
+overrides this skill: use Aside first, and use `browserclaw cookies decrypt` +
+inject only for one explicitly authorized agent-owned source, with its
+fail-closed cleanup and MFA/consent boundaries. If that authorized route lands
+on a login or MFA screen, stop and report the authentication blocker or use a
+provider-owned API/OAuth flow; do not probe an internal API with copied cookie
+material.
 
 ## Guardrails
 

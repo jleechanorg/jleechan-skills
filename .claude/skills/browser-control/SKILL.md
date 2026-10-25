@@ -77,7 +77,7 @@ Apply these in order; proceed only after the current route fails to complete the
 
 1. **Aside-MCP if available.** Most specific, lowest friction: the user's existing signed-in tabs and session are preserved across calls. Detect by listing MCP tools in the active runtime.
 2. **Aside CLI** (`aside repl` / `aside "<prompt>"` / `aside account list`) — `repl` mode for interactive navigation, `agent`/`<prompt>` mode for an Aside-driven task. Use the already-running `Aside.app` profile. `account list` returns the active profile(s). Aside drives a real browser session; it remains the primary signed-in path, even though it is not the headless fallback.
-3. **browserclaw cookies decrypt → inject** — for fingerprint-tolerant sites where Aside is unavailable, not signed-in, or on a headless host, and the user has explicitly authorized local cookie transfer from a specific agent-owned profile for the task. The fingerprint-sensitive Aside-only exception below overrides this fallback. Never sweep personal browser profiles. Filter the example candidates below to the authorized source before running; use its matching Safe Storage service/account and the guarded lifecycle below.
+3. **browserclaw cookies decrypt → inject** — for fingerprint-tolerant sites where Aside is unavailable, not signed-in, or on a headless host, and the user has explicitly authorized local cookie transfer from exactly one named agent-owned source for the task. The fingerprint-sensitive Aside-only exception below overrides this fallback. Never sweep personal browser profiles or enumerate source candidates; use only that authorized source, its matching Safe Storage service/account, and the guarded lifecycle below.
 4. **Playwright headless (no auth)** — for unauthenticated/deterministic flows, scraping public pages, scripted sweeps, or CI-style checks. Use `playwright-ui-testing` if the task is a real test (isolated profiles, traces, video).
 5. **Visible/headed browser** — only when the user explicitly asked for it in the current thread, using a separate automation window and profile under the isolation contract above.
 
@@ -87,7 +87,7 @@ Apply these in order; proceed only after the current route fails to complete the
 
 1. Check for usable existing tabs before opening a new one.
 2. Read the page with an accessibility snapshot before acting. Use current refs, not guessed selectors or coordinates.
-3. Treat login, consent, chooser, and MFA screens as recoverable states. Never bypass them or extract secrets. When the user explicitly authorizes local cookie transfer for the requested authenticated-content task, it is permitted between local browser profiles; scope it to the minimum domains and task, do not reveal cookie values, and do not use it to bypass MFA, consent, or account-access controls.
+3. Treat login, consent, chooser, and MFA screens as recoverable states. Never bypass them or extract secrets. When the user explicitly authorizes local cookie transfer for the requested authenticated-content task, it is permitted only from one specifically authorized agent-owned source profile; scope it to the minimum domains and task, do not reveal cookie values, and do not use it to bypass MFA, consent, or account-access controls.
 4. Confirm any side effect from the resulting page state. Before sending, submitting, deleting, installing, authorizing, or publishing, verify the target and requested scope.
 5. Close tabs opened solely for the task when they are no longer useful.
 
@@ -103,14 +103,13 @@ When authorized, use this contract for any credential-bearing flow:
 # persisted credential state, and INT/TERM/HUP also trigger cleanup.
 # One canonical cleanup trap removes BOTH the cookie file and the page
 # text on every success, error, and signal. The secret branch runs
-# INSIDE this trap, and the multi-profile sweep produces a cookie
-# artifact the canonical recipe consumes before cleanup.
+# INSIDE this trap, and the explicitly authorized agent-owned source
+# produces the cookie artifact the canonical recipe consumes before cleanup.
 set -euo pipefail
 # Restrict the process umask so any mktemp / redirect that does
 # not respect an explicit chmod still ends up owner-only. The
-# canonical recipe also re-applies chmod 600 after every sweep
-# write because browserclaw's writer uses Path.write_text()
-# which honors the process umask.
+# browserclaw's writer uses Path.write_text(), so chmod 600 is
+# re-applied after the decrypt write.
 umask 077
 # Pre-initialize variables and arm cleanup traps BEFORE allocating
 # temp files so INT/TERM/HUP cannot leave orphaned artifacts during
@@ -152,45 +151,48 @@ TMP_COOKIES="$(mktemp -t browserclaw-XXXXXX.json)"
 TMP_PAGE="$(mktemp -t browserclaw-page-XXXXXX.txt)"
 chmod 600 "$TMP_COOKIES" "$TMP_PAGE"
 
-# 1. Multi-profile sweep runs FIRST, Aside first — the canonical
-#    recipe does NOT depend on Chrome Default being non-empty
-#    before falling through to other profiles. The sweep writes
-#    the first non-empty cookie JSON to $TMP_COOKIES and short-
-#    circuits. Each browserclaw write is followed by chmod 600
-#    because browserclaw's writer honors the process umask.
+# 1. Decrypt exactly one explicitly authorized agent-owned source. The
+#    caller must set these values to the task-owned profile/DB and its
+#    matching Safe Storage entry; placeholders fail closed rather than
+#    selecting a desktop browser profile by convention.
+SOURCE_DB='<agent-owned-source-db>'
+SOURCE_KEYCHAIN_SERVICE='<agent-owned-keychain-service>'
+SOURCE_KEYCHAIN_ACCOUNT='<agent-owned-keychain-account>'
+# Credential acquisition has one bounded status-capture boundary. It is not a
+# source sweep: the caller supplies exactly one authorized agent-owned source.
+# Errexit is restored before the decrypted artifact is chmod'd or consumed.
+source_status=0
 set +e
-for entry in \
-  "Aside:$HOME/Library/Application Support/Aside/Default/Cookies:Aside Safe Storage:Aside" \
-  "Aside-Profile1:$HOME/Library/Application Support/Aside/Profile 1/Cookies:Aside Safe Storage:Aside-Profile1" \
-  "Brave:$HOME/Library/Application Support/BraveSoftware/Brave-Browser/Default/Cookies:Brave Safe Storage:Brave" \
-  "Edge:$HOME/Library/Application Support/Microsoft Edge/Default/Cookies:Microsoft Edge Safe Storage:Microsoft Edge"; do
-  IFS=: read label db svc acct <<< "$entry"
-  [ -f "$db" ] || continue
+if [ ! -f "$SOURCE_DB" ]; then
+  echo "BLOCKER: authorized agent-owned source DB is unavailable" >&2
+  source_status=11
+else
   env -i HOME="$HOME" \
     PATH="$HOME/.local/orch-venv/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
-    browserclaw cookies decrypt --db "$db" \
+    browserclaw cookies decrypt --db "$SOURCE_DB" \
       --output "$TMP_COOKIES" \
-      --keychain-service "$svc" --keychain-account "$acct" \
-      --domain-filter '%<target-domain>%' --summary >/dev/null 2>&1 || true
-  if [ -s "$TMP_COOKIES" ]; then
-    count="$(jq -r '.cookies | length' "$TMP_COOKIES" 2>/dev/null || echo 0)"
-    if [ "$count" -gt 0 ]; then
-      chmod 600 "$TMP_COOKIES"
-      echo "MATCH: $label (${count} cookies) — stopping sweep" >&2
-      break
-    fi
-  fi
-  rm -f "$TMP_COOKIES"
-done
+      --keychain-service "$SOURCE_KEYCHAIN_SERVICE" \
+      --keychain-account "$SOURCE_KEYCHAIN_ACCOUNT" \
+      --domain-filter '%<target-domain>%' --summary >/dev/null
+  source_status=$?
+fi
 set -e
+if [ "$source_status" -eq 11 ]; then
+  exit 11
+fi
+if [ "$source_status" -ne 0 ]; then
+  echo "BLOCKER: authorized agent-owned source cookie decryption failed" >&2
+  exit "$source_status"
+fi
+chmod 600 "$TMP_COOKIES"
 
 DECRYPT_COUNT="$(jq -r '.cookies | length' "$TMP_COOKIES" 2>/dev/null || echo 0)"
 if [ "$DECRYPT_COUNT" -le 0 ]; then
-  echo "BLOCKER: no <target-domain> cookies in any profile. Ask the user to log in once." >&2
+  echo "BLOCKER: no <target-domain> cookies in the authorized agent-owned source." >&2
   exit 11
 fi
 
-# 3. Inject + navigate headless Chromium. Keep body text private and temporary.
+# 2. Inject + navigate headless Chromium. Keep body text private and temporary.
 #    Do not write a screenshot by default; capture one only when the user
 #    explicitly requested visual evidence AND the page is known not to
 #    display secrets.
@@ -203,7 +205,7 @@ env -i HOME="$HOME" PATH="$HOME/.local/orch-venv/bin:/opt/homebrew/bin:/usr/loca
     --wait-after-load 12 \
     --print-text 100000 > "$TMP_PAGE"
 
-# 4. Read only the fields needed for the task, then trust the EXIT
+# 3. Read only the fields needed for the task, then trust the EXIT
 #    trap to remove both the cookie file and the captured private
 #    text on both success and failure. The trap is the cleanup;
 #    there is no disarm line and no explicit cleanup call here —
@@ -217,17 +219,16 @@ env -i HOME="$HOME" PATH="$HOME/.local/orch-venv/bin:/opt/homebrew/bin:/usr/loca
 
 ```bash
 # Secret-bearing page branch — fail-closed lifecycle.
-# Self-contained: it runs the canonical multi-profile sweep to
-# obtain $TMP_COOKIES, then a bare Playwright script that emits
+# Self-contained: it decrypts one explicitly authorized agent-owned
+# source profile/DB to obtain $TMP_COOKIES, then a bare Playwright script that emits
 # the boolean to stdout only. The EXIT/INT/TERM/HUP trap removes
 # every browserclaw temp file on every signal, and the signal
 # handlers re-raise the signal so the script exits nonzero.
 set -euo pipefail
 # Restrict the process umask so any mktemp / redirect that does
 # not respect an explicit chmod still ends up owner-only. The
-# canonical recipe also re-applies chmod 600 after every sweep
-# write because browserclaw's writer uses Path.write_text()
-# which honors the process umask.
+# browserclaw's writer uses Path.write_text(), so chmod 600 is
+# re-applied after the decrypt write.
 umask 077
 # Pre-initialize variables and arm cleanup traps BEFORE allocating
 # temp files so INT/TERM/HUP cannot leave orphaned artifacts during
@@ -268,38 +269,44 @@ TMP_PAGE="$(mktemp -t browserclaw-page-XXXXXX.txt)"
 SECRET_STDOUT_BUF="$(mktemp -t browserclaw-secret-out-XXXXXX.txt)"
 chmod 600 "$TMP_COOKIES" "$TMP_PAGE" "$SECRET_STDOUT_BUF"
 
-# 1a. Multi-profile sweep — same body as the canonical recipe.
+# 1. Decrypt exactly one explicitly authorized agent-owned source.
+SOURCE_DB='<agent-owned-source-db>'
+SOURCE_KEYCHAIN_SERVICE='<agent-owned-keychain-service>'
+SOURCE_KEYCHAIN_ACCOUNT='<agent-owned-keychain-account>'
+# Credential acquisition has one bounded status-capture boundary. It is not a
+# source sweep: the caller supplies exactly one authorized agent-owned source.
+# Errexit is restored before the decrypted artifact is chmod'd or consumed.
+source_status=0
 set +e
-for entry in \
-  "Aside:$HOME/Library/Application Support/Aside/Default/Cookies:Aside Safe Storage:Aside" \
-  "Aside-Profile1:$HOME/Library/Application Support/Aside/Profile 1/Cookies:Aside Safe Storage:Aside-Profile1" \
-  "Brave:$HOME/Library/Application Support/BraveSoftware/Brave-Browser/Default/Cookies:Brave Safe Storage:Brave" \
-  "Edge:$HOME/Library/Application Support/Microsoft Edge/Default/Cookies:Microsoft Edge Safe Storage:Microsoft Edge"; do
-  IFS=: read label db svc acct <<< "$entry"
-  [ -f "$db" ] || continue
+if [ ! -f "$SOURCE_DB" ]; then
+  echo "BLOCKER: authorized agent-owned source DB is unavailable" >&2
+  source_status=11
+else
   env -i HOME="$HOME" \
     PATH="$HOME/.local/orch-venv/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
-    browserclaw cookies decrypt --db "$db" \
+    browserclaw cookies decrypt --db "$SOURCE_DB" \
       --output "$TMP_COOKIES" \
-      --keychain-service "$svc" --keychain-account "$acct" \
-      --domain-filter '%<target-domain>%' --summary >/dev/null 2>&1 || true
-  if [ -s "$TMP_COOKIES" ]; then
-    count="$(jq -r '.cookies | length' "$TMP_COOKIES" 2>/dev/null || echo 0)"
-    if [ "$count" -gt 0 ]; then
-      chmod 600 "$TMP_COOKIES"
-      break
-    fi
-  fi
-  rm -f "$TMP_COOKIES"
-done
+      --keychain-service "$SOURCE_KEYCHAIN_SERVICE" \
+      --keychain-account "$SOURCE_KEYCHAIN_ACCOUNT" \
+      --domain-filter '%<target-domain>%' --summary >/dev/null
+  source_status=$?
+fi
 set -e
+if [ "$source_status" -eq 11 ]; then
+  exit 11
+fi
+if [ "$source_status" -ne 0 ]; then
+  echo "BLOCKER: authorized agent-owned source cookie decryption failed" >&2
+  exit "$source_status"
+fi
+chmod 600 "$TMP_COOKIES"
 
 if [ "$(jq -r '.cookies | length' "$TMP_COOKIES" 2>/dev/null || echo 0)" -le 0 ]; then
-  echo "BLOCKER: no <target-domain> cookies in any profile. Ask the user to log in once." >&2
+  echo "BLOCKER: no <target-domain> cookies in the authorized agent-owned source." >&2
   exit 11
 fi
 
-# Bare Playwright script: reads $TMP_COOKIES, inspects DOM, emits the
+# 2. Run a bare Playwright script: read $TMP_COOKIES, inspect DOM, emit the
 # boolean to stdout only. NEVER: --print-text, capture, learn,
 # reverse, persisted DOM, screenshots. The URL is defined on its own
 # line so `set -u` does not trip when we expand it on the next.
@@ -363,7 +370,7 @@ Report the precise layer that failed: browser transport, current tab/profile acc
 - **Aside CLI in a sandboxed Bash tool call fails closed, not soft.** `aside account list` / `aside repl` / `aside "<prompt>"` return `fetch failed` immediately — before the Aside daemon writes any log line — when the Bash tool's default sandbox blocks the CLI's local IPC to the already-running `Aside.app` (a real launchd-managed process; verify with `ps -p <pid>` or `launchctl list | grep -i aside`, not `ps aux | grep aside`, since sandboxed `ps aux` may not enumerate it even though the process is alive). This is NOT an Aside outage. Fix: pass `dangerouslyDisableSandbox: true` on every Bash call that invokes `aside`. Confirmed 2026-07-16: identical command failed sandboxed, succeeded immediately unsandboxed against the same running daemon.
 - **Aside additionally requires a real, rendered display — not just an unsandboxed process.** On a headless host (`ioreg -c IODisplayConnect | grep -c IODisplayConnect` returns `0`), the Aside daemon answers metadata-only calls (`account list`) fine but navigation fails with `This task is not bound to a browser profile. Open it in Aside browser and try again.` For ordinary **fingerprint-tolerant** sites, proceed to the guarded browserclaw `cookies decrypt` + `cookies inject` headless fallback (route 3 in the numbered order) if explicitly authorized. **The fingerprint-sensitive Aside-only exception overrides this rule with NO fall-through:** for LinkedIn, banks/brokerages, Cloudflare/Akamai-protected, and user-declared no-headless sites, post the ONE-LINE display blocker and never attempt cookie injection, `browserclaw capture`, `learn`, `reverse`, or Playwright. The escape hatch (`browserclaw capture --headless --url ...` below) is a NARROW no-credentials discovery tool only and is NOT a substitute for the numbered routes.
 - **Aside has no headless mode** (`aside --help` lists no such flag) — it drives a real, visible browser via an extension bridge tied to the active macOS GUI session. It is not a background/CI-safe tool by design.
-- **`browserclaw` as a headless-chrome fallback** (route 3 in the numbered order): when explicitly authorized for the task, use `browserclaw cookies decrypt` + `cookies inject` to carry over an authenticated session from the real Chrome/Brave/Edge/Aside profile per the "Authorized credential reuse" contract above. **`browserclaw capture --headless --url <url> [--goal "<task>" --provider <p> --model <m>]` is a separate, narrow discovery tool** (Playwright-backed, no display or GUI session required, confirmed working on the same headless host where Aside failed) — it is NOT the headless fallback for authenticated flows and is NOT permitted for credential-bearing targets. **Do not route credential-bearing flows (API key creation/rotation, token/secret pages, password/banking/recovery-code pages) through `capture`/`learn`/`reverse`** — those commands persist full HTTP request/response traffic to a `capture.har` file on disk, which will contain the new secret in plaintext (the exact leak class this skill's credential rule already bans). For those flows, use `cookies inject` (navigation only, no HAR) or a bare Playwright script that reads only minimum non-secret DOM state, emit only a boolean/status result, and persist neither DOM text nor images (see the secret-bearing page branch below).
+- **`browserclaw` as a headless-Chromium fallback** (route 3 in the numbered order): when explicitly authorized for the task, use `browserclaw cookies decrypt` + `cookies inject` to carry over an authenticated session from one specifically authorized agent-owned source profile, using the matching Safe Storage entry and the same browser/session family per the "Authorized credential reuse" contract above. **`browserclaw capture --headless --url <url> [--goal "<task>" --provider <p> --model <m>]` is a separate, narrow discovery tool** (Playwright-backed, no display or GUI session required, confirmed working on the same headless host where Aside failed) — it is NOT the headless fallback for authenticated flows and is NOT permitted for credential-bearing targets. **Do not route credential-bearing flows (API key creation/rotation, token/secret pages, password/banking/recovery-code pages) through `capture`/`learn`/`reverse`** — those commands persist full HTTP request/response traffic to a `capture.har` file on disk, which will contain the new secret in plaintext (the exact leak class this skill's credential rule already bans). For those flows, use `cookies inject` (navigation only, no HAR) or a bare Playwright script that reads only minimum non-secret DOM state, emit only a boolean/status result, and persist neither DOM text nor images (see the secret-bearing page branch below).
 
 ## Completion
 
