@@ -22,10 +22,13 @@ as an independent approval.
   remains WITHHELD; two complete independent approvals may satisfy the gate.
 - Known material findings remain actionable even if a reviewer times out or a
   late result arrives after the workflow advanced.
-- Each reviewer attempt has a 600-second total cap including adapter setup,
-  queueing, dispatch, and bounded cleanup. The adapter computes the remaining
-  budget and calls the existing process-tree supervisor API; it does not claim
-  the primary-pair CLI accepts alternate reviewer names its parser rejects.
+- Each reviewer attempt has a 600-second total cap starting when queued or sent.
+  Queueing/delivery, setup, dispatch, review, result capture, receipt recording,
+  and cleanup share the same deadline; transport calls and waits fit within the
+  remaining time. No custom adapter or supervisor implementation is introduced.
+  If an execution path cannot honor the bound, record that reviewer unavailable.
+  Do not start a replacement in a shared resource until prior execution and
+  cleanup status is resolved. A timeout or incomplete cleanup never approves.
 - Each verdict retains exact scope, reviewer identity, coverage, and source SHA
   or document hashes. Reusing a verdict never creates another vote.
 
