@@ -78,6 +78,30 @@ class ApprovalContractsTest(unittest.TestCase):
         self.assertNotIn("→ `MERGE_READY`", report)
         self.assertIn("green alone does not establish READY", report)
 
+    def test_agento_summary_does_not_equate_green_with_merge_authority(self) -> None:
+        report = skill("agento-report")
+        self.assertNotIn("GREEN (ready to merge)", report)
+        self.assertIn("GREEN (draft readiness + /green only)", report)
+        self.assertIn("green alone does not establish READY", report)
+        self.assertIn("merge authorization remains separate", report)
+
+    def test_agento_zero_touch_requires_evidence_not_title_tags(self) -> None:
+        report = skill("agento-report")
+        self.assertIn("~/.claude/skills/zero-touch/SKILL.md", report)
+        self.assertIn("discovery hint only", report)
+        self.assertIn("spawn provenance, quality-gate receipts and pre-merge intervention history", report)
+        self.assertIn("UNKNOWN", report)
+        self.assertIn("Incomplete coverage makes the overall zero-touch rate unknown", report)
+        self.assertIn("total_merged > 0", report)
+        self.assertIn("N/A (no merged PRs)", report)
+        self.assertIn("Do not count merge authorization or the merge action itself", report)
+        for obsolete in ("prefix means AO produced", "tagged** (zero-touch)",
+                         "**Non-[agento]** (operator-assisted)",
+                         "agento_count / total_merged", "[agento] YES / NO",
+                         "worker didn't add [agento] prefix", "~/.openclaw/SOUL.md"):
+            with self.subTest(obsolete=obsolete):
+                self.assertNotIn(obsolete, report)
+
     def test_factory_draft_and_readiness_use_applicable_canonical_gates(self) -> None:
         factory = " ".join(skill("factory-evolve").split())
         self.assertIn("gh pr create --repo jleechanorg/<repo> --draft", factory)
