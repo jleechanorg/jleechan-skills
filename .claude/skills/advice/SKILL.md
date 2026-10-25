@@ -155,15 +155,15 @@ descendants observed while the reviewer root is alive, a surviving verified PID
 is recorded as a termination failure rather than silently treated as contained;
 after successful cleanup the runner exits 7 even if the peer returned a verdict.
 
-Each reviewer gets an independent maximum 600-second attempt, measured from
-the first adapter instruction after importing the monotonic clock. Shared
-immutable packet and exact-SHA clone preparation is preflight: complete it once
-before dispatching any reviewer, and record its timing separately; it is outside
-the per-reviewer attempt. Every per-reviewer adapter step, including argument
-parsing, remaining imports, input reads and verification, process startup,
-queueing, and dispatch, consumes that reviewer's 600 seconds. Never queue or
-wait for a reviewer after its clock begins. Use
-the runner's existing
+Each reviewer gets an independent maximum 600-second attempt. Shared immutable
+packet preparation may happen before attempts begin, but all reviewer-specific
+setup, including clone creation, remote removal, checkout, SHA/status checks,
+argument parsing, imports, input reads and verification, process startup, and
+dispatch, is inside that reviewer's deadline. The supervisor starts a monotonic
+clock before parsing or importing inputs and bounds the whole worker with its
+outer `execute()` call; the worker starts its own monotonic deadline as its first
+instruction. Never queue or wait for a reviewer after the attempt clock begins.
+Use the runner's existing
 `execute()` supervisor API for exactly one reviewer process per attempt. It
 tracks the reviewer process tree, signals observed descendants on timeout,
 bounds pipe draining, and reports surviving PIDs. Never wrap the Python runner
@@ -172,11 +172,12 @@ can strand detached reviewer children and skip clone cleanup.
 
 The 600 seconds is a total attempt cap, not 600 seconds of model runtime. The
 outer `execute()` call supervises the complete adapter worker, including its
-imports, input reads, repository snapshots, nested reviewer `execute()` call,
-post-run snapshots, and detailed receipt write. Start the attempt clock
-before the supervisor imports/parses inputs; the 600-second outer budget also
-includes that setup. Reserve time inside the same 600-second
-window for a separately supervised cleanup/finalization helper; a timeout,
+clone and checkout setup, imports, input reads, repository snapshots, nested
+reviewer `execute()` call, post-run snapshots, and detailed receipt write. The
+supervisor starts its monotonic attempt clock before importing or parsing inputs
+and computes the outer budget from time remaining on that clock. The worker also
+starts its monotonic deadline as its first instruction. Reserve time inside the same 600-second window for a separately
+supervised cleanup/finalization helper; a timeout,
 surviving process, missing worker receipt, failed cleanup, or deadline overrun
 leaves the pre-created receipt WITHHELD. Never start a successor unless the
 outer supervisor verified that the worker and reviewer descendants stopped and
@@ -202,7 +203,8 @@ DOCUMENTS=()
 # Example: DOCUMENTS=("docs/spec.md" "docs/plan.md")
 REVIEW_SHA="$(git rev-parse HEAD)"
 SOURCE_REPO="$(git rev-parse --show-toplevel)"
-ADVICE_RUNNER="$SOURCE_REPO/.claude/skills/advice/scripts/run_primary_pair.py"
+ADVICE_RUNNER="${CLAUDE_HOME:-$HOME/.claude}/skills/advice/scripts/run_primary_pair.py"
+test -r "$ADVICE_RUNNER" || { echo "installed advice runner is missing or unreadable: $ADVICE_RUNNER" >&2; exit 2; }
 cat > "$ADVICE_TMP/run_one_reviewer.py" <<'PY'
 import time
 started = time.monotonic()
@@ -228,19 +230,29 @@ parser.add_argument("--receipt", type=Path, required=True)
 parser.add_argument("--sha", required=True)
 parser.add_argument("--identity", required=True)
 parser.add_argument("--model", required=True)
-parser.add_argument("--preflight-started-ns", type=int, required=True)
-parser.add_argument("--preflight-ended-ns", type=int, required=True)
 parser.add_argument("--document", action="append", default=[])
 args = parser.parse_args()
-if args.preflight_ended_ns < args.preflight_started_ns:
-    raise SystemExit("invalid preflight timing; WITHHELD")
 spec = importlib.util.spec_from_file_location("advice_runner", args.runner)
 runner = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(runner)
 clone = args.clone.resolve()
 source = args.source.resolve()
-if subprocess.check_output(["git", "-C", str(clone), "rev-parse", "HEAD"], text=True).strip() != args.sha:
+clone.parent.mkdir(parents=True, exist_ok=True)
+subprocess.run(["git", "clone", "--no-local", str(source), str(clone)],
+    check=True, timeout=max(1.0, deadline - time.monotonic() - 40.0))
+subprocess.run(["git", "-C", str(clone), "remote", "remove", "origin"],
+    check=True, timeout=max(1.0, deadline - time.monotonic() - 35.0))
+subprocess.run(["git", "-C", str(clone), "checkout", "--detach", args.sha],
+    check=True, timeout=max(1.0, deadline - time.monotonic() - 30.0))
+if subprocess.check_output(["git", "-C", str(clone), "rev-parse", "HEAD"],
+        text=True, timeout=max(1.0, deadline - time.monotonic() - 25.0)).strip() != args.sha:
     raise SystemExit("clone SHA mismatch; WITHHELD")
+if subprocess.check_output(["git", "-C", str(clone), "remote"],
+        text=True, timeout=max(1.0, deadline - time.monotonic() - 20.0)).strip():
+    raise SystemExit("reviewer clone retains a remote; WITHHELD")
+if subprocess.check_output(["git", "-C", str(clone), "status", "--porcelain"],
+        text=True, timeout=max(1.0, deadline - time.monotonic() - 15.0)).strip():
+    raise SystemExit("reviewer clone is dirty before dispatch; WITHHELD")
 documents = runner.read_review_documents(source, args.document)
 document_hashes = {name: runner.digest_bytes(data) for name, data in documents.items()}
 document_bundle_sha256 = runner.digest_bytes(json.dumps(document_hashes, sort_keys=True).encode()) if documents else None
@@ -296,8 +308,6 @@ survivors = supervision["descendants_surviving"]
 elapsed = time.monotonic() - started
 receipt = {
     "sha": args.sha,
-    "preflight_started_monotonic_ns": args.preflight_started_ns,
-    "preflight_ended_monotonic_ns": args.preflight_ended_ns,
     "identity": args.identity,
     "model": args.model,
     "review_kind": "documents" if documents else "revision",
@@ -343,8 +353,8 @@ import sys
 from pathlib import Path
 
 runner_path, worker, source, clone, packet, command_file, worker_receipt, receipt = map(Path, sys.argv[1:9])
-sha, identity, model, preflight_started, preflight_ended = sys.argv[9:14]
-document_names = sys.argv[14:]
+sha, identity, model = sys.argv[9:12]
+document_names = sys.argv[12:]
 def mark_withheld(reason, outer=None):
     record = {"status": "WITHHELD", "sha": sha, "identity": identity,
         "model": model, "reason": reason,
@@ -359,15 +369,14 @@ spec.loader.exec_module(runner)
 command = [sys.executable, str(worker), "--runner", str(runner_path),
     "--source", str(source), "--clone", str(clone), "--packet", str(packet),
     "--command", str(command_file), "--receipt", str(worker_receipt),
-    "--sha", sha, "--identity", identity, "--model", model,
-    "--preflight-started-ns", preflight_started, "--preflight-ended-ns", preflight_ended]
+    "--sha", sha, "--identity", identity, "--model", model]
 for name in document_names:
     command.extend(["--document", name])
 outer_budget = min(500.0, 600.0 - (time.monotonic() - attempt_started) - 35.0)
 if outer_budget <= 0:
     mark_withheld("attempt deadline reserve exhausted")
     raise SystemExit(4)
-code, out, err, timed_out, forced, supervision = runner.execute(command, clone, "", outer_budget, 5.0)
+code, out, err, timed_out, forced, supervision = runner.execute(command, source, "", outer_budget, 5.0)
 elapsed = time.monotonic() - attempt_started
 outer = {"exit_code": code, "timed_out": timed_out, "forced_pipe_close": forced,
     "elapsed_seconds": elapsed, "supervision": supervision}
@@ -393,11 +402,14 @@ except Exception as error:
     detail = {"worker_receipt_error": type(error).__name__}
 record["reviewer"] = detail
 try:
-    shutil.rmtree(clone)
+    if clone.exists():
+        shutil.rmtree(clone)
     record["clone_cleanup_success"] = not clone.exists()
 except Exception as error:
     record["clone_cleanup_success"] = False
     record["clone_cleanup_error"] = type(error).__name__
+    if isinstance(error, FileNotFoundError):
+        record["clone_cleanup_success"] = not clone.exists()
 candidate = (outer["exit_code"] == 0 and not outer["timed_out"]
     and not outer["forced_pipe_close"] and detail.get("exit_code") == 0
     and not detail.get("timed_out") and not detail.get("forced_pipe_close")
@@ -455,22 +467,14 @@ prepare_attempt() {
   local identity="$1" model="$2" argv_json="$3"
   local attempt_dir="$ADVICE_TMP/$identity-attempt"
   mkdir "$attempt_dir"
-  git clone --no-local "$SOURCE_REPO" "$attempt_dir/reviewer-clone"
-  git -C "$attempt_dir/reviewer-clone" remote remove origin
-  git -C "$attempt_dir/reviewer-clone" checkout --detach "$REVIEW_SHA"
-  test "$(git -C "$attempt_dir/reviewer-clone" rev-parse HEAD)" = "$REVIEW_SHA"
-  test -z "$(git -C "$attempt_dir/reviewer-clone" remote)"
-  test -z "$(git -C "$attempt_dir/reviewer-clone" status --porcelain)"
   printf '%s\n' "$argv_json" > "$attempt_dir/command.json"
   printf '{"status":"WITHHELD","sha":"%s","identity":"%s","model":"%s"}\n' \
     "$REVIEW_SHA" "$identity" "$model" > "$attempt_dir/receipt.json"
 }
-PREFLIGHT_STARTED_NS="$(python3 -c 'import time; print(time.monotonic_ns())')"
 prepare_attempt codex gpt-6-sol \
   '["codex","exec","--yolo","-m","gpt-6-sol","--config","model_reasoning_effort=high"]'
 prepare_attempt opus claude-opus \
   '["claude","-p","--model","opus","--dangerously-skip-permissions"]'
-PREFLIGHT_ENDED_NS="$(python3 -c 'import time; print(time.monotonic_ns())')"
 run_attempt() {
   local identity="$1" model="$2"
   local attempt_dir="$ADVICE_TMP/$identity-attempt"
@@ -479,7 +483,7 @@ run_attempt() {
     "$attempt_dir/reviewer-clone" "$ADVICE_TMP/review-packet.txt" \
     "$attempt_dir/command.json" "$attempt_dir/worker-receipt.json" \
     "$attempt_dir/receipt.json" "$REVIEW_SHA" "$identity" "$model" \
-    "$PREFLIGHT_STARTED_NS" "$PREFLIGHT_ENDED_NS" "${DOCUMENTS[@]}" \
+    "${DOCUMENTS[@]}" \
     > "$attempt_dir/console.log" 2>&1; then
     local status=0
   else
