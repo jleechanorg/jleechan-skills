@@ -32,6 +32,24 @@ Executable code or embedded automation, application prompts, workflows, schemas,
 
 Run proportionate local checks for the actual change, such as diff hygiene, link/pointer resolution, or skill metadata validation. Record `Gate 1: CI NOT REQUIRED — documentation-only` with the reviewed SHA, scope, commands and results; never label skipped or unrun CI as passed. Address relevant failures in those local checks. Gate 2, applicable draft and final review/evidence requirements, and merge authorization remain unchanged. This policy does not bypass branch protection or authorize disabling/canceling CI jobs.
 
+## No-CI exception — a check that cannot run is not a check to wait on
+
+When CI **does not exist** for this PR, do not sleep-poll it. Three provable shapes qualify, and each needs its evidence recorded before you skip the wait:
+
+1. **No workflow applies.** No workflow file matches the changed paths (a `paths:` filter excludes this diff), or the repo has no workflow that could run this PR at all.
+2. **No runner can host it.** `gh api repos/<owner>/<repo>/actions/runners` reports zero registered runners for the repo, or every available org runner is `busy: true`, so the job can only sit `QUEUED`.
+3. **Checks are structurally stuck.** The rollup is `QUEUED`/`PENDING` with no start, and a runner-capacity read explains it — repeatedly, not once.
+
+On any of those, apply the local-equivalent exception immediately — do not wait for the ten-minute backlog threshold, and never substitute a `sleep N` + `gh pr checks` loop for actually running the command. Then record:
+
+```
+Gate 1: CI NOT APPLICABLE — <reason: no matching workflow | zero repo runners | runners saturated QUEUED>
+  evidence: <command + the output line proving it>
+  local equivalent: <the workflow's own command> → <result at SHA>
+```
+
+Guardrails that do not move: never label unrun CI as passed, never disable or cancel a job or touch branch protection, never widen this into "skip CI" for a repo whose checks are merely slow or red, and keep Gate 2, applicable review/evidence gates, and merge authorization exactly as they are. A check that has actually started is backlogged CI, not missing CI — that stays under the local-equivalent exception with its own reporting.
+
 ## Gate 1 — CI green: verification procedure (when CI applies)
 
 **`gh pr checks` is NOT sufficient** — it can report "pass" from a webhook ping or during GraphQL rate-limit exhaustion while the underlying checks are stale or failing (memory: `feedback_2026-07-11_gh_pr_checks_silent_stale_data_during_graphql_exhaustion.md`). Use the `statusCheckRollup` JSON pattern instead:
