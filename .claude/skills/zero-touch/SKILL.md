@@ -15,7 +15,7 @@ The shared catalog preserves host-installed `/advice` and `/web-advice` integrat
 A PR is **zero-touch** when AO (Agent Orchestrator) produced a PR that completed
 the draft-first quality sequence and reached `/green` without manual
 intervention from a Claude Code terminal session or human operator. Canonical
-definitions live in `draft-first-pr` and `pr-green-definition`.
+definitions live in `pr-lifecycle` and `pr-green-definition`.
 
 This repo requires explicit human `MERGE APPROVED` authorization before any
 merge (see this repo's merge-safety policy) — that authorization step, and the
@@ -34,7 +34,7 @@ Specifically:
 
 ## Quality-complete criteria
 
-Use `~/.claude/skills/draft-first-pr/SKILL.md` for the draft-phase sequence and
+Use `~/.claude/skills/pr-lifecycle/SKILL.md` for the draft-phase sequence and
 `~/.claude/skills/pr-green-definition/SKILL.md` for the two `/green` gates.
 CodeRabbit and Bugbot are advisory and do not determine zero-touch status.
 Repo evidence exceptions still apply where the evidence standards permit them.

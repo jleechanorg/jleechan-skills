@@ -59,7 +59,7 @@ gh api "repos/jleechanorg/agent-orchestrator-ts/pulls/NUM/comments" \
 
 ### Step 3 — Draft readiness + `/green` per open PR
 
-Use `~/.claude/skills/draft-first-pr/SKILL.md` and
+Use `~/.claude/skills/pr-lifecycle/SKILL.md` and
 `~/.claude/skills/pr-green-definition/SKILL.md`. Advisory checks (`Green Gate` and `Cursor Bugbot`) are excluded from gating.
 
 **Status label** (pick worst failing condition):
@@ -67,7 +67,7 @@ Use `~/.claude/skills/draft-first-pr/SKILL.md` and
 - `CONFLICT` — mergeable_state is `dirty`
 - `CI_FAILED` — any non-advisory check has non-`SUCCESS` conclusion (`FAILURE`, `CANCELLED`, `SKIPPED`, `NEUTRAL`, `TIMED_OUT`, `ACTION_REQUIRED`, null) or `StatusContext` state != `SUCCESS`
 - `CI_PENDING` — any non-advisory check has status != `COMPLETED` (`in_progress`, `queued`, `waiting`, null)
-- `DRAFT_NOT_READY` — `/es`, `/er`, or `/advice` is missing at current head
+- `DRAFT_NOT_READY` — an applicable draft gate lacks coverage for the candidate under `pr-lifecycle`; assess earlier-SHA evidence by its delta-and-scope rule rather than requiring a new verdict solely for a new hash
 
 ### Step 4 — Zero-touch rate analysis (KEY ADDITION)
 

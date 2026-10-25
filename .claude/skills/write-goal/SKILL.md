@@ -57,7 +57,7 @@ Three failure modes that keep recurring in the user's last month of coding-CLI s
 
 ## Pipeline (execute the phases that apply, in order)
 
-Applicability and review timing follow `draft-first-pr` § Coding lifecycle. A small low-risk change, including a small code fix, may skip history mining (Phase 2) and the heavier phases; user-required gates, high-risk/security gates, and real-proof requirements are never skipped.
+Applicability and review timing follow `pr-lifecycle` § Coding lifecycle. A small low-risk change, including a small code fix, may skip history mining (Phase 2) and the heavier phases; user-required gates, high-risk/security gates, and real-proof requirements are never skipped.
 
 ### Phase 1 — Intake (≤1 turn)
 
@@ -167,9 +167,9 @@ Write the goal to `.converge/goal.md` in the session's cwd (the path `/harness` 
 - Failure on CI or merge conflicts = iterate the fix, push to PR head branch (pr-ci-fix-autopush rule: push without being asked), re-check. Do NOT report "fixed" until the new head SHA shows both gates PASS.
 
 ## Quality bar (adversarial gates this repo uses)
-Run the applicable gates at completion (from /harness). Applicability and timing follow `draft-first-pr` § Coding lifecycle; user-required, high-risk/security, and real-proof gates always apply:
+Run the applicable gates at completion (from /harness). Applicability and timing follow `pr-lifecycle` § Coding lifecycle; user-required, high-risk/security, and real-proof gates always apply:
 - **/es** — Evidence Standards (both ~/.claude/skills/evidence-standards/SKILL.md AND .claude/skills/evidence-standards.md if the repo has one)
-- **/er** — Evidence Review (adversarial, independent reviewer): an applicable draft-phase gate and explicit final closing review per `draft-first-pr`, separate from `/green`; apply the owner's required final `/advice` sequence as well.
+- **/er** — Evidence Review (adversarial, independent reviewer): an applicable draft-phase gate and explicit final closing review per `pr-lifecycle`, separate from `/green`; apply the owner's required final `/advice` sequence as well.
 - **/code_standards** — 3 parallel lanes:
   - ZFC (zero-framework cognition) — no keyword routing, no regex intent detection, no hand-tuned scoring
   - ZFC-leveling — no level-up fields leaking into non-leveled surfaces

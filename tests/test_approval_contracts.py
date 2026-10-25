@@ -56,6 +56,36 @@ def cursor_coverage(output: str) -> dict:
 
 
 class ApprovalContractsTest(unittest.TestCase):
+    def test_lifecycle_entrypoints_reference_the_canonical_owner(self) -> None:
+        for name in (
+            "agento-report", "auton", "factory-evolve", "pr-report",
+            "superpowers-quick", "testing-layers", "write-goal", "zero-touch",
+        ):
+            with self.subTest(skill=name):
+                text = skill(name)
+                self.assertIn("pr-lifecycle", text)
+                self.assertNotIn("draft-first-pr", text)
+        template = (SKILLS / "write-goal" / "templates" / "goal-spec.md").read_text()
+        self.assertIn("canonical `pr-lifecycle` skill", template)
+        self.assertNotIn("draft-first-pr", template)
+
+    def test_readiness_reports_delegate_applicability_not_exact_sha_or_green_alone(self) -> None:
+        agento = skill("agento-report")
+        self.assertIn("applicable draft gate lacks coverage for the candidate", agento)
+        self.assertNotIn("is missing at current head", agento)
+        report = skill("pr-report")
+        self.assertIn('`gate1 == 0` AND `gate2 == "MERGEABLE"` → `GREEN`', report)
+        self.assertNotIn("→ `MERGE_READY`", report)
+        self.assertIn("green alone does not establish READY", report)
+
+    def test_factory_draft_and_readiness_use_applicable_canonical_gates(self) -> None:
+        factory = " ".join(skill("factory-evolve").split())
+        self.assertIn("gh pr create --repo jleechanorg/<repo> --draft", factory)
+        self.assertIn("applicable draft gates cover the candidate", factory)
+        self.assertNotIn("`/es`, `/er`, and `/advice` pass at the current head", factory)
+        self.assertNotIn("CR approved", factory)
+        self.assertIn("**STOP. Do not merge.**", factory)
+
     def test_superpowers_quick_delegates_recommended_choices_and_finishes_documents(self) -> None:
         command = (COMMANDS / "superpowers-quick.md").read_text()
         quick = skill("superpowers-quick")

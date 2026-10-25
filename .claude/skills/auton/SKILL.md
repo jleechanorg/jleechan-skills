@@ -22,7 +22,7 @@ The shared catalog preserves host-installed `/advice` and `/web-advice` integrat
 | `/auton` | After block completes | Retrospective | Outcome table, root causes, metrics |
 
 When invoked, diagnose why the jleechanclaw + AO system is not autonomously
-completing draft readiness and `/green`. Use the canonical `draft-first-pr`,
+completing draft readiness and `/green`. Use the canonical `pr-lifecycle`,
 `pr-green-definition`, and `zero-touch` skills; historical N-green/Skeptic
 machinery below must not override those current policies.
 
@@ -453,7 +453,7 @@ For each recently merged PR, check and report:
 
 - **Zero-touch** (per the canonical skill) = AO completed draft readiness and `/green` with no human/terminal intervention before that point
 - `merged_by=github-actions[bot]` is a useful proxy ONLY on repos that still have a working auto-merge bot — confirm this repo's status first rather than assuming
-- Always use the canonical `draft-first-pr`, `pr-green-definition`, and `zero-touch` skills
+- Always use the canonical `pr-lifecycle`, `pr-green-definition`, and `zero-touch` skills
 
 ### Zero-Touch Rate (last 7 days)
 | Metric | Value |
