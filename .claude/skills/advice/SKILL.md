@@ -168,9 +168,10 @@ the same 600-second cap. Do not pause or reset that clock.
 Use the runner's existing
 `execute()` supervisor API for exactly one reviewer process per attempt. It
 tracks the reviewer process tree, signals observed descendants on timeout,
-bounds pipe draining, and reports surviving PIDs. Never wrap the Python runner
-in an external timeout or kill the supervisor to enforce this deadline: that
-can strand detached reviewer children and skip clone cleanup.
+bounds pipe draining, and reports surviving PIDs. Its normal timeout path
+remains the approval path. The outer shell watchdog below is emergency-only:
+it can stop waiting and mark the attempt WITHHELD, but it cannot turn a missing
+or uncertain cleanup receipt into approval.
 
 The 600 seconds is a total attempt cap, not 600 seconds of model runtime. The
 outer `execute()` call supervises the complete adapter worker, including its
@@ -192,11 +193,19 @@ the prior clone was removed.
 The runner's raw `--timeout-seconds` default remains 1200, but the CLI wrapper
 does not expose a single-reviewer invocation with a caller-computed absolute
 deadline. Use the ephemeral `/tmp` driver below to call the existing `execute()`
-API directly. A timeout, absent/incomplete receipt, surviving owned reviewer
-process, or failed clone cleanup means WITHHELD. Before dispatching a successor,
-verify the prior reviewer stopped and its clone was cleaned; if either is
-unverified, stop and withhold. A successor is a new attempt with its own clock,
-started only after that verification.
+API directly. The shell also bounds the complete attempt wait at the original
+queued timestamp plus 600 seconds; this outer wall-clock watchdog is an
+emergency disposition, not a second approval path. If it fires, it writes a
+WITHHELD emergency receipt before signaling the isolated controller process
+group, gives termination only a bounded grace period, and returns even if the
+controller does not exit. It must not wait indefinitely for process teardown or
+clone deletion. Report any unverified controller/reviewer process or clone as
+WITHHELD and assign cleanup independently; never reuse that clone or start a
+successor until the existing supervisor verifies the worker and reviewer
+descendants stopped and the clone was removed. A timeout, absent/incomplete
+receipt, surviving owned reviewer process, or failed clone cleanup means
+WITHHELD. A successor is a new attempt with its own clock, started only after
+that verification.
 
 ```bash
 set -eo pipefail
@@ -498,16 +507,67 @@ print(json.dumps({"outer": outer, "finalizer_exit": final_code, "finalizer_outpu
 raise SystemExit(0)
 PY
 run_attempt() {
-  local identity="$1" model="$2" argv_json="$3" queued_at="$4"
+  local identity="$1" model="$2" argv_json="$3" queued_at="$4" queued_shell_seconds="$5"
   local attempt_dir="$ADVICE_TMP/$identity-attempt"
   local receipt="$attempt_dir/receipt.json"
-  if python3 "$ADVICE_TMP/supervise_attempt.py" \
+  local deadline_seconds controller_pid controller_state watchdog_expired=0
+  # The outer deadline uses Bash's builtin clock so Python startup is covered.
+  # Ten seconds remain for the bounded emergency disposition.
+  deadline_seconds=$((queued_shell_seconds + 590))
+  if (( SECONDS >= deadline_seconds )); then
+    printf '{"status":"WITHHELD","sha":"%s","identity":"%s","model":"%s","reason":"attempt deadline expired before supervisor launch"}\n' \
+      "$REVIEW_SHA" "$identity" "$model" > "$ADVICE_TMP/$identity-emergency-receipt.json"
+    printf 'WITHHELD: %s attempt deadline expired before launch\n' "$identity" >&2
+    return 4
+  fi
+  # Give this controller and its adapter a private process group so the
+  # emergency watchdog cannot signal the invoking shell or peer attempt.
+  python3 -c 'import os,sys; os.setsid(); os.execvp(sys.argv[1],sys.argv[1:])' \
+    python3 "$ADVICE_TMP/supervise_attempt.py" \
     "$ADVICE_RUNNER" "$ADVICE_TMP/run_one_reviewer.py" "$SOURCE_REPO" \
     "$attempt_dir/reviewer-clone" "$ADVICE_TMP/review-packet.txt" \
     "$attempt_dir/command.json" "$attempt_dir/worker-receipt.json" \
     "$receipt" "$REVIEW_SHA" "$identity" "$model" "$queued_at" "$argv_json" \
     "${DOCUMENTS[@]}" \
-    > "$ADVICE_TMP/$identity-console.log" 2>&1; then
+    > "$ADVICE_TMP/$identity-console.log" 2>&1 &
+  controller_pid=$!
+  while kill -0 "$controller_pid" 2>/dev/null; do
+    if (( SECONDS >= deadline_seconds )); then
+      watchdog_expired=1
+      emergency_receipt="$ADVICE_TMP/$identity-emergency-receipt.json"
+      emergency_temp="$(mktemp "$ADVICE_TMP/$identity-emergency-receipt.XXXXXX")"
+      printf '{"status":"WITHHELD","sha":"%s","identity":"%s","model":"%s","reason":"600-second outer attempt watchdog expired","controller_pid":%s,"controller_group_signal_attempted":true,"controller_exit_verified":false,"cleanup_status":"PENDING"}\n' \
+        "$REVIEW_SHA" "$identity" "$model" "$controller_pid" > "$emergency_temp"
+      mv "$emergency_temp" "$emergency_receipt"
+      # The controller group does not include the reviewer session created by
+      # execute(). Never treat this signal as descendant-cleanup proof.
+      kill -TERM -- "-$controller_pid" 2>/dev/null || true
+      local grace_deadline=$((SECONDS + 2))
+      while kill -0 "$controller_pid" 2>/dev/null && (( SECONDS < grace_deadline )); do
+        sleep 0.2
+      done
+      if kill -0 "$controller_pid" 2>/dev/null; then
+        kill -KILL -- "-$controller_pid" 2>/dev/null || true
+      fi
+      break
+    fi
+    sleep 0.2
+  done
+  if (( watchdog_expired )); then
+    # Do not make the emergency path wait on an unresponsive controller.
+    # A bounded wait reaps the ordinary case; a survivor remains WITHHELD.
+    local reap_deadline=$((SECONDS + 1))
+    while kill -0 "$controller_pid" 2>/dev/null && (( SECONDS < reap_deadline )); do
+      sleep 0.2
+    done
+    controller_state="$(ps -p "$controller_pid" -o stat= 2>/dev/null | tr -d ' ')"
+    if [[ -z "$controller_state" || "$controller_state" == Z* ]]; then
+      wait "$controller_pid" 2>/dev/null || true
+    fi
+    printf 'WITHHELD: %s outer attempt watchdog expired; cleanup must be verified independently\n' "$identity" >&2
+    return 4
+  fi
+  if wait "$controller_pid"; then
     local status=0
   else
     local status=$?
@@ -519,15 +579,17 @@ run_attempt() {
   printf '%s\n' "$status" > "$ADVICE_TMP/$identity-exit-code.txt"
   return "$status"
 }
+CODEX_QUEUED_SECONDS=$SECONDS
 CODEX_QUEUED_AT="$(python3 -c 'import time; print(time.monotonic())')"
+OPUS_QUEUED_SECONDS=$SECONDS
 OPUS_QUEUED_AT="$(python3 -c 'import time; print(time.monotonic())')"
 run_attempt codex gpt-6-sol \
   '["codex","exec","--yolo","-m","gpt-6-sol","--config","model_reasoning_effort=high"]' \
-  "$CODEX_QUEUED_AT" &
+  "$CODEX_QUEUED_AT" "$CODEX_QUEUED_SECONDS" &
 CODEX_PID=$!
 run_attempt opus claude-opus \
   '["claude","-p","--model","opus","--dangerously-skip-permissions"]' \
-  "$OPUS_QUEUED_AT" &
+  "$OPUS_QUEUED_AT" "$OPUS_QUEUED_SECONDS" &
 OPUS_PID=$!
 if wait "$CODEX_PID"; then CODEX_EXIT=0; else CODEX_EXIT=$?; fi
 if wait "$OPUS_PID"; then OPUS_EXIT=0; else OPUS_EXIT=$?; fi
