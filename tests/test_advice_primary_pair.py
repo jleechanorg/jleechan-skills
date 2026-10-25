@@ -71,14 +71,160 @@ class PrimaryPairTest(unittest.TestCase):
         path.write_text("#!/bin/sh\nset -eu\n" + body)
         path.chmod(0o755)
 
-    def invoke(self, *extra: str) -> subprocess.CompletedProcess[str]:
+    def test_exact_fetch_keeps_context_ancestry_and_drops_unrelated_blobs(self) -> None:
+        runner = load_runner_module()
+        target_path = self.repo / "tracked.txt"
+        target_path.write_text("target revision\n")
+        run("git", "add", "tracked.txt", cwd=self.repo)
+        run("git", "commit", "-qm", "review target", cwd=self.repo)
+        target_sha = run("git", "rev-parse", "HEAD", cwd=self.repo).stdout.strip()
+
+        run("git", "checkout", "--orphan", "context", cwd=self.repo)
+        for path in self.repo.iterdir():
+            if path.name != ".git" and path.is_file():
+                path.unlink()
+        (self.repo / "context.txt").write_text("comparison base\n")
+        run("git", "add", "context.txt", cwd=self.repo)
+        run("git", "commit", "-qm", "comparison base parent", cwd=self.repo)
+        context_parent_sha = run(
+            "git", "rev-parse", "HEAD", cwd=self.repo
+        ).stdout.strip()
+        (self.repo / "context.txt").write_text("comparison base head\n")
+        run("git", "add", "context.txt", cwd=self.repo)
+        run("git", "commit", "-qm", "comparison base head", cwd=self.repo)
+        context_sha = run("git", "rev-parse", "HEAD", cwd=self.repo).stdout.strip()
+
+        run("git", "checkout", "--orphan", "unrelated", cwd=self.repo)
+        for path in self.repo.iterdir():
+            if path.name != ".git" and path.is_file():
+                path.unlink()
+        unrelated_blob = self.repo / "unrelated.bin"
+        unrelated_blob.write_bytes(b"unrelated history\0" * 65536)
+        run("git", "add", "unrelated.bin", cwd=self.repo)
+        run("git", "commit", "-qm", "unrelated large history", cwd=self.repo)
+        unrelated_sha = run("git", "rev-parse", "HEAD", cwd=self.repo).stdout.strip()
+
+        destination = self.root / "reviewer"
+        runner.create_clone(
+            self.repo,
+            destination,
+            target_sha,
+            context_shas=(context_sha,),
+        )
+
+        self.assertEqual(
+            run("git", "rev-parse", "HEAD", cwd=destination).stdout.strip(),
+            target_sha,
+        )
+        self.assertEqual(
+            run(
+                "git", "merge-base", "--is-ancestor", context_sha, target_sha,
+                cwd=destination,
+            ).returncode,
+            1,
+        )
+        self.assertEqual(
+            run(
+                "git", "cat-file", "-e", f"{context_sha}^{{commit}}",
+                cwd=destination,
+            ).returncode,
+            0,
+        )
+        self.assertEqual(
+            run(
+                "git",
+                "merge-base",
+                "--is-ancestor",
+                context_parent_sha,
+                context_sha,
+                cwd=destination,
+            ).returncode,
+            0,
+        )
+        self.assertEqual(
+            run(
+                "git", "merge-base", "--is-ancestor", self.sha, target_sha,
+                cwd=destination,
+            ).returncode,
+            0,
+        )
+        self.assertEqual(
+            run("git", "diff", context_sha, target_sha, cwd=destination).returncode,
+            0,
+        )
+        unrelated_blob_sha = run(
+            "git", "rev-parse", f"{unrelated_sha}:unrelated.bin", cwd=self.repo
+        ).stdout.strip()
+        self.assertNotEqual(
+            run(
+                "git", "cat-file", "-e", unrelated_blob_sha, cwd=destination
+            ).returncode,
+            0,
+        )
+        self.assertNotEqual(
+            run(
+                "git", "cat-file", "-e", f"{unrelated_sha}^{{commit}}",
+                cwd=destination,
+            ).returncode,
+            0,
+        )
+        alternates = destination / ".git" / "objects" / "info" / "alternates"
+        self.assertFalse(alternates.exists())
+        self.assertNotEqual(
+            run(
+                "git", "config", "--local", "--get", "remote.origin.url",
+                cwd=destination,
+            ).returncode,
+            0,
+        )
+
+    def test_clone_environment_overrides_do_not_leak_to_reviewer_process(self) -> None:
+        runner = load_runner_module()
+        destination = self.root / "reviewer"
+
+        with mock.patch.dict(
+            os.environ,
+            {"GIT_NO_LAZY_FETCH": "1", "GIT_LFS_SKIP_SMUDGE": "0"},
+        ):
+            process_env = os.environ.copy()
+            commands: list[tuple[list[str], dict[str, object]]] = []
+            real_run = runner.subprocess.run
+
+            def capture_run(
+                args: list[str], **kwargs: object
+            ) -> subprocess.CompletedProcess[bytes]:
+                if isinstance(args, list) and "-C" in args:
+                    command_index = args.index("-C") + 2
+                    if args[command_index] in {"fetch", "checkout"}:
+                        commands.append((args, kwargs))
+                return real_run(args, **kwargs)
+
+            with mock.patch.object(runner.subprocess, "run", side_effect=capture_run):
+                runner.create_clone(self.repo, destination, self.sha)
+
+            self.assertEqual(os.environ["GIT_NO_LAZY_FETCH"], "1")
+            self.assertEqual(os.environ["GIT_LFS_SKIP_SMUDGE"], "0")
+            self.assertEqual(os.environ.copy(), process_env)
+
+        fetch = next(kwargs for args, kwargs in commands if args[3] == "fetch")
+        checkout = next(kwargs for args, kwargs in commands if args[3] == "checkout")
+        self.assertEqual(fetch["timeout"], 600)
+        self.assertEqual(checkout["timeout"], 600)
+        self.assertEqual(fetch["env"]["GIT_NO_LAZY_FETCH"], "0")
+        self.assertEqual(fetch["env"]["GIT_LFS_SKIP_SMUDGE"], "0")
+        self.assertEqual(checkout["env"]["GIT_NO_LAZY_FETCH"], "1")
+        self.assertEqual(checkout["env"]["GIT_LFS_SKIP_SMUDGE"], "1")
+
+    def invoke(
+        self, *extra: str, ref: str | None = None
+    ) -> subprocess.CompletedProcess[str]:
         return run(
             "python3",
             str(SCRIPT),
             "--repo",
             str(self.repo),
             "--ref",
-            self.sha,
+            ref or self.sha,
             "--packet-file",
             str(self.packet),
             "--output-dir",
@@ -86,6 +232,72 @@ class PrimaryPairTest(unittest.TestCase):
             *extra,
             env=self.env,
         )
+
+    def test_low_temp_space_refuses_before_creating_outputs_or_reviewer_clones(self) -> None:
+        runner = load_runner_module()
+        clone = mock.Mock()
+        stderr = io.StringIO()
+        low_space = mock.Mock(free=6 * 1024**3)
+
+        with (
+            mock.patch.object(runner.shutil, "disk_usage", return_value=low_space),
+            redirect_stderr(stderr),
+        ):
+            result = runner.main(
+                [
+                    "--repo", str(self.repo),
+                    "--ref", self.sha,
+                    "--packet-file", str(self.packet),
+                    "--output-dir", str(self.output),
+                ],
+                create_clone_fn=clone,
+            )
+
+        self.assertNotEqual(result, 0)
+        self.assertIn("disk", stderr.getvalue().lower())
+        clone.assert_not_called()
+        self.assertFalse(self.output.exists())
+
+    def test_disk_admission_accepts_exact_minimum_free_space(self) -> None:
+        runner = load_runner_module()
+
+        with mock.patch.object(
+            runner.shutil,
+            "disk_usage",
+            return_value=mock.Mock(free=runner.MIN_CLONE_FREE_BYTES),
+        ):
+            result = runner.check_clone_disk_space()
+
+        self.assertTrue(result["sufficient"])
+        self.assertEqual(result["free_bytes"], runner.MIN_CLONE_FREE_BYTES)
+
+    def test_disk_floor_is_rechecked_before_each_reviewer_clone(self) -> None:
+        runner = load_runner_module()
+        clone = mock.Mock(side_effect=lambda _repo, destination, _sha: destination.mkdir())
+        free_values = iter((20 * 1024**3, 20 * 1024**3, 6 * 1024**3))
+        disk_usage = mock.Mock(side_effect=lambda _path: mock.Mock(free=next(free_values)))
+        stderr = io.StringIO()
+
+        with (
+            mock.patch.object(runner.shutil, "disk_usage", disk_usage),
+            redirect_stderr(stderr),
+        ):
+            result = runner.main(
+                [
+                    "--repo", str(self.repo),
+                    "--ref", self.sha,
+                    "--packet-file", str(self.packet),
+                    "--output-dir", str(self.output),
+                ],
+                create_clone_fn=clone,
+            )
+
+        self.assertEqual(result, 8, stderr.getvalue())
+        self.assertEqual(clone.call_count, 1)
+        self.assertIn("disk admission", stderr.getvalue())
+        receipt = json.loads((self.output / "receipt.json").read_text())
+        self.assertEqual(len(receipt["clone_disk_checks"]), 3)
+        self.assertIn("disk_admission_error", receipt)
 
     def test_reviewers_accepts_codex_opus_subset_and_rejects_unknown_or_duplicates(self) -> None:
         self.executable("codex", "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
@@ -109,6 +321,50 @@ class PrimaryPairTest(unittest.TestCase):
         self.assertFalse(receipt["parallel_dispatch"])
         self.assertFalse(receipt["overlap_proven"])
         self.assertFalse((self.sync / "unexpected-opus.ran").exists())
+
+    def test_context_ref_is_resolved_and_recorded_in_receipt(self) -> None:
+        self.executable("codex", "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
+        context_ref = "refs/heads/comparison-context"
+        second_context_ref = "refs/heads/second-comparison-context"
+        run("git", "update-ref", context_ref, self.sha, cwd=self.repo)
+        run("git", "update-ref", second_context_ref, self.sha, cwd=self.repo)
+
+        result = self.invoke(
+            "--context-ref",
+            context_ref,
+            "--context-ref",
+            second_context_ref,
+            "--reviewers",
+            "codex",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        receipt = json.loads((self.output / "receipt.json").read_text())
+        self.assertEqual(
+            receipt["context_refs"],
+            [
+                {
+                    "requested_ref": context_ref,
+                    "resolved_sha_before": self.sha,
+                    "resolved_sha_after": self.sha,
+                    "changed": False,
+                },
+                {
+                    "requested_ref": second_context_ref,
+                    "resolved_sha_before": self.sha,
+                    "resolved_sha_after": self.sha,
+                    "changed": False,
+                },
+            ],
+        )
+        self.assertEqual(receipt["checkout_kind"], "independent_exact_sha_fetch")
+
+    def test_unresolvable_context_ref_fails_before_reserving_output(self) -> None:
+        result = self.invoke("--context-ref", "refs/heads/missing-context")
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("context ref does not resolve", result.stderr)
+        self.assertFalse(self.output.exists())
 
     def test_opus_only_runs_only_opus_and_records_non_parallel_dispatch(self) -> None:
         self.executable("codex", "touch \"$ADVICE_TEST_SYNC_DIR/unexpected-codex.ran\"\n")
@@ -185,7 +441,7 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         receipt = json.loads((self.output / "receipt.json").read_text())
         self.assertTrue(receipt["overlap_proven"])
         self.assertEqual(receipt["clone_shas"], {"codex": self.sha, "opus": self.sha})
-        self.assertEqual(receipt["checkout_kind"], "independent_clone_no_local")
+        self.assertEqual(receipt["checkout_kind"], "independent_exact_sha_fetch")
         self.assertEqual(receipt["reviewers"]["codex"]["status"], "success")
         self.assertEqual(receipt["reviewers"]["opus"]["status"], "success")
         self.assertNotEqual((self.sync / "codex.cwd").read_text(), (self.sync / "opus.cwd").read_text())
@@ -257,6 +513,69 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
             run("git", "show-ref", "--verify", "--quiet", "refs/heads/reviewer-evil", cwd=self.repo).returncode,
             0,
         )
+
+    def test_unrelated_source_ref_mutation_does_not_invalidate_exact_sha_review(
+        self,
+    ) -> None:
+        self.env["ADVICE_TEST_SOURCE_REPO"] = str(self.repo)
+        self.env["ADVICE_TEST_SOURCE_SHA"] = self.sha
+        self.executable(
+            "codex",
+            "git -C \"$ADVICE_TEST_SOURCE_REPO\" update-ref "
+            "refs/heads/sibling \"$ADVICE_TEST_SOURCE_SHA\"\n"
+            "printf 'VERDICT: APPROVED\\nCOVERAGE: exact SHA\\n'\n",
+        )
+
+        result = self.invoke("--reviewers", "codex")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        receipt = json.loads((self.output / "receipt.json").read_text())
+        self.assertEqual(receipt["sha"], self.sha)
+        self.assertTrue(receipt["original_repository_unchanged"])
+        self.assertEqual(receipt["original_changed_components"], [])
+        self.assertEqual(
+            run("git", "rev-parse", "refs/heads/sibling", cwd=self.repo).stdout.strip(),
+            self.sha,
+        )
+
+    def test_requested_ref_movement_is_reported_without_changing_review_sha(
+        self,
+    ) -> None:
+        tree = run("git", "rev-parse", "HEAD^{tree}", cwd=self.repo).stdout.strip()
+        next_sha = run(
+            "git",
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.invalid",
+            "commit-tree",
+            tree,
+            "-p",
+            self.sha,
+            "-m",
+            "next ref target",
+            cwd=self.repo,
+        ).stdout.strip()
+        run("git", "update-ref", "refs/heads/review", self.sha, cwd=self.repo)
+        self.env["ADVICE_TEST_SOURCE_REPO"] = str(self.repo)
+        self.env["ADVICE_TEST_NEXT_SHA"] = next_sha
+        self.executable(
+            "codex",
+            "git -C \"$ADVICE_TEST_SOURCE_REPO\" update-ref "
+            "refs/heads/review \"$ADVICE_TEST_NEXT_SHA\"\n"
+            "printf 'VERDICT: APPROVED\\nCOVERAGE: exact SHA\\n'\n",
+        )
+
+        result = self.invoke("--reviewers", "codex", ref="review")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        receipt = json.loads((self.output / "receipt.json").read_text())
+        self.assertEqual(receipt["sha"], self.sha)
+        self.assertEqual(receipt["requested_ref"], "review")
+        self.assertEqual(receipt["requested_ref_sha_before"], self.sha)
+        self.assertEqual(receipt["requested_ref_sha_after"], next_sha)
+        self.assertTrue(receipt["requested_ref_changed"])
+        self.assertTrue(receipt["original_repository_unchanged"])
 
     def test_document_review_accepts_all_git_states_without_changing_source(self) -> None:
         import shutil

@@ -134,16 +134,34 @@ For document-only review, use `--document` as described above; that mode accepts
 documents regardless of their commit status. The runner refuses a
 dirty checkout because those changes are not represented by the requested SHA.
 
-The runner creates two independent disposable clones with `git clone --no-local`,
-removes their `origin` remotes, and detaches both at the exact same SHA. It then
+The runner creates two independent disposable repositories, fetches the exact
+review SHA and its full ancestry, and detaches both at that SHA. It then
 starts A1 and A2 behind one concurrency barrier, gives them disjoint output
 files, and removes the clones afterward. It preserves the requested
 full-permission transports explicitly: `codex exec --yolo` for A1 and
 `claude -p --model opus --dangerously-skip-permissions` for A2. Independent
 clones prevent reviewer writes to refs, config, or hooks from sharing the
 original repository's `.git` state; they are deliberately **not** an OS security
-sandbox. If the original checkout, refs, local config, or hooks change, the
-runner fails closed and its verdicts may not be used.
+sandbox. If the original checkout, local config, or hooks change, the runner
+fails closed and its verdicts may not be used. The review commit is resolved
+before cloning and remains the result's identity; changes to refs in a shared
+source repository do not invalidate it. The receipt records the requested
+ref's resolved commit before and after review, so movement of that ref remains
+visible alongside the fixed review SHA. LFS binary media is unavailable because
+checkout setup skips smudging; reviewers cannot assess that media from this clone.
+By default, unrelated source branches and tags are omitted. If the review needs
+to compare against a commit outside the review SHA's ancestry, pass each required
+comparison ref with a repeated `--context-ref <ref>` option. The runner resolves
+every context ref before fetching, records its requested name and pinned SHA in
+`receipt.json`, fetches its complete ancestry into each independent repository,
+and makes those SHAs available to the reviewers without checking them out. Do
+not rely on other local refs being copied implicitly.
+Before creating reviewer outputs and again before each clone, the runner requires
+at least 10 GiB free on the temporary volume and refuses if the check fails or
+cannot be measured. This is an admission threshold, not a guarantee that space
+will remain available: concurrent disk use can race the checks, a partial/promisor
+source may fetch additional objects, and clone size can exceed the space above
+the threshold.
 
 While each reviewer root is alive, the runner samples the macOS/Linux process
 tree, retains PID plus process-start identity for discovered descendants even

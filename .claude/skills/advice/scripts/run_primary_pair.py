@@ -2,7 +2,7 @@
 """Run the /advice Codex and Opus reviewers concurrently at one exact SHA.
 
 The reviewers intentionally retain their full-permission flags. Repository
-mutation risk is reduced by giving each process its own independent clone; this
+mutation risk is reduced by giving each process its own independent checkout; this
 is not an operating-system sandbox.
 """
 
@@ -27,12 +27,20 @@ from pathlib import Path
 from typing import Any
 
 
-def git(repo: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[bytes]:
+def git(
+    repo: Path,
+    *args: str,
+    check: bool = True,
+    env: dict[str, str] | None = None,
+    timeout: float = 600,
+) -> subprocess.CompletedProcess[bytes]:
     return subprocess.run(
         ["git", "-C", str(repo), *args],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         check=check,
+        env=env,
+        timeout=timeout,
     )
 
 
@@ -138,9 +146,16 @@ def repository_snapshot(repo: Path) -> dict[str, str]:
         "checkout": checkout_fingerprint(repo),
         "ignored_metadata": digest_bytes(ignored_path_metadata(repo)),
         "local_config": digest_bytes(git(repo, "config", "--local", "--null", "--list").stdout),
-        "refs": digest_bytes(git(repo, "show-ref", "--head", check=False).stdout),
         "effective_hooks": hook_tree_fingerprint(effective_hooks),
     }
+
+
+def resolve_ref(repo: Path, ref: str) -> str | None:
+    """Resolve the requested review ref, or report that it no longer exists."""
+    result = git(repo, "rev-parse", f"{ref}^{{commit}}", check=False)
+    if result.returncode != 0:
+        return None
+    return result.stdout.decode().strip()
 
 
 def command_path(name: str) -> str | None:
@@ -485,6 +500,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo", required=True, type=Path)
     parser.add_argument("--ref", required=True)
+    parser.add_argument(
+        "--context-ref",
+        action="append",
+        default=[],
+        help="explicit comparison commit or ref to include; repeat for each context",
+    )
     parser.add_argument("--packet-file", required=True, type=Path)
     parser.add_argument("--document", action="append", default=[],
                         help="saved Markdown document relative to repo; repeat for document-only review")
@@ -513,6 +534,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Codex model for primary review (default: gpt-6-sol; 5.6 models forbidden, only gpt 6 or 6.1 allowed)",
     )
     args = parser.parse_args(argv)
+    if len(set(args.context_ref)) != len(args.context_ref):
+        parser.error("--context-ref values must not be duplicated")
     try:
         args.codex_model = validate_codex_model(args.codex_model)
     except ValueError as err:
@@ -536,23 +559,74 @@ def cleanup_directory(path: Path) -> dict[str, Any]:
     return {"success": True, "error": None, "path": str(path)}
 
 
-def create_clone(source: Path, destination: Path, sha: str) -> None:
+def create_clone(
+    source: Path,
+    destination: Path,
+    sha: str,
+    context_shas: tuple[str, ...] = (),
+) -> None:
+    # Two environment-dependent fetch failures this guard fixes:
+    # 1. A partial/promisor source (remote.origin.partialclonefilter=blob:none)
+    #    makes upload-pack refuse to lazy-fetch missing objects. Force lazy
+    #    fetch back on while transferring each exact commit's full ancestry.
+    # 2. When filter.lfs.required=true, the checkout smudge filter needs the
+    #    LFS endpoint, but the isolated checkout has no remote, so the smudge
+    #    filter fails with `missing protocol`. Skip LFS smudge: reviewers read
+    #    source, not LFS media.
+    fetch_env = os.environ.copy()
+    fetch_env["GIT_NO_LAZY_FETCH"] = "0"
+    checkout_env = os.environ.copy()
+    checkout_env["GIT_LFS_SKIP_SMUDGE"] = "1"
     subprocess.run(
         [
             "git",
-            "clone",
+            "init",
             "--quiet",
-            "--no-local",
-            "--no-checkout",
-            str(source),
             str(destination),
         ],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         check=True,
+        timeout=600,
     )
-    git(destination, "remote", "remove", "origin")
-    git(destination, "checkout", "--quiet", "--detach", sha)
+    for context_sha in dict.fromkeys((sha, *context_shas)):
+        git(
+            destination,
+            "fetch",
+            "--quiet",
+            "--no-tags",
+            str(source),
+            context_sha,
+            env=fetch_env,
+        )
+    git(
+        destination,
+        "checkout",
+        "--quiet",
+        "--detach",
+        sha,
+        env=checkout_env,
+    )
+
+
+MIN_CLONE_FREE_BYTES = 10 * 1024**3
+
+
+class DiskAdmissionError(RuntimeError):
+    """The temporary volume does not meet the free-space threshold."""
+
+
+def check_clone_disk_space() -> dict[str, int | bool]:
+    try:
+        free_bytes = shutil.disk_usage(tempfile.gettempdir()).free
+    except OSError as error:
+        message = f"cannot measure temporary-volume free space: {error}"
+        raise DiskAdmissionError(message) from error
+    return {
+        "free_bytes": free_bytes,
+        "minimum_free_bytes": MIN_CLONE_FREE_BYTES,
+        "sufficient": free_bytes >= MIN_CLONE_FREE_BYTES,
+    }
 
 
 def descendant_termination_failures(reviewers: dict[str, Any]) -> list[str]:
@@ -606,7 +680,27 @@ def main(
     if not args.document and git(repo, "status", "--porcelain=v1", "--untracked-files=all").stdout:
         print("input checkout must be clean; dirty state is not represented by an exact SHA", file=sys.stderr)
         return 2
-    sha = git(repo, "rev-parse", f"{args.ref}^{{commit}}").stdout.decode().strip()
+    sha = resolve_ref(repo, args.ref)
+    if sha is None:
+        print(f"review ref does not resolve to a commit: {args.ref}", file=sys.stderr)
+        return 2
+    context_refs = []
+    for requested_ref in args.context_ref:
+        context_sha = resolve_ref(repo, requested_ref)
+        if context_sha is None:
+            print(
+                f"context ref does not resolve to a commit: {requested_ref}",
+                file=sys.stderr,
+            )
+            return 2
+        context_refs.append(
+            {
+                "requested_ref": requested_ref,
+                "resolved_sha_before": context_sha,
+                "resolved_sha_after": None,
+                "changed": False,
+            }
+        )
     before = repository_snapshot(repo)
     try:
         documents = read_review_documents(repo, args.document)
@@ -618,10 +712,22 @@ def main(
         json.dumps(document_hashes, sort_keys=True).encode()
     ).hexdigest() if documents else None
     packet = args.packet_file.read_text()
+    context_prompt = ""
+    if context_refs:
+        context_prompt = (
+            "Explicit comparison context commits are available in the local Git object "
+            "database; they are not the reviewed checkout:\n"
+            + "\n".join(
+                f"- {context['requested_ref']}: {context['resolved_sha_before']}"
+                for context in context_refs
+            )
+            + "\n\n"
+        )
     prompt = (
         f"EXACT REVIEW SHA: {sha}\n"
-        "The current directory is an independent detached clone at that SHA. Review only this checkout.\n\n"
-        f"{packet}"
+        "The current directory is an independent detached checkout at that SHA. "
+        "Review this checkout as the subject.\n"
+        f"{context_prompt}\n{packet}"
     )
     if documents:
         prompt = (
@@ -634,6 +740,19 @@ def main(
                           for i, name in enumerate(documents)}, sort_keys=True)
             + "\n\n" + packet
         )
+    try:
+        initial_disk_check = check_clone_disk_space()
+    except DiskAdmissionError as error:
+        print(f"review clone disk admission failed: {error}", file=sys.stderr)
+        return 8
+    if not initial_disk_check["sufficient"]:
+        print(
+            "review clone disk admission failed: temporary volume has "
+            f"{initial_disk_check['free_bytes'] / 1024**3:.1f} GiB free; "
+            f"admission threshold is {MIN_CLONE_FREE_BYTES / 1024**3:.0f} GiB",
+            file=sys.stderr,
+        )
+        return 8
     try:
         # Reserve the result path before dispatch. Reusing a directory could
         # leave an unselected review artifact beside a fresh receipt.
@@ -648,11 +767,18 @@ def main(
     temp_root = Path(tempfile.mkdtemp(prefix="advice-primary-pair-"))
     receipt: dict[str, Any] = {
         "sha": sha,
+        "requested_ref": args.ref,
+        "requested_ref_sha_before": sha,
+        "requested_ref_sha_after": None,
+        "requested_ref_changed": False,
         "review_kind": "documents" if documents else "revision",
         "document_hashes": document_hashes,
         "document_bundle_sha256": document_bundle_sha256,
         "parallel_dispatch": len(args.reviewers) > 1,
-        "checkout_kind": "independent_clone_no_local",
+        "checkout_kind": "independent_exact_sha_fetch",
+        "context_refs": context_refs,
+        "minimum_clone_free_bytes": MIN_CLONE_FREE_BYTES,
+        "clone_disk_checks": [initial_disk_check],
         "timeout_seconds": args.timeout_seconds,
         "timeout_grace_seconds": args.timeout_grace_seconds,
         "codex_model": args.codex_model,
@@ -663,7 +789,23 @@ def main(
         reviewer_names = args.reviewers
         clones = {name: temp_root / name for name in reviewer_names}
         for path in clones.values():
-            create_clone_fn(repo, path, sha)
+            disk_check = check_clone_disk_space()
+            receipt["clone_disk_checks"].append(disk_check)
+            if not disk_check["sufficient"]:
+                raise DiskAdmissionError(
+                    "temporary volume fell below the "
+                    f"{MIN_CLONE_FREE_BYTES / 1024**3:.0f} GiB admission threshold "
+                    "before the next reviewer clone"
+                )
+            if context_refs:
+                create_clone_fn(
+                    repo,
+                    path,
+                    sha,
+                    tuple(context["resolved_sha_before"] for context in context_refs),
+                )
+            else:
+                create_clone_fn(repo, path, sha)
             if documents:
                 document_root = path / ".advice-review-documents"
                 document_root.mkdir(exist_ok=False)
@@ -720,6 +862,10 @@ def main(
         if documents and read_review_documents(repo, args.document) != documents:
             raise RuntimeError("source documents changed during review")
         receipt["operation"] = {"success": True, "error": None}
+    except DiskAdmissionError as error:
+        operational_error = f"{type(error).__name__}: {error}"
+        receipt["disk_admission_error"] = str(error)
+        receipt["operation"] = {"success": False, "error": operational_error}
     except Exception as error:
         operational_error = f"{type(error).__name__}: {error}"
         receipt["operation"] = {"success": False, "error": operational_error}
@@ -727,9 +873,19 @@ def main(
         receipt["cleanup"] = cleanup_fn(temp_root)
         try:
             after = repository_snapshot(repo)
+            requested_ref_sha_after = resolve_ref(repo, args.ref)
+            receipt["requested_ref_sha_after"] = requested_ref_sha_after
+            receipt["requested_ref_changed"] = requested_ref_sha_after != sha
             receipt["original_changed_components"] = sorted(
                 component for component in before if before[component] != after[component]
             )
+            for context in receipt["context_refs"]:
+                context["resolved_sha_after"] = resolve_ref(
+                    repo, context["requested_ref"]
+                )
+                context["changed"] = (
+                    context["resolved_sha_after"] != context["resolved_sha_before"]
+                )
             receipt["original_repository_unchanged"] = not receipt["original_changed_components"]
             receipt["original_checkout_unchanged"] = receipt["original_repository_unchanged"]
         except Exception as error:
@@ -750,6 +906,13 @@ def main(
     if not receipt["cleanup"]["success"]:
         print(f"failed to clean disposable clones: {receipt['cleanup']['error']}", file=sys.stderr)
         return 5
+    if receipt.get("disk_admission_error"):
+        print(
+            "review clone disk admission failed: "
+            f"{receipt['disk_admission_error']}",
+            file=sys.stderr,
+        )
+        return 8
     if operational_error is not None:
         print(f"primary reviewer operation failed: {operational_error}", file=sys.stderr)
         return 6
