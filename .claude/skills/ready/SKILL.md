@@ -34,17 +34,14 @@ A PR is READY when ALL of the following hold, verified at the CURRENT head SHA
    `draft-first-pr` § Review records in the PR description, including its one
    current `**Evidence**` marker. Preserve historical receipts and capture SHAs.
 2. **/er** — when `draft-first-pr` (including repo-defined exemptions) requires
-   it, adversarial evidence review verdict PASS at the current head (findings
-   fixed RED-first). A head move whose actual delta leaves every tested claim,
+   it, adversarial evidence review verdict PASS applicable to the candidate (findings fixed RED-first), retaining its actual reviewed/tested SHA. A head move whose actual delta leaves every tested claim,
    assertion, and driver intact may instead be reaffirmed at the new SHA under
    `draft-first-pr/SKILL.md`'s SHA-binding rule — document the delta and the
    prior verdict's provenance rather than relabeling the old capture; a
    behavioral change or a changed assertion/driver requires a fresh run.
 3. **/advice** — when `draft-first-pr` § Advice applicability
    requires it, at least two independent full-coverage approval reviewers
-   from the canonical `advice/SKILL.md` approval lanes approve the exact head, or
-   every REQUEST_CHANGES finding is fixed and the two-reviewer quorum is rerun
-   and approves. Research and the orchestrating agent do not vote. One approval
+   from the canonical `advice/SKILL.md` approval lanes provide approvals whose coverage applies to the candidate. Resolve every REQUEST_CHANGES finding and obtain any missing affected review; a SHA change alone does not require recalling both voters. Research and the orchestrating agent do not vote. One approval
    can block but cannot approve; unavailable or partial-coverage reviewers do
    not satisfy the approval quorum. The same delta-based reaffirmation
    applies here (full original coverage plus the small reviewed delta,
@@ -70,8 +67,7 @@ A PR is READY when ALL of the following hold, verified at the CURRENT head SHA
    anyway.)
 
 After this work stabilizes, complete final `/er` then final `/advice` as required
-by `draft-first-pr` § Ready phase. At an unchanged SHA, closing reviewers may
-reaffirm completed coverage; do not rerun unchanged expensive evidence. A fix
+by `draft-first-pr` § Ready phase. Apply that owner's reasoned delta and phase assessment to final approvals, including approvals earned at an earlier SHA; record applicability without relabeling the original review. Request only missing or affected coverage; do not rerun unchanged expensive evidence. A fix
 reopens affected proof and current-head readiness checks. Record every review's
 gist URL and reviewed SHA under that owner's Review records contract, preserving
 history and honest blocked states. Do not report READY before this closure.

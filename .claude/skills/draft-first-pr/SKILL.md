@@ -7,6 +7,8 @@ metadata:
 
 # Draft-First PR Policy
 
+This is the self-contained operational lifecycle contract. [PR Workflow Manager](../pr-workflow-manager/SKILL.md) is the command/branch entry point; keep its draft, stage, evidence-applicability and safety guidance synchronized with this file. Repository adapters reference these skills and add only repository-specific requirements. Design documents explain rationale; they are not required to execute this workflow.
+
 ## Retained review integrations
 
 The shared catalog preserves host-installed `/advice` and `/web-advice` integrations instead of installing them. Before invoking either, resolve its `../advice/SKILL.md` or `../web-advice/SKILL.md` relative to this package and read the existing skill. For a remote invocation, check the corresponding skill on the target host. If absent, report that integration as `UNAVAILABLE` and identify the missing package; do not invent a replacement runner, claim an approval, or treat a required gate as passed. Continue independent authorized work, but leave any dependent readiness or plan-approval gate unmet. Existing review quorum, external-disclosure authorization, and optional-review rules still apply.
@@ -25,14 +27,14 @@ DRAFT
   → /advice APPROVED @ SHA when required by Advice applicability below
   → mark ready-for-review (gh pr ready <N>)
   → /ready work: /green, comments, conflicts, and regression checks
-  → final /er PASS @ current HEAD when applicable
-  → final /advice APPROVED @ current HEAD when required
+  → final /er PASS applicable to the candidate when required
+  → final /advice APPROVED applicable to the candidate when required
   → READY
   → separate merge authorization: explicit human "MERGE APPROVED" (case-insensitive)
     in the most recent live user message
 ```
 
-Each arrow is a gate, not a formality — do not skip ahead, and do not treat an earlier gate's pass as still valid once HEAD has moved (see "SHA-binding rule" below).
+Each arrow is a gate, not a formality. Do not skip ahead. A changed SHA triggers the reasoned delta assessment below, not automatic invalidation or a mandatory repeat review. Preserve the original tested/reviewed SHA and record why its evidence and verdict still apply to the candidate.
 
 ## Advice applicability
 
@@ -66,6 +68,73 @@ Examples: +25/-24 = 49: optional; +25/-25 = 50: required;
 when requested or separately authorized; preserve its real verdict if it runs.
 Neither optional review permits ignoring a known correctness or safety blocker.
 
+## Visible six-stage workflow (repository opt-in)
+
+Repositories that explicitly adopt this section use the following complete stage rules.
+No dated design document is needed. Other repositories keep the generic lifecycle and their existing local requirements.
+
+### Specification and artifact
+
+Every specification records seven elements: outcome, non-goals, acceptance, user stories
+(or an explicit no-user-facing-change reason), proof plan, mock (or justified exemption), and risk.
+Keep the specification and implementation in the same PR. For the complete actual-base...head diff:
+- Under 50 total additions+deletions: use PR-body `## Specification`, including for high-risk small changes.
+- At least50, or an incomplete/uncountable/binary diff: commit the seven-element specification in the same PR.
+- Crossing that boundary without the committed specification returns to Stage 0.
+Artifact placement does not waive high-risk independent full-diff review or required real proof.
+Do not split coherent work merely to evade review thresholds.
+
+### Stage, title and labels
+
+Use one stage label and one recognized leading title prefix. Preserve the substantive title,
+unrelated tags/labels and all holds, including any repository-required author/tool provenance suffix. Replace an old stage prefix rather than stacking prefixes; never invent a tool/model identity.
+
+| Stage | Title prefix | Label | Work and exit proof |
+|---|---|---|---|
+| 0 Specification | [specification] | stage:0-spec | Draft opened; seven elements, stories and mock/exemption complete in the required artifact. |
+| 1 Coding | [coding] | stage:1-coding | Scoped implementation and applicable causal RED/GREEN, focused checks and correctness review complete. |
+| 2 Evidence generation | [evidence generation] | stage:2-evidence | Applicable /es proof generated and delivered, original tested SHA and claim map recorded, or justified exemption. |
+| 3 Evidence review | [evidence review] | stage:3-evidence-review | Applicable /er and draft review route satisfied by independent verdicts whose coverage applies to the candidate. The review SHA need not equal HEAD when the delta assessment supports reuse. |
+| 4 CI and undraft | [CI and undraft] | stage:4-ci-undraft | Undraft, finish /ready, and verify current-candidate /green and conflicts using only documented exceptions. |
+| 5 Final approval | [final approval] | stage:5-final-approval | Final-phase review obligations satisfied by applicable independent approvals, with findings resolved or explicitly deferred as allowed. Earlier review SHAs may remain valid by reasoned assessment; merge authority is separate. |
+
+A stage name describes work remaining. [final approval] does not mean approved or merged.
+Orthogonal hold labels are hold:reviewer, hold:operator, hold:conflict and hold:quota; they never replace the stage.
+For each transition, read the actual head/base, title, labels, body, artifacts and findings; choose the earliest
+unmet stage, synchronize title/label/`## PR Stage`, and read back all three.
+The body records stage/status, accountable owner, next action or exact blocker/resumption trigger, actual
+head/base, full diff count/review route and original tested/reviewed SHAs with current applicability.
+Verify label existence using authorized tooling; provision only within explicit scope.
+A denied, unavailable or uncertain operation is a partial state to report, not permission to bypass it.
+Never claim synchronization from a successful title update alone. No bulk adoption from draft status or CI colour.
+
+### Review routes for opted-in repositories
+
+Use the Advice applicability boundary and independent coverage rules in this skill.
+At Stage 3: small PRs need /advice OR independent /dot approval; large PRs need both.
+At Stage 5: the same route applies to final obligations; large PRs attempt /wa best effort when authorized.
+Explicitly required reviews remain required. Unavailable best-effort /wa is disclosed, not invented approval.
+An independent /dot receipt names its reviewer, declared source/evidence scope, original tested/reviewed SHAs, actual inspection/actions, verdict, coverage, findings/limits and retrievable receipt. An acknowledgment, capability claim or another reviewer's verdict is not /dot approval. Its covered scope must satisfy the requested gate; narrow visual approval is not full source approval.
+Reviewer eligibility and quorum remain owned by their review skills; the author/orchestrator cannot self-award
+an independent vote, and reusing a verdict never creates an extra voter.
+Draft and final obligations are distinct: evaluate whether the existing verdict's scope and phase cover the
+closing obligations, rather than copying a draft status blindly. Request only the missing or affected review.
+
+### Regression and synchronization
+
+Use the earliest unmet gate: changed/missing requirements or specification -> Stage 0; implementation defect
+or material change -> Stage 1 then affected proof; missing/invalid evidence -> Stage 2; missing draft review
+coverage -> Stage 3; only CI/conflict/readiness work -> Stage 4; only final approval -> Stage 5.
+A head/base move alone requires delta assessment and current-candidate /green, not a full evidence/review restart.
+After Stage 4, a harmless change can reuse applicable reviews but still refresh /green before final completion.
+Material policy, assertion, fixture, driver, configuration, prompt or schema changes reopen the gates they affect.
+Keep original receipts and timestamps. Never rename historical evidence as a new run.
+
+Keep this contract, the pr-workflow-manager entry point and repository adapters in sync when changing stage
+names, title prefixes, labels, review routes or applicability rules. Repo adapters must reference this skill,
+not copy its tables. Check affected references and report any installed copy that is stale or unavailable;
+a source push does not install or synchronize another computer.
+
 ## Coding lifecycle (pre-draft work) — scale layers to risk
 
 Order: explore → outcome spec (no code) → code-level design when useful → TDD
@@ -76,7 +145,7 @@ only the affected behavior.
 
 | Change class | Layers |
 |---|---|
-| Wording-only / small low-risk (including a small code fix) | Skip standalone spec, plan, and plan-review cycle; focused tests, then the applicable gates below. Runtime change or file count alone does not make a change non-small. |
+| Wording-only / small low-risk (including a small code fix) | Skip standalone spec, plan, and plan-review cycle; focused tests, then the applicable gates below. Runtime change or file count alone does not make a change non-small. For an opted-in repository, the visible-stage size rule still determines specification placement; this row governs risk/review depth, not a conflicting artifact exemption. |
 | Ordinary feature | Outcome spec, TDD, unit + relevant tests, correctness checkpoint, then formal review. |
 | Cross-service boundary | Add an integration-layer test; a mocked unit test cannot prove it. |
 | Large change | May pause at the correctness checkpoint for human direction before expensive review (optional, never a gate). |
@@ -113,7 +182,7 @@ Before this final sequence, run independent code-correctness reviews (including
 /advice reviewers) and cheap focused checks in parallel when resources permit.
 Resolve or explicitly defer their findings, batch fixes, and freeze the code
 before expensive evidence. Reviewers may finish code inspection early; final
-approval must account for the finished evidence and exact current SHA. Do not
+approval must account for the finished evidence and candidate, including documented applicability of any earlier reviewed SHA. Do not
 run expensive evidence while known code-correctness work remains unfinished.
 
 When multiple reviews are requested, use one frozen candidate/base and one
@@ -124,10 +193,7 @@ declared change, while focus lanes supplement rather than replace approval.
 Collect current findings in one batch. After repeated same-cause
 findings, inspect the shared representation before another local patch. Do not
 invent additional approval gates; existing approvals remain workflow-specific.
-Final evidence stays last; when evidence is in the declared review scope, the
-same independent reviewers must inspect it and reaffirm at the finished HEAD. A
-same-HEAD finished code review can account for unchanged code without blindly
-rereading it; the orchestrator cannot promote an earlier review alone.
+Final evidence stays last; evidence in the declared review scope must actually have been inspected by an eligible independent reviewer. Reuse that verdict when its evidence and claim coverage remain applicable after the documented delta assessment. New or changed evidence needs the affected independent review; unchanged material does not need another full reading or model call merely to restamp a SHA. The orchestrator cannot invent missing coverage or self-award approval.
 
 While a PR is draft, accept these final gates, where applicable, in sequence — do not skip any applicable gate:
 
@@ -139,11 +205,11 @@ the default when the repo defines none. No `/er` exemption covers changes to app
 merge, review, evidence, or security rules, or to security, permission,
 credential, or merge-path code.
 
-1. **`/es`** — evidence bundle passes (real evidence per `~/.claude/skills/evidence-standards/SKILL.md` + repo-specific extensions), verified at the PR's current HEAD SHA.
-2. **`/er`** — for every PR except the documentation-only class below or a repo-exempted class, evidence review verdict is PASS (not PARTIAL/FAIL/INCONCLUSIVE), verified at the same current HEAD SHA — re-run if `/es` was earned at an older SHA.
-3. **`/advice`** — second-opinion approval on the change itself (`APPROVED at <SHA>` / `NOT APPROVED at <SHA>` / `WITHHELD at <SHA>` — see `~/.claude/skills/advice/SKILL.md`), bound to the same current HEAD SHA, when required by Advice applicability. `WITHHELD` does not satisfy the draft gate.
+1. **`/es`** — evidence bundle passes (real evidence per `~/.claude/skills/evidence-standards/SKILL.md` + repo-specific extensions), bound to its original tested SHA and supported as applicable to the candidate by the delta assessment below.
+2. **`/er`** — for every PR except the documentation-only class below or a repo-exempted class, evidence review verdict is PASS (not PARTIAL/FAIL/INCONCLUSIVE), with its original reviewed/tested SHAs and a reasoned applicability assessment for the candidate; an older `/es` SHA alone does not require a rerun.
+3. **`/advice`** — second-opinion approval on the change itself (`APPROVED at <SHA>` / `NOT APPROVED at <SHA>` / `WITHHELD at <SHA>` — see `~/.claude/skills/advice/SKILL.md`), bound to its actual reviewed SHA and applicable to the candidate by the delta assessment, when required by Advice applicability. `WITHHELD` does not satisfy the draft gate.
 
-Only after every applicable gate passes **at the same current SHA**: flip the PR from draft to ready-for-review (`gh pr ready <N>`).
+Only after every applicable gate is satisfied **for the candidate**, with original SHAs and explicit applicability where they differ: flip the PR from draft to ready-for-review (`gh pr ready <N>`).
 
 ### Documentation-only CI exception
 
@@ -228,7 +294,7 @@ For this `/er` exemption, every changed path must be one of:
 For that class, do not run `/er`. Record
 `/er: NOT REQUIRED — documentation-only (<changed paths>)` on the PR, then
 continue to `/advice` where Advice applicability requires it. Documentation-only
-PRs still require applicable `/es` and current-SHA verdicts, followed by the ready
+PRs still require applicable `/es` and verdict coverage for the candidate, followed by the ready
 phase using the documentation-only CI exception and separate merge authorization.
 
 This `/er` exemption is an exact allowlist, not a file-extension heuristic. Changes under
@@ -263,37 +329,40 @@ alone never decide evidence sufficiency or independent safety-review depth.
 
 ## SHA-binding rule (critical — applies to every gate in this chain)
 
-`/es`, `/er`, `/advice`, and `/green` gate verdicts are each earned **at a specific commit SHA** — none of the production-gate verdicts carry forward across a HEAD move. If a new commit lands after a verdict (a nit fix, a rebase, a CI-requested change), that verdict is **STALE** and must be re-earned — or explicitly re-affirmed at the new SHA — before it counts toward the next gate in the chain.
+Evidence and independent reviews are earned at their actual tested/reviewed commit SHAs.
+Those original SHAs and timestamps never change. A different candidate SHA is not, by itself,
+a defect in the evidence or a requirement to run the same review again.
 
-**This is a verdict-binding rule, not an automatic evidence-capture rule.** Apply
-the evidence-staleness tolerance in `evidence-standards`: a HEAD change whose
-actual delta (not its path category) leaves every tested claim intact does not
-require a fresh production-evidence run. The reviewer may re-affirm `/es` at
-the new SHA after documenting that delta and the claims checked. A production behavior
-change still requires fresh evidence, then fresh SHA-bound `/es`, `/er`, and
-`/advice` verdicts.
+Before relying on earlier /es, /er, /advice, /dot, /wa or /cs results, read the complete intervening
+head and base delta against the precise claims and scope of the original receipt. Record:
+- original tested SHA, original reviewed SHA, candidate head/base and the inspected delta;
+- covered claims, execution paths, environment/build/config and evidence dependencies;
+- relevant tests and results, remaining findings/limitations, assessor and rationale;
+- one disposition: applicable unchanged, partially applicable with named gaps, or invalidated.
 
-**Classify by the actual delta and the claim it could invalidate, never by path
-category.** Tests, evidence drivers and captures, prompts, contracts, schemas, and
-executable skill instructions can change behavior or invalidate proof. Re-affirm only
-after reading the delta and documenting why no tested claim, driver, or assertion is
-affected; a changed assertion, driver, or behavioral instruction invalidates the
-evidence that depends on it.
+Reuse an actual independent verdict when the assessment demonstrates that its coverage and
+applicable phase still satisfy the candidate's obligations. This applicability record is not a new
+reviewer vote and must not claim the reviewer inspected a SHA they did not inspect.
+A new independent review is needed for uncovered relevant changes, changed evidence in its scope,
+unresolved material findings or uncertain applicability, not merely for a new hash.
 
-Preserve the original tested SHA in every artifact. Record current applicability
-separately with the actual reviewed delta, affected claims, relevant tests and
-results, reviewer, and new SHA; never relabel an old capture as a new run.
-A base-only change also requires checking its effect on the diff, advice size,
-mergeability, and claims; an unchanged head is not proof of unchanged context.
+Classify by the actual delta and claim, never by path category. A production behavior change still
+requires fresh evidence for affected claims and appropriate independent review of that change.
+In particular, a changed assertion, driver, or behavioral instruction invalidates the evidence that depends on it;
+unrelated claims can remain valid. Tests, prompts, schemas, CI, configuration and skill instructions
+can invalidate proof even when classified non-production. There is no blanket category carry-forward.
 
-The verdict rule applies uniformly:
+Preserve the original tested SHA and reviewed SHA; record current applicability separately, with
+the reviewed delta, affected claims and relevant tests. Keep provenance immutable: never relabel an old capture as a new run.
+If only unrelated wording or packaging changes, document why the claims remain intact and reuse
+their proof without an automatic full rerun. If a boundary/UI/driver changes, rerun or re-review
+the affected portion at the lowest sufficient layer; keep stricter real-service and native requirements.
+If the diff or provenance cannot be inspected, leave that applicability unverified.
 
-- A stale `/es` PASS does not justify running `/er` against it when `/er` is required.
-- A stale `/er` PASS does not justify running `/advice` against it when `/er` is required.
-- A stale `/advice` APPROVED does not justify marking the PR ready.
-- A stale `/green` does not justify reporting merge-readiness.
-
-Before trusting any prior verdict, compare the SHA it was stamped with against the PR's live head: `gh pr view <N> --json headRefOid --jq '.headRefOid'`. On mismatch, run the staleness-tolerance diff test (read `git diff <verdict-sha> HEAD` against the verdict's claims): a delta that leaves those claims intact lets the verdict be re-affirmed at the new SHA after documenting the diff; a material delta means re-earning the gate. Never carry a verdict forward on memory alone — and never trigger an expensive rerun per finding: batch all pending fixes into one new SHA first (see `evidence-standards` § Evidence Sequencing).
+Current-candidate /green, mergeability and head-matching merge protection still require fresh verification.
+A base-only move also requires assessing the changed context and complete-diff size.
+Do not infer readiness from a stale CI result or unresolved conflict. Batch related fixes before
+expensive proof, and never weaken assertions or waive quorum to make an old approval appear valid.
 
 **Chain timing and quality.** The draft chain (`/es` → `/er` → `/advice`) is the FINAL pass: run it after code is complete and all known findings are resolved or deferred (`evidence-standards` § Evidence Sequencing) — not per push while fixes are still landing. Review findings remain subject to the required correctness gates: behavior-blocking findings must be fixed and reverified, while style/nit/doc feedback may be tracked as follow-ups. Batch pending behavioral fixes into one SHA before re-earning affected evidence.
 
@@ -306,10 +375,7 @@ exceptions, and fresh mergeability; do not duplicate those mechanics here.
 Keep an already non-draft PR non-draft while completing its open gates.
 
 After ready-phase work stabilizes, perform the final `/er` when applicable, then
-one final `/advice` when Advice applicability requires it. These are explicit
-closing verdicts, not an automatic copy of draft approvals. At an unchanged
-candidate, reviewers may inspect the completed work/receipts and reaffirm prior
-coverage without repeating unchanged expensive captures. Required advice keeps
+one final `/advice` when Advice applicability requires it. These are explicit closing obligations, not an automatic copy of draft approvals. Apply the same reasoned delta-and-scope decision to final approvals: a prior independent verdict can remain applicable without a fresh review at HEAD when it covers the final obligations. Request missing or affected review rather than an automatic full rerun; retain original verdict attribution. Required advice keeps
 its canonical independent quorum; the orchestrator cannot approve itself.
 
 If a final review requires a fix, batch fixes, rerun affected checks/evidence,

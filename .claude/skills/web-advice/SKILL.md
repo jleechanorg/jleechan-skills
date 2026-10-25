@@ -548,8 +548,8 @@ intact is not stale: re-affirm at the new SHA and record both SHAs and the delta
 
 Recovery:
 1. Mark the evidence or production claim unverified; do not use it to support a recommendation.
-2. Regenerate the evidence bundle against current HEAD.
-3. Re-run `/er` before making an evidence-backed or production conclusion.
+2. Update the bundle's claim/delta index; regenerate only affected proof, retaining valid artifacts with their original tested SHAs and timestamps.
+3. Obtain affected `/er` review before making the unsupported conclusion; reuse unaffected independent coverage by the canonical reasoned applicability assessment.
 4. Continue or repeat the broader advice only if that is useful after the evidence is fresh.
 
 ---

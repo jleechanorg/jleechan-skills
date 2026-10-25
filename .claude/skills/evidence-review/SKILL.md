@@ -45,7 +45,7 @@ prior verdict at the new SHA instead (see `evidence-standards` §
   SHA. Mixed diffs and every path outside that allowlist follow the normal gate.
 
 Every PR outside that exception, and outside any low-risk class the repo's own
-instructions exempt per `draft-first-pr`, requires `/er` = **PASS** at the current SHA
+instructions exempt per `draft-first-pr`, requires `/er` = **PASS** applicable to the candidate, retaining the original reviewed SHA and documented delta assessment when it differs
 before `/advice`. PARTIAL, FAIL, or INCONCLUSIVE remains informative reviewer
 output but does not satisfy the gate.
 
@@ -239,10 +239,7 @@ compare to the subject's current HEAD. If they match, skip to the verdict phase
 and re-emit the prior verdict. If they differ, read `git diff
 <prior-verdict-sha> <current-sha>` against the verdict's claims per the
 staleness-tolerance test in `evidence-standards`: a delta that leaves every
-claim intact lets you re-affirm the prior verdict at the new SHA without
-rerunning the later phases; a delta that changes production behavior or any
-assertion, driver, or executable instruction a claim depends on requires a full
-rerun. Never rerun once per finding —
+claim intact lets you record the prior verdict's applicability to the new SHA without rerunning the later phases or pretending it was a new review. A delta that changes production behavior or any assertion, driver, or executable instruction a claim depends on requires fresh affected proof and independent review of the affected coverage. Use a full rerun only when the impact cannot be safely bounded; preserve unaffected claims. Never rerun once per finding —
 if fixes are still landing, wait until they are batched into one new SHA
 (`evidence-standards` § "Evidence Sequencing") before spending a full pass.
 Continue necessary review and already-authorized fixes within the applicable task
