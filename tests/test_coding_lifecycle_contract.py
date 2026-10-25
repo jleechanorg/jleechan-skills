@@ -1,4 +1,4 @@
-"""Contract tests: draft-first-pr owns the coding lifecycle and sibling skills agree."""
+"""Contract tests: pr-lifecycle owns the coding lifecycle and sibling skills agree."""
 
 import unittest
 from pathlib import Path
@@ -13,8 +13,18 @@ def read(name: str) -> str:
 
 
 class CodingLifecycleContract(unittest.TestCase):
+    def test_old_name_is_only_a_compatibility_pointer(self):
+        alias = read("draft-first-pr")
+        self.assertIn("../pr-lifecycle/SKILL.md", alias)
+        self.assertIn("defines no independent rules", alias)
+        self.assertNotIn("stage:0-spec", alias)
+        self.assertNotIn("## Canonical lifecycle", alias)
+        self.assertLess(len(alias), 1200)
+        self.assertIn("name: pr-lifecycle", read("pr-lifecycle"))
+        self.assertIn("../pr-lifecycle/SKILL.md", read("pr-workflow-manager"))
+
     def setUp(self):
-        self.owner = read("draft-first-pr")
+        self.owner = read("pr-lifecycle")
         self.section = self.owner.split("## Coding lifecycle", 1)[1].split(" ## ", 1)[0]
 
     def test_wording_only_small_changes_skip_spec_and_plan(self):
@@ -51,7 +61,7 @@ class CodingLifecycleContract(unittest.TestCase):
 
     def test_reaffirmation_never_depends_on_path_category_alone(self):
         self.assertIn("never by path category", self.owner)
-        for name in ("draft-first-pr", "ready", "web-advice", "evidence-standards"):
+        for name in ("pr-lifecycle", "ready", "web-advice", "evidence-standards"):
             text = read(name)
             self.assertNotIn("docs, tests, skills, ordinary pr-policy", text.lower())
             self.assertNotIn("test-only or otherwise non-behavioral", text)
@@ -124,13 +134,13 @@ class CodingLifecycleContract(unittest.TestCase):
         # Explicit and high-risk gates survive.
         for term in ("explicitly required review", "data-integrity", "permission", "deployment"):
             self.assertIn(term, iron)
-        owner = read("draft-first-pr")
+        owner = read("pr-lifecycle")
         self.assertIn("(including a small code fix)", owner)
         self.assertIn("Runtime change or file count alone does not make a change non-small", owner)
         self.assertIn("A standalone plan review applies only to high-risk or user-required cases", owner)
 
     def test_mandatory_versus_skippable_is_stated_once_in_the_owner(self):
-        owner = read("draft-first-pr")
+        owner = read("pr-lifecycle")
         self.assertIn("Mandatory regardless of class", owner)
         self.assertIn("Skippable by class", owner)
         self.assertIn("none may apply universally", owner)
@@ -145,7 +155,7 @@ class CodingLifecycleContract(unittest.TestCase):
         self.assertNotIn("git diff --name-only <evidence-sha> HEAD", std)
         self.assertIn("the delta and the claim decide, not the path", std)
         self.assertIn("a changed test assertion, evidence driver/capture", std)
-        self.assertNotIn("git diff --name-only <verdict-sha> HEAD", read("draft-first-pr"))
+        self.assertNotIn("git diff --name-only <verdict-sha> HEAD", read("pr-lifecycle"))
 
     def test_staleness_gates_read_content_diffs_including_tests(self):
         er = read("evidence-review")
@@ -161,14 +171,14 @@ class CodingLifecycleContract(unittest.TestCase):
         self.assertIn("delta-and-claim test above: the delta changes production behavior, or any test assertion", std)
 
     def test_repo_defined_low_risk_review_exemptions_are_honored(self):
-        owner = read("draft-first-pr")
+        owner = read("pr-lifecycle")
         self.assertIn("may exempt defined low-risk classes", owner)
         self.assertIn("docs-only, test-only, or small non-production changes", owner)
         self.assertIn("default when the repo defines none", owner)
         self.assertIn("No `/er` exemption covers changes to approval, merge, review, evidence, or security rules", owner)
 
     def test_gate_entrypoints_delegate_applicability_to_owner(self):
-        owner = read("draft-first-pr")
+        owner = read("pr-lifecycle")
         self.assertIn("accept these final gates, where applicable, in sequence", owner)
         self.assertIn("documentation-only class below or a repo-exempted class", owner)
         self.assertIn("outside any low-risk class the repo's own instructions exempt", read("evidence-review"))
@@ -352,3 +362,4 @@ class CodingLifecycleContract(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

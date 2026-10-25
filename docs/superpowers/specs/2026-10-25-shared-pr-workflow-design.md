@@ -3,7 +3,7 @@
 Status: implementation proposal, not review or merge approval.
 
 ## Outcome
-One reusable, self-contained lifecycle contract in draft-first-pr, reached through pr-workflow-manager and thin repository/user-level references.
+One reusable, self-contained lifecycle contract in pr-lifecycle (with draft-first-pr retained as a thin compatibility entry point), reached through pr-workflow-manager and thin repository/user-level references.
 
 ## Non-goals
 No runtime code, new scripts/tests/CI, live installation, credential change, provider call, merge or deployment. No duplicated lifecycle in repository design documents.
@@ -16,7 +16,10 @@ No runtime code, new scripts/tests/CI, live installation, credential change, pro
 - pr-workflow-manager references the contract, is referenced back, and contains safe clone-if-absent, draft creation and branch/source verification guidance.
 - Known contradictory helper/reset/force-push recipes are removed from routine manager guidance; no missing helper is assumed.
 - Related ready/advice/evidence-review/web-advice wording agrees with the canonical applicability rule.
-- Existing applicable contract tests pass without weakening or changing their assertions.
+- Existing applicable contract tests preserve their safety intent. The requested /ready and canonical rename include narrow updates to existing obsolete text/path assertions, plus a compatibility-pointer regression; no runtime code or new CI workflow is added.
+- Complete-diff risk and claim classification allows narrow docs/copy exceptions and bounded log-emission proof without exempting policy, auth, service-boundary or other high-risk changes.
+- Every stage exit links retrievable sanitized gist/artifact evidence in the PR description, with applicable viewable inline media or a specific justified media N/A.
+- Backlogged CI can use actual equivalent local checks with per-job command/environment/result/source receipts; failed, dirty-candidate or unproven checks cannot be relabeled PASS.
 
 ## User stories
 A PR driver can discover the shared skills in a verified checkout and find the current unmet gate. A reviewer can distinguish original proof from its reasoned applicability. No product UI changes, so no player-facing mock is applicable.

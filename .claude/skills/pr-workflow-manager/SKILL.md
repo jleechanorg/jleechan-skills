@@ -9,7 +9,7 @@ scope: project
 
 ## One operational contract
 
-Read [draft-first-pr](../draft-first-pr/SKILL.md) before creating, staging or driving a PR.
+Read [pr-lifecycle](../pr-lifecycle/SKILL.md) before creating, staging or driving a PR.
 It is the self-contained owner of lifecycle, visible stages/title prefixes/labels, specification placement,
 review routes and reasoned evidence/approval applicability. This entry point owns practical discovery,
 branch verification and publication steps. No dated design document is required.
@@ -27,7 +27,7 @@ not by silently choosing the weakest gate.
 2. If no checkout exists, clone the official source to an unused local development directory:
    `git clone https://github.com/jleechanorg/jleechan-skills.git <unused-directory>`.
    Never clone over an existing directory, reset a dirty checkout or copy somebody else's credentials.
-3. Read `.claude/skills/draft-first-pr/SKILL.md` and this skill from that checkout. Read relevant sibling
+3. Read `.claude/skills/pr-lifecycle/SKILL.md` and this skill from that checkout. Read relevant sibling
    skills for actual review/test execution. Cloning is not installation, host synchronization or permission
    to run an installer.
 4. If Git access is unavailable or denied, state the exact gap; use an already-authorized read connector
@@ -74,7 +74,7 @@ Do not execute a missing, unverified or incompatible helper just because old gui
 
 ## Stage changes and evidence
 
-For an opted-in repository, follow the complete stage mapping in draft-first-pr:
+For an opted-in repository, follow the complete stage mapping in pr-lifecycle:
 choose the earliest unmet gate, update the recognized title prefix, single stage label and PR-body stage,
 then read them back. Preserve unrelated tags/labels and holds; report partial or denied updates honestly.
 Title/label publication is not execution proof, review approval or merge authority.
@@ -105,4 +105,4 @@ Merge authority remains repository/user-specific and must be satisfied separatel
 
 ## Stage evidence publication
 
-Follow [draft-first-pr](../draft-first-pr/SKILL.md) for proportional exceptions and every stage exit receipt. Always put retrievable artifact/gist URLs and applicable viewable inline media in the PR description, with explicit media N/A only where justified. Verify access and read back the description; comment-only or local-only proof does not complete publication. Do not duplicate the canonical exception matrix here.
+Follow [pr-lifecycle](../pr-lifecycle/SKILL.md) for proportional exceptions and every stage exit receipt. Always put retrievable artifact/gist URLs and applicable viewable inline media in the PR description, with explicit media N/A only where justified. Verify access and read back the description; comment-only or local-only proof does not complete publication. Do not duplicate the canonical exception matrix here.
