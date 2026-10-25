@@ -450,10 +450,10 @@ Visual comparisons under `## Visual Evidence` in PR descriptions must render ima
    ```
 
 4. **Google Cloud Storage media (default host)**:
-   - **Default host.** Upload media to the authorized evidence bucket (for example `gs://<evidence-bucket>/agent-evidence/<repo>/<pr>-<topic>-<date>/`) and link it as `https://storage.googleapis.com/<evidence-bucket>/<object>`. These public URLs open and play directly in a browser.
+   - **Default host.** Upload media to the authorized evidence bucket (for example `gs://<evidence-bucket>/agent-evidence/<repo>/<pr>-<topic>-<date>/`) and link it as `https://storage.googleapis.com/<evidence-bucket>/<object>`. That URL syntax grants no access by itself: a direct browser playback works only for objects already authorized for the intended reviewers (public-read, for example). Media that must stay private uses the private-host exception below rather than being made public.
    - A GitHub attachment is also acceptable — for video it is the only form GitHub plays inline — as is any other host the current task authorizes. Media that must stay private stays in authorized private hosting; never make evidence public merely to satisfy a link check. What is never acceptable is a URL the intended reviewer cannot open and play.
    - Never link `gs://…` (not clickable) or `https://storage.cloud.google.com/…`, which redirects reviewers to a Google login.
-   - GitHub plays inline only videos uploaded as GitHub attachments, so an external mp4 renders as a link. Every video therefore gets an **inline GIF** of the same run (`ffmpeg -i in.webm -vf "fps=6,scale=300:-1:flags=lanczos" out.gif`) next to a **playable mp4 link** (`-c:v libx264 -pix_fmt yuv420p`; never webm, which Safari will not play).
+   - GitHub plays inline only videos uploaded as GitHub attachments, so an external mp4 renders as a link. Every video therefore gets an **inline GIF** of the same run (`ffmpeg -i in.webm -vf "fps=6,scale=300:-1:flags=lanczos" out.gif`) next to a **playable mp4 link** (prefer MP4/H.264 — `-c:v libx264 -pix_fmt yuv420p` — for the broadest player compatibility; WebM plays in fewer browsers, so supply it only as a fallback where MP4 is unavailable).
    - Screenshots are inline `<img>` from an authorized host that renders for the intended reviewer, showing the real captured pixels of the claimed state, not placeholders, crops that hide the changed element, or icons.
    - Verify before claiming the stage exit:
      - Every URL resolves with the expected `content-type` (`video/mp4`, `image/gif`, `image/png`) **for the intended reviewer**: `curl -sI <url>` for a public object, or the reviewer's own authorized access when the task keeps the media private. Record which access mode applies instead of forcing public access to prove reachability.
@@ -466,7 +466,7 @@ Visual comparisons under `## Visual Evidence` in PR descriptions must render ima
    - ❌ Testing only desktop and skipping mobile (375×812)
    - ❌ Committing heavy image binaries directly into the git repository (use authorized storage or unlisted gists)
    - ❌ A video only as a text link, with no inline GIF of the same run
-   - ❌ `gs://` or `storage.cloud.google.com` media links, or webm-only video
+   - ❌ `gs://` or `storage.cloud.google.com` media links, or webm as the only playable form with no MP4/H.264 variant
    - ❌ Making private evidence public, or changing bucket access, only to satisfy a reachability check
    - ❌ Media only in a gist, a comment or a bundle README instead of inline in the PR description
 
