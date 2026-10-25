@@ -10,7 +10,7 @@ scope: project
 ## One operational contract
 
 Read [pr-lifecycle](../pr-lifecycle/SKILL.md) before creating, staging or driving a PR.
-It is the self-contained owner of lifecycle, visible stages/title prefixes/labels, specification placement,
+It is the self-contained owner of lifecycle, visible stages/title suffixes/labels, specification placement,
 review routes and reasoned evidence/approval applicability. This entry point owns practical discovery,
 branch verification and publication steps. No dated design document is required.
 

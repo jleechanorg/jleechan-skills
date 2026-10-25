@@ -6,10 +6,10 @@ Status: implementation proposal, not review or merge approval.
 One reusable, self-contained lifecycle contract in pr-lifecycle (with draft-first-pr retained as a thin compatibility entry point), reached through pr-workflow-manager and thin repository/user-level references.
 
 ## Non-goals
-No runtime code, new scripts/tests/CI, live installation, credential change, provider call, merge or deployment. No duplicated lifecycle in repository design documents.
+No runtime code, new scripts or CI, live installation, credential change, provider call, merge or deployment. Focused additions and updates to the existing contract-test suite are allowed. No duplicated lifecycle in repository design documents.
 
 ## Acceptance
-- The existing canonical lifecycle contains the complete opt-in six-stage mapping, title prefixes/labels and specification rules.
+- The existing canonical lifecycle contains the complete opt-in six-stage mapping, title suffixes/labels and specification rules.
 - Stage 2 is named evidence generation; stage title, label and PR body are synchronized without implying approval.
 - Earlier tested/reviewed SHAs remain immutable; reasoned delta/claim assessment determines reuse or affected new proof in both draft and final phases.
 - Review quorum, independent coverage, current-candidate CI/mergeability and separate merge authority remain intact.
