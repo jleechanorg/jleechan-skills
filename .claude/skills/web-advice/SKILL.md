@@ -235,7 +235,7 @@ insufficient. These checks also apply when using a persistent Aside MCP session.
 The only successful upload state is every exact packet filename rendered by
 the composer. A no-exception `set_input_files()` result, local file size, a
 thumbnail, or truncated body text is not proof. The headless cookie fallback
-has a report-producing runner:
+has a report-producing runner. Re-decrypt cookies into a fresh storage-state file for every run (Google signs a reused Gemini snapshot out after one use):
 
 ```bash
 python3 ~/.claude/skills/web-advice/scripts/playwright_cookie_driver.py \

@@ -16,10 +16,12 @@ CFG = {
         "url": "https://chatgpt.com/",
         "composer": ["#prompt-textarea", 'div[contenteditable="true"]', "textarea"],
         "login_markers": ["log in", "sign up", "Welcome back"],
-        "upload_strategy": "direct_input",
-        "upload_input": "#upload-files",
-        "send_selector": 'button[aria-label="Send prompt"]',
-        "resp": '[data-message-author-role="assistant"]',
+        "upload_strategy": "menu",
+        "upload_button": "Add files and more",
+        "upload_menu_item": "Add photos & files",
+        "upload_menu_item_by_text": True,
+        "send_selector": 'button[aria-label="Send prompt"], button[aria-label="Send"]',
+        "resp": '[data-message-author-role="assistant"],[class*="MarkdownRoot"]',
     },
     "perplexity": {
         "url": "https://www.perplexity.ai/",
@@ -107,7 +109,11 @@ def upload_attachments(page, site, attachments):
         try:
             with page.expect_file_chooser() as chooser_info:
                 page.get_by_role("button", name=site["upload_button"]).click()
-                page.get_by_role("menuitem", name=site["upload_menu_item"]).click()
+                if site.get("upload_menu_item_by_text"):
+                    item = page.get_by_text(site["upload_menu_item"], exact=True)
+                else:
+                    item = page.get_by_role("menuitem", name=site["upload_menu_item"])
+                item.click()
         except Exception as error:
             gate = upload_gate_reason(page.locator("body").inner_text())
             if gate:
@@ -231,14 +237,17 @@ def main():
                 report["authenticated"] = True
                 report["composer_writable"] = True
                 upload_attachments(page, site, [str(path) for path in attachments])
-                page.wait_for_timeout(1_000)
-                report["visible_attachment_names"] = visible_attachment_names(
-                    page, expected_names
-                )
-                report["upload_verified"] = (
-                    set(report["visible_attachment_names"]) == set(expected_names)
-                    and len(report["visible_attachment_names"]) == len(expected_names)
-                )
+                upload_deadline = time.monotonic() + 30
+                while True:
+                    report["visible_attachment_names"] = visible_attachment_names(
+                        page, expected_names
+                    )
+                    report["upload_verified"] = set(
+                        report["visible_attachment_names"]
+                    ) == set(expected_names)
+                    if report["upload_verified"] or time.monotonic() > upload_deadline:
+                        break
+                    page.wait_for_timeout(500)
                 if not report["upload_verified"]:
                     report["reason"] = "upload_not_visible_in_composer"
                 else:
