@@ -138,20 +138,22 @@ next reader to fix the wrong thing; state the measured facts instead of the reme
 
 ### Stage, title and labels
 
-Use one stage label and one recognized trailing stage suffix. Put the normal title first, for example
-`Improve campaign loading [evidence review]`. Preserve the substantive title, unrelated tags/labels and
-all holds, including any repository-required author/tool provenance tags; the stage suffix goes last.
-On transition or migration, remove only recognized stage markers from the beginning or end, then append
-exactly one current stage suffix. Do not strip arbitrary bracketed text or invent a tool/model identity.
+Use one stage label, one two-letter stage prefix and one recognized trailing stage suffix.
+The prefix and suffix must name the same stage, for example
+`[er] Improve campaign loading [evidence review]`. Preserve the substantive title, unrelated tags/labels
+and all holds, including repository-required author/tool provenance tags immediately before the suffix;
+the stage suffix goes last. On transition or migration, remove only recognized stage markers from the
+beginning or end, then add exactly one current prefix and suffix. Do not strip arbitrary bracketed text
+or invent a tool/model identity. Existing suffix-only titles gain their matching prefix on synchronization.
 
-| Stage | Title suffix | Label | Work and exit proof |
-|---|---|---|---|
-| 0 Specification | [specification] | stage:0-spec | Draft opened; seven elements, stories and mock/exemption complete in the required artifact. |
-| 1 Coding | [coding] | stage:1-coding | Scoped implementation and applicable causal RED/GREEN, focused checks and correctness review complete. |
-| 2 Evidence generation | [evidence generation] | stage:2-evidence | Applicable /es proof generated and delivered, original tested SHA and claim map recorded, or justified exemption. |
-| 3 Evidence review | [evidence review] | stage:3-evidence-review | Applicable /er and draft review route satisfied by independent verdicts whose coverage applies to the candidate. The review SHA need not equal HEAD when the delta assessment supports reuse. |
-| 4 CI and undraft | [CI and undraft] | stage:4-ci-undraft | Undraft and complete /ready's CI, comments, conflicts and cross-thread regression work with current-candidate /green using only documented exceptions. Its closing reviews belong to Stage 5, not this exit. |
-| 5 Final approval | [final approval] | stage:5-final-approval | Final-phase review obligations satisfied by applicable independent approvals, with findings resolved or explicitly deferred as allowed. Earlier review SHAs may remain valid by reasoned assessment; merge authority is separate. |
+| Stage | Title prefix | Title suffix | Label | Work and exit proof |
+|---|---|---|---|---|
+| 0 Specification | [sp] | [specification] | stage:0-spec | Draft opened; seven elements, stories and mock/exemption complete in the required artifact. |
+| 1 Coding | [cd] | [coding] | stage:1-coding | Scoped implementation and applicable causal RED/GREEN, focused checks and correctness review complete. |
+| 2 Evidence generation | [ev] | [evidence generation] | stage:2-evidence | Applicable /es proof generated and delivered, original tested SHA and claim map recorded, or justified exemption. |
+| 3 Evidence review | [er] | [evidence review] | stage:3-evidence-review | Applicable /er and draft review route satisfied by independent verdicts whose coverage applies to the candidate. The review SHA need not equal HEAD when the delta assessment supports reuse. |
+| 4 CI and undraft | [ci] | [CI and undraft] | stage:4-ci-undraft | Undraft and complete /ready's CI, comments, conflicts and cross-thread regression work with current-candidate /green using only documented exceptions. Its closing reviews belong to Stage 5, not this exit. |
+| 5 Final approval | [fa] | [final approval] | stage:5-final-approval | Final-phase review obligations satisfied by applicable independent approvals, with findings resolved or explicitly deferred as allowed. Earlier review SHAs may remain valid by reasoned assessment; merge authority is separate. |
 
 A stage name describes work remaining. [final approval] does not mean approved or merged.
 Orthogonal hold labels are hold:reviewer, hold:operator, hold:conflict and hold:quota; they never replace the stage.
