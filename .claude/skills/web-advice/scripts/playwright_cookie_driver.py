@@ -244,7 +244,9 @@ def main():
                     )
                     report["upload_verified"] = set(
                         report["visible_attachment_names"]
-                    ) == set(expected_names)
+                    ) == set(expected_names) and len(
+                        report["visible_attachment_names"]
+                    ) == len(expected_names)
                     if report["upload_verified"] or time.monotonic() > upload_deadline:
                         break
                     page.wait_for_timeout(500)
