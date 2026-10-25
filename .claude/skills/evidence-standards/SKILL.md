@@ -441,14 +441,31 @@ Visual comparisons under `## Visual Evidence` in PR descriptions must render ima
    | <img src="<before_mobile_url>" width="360" alt="Before Mobile"> | <img src="<after_mobile_url>" width="360" alt="After Mobile"> |
 
    ### Walkthrough Video
-   - [walkthrough.mp4](<video_url>) (SHA256: `<sha256>`)
+
+   | Before | After |
+   | :---: | :---: |
+   | <img src="https://storage.googleapis.com/<bucket>/<path>/before.gif" width="300" alt="Before walkthrough"> | <img src="https://storage.googleapis.com/<bucket>/<path>/after.gif" width="300" alt="After walkthrough"> |
+   | [▶ before.mp4](https://storage.googleapis.com/<bucket>/<path>/before.mp4) (SHA256: `<sha256>`) | [▶ after.mp4](https://storage.googleapis.com/<bucket>/<path>/after.mp4) (SHA256: `<sha256>`) |
    ```
 
-4. **Anti-Patterns (Reject in Review)**:
+4. **Google Cloud Storage media (default host)**:
+   - Upload media to the authorized evidence bucket (for example `gs://wa-test-evidence/agent-evidence/<repo>/<pr>-<topic>-<date>/`) and link it **only** as `https://storage.googleapis.com/<bucket>/<object>`. These public URLs open and play directly in a browser.
+   - Never link `gs://…` (not clickable) or `https://storage.cloud.google.com/…`, which redirects reviewers to a Google login.
+   - GitHub plays inline only videos uploaded as GitHub attachments, so an external mp4 renders as a link. Every video therefore gets an **inline GIF** of the same run (`ffmpeg -i in.webm -vf "fps=6,scale=300:-1:flags=lanczos" out.gif`) next to a **playable mp4 link** (`-c:v libx264 -pix_fmt yuv420p`; never webm, which Safari will not play).
+   - Screenshots are inline `<img>` from the same bucket, showing the real captured pixels of the claimed state, not placeholders, crops that hide the changed element, or icons.
+   - Verify before claiming the stage exit:
+     - `curl -sI <url>` returns `200` with `content-type` `video/mp4`, `image/gif` or `image/png` for every URL.
+     - The **rendered** PR body has a camo-proxied image for every inline GIF and screenshot: `gh api repos/<owner>/<repo>/pulls/<n> -H "Accept: application/vnd.github.html+json" --jq .body_html | grep -c 'camo.githubusercontent.com'`.
+     - The sanitized gist receipt lists the same URLs and their sha256 hashes.
+
+5. **Anti-Patterns (Reject in Review)**:
    - ❌ `| [screenshot](url) | [screenshot](url) |` (text link only — fails inline rendering)
    - ❌ Raw uncaptioned image dumps with no Before/After comparison table
    - ❌ Testing only desktop and skipping mobile (375×812)
    - ❌ Committing heavy image binaries directly into the git repository (use authorized storage or unlisted gists)
+   - ❌ A video only as a text link, with no inline GIF of the same run
+   - ❌ `gs://` or `storage.cloud.google.com` media links, or webm-only video
+   - ❌ Media only in a gist, a comment or a bundle README instead of inline in the PR description
 
 ## Cross-references
 
