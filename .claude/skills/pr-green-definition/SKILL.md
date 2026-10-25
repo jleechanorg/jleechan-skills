@@ -1,6 +1,6 @@
 ---
 name: pr-green-definition
-description: Canonical /green definition — applicable CI or documented exception + no merge conflicts, verified at current PR HEAD SHA. Quality gates live in draft-first-pr.
+description: Canonical /green definition — applicable CI or documented exception + no merge conflicts, verified at current PR HEAD SHA. Quality gates live in pr-lifecycle.
 metadata:
   type: policy
 ---
@@ -14,7 +14,7 @@ metadata:
 | 1 | **Applicable validation** | Documentation-only: CI NOT REQUIRED with proportionate local validation below. Otherwise every required check passes at HEAD, through CI or the local-equivalent exception for backlogged checks. |
 | 2 | **No merge conflicts** | `mergeable == MERGEABLE` (retry while `UNKNOWN`; `CONFLICTING` is a hard FAIL) |
 
-**Nothing else gates `/green`.** Inline-comment resolution (`resolveReviewThread`), the evidence-link gate, the PR-description gate, and the old "6-green" numbering are **not** `/green` gates anymore (operator directive, 2026-07-28). Those quality checks follow the canonical **draft and ready/final phases** in `~/.claude/skills/draft-first-pr/SKILL.md`; green alone does not establish READY. Apply that owner's applicability (including when `/er` is required by that lifecycle), final `/er` and `/advice` closure, and SHA-binding rule, including justified delta-based reaffirmation — do not restate that chain here, just apply it. Recheck `/green` at the live head and base before stating its verdict.
+**Nothing else gates `/green`.** Inline-comment resolution (`resolveReviewThread`), the evidence-link gate, the PR-description gate, and the old "6-green" numbering are **not** `/green` gates anymore (operator directive, 2026-07-28). Those quality checks follow the canonical **draft and ready/final phases** in `~/.claude/skills/pr-lifecycle/SKILL.md`; green alone does not establish READY. Apply that owner's applicability (including when `/er` is required by that lifecycle), final `/er` and `/advice` closure, and SHA-binding rule, including justified delta-based reaffirmation — do not restate that chain here, just apply it. Recheck `/green` at the live head and base before stating its verdict.
 
 **CodeRabbit/Bugbot: optional advisory reviewers** — read their feedback, take what's useful; never a gate, never a wait, at any phase of the PR lifecycle. Human `MERGE APPROVED` remains the only merge gate.
 
@@ -79,7 +79,13 @@ This section applies only when CI is required; documentation-only changes use th
 
 If a check has been queued/pending for **more than 10 minutes**, run its actual workflow command locally and post proof labeled **"local run — CI still pending/rerunning"** with the command, output, timestamp, and current PR HEAD SHA (PR comment + PR description). Passing local equivalents satisfy Gate 1 for those backlogged checks; identify which checks passed locally and which passed in CI. Report local failures immediately. If an equivalent cannot run locally, that check remains unproven. This exception does not waive failed checks, missing evidence, SHA freshness, Gate 2, or merge authorization.
 
+### Required local-equivalent receipt
+
+Map each substituted job and matrix entry to its actual workflow/reusable-script command, runtime, dependencies, services, flags, non-secret configuration and required artifacts. Run against the current candidate head and actual base; disclose dirty changes with hashes instead of claiming a clean commit. Relevant uncommitted changes cannot establish PASS for the published candidate: commit them through the sole owner and rerun applicable checks, or run against verified identical candidate bytes in isolation. Preserve unrelated dirty work without resetting it; document why it cannot affect the result. Record original start/end timestamps, full relevant output, exit status, source/artifact hashes and environment differences. Put a retrievable sanitized gist URL and the per-job mapping in the PR description, with applicable inline media under the lifecycle evidence rules.
+
+Distinguish CI PASS, local-equivalent PASS, pending, failed and unproven for every required job. A convenient subset, wrong platform, mocked external boundary or unrelated smoke test is not equivalent. Failed CI is not delayed CI; diagnose and resolve it, never substitute a convenient local pass. Hosted-only checks that cannot be reproduced remain unproven. Later contradictory CI reopens readiness. Do not spoof checks, disable protection or cancel jobs to create green; required platform merge protection and separate merge authorization remain intact.
+
 ## Related
 
-- `~/.claude/skills/draft-first-pr/SKILL.md` — applicable draft and ready/final quality gates, separate from `/green`
+- `~/.claude/skills/pr-lifecycle/SKILL.md` — applicable draft and ready/final quality gates, separate from `/green`
 - `~/.claude/skills/github-cli-reference.md` — REST ↔ GraphQL dual-bucket procedure

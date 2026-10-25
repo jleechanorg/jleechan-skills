@@ -166,8 +166,11 @@ class ApprovalContractsTest(unittest.TestCase):
         self.assertIn("research-only output are not approval reviewers", advice)
         self.assertIn("combined scope covers the whole declared change", advice)
         self.assertIn("`COVERAGE: <files/diff scope actually read>`", advice)
-        self.assertIn("Each original\nindependent approving reviewer must inspect", advice)
-        self.assertIn("explicitly reaffirm", advice)
+        self.assertIn("Preserve the original reviewers and reviewed SHAs", advice)
+        self.assertIn("inspect the complete actual delta, claims, evidence and phase", advice)
+        self.assertIn("not a new independent vote", advice)
+        self.assertIn("require affected independent review", advice)
+        self.assertIn("two independent full-coverage approvals", advice)
         self.assertIn("never by directory or", advice)
         self.assertIn("Codex + Opus CLI", command)
         self.assertIn("/research", command)
@@ -181,7 +184,7 @@ class ApprovalContractsTest(unittest.TestCase):
 
     def test_ready_requires_advice_without_web_advice_fanout(self) -> None:
         ready = skill("ready")
-        draft_first = skill("draft-first-pr")
+        draft_first = skill("pr-lifecycle")
         advice = skill("advice")
         web_advice_command = (COMMANDS / "web-advice.md").read_text()
 
@@ -234,13 +237,13 @@ class ApprovalContractsTest(unittest.TestCase):
         self.assertIn("A moving HEAD does NOT invalidate evidence by itself.", standards)
 
     def test_draft_gate_requires_sha_bound_approval_not_withheld(self) -> None:
-        draft_first = skill("draft-first-pr")
+        draft_first = skill("pr-lifecycle")
         self.assertIn("`WITHHELD at <SHA>`", draft_first)
         self.assertIn("does not satisfy the draft gate", draft_first)
         self.assertIn("SHA-binding rule", draft_first)
 
     def test_documentation_only_draft_gate_skips_evidence_review(self) -> None:
-        draft_first = skill("draft-first-pr")
+        draft_first = skill("pr-lifecycle")
         evidence_review = skill("evidence-review")
         green = skill("pr-green-definition")
         readme = (REPO_ROOT / "README.md").read_text()
@@ -271,12 +274,13 @@ class ApprovalContractsTest(unittest.TestCase):
             draft_first,
             r"Any\s+mixed diff uses the normal `/er` gate",
         )
-        self.assertRegex(
-            evidence_review,
-            r"Mixed diffs and every path outside that allowlist follow the normal gate",
-        )
-        self.assertIn("requires `/er` = **PASS** at the current SHA", evidence_review)
-        self.assertIn("outside any low-risk class the repo's own\ninstructions exempt per `draft-first-pr`", evidence_review)
+        self.assertIn("unless the entire diff qualifies for the explicit trivial-change exception", evidence_review)
+        self.assertIn("requires `/er` = **PASS** applicable to the candidate", evidence_review)
+        self.assertIn("retaining the original reviewed SHA and documented delta assessment", evidence_review)
+        self.assertIn("explicitly requested reviews remain required", draft_first)
+        self.assertIn("this workflow policy cannot exempt its own review", draft_first)
+        self.assertIn("A one-line change can be high risk", draft_first)
+        self.assertIn("outside any low-risk class the repo's own\ninstructions exempt per `pr-lifecycle`", evidence_review)
         self.assertNotIn("Acceptable for `/green` on NON_PRODUCTION", evidence_review)
         self.assertIn("when `/er` is required by that lifecycle", green)
         self.assertNotIn("DRAFT → `/es` → `/er` → `/advice`", green)
@@ -420,3 +424,4 @@ class ApprovalContractsTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

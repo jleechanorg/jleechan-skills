@@ -181,10 +181,10 @@ class PolicyFilesContractTest(unittest.TestCase):
         er_path = REPO_ROOT / ".claude" / "commands" / "er.md"
         er_content = er_path.read_text(encoding="utf-8")
         self.assertIn("evidence-review/SKILL.md", er_content)
-        self.assertIn("draft-first-pr/SKILL.md", er_content)
+        self.assertIn("pr-lifecycle/SKILL.md", er_content)
         self.assertNotIn("Two-Tier Verdicts", er_content)
 
-        draft_pr_path = REPO_ROOT / ".claude" / "skills" / "draft-first-pr" / "SKILL.md"
+        draft_pr_path = REPO_ROOT / ".claude" / "skills" / "pr-lifecycle" / "SKILL.md"
         draft_pr_content = draft_pr_path.read_text(encoding="utf-8")
         self.assertIn("gh api", draft_pr_content)
         self.assertIn("clone_url", draft_pr_content)
@@ -194,7 +194,7 @@ class PolicyFilesContractTest(unittest.TestCase):
         self.assertNotIn("origin/main...HEAD", draft_pr_content)
 
     def test_documented_base_resolution_works_without_origin_or_main(self):
-        skill_path = REPO_ROOT / ".claude" / "skills" / "draft-first-pr" / "SKILL.md"
+        skill_path = REPO_ROOT / ".claude" / "skills" / "pr-lifecycle" / "SKILL.md"
         skill_content = skill_path.read_text(encoding="utf-8")
         section = skill_content.split("### Documentation-only `/er` exception", 1)[1]
         script = section.split("```bash\n", 1)[1].split("\n```", 1)[0]
@@ -243,7 +243,7 @@ class PolicyFilesContractTest(unittest.TestCase):
         self.assertEqual(result.stdout.strip(), "README.md")
 
     def test_documented_base_resolution_rejects_same_repo_on_foreign_host(self):
-        skill_path = REPO_ROOT / ".claude" / "skills" / "draft-first-pr" / "SKILL.md"
+        skill_path = REPO_ROOT / ".claude" / "skills" / "pr-lifecycle" / "SKILL.md"
         skill_content = skill_path.read_text(encoding="utf-8")
         section = skill_content.split("### Documentation-only `/er` exception", 1)[1]
         script = section.split("```bash\n", 1)[1].split("\n```", 1)[0]

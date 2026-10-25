@@ -84,7 +84,7 @@ Use the evidence appropriate to the subject: current diff and tests for a PR, th
 
 Run the `/er` 4-gate check **only when an evidence bundle or production claim is in scope**—for example, when the advice must assess real-service proof or decide whether a bundle supports a production conclusion.
 
-Invoke `/er <bundle path or PR>` and record its current-HEAD verdict. Do not
+Require an applicable `/er` verdict, retaining the original tested/reviewed SHAs and a reasoned candidate-delta assessment. Invoke `/er <bundle path or PR>` only for missing or affected coverage, not solely to restamp a changed SHA. Do not
 replace `/er` with a partial checksum, file-existence, or metadata check: those
 checks do not establish the verifier verdict, claim coverage, or provenance.
 
@@ -263,7 +263,7 @@ control disappears (up to 15 minutes) before reading the verdict; a single
 Record the conversation URL immediately after submission.
 
 Shared review composition and scheduling follows
-`~/.claude/skills/draft-first-pr/SKILL.md`: freeze one candidate/base and shared
+`~/.claude/skills/pr-lifecycle/SKILL.md`: freeze one candidate/base and shared
 factual scope, run independent review groups concurrently where permitted, and
 collect findings before batching fixes. The vendor submissions below remain
 sequential; full-change coverage, upload, authentication, and quorum rules are
@@ -548,8 +548,8 @@ intact is not stale: re-affirm at the new SHA and record both SHAs and the delta
 
 Recovery:
 1. Mark the evidence or production claim unverified; do not use it to support a recommendation.
-2. Regenerate the evidence bundle against current HEAD.
-3. Re-run `/er` before making an evidence-backed or production conclusion.
+2. Update the bundle's claim/delta index; regenerate the affected proof, retaining artifacts whose validity is established with their original tested SHAs and timestamps. If impact cannot be bounded, keep potentially affected claims unverified and broaden review/testing until coverage is established; do not assume the unexamined remainder is unaffected.
+3. Obtain affected `/er` review before making the unsupported conclusion; reuse unaffected independent coverage by the canonical reasoned applicability assessment.
 4. Continue or repeat the broader advice only if that is useful after the evidence is fresh.
 
 ---

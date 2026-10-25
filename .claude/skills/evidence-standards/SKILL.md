@@ -6,6 +6,13 @@ when-to-use: Before /er, /green, gate fixes, or AO worker dispatch on a PR that 
 
 # /es — Evidence Standards (user scope)
 
+## Claim-proportionate evidence and publication
+
+Apply [pr-lifecycle](../pr-lifecycle/SKILL.md) proportional exceptions and stage-exit rules. They govern generic bundle/media requirements below without waiving explicit user requirements or risk-specific proof. A compact source-inspection, documentation, deterministic-test or log-emission claim may use one provenance receipt plus primary artifacts and hashes; mark irrelevant server/PID/provider fields and media N/A with reasons rather than inventing runtime metadata. All applicable integrity and claim-sufficiency checks remain mandatory. Source hashes alone do not prove execution; log emission does not prove ingestion, and mocks do not prove real service boundaries.
+
+Always link the evidence and sanitized gist receipt from the PR description. Embed applicable viewable screenshots/playable videos there with original media URLs; confirm intended reviewer access. Source-only harmless copy may justify media N/A; claimed static rendering requires rendered proof, and interaction/streaming retains applicable video proof. A compact or exempt class is not an independent PASS, and failed or missing required proof is never N/A. The review verdict covers the declared claim and applicable checks, not unrelated runtime behavior.
+
+
 ## Summary
 
 Evidence must **prove what you claim**. The strongest evidence is a raw
@@ -198,8 +205,7 @@ hours of LLM time for zero added confidence. The evidence proves a *behavior*; i
 code is byte-identical at HEAD and no assertion or driver backing it changed, the proof is
 byte-valid at HEAD. Repo-level files may add
 project-specific context (e.g. `<repo>/.claude/skills/evidence-standards.md` §
-"Claim-scoped evidence revalidation") and take precedence on conflict, but cannot waive the
-delta-and-claim test above.
+"Claim-scoped evidence revalidation"). Shared [pr-lifecycle precedence](../pr-lifecycle/SKILL.md#precedence-and-scope) governs conflicting lifecycle copies; domain-specific proof and separate safety/merge restrictions remain. Repo overlays cannot waive the delta-and-claim test above.
 
 ## Evidence Sequencing — expensive evidence runs LAST, once
 
@@ -211,7 +217,7 @@ not continued diagnosis. Real-service failures still require the real boundary;
 a fast unit test cannot substitute for a cross-service reproduction.
 
 Cheap gates (unit/focused tests, lint, compile) iterate freely per commit.
-Review scheduling follows `draft-first-pr/SKILL.md`'s canonical lifecycle and
+Review scheduling follows `pr-lifecycle/SKILL.md`'s canonical lifecycle and
 composition contract; continue to enforce the required correctness and
 evidence checks. Final expensive evidence (real-server + real-LLM runs, packaged RED/GREEN comparisons,
 browser/video capture, bundle assembly) runs ONCE, at the END: only after code is
@@ -260,7 +266,7 @@ failures until raw provider proof supports a product or auth diagnosis.
 
 ## Unit proof and claim boundaries
 
-Use `draft-first-pr` § Change-impact review and test depth, `/4layer`, and
+Use `pr-lifecycle` § Change-impact review and test depth, `/4layer`, and
 `testing-layers` to choose sufficient evidence, not selected by line count alone.
 `/es` remains the evidence-classification gate; it does not force every production
 edit through live LLM or browser capture.
@@ -317,7 +323,7 @@ a checked-in document, an access-controlled receipt/store, or an authorized gist
 Include the reviewed/tested SHA, dependencies, exact commands and expected results
 required for the applicable evidence class. These underlying evidence artifacts
 may remain in authorized private hosting. The separate sanitized review receipt
-must follow `draft-first-pr` § Review records in the PR description, including
+must follow `pr-lifecycle` § Review records in the PR description, including
 its gist URL, exact reviewed SHA, and `PUBLICATION BLOCKED` state when publication
 cannot complete. Do not confuse artifact hosting with review-record completion.
 
@@ -456,8 +462,9 @@ standards, always read both this skill and the relevant repo-level file:
 2. **Repo-level /es** — most repos mirror this skill at
    `<repo>/.claude/skills/evidence-standards.md` with project-specific
    extensions (e.g. `your-project.com` has dice-claim, campaign-isolation,
-   BigQuery, and Gemini specifics). **Always read both** — the global file
-   is the floor; the repo-level file is the ceiling.
+   BigQuery, and Gemini specifics). **Always read both** and apply the
+   [scoped precedence rule](../pr-lifecycle/SKILL.md#precedence-and-scope);
+   repository domain proof does not override the shared lifecycle.
 3. **Companion files in this directory** — `bundle-anatomy.md` (bundle
    structure, JSONL shapes, integrity rules), `tmux-video-evidence.md`
    (tmux/asciinema recording), `ui-video-evidence.md` (browser/UI video).
