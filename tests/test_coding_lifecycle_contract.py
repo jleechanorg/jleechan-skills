@@ -383,6 +383,23 @@ class CodingLifecycleContract(unittest.TestCase):
         self.assertIn("original capture SHAs", self.owner)
         self.assertIn("current `**Evidence**` marker", read("ready"))
 
+    def test_stage_zero_requires_an_open_pr_and_blockers_require_readback(self):
+        self.assertIn(
+            "A commit on a branch with no PR is not a Stage 0 artifact",
+            self.owner,
+        )
+        self.assertIn("an open PR at the prescribed location", self.owner)
+        self.assertIn(
+            "seven-element specification in the PR body for small changes",
+            self.owner,
+        )
+        self.assertIn("committed spec inside the PR diff", self.owner)
+        self.assertIn("State readback before reporting a blocker", self.owner)
+        self.assertIn("run and quote all three", self.owner)
+        self.assertIn("git status --porcelain", self.owner)
+        self.assertIn("gh pr list --head <branch> --state all", self.owner)
+        self.assertIn("state the measured facts instead of the remembered ones", self.owner)
+
 
 if __name__ == "__main__":
     unittest.main()
