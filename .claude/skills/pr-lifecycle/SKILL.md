@@ -89,10 +89,13 @@ Do not split coherent work merely to evade review thresholds.
 
 ### Stage, title and labels
 
-Use one stage label and one recognized leading title prefix. Preserve the substantive title,
-unrelated tags/labels and all holds, including any repository-required author/tool provenance suffix. Replace an old stage prefix rather than stacking prefixes; never invent a tool/model identity.
+Use one stage label and one recognized trailing stage suffix. Put the normal title first, for example
+`Improve campaign loading [evidence review]`. Preserve the substantive title, unrelated tags/labels and
+all holds, including any repository-required author/tool provenance tags; the stage suffix goes last.
+On transition or migration, remove only recognized stage markers from the beginning or end, then append
+exactly one current stage suffix. Do not strip arbitrary bracketed text or invent a tool/model identity.
 
-| Stage | Title prefix | Label | Work and exit proof |
+| Stage | Title suffix | Label | Work and exit proof |
 |---|---|---|---|
 | 0 Specification | [specification] | stage:0-spec | Draft opened; seven elements, stories and mock/exemption complete in the required artifact. |
 | 1 Coding | [coding] | stage:1-coding | Scoped implementation and applicable causal RED/GREEN, focused checks and correctness review complete. |
@@ -134,7 +137,7 @@ Material policy, assertion, fixture, driver, configuration, prompt or schema cha
 Keep original receipts and timestamps. Never rename historical evidence as a new run.
 
 Keep this contract, the pr-workflow-manager entry point and repository adapters in sync when changing stage
-names, title prefixes, labels, review routes or applicability rules. Repo adapters must reference this skill,
+names, title suffixes, labels, review routes or applicability rules. Repo adapters must reference this skill,
 not copy its tables. Check affected references and report any installed copy that is stale or unavailable;
 a source push does not install or synchronize another computer.
 

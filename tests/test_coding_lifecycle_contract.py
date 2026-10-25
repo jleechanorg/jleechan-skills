@@ -13,6 +13,14 @@ def read(name: str) -> str:
 
 
 class CodingLifecycleContract(unittest.TestCase):
+    def test_stage_is_one_trailing_suffix_not_a_prefix(self):
+        self.assertIn("one recognized trailing stage suffix", self.owner)
+        self.assertIn("Improve campaign loading [evidence review]", self.owner)
+        self.assertIn("remove only recognized stage markers", self.owner)
+        self.assertIn("stage suffix goes last", self.owner)
+        self.assertNotIn("leading title prefix", self.owner)
+        self.assertNotIn("Title prefix", self.owner)
+
     def test_generic_exceptions_preserve_opt_in_spec_and_review_route_scope(self):
         raw = (SKILLS / "pr-lifecycle" / "SKILL.md").read_text()
         self.assertIn("\n## Proportional exceptions and fast paths\n", raw)
