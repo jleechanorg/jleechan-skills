@@ -37,7 +37,7 @@ Aside is a Y Combinator–backed AI-native Chromium browser launched June 2026. 
 
 ### Phase 1 — Before any browser action
 
-1. **Check Aside is alive:** `aside account list` should show `* u0 $USER@gmail.com  signed in  profiles: Profile 0`. If not, see "Aside is not running" below.
+1. **Check Aside is alive:** `aside account list` should show `* u0 '<account-email>'  signed in  profiles: Profile 0`. If not, see "Aside is not running" below.
 2. **For complex multi-step work** (scraping, public-data lookups, forms), prefer `aside "..."` NL agent with `--effort ultrabrowse`.
 3. **For deterministic scripted work** (screenshot a URL, click a button, fill a form), prefer `aside repl "..."` with the Playwright-shaped API (`openTab`, `snapshot`, `listBrowserTabs`).
 4. **For agent-runtime MCP tool exposure** (Claude Code/Codex tool calls), use `mcp__aside-mcp__*` if the runtime exposes it; otherwise drop to `aside repl` from a terminal tool call.
@@ -60,10 +60,10 @@ Aside is a Y Combinator–backed AI-native Chromium browser launched June 2026. 
   // ✅ Workaround for high-trust flows: use the slack.getClient() bypass
   //    (bypasses the browser entirely for Slack API calls that need
   //     scopes the user's XOXP token lacks — see gotchas §11)
-  const c = await slack.getClient('T09FXQ4LCQP');
+  const c = await slack.getClient('<team-id>');
   const r = await c.apiCall('conversations.invite', {
-    channel: 'C0BDEAJH8PK',
-    users: 'U0A4G7LDJ4R',
+    channel: '<channel-id>',
+    users: '<user-id>',
   });
   console.log('invite ok:', r.ok);
   ```
@@ -110,19 +110,19 @@ Aside is a Y Combinator–backed AI-native Chromium browser launched June 2026. 
   ```js
   // List joined workspaces
   const ws = await slack.listWorkspaces();
-  // → [{ teamId: "T09FXQ4LCQP", name: "$USER AI", url: "...", isLastActive: true, userId: "U09GH5BR3QU" }]
+  // → [{ teamId: "<team-id>", name: "<workspace-name>", url: "...", isLastActive: true, userId: "<user-id>" }]
 
   // Get a Web-API client for the user's workspace
-  const c = await slack.getClient('T09FXQ4LCQP');
+  const c = await slack.getClient('<team-id>');
 
   // Call any Slack method — accepts exact same args as web API docs
   const inv = await c.apiCall('conversations.invite', {
-    channel: 'C0BDEAJH8PK',   // channel id, NOT name
-    users:   'U0A4G7LDJ4R',   // user id, NOT @handle
+    channel: '<channel-id>',  // channel id, NOT name
+    users:   '<user-id>',     // user id, NOT @handle
   });
   // → { ok: true, channel: { id, is_member: true, latest: { subtype: "channel_join", ... } } }
   ```
-  **Use case (the bot-rejoin bug):** when a slack bot (`U…`) was removed from channels but is still a valid app, and the user's XOXP token returns `missing_scope: channels:write.invites` on `conversations.invite`, this is the ONLY path to re-add the bot without bothering the user to click in the Slack UI. Verified 2026-07-13 against MCP Mail bot `U0A4G7LDJ4R` across `#worldai-bugs`, `#life`, `#worldai`, `#all-$USER-ai`, etc.
+  **Use case (the bot-rejoin bug):** when a slack bot (`U…`) was removed from channels but is still a valid app, and the user's XOXP token returns `missing_scope: channels:write.invites` on `conversations.invite`, this is the ONLY path to re-add the bot without bothering the user to click in the Slack UI. Verified 2026-07-13 against MCP Mail bot `<bot-user-id>` across its authorized channels.
 
 - **Session continuity** (continue a prior NL session):
   ```bash
@@ -180,7 +180,7 @@ curl -fsSL https://releases.aside.com/install.sh | bash
 | Aside CLI binary | `$HOME/.local/bin/aside` → `~/.aside/cli/Aside CLI.app/Contents/MacOS/aside` | ✅ |
 | Aside CLI version | `1.26.626.1517` | ✅ |
 | Aside daemon | `~/Library/Application Support/Aside/AsideDaemon/mac-arm64/1.26.627.1553/Aside Daemon.app` | ✅ |
-| Aside account | `* u0 $USER@gmail.com` Google provider, `Profile 0` | ✅ |
+| Aside account | `* u0 '<account-email>'` Google provider, `Profile 0` | ✅ |
 | Aside MCP (HTTP) | `http://127.0.0.1:8013/mcp` | ✅ (in `~/.claude/mcp-strict.json` + `~/.claude.json`) |
 | Aside MCP (stdio) | `aside mcp` | ✅ |
 | Aside Safe Storage keychain | `Aside Safe Storage` / `Aside` | ✅ |
@@ -195,7 +195,7 @@ Aside uses its own macOS Keychain entry (`Aside Safe Storage`), separate from Ch
 ```bash
 # 1. CLI alive
 aside --version       # 1.26.626.1517
-aside account list    # * u0  $USER@gmail.com  signed in
+aside account list    # * u0  '<account-email>'  signed in
 
 # 2. REPL alive
 aside repl "console.log('ok')"        # [ok | <Nms>]

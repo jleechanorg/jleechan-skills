@@ -37,7 +37,7 @@ Aside is a Y Combinator–backed AI-native Chromium browser launched June 2026. 
 
 ### Phase 1 — Before any browser action
 
-1. **Check Aside is alive:** `aside account list` should show `* u0 $USER@gmail.com  signed in  profiles: Profile 0`. If not, see "Aside is not running" below.
+1. **Check Aside is alive:** `aside account list` should show `* u0 '<account-email>'  signed in  profiles: Profile 0`. If not, see "Aside is not running" below.
 2. **Probe live browser state before diagnosing failures.** Check whether current signed-in tabs already exist and are usable before concluding Aside is broken.
 3. **For complex multi-step work** (scraping, public-data lookups, forms), prefer `aside "..."` NL agent with `--effort ultrabrowse`.
 4. **For deterministic scripted work** (screenshot a URL, click a button, fill a form), prefer `aside repl "..."` with the Playwright-shaped API (`openTab`, `snapshot`, `listBrowserTabs`).
@@ -66,7 +66,7 @@ Aside is a Y Combinator–backed AI-native Chromium browser launched June 2026. 
    r = s.post('https://api.example.com/graphql', json={"query": "{ me { id email } }"})
    ```
 3. **Required headers** (any one missing → 403 CSRF rejection): `X-CSRFToken`, `Origin` (must match the SPA origin, not the API), `Referer` (must match the SPA URL), `Cookie` (auto-set by requests when cookies are loaded).
-4. **Worked Monarch example** (verified 2026-07-22): cookies in `/tmp/budget-monarch/aside-all.json`, GraphQL at `https://api.monarch.com/graphql`. First successful probe: `{ me { id email } }` → `id: 170607937752856546, email: $USER@gmail.com`. Schema uses plural field names (`categories`, `accounts`, `transactions`).
+4. **Worked Monarch example** (verified 2026-07-22): cookies in `/tmp/budget-monarch/aside-all.json`, GraphQL at `https://api.monarch.com/graphql`. First successful probe: `{ me { id email } }` → `id: <account-id>, email: '<account-email>'`. Schema uses plural field names (`categories`, `accounts`, `transactions`).
 5. **Schema-quirk debugging**: opaque "Something went wrong while processing" usually means a hidden required subfield or auth-scoped permission. Mitigate by querying one leaf field at a time (`{ accounts { id } }` first, then `{ accounts { id currentBalance } }`, etc.).
 
 **Anti-pattern:** "Chrome headless cookies didn't work + Aside MCP hits login → conclude the site is inaccessible → ask the user for credentials." That's wrong. Try the API path first.
@@ -184,7 +184,7 @@ curl -fsSL https://releases.aside.com/install.sh | bash
 | Aside CLI binary | `$HOME/.local/bin/aside` → `~/.aside/cli/Aside CLI.app/Contents/MacOS/aside` | ✅ |
 | Aside CLI version | `1.26.626.1517` | ✅ |
 | Aside daemon | `~/Library/Application Support/Aside/AsideDaemon/mac-arm64/1.26.627.1553/Aside Daemon.app` | ✅ |
-| Aside account | `* u0 $USER@gmail.com` Google provider, `Profile 0` | ✅ |
+| Aside account | `* u0 '<account-email>'` Google provider, `Profile 0` | ✅ |
 | Aside MCP (HTTP) | `http://127.0.0.1:8013/mcp` | ✅ (in `~/.claude/mcp-strict.json` + `~/.claude.json`) |
 | Aside MCP (stdio) | `aside mcp` | ✅ |
 | Aside Safe Storage keychain | `Aside Safe Storage` / `Aside` | ✅ |
@@ -199,7 +199,7 @@ Aside uses its own macOS Keychain entry (`Aside Safe Storage`), separate from Ch
 ```bash
 # 1. CLI alive
 aside --version       # 1.26.626.1517
-aside account list    # * u0  $USER@gmail.com  signed in
+aside account list    # * u0  '<account-email>'  signed in
 
 # 2. REPL alive
 aside repl "console.log('ok')"        # [ok | <Nms>]

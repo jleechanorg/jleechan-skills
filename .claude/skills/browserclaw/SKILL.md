@@ -308,7 +308,7 @@ Register the `mcp_tools.json` with your agent's MCP server, or parse it and wire
    r = s.post('https://api.example.com/graphql', json={"query":"{ me { id } }"})
    print(r.status_code, r.text[:200])
    ```
-4. **Worked Monarch example (2026-07-22)**: 537 Aside cookies extracted → CSRF token `AQT26Ys6dtFUZd3Kd5sWF9cQjq6rVlyD` + `Origin: https://app.monarch.com` + `Referer: https://app.monarch.com/` → `{ me { id email } }` returned `id: 170607937752856546, email: $USER@gmail.com`. Then `{ accounts { id currentBalance } }` returned ~12 account balances including the $1,862.06 EOD balance on account ending 6425 (the Chase checking that was -$2,585.24 overdrawn the day before).
+4. **Worked Monarch example (2026-07-22)**: 537 Aside cookies extracted → CSRF token `<csrf-token>` + `Origin: https://app.monarch.com` + `Referer: https://app.monarch.com/` → `{ me { id email } }` returned `id: <account-id>, email: '<account-email>'`. Then `{ accounts { id currentBalance } }` returned ~12 account balances including the `<eod-balance>` EOD balance on account ending `<account-suffix>` (the checking account that was `<prior-balance>` overdrawn the day before).
 5. **Schema probing**: introspection is often disabled for non-admin users. Try field names by pattern — most Monarch-style SPAs use plural field names without `get` prefix (`accounts`, `transactions`, `categories`, `merchants`). When opaque "Something went wrong" appears, query one leaf field at a time.
 
 **Anti-pattern**: declaring the dashboard inaccessible after `browserclaw cookies inject` into headless Chromium shows the login page. The dashboard may be unreachable BUT the API often is. Always try the API path before asking the user for credentials.

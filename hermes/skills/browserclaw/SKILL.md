@@ -30,7 +30,7 @@ This file documents the **cookies** subcommands. The capture / infer / generate 
 
 **The 5-step recipe is verified end-to-end at `references/gemini-share-link-as-user.md`** (Gemini share `Td7fA4pzuvMs`, 2026-07-20, 79 Google cookies decrypted, 169KB page text extracted, campaign module saved via PR $GITHUB_REPOSITORY#8483). The full session analysis — including the user's verbatim correction — is at `references/gemini-share-link-stopping-pattern.md`.
 
-**Why this rule exists:** posting a 4-option unblock menu ("paste the content / re-share publicly / Doc export / proceed from title alone") on first refusal was the failure mode the user explicitly corrected in Slack thread C0AH3RY3DK6/p1784580748.125749 (verbatim: *"use /browser or /browserclaw headless next time without asking"*). Doing the recipe costs ~5 seconds of `browserclaw` time; asking the user costs them a full reply round-trip and breaks their flow. **Bias toward running the recipe.**
+**Why this rule exists:** posting a 4-option unblock menu ("paste the content / re-share publicly / Doc export / proceed from title alone") on first refusal was the failure mode the user explicitly corrected in Slack thread <slack-channel-id>/p1784580748.125749 (verbatim: *"use /browser or /browserclaw headless next time without asking"*). Doing the recipe costs ~5 seconds of `browserclaw` time; asking the user costs them a full reply round-trip and breaks their flow. **Bias toward running the recipe.**
 
 **Companion contract test:** `tests/test_browser_command_mentions_browserclaw.py` in `~/jleechanclaw` (PR jleechanorg/jleechanclaw#788) fails if `~/.claude/commands/browser.md` drops the `browserclaw` reference or the auth-gate recipe pointer. SOUL.md `## COMMIT: read-auth-gated-share-links-with-browserclaw` (53rd COMMIT, added 2026-07-20) is the trigger-based contract that enforces this on every session. The contract test + the SOUL.md COMMIT + this SKILL.md section are the three layers of the durable fix.
 
@@ -436,7 +436,7 @@ done
 # + Aside / Brave / Edge sweeps
 ```
 
-If all return 0, run `gog gmail search --account $USER@gmail.com "from:<domain> OR subject:<keyword>"` to check whether the data is already emailed as monthly activity statements — many fintech / SaaS sites ship history emails. If Gmail also doesn't have it, the task needs a vendor-support / manual / alternate-source path; don't pretend headless injection will work.
+If all return 0, run `gog gmail search --account '<account-email>' "from:<domain> OR subject:<keyword>"` to check whether the data is already emailed as monthly activity statements — many fintech / SaaS sites ship history emails. If Gmail also doesn't have it, the task needs a vendor-support / manual / alternate-source path; don't pretend headless injection will work.
 
 ## When `cookies decrypt` returns empty values — v20 (App-Bound Encryption) bypass
 
