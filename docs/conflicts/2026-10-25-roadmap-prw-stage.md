@@ -12,5 +12,5 @@ Merged `origin/roadmap-prw-stage-20261025` into the local roadmap skill branch.
 
 ## Tests
 
-- Before: `python3 /Users/jleechan/.codex/skills/.system/skill-creator/scripts/quick_validate.py .claude/skills/roadmap` → `Skill is valid!` after merge resolution.
-- After: `python3 /Users/jleechan/.codex/skills/.system/skill-creator/scripts/quick_validate.py .claude/skills/roadmap` → `Skill is valid!`; focused contract assertions and `git diff --check` also passed.
+- Before: `python3 ~/.codex/skills/.system/skill-creator/scripts/quick_validate.py .claude/skills/roadmap` → `Skill is valid!` after merge resolution.
+- After: `python3 ~/.codex/skills/.system/skill-creator/scripts/quick_validate.py .claude/skills/roadmap` → `Skill is valid!`; focused contract assertions and `git diff --check` also passed.
