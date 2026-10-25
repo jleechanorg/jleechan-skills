@@ -10,6 +10,10 @@ context: hermes
 
 ## Contract
 
+Aside is a real GUI browser, not headless. Its background behavior must be verified for the current operation.
+
+Apply [browser-control's personal browser isolation contract](../browser-control/SKILL.md#personal-browser-isolation--required-for-every-route) first. Aside is primary only when it can operate in the background in an agent-owned tab; otherwise use isolated headless Playwright Chromium. Never attach to, focus, or import cookies from the personal Chrome browser.
+
 **Default: Aside first.** For all browser work, agents should reach for the Aside CLI / Aside MCP server before Playwright MCP or superpowers-chrome. Playwright MCP and superpowers-chrome are **named fallbacks** — preserved, not deleted — for cases Aside can't handle (rare; mostly headless CI runners and Playwright-specific test fixtures).
 
 | Tool | Role | When to use |
@@ -18,7 +22,7 @@ context: hermes
 | `mcp__playwright-mcp` | Fallback | Only when Aside CLI is unavailable, or for Playwright-specific fixtures (trace viewer, `--isolated` profile mode, video recording) |
 | `mcp__plugin-superpowers-chrome__chrome_use_browser` | Fallback | Only when Chrome-specific behavior is required (e.g., you need Chrome's exact `--user-data-dir` semantics for a particular test) |
 
-**Explicit opt-in phrases only:** Jeffrey says *"show browser"*, *"headed mode"*, *"visible browser"*, or *"I want to see the window"* in the **current thread**. Aside supports both headed and headless modes; the agent picks based on the opt-in.
+**Explicit opt-in phrases only:** The user says *"show browser"*, *"headed mode"*, *"visible browser"*, or *"I want to see the window"* in the **current thread**. These permit a separate automation window only; the Playwright fallback keeps its headless-only default otherwise. Do not assume Aside navigation is headless; verify background operation or use isolated headless Chromium.
 
 ## Why Aside
 
@@ -44,7 +48,7 @@ Aside is a Y Combinator–backed AI-native Chromium browser launched June 2026. 
 
 **Do NOT give up** when `openTab` + `attachBrowserTab` both land on a login page even though a cookie DB has the session. The session may be valid for the *API* even when the dashboard is unreachable. Walk this ladder before declaring the site inaccessible:
 
-1. **Extract cookies from any browser DB** (Aside, Chrome, Brave, Edge) using `browserclaw cookies decrypt --db <path> --output <file> --keychain-service "Aside Safe Storage" --keychain-account "Aside"`. Inspect for `session_id`, `csrf`, `cf_clearance`, etc.
+1. **Use only an explicitly authorized agent-owned cookie DB**, following browser-control's guarded cookie-transfer lifecycle. The personal Chrome profile and cookies are excluded; never sweep them to recover an automation login. Use the source browser's matching Safe Storage service/account and never print cookie values.
 2. **Probe the internal GraphQL/REST endpoint directly with `requests`**:
    ```python
    import json, requests
@@ -97,7 +101,7 @@ Do not assume a failing standalone CLI means the browser tool is dead, or that a
   const p = await openTab('https://example.com');
   const s = await snapshot(p, { interactive: true });
   console.log(s.tree);     // or s.title, s.url, s.childCount
-  await closeTab(p);       // or closeAllTabs() at end
+  await closeTab(p);       // close only this task-owned tab
   ```
 - **NL agent pattern** (best for "find X on this site" tasks):
   ```bash
@@ -128,8 +132,8 @@ Do not assume a failing standalone CLI means the browser tool is dead, or that a
 
 ### Phase 3 — After session
 
-- Close any tabs the agent opened if they're not useful for the user: `aside repl "closeAllTabs()"`.
-- If you called any headed action (no opt-in required for Aside, but worth checking), end the turn by confirming the next agent session starts headless again.
+- Close only the exact tabs opened by this task when they are no longer useful. Never call `closeAllTabs()` on a shared browser.
+- Headed actions require explicit opt-in for a separate automation window. Close only the task-owned window when finished; never hide, restart, or close the user's browser.
 
 ## Aside is not running
 
@@ -139,11 +143,8 @@ If `aside account list` fails or shows no signed-in account:
 # 1. Is the Aside GUI app open?
 pgrep -lf "Aside.app" | head -3
 
-# 2. If not, launch it (the daemon will auto-start)
-open -a "/Applications/Aside.app"
-
-# 3. Wait ~3 seconds, then verify
-sleep 3 && aside account list
+# If it is unavailable, use isolated headless Chromium.
+# Do not activate a GUI app as automatic recovery.
 ```
 
 If `aside` CLI itself is missing:
@@ -166,7 +167,7 @@ curl -fsSL https://releases.aside.com/install.sh | bash
 - ❌ Declaring a platform "staged" from a screenshot of an empty compose box or login wall
 - ❌ Treating a broken `openTab()` path as proof that all existing Aside tabs are unusable
 - ❌ Reporting generic "Aside broken" status without separating transport, browser-bridge, and auth-state failures
-- ❌ Calling `show_browser` / headed mode without explicit opt-in (Aside supports both, but the headless-only default still applies)
+- ❌ Calling `show_browser` / headed mode without explicit opt-in for a separate automation window; the Playwright fallback retains its headless-only default.
 - ❌ Spawning a fresh Playwright Chromium per agent call (Aside's persistent daemon is faster + more stateful)
 - ❌ Using `mcp__claude-in-chrome__*` for any browser work (requires extension, fails headless/CI)
 - ❌ Copying cookies between browsers without re-encrypting under the target's Safe Storage key

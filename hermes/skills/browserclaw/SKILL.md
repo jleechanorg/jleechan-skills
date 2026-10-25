@@ -6,6 +6,8 @@ agent_scope: Any AI agent (Codex, Claude Code, Hermes, AO)
 
 # browserclaw
 
+First apply `~/.claude/skills/browser-control/SKILL.md` § Personal browser isolation. The personal Chrome profile, cookies, and login state are off-limits. Cookie/session reuse below applies only to an explicitly authorized agent-owned source profile; existing personal sign-in is not authorization. Do not run legacy personal-profile examples as a fallback.
+
 ## What this skill covers
 
 The `browserclaw` CLI (a single Python binary installed via `pip install -e .`) has two halves:

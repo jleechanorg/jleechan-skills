@@ -10,6 +10,10 @@ context: hermes
 
 ## Contract
 
+Aside is a real GUI browser, not headless. Its background behavior must be verified for the current operation.
+
+Apply `~/.claude/skills/browser-control/SKILL.md` § Personal browser isolation first. Aside is primary only when it can operate in the background in an agent-owned tab; otherwise use isolated headless Playwright Chromium. Never attach to, focus, or import cookies from the personal Chrome browser.
+
 **Default: Aside first.** For all browser work, agents should reach for the Aside CLI / Aside MCP server before Playwright MCP or superpowers-chrome. Playwright MCP and superpowers-chrome are **named fallbacks** — preserved, not deleted — for cases Aside can't handle (rare; mostly headless CI runners and Playwright-specific test fixtures).
 
 | Tool | Role | When to use |
@@ -18,7 +22,7 @@ context: hermes
 | `mcp__playwright-mcp` | Fallback | Only when Aside CLI is unavailable, or for Playwright-specific fixtures (trace viewer, `--isolated` profile mode, video recording) |
 | `mcp__plugin-superpowers-chrome__chrome_use_browser` | Fallback | Only when Chrome-specific behavior is required (e.g., you need Chrome's exact `--user-data-dir` semantics for a particular test) |
 
-**Explicit opt-in phrases only:** Jeffrey says *"show browser"*, *"headed mode"*, *"visible browser"*, or *"I want to see the window"* in the **current thread**. Aside drives a real GUI browser session and is not headless. Without opt-in, use Aside only when its existing session can be driven without surfacing a new window; otherwise use the guarded Playwright Chromium headless fallback.
+**Explicit opt-in phrases only:** The user says *"show browser"*, *"headed mode"*, *"visible browser"*, or *"I want to see the window"* in the **current thread**. These permit a separate automation window only; the Playwright fallback keeps its headless-only default otherwise. Do not assume Aside navigation is headless; verify background operation or use isolated headless Chromium.
 
 ## Why Aside
 
@@ -131,8 +135,8 @@ Aside is a Y Combinator–backed AI-native Chromium browser launched June 2026. 
 
 ### Phase 3 — After session
 
-- Close any tabs the agent opened if they're not useful for the user: `aside repl "closeAllTabs()"`.
-- If you called any headed action (no opt-in required for Aside, but worth checking), end the turn by confirming the next agent session starts headless again.
+- Close only the exact tabs opened by this task when they are no longer useful. Never call `closeAllTabs()` on a shared browser.
+- Headed actions require explicit opt-in for a separate automation window. Close only the task-owned window when finished; never hide, restart, or close the user's browser.
 
 ## Aside is not running
 
@@ -142,11 +146,8 @@ If `aside account list` fails or shows no signed-in account:
 # 1. Is the Aside GUI app open?
 pgrep -lf "Aside.app" | head -3
 
-# 2. If not, launch it (the daemon will auto-start)
-open -a "/Applications/Aside.app"
-
-# 3. Wait ~3 seconds, then verify
-sleep 3 && aside account list
+# If it is unavailable, use isolated headless Chromium.
+# Do not activate a GUI app as automatic recovery.
 ```
 
 If `aside` CLI itself is missing:
@@ -158,7 +159,7 @@ curl -fsSL https://releases.aside.com/install.sh | bash
 ## Anti-patterns (BANNED)
 
 - ❌ Calling `mcp__playwright-mcp__*` as a first resort without checking Aside first
-- ❌ Calling `show_browser` / headed mode without explicit opt-in (Aside is a real GUI browser — not headless — and the headless-only default applies only when falling back to Playwright or `browserclaw`)
+- ❌ Calling `show_browser` / headed mode without explicit opt-in for a separate automation window; the Playwright fallback retains its headless-only default.
 - ❌ Spawning a fresh Playwright Chromium per agent call (Aside's persistent daemon is faster + more stateful)
 - ❌ Using `mcp__claude-in-chrome__*` for any browser work (requires extension, fails headless/CI)
 - ❌ Assuming Chrome Default cookies reflect the user's actual session — **Aside and Chrome have INDEPENDENT cookie DBs** (different Safe Storage keychains, different file paths). A user logged into `app.monarch.com` via Aside may have ZERO cookies for it in Chrome's `Default/Cookies`, yet the full session lives in `~/Library/Application Support/Aside/Default/Cookies`. Before declaring "no auth," sweep `browserclaw cookies decrypt --db <aside-db> --keychain-service 'Aside Safe Storage' --keychain-account 'Aside'` (verified 2026-07-22: 10 valid `.api.monarch.com` cookies including `session_id` + `csrftoken` lived in Aside's DB; Chrome's profile had zero). See `references/aside-cookie-portability.md` for the full multi-DB sweep pattern.

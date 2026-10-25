@@ -10,25 +10,27 @@ context: hermes
 
 ## Contract
 
+Apply the personal browser isolation contract in `~/.claude/skills/browser-control/SKILL.md` before every browser action. The user's main Chrome is off-limits, including its cookies and login state. Headed opt-in permits a separate automation window only.
+
 **Default: headless always.** Jeffrey's Mac is not a demo kiosk — do not pop Chrome windows during agent work.
 
 **Primary tool (2026-06-27):** **Aside browser** (`aside` CLI / `aside-mcp`). Use it first for all browser work. This skill is the fallback for Playwright MCP / superpowers-chrome paths.
 
 | Tool | Default | Forbidden unless explicit user opt-in |
 |------|---------|--------------------------------------|
-| **Aside CLI / `aside-mcp`** | **PRIMARY** — headless or headed per task; verify with `aside account list` | nothing (Aside is the default) |
+| **Aside CLI / `aside-mcp`** | **PRIMARY** only when verified to stay in the background in an agent-owned tab | activating/focusing a window; metadata calls alone do not prove background navigation |
 | **Playwright MCP** | fallback, headless | headed / `headless: false` |
 | **superpowers-chrome** (`chrome_use_browser`) | fallback, headless (`hide_browser`, `browser_mode` → `headless: true`) | `show_browser`, headed restart |
 | **claude-in-chrome / GUI Chrome** | do not use for localhost | driving Jeffrey's visible Chrome for automation |
 
-**Explicit opt-in phrases only:** Jeffrey says *"show browser"*, *"headed mode"*, *"visible browser"*, or *"I want to see the window"* in the **current thread**.
+**Explicit opt-in phrases only:** The user says *"show browser"*, *"headed mode"*, *"visible browser"*, or *"I want to see the window"* in the **current thread**.
 
 ## Phases
 
 ### Phase 1 — Before any browser action
 
 1. Run `bash ~/.hermes/skills/browser-headless-default/scripts/validate-browser-mode.sh` when unsure.
-2. For superpowers-chrome: call `browser_mode` first; if not headless, call `hide_browser` before navigate/click.
+2. For superpowers-chrome: first verify it owns a separate automation browser/profile. Never hide or restart a shared/personal browser. Once ownership is proven, check `browser_mode` and use headless mode before navigate/click.
 3. For Playwright MCP: never pass headed options.
 
 ### Phase 2 — During automation

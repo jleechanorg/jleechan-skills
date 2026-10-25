@@ -5,6 +5,8 @@ description: "Use when testing localhost URLs or web UIs. PRIMARY: aside browser
 
 # Browser testing — Aside PRIMARY, Playwright MCP fallback
 
+Before choosing a tool, apply [browser-control's personal browser isolation contract](../browser-control/SKILL.md#personal-browser-isolation--required-for-every-route). Aside is preferred only when it can operate in the background without touching the main Chrome window; otherwise use isolated headless Playwright Chromium. A visible test request permits a separate automation window only.
+
 **PRIMARY (2026-06-27):** Use the **Aside browser** CLI or `mcp__aside-mcp__*` for all browser testing. Verify Aside alive first via `aside account list` (expect `* u0 $USER@gmail.com  signed in  profiles: Profile 0`). Default invocations:
 
 - `aside "Open http://localhost:8085 and screenshot the dashboard"` — NL agent, easy

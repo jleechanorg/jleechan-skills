@@ -5,11 +5,43 @@ description: Control real websites and authenticated browser sessions, inspect p
 
 # Browser control
 
+## Personal browser isolation — required for every route
+
+The user's main Chrome window, tabs, profile, cookies, and login state are off-limits
+to automation. A browser task, existing sign-in, or "show browser" request does
+not grant access to that personal browser. A later explicit request naming the
+personal browser and the intended action is required to change this boundary.
+
+- Use an agent-owned browser and profile. Prefer bundled Playwright Chromium for
+  headless launches; a separate profile alone does not prevent macOS launch/window
+  interference when launching the installed Google Chrome application.
+- Before attaching through CDP, an extension, or a runtime browser API, verify the
+  target browser, process/profile, and task-owned tabs. Never auto-discover or
+  auto-connect to desktop Chrome, including agent-browser `--auto-connect`.
+- Never select, copy, decrypt, or import the personal Chrome profile or its cookies,
+  including agent-browser `--profile Default`. Cookie-transfer recipes below apply
+  only to an explicitly authorized agent-owned source profile.
+- Aside remains preferred only when its operation can stay in the background in
+  an agent-owned tab. Do not activate/focus apps, bring windows forward, or assume
+  that an Aside metadata probe proves navigation is headless or focus-safe. If
+  background operation cannot be established, use isolated headless Chromium.
+- A visible-browser request permits a separate automation window only. Never use
+  `open -a "Google Chrome"`, a bare system URL opener, AppleScript activation/quit,
+  or a default-profile launch to recover automation. Do not change default-browser
+  registration or enable a continuous browser relaunch service.
+- Close only exact tabs/contexts/processes created by the current task. Never use
+  `closeAllTabs()`, `killall`, or broad `pkill` against shared browsers. Never remove
+  profile locks while their holder is alive; Dot profiles remain exclusive to Dot.
+- Verify the launched executable, dedicated profile or isolated context, endpoint
+  ownership when attaching, and headless mode before navigation. If these cannot
+  be verified, do not attach to another browser as a fallback. Report instruction
+  checks separately from runtime proof that the main window stayed untouched.
+
 ## Supported runtime browser API
 
 When the current runtime provides a connected browser API (for example a Chrome
 extension bridge with Playwright locators), use that documented API first for
-user-authorized existing-tab work. Read its current browser/profile/tab inventory
+user-authorized existing-tab work within the isolation contract above. Read its current browser/profile/tab inventory
 and documentation. This route preserves the existing session and does not copy
 credentials. It also applies to fingerprint-sensitive sites in their existing
 session; the cookie-injection restrictions below remain in force.
@@ -37,7 +69,7 @@ When no applicable supported runtime browser API is available, the numbered **Ro
 - **Live websites, authenticated sessions, account settings, OAuth, existing tabs:** start at Aside MCP, then Aside CLI (the primary signed-in path that does not copy session material).
 - **Authenticated fallback on fingerprint-TOLERANT sites:** use the guarded browserclaw decrypt → headless inject lifecycle only after both Aside paths fail to complete the authenticated task, AND only when the user has explicitly authorized local cookie transfer for the requested authenticated-content task. **Fingerprint-sensitive sites (LinkedIn, banks/brokerages, Cloudflare/Akamai-protected, user-declared no-headless) NEVER advance past Aside.** When Aside is unavailable on a fingerprint-sensitive target, post a ONE-LINE display/input blocker; do not fall through to cookie injection, capture, learn, reverse, or Playwright.
 - **Deterministic local-app testing, CI, isolated profiles, traces, video, multi-browser:** use Playwright headless / `playwright-ui-testing` after the authenticated routes are inapplicable.
-- **Visible/headed browser:** only when the user explicitly asked for it in the current thread. Headed Chromium is the user's existing Chrome session; do not use it from a sandboxed Bash call unless the user opts in.
+- **Visible/headed browser:** only when the user explicitly asked for it in the current thread, using a separate automation window and profile under the isolation contract above.
 
 ## Routing order (operational, in priority order)
 
@@ -45,9 +77,9 @@ Apply these in order; proceed only after the current route fails to complete the
 
 1. **Aside-MCP if available.** Most specific, lowest friction: the user's existing signed-in tabs and session are preserved across calls. Detect by listing MCP tools in the active runtime.
 2. **Aside CLI** (`aside repl` / `aside "<prompt>"` / `aside account list`) — `repl` mode for interactive navigation, `agent`/`<prompt>` mode for an Aside-driven task. Use the already-running `Aside.app` profile. `account list` returns the active profile(s). Aside drives a real browser session; it remains the primary signed-in path, even though it is not the headless fallback.
-3. **browserclaw cookies decrypt → inject** — for fingerprint-tolerant sites where Aside is unavailable, not signed-in, or on a headless host, and the user has explicitly authorized local cookie transfer for the task. The fingerprint-sensitive Aside-only exception below overrides this fallback. Decrypt the user's existing cookies from the local Chromium profile, inject into Playwright Chromium headless, navigate. Profile sweep order: **Aside → Chrome Default → Chrome Profile 1 → Chrome Profile 2 → Brave → Microsoft Edge**. Chrome path: `~/Library/Application Support/Google/Chrome/<Profile>/Cookies`. Aside/Edge/Brave use the same shape with a different `--keychain-service`/`--keychain-account`. Discover profile locations from the installed browserclaw skill, but apply only the guarded lifecycle below; do not execute older fixed-path output snippets.
+3. **browserclaw cookies decrypt → inject** — for fingerprint-tolerant sites where Aside is unavailable, not signed-in, or on a headless host, and the user has explicitly authorized local cookie transfer from a specific agent-owned profile for the task. The fingerprint-sensitive Aside-only exception below overrides this fallback. Never sweep personal browser profiles. Filter the example candidates below to the authorized source before running; use its matching Safe Storage service/account and the guarded lifecycle below.
 4. **Playwright headless (no auth)** — for unauthenticated/deterministic flows, scraping public pages, scripted sweeps, or CI-style checks. Use `playwright-ui-testing` if the task is a real test (isolated profiles, traces, video).
-5. **Visible/headed browser** — only when the user explicitly asked for it in the current thread. Headed Chromium is the user's existing Chrome session; do not use it from a sandboxed Bash call unless the user opts in.
+5. **Visible/headed browser** — only when the user explicitly asked for it in the current thread, using a separate automation window and profile under the isolation contract above.
 
 > **Footnote — `browserclaw capture` / `learn` / `reverse` (NOT a route).** These subcommands persist full HTTP request/response traffic to a `capture.har` file on disk, which can contain the new secret in plaintext. They are allowed ONLY for tasks where no credentials, cookies, authorization headers, tokens, or secret pages can enter the capture — e.g. API documentation discovery against a public docs site. They are NOT the headless fallback for any of the numbered routes above; if you need an authenticated page, use route 3 (browserclaw `cookies decrypt` + `cookies inject`) with explicit authorization instead.
 
@@ -130,10 +162,6 @@ set +e
 for entry in \
   "Aside:$HOME/Library/Application Support/Aside/Default/Cookies:Aside Safe Storage:Aside" \
   "Aside-Profile1:$HOME/Library/Application Support/Aside/Profile 1/Cookies:Aside Safe Storage:Aside-Profile1" \
-  "Chrome-Default:$HOME/Library/Application Support/Google/Chrome/Default/Cookies:Chrome Safe Storage:Chrome" \
-  "Chrome-Profile1:$HOME/Library/Application Support/Google/Chrome/Profile 1/Cookies:Chrome Safe Storage:Chrome" \
-  "Chrome-Profile2:$HOME/Library/Application Support/Google/Chrome/Profile 2/Cookies:Chrome Safe Storage:Chrome" \
-  "Chrome-Profile3:$HOME/Library/Application Support/Google/Chrome/Profile 3/Cookies:Chrome Safe Storage:Chrome" \
   "Brave:$HOME/Library/Application Support/BraveSoftware/Brave-Browser/Default/Cookies:Brave Safe Storage:Brave" \
   "Edge:$HOME/Library/Application Support/Microsoft Edge/Default/Cookies:Microsoft Edge Safe Storage:Microsoft Edge"; do
   IFS=: read label db svc acct <<< "$entry"
@@ -245,10 +273,6 @@ set +e
 for entry in \
   "Aside:$HOME/Library/Application Support/Aside/Default/Cookies:Aside Safe Storage:Aside" \
   "Aside-Profile1:$HOME/Library/Application Support/Aside/Profile 1/Cookies:Aside Safe Storage:Aside-Profile1" \
-  "Chrome-Default:$HOME/Library/Application Support/Google/Chrome/Default/Cookies:Chrome Safe Storage:Chrome" \
-  "Chrome-Profile1:$HOME/Library/Application Support/Google/Chrome/Profile 1/Cookies:Chrome Safe Storage:Chrome" \
-  "Chrome-Profile2:$HOME/Library/Application Support/Google/Chrome/Profile 2/Cookies:Chrome Safe Storage:Chrome" \
-  "Chrome-Profile3:$HOME/Library/Application Support/Google/Chrome/Profile 3/Cookies:Chrome Safe Storage:Chrome" \
   "Brave:$HOME/Library/Application Support/BraveSoftware/Brave-Browser/Default/Cookies:Brave Safe Storage:Brave" \
   "Edge:$HOME/Library/Application Support/Microsoft Edge/Default/Cookies:Microsoft Edge Safe Storage:Microsoft Edge"; do
   IFS=: read label db svc acct <<< "$entry"

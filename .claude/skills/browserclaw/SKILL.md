@@ -6,6 +6,8 @@ agent_scope: Any AI agent (Codex, Claude Code, OpenClaw, Hermes, AO)
 
 # browserclaw
 
+First apply [browser-control's personal browser isolation contract](../browser-control/SKILL.md#personal-browser-isolation--required-for-every-route). The personal Chrome profile, cookies, and login state are off-limits. Cookie/session reuse below applies only to an explicitly authorized agent-owned source profile; existing personal sign-in is not authorization. Do not run legacy personal-profile examples as a fallback.
+
 Inspect browser-driven API traffic and convert captured patterns into reusable artifacts — a Python client for programmatic control and MCP tool definitions for tool-calling agents.
 
 ## Scope
