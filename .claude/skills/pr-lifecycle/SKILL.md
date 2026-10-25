@@ -37,7 +37,7 @@ Each arrow is a gate, not a formality. Do not skip ahead. A changed SHA triggers
 
 ## Retained review integrations
 
-The shared catalog preserves host-installed `/advice` and `/web-advice` integrations instead of installing them. Before invoking either, resolve its `../advice/SKILL.md` or `../web-advice/SKILL.md` relative to this package and read the existing skill. For a remote invocation, check the corresponding skill on the target host. If absent, report that integration as `UNAVAILABLE` and identify the missing package; do not invent a replacement runner, claim an approval, or treat a required gate as passed. Continue independent authorized work, but leave any dependent readiness or plan-approval gate unmet. Existing review quorum, external-disclosure authorization, and optional-review rules still apply.
+The shared catalog preserves host-installed `/advice` and `/web-advice` integrations instead of installing them. Before invoking either, resolve its `../advice/SKILL.md` or `../web-advice/SKILL.md` relative to this package and read the existing skill. For a remote invocation, check the corresponding skill on the target host. If absent, report that integration as `UNAVAILABLE` and identify the missing package; do not invent a replacement runner or claim an approval. For missing `/dot` or requested `/wa`, continue through the reviewer fallback below and keep dependent substantive evidence gates open until proved. If `/advice` is absent, its applicable quorum remains unmet; leave any dependent readiness or plan-approval gate unmet. Existing review quorum, external-disclosure authorization, and optional-review rules still apply.
 
 ## Advice applicability
 
@@ -57,6 +57,43 @@ risk controls and record exact SHA, complete coverage, findings, and verdict.
 Evidence-only review does not satisfy this code-review gate. Preserve stricter
 repository lanes and quorums; this fallback does not make `/advice` mandatory
 for an under-50 PR.
+
+### Reviewer timeout and completion
+
+For `/pr-workflow` and other lifecycle reviews, each reviewer attempt has one
+600-second wall-clock limit, starting when the request is queued or sent. The
+limit includes queueing and delivery wait; progress, partial output, or a new
+message does not reset it. If the reviewer is explicitly unavailable or quota
+blocked, stop that attempt and route to the applicable fallback immediately.
+Do not repeatedly wait on the same attempt. A later specific user instruction
+to await a named reviewer overrides this deadline for that requested attempt.
+
+A timed-out `/dot`, requested `/wa` or other non-`/advice` supplementary reviewer
+attempt is recorded as `TIMED_OUT`, with request and timeout times and any
+partial receipt or findings; it is never recorded as PASS. The attempt is
+discharged at timeout so the workflow continues through the reviewer fallback:
+a passing `/er` on the finished evidence plus `/advice` approval from two
+independent reviewers at the same head. This makes the two-vote advice quorum
+mandatory for this substitution only; it does not change the general under-50
+advice threshold. The fallback advances reviewer coverage without claiming the
+timed-out review happened. In particular, a requested `/wa` timeout does not
+prove any browser-only validation it was meant to review. Required substantive
+safety, evidence and domain checks remain open until proved by applicable
+evidence or an eligible replacement review. A timeout does not grant readiness
+or merge authorization. Preserve and assess late substantive findings when
+they arrive; they can reopen the affected gate.
+
+If an `/er` reviewer times out, record `TIMED_OUT` and continue independent
+work, but leave the evidence-review gate open until an eligible replacement
+completes `/er` with an applicable PASS. Do not count `/advice` or another
+supplementary review as proof that the evidence was reviewed.
+
+`/advice` retains its applicable two-independent-reviewer quorum. A failed or
+timed-out reviewer seat must be replaced with another eligible independent
+reviewer; continue replacements until quorum is reached or no eligible attempt
+remains. Record each seat and outcome. Below quorum, the result is `WITHHELD`,
+not approval. A late substantive `/advice` finding is retained and assessed even
+after a replacement has supplied a vote.
 
 Count additions + deletions in the complete PR diff at the live head against its
 actual base, including all production and non-production files, not net lines or
@@ -131,8 +168,8 @@ Never claim synchronization from a successful title update alone. No bulk adopti
 Use the Advice applicability boundary and independent coverage rules in this skill. Here, small means under 50 complete-diff additions+deletions; large means at least 50 (or an incomplete/uncountable diff). Optional /advice does not mean all independent review is optional: the opted-in route below names its alternative, while the narrow trivial-change exception can waive that extra lane.
 At Stage 3: small PRs need /advice OR independent /dot approval unless the narrow trivial-change exception below applies; large PRs need both.
 At Stage 5: the same route applies to final obligations; large PRs attempt /wa best effort when authorized.
-Explicitly required reviews remain required. Honor existing standing authorization without asking again. When a governing workflow or user explicitly requires /wa, it remains required rather than best effort; unavailable required /wa leaves that gate open. Otherwise unavailable best-effort /wa is disclosed, not invented approval.
-Resolve /dot through an existing authorized independent Dot reviewer, not the author/orchestrator. When /dot is necessary and the first Dot is busy, send the same request to the next configured Dot account in rotation. Dot counts as busy when every configured account is unavailable or limited, or none returns a verdict within 60 minutes of a verified send. If Dot is busy, a passing /er on the finished evidence plus /advice approval, both at the same head, satisfy the /dot leg; record `/dot busy: /er + /advice substituted` with the accounts tried and send times. A /dot verdict that arrives later still counts, and a /dot finding reopens the affected stage. If neither Dot nor that substitute is available, record UNAVAILABLE and hold:reviewer; do not invent an integration or substitute an acknowledgment. An independent /dot receipt names its reviewer, declared source/evidence scope, original tested/reviewed SHAs, actual inspection/actions, verdict, coverage, findings/limits and retrievable receipt. An acknowledgment, capability claim or another reviewer's verdict is not /dot approval. Its covered scope must satisfy the requested gate; narrow visual approval is not full source approval.
+Explicitly requested /wa remains an attempt in the route. Honor existing standing authorization without asking again; apply the 600-second timeout contract above and use its `/er` plus two-vote `/advice` substitution if it times out or is unavailable. Record the actual disposition. Do not claim browser-only validation occurred, and keep any required domain evidence gate open until that evidence is proved. Otherwise unavailable or timed-out best-effort /wa is disclosed, not invented approval.
+Resolve /dot through an existing authorized independent Dot reviewer, not the author/orchestrator. When /dot is necessary to satisfy the applicable route and the first Dot is busy, send the same request to the next configured Dot account in rotation. Apply the 600-second attempt limit above to each account, including queue and send wait. If Dot is busy, times out or is unavailable, the reviewer fallback above—a passing /er on the finished evidence plus two independent /advice votes at the same head—satisfies the /dot review leg; record `/dot busy: /er + /advice substituted` with the accounts tried, request/timeout times, and outcomes. A /dot verdict that arrives later still counts, and a /dot finding reopens the affected stage. Required substantive evidence gates remain open until proved. An independent /dot receipt names its reviewer, declared source/evidence scope, original tested/reviewed SHAs, actual inspection/actions, verdict, coverage, findings/limits and retrievable receipt. An acknowledgment, capability claim or another reviewer's verdict is not /dot approval. Its covered scope must satisfy the requested gate; narrow visual approval is not full source approval.
 Reviewer eligibility and quorum remain owned by their review skills; the author/orchestrator cannot self-award
 an independent vote, and reusing a verdict never creates an extra voter. A technical /dot verdict is evidence of review, never human permission to merge, change policy or operate another scope. A bot or orchestrator acknowledgment does not qualify as an independent review.
 Draft and final obligations are distinct: evaluate whether the existing verdict's scope and phase cover the

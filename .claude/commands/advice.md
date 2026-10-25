@@ -1,5 +1,5 @@
 ---
-description: Token-efficient second opinion — fans out a concurrent Codex + Opus CLI primary pair plus /research and `/extended-library:secondo`. Use instead of advisor() which ships the full conversation uncached.
+description: Token-efficient second opinion — runs the Codex + Opus CLI primary pair concurrently where available and requires two independent, full-coverage votes, using eligible alternate CLI reviewers when a primary vote is missing. Reviewer attempts are bounded to 600 seconds. `/research` is nonvoting; `/extended-library:secondo` (also invoked as `/secondo`) is eligible Reviewer C and may provide an approval vote.
 aliases: [smart-advisor]
 type: skill
 execution_mode: immediate

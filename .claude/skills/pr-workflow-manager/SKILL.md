@@ -14,6 +14,11 @@ It is the self-contained owner of lifecycle, visible stages/title suffixes/label
 review routes and reasoned evidence/approval applicability. This entry point owns practical discovery,
 branch verification and publication steps. No dated design document is required.
 
+Reviewer attempt deadlines, timeout dispositions, fallback routing and advice
+quorum recovery are owned by [pr-lifecycle's reviewer timeout contract](../pr-lifecycle/SKILL.md#reviewer-timeout-and-completion).
+Apply it to `/dot`, `/wa` and other reviewer waits; do not add a separate timer
+or treat a timeout as approval.
+
 Keep these two skills in sync: a lifecycle or stage change updates the canonical contract and checks this
 entry point and repository adapters for conflicting commands or summaries. Reference the contract rather
 than copying its tables. Preserve repository-specific evidence, safety, native and merge requirements.
