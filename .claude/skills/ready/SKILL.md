@@ -77,3 +77,7 @@ publication, gate reruns), then re-verify. Merges remain human-authorized:
 report READY state separately from the live merge authorization required by
 `draft-first-pr` and the repository. The separate live merge authorization is
 never supplied by a review, ledger entry, or READY verdict.
+
+## Stage evidence publication
+
+Follow [draft-first-pr](../draft-first-pr/SKILL.md) for proportional exceptions and every stage exit receipt. Always put retrievable artifact/gist URLs and applicable viewable inline media in the PR description, with explicit media N/A only where justified. Verify access and read back the description; comment-only or local-only proof does not complete publication. Do not duplicate the canonical exception matrix here.

@@ -11,13 +11,13 @@ Prove user-visible behavior in a way reviewers and agents can verify quickly fro
 
 ## When UI Video Is Mandatory
 
-UI/browser video is mandatory whenever work is user-facing, including:
+Apply the narrow proportional exceptions in [draft-first-pr](../draft-first-pr/SKILL.md) first. Source-only harmless display-copy may justify media N/A; a bounded static-copy rendering claim may use an actual screenshot. Other UI/browser video is mandatory for user-facing behavior, including:
 - Visual/UI layout or styling changes
 - Click flows, form submit flows, navigation, or modal behavior
 - New/changed browser interactions
 - Any claim of visual correctness or lack of visual regression
 
-If a PR touches user-facing behavior, missing UI video is an evidence failure.
+Outside those explicit exceptions, missing applicable UI video is an evidence failure. Never waive requested interaction, streaming or native proof by calling it a string change.
 
 ## Required Outputs
 
@@ -86,7 +86,7 @@ Use `~/.claude/skills/video-caption/SKILL.md` for reliable burned-in captions.
 
 ## Evidence access and authorized publication
 
-Follow `~/.claude/skills/evidence-standards/SKILL.md` for publication authority, audience, and destination. A PR, checked-in document, access-controlled receipt/store, or authorized gist may link the evidence. A gist or GitHub upload is not an independent acceptance requirement. Preserve real media, captions, exact source provenance, and reviewer access; publish only within the current authorization.
+Follow `~/.claude/skills/evidence-standards/SKILL.md` for publication authority, audience, and destination. A PR, checked-in document, access-controlled receipt/store, or authorized gist may link the evidence. For repositories adopting the visible stage workflow, every stage-exit receipt must be linked in the PR description through its required sanitized gist URL; applicable inline viewable media and original media URLs are required there. Other authorized artifact storage does not remove that description/publication requirement. Preserve real media, captions, exact source provenance, and reviewer access; publish only within the current authorization.
 
 The following GitHub release example applies only when that destination is authorized. Verify the intended PR exists via `gh pr view` before creating any release or upload. Caller must provide non-empty `VIDEO_FILE` and `PREVIEW_FILE` artifacts, an explicit non-empty `RUN_ID`, an explicit non-empty `CAPTURED_SHA` matching the PR head SHA, and declare an explicit caption choice: set `CAPTION_FILE` to the actual .vtt or .srt sidecar path, or set `CAPTION_MODE=burned` when captions are burned into the video. All media and subtitle formats are verified with ffprobe prior to archive creation and publication. Packaging creates a new archive in a private temporary directory so existing user archives are never overwritten or updated with stale entries. Each run publishes to an immutable unique release tag combining the PR number, commit SHA, and run identifier without overwriting or clobbering existing releases.
 
@@ -479,3 +479,4 @@ When distributing video or visual evidence to Slack (channels, incident threads,
   python3 ~/.claude/skills/slack-media-upload/scripts/slack_upload.py [--dm | --channel <id>] --file <path> [--title <title>...] [--thread-ts <ts>] [--comment <text>]
   ```
 - This wraps Slack's two-step `files.getUploadURLExternal` → `files.completeUploadExternal` API so videos and GIFs render directly inline in Slack.
+

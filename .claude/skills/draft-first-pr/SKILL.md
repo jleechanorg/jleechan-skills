@@ -23,7 +23,7 @@ This is the full state machine — every other file (`pr-green-definition`, `/gr
 ```
 DRAFT
   → /es PASS @ SHA
-  → /er PASS @ SHA (unless the narrow /er documentation allowlist or a repo-exempted class applies)
+  → /er PASS @ SHA (unless the narrow /er documentation allowlist, explicit trivial-change exception or a repo-exempted class applies)
   → /advice APPROVED @ SHA when required by Advice applicability below
   → mark ready-for-review (gh pr ready <N>)
   → /ready work: /green, comments, conflicts, and regression checks
@@ -111,7 +111,7 @@ Never claim synchronization from a successful title update alone. No bulk adopti
 ### Review routes for opted-in repositories
 
 Use the Advice applicability boundary and independent coverage rules in this skill.
-At Stage 3: small PRs need /advice OR independent /dot approval; large PRs need both.
+At Stage 3: small PRs need /advice OR independent /dot approval unless the narrow trivial-change exception below applies; large PRs need both.
 At Stage 5: the same route applies to final obligations; large PRs attempt /wa best effort when authorized.
 Explicitly required reviews remain required. Unavailable best-effort /wa is disclosed, not invented approval.
 An independent /dot receipt names its reviewer, declared source/evidence scope, original tested/reviewed SHAs, actual inspection/actions, verdict, coverage, findings/limits and retrievable receipt. An acknowledgment, capability claim or another reviewer's verdict is not /dot approval. Its covered scope must satisfy the requested gate; narrow visual approval is not full source approval.
@@ -134,6 +134,28 @@ Keep this contract, the pr-workflow-manager entry point and repository adapters 
 names, title prefixes, labels, review routes or applicability rules. Repo adapters must reference this skill,
 not copy its tables. Check affected references and report any installed copy that is stale or unavailable;
 a source push does not install or synchronize another computer.
+
+### Proportional exceptions and fast paths
+
+Classify the complete diff by effects and claimed outcomes, not its extension, a non-production label, or the latest commit size. For an entirely harmless documentation/mechanical change or obvious display-copy-only change under 50 total additions+deletions, a compact `/es` receipt with source before/after inspection and proportionate checks can suffice. Record `/er` and the extra independent `/dot` lane as `NOT REQUIRED — trivial-change exception`, never a fabricated PASS or reviewer vote. This exception applies at both review phases; explicitly requested reviews remain required. The seven-element specification may be concise but remains required in its prescribed location. The >=50 advice boundary is unchanged.
+
+This exception excludes application prompts, schemas, selectors, URLs, interpolation, format/control strings, authentication, permissions, consent, payments, legal meaning, and approval, merge, review, evidence or security policy. Agent instructions changing these rules are not harmless documentation: this workflow policy cannot exempt its own review. A one-line change can be high risk. Mixed diffs follow the requirements of their affected claims.
+
+For logging-only changes, use bounded execution showing the actual emitted log, level and fields, with original source SHA, command, timestamps and sanitized output. Focused `/er` may approve that emission claim without unrelated browser or provider runs. Check privacy and side effects; new sensitive data, destinations, machine-consumed contracts, alerts, expensive expressions, exceptions, mutation or retries require their affected proof. Emission alone does not prove downstream ingestion or alert delivery.
+
+Non-production tests, fixtures, drivers and CI changes need proportionate checks of changed assertions and affected contracts, not automatic runtime capture and not automatic exemption. Never weaken assertions or mock away a claimed boundary to qualify.
+
+Source-only display-copy inspection proves the literal change, not rendering, accessibility or localization. Media may be explicitly `N/A` for that bounded claim. A claimed static appearance needs real rendered proof and an inline screenshot; interaction or streaming claims retain applicable video requirements. These explicit narrow exceptions govern generic all-UI-media wording in linked skills; named risk-specific requirements, explicit user-required proof and safety controls remain applicable.
+
+### Evidence attached to every stage exit
+
+Always attach evidence to the PR description using retrievable artifact URLs and a sanitized gist receipt URL. Proof only in a comment, local path, chat or promised upload is insufficient. Every completed stage 0–5 has an appropriate receipt; specification proof does not require future runtime evidence. One version-pinned gist may contain distinct stage/event anchors without ceremonial duplicate uploads.
+
+The description's evidence index records stage, disposition (`COMPLETE`, `NOT REQUIRED`, `REUSED` or `BLOCKED`), candidate head/base, full diff classification, original tested/reviewed SHAs and execution timestamps, applicable commands/environment/results, artifact hashes, reviewer and coverage, limitations, and exemption or reuse rationale. Preserve original receipts and append superseding events instead of restamping evidence.
+
+Embed applicable screenshots and playable video inline in the PR description alongside direct original-media URLs. Verify URLs resolve and intended reviewers can view the media. A gist link alone does not satisfy applicable visual proof. Docs, logs and source-only trivial-copy claims may record a specific media `N/A` reason; never manufacture media to fill a field. Apply all applicable `/es` integrity, provenance, sanitization and claim-sufficiency requirements before declaring the stage passed.
+
+Missing, inaccessible or unauthorized publication is `PUBLICATION BLOCKED`: continue independent work, but do not claim that stage exit complete. Missing or failed required checks are not exemptions. Read back the description; preserve evidence history and title/stage-label consistency.
 
 ## Coding lifecycle (pre-draft work) — scale layers to risk
 
@@ -201,12 +223,12 @@ A repository's own instructions (for example its `AGENTS.md` coding lifecycle)
 may exempt defined low-risk classes, such as docs-only, test-only, or small
 non-production changes, from `/er`; when they do, follow that
 classification and its exclusions. The narrow documentation allowlist below is
-the default when the repo defines none. No `/er` exemption covers changes to approval,
+the default when the repo defines none, alongside the explicit trivial-change exception above. No `/er` exemption covers changes to approval,
 merge, review, evidence, or security rules, or to security, permission,
 credential, or merge-path code.
 
 1. **`/es`** — evidence bundle passes (real evidence per `~/.claude/skills/evidence-standards/SKILL.md` + repo-specific extensions), bound to its original tested SHA and supported as applicable to the candidate by the delta assessment below.
-2. **`/er`** — for every PR except the documentation-only class below or a repo-exempted class, evidence review verdict is PASS (not PARTIAL/FAIL/INCONCLUSIVE), with its original reviewed/tested SHAs and a reasoned applicability assessment for the candidate; an older `/es` SHA alone does not require a rerun.
+2. **`/er`** — for every PR except the documentation-only class below or a repo-exempted class, and except the explicit trivial-change class above, evidence review verdict is PASS (not PARTIAL/FAIL/INCONCLUSIVE), with its original reviewed/tested SHAs and a reasoned applicability assessment for the candidate; an older `/es` SHA alone does not require a rerun.
 3. **`/advice`** — second-opinion approval on the change itself (`APPROVED at <SHA>` / `NOT APPROVED at <SHA>` / `WITHHELD at <SHA>` — see `~/.claude/skills/advice/SKILL.md`), bound to its actual reviewed SHA and applicable to the candidate by the delta assessment, when required by Advice applicability. `WITHHELD` does not satisfy the draft gate.
 
 Only after every applicable gate is satisfied **for the candidate**, with original SHAs and explicit applicability where they differ: flip the PR from draft to ready-for-review (`gh pr ready <N>`).
@@ -300,7 +322,7 @@ phase using the documentation-only CI exception and separate merge authorization
 This `/er` exemption is an exact allowlist, not a file-extension heuristic. Changes under
 `.claude/**`, `.codex/**`, `.github/**`, prompts, tests, scripts, configuration,
 schemas, or source code do not qualify even when the file is Markdown. Any
-mixed diff uses the normal `/er` gate.
+mixed diff uses the normal `/er` gate unless the entire diff independently qualifies for the explicit trivial-change exception above.
 
 ## Change-impact review and test depth
 

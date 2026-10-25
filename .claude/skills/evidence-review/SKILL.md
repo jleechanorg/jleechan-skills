@@ -5,6 +5,13 @@ description: Enforcement rules for reviewing evidence artifacts against the evid
 
 # Evidence Review Skill
 
+## Claim-proportionate evidence and publication
+
+Apply [draft-first-pr](../draft-first-pr/SKILL.md) proportional exceptions and stage-exit rules. They govern generic bundle/media requirements below without waiving explicit user requirements or risk-specific proof. A compact source-inspection, documentation, deterministic-test or log-emission claim may use one provenance receipt plus primary artifacts and hashes; mark irrelevant server/PID/provider fields and media N/A with reasons rather than inventing runtime metadata. All applicable integrity and claim-sufficiency checks remain mandatory. Source hashes alone do not prove execution; log emission does not prove ingestion, and mocks do not prove real service boundaries.
+
+Always link the evidence and sanitized gist receipt from the PR description. Embed applicable viewable screenshots/playable videos there with original media URLs; confirm intended reviewer access. Source-only harmless copy may justify media N/A; claimed static rendering requires rendered proof, and interaction/streaming retains applicable video proof. A compact or exempt class is not an independent PASS, and failed or missing required proof is never N/A. The review verdict covers the declared claim and applicable checks, not unrelated runtime behavior.
+
+
 ## Retained review integrations
 
 The shared catalog preserves host-installed `/advice` and `/web-advice` integrations instead of installing them. Before invoking either, resolve its `../advice/SKILL.md` or `../web-advice/SKILL.md` relative to this package and read the existing skill. For a remote invocation, check the corresponding skill on the target host. If absent, report that integration as `UNAVAILABLE` and identify the missing package; do not invent a replacement runner, claim an approval, or treat a required gate as passed. Continue independent authorized work, but leave any dependent readiness or plan-approval gate unmet. Existing review quorum, external-disclosure authorization, and optional-review rules still apply.
@@ -42,9 +49,9 @@ prior verdict at the new SHA instead (see `evidence-standards` §
 - **Documentation-only exception**: when the complete PR diff matches the exact
   documentation allowlist in `draft-first-pr`, `/er` is not run. Record
   `/er: NOT REQUIRED — documentation-only (<changed paths>)` at the reviewed
-  SHA. Mixed diffs and every path outside that allowlist follow the normal gate.
+  SHA. Other diffs follow the normal gate unless the entire diff qualifies for the explicit trivial-change exception in draft-first-pr.
 
-Every PR outside that exception, and outside any low-risk class the repo's own
+Every PR outside that exception and the canonical trivial-change exception, and outside any low-risk class the repo's own
 instructions exempt per `draft-first-pr`, requires `/er` = **PASS** applicable to the candidate, retaining the original reviewed SHA and documented delta assessment when it differs
 before `/advice`. PARTIAL, FAIL, or INCONCLUSIVE remains informative reviewer
 output but does not satisfy the gate.
@@ -138,7 +145,7 @@ grep -A10 "Scope note" README.md
 ### 4. Video artifacts required by the claim
 
 Apply the user-scope evidence-standards and repository UI owner before selecting
-video requirements. User-visible behavior needs captioned video tied to the tested
+video requirements, including the canonical narrow trivial-copy exceptions above. Other user-visible behavior needs captioned video tied to the tested
 SHA. Terminal recording is required when the relevant owner or user asks for it,
 or when the claim depends on demonstrating terminal behavior; a test invocation
 alone does not create a GIF-plus-MP4 requirement.

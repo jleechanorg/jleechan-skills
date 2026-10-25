@@ -102,3 +102,7 @@ personal communications may be published outside their authorized destination.
 Creating or updating a PR does not authorize merge, deployment, credential changes, new quota,
 native/account operations, schedule changes or another owner's source work.
 Merge authority remains repository/user-specific and must be satisfied separately.
+
+## Stage evidence publication
+
+Follow [draft-first-pr](../draft-first-pr/SKILL.md) for proportional exceptions and every stage exit receipt. Always put retrievable artifact/gist URLs and applicable viewable inline media in the PR description, with explicit media N/A only where justified. Verify access and read back the description; comment-only or local-only proof does not complete publication. Do not duplicate the canonical exception matrix here.
