@@ -343,13 +343,42 @@ def has_verdict(output: str) -> bool:
     # anchor misclassifies those as missing_verdict even though the verdict is
     # present and readable. Accept an optional leading **/*/# marker and any
     # of the common separators between the word VERDICT and its content.
-    return (
-        re.search(
-            r"(?mi)^\s*(?:\*{1,2}|#{1,6}\s*)?VERDICT(?:\s*[:—–-]\s*|\s+)\S.*$",
-            output,
-        )
-        is not None
-    )
+    # Also tolerated (seen from agy/Opus): a numbered heading and an
+    # Executive/Final/Overall qualifier (`### 1. Executive Verdict: ...`,
+    # `**Final verdict:** ...`).
+    return parse_verdict(output) is not None
+
+
+VERDICT_LINE = re.compile(
+    r"(?mi)^\s*(?:#{1,6}\s*)?(?:\d+[.)]\s*)?(?:\*{1,2})?"
+    r"(?:(?:Executive|Final|Overall)\s+)?VERDICT(?:\*{1,2})?"
+    r"(?:\s*[:—–-]\s*|\s+)(?:\*{1,2}\s*)?(?P<value>\S.*)$"
+)
+
+
+def parse_verdict(output: str) -> str | None:
+    match = VERDICT_LINE.search(output)
+    if match is None:
+        return None
+    value = match.group("value").strip().strip("*").strip()
+    upper = value.upper()
+    if upper.startswith("NOT APPROVED"):
+        return "NOT APPROVED"
+    if upper.startswith("APPROVED"):
+        return "APPROVED"
+    return value[:200]
+
+
+# Appended to every reviewer prompt so callers' packets cannot omit it.
+OUTPUT_CONTRACT = (
+    "\n\nOUTPUT CONTRACT (mandatory): the first line of your reply must be "
+    "exactly `VERDICT: APPROVED` or `VERDICT: NOT APPROVED` (optionally "
+    "followed by ` at <SHA>`). Then return:\n"
+    "REASONING: [3–4 sentences]\n"
+    "RISK: [main risk, one sentence]\n"
+    "COVERAGE: [what you actually read; note anything you could not reach]\n"
+    "CONFIDENCE: [high / medium / low]\n"
+)
 
 
 DEFAULT_CODEX_MODEL = "gpt-6-sol"
@@ -634,6 +663,7 @@ def main(
                           for i, name in enumerate(documents)}, sort_keys=True)
             + "\n\n" + packet
         )
+    prompt += OUTPUT_CONTRACT
     try:
         # Reserve the result path before dispatch. Reusing a directory could
         # leave an unselected review artifact beside a fresh receipt.
@@ -704,7 +734,9 @@ def main(
                     )
             results = {name: future.result() for name, future in futures.items()}
         for name, result in results.items():
-            (output_dir / f"{name}.txt").write_text(result.pop("stdout"))
+            stdout = result.pop("stdout")
+            result["verdict"] = parse_verdict(stdout)
+            (output_dir / f"{name}.txt").write_text(stdout)
         receipt["reviewers"] = results
         receipt["descendant_termination_failures"] = descendant_termination_failures(
             results

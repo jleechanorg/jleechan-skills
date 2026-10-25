@@ -191,7 +191,9 @@ their link target without being followed. This avoids unsafe traversal while
 detecting hook-path and dangling-link mutations.
 
 An exit code of zero is not enough: each successful lane must return a nonempty
-line beginning with `VERDICT:`. Empty or malformed output records
+line beginning with `VERDICT:` (markdown/numbered/`Final`-style headings are tolerated).
+The runner appends this output contract to every reviewer prompt itself and records
+the parsed value (`APPROVED` / `NOT APPROVED`) as `verdict` in `receipt.json`. Empty or malformed output records
 `missing_verdict` and counts as an errored lane. If neither primary lane returns
 a recognizable verdict, invoke A3.
 
