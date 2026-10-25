@@ -84,9 +84,10 @@ Keep the specification and implementation in the same PR. For the complete actua
 - Under 50 total additions+deletions: use PR-body `## Specification`, including for high-risk small changes.
 - At least 50, or an incomplete/uncountable/binary diff: commit the seven-element specification in the same PR.
 - Crossing that boundary without the committed specification returns to Stage 0.
-Stage 0 is complete only when its artifact is in a PR diff: the specification committed at the branch
-head AND an open PR whose diff contains it. A commit on a branch with no PR is not a Stage 0 artifact
-- no reviewer, `/advice` or `/dot` can bind to it.
+Stage 0 is complete only when its artifact exists in an open PR at the prescribed location: the
+seven-element specification in the PR body for small changes, or the committed spec inside the PR diff
+for larger ones. A commit on a branch with no PR is not a Stage 0 artifact - no reviewer, `/advice` or
+`/dot` can bind to it.
 Artifact placement does not waive high-risk independent full-diff review or required real proof.
 Do not split coherent work merely to evade review thresholds.
 

@@ -388,7 +388,12 @@ class CodingLifecycleContract(unittest.TestCase):
             "A commit on a branch with no PR is not a Stage 0 artifact",
             self.owner,
         )
-        self.assertIn("an open PR whose diff contains it", self.owner)
+        self.assertIn("an open PR at the prescribed location", self.owner)
+        self.assertIn(
+            "seven-element specification in the PR body for small changes",
+            self.owner,
+        )
+        self.assertIn("committed spec inside the PR diff", self.owner)
         self.assertIn("State readback before reporting a blocker", self.owner)
         self.assertIn("run and quote all three", self.owner)
         self.assertIn("git status --porcelain", self.owner)
