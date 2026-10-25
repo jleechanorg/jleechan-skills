@@ -22,7 +22,7 @@ class SlackAssignmentIdentityTest(unittest.TestCase):
         section = policy.split("## Authorized dot-to-dot assignments\n", 1)[1].split("\n## ", 1)[0]
         for requirement in (
             "user-account connector", "not the dot's or a bot's identity",
-            "connector profile", "private local configuration", "workspace and user ID",
+            "connector profile", "previously verified local binding", "workspace and user ID",
             "authorized operator", "recipient", "[AI Terminal: <workspace-name>]",
             "blocked", "Do not fall back", "copy tokens", "read back",
             "author", "channel", "thread", "uncertain", "duplicate",
@@ -30,6 +30,22 @@ class SlackAssignmentIdentityTest(unittest.TestCase):
         ):
             with self.subTest(requirement=requirement):
                 self.assertIn(requirement, section)
+
+    def test_named_human_route_and_stable_retry_key(self):
+        policy = (ROOT / ".claude/skills/slack-identity/SKILL.md").read_text()
+        self.assertLess(policy.index("slack_read_user_profile"),
+                        policy.index("slack_send_message"))
+        for requirement in (
+            "omit `user_id`", "tool metadata", "user_message", "slackbot",
+            "not an incoming worker claim", "source-message ID", "bounded scope",
+            "assignment-key", "same key", "author and assignment key",
+        ):
+            with self.subTest(requirement=requirement):
+                self.assertIn(requirement, policy)
+
+    def test_exported_policy_contains_no_literal_email(self):
+        policy = (ROOT / ".claude/skills/slack-identity/SKILL.md").read_text()
+        self.assertNotRegex(policy, r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}")
 
 
 if __name__ == "__main__":
