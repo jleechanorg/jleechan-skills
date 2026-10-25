@@ -9,11 +9,6 @@ metadata:
 
 This is the self-contained operational lifecycle contract. [PR Workflow Manager](../pr-workflow-manager/SKILL.md) is the command/branch entry point; keep its draft, stage, evidence-applicability and safety guidance synchronized with this file. Repository adapters reference these skills and add only repository-specific requirements. Design documents explain rationale; they are not required to execute this workflow.
 
-## Retained review integrations
-
-The shared catalog preserves host-installed `/advice` and `/web-advice` integrations instead of installing them. Before invoking either, resolve its `../advice/SKILL.md` or `../web-advice/SKILL.md` relative to this package and read the existing skill. For a remote invocation, check the corresponding skill on the target host. If absent, report that integration as `UNAVAILABLE` and identify the missing package; do not invent a replacement runner, claim an approval, or treat a required gate as passed. Continue independent authorized work, but leave any dependent readiness or plan-approval gate unmet. Existing review quorum, external-disclosure authorization, and optional-review rules still apply.
-
-
 **Every new PR is opened as DRAFT** (`gh pr create --draft`) and stays draft until quality is proven. Flipping to ready-for-review is a deliberate, gated action — not a side effect of pushing code.
 
 ## Canonical lifecycle
@@ -35,6 +30,10 @@ DRAFT
 ```
 
 Each arrow is a gate, not a formality. Do not skip ahead. A changed SHA triggers the reasoned delta assessment below, not automatic invalidation or a mandatory repeat review. Preserve the original tested/reviewed SHA and record why its evidence and verdict still apply to the candidate.
+
+## Retained review integrations
+
+The shared catalog preserves host-installed `/advice` and `/web-advice` integrations instead of installing them. Before invoking either, resolve its `../advice/SKILL.md` or `../web-advice/SKILL.md` relative to this package and read the existing skill. For a remote invocation, check the corresponding skill on the target host. If absent, report that integration as `UNAVAILABLE` and identify the missing package; do not invent a replacement runner, claim an approval, or treat a required gate as passed. Continue independent authorized work, but leave any dependent readiness or plan-approval gate unmet. Existing review quorum, external-disclosure authorization, and optional-review rules still apply.
 
 ## Advice applicability
 
@@ -66,7 +65,7 @@ Examples: +25/-24 = 49: optional; +25/-25 = 50: required;
 
 `/wa` (`/web-advice`) is optional, never an implicit lifecycle gate. Run it only
 when requested or separately authorized; preserve its real verdict if it runs.
-Neither optional review permits ignoring a known correctness or safety blocker.
+Honor existing standing authorization and any governing workflow that requires /wa; this generic optional default does not override such a requirement. Neither optional review permits ignoring a known correctness or safety blocker.
 
 ## Visible six-stage workflow (repository opt-in)
 
@@ -110,13 +109,13 @@ Never claim synchronization from a successful title update alone. No bulk adopti
 
 ### Review routes for opted-in repositories
 
-Use the Advice applicability boundary and independent coverage rules in this skill.
+Use the Advice applicability boundary and independent coverage rules in this skill. Here, small means under 50 complete-diff additions+deletions; large means at least 50 (or an incomplete/uncountable diff). Optional /advice does not mean all independent review is optional: the opted-in route below names its alternative, while the narrow trivial-change exception can waive that extra lane.
 At Stage 3: small PRs need /advice OR independent /dot approval unless the narrow trivial-change exception below applies; large PRs need both.
 At Stage 5: the same route applies to final obligations; large PRs attempt /wa best effort when authorized.
-Explicitly required reviews remain required. Unavailable best-effort /wa is disclosed, not invented approval.
+Explicitly required reviews remain required. Honor existing standing authorization without asking again. When a governing workflow or user explicitly requires /wa, it remains required rather than best effort; unavailable required /wa leaves that gate open. Otherwise unavailable best-effort /wa is disclosed, not invented approval.
 An independent /dot receipt names its reviewer, declared source/evidence scope, original tested/reviewed SHAs, actual inspection/actions, verdict, coverage, findings/limits and retrievable receipt. An acknowledgment, capability claim or another reviewer's verdict is not /dot approval. Its covered scope must satisfy the requested gate; narrow visual approval is not full source approval.
 Reviewer eligibility and quorum remain owned by their review skills; the author/orchestrator cannot self-award
-an independent vote, and reusing a verdict never creates an extra voter.
+an independent vote, and reusing a verdict never creates an extra voter. A technical /dot verdict is evidence of review, never human permission to merge, change policy or operate another scope. A bot or orchestrator acknowledgment does not qualify as an independent review.
 Draft and final obligations are distinct: evaluate whether the existing verdict's scope and phase cover the
 closing obligations, rather than copying a draft status blindly. Request only the missing or affected review.
 
@@ -157,7 +156,7 @@ Embed applicable screenshots and playable video inline in the PR description alo
 
 Missing, inaccessible or unauthorized publication is `PUBLICATION BLOCKED`: continue independent work, but do not claim that stage exit complete. Missing or failed required checks are not exemptions. Read back the description; preserve evidence history and title/stage-label consistency.
 
-## Coding lifecycle (pre-draft work) — scale layers to risk
+## Coding lifecycle — scale layers to risk
 
 Order: explore → outcome spec (no code) → code-level design when useful → TDD
 (fresh failing test first) → unit + relevant integration tests → coder
@@ -352,7 +351,7 @@ alone never decide evidence sufficiency or independent safety-review depth.
 ## SHA-binding rule (critical — applies to every gate in this chain)
 
 Evidence and independent reviews are earned at their actual tested/reviewed commit SHAs.
-Those original SHAs and timestamps never change. A different candidate SHA is not, by itself,
+Those original SHAs and timestamps never change; never relabel an old capture as a new run. A different candidate SHA is not, by itself,
 a defect in the evidence or a requirement to run the same review again.
 
 Before relying on earlier /es, /er, /advice, /dot, /wa or /cs results, read the complete intervening
@@ -364,7 +363,7 @@ head and base delta against the precise claims and scope of the original receipt
 
 Reuse an actual independent verdict when the assessment demonstrates that its coverage and
 applicable phase still satisfy the candidate's obligations. This applicability record is not a new
-reviewer vote and must not claim the reviewer inspected a SHA they did not inspect.
+reviewer vote and must not claim the reviewer inspected a SHA they did not inspect. The assessor records why existing coverage remains valid; the assessor cannot extend its scope to unreviewed changes, change the original verdict, dismiss its findings or grant a missing approval. Material or uncertain changes require affected independent review, including when the assessor is the author/driver.
 A new independent review is needed for uncovered relevant changes, changed evidence in its scope,
 unresolved material findings or uncertain applicability, not merely for a new hash.
 
@@ -374,19 +373,14 @@ In particular, a changed assertion, driver, or behavioral instruction invalidate
 unrelated claims can remain valid. Tests, prompts, schemas, CI, configuration and skill instructions
 can invalidate proof even when classified non-production. There is no blanket category carry-forward.
 
-Preserve the original tested SHA and reviewed SHA; record current applicability separately, with
-the reviewed delta, affected claims and relevant tests. Keep provenance immutable: never relabel an old capture as a new run.
-If only unrelated wording or packaging changes, document why the claims remain intact and reuse
-their proof without an automatic full rerun. If a boundary/UI/driver changes, rerun or re-review
-the affected portion at the lowest sufficient layer; keep stricter real-service and native requirements.
-If the diff or provenance cannot be inspected, leave that applicability unverified.
+For affected proof, use the lowest sufficient layer while preserving stricter real-service and native requirements. If the diff or provenance cannot be inspected, leave applicability unverified.
 
 Current-candidate /green, mergeability and head-matching merge protection still require fresh verification.
 A base-only move also requires assessing the changed context and complete-diff size.
 Do not infer readiness from a stale CI result or unresolved conflict. Batch related fixes before
 expensive proof, and never weaken assertions or waive quorum to make an old approval appear valid.
 
-**Chain timing and quality.** The draft chain (`/es` → `/er` → `/advice`) is the FINAL pass: run it after code is complete and all known findings are resolved or deferred (`evidence-standards` § Evidence Sequencing) — not per push while fixes are still landing. Review findings remain subject to the required correctness gates: behavior-blocking findings must be fixed and reverified, while style/nit/doc feedback may be tracked as follow-ups. Batch pending behavioral fixes into one SHA before re-earning affected evidence.
+Behavior-blocking findings must be fixed and reverified; style, nit and documentation feedback may be tracked as follow-ups.
 
 ## Ready phase — finish `/ready`, then final reviews
 
@@ -406,7 +400,7 @@ where applicable until approved. No cycle-count limit substitutes for finishing;
 stop only for a genuine blocker/decision or the governing autonomy deadline.
 Report READY only after applicable closing verdicts and current readiness checks
 pass. PARTIAL, FAIL, INCONCLUSIVE, WITHHELD, or an unavailable required reviewer
-leaves its gate open. READY never supplies merge authorization.
+leaves its gate open. READY never supplies merge authorization. Earlier-SHA review applicability for readiness does not satisfy a stricter exact-head condition on any separately authorized automatic-merge route. Preserve that governing merge condition unless the human explicitly changes it; do not infer a new automatic-merge permission from this policy.
 
 ## Review records in the PR description
 
@@ -448,10 +442,6 @@ retrying. Optional/skipped reviews are recorded honestly without fabricated gist
 Documentation-only changes use the CI exception immediately; the ten-minute threshold below applies only to changes that require CI.
 
 For checks queued/pending more than 10 minutes, follow the local-equivalent exception in `~/.claude/skills/pr-green-definition/SKILL.md`: run the workflow's actual command and post current-head proof. Passing local equivalents satisfy Gate 1 for backlogged checks; remote completion is not required for those checks. Failed checks, no-conflict verification, and merge authorization remain separate requirements.
-
-## Rationale
-
-Long-open PRs that skipped straight to chasing CI green (e.g. the level-up auto-PR class) were starved by CI contention — CI capacity is a shared resource, not a private queue. The `ci-value-audit-v2` findings (`green-gate` workflow: 341 hr/wk consumed, 50.7% cancel rate pre-[#8637](https://github.com/$GITHUB_REPOSITORY/pull/8637)) show that driving unproven work through full CI repeatedly is the dominant cost driver. Stabilizing correctness and applicable checks before final expensive capture avoids repeated evidence and review cost without delaying diagnosis of failing CI.
 
 ## CodeRabbit/Bugbot — optional advisory reviewers
 

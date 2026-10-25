@@ -1,45 +1,32 @@
 ---
 name: ready
-description: Drive PR(s) to merge-ready — /es, plus /er and /advice where draft-first-pr requires them, then /green, all comments and merge conflicts handled. Use for /ready or /r.
+description: Drive PR(s) to merge-ready — /es, plus /er and /advice where pr-lifecycle requires them, then /green, all comments and merge conflicts handled. Use for /ready or /r.
 ---
 
 # /ready — PR merge-readiness gate
 
-## Retained review integrations
+## Governing workflow
 
-The shared catalog preserves host-installed `/advice` and `/web-advice` integrations instead of installing them. Before invoking either, resolve its `../advice/SKILL.md` or `../web-advice/SKILL.md` relative to this package and read the existing skill. For a remote invocation, check the corresponding skill on the target host. If absent, report that integration as `UNAVAILABLE` and identify the missing package; do not invent a replacement runner, claim an approval, or treat a required gate as passed. Continue independent authorized work, but leave any dependent readiness or plan-approval gate unmet. Existing review quorum, external-disclosure authorization, and optional-review rules still apply.
+Use [pr-lifecycle](../pr-lifecycle/SKILL.md) for review integrations, applicability and evidence reuse. Its [opt-in review routes](../pr-lifecycle/SKILL.md#review-routes-for-opted-in-repositories) remain part of readiness, including any applicable independent /dot obligation.
 
+Keep drafts draft until applicable draft gates pass; never convert an already non-draft PR back to draft. Follow [review sequencing](../pr-lifecycle/SKILL.md#draft-phase-final-acceptance-gates-in-order): code review and cheap checks early, expensive evidence after stabilization. Undrafting begins ready work, not completed readiness.
 
-**Order matters (draft-first):** if the PR is a DRAFT, keep it draft while
-driving the applicable gates 1–3 (/es, and /er and /advice where `draft-first-pr`
-requires them (including its Advice applicability rule)) to approved; only THEN undraft, then
-drive the remaining ready work and the final reviews below to done. If the PR is ALREADY non-draft,
-leave it non-draft — never convert an open non-draft PR back to draft; just
-apply the same final gate requirements.
-
-These are final acceptance gates, not a serial work schedule. Follow
-`draft-first-pr/SKILL.md`: run independent code reviews and cheap focused checks
-early in parallel, resolve or explicitly defer findings, then freeze the change
-before expensive evidence. Apply its Advice applicability and change-impact rules;
-do not postpone the first code review until after evidence. Undrafting begins
-ready work, not completed readiness.
-
-A PR is READY when ALL of the following hold, verified at the CURRENT head SHA
-(newest check-run attempt per name; REST when GraphQL quota is low):
+A PR is READY when ALL of the following are assessed against the CURRENT candidate. CI and mergeability require current-head verification; reused evidence and reviews retain their actual original SHAs with documented applicability.
+Use the newest check-run attempt per name; REST when GraphQL quota is low:
 
 1. **/es** — evidence satisfies the applicable class in `evidence-standards`
    and the repository overlay. Retain original capture provenance and record
    current applicability separately. Underlying artifacts may use authorized
    private hosting; the separate sanitized review receipt follows
-   `draft-first-pr` § Review records in the PR description, including its one
+   `pr-lifecycle` § Review records in the PR description, including its one
    current `**Evidence**` marker. Preserve historical receipts and capture SHAs.
-2. **/er** — when `draft-first-pr` (including repo-defined exemptions) requires
+2. **/er** — when `pr-lifecycle` (including repo-defined exemptions) requires
    it, adversarial evidence review verdict PASS applicable to the candidate (findings fixed RED-first), retaining its actual reviewed/tested SHA. A head move whose actual delta leaves every tested claim,
    assertion, and driver intact may instead be reaffirmed at the new SHA under
-   `draft-first-pr/SKILL.md`'s SHA-binding rule — document the delta and the
+   `pr-lifecycle/SKILL.md`'s SHA-binding rule — document the delta and the
    prior verdict's provenance rather than relabeling the old capture; a
    behavioral change or a changed assertion/driver requires a fresh run.
-3. **/advice** — when `draft-first-pr` § Advice applicability
+3. **/advice** — when `pr-lifecycle` § Advice applicability
    requires it, at least two independent full-coverage approval reviewers
    from the canonical `advice/SKILL.md` approval lanes provide approvals whose coverage applies to the candidate. Resolve every REQUEST_CHANGES finding and obtain any missing affected review; a SHA change alone does not require recalling both voters. Research and the orchestrating agent do not vote. One approval
    can block but cannot approve; unavailable or partial-coverage reviewers do
@@ -54,30 +41,10 @@ A PR is READY when ALL of the following hold, verified at the CURRENT head SHA
 5. **Comments handled** — every unresolved review thread and actionable bot
    comment addressed (fix or reasoned reply); merge conflicts resolved by
    rebase.
-6. **Cross-thread regression check** — before treating gate 5 as satisfied,
-   check whether any OPEN bead — filed by this session, a sidekick, or any
-   OTHER concurrent investigation running in parallel (e.g. a live-bug
-   `/repro` thread) — shares root cause or a touched file with this PR's
-   diff. A confirmed regression discovered elsewhere is not automatically
-   non-blocking just because it came from a different task. If one exists,
-   explicitly surface it to the user as a blocking-or-not decision before
-   merging — never silently file it as a separate parallel-track bead and
-   proceed. (Added 2026-08-16 after PR #8951: a confirmed regression bead
-   found via a parallel `/repro` thread sat un-triaged while the PR merged
-   anyway.)
+6. **Cross-thread regression check** — inspect OPEN beads from this and concurrent investigations for shared root causes or touched files. Surface any confirmed regression to the user for a blocking-or-not decision before merging; do not bypass it by filing a separate bead.
 
-After this work stabilizes, complete final `/er` then final `/advice` as required
-by `draft-first-pr` § Ready phase. Apply that owner's reasoned delta and phase assessment to final approvals, including approvals earned at an earlier SHA; record applicability without relabeling the original review. Request only missing or affected coverage; do not rerun unchanged expensive evidence. A fix
-reopens affected proof and current-head readiness checks. Record every review's
-gist URL and reviewed SHA under that owner's Review records contract, preserving
-history and honest blocked states. Do not report READY before this closure.
-
-If a PR does not satisfy these, MAKE it satisfy them (fix lanes, evidence
-publication, gate reruns), then re-verify. Merges remain human-authorized:
-report READY state separately from the live merge authorization required by
-`draft-first-pr` and the repository. The separate live merge authorization is
-never supplied by a review, ledger entry, or READY verdict.
+After readiness work stabilizes, satisfy [final review obligations](../pr-lifecycle/SKILL.md#ready-phase--finish-ready-then-final-reviews): applicable final `/er`, then final `/advice`, using documented delta/phase applicability rather than automatic reruns. Fix failing lanes, refresh affected proof and current-head checks, publish reviews under the [review-record contract](../pr-lifecycle/SKILL.md#review-records-in-the-pr-description), and re-verify before reporting READY. Reviews, ledger entries and READY never supply separate live merge authorization.
 
 ## Stage evidence publication
 
-Follow [draft-first-pr](../draft-first-pr/SKILL.md) for proportional exceptions and every stage exit receipt. Always put retrievable artifact/gist URLs and applicable viewable inline media in the PR description, with explicit media N/A only where justified. Verify access and read back the description; comment-only or local-only proof does not complete publication. Do not duplicate the canonical exception matrix here.
+Apply [pr-lifecycle's stage-exit receipt contract](../pr-lifecycle/SKILL.md#evidence-attached-to-every-stage-exit), including PR-description URLs, applicable inline media, access verification and reasoned exemptions. That contract is the single owner; do not duplicate it here.

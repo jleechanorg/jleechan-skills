@@ -183,7 +183,7 @@ class CodingLifecycleContract(unittest.TestCase):
         self.assertIn("documentation-only class below or a repo-exempted class", owner)
         self.assertIn("outside any low-risk class the repo's own instructions exempt", read("evidence-review"))
         for name in ("ready", "advice"):
-            self.assertIn("`draft-first-pr`", read(name))
+            self.assertIn("`pr-lifecycle`", read(name))
             self.assertIn("Advice applicability", read(name))
         self.assertNotIn("unless a repo-exempted class applies", owner)
         self.assertIn("security, permission, credential, or merge-path code", owner)

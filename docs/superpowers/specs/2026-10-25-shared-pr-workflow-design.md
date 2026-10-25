@@ -25,7 +25,7 @@ No runtime code, new scripts/tests/CI, live installation, credential change, pro
 A PR driver can discover the shared skills in a verified checkout and find the current unmet gate. A reviewer can distinguish original proof from its reasoned applicability. No product UI changes, so no player-facing mock is applicable.
 
 ## Proof plan
-Read the complete changed Markdown diff; verify relative skill references, stage mappings, threshold boundaries, phase ordering and immutable receipt attribution. Run the existing focused coding-lifecycle contract suite using unchanged tests and pinned companion inputs; report absent sibling-checkout coverage separately. Read back published blobs/heads and inspect resulting CI. Independent policy review remains required.
+Read the complete changed Markdown diff; verify relative skill references, stage mappings, threshold boundaries, phase ordering and immutable receipt attribution. Run the existing focused coding-lifecycle contract suite using the existing contract suites, the explicitly documented assertion/path corrections, and pinned companion inputs; report absent sibling-checkout coverage separately. Read back published blobs/heads and inspect resulting CI. Independent policy review remains required.
 
 ## Mock exemption
 This changes agent workflow instructions, not a player-facing screen. Title/label readback is metadata proof, not product UI evidence.

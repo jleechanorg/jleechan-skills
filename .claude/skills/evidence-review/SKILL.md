@@ -7,10 +7,7 @@ description: Enforcement rules for reviewing evidence artifacts against the evid
 
 ## Claim-proportionate evidence and publication
 
-Apply [draft-first-pr](../draft-first-pr/SKILL.md) proportional exceptions and stage-exit rules. They govern generic bundle/media requirements below without waiving explicit user requirements or risk-specific proof. A compact source-inspection, documentation, deterministic-test or log-emission claim may use one provenance receipt plus primary artifacts and hashes; mark irrelevant server/PID/provider fields and media N/A with reasons rather than inventing runtime metadata. All applicable integrity and claim-sufficiency checks remain mandatory. Source hashes alone do not prove execution; log emission does not prove ingestion, and mocks do not prove real service boundaries.
-
-Always link the evidence and sanitized gist receipt from the PR description. Embed applicable viewable screenshots/playable videos there with original media URLs; confirm intended reviewer access. Source-only harmless copy may justify media N/A; claimed static rendering requires rendered proof, and interaction/streaming retains applicable video proof. A compact or exempt class is not an independent PASS, and failed or missing required proof is never N/A. The review verdict covers the declared claim and applicable checks, not unrelated runtime behavior.
-
+Use [evidence-standards](../evidence-standards/SKILL.md#claim-proportionate-evidence-and-publication) for compact artifact classes and [pr-lifecycle](../pr-lifecycle/SKILL.md) for gate exceptions and PR-description stage receipts. Review every applicable integrity/provenance check and the declared claim; record justified N/A without turning missing required proof into an exemption. These canonical rules qualify generic bundle/media wording below; they do not grant a new approval or waive explicit user/risk-specific proof.
 
 ## Retained review integrations
 
@@ -31,7 +28,7 @@ The shared catalog preserves host-installed `/advice` and `/web-advice` integrat
 
 | Verdict | Meaning |
 |---------|---------|
-| **PASS** | Every claim has a matching artifact of STRONG quality and every mandatory check below passes. Satisfies the draft-phase `/er` gate when `/er` is applicable. |
+| **PASS** | Every claim has a matching artifact of STRONG quality and every applicable mandatory check below passes. Satisfies the draft-phase `/er` gate when `/er` is applicable. |
 | **PARTIAL** | Claims are supported but one or more mandatory checks soft-warn (e.g., WARN in an optional verification_report.json, missing a required downloadable MP4). Does not satisfy the draft-phase `/er` gate. |
 | **FAIL** | A claim is contradicted by an artifact, or integrity is broken (sha256 mismatch, dirty capture producing the claim, scope exclusion). |
 | **INCONCLUSIVE** | Not enough artifact data exists to decide. Request more. |

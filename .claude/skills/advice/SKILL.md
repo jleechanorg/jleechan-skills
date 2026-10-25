@@ -7,7 +7,7 @@ description: "Token-efficient second opinion slash command /advice. Extracts the
 
 **Replaces `advisor()`. Never call advisor() — use this instead.**
 
-For PR lifecycle applicability, follow `draft-first-pr` § Advice applicability;
+For PR lifecycle applicability, follow `pr-lifecycle` § Advice applicability;
 its size exception does not change this command's reviewer quorum when it runs.
 Record each run under that owner's Review records in the PR description contract.
 
@@ -353,7 +353,7 @@ whose combined scope covers the whole declared change. Otherwise emit `WITHHELD`
 
 ## Final verdict format — SHA-bound (mandatory)
 
-When `/advice` is being run as the gate in the `draft-first-pr` lifecycle (`~/.claude/skills/draft-first-pr/SKILL.md`), the synthesis MUST end with exactly one verdict line, bound to what was reviewed:
+When `/advice` is being run as the gate in the `pr-lifecycle` lifecycle (`~/.claude/skills/pr-lifecycle/SKILL.md`), the synthesis MUST end with exactly one verdict line, bound to what was reviewed:
 
 ```
 VERDICT: APPROVED at <SHA>
@@ -371,7 +371,7 @@ VERDICT: WITHHELD at <SHA> — <quorum or availability reason>
 - Reviewing a PR — `gh pr view <N> --json headRefOid --jq '.headRefOid'`
 - Reviewing the working tree — `git rev-parse HEAD`, **but HEAD does not identify uncommitted changes.** If `git status --porcelain` is non-empty, that SHA does not name the tree you reviewed. Commit the intended state before review; the primary-pair runner refuses dirty input and no approval verdict may be emitted for it.
 
-The verdict records the exact state actually reviewed. Apply the reasoned SHA-applicability rule in `draft-first-pr/SKILL.md`: compare it with the candidate and inspect the complete actual delta, claims, evidence and phase. Preserve the original reviewers and reviewed SHAs. An assessor may document that their existing approvals remain applicable without recalling every reviewer solely to restamp a new SHA. This is an applicability record, not a new independent vote or a claim that a reviewer inspected new bytes. Uncovered material changes, changed evidence within the review scope, unresolved findings or uncertain applicability require affected independent review. Classify runner, script and skill-instruction changes by behavior and contract effect, never by directory or path alone. A genuinely harmless non-behavioral delta may be re-affirmed after documenting why its coverage remains intact; do not force a full `/advice` rerun for the hash change alone.
+The verdict records the exact state actually reviewed. Apply the reasoned SHA-applicability rule in `pr-lifecycle/SKILL.md`: compare it with the candidate and inspect the complete actual delta, claims, evidence and phase. Preserve the original reviewers and reviewed SHAs. An assessor may document that their existing approvals remain applicable without recalling every reviewer solely to restamp a new SHA. This is an applicability record, not a new independent vote or a claim that a reviewer inspected new bytes. Uncovered material changes, changed evidence within the review scope, unresolved findings or uncertain applicability require affected independent review. Classify runner, script and skill-instruction changes by behavior and contract effect, never by directory or path alone. A genuinely harmless non-behavioral delta may be re-affirmed after documenting why its coverage remains intact; do not force a full `/advice` rerun for the hash change alone.
 Preserve the two independent full-coverage approvals required by Quorum;
 re-affirmation never turns one reviewer into approval. Do not emit a bare
 "APPROVED"/"looks good" without the SHA — an unbound verdict cannot be checked

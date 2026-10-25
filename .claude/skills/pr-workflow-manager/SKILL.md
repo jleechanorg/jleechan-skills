@@ -74,15 +74,7 @@ Do not execute a missing, unverified or incompatible helper just because old gui
 
 ## Stage changes and evidence
 
-For an opted-in repository, follow the complete stage mapping in pr-lifecycle:
-choose the earliest unmet gate, update the recognized title prefix, single stage label and PR-body stage,
-then read them back. Preserve unrelated tags/labels and holds; report partial or denied updates honestly.
-Title/label publication is not execution proof, review approval or merge authority.
-
-Keep the original tested and reviewed SHAs. Inspect the actual intervening head/base delta and record
-why an earlier independent verdict remains applicable, is partially applicable, or needs affected new proof.
-A new SHA alone does not force a fresh evidence run or review. No blanket file-category carry-forward,
-invented voter or self-approval is permitted. Current-candidate CI/mergeability checks remain separate.
+For opted-in repositories, apply [stage transitions](../pr-lifecycle/SKILL.md#stage-title-and-labels) and [evidence applicability](../pr-lifecycle/SKILL.md#sha-binding-rule-critical--applies-to-every-gate-in-this-chain). Title/label changes are not execution proof, review approval or merge authority.
 
 After each push, inspect applicable latest checks and review findings. Diagnose original logs before a
 targeted fix/retry, preserve assertions, and follow the canonical ready/final phases. Waiting/blocked is not
@@ -105,4 +97,4 @@ Merge authority remains repository/user-specific and must be satisfied separatel
 
 ## Stage evidence publication
 
-Follow [pr-lifecycle](../pr-lifecycle/SKILL.md) for proportional exceptions and every stage exit receipt. Always put retrievable artifact/gist URLs and applicable viewable inline media in the PR description, with explicit media N/A only where justified. Verify access and read back the description; comment-only or local-only proof does not complete publication. Do not duplicate the canonical exception matrix here.
+Apply [pr-lifecycle's stage-exit receipt contract](../pr-lifecycle/SKILL.md#evidence-attached-to-every-stage-exit), including PR-description URLs, applicable inline media, access verification and reasoned exemptions. That contract is the single owner; do not duplicate it here.
