@@ -56,6 +56,133 @@ def cursor_coverage(output: str) -> dict:
 
 
 class ApprovalContractsTest(unittest.TestCase):
+    def test_lifecycle_entrypoints_reference_the_canonical_owner(self) -> None:
+        for name in (
+            "agento-report", "auton", "factory-evolve", "ironclad", "pr-report",
+            "superpowers-quick", "testing-layers", "write-goal", "zero-touch",
+        ):
+            with self.subTest(skill=name):
+                text = skill(name)
+                self.assertIn("pr-lifecycle", text)
+                self.assertNotIn("draft-first-pr", text)
+        template = (SKILLS / "write-goal" / "templates" / "goal-spec.md").read_text()
+        self.assertIn("canonical `pr-lifecycle` skill", template)
+        self.assertNotIn("draft-first-pr", template)
+
+    def test_readiness_reports_delegate_applicability_not_exact_sha_or_green_alone(self) -> None:
+        agento = skill("agento-report")
+        self.assertIn("applicable draft gate lacks coverage for the candidate", agento)
+        self.assertNotIn("is missing at current head", agento)
+        report = skill("pr-report")
+        self.assertIn('`gate1 == 0` AND `gate2 == "MERGEABLE"` → `GREEN`', report)
+        self.assertNotIn("→ `MERGE_READY`", report)
+        self.assertIn("green alone does not establish READY", report)
+
+    def test_autonomy_metrics_follow_applicable_gates_and_reasoned_sha_reuse(self) -> None:
+        zero = skill("zero-touch")
+        self.assertNotIn("completed `/es`, `/er`, and `/advice`", zero)
+        self.assertIn("completed the applicable draft gates per `pr-lifecycle`", zero)
+        auton = skill("auton")
+        self.assertNotIn("draft through /es, /er, and /advice", auton)
+        self.assertNotIn("current-head /es, /er, /advice artifacts", auton)
+        self.assertNotIn("Verify current-head `/es`, `/er`, `/advice`", auton)
+        self.assertIn("applicable draft gates per pr-lifecycle", auton)
+        self.assertIn("current-candidate applicability", auton)
+        self.assertIn("reasoned SHA-binding assessment", auton)
+        self.assertIn("original tested/reviewed SHAs and timestamps", auton)
+        self.assertIn("affected or uncertain coverage requires independent review", auton)
+
+    def test_agento_summary_does_not_equate_green_with_merge_authority(self) -> None:
+        report = skill("agento-report")
+        self.assertNotIn("GREEN (ready to merge)", report)
+        self.assertIn("GREEN (draft readiness + /green only)", report)
+        self.assertIn("green alone does not establish READY", report)
+        self.assertIn("merge authorization remains separate", report)
+
+    def test_agento_zero_touch_requires_evidence_not_title_tags(self) -> None:
+        report = skill("agento-report")
+        self.assertIn("~/.claude/skills/zero-touch/SKILL.md", report)
+        self.assertIn("discovery hint only", report)
+        self.assertIn("spawn provenance, quality-gate receipts and pre-merge intervention history", report)
+        self.assertIn("UNKNOWN", report)
+        self.assertIn("Incomplete coverage makes the overall zero-touch rate unknown", report)
+        self.assertIn("total_merged > 0", report)
+        self.assertIn("N/A (no merged PRs)", report)
+        self.assertIn("Do not count merge authorization or the merge action itself", report)
+        for obsolete in ("prefix means AO produced", "tagged** (zero-touch)",
+                         "**Non-[agento]** (operator-assisted)",
+                         "agento_count / total_merged", "[agento] YES / NO",
+                         "worker didn't add [agento] prefix", "~/.openclaw/SOUL.md"):
+            with self.subTest(obsolete=obsolete):
+                self.assertNotIn(obsolete, report)
+
+    def test_factory_draft_and_readiness_use_applicable_canonical_gates(self) -> None:
+        factory = " ".join(skill("factory-evolve").split())
+        self.assertIn("gh pr create --repo jleechanorg/<repo> --draft", factory)
+        self.assertIn("applicable draft gates cover the candidate", factory)
+        self.assertNotIn("`/es`, `/er`, and `/advice` pass at the current head", factory)
+        self.assertNotIn("CR approved", factory)
+        self.assertIn("**STOP. Do not merge.**", factory)
+
+    def test_evidence_consumers_point_directly_to_lifecycle_policy(self) -> None:
+        for name in ("evidence-review", "evidence-standards"):
+            with self.subTest(skill=name):
+                section = skill(name).split(
+                    "## Claim-proportionate evidence and publication", 1
+                )[1].split("\n## ", 1)[0]
+                self.assertIn("../pr-lifecycle/SKILL.md#proportional-exceptions-and-fast-paths", section)
+                self.assertIn("../pr-lifecycle/SKILL.md#evidence-attached-to-every-stage-exit", section)
+                self.assertNotIn("#claim-proportionate-evidence-and-publication", section)
+        self.assertIn("../evidence-standards/SKILL.md", skill("evidence-review"))
+        standards = skill("evidence-standards")
+        self.assertIn("mark irrelevant server/PID/provider fields N/A with reasons", standards)
+        self.assertIn("Source hashes alone do not prove execution", standards)
+
+    def test_agento_report_uses_an_authorized_portable_slack_destination(self) -> None:
+        report = skill("agento-report")
+        self.assertIn("user-authorized Slack summary destination", report)
+        self.assertIn('channel_id="<slack-channel>"', report)
+        self.assertNotIn("#ai-slack-test", report)
+
+    def test_shared_policy_delegates_lifecycle_without_relaxing_merge_scope(self) -> None:
+        shared = (REPO_ROOT / "md_files" / "AGENTS.shared.md").read_text()
+        self.assertIn("~/.claude/skills/pr-lifecycle/SKILL.md", shared)
+        self.assertNotIn("~/.claude/skills/draft-first-pr/SKILL.md", shared)
+        self.assertNotIn("The original approving reviewers must reaffirm", shared)
+        self.assertNotIn("rerun only on a material production change", shared)
+        self.assertIn("generic lifecycle and evidence-reuse rules", shared)
+        self.assertIn("Gate depth, including small low-risk changes, follows its § Coding lifecycle", shared)
+        self.assertIn("~/.claude/skills/evidence-standards/SKILL.md` § Evidence Sequencing", shared)
+        self.assertIn("## Coding lifecycle — scale layers to risk", skill("pr-lifecycle"))
+        self.assertIn("## Evidence Sequencing — expensive evidence runs LAST, once", skill("evidence-standards"))
+        for safeguard in (
+            "most recent live user message",
+            "Delegated worker sessions may never execute `gh pr merge`",
+            "more than 150 production lines changed **including deletions**",
+            "required `/cs` and `/advice` gates",
+            "Neither metric broadens merge permission",
+            "merge with `--match-head-commit`",
+        ):
+            with self.subTest(safeguard=safeguard):
+                self.assertIn(safeguard, shared)
+
+    def test_shared_provenance_tags_precede_the_trailing_lifecycle_stage(self) -> None:
+        shared = (REPO_ROOT / "md_files" / "AGENTS.shared.md").read_text()
+        self.assertIn("provenance tags immediately before the trailing lifecycle stage suffix", shared)
+        self.assertIn("`[<cli>][<model>]`", shared)
+        self.assertIn("otherwise the provenance tags go last", shared)
+        self.assertNotIn("PR titles must end with `[<cli>][<model>]`", shared)
+        self.assertIn("the stage suffix goes last", skill("pr-lifecycle"))
+        self.assertIn("PRs must include GitHub labels for both CLI and model", shared)
+        self.assertIn("never a bare `gpt-6`", shared)
+
+    def test_claude_adapter_points_to_canonical_lifecycle(self) -> None:
+        adapter = (REPO_ROOT / "md_files" / "CLAUDE.adapter.md").read_text()
+        self.assertIn("~/.claude/skills/pr-lifecycle/SKILL.md", adapter)
+        self.assertNotIn("~/.claude/skills/draft-first-pr/SKILL.md", adapter)
+        self.assertIn("~/.claude/skills/pr-green-definition/SKILL.md", adapter)
+        self.assertIn("~/.claude/skills/pr-quantity-control/SKILL.md", adapter)
+
     def test_superpowers_quick_delegates_recommended_choices_and_finishes_documents(self) -> None:
         command = (COMMANDS / "superpowers-quick.md").read_text()
         quick = skill("superpowers-quick")
