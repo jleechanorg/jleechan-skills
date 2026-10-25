@@ -191,25 +191,18 @@ unverified, stop and withhold. A successor is a new attempt with its own clock,
 started only after that verification.
 
 ```bash
+set -eo pipefail
 ADVICE_TMP="$(mktemp -d)"
-# Write the complete packet, fresh clone, and driver config before dispatch.
-PREFLIGHT_STARTED_NS="$(python3 -c 'import time; print(time.monotonic_ns())')"
+# Set PACKET_SOURCE to the complete packet prepared above before starting this block.
+: "${PACKET_SOURCE:?Set PACKET_SOURCE to the prepared review packet}"
+test -s "$PACKET_SOURCE" || { echo "review packet is missing or empty" >&2; exit 2; }
+cp "$PACKET_SOURCE" "$ADVICE_TMP/review-packet.txt" || exit 2
+# Set this to the complete list for document-only review; leave empty for a revision review.
+DOCUMENTS=()
+# Example: DOCUMENTS=("docs/spec.md" "docs/plan.md")
 REVIEW_SHA="$(git rev-parse HEAD)"
 SOURCE_REPO="$(git rev-parse --show-toplevel)"
-ADVICE_RUNNER="${CLAUDE_HOME:-$HOME/.claude}/skills/advice/scripts/run_primary_pair.py"
-git clone --no-local "$(git rev-parse --show-toplevel)" "$ADVICE_TMP/codex-clone"
-git -C "$ADVICE_TMP/codex-clone" remote remove origin
-git -C "$ADVICE_TMP/codex-clone" checkout --detach "$REVIEW_SHA"
-# Verify the immutable clone before dispatch and write command.json for the exact
-# full-permission CLI form selected below.
-test "$(git -C "$ADVICE_TMP/codex-clone" rev-parse HEAD)" = "$REVIEW_SHA"
-test -z "$(git -C "$ADVICE_TMP/codex-clone" remote)"
-test -z "$(git -C "$ADVICE_TMP/codex-clone" status --porcelain)"
-PREFLIGHT_ENDED_NS="$(python3 -c 'import time; print(time.monotonic_ns())')"
-# Keep a parent-created WITHHELD receipt if the worker is killed before writing.
-cat > "$ADVICE_TMP/codex-receipt.json" <<EOF_RECEIPT
-{"status":"WITHHELD","sha":"$REVIEW_SHA","identity":"codex","model":"gpt-6-sol"}
-EOF_RECEIPT
+ADVICE_RUNNER="$SOURCE_REPO/.claude/skills/advice/scripts/run_primary_pair.py"
 cat > "$ADVICE_TMP/run_one_reviewer.py" <<'PY'
 import time
 started = time.monotonic()
@@ -237,6 +230,7 @@ parser.add_argument("--identity", required=True)
 parser.add_argument("--model", required=True)
 parser.add_argument("--preflight-started-ns", type=int, required=True)
 parser.add_argument("--preflight-ended-ns", type=int, required=True)
+parser.add_argument("--document", action="append", default=[])
 args = parser.parse_args()
 if args.preflight_ended_ns < args.preflight_started_ns:
     raise SystemExit("invalid preflight timing; WITHHELD")
@@ -247,12 +241,28 @@ clone = args.clone.resolve()
 source = args.source.resolve()
 if subprocess.check_output(["git", "-C", str(clone), "rev-parse", "HEAD"], text=True).strip() != args.sha:
     raise SystemExit("clone SHA mismatch; WITHHELD")
+documents = runner.read_review_documents(source, args.document)
+document_hashes = {name: runner.digest_bytes(data) for name, data in documents.items()}
+document_bundle_sha256 = runner.digest_bytes(json.dumps(document_hashes, sort_keys=True).encode()) if documents else None
+document_root = clone / ".advice-review-documents"
+if documents:
+    document_root.mkdir(exist_ok=False)
+    for index, data in enumerate(documents.values()):
+        (document_root / f"{index}.md").write_bytes(data)
 source_before = runner.repository_snapshot(source)
 clone_before = runner.repository_snapshot(clone)
 command = json.loads(args.command.read_text())
 if not isinstance(command, list) or not command or not all(isinstance(part, str) for part in command):
     raise SystemExit("command must be a nonempty JSON string array; WITHHELD")
 prompt = args.packet.read_text()
+if documents:
+    mapping = {f"{index}.md": {"source": name, "sha256": document_hashes[name]}
+        for index, name in enumerate(documents)}
+    prompt = ("DOCUMENT-ONLY REVIEW; repository HEAD is context, not the document identity.\n"
+        f"CONTEXT SHA: {args.sha}\nDOCUMENT BUNDLE SHA256: {document_bundle_sha256}\n"
+        "Read the complete selected files under .advice-review-documents in this clone.\n"
+        "Do not approve code, a PR, or HEAD from this document review.\n"
+        + json.dumps(mapping, sort_keys=True) + "\n\n" + prompt)
 budget = max(0.0, deadline - time.monotonic() - 30.0)
 if budget <= 0:
     raise SystemExit("reviewer budget exhausted; WITHHELD")
@@ -261,6 +271,11 @@ code, stdout, stderr, timed_out, forced_pipe_close, supervision = runner.execute
     command, clone, prompt, budget, 2.0
 )
 ended_ns = time.time_ns()
+source_documents_unchanged = runner.read_review_documents(source, args.document) == documents
+clone_documents_unchanged = all(
+    (document_root / f"{index}.md").read_bytes() == data
+    for index, data in enumerate(documents.values())
+) if documents else True
 try:
     source_after = runner.repository_snapshot(source)
     clone_after = runner.repository_snapshot(clone)
@@ -285,6 +300,12 @@ receipt = {
     "preflight_ended_monotonic_ns": args.preflight_ended_ns,
     "identity": args.identity,
     "model": args.model,
+    "review_kind": "documents" if documents else "revision",
+    "document_hashes": document_hashes,
+    "document_bundle_sha256": document_bundle_sha256,
+    "source_documents_unchanged": source_documents_unchanged,
+    "reviewer_documents_unchanged": clone_documents_unchanged,
+    "document_integrity_verified": source_documents_unchanged and clone_documents_unchanged,
     "command": command,
     "dispatch_ns": dispatch_ns,
     "ended_ns": ended_ns,
@@ -306,6 +327,7 @@ approved_candidate = (
     code == 0 and not timed_out and runner.has_verdict(stdout)
     and not forced_pipe_close and "COVERAGE" in stdout
     and source_unchanged and clone_unchanged and not survivors
+    and receipt["document_integrity_verified"]
     and supervision["descendant_termination_verified"]
     and not receipt["over_deadline"]
 )
@@ -322,6 +344,7 @@ from pathlib import Path
 
 runner_path, worker, source, clone, packet, command_file, worker_receipt, receipt = map(Path, sys.argv[1:9])
 sha, identity, model, preflight_started, preflight_ended = sys.argv[9:14]
+document_names = sys.argv[14:]
 def mark_withheld(reason, outer=None):
     record = {"status": "WITHHELD", "sha": sha, "identity": identity,
         "model": model, "reason": reason,
@@ -338,6 +361,8 @@ command = [sys.executable, str(worker), "--runner", str(runner_path),
     "--command", str(command_file), "--receipt", str(worker_receipt),
     "--sha", sha, "--identity", identity, "--model", model,
     "--preflight-started-ns", preflight_started, "--preflight-ended-ns", preflight_ended]
+for name in document_names:
+    command.extend(["--document", name])
 outer_budget = min(500.0, 600.0 - (time.monotonic() - attempt_started) - 35.0)
 if outer_budget <= 0:
     mark_withheld("attempt deadline reserve exhausted")
@@ -378,6 +403,7 @@ candidate = (outer["exit_code"] == 0 and not outer["timed_out"]
     and not detail.get("timed_out") and not detail.get("forced_pipe_close")
     and detail.get("source_repository_unchanged") is True
     and detail.get("reviewer_clone_unchanged") is True
+    and detail.get("document_integrity_verified") is True
     and detail.get("supervision", {}).get("descendant_termination_verified") is True
     and record["clone_cleanup_success"])
 record["status"] = "FINALIZED" if candidate else "WITHHELD"
@@ -414,6 +440,7 @@ candidate = (final_code == 0 and record.get("status") == "FINALIZED"
     and reviewer.get("over_deadline") is False
     and reviewer.get("supervision", {}).get("descendants_surviving") == []
     and reviewer.get("supervision", {}).get("descendant_termination_verified") is True
+    and reviewer.get("document_integrity_verified") is True
     and record.get("clone_cleanup_success") is True)
 record["status"] = "CANDIDATE" if candidate else "WITHHELD"
 if not candidate:
@@ -424,12 +451,53 @@ if not candidate:
 print(json.dumps({"outer": outer, "finalizer_exit": final_code, "finalizer_output": final_out}))
 raise SystemExit(0)
 PY
-python3 "$ADVICE_TMP/supervise_attempt.py" \
-  "$ADVICE_RUNNER" "$ADVICE_TMP/run_one_reviewer.py" "$SOURCE_REPO" \
-  "$ADVICE_TMP/codex-clone" "$ADVICE_TMP/review-packet.txt" \
-  "$ADVICE_TMP/command.json" "$ADVICE_TMP/codex-worker-receipt.json" \
-  "$ADVICE_TMP/codex-receipt.json" "$REVIEW_SHA" codex gpt-6-sol \
-  "$PREFLIGHT_STARTED_NS" "$PREFLIGHT_ENDED_NS"
+prepare_attempt() {
+  local identity="$1" model="$2" argv_json="$3"
+  local attempt_dir="$ADVICE_TMP/$identity-attempt"
+  mkdir "$attempt_dir"
+  git clone --no-local "$SOURCE_REPO" "$attempt_dir/reviewer-clone"
+  git -C "$attempt_dir/reviewer-clone" remote remove origin
+  git -C "$attempt_dir/reviewer-clone" checkout --detach "$REVIEW_SHA"
+  test "$(git -C "$attempt_dir/reviewer-clone" rev-parse HEAD)" = "$REVIEW_SHA"
+  test -z "$(git -C "$attempt_dir/reviewer-clone" remote)"
+  test -z "$(git -C "$attempt_dir/reviewer-clone" status --porcelain)"
+  printf '%s\n' "$argv_json" > "$attempt_dir/command.json"
+  printf '{"status":"WITHHELD","sha":"%s","identity":"%s","model":"%s"}\n' \
+    "$REVIEW_SHA" "$identity" "$model" > "$attempt_dir/receipt.json"
+}
+PREFLIGHT_STARTED_NS="$(python3 -c 'import time; print(time.monotonic_ns())')"
+prepare_attempt codex gpt-6-sol \
+  '["codex","exec","--yolo","-m","gpt-6-sol","--config","model_reasoning_effort=high"]'
+prepare_attempt opus claude-opus \
+  '["claude","-p","--model","opus","--dangerously-skip-permissions"]'
+PREFLIGHT_ENDED_NS="$(python3 -c 'import time; print(time.monotonic_ns())')"
+run_attempt() {
+  local identity="$1" model="$2"
+  local attempt_dir="$ADVICE_TMP/$identity-attempt"
+  if python3 "$ADVICE_TMP/supervise_attempt.py" \
+    "$ADVICE_RUNNER" "$ADVICE_TMP/run_one_reviewer.py" "$SOURCE_REPO" \
+    "$attempt_dir/reviewer-clone" "$ADVICE_TMP/review-packet.txt" \
+    "$attempt_dir/command.json" "$attempt_dir/worker-receipt.json" \
+    "$attempt_dir/receipt.json" "$REVIEW_SHA" "$identity" "$model" \
+    "$PREFLIGHT_STARTED_NS" "$PREFLIGHT_ENDED_NS" "${DOCUMENTS[@]}" \
+    > "$attempt_dir/console.log" 2>&1; then
+    local status=0
+  else
+    local status=$?
+  fi
+  printf '%s\n' "$status" > "$attempt_dir/exit-code.txt"
+  return "$status"
+}
+run_attempt codex gpt-6-sol &
+CODEX_PID=$!
+run_attempt opus claude-opus &
+OPUS_PID=$!
+if wait "$CODEX_PID"; then CODEX_EXIT=0; else CODEX_EXIT=$?; fi
+if wait "$OPUS_PID"; then OPUS_EXIT=0; else OPUS_EXIT=$?; fi
+printf 'codex exit=%s receipt=%s\n' "$CODEX_EXIT" "$ADVICE_TMP/codex-attempt/receipt.json"
+printf 'opus exit=%s receipt=%s\n' "$OPUS_EXIT" "$ADVICE_TMP/opus-attempt/receipt.json"
+python3 -c 'import json, pathlib, sys; [(print(p, json.dumps(json.loads(pathlib.Path(p).read_text()), sort_keys=True))) for p in sys.argv[1:]]' \
+  "$ADVICE_TMP/codex-attempt/receipt.json" "$ADVICE_TMP/opus-attempt/receipt.json"
 ```
 
 The outer call uses `execute()` with a 500-second timeout and 5-second grace;
