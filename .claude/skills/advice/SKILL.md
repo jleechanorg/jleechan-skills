@@ -334,6 +334,18 @@ approval quorum, and each must declare `COVERAGE` after reading the change.
 
 Below quorum a lone reviewer may still block — one competent objection is enough to stop — but may never approve. Never resolve unreachable reviewers into `APPROVED`: an unreachable reviewer is missing evidence, not assent.
 
+**Worked seats (examples, not a second rule set):**
+
+| Reviewers that returned a verdict | Votes | May emit |
+|---|---|---|
+| Codex PASS + Opus PASS, both declare full `COVERAGE`, neither blocks | 2 (A) | `APPROVED` (or `NOT APPROVED` if either blocks) |
+| Codex PASS + Opus unavailable | 1 (A) | `WITHHELD`, or `NOT APPROVED` when the single vote blocks |
+| Codex unavailable + Opus unavailable + A3 APPROVE | 1 (A, fallback chain) | `WITHHELD` |
+| A primary PASS **plus** A3 APPROVE | **1 (A)** - A3 shares seat A and never adds a vote | `WITHHELD` |
+| A vote + C (`/secondo`) vote, both full `COVERAGE`, neither blocks | 2 (A + C) | `APPROVED` (or `NOT APPROVED` if either blocks) |
+
+No row relaxes coverage or single-objection blocking: one competent objection still stops the change.
+
 **Coverage gates approval too.** A reviewer whose `COVERAGE` does not cover the
 declared diff/scope counts toward *blocking* but not toward *approving* — it is
 an opinion, not a review. `APPROVED` requires two independent coverage declarations

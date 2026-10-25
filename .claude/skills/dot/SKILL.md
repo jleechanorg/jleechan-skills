@@ -157,7 +157,27 @@ If an account returns `DOT_CHROME_UNAVAILABLE: not signed in`:
 - **Session-loss forensics (read-only, before any recovery):** a wiped profile shows a rebuilt anonymous cookie store (fresh `oai-did`/csrf cookies, zero `session-token` rows) while the account itself is fine server-side. `dot.sh` now classifies this automatically: a not-signed-in read/send also emits `DOT_STORE_REBUILD: ...` when the store shows the rebuild signature. Recover ONLY via `dot.sh login`. Never treat profile logout as an account logout.
 - **Machine checks now built into dot.sh (do not weaken them):** disk-space floor (`DOT_MIN_FREE_MB`, default 512 — a full disk corrupts the SQLite cookie store); OPT-IN foreign-binary enforcement (`DOT_ENFORCE_SYSTEM_CHROME=1`, honoured on login, headless and send-prepared): refuses a non-system binary unless `DOT_ALLOW_FOREIGN_BINARY=1`, because `DOT_CHROME_BIN` is a supported override for tests and alternate Chrome channels — the real 2026-10-11 wipe came from an ad-hoc script that bypassed `dot.sh` entirely; login launches with the same `--password-store` flags as headless; process-group teardown even when the node wrapper exits before the browser. The per-profile kernel flock and the coordinator STOP marker were deleted on 2026-10-20 at the operator's request: dot.sh no longer serializes concurrent invocations on one profile and `DOT_PROFILE_LOCKED` no longer exists, so concurrent launches against the same profile are the caller's own risk.
 - **Session snapshots (own-profile, no coupling):** every authenticated read/send/probe keeps `Cookies.snapshot` next to the live store (SQLite online backup; `DOT_SNAPSHOT=0` disables). `dot.sh restore-session` restores it — only with Chrome fully stopped, keeping a `.pre-restore` copy. Restoration is opportunistic: server-side token rotation may make a snapshot stale, in which case the probe reports logged out and the canonical `dot.sh --account <name> login` path still applies. Never resync cookies from another browser profile.
-- **Login-window hygiene:** there is no per-profile flock or coordinator STOP marker any more (removed 2026-10-20), so `dot.sh` cannot tell you a login window is open. Coordinate with other sessions yourself, and treat a running Chrome on the profile directory (Chrome's own `SingletonLock`/`SingletonCookie`/`SingletonSocket`) as the only remaining guard; remove stale singleton files in the profile dir with Chrome fully stopped if a launch reports the profile as owned.
+- **Login-window hygiene:** there is no per-profile flock or coordinator STOP marker any more (removed 2026-10-20), so
+  concurrent launches against the same profile remain the caller's own risk; `.dot-profile.lock.ready.*` files are
+  legacy scratch and carry no authority.
+**Directory exclusivity.** A dot `user_data_dir` is owned by dot alone: no other tool, MCP server, or browser may
+be configured to use it. **Lock-holder probe (run whenever `dot.sh` exits with
+`profile directory locked by active process PID`):** the singleton target embeds only `<hostname>-<pid>`, so resolve
+the parent in two steps:
+
+```bash
+PID=$(readlink "$dir/SingletonLock" | sed 's/.*-//')
+PPID_=$([ -n "$PID" ] && ps -o ppid= -p "$PID" | tr -d ' ' || true)
+[ -n "$PID" ] && ps -o pid=,ppid=,stat=,command= -p "${PID}${PPID_:+,$PPID_}"
+```
+
+**Dot's own lineages:** `dot.sh -> dot_chrome.mjs -> Chrome` (headless `read`/`send`/`probe`) and
+`dot.sh -> Chrome` (interactive `login`). Only a parent outside both is another tool: report that parent's pid and
+command and stop.
+
+**Liveness for cleanup:** the holder is dead only when `ps -o stat= -p "$PID"` is empty or starts with `Z`. Remove
+singleton files only for a dead holder; never unlink a lock a live process holds, or one whose live parent is
+unidentified. Do not use `! kill -0` alone - it succeeds on `EPERM` for a live cross-UID process.
 
 **Thin-pointer invariant:** `dot.sh`/`dot_chrome.mjs` are mechanical transport only (type, read, submit, clear, verify). All judgment — what to send, when to submit vs clear a peer draft, how to phrase coordination — belongs in THIS SKILL.md and the calling agent, never hardcoded in the scripts. See `GUARDRAIL.md` for the enforced LOC budget.
 
@@ -219,4 +239,4 @@ Accounts, target dot URLs, and preferred backends can be declared per-machine in
 }
 ```
 
-Each `user_data_dir` must be dedicated to that Dot account and must not point inside the system Google Chrome profile. If `user_data_dir` is omitted, Dot derives a separate local directory from the account key. `profile_directory` is optional: it selects a named Chrome subprofile and defaults to `Default` when absent. The value must be one safe directory name, such as `Profile 1`; path separators, `.` and `..`, and control characters are rejected. `DOT_PROFILE_DIRECTORY` may temporarily override the configured subprofile for one invocation, subject to the same validation. Chrome is the only backend. Multi-account targeting uses `--account <name>` / `DOT_ACCOUNT`, with independent headless-Chrome sessions per host/account pair and unified profile resolution with non-destructive lock recovery.
+Each `user_data_dir` must be dedicated to that Dot account and must not point inside the system Google Chrome profile. No other tool, MCP server, or browser may share a dot `user_data_dir`; exclusivity covers the directory, not only dot's own launches. If `user_data_dir` is omitted, Dot derives a separate local directory from the account key. `profile_directory` is optional: it selects a named Chrome subprofile and defaults to `Default` when absent. The value must be one safe directory name, such as `Profile 1`; path separators, `.` and `..`, and control characters are rejected. `DOT_PROFILE_DIRECTORY` may temporarily override the configured subprofile for one invocation, subject to the same validation. Chrome is the only backend. Multi-account targeting uses `--account <name>` / `DOT_ACCOUNT`, with independent headless-Chrome sessions per host/account pair and unified profile resolution with non-destructive lock recovery.
