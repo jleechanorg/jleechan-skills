@@ -161,8 +161,10 @@ setup, including clone creation, remote removal, checkout, SHA/status checks,
 argument parsing, imports, input reads and verification, process startup, and
 dispatch, is inside that reviewer's deadline. The supervisor starts a monotonic
 clock before parsing or importing inputs and bounds the whole worker with its
-outer `execute()` call; the worker starts its own monotonic deadline as its first
-instruction. Never queue or wait for a reviewer after the attempt clock begins.
+outer `execute()` call; the worker samples its monotonic clock as its first
+instruction. Record each reviewer's monotonic queued timestamp before launching
+the asynchronous attempt, and charge queue, process-startup, and setup time to
+the same 600-second cap. Do not pause or reset that clock.
 Use the runner's existing
 `execute()` supervisor API for exactly one reviewer process per attempt. It
 tracks the reviewer process tree, signals observed descendants on timeout,
@@ -174,9 +176,14 @@ The 600 seconds is a total attempt cap, not 600 seconds of model runtime. The
 outer `execute()` call supervises the complete adapter worker, including its
 clone and checkout setup, imports, input reads, repository snapshots, nested
 reviewer `execute()` call, post-run snapshots, and detailed receipt write. The
-supervisor starts its monotonic attempt clock before importing or parsing inputs
-and computes the outer budget from time remaining on that clock. The worker also
-starts its monotonic deadline as its first instruction. Reserve time inside the same 600-second window for a separately
+supervisor receives the pre-launch queued timestamp and computes the outer
+budget from the time remaining on that clock. The worker samples its own
+monotonic start as its first instruction, then uses the queued timestamp for its
+deadline. Create the attempt directory, command JSON, and initial WITHHELD
+receipts only inside that supervised worker after the clock is running. The
+supervisor writes the final WITHHELD record if the worker exits before creating
+its receipt; the shell writes a stable emergency receipt under `$ADVICE_TMP` if
+the supervisor itself exits without one. Reserve time inside the same 600-second window for a separately
 supervised cleanup/finalization helper; a timeout,
 surviving process, missing worker receipt, failed cleanup, or deadline overrun
 leaves the pre-created receipt WITHHELD. Never start a successor unless the
@@ -207,8 +214,7 @@ ADVICE_RUNNER="${CLAUDE_HOME:-$HOME/.claude}/skills/advice/scripts/run_primary_p
 test -r "$ADVICE_RUNNER" || { echo "installed advice runner is missing or unreadable: $ADVICE_RUNNER" >&2; exit 2; }
 cat > "$ADVICE_TMP/run_one_reviewer.py" <<'PY'
 import time
-started = time.monotonic()
-deadline = started + 450.0
+worker_entered_at = time.monotonic()
 
 import argparse
 import importlib.util
@@ -226,12 +232,25 @@ parser.add_argument("--source", type=Path, required=True)
 parser.add_argument("--clone", type=Path, required=True)
 parser.add_argument("--packet", type=Path, required=True)
 parser.add_argument("--command", type=Path, required=True)
+parser.add_argument("--command-json", required=True)
+parser.add_argument("--attempt-receipt", type=Path, required=True)
+parser.add_argument("--attempt-dir", type=Path, required=True)
 parser.add_argument("--receipt", type=Path, required=True)
 parser.add_argument("--sha", required=True)
 parser.add_argument("--identity", required=True)
 parser.add_argument("--model", required=True)
+parser.add_argument("--queued-at", type=float, required=True)
 parser.add_argument("--document", action="append", default=[])
 args = parser.parse_args()
+attempt_dir = args.attempt_dir.resolve()
+attempt_dir.mkdir(parents=True, exist_ok=False)
+args.command.write_text(args.command_json + "\n")
+args.attempt_receipt.write_text(json.dumps({"status": "WITHHELD", "sha": args.sha,
+    "identity": args.identity, "model": args.model}) + "\n")
+args.receipt.write_text(json.dumps({"status": "WITHHELD", "sha": args.sha,
+    "identity": args.identity, "model": args.model}) + "\n")
+started = args.queued_at
+deadline = started + 450.0
 spec = importlib.util.spec_from_file_location("advice_runner", args.runner)
 runner = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(runner)
@@ -253,6 +272,10 @@ if subprocess.check_output(["git", "-C", str(clone), "remote"],
 if subprocess.check_output(["git", "-C", str(clone), "status", "--porcelain"],
         text=True, timeout=max(1.0, deadline - time.monotonic() - 15.0)).strip():
     raise SystemExit("reviewer clone is dirty before dispatch; WITHHELD")
+if not args.document and subprocess.check_output(
+        ["git", "-C", str(source), "status", "--porcelain"], text=True,
+        timeout=max(1.0, deadline - time.monotonic() - 15.0)).strip():
+    raise SystemExit("revision source checkout is dirty; WITHHELD")
 documents = runner.read_review_documents(source, args.document)
 document_hashes = {name: runner.digest_bytes(data) for name, data in documents.items()}
 document_bundle_sha256 = runner.digest_bytes(json.dumps(document_hashes, sort_keys=True).encode()) if documents else None
@@ -263,7 +286,7 @@ if documents:
         (document_root / f"{index}.md").write_bytes(data)
 source_before = runner.repository_snapshot(source)
 clone_before = runner.repository_snapshot(clone)
-command = json.loads(args.command.read_text())
+command = json.loads(args.command_json)
 if not isinstance(command, list) or not command or not all(isinstance(part, str) for part in command):
     raise SystemExit("command must be a nonempty JSON string array; WITHHELD")
 prompt = args.packet.read_text()
@@ -320,6 +343,7 @@ receipt = {
     "dispatch_ns": dispatch_ns,
     "ended_ns": ended_ns,
     "elapsed_seconds": elapsed,
+    "worker_start_delay_seconds": max(0.0, worker_entered_at - args.queued_at),
     "exit_code": code,
     "timed_out": timed_out,
     "forced_pipe_close": forced_pipe_close,
@@ -345,7 +369,7 @@ raise SystemExit(0 if approved_candidate else 4)
 PY
 cat > "$ADVICE_TMP/supervise_attempt.py" <<'PY'
 import time
-attempt_started = time.monotonic()
+supervisor_entered_at = time.monotonic()
 
 import importlib.util
 import json
@@ -354,13 +378,17 @@ from pathlib import Path
 
 runner_path, worker, source, clone, packet, command_file, worker_receipt, receipt = map(Path, sys.argv[1:9])
 sha, identity, model = sys.argv[9:12]
-document_names = sys.argv[12:]
+queued_at = float(sys.argv[12])
+attempt_started = queued_at
+argv_json = sys.argv[13]
+document_names = sys.argv[14:]
 def mark_withheld(reason, outer=None):
     record = {"status": "WITHHELD", "sha": sha, "identity": identity,
         "model": model, "reason": reason,
         "full_attempt_elapsed_seconds": time.monotonic() - attempt_started}
     if outer is not None:
         record["outer_supervision"] = outer
+    receipt.parent.mkdir(parents=True, exist_ok=True)
     receipt.write_text(json.dumps(record, indent=2) + "\n")
 
 spec = importlib.util.spec_from_file_location("advice_runner", runner_path)
@@ -368,8 +396,10 @@ runner = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(runner)
 command = [sys.executable, str(worker), "--runner", str(runner_path),
     "--source", str(source), "--clone", str(clone), "--packet", str(packet),
-    "--command", str(command_file), "--receipt", str(worker_receipt),
-    "--sha", sha, "--identity", identity, "--model", model]
+    "--command", str(command_file), "--command-json", argv_json,
+    "--attempt-receipt", str(receipt), "--attempt-dir", str(receipt.parent),
+    "--receipt", str(worker_receipt), "--sha", sha, "--identity", identity,
+    "--model", model, "--queued-at", str(queued_at)]
 for name in document_names:
     command.extend(["--document", name])
 outer_budget = min(500.0, 600.0 - (time.monotonic() - attempt_started) - 35.0)
@@ -379,7 +409,9 @@ if outer_budget <= 0:
 code, out, err, timed_out, forced, supervision = runner.execute(command, source, "", outer_budget, 5.0)
 elapsed = time.monotonic() - attempt_started
 outer = {"exit_code": code, "timed_out": timed_out, "forced_pipe_close": forced,
-    "elapsed_seconds": elapsed, "supervision": supervision}
+    "elapsed_seconds": elapsed,
+    "queue_to_supervisor_seconds": supervisor_entered_at - attempt_started,
+    "supervision": supervision}
 if supervision["descendants_surviving"] or not supervision["descendant_termination_verified"]:
     mark_withheld("outer process supervision incomplete", outer)
     print(json.dumps({"status": "WITHHELD", "outer": outer, "stdout": out, "stderr": err}))
@@ -416,7 +448,9 @@ candidate = (outer["exit_code"] == 0 and not outer["timed_out"]
     and detail.get("source_repository_unchanged") is True
     and detail.get("reviewer_clone_unchanged") is True
     and detail.get("document_integrity_verified") is True
+    and detail.get("over_deadline") is False
     and detail.get("supervision", {}).get("descendant_termination_verified") is True
+    and detail.get("supervision", {}).get("descendants_surviving") == []
     and record["clone_cleanup_success"])
 record["status"] = "FINALIZED" if candidate else "WITHHELD"
 receipt.write_text(json.dumps(record, indent=2) + "\\n")
@@ -430,7 +464,7 @@ if remaining <= 31.0:
 final_command = [sys.executable, "-c", finalizer, str(clone), str(worker_receipt),
     str(receipt), json.dumps(outer), repr(attempt_started)]
 final_code, final_out, final_err, final_timed_out, final_forced, final_supervision = runner.execute(
-    final_command, clone.parent, "", min(20.0, remaining - 10.0), 1.0)
+    final_command, source, "", min(20.0, remaining - 10.0), 1.0)
 if final_timed_out or final_forced or final_supervision["descendants_surviving"] or final_code not in (0, 4):
     mark_withheld("cleanup/finalization supervision incomplete", outer)
     print(json.dumps({"status": "WITHHELD", "reason": "cleanup/finalization incomplete",
@@ -463,45 +497,47 @@ if not candidate:
 print(json.dumps({"outer": outer, "finalizer_exit": final_code, "finalizer_output": final_out}))
 raise SystemExit(0)
 PY
-prepare_attempt() {
-  local identity="$1" model="$2" argv_json="$3"
-  local attempt_dir="$ADVICE_TMP/$identity-attempt"
-  mkdir "$attempt_dir"
-  printf '%s\n' "$argv_json" > "$attempt_dir/command.json"
-  printf '{"status":"WITHHELD","sha":"%s","identity":"%s","model":"%s"}\n' \
-    "$REVIEW_SHA" "$identity" "$model" > "$attempt_dir/receipt.json"
-}
-prepare_attempt codex gpt-6-sol \
-  '["codex","exec","--yolo","-m","gpt-6-sol","--config","model_reasoning_effort=high"]'
-prepare_attempt opus claude-opus \
-  '["claude","-p","--model","opus","--dangerously-skip-permissions"]'
 run_attempt() {
-  local identity="$1" model="$2"
+  local identity="$1" model="$2" argv_json="$3" queued_at="$4"
   local attempt_dir="$ADVICE_TMP/$identity-attempt"
+  local receipt="$attempt_dir/receipt.json"
   if python3 "$ADVICE_TMP/supervise_attempt.py" \
     "$ADVICE_RUNNER" "$ADVICE_TMP/run_one_reviewer.py" "$SOURCE_REPO" \
     "$attempt_dir/reviewer-clone" "$ADVICE_TMP/review-packet.txt" \
     "$attempt_dir/command.json" "$attempt_dir/worker-receipt.json" \
-    "$attempt_dir/receipt.json" "$REVIEW_SHA" "$identity" "$model" \
+    "$receipt" "$REVIEW_SHA" "$identity" "$model" "$queued_at" "$argv_json" \
     "${DOCUMENTS[@]}" \
-    > "$attempt_dir/console.log" 2>&1; then
+    > "$ADVICE_TMP/$identity-console.log" 2>&1; then
     local status=0
   else
     local status=$?
   fi
-  printf '%s\n' "$status" > "$attempt_dir/exit-code.txt"
+  if [[ ! -s "$receipt" ]]; then
+    printf '{"status":"WITHHELD","sha":"%s","identity":"%s","model":"%s","reason":"worker exited before receipt creation"}\n' \
+      "$REVIEW_SHA" "$identity" "$model" > "$ADVICE_TMP/$identity-emergency-receipt.json"
+  fi
+  printf '%s\n' "$status" > "$ADVICE_TMP/$identity-exit-code.txt"
   return "$status"
 }
-run_attempt codex gpt-6-sol &
+CODEX_QUEUED_AT="$(python3 -c 'import time; print(time.monotonic())')"
+OPUS_QUEUED_AT="$(python3 -c 'import time; print(time.monotonic())')"
+run_attempt codex gpt-6-sol \
+  '["codex","exec","--yolo","-m","gpt-6-sol","--config","model_reasoning_effort=high"]' \
+  "$CODEX_QUEUED_AT" &
 CODEX_PID=$!
-run_attempt opus claude-opus &
+run_attempt opus claude-opus \
+  '["claude","-p","--model","opus","--dangerously-skip-permissions"]' \
+  "$OPUS_QUEUED_AT" &
 OPUS_PID=$!
 if wait "$CODEX_PID"; then CODEX_EXIT=0; else CODEX_EXIT=$?; fi
 if wait "$OPUS_PID"; then OPUS_EXIT=0; else OPUS_EXIT=$?; fi
-printf 'codex exit=%s receipt=%s\n' "$CODEX_EXIT" "$ADVICE_TMP/codex-attempt/receipt.json"
-printf 'opus exit=%s receipt=%s\n' "$OPUS_EXIT" "$ADVICE_TMP/opus-attempt/receipt.json"
-python3 -c 'import json, pathlib, sys; [(print(p, json.dumps(json.loads(pathlib.Path(p).read_text()), sort_keys=True))) for p in sys.argv[1:]]' \
-  "$ADVICE_TMP/codex-attempt/receipt.json" "$ADVICE_TMP/opus-attempt/receipt.json"
+printf 'codex exit=%s receipt=%s emergency=%s\n' "$CODEX_EXIT" \
+  "$ADVICE_TMP/codex-attempt/receipt.json" "$ADVICE_TMP/codex-emergency-receipt.json"
+printf 'opus exit=%s receipt=%s emergency=%s\n' "$OPUS_EXIT" \
+  "$ADVICE_TMP/opus-attempt/receipt.json" "$ADVICE_TMP/opus-emergency-receipt.json"
+python3 -c 'import json, pathlib, sys; [(print(p, json.dumps(json.loads(pathlib.Path(p).read_text()), sort_keys=True))) for p in sys.argv[1:] if pathlib.Path(p).is_file()]' \
+        "${ADVICE_TMP}/codex-attempt/receipt.json" "${ADVICE_TMP}/codex-emergency-receipt.json" \
+        "${ADVICE_TMP}/opus-attempt/receipt.json" "${ADVICE_TMP}/opus-emergency-receipt.json"
 ```
 
 The outer call uses `execute()` with a 500-second timeout and 5-second grace;
@@ -510,8 +546,8 @@ finalization, process inspection, and teardown. This leaves over 40 seconds
 under the 600-second attempt cap for supervisor startup and bookkeeping. The
 model runtime is smaller still because adapter setup and verification consume
 the worker's budget. This `/tmp` driver is a thin adapter around the existing
-supervisor, not a new reviewer runner. Put the exact approved CLI argv in
-`command.json`, excluding
+supervisor, not a new reviewer runner. The worker writes the exact approved CLI
+argv to `command.json`, excluding
 the final prompt argument (the adapter appends it). For Codex use
 `["codex", "exec", "--yolo", "-m", "gpt-6-sol", "--config", "model_reasoning_effort=high"]`;
 for Opus use `["claude", "-p", "--model", "opus", "--dangerously-skip-permissions"]`.
@@ -722,10 +758,12 @@ Below quorum a lone reviewer may still block — one competent objection is enou
 
 No row relaxes coverage or single-objection blocking: one competent objection still stops the change.
 
-**Coverage gates approval too.** A reviewer whose `COVERAGE` does not cover the
-declared diff/scope counts toward *blocking* but not toward *approving* — it is
-an opinion, not a review. `APPROVED` requires two independent coverage declarations
-whose combined scope covers the whole declared change. Otherwise emit `WITHHELD`.
+**Coverage gates approval too.** Each approving reviewer must independently
+declare `COVERAGE` that covers the entire declared diff/scope. Do not combine
+partial coverage across reviewers to meet the approval quorum. A reviewer whose
+coverage is incomplete still counts toward *blocking*, but not toward
+*approving*. The combined scope covers the whole declared change only when
+each counted approval independently covers it. Otherwise emit `WITHHELD`.
 
 ## Final verdict format — SHA-bound (mandatory)
 
