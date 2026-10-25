@@ -5,9 +5,9 @@ description: Drive PR(s) to merge-ready — /es, plus /er and /advice where pr-l
 
 # /ready — PR merge-readiness gate
 
-## Governing workflow
+## Retained review integrations
 
-Use [pr-lifecycle](../pr-lifecycle/SKILL.md) for review integrations, applicability and evidence reuse. Its [opt-in review routes](../pr-lifecycle/SKILL.md#review-routes-for-opted-in-repositories) remain part of readiness, including any applicable independent /dot obligation.
+Use [pr-lifecycle](../pr-lifecycle/SKILL.md) for review integrations, applicability and evidence reuse. For a remote invocation, check the target host's actual review skill. If unavailable, report `UNAVAILABLE` and leave any dependent readiness or plan-approval gate unmet; do not fabricate approval. Its [opt-in review routes](../pr-lifecycle/SKILL.md#review-routes-for-opted-in-repositories) remain part of readiness, including any applicable independent /dot obligation.
 
 Keep drafts draft until applicable draft gates pass; never convert an already non-draft PR back to draft. Follow [review sequencing](../pr-lifecycle/SKILL.md#draft-phase-final-acceptance-gates-in-order): code review and cheap checks early, expensive evidence after stabilization. Undrafting begins ready work, not completed readiness.
 
