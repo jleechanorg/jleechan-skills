@@ -78,6 +78,20 @@ class ApprovalContractsTest(unittest.TestCase):
         self.assertNotIn("→ `MERGE_READY`", report)
         self.assertIn("green alone does not establish READY", report)
 
+    def test_autonomy_metrics_follow_applicable_gates_and_reasoned_sha_reuse(self) -> None:
+        zero = skill("zero-touch")
+        self.assertNotIn("completed `/es`, `/er`, and `/advice`", zero)
+        self.assertIn("completed the applicable draft gates per `pr-lifecycle`", zero)
+        auton = skill("auton")
+        self.assertNotIn("draft through /es, /er, and /advice", auton)
+        self.assertNotIn("current-head /es, /er, /advice artifacts", auton)
+        self.assertNotIn("Verify current-head `/es`, `/er`, `/advice`", auton)
+        self.assertIn("applicable draft gates per pr-lifecycle", auton)
+        self.assertIn("current-candidate applicability", auton)
+        self.assertIn("reasoned SHA-binding assessment", auton)
+        self.assertIn("original tested/reviewed SHAs and timestamps", auton)
+        self.assertIn("affected or uncertain coverage requires independent review", auton)
+
     def test_agento_summary_does_not_equate_green_with_merge_authority(self) -> None:
         report = skill("agento-report")
         self.assertNotIn("GREEN (ready to merge)", report)

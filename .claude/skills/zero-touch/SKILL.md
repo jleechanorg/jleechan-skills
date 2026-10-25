@@ -29,7 +29,7 @@ rather than left permanently unsatisfiable.)
 
 Specifically:
 1. AO spawned the worker session autonomously (via `ao spawn`, lifecycle-worker, or poller)
-2. The worker completed `/es`, `/er`, and `/advice`, then reached `/green`, without external nudges
+2. The worker completed the applicable draft gates per `pr-lifecycle`, then reached `/green`, without external nudges
 3. No human/terminal session pushed commits, resolved comments, fixed CI, or posted reviews on the PR branch before it reached that state
 
 ## Quality-complete criteria

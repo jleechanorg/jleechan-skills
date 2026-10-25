@@ -48,7 +48,7 @@ AO lifecycle-worker (every ~5 min via launchd)
   ↓ detects non-green PR (backfillAllPRs: true)
   ↓ spawns agento session (ao spawn --claim-pr)
   ↓ agento: reads comments, fixes code, pushes
-  ↓ agento: keeps the PR draft through /es, /er, and /advice
+  ↓ agento: keeps the PR draft through the applicable draft gates per pr-lifecycle
   ↓ agento: marks ready only after draft readiness passes
   ↓ CI passes and mergeability is rechecked through /green
   ↓ agento reports ready; merge remains separately human-authorized
@@ -156,7 +156,9 @@ gh api repos/jleechanorg/jleechanclaw/issues/comments?per_page=5 | \
 
 ### 7. Is draft readiness + `/green` working correctly?
 ```bash
-# Verify current-head CI, mergeability, and current-head /es, /er, /advice artifacts.
+# Verify current-head CI and mergeability, and current-candidate applicability of required gate artifacts.
+# Follow pr-lifecycle: use a reasoned SHA-binding assessment for earlier receipts;
+# retain original tested/reviewed SHAs and timestamps; affected or uncertain coverage requires independent review.
 gh api repos/jleechanorg/agent-orchestrator/pulls/<PR_NUM> --jq '{head:.head.sha,mergeable,mergeable_state,draft}'
 ```
 
@@ -479,7 +481,7 @@ This full-sweep output format is the report to use for a live/comprehensive `/au
 | Sessions spawn but die immediately | `--claim-pr` fails (stray worktree) | clear stale paths / targeted unlock |
 | Sessions alive but no pushes | Agent hits rate limit or auth failure | Check agent logs, re-auth |
 | CR never APPROVED | Rate limited (too many PRs) | Wait for limit reset, or reduce simultaneous PRs |
-| Draft checks pass but PR never becomes ready | readiness transition missing | Verify current-head `/es`, `/er`, `/advice` and ready transition |
+| Draft checks pass but PR never becomes ready | readiness transition missing | Verify applicable gate coverage and the ready transition per `pr-lifecycle`, including a reasoned SHA-binding assessment of earlier receipts without relabeling original tested/reviewed SHAs and timestamps |
 | `/green` appears to pass but CI is pending | stale or incomplete status evaluation | Use the canonical current-head `/green` query |
 | `/tmp/ao-pr-poller.log` missing | **NOT A BUG** — ao-pr-poller is deprecated/removed | Ignore; its absence is correct and expected |
 | PRs cycling CR changes_requested | Agent not reading CR comments correctly | Check agento's comment-reading skill |
