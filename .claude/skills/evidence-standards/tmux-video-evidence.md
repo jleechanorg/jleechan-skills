@@ -255,9 +255,9 @@ The following GitHub release example applies only when that destination is autho
   sha_short="${CAPTURED_SHA:0:12}"
   tag="evidence-pr-${PR_NUMBER}-${sha_short}-${RUN_ID}"
 
-  archive_dir="$(mktemp -d "${TMPDIR:-/tmp}/evidence_archive.XXXXXX")"
-  trap 'rm -rf "$archive_dir"' EXIT
+  archive_dir="$(mktemp -d /tmp/evidence_archive.XXXXXX)"
   zip_file="$archive_dir/$(basename "$video_file").zip"
+  trap 'rm -f -- "$zip_file"; rmdir -- "$archive_dir"' EXIT
   zip -j "$zip_file" "$video_file"
 
   assets=("$zip_file" "$preview_file")
