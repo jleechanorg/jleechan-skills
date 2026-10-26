@@ -132,7 +132,7 @@ If the Aside CLI or app is unavailable, use isolated headless Chromium; installa
 - ❌ Declaring a platform "staged" from a screenshot of an empty compose box or login wall
 - ❌ Treating a broken `openTab()` path as proof that all existing Aside tabs are unusable
 - ❌ Reporting generic "Aside broken" status without separating transport, browser-bridge, and auth-state failures
-- ❌ Calling `show_browser` or launching headed mode without an explicit current-thread request and a separate verified task-owned profile; Chromium is headless by default.
+- ❌ Calling `show_browser` by default or launching headed mode as an ordinary fallback; the headless-only default applies to Playwright/browserclaw fallback routes. An explicit current-thread visible-mode request may use a separate verified task-owned profile.
 - ❌ Using `mcp__claude-in-chrome__*` for any browser work (requires extension, fails headless/CI)
 - ❌ Copying cookies between browsers. The only permitted exception is the explicitly authorized, one-agent-owned-source transfer in browser-control; it must use the guarded private-temp lifecycle and must not bypass an access control.
 - ❌ Assuming Aside CLI can read Chrome/Comet/Arc history (separate cookie stores)

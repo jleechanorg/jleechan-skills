@@ -147,7 +147,7 @@ If the Aside CLI or app is unavailable, use isolated headless Chromium. Installa
 ## Anti-patterns (BANNED)
 
 - ❌ Falling back to a personal browser when the isolated headless route is unavailable
-- ❌ Calling `show_browser` or launching headed mode without an explicit current-thread request and a separate verified task-owned profile; Chromium is headless by default.
+- ❌ Calling `show_browser` by default or launching headed mode as an ordinary fallback; the headless-only default applies to Playwright/browserclaw fallback routes. An explicit current-thread visible-mode request may use a separate verified task-owned profile.
 - ❌ Using `mcp__claude-in-chrome__*` for any browser work (requires extension, fails headless/CI)
 - ❌ Assuming one authorized agent-owned source reflects every browser session — **Aside and other browsers have independent cookie DBs**. Before declaring "no auth," inspect only the one source profile/DB explicitly authorized for this task, using its matching Safe Storage service/account and the guarded browser-control lifecycle. Never sweep desktop browser profiles or personal cookie stores. See `references/aside-cookie-portability.md` for portability constraints.
 - ❌ Copying cookies between browsers. The only permitted exception is the explicitly authorized, one-agent-owned-source transfer in browser-control; it must use the guarded private-temp lifecycle and must not bypass an access control.
