@@ -38,7 +38,7 @@ class StubCmux:
             '      fail) exit 1 ;;\n'
             '      empty) exit 0 ;;\n'
             '      gate) printf "%s\\n" "Goal remains blocked pending human merge approval"; exit 0 ;;\n'
-            '      clean) printf "%s\\n" "jleechan@host:~/work$"; exit 0 ;;\n'
+            '      clean) printf "%s\\n" "user@host:~/work$"; exit 0 ;;\n'
             '    esac ;;\n'
             '  *) exit 0 ;;\n'
             'esac\n'
@@ -252,7 +252,7 @@ class RestartVerificationTest(unittest.TestCase):
         ps = tmp / "fakeps_noid"
         ps.write_text(
             "#!/bin/bash\n"
-            'echo "ttys003 100 00:10 node /Users/x/.nvm/node_modules/@openai/codex/bin/codex.js"\n'
+            'echo "ttys003 100 00:10 node /opt/codex/bin/codex.js"\n'
         )
         ps.chmod(0o755)
         stub = StubCmux("clean")
