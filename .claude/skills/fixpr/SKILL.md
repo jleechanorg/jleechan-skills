@@ -28,7 +28,7 @@ These came out of driving a real 40+ PR backlog and matter as much as the mechan
 
 ```bash
 if ! gh auth status; then
-  echo "GitHub CLI not authenticated - run 'gh auth login' first"
+  echo "GitHub CLI auth status failed; perform the canonical Keychain probe and a cheap non-UI GitHub API call before considering login. Do not create or expand credentials as part of this workflow."
   exit 1
 fi
 ```
@@ -100,7 +100,7 @@ for check in checks:
 
 ### Step 3: Detect CI-vs-local discrepancies
 
-Run the local test suite first (detect the runner: `npm test`, `pytest`, `make test`, etc). If local passes but GitHub CI fails, that's a discrepancy — common causes: Python/dependency version drift, missing CI env vars, race conditions only manifesting in CI, timezone/locale differences, filesystem case-sensitivity (CI often Linux, local often macOS).
+Run the focused local equivalent for the failing workflow where one is supported; never run an unfiltered full local suite in this repository because CI owns full regression. If local passes but GitHub CI fails, that's a discrepancy — common causes: Python/dependency version drift, missing CI env vars, race conditions only manifesting in CI, timezone/locale differences, filesystem case-sensitivity (CI often Linux, local often macOS).
 
 **When discrepancy detected, trigger `/redgreen` (alias `/tdd`)**:
 1. **RED**: `/redgreen --pr <PR> --check "<check-name>" --gh-log "<the exact GitHub error>"` — reproduce the GitHub failure as a local failing test.
@@ -155,16 +155,17 @@ def login(user, password, mfa=None):
 
 ```
 [ ] Reproduced the failure locally (saw the exact error locally)
-[ ] Full local test suite passes (all tests, not just the affected one)
-[ ] If merge conflicts existed: pulled main, resolved, documented in docs/conflicts/, re-ran full suite
+[ ] Focused local equivalent passes, or exact CI workflow owns broader regression
+[ ] If conflicts existed: resolved and documented under the repository conflict-resolution owner; rerun affected checks
 [ ] git status is clean (no uncommitted changes)
 ```
 
 ### Step 7: Push and re-verify GitHub (never claim success from local state alone)
 
 ```bash
-git add -A && git commit -m "fix: address CI failures / merge conflicts for PR #${PR_NUMBER}"
-git push origin HEAD
+git add <explicit-task-paths> && git commit -m "fix: address CI failures / merge conflicts for PR #${PR_NUMBER}"
+# Verify and print current branch, upstream, and explicit target; never push to main/master.
+git push <verified-remote> <verified-task-branch>
 sleep 60   # let GitHub CI process
 gh pr view "$PR_NUMBER" --json statusCheckRollup,mergeable,mergeStateStatus
 ```

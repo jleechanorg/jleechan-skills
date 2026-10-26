@@ -21,9 +21,15 @@ instructions first, and treat backend correction as a last resort.
 
 > **"Model Computes, Backend Formats"** — the LLM decides level-up; `rewards_engine.py` formats it; `world_logic.py` wraps the formatted result with modal semantics.
 
-> **"LLM Calculates, Backend Corrects"** — the LLM owns XP arithmetic, target-level math, level-up availability, and choice/benefit selection. Backend code must not independently calculate those facts from thresholds as a primary path. It may only correct or suppress mechanically contradictory explicit model/state payloads.
+For WorldArchitect-specific backend ownership, this summary defers to the
+repository overlay `.claude/skills/worldai-zfc/SKILL.md`, the portable
+`~/.claude/skills/zero-framework-cognition/SKILL.md`, and
+`.claude/skills/backend-justified/SKILL.md`. Do not infer permission to alter
+model-owned domain state from schema validity, determinism, or this file alone.
 
-> **Correction Exception Boundary**: Correction guards that prevent degraded UX (stale-flag time-freeze, SSE soft-lock, already-applied level-up residue) are permitted **only** within `rewards_engine.py`. These guards must be correction-only: compare explicit model/state fields for contradictions, suppress or normalize invalid payloads, and avoid creating a competing backend level-up decision. Scattered heuristics across multiple files are strictly forbidden.
+> **"LLM Owns Domain Decisions; Backend Preserves and Executes"** — the model owns domain decisions and choices. Backend changes to model-owned state require an explicit field-specific repository contract, one-writer proof, and the applicable adjustment evidence; preserving a player's valid turn is the UX default.
+
+> **Correction Exception Boundary**: No backend correction is authorized by this guide alone. Follow the local ZFC/backend-justification contract, and use only a registered adjustment with the required evidence. Do not add defaults, clamps, suppressions, or normalization to model-owned domain fields based only on contradiction, UX, or determinism.
 
 > **Opaque Choice Boundary**: Planning choice IDs are opaque handles, not semantic signals. `level_up_now`, `finish_level_up_return_to_game`, and `custom_action` are migration/compatibility handles only. Level-up choice meaning must come from explicit model/schema fields on the resolved choice object, not from ID text, prefixes, labels, or backend allowlists.
 
@@ -37,7 +43,7 @@ Before modifying ANY file for level-up/rewards/XP work, verify against this tabl
 | File | OWNS | MUST NOT DO |
 |------|------|-------------|
 | `rewards_engine.py` | Format explicit model signals, correction-only contradiction guards, `canonicalize_level_up_signal()`, XP/reward field normalization from explicit values, `sync_level_up_signals()`, SSE atomicity enforcement (`_enforce_atomicity()`) | Model calls, Firestore writes, text interpretation, primary XP/level calculation, threshold-derived level-up decisions |
-| `world_logic.py` | Modal locks, finish choice injection, wrap **precomputed** payloads only, thin delegation to `rewards_engine.project_level_up_ui()` | Recompute XP, synthesize choices, call `canonicalize_level_up_signal()` directly, build `level_up_signal` dicts, call `resolve_level_progression()` |
+| `world_logic.py` | Modal locks and consumption of model-authored finish choices; wrap payloads only where its contract permits | Inject or synthesize choices; recompute model-owned progression; call `canonicalize_level_up_signal()` directly |
 | `game_state.py` | State storage, deterministic mechanical primitives (`xp_needed_for_level`, `level_from_xp`, `coerce_int`) | Decide level-up from state, replace model choices, own level-up decisions, contain level-up dataclasses or resolvers |
 | `agents.py` | Route to correct agent using `rewards_engine.is_level_up_active()` | Inline flag interpretation, XP extraction, stale-flag recovery logic |
 | `llm_parser.py` | Parse model output, call the pipeline **once** via `canonicalize_rewards()`, persist/deliver | Duplicate rewards formatting, inline false-positive mutations, call canonicalization separately |
@@ -202,7 +208,7 @@ The `design-doc-gate.yml` workflow enforces 8 grep-based boundary checks on ever
 | `rewards_pending.level_up_available` | Backend-derived compatibility/display field from accepted `level_up_signal` | Bool: deterministic UI alias; do not ask the model to emit it |
 | `rewards_pending.xp_gained` | LLM via state_updates; `rewards_engine.sync_level_up_signals()` only for transitional correction | Int: model-calculated XP delta for rewards box |
 | `rewards_pending.new_level` | Backend-derived compatibility/display field from `level_up_signal.target_level` | Int: deterministic UI alias; do not ask the model to emit it |
-| `player_character_data.experience.current` | LLM via state_updates | Int: cumulative XP (backend NEVER writes) |
+| `player_character_data.experience.current` | Active repository field-specific contract | Int: cumulative accepted XP; writer and projection are owned by the current prompt/schema and ZFC contract |
 | `custom_campaign_state.level_up_in_progress` | Server-owned modal/session control state | Bool: level-up modal active; model must not write this on story/rewards turns |
 | `custom_campaign_state.level_up_pending` | Backend-derived compatibility/control field from accepted level-up signal or modal state | Bool: modal routing compatibility; model must not write this on story/rewards turns |
 | `custom_campaign_state.level_up_complete` | Server-owned level-up flow state | Bool: level-up flow finished (suppresses `is_level_up_active()`) |
@@ -216,75 +222,18 @@ For the full field registry, see `.claude/skills/field-ownership-contracts.md`.
 
 1. **Correction-only validation**: `is_level_up_active()` validates explicit flags against explicit model/state fields only to suppress contradictions. A stale `level_up_pending=True` can be rejected when the persisted state proves the model-owned level-up signal is already applied or mechanically impossible, but this must not become a backend threshold-derived level-up decision.
 
-2. **SSE atomicity**: `_enforce_atomicity()` enforces that level-up `rewards_box` and `planning_block` always ship together. If either is missing, both are dropped (fail-closed). This prevents UI soft-locks.
+2. **Streaming preservation**: Preserve supplied stream fields and their representation aliases. Missing one field is not a reason to drop the other or reject the turn; only corruption of server-owned storage can block persistence.
 
 3. **Completion/cancellation precedence**: `level_up_complete=True` or `level_up_cancelled=True` always returns `False` from `is_level_up_active()`, regardless of other flags.
 
-4. **Level cap**: Level 20 characters always return `False` from `is_level_up_active()` for pending flags, preventing stale signals at max level.
+4. **Progression limits**: Follow the active campaign progression contract; do not add a hardcoded cap or threshold-based fallback to this helper.
 
 5. **Single delegation**: `world_logic._project_level_up_ui_locally()` is a 1-line call to `rewards_engine.project_level_up_ui()`. No independent computation.
 
 ---
 
 ## Canonical References
-
-- **Design doc**: `roadmap/zfc-level-up-model-computes-2026-04-19.md` (repo) / `~/roadmap/zfc-level-up-model-computes-2026-04-19.md` (local) (1,725 lines — read lines 219-241 for the file-responsibility table)
-- **Task specs**: `roadmap/zfc-pr-task-specs-2026-04-22.md` (repo) / `~/roadmap/zfc-pr-task-specs-2026-04-22.md` (local) (per-PR scope locks)
-- **Postmortem**: `roadmap/2026-04-21-level-up-zfc-loop-postmortem.md` (repo) / `~/roadmap/2026-04-21-level-up-zfc-loop-postmortem.md` (local)
-
----
-
-## ZFC Leveling Compliance Worker Prompt
-
-When delegating PR refactors (such as PRs #6718, #6725, #6736, #6756, #6758) to autonomous workers, **provide them with this exact prompt** to prevent common architectural drift:
-
-```markdown
-# ZFC Leveling Compliance Redesign Prompt
-
-**Objective**: Refactor and redesign existing level-up, streaming orchestration, and infinite progression logic to strictly comply with the new Zero-Framework Cognition (ZFC) mandate: **"LLM Calculates, Backend Corrects."**
-
----
-
-## 🛑 Core Architectural Mandate
-The backend is no longer the source of truth for gameplay math. You must enforce the following invariant across your PR:
-**The LLM owns all XP arithmetic, target-level math, and level-up availability.** 
-The backend code must **never** independently calculate these facts from thresholds as a primary path. 
-
-### 1. The "Backend Just Fixes" Rule (Correction Exception Boundary)
-The backend is ONLY permitted to apply *correction guards* to prevent degraded UX (e.g., stale-flag time-freezes, SSE soft-locks, or already-applied level-up residues).
-*   **Where**: These guards are permitted **ONLY** within `$PROJECT_ROOT/rewards_engine.py`.
-*   **How**: Guards must be "correction-only." They may compare explicit model/state fields for contradictions and suppress or normalize invalid payloads.
-*   **Forbidden**: Guards must *never* synthesize a competing backend level-up decision or trigger a level-up prompt because backend XP math crossed a threshold. Scattered heuristics across multiple files are strictly forbidden.
-
-### 2. Strict File Boundaries
-Before modifying any file, verify your changes against these boundaries. If your logic violates these rules, **STOP and redesign.**
-
-*   **`rewards_engine.py`**
-    *   **Owns**: Formatting explicit model signals, correction-only contradiction guards, `canonicalize_level_up_signal()`, and SSE atomicity enforcement.
-    *   **Must NOT Do**: Primary XP/level calculations, threshold-derived level-up decisions, or model calls.
-*   **`world_logic.py`**
-    *   **Owns**: Modal locks, injecting finish choices, wrapping precomputed payloads.
-    *   **Must NOT Do**: Recomputing XP, synthesizing choices, directly calling `canonicalize_level_up_signal()`, or making threshold-based level-up decisions.
-*   **`game_state.py`**
-    *   **Owns**: State storage and deterministic mechanical primitives (`xp_needed_for_level`, `level_from_xp`).
-    *   **Must NOT Do**: Deciding level-ups from state, replacing model choices, or containing level-up resolvers.
-*   **`agents.py`**
-    *   **Owns**: Routing to the correct agent using `rewards_engine.is_level_up_active()`.
-    *   **Must NOT Do**: Inline flag interpretation, XP extraction, or stale-flag recovery logic.
-
-### 3. Infinite Leveling & Streaming Parity Specifics
-*   If you are removing the Level 20 hard-cap or fixing streaming parity, you must ensure that the progression relies on the LLM's explicit `level_up_signal` (including `previous_turn_exp`, `current_turn_exp`, `new_level`, etc.).
-*   Do not fallback to having the backend detect `current_turn_exp > threshold` to trigger the level-up modal. The LLM must emit `level_up: true`. If the LLM misses it, the backend fails closed (suppresses the level-up), it does *not* fix it by synthesizing the level-up itself.
-
-### 4. Required Action Items for Your PR
-1.  **Audit your diff**: Search your PR for any instances where the backend calculates XP progress, checks thresholds to trigger events, or builds level-up choices independently. 
-2.  **Remove backend inference**: Delete any code that tries to act as a "competing source of truth" against the LLM's `level_up_signal`.
-3.  **Refactor to correction-only**: If your PR fixes a stale state bug, ensure the fix is a contradiction guard placed *only* in `rewards_engine.py` that suppresses the stale payload, rather than recalculating the correct state.
-4.  **Grep for rogue flag checks**: You must not check `level_up_pending` or `level_up_in_progress` directly in `world_logic.py` or `agents.py`. You must replace these with calls to `rewards_engine.is_level_up_active()`, which contains the centralized correction guards.
-5.  **Do NOT change the API contract**: `rewards_engine.canonicalize_rewards()` returns a 2-tuple `(rewards_box, planning_block)`. Do not change this signature. Use the `out_meta` dict parameter to pass out additional flags (like false-positives).
-
-> **Failure to adhere to the "LLM Calculates, Backend Corrects" mandate will result in immediate rejection of the PR.** Consult `roadmap/zfc-level-up-model-computes-2026-04-19.md` and `.claude/skills/zfc-leveling-roadmap/SKILL.md` if you are unsure about a specific file boundary.
-```
+For any WorldArchitect backend or progression change, read the local overlay `.claude/skills/worldai-zfc/SKILL.md` together with `~/.claude/skills/zero-framework-cognition/SKILL.md`, `.claude/skills/backend-justified/SKILL.md`, and `.claude/skills/root-cause-first/SKILL.md`. Prompt/schema correction comes before backend protection. Adjustments are exceptional and require a registered contract and evidence. This guide does not authorize finish-choice injection, paired payload dropping, gameplay defaults, clamps, or rejection of a valid turn.
 
 ## Related Skills
 

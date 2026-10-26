@@ -38,8 +38,7 @@ Do NOT use for:
 
 ## Output Artifact
 
-Always produces `~/roadmap/nextsteps-<YYYY-MM-DD>-<scope>-stage-pr-plan.md`
-synced to `<repo>/roadmap/nextsteps-<YYYY-MM-DD>-<scope>-stage-pr-plan.md`.
+Always produces `~/roadmap/nextsteps-<YYYY-MM-DD>-<scope>-stage-pr-plan.md` as the durable agent-authored plan. Do not copy this report into the code repository; repository-owned product artifacts follow their owner instructions.
 
 The doc has these sections in order:
 1. **Goal** — one paragraph
@@ -175,7 +174,7 @@ Plan writes:
 ### Phase 0: Discovery (read-only)
 1. Identify scope keyword (e.g., "auth", "checkout", "level-up").
 2. List existing roadmap docs in scope: `ls ~/roadmap/ | grep -i <scope>`.
-3. List existing repo roadmap docs: `ls <repo>/roadmap/ | grep -i <scope>`.
+3. Inspect repository-owned planning artifacts only when the task owner requires them; do not treat this as a destination for a copy of the agent-authored plan.
 4. List open PRs in scope: `gh pr list --state open --search "<scope> in:title"`.
 5. List active beads in scope: `br list | grep <scope>` (or equivalent).
 6. Check MEMORY.md for relevant entries: `grep -l <scope> ~/.claude/projects/.../memory/*.md`.
@@ -212,7 +211,7 @@ Write the artifact at `~/roadmap/nextsteps-<date>-<scope>-stage-pr-plan.md`.
 Include all 14 sections above. Cross-reference every roadmap doc found in Phase 0.
 
 ### Phase 5: Sync
-Copy doc to `<repo>/roadmap/` and any active worktrees.
+Keep the durable plan in `~/roadmap`; share its path when needed rather than copying it into the repository.
 
 ### Phase 6: Memory write
 Add entry to `~/.claude/projects/<project>/memory/` describing the plan and add a one-line pointer to `MEMORY.md`.

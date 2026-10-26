@@ -101,7 +101,7 @@ python scripts/query_directives.py wBoMKQuMnvLfyjTFTBHd
 python scripts/query_directives.py wBoMKQuMnvLfyjTFTBHd --debug-missing "power scaling"
 
 # Manually add a missing directive
-python scripts/query_directives.py wBoMKQuMnvLfyjTFTBHd --add "Level 9 is extremely powerful - never use 'mere' or 'modest'"
+python scripts/query_directives.py wBoMKQuMnvLfyjTFTBHd --email "<dedicated non-primary test account email>" --add "Level 9 is extremely powerful - never use 'mere' or 'modest'"
 ```
 
 ## Debugging Missing God Mode Directives

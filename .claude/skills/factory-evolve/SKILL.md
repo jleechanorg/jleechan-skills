@@ -110,7 +110,7 @@ python -m runner.prompt_substitution_audit prompts pipelines runner
 
 These checks are wired into `.github/workflows/ci.yml` as blocking CI steps on every PR touching `pipelines/` or `prompts/`. CI runs on Python 3.13.
 
-### Phase 4 — Aggregate proposals + write `docs/factory-evolve-research/proposals-YYYY-MM-DD.md`
+### Phase 4 — Aggregate proposals + write `~/roadmap/factory-evolve-proposals-YYYY-MM-DD.md`
 
 Aggregate Phase 1 (history) + Phase 2 (subagent findings) + Phase 3 (structural) into one Markdown doc with this structure:
 
@@ -153,7 +153,7 @@ Aggregate Phase 1 (history) + Phase 2 (subagent findings) + Phase 3 (structural)
 **For each [P1], [P2], ... proposal that warrants a code change**:
 
 1. **Create the bead first** (if not exists): `br create "<P[N] title>" --type task --priority <1|2|3>`.
-2. **Open a worktree for the change**: `git worktree add ../worktree-<repo>-<P[N]>-<slug> -b <branch>`.
+2. **Open a worktree for the change**: `diskm worktree-new <repo-path> <branch>` (creates it under `~/.worktrees/<repo>/<name>`).
 3. **Implement the change** in the worktree. **Mirror existing patterns** the subagent surfaced (e.g., the `${diff}` injection pattern from PR #85 for the `${lint_findings}` proposal).
 4. **Write tests** (unit + count-pinning per the `~/.claude/CLAUDE.md` "Count-pinning tests" memory entry).
 5. **Verify locally**: `.venv/bin/python -m pytest tests/` (full suite must be green).
@@ -194,7 +194,7 @@ For force-push: per `~/.claude/CLAUDE.md` "Push safety" rule, never `git push --
 
 Output:
 
-- ✅ **Nextsteps doc**: `docs/factory-evolve-research/proposals-YYYY-MM-DD.md`
+- ✅ **Nextsteps doc**: `~/roadmap/factory-evolve-proposals-YYYY-MM-DD.md`
 - ✅ **Beads created**: <$USER-xxx list with links>
 - ✅ **PRs opened**: <PR #s with links + green-status>
 - ✅ **PRs merged**: <PR #s merged in this session, with merge commit SHAs>

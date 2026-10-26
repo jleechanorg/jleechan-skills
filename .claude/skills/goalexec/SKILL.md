@@ -91,7 +91,7 @@ A criterion is "met" if its validation check passes (file exists with correct co
 2. **Cancelled or blocked by an explicit external status** → stop and report the status
 3. **Score plateau or repeated validation result** → adapt the plan and continue; do not treat repetition as success or a stop condition
 4. **Improving** → continue
-5. **Eight-hour time-box reached** → stop and request an explicit time extension
+5. **Eight-hour time-box reached** → follow the current shared autonomy policy: a live human message renews the active flow for eight hours. Do not request an extension solely because eight hours elapsed; stop only for an explicit user stop or another applicable gate.
 
 An explicit `--max-iterations N` option remains available as a user-requested
 iteration budget for compatibility. It has no default and is not an automatic

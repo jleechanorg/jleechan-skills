@@ -22,66 +22,61 @@ This skill is WORTHLESS without real analysis. You **MUST** execute the followin
 
 ### Step 1: Extract frames with ffmpeg
 ```bash
-# Extract 3 key frames: first, middle, last
-ffmpeg -y -i [video.gif] -vf "select=eq(n\,0)" -frames:v 1 /tmp/game_er_frame0.png 2>/dev/null
-ffmpeg -y -i [video.gif] -vf "select=eq(n\,15)" -frames:v 1 /tmp/game_er_frame15.png 2>/dev/null
-ffmpeg -y -i [video.gif] -vf "select=eq(n\,29)" -frames:v 1 /tmp/game_er_frame29.png 2>/dev/null
+evidence_dir="$(mktemp -d /tmp/game-er.XXXXXXXX)"
+ffmpeg -y -i "[video.gif]" -vf "select=eq(n\\,0)" -frames:v 1 "$evidence_dir/frame0.png" 2>/dev/null
+ffmpeg -y -i "[video.gif]" -vf "select=eq(n\\,15)" -frames:v 1 "$evidence_dir/frame15.png" 2>/dev/null
+ffmpeg -y -i "[video.gif]" -vf "select=eq(n\\,29)" -frames:v 1 "$evidence_dir/frame29.png" 2>/dev/null
 ```
 
 ### Step 2: Analyze frames with Python
-```python
-python3 << 'EOF'
+```bash
+cat > "$evidence_dir/analyze_frames.py" <<'PY'
+from pathlib import Path
+import sys
 from PIL import Image
-import os
 
-frames = ['/tmp/game_er_frame0.png', '/tmp/game_er_frame15.png', '/tmp/game_er_frame29.png']
-for f in frames:
-    if not os.path.exists(f):
-        print(f"MISSING: {f}")
+for name in sys.argv[1:]:
+    path = Path(name)
+    if not path.exists():
+        print(f"MISSING: {path}")
         continue
-    img = Image.open(f)
-    data = list(img.getdata())
-    unique = len(set(data))
-    
-    # Count warm (skin), cool (sky), green (grass), gray pixels
-    warm = sum(1 for p in data if p[0] > 150 and p[1] > 80 and p[2] < 150)
-    cool = sum(1 for p in data if p[2] > 150 and p[0] < 100)
-    green = sum(1 for p in data if p[1] > 80 and p[1] > p[0])
-    gray = sum(1 for p in data if abs(p[0]-p[1]) < 10 and abs(p[1]-p[2]) < 10)
-    
-    print(f"{f}: {img.size}, unique:{unique}, warm:{warm}, cool:{cool}, green:{green}, gray:{gray}")
-EOF
+    image = Image.open(path)
+    pixels = list(image.getdata())
+    unique = len(set(pixels))
+    warm = sum(1 for p in pixels if p[0] > 150 and p[1] > 80 and p[2] < 150)
+    cool = sum(1 for p in pixels if p[2] > 150 and p[0] < 100)
+    green = sum(1 for p in pixels if p[1] > 80 and p[1] > p[0])
+    gray = sum(1 for p in pixels if abs(p[0] - p[1]) < 10 and abs(p[1] - p[2]) < 10)
+    print(f"{path}: {image.size}, unique:{unique}, warm:{warm}, cool:{cool}, green:{green}, gray:{gray}")
+PY
+python3 "$evidence_dir/analyze_frames.py" "$evidence_dir/frame0.png" "$evidence_dir/frame15.png" "$evidence_dir/frame29.png"
 ```
 
 ### Step 3: Verify video properties
 ```bash
-ffprobe -v error -show_entries format=duration,size -show_entries stream=width,height,frame_rate [video]
+ffprobe -v error -show_entries format=duration,size -show_entries stream=width,height,frame_rate "[video]"
 ```
 
 ### Step 4: Calculate animation frame diff
-```python
-python3 << 'EOF'
+```bash
+cat > "$evidence_dir/compare_frames.py" <<'PY'
 from PIL import Image
-import os
+import sys
 
-f0 = Image.open('/tmp/game_er_frame0.png')
-f15 = Image.open('/tmp/game_er_frame15.png')
-
-# Calculate pixel diff between frames
-data0 = list(f0.getdata())
-data15 = list(f15.getdata())
-
-diff = sum(1 for i in range(len(data0)) if data0[i] != data15[i])
+frame0 = Image.open(sys.argv[1])
+frame15 = Image.open(sys.argv[2])
+pixels0 = list(frame0.getdata())
+pixels15 = list(frame15.getdata())
+diff = sum(1 for left, right in zip(pixels0, pixels15) if left != right)
 print(f"Frame 0 vs 15 diff: {diff} pixels changed (animation indicator)")
-
-# Higher diff = more animation
 if diff > 1000:
-    print("✓ ANIMATED")
+    print("ANIMATED")
 elif diff > 100:
-    print("~ SOME MOVEMENT")
+    print("SOME MOVEMENT")
 else:
-    print("✗ STATIC OR NEARLY STATIC")
-EOF
+    print("STATIC OR NEARLY STATIC")
+PY
+python3 "$evidence_dir/compare_frames.py" "$evidence_dir/frame0.png" "$evidence_dir/frame15.png"
 ```
 
 ## Ragnarok Online Quality Criteria

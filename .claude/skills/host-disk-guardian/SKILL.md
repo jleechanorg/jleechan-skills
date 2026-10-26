@@ -36,7 +36,7 @@ disk to 285MB/926GB, corrupting colima's containerd content store mid-recovery.
 ## Usage
 
 ```bash
-bash .claude/skills/host-disk-guardian/scripts/host-disk-guardian                # check + clean if critical
+bash .claude/skills/host-disk-guardian/scripts/host-disk-guardian --dry-run     # read-only check; no cleanup
 bash .claude/skills/host-disk-guardian/scripts/host-disk-guardian --dry-run       # report only, never delete
 ```
 
@@ -46,7 +46,7 @@ bash .claude/skills/host-disk-guardian/scripts/host-disk-guardian --dry-run     
 |------|-----------|--------|
 | Healthy | >= 50GB | log only, exit 0 |
 | Warn | 20-50GB | log ALERT + Slack alert, exit 1, no cleanup |
-| Critical | < 20GB | log CRITICAL + Slack alert, run auto-clean, exit 2 |
+| Critical | < 20GB | log CRITICAL + Slack alert; report cleanup candidates, exit 2 |
 
 Override via `HOST_DISK_GUARDIAN_WARN_GB` / `HOST_DISK_GUARDIAN_CRITICAL_GB`. Slack alert reads
 `slack_webhook_url` from `~/.config/ezgha/config.toml` at runtime (override via
@@ -54,7 +54,13 @@ Override via `HOST_DISK_GUARDIAN_WARN_GB` / `HOST_DISK_GUARDIAN_CRITICAL_GB`. Sl
 field, or a failed `curl` all degrade to a log line; the host-disk-guardian/auto-clean logic never
 depends on the alert channel succeeding.
 
-## Auto-clean targets (critical tier only), in order
+## Cleanup candidates (never delete automatically)
+
+Free-space thresholds, age, and merged-PR state do not authorize destructive
+cleanup. The current script's automatic deletion path is not authorized for
+routine use: run only `--dry-run` unless this exact cleanup was separately
+authorized and its targets are verified individually. Do not delete or remove
+any candidate merely because it appears below.
 
 1. Evidence bundles: `/tmp/your-project.com/*` older than 2 days.
 2. Scratchpads: `/private/tmp/claude-501/*` older than 3 days.
