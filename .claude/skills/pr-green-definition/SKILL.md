@@ -11,7 +11,7 @@ metadata:
 
 | # | Gate | Verification |
 |---|---|---|
-| 1 | **Applicable validation** | Documentation-only: CI NOT REQUIRED with proportionate local validation below. Otherwise every required check passes at HEAD, through CI or the local-equivalent exception for backlogged checks. |
+| 1 | **Applicable validation** | Documentation-only: CI NOT REQUIRED with proportionate local validation below. Otherwise every required check passes at HEAD, through CI, the documented `CI NOT APPLICABLE` exception, or the local-equivalent exception for backlogged checks. |
 | 2 | **No merge conflicts** | `mergeable == MERGEABLE` (retry while `UNKNOWN`; `CONFLICTING` is a hard FAIL) |
 
 **Nothing else gates `/green`.** Inline-comment resolution (`resolveReviewThread`), the evidence-link gate, the PR-description gate, and the old "6-green" numbering are **not** `/green` gates anymore (operator directive, 2026-07-28). Those quality checks follow the canonical **draft and ready/final phases** in `~/.claude/skills/pr-lifecycle/SKILL.md`; green alone does not establish READY. Apply that owner's applicability (including when `/er` is required by that lifecycle), final `/er` and `/advice` closure, and SHA-binding rule, including justified delta-based reaffirmation — do not restate that chain here, just apply it. Recheck `/green` at the live head and base before stating its verdict.
@@ -36,14 +36,14 @@ Run proportionate local checks for the actual change, such as diff hygiene, link
 
 When CI **does not exist** for this PR, do not sleep-poll it. Three provable shapes qualify, and each needs its evidence recorded before you skip the wait:
 
-1. **No workflow applies.** No workflow file matches the changed paths (a `paths:` filter excludes this diff), or the repo has no workflow that could run this PR at all.
-2. **No runner can host it.** `gh api repos/<owner>/<repo>/actions/runners` reports zero registered runners for the repo, or every available org runner is `busy: true`, so the job can only sit `QUEUED`.
+1. **No workflow applies.** Establish this with a bounded repository check: inspect the workflow files and their event/path filters against the changed paths, and record the command and output. If no bounded check can establish applicability, leave Gate 1 unproven; do not invent a nonexistent workflow command.
+2. **No eligible runner can host it.** Resolve the job's `runs-on` labels and runner group, repository access, and the corresponding eligible runner pool (repository, organization, or hosted capacity as applicable). A repository self-hosted-runner endpoint alone cannot prove GitHub-hosted or organization-level capacity. Qualifying capacity evidence is zero eligible runners, or repeated observations at separate times showing every eligible runner busy while the check remains `QUEUED` or `PENDING`; one busy snapshot is insufficient.
 3. **Checks are structurally stuck.** The rollup is `QUEUED`/`PENDING` with no start, and a runner-capacity read explains it — repeatedly, not once.
 
 On any of those, apply the local-equivalent exception immediately — do not wait for the ten-minute backlog threshold, and never substitute a `sleep N` + `gh pr checks` loop for actually running the command. Then record:
 
 ```
-Gate 1: CI NOT APPLICABLE — <reason: no matching workflow | zero repo runners | runners saturated QUEUED>
+Gate 1: CI NOT APPLICABLE — <reason: no matching workflow | zero eligible runners | runners saturated QUEUED or PENDING>
   evidence: <command + the output line proving it>
   local equivalent: <the workflow's own command> → <result at SHA>
 ```
