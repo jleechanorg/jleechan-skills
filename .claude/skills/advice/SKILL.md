@@ -6,12 +6,16 @@ description: Use when a focused second opinion is needed; collect two independen
 # /advice — independent second opinion
 
 Use `/advice [question]` instead of `advisor()`. This skill owns reviewer
-orchestration. [pr-lifecycle](../pr-lifecycle/SKILL.md) owns PR phases,
-thresholds, applicability, and review publication. The applicable
+orchestration. The `pr-lifecycle` owner has the
+[Advice applicability](../pr-lifecycle/SKILL.md#advice-applicability) section;
+it owns phases, thresholds, applicability, and review publication. The
 evidence-standards skill owns evidence classes and publication rules. Do not
 duplicate those procedures here.
 
 ## 1. Pin the question and complete scope
+
+**Pointer**: Send the pointer, not a transcription.
+A verdict built on a truncated inline artifact may not be `APPROVED`.
 
 Write a focused decision question and give every reviewer the same exact
 pointer: repository plus `base...head` and current head SHA, or an explicit
@@ -29,8 +33,10 @@ runtime mechanism to deliver files.
 
 Document-only review excludes code outside the named files and never approves
 `HEAD` or dirty code. Revision review covers the exact pinned code scope. Each
-reviewer must independently read the entire declared scope; partial coverage
-cannot be combined across reviewers to approve.
+reviewer must independently read the entire declared scope.
+The combined scope covers the whole declared change
+only when each approver reads it in full. Partial coverage cannot be combined
+across reviewers to approve.
 
 ## 2. Select independent reviewers
 
@@ -42,8 +48,9 @@ Reviewer C when needed. If Opus is known unavailable, launch Codex and an eligib
 alternate concurrently; do not serialize healthy seats. Reviewer C counts only when
 available, current and authorized, independent, and full-coverage. Follow the existing Secondo
 AI Universe route; never substitute direct-provider calls. The orchestrator's
-synthesis and `/research` are not votes; research is only for material
-unanswered questions. One competent objection may block.
+synthesis and research-only output are not approval reviewers. `/research` is
+nonvoting and only for material unanswered questions. One competent objection
+may block.
 
 Preserve full-permission reviewer execution and declare the actual command,
 model, account or reviewer identity, and transport for every attempt:
@@ -106,18 +113,23 @@ full-scope `COVERAGE`. Reconcile disagreements within the declared scope; do not
 ask the user to choose between reviewer axes. One competent blocking objection
 means `NOT APPROVED`, including a competent objection from a reviewer with
 partial coverage; partial coverage never supplies an approval. Use `WITHHELD`
-when two independent, full-coverage approvals are unavailable. A vote also
+when two independent full-coverage approvals are unavailable. A vote also
 requires receipt evidence of zero exit, no original checkout mutation, no
 surviving reviewer process, and no cleanup failure.
 
 Report the exact reviewed SHA or `DOCUMENTS sha256:<bundle hash>` for
 document-only review, with verdict, coverage, concise reasoning, risk, and
-findings. End with exactly one SHA-bound line: `VERDICT: APPROVED at <SHA>`,
+findings. Require `COVERAGE: <files/diff scope actually read>`. End with
+exactly one SHA-bound line: `VERDICT: APPROVED at <SHA>`,
 `VERDICT: NOT APPROVED at <SHA>`, or `VERDICT: WITHHELD at <SHA> — <reason>`.
 For document-only review, use `DOCUMENTS sha256:<bundle hash>` in place of
 `<SHA>`; never use `HEAD`. Preserve a receipt for every attempt: reviewer
 identity, actual CLI, account and model, start/completion times, exit or timeout
-status, complete output, coverage, and cleanup result. Keep prior reviewed SHAs
-and receipts; assess later candidates under `pr-lifecycle/SKILL.md` and rerun affected review
-for material scope or evidence changes. Do not claim approval, applicability,
-or publication without its supporting receipt.
+status, complete output, coverage, and cleanup result.
+Preserve the original reviewers and reviewed SHAs.
+Before applicability, inspect the complete actual delta, claims, evidence and phase.
+Applicability is not a new independent vote.
+Material uncovered changes require affected independent review.
+Classify instruction changes by behavior and contract effect, never by directory or
+path alone. Do not claim approval,
+applicability, or publication without its supporting receipt.
