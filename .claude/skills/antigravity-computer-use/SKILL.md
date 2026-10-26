@@ -5,6 +5,8 @@ description: Use Claude Code to control Google Antigravity IDE on macOS via Peek
 
 # Antigravity Computer Use (macOS via Peekaboo)
 
+For browser tasks started from Antigravity, follow the [browser-control contract](../browser-control/SKILL.md) for context ownership, authentication, and routing. Use only a verified task-owned browser context; do not attach to personal/default Chrome or use its profile or cookies. The Antigravity Browser panel is usable only when its controlled context meets that ownership boundary.
+
 Google Antigravity is an AI-powered, agent-first IDE (a modified VS Code fork) by Google. It has two primary views: **Agent Manager** ("Mission Control") and **Editor** (VS Code-like). This skill controls it via Peekaboo's native macOS accessibility API.
 
 For the core screenshot-decide-act loop, see the `claude-code-computer-use` skill.

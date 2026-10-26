@@ -4,11 +4,16 @@ Choose the runtime before choosing a browser transport.
 
 | Runtime | Preferred transport order |
 | --- | --- |
-| Interactive chat app | App-owned browser, then Aside MCP, then Aside REPL |
-| Coding CLI or Bash | Playwright with isolated strict-headless Chrome and fresh local cookie state, then a portable Playwright route, then headless CDP |
+| Interactive chat app | App browser only in a separate task-owned context; existing Aside only when verified agent-owned and background-safe |
+| Coding CLI or Bash | Isolated headless Chromium/Playwright by default; existing Aside only when verified agent-owned and background-safe |
 
 An app run must create a new vendor chat. A CLI/Bash run must not attach to an
 existing GUI tab: unrelated conversation state invalidates review provenance.
+Never attach to personal/default Chrome or use its profile or cookies. Cookie
+transfer is allowed only when the current task explicitly authorizes exactly
+one named agent-owned source; follow the guarded lifecycle in
+`../../browser-control/SKILL.md`. Headless CDP is permitted only for an isolated,
+task-owned browser process.
 
 Every route must prove vendor authentication, a writable composer, exact visible
 attachment names, a submitted prompt, and a response that echoes the requested
