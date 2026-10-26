@@ -74,16 +74,15 @@ concurrently; do not wait for one healthy reviewer before starting another.
 
 Use the same review packet for both reviewers:
 
-Before invoking the existing primary-pair runner, verify that the specific
-supported invocation bounds the complete attempt to its remaining 600-second
-budget, including queueing, setup, dispatch, review, output capture, receipt
-recording, and cleanup. Its legacy per-reviewer timeout or default timeout does
-not prove that whole-attempt bound. If no existing invocation can enforce it,
-mark the primary runner unavailable and use another independently bounded,
-eligible reviewer path; do not count that runner's output as an approval. Do not
-add a wrapper or implementation to impose the limit. A missing primary vote may
-be paired with a separately bounded eligible CLI reviewer; it never shares or
-inherits another reviewer's vote.
+The currently installed primary-pair runner only has a per-reviewer
+`--timeout-seconds`; it does not bound the complete attempt and is `UNAVAILABLE`
+for the 600-second attempt contract. A conforming implementation must start its
+monotonic timer at runner main-entry, before argument parsing, output reservation,
+clone setup, and reviewer dispatch. Shared packet preparation may happen before the
+attempt. Record when invocation is sent and the recorded attempt start; any delay
+before main-entry is outside the timer and must be disclosed. Do not rely on a
+branch-only change or add a wrapper to impose the limit. A missing primary vote may be paired with a separately bounded eligible
+CLI reviewer; it never shares or inherits another reviewer's vote.
 
 ```
 You are a senior engineer giving a focused second opinion.
@@ -125,8 +124,7 @@ times, each clone SHA, cleanup status, and any changed original-repository
 fingerprint components. The
 input checkout must be clean, including untracked files, for revision reviews only.
 For document-only review, use `--document` as described above; that mode accepts saved
-documents regardless of their commit status. The runner refuses a
-dirty checkout because those changes are not represented by the requested SHA.
+documents regardless of their commit status. Revision reviews require a clean checkout because uncommitted changes are not represented by the requested SHA. Document-only reviews may start from a dirty checkout: only explicitly named Markdown files are read, copied as captured bytes into each reviewer clone, and identified by per-file and bundle SHA256 values. The receipt verifies the source files and clone copies still match those captured bytes after review; this is an integrity check, not filesystem immutability.
 
 The runner creates two independent disposable clones with `git clone --no-local`,
 removes their `origin` remotes, and detaches both at the exact same SHA. It then
@@ -154,13 +152,13 @@ descendants observed while the reviewer root is alive, a surviving verified PID
 is recorded as a termination failure rather than silently treated as contained;
 after successful cleanup the runner exits 7 even if the peer returned a verdict.
 
-Each reviewer attempt has a hard 600-second end-to-end limit, starting when
-that reviewer request is queued or sent. Record that timestamp. Queueing and
-delivery, review-specific setup, dispatch, review, output capture, receipt
-recording, and cleanup all consume the same wall-clock budget; do not pause,
-reset, or extend it. Shared immutable packet preparation may happen before the
-attempt begins. Bound each transport call and poll/wait to the time remaining in
-the attempt.
+A conforming runner records its monotonic attempt start at main-entry. Its
+remaining budget caps clone, remote-removal, checkout, and reviewer subprocess
+work; a late result cannot vote. It reserves a configured cleanup budget and
+records attempt start, total elapsed time, cleanup timing, and outcome. The cap
+does not include delay before the runner process reaches main-entry. Filesystem
+cleanup may overrun while an OS call is blocked, so do not promise an absolute
+wall-clock return bound; cleanup finishing after the deadline invalidates all votes.
 
 Use existing supported execution tools. Do not create an adapter, supervisor,
 watchdog, helper script, or embedded executable implementation to meet this
@@ -208,6 +206,16 @@ mode without relying on wrapper internals. Only the exact catalog IDs
 after A1 returns.
 
 **Alternate reviewer executions (when a primary vote is missing):**
+
+The command forms below identify reviewer transports; by themselves they do not bound
+the full attempt. Count an alternate only when an existing supported invocation
+bounds its complete dispatch, review, output capture, receipt, and cleanup lifecycle
+to the remaining deadline and produces its own receipt. The primary runner does not
+provide that supervision for alternates. `agy --print-timeout` bounds only the AGY
+print call, not clone preparation, outer dispatch, receipt writing, or clone cleanup;
+without a separately verified full-attempt bound, record that AGY route as
+`UNAVAILABLE` with this reason. Do not add a wrapper or treat a per-process timeout
+as the attempt deadline.
 
 Run eligible reviewers as needed until there are two independent, full-coverage
 votes or every viable option has failed or timed out. An alternate vote may
@@ -277,9 +285,9 @@ independent full-coverage votes succeed after viable options are attempted,
 record each unavailable, failed, or timed-out reviewer and emit `WITHHELD` (or
 `NOT APPROVED` if any competent reviewer blocks).
 
-Every attempt, primary or alternate, must fit the same deadline and produce
-its own receipt. A single surviving primary or alternate vote can block, but
-cannot approve.
+Every counted attempt, primary or alternate, must fit the applicable verified
+attempt deadline and produce its own receipt. A single surviving primary or
+alternate vote can block, but cannot approve.
 
 ---
 
