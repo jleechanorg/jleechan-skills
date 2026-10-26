@@ -610,13 +610,48 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         with redirect_stderr(stderr):
             code = runner.main(argv, create_clone_fn=slow_clone)
 
-        self.assertEqual(code, 6)
+        self.assertEqual(code, 4)
         self.assertLessEqual(observed["timeout_seconds"], 0.11)
         receipt = json.loads((self.output / "receipt.json").read_text())
         self.assertFalse(receipt["operation"]["success"])
         self.assertIn("TimeoutExpired", receipt["operation"]["error"])
+        self.assertEqual(receipt["timeout_stage"], "clone_setup")
         self.assertTrue(receipt["cleanup"]["success"])
         self.assertFalse(receipt["reviewers"] if "reviewers" in receipt else False)
+
+    def test_queued_timestamp_consumes_attempt_budget_before_process_entry(self) -> None:
+        self.executable("codex", "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
+        queued_at_ns = time.time_ns() - 1_000_000_000
+        started = time.monotonic()
+        result = self.invoke(
+            "--queued-at-epoch-ns", str(queued_at_ns),
+            "--attempt-timeout-seconds", "0.5",
+            "--cleanup-budget-seconds", "0.1",
+        )
+
+        self.assertEqual(result.returncode, 4, result.stderr)
+        self.assertLess(time.monotonic() - started, 0.5)
+        self.assertFalse(self.output.exists())
+
+    def test_clone_timeout_is_recorded_as_attempt_timeout_stage(self) -> None:
+        runner = load_runner_module()
+        argv = [
+            "--repo", str(self.repo), "--ref", self.sha,
+            "--packet-file", str(self.packet), "--output-dir", str(self.output),
+            "--reviewers", "codex", "--attempt-timeout-seconds", "0.2",
+            "--cleanup-budget-seconds", "0.1", "--timeout-grace-seconds", "0.05",
+        ]
+
+        def slow_clone(source, destination, sha, *, deadline):
+            time.sleep(0.15)
+            raise subprocess.TimeoutExpired(["git", "clone"], 0.1)
+
+        with redirect_stderr(io.StringIO()):
+            code = runner.main(argv, create_clone_fn=slow_clone)
+
+        self.assertEqual(code, 4)
+        receipt = json.loads((self.output / "receipt.json").read_text())
+        self.assertEqual(receipt["timeout_stage"], "clone_setup")
 
     def test_reviewer_dispatch_deadline_is_admitted_for_all_lanes_before_submit(self) -> None:
         runner = load_runner_module()

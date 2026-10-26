@@ -528,6 +528,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="shared setup, review, and cleanup deadline (default: 600)",
     )
     parser.add_argument(
+        "--queued-at-epoch-ns",
+        type=int,
+        help="UTC epoch nanoseconds when this reviewer attempt was queued or sent",
+    )
+    parser.add_argument(
         "--cleanup-budget-seconds",
         type=float,
         default=10.0,
@@ -650,9 +655,16 @@ def main(
     create_clone_fn=create_clone,
     cleanup_fn=cleanup_directory,
 ) -> int:
-    attempt_started = time.monotonic()
-    attempt_started_ns = time.time_ns()
+    process_started = time.monotonic()
+    process_started_ns = time.time_ns()
     args = parse_args(argv)
+    queued_at_ns = args.queued_at_epoch_ns or process_started_ns
+    if queued_at_ns <= 0 or queued_at_ns > process_started_ns:
+        print("--queued-at-epoch-ns must be a positive timestamp no later than now", file=sys.stderr)
+        return 2
+    queue_elapsed = (process_started_ns - queued_at_ns) / 1_000_000_000
+    attempt_started = process_started - queue_elapsed
+    attempt_started_ns = queued_at_ns
     if args.timeout_seconds <= 0:
         print("--timeout-seconds must be greater than zero", file=sys.stderr)
         return 2
@@ -752,6 +764,8 @@ def main(
         "operation": {"success": False, "error": "operation did not complete"},
     }
     operational_error: str | None = None
+    timeout_stage: str | None = None
+    operation_stage = "clone_setup"
     try:
         reviewer_names = args.reviewers
         clones = {name: temp_root / name for name in reviewer_names}
@@ -773,6 +787,7 @@ def main(
         }
         if any(clone_sha != sha for clone_sha in receipt["clone_shas"].values()):
             raise RuntimeError("review clone did not resolve to the requested SHA")
+        operation_stage = "reviewer_execution"
         barrier = threading.Barrier(len(reviewer_names))
         lane_functions = {
             "codex": codex_lane,
@@ -834,6 +849,9 @@ def main(
     except Exception as error:
         operational_error = f"{type(error).__name__}: {error}"
         receipt["operation"] = {"success": False, "error": operational_error}
+        if isinstance(error, (subprocess.TimeoutExpired, TimeoutError)):
+            timeout_stage = operation_stage
+            receipt["timeout_stage"] = timeout_stage
     finally:
         cleanup_started = time.monotonic()
         receipt["cleanup"] = cleanup_fn(temp_root)
@@ -890,7 +908,7 @@ def main(
     if not receipt["cleanup"]["success"]:
         print(f"failed to clean disposable clones: {receipt['cleanup']['error']}", file=sys.stderr)
         return 5
-    if receipt["attempt_deadline_exceeded"]:
+    if receipt["attempt_deadline_exceeded"] or timeout_stage is not None:
         print("primary reviewer attempt exceeded its deadline", file=sys.stderr)
         return 4
     if operational_error is not None:
