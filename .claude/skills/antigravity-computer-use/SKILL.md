@@ -16,9 +16,15 @@ For the core screenshot-decide-act loop, see the `claude-code-computer-use` skil
 
 ---
 
-## MANDATORY: Allow Dialog Check — After EVERY Screenshot
+## Historical operator notes — not current operating rules
 
-### Mandatory lesson log (most recent first)
+### Historical operator notes (reference only)
+
+The dated notes below preserve historical observations. They are not standing
+authorization, current product guarantees, or instructions to start, continue,
+interrupt, or alter conversations. Apply the current task's scope and the
+authorization rules below. Never click an access/approval control merely
+because a dialog appeared, and never infer an active task from a spinner alone.
 - 2026-04-05: Sidebar spinner is UNRELIABLE for detecting active conversations — spinner ◌ persists even when conversation is dead/idle; MUST cross-check with red stop square in bottom-right of chat input area AND the status bar model indicator; three failure modes: (1) zombie spinner = spinner + no red square + send arrow → conversation dead, send "Continue"; (2) frozen-active = spinner + red square + timestamp >1h → stuck in loop, interrupt and redirect; (3) actually working = spinner + red square + timestamp <30m → leave alone; status bar shows "Claude Opus 4.6 (Thinking)" with red ■ = active, "Gemini 3.8 Flash (High)" with send → = idle
 - 2026-04-05: VS Code "Remote Window" dialog can open in editor windows (shows SSH/container options) — blocks agent silently; press Escape to close, then verify red-stop still present to confirm agent resumes
 - 2026-04-05: win 902 gutter FP — x≈2 (retina x=4) at left edge is always a VS Code diff/edit gutter indicator; add `cx//2 > 30` filter (logical x > 30) to PIL scan to skip all left-edge detections in editor windows
@@ -171,7 +177,8 @@ FP = {
 
 **Editor window left-edge rule (2026-04-05)**: in any editor window, `cx//2 < 30` (logical x < 30) is always a VS Code diff/edit gutter indicator — add `cx//2 > 30` to the PIL scan filter. This catches the recurring x≈2 FP in win 902.
 
-**Detection rule**: if click does NOT dismiss the dialog (same coord detected again after click), add to FP. Real Allow dialogs disappear after click.
+**Historical detection note only**: button-color detections may be false
+positives. Never click to test whether a detected control is an Allow dialog.
 
 **Editor window bounds drift**: When the Agent Manager window closes (agent switches to editor-only mode), PIL scan bounds must switch from Manager bounds to editor window bounds. Re-fetch with `peekaboo window list` each cycle — do NOT hardcode Manager bounds.
 
@@ -213,75 +220,22 @@ The red square appears at approximately screen `(win_x + w*0.54, win_y + h*0.93)
 
 **Known red-stop location (2026-04-05)**: in win 902 (x=-28, y=-998, w=1189, h=857), the red stop is at retina pixels x≈2312-2331, y≈1608-1627 (logical x≈1156, y≈804). Always filter x > 80% of image width to exclude gutter noise.
 
-**Use A11y method first** (no screenshot needed). Use PIL red-square only to verify the currently-displayed conversation's state when A11y is ambiguous.
+Use A11y and screenshot observations only as clues. They do not establish
+conversation health or authorization; verify status against visible content and
+independent task artifacts.
 
-### 3. Conversation Health Classification (MANDATORY — use this, not spinner alone)
+### Interpreting activity indicators
 
-**The sidebar spinner icon (◌) is UNRELIABLE.** It persists after conversations die. Always cross-check with TWO additional signals:
-- **Red stop square** (■) in bottom-right of chat input area — PIL detection
-- **Status bar indicator** — bottom of window shows model name + button type
+A sidebar spinner, red stop control, model label, send arrow, or timestamp is a
+UI observation, not by itself a reliable verdict about task progress. These
+signals can be stale, hidden, or ambiguous. For a status claim, inspect the
+selected conversation's visible content and check independent task artifacts
+such as files or Git state. If those sources do not establish state, report it
+as unverified and do not send a continuation, interrupt, or restart.
 
-**Four conversation states:**
-
-| State | Sidebar | Red ■ | Status bar | Timestamp | Action |
-|-------|---------|-------|------------|-----------|--------|
-| **Actually working** | spinner ◌ | YES | "Claude Opus 4.6 (Thinking)" + red ■ | < 30m | Leave alone |
-| **Frozen-active** | spinner ◌ | YES | "...Thinking" + red ■ | > 1h | Interrupt: send "why did you freeze? Use a fresh terminal" |
-| **Zombie spinner** | spinner ◌ | NO | "Gemini 3.8 Flash (High)" + send → | any | Dead conversation. Send "Continue with the next task" |
-| **Cleanly idle** | no spinner | NO | model name + send → | any | Send new task if slot needed |
-
-**Detection procedure (for each conversation):**
-1. Click conversation in sidebar to select it
-2. Screenshot the bottom 15% of the Manager window
-3. Check for red stop square with `is_busy_red_square()`
-4. Check status bar text: look for "Thinking" + red ■ vs model name + send arrow →
-5. Read sidebar timestamp (Xm, Xh, Xd)
-6. Classify using table above
-
-**Status bar PIL detection — send arrow (→) vs red stop (■):**
-```python
-def classify_status_bar(img_path):
-    """Returns 'generating' or 'idle' based on bottom status bar."""
-    from PIL import Image
-    import numpy as np
-    img = Image.open(img_path)
-    arr = np.array(img)
-    h, w = arr.shape[:2]
-    # Status bar = bottom 5% of window, right 30%
-    bar = arr[int(h*0.95):, int(w*0.7):]
-    # Red stop: R>160, G<100, B<100
-    red = (bar[:,:,0] > 160) & (bar[:,:,1] < 100) & (bar[:,:,2] < 100)
-    if np.sum(red) > 20:
-        return 'generating'
-    return 'idle'
-```
-
-**CRITICAL**: A conversation showing "Gemini 3.8 Flash (High)" with a send arrow (→) in the status bar is **IDLE** regardless of what the sidebar spinner shows. The spinner is a stale UI artifact.
-
----
-
-## 24h Conversation Scanner — Keep 3 Active AT ALL TIMES
-
-**HARD RULE: Always maintain exactly 3 conversations generating in parallel. This is not optional.**
-
-At every cycle end, check the active count. If < 3:
-1. Enumerate 24h conversations in reverse-cron order (most recent first)
-2. Skip any with `progress_activity` spinner (already counting toward 3)
-3. For each idle conversation until `active_count == 3`:
-   - Click it
-   - Verify busy with red stop square (A11y spinner lags by 5-10s)
-   - If idle, send a continuation prompt
-4. Report at cycle end: "Active: N/3 — [titles of active convos]"
-
-**Detecting active vs idle (use health classification above, NOT spinner alone):**
-- **DO NOT trust sidebar spinner (◌) alone** — it persists on dead conversations
-- For each conversation, click it to select, then check:
-  1. Red stop square in bottom-right of input area (PIL `is_busy_red_square()`)
-  2. Status bar: "...Thinking" + red ■ = generating; model name + send → = idle
-  3. Sidebar timestamp: if > 1h with red square = frozen-active (stuck in loop)
-- Classify as: actually-working / frozen-active / zombie-spinner / cleanly-idle (see §3 above)
-- **Zombie spinners** (spinner + no red square) are the most common failure — treat as idle, send "Continue"
-- **Frozen-active** (spinner + red square + >1h) — interrupt with "why did you freeze? Use a fresh terminal"
+The red stop square may indicate generation for the currently displayed
+conversation, but it does not establish whether work is progressing or belongs
+to the current task. Never classify a conversation from a spinner alone.
 
 **Sidebar click reliability (2026-04-05):**
 - Clicking a conversation's `elem_N` in the Manager may NOT switch the view if another conversation is actively generating — the generating convo stays displayed
@@ -298,94 +252,9 @@ At every cycle end, check the active count. If < 3:
 - After opening a workspace, use "Switch to Agent Manager" (visible in left panel) or "Open Agent Manager" button in the title bar to restore the Manager
 - Re-enumerate windows after any workspace open: `peekaboo window list --app Antigravity --json`
 
-Scan conversations active in the last 24 hours, continue idle ones, keep 3 running at once.
-
-```bash
-scan_and_continue_convos() {
-  local MANAGER_ID="$1"
-  local MAX_ACTIVE="${2:-3}"
-  
-  # Step 1: Get conversation list
-  local SNAP
-  SNAP=$(peekaboo see --app Antigravity --window-id "$MANAGER_ID" 2>/dev/null)
-  
-  # Step 2: Parse 24h conversations (timestamps: now, Xm, Xh where X<24)
-  # Exclude nav buttons, workspaces, settings
-  local CONVOS
-  CONVOS=$(echo "$SNAP" | grep -E '\(button\)' | grep -E '(now$|[0-9]+m$|[1-9]h$|1[0-9]h$|2[0-3]h$)' \
-    | grep -v 'arrow_back\|arrow_forward\|New Conversation\|Conversation History\|Open Workspace\|See all\|settings\|Knowledge\|Feedback')
-  
-  # Step 3: Count active
-  local ACTIVE_COUNT
-  ACTIVE_COUNT=$(echo "$CONVOS" | grep -c 'progress_activity' 2>/dev/null || echo 0)
-  local AVAILABLE=$(( MAX_ACTIVE - ACTIVE_COUNT ))
-  
-  echo "Convos in 24h: $(echo "$CONVOS" | wc -l | tr -d ' '), Active: $ACTIVE_COUNT, Slots: $AVAILABLE"
-  
-  if [ "$AVAILABLE" -le 0 ]; then
-    echo "All $MAX_ACTIVE slots busy — skipping"
-    return
-  fi
-  
-  # Step 4: Reverse-cron idle convos (most recent first = already sorted)
-  local IDLE_CONVOS
-  IDLE_CONVOS=$(echo "$CONVOS" | grep -v 'progress_activity')
-  
-  # Step 5: Visit each idle convo and check if needs work
-  local STARTED=0
-  while IFS= read -r line && [ "$STARTED" -lt "$AVAILABLE" ]; do
-    local ELEM
-    ELEM=$(echo "$line" | grep -oE 'elem_[0-9]+')
-    local TITLE
-    TITLE=$(echo "$line" | sed 's/.*- //' | sed 's/ [0-9]*[mh]*$//' | sed 's/ now$//')
-    
-    echo "Visiting idle: $TITLE ($ELEM)"
-    peekaboo click --app Antigravity --window-id "$MANAGER_ID" --element "$ELEM" 2>/dev/null
-    sleep 2
-    
-    # Check if red stop square visible (conversation still generating)
-    screencapture -x -R${WIN_X},${WIN_Y},${WIN_W},${WIN_H} /tmp/antig_convo_check.png
-    if python3 -c "
-from PIL import Image; import numpy as np
-img=Image.open('/tmp/antig_convo_check.png')
-arr=np.array(img); h,w=arr.shape[:2]
-b=arr[int(h*0.85):,:]
-rm=(b[:,:,0]>160)&(b[:,:,1]<100)&(b[:,:,2]<100)
-print('busy' if np.sum(rm)>30 else 'idle')
-" 2>/dev/null | grep -q 'busy'; then
-      echo "  → Still generating (red square visible), skipping"
-      continue
-    fi
-    
-    # Read last message to determine if needs continuation
-    local LAST_MSG
-    LAST_MSG=$(peekaboo see --app Antigravity --window-id "$MANAGER_ID" 2>/dev/null \
-      | grep -E 'staticText|text' | tail -5)
-    
-    # Send continuation if last message looks like it needs work
-    # (Customize the continuation prompt per your use case)
-    echo "  → Idle, sending continuation prompt"
-    osascript -e 'tell application "System Events" to tell process "Antigravity" to keystroke "a" using {command down}' 2>/dev/null
-    sleep 0.2
-    osascript -e 'tell application "System Events" to tell process "Antigravity" to key code 51' 2>/dev/null
-    sleep 0.2
-    peekaboo paste --app Antigravity --text "Continue with the next task. What needs to be done?" 2>/dev/null
-    sleep 0.3
-    osascript -e 'tell application "System Events" to tell process "Antigravity" to key code 36' 2>/dev/null
-    STARTED=$((STARTED+1))
-    sleep 3  # give it a moment to start
-  done <<< "$IDLE_CONVOS"
-  
-  echo "Started $STARTED new conversations (total active: $((ACTIVE_COUNT+STARTED)))"
-}
-
-# Usage:
-MANAGER_ID=$(peekaboo window list --app Antigravity --json 2>/dev/null \
-  | python3 -c "import json,sys; ws=json.load(sys.stdin).get('data',{}).get('windows',[]); m=[w for w in ws if w.get('window_title')=='Manager']; print(m[0]['window_id'] if m else '')")
-WIN_X=429; WIN_Y=-1005; WIN_W=1437; WIN_H=849  # update dynamically each cycle
-scan_and_continue_convos "$MANAGER_ID" 3
-```
-
+The old 24-hour scanner and its continuation script have been removed because
+they read and message conversations unrelated to the current task. Inspect only
+user-identified conversations.
 ---
 
 ## Native CDP Execution (Preferred Approach)
@@ -935,30 +804,31 @@ When a conversation stalls with capacity errors ("Error You have exhausted your 
 When Antigravity shows "Too much traffic — please try again in a few minutes.":
 1. **Retry with backoff** — wait 30s, retry the same conversation (click Retry button)
 2. **After 10 retries** — if still failing, switch to a different model (start new conversation with next model in priority)
-3. **Max 3 NEW windows** — if workspace window count > 3, close excess Editor windows (keep Manager + max 2 Editor). NOT 3 total.
+3. Do not close windows to satisfy a count. Only interact with task-owned windows.
 4. **Do NOT just stop** — the work items still need completion, try again when traffic subsides
 5. **Switch workspace context** — try starting conversation in a different workspace to route to different backend
 
 **Priority order**: Claude Opus 4.6 → Gemini 3.8 Flash (High) → Gemini 3.8 Flash (Low) → Gemini 3.8 Flash → Claude Sonnet 4.6
 
-### Conversation monitoring loop
+### Conversation status checks
 
 When monitoring active Antigravity conversations:
-1. **Scan all conversations** — capture Manager screenshot, identify active (spinner) vs idle
-2. **Check window count** — ensure workspace windows ≤ 3 NEW windows (Editor + Manager). Count via `peekaboo window list` excluding Launchpad and empty. If >3, close excess Editor windows (keep Manager + max 2 Editor) until ≤3.
+1. Inspect only the user-identified conversation(s); do not scan unrelated conversations.
+2. Do not close windows to meet a count. Confirm the target window before interacting.
 3. **Check for errors** — look for "Too much traffic", "Error", "Failed" in conversation content
 4. **Retry on error** — if error detected, click Retry or restart conversation with same task
 5. **After 10 retries** — if same error persists, switch model (start new conversation with different model)
-6. **Max 3 parallel** — ensure no more than 3 active conversations at once
+6. Do not impose a concurrency target; use only the user-authorized task scope.
 7. **Report status** — document which conversations are running, which PRs they're working on
 8. **PR-Target verification (MANDATORY before sending messages)**:
    - User specifies "work on PR #177" → must send message to PR #177 conversation
    - If agent is on wrong PR (e.g., stuck on #178 when asked for #177), explicitly close wrong conversation and open new one for target PR
    - Before typing message: verify conversation title matches target PR number
 9. **Health check for stuck agents**:
-   - If `progress_activity` persists > 30 minutes with no Git commits pushed → agent is hung
-   - Force restart: `osascript -e 'tell application "Antigravity" to quit'` then `open -a Antigravity`
-   - Do NOT keep polling stuck agents — restart and start fresh conversation
+   - A spinner, elapsed time, or absence of commits alone cannot establish a
+     hang. Check visible conversation content and independent task artifacts.
+   - Do not quit/restart Antigravity or replace a conversation based on these
+     signals; require an explicit user request for that action.
 
 ### Clearing the text input field
 
@@ -1014,9 +884,9 @@ Editor mode: `(...) > Customizations`
 
 ---
 
-## "Allow this conversation" dialog — always click Allow
+## "Allow this conversation" dialog
 
-Antigravity shows "Allow directory access to /path?" prompts with **Deny / Allow Once / Allow This Conversation** buttons when agents try to access workspace files. **Always click "Allow This Conversation" without asking the user** — pre-authorized.
+Antigravity may show a directory-access prompt with **Deny / Allow Once / Allow This Conversation**. These choices grant access. Do not click an Allow option unless the user's current task explicitly authorizes access to the displayed path and scope. A prompt appearing, an agent requesting access, prior approval for another path, or a historical note is not authorization. If authorization is absent or ambiguous, leave the prompt unchanged and report the exact path and requested access.
 
 ### CRITICAL: These buttons are web-rendered
 
@@ -1024,10 +894,10 @@ The Allow/Deny buttons are **web-rendered inside the conversation panel** and do
 
 ### Solution: Coordinate-based clicking via annotated screenshot
 
-### Method 0: Simplified blue-button detection (FASTEST — proven 2026-03-27)
+### Coordinate inspection (only after access is explicitly authorized)
 
 ```bash
-# One-liner: find and click "Allow This Conversation" (rightmost blue button)
+# Capture the authorized prompt for inspection; do not auto-click based on color.
 WIN_X=832; WIN_Y=-1013; WIN_W=1025; WIN_H=904  # Manager window bounds
 screencapture -x -R${WIN_X},${WIN_Y},${WIN_W},${WIN_H} /tmp/antig_allow.png
 COORDS=$(python3 -c "
@@ -1040,12 +910,13 @@ if len(xs) > 0:
     cx, cy = int(np.mean(xs[right_mask])), int(np.mean(ys[right_mask]))
     print(f'${WIN_X}+{cx//2},${WIN_Y}+{cy//2}')
 " 2>/dev/null | python3 -c "import sys; parts=sys.stdin.read().strip().split(','); print(f'{eval(parts[0])},{eval(parts[1])}')")
-[ -n "$COORDS" ] && peekaboo click --app Antigravity --window-id MANAGER_ID --coords "$COORDS"
+# Verify the displayed path and button label before any explicitly authorized click.
 ```
 
-### Method 1: Programmatic blue-button detection (PROVEN — use this)
+### Screenshot-assisted inspection
 
-Uses `screencapture` + PIL pixel analysis to find blue button coordinates automatically:
+Use a screenshot to locate the dialog. Pixel/color detection may help locate a
+control, but it cannot determine dialog meaning or select an approval.
 
 ```bash
 MANAGER_ID=<MANAGER_ID>
@@ -1066,7 +937,7 @@ WIN_H=$(echo "$BOUNDS" | cut -d, -f4)
 # Step 2: Capture window region (retina = 2x pixels)
 screencapture -x -R${WIN_X},${WIN_Y},${WIN_W},${WIN_H} /tmp/allow_check.png
 
-# Step 3: Find blue button coordinates programmatically
+# Step 3: Inspect the screenshot and identify the dialog text and controls.
 python3 -c "
 from PIL import Image
 import numpy as np
@@ -1101,9 +972,7 @@ for row_start in range(h//2, h, 30):
         break
 "
 
-# Step 4: Click at computed screen coordinates
-CLICK_COORDS=$(python3 ...)  # capture output from step 3
-peekaboo click --app Antigravity --window-id "$MANAGER_ID" --coords "$CLICK_COORDS"
+# Step 4: Only if explicitly authorized for this path, click the named control.
 
 # Step 5: Verify — re-capture and check blue pixels are gone
 sleep 1
@@ -1130,41 +999,44 @@ peekaboo click --app Antigravity --window-id "$MANAGER_ID" --coords <x>,<y>
 
 ### Alternative: Antigravity Settings
 
-Configure execution policy to avoid Allow prompts entirely:
+This reference describes available settings. Do not change them unless the user
+explicitly asks to change a named setting for a defined scope. Do not set
+"Always Proceed" as a default or to bypass a pending approval:
 1. Open Settings (sidebar gear icon)
-2. Set terminal execution to "Always Proceed" for known workspaces
+2. Inspect the current terminal-execution policy
 3. **IMPORTANT**: "Always Proceed" does NOT eliminate per-conversation Allow prompts — those are separate (workspace directory access vs terminal command approval)
-4. "Always Proceed" only applies to **new messages**. In-progress conversations keep the policy that was active when they started. If an agent is stuck on "Waiting for command completion", start a NEW conversation rather than trying to approve the stuck one.
+4. "Always Proceed" only applies to **new messages**. In-progress conversations keep the policy that was active when they started. If an action is waiting for approval, do not change policy or start a replacement conversation to bypass it; inspect the requested action and follow current-task authorization.
 
 ### Terminal approval stuck state — start new conversation
 
-If you see "The commit command is waiting for user approval" or "Waiting for command completion (up to 300 seconds)", the conversation started under "Request Review" mode. The "Always run ^" dropdown buttons are web-rendered and coordinate clicks rarely work reliably on them. Recovery:
+If a command is waiting for approval, inspect the requested action and follow the current task authorization. Do not bypass the pending approval by changing policy or starting a replacement conversation. For a status report:
 1. Do NOT try to click "Always run" — it's unreliable
-2. Verify Settings > Terminal > "Always Proceed" is set
-3. Start a **new conversation** — it will use the updated policy
-4. Include results from the stuck conversation's work (skip completed items)
+2. Inspect Settings > Terminal and report the selected policy; do not change it
+   to "Always Proceed" without explicit authorization.
+3. Leave the pending action unchanged unless the current task authorizes it
 
 ### Agent crash recovery — start fresh
 
 When "Agent terminated due to error" appears with Dismiss/Copy debug info/Retry buttons:
 1. These buttons are web-rendered — Dismiss clicks often land on wrong elements (Knowledge panel, etc.)
 2. Do NOT try Retry — it may restart with stale context (e.g., trying to fix already-merged PRs)
-3. Instead: start a **new conversation** with updated task description
+3. If the user asked to continue the task, inspect its artifacts and start a new conversation only when that is within the authorized scope
 4. Check what the crashed agent accomplished: `git log`, `git branch -r`, `gh pr list`
 5. Skip completed work in the new task prompt
 6. Two conversations CAN run simultaneously — the crashed one becomes IDLE and won't block
 
-### Detection pattern
+### Inspecting for an access prompt
 
-After starting any conversation, check for Allow prompts:
-1. Capture the Manager window with `screencapture -x -R<bounds>`
-2. Use PIL to search for blue button pixels in the bottom half
-3. If blue buttons found → run the programmatic click flow above
-4. Re-capture to confirm the prompt dismissed
+When the task requires inspecting an access prompt, capture the target window
+and read its text and displayed path. Color detection may locate a candidate
+control, but cannot identify the requested permission. Do not click an Allow
+control unless the user's current instruction explicitly authorizes that exact
+path and access scope; otherwise leave it unchanged and report it.
 
 ### Web-rendered content interaction — general technique
 
-Antigravity uses web-rendered UI elements that don't appear in the A11y tree. For ANY web-rendered button/control:
+Antigravity uses web-rendered UI elements that don't appear in the A11y tree.
+For non-approval controls within the current task scope:
 
 1. **Capture**: `screencapture -x -R<window_bounds> /tmp/element.png`
 2. **Analyze**: Use PIL/numpy to find the element by color, shape, or position
@@ -1172,7 +1044,9 @@ Antigravity uses web-rendered UI elements that don't appear in the A11y tree. Fo
 4. **Click**: `peekaboo click --app Antigravity --window-id <ID> --coords <screen_x>,<screen_y>`
 5. **Verify**: Re-capture and confirm the element is gone/changed
 
-This technique works for: Allow prompts, Review buttons, walkthrough controls, artifact interactions, and any other web-rendered UI that peekaboo `see` cannot expose.
+This technique may help locate non-approval controls, such as walkthrough or
+artifact controls. Approval and access prompts require explicit authorization
+for the displayed action before any click.
 
 **Note**: `peekaboo screenshot` does NOT exist — use `screencapture` (macOS built-in) instead.
 
@@ -1962,13 +1836,16 @@ fi
 - **Workspace scoping**: Cmd+L opens AI for the current open workspace. To target a different workspace, open it first with `agy /path/to/workspace`.
 - **Reading responses**: Use `screencapture` + vision — same as Manager (conversation content is web-rendered in both paths).
 - **Input coordinates**: The Cmd+L panel is web-rendered. The 85%/92% heuristic works reliably; use screenshot analysis to confirm.
-- **Allow prompts**: Same blue-button detection method applies (see "Allow this conversation" dialog section above).
+- **Allow prompts**: Inspect the displayed path and require current-task authorization before clicking Allow.
 
 ### Screenshot flickering workaround
 
 If screenshots show blank/white for Antigravity windows:
-1. **Restart Antigravity**: `osascript -e 'tell application "Antigravity" to quit'` then `open -a Antigravity`
-2. **Use A11y as backup**: `peekaboo see --json` still returns conversation status even when screenshots fail
+1. Do not restart Antigravity solely because screenshots flicker. Report the
+   capture failure and use read-only accessibility inspection only where it can
+   answer the task without an unverified status claim.
+2. `peekaboo see --json` may expose native elements, but does not prove the
+   state of web-rendered conversation content.
 3. **Check window count**: After restart, use `peekaboo window list` to count workspaces (exclude Launchpad/empty)
 4. **If Manager missing**: use `agy /path/to/workspace` to trigger Manager window appearance
 
