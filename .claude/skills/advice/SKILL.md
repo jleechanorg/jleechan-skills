@@ -20,11 +20,12 @@ change. A summary or excerpt never replaces the source.
 
 For revision review, pin the requested commit and use an eligible clean
 checkout. For saved specifications, plans, or other document-only reviews, use
-an existing CLI input path to provide every reviewer the same complete Markdown
-bytes, including uncommitted or untracked documents. Keep a temporary packet of
-the named files and record per-file and bundle SHA256 hashes. Byte checks verify
-integrity, not filesystem immutability. This Markdown skill does not require a
-particular runner; do not add a wrapper or runtime mechanism to deliver files.
+an existing CLI input path to give each reviewer identical complete bytes for
+explicitly named, non-ignored, non-symlink Markdown files, committed or not.
+Keep a temporary packet of the named files and record per-file and bundle
+SHA256 hashes. Byte checks verify integrity, not filesystem immutability. This
+Markdown skill does not require a particular runner; do not add a wrapper or
+runtime mechanism to deliver files.
 
 Document-only review excludes code outside the named files and never approves
 `HEAD` or dirty code. Revision review covers the exact pinned code scope. Each
