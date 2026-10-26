@@ -1,7 +1,7 @@
 #!/bin/bash
 # cmux-cli-restore.sh — exit a stuck CLI in a cmux surface and restart it with its resume wrapper.
 #
-#   cmux-cli-restore.sh --workspace <ws> --surface <sf> [--dry-run]
+#   cmux-cli-restore.sh --workspace <ws> --surface <sf> [--dry-run] [--cli codex|claude|claude-wa]
 #   cmux-cli-restore.sh --list-above-p1
 #
 # Exit the app cleanly (ctrl+c), sanitize the shell line (CSI-u residue from the
@@ -16,6 +16,7 @@ DRY_RUN=0
 WS=""
 SF=""
 LIST=0
+CLI_OVERRIDE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -23,6 +24,7 @@ while [[ $# -gt 0 ]]; do
     --workspace) WS="${2:-}"; shift 2 ;;
     --surface)   SF="${2:-}"; shift 2 ;;
     --list-above-p1) LIST=1; shift ;;
+    --cli) CLI_OVERRIDE="${2:-}"; shift 2 ;;
     -h|--help) sed -n '2,14p' "$0"; exit 0 ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
@@ -85,14 +87,19 @@ session_file() { # cli tty [ws] [sf] -> path of newest session transcript for th
   esac
 }
 
-prompt_clean() { # ws sf -> 0 if the last line looks like a clean shell prompt
-  local last
-  last=$(cmx capture-pane --workspace "$1" --surface "$2" --lines 2 | tail -1)
+prompt_clean() { # ws sf -> 0 only if the capture SUCCEEDED and the last line is a clean prompt
+  local out last
+  out=$(cmx capture-pane --workspace "$1" --surface "$2" --lines 2) || return 1
+  [[ -n "$out" ]] || return 1                      # failed/empty capture is never "clean"
+  last=$(printf '%s\n' "$out" | tail -1)
   [[ "$last" =~ \$[[:space:]]*$ ]] && ! [[ "$last" =~ [0-9]\;[0-9]u ]]
 }
 
-saw_human_gate() { # ws sf
-  cmx capture-pane --workspace "$1" --surface "$2" --lines 30 | grep -qiE \
+saw_human_gate() { # ws sf -> 0 gate, 1 no gate, 9 capture failed (fail CLOSED)
+  local out
+  out=$(cmx capture-pane --workspace "$1" --surface "$2" --lines 30) || return 9
+  [[ -n "$out" ]] || return 9
+  printf '%s\n' "$out" | grep -qiE \
     'pending human merge approval|autonomy rule requires a live human renewal|eight-hour authorization expired|MERGE APPROVED'
 }
 
@@ -136,7 +143,19 @@ fi
 
 [[ -z "$WS" || -z "$SF" ]] && { echo "need --workspace <ws> --surface <sf> (or --list-above-p1)" >&2; exit 2; }
 
-t=$(tty_of "$WS" "$SF"); cli=$(cli_on_tty "$t"); cmd=$(resume_cmd "$cli")
+t=$(tty_of "$WS" "$SF")
+if [[ -n "$CLI_OVERRIDE" ]]; then
+  cli="$CLI_OVERRIDE"
+else
+  # Mandatory probe BEFORE classifying or typing. A surface we cannot read is a
+  # surface we must not type into: an unreadable capture previously read as
+  # "no human gate" and the script went on to send ctrl+c anyway.
+  if ! cmx capture-pane --workspace "$WS" --surface "$SF" --lines 5 >/dev/null 2>&1; then
+    echo "ABORT: cannot read surface $SF (capture failed); no keystroke sent"; exit 7
+  fi
+  cli=$(cli_on_tty "$t")
+fi
+cmd=$(resume_cmd "$cli")
 echo "surface=$SF tty=${t:-?} cli=${cli} restart=${cmd:-(none)}"
 
 case "$cli" in
@@ -146,9 +165,11 @@ case "$cli" in
 esac
 [[ -z "$cmd" ]] && { echo "ABORT: no resume command for cli=$cli; nothing typed"; exit 3; }
 
-if saw_human_gate "$WS" "$SF"; then
-  echo "REFUSING: this lane is blocked on a human gate, not a wedged CLI"; exit 4
-fi
+saw_human_gate "$WS" "$SF"; gate=$?
+case "$gate" in
+  0) echo "REFUSING: this lane is blocked on a human gate, not a wedged CLI"; exit 4 ;;
+  9) echo "ABORT: gate check could not read the surface; no keystroke sent"; exit 7 ;;
+esac
 
 if [[ $DRY_RUN -eq 1 ]]; then echo "dry-run: would ctrl+c, sanitize, type '$cmd', accept goal dialog, verify"; exit 0; fi
 
