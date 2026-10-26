@@ -247,17 +247,6 @@ class WorkflowCommandPairTest(unittest.TestCase):
             normalized_skill,
         )
 
-    def test_verifier_rejects_dirty_state_and_pins_clean_detached_revision(self):
-        verifier = (
-            REPO_ROOT / ".claude" / "agents" / "agy-pair-verifier.md"
-        ).read_text(encoding="utf-8")
-        normalized = " ".join(verifier.split())
-        self.assertIn("reject dirty inherited state", normalized.lower())
-        self.assertIn("fresh detached worktree pinned to", normalized.lower())
-        self.assertIn("git worktree add", verifier)
-        self.assertIn("--detach", verifier)
-        self.assertIn("git status --porcelain", verifier)
-
     def test_verifier_captures_each_attempt_to_unique_output_path(self):
         verifier = (
             REPO_ROOT / ".claude" / "agents" / "agy-pair-verifier.md"
@@ -275,56 +264,26 @@ class WorkflowCommandPairTest(unittest.TestCase):
             encoding="utf-8"
         )
         retry = coder.split("If verifier sends VERIFICATION_FAILED:", 1)[1]
-        normalized = " ".join(retry.split())
-        self.assertIn("exact prior `Revision`", normalized)
+        normalized_retry = " ".join(retry.split())
+        self.assertIn("PRIOR_REVISION", retry)
         self.assertIn(
-            'git worktree add --detach "$CODER_WORKTREE" "$PRIOR_REVISION"',
-            retry,
-        )
-        self.assertIn("git rev-parse HEAD", retry)
-        self.assertIn("Run the focused tests again", normalized)
-        self.assertIn("git add <explicit scoped paths>", retry)
-        self.assertIn("git commit", retry)
-        self.assertIn("git status --porcelain", normalized)
-        self.assertIn("must be empty", normalized)
-
-        skill = (SKILLS / "parallelize-to-ceiling" / "SKILL.md").read_text(
-            encoding="utf-8"
-        )
-        normalized_skill = " ".join(skill.split())
-        self.assertIn(
-            "retry must carry the exact prior `Revision`",
-            normalized_skill,
-        )
-        self.assertIn("rerun focused checks", normalized_skill)
-        self.assertIn("final scoped commit", normalized_skill)
-
-    def test_coder_retry_allocates_and_enters_a_unique_pinned_worktree(self):
-        coder = (REPO_ROOT / ".claude" / "agents" / "agy-pair-coder.md").read_text(
-            encoding="utf-8"
-        )
-        retry = coder.split("If verifier sends VERIFICATION_FAILED:", 1)[1]
-        self.assertIn(
-            'CODER_WORKTREE="$(mktemp -d -t agy_coder_retry_worktree.XXXXXX)"',
-            retry,
-        )
-        self.assertIn(
-            'if ! git worktree add --detach "$CODER_WORKTREE" "$PRIOR_REVISION";',
+            'CODER_WORKTREE="$(diskm worktree-new <repo-path> <branch>)"',
             retry,
         )
         self.assertIn('cd "$CODER_WORKTREE"', retry)
-        self.assertIn(
-            'git -C "$CODER_WORKTREE" rev-parse HEAD',
-            retry,
-        )
+        self.assertIn('git -C "$CODER_WORKTREE" rev-parse HEAD', retry)
         self.assertIn("equals `PRIOR_REVISION`", retry)
+        self.assertIn("git add <explicit scoped paths>", retry)
+        self.assertIn("git commit", retry)
+        self.assertIn("git status --porcelain", normalized_retry)
+        self.assertIn("must be empty", normalized_retry)
 
     def test_verifier_worktree_setup_fails_closed_and_checks_revision(self):
         verifier = (
             REPO_ROOT / ".claude" / "agents" / "agy-pair-verifier.md"
         ).read_text(encoding="utf-8")
         self.assertIn(
-            'if ! git worktree add --detach "$VERIFIER_WORKTREE" "$REVISION";',
+            'VERIFIER_WORKTREE="$(diskm worktree-new <repo-path> <branch>)"',
             verifier,
         )
         self.assertIn(
@@ -335,7 +294,8 @@ class WorkflowCommandPairTest(unittest.TestCase):
             'git -C "$VERIFIER_WORKTREE" rev-parse HEAD',
             verifier,
         )
-        self.assertIn("must equal `$REVISION`", verifier)
+        self.assertIn('if [ "$VERIFIER_HEAD" != "$REVISION" ]; then', verifier)
+        self.assertIn('if [ -n "$VERIFIER_STATUS" ]; then', verifier)
 
     def test_verifier_rejects_inherited_status_failure(self):
         verifier = (

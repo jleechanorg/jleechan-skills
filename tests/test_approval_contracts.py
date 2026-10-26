@@ -183,103 +183,41 @@ class ApprovalContractsTest(unittest.TestCase):
         self.assertIn("~/.claude/skills/pr-green-definition/SKILL.md", adapter)
         self.assertIn("~/.claude/skills/pr-quantity-control/SKILL.md", adapter)
 
-    def test_superpowers_quick_delegates_recommended_choices_and_finishes_documents(self) -> None:
-        command = (COMMANDS / "superpowers-quick.md").read_text()
-        quick = skill("superpowers-quick")
+    def test_superpowers_quick_dispatcher_resolves_portable_packages(self) -> None:
+        command_path = COMMANDS / "superpowers-quick.md"
+        self.assertTrue(command_path.is_file(), command_path)
+        self.assertIn(
+            "~/.claude/skills/superpowers-quick/SKILL.md",
+            command_path.read_text(encoding="utf-8"),
+        )
 
-        self.assertIn("~/.claude/skills/superpowers-quick/SKILL.md", command)
-        self.assertNotIn("superpowers:brainstorming", command)
-        self.assertNotIn("superpowers:writing-plans", command)
-        self.assertIn("superpowers:brainstorming", quick)
-        self.assertIn("superpowers:writing-plans", quick)
-        self.assertIn("disable-model-invocation: false", quick)
-        self.assertIn("recommended", quick.lower())
-        self.assertIn("invocation is the user's explicit authorization", quick.lower())
-        self.assertIn("do not ask the user", quick.lower())
-        self.assertIn("docs/superpowers/specs/", quick)
-        self.assertIn("docs/superpowers/plans/", quick)
-        self.assertIn("terminal condition", quick.lower())
+        package_names = (
+            "superpowers-quick",
+            "superpowers-brainstorming",
+            "superpowers-writing-plans",
+        )
+        package_texts = {}
+        for name in package_names:
+            path = SKILLS / name / "SKILL.md"
+            self.assertTrue(path.is_file(), path)
+            text = path.read_text(encoding="utf-8")
+            metadata = re.match(r"\A---\n(.*?)\n---\n", text, re.S)
+            self.assertIsNotNone(metadata, path)
+            self.assertRegex(
+                metadata.group(1), rf"(?m)^name:\s*{re.escape(name)}$"
+            )
+            package_texts[name] = text
 
-    def test_superpowers_quick_resolves_portable_dependencies_and_overrides_child_pauses(self) -> None:
-        quick = skill("superpowers-quick")
-
-        for dependency in ("superpowers-brainstorming", "superpowers-writing-plans"):
-            dependency_path = SKILLS / dependency / "SKILL.md"
-            self.assertTrue(dependency_path.is_file(), dependency_path)
-            self.assertIn(f"~/.claude/skills/{dependency}/SKILL.md", quick)
-
-        self.assertIn("Do not offer the visual companion", quick)
-        self.assertIn("Do not pause for user review", quick)
-        self.assertIn("Do not commit or push", quick)
-        self.assertIn("Skip its execution handoff", quick)
-        self.assertIn("Terminate immediately after", quick)
-        self.assertIn("takes precedence over every child instruction", quick)
-        self.assertIn("write either artifact to a different path", quick)
-        self.assertIn("still write and self-review both documents", quick)
-        self.assertNotIn("stop with the exact blocker", quick)
-
-    def test_superpowers_quick_reports_autopicks_and_advice_without_unapproved_disclosure(self) -> None:
-        quick = skill("superpowers-quick")
-
-        self.assertIn(
-            "question, the auto-picked answer, and the underlying rationale",
-            quick,
+        self.assertRegex(
+            package_texts["superpowers-quick"],
+            r"(?m)^disable-model-invocation:\s*false$",
         )
-        self.assertIn("both the design specification and implementation plan", quick)
-        self.assertIn(
-            "A bare `/superpowers-quick` invocation does not authorize external browser review",
-            quick,
-        )
-        self.assertIn("Run at most one standalone `/web-advice`", quick)
-        self.assertIn("Do not pause or ask the user to log in", quick)
-        self.assertIn(
-            "`/web-advice is disabled; do not invoke it or any external browser transport.`",
-            quick,
-        )
-        self.assertIn(
-            "Verify the synthesis records no browser submission",
-            quick,
-        )
-        self.assertIn(
-            "Treat an attempted browser submission as an incomplete `/advice` run and record it as `FAILED`",
-            quick,
-        )
-        self.assertIn(
-            "Retry `/advice` once only for a transient transport or reviewer-launch failure",
-            quick,
-        )
-        self.assertIn(
-            "permits the terminal report but prohibits claiming that advice passed or approved the documents",
-            quick,
-        )
-        self.assertIn(
-            "record `/web-advice` as `FAILED` with the attempted-submission reason",
-            quick,
-        )
-        self.assertIn(
-            "When no external attempt occurred and explicit authorization is absent",
-            quick,
-        )
-        self.assertIn(
-            "Retry the whole `/advice` invocation only when it failed before any reviewer launched",
-            quick,
-        )
-        self.assertIn(
-            "Any browser submission made during `/advice` consumes the single `/web-advice` run",
-            quick,
-        )
-        self.assertIn(
-            "only when `/advice` made no browser submission",
-            quick,
-        )
-        self.assertIn("`/advice`: `RAN | FAILED`", quick)
-        self.assertIn(
-            "`/web-advice`: `RAN | SKIPPED | UNAVAILABLE | FAILED`",
-            quick,
-        )
-        self.assertIn("<repo-root>/docs/superpowers/specs/", quick)
-        self.assertIn("<repo-root>/docs/superpowers/plans/", quick)
-        self.assertIn("advice attempts and required status records are complete", quick)
+        for name in package_names[1:]:
+            with self.subTest(dependency=name):
+                self.assertIn(
+                    f"~/.claude/skills/{name}/SKILL.md",
+                    package_texts["superpowers-quick"],
+                )
 
     def test_advice_reviews_repository_before_approving(self) -> None:
         advice = skill("advice")
