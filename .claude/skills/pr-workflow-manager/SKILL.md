@@ -15,6 +15,11 @@ worktree, PR stage, or gate. Follow an explicit local contract for its domain; d
 the repository's name or apparent purpose. If no local opt-out or conflicting requirement is declared,
 use the shared defaults below.
 
+Reviewer attempt deadlines, timeout dispositions, fallback routing and advice
+quorum recovery are owned by [pr-lifecycle's reviewer timeout contract](../pr-lifecycle/SKILL.md#reviewer-timeout-and-completion).
+Apply it to `/dot`, `/wa` and other reviewer waits; do not add a separate timer
+or treat a timeout as approval.
+
 Read [pr-lifecycle](../pr-lifecycle/SKILL.md) before creating, staging or driving a PR. It supplies shared
 defaults for lifecycle, visible stages/title prefixes and suffixes/labels, specification placement, review
 routes and reasoned evidence/approval applicability wherever local instructions are silent. This entry point

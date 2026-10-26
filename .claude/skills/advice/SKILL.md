@@ -1,6 +1,6 @@
 ---
 name: advice
-description: "Token-efficient second opinion slash command /advice. Extracts the decision point plus a pointer to the change (PR / ref / paths) so each reviewer reads the code itself, then fans out in parallel to up to four reviewers: (1) Codex + Opus CLI reviewers launched concurrently as the primary pair, (2) fallback chain claude -p→cursor→agy if neither primary reviewer returns a verdict, (3) /research on the decision topic, (4) /secondo multi-model opinion. Reviewers A and B are the portable core; C needs personal infrastructure and is skipped when unavailable. Use instead of advisor() which ships the full conversation uncached."
+description: "Token-efficient second opinion /advice. Extracts a decision and change pointer, runs the Codex + Opus CLI primary pair concurrently where available, and uses eligible independent CLI reviewers to reach the mandatory two-vote quorum. Reviewer attempts are bounded to 600 seconds. /research is nonvoting; /extended-library:secondo is an eligible approval reviewer. Use instead of advisor() which ships the full conversation uncached."
 ---
 
 # /advice — Token-Efficient Second Opinion
@@ -51,31 +51,39 @@ applicable user authority. If a selected document changes, re-review its new byt
 
 ## Step 2: Fan out the reviewers in parallel
 
-**Size/risk gate first.** For low-risk diffs (docs/tests/config-only, or under ~100 changed production lines with no schema/security/prompt-contract surface), Reviewer A alone (Codex + Opus — two independent verdicts, so the ≥2-reviewer quorum for `APPROVED` still holds) satisfies the gate; skip B/C. Reserve the full A+B+C fan-out for diffs touching production behavior, schemas, security, or above that threshold. The quorum, coverage, and inline-artifact rules below apply unchanged regardless of which lanes run.
+**Size/risk gate first.** For low-risk diffs (docs/tests/config-only, or under ~100 changed production lines with no schema/security/prompt-contract surface), the concurrent Codex + Opus primary pair is sufficient when both return independent, full-coverage verdicts; skip B/C. Reserve the full A+B+C fan-out for diffs touching production behavior, schemas, security, or above that threshold. Whenever `/advice` runs, `APPROVED` still requires two independent, full-coverage approval votes. The quorum, coverage, and inline-artifact rules below apply unchanged regardless of which lanes run.
 
 Before dispatch, use existing quota/session receipts and non-model capability
 checks to identify viable reviewers and whether they can meet the approval quorum.
 Do not spend a separate paid model call solely to probe quota; when availability is
-unknown, launch selected review lanes concurrently. Only A and C are approval
-reviewers. `/research` seats, including Gemini, may inform the
+unknown, launch selected review lanes concurrently. Independent CLI reviewers
+and Reviewer C may vote. `/research` seats, including Gemini, may inform the
 synthesis but never substitute for a quorum vote.
 
-Spawn every selected reviewer in a single message. **A and B are the portable core** — they work on any machine. **C depends on personal infrastructure** and is skipped, not faked, when unavailable.
+Dispatch independent eligible reviewers concurrently where practical. If a primary seat is unavailable, fails, or times out, dispatch an eligible independent reviewer when needed to reach two votes. Do not serialize healthy reviewer attempts; sequential dispatch is only for a replacement after an earlier attempt failed or timed out. Eligible executions are `claude`, `claudewa`, `codex`, `agy`, and Cursor (`agent` / `cursor agent`). Declare the actual CLI, account or reviewer identity, and model for every execution. A wrapper, alias, retry, or second call does not create another vote when it represents the same execution or reviewer; record each distinct execution separately. Independent CLI reviewers and Reviewer C may vote. `/research` seats, including Gemini, may inform the synthesis but never substitute for a quorum vote. **C depends on personal infrastructure** and is skipped, not faked, when unavailable.
 
 ---
 
-**Reviewer A — Primary pair fired IN PARALLEL:**
+**Reviewer A — Primary pair, in parallel when the full-budget invocation is available:**
 
 **Codex + Opus run concurrently when both are available.** Each reviewer reads
-the change independently and returns its own verdict. Use the executable runner
-below: descriptive prose or a foreground Codex call followed by an Opus spawn
-does not satisfy this contract.
+the change independently and returns its own verdict. If either seat is unavailable
+or fails, continue with another eligible CLI execution on an independent clone so
+the final review can still reach two independent votes. Dispatch healthy reviewers
+concurrently; do not wait for one healthy reviewer before starting another.
 
 Use the same review packet for both reviewers:
 
-The primary pair selection is explicit: pass `--reviewers codex,opus` to the
-canonical runner. Additional reviewers come only from the existing fallback
-chain or an explicit selection; this does not change the quorum.
+Before invoking the existing primary-pair runner, verify that the specific
+supported invocation bounds the complete attempt to its remaining 600-second
+budget, including queueing, setup, dispatch, review, output capture, receipt
+recording, and cleanup. Its legacy per-reviewer timeout or default timeout does
+not prove that whole-attempt bound. If no existing invocation can enforce it,
+mark the primary runner unavailable and use another independently bounded,
+eligible reviewer path; do not count that runner's output as an approval. Do not
+add a wrapper or implementation to impose the limit. A missing primary vote may
+be paired with a separately bounded eligible CLI reviewer; it never shares or
+inherits another reviewer's vote.
 
 ```
 You are a senior engineer giving a focused second opinion.
@@ -105,21 +113,7 @@ COVERAGE: [what you actually read; note anything you could not reach]
 CONFIDENCE: [high / medium / low]
 ```
 
-Write that packet to a temporary file, capture the exact review SHA, and invoke:
-
-```bash
-REVIEW_SHA="$(git rev-parse HEAD)"
-ADVICE_TMP="$(mktemp -d)"
-ADVICE_RUNNER="${CLAUDE_HOME:-$HOME/.claude}/skills/advice/scripts/run_primary_pair.py"
-python3 "$ADVICE_RUNNER" \
-  --repo "$(git rev-parse --show-toplevel)" \
-  --ref "$REVIEW_SHA" \
-  --packet-file "$ADVICE_TMP/review-packet.txt" \
-  --output-dir "$ADVICE_TMP/results" \
-  --reviewers codex,opus \
-  --timeout-seconds 1200 \
-  --timeout-grace-seconds 2
-```
+Write the packet to a temporary file before starting each reviewer attempt.
 
 Create `$ADVICE_TMP/review-packet.txt` before invoking the runner. The output
 directory is deliberately outside the repository and must be a fresh path that
@@ -160,40 +154,48 @@ descendants observed while the reviewer root is alive, a surviving verified PID
 is recorded as a termination failure rather than silently treated as contained;
 after successful cleanup the runner exits 7 even if the peer returned a verdict.
 
-Each primary reviewer has a bounded runtime. `--timeout-seconds` sets the
-per-lane limit and defaults to 1200 seconds (20 minutes).
-`--timeout-grace-seconds` sets the bounded post-kill output-drain grace and
-defaults to 2 seconds; both values must be positive. A timeout kills the primary
-process group, drains output only for that grace, then closes inherited output
-pipes if they remain open. The attempt records `failure: timeout` and
-`forced_pipe_close`; the peer may still supply the sole primary verdict. If both
-time out, the runner exits 4 and A3 applies. Clone cleanup and receipt writing
-still run after timeouts. Cleanup itself is a gate:
-failure is recorded in `receipt.json` and the runner exits 5 rather than hiding
-leftover full-permission checkouts. Setup, reviewer, and result-output exceptions
-are captured under `operation` instead of escaping as traceback-only failures;
-after successful cleanup they exit 6. If operation and cleanup both fail,
-`receipt.json` records both and cleanup exit 5 takes precedence.
+Each reviewer attempt has a hard 600-second end-to-end limit, starting when
+that reviewer request is queued or sent. Record that timestamp. Queueing and
+delivery, review-specific setup, dispatch, review, output capture, receipt
+recording, and cleanup all consume the same wall-clock budget; do not pause,
+reset, or extend it. Shared immutable packet preparation may happen before the
+attempt begins. Bound each transport call and poll/wait to the time remaining in
+the attempt.
 
-Ignored regular files may contain credentials, so the fingerprint never opens
-or hashes their contents. It records each ignored relative path plus `lstat`
-mode, size, and nanosecond modification time; for a symlink it additionally
-records the link target without following it. This detects ordinary ignored-file
-creation, deletion, replacement, and modification while keeping secret content
-unread. It is a mutation tripwire, not a defense against an adversarial process
-that deliberately restores identical metadata, and it does not change the
-runner's non-sandbox boundary.
+Use existing supported execution tools. Do not create an adapter, supervisor,
+watchdog, helper script, or embedded executable implementation to meet this
+limit. If no available execution path can enforce the complete bound, record
+that reviewer as unavailable and continue with another eligible reviewer. A
+timed-out, failed, incomplete, or over-deadline attempt is never an approval
+vote. Do not start a replacement in a resource whose prior execution or cleanup
+state is unresolved; record the uncertainty and continue with an independent
+eligible path when safe.
 
-Hook coverage follows Git's effective `core.hooksPath`, including configured
-absolute or relative hook locations. The fingerprint includes ordinary hook
-content and `lstat` metadata; symlinks, including dangling ones, contribute
-their link target without being followed. This avoids unsafe traversal while
-detecting hook-path and dangling-link mutations.
+For every attempt, retain a record with the pinned SHA, reviewer identity,
+actual CLI/account and model, queued/sent and completion times, elapsed time,
+exit or timeout status, complete output and coverage, and available cleanup
+result. Preserve timeout output and any partial receipt. Do not claim cleanup
+succeeded without evidence. Once an attempt times out or fails, dispatch the next
+eligible independent reviewer; keep healthy reviewers concurrent where
+practical. Any unresolved process or cleanup state remains disclosed and cannot
+be counted as an approval.
 
 An exit code of zero is not enough: each successful lane must return a nonempty
 line beginning with `VERDICT:`. Empty or malformed output records
-`missing_verdict` and counts as an errored lane. If neither primary lane returns
-a recognizable verdict, invoke A3.
+`missing_verdict` and counts as an errored lane. A primary vote is usable only
+when the process exits zero, returns a nonempty `VERDICT:` line, and the receipt
+shows no original-checkout mutation, surviving reviewer process, or cleanup
+failure. If either primary lane fails
+to return a recognizable verdict, use an eligible alternate reviewer when
+needed to reach two independent full-coverage votes. The primary runner only
+launches and supervises Codex and Opus; it does not launch, time, or receipt
+alternate CLI executions. For each alternate, create a separate disposable
+clone detached at the same reviewed SHA, remove its origin remote, run the
+selected full-permission CLI in that clone, and remove the clone afterward.
+Retain a receipt with the resolved SHA, reviewer identity and model, exact CLI
+transport, dispatch/start/end times, timeout or exit status, complete verdict
+and coverage, and clone cleanup result. If the clone cannot be cleaned up, do
+not use that attempt as approval evidence.
 
 **A1 — Codex CLI (primary):** `codex exec --yolo -m gpt-6-sol --config
 model_reasoning_effort=high`. The explicit command guarantees full-permission
@@ -205,17 +207,16 @@ mode without relying on wrapper internals. Only the exact catalog IDs
 --dangerously-skip-permissions`. It is dispatched concurrently with A1, not
 after A1 returns.
 
-**A3 — Fallback chain (whenever neither primary leg produces a verdict):**
+**Alternate reviewer executions (when a primary vote is missing):**
 
-A3 activates whenever Reviewer A cannot return a verdict. That covers:
-- BOTH A1 (Codex) and A2 (Opus) are unavailable (binary / model missing)
-- BOTH A1 and A2 dispatched and both errored
-- A1 unavailable AND A2 errored (mixed failure — still no primary verdict)
-- A1 errored AND A2 unavailable (mixed failure — still no primary verdict)
+Run eligible reviewers as needed until there are two independent, full-coverage
+votes or every viable option has failed or timed out. An alternate vote may
+pair with a successful Codex or Opus vote; alternates are not restricted to the
+case where both primary lanes fail. Preserve concurrent Codex + Opus dispatch
+when both are viable. Use the following CLI forms, adapting only model and
+identity settings needed to declare the actual execution:
 
-In all of the above, fall through this chain in order, stopping at the first success:
-
-**A3.1 — `claude -p` (first-class fallback when invoked outside Claude Code):**
+**`claude -p` or `claudewa -p`:**
 ```bash
 claude -p --dangerously-skip-permissions "$(cat <<'EOF'
 Senior engineer second opinion.
@@ -230,9 +231,14 @@ Read the change yourself. Return VERDICT, REASONING (3-4 sentences), RISK, COVER
 EOF
 )"
 ```
-Note: Same Claude Code context inheritance as agy. For a cleaner isolated call: add `--cwd /tmp`.
+For `claudewa`, invoke the existing wrapper and pass the same packet; record
+the actual account/profile and resolved model. Do not count `claude` and
+`claudewa` as independent votes when they are merely aliases or duplicate
+execution of the same reviewer. Distinct executions count only when each has
+its own reviewer identity/model declaration, independent clone, output, and
+receipt. Do not use `--cwd /tmp` if it would replace the required clone cwd.
 
-**A3.2 — `cursor agent -p` (fallback if claude -p errors):**
+**Cursor (`cursor agent -p` or the `agent` wrapper):**
 ```bash
 cursor agent -p --force "$(cat <<'EOF'
 Senior engineer second opinion.
@@ -248,9 +254,9 @@ EOF
 )"
 ```
 
-**A3.3 — `agy` (fallback if cursor errors):**
+**`agy`:**
 ```bash
-agy --print --dangerously-skip-permissions "$(cat <<'EOF'
+agy --print --model gemini-3.8-flash-high --dangerously-skip-permissions "$(cat <<'EOF'
 Senior engineer second opinion.
 
 DECISION:
@@ -265,21 +271,15 @@ EOF
 ```
 Note: agy is the Antigravity CLI (reads CLAUDE.md on startup like any CC session, but starts fresh — no current conversation history). Independent perspective, slightly slower than cursor. When selecting Gemini models, never use `gemini-3.1-pro` (or older Gemini Pro models); always use `gemini-3.8-flash` or later (`gemini-3.8-flash-high`).
 
-If all options fail, note "Reviewer A unavailable" in the synthesis table.
+All attempts must use the same pinned review scope and independent clones. Do
+not reuse one execution's result under another CLI name. If fewer than two
+independent full-coverage votes succeed after viable options are attempted,
+record each unavailable, failed, or timed-out reviewer and emit `WITHHELD` (or
+`NOT APPROVED` if any competent reviewer blocks).
 
-**No-verdict guarantee:** A host that lacks BOTH Codex (no codex binary) AND the
-Opus CLI MUST still emit at least one
-A-leg verdict if any of A3.1 / A3.2 / A3.3 is on PATH. The fallback chain is
-gated on "unavailable OR error" — not error alone — so a fully bare host with
-just `claude -p` installed still produces a verdict. If every leg (A1 + A2 +
-A3.1 + A3.2 + A3.3) is unavailable, mark **A unavailable (no agent binary on
-host)** and continue with B / C.
-
-**A — solo-mode rule:** If only ONE of {Codex, Opus} is available (the other
-binary / model is missing or errors immediately at dispatch), run whichever
-survives as the sole A reviewer — do NOT synthesize a "pair" from a single
-verdict. Mark the missing partner `unavailable (<reason>)` in the synthesis
-table so the reader sees we did not silently drop a leg.
+Every attempt, primary or alternate, must fit the same deadline and produce
+its own receipt. A single surviving primary or alternate vote can block, but
+cannot approve.
 
 ---
 
@@ -291,14 +291,14 @@ Invoke `/research [decision topic distilled to 6 words]`
 
 **Reviewer C — Secondo (optional — needs infrastructure):**
 
-Invoke `/secondo` with the decision and declared review scope, and let it gather
+Invoke `/extended-library:secondo` with the decision and declared review scope, and let it gather
 its own context — it already captures `git diff origin/main...HEAD` under its own
 budget (`SECOND_OPINION_MAX_DIFF_CHARS`, default 32,000 chars). Require
 `COVERAGE: <files/diff scope actually read>` in its response. Do **not** hand it
 a ≤150-line extract instead; that throttles it to a fraction of the context it
 would have collected on its own.
 
-Requires the AI-Universe MCP endpoint (`AI_UNIVERSE_MCP_ENDPOINT`) and its OAuth flow. `/secondo` bans substituting WebSearch or direct provider MCPs, so there is no portable fallback — if the endpoint is unreachable, mark **C unavailable** and continue.
+Requires the AI-Universe MCP endpoint (`AI_UNIVERSE_MCP_ENDPOINT`) and its OAuth flow. `/extended-library:secondo` bans substituting WebSearch or direct provider MCPs, so there is no portable fallback — if the endpoint is unreachable, mark **C unavailable** and continue.
 
 ---
 
@@ -323,8 +323,10 @@ Present:
 ## Quorum — what you are allowed to conclude (mandatory)
 
 **The orchestrating agent and research-only output are not approval reviewers.**
-They write or inform the table; they do not vote. Only A and C count toward
-approval quorum, and each must declare `COVERAGE` after reading the change.
+They write or inform the table; they do not vote. Approval votes come from
+independent CLI reviewer executions or Reviewer C; each must declare
+`COVERAGE` after reading the change. Distinct reviewer identities and
+executions, not fallback labels, determine independence.
 
 | Independent full-coverage reviewers that returned a verdict | What you may emit |
 |---|---|
@@ -340,16 +342,19 @@ Below quorum a lone reviewer may still block — one competent objection is enou
 |---|---|---|
 | Codex PASS + Opus PASS, both declare full `COVERAGE`, neither blocks | 2 (A) | `APPROVED` (or `NOT APPROVED` if either blocks) |
 | Codex PASS + Opus unavailable | 1 (A) | `WITHHELD`, or `NOT APPROVED` when the single vote blocks |
-| Codex unavailable + Opus unavailable + A3 APPROVE | 1 (A, fallback chain) | `WITHHELD` |
-| A primary PASS **plus** A3 APPROVE | **1 (A)** - A3 shares seat A and never adds a vote | `WITHHELD` |
-| A vote + C (`/secondo`) vote, both full `COVERAGE`, neither blocks | 2 (A + C) | `APPROVED` (or `NOT APPROVED` if either blocks) |
+| Codex unavailable + Opus unavailable + one alternate APPROVE | 1 | `WITHHELD` |
+| One primary PASS **plus** one distinct alternate APPROVE, both full coverage | 2 | `APPROVED` (or `NOT APPROVED` if either blocks) |
+| One primary PASS plus a retry, wrapper alias, or duplicate reviewer execution | 1 | `WITHHELD` |
+| A vote + C (`/extended-library:secondo`) vote, both full `COVERAGE`, neither blocks | 2 (A + C) | `APPROVED` (or `NOT APPROVED` if either blocks) |
 
 No row relaxes coverage or single-objection blocking: one competent objection still stops the change.
 
-**Coverage gates approval too.** A reviewer whose `COVERAGE` does not cover the
-declared diff/scope counts toward *blocking* but not toward *approving* — it is
-an opinion, not a review. `APPROVED` requires two independent coverage declarations
-whose combined scope covers the whole declared change. Otherwise emit `WITHHELD`.
+**Coverage gates approval too.** Each approving reviewer must independently
+declare `COVERAGE` that covers the entire declared diff/scope. Do not combine
+partial coverage across reviewers to meet the approval quorum. A reviewer whose
+coverage is incomplete still counts toward *blocking*, but not toward
+*approving*. The combined scope covers the whole declared change only when
+each counted approval independently covers it. Otherwise emit `WITHHELD`.
 
 ## Final verdict format — SHA-bound (mandatory)
 
@@ -386,7 +391,7 @@ What `/advice` saves is **the conversation**, not the change. `advisor()` ships 
 | A1 Codex | Decision + pointer (reviewer fetches the rest) |
 | A2 Opus CLI | Decision + pointer (reviewer fetches the rest) |
 | B — /research | Web queries only |
-| C — /secondo | Decision; it gathers its own diff under its own budget |
+| C — /extended-library:secondo | Decision; it gathers its own diff under its own budget |
 
 Do not cite a percentage saving — none has ever been measured here. And do not shrink the pointer to buy tokens: sending a 349-line diff is nothing like sending an 80K-token transcript, so trading review coverage for that margin is a bad trade in the only direction that matters.
 
@@ -394,15 +399,15 @@ Do not cite a percentage saving — none has ever been measured here. And do not
 
 | Priority | CLI | When |
 |---|---|---|
-| A1 | `codex exec --yolo -m gpt-6-sol --config model_reasoning_effort=high` | Primary — runs IN PARALLEL with A2 (exact IDs: `gpt-6-astra`, `gpt-6-luna`, `gpt-6-sol`, `gpt-6.1-sol`; 5.6 and unknown IDs forbidden) |
-| A2 | `claude -p --model opus --dangerously-skip-permissions` | Primary — runs IN PARALLEL with A1 |
-| A3.1 | `claude -p --dangerously-skip-permissions` | Fallback when no primary leg produced a verdict (outside Claude Code) |
-| A3.2 | `cursor agent -p --force` | Fallback if A3.1 errors |
-| A3.3 | `agy --print --dangerously-skip-permissions` | Fallback if A3.2 errors |
+| Primary 1 | `codex exec --yolo -m gpt-6-sol --config model_reasoning_effort=high` | Concurrent primary pair (exact IDs: `gpt-6-astra`, `gpt-6-luna`, `gpt-6-sol`, `gpt-6.1-sol`; 5.6 and unknown IDs forbidden) |
+| Primary 2 | `claude -p --model opus --dangerously-skip-permissions` | Concurrent primary pair |
+| Alternate | `claude -p` or `claudewa -p` | Dispatch when needed for a second independent vote |
+| Alternate | `cursor agent -p --force` (or the configured Cursor print wrapper) | Dispatch when needed for a second independent vote |
+| Alternate | `agy --print --model gemini-3.8-flash-high --dangerously-skip-permissions` | Dispatch when needed for a second independent vote |
 
 Notes:
-- Codex + Opus are the primary PAIR, not a fallback chain. Both are fired in the same turn whenever both are available. A reviewer quorum table needs BOTH rows; mark missing partner `unavailable (<reason>)` per the solo-mode rule.
-- The A3.x fallback chain activates whenever no primary leg produces a verdict — Codex alone being unavailable or alone failing does NOT drop to A3 (the surviving leg still counts as the A verdict). The gate is "neither primary succeeded," not "both errored," so hosts with mixed failure modes (one unavailable, one errored) still get a verdict. This keeps `/advice` productive on hosts where only one of {codex, opus} is installed OR only one dispatched cleanly.
+- Codex + Opus remain the concurrent primary pair whenever both are viable. If either is unavailable or fails, record that result and dispatch an eligible alternate reviewer when needed to reach two independent full-coverage votes; a successful primary vote may pair with a successful alternate vote.
+- A fallback or retry is not an additional vote when it reuses the same execution or reviewer identity. The same scope SHA, reviewer identity and model, actual CLI transport, independent clone, separate output, and receipt must be recorded for every counted execution.
 - Check a CLI is on `PATH` before counting it as a rung. An absent CLI is an unavailable rung, not a failed reviewer — drop to the next rung without recording a failure.
-- `agy --print-timeout` defaults to 5m. Pass a longer value for a full 150-line artifact, or the review dies as an opaque timeout that looks like an error.
-- A primary process counts as successful only when it exits zero and emits a nonempty `VERDICT:` line. Otherwise preserve its failure in `receipt.json` and apply the solo/fallback rules above.
+- `agy --print-timeout` defaults to 5m. For a full 150-line artifact, pass a longer value only when it fits within the remaining 600-second end-to-end deadline; otherwise record the timeout and continue with another eligible reviewer.
+- A reviewer attempt counts as a successful approval vote only when it exits zero, emits a nonempty `VERDICT:` line, declares full coverage, and its receipt shows no original-checkout mutation, surviving reviewer process, or clone-cleanup failure. Otherwise preserve the failure in its receipt and dispatch a replacement reviewer if needed; a failed or timed-out reviewer does not prevent another healthy reviewer from running concurrently.
