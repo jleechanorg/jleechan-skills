@@ -40,9 +40,14 @@ Required structure, in this order:
      block; if they disagree, report the earliest unmet stage and write
      `MISMATCH (label X / title Y / block Z)` instead of picking one. A PR with no stage
      marker is `unstaged`; never infer a stage from draft status or CI colour. For
-     PRs this session owns, run the resolved `/prw` workflow entry point first so each
-     one's markers are synchronized before the board reads them. This is mandatory for
-     every `/roadmap` invocation, including status-only and concise-report modes, and
+     PRs this session owns, before running the resolved `/prw` workflow entry point,
+     read and retain the pre-sync values of the stage label, title and
+     `## PR Stage` block, including any missing marker. If they disagree, record the
+     earliest unmet stage and exact pre-sync mismatch
+     (`MISMATCH (label X / title Y / block Z)`) for the final report.
+     Then run `/prw` so the board reads synchronized markers, and preserve and report
+     every recorded pre-sync mismatch even when `/prw` resolves it. This is mandatory
+     for every `/roadmap` invocation, including status-only and concise-report modes, and
      it must happen before the stage table is produced. When another owner controls a
      PR, run the resolved workflow in its status/read-only mode, preserve that owner's
      markers, and do not advance the stage without live workflow proof. If markers
