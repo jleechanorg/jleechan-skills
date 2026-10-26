@@ -159,6 +159,10 @@ A stage name describes work remaining. [final approval] does not mean approved o
 Orthogonal hold labels are hold:reviewer, hold:operator, hold:conflict and hold:quota; they never replace the stage.
 For each transition, read the actual head/base, title, labels, body, artifacts and findings; choose the earliest
 unmet stage, synchronize title/label/`## PR Stage`, and read back all three.
+Place `## PR Stage` **below** the description's opening line-delta sentence
+(`Line deltas: prod +X/-Y across N files; non-prod +A/-B across M files.`): that sentence stays the body's first
+line, and a stage sync must never displace, bury, or restate it. If the body has no such opener, add a measured
+one before inserting the stage block.
 The body records stage/status, accountable owner, next action or exact blocker/resumption trigger, actual
 head/base, full diff count/review route and original tested/reviewed SHAs with current applicability.
 Verify label existence using authorized tooling; provision only within explicit scope.
