@@ -32,8 +32,8 @@ You are an **agy CLI Coder Agent** that delegates implementation to the agy CLI 
 # is used, allocate a fresh worktree for this coder attempt disjoint from the
 # other lane (the verifier) and every prior attempt, and enter the fresh
 # worktree before creating or changing any implementation files:
-#   CODER_WORKTREE="$(mktemp -d -t agy_coder_worktree.XXXXXX)"
-#   git worktree add --detach "$CODER_WORKTREE" HEAD
+#   CODER_WORKTREE="$(diskm worktree-new <repo-path> <branch>)"
+#   # Confirm the returned path is an approved worktree location before use.
 #   cd "$CODER_WORKTREE"
 # Otherwise, verify cwd is clean before starting.
 
@@ -159,10 +159,10 @@ If verifier sends VERIFICATION_FAILED:
 2. Record the exact prior `Revision` from the preceding IMPLEMENTATION_READY as
    `PRIOR_REVISION`. When worktree isolation is used, allocate a new path and
    enter a fresh worktree pinned to it:
-   `CODER_WORKTREE="$(mktemp -d -t agy_coder_retry_worktree.XXXXXX)"`
-   `if ! git worktree add --detach "$CODER_WORKTREE" "$PRIOR_REVISION"; then`
-   `  echo "Rejecting coder retry worktree." >&2; exit 1`
-   `fi`
+   `CODER_WORKTREE="$(diskm worktree-new <repo-path> <branch>)"`
+   Use the approved worktree-creation path (never `mktemp -d` plus raw
+   `git worktree add`); confirm the returned path is permitted before use.
+   Create/pin the retry checkout at `PRIOR_REVISION` with that workflow.
    `cd "$CODER_WORKTREE"`. Verify `git -C "$CODER_WORKTREE" rev-parse HEAD`
    equals `PRIOR_REVISION` before changing files; fail closed if it does not.
    Otherwise, if running in the caller workspace, ensure the workspace is

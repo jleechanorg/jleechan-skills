@@ -189,20 +189,31 @@ else
     )
 fi
 
-# Determine output format and limits
+# The model resolves requested output format and any explicit limit, then passes
+# `--print-inline` and `--limit N` as applicable. Shell parses these options; it
+# does not infer intent from words in the natural-language request.
 
 PRINT_INLINE=false
 LIMIT=""
 
-if echo "$ARGS" | grep -qi "print\|show\|display"; then
-    PRINT_INLINE=true
-    echo "📺 Will display comments inline"
-fi
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --print-inline)
+            PRINT_INLINE=true
+            shift
+            ;;
+        --limit)
+            [ "$#" -ge 2 ] || { echo "--limit requires a value" >&2; exit 2; }
+            LIMIT="$2"
+            case "$LIMIT" in ''|*[!0-9]*) echo "--limit must be a non-negative integer" >&2; exit 2 ;; esac
+            shift 2
+            ;;
+        *) shift ;;
+    esac
+done
 
-if echo "$ARGS" | grep -o '[0-9]\+' | head -2 | tail -1 | grep -q .; then
-    LIMIT=$(echo "$ARGS" | grep -o '[0-9]\+' | head -2 | tail -1)
-    echo "🔢 Comment limit: $LIMIT"
-fi
+[ "$PRINT_INLINE" = true ] && echo "📺 Will display comments inline"
+[ -n "$LIMIT" ] && echo "🔢 Comment limit: $LIMIT"
 
 echo "🚀 Fetching comments for PR #$PR_NUMBER..."
 cd .claude/commands && python3 -c "

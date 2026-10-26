@@ -1,6 +1,6 @@
 ---
 name: ao-worker-dispatch
-description: Checklist for dispatching AO workers — python venv, commit discipline, branch drift, and post-push CodeRabbit verification
+description: Checklist for dispatching AO workers — repository-owned test runners, commit discipline, branch drift, and review feedback
 type: skill
 ---
 
@@ -10,32 +10,37 @@ type: skill
 
 ## Mandatory prompt elements (add to EVERY ao spawn call)
 
-### 1. Python binary
+### 1. Test runner
 ```
-ALWAYS use `./vpython -m pytest` for ALL test runs.
-NEVER use `python3`, `python3.11`, or any system Python.
-./vpython activates the project venv which has all required deps (flask_cors, gunicorn, etc.).
+Use the target repository's documented test runner and test-layer contract.
+For `testing_mcp/` in WorldArchitect, follow `testing_mcp/CLAUDE.md`: use its
+direct `python3` invocation with explicit `PYTHONPATH`, never `vpython` or
+pytest collection. Tests in `testing_mcp/` and `testing_ui/` require a real
+running server and real services, except the explicit direct-provider schema
+probe allow-list. Never infer a runner from a generic AO prompt.
 ```
 
 ### 2. Commit-early discipline
 ```
-Commit after the FIRST test passes. Do not wait for all tests to pass.
-Push and open a draft PR before you reach 30% context.
-Rule: uncommitted work at >40% context = compaction risk = lost work.
+Commit a green unit after its scoped checks pass and its evidence is recorded;
+do not wait for unrelated work. Follow the live task's authorization for push
+and draft-PR creation. Do not use fixed context percentages as stop or push
+thresholds; checkpoint before compaction and preserve the active worktree.
 ```
 
 ### 3. Branch verification (post-compaction)
 ```
-After ANY context compaction event:
+After any context compaction event:
 1. Run: git branch --show-current
 2. Verify it matches your assigned branch: [BRANCH]
-3. If wrong: git checkout [BRANCH] before touching any file.
+3. If wrong, do not edit or switch the current checkout blindly. Inspect status and worktree ownership, preserve unrelated work, and enter an approved isolated worktree pinned to the assigned revision.
+```
 ```
 
 ### 4. Scope discipline
 ```
 PR1 means PR1 ONLY. Do not add PR2 features to a PR1 branch.
-If you discover PR2 code in your working tree: git checkout -- <file> to discard it.
+If you discover out-of-scope code in the working tree, leave it untouched; isolate this task's explicit paths or report the concrete conflict. Never discard unrelated work.
 ```
 
 ## Spawn pattern — NEW work vs EXISTING PR (critical distinction)
@@ -50,12 +55,12 @@ ao send <session> --file <task-file>
 ```bash
 ao spawn <bead-id> -p <project>          # creates feat/<bead> branch
 ao session claim-pr <PR-number> <session> # switches to actual PR branch, links PR so AO keeps session alive
-ao send <session> "Fix PR #N (<branch>). Already on correct branch. Read: gh pr view N --json reviews. Fix actionable CR items. Use ./vpython. Commit early, push."
+ao send <session> "Fix the requested PR scope on its verified branch. Follow the target repository's test instructions; preserve unrelated work; commit green units and push only within the authorized task scope."
 ```
 
 **Why claim-pr is mandatory for existing PRs**: Sessions on `feat/<bead>` branches with no PR get killed by AO cleanup. `claim-pr` switches the worktree to the real PR branch AND registers the PR linkage that prevents cleanup.
 
-**Exception**: `claim-pr` fails if the PR branch is checked out in the main worktree. In that case, send a task telling the worker to `git fetch origin && git checkout -b local-fix origin/<branch>`.
+**Exception**: `claim-pr` fails if the PR branch is checked out in another worktree. Preserve that checkout and use `diskm worktree-new <repo-path> <local-branch> --base origin/<branch>` to create an isolated task checkout. Verify the returned path and exact base before editing.
 
 ## Overlap Detection (Pre-spawn)
 
@@ -72,7 +77,7 @@ This prevents duplicate work where two workers independently fix the same pre-ex
 
 ## Pre-dispatch verification (orchestrator responsibility)
 Before calling `ao spawn`, verify:
-- [ ] Task prompt includes `./vpython` instruction
+- [ ] Task prompt names the target repository's documented test runner and test-layer contract
 - [ ] Task prompt includes commit-early checkpoint
 - [ ] Task prompt names the exact branch (not just "create a branch")
 - [ ] Task prompt specifies what belongs in THIS PR vs future PRs
@@ -103,30 +108,36 @@ If the user asked for Codex workers, the session is invalid unless:
 
 If verification fails, kill and respawn the session. Do not continue with a mismatched worker.
 
-## Post-push CodeRabbit verification (worker responsibility)
+## Post-push review feedback (advisory)
 
-CI passing does **not** imply CodeRabbit re-reviewed. The latest review can remain `CHANGES_REQUESTED` or `COMMENTED` until a new review is submitted **after** your fix push.
+CodeRabbit and Bugbot are optional advisory reviewers, not readiness, `/green`,
+or merge gates. Read their feedback and take what is useful; do not wait for an
+approval or ask a bot to approve.
 
-**After every push** that is meant to clear review feedback:
+After an authorized push that addresses review feedback:
 
-1. **Wait for GitHub checks** to finish (do not declare done while checks are `pending` or `in_progress`).
-2. **Inspect CodeRabbit’s latest review** (must be tied to the current head or newer than your push):
+1. If a new CodeRabbit review is available, inspect its scope and report it as advisory:
    ```bash
    gh api repos/OWNER/REPO/pulls/PR_NUMBER/reviews \
      --jq '[.[] | select(.user.login=="coderabbitai[bot]")] | sort_by(.submitted_at) | .[-1] | {state, submitted_at}'
    ```
-3. If state is not `APPROVED`, do **not** treat the PR as merge-ready. Post `@coderabbitai all good?` once checks have settled (see harness `CLAUDE.md` PR Green Loop), then re-check after a new review appears.
-4. If the latest CR review’s `submitted_at` is **older than** the timestamp of your latest fix commit on the PR branch, assume review is **stale** until a new review lands.
+2. Assess any carried review by its actual scope and commit delta under `pr-lifecycle`; a timestamp alone does not establish applicability.
 
-Same pattern applies to other blocking checks: confirm the **bot state reflects the latest SHA**, not only that CI is green.
+Verify current-head CI and mergeability through the canonical owners; do not infer a required gate from reviewer-bot status.
 
-## Nudge triggers (when to intervene)
-Send a nudge if the worker:
-- Uses `python3` or any non-`./vpython` test runner
-- Has >4 changed files with 0 commits at >40% context
-- Is referencing a PR number that is not its own PR
-- Has been "thinking" (Gitifying/Ebbing/Booping) for >10 minutes with no output
-- Declares "done" or "ready for merge" while CodeRabbit’s latest review is not `APPROVED` at current head
+## Worker follow-up
+
+Use the full-history and two-sample protocol in `ao-session-monitor` before
+deciding that a worker is stalled. A timer, short tail, or old activity
+indicator alone is not a follow-up trigger. Steer only when an independent
+current-state check shows a specific actionable problem and the task
+authorizes steering.
+
+Follow up only when an independent current-state check shows a specific,
+actionable problem, such as a verified assigned-branch mismatch or a missing
+required test/review step. Use canonical owners to classify CI and mergeability;
+never use a bot state, tool timer, fixed context percentage, or short pane tail
+as a gate.
 
 ## ao send broken pipe — retry pattern
 
@@ -147,14 +158,11 @@ ao send wa-XXXX --file "$TASK_FILE" || {
 - `br list` from inside the worktree won't see home beads
 - A bead ID like `$USER-xxxx` created from the worktree context is invisible from home `br show`
 
-**Mitigation**: Always run `br` from the **same context** (home dir recommended) for consistency. If you suspect a bead went to the wrong DB, check both:
-```bash
-# Home beads DB
-sqlite3 ~/.beads/beads.db "SELECT id, title FROM beads LIMIT 5;"
-# Worktree beads DB (example path)
-ls ~/.config/superpowers/worktrees/<project>/<worktree>/.beads/
-sqlite3 ~/.config/superpowers/worktrees/<project>/<worktree>/.beads/beads.db "SELECT id, title FROM beads LIMIT 5;"
-```
+**Mitigation**: Always invoke `br` from the intended workspace and follow the
+target repository's Beads owner. If you suspect a bead was created in another
+workspace, use supported `br` read-only commands from each exact workspace to
+locate it. Do not inspect or edit raw `.beads` interchange files or databases;
+follow `~/.claude/skills/beads-issue-tracking/SKILL.md` for recovery.
 
 ## Evidence of this skill working
 - wa-57: 12 nudges required (no skill existed) → target: 0 nudges for python/commit issues

@@ -30,8 +30,8 @@ All AO workers and agents MUST follow these steps for every bug fix or feature i
 - **Artifact**: Label this as `final_verification` or `green_phase` in your evidence bundle.
 
 ### 3. Refactor and Finalize
-- **Action**: Clean up the code, ensure it adheres to style guidelines, and run the full test suite.
-- **Evidence Capture**: Final test results for the entire component.
+- **Action**: Clean up the code, ensure it adheres to style guidelines, and run the focused test plus relevant regression checks required by the repository's current testing-layer owner. Do not run an unfiltered local full suite when repository policy assigns it to CI or prohibits it.
+- **Evidence Capture**: Record the command, revision, scope, and result for each check. Report broader checks as not run or pending when appropriate; a focused pass proves only its claim.
 
 ## Mandatory Evidence Structure
 

@@ -62,14 +62,9 @@ If `/commentcheck` finds issues:
 
 **Usage**: `/commentcheck [PR_NUMBER] [--verify-urls]`
 
-🚨 **CRITICAL PURPOSE**: Verify 100% comment coverage and response quality after comment reply process. Count ALL comments requiring response (everything except '[AI responder]' comments).
+Report comment coverage and response quality after review. Do not make zero unanswered comments a push, readiness, or merge gate.
 
-🚨 **CRITICAL CLARIFICATION - Bot Comments Must Be Addressed**:
-- ✅ **"ALL comments" explicitly INCLUDES bot comments**: CodeRabbit, GitHub Copilot, automated reviewers
-- ✅ **"ALL comments" explicitly INCLUDES human comments**: Team members, manual reviewers
-- ❌ **ONLY EXCEPTION**: Comments starting with "[AI responder]" (our own AI-generated responses)
-- 🚨 **MANDATORY**: Bot code review comments MUST have responses - either fixes or "NOT DONE: [reason]"
-- 🚨 **ZERO SKIP TOLERANCE**: 100% reply rate means bot AND human comments must be addressed
+Automated reviewer comments are advisory. Report human feedback according to the current PR lifecycle. An unanswered comment alone does not create a gate.
 
 🔒 **Security**: Uses safe jq --arg parameter passing to prevent command injection vulnerabilities and explicit variable validation.
 
@@ -79,36 +74,34 @@ If `/commentcheck` finds issues:
 
 ## 🎯 INDIVIDUAL COMMENT VERIFICATION MANDATE
 
-**MANDATORY**: This command MUST count ALL comments requiring response:
-- **Zero tolerance policy** - Every comment needs response except '[AI responder]' comments
-  - 🚨 **Bot comments (CodeRabbit, GitHub Copilot, automated reviewers) = MUST respond**
-  - 🚨 **Human comments = MUST respond**
-  - ❌ **[AI responder] comments = Skip (our own responses)**
+Review comments against the PR lifecycle and current task scope:
+- Human feedback should be recorded and handled when it is required for the requested outcome.
+- CodeRabbit, Bugbot, and other automated reviewer comments are advisory, not merge or push gates.
+- Our own `[AI responder]` comments are not new findings.
 - **Simple counting** - Count comments NOT starting with '[AI responder]'
-- **Warning system** - Clear alerts when unaddressed comments > 0
+- **Warning system** - Report unanswered comments without inferring a gate
 - **No complex classification** - No bot detection
 - **Evidence requirement** - List any comments needing response by ID
-- **Simple principle** - Address everything (human AND bot) except our own '[AI responder]' responses
-- **Direct reply verification** - Every non-AI-responder comment (including bot comments) must have response
+- **No zero-comment gate** - An unanswered comment alone does not block push or merge eligibility.
+- **Direct reply verification** - Verify a reply only when the current user request explicitly asks to send one.
 
 ## Description
 
 Pure markdown command (no Python executable) that systematically verifies all PR comments have been properly addressed with appropriate responses. **ORCHESTRATES /commentfetch for data source** instead of duplicating GitHub API calls. This command runs AFTER `/commentreply` to ensure nothing was missed.
 
-## 🚨 COPILOT INTEGRATION REQUIREMENTS
+## COPILOT INTEGRATION
 
-### FAILURE ESCALATION (MANDATORY EXIT CODES):
+### Reporting (no new lifecycle gate):
 
-- **EXIT CODE 1**: Unresponded comments detected - HALT copilot execution immediately
-- **EXIT CODE 2**: GitHub API failures - HALT with diagnostic information
-- **EXIT CODE 0**: Only when 100% coverage verified - ALLOW copilot to continue
+- **EXIT CODE 1**: Reserved for a required lifecycle gate only when the authoritative owner defines one
+- **EXIT CODE 2**: Comment data unavailable; report the failure. This status alone does not create a push or merge gate.
+- **EXIT CODE 0**: Comment count alone is not a failure
 
 ### COPILOT INTEGRATION PROTOCOL:
 
-- **PRE-PUSH GATE**: Must run before any push operations in copilot workflow
-- **HARD STOP ENFORCEMENT**: Non-zero exit codes must halt copilot execution
-- **NO BYPASS ALLOWED**: Cannot be skipped or ignored in copilot automation
-- **COVERAGE THRESHOLD**: Exactly 0 unaddressed comments (excluding '[AI responder]') required for success
+- **PRE-PUSH GATE**: This command is advisory triage; it does not create a new push gate.
+- **HARD STOP ENFORCEMENT**: Stop only for a required lifecycle gate, never solely for optional bot feedback.
+- **COVERAGE THRESHOLD**: Do not require zero unaddressed comments; report their source and lifecycle status.
 
 ## What It Does
 
@@ -125,8 +118,8 @@ Pure markdown command (no Python executable) that systematically verifies all PR
 
 PR_NUMBER=${1:-$(gh pr view --json number --jq .number)}
 if [ -z "$PR_NUMBER" ]; then
-  echo "❌ ERROR: Could not determine PR number. Please specify PR number or run from PR branch."
-  echo "EXIT CODE: 2 (API_FAILURE - Copilot execution must halt)"
+  echo "ℹ️ COMMENT DATA UNAVAILABLE: Could not determine PR number."
+  echo "EXIT CODE: 2 (UNAVAILABLE - consult canonical lifecycle gates separately)"
   exit 2
 fi
 
@@ -154,10 +147,9 @@ COMMENTS_FILE="$COPILOT_DIR/comments.json"
 RESPONSES_FILE="$COPILOT_DIR/responses.json"
 
 if [ ! -f "$COMMENTS_FILE" ]; then
-  echo "🚨 CRITICAL: COPILOT EXECUTION HALTED" >&2
-  echo "🚨 REASON: commentfetch failed to provide structured data at $COMMENTS_FILE" >&2
+  echo "ℹ️ COMMENT DATA UNAVAILABLE: commentfetch did not provide structured data at $COMMENTS_FILE" >&2
   echo "This indicates commentfetch execution failure or missing output file." >&2
-  echo "EXIT CODE: 2 (API_FAILURE - Copilot execution must halt)" >&2
+  echo "EXIT CODE: 2 (UNAVAILABLE - consult canonical lifecycle gates separately)" >&2
   exit 2
 fi
 
@@ -221,9 +213,8 @@ echo "=== THREADING VERIFICATION ANALYSIS (JSON-BASED) ==="
 
 ALL_COMMENTS=$(jq '.comments' "$COMMENTS_FILE" 2>/dev/null || echo '[]')
 if [ "$(echo "$ALL_COMMENTS" | jq length)" -eq 0 ]; then
-  echo "🚨 CRITICAL: COPILOT EXECUTION HALTED" >&2
-  echo "🚨 REASON: No comment data available from commentfetch JSON" >&2
-  echo "EXIT CODE: 2 (API_FAILURE - Copilot execution must halt)" >&2
+  echo "ℹ️ COMMENT DATA UNAVAILABLE: No comments were returned by commentfetch" >&2
+  echo "EXIT CODE: 2 (UNAVAILABLE - consult canonical lifecycle gates separately)" >&2
   exit 2
 fi
 
@@ -303,12 +294,10 @@ echo "   CodeRabbit-specific templates: $CODERABBIT_COUNT"
 # Simple quality assessment - just check for basic response coverage
 
 if [ "$AI_RESPONSE_COUNT" -eq 0 ] && [ "$NEEDS_RESPONSE_COUNT" -gt 0 ]; then
-  echo "🚨 CRITICAL: COPILOT EXECUTION HALTED"
-  echo "🚨 REASON: No AI responder comments found but comments need responses"
-  echo "🚨 REQUIRED ACTION: Run /commentreply to generate responses"
+  echo "ℹ️ No AI-responder replies were found; this count alone is not a lifecycle gate."
   echo ""
-  echo "EXIT CODE: 1 (FAILURE - No responses provided)"
-  exit 1
+  echo "EXIT CODE: 0 (report only)"
+  exit 0
 else
   echo "✅ BASIC QUALITY CHECK PASSED: AI responses detected"
 fi
@@ -321,9 +310,7 @@ AI_RESPONDER_COMMENTS=$(jq '[.comments[] | select(.body | startswith("[AI respon
 NEEDS_RESPONSE_COUNT=$((TOTAL_COMMENTS - AI_RESPONDER_COMMENTS))
 
 if [ "$NEEDS_RESPONSE_COUNT" -eq 0 ]; then
-    echo "✅ **ZERO TOLERANCE POLICY: PASSED**"
-    echo "🎉 **SUCCESS**: All comments addressed (only AI responder comments remain)"
-    echo "📈 **COVERAGE SCORE**: 100% ✅ PASSED"
+    echo "✅ **COMMENT REPORT**: No unanswered comments were found"
     echo ""
     echo "📊 **SIMPLE STATISTICS:**"
     echo "   - Total comments: $TOTAL_COMMENTS"
@@ -331,16 +318,14 @@ if [ "$NEEDS_RESPONSE_COUNT" -eq 0 ]; then
     echo "   - Comments needing response: $NEEDS_RESPONSE_COUNT"
     echo "   - All non-AI comments addressed: ✅"
     echo ""
-    echo "🎯 **SIMPLE COVERAGE SUCCESS**: Zero tolerance policy satisfied"
+    echo "🎯 **COMMENT REPORT**: Coverage is complete"
     echo "✅ COPILOT CLEARED: All comments processed successfully"
     echo "✅ PROCEEDING: Copilot execution may continue"
     echo ""
-    echo "EXIT CODE: 0 (SUCCESS - Copilot may proceed)"
+    echo "EXIT CODE: 0 (report only)"
     exit 0
 else
-    echo "🚨 **ZERO TOLERANCE POLICY: FAILED**"
-    echo "❌ **FAILURE**: $NEEDS_RESPONSE_COUNT comments need responses"
-    echo "📈 **COVERAGE SCORE**: $(( AI_RESPONDER_COMMENTS * 100 / TOTAL_COMMENTS ))% ❌ FAILED"
+    echo "ℹ️ $NEEDS_RESPONSE_COUNT comments remain without an AI-responder reply; this count alone is not a lifecycle gate."
     echo ""
     echo "🚨 **COMMENTS REQUIRING IMMEDIATE ATTENTION**:"
 
@@ -349,60 +334,35 @@ else
     echo "$NEEDS_RESPONSE_LIST"
 
     echo ""
-    echo "🚨 CRITICAL: COPILOT EXECUTION HALTED"
-    echo "🚨 REASON: $NEEDS_RESPONSE_COUNT unresponded comments detected"
-    echo "🚨 REQUIRED ACTION: Address ALL unresponded comments before copilot can continue"
+    echo "ℹ️ Review comment sources and required status under the current PR lifecycle."
     echo ""
-    echo "🔧 **REQUIRED ACTION**: Run /commentreply to address unresponded comments"
-    echo "⚠️ **WORKFLOW HALT**: Cannot proceed until all comments addressed"
     echo "📊 **COMMENTFETCH DATA**: $TOTAL_COMMENTS total, $NEEDS_RESPONSE_COUNT unresponded"
     echo ""
-    echo "EXIT CODE: 1 (FAILURE - Copilot execution must halt)"
-    exit 1
+    echo "EXIT CODE: 0 (report only; no gate inferred from comment count)"
+    exit 0
 fi
 ```
 
-## Individual Comment Success Criteria (ZERO TOLERANCE)
+## Comment Coverage Report
 
-🚨 **✅ PASS REQUIREMENTS**: ZERO unresponded comments with quality responses
-- **ZERO unresponded comments detected** (explicit count must be 0)
-- **Clear warning system shows no alerts** (unresponded count = 0)
-- **Every bot comment (CodeRabbit, GitHub Copilot, automated reviewers) has a response** (bot feedback is NOT optional)
-- **Every human reviewer comment has a response** (team feedback must be addressed)
-- 🚨 **CRITICAL**: Bot comments are NOT skippable - they need 100% reply rate like human comments
-- **All responses address specific technical content** (not generic acknowledgments)
-- **Appropriate ✅ DONE/❌ NOT DONE status** (clear resolution indication)
-- **Professional and substantial replies** (meaningful engagement with feedback)
-
-🚨 **❌ FAIL CONDITIONS**: ANY unresponded comments detected
-- **ANY unresponded comment count > 0** (immediate failure with clear warning)
-- **Warning system alerts triggered** (explicit alerts when unresponded comments found)
-- **Generic/template responses** ("Thanks!" or "Will consider" are insufficient)
-- **Bot comment coverage failure** (skipping any Copilot/CodeRabbit/automated reviewer feedback violates 100% reply requirement)
-- **Responses don't address technical content** (must engage with specific suggestions from bots or humans)
-- **Unprofessional or inadequate replies** (maintain PR review standards for all comment sources)
-
-### 🎯 SPECIFIC FAIL TRIGGERS (UNRESPONDED COMMENT FOCUS)
-
-- **Unresponded comment count > 0** (explicit count detection and warning)
-- **Zero individual responses** (like PR #864 - complete failure with 11 unresponded)
-- **Skipped bot comment detected** (any Copilot/CodeRabbit/automated reviewer comment without reply = failure)
-- **Warning system triggered** (any alerts about unresponded comments)
-- **Template responses only** (generic acknowledgments without substance)
-- **Ignored technical suggestions** (failing to address specific code feedback from bots or humans)
+Report unanswered comments by source and lifecycle status. Automated reviewer
+comments remain advisory. An unanswered comment alone does not block push,
+readiness, or merge eligibility. Verify replies only when the live user request
+explicitly asks to send them. Escalate only an unmet gate specified by the
+current PR lifecycle owner.
 
 ### When to Run
 
 - **After** `/commentreply` completes
-- **Before** final `/pushl` in copilot workflow
-- **Verify** comment coverage is complete
+- **Before** final `/pushl` when useful for advisory triage
+- **Report** comment coverage; defer push/merge gates to their canonical owners
 
 ## Command Flow Integration
 
 ```
-/commentfetch → /fixpr → /pushl → /commentreply → /commentcheck → /pushl (final)
+/commentfetch → /fixpr → /commentreply → /commentcheck (advisory) → /pushl (per canonical lifecycle)
                                                         ↓
-                                               [100% coverage verified]
+                                               [comment coverage reported]
 ```
 
 ## Architectural Benefits

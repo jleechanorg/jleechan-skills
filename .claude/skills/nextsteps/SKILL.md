@@ -59,6 +59,20 @@ Mode: --full (beads + ~/roadmap + Claude memory + mem0 + GH Issues)
 
 ## Fail-closed rule
 
+## Continue authorized work before handoff
+
+Before writing a handoff or ending the run, reconcile the live request and
+current task state. A status question, acknowledgement, checkpoint, or context
+transition does not withdraw authorization for the same action, target, and
+outcome. Complete the next safe, reversible, authorized action—including
+available reviews and evidence checks—before reporting it as a next step.
+Record a future task as queued only when it is outside the current request or
+requires a real gate. Keep explicit planning-only requests, user stops, the
+autonomy deadline, and user-only authority boundaries intact. If blocked, name
+the exact action, current reason it cannot proceed, controlling owner, attempts
+and alternatives, and a concrete resumption trigger; do not label routine
+verification or review as waiting for the user.
+
 A `/nextsteps` run is **incomplete** unless it leaves **all** of these artifacts
 **for its chosen mode**:
 
@@ -93,6 +107,7 @@ A normal `/nextsteps` invocation authorizes all relevant stages below. Complete 
 - Interim user updates are non-blocking status messages, not approval checkpoints.
 - If mem0, GitHub Issues, or another optional sink is unavailable in `--full` mode, record the exact attempted result, complete every other artifact, and report the unavailable sink in the final checklist.
 - Stop only for a genuine blocker that requires new authority or information and cannot be safely worked around. Routine external failures, disabled integrations, or partial tool availability are not stopping conditions.
+- Phase 8 completes this command's assessment and persistence work; it does not terminate an ongoing caller workflow or cancel already-authorized work. Return to that workflow and continue its next safe action after reporting.
 
 ## Doc discovery — prefer update over create
 
@@ -179,7 +194,7 @@ The independent `.md` file is the **handoff artifact**: a reader must be able to
 
 - Critical path and measured or provisional concurrency ceiling: …
 - Milestones: +20m, +40m, +60m (hourly rollup), then repeat while active.
-- Execution start: pending authorized resumption; this handoff does not start it.
+- Execution start: <started now, or the exact unmet gate and resumption trigger>. Do not mark already-authorized work pending resumption; continue it in the current workflow.
 
 ## PR / merge state
 

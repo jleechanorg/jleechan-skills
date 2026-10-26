@@ -7,6 +7,11 @@ description: "Mirror the current git dir/worktree/branch onto a Mac and continue
 
 Companion to [linux-mirror](../linux-mirror/SKILL.md) (same flow, opposite direction). Unlike a plain SSH-steering skill, this mirrors the **current repo's committed state** onto the target Mac and resumes work there in a persistent tmux session.
 
+For capacity-driven handoffs, follow
+[host load balancing](../parallelize-to-ceiling/references/host-load-balancing.md)
+for host selection and task ownership; this skill owns Mac transport and
+response proof.
+
 If you're already running locally on the target Mac, there's nothing to mirror — say so and stop.
 
 ## Setup (once, per pair of machines)

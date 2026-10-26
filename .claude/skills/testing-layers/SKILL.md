@@ -11,14 +11,14 @@ This skill defines the **concrete test directory structure** for Your Project, t
 
 ## Directory Map
 
-| Layer | Directory | Runner | Count | Evidence Class |
-|---|---|---|---|---|
-| **1. Unit** | `$PROJECT_ROOT/tests/` | `./vpython -m pytest $PROJECT_ROOT/tests/test_*.py` | ~295 files | Deterministic proof only; no live-service credit |
-| **1b. Unit (top-level)** | `tests/` | `./vpython -m pytest tests/test_*.py` | ~4 files | Deterministic proof only; no live-service credit |
-| **2. End-to-End**| `$PROJECT_ROOT/tests/test_end2end/` | `./vpython -m pytest $PROJECT_ROOT/tests/test_end2end/` | ~30 files | Deterministic proof only; no live-service credit — see `/end2end-testing` skill |
-| **3. MCP API** | `testing_mcp/` | `./vpython testing_mcp/test_*.py --server http://127.0.0.1:8001` | ~139 files | Server + LLM (full `/es`) — see `/llm-testing` skill |
-| **4. HTTP API** | `testing_http/` | `./vpython testing_http/test_*.py` | ~25 files | Server (partial `/es`) |
-| **5. Browser** | `testing_ui/` | `./vpython testing_ui/test_*.py` | ~40 files | Server + LLM + Browser (full `/es` + video) — see `/llm-testing` skill |
+| Layer | Directory | Runner | Evidence class |
+|---|---|---|---|
+| **1. Unit** | `$PROJECT_ROOT/tests/` | Use the repository's targeted test runner | Deterministic claims only; no live-service credit |
+| **1b. Unit (top-level)** | `tests/` | Use the repository's targeted test runner | Deterministic claims only; no live-service credit |
+| **2. End-to-End** | `$PROJECT_ROOT/tests/test_end2end/` | Use the repository's targeted test runner and E2E owner | Deterministic composed claims; no live-service credit |
+| **3. MCP API** | `testing_mcp/` | Follow `$PROJECT_ROOT/testing_mcp/AGENTS.md` | Real server/provider/auth evidence only for claims exercised |
+| **4. HTTP API** | `testing_http/` | Follow current project test instructions | Evidence for the exercised HTTP/server claim |
+| **5. Browser** | `testing_ui/` | Follow `$PROJECT_ROOT/testing_ui/CLAUDE.md` | Real authenticated browser evidence for the exercised UI claim |
 
 ### Shared Libraries
 
@@ -33,9 +33,9 @@ This skill defines the **concrete test directory structure** for Your Project, t
 
 ### Execution Environment
 
-- **Layer 1-2, 4 (Unit, E2E, HTTP)**: Default test environment is `TEST_MODE=mock` (via `run_tests.sh`).
-- **Layer 3 & 5 (MCP, Browser)**: Must use real services. Set `MCP_TEST_MODE=real`, `TEST_MODE=real`, `MOCK_SERVICES_MODE=false`, `TESTING_AUTH_BYPASS=true`. **Use `/llm-testing`** as the canonical entry point — it forces the zero-mock real-LLM run for live model-behavior claims; deterministic proof follows the claim boundary below.
-- **Never use mock mode** for `testing_mcp/` or `testing_ui/` — this is a hard policy (`/llm-testing` enforces it: a run with any mock flag set is void)
+- **Layers 1-2 and offline HTTP tests** may use deterministic mocks when the test lives outside `testing_mcp/` and `testing_ui/` and its claim is offline. These tests support only their stated deterministic claim.
+- **Layers 3 and 5** must use real server, Firestore, Firebase Auth, and live provider responses as required by their scoped owners. Resolve the project root; follow `testing_mcp/AGENTS.md` and `testing_ui/CLAUDE.md`, including explicit `TESTING_AUTH_BYPASS=false ALLOW_TEST_AUTH_BYPASS=false` for acceptance. Any offline mocks, bypass, or synthetic results in those directories invalidate acceptance evidence.
+- Use `/llm-testing` only when the claim requires real model-behavior evidence; deterministic claims use the lowest sufficient layer under the claim boundary below.
 
 ---
 
@@ -55,7 +55,7 @@ The real-service-only directory rules above remain mandatory.
 
 If the behavior under test is **deterministic server code** that runs the same way regardless of what the LLM said, a **unit test** is the correct tier. The LLM is just a trigger — you can simulate it with a dict.
 
-**CRITICAL DEFAULT RULE**: Unit tests should ONLY be done if we are 100% confident we can test the logic entirely self-contained. The logic must be truly small and self-contained. Otherwise, strongly consider Layer 2 (End-to-End) first by default.
+Use a unit test when an isolated deterministic test proves the claim. Use a higher layer when the claim crosses a service or integration boundary that the unit test cannot exercise. Do not require E2E work solely because a change spans multiple functions or files.
 
 - ✅ Unit: `dict.pop("level")` works identically whether the dict came from Gemini or a test fixture
 - ✅ Unit: Boolean functions checking two dicts (`is_level_up_active()`)
@@ -79,12 +79,15 @@ Streaming, parsing, Firestore persistence, DOM rendering — bugs live in the gl
 
 ### Principle 4: Is it a multi-function or multi-file flow of execution?
 
-If the behavior spans multiple functions, files, or subsystems but does NOT require real LLM judgment (e.g., standard request routing, validation pipelines, state serialization, or game state updates), **Layer 2 (End-to-End)** is the preferred layer. It provides high integration confidence across the callstack while remaining fast and deterministic via Mock LLMs. **Strongly consider Layer 2 first by default unless the logic is truly small and self-contained.**
+If the claim spans multiple functions or files, choose an integration layer only when that boundary is material to the claim. A deterministic composed test outside `testing_mcp/` and `testing_ui/` may use mocks; retain a unit test when it is sufficient for the actual behavior.
 
 - ✅ Layer 2 E2E: Routing a user input through the API, checking if the correct agent is selected, and verifying the mock LLM output updates the database correctly.
 - ❌ Not Layer 2: Verifying if Gemini actually hallucinates a specific value (use Layer 3/5).
 
-**Mandatory coverage rule**: When a PR creates or updates multiple non-test files under `$PROJECT_ROOT/**`, it must add or update a Layer 2 E2E test unless the PR explicitly justifies why the changed code is unreachable through an end-to-end application path. The E2E must exercise every newly introduced or modified production code path in that PR, including cross-file handoffs, and assertions must fail if any new path is skipped.
+Select tests from the changed claims and affected boundaries, not a file-count
+threshold. Exercise the changed path at the lowest sufficient layer and add an
+integration test when a unit test would miss a material seam. State a concrete
+reason when no application-level path can exercise a claim.
 
 ### Principle 5: Is the cost proportional to the risk?
 
@@ -127,11 +130,11 @@ If a real-LLM test can pass **without the guard ever firing** (because the LLM d
 | **HTTP** | ⚠️ Server only (no LLM unless explicitly called) | HTTP API contract, auth, response shapes | LLM behavior, UI rendering |
 | **Browser** | Real browser proof for the exercised claim | Observed end-to-end UI behavior | Unexercised flows or services |
 
-### Evidence Bundle Requirements
+### Claim-scoped Evidence Artifacts
 
-- **MCP tests** using `MCPTestBase` auto-emit: `metadata.json`, `collection_log.jsonl`, `raw_llm_request_responses.jsonl`, `raw_http_request_responses.jsonl`
-- **Browser tests** using `BrowserTestBase` auto-emit: all MCP artifacts + screenshots + `.webm` video + VTT subtitles
-- **Unit/E2E tests** record commands, results, tested SHA, and claim limits; they may satisfy bounded deterministic evidence, never live-service proof.
+- MCP and browser acceptance runs use the artifacts required by their scoped owners for the claim. Do not assume every run must include provider traces for paths it did not exercise.
+- Browser-visible behavior retains the repository's explicit video and visual-review requirements.
+- Unit/E2E tests record commands, results, tested SHA, and claim limits; they may satisfy bounded deterministic claims, never live-service proof.
 
 ---
 
@@ -139,25 +142,20 @@ If a real-LLM test can pass **without the guard ever firing** (because the LLM d
 
 1. **Identify the claim**: What behavior are you proving?
 2. **Apply the 6 principles**: Is LLM judgment involved? Integration seams? Cost justified?
-3. **Choose the lowest sufficient layer**: Strongly consider Layer 2 (E2E) by default unless the logic is 100% self-contained (Layer 1). Don't use Browser when MCP suffices.
+3. **Choose the lowest sufficient layer** for the claim. Don't use Browser when MCP suffices, and don't use MCP when an offline deterministic test proves the bounded claim.
 4. **Verify non-vacuous**: If using Layer 3+, ensure the test can detect when the target path was NOT exercised.
 5. **Emit evidence**: Layer 3+ tests must produce `/es`-compliant bundles. Use `MCPTestBase` or `BrowserTestBase`.
 
-### Multi-File `mvp_site` PR Coverage Checklist
+### Multi-file changes
 
-For PRs that add or modify more than one non-test file under `$PROJECT_ROOT/**`:
-
-- Add or update at least one Layer 2 E2E test in `$PROJECT_ROOT/tests/test_end2end/`.
-- The test must drive the application through the real in-process route/service flow that reaches all changed production files.
-- The assertions must prove each changed code path ran and produced the intended observable state, response, or persistence effect.
-- Do not count a unit test, import check, or mock-only direct function call as satisfying this requirement.
-- If Layer 3+ evidence is also required, keep the Layer 2 E2E as the deterministic CI guard and use Layer 3+ for real service proof.
+For a multi-file change, inspect the changed claims and material boundaries. A
+deterministic unit test may prove an isolated behavior; use a composed or real
+integration test when the claim depends on the path between components. Do not
+require a blanket E2E tier solely from the number of production files changed.
 
 ## References
 
-- `.claude/skills/end2end-testing.md` — Layer 2 E2E patterns: fake implementations, Flask API test base class, multi-phase LLM testing
-- `.claude/skills/evidence-standards.md` — evidence class system, minimum viable checklist
-- `.claude/skills/pr-blocker-min-repro.md` — 4-layer (now 5-layer) repro protocol
-- `.claude/commands/4layer.md` — command to run the repro ladder
-- `.claude/commands/tdd.md` — TDD workflow command
-- `AGENTS.md` — `testing_mcp` and `testing_ui` execution policy (real mode only)
+Resolve the current `/end2end-testing`, `/4layer`, `/tdd`, evidence-standards,
+and PR-lifecycle owners through the active command/skill catalog. Resolve the
+project root and read its `AGENTS.md` plus any scoped `testing_mcp/AGENTS.md` or
+`testing_ui/CLAUDE.md` for directory-specific execution policy.

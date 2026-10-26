@@ -47,11 +47,9 @@ REVISION="<exact git SHA from IMPLEMENTATION_READY>"
 # worktree or verify directly in the caller's workspace.
 # When worktree isolation is used, pin this verifier attempt to Revision in its
 # own fresh detached worktree:
-VERIFIER_WORKTREE="$(mktemp -d -t agy_verifier_worktree.XXXXXX)"
-if ! git worktree add --detach "$VERIFIER_WORKTREE" "$REVISION"; then
-    echo "Rejecting verifier worktree creation."
-    exit 1
-fi
+VERIFIER_WORKTREE="$(diskm worktree-new <repo-path> <branch>)"
+# Use the approved worktree-creation path, never `mktemp -d` plus raw
+# `git worktree add`. Pin it to REVISION and verify the returned path is allowed.
 if ! VERIFIER_HEAD="$(git -C "$VERIFIER_WORKTREE" rev-parse HEAD)"; then
     echo "Rejecting verifier worktree without a readable revision."
     exit 1

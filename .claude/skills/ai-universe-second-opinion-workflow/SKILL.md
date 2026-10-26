@@ -26,12 +26,18 @@ scope: project
    ```bash
    node ~/.claude/scripts/auth-cli.mjs status
    ```
-3. **If not authenticated or token expired**, run login (opens browser for OAuth):
-   ```bash
-   # Run this outside Claude Code in a regular terminal
-   node ~/.claude/scripts/auth-cli.mjs login
-   ```
-4. Ensure `http` (HTTPie), `jq`, `python3`, and `node` (>=20.0.0) are installed in the environment.
+3. Follow `../ai-universe-auth/SKILL.md` for current authentication state and
+   refresh handling. If the existing token is expired, call the existing
+   `auth-cli.mjs token` command to refresh from the authorized credential store
+   without printing the token. Retry the requested non-UI MCP call once after a
+   successful refresh. Do not start a browser login from a 401 or stale token
+   status. If refresh fails, use the canonical credential owner's Keychain
+   presence probe (without displaying a value) and a cheap non-UI authenticated
+   call. Only after both fail may you report the physical authentication
+   dependency; do not ask for login from status output alone.
+4. Ensure `http` (HTTPie), `jq`, and `python3` are installed. Use the active
+   host's nvm Node 22; on this Mac use
+   `/Users/jleechan/.nvm/versions/node/v22.22.0/bin/node`.
 
 > ℹ️ **Seamless Auto-Refresh**: The `/secondo` command uses the exact same auth-cli.mjs from AI Universe repo. If your token is valid, it does nothing. If expired, it auto-refreshes using your refresh token (silent, no browser popup). Only prompts for login if refresh token expires (30+ days).
 
@@ -45,43 +51,48 @@ scope: project
 | Scenario | Command |
 | --- | --- |
 | Quick question (when SlashCommand is working) | `/secondo "Should I use Redis or in-memory caching?"` |
-| Build MCP request with PR context | `python3 skills/second_opinion_workflow/scripts/build_second_opinion_request.py /tmp/mcp_request.json "QUESTION" 3 origin/main` |
-| Call MCP via HTTPie | `http POST https://ai-universe-backend-dev-114133832173.us-central1.run.app/mcp "Authorization:Bearer $TOKEN" < /tmp/mcp_request.json --timeout=180 --print=b` |
-| Parse embedded JSON response | `jq -r '.result.content[0].text' /tmp/mcp_response.json > /tmp/mcp_parsed.json` |
-| Summarize models/costs | `python3 skills/second_opinion_workflow/scripts/parse_second_opinion.py /tmp/mcp_parsed.json` |
+| Build MCP request with PR context | `python3 skills/second_opinion_workflow/scripts/build_second_opinion_request.py "$REQUEST_FILE" "QUESTION" 3 origin/main` |
+| Call MCP via HTTPie | `http POST https://ai-universe-backend-dev-114133832173.us-central1.run.app/mcp "Authorization:Bearer $TOKEN" < "$REQUEST_FILE" --timeout=180 --print=b` |
+| Parse embedded JSON response | `jq -r '.result.content[0].text' "$RESPONSE_FILE" > "$PARSED_FILE"` |
+| Summarize models/costs | `python3 skills/second_opinion_workflow/scripts/parse_second_opinion.py "$PARSED_FILE"` |
 | End-to-end helper | `skills/second_opinion_workflow/scripts/request_second_opinion.sh "QUESTION" [MAX_OPINIONS]` |
 
 ## Recommended workflow (HTTPie)
 1. **Generate the request payload** (captures diff + per-file patches automatically):
    ```bash
+   RUN_DIR="$(mktemp -d /tmp/second-opinion.XXXXXX)"
+   REQUEST_FILE="$RUN_DIR/mcp_request.json"
+   RESPONSE_FILE="$RUN_DIR/mcp_response.json"
+   PARSED_FILE="$RUN_DIR/mcp_parsed.json"
    python3 skills/second_opinion_workflow/scripts/build_second_opinion_request.py \
-     /tmp/mcp_request.json \
+     "$REQUEST_FILE" \
      "YOUR QUESTION HERE" \
      3 \
      origin/main
    ```
    Adjust `SECOND_OPINION_MAX_FILES`, `SECOND_OPINION_MAX_DIFF_CHARS`, or `SECOND_OPINION_MAX_PATCH_CHARS` if you need more/less context.
-2. **(Optional) Inspect/tweak** `/tmp/mcp_request.json` to refine the natural-language question while keeping the attached git context intact.
-3. **Get authentication token** (auto-refresh from AI Universe repo):
+2. **(Optional) Inspect/tweak** `"$REQUEST_FILE"` to refine the natural-language question while keeping the attached git context intact.
+3. **Get authentication token** through the existing auth CLI (auto-refresh only from its designated credential store):
    ```bash
    # Get token (auto-refreshes if expired, does nothing if valid)
-   TOKEN=$(node ~/.claude/scripts/auth-cli.mjs token)
+   TOKEN=$(/Users/jleechan/.nvm/versions/node/v22.22.0/bin/node ~/.claude/scripts/auth-cli.mjs token)
    ```
 4. **Send request** (allowing up to 180s for cold starts):
    ```bash
    http POST https://ai-universe-backend-dev-114133832173.us-central1.run.app/mcp \
      "Accept:application/json, text/event-stream" \
      "Authorization:Bearer $TOKEN" \
-     < /tmp/mcp_request.json \
+     < "$REQUEST_FILE" \
      --timeout=180 \
-     --print=b > /tmp/mcp_response.json
+     --print=b > "$RESPONSE_FILE"
    ```
 5. **Parse embedded JSON** and display summary (or use the helper script):
    ```bash
-   jq -r '.result.content[0].text' /tmp/mcp_response.json > /tmp/mcp_parsed.json
-   python3 <<'PYEOF'
+   jq -r '.result.content[0].text' "$RESPONSE_FILE" > "$PARSED_FILE"
+   python3 - "$PARSED_FILE" <<'PYEOF'
    import json
-   with open('/tmp/mcp_parsed.json', 'r') as f:
+   import sys
+   with open(sys.argv[1], 'r') as f:
        data = json.load(f)
    print(f"✅ Received responses from {data['summary']['totalModels']} models")
    print(f"💰 Total cost: ${data['summary']['totalCost']:.4f}")
@@ -92,7 +103,7 @@ scope: project
    ```
    Or run:
    ```bash
-   python3 skills/second_opinion_workflow/scripts/parse_second_opinion.py /tmp/mcp_parsed.json
+   python3 skills/second_opinion_workflow/scripts/parse_second_opinion.py "$PARSED_FILE"
    ```
 6. **Review synthesis** to confirm consensus and recommended actions.
 

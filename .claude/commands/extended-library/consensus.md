@@ -20,11 +20,11 @@ execution_mode: immediate
 
 # /consensus Command - Multi-Agent Consensus Review
 
-**Purpose**: Fast consensus-building analysis for solo MVP projects using 2025 multi-agent protocols. Supports code reviews, product spec validation, launch-readiness assessments, and other decision-heavy tasks. Uses a simple 3-round maximum with early termination when agents agree. Focus on pragmatic outcomes over enterprise-grade security theater.
+**Purpose**: Evidence-based multi-agent analysis for code reviews, product specifications, launch readiness, and operational decisions. Continue through review and fixes until the acceptance criteria are met or a verified blocker or authorized deadline applies.
 
-**⚡ Performance**: 2-5 minutes total with parallel agent execution and smart early termination.
+**⚡ Performance**: Parallelize independent reviews; continue safe implementation and validation until the acceptance criteria are met or a verified blocker/deadline applies.
 
-**🚀 Solo Unlaunched MVP Context**: Optimized for pre-launch projects with ZERO external users. Only serious external attacker security vulnerabilities matter (SQL injection, RCE, auth bypass). Enterprise security theater is counterproductive. GitHub rollbacks provide safety net.
+Shared security, authorization, and review requirements apply regardless of launch status or user count. A rollback path does not replace those requirements.
 
 ## Modes & Scopes
 
@@ -113,11 +113,11 @@ When scope is ambiguous, ask the user which mode they want via TodoWrite before 
 - **Documentation & Spec Mode**: Direct agents to cross-reference claims with evidence, note missing validation, and highlight unclear reasoning or terminology.
 - **Operational Decision Mode**: Ask agents to surface blockers, quantify risk, evaluate resource alignment, and recommend next steps.
 
-**Solo MVP Context Applied to All Agents**:
-- Pre-launch product with ZERO external users
-- GitHub rollback safety available
-- Focus on real bugs, architecture, factual accuracy, and serious security vulnerabilities only
-- Skip enterprise security theater and theoretical concerns
+**Current Context Applied to All Agents**:
+- Determine the current product and user context from fresh evidence; do not assume launch status or user count
+- A rollback path does not replace safety, authorization, or review requirements
+- Focus reviews on the acceptance criteria, evidence, architecture, factual accuracy, and security risks
+- Shared security and authorization requirements apply regardless of launch status or user count
 
 **Implementation Details**:
 - **`code-review`**: `Task(subagent_type="code-review", description="Architecture validation", prompt="...")`
@@ -133,7 +133,7 @@ When scope is ambiguous, ask the user which mode they want via TodoWrite before 
 - **Evidence required**: Findings must include file:line references
 - **MVP Context**: GitHub rollbacks available, focus on architecture over security paranoia
 
-## Fast Consensus Loop (3 Rounds Max)
+## Consensus and Follow-Through
 
 Streamlined workflow optimized for speed and simplicity:
 
@@ -176,33 +176,13 @@ Streamlined workflow optimized for speed and simplicity:
        echo "No supported linter found - manual validation required"
      fi
      ```
-   - **Unit Tests**: Focused tests for modified components
-     ```bash
-     # Auto-detect test framework and run relevant tests
-     if command -v npm >/dev/null 2>&1 && [ -f package.json ] && npm run --silent 2>/dev/null | grep -q "test"; then
-       npm test
-     elif command -v vpython >/dev/null 2>&1; then
-       env TESTING=true python -m pytest
-     elif command -v python3 >/dev/null 2>&1; then
-       env TESTING=true python3 -m pytest
-     elif command -v python >/dev/null 2>&1; then
-       env TESTING=true python -m pytest
-     else
-       echo "No recognized test runner found - manual validation required"
-     fi
-     ```
-   - **Integration Tests**: If APIs/interfaces changed
-     ```bash
-     # Run integration test suite if available
-     npm run test:integration \
-       || ( [ -x ./run_tests.sh ] && ./run_tests.sh ) \
-       || ( [ -x ./run_ui_tests.sh ] && ./run_ui_tests.sh mock )
-     ```
+   - **Unit Tests**: Select a focused test command using the repository's `/test` and test-layer guidance; CI owns the unfiltered full suite.
+   - **Integration Tests**: If APIs/interfaces changed, use the repository's approved integration runner and real-service contract; do not guess a generic integration command.
    - **Manual Validation**: User-guided spot checks if automated tests insufficient
 
 **Context-Aware Validation**:
 - **Code Review Mode**:
-  - **High Context**: Full test suite validation
+  - **High Context**: Required full regression through CI; run only scoped local equivalents
   - **Medium Context**: Targeted test execution based on changed files
   - **Low Context**: Essential syntax and unit tests only
 - **Documentation & Spec Mode**:
@@ -214,21 +194,9 @@ Streamlined workflow optimized for speed and simplicity:
   - Stress-test mitigation plans and identify missing owners or follow-up actions
   - Confirm launch checklists or go/no-go criteria are satisfied
 
-**Simplified Test/Validation Detection (Code Review Mode)**:
-```bash
-
-# Safe test command detection with proper validation
-
-if command -v npm >/dev/null 2>&1 && [ -f "package.json" ] && npm run --silent 2>/dev/null | grep -q "test"; then
-    timeout 300 npm test
-elif [ -f "pytest.ini" ] || [ -f "pyproject.toml" ]; then
-    timeout 300 env TESTING=true python -m pytest 2>/dev/null || timeout 300 env TESTING=true python3 -m pytest
-elif [ -f "run_tests.sh" ] && [ -x "run_tests.sh" ]; then
-    timeout 300 ./run_tests.sh
-else
-    echo "No automated tests detected - skipping test validation"
-fi
-```
+**Test/Validation Selection (Code Review Mode)**: Use `/test` and the owning
+repository's test-layer guidance to choose focused checks. Never infer a test
+command from package presence or run an unfiltered local full suite.
 
 For documentation and decision scopes, replace automated tests with evidence checklists and explicit sign-off from responsible agents.
 
@@ -236,16 +204,15 @@ For documentation and decision scopes, replace automated tests with evidence che
    - **CONSENSUS_PASS**: 3+ agents PASS + average confidence ≥6 + validation complete for the selected mode
    - **CONSENSUS_REWORK**: 3+ agents REWORK OR validation gaps OR average confidence <5
    - **TEST_FAILURE_ABORT / VALIDATION_ABORT**: Critical test or evidence failures abort the round
-   - **ROUND_LIMIT_REACHED**: Maximum 3 rounds completed
 
 #### Consensus Calculation Rules:
 
 - **✅ SUCCESS**: CONSENSUS_PASS achieved (workflow complete)
-- **🔄 CONTINUE**: REWORK status + round < 3 + tests pass (next round)
+- **🔄 CONTINUE**: REWORK status and the next safe action is clear; batch fixes, then re-review
 - **❌ ABORT**: TEST_FAILURE_ABORT or critical agent blockers (stop immediately)
-- **⚠️ LIMIT**: ROUND_LIMIT_REACHED (document remaining issues)
+- **⚠️ BLOCKED**: State the exact verified blocker and the resumption trigger
 
-The loop stops immediately when a round achieves PASS status or after three rounds (whichever occurs first).
+Continue through required review and fixes until PASS or a verified blocker/deadline. Do not stop on a round count or repeated score. Keep safe independent work moving while a separate action is blocked.
 
 #### Early Termination Triggers:
 
@@ -256,7 +223,7 @@ The loop stops immediately when a round achieves PASS status or after three roun
 
 ## General Consensus Principles (2025 MVP Optimization)
 
-- **Speed First**: Parallel execution, early termination, 3-round limit
+- **Progress**: Parallelize independent work and continue safe follow-through to the acceptance criteria
 - **Evidence Based**: All findings require references (file:line, document section, metric source) + confidence scores
 - **Clear Thresholds**: PASS ≥6 confidence, REWORK <5 confidence, mixed signals documented
 - **Mode-Aware Focus**: Tailor evaluation criteria to code quality, factual accuracy, or decision readiness
@@ -336,7 +303,7 @@ Following `/reviewdeep` and `/arch` patterns for proper agent context. Claude mu
 - **Current Scope**: [scope definition, e.g., PR details, document path, decision statement]
 - **Infrastructure**: Working multi-agent consensus system using Task tool parallel execution
 - **Agent Network**: Part of 5-agent consensus ([list selected agents])
-- **Goal**: Fast consensus-building with 3-round maximum, early termination on agreement
+- **Goal**: Reach evidence-backed consensus and carry safe follow-through to completion
 - **Mode**: Code Review | Documentation & Spec | Operational Decision (pick one)
 
 **ROLE-SPECIFIC CONTEXT SPECIALIZATION**:
@@ -522,7 +489,7 @@ EXECUTIVE SUMMARY & DECISION SYNTHESIS analysis for operational decision consens
 - `{TARGET_SCOPE}`: User-specified scope or default context (files, docs, decisions)
 - `{MVP_STAGE}`: Pre-launch, rollback-safe development phase
 - `{AGENT_NETWORK}`: Selected 5-agent consensus roster for the chosen mode
-- `{CONSENSUS_ROUND}`: Current round (1-3) in consensus-building process
+- `{CONSENSUS_ROUND}`: Current review round, continued as needed until acceptance or a verified blocker/deadline
 
 ## Post-Run Clean Up
 

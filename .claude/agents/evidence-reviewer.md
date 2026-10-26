@@ -205,7 +205,7 @@ the pixels show the element under test changing.
 
 1. Locate the video (`videos/` dir or PR-linked release/gist asset). If the only UI
    evidence is screenshots, use those as the frames below.
-2. **Extract frames and read them yourself:** `ffmpeg -i <video> -vf fps=1 /tmp/er_frames/f_%02d.png`, then `Read` several frames spanning the clip.
+2. **Extract frames and read them yourself:** create a unique temporary directory with `mktemp -d`, extract frames there using `ffmpeg -i <video> -vf fps=1 <temp-dir>/f_%02d.png`, then `Read` several frames spanning the clip. Do not use a fixed shared temp path.
 3. Confirm ALL of: the **specific control/element under test** is **visible in-frame**
    (not below the fold); its **before→after change is visible in the pixels**; any
    "persists after reload" claim shows the element with the new value **after** reload.
