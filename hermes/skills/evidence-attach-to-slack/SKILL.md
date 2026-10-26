@@ -113,7 +113,7 @@ def evidence_gate_fires(draft_text: str) -> bool:
 
 **If the gate fires, you MUST run the recipe below BEFORE calling the message tool.** Skipping this gate is the exact failure mode that caused PRs #8139, #7953, #8337 to ship with text-only "evidence" that the user couldn't see. Verified by `tests/test_evidence_attach_presend_contract.py` (8 tests, all green).
 
-**The principle:** when a recurring user correction has hit ≥3 times (as this one has), the fix must be a pre-send gate that intercepts the failure BEFORE the bad message is sent — not a post-hoc remediation rule that fires after the user complains. See `references/recurring-failure-pattern-2026-07.md` for the full 4-incident chain.
+**The principle:** when a recurring user correction has hit ≥3 times (as this one has), the fix must be a pre-send gate that intercepts the failure BEFORE the bad message is sent — not a post-hoc remediation rule that fires after the user complains. See `references/recurring-failure-pattern-2026-07.md` for a brief historical record; its former operational recipes are retired.
 
 ## Scope preflight status
 
@@ -287,5 +287,5 @@ User suggestion "use `/browser` to fix your scopes" was PARTIALLY misrouted in 2
 - `scripts/check_token_scopes.py` — historical preflight with stale third-tier gist guidance; do not invoke it to route upload failures. Use the configured authorized uploader and fail closed on its API scope error.
 - `references/github-gist-binary-upload.md` — historical gist behavior; not an operational fallback for missing upload scope.
 - `references/mp4-evidence-path.md` — historical gist behavior; not an operational fallback for missing upload scope.
-- `references/recurring-failure-pattern-2026-07.md` — **NEW v1.6.0** — the 4-incident chain across 12 days with verbatim user trigger phrases. The data backing the pre-send gate.
+- `references/recurring-failure-pattern-2026-07.md` — historical summary only; operational fallback and personal incident details are retired.
 - `references/false-evidence-incidents.md` — **NEW v1.12.0** — the v2 lesson: Pre-Send Gate catches missing-uploads but NOT false-claims. When agent asserts "X is visible" via `page.evaluate()`, vision_analyze the actual pixels before posting. Includes the two-step pre-claim gate recipe (PR #8561, 2026-07-24).
