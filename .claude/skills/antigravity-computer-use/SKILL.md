@@ -822,7 +822,7 @@ When monitoring active Antigravity conversations:
 7. **Report status** — document which conversations are running, which PRs they're working on
 8. **PR-Target verification (MANDATORY before sending messages)**:
    - User specifies "work on PR #177" → must send message to PR #177 conversation
-   - If agent is on wrong PR (e.g., stuck on #178 when asked for #177), explicitly close wrong conversation and open new one for target PR
+   - If the selected conversation is for the wrong PR, leave it untouched and select or open a separate conversation for the requested target PR.
    - Before typing message: verify conversation title matches target PR number
 9. **Health check for stuck agents**:
    - A spinner, elapsed time, or absence of commits alone cannot establish a

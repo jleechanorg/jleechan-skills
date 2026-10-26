@@ -66,8 +66,8 @@ The script supports **two Firebase projects**. Use the correct one for your use 
 - Multi-model synthesis API
 
 ```bash
-# Default - no flag needed
-"$AUTH_NODE" scripts/auth-cli.mjs login
+# Use an existing verified token or supported silent refresh immediately.
+# Interactive login is only an authorized recovery step when needed.
 TOKEN=$("$AUTH_NODE" scripts/auth-cli.mjs token)
 ```
 
@@ -77,20 +77,25 @@ TOKEN=$("$AUTH_NODE" scripts/auth-cli.mjs token)
 - Direct WorldAI API calls
 
 ```bash
-# Explicit project flag required
-"$AUTH_NODE" scripts/auth-cli.mjs login --project worldarchitecture-ai
+# Use an existing verified token or supported silent refresh immediately.
 TOKEN=$("$AUTH_NODE" scripts/auth-cli.mjs token --project worldarchitecture-ai)
 ```
 
 ## Prerequisites
 
-- Node.js (>=20.0.0) installed
+- Node.js 22 installed and selected through the verified `AUTH_NODE` above
 - Express dependency installed (`npm install express`)
 - Browser for OAuth flow
 
 ## Authentication Flow
 
-### 1. Initial Login
+### 1. Interactive Login (authorized recovery only)
+
+Use existing credentials and their supported refresh path first. Before an
+interactive login, complete both required credential probes and follow the
+browser owner for explicit authority and a verified task-owned isolated
+browser. If those conditions are not met, report the exact dependency without
+starting login.
 
 ```bash
 # AI Universe (default) - for /secondo
@@ -135,7 +140,7 @@ TOKEN=$("$AUTH_NODE" scripts/auth-cli.mjs token --project worldarchitecture-ai)
 **Token Behavior:**
 - **Token Valid**: Returns it immediately
 - **Token Expired**: Auto-refreshes using refresh token (silent, no browser popup)
-- **Refresh Token Expired**: Prompts for login (browser OAuth)
+- **Refresh Token Expired**: This token command may prompt for interactive browser OAuth. Do not block retrieval of an existing verified usable token or a supported non-interactive refresh on the two login-failure probes. If the command would start interactive login, first exhaust existing credential routes; start login only after both required probes fail and the browser owner confirms explicit authority and a verified task-owned isolated browser. Otherwise stop before interactive login and report that boundary.
 
 This enables seamless 30+ day sessions.
 

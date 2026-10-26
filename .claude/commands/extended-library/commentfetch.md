@@ -116,6 +116,12 @@ Saves structured JSON data to `/tmp/{repo_name}/{branch_name}/copilot/comments.j
 }
 ```
 
+`requires_response` is fetcher metadata used to report and support downstream
+comment processing. It does not itself authorize a reply or create a lifecycle
+gate. Automated reviewer comments remain advisory for readiness and merge;
+honor their coverage when the current request explicitly asks for comment
+processing or replies.
+
 ## Comment Types
 
 - **inline**: Code review comments on specific lines
@@ -131,30 +137,30 @@ Saves structured JSON data to `/tmp/{repo_name}/{branch_name}/copilot/comments.j
 
 - **Method**: Check if comment body starts with '[AI responder]'
 - **Logic**: If comment starts with '[AI responder]', mark as our response
-- **Simple Rule**: Everything else requires response - NO EXCEPTIONS
+- **Simple Rule**: Fetch every comment. A response is required only when the current request explicitly asks for reply coverage or an authoritative lifecycle owner requires it.
 
 🚨 **CRITICAL CLARIFICATION - Bot Comments Included**:
 - ✅ **"ALL comments" explicitly INCLUDES bot comments**: CodeRabbit, GitHub Copilot, automated reviewers
 - ✅ **"ALL comments" explicitly INCLUDES human comments**: Team members, manual reviewers
 - ❌ **ONLY EXCEPTION**: Comments starting with "[AI responder]" (our own AI-generated responses)
-- 🚨 **MANDATORY**: Bot code review comments MUST be addressed with 100% reply rate
-- 🚨 **ZERO SKIP TOLERANCE**: Bot comments are NOT optional - they require responses just like human comments
+- Automated reviewer comments are advisory for push, readiness, and merge eligibility; an unanswered bot comment alone is not a lifecycle gate.
+- If the current request explicitly asks to process or reply to bot comments, preserve that task's requested coverage and report any remaining blocker without converting it into a general PR gate.
 
-### 2. No Complex Classification
+### 2. Reuse Fetcher Metadata
 
-- No bot detection patterns
-- No keyword analysis
-- No threading analysis
-- No reply-to field processing
+- This command reports the metadata supplied by the commentfetch implementation; it does not add another classification pass.
+- A `requires_response` flag is processing metadata, not authorization to post a reply or a readiness/merge gate.
+- Follow an explicit current-task request for reply coverage, including the comments within that requested scope.
 
 ### 3. Output Simplification
 
 - **JSON field**: `"is_ai_responder": true/false` (simple boolean)
 - **Metadata**: `"requires_response_count": X` for verification
 - **Fresh Data**: Always fetches current GitHub state
-- **Principle**: Address everything except our own '[AI responder]' comments
-  - 🚨 **This means**: Bot comments (CodeRabbit, GitHub Copilot, automated reviewers) + Human comments ALL require responses
-  - 🚨 **Only skip**: Our own "[AI responder]" tagged responses
+- **Principle**: Fetch and report all comments except our own '[AI responder]' comments as new findings.
+  - Automated reviewer comments remain advisory for lifecycle eligibility.
+  - Honor explicit current-task requests for response coverage, including bot comments.
+  - Do not infer that every comment needs a reply merely because it was fetched.
 
 ## Implementation
 

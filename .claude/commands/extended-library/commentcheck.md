@@ -53,8 +53,8 @@ echo "=================================================================="
 If `/commentcheck` finds issues:
 1. **Report specific problems** - List missing/poor responses
 2. **Suggest fixes** - Indicate what needs improvement
-3. **Prevent completion** - Workflow should not proceed until fixed
-4. **Re-run commentreply** - Address missing/poor responses
+3. If the current request explicitly asks for replies or complete response coverage, continue the requested `/commentreply` work for in-scope comments and report any exact blocker; task-specific reply coverage is complete only when addressed or explicitly blocked.
+4. Do not turn unanswered advisory bot comments into a push, readiness, or merge gate. The explicit reply task's completion scope is separate from PR lifecycle eligibility.
 
 ## 📋 REFERENCE DOCUMENTATION
 
@@ -87,7 +87,7 @@ Review comments against the PR lifecycle and current task scope:
 
 ## Description
 
-Pure markdown command (no Python executable) that systematically verifies all PR comments have been properly addressed with appropriate responses. **ORCHESTRATES /commentfetch for data source** instead of duplicating GitHub API calls. This command runs AFTER `/commentreply` to ensure nothing was missed.
+Pure markdown command (no Python executable) that reports PR comment and response coverage. When the current request explicitly asks for reply processing, it verifies that task's requested scope after `/commentreply`; it does not require responses to every comment or create a PR lifecycle gate. **ORCHESTRATES /commentfetch for data source** instead of duplicating GitHub API calls.
 
 ## COPILOT INTEGRATION
 
@@ -108,7 +108,7 @@ Pure markdown command (no Python executable) that systematically verifies all PR
 1. **Orchestrates /commentfetch** for comprehensive comment data (eliminates duplicate API calls)
 2. **Analyzes JSON output** from commentfetch for coverage verification
 3. **Cross-references** original comments with posted responses using structured data
-4. **Verifies coverage** - ensures every comment has a corresponding response
+4. **Reports coverage** - identifies which comments have responses; complete response coverage is required only when explicitly requested for the current task
 5. **Quality check** - confirms responses are substantial, not generic
 6. **Reports status** with detailed breakdown using commentfetch metadata
 
@@ -228,37 +228,41 @@ echo "$ALL_COMMENTS" | jq -r '.[] | "ID: \(.id) | Author: \(.author) | Type: \(.
 # Step 2B: Count threading success rates (using commentfetch metadata)
 
 TOTAL_COMMENTS=$(echo "$ALL_COMMENTS" | jq length)
-ALREADY_REPLIED=$(echo "$ALL_COMMENTS" | jq '[.[] | select(.already_replied == true)] | length')
 REQUIRES_RESPONSE=$(echo "$ALL_COMMENTS" | jq '[.[] | select(.requires_response == true)] | length')
+REPLIED_REQUIRED=$(echo "$ALL_COMMENTS" | jq '[.[] | select(.requires_response == true and .already_replied == true)] | length')
+OUTSTANDING_REQUIRED=$(echo "$ALL_COMMENTS" | jq '[.[] | select(.requires_response == true and .already_replied != true)] | length')
 
 echo ""
 echo "📈 THREADING STATISTICS (from commentfetch):"
 echo "   Total comments: $TOTAL_COMMENTS"
-echo "   Already replied: $ALREADY_REPLIED"
-echo "   Requires response: $REQUIRES_RESPONSE"
+echo "   Requested/required response scope: $REQUIRES_RESPONSE"
+echo "   Replied within scope: $REPLIED_REQUIRED"
+echo "   Outstanding within scope: $OUTSTANDING_REQUIRED"
 
-if [ "$TOTAL_COMMENTS" -gt 0 ]; then
-  RESPONSE_PERCENTAGE=$(( (ALREADY_REPLIED * 100) / TOTAL_COMMENTS ))
-  echo "   Response rate: $RESPONSE_PERCENTAGE%"
+if [ "$REQUIRES_RESPONSE" -gt 0 ]; then
+  RESPONSE_PERCENTAGE=$(( (REPLIED_REQUIRED * 100) / REQUIRES_RESPONSE ))
+  echo "   Requested-scope response rate: $RESPONSE_PERCENTAGE%"
+else
+  echo "   Requested-scope response rate: N/A (no response scope requested or required)"
 fi
 
-# Step 2C: Simple comment classification (AI responder vs needs response)
+# Step 2C: Report the response scope marked by commentfetch
 
 echo ""
-echo "🔍 SIMPLE CLASSIFICATION (AI responder detection only):"
+echo "🔍 REQUESTED RESPONSE SCOPE:"
 AI_RESPONDER_COMMENTS=$(echo "$ALL_COMMENTS" | jq '[.[] | select(.body | startswith("[AI responder]"))]')
 AI_COUNT=$(echo "$AI_RESPONDER_COMMENTS" | jq length)
-NEEDS_RESPONSE_COMMENTS=$(echo "$ALL_COMMENTS" | jq '[.[] | select(.body | startswith("[AI responder]") | not)]')
+NEEDS_RESPONSE_COMMENTS=$(echo "$ALL_COMMENTS" | jq '[.[] | select(.requires_response == true and .already_replied != true)]')
 NEEDS_RESPONSE_COUNT=$(echo "$NEEDS_RESPONSE_COMMENTS" | jq length)
 
 echo "   AI responder comments: $AI_COUNT"
-echo "   Comments needing response: $NEEDS_RESPONSE_COUNT"
+echo "   Outstanding requested/required responses: $NEEDS_RESPONSE_COUNT"
 
 # Step 2D: List comments needing response (simple logic)
 
 echo ""
-echo "❌ COMMENTS NEEDING RESPONSE (simple logic):"
-echo "$NEEDS_RESPONSE_COMMENTS" | jq -r '.[] | "❌ Comment #\(.id) (\(.author)): \(.body[0:80])..."'
+echo "📌 OUTSTANDING REQUESTED/REQUIRED RESPONSES:"
+echo "$NEEDS_RESPONSE_COMMENTS" | jq -r '.[] | "• Comment #\(.id) (\(.author)): \(.body[0:80])..."'
 ```
 
 # Use simple AI responder detection for quality analysis
@@ -294,7 +298,7 @@ echo "   CodeRabbit-specific templates: $CODERABBIT_COUNT"
 # Simple quality assessment - just check for basic response coverage
 
 if [ "$AI_RESPONSE_COUNT" -eq 0 ] && [ "$NEEDS_RESPONSE_COUNT" -gt 0 ]; then
-  echo "ℹ️ No AI-responder replies were found; this count alone is not a lifecycle gate."
+  echo "ℹ️ No AI-responder replies were found in the requested/required response scope; this count alone is not a lifecycle gate."
   echo ""
   echo "EXIT CODE: 0 (report only)"
   exit 0
@@ -307,34 +311,31 @@ fi
 
 TOTAL_COMMENTS=$(jq '.comments | length' "$COMMENTS_FILE" 2>/dev/null || echo "0")
 AI_RESPONDER_COMMENTS=$(jq '[.comments[] | select(.body | startswith("[AI responder]"))] | length' "$COMMENTS_FILE" 2>/dev/null || echo "0")
-NEEDS_RESPONSE_COUNT=$((TOTAL_COMMENTS - AI_RESPONDER_COMMENTS))
+NEEDS_RESPONSE_COUNT=$(jq '[.comments[] | select(.requires_response == true and .already_replied != true)] | length' "$COMMENTS_FILE" 2>/dev/null || echo "0")
 
 if [ "$NEEDS_RESPONSE_COUNT" -eq 0 ]; then
-    echo "✅ **COMMENT REPORT**: No unanswered comments were found"
+    echo "✅ **COMMENT REPORT**: No outstanding comments marked as requiring a response"
     echo ""
     echo "📊 **SIMPLE STATISTICS:**"
     echo "   - Total comments: $TOTAL_COMMENTS"
     echo "   - AI responder comments: $AI_RESPONDER_COMMENTS"
-    echo "   - Comments needing response: $NEEDS_RESPONSE_COUNT"
-    echo "   - All non-AI comments addressed: ✅"
+    echo "   - Outstanding requested/required responses: $NEEDS_RESPONSE_COUNT"
     echo ""
-    echo "🎯 **COMMENT REPORT**: Coverage is complete"
-    echo "✅ COPILOT CLEARED: All comments processed successfully"
-    echo "✅ PROCEEDING: Copilot execution may continue"
+    echo "🎯 **COMMENT REPORT**: Marked response coverage is complete"
     echo ""
     echo "EXIT CODE: 0 (report only)"
     exit 0
 else
-    echo "ℹ️ $NEEDS_RESPONSE_COUNT comments remain without an AI-responder reply; this count alone is not a lifecycle gate."
+    echo "ℹ️ $NEEDS_RESPONSE_COUNT responses remain outstanding in the requested/required scope; this count alone is not a lifecycle gate."
     echo ""
-    echo "🚨 **COMMENTS REQUIRING IMMEDIATE ATTENTION**:"
+    echo "📌 **OUTSTANDING REQUESTED/REQUIRED RESPONSES**:"
 
     # List comments needing response (simple logic)
-    NEEDS_RESPONSE_LIST=$(jq -r '.comments[] | select(.body | startswith("[AI responder]") | not) | "❌ Comment #\(.id) (\(.author)): \(.body[0:80])..."' "$COMMENTS_FILE" 2>/dev/null)
+    NEEDS_RESPONSE_LIST=$(jq -r '.comments[] | select(.requires_response == true and .already_replied != true) | "• Comment #\(.id) (\(.author)): \(.body[0:80])..."' "$COMMENTS_FILE" 2>/dev/null)
     echo "$NEEDS_RESPONSE_LIST"
 
     echo ""
-    echo "ℹ️ Review comment sources and required status under the current PR lifecycle."
+    echo "ℹ️ Review the requested task scope and authoritative lifecycle requirements. Unanswered advisory bot comments alone do not block readiness or merge."
     echo ""
     echo "📊 **COMMENTFETCH DATA**: $TOTAL_COMMENTS total, $NEEDS_RESPONSE_COUNT unresponded"
     echo ""

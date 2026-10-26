@@ -62,7 +62,7 @@ Inspect the supplied scope and available project context to choose the applicabl
 
 ### Simplified Consensus Rules
 
-**Mode-Specific Reviewer Roster**: Use the five defined roles for the selected mode and calculate simple majority agreement. Schedule independent roles through the measured resource and host policy; the roster is not a simultaneous worker count:
+**Mode-Specific Reviewer Roster**: Use the five defined roles for the selected mode. Calculate majority agreement only with at least 3 completed roles; when fewer than 3 complete, report DEFERRED rather than a majority verdict. Schedule independent roles through the measured resource and host policy; the roster is not a simultaneous worker count:
 - **Code Review Mode (default)**: `code-review`, `codex-consultant`, `gemini-consultant`, `cursor-consultant`, `code-centralization-consultant`
 - **Documentation & Spec Mode**: `accuracy-reviewer`, `evidence-verifier`, `product-strategist`, `delivery-ops`, `clarity-editor`
 - **Operational Decision Mode**: `risk-analyst`, `product-strategist`, `delivery-ops`, `customer-advocate`, `exec-synthesizer`
@@ -71,7 +71,7 @@ Inspect the supplied scope and available project context to choose the applicabl
 
 **Failure threshold**: At least 3 completed reviewer roles REWORK OR average confidence <5 across completed votes
 
-**Mixed signals**: Document disagreements, proceed with majority decision, and flag open questions.
+**Mixed signals**: Document disagreements. Proceed by majority only when at least 3 roles completed; with fewer than 3 completed roles, report **DEFERRED** and give the resource recheck condition.
 
 **Simple Consensus Calculation**:
 1. Schedule up to five reviewer roles using the canonical `/parallel` admission and host-selection policy; run ready roles concurrently up to the measured ceiling
@@ -157,7 +157,7 @@ Streamlined workflow optimized for speed and simplicity:
 2. **Simple Consensus Calculation** (30 seconds)
    - **CONSENSUS_PASS**: At least 3 completed roles PASS + average confidence across completed votes ≥6
    - **CONSENSUS_REWORK**: At least 3 completed roles REWORK OR average confidence across completed votes <5
-   - **MIXED_SIGNALS**: Document conflicts, proceed with majority decision
+   - **MIXED_SIGNALS**: Document conflicts. Proceed by majority only when at least 3 roles completed; with fewer than 3 completed roles, report **DEFERRED** and give the resource recheck condition.
 
 3. **Quick Fix Application** (If REWORK, 1-2 minutes)
    - Apply highest-confidence architectural fixes with clear file:line references
