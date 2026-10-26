@@ -10,6 +10,7 @@ import os
 import signal
 import subprocess
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -71,7 +72,7 @@ class PrimaryPairTest(unittest.TestCase):
         path.write_text("#!/bin/sh\nset -eu\n" + body)
         path.chmod(0o755)
 
-    def invoke(self, *extra: str) -> subprocess.CompletedProcess[str]:
+    def invoke_raw(self, *extra: str) -> subprocess.CompletedProcess[str]:
         return run(
             "python3",
             str(SCRIPT),
@@ -86,6 +87,16 @@ class PrimaryPairTest(unittest.TestCase):
             *extra,
             env=self.env,
         )
+
+    def invoke(self, *extra: str) -> subprocess.CompletedProcess[str]:
+        if "--queued-at-epoch-ns" not in extra:
+            extra = (*extra, "--queued-at-epoch-ns", str(time.time_ns()))
+        return self.invoke_raw(*extra)
+
+    def with_queued_timestamp(self, argv: list[str]) -> list[str]:
+        if "--queued-at-epoch-ns" in argv:
+            return argv
+        return [*argv, "--queued-at-epoch-ns", str(time.time_ns())]
 
     def test_reviewers_accepts_codex_opus_subset_and_rejects_unknown_or_duplicates(self) -> None:
         self.executable("codex", "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
@@ -578,7 +589,7 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
 
         with redirect_stderr(stderr):
             code = runner.main(
-                argv,
+                self.with_queued_timestamp(argv),
                 create_clone_fn=mock.Mock(side_effect=RuntimeError("clone setup failed")),
                 cleanup_fn=mock.Mock(side_effect=cleanup_failure),
             )
@@ -608,7 +619,7 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         stderr = io.StringIO()
 
         with redirect_stderr(stderr):
-            code = runner.main(argv, create_clone_fn=slow_clone)
+            code = runner.main(self.with_queued_timestamp(argv), create_clone_fn=slow_clone)
 
         self.assertEqual(code, 4)
         self.assertLessEqual(observed["timeout_seconds"], 0.91)
@@ -618,6 +629,14 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         self.assertEqual(receipt["timeout_stage"], "clone_setup")
         self.assertTrue(receipt["cleanup"]["success"])
         self.assertFalse(receipt["reviewers"] if "reviewers" in receipt else False)
+
+    def test_missing_queued_timestamp_cannot_produce_a_countable_vote(self) -> None:
+        self.executable("codex", "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
+
+        result = self.invoke_raw("--reviewers", "codex")
+
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(self.output.exists())
 
     def test_queued_timestamp_consumes_attempt_budget_before_process_entry(self) -> None:
         self.executable("codex", "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
@@ -647,11 +666,81 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
             raise subprocess.TimeoutExpired(["git", "clone"], 0.1)
 
         with redirect_stderr(io.StringIO()):
-            code = runner.main(argv, create_clone_fn=slow_clone)
+            code = runner.main(self.with_queued_timestamp(argv), create_clone_fn=slow_clone)
 
         self.assertEqual(code, 4)
         receipt = json.loads((self.output / "receipt.json").read_text())
         self.assertEqual(receipt["timeout_stage"], "clone_setup")
+
+    def test_codex_lane_dispatch_barrier_wait_is_bounded_by_lane_budget(self) -> None:
+        runner = load_runner_module()
+        barrier = threading.Barrier(2)
+        result = []
+        worker = threading.Thread(
+            target=lambda: result.append(
+                runner.codex_lane(Path("."), "prompt", barrier, 0.05, 0.01)
+            ),
+            daemon=True,
+        )
+
+        worker.start()
+        worker.join(timeout=0.5)
+
+        self.assertFalse(worker.is_alive(), "reviewer lane waited forever at its barrier")
+        self.assertEqual(result[0]["status"], "error")
+        self.assertEqual(result[0]["attempts"][0]["failure"], "dispatch_timeout")
+
+    def test_second_submit_failure_releases_first_reviewer_waiting_at_barrier(self) -> None:
+        runner = load_runner_module()
+        argv = self.with_queued_timestamp([
+            "--repo", str(self.repo), "--ref", self.sha,
+            "--packet-file", str(self.packet), "--output-dir", str(self.output),
+            "--reviewers", "codex,opus", "--attempt-timeout-seconds", "60",
+            "--cleanup-budget-seconds", "1", "--timeout-seconds", "30",
+        ])
+        original_executor = runner.concurrent.futures.ThreadPoolExecutor
+        original_barrier = runner.threading.Barrier
+        barriers = []
+        codes = []
+        errors = []
+
+        class FailSecondSubmit(original_executor):
+            submissions = 0
+
+            def submit(self, *args, **kwargs):
+                self.submissions += 1
+                if self.submissions == 2:
+                    raise RuntimeError("simulated second worker start failure")
+                return super().submit(*args, **kwargs)
+
+        def capture_barrier(parties):
+            barrier = original_barrier(parties)
+            barriers.append(barrier)
+            return barrier
+
+        def run_main():
+            try:
+                codes.append(runner.main(argv))
+            except BaseException as error:
+                errors.append(error)
+
+        worker = threading.Thread(target=run_main)
+        with mock.patch.object(
+            runner.concurrent.futures, "ThreadPoolExecutor", FailSecondSubmit
+        ), mock.patch.object(runner.threading, "Barrier", side_effect=capture_barrier):
+            worker.start()
+            worker.join(timeout=0.5)
+            completed_without_external_abort = not worker.is_alive()
+            if worker.is_alive() and barriers:
+                barriers[0].abort()
+                worker.join(timeout=2)
+
+        self.assertTrue(
+            completed_without_external_abort,
+            "runner shutdown waited on a reviewer that was never paired at the barrier",
+        )
+        self.assertFalse(errors)
+        self.assertEqual(codes, [6])
 
     def test_reviewer_dispatch_deadline_is_admitted_for_all_lanes_before_submit(self) -> None:
         runner = load_runner_module()
@@ -676,7 +765,7 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
             return result
 
         with mock.patch.dict(os.environ, self.env):
-            code = runner.main(argv, cleanup_fn=slow_cleanup)
+            code = runner.main(self.with_queued_timestamp(argv), cleanup_fn=slow_cleanup)
 
         receipt = json.loads((self.output / "receipt.json").read_text())
         self.assertEqual(code, 4)
@@ -699,7 +788,7 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
 
         with redirect_stderr(stderr):
             code = runner.main(
-                argv,
+                self.with_queued_timestamp(argv),
                 create_clone_fn=mock.Mock(side_effect=RuntimeError("clone setup failed")),
                 cleanup_fn=mock.Mock(side_effect=cleanup_success),
             )

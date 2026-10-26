@@ -393,6 +393,43 @@ def validate_codex_model(model: str | None = None) -> str:
     return cleaned
 
 
+def wait_for_dispatch_barrier(
+    barrier: threading.Barrier, timeout_seconds: float
+) -> float:
+    started = time.monotonic()
+    try:
+        barrier.wait(timeout=timeout_seconds)
+    except threading.BrokenBarrierError as error:
+        if time.monotonic() - started >= timeout_seconds:
+            raise TimeoutError("reviewer dispatch barrier timed out") from error
+        raise
+    remaining = timeout_seconds - (time.monotonic() - started)
+    if remaining <= 0:
+        raise TimeoutError("reviewer dispatch budget expired")
+    return remaining
+
+
+def dispatch_failure_result(
+    transport: str, started_ns: int, error: Exception
+) -> dict[str, Any]:
+    failure = "dispatch_timeout" if isinstance(error, TimeoutError) else "dispatch_aborted"
+    return {
+        "status": "error",
+        "transport": None,
+        "stdout": "",
+        "attempts": [
+            {
+                "transport": transport,
+                "exit_code": None,
+                "stderr": str(error),
+                "failure": failure,
+            }
+        ],
+        "started_ns": started_ns,
+        "ended_ns": time.time_ns(),
+    }
+
+
 def codex_lane(
     cwd: Path,
     prompt: str,
@@ -404,8 +441,11 @@ def codex_lane(
     resolved_model = validate_codex_model(
         model or os.environ.get("ADVICE_CODEX_MODEL") or DEFAULT_CODEX_MODEL
     )
-    barrier.wait()
     started = time.time_ns()
+    try:
+        timeout_seconds = wait_for_dispatch_barrier(barrier, timeout_seconds)
+    except (TimeoutError, threading.BrokenBarrierError) as error:
+        return dispatch_failure_result("codex exec --yolo", started, error)
     attempts: list[dict[str, Any]] = []
     codex = command_path("codex")
     if codex:
@@ -463,8 +503,13 @@ def opus_lane(
     timeout_seconds: float,
     timeout_grace_seconds: float,
 ) -> dict[str, Any]:
-    barrier.wait()
     started = time.time_ns()
+    try:
+        timeout_seconds = wait_for_dispatch_barrier(barrier, timeout_seconds)
+    except (TimeoutError, threading.BrokenBarrierError) as error:
+        return dispatch_failure_result(
+            "claude -p --model opus --dangerously-skip-permissions", started, error
+        )
     claude = command_path("claude")
     if not claude:
         return {
@@ -530,7 +575,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--queued-at-epoch-ns",
         type=int,
-        help="UTC epoch nanoseconds when this reviewer attempt was queued or sent",
+        required=True,
+        help="required UTC epoch nanoseconds when this reviewer attempt was queued or sent",
     )
     parser.add_argument(
         "--cleanup-budget-seconds",
@@ -658,7 +704,7 @@ def main(
     process_started = time.monotonic()
     process_started_ns = time.time_ns()
     args = parse_args(argv)
-    queued_at_ns = args.queued_at_epoch_ns or process_started_ns
+    queued_at_ns = args.queued_at_epoch_ns
     if queued_at_ns <= 0 or queued_at_ns > process_started_ns:
         print("--queued-at-epoch-ns must be a positive timestamp no later than now", file=sys.stderr)
         return 2
@@ -801,27 +847,31 @@ def main(
         )
         with concurrent.futures.ThreadPoolExecutor(max_workers=len(reviewer_names)) as executor:
             futures = {}
-            for name in reviewer_names:
-                reviewer_timeout = reviewer_limits[name]
-                if name == "codex":
-                    futures[name] = executor.submit(
-                        codex_lane,
-                        clones[name],
-                        prompt,
-                        barrier,
-                        reviewer_timeout,
-                        args.timeout_grace_seconds,
-                        args.codex_model,
-                    )
-                else:
-                    futures[name] = executor.submit(
-                        opus_lane,
-                        clones[name],
-                        prompt,
-                        barrier,
-                        reviewer_timeout,
-                        args.timeout_grace_seconds,
-                    )
+            try:
+                for name in reviewer_names:
+                    reviewer_timeout = reviewer_limits[name]
+                    if name == "codex":
+                        futures[name] = executor.submit(
+                            codex_lane,
+                            clones[name],
+                            prompt,
+                            barrier,
+                            reviewer_timeout,
+                            args.timeout_grace_seconds,
+                            args.codex_model,
+                        )
+                    else:
+                        futures[name] = executor.submit(
+                            opus_lane,
+                            clones[name],
+                            prompt,
+                            barrier,
+                            reviewer_timeout,
+                            args.timeout_grace_seconds,
+                        )
+            except BaseException:
+                barrier.abort()
+                raise
             results = {name: future.result() for name, future in futures.items()}
         for name, result in results.items():
             (output_dir / f"{name}.txt").write_text(result.pop("stdout"))

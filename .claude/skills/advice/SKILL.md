@@ -85,6 +85,21 @@ add a wrapper or implementation to impose the limit. A missing primary vote may
 be paired with a separately bounded eligible CLI reviewer; it never shares or
 inherits another reviewer's vote.
 
+After the shared review packet is ready, capture the queue boundary immediately
+before dispatch and pass it to the runner. The timestamp is mandatory; if it
+cannot be captured, mark the primary attempt unavailable rather than invoke the
+runner without it:
+
+```bash
+QUEUED_AT_NS="$(python3 -c 'import time; print(time.time_ns())')"
+```
+
+Add this required option to the runner command:
+
+```bash
+--queued-at-epoch-ns "$QUEUED_AT_NS" \
+```
+
 ```
 You are a senior engineer giving a focused second opinion.
 
