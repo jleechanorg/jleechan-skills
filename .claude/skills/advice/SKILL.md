@@ -78,7 +78,10 @@ The currently installed primary-pair runner only has a per-reviewer
 `--timeout-seconds`; it does not bound the complete attempt and is `UNAVAILABLE`
 for the 600-second attempt contract. A conforming implementation must start its
 monotonic timer at runner main-entry, before argument parsing, output reservation,
-clone setup, and reviewer dispatch. Shared packet preparation may happen before the
+clone setup, and reviewer dispatch. The attempt budget covers all post-entry
+non-cleanup work, including fingerprinting, document or packet reads and hashes,
+reviewer output capture, and receipt I/O; a synchronous filesystem call can still
+delay return if the OS blocks it. Shared packet preparation may happen before the
 attempt. Record when invocation is sent and the recorded attempt start; any delay
 before main-entry is outside the timer and must be disclosed. Do not rely on a
 branch-only change or add a wrapper to impose the limit. A missing primary vote may be paired with a separately bounded eligible
@@ -152,13 +155,16 @@ descendants observed while the reviewer root is alive, a surviving verified PID
 is recorded as a termination failure rather than silently treated as contained;
 after successful cleanup the runner exits 7 even if the peer returned a verdict.
 
-A conforming runner records its monotonic attempt start at main-entry. Its
-remaining budget caps clone, remote-removal, checkout, and reviewer subprocess
-work; a late result cannot vote. It reserves a configured cleanup budget and
+A conforming runner records its monotonic attempt start at main-entry. All
+post-entry non-cleanup work consumes the remaining budget, including setup,
+fingerprinting, document or packet reads and hashes, reviewer subprocess work,
+output capture, and receipt I/O; late results cannot vote. Synchronous filesystem
+calls cannot be interrupted if the OS blocks, so the budget does not guarantee a
+hard wall-clock return bound. The runner reserves a configured cleanup budget and
 records attempt start, total elapsed time, cleanup timing, and outcome. The cap
-does not include delay before the runner process reaches main-entry. Filesystem
-cleanup may overrun while an OS call is blocked, so do not promise an absolute
-wall-clock return bound; cleanup finishing after the deadline invalidates all votes.
+does not include delay before the runner process reaches main-entry. Cleanup may
+also overrun while an OS call is blocked; cleanup finishing after the deadline
+invalidates all votes.
 
 Use existing supported execution tools. Do not create an adapter, supervisor,
 watchdog, helper script, or embedded executable implementation to meet this
