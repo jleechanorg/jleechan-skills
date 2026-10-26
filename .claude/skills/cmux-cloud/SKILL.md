@@ -21,9 +21,9 @@ Do not provision machines, increase a paid plan, or trigger other billable
 resources unless the user authorized that action. Pause or resume a machine only
 when the user authorized it and its owner and task impact are clear. Deleting a
 machine is destructive and always requires explicit user approval, even when the
-task created it. Never delete a machine that the task did not create. Pausing may
-stop compute charges while retaining its disk; confirm current semantics with
-vendor help.
+task created it. Never delete a machine outside the explicitly authorized target
+and scope. Pausing may stop compute charges while retaining its disk; confirm
+current semantics with vendor help.
 
 ## Run and observe work
 
