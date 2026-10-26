@@ -455,6 +455,29 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         self.assertEqual(receipt["reviewers"]["opus"]["status"], "success")
         self.assertTrue(receipt["cleanup"]["success"])
 
+    def test_attempt_deadline_caps_review_and_reserves_cleanup_budget(self) -> None:
+        self.executable("codex", "exec sleep 5\n")
+        self.executable("claude", "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
+
+        started = time.monotonic()
+        result = self.invoke(
+            "--attempt-timeout-seconds", "2",
+            "--cleanup-budget-seconds", "0.2",
+            "--timeout-grace-seconds", "0.1",
+            "--timeout-seconds", "10",
+        )
+        elapsed = time.monotonic() - started
+
+        self.assertEqual(result.returncode, 4, result.stderr)
+        self.assertLess(elapsed, 2.5)
+        receipt = json.loads((self.output / "receipt.json").read_text())
+        self.assertEqual(receipt["attempt_timeout_seconds"], 2.0)
+        self.assertEqual(receipt["cleanup_budget_seconds"], 0.2)
+        self.assertEqual(receipt["reviewers"]["codex"]["status"], "error")
+        self.assertEqual(receipt["reviewers"]["codex"]["attempts"][0]["failure"], "attempt_timeout")
+        self.assertTrue(receipt["cleanup"]["success"])
+        self.assertLessEqual(receipt["elapsed_seconds"], 2.5)
+
     def test_both_timed_out_lanes_exit_four_and_still_cleanup(self) -> None:
         self.executable("codex", "exec sleep 2\n")
         self.executable("claude", "exec sleep 2\n")
@@ -566,6 +589,66 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         self.assertIn("clone setup failed", receipt["operation"]["error"])
         self.assertEqual(receipt["cleanup"], cleanup)
         self.assertIn("failed to clean disposable clones", stderr.getvalue())
+
+    def test_clone_setup_uses_attempt_budget_and_stops_before_review(self) -> None:
+        runner = load_runner_module()
+        argv = [
+            "--repo", str(self.repo), "--ref", self.sha,
+            "--packet-file", str(self.packet), "--output-dir", str(self.output),
+            "--reviewers", "codex", "--attempt-timeout-seconds", "0.2",
+            "--cleanup-budget-seconds", "0.1",
+            "--timeout-grace-seconds", "0.05",
+        ]
+        observed = {}
+        def slow_clone(source, destination, sha, *, deadline):
+            remaining = deadline - time.monotonic()
+            observed["timeout_seconds"] = remaining
+            time.sleep(min(0.15, remaining))
+            raise subprocess.TimeoutExpired(["git", "clone"], remaining)
+        stderr = io.StringIO()
+
+        with redirect_stderr(stderr):
+            code = runner.main(argv, create_clone_fn=slow_clone)
+
+        self.assertEqual(code, 6)
+        self.assertLessEqual(observed["timeout_seconds"], 0.11)
+        receipt = json.loads((self.output / "receipt.json").read_text())
+        self.assertFalse(receipt["operation"]["success"])
+        self.assertIn("TimeoutExpired", receipt["operation"]["error"])
+        self.assertTrue(receipt["cleanup"]["success"])
+        self.assertFalse(receipt["reviewers"] if "reviewers" in receipt else False)
+
+    def test_reviewer_dispatch_deadline_is_admitted_for_all_lanes_before_submit(self) -> None:
+        runner = load_runner_module()
+        with mock.patch.object(runner.time, "monotonic", side_effect=[9.5, 10.0]):
+            with self.assertRaisesRegex(TimeoutError, "before reviewer dispatch"):
+                runner.reviewer_timeouts(["codex", "opus"], 10.0, 5.0, 0.1)
+
+    def test_cleanup_overrun_invalidates_successful_review_vote(self) -> None:
+        runner = load_runner_module()
+        self.executable("codex", "printf 'VERDICT: APPROVED\nCOVERAGE: all\n'\n")
+        argv = [
+            "--repo", str(self.repo), "--ref", self.sha,
+            "--packet-file", str(self.packet), "--output-dir", str(self.output),
+            "--reviewers", "codex", "--attempt-timeout-seconds", "2.0",
+            "--cleanup-budget-seconds", "0.1",
+            "--timeout-grace-seconds", "0.05",
+        ]
+
+        def slow_cleanup(path):
+            result = runner.cleanup_directory(path)
+            time.sleep(2.05)
+            return result
+
+        with mock.patch.dict(os.environ, self.env):
+            code = runner.main(argv, cleanup_fn=slow_cleanup)
+
+        receipt = json.loads((self.output / "receipt.json").read_text())
+        self.assertEqual(code, 4)
+        self.assertTrue(receipt["cleanup"]["success"])
+        self.assertTrue(receipt["attempt_deadline_exceeded"])
+        self.assertEqual(receipt["reviewers"]["codex"]["status"], "error")
+        self.assertEqual(receipt["reviewers"]["codex"]["failure"], "attempt_timeout")
 
     def test_operation_failure_with_successful_cleanup_has_distinct_exit_and_receipt(self) -> None:
         runner = load_runner_module()

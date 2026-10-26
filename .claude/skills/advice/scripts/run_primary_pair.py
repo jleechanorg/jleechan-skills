@@ -27,21 +27,35 @@ from pathlib import Path
 from typing import Any
 
 
-def git(repo: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[bytes]:
+def git(
+    repo: Path,
+    *args: str,
+    check: bool = True,
+    timeout: float | None = None,
+    deadline: float | None = None,
+) -> subprocess.CompletedProcess[bytes]:
+    if deadline is not None:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise subprocess.TimeoutExpired(["git", *args], 0)
+        timeout = remaining if timeout is None else min(timeout, remaining)
     return subprocess.run(
         ["git", "-C", str(repo), *args],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         check=check,
+        timeout=timeout,
     )
 
 
-def checkout_fingerprint(repo: Path) -> str:
+def checkout_fingerprint(repo: Path, deadline: float | None = None) -> str:
     """Hash HEAD, tracked state, and nonignored untracked file content."""
     digest = hashlib.sha256()
-    digest.update(git(repo, "rev-parse", "HEAD").stdout)
-    digest.update(git(repo, "diff", "--binary", "HEAD", "--").stdout)
-    untracked = git(repo, "ls-files", "--others", "--exclude-standard", "-z").stdout
+    digest.update(git(repo, "rev-parse", "HEAD", deadline=deadline).stdout)
+    digest.update(git(repo, "diff", "--binary", "HEAD", "--", deadline=deadline).stdout)
+    untracked = git(
+        repo, "ls-files", "--others", "--exclude-standard", "-z", deadline=deadline
+    ).stdout
     for raw_path in sorted(filter(None, untracked.split(b"\0"))):
         digest.update(raw_path)
         path = repo / os.fsdecode(raw_path)
@@ -52,7 +66,7 @@ def checkout_fingerprint(repo: Path) -> str:
     return digest.hexdigest()
 
 
-def ignored_path_metadata(repo: Path) -> bytes:
+def ignored_path_metadata(repo: Path, deadline: float | None = None) -> bytes:
     """Serialize ignored-path metadata without opening regular-file content."""
     serialized = bytearray()
     ignored = git(
@@ -62,6 +76,7 @@ def ignored_path_metadata(repo: Path) -> bytes:
         "--ignored",
         "--exclude-standard",
         "-z",
+        deadline=deadline,
     ).stdout
     for raw_path in sorted(filter(None, ignored.split(b"\0"))):
         path = repo / os.fsdecode(raw_path)
@@ -123,7 +138,7 @@ def hook_tree_fingerprint(hooks: Path) -> str:
     return digest.hexdigest()
 
 
-def repository_snapshot(repo: Path) -> dict[str, str]:
+def repository_snapshot(repo: Path, deadline: float | None = None) -> dict[str, str]:
     """Return component hashes for mutation detection and useful diagnostics."""
     effective_hooks = Path(
         git(
@@ -132,13 +147,18 @@ def repository_snapshot(repo: Path) -> dict[str, str]:
             "--path-format=absolute",
             "--git-path",
             "hooks",
+            deadline=deadline,
         ).stdout.decode().strip()
     )
     return {
-        "checkout": checkout_fingerprint(repo),
-        "ignored_metadata": digest_bytes(ignored_path_metadata(repo)),
-        "local_config": digest_bytes(git(repo, "config", "--local", "--null", "--list").stdout),
-        "refs": digest_bytes(git(repo, "show-ref", "--head", check=False).stdout),
+        "checkout": checkout_fingerprint(repo, deadline),
+        "ignored_metadata": digest_bytes(ignored_path_metadata(repo, deadline)),
+        "local_config": digest_bytes(
+            git(repo, "config", "--local", "--null", "--list", deadline=deadline).stdout
+        ),
+        "refs": digest_bytes(
+            git(repo, "show-ref", "--head", check=False, deadline=deadline).stdout
+        ),
         "effective_hooks": hook_tree_fingerprint(effective_hooks),
     }
 
@@ -502,6 +522,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="maximum runtime for each primary reviewer (default: 1200)",
     )
     parser.add_argument(
+        "--attempt-timeout-seconds",
+        type=float,
+        default=600.0,
+        help="shared setup, review, and cleanup deadline (default: 600)",
+    )
+    parser.add_argument(
+        "--cleanup-budget-seconds",
+        type=float,
+        default=10.0,
+        help="portion of the attempt deadline reserved for cleanup (default: 10)",
+    )
+    parser.add_argument(
         "--timeout-grace-seconds",
         type=float,
         default=2.0,
@@ -536,7 +568,15 @@ def cleanup_directory(path: Path) -> dict[str, Any]:
     return {"success": True, "error": None, "path": str(path)}
 
 
-def create_clone(source: Path, destination: Path, sha: str) -> None:
+def create_clone(
+    source: Path, destination: Path, sha: str, *, deadline: float
+) -> None:
+    def remaining() -> float:
+        value = deadline - time.monotonic()
+        if value <= 0:
+            raise subprocess.TimeoutExpired(["git", "clone"], 0)
+        return value
+
     subprocess.run(
         [
             "git",
@@ -550,9 +590,23 @@ def create_clone(source: Path, destination: Path, sha: str) -> None:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         check=True,
+        timeout=remaining(),
     )
-    git(destination, "remote", "remove", "origin")
-    git(destination, "checkout", "--quiet", "--detach", sha)
+    git(destination, "remote", "remove", "origin", timeout=remaining())
+    git(destination, "checkout", "--quiet", "--detach", sha, timeout=remaining())
+
+
+def reviewer_timeouts(
+    names: list[str], work_deadline: float, process_cap: float, drain_grace: float
+) -> dict[str, float]:
+    timeouts = {}
+    for name in names:
+        remaining = work_deadline - time.monotonic()
+        timeout = min(process_cap, remaining - drain_grace)
+        if timeout <= 0:
+            raise TimeoutError("attempt_timeout before reviewer dispatch")
+        timeouts[name] = timeout
+    return timeouts
 
 
 def descendant_termination_failures(reviewers: dict[str, Any]) -> list[str]:
@@ -567,7 +621,9 @@ def descendant_termination_failures(reviewers: dict[str, Any]) -> list[str]:
     return sorted(failures)
 
 
-def read_review_documents(repo: Path, names: list[str]) -> dict[str, bytes]:
+def read_review_documents(
+    repo: Path, names: list[str], deadline: float | None = None
+) -> dict[str, bytes]:
     """Read only explicitly selected, non-ignored Markdown files inside this repo."""
     documents = {}
     for name in names:
@@ -579,7 +635,10 @@ def read_review_documents(repo: Path, names: list[str]) -> dict[str, bytes]:
             raise ValueError("--document must name an existing Markdown file")
         if any(p.is_symlink() for p in (path, *path.parents) if p != repo and repo in p.parents):
             raise ValueError("linked document paths are not supported")
-        if git(repo, "check-ignore", "--no-index", "--", str(relative), check=False).returncode == 0:
+        if git(
+            repo, "check-ignore", "--no-index", "--", str(relative),
+            check=False, deadline=deadline,
+        ).returncode == 0:
             raise ValueError("ignored documents must not be submitted implicitly")
         documents[relative.as_posix()] = path.read_bytes()
     return documents
@@ -591,25 +650,55 @@ def main(
     create_clone_fn=create_clone,
     cleanup_fn=cleanup_directory,
 ) -> int:
+    attempt_started = time.monotonic()
+    attempt_started_ns = time.time_ns()
     args = parse_args(argv)
     if args.timeout_seconds <= 0:
         print("--timeout-seconds must be greater than zero", file=sys.stderr)
         return 2
+    if args.attempt_timeout_seconds <= 0:
+        print("--attempt-timeout-seconds must be greater than zero", file=sys.stderr)
+        return 2
+    if args.cleanup_budget_seconds <= 0 or args.cleanup_budget_seconds >= args.attempt_timeout_seconds:
+        print("--cleanup-budget-seconds must be positive and less than the attempt timeout", file=sys.stderr)
+        return 2
     if args.timeout_grace_seconds <= 0:
         print("--timeout-grace-seconds must be greater than zero", file=sys.stderr)
         return 2
-    repo = Path(git(args.repo.resolve(), "rev-parse", "--show-toplevel").stdout.decode().strip())
-    output_dir = args.output_dir.resolve()
-    if output_dir == repo or repo in output_dir.parents:
-        print("output directory must be outside the original checkout", file=sys.stderr)
-        return 2
-    if not args.document and git(repo, "status", "--porcelain=v1", "--untracked-files=all").stdout:
-        print("input checkout must be clean; dirty state is not represented by an exact SHA", file=sys.stderr)
-        return 2
-    sha = git(repo, "rev-parse", f"{args.ref}^{{commit}}").stdout.decode().strip()
-    before = repository_snapshot(repo)
+    attempt_deadline = attempt_started + args.attempt_timeout_seconds
     try:
-        documents = read_review_documents(repo, args.document)
+        repo = Path(
+            git(
+                args.repo.resolve(),
+                "rev-parse",
+                "--show-toplevel",
+                deadline=attempt_deadline,
+            ).stdout.decode().strip()
+        )
+        output_dir = args.output_dir.resolve()
+        if output_dir == repo or repo in output_dir.parents:
+            print("output directory must be outside the original checkout", file=sys.stderr)
+            return 2
+        if not args.document and git(
+            repo,
+            "status",
+            "--porcelain=v1",
+            "--untracked-files=all",
+            deadline=attempt_deadline,
+        ).stdout:
+            print(
+                "input checkout must be clean; dirty state is not represented by an exact SHA",
+                file=sys.stderr,
+            )
+            return 2
+        sha = git(
+            repo, "rev-parse", f"{args.ref}^{{commit}}", deadline=attempt_deadline
+        ).stdout.decode().strip()
+        before = repository_snapshot(repo, attempt_deadline)
+        documents = read_review_documents(repo, args.document, attempt_deadline)
+    except subprocess.TimeoutExpired as error:
+        print(f"attempt_timeout during preflight: {error}", file=sys.stderr)
+        return 4
     except (ValueError, OSError) as error:
         print(f"document review refused: {error}", file=sys.stderr)
         return 2
@@ -646,6 +735,7 @@ def main(
         )
         return 2
     temp_root = Path(tempfile.mkdtemp(prefix="advice-primary-pair-"))
+    work_deadline = attempt_deadline - args.cleanup_budget_seconds
     receipt: dict[str, Any] = {
         "sha": sha,
         "review_kind": "documents" if documents else "revision",
@@ -654,6 +744,9 @@ def main(
         "parallel_dispatch": len(args.reviewers) > 1,
         "checkout_kind": "independent_clone_no_local",
         "timeout_seconds": args.timeout_seconds,
+        "attempt_started_ns": attempt_started_ns,
+        "attempt_timeout_seconds": args.attempt_timeout_seconds,
+        "cleanup_budget_seconds": args.cleanup_budget_seconds,
         "timeout_grace_seconds": args.timeout_grace_seconds,
         "codex_model": args.codex_model,
         "operation": {"success": False, "error": "operation did not complete"},
@@ -663,14 +756,19 @@ def main(
         reviewer_names = args.reviewers
         clones = {name: temp_root / name for name in reviewer_names}
         for path in clones.values():
-            create_clone_fn(repo, path, sha)
+            remaining = work_deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("attempt_timeout during clone setup")
+            create_clone_fn(repo, path, sha, deadline=work_deadline)
+            if time.monotonic() >= work_deadline:
+                raise TimeoutError("attempt_timeout during clone setup")
             if documents:
                 document_root = path / ".advice-review-documents"
                 document_root.mkdir(exist_ok=False)
                 for i, data in enumerate(documents.values()):
                     (document_root / f"{i}.md").write_bytes(data)
         receipt["clone_shas"] = {
-            name: git(path, "rev-parse", "HEAD").stdout.decode().strip()
+            name: git(path, "rev-parse", "HEAD", deadline=work_deadline).stdout.decode().strip()
             for name, path in clones.items()
         }
         if any(clone_sha != sha for clone_sha in receipt["clone_shas"].values()):
@@ -680,16 +778,23 @@ def main(
             "codex": codex_lane,
             "opus": opus_lane,
         }
+        reviewer_limits = reviewer_timeouts(
+            reviewer_names,
+            work_deadline,
+            args.timeout_seconds,
+            args.timeout_grace_seconds,
+        )
         with concurrent.futures.ThreadPoolExecutor(max_workers=len(reviewer_names)) as executor:
             futures = {}
             for name in reviewer_names:
+                reviewer_timeout = reviewer_limits[name]
                 if name == "codex":
                     futures[name] = executor.submit(
                         codex_lane,
                         clones[name],
                         prompt,
                         barrier,
-                        args.timeout_seconds,
+                        reviewer_timeout,
                         args.timeout_grace_seconds,
                         args.codex_model,
                     )
@@ -699,12 +804,18 @@ def main(
                         clones[name],
                         prompt,
                         barrier,
-                        args.timeout_seconds,
+                        reviewer_timeout,
                         args.timeout_grace_seconds,
                     )
             results = {name: future.result() for name, future in futures.items()}
         for name, result in results.items():
             (output_dir / f"{name}.txt").write_text(result.pop("stdout"))
+        if time.monotonic() > work_deadline:
+            for result in results.values():
+                result["status"] = "error"
+                result["failure"] = "attempt_timeout"
+                for attempt in result.get("attempts", []):
+                    attempt["failure"] = "attempt_timeout"
         receipt["reviewers"] = results
         receipt["descendant_termination_failures"] = descendant_termination_failures(
             results
@@ -717,16 +828,27 @@ def main(
             for i, data in enumerate(documents.values()):
                 if (path / ".advice-review-documents" / f"{i}.md").read_bytes() != data:
                     raise RuntimeError("review document copy changed during review")
-        if documents and read_review_documents(repo, args.document) != documents:
+        if documents and read_review_documents(repo, args.document, attempt_deadline) != documents:
             raise RuntimeError("source documents changed during review")
         receipt["operation"] = {"success": True, "error": None}
     except Exception as error:
         operational_error = f"{type(error).__name__}: {error}"
         receipt["operation"] = {"success": False, "error": operational_error}
     finally:
+        cleanup_started = time.monotonic()
         receipt["cleanup"] = cleanup_fn(temp_root)
+        receipt["cleanup"]["elapsed_seconds"] = time.monotonic() - cleanup_started
+        receipt["cleanup"]["started_before_deadline"] = cleanup_started <= attempt_deadline
+        receipt["elapsed_seconds"] = time.monotonic() - attempt_started
+        receipt["attempt_deadline_exceeded"] = time.monotonic() > attempt_deadline
+        if receipt["attempt_deadline_exceeded"]:
+            for result in receipt.get("reviewers", {}).values():
+                result["status"] = "error"
+                result["failure"] = "attempt_timeout"
+                for attempt in result.get("attempts", []):
+                    attempt["failure"] = "attempt_timeout"
         try:
-            after = repository_snapshot(repo)
+            after = repository_snapshot(repo, attempt_deadline)
             receipt["original_changed_components"] = sorted(
                 component for component in before if before[component] != after[component]
             )
@@ -739,10 +861,28 @@ def main(
             receipt["original_repository_unchanged"] = False
             receipt["original_checkout_unchanged"] = False
             receipt["original_changed_components"] = ["fingerprint_error"]
+        receipt["elapsed_seconds"] = time.monotonic() - attempt_started
+        receipt["attempt_deadline_exceeded"] = time.monotonic() > attempt_deadline
+        if receipt["attempt_deadline_exceeded"]:
+            for result in receipt.get("reviewers", {}).values():
+                result["status"] = "error"
+                result["failure"] = "attempt_timeout"
+                for attempt in result.get("attempts", []):
+                    attempt["failure"] = "attempt_timeout"
         try:
-            (output_dir / "receipt.json").write_text(
-                json.dumps(receipt, indent=2, sort_keys=True) + "\n"
-            )
+            receipt_path = output_dir / "receipt.json"
+            receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+            receipt["elapsed_seconds"] = time.monotonic() - attempt_started
+            receipt["attempt_deadline_exceeded"] = time.monotonic() > attempt_deadline
+            if receipt["attempt_deadline_exceeded"]:
+                for result in receipt.get("reviewers", {}).values():
+                    result["status"] = "error"
+                    result["failure"] = "attempt_timeout"
+                    for attempt in result.get("attempts", []):
+                        attempt["failure"] = "attempt_timeout"
+                receipt_path.write_text(
+                    json.dumps(receipt, indent=2, sort_keys=True) + "\n"
+                )
         except Exception as error:
             if operational_error is None:
                 operational_error = f"{type(error).__name__}: {error}"
@@ -750,6 +890,9 @@ def main(
     if not receipt["cleanup"]["success"]:
         print(f"failed to clean disposable clones: {receipt['cleanup']['error']}", file=sys.stderr)
         return 5
+    if receipt["attempt_deadline_exceeded"]:
+        print("primary reviewer attempt exceeded its deadline", file=sys.stderr)
+        return 4
     if operational_error is not None:
         print(f"primary reviewer operation failed: {operational_error}", file=sys.stderr)
         return 6
