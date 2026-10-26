@@ -9,6 +9,11 @@ scope: project
 
 This skill provides authentication setup for the AI Universe MCP server, which powers the `/secondo` command for multi-model AI feedback.
 
+Use existing credentials and their supported refresh path first. Follow the
+shared credential and isolated-browser owners before starting an interactive
+login; this recipe does not authorize new access, personal-browser use or
+credential rotation. Capture token output in a variable, never in logs or chat.
+
 ## Script Location
 
 **IMPORTANT:** Always look for `auth-cli.mjs` in these locations (in order of preference):
@@ -48,7 +53,7 @@ The script supports **two Firebase projects**. Use the correct one for your use 
 ```bash
 # Default - no flag needed
 node scripts/auth-cli.mjs login
-node scripts/auth-cli.mjs token
+TOKEN=$(node scripts/auth-cli.mjs token)
 ```
 
 #### WorldAI (`worldarchitecture-ai`)
@@ -59,7 +64,7 @@ node scripts/auth-cli.mjs token
 ```bash
 # Explicit project flag required
 node scripts/auth-cli.mjs login --project worldarchitecture-ai
-node scripts/auth-cli.mjs token --project worldarchitecture-ai
+TOKEN=$(node scripts/auth-cli.mjs token --project worldarchitecture-ai)
 ```
 
 ## Prerequisites
@@ -106,7 +111,7 @@ node scripts/auth-cli.mjs status
 ```bash
 # Get token (auto-refreshes if expired, does nothing if valid)
 TOKEN=$(node scripts/auth-cli.mjs token)
-echo $TOKEN
+test -n "$TOKEN" && printf 'Token available\n'
 
 # For WorldAI project
 TOKEN=$(node scripts/auth-cli.mjs token --project worldarchitecture-ai)
@@ -168,9 +173,10 @@ node scripts/auth-cli.mjs login --project worldarchitecture-ai  # WorldAI
 
 ### Port 9005 Already in Use
 
-```bash
-lsof -ti:9005 | xargs kill -9
-```
+Inspect the listener with `lsof -nP -iTCP:9005 -sTCP:LISTEN`, then inspect its
+PID and parent command. A port match does not establish ownership. Stop only
+the verified callback process owned by this task through its supported shutdown
+path; leave unrelated listeners running and report the exact port conflict.
 
 ### Token Expired
 
@@ -214,5 +220,5 @@ cp ~/projects/ai_universe/scripts/auth-cli.mjs ~/.claude/scripts/
 
 ## Related Skills
 
-- [ai-universe-httpie.md](ai-universe-httpie.md) - HTTPie usage examples
-- [secondo-dependencies.md](secondo-dependencies.md) - /secondo command dependencies
+- [AI Universe HTTPie](../ai-universe-httpie/SKILL.md) - HTTPie usage examples
+- [Secondo dependencies](../secondo-dependencies/SKILL.md) - /secondo command dependencies

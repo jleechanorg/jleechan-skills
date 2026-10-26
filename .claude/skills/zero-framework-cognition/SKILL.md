@@ -160,10 +160,10 @@ Y" → Haiku or Sonnet. If the prompt is "figure out what to do" → Fable.
 
 **Token-economy rules (apply to ALL tiers) once /fable is active:**
 
-1. No re-reading files already read in this session — the harness tracks
-   file state.
-2. No re-running `/ms`, `/history`, `/e` sweeps that already ran — cache the
-   result inline and reference by ID.
+1. Reuse prior reads only while their inputs remain unchanged. Re-pin mutable
+   files, branch heads and check results before verification or a status claim.
+2. Reuse `/ms`, `/history`, `/e` results by ID for the same bounded question;
+   refresh when the scope, source state or required time window changes.
 3. Use offset/limit on Read for large files. Default
    `$PROJECT_ROOT/world_logic.py` (421KB) → always Grep-first, never Read-whole.
 4. Bead lookups via `br` CLI only — never read `.beads/issues.jsonl`
@@ -200,6 +200,6 @@ commands, always-on, not /fable-specific); global policy `~/.claude/CLAUDE.md`
 Reply confirms: `/fable active` — main thread = Fable; subagents =
 Haiku-first, Sonnet for implementation; Fable reserved for novel
 architecture, RCF, ZFC/leveling, cross-PR synthesis, multi-step planning;
-token economy rules in effect (no re-reads, no re-sweeps, no file-whole
+token economy rules in effect (reuse unchanged inputs, re-pin mutable state, bounded
 reads, parallel-where-independent). If arguments follow `/fable`, treat them
 as the task to begin.
