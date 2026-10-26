@@ -829,6 +829,9 @@ def main(
         return 2
     temp_root = Path(tempfile.mkdtemp(prefix="advice-primary-pair-"))
     work_deadline = attempt_deadline - args.cleanup_budget_seconds
+    work_deadline_epoch_ns = attempt_started_ns + int(
+        (args.attempt_timeout_seconds - args.cleanup_budget_seconds) * 1_000_000_000
+    )
     receipt: dict[str, Any] = {
         "sha": sha,
         "review_kind": "documents" if documents else "revision",
@@ -840,6 +843,7 @@ def main(
         "attempt_started_ns": attempt_started_ns,
         "attempt_timeout_seconds": args.attempt_timeout_seconds,
         "cleanup_budget_seconds": args.cleanup_budget_seconds,
+        "work_deadline_epoch_ns": work_deadline_epoch_ns,
         "timeout_grace_seconds": args.timeout_grace_seconds,
         "codex_model": args.codex_model,
         "operation": {"success": False, "error": "operation did not complete"},
@@ -913,12 +917,13 @@ def main(
             results = {name: future.result() for name, future in futures.items()}
         for name, result in results.items():
             (output_dir / f"{name}.txt").write_text(result.pop("stdout"))
-        if time.monotonic() > work_deadline:
-            for result in results.values():
-                result["status"] = "error"
-                result["failure"] = "attempt_timeout"
-                for attempt in result.get("attempts", []):
-                    attempt["failure"] = "attempt_timeout"
+        late_reviewers = [
+            name for name, result in results.items()
+            if result.get("ended_ns", work_deadline_epoch_ns + 1) > work_deadline_epoch_ns
+        ]
+        for name in late_reviewers:
+            invalidate_reviewer_votes({name: results[name]}, "attempt_timeout")
+        receipt["work_deadline_late_reviewers"] = late_reviewers
         receipt["reviewers"] = results
         receipt["descendant_termination_failures"] = descendant_termination_failures(
             results

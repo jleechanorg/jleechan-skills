@@ -816,6 +816,48 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
             with self.assertRaisesRegex(TimeoutError, "before reviewer dispatch"):
                 runner.reviewer_deadlines(["codex", "opus"], 10.0, 5.0, 0.1)
 
+    def test_work_cutoff_invalidates_only_lane_that_finishes_after_cutoff(self) -> None:
+        runner = load_runner_module()
+        self.executable("codex", "exit 0\n")
+        self.executable("claude", "exit 0\n")
+        queued_at_ns = time.time_ns()
+        attempt_timeout = 1.8
+        cleanup_budget = 0.6
+        argv = self.with_queued_timestamp([
+            "--repo", str(self.repo), "--ref", self.sha,
+            "--packet-file", str(self.packet), "--output-dir", str(self.output),
+            "--attempt-timeout-seconds", str(attempt_timeout),
+            "--cleanup-budget-seconds", str(cleanup_budget),
+            "--timeout-grace-seconds", "0.05", "--timeout-seconds", "10",
+        ])
+        recorded = {}
+        supervision = {
+            "descendant_termination_verified": True,
+            "descendants_surviving": [],
+        }
+
+        def boundary_execute(command, cwd, prompt, timeout_seconds, timeout_grace_seconds):
+            if Path(command[0]).name == "codex":
+                work_deadline_ns = queued_at_ns + int(
+                    (attempt_timeout - cleanup_budget) * 1_000_000_000
+                )
+                time.sleep(max(0, (work_deadline_ns - time.time_ns()) / 1_000_000_000) + 0.01)
+                recorded["codex_end_ns"] = time.time_ns()
+                return -signal.SIGKILL, "", "", True, False, supervision
+            return 0, "VERDICT: APPROVED\nCOVERAGE: all\n", "", False, False, supervision
+
+        with mock.patch.dict(os.environ, self.env), mock.patch.object(
+            runner, "execute", side_effect=boundary_execute
+        ):
+            code = runner.main(argv)
+
+        receipt = json.loads((self.output / "receipt.json").read_text())
+        self.assertLess(recorded["codex_end_ns"], queued_at_ns + int(attempt_timeout * 1_000_000_000))
+        self.assertEqual(code, 0)
+        self.assertFalse(receipt["attempt_deadline_exceeded"])
+        self.assertEqual(receipt["reviewers"]["codex"]["status"], "error")
+        self.assertEqual(receipt["reviewers"]["opus"]["status"], "success")
+
     def test_attempt_timed_out_lane_with_unverified_descendant_is_reported(self) -> None:
         runner = load_runner_module()
 
