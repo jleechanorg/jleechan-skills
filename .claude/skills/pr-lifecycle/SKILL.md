@@ -138,6 +138,10 @@ next reader to fix the wrong thing; state the measured facts instead of the reme
 
 ### Stage, title and labels
 
+On creation, after each push, and when scope or status changes, refresh the descriptive title to match
+the implemented behavior and remaining work. Read back the published title. Preserve provenance and
+use the earliest unmet stage; changing the title never completes or advances a gate.
+
 Use one stage label, one two-letter stage prefix and one recognized trailing stage suffix.
 The prefix and suffix must name the same stage, for example
 `[er] Improve campaign loading [evidence review]`. Preserve the substantive title, unrelated tags/labels
