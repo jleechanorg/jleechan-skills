@@ -18,13 +18,25 @@ scope: project
 - Questions about cost, rate limits, or interpreting multi-model output.
 
 ## Prerequisites & authentication
+Before any authentication command, use the host's already loaded nvm setup to
+resolve its installed Node 22. If nvm or Node 22 is unavailable, report that
+prerequisite; do not use a different major version or change persistent defaults.
+
+```bash
+AUTH_NODE="$(nvm which 22)" || exit 1
+[ -x "$AUTH_NODE" ] || exit 1
+case "$("$AUTH_NODE" --version)" in v22.*) ;; *) exit 1 ;; esac
+```
+
+Use this same verified `AUTH_NODE` executable for every command below.
+
 1. **Verify auth-cli.mjs installation**:
    ```bash
    test -f ~/.claude/scripts/auth-cli.mjs && echo "✅ Installed" || echo "❌ Not found - run /localexportcommands"
    ```
 2. **Check authentication status**:
    ```bash
-   node ~/.claude/scripts/auth-cli.mjs status
+   "$AUTH_NODE" ~/.claude/scripts/auth-cli.mjs status
    ```
 3. Follow `../ai-universe-auth/SKILL.md` for current authentication state and
    refresh handling. If the existing token is expired, call the existing
@@ -35,9 +47,7 @@ scope: project
    presence probe (without displaying a value) and a cheap non-UI authenticated
    call. Only after both fail may you report the physical authentication
    dependency; do not ask for login from status output alone.
-4. Ensure `http` (HTTPie), `jq`, and `python3` are installed. Use the active
-   host's nvm-managed Node 22, resolved from its installed nvm configuration.
-   Verify the selected executable and `node --version` before invoking it.
+4. Ensure `http` (HTTPie), `jq`, and `python3` are installed.
 
 > ℹ️ **Seamless Auto-Refresh**: The `/secondo` command uses the exact same auth-cli.mjs from AI Universe repo. If your token is valid, it does nothing. If expired, it auto-refreshes using your refresh token (silent, no browser popup). Only prompts for login if refresh token expires (30+ days).
 
@@ -75,7 +85,7 @@ scope: project
 3. **Get authentication token** through the existing auth CLI (auto-refresh only from its designated credential store):
    ```bash
    # Get token (auto-refreshes if expired, does nothing if valid)
-   TOKEN=$(node ~/.claude/scripts/auth-cli.mjs token)
+   TOKEN=$("$AUTH_NODE" ~/.claude/scripts/auth-cli.mjs token)
    ```
 4. **Send request** (allowing up to 180s for cold starts):
    ```bash
