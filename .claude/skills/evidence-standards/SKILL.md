@@ -8,10 +8,9 @@ when-to-use: Before /er, /green, gate fixes, or AO worker dispatch on a PR that 
 
 ## Claim-proportionate evidence and publication
 
-Apply [pr-lifecycle](../pr-lifecycle/SKILL.md) proportional exceptions and stage-exit rules. They govern generic bundle/media requirements below without waiving explicit user requirements or risk-specific proof. A compact source-inspection, documentation, deterministic-test or log-emission claim may use one provenance receipt plus primary artifacts and hashes; mark irrelevant server/PID/provider fields and media N/A with reasons rather than inventing runtime metadata. All applicable integrity and claim-sufficiency checks remain mandatory. Source hashes alone do not prove execution; log emission does not prove ingestion, and mocks do not prove real service boundaries.
+For proportional evidence classes, follow [pr-lifecycle](../pr-lifecycle/SKILL.md#proportional-exceptions-and-fast-paths). For PR-description publication, follow its [stage-exit receipt contract](../pr-lifecycle/SKILL.md#evidence-attached-to-every-stage-exit). This skill owns the evidence-content and integrity checks below, not a second lifecycle policy.
 
-Always link the evidence and sanitized gist receipt from the PR description. Embed applicable viewable screenshots/playable videos there with original media URLs; confirm intended reviewer access. Source-only harmless copy may justify media N/A; claimed static rendering requires rendered proof, and interaction/streaming retains applicable video proof. A compact or exempt class is not an independent PASS, and failed or missing required proof is never N/A. The review verdict covers the declared claim and applicable checks, not unrelated runtime behavior.
-
+Compact proof retains primary artifacts, source provenance and hashes; mark irrelevant server/PID/provider fields N/A with reasons instead of inventing runtime metadata. Source hashes alone do not prove execution.
 
 ## Summary
 
@@ -205,7 +204,10 @@ hours of LLM time for zero added confidence. The evidence proves a *behavior*; i
 code is byte-identical at HEAD and no assertion or driver backing it changed, the proof is
 byte-valid at HEAD. Repo-level files may add
 project-specific context (e.g. `<repo>/.claude/skills/evidence-standards.md` §
-"Claim-scoped evidence revalidation"). Shared [pr-lifecycle precedence](../pr-lifecycle/SKILL.md#precedence-and-scope) governs conflicting lifecycle copies; domain-specific proof and separate safety/merge restrictions remain. Repo overlays cannot waive the delta-and-claim test above.
+"Claim-scoped evidence revalidation"). Follow explicit repository requirements for their domain;
+shared [pr-lifecycle defaults](../pr-lifecycle/SKILL.md#precedence-and-scope) fill only details the
+repository leaves silent. A local workflow may alter which shared gates apply, but an applicable evidence
+claim cannot waive the delta-and-claim test above.
 
 ## Evidence Sequencing — expensive evidence runs LAST, once
 
@@ -387,8 +389,9 @@ a synthetic-LLM claim.
 ```text
 # PR description includes:
 - Evidence bundle: /tmp/your-project.com/fix-attack-roll/iteration_001/
-- Video: https://<project-host>/releases/download/evidence-2026-06-16/attack-roll.mp4
-  (NOT github.com/.../releases/download/untagged-* — that is a red flag)
+- Video: https://storage.googleapis.com/<bucket>/agent-evidence/<repo>/<pr>-<topic>/attack-roll.mp4
+  (or another host the current task authorizes; NOT github.com/.../releases/download/untagged-* — that is a red flag)
+- Paired inline GIF of the same run, embedded in the PR body (see § Visual Evidence)
 - metadata.json contains browser_origin, gateway_url, server.pid, artifact_manifest
 - Video is pipeline output (asciinema .cast in bundle, converted to mp4
   for hosting), not a manual screen recording
@@ -441,14 +444,33 @@ Visual comparisons under `## Visual Evidence` in PR descriptions must render ima
    | <img src="<before_mobile_url>" width="360" alt="Before Mobile"> | <img src="<after_mobile_url>" width="360" alt="After Mobile"> |
 
    ### Walkthrough Video
-   - [walkthrough.mp4](<video_url>) (SHA256: `<sha256>`)
+
+   | Before | After |
+   | :---: | :---: |
+   | <img src="https://storage.googleapis.com/<bucket>/<path>/before.gif" width="300" alt="Before walkthrough"> | <img src="https://storage.googleapis.com/<bucket>/<path>/after.gif" width="300" alt="After walkthrough"> |
+   | [▶ before.mp4](https://storage.googleapis.com/<bucket>/<path>/before.mp4) (SHA256: `<sha256>`) | [▶ after.mp4](https://storage.googleapis.com/<bucket>/<path>/after.mp4) (SHA256: `<sha256>`) |
    ```
 
-4. **Anti-Patterns (Reject in Review)**:
+4. **Google Cloud Storage media (default host)**:
+   - **Default host.** Upload media to the authorized evidence bucket (for example `gs://<evidence-bucket>/agent-evidence/<repo>/<pr>-<topic>-<date>/`) and link it as `https://storage.googleapis.com/<evidence-bucket>/<object>`. That URL syntax grants no access by itself: a direct browser playback works only for objects already authorized for the intended reviewers (public-read, for example). Media that must stay private uses the private-host exception below rather than being made public.
+   - A GitHub attachment is also acceptable — for video it is the only form GitHub plays inline — as is any other host the current task authorizes. Media that must stay private stays in authorized private hosting; never make evidence public merely to satisfy a link check. What is never acceptable is a URL the intended reviewer cannot open and play.
+   - Never link `gs://…` (not clickable) or `https://storage.cloud.google.com/…`, which redirects reviewers to a Google login.
+   - GitHub plays inline only videos uploaded as GitHub attachments, so an external mp4 renders as a link. Every video therefore gets an **inline GIF** of the same run (`ffmpeg -i in.webm -vf "fps=6,scale=300:-1:flags=lanczos" out.gif`) next to a **playable mp4 link** (prefer MP4/H.264 — `-c:v libx264 -pix_fmt yuv420p` — for the broadest player compatibility; WebM may be supplied additionally, but does not replace the required MP4/H.264 variant).
+   - Screenshots are inline `<img>` from an authorized host that renders for the intended reviewer, showing the real captured pixels of the claimed state, not placeholders, crops that hide the changed element, or icons.
+   - Verify before claiming the stage exit:
+     - Every URL resolves with the expected `content-type` (`video/mp4`, `image/gif`, `image/png`) **for the intended reviewer**: `curl -sI <url>` for a public object, or the reviewer's own authorized access when the task keeps the media private. Record which access mode applies instead of forcing public access to prove reachability.
+     - Every inline GIF and screenshot appears in the **rendered** PR body *and is the right image*. GitHub exposes each rendered image's original URL, so compare them with the media this receipt declares: `gh api repos/<owner>/<repo>/pulls/<n> -H "Accept: application/vnd.github.html+json" --jq .body_html | grep -o 'data-canonical-src="[^"]*"'`. Do not accept a bare image count: `grep -c` counts matching *lines* (one line holding two images reports `1`), and an aggregate number can be matched by unrelated images.
+     - The sanitized gist receipt lists the same media with their sha256 hashes and access mode. Redact bearer, signed-query and other credential-bearing URL components — record the protected location plus hash instead of the token, since a gist is link-accessible.
+
+5. **Anti-Patterns (Reject in Review)**:
    - ❌ `| [screenshot](url) | [screenshot](url) |` (text link only — fails inline rendering)
    - ❌ Raw uncaptioned image dumps with no Before/After comparison table
    - ❌ Testing only desktop and skipping mobile (375×812)
    - ❌ Committing heavy image binaries directly into the git repository (use authorized storage or unlisted gists)
+   - ❌ A video only as a text link, with no inline GIF of the same run
+   - ❌ `gs://` or `storage.cloud.google.com` media links, or webm as the only playable form with no MP4/H.264 variant
+   - ❌ Making private evidence public, or changing bucket access, only to satisfy a reachability check
+   - ❌ Media only in a gist, a comment or a bundle README instead of inline in the PR description
 
 ## Cross-references
 
@@ -462,9 +484,10 @@ standards, always read both this skill and the relevant repo-level file:
 2. **Repo-level /es** — most repos mirror this skill at
    `<repo>/.claude/skills/evidence-standards.md` with project-specific
    extensions (e.g. `your-project.com` has dice-claim, campaign-isolation,
-   BigQuery, and Gemini specifics). **Always read both** and apply the
-   [scoped precedence rule](../pr-lifecycle/SKILL.md#precedence-and-scope);
-   repository domain proof does not override the shared lifecycle.
+   BigQuery, and Gemini specifics). **Always read both**. Explicit repository
+   requirements govern their domain; shared
+   [lifecycle defaults](../pr-lifecycle/SKILL.md#precedence-and-scope) apply
+   only where repository instructions are silent.
 3. **Companion files in this directory** — `bundle-anatomy.md` (bundle
    structure, JSONL shapes, integrity rules), `tmux-video-evidence.md`
    (tmux/asciinema recording), `ui-video-evidence.md` (browser/UI video).

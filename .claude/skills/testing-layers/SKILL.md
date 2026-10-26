@@ -41,7 +41,7 @@ This skill defines the **concrete test directory structure** for Your Project, t
 
 ## Claim boundary
 
-Follow `draft-first-pr` § Change-impact review and test depth and
+Follow `pr-lifecycle` § Change-impact review and test depth and
 `evidence-standards` § Unit proof and claim boundaries. Unit proof can establish
 self-contained deterministic behavior, but not model compliance, auth,
 persistence races, or browser behavior. `/es` classification is independent of

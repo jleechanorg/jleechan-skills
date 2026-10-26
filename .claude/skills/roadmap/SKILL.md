@@ -23,15 +23,29 @@ instead of creating a second one). Repo: `jleechanorg/roadmap`.
 Required structure, in this order:
 
 1. **TLDR at the very top.** 3–6 sentences a reader can act on without scrolling:
-   how many PRs are in flight, how many are blocked only on a human action, which
+   how many PRs are in flight and how many sit in each stage, how many are blocked only on a human action, which
    carry the user-visible P−1 fixes, which are stale or have no owner, and the total
    line delta. Name the biggest deltas explicitly.
 2. **PR ledger table**, one row per PR:
-   `| PR | Repo | State | Head | Δ (lines) | Brief |`
+   `| PR | Repo | Stage | State | Head | Δ (lines) | Next | Brief |`
    - `PR` links to the full GitHub URL (number visible in the link text).
+   - `Stage` = the explicit pr-lifecycle stage. Discover the workflow through
+     `../pr-workflow-manager/SKILL.md`; `/pr-workflow` and `/prw` are command aliases
+     only where they are installed and verified to resolve. Stage rules stay owned by
+     `~/.claude/skills/pr-lifecycle/SKILL.md` § Stage, title and labels — e.g.
+     `2 evidence generation`, plus any `hold:*` label. In a repository that opts into
+     the six-stage workflow, read the stage label, title suffix and `## PR Stage`
+     block; if they disagree, report the earliest unmet stage and write
+     `MISMATCH (label X / title Y)` instead of picking one. A PR with no stage
+     marker is `unstaged`; never infer a stage from draft status or CI colour. For
+     PRs this session owns, run the workflow entry point first — `/pr-workflow` or
+     `/prw` where those aliases are installed and verified — so each one's markers
+     are synchronized
+     before the board reads them.
    - `State` = OPEN/draft/ready + MERGEABLE|BLOCKED|UNKNOWN at the measured head.
    - `Head` = first 8 chars of the head SHA.
    - `Δ (lines)` = `+additions/−deletions` for the whole PR.
+   - `Next` = the next action or exact blocker that exits the current stage.
    - `Brief` = ONE sentence stating what the PR changes and whether it is prod or
      test-only. No changelog.
 3. **Not yet a PR** — items with an owner but no branch/PR yet.

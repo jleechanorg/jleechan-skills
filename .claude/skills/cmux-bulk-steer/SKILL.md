@@ -1,12 +1,14 @@
 ---
 name: cmux-bulk-steer
-description: "Pure Subagent-Native Zero-Framework Cognition (/zfc) fleet review, deduplication, and steering. Always `/parallel` — every phase fans out across disjoint subagents because independent work must never be serialized. Captures ~10,000 words per cmux terminal surface mechanically without regex classifiers, fans out /parallel subagents to classify and dedupe overlapping PR/worktree lanes, then steers sole owners. Use when asked to review/audit cmux surfaces, 'see what's off track', 'nudge/steer the terminals', or orchestrate across the fleet. NOT for single-surface work (see cmux-steer)."
+description: "Pure Subagent-Native Zero-Framework Cognition (/zfc) fleet review, deduplication, and steering, with a read-only audit mode. Always `/parallel` — every phase fans out across disjoint subagents because independent work must never be serialized. Captures ~10,000 words per cmux terminal surface mechanically without regex classifiers, fans out /parallel subagents to classify and dedupe overlapping PR/worktree lanes, then steers sole owners — or, in read-only mode, stops after assessment and reports proposed steers instead of sending them. Use when asked to review/audit cmux surfaces, 'see what's off track', 'nudge/steer the terminals', or orchestrate across the fleet. NOT for single-surface work (see cmux-steer)."
 ---
 
 # cmux-bulk-steer — Subagent-Native `/zfc` Fleet Review, Dedupe, and Steer
 
 Three phases, strictly in order:
 **Phase 1: CAPTURE ALL (Mechanical 10,000-Word Dump) → Phase 2: PARALLEL SUBAGENT `/zfc` ASSESSMENT + STRICT DEDUPE → Phase 3: STEER DEDUPED SOLE OWNERS**.
+In **read-only mode** the run stops after Phase 2 and reports proposed steers instead of sending them (see
+§ Read-only mode).
 
 Never steer from a short tail, never use regex/keyword classifiers to guess terminal state, and never skip cross-surface deduplication.
 
@@ -25,6 +27,50 @@ Apply this at every phase boundary:
 - **Steer (Phase 3)**: send to all deduped owners concurrently, then verify all of them in one parallel read pass. Do not steer+wait per surface.
 
 If you catch yourself in a sequential per-item loop, stop and convert it to a `/parallel` fan-out.
+
+---
+
+## Read-only mode — capture, assess, report; never steer
+
+For a full read-only **audit** — mechanical scope resolution ("/cmux-bulk-read" above pinned P1"), shard partitioning by
+line count, the findings-report contract, and the escalation gate back into this skill — use
+`~/.claude/skills/cmux-bulk-read/SKILL.md`. The mode below remains the minimum any read-only pass of this skill
+must honor.
+
+Trigger it when the operator asks for an audit, "does anything look off track", a review pass, or says read-only /
+don't steer / don't touch the terminals. Read-only mode runs **Phase 1 (capture)** and **Phase 2 (parallel `/zfc`
+assessment + dedupe)** at full depth and **skips Phase 3 entirely**. It is a mode of this skill, not a lighter
+version of it: the 10,000-word full-buffer rule, the sequential-slice rule, the two-sample `working_surfaces.txt`
+gate, the stale-footer rule, and cross-surface dedupe all still apply at 100%. Read-only mode reduces *authority to
+act*, never *depth of review*.
+
+**Allowed commands (the complete list).** `cmux tree --all --json`, `cmux list-workspaces`, `cmux top --all
+[--flat]`, `cmux top --workspace <ws> --processes`, `cmux capture-pane --workspace <ws> --surface <sf>
+--scrollback --lines <n>` (the only read path), read-only `gh pr view|list --json`, read-only `ps` / `lsof -p
+<pid>`, and reads of the `/tmp` capture files. Nothing else.
+
+**Forbidden in read-only mode** — every operation that changes a surface or the operator's desktop: `cmux send`,
+`cmux send-key` (including `--force`), the socket `surface.send_text` call, `cmux new-workspace` / `new-surface` /
+`close-workspace` / `close-surface`, `select-workspace` / `focus` / `workspace-action` / `focus-window`, any `kill`
+of a surface's child process, and any edit, commit, or push inside a surface's worktree.
+
+**Verdicts become findings, not actions.** `IDLE_NEEDS_STEER`, `DIALOG_BLOCKED`, `MALFORMED_TOOL_CALL`, and a
+stalled Codex `/goal` are still classified — but the action is *reported as a proposed steer* (exact surface, exact
+command, exact key sequence), never executed. `/goal resume`, dialog unblocks, and `STOOD_DOWN_DUPLICATE`
+stand-downs are Phase 3 actions and are out of scope here. That also makes this the correct mode for any sweep where
+the operator has not authorized touching running lanes.
+
+**Provenance.** Pass `--readonly` to `scripts/scan.py` (both sweeps of the two-sample pair). It records `"mode":
+"readonly"` in `manifest.json` and prints `mode=readonly`, so a report can cite the manifest as proof the sweep
+issued no mutating `cmux` verb. Cite that field together with `working_surfaces.txt` and `closed_surfaces.txt`.
+
+**Converting to a steering pass later** needs a fresh live instruction *and* a fresh two-sample sweep: a read-only
+sweep is a snapshot, and a surface can start, finish, or be taken over between the sweep and a later steer. Re-capture,
+re-apply the stale-footer rule, then run Phase 3 against the new evidence.
+
+**Report shape.** The Narrow-Screen Vertical Cards contract below still applies, grouped by finding (`OFF_TRACK`,
+`WORKING`, `PARKED_OPERATOR`, `QUOTA_BLOCKED`, `IDLE_COMPLETE`, …), with an actionable card carrying a `Proposed
+steer:` line. State the review scale (`N surfaces, M shards, K subagents`) and end with the LLM provenance footer.
 
 ---
 
@@ -121,6 +167,7 @@ Capture every terminal surface's deep scrollback (`~10,000` trailing words, pres
 
 ```bash
 # Two-sample sweep: ONE fleet-wide 20 s wait (never a per-verdict sleep).
+# Add --readonly to BOTH calls for a read-only audit (recorded in manifest.json as "mode": "readonly").
 OUT_DIR="/tmp/cmux_fleet_$(date +%H%M%S)"
 FIRST="$OUT_DIR/first"
 python3 ~/.claude/skills/cmux-bulk-steer/scripts/scan.py --out-dir "$FIRST"   # no --with-gh: one GitHub query per sweep
@@ -185,6 +232,9 @@ The same line means different things per CLI, so each subagent names the surface
 ---
 
 ## Phase 3 — STEER DEDUPED SOLE OWNERS (3-Step Ritual + Narrow-Screen Cards)
+
+**Skipped entirely in read-only mode** (argv `--readonly` / operator says don't steer): report proposed steers here
+instead of executing them — see § Read-only mode.
 
 ### Blocker-authority check (before any steer that names a blocker)
 

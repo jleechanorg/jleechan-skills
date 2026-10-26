@@ -158,22 +158,23 @@ Aggregate Phase 1 (history) + Phase 2 (subagent findings) + Phase 3 (structural)
 4. **Write tests** (unit + count-pinning per the `~/.claude/CLAUDE.md` "Count-pinning tests" memory entry).
 5. **Verify locally**: `.venv/bin/python -m pytest tests/` (full suite must be green).
 6. **Push the branch**: `git push -u origin <branch>`. **Verify pre-push target matches intended PR branch** per the pre-push check rule.
-7. **Open the PR**: `gh pr create --repo jleechanorg/<repo> --base main --head <branch>` with the canonical 6-section body (Background / Goals / Tenets / High-level description / Testing / Low-level details).
+7. **Open the PR**: `gh pr create --repo jleechanorg/<repo> --draft --base main --head <branch>` with a body following `~/.codex/AGENTS.md` § PR descriptions (canonical owner), plus the target repository's `AGENTS.md`/`CLAUDE.md` and PR template when present.
 
 **Do not auto-merge.** Per `~/.claude/CLAUDE.md` "Merge safety" rule, the literal phrase "MERGE APPROVED" from the operator is the only valid merge trigger.
 
 ### Phase 6 — Complete draft readiness, then `/green`
 
-Keep each opened PR draft while `/es`, `/er`, and `/advice` pass at the current
-head per `~/.claude/skills/draft-first-pr/SKILL.md`. Then mark it ready and run
-`/green <PR#>` using `~/.claude/skills/pr-green-definition/SKILL.md`.
+Keep each opened PR draft until the applicable draft gates cover the candidate
+per `~/.claude/skills/pr-lifecycle/SKILL.md`, including its evidence-reuse rule.
+Then follow that owner's ready/final phases, using
+`~/.claude/skills/pr-green-definition/SKILL.md` for `/green <PR#>`.
 CodeRabbit/Bugbot feedback is advisory. Re-fetch mergeability immediately before
 every readiness claim because a concurrent base merge can introduce conflicts.
 
 ### Phase 7 — Merge (operator-gated)
 
-When draft readiness and `/green` both pass:
-2. **Summarize readiness** (CI green, CR approved, head SHA, evidence).
+When the lifecycle's applicable readiness obligations and `/green` both pass:
+2. **Summarize readiness** using `pr-lifecycle` and `/ready`, including applicable final reviews, current-candidate `/green`, head SHA and evidence. CodeRabbit/Bugbot approval is not a requirement.
 3. **STOP. Do not merge.** Per `~/.claude/CLAUDE.md` "Merge safety" rule, the literal "MERGE APPROVED" from the operator in the same turn is the only valid merge trigger. "Looks good" / "ship it" / "go ahead" are NOT merge authorization.
 4. The operator types "MERGE APPROVED" → run `gh pr merge <PR> --squash` (default to squash per dark-factory convention).
 5. **If the operator types an ambiguous approval** (e.g. "yes merge"), ask for the literal "MERGE APPROVED".
@@ -217,7 +218,7 @@ Output:
 
 - **History search**: ALWAYS use `/history` (or the Python multi-source walker fallback). Never hand-coded `rg`. The `~/.claude/CLAUDE.md` "History search" rule is durable.
 - **Fan-out scope**: one proposal per subagent. Pre-check file overlap before parallelizing.
-- **PR creation**: read the `~/.claude/CLAUDE.md` "PR description — required sections (canonical)" rule for the 6-section body.
+- **PR creation**: follow `~/.codex/AGENTS.md` § PR descriptions (canonical owner) and resolve the target repository's `AGENTS.md`/`CLAUDE.md` and PR template for local requirements.
 - **/green**: `gh pr checks` alone is not sufficient. Use `/green <PR#>` and its canonical skill.
 - **Merge**: NEVER auto-merge. "MERGE APPROVED" is the only valid trigger. The user drives which proposals to implement and merge; /factory-evolve proposes, the operator decides.
 - **Source files for the gap taxonomy**: `docs/factory-evolve-research/reviewer-gap-taxonomy.md` (canonical) and `docs/factory-evolve-research/git-pr-forensics.md`. (Originally in `specs/factory-evolve-research/` but moved to `docs/` because the agent-facing boundary check in `benchmarks/scripts/check_boundary.py` flags `DARK_FACTORY_HOLDOUTS` references in `specs/`/`prompts/` as a leakage vector — `docs/` is operator-facing and exempt.)

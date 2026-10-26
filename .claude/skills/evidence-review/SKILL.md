@@ -7,7 +7,7 @@ description: Enforcement rules for reviewing evidence artifacts against the evid
 
 ## Claim-proportionate evidence and publication
 
-Use [evidence-standards](../evidence-standards/SKILL.md#claim-proportionate-evidence-and-publication) for compact artifact classes and [pr-lifecycle](../pr-lifecycle/SKILL.md) for gate exceptions and PR-description stage receipts. Review every applicable integrity/provenance check and the declared claim; record justified N/A without turning missing required proof into an exemption. These canonical rules qualify generic bundle/media wording below; they do not grant a new approval or waive explicit user/risk-specific proof.
+For claim-proportionate proof, follow [pr-lifecycle](../pr-lifecycle/SKILL.md#proportional-exceptions-and-fast-paths); for PR publication, use its [stage-exit receipt contract](../pr-lifecycle/SKILL.md#evidence-attached-to-every-stage-exit). Evidence content and integrity remain governed by [evidence-standards](../evidence-standards/SKILL.md).
 
 ## Retained review integrations
 
