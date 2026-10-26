@@ -89,7 +89,7 @@ channels only when that channel and recipient are authorized for the task.
 
 ## Actions
 
-- `restore-session` — restore this profile's last own-session snapshot (Chrome must be stopped; verify with read/probe afterward; `login` remains the canonical recovery).
+- `restore-session` — restore this profile's last own-session snapshot (Chrome must be stopped; verify with read/probe afterward). This is opportunistic recovery; token rotation can invalidate the snapshot.
 
 - Read: `dot.sh [--account <name>] [--url <url>] read [chars]` prints the tail of the page text (default 5000). While the dot is working the tail ends with `dot` / `Thinking` / `Working`.
 - Probe: `dot.sh [--account <name>] probe <expected-email-sha256>` checks the current session with the existing profile and returns a typed `DOT_SESSION_PROBE` JSON result. Pass the frozen expected email's SHA-256 digest of its exact UTF-8 bytes, encoded as lowercase hex; do not trim or change the email's case before hashing. The output includes identity match, endpoint status, probe status, composer availability, an opaque profile slot, probe ID, and timestamp; it never includes the raw email or digest.
@@ -141,14 +141,16 @@ Profile directory resolution is unified between `dot.sh` and `scripts/dot_chrome
 ## Interactive Login & Session Recovery
 
 If an account returns `DOT_CHROME_UNAVAILABLE: not signed in`:
-1. **Canonical Login Command:** Run `login` on that exact account:
+1. Use `restore-session` only when Chrome for that profile is stopped, then verify with `read` and the account's expected-identity `probe`. A missing or expired snapshot does not authorize a browser fallback.
+2. If recovery does not restore the session, do not open the personal/default Chrome profile, transfer cookies, or route the live Dot profile through another browser or the bundled-browser fallback. Report the scoped authentication blocker unless both conditions in step 3 are met.
+3. Run visible `login` only when the current thread explicitly requests it and the resolved profile is independently verified as a separate, task-owned Dot profile, distinct from personal/default Chrome. Check the `dot.sh` account/backend/profile banner and verify the profile's task ownership before opening the window; stop if either condition cannot be established. Then run `login` on that exact account:
    ```bash
    scripts/dot.sh --account <name> login
    ```
    This launches a visible Google Chrome window attached to the exact resolved profile directory for that account.
-2. Sign in to ChatGPT manually in the browser window.
-3. Once logged in and the ChatGPT chat/dot page loads, close the browser window. The session is saved in that host/account's dedicated profile directory. Repeat login independently for each account on each host.
-4. Re-test with `dot.sh --account <name> read 500`.
+4. Sign in to ChatGPT manually in the browser window.
+5. Once logged in and the ChatGPT chat/dot page loads, close the browser window. The session is saved in that host/account's dedicated profile directory. Repeat login independently for each account on each host.
+6. Re-test with `dot.sh --account <name> read 500` and the expected-identity `probe`.
 
 ## Cloudflare & Session Verification
 
