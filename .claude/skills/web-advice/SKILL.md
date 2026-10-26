@@ -461,11 +461,11 @@ Web chat LLM review sessions are stateful and interactive, not single-turn scrip
 ```markdown
 ## /web-advice synthesis
 
-| Model | Verdict | Confidence | Share URL | Coverage & Upload Confirmation | Key finding |
+| Model | Verdict | Confidence | Conversation receipt / authorized link | Coverage & Upload Confirmation | Key finding |
 |---|---|---|---|---|---|
-| ChatGPT | <verdict> | high/med/low | <share URL> | Files uploaded & confirmed | <one line> |
-| Gemini 3.8 Flash | <verdict> | high/med/low | <share URL> | Files uploaded & confirmed | <one line> |
-| Perplexity | <verdict> | high/med/low | <share URL> | Files uploaded & confirmed | <one line> (note: web-grounded) |
+| ChatGPT | <verdict> | high/med/low | <conversation receipt or authorized link> | Files uploaded & confirmed | <one line> |
+| Gemini 3.8 Flash | <verdict> | high/med/low | <conversation receipt or authorized link> | Files uploaded & confirmed | <one line> |
+| Perplexity | <verdict> | high/med/low | <conversation receipt or authorized link> | Files uploaded & confirmed | <one line> (note: web-grounded) |
 
 ### Verbatim Conversation Snippets per PR / Subject:
 #### 1. [Subject / PR #N]
