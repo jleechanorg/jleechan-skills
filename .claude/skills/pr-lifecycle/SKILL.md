@@ -464,6 +464,16 @@ retrying. Optional/skipped reviews are recorded honestly without fabricated gist
 
 Documentation-only changes use the CI exception immediately; the ten-minute threshold below applies only to changes that require CI.
 
+**CI that does not exist is not CI to wait on.** Apply the canonical
+`~/.claude/skills/pr-green-definition/SKILL.md` § No-CI exception only after
+recording the bounded workflow/path applicability or eligible-runner-capacity
+evidence it requires. If that evidence cannot establish a qualifying
+exception, leave Gate 1 unproven. For a qualifying exception, record
+`Gate 1: CI NOT APPLICABLE — <reason>` with the proving command/output and
+run the documented bounded local equivalent when one exists; otherwise leave
+the result unproven. Never replace this with `sleep N` + `gh pr checks`, and
+never call unrun CI passed.
+
 For checks queued/pending more than 10 minutes, follow the local-equivalent exception in `~/.claude/skills/pr-green-definition/SKILL.md`: run the workflow's actual command and post current-head proof. Passing local equivalents satisfy Gate 1 for backlogged checks; remote completion is not required for those checks. Failed checks, no-conflict verification, and merge authorization remain separate requirements.
 
 ## CodeRabbit/Bugbot — optional advisory reviewers
