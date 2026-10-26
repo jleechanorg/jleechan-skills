@@ -119,16 +119,16 @@ evidence. Scenes are delimited by lines reading `SCENE <N>`; turns are marked
 `Game Master:`, `You:`, `God Mode:`, `Location:`. Large files should be searched
 first and only the relevant bounded range read.
 
-Four long campaigns are copied under `<your-email@gmail.com>` for live use:
+Four long campaigns are copied under `<dedicated-non-primary-test-account-email>` for live use:
 
 | Campaign | Scenes | Rich in |
 |---|---|---|
-| `CqqQtPrqRfu6ecbRDOVi` Itachi Evil 2 | 527 | gold, time-skips, nat-1s |
-| `7Ptv1Z5iKrKIHNAenZi1` Vespera Thul | 700 | siege runs, HP lines |
-| `Vk9qjPWdSQ4WjziyWMBl` aurelius caesar | 490 | factions, world dials |
-| `aPP5Nj10LiC91ofA9gwT` Thay trader | 424 | companions |
+| `<campaign-id-1>` Itachi Evil 2 | 527 | gold, time-skips, nat-1s |
+| `<campaign-id-2>` Vespera Thul | 700 | siege runs, HP lines |
+| `<campaign-id-3>` aurelius caesar | 490 | factions, world dials |
+| `<campaign-id-4>` Thay trader | 424 | companions |
 
-Copying more: `scripts/copy_campaign.py` **fail-closes** when the source is resolved via `--find-by-id`/`--source-email` and neither `--dest-email` nor `--allow-same-user` is given — it prints `refusing copy: no --dest-email and no --allow-same-user flag` and exits 1 (`scripts/copy_campaign.py:718-733`). Always pass `--dest-email <your-email@gmail.com>` explicitly rather than relying on the refusal path. `$USER@gmail.com` is read-only.
+Copying more: `scripts/copy_campaign.py` **fail-closes** when the source is resolved via `--find-by-id`/`--source-email` and neither `--dest-email` nor `--allow-same-user` is given — it prints `refusing copy: no --dest-email and no --allow-same-user flag` and exits 1 (`scripts/copy_campaign.py:718-733`). Always pass `--dest-email <dedicated-non-primary-test-account-email>` explicitly rather than relying on the refusal path. The source account is read-only.
 
 ## Traps that have produced false claims here
 

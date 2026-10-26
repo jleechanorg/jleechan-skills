@@ -20,9 +20,9 @@ This skill assumes you've already got:
 - An SSH host alias for the Mac in `~/.ssh/config` (LAN), e.g.:
   ```
   Host mymac
-      HostName 192.168.1.60
+      HostName 192.0.2.11
       User myusername
-      IdentityFile ~/.ssh/id_mymac
+      IdentityFile ~/.ssh/id_ed25519
   ```
   (`ssh_config` does not expand environment variables — write your actual username literally, not `$USER`.)
 - SSH enabled on the Mac (System Settings → General → Sharing → Remote Login), with the other machine's public key added.
@@ -268,7 +268,7 @@ If a PR is open for `$BRANCH`, pushes update its head automatically. Otherwise p
 - Committed-state-only mirror — see "What this carries over" above.
 - Source repo must live under `$HOME` (see Setup) — step 1 fails loudly rather than silently mirroring to the wrong place. The target-side checkout always lands under `$HOME/mirror/`, not at the identical path as the source.
 - Step 4 auto-launches `claude` (hardcoded) as the session's command with `$CONTEXT` passed as its argv (not typed via `send-keys`), but only on a freshly created session — edit the hardcoded command if you use a different CLI. Never assume a `RESUMED` session is idle just because this skill didn't launch anything into it.
-- macOS SSH keychain may prompt on first connection; `ssh-add --apple-use-keychain ~/.ssh/id_mymac` caches it.
+- macOS SSH keychain may prompt on first connection; `ssh-add --apple-use-keychain ~/.ssh/id_ed25519` caches it.
 - A bare host alias is typically LAN-only; off-LAN, target the Tailscale IP + explicit `-i` per Tier 2 — and make sure step 4 actually uses the resolved `$SSH_ARGS`/`$SSH_TARGET`, not a re-hardcoded alias.
 - Never pass unencoded user-controlled values (repo path, branch name, remote URL) as literal SSH command arguments — base64-encode first (see step 4).
 - Tier 3 hands off to a *different* agent/process with no shared context — see the debugging priority above before assuming it's broken vs. just needing a genuinely human-originated test or a missing permission grant.

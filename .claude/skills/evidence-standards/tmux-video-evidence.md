@@ -62,8 +62,8 @@ gh pr view "<PR_NUMBER>" --json number,title,url,state,headRefName
 echo "=== 5. LIVE TEST EXECUTION (SANITIZED) ==="
 <SCOPED_TEST_COMMAND> 2>&1 \
   | sed -E \
-      -e 's#/Users/[^/]+/#/Users/REDACTED/#g' \
-      -e 's#/home/[^/]+/#/home/REDACTED/#g' \
+      -e 's#/Users/[^/]+/#/<redacted-home>/#g' \
+      -e 's#/home/[^/]+/#/<redacted-home>/#g' \
       -e 's#/private/var/folders/[^[:space:]]+#/private/var/folders/REDACTED#g' \
       -e 's#/workspace/[^[:space:]]+#/workspace/REDACTED#g' \
       -e 's#/tmp/[^[:space:]]+#/tmp/REDACTED#g'

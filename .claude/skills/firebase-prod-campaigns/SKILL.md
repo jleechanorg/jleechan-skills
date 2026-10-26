@@ -14,17 +14,17 @@ This skill documents how to query the **production Firestore database** for Your
 
 ```python
 # WRONG - This queries the wrong collection (test data only):
-db.collection('campaigns').document('VqqJLpABua9bvAG4ArTg')
+db.collection('campaigns').document('CAMPAIGN_ID')
 
 # CORRECT - Campaigns are nested under user UID:
-db.collection('users').document(uid).collection('campaigns').document('VqqJLpABua9bvAG4ArTg')
+db.collection('users').document(uid).collection('campaigns').document('CAMPAIGN_ID')
 ```
 
 ### Quick Lookup for Known Campaign ID
 ```python
-# 1. Get user UID from email
-user_record = auth.get_user_by_email('$USER@gmail.com')
-uid = user_record.uid  # e.g., 'vnLp2G3m21PJL6kxcuAqmWSOtm73'
+# 1. Get user UID from the supplied email
+user_record = auth.get_user_by_email('user@example.invalid')
+uid = user_record.uid
 
 # 2. Query nested path
 doc = db.collection('users').document(uid).collection('campaigns').document('CAMPAIGN_ID').get()
@@ -38,10 +38,10 @@ Firestore Database: worldarchitecture-ai
 │   └── {test_campaign_id}/
 │
 └── users/                        # ← CORRECT: Real user data here (146+ campaigns)
-    └── {Firebase_Auth_UID}/      # e.g., vnLp2G3m21PJL6kxcuAqmWSOtm73
+    └── {Firebase_Auth_UID}/      # e.g., <firebase-auth-uid>
         └── campaigns/
-            └── {campaign_id}/    # e.g., VqqJLpABua9bvAG4ArTg
-                ├── title         # "Nocturne post bg3 zhent"
+            └── {campaign_id}/    # e.g., <campaign-id>
+                ├── title         # "Example campaign"
                 ├── created_at
                 ├── last_played
                 ├── world_name
@@ -95,13 +95,13 @@ for directive in god_mode_directives:
 # List all directives for a campaign
 WORLDAI_DEV_MODE=true \
 WORLDAI_GOOGLE_APPLICATION_CREDENTIALS=~/serviceAccountKey.json \
-python scripts/query_directives.py wBoMKQuMnvLfyjTFTBHd
+python scripts/query_directives.py CAMPAIGN_ID
 
 # Debug why a directive wasn't saved
-python scripts/query_directives.py wBoMKQuMnvLfyjTFTBHd --debug-missing "power scaling"
+python scripts/query_directives.py CAMPAIGN_ID --debug-missing "power scaling"
 
 # Manually add a missing directive
-python scripts/query_directives.py wBoMKQuMnvLfyjTFTBHd --email "<dedicated non-primary test account email>" --add "Level 9 is extremely powerful - never use 'mere' or 'modest'"
+python scripts/query_directives.py CAMPAIGN_ID --email "user@example.com" --add "Level 9 is extremely powerful - never use 'mere' or 'modest'"
 ```
 
 ## Debugging Missing God Mode Directives
@@ -165,8 +165,8 @@ If the LLM writes to `dm_notes` instead of `directives`, the rule won't persist 
 
 ## User Identification
 - Users are identified by **Firebase Auth UID**, NOT email
-- Primary user: `$USER@gmail.com` → UID: `vnLp2G3m21PJL6kxcuAqmWSOtm73`
-- Test user: `<your-email@gmail.com>`
+- Primary user: `<authorized-user-email>` → UID: `<firebase-auth-uid>`
+- Test user: `<dedicated-non-primary-test-account-email>`
 - Use `auth.get_user_by_email()` to convert email → UID
 
 ## Prerequisites
@@ -189,7 +189,7 @@ The recommended tool for production queries is `scripts/campaign_manager.py`.
 ```bash
 WORLDAI_DEV_MODE=true \
 WORLDAI_GOOGLE_APPLICATION_CREDENTIALS=~/serviceAccountKey.json \
-python scripts/campaign_manager.py find-user $USER@gmail.com
+python scripts/campaign_manager.py find-user user@example.com
 ```
 
 ### Analyze User Activity (with token/cost estimation)
@@ -197,12 +197,12 @@ python scripts/campaign_manager.py find-user $USER@gmail.com
 # Analyze last 3 months
 WORLDAI_DEV_MODE=true \
 WORLDAI_GOOGLE_APPLICATION_CREDENTIALS=~/serviceAccountKey.json \
-python scripts/campaign_manager.py analytics $USER@gmail.com
+python scripts/campaign_manager.py analytics user@example.com
 
 # Specific month
 WORLDAI_DEV_MODE=true \
 WORLDAI_GOOGLE_APPLICATION_CREDENTIALS=~/serviceAccountKey.json \
-python scripts/campaign_manager.py analytics $USER@gmail.com --month 2025-11
+python scripts/campaign_manager.py analytics user@example.com --month YYYY-MM
 ```
 
 ### Query Campaigns by Name
@@ -237,7 +237,7 @@ firebase_admin.initialize_app(cred)
 db = firestore.client()
 
 # Find user by email
-email = '$USER@gmail.com'
+email = 'user@example.invalid'
 user_record = auth.get_user_by_email(email)
 uid = user_record.uid
 
