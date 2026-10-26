@@ -924,10 +924,45 @@ print("NOT_VALID_JSON")
         self.assertNotIn("| head -80", script_sec, "tmux script diff pipeline must not pipe to head under pipefail")
         self.assertIn("sed -n '1,80p'", script_sec, "tmux script diff pipeline must use sed -n '1,80p'")
 
-        # 6. Sanitization pipeline must redact Linux /home, CI /workspace, and /tmp
-        self.assertIn("s#/home/[^/]+/#/home/REDACTED/#g", script_sec)
-        self.assertIn("s#/workspace/[^[:space:]]+#/workspace/REDACTED#g", script_sec)
-        self.assertIn("s#/tmp/[^[:space:]]+#/tmp/REDACTED#g", script_sec)
+        # 6. The documented sanitizer removes private path components without
+        # depending on the exact replacement text.
+        sed_start = script_sec.find("| sed -E")
+        self.assertNotEqual(sed_start, -1, "documented sanitization pipeline missing")
+        sed_rules = []
+        for line in script_sec[sed_start:].splitlines():
+            line = line.strip()
+            if line.startswith("-e '"):
+                sed_rules.append(line[4:].split("'", 1)[0])
+            elif sed_rules:
+                break
+        self.assertTrue(sed_rules, "documented sanitizer rules missing")
+
+        payload = (
+            "mac: /Users/alice/project/file.py\n"
+            "linux: /home/bob/project/file.py\n"
+            "private var: /private/var/folders/ab/session/file.py\n"
+            "workspace: /workspace/private/project/file.py\n"
+            "tmp: /tmp/private/session/file.py\n"
+            "build log: 2 tests passed\n"
+        )
+        sanitizer_args = ["sed", "-E"]
+        for rule in sed_rules:
+            sanitizer_args.extend(("-e", rule))
+        sanitized = subprocess.run(
+            sanitizer_args, input=payload, capture_output=True, text=True,
+            timeout=5,
+        )
+        self.assertEqual(sanitized.returncode, 0, sanitized.stderr)
+        self.assertNotIn("/Users/alice/", sanitized.stdout)
+        self.assertNotIn("/home/bob/", sanitized.stdout)
+        self.assertNotIn("/private/var/folders/ab/", sanitized.stdout)
+        self.assertNotIn("/workspace/private/", sanitized.stdout)
+        self.assertNotIn("/tmp/private/", sanitized.stdout)
+        self.assertEqual(sanitized.stdout.count("/project/file.py"), 2)
+        self.assertIn("private var: ", sanitized.stdout)
+        self.assertIn("workspace: ", sanitized.stdout)
+        self.assertIn("tmp: ", sanitized.stdout)
+        self.assertIn("build log: 2 tests passed", sanitized.stdout)
 
     def test_tmux_diff_truncation_pipefail_behavior_and_sanitization(self):
         large_diff_cmd = (
