@@ -36,7 +36,7 @@ Run proportionate local checks for the actual change, such as diff hygiene, link
 
 When CI **does not exist** for this PR, do not sleep-poll it. Three provable shapes qualify, and each needs its evidence recorded before you skip the wait:
 
-1. **No workflow applies.** Establish this with a bounded repository check: inspect the workflow files and their event/path filters against the changed paths, and record the command and output. If no bounded check can establish applicability, leave Gate 1 unproven; do not invent a nonexistent workflow command.
+1. **No workflow applies.** Establish this with a named bounded repository validation that evaluates the workflow files and their event/path filters against the changed paths, and record the command and actual output. A directory listing or path inspection alone is insufficient. If no bounded validation can establish applicability, leave Gate 1 unproven; do not invent a nonexistent workflow command.
 2. **No eligible runner can host it.** Resolve the job's `runs-on` labels and runner group, repository access, and the corresponding eligible runner pool (repository, organization, or hosted capacity as applicable). A repository self-hosted-runner endpoint alone cannot prove GitHub-hosted or organization-level capacity. Qualifying capacity evidence is zero eligible runners, or repeated observations at separate times showing every eligible runner busy while the check remains `QUEUED` or `PENDING`; one busy snapshot is insufficient.
 3. **Checks are structurally stuck.** The rollup is `QUEUED`/`PENDING` with no start, and a runner-capacity read explains it — repeatedly, not once.
 
@@ -45,7 +45,7 @@ On any of those, apply the local-equivalent exception immediately — do not wai
 ```
 Gate 1: CI NOT APPLICABLE — <reason: no matching workflow | zero eligible runners | runners saturated QUEUED or PENDING>
   evidence: <command + the output line proving it>
-  local equivalent: <the workflow's own command> → <result at SHA>
+  local equivalent: <workflow command, or bounded repository validation when no workflow applies> → <result at SHA>
 ```
 
 Guardrails that do not move: never label unrun CI as passed, never disable or cancel a job or touch branch protection, never widen this into "skip CI" for a repo whose checks are merely slow or red, and keep Gate 2, applicable review/evidence gates, and merge authorization exactly as they are. A check that has actually started is backlogged CI, not missing CI — that stays under the local-equivalent exception with its own reporting.
