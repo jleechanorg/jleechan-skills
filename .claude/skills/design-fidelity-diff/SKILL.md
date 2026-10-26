@@ -130,8 +130,15 @@ asserting it is actually perceivable:
 
 - **Text**: compute the contrast ratio of the *composited* colours (resolve
   `rgba` over its real backdrop — an alpha colour compared against a token is
-  meaningless). WCAG AA is 4.5:1 body / 3:1 large-or-UI.
-- **Icons / borders / dividers**: same contrast check against their backdrop.
+  meaningless). [WCAG AA text contrast](https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html)
+  requires 4.5:1 for normal text, including UI labels and placeholders, and
+  3:1 for large text (at least 18 pt, or 14 pt bold), subject to its stated
+  exceptions. Being UI text does not qualify for the large-text threshold.
+- **Meaningful non-text controls, states and graphics**: apply the separate
+  [3:1 non-text rule](https://www.w3.org/WAI/WCAG22/Understanding/non-text-contrast.html)
+  against adjacent colours, including its exceptions for inactive controls,
+  unmodified user-agent appearance and essential graphical presentation.
+  Decorative borders and dividers are not automatically subject to this rule.
 - **Anything positioned**: confirm it is inside the viewport and not clipped by
   an `overflow: hidden` ancestor.
 
