@@ -181,7 +181,12 @@ This means the token was created for a different Firebase project than you're tr
 "$AUTH_NODE" scripts/auth-cli.mjs status
 # Look for "Firebase Project:" line
 
-# Re-login for the correct project
+# Before recovery login: verify Keychain presence and run a cheap non-UI
+# credential probe for the intended project; try supported existing credentials.
+# Login is only a remaining recovery step after both probes fail.
+# Follow the browser owner: an interactive login needs explicit authority
+# and a verified task-owned isolated browser, never personal Chrome.
+# Then, if authorized, log in for the correct project:
 "$AUTH_NODE" scripts/auth-cli.mjs login                              # AI Universe
 "$AUTH_NODE" scripts/auth-cli.mjs login --project worldarchitecture-ai  # WorldAI
 ```
@@ -202,7 +207,12 @@ TOKEN=$("$AUTH_NODE" scripts/auth-cli.mjs token)
 # Or manual refresh
 "$AUTH_NODE" scripts/auth-cli.mjs refresh
 
-# If refresh token expired, re-login
+# If refresh fails, first verify Keychain presence and a cheap non-UI
+# credential probe; exhaust supported existing credential routes.
+# Only after both probes fail, use the browser owner recovery procedure.
+# Interactive login requires explicit authority and a verified task-owned
+# isolated browser. If that boundary is unmet, report the exact dependency.
+# When those conditions are met:
 "$AUTH_NODE" scripts/auth-cli.mjs login
 ```
 

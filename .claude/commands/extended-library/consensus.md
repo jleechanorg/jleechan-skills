@@ -12,9 +12,9 @@ execution_mode: immediate
 ### Phase 1: Mode Selection & Parallel Agent Execution
 
 **Action Steps:**
-1. Determine the correct execution mode using the "Modes & Scopes" guidance below. If the scope is ambiguous, pause and ask the user to choose a mode via TodoWrite before continuing.
-2. Once the mode is confirmed, load the corresponding 5-agent roster.
-3. Run those 5 agents simultaneously using Task tool parallel execution with the mode-appropriate context and role definitions.
+1. Determine the execution mode using the "Modes & Scopes" defaults and inspect the available scope and context first. Ask the user to choose only if an essential intent decision remains unresolved after those checks; otherwise make a reasonable reversible choice and proceed.
+2. Load the corresponding five reviewer roles. The roster defines review coverage, not a fixed concurrency requirement.
+3. Route scheduling through the canonical `/parallel` resource-admission and host-selection policy before launching reviewers. Measure CPU and memory, choose only eligible hosts, and run independent roles concurrently up to the measured ceiling. If heavy roles must be deferred, continue safe, resource-eligible review and preparation; report deferred roles and their recheck condition. Do not count deferred roles as votes or claim consensus before the completed votes and validation meet the stated threshold.
 
 ## 📋 REFERENCE DOCUMENTATION
 
@@ -34,7 +34,7 @@ Shared security, authorization, and review requirements apply regardless of laun
 - **Documentation & Spec Mode** (when reviewing docs, research, requirements, or validation evidence): Prioritizes accuracy checks, traceability to evidence, and clarity of product decisions.
 - **Operational Decision Mode** (release go/no-go, launch readiness, roadmap decisions): Emphasizes risk analysis, stakeholder impacts, and mitigation steps.
 
-When scope is ambiguous, ask the user which mode they want via TodoWrite before executing.
+Inspect the supplied scope and available project context to choose the applicable mode. Ask the user only when an essential intent decision remains unresolved after those checks; otherwise choose the closest mode and proceed.
 
 ## Usage
 
@@ -60,24 +60,24 @@ When scope is ambiguous, ask the user which mode they want via TodoWrite before 
 
 ### Simplified Consensus Rules
 
-**Fast Multi-Agent Consensus**: Run 5 agents in parallel and calculate simple majority agreement. Pick the correct agent set for the selected mode:
+**Mode-Specific Reviewer Roster**: Use the five defined roles for the selected mode and calculate simple majority agreement. Schedule independent roles through the measured resource and host policy; the roster is not a simultaneous worker count:
 - **Code Review Mode (default)**: `code-review`, `codex-consultant`, `gemini-consultant`, `cursor-consultant`, `code-centralization-consultant`
 - **Documentation & Spec Mode**: `accuracy-reviewer`, `evidence-verifier`, `product-strategist`, `delivery-ops`, `clarity-editor`
 - **Operational Decision Mode**: `risk-analyst`, `product-strategist`, `delivery-ops`, `customer-advocate`, `exec-synthesizer`
 
-**Success threshold**: 3+ of 5 agents PASS with average confidence ≥6
+**Success threshold**: At least 3 completed reviewer roles PASS with average confidence ≥6 across completed votes
 
-**Failure threshold**: 3+ agents REWORK OR average confidence <5
+**Failure threshold**: At least 3 completed reviewer roles REWORK OR average confidence <5 across completed votes
 
 **Mixed signals**: Document disagreements, proceed with majority decision, and flag open questions.
 
 **Simple Consensus Calculation**:
-1. Run all 5 agents for the selected mode in parallel using Task tool
+1. Schedule up to five reviewer roles using the canonical `/parallel` admission and host-selection policy; run ready roles concurrently up to the measured ceiling
 2. Collect PASS/REWORK + confidence (1-10) from each agent
 3. Calculate results:
-   - **CONSENSUS_PASS**: 3+ agents PASS AND average confidence ≥6
-   - **CONSENSUS_REWORK**: 3+ agents REWORK OR average confidence <5
-   - **MIXED_SIGNALS**: Document conflicts, use majority decision
+   - **CONSENSUS_PASS**: At least 3 completed roles PASS AND average confidence across completed votes ≥6
+   - **CONSENSUS_REWORK**: At least 3 completed roles REWORK OR average confidence across completed votes <5
+   - **MIXED_SIGNALS**: Document conflicting votes; deferred roles are not votes. If fewer than 3 roles completed, report the result as DEFERRED and give the resource recheck condition.
 
 **Agent Specialization**:
 - **Code Review Mode**:
@@ -101,13 +101,13 @@ When scope is ambiguous, ask the user which mode they want via TodoWrite before 
 
 ### Enhanced Agent Context & Execution Framework
 
-**Agent Infrastructure**: Uses existing `Task` tool with `subagent_type` parameter for parallel multi-agent coordination. Follows proven patterns from `/reviewdeep` and `/arch` commands with optimized execution orchestration. Claude must supply mode-specific prompts and evaluation criteria when launching each agent.
+**Agent Infrastructure**: Uses the existing `Task` tool with `subagent_type` for independent reviewer roles. Apply measured resource admission and eligible-host routing from the canonical `/parallel` and shared host-selection owners before launch. Supply mode-specific prompts and evaluation criteria.
 
 **Execution Guards**: Per-agent timeout (180 seconds), token caps (5000 tokens max), and maximum 10 findings per round to prevent runaway executions. Enhanced with context-aware resource allocation.
 
 **Command Orchestration**: Delegates to `/execute` for intelligent coordination following `/reviewdeep` optimization patterns:
 
-**Agent Execution**: Launch 5 agents in parallel using Task tool with 180-second timeout. Provide custom prompts per mode:
+**Agent Execution**: Schedule up to five reviewer roles through the canonical `/parallel` admission and eligible-host policy; use the Task tool with 180-second timeouts and custom prompts per mode. Deferred roles are not counted as votes.
 
 - **Code Review Mode**: Focus prompts on diff analysis, architecture correctness, high-impact bugs, and risks relevant to the verified product and deployment context.
 - **Documentation & Spec Mode**: Direct agents to cross-reference claims with evidence, note missing validation, and highlight unclear reasoning or terminology.
@@ -127,8 +127,8 @@ When scope is ambiguous, ask the user which mode they want via TodoWrite before 
 - **`code-centralization-consultant`**: `Task(subagent_type="code-centralization-consultant", description="Duplication analysis", prompt="...")`
 
 **Speed Optimizations**:
-- **Parallel execution**: All agents run simultaneously (not sequential)
-- **Early termination**: Stop on architectural blockers or critical bugs
+- **Parallel execution**: Run independent roles concurrently up to the measured resource ceiling; serialize only for a real dependency, shared-state constraint, or resource limit
+- **Early termination**: End the current review round on an architectural blocker or critical bug; continue safe diagnosis, fixes, and re-review.
 - **Simple consensus**: Agents provide PASS/REWORK verdict with confidence (1-10)
 - **Evidence required**: Findings must include file:line references
 - **Context-aware review**: Assess architecture, security, and operational risks against verified requirements and evidence; do not assume a rollback is available or sufficient.
@@ -137,22 +137,24 @@ When scope is ambiguous, ask the user which mode they want via TodoWrite before 
 
 Streamlined workflow optimized for speed and simplicity:
 
-1. **Parallel Agent Consultation** (2-3 minutes)
-   - Launch all 5 agents simultaneously using Task tool with full context
+1. **Parallel Agent Consultation**
+   - Use the five-agent roster as defined reviewer roles, not as a fixed simultaneous worker count.
+   - Before launch, follow `~/.claude/skills/parallelize-to-ceiling/SKILL.md` for measured resource admission and `~/.codex/AGENTS.md` § Core behavior for eligible Mac/Linux host selection. Launch independent roles concurrently only up to the measured ceiling.
+   - If heavy roles are deferred because no host is eligible, continue safe and resource-eligible review or preparation; record the deferred roles and exact recheck condition.
    - **Context Provided to Each Agent**:
      - Verified product, launch, user, and team context, with sources; label unknowns as unknown
      - Current PR/branch context and file changes
      - Acceptance criteria and applicable security, authorization, and operational requirements
      - Verified rollback and recovery options, if any; treat rollback as mitigation rather than authorization or a substitute for safeguards
      - Current practices relevant to the project's actual stack and constraints
-   - Each agent provides: PASS/REWORK + confidence (1-10) + specific issues
-   - Early termination if any agent finds architectural blockers or critical bugs
+   - Each completed role provides: PASS/REWORK + confidence (1-10) + specific issues. Do not count deferred or unlaunched roles as votes.
+   - A critical architectural issue ends the current review round; capture evidence, proceed to in-scope diagnosis/fix, then re-review.
    - Collect findings in structured format with file:line evidence
    - **Agent Context Awareness**: Each agent receives the verified orchestration, product, and user context, with unknowns labeled
 
 2. **Simple Consensus Calculation** (30 seconds)
-   - **CONSENSUS_PASS**: 3+ agents PASS + average confidence ≥6
-   - **CONSENSUS_REWORK**: 3+ agents REWORK OR average confidence <5
+   - **CONSENSUS_PASS**: At least 3 completed roles PASS + average confidence across completed votes ≥6
+   - **CONSENSUS_REWORK**: At least 3 completed roles REWORK OR average confidence across completed votes <5
    - **MIXED_SIGNALS**: Document conflicts, proceed with majority decision
 
 3. **Quick Fix Application** (If REWORK, 1-2 minutes)
@@ -178,7 +180,7 @@ Streamlined workflow optimized for speed and simplicity:
      ```
    - **Unit Tests**: Select a focused test command using the repository's `/test` and test-layer guidance; CI owns the unfiltered full suite.
    - **Integration Tests**: If APIs/interfaces changed, use the repository's approved integration runner and real-service contract; do not guess a generic integration command.
-   - **Manual Validation**: User-guided spot checks if automated tests insufficient
+   - **Manual Validation**: Use available tools for manual checks when automated tests are insufficient. Ask the user to participate only when a physical action or an essential intent choice cannot be resolved through available tools and source context.
 
 **Context-Aware Validation**:
 - **Code Review Mode**:
@@ -201,22 +203,24 @@ command from package presence or run an unfiltered local full suite.
 For documentation and decision scopes, replace automated tests with evidence checklists and explicit sign-off from responsible agents.
 
 5. **Round Completion Decision**
-   - **CONSENSUS_PASS**: 3+ agents PASS + average confidence ≥6 + validation complete for the selected mode
-   - **CONSENSUS_REWORK**: 3+ agents REWORK OR validation gaps OR average confidence <5
-   - **TEST_FAILURE_ABORT / VALIDATION_ABORT**: Critical test or evidence failures abort the round
+   - **CONSENSUS_PASS**: At least 3 completed roles PASS + average confidence across completed votes ≥6 + validation complete for the selected mode
+   - **CONSENSUS_REWORK**: At least 3 completed roles REWORK OR validation gaps OR average confidence across completed votes <5
+   - **TEST_FAILURE_ABORT / VALIDATION_ABORT**: Critical test or evidence failures close this review round; diagnose/fix, rerun affected checks, and re-review before deciding the workflow outcome.
 
 #### Consensus Calculation Rules:
 
 - **✅ SUCCESS**: CONSENSUS_PASS achieved (workflow complete)
 - **🔄 CONTINUE**: REWORK status and the next safe action is clear; batch fixes, then re-review
-- **❌ ABORT**: TEST_FAILURE_ABORT or critical agent blockers (stop immediately)
+- **❌ ABORT**: Close only the current round for TEST_FAILURE_ABORT or critical agent blockers; continue authorized fixes and re-review unless a verified blocker, unmet authority boundary, or deadline prevents progress.
 - **⚠️ BLOCKED**: State the exact verified blocker and the resumption trigger
 
 Continue through required review and fixes until PASS or a verified blocker/deadline. Do not stop on a round count or repeated score. Keep safe independent work moving while a separate action is blocked.
 
+Early termination, `ABORT`, and `VALIDATION_ABORT` close only the current review round, not the authorized task. Preserve finding evidence, address the cause, rerun affected validation, and re-review until PASS or a verified blocker, unmet authority boundary, or deadline applies.
+
 #### Early Termination Triggers:
 
-- **✅ CONSENSUS_PASS**: 3+ agents PASS + average confidence ≥6 + validation complete
+- **✅ CONSENSUS_PASS**: At least 3 completed roles PASS + average confidence across completed votes ≥6 + validation complete
 - **❌ CRITICAL_BUG**: Any agent reports severity 9-10 issue
 - **❌ TEST_FAILURE / EVIDENCE_FAILURE**: Automated tests or evidence cross-checks fail
 - **❌ COMPILATION_ERROR / EXECUTION_BLOCKER**: Code doesn't compile/parse or operational criteria can't be executed
@@ -240,7 +244,8 @@ Continue through required review and fixes until PASS or a verified blocker/dead
 ## Summary
 
 - Rounds completed: <count>
-- Final status: PASS | REWORK | VALIDATION_ABORT | BLOCKED
+- Final workflow status: PASS | REWORK | BLOCKED
+- Most recent round: PASS | REWORK | VALIDATION_ABORT | DEFERRED
 - Mode: Code Review | Documentation & Spec | Operational Decision
 - Key validated areas
 
@@ -314,7 +319,7 @@ Following `/reviewdeep` and `/arch` patterns for proper agent context. Claude mu
 2. **Tactical Layer**: Implementation details, factual accuracy, or operational feasibility
 3. **Consensus Layer**: Inter-agent agreement consideration, conflict resolution
 4. **Context Fit**: Assess constraints and recovery options from current evidence; do not assume team size, launch status, or rollback availability
-5. **Speed Optimization**: Fast analysis with early termination on critical issues
+5. **Speed Optimization**: Fast analysis with round-level termination on critical findings; continue the authorized task with diagnosis, fixes, and re-review
 
 **MODE-FOCUSED CHECKLIST**:
 - Provide targeted bullet list (bugs/security for code, evidence/log links for docs, risks/mitigations for decisions)
@@ -476,7 +481,7 @@ CUSTOMER EXPERIENCE & SUPPORT IMPACT analysis for operational decision consensus
 EXECUTIVE SUMMARY & DECISION SYNTHESIS analysis for operational decision consensus.
 
 **Your Specialization**: Create crisp go/no-go recommendations with rationale
-**Context Awareness**: You integrate findings from all agents into actionable direction
+**Context Awareness**: Integrate findings from completed reviewer roles into actionable direction; report deferred roles separately
 **Focus Priority**: Decision framing, success criteria, required follow-ups
 **Consensus Role**: Deliver final recommendation and highlight unresolved risks
 **Context Lens**: Enable decisions with clear evidence, tradeoffs, and next steps
