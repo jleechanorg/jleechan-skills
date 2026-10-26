@@ -175,3 +175,42 @@ class RestartVerificationTest(unittest.TestCase):
         self.assertIn("process listing failed before restart", proc.stdout)
         self.assertEqual(stub.sent(), [], f"sent without a baseline: {stub.sent()}")
         self.assertNotIn("RESTARTED", proc.stdout)
+
+    def test_partial_baseline_output_with_nonzero_exit_aborts(self):
+        """dot review at 8cf38c1c: non-empty output was accepted even when ps failed.
+
+        A header-only listing plus a nonzero exit must not become a baseline.
+        """
+        tmp = Path(tempfile.mkdtemp(prefix="fakeps-partial-"))
+        ps = tmp / "fakeps_partial"
+        ps.write_text("#!/bin/bash\necho 'TTY PID ELAPSED COMMAND'\nexit 1\n")
+        ps.chmod(0o755)
+        stub = StubCmux("clean")
+        proc = self._run_with(stub, ps)
+        self.assertEqual(proc.returncode, 9, proc.stdout + proc.stderr)
+        self.assertIn("process listing failed before restart", proc.stdout)
+        self.assertEqual(stub.sent(), [], f"sent with a partial baseline: {stub.sent()}")
+        self.assertNotIn("RESTARTED", proc.stdout)
+
+    def test_partial_post_snapshot_with_nonzero_exit_never_reports_restarted(self):
+        """Same rule after the restart: rc 0 is required, not just non-empty text."""
+        tmp = Path(tempfile.mkdtemp(prefix="fakeps-post-"))
+        ps = tmp / "fakeps_post"
+        ps.write_text(
+            "#!/bin/bash\n"
+            f'state="{tmp}/calls"\n'
+            'n=$(cat "$state" 2>/dev/null || echo 0)\n'
+            'echo $((n+1)) > "$state"\n'
+            'if [ "$n" = "0" ]; then\n'
+            '  echo "TTY PID ELAPSED COMMAND"\n'
+            '  echo "ttys003 100 00:10 /usr/bin/command codex resume 01a174a5-7202"\n'
+            '  exit 0\n'
+            "fi\n"
+            'echo "ttys003 200 00:01 /usr/bin/command codex resume 01a174a5-7202"\n'
+            "exit 1\n"
+        )
+        ps.chmod(0o755)
+        stub = StubCmux("clean")
+        proc = self._run_with(stub, ps)
+        self.assertEqual(proc.returncode, 9, proc.stdout + proc.stderr)
+        self.assertNotIn("RESTARTED", proc.stdout)

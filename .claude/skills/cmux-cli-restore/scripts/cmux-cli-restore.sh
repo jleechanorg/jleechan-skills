@@ -185,9 +185,9 @@ t_pre=$(tty_of "$WS" "$SF")
 if [[ -z "$t_pre" ]]; then
   echo "ABORT: could not resolve the surface tty before restart; no keystroke sent"; exit 9
 fi
-pre_raw=$(proc_list)
-if [[ -z "$pre_raw" ]]; then
-  echo "ABORT: process listing failed before restart; cannot prove a new pid later; no keystroke sent"; exit 9
+pre_raw=$(proc_list); pre_rc=$?
+if [[ $pre_rc -ne 0 || -z "$pre_raw" ]]; then
+  echo "ABORT: process listing failed before restart (exit $pre_rc); cannot prove a new pid later; no keystroke sent"; exit 9
 fi
 pre_pids=$(lane_pids_of "$pre_raw" "$t_pre" | sed '/^$/d' | sort -u)
 
@@ -220,9 +220,9 @@ t2=$(tty_of "$WS" "$SF")
 if [[ -z "$t2" || "$t2" != "$t_pre" ]]; then
   echo "UNVERIFIED: tty changed or unreadable (pre=${t_pre:-none} post=${t2:-none}); cannot compare pids" >&2; exit 6
 fi
-post_raw=$(proc_list)
-if [[ -z "$post_raw" ]]; then
-  echo "UNVERIFIED: process listing failed after restart; cannot prove a new pid" >&2; exit 9
+post_raw=$(proc_list); post_rc=$?
+if [[ $post_rc -ne 0 || -z "$post_raw" ]]; then
+  echo "UNVERIFIED: process listing failed after restart (exit $post_rc); cannot prove a new pid" >&2; exit 9
 fi
 post_pids=$(lane_pids_of "$post_raw" "$t2" | sed '/^$/d' | sort -u)
 new_pids=$(comm -13 <(printf '%s\n' "$pre_pids" | sed '/^$/d' | sort -u) <(printf '%s\n' "$post_pids" | sed '/^$/d' | sort -u))
