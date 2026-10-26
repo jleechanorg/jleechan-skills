@@ -75,10 +75,11 @@ resume_cmd() { case "$1" in codex) echo codexc;; claude) echo claudec;; claude-w
 
 target_session() { # <raw listing> <ws> <tty> -> explicit session id of the lane (empty if unknown)
   local raw="$1" ws="$2" t="$3" sid
+  # ONLY the id of the process running on THIS surface's tty. Never a
+  # workspace-wide tag scan: a workspace can host several codex surfaces (e.g.
+  # "P0 + pr workflow" holds two), and picking the first id anywhere in it would
+  # bind the restart to another lane's conversation (dot review at b20c9c6b).
   sid=$(printf '%s\n' "$raw" | awk -v t="$t" '$1==t' | grep -oE 'resume [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | awk '{print $2}' | head -1)
-  if [[ -z "$sid" ]]; then
-    sid=$(cmx top --workspace "$ws" --processes | grep -oE 'codex\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1 | sed 's/^codex\.//')
-  fi
   printf '%s' "$sid"
 }
 

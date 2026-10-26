@@ -240,3 +240,23 @@ class RestartVerificationTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 10, proc.stdout + proc.stderr)
         self.assertIn("resumed conversation", proc.stderr)
         self.assertNotIn("RESTARTED", proc.stdout)
+
+    def test_no_workspace_wide_id_fallback(self):
+        """dot review at b20c9c6b: never bind to an id taken from another surface.
+
+        The stub's `cmux top` reports tty=ttys003 but carries no session tag, and the
+        process listing for that tty shows no `resume <uuid>` (a plain node codex).
+        The script must refuse (exit 11) instead of reaching for any id in the workspace.
+        """
+        tmp = Path(tempfile.mkdtemp(prefix="fakeps-noid-"))
+        ps = tmp / "fakeps_noid"
+        ps.write_text(
+            "#!/bin/bash\n"
+            'echo "ttys003 100 00:10 node /Users/x/.nvm/node_modules/@openai/codex/bin/codex.js"\n'
+        )
+        ps.chmod(0o755)
+        stub = StubCmux("clean")
+        proc = self._run_with(stub, ps)
+        self.assertEqual(proc.returncode, 11, proc.stdout + proc.stderr)
+        self.assertIn("cannot resolve this lane's conversation id", proc.stdout)
+        self.assertEqual(stub.sent(), [], f"sent without an id: {stub.sent()}")
