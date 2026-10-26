@@ -699,7 +699,7 @@ def descendant_termination_failures(reviewers: dict[str, Any]) -> list[str]:
     failures: list[str] = []
     for reviewer, result in reviewers.items():
         for attempt in result.get("attempts", []):
-            if attempt.get("failure") == "timeout" and not attempt.get(
+            if attempt.get("failure") in {"timeout", "attempt_timeout"} and not attempt.get(
                 "descendant_termination_verified", False
             ):
                 failures.append(reviewer)

@@ -478,9 +478,13 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         ])
 
         def deterministic_execute(command, cwd, prompt, timeout_seconds, timeout_grace_seconds):
+            supervision = {
+                "descendant_termination_verified": True,
+                "descendants_surviving": [],
+            }
             if Path(command[0]).name == "codex":
-                return -signal.SIGKILL, "", "", True, False, {}
-            return 0, "VERDICT: APPROVED\nCOVERAGE: all\n", "", False, False, {}
+                return -signal.SIGKILL, "", "", True, False, supervision
+            return 0, "VERDICT: APPROVED\nCOVERAGE: all\n", "", False, False, supervision
 
         with mock.patch.dict(os.environ, self.env), mock.patch.object(
             runner, "execute", side_effect=deterministic_execute
@@ -811,6 +815,19 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         with mock.patch.object(runner.time, "monotonic", side_effect=[9.5, 10.0]):
             with self.assertRaisesRegex(TimeoutError, "before reviewer dispatch"):
                 runner.reviewer_deadlines(["codex", "opus"], 10.0, 5.0, 0.1)
+
+    def test_attempt_timed_out_lane_with_unverified_descendant_is_reported(self) -> None:
+        runner = load_runner_module()
+
+        failures = runner.descendant_termination_failures({
+            "codex": {
+                "attempts": [
+                    {"failure": "attempt_timeout", "descendant_termination_verified": False}
+                ]
+            }
+        })
+
+        self.assertEqual(failures, ["codex"])
 
     def test_cleanup_overrun_invalidates_successful_review_vote(self) -> None:
         runner = load_runner_module()
