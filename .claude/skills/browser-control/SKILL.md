@@ -7,10 +7,10 @@ description: Control real websites and authenticated browser sessions, inspect p
 
 ## Personal browser isolation — required for every route
 
-The user's main Chrome window, tabs, profile, cookies, and login state are off-limits
-to automation. A browser task, existing sign-in, or "show browser" request does
-not grant access to that personal browser. A later explicit request naming the
-personal browser and the intended action is required to change this boundary.
+Personal desktop browser windows, tabs, profiles, cookies, and login state are
+off-limits to automation. No browser task or visible-browser request authorizes
+their use. Use an isolated agent-owned context; the only cookie exception is an
+explicitly authorized transfer from exactly one named agent-owned profile below.
 
 - Use an agent-owned browser and profile. Prefer bundled Playwright Chromium for
   headless launches; a separate profile alone does not prevent macOS launch/window
@@ -21,36 +21,41 @@ personal browser and the intended action is required to change this boundary.
 - Never select, copy, decrypt, or import the personal Chrome profile or its cookies,
   including agent-browser `--profile Default`. Cookie-transfer recipes below apply
   only to an explicitly authorized agent-owned source profile.
-- Aside remains preferred only when its operation can stay in the background in
-  an agent-owned tab. Do not activate/focus apps, bring windows forward, or assume
-  that an Aside metadata probe proves navigation is headless or focus-safe. If
-  background operation cannot be established, use isolated headless Chromium.
-- A visible-browser request permits a separate automation window only. Never use
-  `open -a "Google Chrome"`, a bare system URL opener, AppleScript activation/quit,
-  or a default-profile launch to recover automation. Do not change default-browser
-  registration or enable a continuous browser relaunch service.
+- Aside may be used only when an already-running process and task-owned context
+  are proven to operate in the background. Do not launch or activate it. Metadata
+  probes do not prove navigation is background-safe. Otherwise use isolated
+  headless Chromium.
+- Keep Chromium headless by default. A current-thread explicit request for visible
+  automation permits a headed window only in a separate, verified task-owned
+  browser process/profile/context. Never use a personal or default profile, a bare
+  system/default-browser launch, `open -a "Google Chrome"`, or AppleScript
+  activation/quit. Do not launch or activate a desktop browser as spontaneous
+  recovery, change default-browser registration, or enable a continuous relaunch
+  service.
 - Close only exact tabs/contexts/processes created by the current task. Never use
   `closeAllTabs()`, `killall`, or broad `pkill` against shared browsers. Never remove
   profile locks while their holder is alive; Dot profiles remain exclusive to Dot.
 - Verify the launched executable, dedicated profile or isolated context, endpoint
-  ownership when attaching, and headless mode before navigation. If these cannot
-  be verified, do not attach to another browser as a fallback. Report instruction
-  checks separately from runtime proof that the main window stayed untouched.
+  ownership when attaching, and headless mode by default before navigation. For
+  explicitly requested headed automation, verify the separate task-owned process
+  and profile instead. If ownership cannot be verified, do not attach to another
+  browser as a fallback. Report instruction checks separately from runtime proof
+  that the main window stayed untouched.
 
 ## Supported runtime browser API
 
-When the current runtime provides a connected browser API (for example a Chrome
-extension bridge with Playwright locators), use that documented API first for
-user-authorized existing-tab work within the isolation contract above. Read its current browser/profile/tab inventory
-and documentation. This route preserves the existing session and does not copy
-credentials. It also applies to fingerprint-sensitive sites in their existing
-session; the cookie-injection restrictions below remain in force.
+Use a connected browser API only when it connects to a separate, task-owned
+browser context. Do not use a Chrome extension bridge or existing-tab API to
+inspect personal desktop tabs or profiles. Verify ownership before navigation;
+if it cannot be proven, use isolated headless Chromium or report the blocker.
+Do not use a browser or copied credential to bypass login, consent, MFA, or site
+access rules.
 
 On Ubuntu without Aside, an explicitly authorized, already-configured Playwright
 MCP or CLI may be used when runtime instructions permit it and it has a supported
 connection to the requested browser. CLI authorization does not create a connection
-to existing profiles: a default isolated Playwright browser is not the user's
-signed-in Chrome. Do not install software, grant access, expose a debugging port,
+to existing profiles: a default isolated Playwright browser is not a personal
+signed-in browser. Do not install software, grant access, expose a debugging port,
 or launch a second agent merely to manufacture missing access.
 
 Do not bypass tab ownership locks, disabled controls, or denied permissions.
@@ -59,29 +64,33 @@ scoped blocker. Do not treat one locked tab as proof that all browsers are block
 Verify account identity in visible account UI, not from tab titles or profile names.
 Distinguish background operation through an existing extension from launching a
 new headless browser: they have different authentication and display requirements.
-An existing-tab request authorizes inspection through its supported connection;
-it is not a request to relaunch Chrome or switch accounts.
+An existing-tab request never authorizes inspection of personal desktop tabs,
+relaunching Chrome, or switching accounts.
 
 ## Route the task
 
-When no applicable supported runtime browser API is available, the numbered **Routing order** below is the fallback sequence; these bullet categories are a non-binding restatement. A route is considered to have **succeeded** only when it completes the authenticated task the user asked for — a single transport error, a missing-tab condition, or one failed CLI call is not enough to advance. When a route fails to complete the authenticated task, fall back to the next numbered route.
+Use a supported runtime API only for an isolated task-owned context. Otherwise
+follow the numbered **Routing order** below. A personal signed-in tab is never a
+route or fallback.
 
-- **Live websites, authenticated sessions, account settings, OAuth, existing tabs:** start at Aside MCP, then Aside CLI (the primary signed-in path that does not copy session material).
+- **Live websites, authenticated sessions, account settings, OAuth:** use an already-running, verified agent-owned Aside background context when available; otherwise use isolated headless Chromium and the provider-supported authentication flow.
 - **Authenticated fallback on fingerprint-TOLERANT sites:** use the guarded browserclaw decrypt → headless inject lifecycle only after both Aside paths fail to complete the authenticated task, AND only when the user has explicitly authorized local cookie transfer for the requested authenticated-content task. **Fingerprint-sensitive sites (LinkedIn, banks/brokerages, Cloudflare/Akamai-protected, user-declared no-headless) NEVER advance past Aside.** When Aside is unavailable on a fingerprint-sensitive target, post a ONE-LINE display/input blocker; do not fall through to cookie injection, capture, learn, reverse, or Playwright.
 - **Deterministic local-app testing, CI, isolated profiles, traces, video, multi-browser:** use Playwright headless / `playwright-ui-testing` after the authenticated routes are inapplicable.
-- **Visible/headed browser:** only when the user explicitly asked for it in the current thread, using a separate automation window and profile under the isolation contract above.
+- **Visible/headed browser:** not a default fallback. Use headless by default; if the current thread explicitly requests visible automation, use only a separate verified task-owned browser/profile. Never access the personal desktop browser.
 
 ## Routing order (operational, in priority order)
 
-Apply these in order; proceed only after the current route fails to complete the authenticated task (not merely after one transport or tab call errors). The order intentionally prefers tools that already have the user's session over tools that copy session material.
+Apply these in order. Aside is allowed only when its already-running context is
+verified agent-owned and background-safe. No route may use personal desktop
+browser state.
 
-1. **Aside-MCP if available.** Most specific, lowest friction: the user's existing signed-in tabs and session are preserved across calls. Detect by listing MCP tools in the active runtime.
-2. **Aside CLI** (`aside repl` / `aside "<prompt>"` / `aside account list`) — `repl` mode for interactive navigation, `agent`/`<prompt>` mode for an Aside-driven task. Use the already-running `Aside.app` profile. `account list` returns the active profile(s). Aside drives a real browser session; it remains the primary signed-in path, even though it is not the headless fallback.
+1. **Aside-MCP only if already connected to a verified agent-owned background context.** Tool availability or account-list output is not proof of context ownership.
+2. **Aside CLI only for a verified agent-owned background context already running.** Do not launch/activate Aside or use a desktop/personal profile. If ownership/background behavior is not established, skip to isolated headless Chromium.
 3. **browserclaw cookies decrypt → inject** — for fingerprint-tolerant sites where Aside is unavailable, not signed-in, or on a headless host, and the user has explicitly authorized local cookie transfer from exactly one named agent-owned source for the task. The fingerprint-sensitive Aside-only exception below overrides this fallback. Never sweep personal browser profiles or enumerate source candidates; use only that authorized source, its matching Safe Storage service/account, and the guarded lifecycle below.
-4. **Playwright headless (no auth)** — for unauthenticated/deterministic flows, scraping public pages, scripted sweeps, or CI-style checks. Use `playwright-ui-testing` if the task is a real test (isolated profiles, traces, video).
-5. **Visible/headed browser** — only when the user explicitly asked for it in the current thread, using a separate automation window and profile under the isolation contract above.
+4. **Playwright headless in an isolated context** — for unauthenticated/deterministic flows, public pages, scripted checks, and authorized agent-owned cookie transfer. Use `playwright-ui-testing` for real tests.
+5. **Visible/headed mode is exceptional.** Keep Chromium headless by default. If the current thread explicitly requests visible automation, use only a separate verified task-owned browser/profile; report a blocker if that isolation cannot be established.
 
-> **Footnote — `browserclaw capture` / `learn` / `reverse` (NOT a route).** These subcommands persist full HTTP request/response traffic to a `capture.har` file on disk, which can contain the new secret in plaintext. They are allowed ONLY for tasks where no credentials, cookies, authorization headers, tokens, or secret pages can enter the capture — e.g. API documentation discovery against a public docs site. They are NOT the headless fallback for any of the numbered routes above; if you need an authenticated page, use route 3 (browserclaw `cookies decrypt` + `cookies inject`) with explicit authorization instead.
+> **`browserclaw capture` / `learn` / `reverse` are public, non-sensitive discovery only.** They persist full traffic to HAR, so never use them with credentials, cookies, tokens, private content, or secret-bearing pages. Explicitly authorized transfer from one named agent-owned profile only feeds an isolated browser context; it never authorizes direct API requests with copied cookies, headers, or bearer tokens.
 
 ## Live-browser workflow
 
@@ -342,7 +351,7 @@ For ordinary private content (not secret-bearing), the generic `--print-text` re
 - The cookies JSON and any captured private body text live only in private mode-600 temp files, are never committed or logged, and are removed by an EXIT trap on success and failure.
 - Use `--summary` when only a domain/name/length check is needed; never log raw values.
 - **Never** route credential-bearing flows through `browserclaw capture` / `learn` / `reverse` — those commands persist full HTTP request/response traffic to a `capture.har` file on disk, which CAN contain the new secret in plaintext (the exact leak class this skill's credential rule already bans). For those flows, use `cookies inject` (navigation only, no HAR) or a bare Playwright script, read the result from the DOM/page text, and do not persist the raw network traffic.
-- The `--browser-channel chromium` choice (not `chrome`) keeps the bundled Chromium-for-Testing always-headless and never touches the user's existing Chrome session.
+- A channel choice alone proves neither headless launch mode nor session isolation. Set headless mode explicitly, use an isolated task-owned profile, and verify the launched process arguments and profile path. Do not launch system Chrome or enumerate desktop windows/listeners as a fallback.
 
 ## Fingerprint-sensitive sites (Aside-only exception)
 

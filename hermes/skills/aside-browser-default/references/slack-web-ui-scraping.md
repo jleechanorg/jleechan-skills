@@ -2,6 +2,8 @@
 
 Captured 2026-07-14 driving the Slack "Later" reminders page (https://app.slack.com/client/T09FXQ4LCQP/later) via Aside headless browser. Generalizes to any Slack web view (Later, Activity, Saved items, custom channel history) where Slack renders a virtualized list with a fixed header + tabs pattern.
 
+Apply `~/.claude/skills/browser-control/SKILL.md` before using this historical recipe. Navigate only in an already-running, verified agent-owned background context. Do not use a personal browser window, profile, cookie, or login state. Do not launch or activate Aside for this task. If the required authenticated context is unavailable, stop and report the blocker; use cookie transfer only when the task explicitly authorizes exactly one named agent-owned source profile, under the guarded browser-control lifecycle. Never probe an internal API with copied browser credentials.
+
 ## Why browser, not Web API
 
 The Slack Web API is blocked from several read paths the user expects "their reminders" to expose. For `reminders.list` specifically, the only path is the web UI. Verified 2026-07-14:
@@ -14,7 +16,7 @@ curl -fsS -X POST "https://slack.com/api/reminders.list" \
 #    "provided":"identify,channels:history,groups:history,im:history,..."}
 ```
 
-→ Fall through to Aside headless browser (already signed-in to workspace).
+→ Use the Slack web UI only in an already-running, verified agent-owned background context. Otherwise stop and report the auth/context blocker; do not fall through to a personal signed-in browser or launch Aside.
 
 ## Slack Later page structure
 

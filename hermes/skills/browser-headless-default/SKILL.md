@@ -1,6 +1,6 @@
 ---
 name: browser-headless-default
-description: "Enforce headless browser automation by default for Hermes — Playwright MCP and superpowers-chrome. Use when opening browsers, scraping, UI tests, localhost verification, or any chrome_use_browser / Playwright call. Never headed unless Jeffrey explicitly requests visible browser."
+description: "Enforce isolated browser automation for Hermes — Playwright MCP and superpowers-chrome. Use when opening browsers, scraping, UI tests, localhost verification, or any chrome_use_browser / Playwright call. Keep Chromium headless by default; permit headed mode only for an explicit current-thread request in a separate verified task-owned profile."
 when_to_use: Browser automation, scraping, screenshots, localhost UI checks, Luma/cookie flows, /browser command
 allowed-tools: mcp__playwright-mcp, mcp__plugin-superpowers-chrome__chrome_use_browser
 context: hermes
@@ -10,20 +10,20 @@ context: hermes
 
 ## Contract
 
-Apply the personal browser isolation contract in `~/.claude/skills/browser-control/SKILL.md` before every browser action. The user's main Chrome is off-limits, including its cookies and login state. Headed opt-in permits a separate automation window only.
+Apply the personal browser isolation contract in `~/.claude/skills/browser-control/SKILL.md` before every browser action. Personal desktop browsers, profiles, cookies, and login state are off-limits. Keep Chromium headless by default. A current-thread explicit request for visible automation permits only a separate, verified task-owned browser process/profile/context; never use the personal/default browser or a bare system/default-browser launch.
 
-**Default: headless always.** Jeffrey's Mac is not a demo kiosk — do not pop Chrome windows during agent work.
+**Headless by default.** Do not open a desktop browser window for routine work or as spontaneous recovery.
 
-**Primary tool (2026-06-27):** **Aside browser** (`aside` CLI / `aside-mcp`). Use it first for all browser work. This skill is the fallback for Playwright MCP / superpowers-chrome paths.
+**Browser default:** isolated headless Chromium through Playwright MCP or another task-owned isolated runtime. Aside is an optional existing background context only when its agent ownership is verified; do not launch or activate the Aside app to make it available.
 
-| Tool | Default | Forbidden unless explicit user opt-in |
+| Tool | Default | Visible-mode boundary |
 |------|---------|--------------------------------------|
-| **Aside CLI / `aside-mcp`** | **PRIMARY** only when verified to stay in the background in an agent-owned tab | activating/focusing a window; metadata calls alone do not prove background navigation |
-| **Playwright MCP** | fallback, headless | headed / `headless: false` |
-| **superpowers-chrome** (`chrome_use_browser`) | fallback, headless (`hide_browser`, `browser_mode` → `headless: true`) | `show_browser`, headed restart |
-| **claude-in-chrome / GUI Chrome** | do not use for localhost | driving Jeffrey's visible Chrome for automation |
+| **Playwright MCP** | **DEFAULT**, isolated headless | headed unless explicitly requested in the current thread and isolated in a separate task-owned profile/context |
+| **Aside CLI / `aside-mcp`** | optional only when verified agent-owned and background | launching/activating app; using personal browser state |
+| **superpowers-chrome** (`chrome_use_browser`) | fallback in isolated headless mode | headed unless explicitly requested in the current thread and isolated in a separate task-owned profile/context |
+| **claude-in-chrome / GUI Chrome** | do not use for localhost | driving a visible desktop browser for automation |
 
-**Explicit opt-in phrases only:** The user says *"show browser"*, *"headed mode"*, *"visible browser"*, or *"I want to see the window"* in the **current thread**.
+Only an explicit current-thread request authorizes visible mode, and only in a separate, verified task-owned browser/profile. This never authorizes the personal/default browser or a bare system/default-browser launch.
 
 ## Phases
 
@@ -31,27 +31,27 @@ Apply the personal browser isolation contract in `~/.claude/skills/browser-contr
 
 1. Run `bash ~/.hermes/skills/browser-headless-default/scripts/validate-browser-mode.sh` when unsure.
 2. For superpowers-chrome: first verify it owns a separate automation browser/profile. Never hide or restart a shared/personal browser. Once ownership is proven, check `browser_mode` and use headless mode before navigate/click.
-3. For Playwright MCP: never pass headed options.
+3. For Playwright MCP: use headless by default. If visible mode was explicitly requested in the current thread, verify the separate task-owned browser/profile before using headed options. If isolation cannot be verified, report the blocker.
 
 ### Phase 2 — During automation
 
 - Prefer Playwright MCP for localhost (`http://127.0.0.1`, `http://localhost`).
-- Prefer `human_type` only when bot-detection requires it; still stay headless.
+- Prefer `human_type` only when bot-detection requires it; use headless by default and follow the explicit visible-mode boundary above.
 - Capture evidence via screenshots in headless mode (works fine).
 
 ### Phase 3 — After session
 
-- If you called `show_browser` for debugging, call `hide_browser` before ending the turn.
+- Close only exact task-owned tabs and contexts created for the task.
 
 ## Anti-patterns (BANNED)
 
-- Calling `show_browser` "to help Jeffrey see progress"
-- Starting Chrome headed on macOS because DISPLAY is available
-- Using visible Chrome for Luma scrape / cookie injection without explicit approval
+- Calling `show_browser` without an explicit current-thread request and verified separate task-owned browser/profile
+- Starting a personal/default Chrome headed on macOS because DISPLAY is available
+- Using a personal/default visible Chrome for scraping or cookie injection.
 - `mcp__claude-in-chrome__*` for localhost testing (use Playwright MCP)
 - **Using AppleScript or another desktop automation API to create tabs in the user's personal Chrome** — this can touch the user's window, tabs, or session. Use the browser-control contract and an agent-owned browser/profile for every executable recipe.
-- **Driving the user's existing visible Chrome via CDP at all** — even without `activate`, CDP-driven navigation can scroll / push the user's cursor off their work. Default to bundled headless Playwright Chromium for automation that needs Chrome behavior. Aside CLI / Aside MCP are separately authorized headed/background paths, not headless substitutes. Never attach to a personal Chrome session; headed work still requires a separate, explicitly authorized agent-owned browser/profile.
-- **Stopping at "this page requires authentication, I can't read it"** — when a task authorizes authenticated access, use the browser-control guarded lifecycle with one specifically authorized agent-owned source profile/DB and the matching browser/session. Never target the operator's personal Chrome profile, sweep desktop profiles, copy personal profile data, or create tabs in the personal browser. See `~/.hermes/skills/browserclaw/references/gemini-share-link-as-user.md` for the portable recipe.
+- **Driving a personal/default visible desktop browser via CDP** — use isolated headless Chromium by default; when visible mode is explicitly requested in the current thread, use only a separate, verified task-owned browser/profile. Aside CLI / Aside MCP remain limited to an already-running, verified agent-owned background context.
+- **Treating authentication as a reason to use a headed or personal browser.** Continue only via a provider-supported flow in an already authorized isolated context. A separately explicit one-agent-owned-source cookie transfer is governed by browser-control and cannot bypass login, consent, MFA, or device confirmation.
 
 ## Automatic-auth default (added 2026-07-30, browserclaw v2 design review)
 
@@ -59,8 +59,8 @@ The headless default extends one level deeper: **the operator should not have to
 
 This applies regardless of which tool is driving the browser:
 
-- For browserclaw: the v2 design `references/browserclaw-v2-design-2026-07-30.md` supersedes the prior "manual auth only" / "no auth bypass" ceiling.
-- For ad-hoc Playwright / Aside work: do not propose "please open the browser and log in" as a first move — drive the login flow via the explicitly authorized agent-owned Aside session's password autofill + SSO + MFA handlers, and only escalate to the operator if the autonomous path genuinely cannot complete.
+- The browserclaw v2 design is design context only. It does not override the no-personal-browser, no credential capture, no bearer injection, or no auth-bypass rules in browser-control.
+- For ad-hoc browser work, use only an already authorized isolated agent-owned context and the provider's supported authentication flow. Do not fill passwords, capture credentials, bypass authentication, or open/activate a desktop browser as an autonomous recovery step.
 - For cron or babysit jobs that need auth: use an explicitly authorized agent-owned profile through the browser-control contract; do not schedule recurring cookie polling or relaunches against a personal profile.
 
 Operator verbatim (2026-07-30, Slack browserclaw design review): *"I want automatic auth and never wanna use my browser unless forced."*

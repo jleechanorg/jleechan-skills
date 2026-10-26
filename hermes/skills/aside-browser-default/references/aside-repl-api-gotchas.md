@@ -54,7 +54,8 @@ Path("/tmp/foo.png").write_bytes(png)
 listBrowserTabs().map(t => t.url());
 
 // ❌ Will return undefined
-const n = listBrowserTabs().length;
+const tabs = await listBrowserTabs();
+const n = tabs.length;
 
 // ✅ Must await
 const tabs = await listBrowserTabs();
@@ -358,19 +359,22 @@ A common slip: when an MCP Mail bot was uninstalled/reinstalled or its token rot
 3. If bot token returns `missing_scope`, use Aside's `slack.getClient()` (§7).
 4. Only as a last resort, have the user click "Add people to channel" in the Slack UI.
 
-### 14. **Aside CLI exits "fetch failed" when the Aside GUI app is not running**
+### 14. **Aside CLI exits "fetch failed" when its background service is unavailable**
 
 Symptom: every `aside account list`, `aside repl`, and `aside mcp` returns `fetch failed` immediately. Diagnostic reports (`~/Library/Logs/DiagnosticReports/AsideUpdater-*.ips`) accumulate because the bundled updater can't reach the GUI.
 
-Fix:
+Do not launch, restart, activate, or repair the desktop app as part of browser
+automation. First verify whether the existing Aside session is already an
+agent-owned background context. If ownership is not established or the CLI is
+unavailable, use isolated headless Chromium and report the layer that failed.
+Do not use this diagnosis as authority to inspect or change the user's desktop.
 
 ```bash
-pgrep -lf "Aside.app/Contents/MacOS/Aside" || open -a /Applications/Aside.app
-sleep 4
-aside account list   # should show signed-in profile again
+pgrep -lf "Aside.app/Contents/MacOS/Aside"
+aside account list
 ```
 
-If `aside mcp` is in a crash-restart loop (`pgrep` shows repeating supergateway processes for `aside-mcp`), the **same root cause** — start the GUI app. The wrapper keeps respawning the MCP child, but the child hits `fetch failed` because no GUI is alive to back it. Verified 2026-07-09 — resolved by `open -a /Applications/Aside.app`.
+If `aside mcp` is in a crash-restart loop, do not start the GUI app or kill/restart processes. Use isolated headless Chromium for the task and report that Aside is unavailable. Historical recovery observations do not authorize changing desktop state.
 
 ### 15. **`aside --effort ultrabrowse` times out (>180s) on multi-step structured flows** (verified 2026-07-14)
 
@@ -414,7 +418,7 @@ const shot2 = await annotatedScreenshot(p2);
 **Fallbacks when you MUST capture the heavy SPA:**
 
 1. **`page.evaluate(() => document.body.innerHTML)` first** — capture the DOM while it's still alive, before the screenshot call that disconnects. Decode later via curl regex / grep on the captured HTML.
-2. **`browserclaw cookies inject`** with a real user session — already-logged-in Chrome bypasses the SPA's auth-redirect, so the page renders directly without the heavy "logged-out" → "logged-in" → "load dashboard" cascade.
+2. **Use the browser-control contract** for any authorized authenticated test. Never use a personal browser session, copied personal cookies, bearer injection, or direct API probing as a rendering workaround. An explicitly authorized transfer from one agent-owned source profile is governed by that contract.
 3. **curl + regex on the deployed JS bundle** — if you need to prove "the new field `reset_time_*` is in the success path", `curl /frontend_v1/app.js | grep reset_time` answers that without ever loading the SPA. See `evidence-attach-to-slack` skill for the full curl+regex fallback chain.
 4. **Direct invocation of the underlying function** — if the evidence target is a backend function (like `_build_allowed_response`), import it in Python and call it directly with realistic data. Bypasses the entire SPA render.
 

@@ -5,6 +5,8 @@ date: 2026-07-30
 status: design-only — does not authorize implementation
 ---
 
+> **Current-policy boundary (2026-10-25):** This dated design is historical planning material, not executable browser or authentication guidance. It does not supersede `~/.claude/skills/browser-control/SKILL.md`: personal browser windows, profiles, cookies, and login state remain off-limits; automatic sign-in, desktop-browser recovery, copied-credential API calls, and auth bypass are not authorized by this design. Any task-authorized cookie transfer is limited to exactly one named agent-owned source and the guarded isolated-headless lifecycle in browser-control. Stop if that session needs login, consent, MFA, CAPTCHA, or other user action.
+
 ## Why this exists
 
 A 670-line validated design for expanding `browserclaw` from a HAR-capture /

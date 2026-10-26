@@ -17,7 +17,12 @@ mechanically in browser tools.
 - Attachments require browser/profile and task-tab ownership verification.
 - Personal cookie sources, automatic GUI recovery, continuous relaunch, and broad
   shared-browser cleanup are excluded.
-- Visible browser requests permit a separate automation window only.
+- Headless remains the default. An explicit current-thread request may use a
+  separate, verified task-owned headed browser/profile. Retire conflicting
+  instructions that permit personal/default-browser use, spontaneous desktop-app
+  launch or recovery, manual login or credential capture, cookie copying outside the one
+  explicitly authorized agent-owned-source transfer, and direct API requests
+  using copied browser credentials.
 - Linux updates preserve unrelated host guidance and verify file hashes after transfer.
 
 ## User stories
