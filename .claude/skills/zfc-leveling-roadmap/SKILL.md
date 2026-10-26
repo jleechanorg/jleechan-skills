@@ -61,7 +61,7 @@ These are the **only** `rewards_engine` functions that external files may call:
 | Function | Callers | Purpose |
 |----------|---------|---------|
 | `canonicalize_rewards(structured_fields, game_state, original_state)` | `llm_parser.py` (1 call), `world_logic.py` (polling paths) | Single convergence point for all rewards/level-up UI |
-| `is_level_up_active(game_state)` | `agents.py`, `world_logic.py` | Correction-guarded modal activity check over explicit state/model fields |
+| `is_level_up_active(game_state)` | `agents.py`, `world_logic.py` | Read explicit progression signals and server-owned modal control; any domain transformation follows the Correction Exception Boundary |
 | `project_level_up_ui(game_state, original_state)` | `world_logic.py` (via `_project_level_up_ui_locally()`) | Polling/projection path (transitional — delete when callers migrate) |
 | `sync_level_up_signals(game_state, original_state)` | `world_logic.py` (via `ensure_level_up_rewards_pending()` shim) | Idempotent rewards_pending sync |
 | `format_model_level_up_signal(signal)` | `llm_parser.py` (fallback path) | Explicit signal formatter (should become private `_format_...`) |
@@ -74,7 +74,7 @@ These are the **only** `rewards_engine` functions that external files may call:
 
 - `canonicalize_rewards()` returns `(rewards_box, planning_block)` — a **2-tuple**. **Do NOT change this return signature.** Use `out_meta` dict parameter to pass additional data out (e.g., canonical signal, false-positive flags).
 - `canonicalize_level_up_signal()` is called **inside** `rewards_engine.py` only. External files consume precomputed results.
-- `is_level_up_active()` returns `bool`. It performs correction-only stale-flag/contradiction suppression internally. It must not become a primary XP-threshold calculator. Callers must not second-guess its result.
+- `is_level_up_active()` returns `bool`. It reads explicit progression signals and server-owned modal control. This API shape does not authorize contradiction suppression or XP-threshold decisions; any transformation of a model-owned field requires the named active-policy exception and evidence in the Correction Exception Boundary.
 - `ensure_rewards_box()` returns `tuple[dict | None, dict | None]` (rewards_box, signal_metadata). Internal only.
 
 ---
@@ -87,12 +87,12 @@ These are the most frequently observed agent drift patterns. If you catch yourse
 |----------------------|------------|----------------|
 | Call `canonicalize_level_up_signal()` | `world_logic.py`, `llm_parser.py` | Only inside `rewards_engine.py` (via `_canonicalize_core`) |
 | Build a `level_up_signal` dict | `world_logic.py` | Build in `rewards_engine.py`, pass via return or `out_meta` |
-| Compute XP progress, thresholds, target level, or level-up availability as the primary path | any backend file | Ask the LLM for explicit calculated fields; `rewards_engine.py` may only correct/suppress contradictions in those explicit fields |
+| Compute XP progress, thresholds, target level, or level-up availability as the primary path | any backend file | Ask the LLM for explicit calculated fields; preserve them unless the exact transformation satisfies the Correction Exception Boundary |
 | Check `level_up_pending` / `level_up_in_progress` flags directly | `world_logic.py`, `agents.py` | Call `rewards_engine.is_level_up_active()` |
 | Call `resolve_level_progression()` | anywhere | **Deleted.** Use `rewards_engine.is_level_up_active()` or `rewards_engine.project_level_up_ui()` |
 | Use `build_level_up_rewards_box()` | anywhere | **Deleted.** Use `rewards_engine.ensure_rewards_box()` (internal) or `project_level_up_ui()` |
 | Change `canonicalize_rewards()` return type | anywhere | **Don't.** Use `out_meta` dict instead |
-| Add signal normalization aliases | `structured_fields_utils.py` | Add in `rewards_engine.canonicalize_level_up_signal()` |
+| Add signal normalization aliases | `structured_fields_utils.py` | First establish the exact active-policy exception and evidence under the Correction Exception Boundary; this table alone grants no normalization authority |
 | Classify or scrub choices by ID text/prefix, label, enum name, or CSS class | any backend file | Resolve the submitted handle against persisted `planning_block.choices`, then read explicit structured fields; keep `level_up_now`, `finish_level_up_return_to_game`, and `custom_action` exact checks migration-only |
 | Add a new feature to a level-up PR | the same PR | Open a separate PR — scope creep is the #1 cause of spin |
 | Access `rewards_engine._is_state_flag_true()` from outside | `agents.py`, `world_logic.py` | Use the public helpers or import from `game_state.py` |
@@ -139,16 +139,17 @@ For each file you plan to modify, check the table above:
 
 ```
 Is my change about level-up/XP/rewards logic?
-├── YES → Put the logic in rewards_engine.py
+├── YES → Model-owned gameplay meaning belongs in the prompt/schema
+│   ├── Server execution or transport? Follow the ownership table and active contract
 │   ├── Does world_logic.py need the result?
 │   │   └── Pass via return value or out_meta dict
 │   ├── Does agents.py need to know if level-up is active?
 │   │   └── Call rewards_engine.is_level_up_active() — never inline flag checks
 │   └── Does llm_parser.py need the result?
 │       └── Call canonicalize_rewards() once; don't call internal functions directly
-├── Is my change about validating LLM output?
-│   └── Contradiction detection → narrative_response_schema.py
-│       └── Schema retry → llm_service.py SchemaRejectionError
+├── Is my change about model output?
+│   └── Diagnose the prompt/schema at the root cause first
+│       └── Preserve valid player turns; no contradiction-repair retry is authorized here
 └── NO → Normal file protocol applies
 ```
 
@@ -206,7 +207,7 @@ The `design-doc-gate.yml` workflow enforces 8 grep-based boundary checks on ever
 | `level_up_signal.current_level` | LLM | Int: level before applying the level-up |
 | `level_up_signal.target_level` | LLM | Int: target level now available; `target_level > current_level` is the model-owned level-up signal |
 | `rewards_pending.level_up_available` | Backend-derived compatibility/display field from accepted `level_up_signal` | Bool: deterministic UI alias; do not ask the model to emit it |
-| `rewards_pending.xp_gained` | LLM via state_updates; `rewards_engine.sync_level_up_signals()` only for transitional correction | Int: model-calculated XP delta for rewards box |
+| `rewards_pending.xp_gained` | LLM via state_updates; any transitional transformation requires the named active-policy exception and evidence | Int: model-calculated XP delta for rewards box |
 | `rewards_pending.new_level` | Backend-derived compatibility/display field from `level_up_signal.target_level` | Int: deterministic UI alias; do not ask the model to emit it |
 | `player_character_data.experience.current` | Active repository field-specific contract | Int: cumulative accepted XP; writer and projection are owned by the current prompt/schema and ZFC contract |
 | `custom_campaign_state.level_up_in_progress` | Server-owned modal/session control state | Bool: level-up modal active; model must not write this on story/rewards turns |

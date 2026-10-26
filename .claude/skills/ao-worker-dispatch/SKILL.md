@@ -35,7 +35,6 @@ After any context compaction event:
 2. Verify it matches your assigned branch: [BRANCH]
 3. If wrong, do not edit or switch the current checkout blindly. Inspect status and worktree ownership, preserve unrelated work, and enter an approved isolated worktree pinned to the assigned revision.
 ```
-```
 
 ### 4. Scope discipline
 ```

@@ -75,7 +75,7 @@ scope: project
 3. **Get authentication token** through the existing auth CLI (auto-refresh only from its designated credential store):
    ```bash
    # Get token (auto-refreshes if expired, does nothing if valid)
-   TOKEN=$(/Users/jleechan/.nvm/versions/node/v22.22.0/bin/node ~/.claude/scripts/auth-cli.mjs token)
+   TOKEN=$(node ~/.claude/scripts/auth-cli.mjs token)
    ```
 4. **Send request** (allowing up to 180s for cold starts):
    ```bash
@@ -128,7 +128,7 @@ For advanced prompting templates and interactive options, see the existing `~/.c
 
 ## Troubleshooting
 - **502 Bad Gateway / cold start** → Retry after 30–60 seconds. Send a lightweight `"What is 2+2?"` request first to warm the backend.
-- **401 Unauthorized / invalid token** → Token expired (30-day TTL). Re-run `node scripts/auth-cli.mjs login` outside Claude Code.
+- **401 Unauthorized / invalid token** → Follow the authentication recovery sequence above: inspect the response, refresh using the existing credential store, and perform the required credential-presence and non-UI probes. A 401 alone does not authorize or require interactive login.
 - **"command -c invalid" errors** → Avoid nested command substitutions. Use heredocs + two-step token capture as shown above.
 - **Parsing failures** → Always extract `.result.content[0].text` before loading JSON. Use the helper Python snippet or script for safe parsing.
 

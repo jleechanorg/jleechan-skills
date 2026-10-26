@@ -45,6 +45,5 @@ This command delegates to `/testuif` and follows `testing_ui/CLAUDE.md`:
 
 Every `testing_ui/` test uses a real application server and real services. Use
 non-UI deterministic unit tests outside `testing_ui/` when mocks are needed.
-| PR Documentation | Same format | Same format |
 
 **For complete command documentation, usage examples, and enhanced validation protocols, see**: `.claude/commands/testuif.md`
