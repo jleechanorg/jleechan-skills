@@ -237,9 +237,9 @@ curl -sH "Authorization: Bearer $HERMES_SLACK_BOT_TOKEN" \
 
 # ✅ Authoritative: list of member USER-IDs (which includes you if you're a member)
 curl -sH "Authorization: Bearer $HERMES_SLACK_BOT_TOKEN" \
-  "https://slack.com/api/conversations.members?channel=C0BDEAJH8PK&limit=200"
-# → { ok: true, members: ["U09GH5BR3QU","U0AEZC7RX1Q","U0BC138QXUJ"] }
-# If "U0A4G7LDJ4R" (the bot) is NOT in the array, it's NOT in the channel.
+  "https://slack.com/api/conversations.members?channel=<SLACK_ID>&limit=200"
+# → { ok: true, members: ["<SLACK_ID>","<SLACK_ID>","<SLACK_ID>"] }
+# If "<SLACK_ID>" (the bot) is NOT in the array, it's NOT in the channel.
 ```
 
 **Why this matters:** the morning EA sweep on 2026-07-13 reported "bot is member of 0 channels" — but the channels *list* call had been used to verify, not `members`. The bot was actually a member of all 35 channels; only #worldai-bugs needed re-adding (the bot had been removed there after a stale-token rotation). Verified by direct `conversations.info` and `conversations.history` calls.
@@ -337,7 +337,7 @@ const shot2 = await annotatedScreenshot(p2);
 
 1. **`page.evaluate(() => document.body.innerHTML)` first** — capture the DOM while it's still alive, before the screenshot call that disconnects. Decode later via curl regex / grep on the captured HTML.
 2. **Use the browser-control contract** for any authorized authenticated test. Never use a personal browser session, copied personal cookies, bearer injection, or direct API probing as a rendering workaround. An explicitly authorized transfer from one agent-owned source profile is governed by that contract.
-3. **curl + regex on the deployed JS bundle** — if you need to prove "the new field `reset_time_*` is in the success path", `curl /frontend_v1/app.js | grep reset_time` answers that without ever loading the SPA. See `evidence-attach-to-slack` skill for the full curl+regex fallback chain.
+3. **Use an authorized source-level check only when it answers the question.** Do not use curl/regex against deployed bundles as a substitute for authenticated UI behavior or evidence; report that the UI state could not be verified if the authorized browser path is unavailable.
 4. **Direct invocation of the underlying function** — if the evidence target is a backend function (like `_build_allowed_response`), import it in Python and call it directly with realistic data. Bypasses the entire SPA render.
 
 **The principle:** when browser automation fails, fall back to **the cheapest evidence tier that still answers the user's question**. Don't fabricate a screenshot, don't pretend CDP worked, and don't loop retries on the failing path.

@@ -6,21 +6,29 @@ type: skill
 
 # Slack MCP Mail Bot Reinstall (Scope Repair)
 
+> **Authority and browser boundary:** This guide supports diagnosis by default. A
+> missing scope does not authorize an OAuth reinstall, scope change, credential
+> update, or token rotation; those require separate explicit authorization.
+> Never use personal Chrome profiles, copied/decrypted browser cookies, or
+> injected credentials. Any separately authorized browser operation must use a
+> dedicated agent-owned automation profile under the browser-control contract.
+> If that context is unavailable, stop and report the blocker.
+
 ## Goal
-Bring the MCP Mail bot identity (`mcp_agent_mail`, bot `B0A3MS7G08P`, app `A0A3WSV6BM1`) to a state where it can both post messages and clear unread/read state for channels and DMs.
+Bring the MCP Mail bot identity (`mcp_agent_mail`, bot `<SLACK_ID>`, app `<SLACK_ID>`) to a state where it can both post messages and clear unread/read state for channels and DMs.
 
 > **Read this first if you're not sure which class of failure you're seeing (2026-07-13):**
 > There are **TWO distinct bot-broken states** that often look identical to a sweep:
 >
 > | Symptom | Root cause | Fix |
 > |---|---|---|
-> | `chat.postMessage` → 200; `conversations.mark` / `conversations.invite` → `missing_scope: channels:write.*` | **Scope gap** — the app install doesn't have the scope | **THIS SKILL** (reinstall with scopes) |
-> | Bot can `chat.postMessage` in DMs it owns but can't read any channel; `conversations.members` shows `U0A4G7LDJ4R` is NOT in any of the channels the sweep flagged | **Channel-membership gap** — bot was removed (token rotation / uninstall + reinstall / channel deleted and recreated). **Reinstall does NOT auto-rejoin.** | See §6 below — `slack.getClient()` re-invite recipe |
+> | `chat.postMessage` → 200; `conversations.mark` / `conversations.invite` → `missing_scope: channels:write.*` | **Scope gap** — the app install does not have the scope | Diagnose and report the exact missing scope. A separately authorized scope-change workflow is required before repair. |
+> | Bot can `chat.postMessage` in DMs it owns but can't read any channel; `conversations.members` shows `<SLACK_ID>` is NOT in any of the channels the sweep flagged | **Channel-membership gap** — bot is not a member. Reinstall does not auto-rejoin. | Diagnose membership with authorized existing scopes; do not use a cookie-backed client or scope bypass. |
 >
-> Most morning-sweep "bot is in 0 channels" reports from late June / early July 2026 fall into the second category. Always confirm with `conversations.members` (§6.1) before reinstalling — reinstalling is destructive and may not even fix the membership.
+> Confirm membership with §6.1 before proposing remediation. This guide does not authorize reinstalling or changing credentials/scopes.
 
 ## Prerequisites
-- Confirmed admin access to the Slack workspace that owns app `A0A3WSV6BM1`.
+- Confirmed admin access to the Slack workspace that owns app `<SLACK_ID>`.
 - `SLACK_BOT_TOKEN` exists in `~/.mcp_mail/credentials.json` AND in `~/.bashrc` as `HERMES_SLACK_BOT_TOKEN` (line 951) AND `SLACK_MCP_XOXB_TOKEN` (line 949). After any reinstall that rotates the bot token, all three must be updated. See §9.
 - Aside is reachable: `aside --version` works and `aside account list` runs.
 - If using terminal for verification, be prepared for Slack gateway narration mirrors.
@@ -43,7 +51,7 @@ Run these TWO checks — order matters:
 
 ```bash
 # (a) Can the bot post?
-CHAN='C0A0AG6EELB'  # debug channel
+CHAN='<SLACK_ID>'  # debug channel
 TS=$(date +%s)
 curl -s -X POST https://slack.com/api/chat.postMessage \
   -H "Authorization: Bearer $TOKEN" \
@@ -58,7 +66,7 @@ curl -s -X POST https://slack.com/api/conversations.members \
   --data-urlencode "limit=200" | python3 -c "
 import json, sys
 d = json.load(sys.stdin)
-print('BOT IN CHANNEL:', 'U0A4G7LDJ4R' in d.get('members', []))
+print('BOT IN CHANNEL:', '<SLACK_ID>' in d.get('members', []))
 "
 ```
 
@@ -78,18 +86,14 @@ Expected:
 - posting returns `ok:true`
 - mark returns `missing_scope` with `needed: channels:write,groups:write,mpim:write,im:write` -> scope repair required
 
-## 2) Add scopes and reinstall in Slack
+## 2) Scope-change procedure (separate explicit authorization required)
 
-1. Open OAuth page for the MCP Mail app: `https://api.slack.com/apps/A0A3WSV6BM1/oauth`
-2. In **OAuth & Permissions**, add missing bot token scopes:
+Only after a separate explicit authorization for this scope change, use the approved Slack app administration flow to add the required bot token scopes:
    - `channels:write`
    - `groups:write`
    - `mpim:write`
    - `im:write`
-3. Click **Reinstall to Workspace**.
-
-> **If the failing call is `files.getUploadURLExternal` / `files.completeUploadExternal`**, you need `files:write` (NOT `files:write:user` — see §10). The browser-driven recipe for unattended OAuth reinstall is §11 + `references/files-write-scope-reinstall-2026-07-19.md`. Skip to §11 instead of the manual steps below.
-> **After any reinstall, the bot token rotates** — update all three storage locations per §9 before declaring the fix done.
+Then reinstall only within that separately authorized flow. If the failing call is `files.getUploadURLExternal` or `files.completeUploadExternal`, report `missing_scope: files:write` and stop; this guide does not authorize repairing that scope. Never use a personal browser, cookies, credential injection, or unattended OAuth flow. Any credential changes must be explicitly authorized and handled by the designated secure workflow.
 
 ## 3) Verify with CLI (post-reinstall)
 
@@ -98,11 +102,9 @@ Re-run section 1.2 and 1.3 in the same channel.
 - `chat.postMessage` must still return `ok:true`.
 - `conversations.mark` must return `ok:true` with the same token/channel/ts pattern.
 
-## 4) Aside MCPA UI flow (CLI/automation)
+## 4) Dedicated automation context
 
-- Preferred: `aside "Open https://api.slack.com/apps/A0A3WSV6BM1/oauth"`
-- If `aside exec` or `aside repl` says no focused window, open/close a normal browser tab in the Aside UI first, then rerun.
-- If automation is unstable, perform this step manually once and keep CLI-only verification for future runs.
+Use an already configured, dedicated agent-owned automation profile only when a separate authorized workflow requires a browser action. Follow the browser-control contract. If Aside has no such automation context or reports no focused window, stop and report that blocker; never open a normal/personal browser as a fallback. This guide does not authorize OAuth changes.
 
 ## 5) Post-change hardening
 
@@ -117,7 +119,7 @@ Use this when §1.2 step (b) returns `False` — the bot has scopes but is not a
 ### 6.1 Verify membership gap (not scope gap)
 
 ```bash
-CHAN='C0BDEAJH8PK'  # the supposedly-locked-out channel
+CHAN='<SLACK_ID>'  # the supposedly-locked-out channel
 curl -s -H "Authorization: Bearer $TOKEN" \
   "https://slack.com/api/conversations.members?channel=$CHAN&limit=200" \
   | python3 -c "
@@ -125,7 +127,7 @@ import json, sys
 d = json.load(sys.stdin)
 m = d.get('members', [])
 print('ok:', d.get('ok'), 'total:', len(m))
-print('bot U0A4G7LDJ4R in channel?', 'U0A4G7LDJ4R' in m)
+print('bot <SLACK_ID> in channel?', '<SLACK_ID>' in m)
 "
 ```
 
@@ -137,54 +139,21 @@ Some bot installs include `channels:write.invites`. If the result is `not_in_cha
 curl -s -X POST https://slack.com/api/conversations.invite \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
-  --data "{\"channel\":\"$CHAN\",\"users\":\"U0A4G7LDJ4R\"}"
+  --data "{\"channel\":\"$CHAN\",\"users\":\"<SLACK_ID>\"}"
 # {"ok":true, "channel":...}        ← fix landed
-# {"ok":false,"error":"missing_scope"}  ← go to §6.3
+# {"ok":false,"error":"missing_scope"}  ← report the exact blocker and stop
 ```
 
-### 6.3 Use Aside's `slack.getClient()` bypass
+### 6.3 Retired cookie-backed client bypass
 
-The user's signed-in workspace client has `apps` + `admin` scope which the XOXP user token (and most bot tokens) lack. Drive the invite from Aside:
-
-```bash
-cat > /tmp/reinvite.js <<'JS'
-const ws = await slack.listWorkspaces();
-const c = await slack.getClient(ws[0].teamId);   // 'T09FXQ4LCQP' for $USER AI
-
-// Resolve names → IDs in one shot
-const list = await c.apiCall('conversations.list', {
-  types: 'public_channel,private_channel',
-  limit: 200, exclude_archived: true,
-});
-const byName = Object.fromEntries(list.channels.map(ch => [ch.name, ch.id]));
-
-// Channels that should have the bot but don't
-const targets = ['life','worldai','worldai-bugs','all-$USER-ai',
-                 'agent-orchestrator','ai-general','jleechanclaw','agentf',
-                 'ai-universe','hermes-pc','mcp-mail','ralph-status'];
-const BOT = 'U0A4G7LDJ4R';
-
-let okCount = 0, errCount = 0;
-for (const name of targets) {
-  const id = byName[name];
-  if (!id) { console.log('SKIP', name, '(not found)'); continue; }
-  const r = await c.apiCall('conversations.invite', { channel: id, users: BOT });
-  if (r.ok) { console.log('OK ', name, r.channel?.is_member ? '(member now)' : ''); okCount++; }
-  else      { console.log('ERR', name, r.error); errCount++; }
-}
-console.log('---'); console.log('ok:', okCount, 'err:', errCount);
-JS
-aside repl "$(cat /tmp/reinvite.js)"
-```
-
-⚠️ Write the JS to a file before passing to `aside repl` — bash will mangle parens/curly braces in inline strings. See `aside-browser-default/references/aside-repl-api-gotchas.md` §12.
+The former `slack.getClient()` recipe used a signed-in workspace client with broader scopes. It is retired. Never use Aside's cookie-backed Slack client, personal browser state, or copied cookies to bypass a missing scope. Report the exact authorization or membership blocker and use only an already-authorized connector with its configured scopes.
 
 ### 6.4 Verify from the bot side
 
-After the bulk invite:
+After an authorized membership action:
 
 ```bash
-for CHAN in C0BDEAJH8PK C0AH3RY3DK6 C09GRLXF9GR; do
+for CHAN in <SLACK_ID> <SLACK_ID> <SLACK_ID>; do
   curl -s -H "Authorization: Bearer $TOKEN" \
     "https://slack.com/api/conversations.info?channel=$CHAN" \
     | python3 -c "import json,sys; d=json.load(sys.stdin); print(f\"{d['channel']['name']:25} is_member={d['channel']['is_member']}\")"
@@ -195,7 +164,7 @@ And pull `conversations.history` on the most important channel to confirm the bo
 
 ```bash
 curl -s -H "Authorization: Bearer $TOKEN" \
-  "https://slack.com/api/conversations.history?channel=C0BDEAJH8PK&limit=3" \
+  "https://slack.com/api/conversations.history?channel=<SLACK_ID>&limit=3" \
   | python3 -c "
 import json, sys
 d = json.load(sys.stdin)
@@ -211,7 +180,7 @@ Use this lane when the user says **"I don't want mcp-agent-mail to be passively 
 
 ### 7.1 Why this lane is needed
 
-The "passive listening" is real and bidirectional. `mcp_agent_mail` uses **Socket Mode** when `SLACK_APP_TOKEN=xapp-...` is set: it opens a WebSocket to Slack and Slack pushes events in real-time without a public URL. With `SLACK_BOT_TOKEN=xoxb-...` also set, the bot identity (`mcp_agent_mail`, bot `B0A3MS7G08P`, app `A0A3WSV6BM1`, Slack user `U0A4G7LDJ4R`) auto-posts outbound mirror messages. That outbound mirror is exactly what users complain about as "the bot is acting on its own."
+The "passive listening" is real and bidirectional. `mcp_agent_mail` uses **Socket Mode** when `SLACK_APP_TOKEN=xapp-...` is set: it opens a WebSocket to Slack and Slack pushes events in real-time without a public URL. With `SLACK_BOT_TOKEN=xoxb-...` also set, the bot identity (`mcp_agent_mail`, bot `<SLACK_ID>`, app `<SLACK_ID>`, Slack user `<SLACK_ID>`) auto-posts outbound mirror messages. That outbound mirror is exactly what users complain about as "the bot is acting on its own."
 
 Scope/membership repair (§1-§6) is *the wrong lane* for this complaint — the bot isn't broken, it's working as configured.
 
@@ -287,10 +256,10 @@ Re-enable later: rename plist back, `launchctl enable gui/$(id -u)/com.mcp.agent
 
 ### 7.7 Verify the disable actually stuck
 
-Within 5 minutes of a soft disable, the bot identity `U0A4G7LDJ4R` should produce **zero new messages** in any channel where it was previously mirroring. Spot-check from the user's XOXP token (not the bot's — bot is suspended now):
+Within 5 minutes of a soft disable, the bot identity `<SLACK_ID>` should produce **zero new messages** in any channel where it was previously mirroring. Spot-check from the user's XOXP token (not the bot's — bot is suspended now):
 
 ```bash
-CHAN='C09GRLXF9GR'  # the channel the user complained about
+CHAN='<SLACK_ID>'  # the channel the user complained about
 curl -s -H "Authorization: Bearer ${SLACK_USER_TOKEN}" \
   "https://slack.com/api/conversations.history?channel=${CHAN}&limit=5" \
   | python3 -c "
@@ -303,19 +272,19 @@ for m in d.get('messages',[])[:5]:
 "
 ```
 
-Expected: zero rows where `bot_id == 'B0A3MS7G08P'` (mcp_agent_mail's bot ID). If rows still appear, §7.4 step 2's bashrc edit didn't take — re-run `source ~/.bashrc` and bounce launchd again.
+Expected: zero rows where `bot_id == '<SLACK_ID>'` (mcp_agent_mail's bot ID). If rows still appear, §7.4 step 2's bashrc edit didn't take — re-run `source ~/.bashrc` and bounce launchd again.
 
 ## 8) Related references
 
 - `~/.hermes/skills/devops/slack-mcp-mail-bot-reinstall/references/disable-passive-listening-2026-07-18.md` — full transcript of the 2026-07-18 disable flow with bashrc line numbers and config schema proof.
-- `~/.hermes/skills/devops/slack-mcp-mail-bot-reinstall/references/files-write-scope-reinstall-2026-07-19.md` — browser-driven OAuth flow that closes the recurring `files:write` scope gap (the gap that broke PR #7953, #8139, #8337, #8455 attachment uploads). Read this before re-running §2 if the failing call is `files.completeUploadExternal` or `files.getUploadURLExternal`.
+- `~/.hermes/skills/devops/slack-mcp-mail-bot-reinstall/references/files-write-scope-reinstall-2026-07-19.md` — retired historical transcript; it is not a recovery procedure or authority to change scopes or credentials.
 - `~/.hermes/skills/dropped-messages/references/bot-read-tracking-scope-gap-2026-06-23.md`
 - `~/.hermes/skills/dropped-messages/references/cross-channel-post-unreachable-workspace-2026-06-25.md`
-- `~/.hermes/skills/aside-browser-default/references/aside-repl-api-gotchas.md` §7 + §11 + §12 — the `slack.getClient()` recipe that makes §6.3 possible.
+- `~/.hermes/skills/aside-browser-default/references/aside-repl-api-gotchas.md` §7 + §11 + §12 — background only; the cookie-backed `slack.getClient()` route is retired and must not be used as a bypass.
 
-## 9) Three-token rule (added 2026-07-19)
+## 9) Token updates (only after separate explicit authorization)
 
-When the OAuth reinstall lands, the bot's `xoxb-...` token rotates and **three storage locations** must all be updated, not just one:
+Only within a separately authorized credential-change workflow, when an approved OAuth reinstall lands, the bot's `xoxb-...` token rotates and **three storage locations** must all be updated, not just one:
 
 | Storage | Variable | Approx. location |
 |---|---|---|
@@ -327,25 +296,21 @@ Failure mode if you miss one: that daemon's next restart picks up the old (now-r
 
 Backup convention: copy to `~/.bashrc.bak.YYYYMMDD-HHMMSS` and `~/.mcp_mail/credentials.json.bak.YYYYMMDD-HHMMSS` before any token mutation. Restoration is `cp` back.
 
-## 10) `files:write:user` is NOT a valid Slack scope (added 2026-07-19)
+## 10) `files:write:user` note (reference only)
 
-Don't try to add `files:write:user` — Slack's scope picker returns no options. The only valid scope name is `files:write`. Slack uses ONE scope name regardless of whether the token is `xoxb` (bot) or `xoxp` (user); the difference is which **app** config grants it (Bot Token Scopes vs User Token Scopes of the same app), not the scope name. If you need file-write on a user token, add `files:write` to User Token Scopes in the same OAuth page — the scope name is identical.
+Slack uses the scope name `files:write`. This is a factual reference only; it does not authorize changing bot or user scopes. For a missing upload scope, follow §11 and stop.
 
-## 11) Browser-driven OAuth reinstall recipe (added 2026-07-19)
+## 11) Missing upload scope (safe boundary)
 
-Use this lane when §2 needs to run unattended and Aside REPL is broken
-(`No last-focused window` error — see `aside-browser-default/references/aside-repl-api-gotchas.md`). The full transcript lives in `references/files-write-scope-reinstall-2026-07-19.md`; condensed critical points:
+If an upload returns `missing_scope: files:write`, report the exact error and
+stop. Use only an already-authorized connector/uploader with its configured
+scope. Do not use a personal browser profile or cookies, inject credentials,
+drive an unattended OAuth/reinstall flow, or rotate tokens as a workaround.
+The historical browser-driven transcript at
+`references/files-write-scope-reinstall-2026-07-19.md` is retired and contains
+no operational recovery steps.
 
-1. **Cookie source: Chrome Default, NOT Aside.** Aside's `d` cookie decrypts to hex strings that `auth.test` rejects with `not_authed`. Chrome's `d` cookie is legacy `xoxd-...` format that authenticates correctly.
-2. **Use `browserclaw cookies inject` (fresh Chromium + `add_cookies`)**, not persistent-profile copy. Slack web client doesn't trust copied cookies — lands on "Find your workspace". Fresh-context injection works.
-3. **OAuth page has TWO "Reinstall" links.** Banner link (`/apps/<id>/install-on-team`) is informational and a no-op. The canonical reinstall is `https://slack.com/oauth/v2/authorize?client_id=...&team=...`. Select by `href` regex, not by link text.
-4. **OneTrust cookie banner blocks the Allow button.** Dismiss `#onetrust-accept-btn-handler` before clicking Allow.
-5. **Scope-search input placeholder is `"Add permission by Scope or API method..."`** — NOT `input[type='search']` (matches the documentation search input).
-6. **Verify with the 3-stage upload flow**, not just `auth.test`. `auth.test` doesn't enforce scopes the same way; `files.getUploadURLExternal` is the actual API call that returns `missing_scope: files:write` when the scope is missing.
-
-See `references/files-write-scope-reinstall-2026-07-19.md` for full Playwright code, exact selectors, and verification recipe.
-
-## 12) `slack-mcp-server` (Go daemon) token preference (added 2026-07-19)
+## 12) `slack-mcp-server` (Go daemon) token preference (reference only)
 
 The Go-based `slack-mcp-server` on port 8006 is a separate daemon from the Python `mcp_agent_mail` server. It reads `SLACK_MCP_XOXB_TOKEN` (bot) AND `SLACK_MCP_XOXP_TOKEN` (user) from bashrc, but if **both** are set it logs:
 
@@ -353,4 +318,4 @@ The Go-based `slack-mcp-server` on port 8006 is a separate daemon from the Pytho
 Both SLACK_MCP_XOXP_TOKEN and SLACK_MCP_XOXP_TOKEN are set. Using User token (xoxp) for full features. Bot token will be ignored.
 ```
 
-The user's `xoxp-...` token is from a different Slack app (their personal app). If you need bot-side `files:write` to work via MCP tool calls (not just direct `HERMES_SLACK_BOT_TOKEN` API calls), you must EITHER add `files:write` to that personal app's User Token Scopes, OR clear `SLACK_MCP_XOXP_TOKEN` from bashrc so the bot token is used.
+This describes the configured token preference only. Do not change user scopes, clear or replace tokens, or alter credential configuration as an upload workaround; follow §11 for a missing upload scope.
