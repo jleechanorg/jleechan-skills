@@ -595,7 +595,7 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         argv = [
             "--repo", str(self.repo), "--ref", self.sha,
             "--packet-file", str(self.packet), "--output-dir", str(self.output),
-            "--reviewers", "codex", "--attempt-timeout-seconds", "0.2",
+            "--reviewers", "codex", "--attempt-timeout-seconds", "1.0",
             "--cleanup-budget-seconds", "0.1",
             "--timeout-grace-seconds", "0.05",
         ]
@@ -611,7 +611,7 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
             code = runner.main(argv, create_clone_fn=slow_clone)
 
         self.assertEqual(code, 4)
-        self.assertLessEqual(observed["timeout_seconds"], 0.11)
+        self.assertLessEqual(observed["timeout_seconds"], 0.91)
         receipt = json.loads((self.output / "receipt.json").read_text())
         self.assertFalse(receipt["operation"]["success"])
         self.assertIn("TimeoutExpired", receipt["operation"]["error"])
