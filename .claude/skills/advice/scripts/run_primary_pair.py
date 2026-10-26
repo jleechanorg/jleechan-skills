@@ -414,6 +414,7 @@ def wait_for_dispatch_barrier(
 def dispatch_failure_result(
     transport: str,
     started_ns: int,
+    started_monotonic_ns: int,
     error: Exception,
     attempt_limited: bool,
 ) -> dict[str, Any]:
@@ -437,6 +438,8 @@ def dispatch_failure_result(
         ],
         "started_ns": started_ns,
         "ended_ns": time.time_ns(),
+        "started_monotonic_ns": started_monotonic_ns,
+        "ended_monotonic_ns": time.monotonic_ns(),
     }
 
 
@@ -452,12 +455,13 @@ def codex_lane(
     resolved_model = validate_codex_model(
         model or os.environ.get("ADVICE_CODEX_MODEL") or DEFAULT_CODEX_MODEL
     )
+    started_monotonic_ns = time.monotonic_ns()
     started = time.time_ns()
     try:
         timeout_seconds = wait_for_dispatch_barrier(barrier, deadline)
     except (TimeoutError, threading.BrokenBarrierError) as error:
         return dispatch_failure_result(
-            "codex exec --yolo", started, error, attempt_limited
+            "codex exec --yolo", started, started_monotonic_ns, error, attempt_limited
         )
     attempts: list[dict[str, Any]] = []
     codex = command_path("codex")
@@ -502,6 +506,8 @@ def codex_lane(
                 "attempts": attempts,
                 "started_ns": started,
                 "ended_ns": time.time_ns(),
+                "started_monotonic_ns": started_monotonic_ns,
+                "ended_monotonic_ns": time.monotonic_ns(),
             }
     return {
         "status": "unavailable" if not attempts else "error",
@@ -510,6 +516,8 @@ def codex_lane(
         "attempts": attempts,
         "started_ns": started,
         "ended_ns": time.time_ns(),
+        "started_monotonic_ns": started_monotonic_ns,
+        "ended_monotonic_ns": time.monotonic_ns(),
     }
 
 
@@ -521,6 +529,7 @@ def opus_lane(
     timeout_grace_seconds: float,
     attempt_limited: bool = False,
 ) -> dict[str, Any]:
+    started_monotonic_ns = time.monotonic_ns()
     started = time.time_ns()
     try:
         timeout_seconds = wait_for_dispatch_barrier(barrier, deadline)
@@ -528,6 +537,7 @@ def opus_lane(
         return dispatch_failure_result(
             "claude -p --model opus --dangerously-skip-permissions",
             started,
+            started_monotonic_ns,
             error,
             attempt_limited,
         )
@@ -540,6 +550,8 @@ def opus_lane(
             "attempts": [],
             "started_ns": started,
             "ended_ns": time.time_ns(),
+            "started_monotonic_ns": started_monotonic_ns,
+            "ended_monotonic_ns": time.monotonic_ns(),
         }
     command = [claude, "-p", "--model", "opus", "--dangerously-skip-permissions"]
     code, stdout, stderr, timed_out, forced_pipe_close, supervision = execute(
@@ -568,6 +580,8 @@ def opus_lane(
         ],
         "started_ns": started,
         "ended_ns": time.time_ns(),
+        "started_monotonic_ns": started_monotonic_ns,
+        "ended_monotonic_ns": time.monotonic_ns(),
     }
 
 
@@ -602,6 +616,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=int,
         required=True,
         help="required UTC epoch nanoseconds when this reviewer attempt was queued or sent",
+    )
+    parser.add_argument(
+        "--queued-at-monotonic-ns",
+        type=int,
+        required=True,
+        help="required same-host monotonic nanoseconds when this reviewer attempt was queued or sent",
     )
     parser.add_argument(
         "--cleanup-budget-seconds",
@@ -736,16 +756,24 @@ def main(
     create_clone_fn=create_clone,
     cleanup_fn=cleanup_directory,
 ) -> int:
-    process_started = time.monotonic()
-    process_started_ns = time.time_ns()
+    process_started_monotonic_ns = time.monotonic_ns()
     args = parse_args(argv)
-    queued_at_ns = args.queued_at_epoch_ns
-    if queued_at_ns <= 0 or queued_at_ns > process_started_ns:
-        print("--queued-at-epoch-ns must be a positive timestamp no later than now", file=sys.stderr)
+    queued_at_epoch_ns = args.queued_at_epoch_ns
+    queued_at_monotonic_ns = args.queued_at_monotonic_ns
+    if queued_at_epoch_ns <= 0:
+        print("--queued-at-epoch-ns must be a positive UTC audit timestamp", file=sys.stderr)
         return 2
-    queue_elapsed = (process_started_ns - queued_at_ns) / 1_000_000_000
-    attempt_started = process_started - queue_elapsed
-    attempt_started_ns = queued_at_ns
+    if (
+        queued_at_monotonic_ns <= 0
+        or queued_at_monotonic_ns > process_started_monotonic_ns
+    ):
+        print(
+            "--queued-at-monotonic-ns must be positive and no later than now on this host",
+            file=sys.stderr,
+        )
+        return 2
+    attempt_started = queued_at_monotonic_ns / 1_000_000_000
+    attempt_started_ns = queued_at_epoch_ns
     if args.timeout_seconds <= 0:
         print("--timeout-seconds must be greater than zero", file=sys.stderr)
         return 2
@@ -829,7 +857,7 @@ def main(
         return 2
     temp_root = Path(tempfile.mkdtemp(prefix="advice-primary-pair-"))
     work_deadline = attempt_deadline - args.cleanup_budget_seconds
-    work_deadline_epoch_ns = attempt_started_ns + int(
+    work_deadline_monotonic_ns = queued_at_monotonic_ns + int(
         (args.attempt_timeout_seconds - args.cleanup_budget_seconds) * 1_000_000_000
     )
     receipt: dict[str, Any] = {
@@ -841,9 +869,10 @@ def main(
         "checkout_kind": "independent_clone_no_local",
         "timeout_seconds": args.timeout_seconds,
         "attempt_started_ns": attempt_started_ns,
+        "attempt_started_monotonic_ns": queued_at_monotonic_ns,
         "attempt_timeout_seconds": args.attempt_timeout_seconds,
         "cleanup_budget_seconds": args.cleanup_budget_seconds,
-        "work_deadline_epoch_ns": work_deadline_epoch_ns,
+        "work_deadline_monotonic_ns": work_deadline_monotonic_ns,
         "timeout_grace_seconds": args.timeout_grace_seconds,
         "codex_model": args.codex_model,
         "operation": {"success": False, "error": "operation did not complete"},
@@ -919,7 +948,9 @@ def main(
             (output_dir / f"{name}.txt").write_text(result.pop("stdout"))
         late_reviewers = [
             name for name, result in results.items()
-            if result.get("ended_ns", work_deadline_epoch_ns + 1) > work_deadline_epoch_ns
+            if result.get(
+                "ended_monotonic_ns", work_deadline_monotonic_ns + 1
+            ) > work_deadline_monotonic_ns
         ]
         for name in late_reviewers:
             invalidate_reviewer_votes({name: results[name]}, "attempt_timeout")
@@ -929,8 +960,8 @@ def main(
             results
         )
         receipt["overlap_proven"] = len(results) > 1 and max(
-            r["started_ns"] for r in results.values()
-        ) <= min(r["ended_ns"] for r in results.values())
+            r["started_monotonic_ns"] for r in results.values()
+        ) <= min(r["ended_monotonic_ns"] for r in results.values())
         # Preserve every completed lane before integrity checks invalidate approval.
         for path in clones.values():
             for i, data in enumerate(documents.values()):

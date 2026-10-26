@@ -89,14 +89,21 @@ class PrimaryPairTest(unittest.TestCase):
         )
 
     def invoke(self, *extra: str) -> subprocess.CompletedProcess[str]:
-        if "--queued-at-epoch-ns" not in extra:
-            extra = (*extra, "--queued-at-epoch-ns", str(time.time_ns()))
-        return self.invoke_raw(*extra)
+        return self.invoke_raw(*self.with_queued_timestamps(list(extra)))
 
-    def with_queued_timestamp(self, argv: list[str]) -> list[str]:
-        if "--queued-at-epoch-ns" in argv:
-            return argv
-        return [*argv, "--queued-at-epoch-ns", str(time.time_ns())]
+    def with_queued_timestamps(self, argv: list[str]) -> list[str]:
+        queued = list(argv)
+        if (
+            "--queued-at-epoch-ns" not in queued
+            or "--queued-at-monotonic-ns" not in queued
+        ):
+            epoch_ns = time.time_ns()
+            monotonic_ns = time.monotonic_ns()
+            if "--queued-at-epoch-ns" not in queued:
+                queued.extend(("--queued-at-epoch-ns", str(epoch_ns)))
+            if "--queued-at-monotonic-ns" not in queued:
+                queued.extend(("--queued-at-monotonic-ns", str(monotonic_ns)))
+        return queued
 
     def test_reviewers_accepts_codex_opus_subset_and_rejects_unknown_or_duplicates(self) -> None:
         self.executable("codex", "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
@@ -322,8 +329,10 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         for name in ("codex", "opus"):
             self.assertIn("VERDICT:", (self.output / f"{name}.txt").read_text())
             self.assertGreater(receipt["reviewers"][name]["started_ns"], 0)
-            self.assertGreaterEqual(receipt["reviewers"][name]["ended_ns"],
-                                    receipt["reviewers"][name]["started_ns"])
+            self.assertGreaterEqual(
+                receipt["reviewers"][name]["ended_monotonic_ns"],
+                receipt["reviewers"][name]["started_monotonic_ns"],
+            )
 
     def test_document_copy_mutation_preserves_completed_lanes(self):
         (self.repo / "plan.md").write_text("original document")
@@ -457,8 +466,8 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         self.assertEqual(result.returncode, 0, result.stderr)
         receipt = json.loads((self.output / "receipt.json").read_text())
         codex_duration = (
-            receipt["reviewers"]["codex"]["ended_ns"]
-            - receipt["reviewers"]["codex"]["started_ns"]
+            receipt["reviewers"]["codex"]["ended_monotonic_ns"]
+            - receipt["reviewers"]["codex"]["started_monotonic_ns"]
         ) / 1_000_000_000
         self.assertLess(codex_duration, 1.5)
         self.assertEqual(receipt["reviewers"]["codex"]["status"], "error")
@@ -470,7 +479,7 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         runner = load_runner_module()
         self.executable("codex", "exit 0\n")
         self.executable("claude", "exit 0\n")
-        argv = self.with_queued_timestamp([
+        argv = self.with_queued_timestamps([
             "--repo", str(self.repo), "--ref", self.sha,
             "--packet-file", str(self.packet), "--output-dir", str(self.output),
             "--attempt-timeout-seconds", "2", "--cleanup-budget-seconds", "0.2",
@@ -535,7 +544,8 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         codex_result = receipt["reviewers"]["codex"]
         attempt = codex_result["attempts"][0]
         attempt_duration = (
-            codex_result["ended_ns"] - codex_result["started_ns"]
+            codex_result["ended_monotonic_ns"]
+            - codex_result["started_monotonic_ns"]
         ) / 1_000_000_000
         self.assertLess(attempt_duration, 6.0)
         self.assertEqual(attempt["failure"], "timeout")
@@ -599,7 +609,7 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
 
         with redirect_stderr(stderr):
             code = runner.main(
-                self.with_queued_timestamp(argv),
+                self.with_queued_timestamps(argv),
                 create_clone_fn=mock.Mock(side_effect=RuntimeError("clone setup failed")),
                 cleanup_fn=mock.Mock(side_effect=cleanup_failure),
             )
@@ -629,7 +639,7 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         stderr = io.StringIO()
 
         with redirect_stderr(stderr):
-            code = runner.main(self.with_queued_timestamp(argv), create_clone_fn=slow_clone)
+            code = runner.main(self.with_queued_timestamps(argv), create_clone_fn=slow_clone)
 
         self.assertEqual(code, 4)
         self.assertLessEqual(observed["timeout_seconds"], 0.91)
@@ -649,12 +659,74 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         self.assertNotEqual(result.returncode, 0, result.stderr)
         self.assertFalse(self.output.exists())
 
+    def test_epoch_timestamp_alone_cannot_produce_a_countable_vote(self) -> None:
+        self.executable("codex", "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
+
+        result = self.invoke_raw(
+            "--reviewers", "codex", "--queued-at-epoch-ns", str(time.time_ns())
+        )
+
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--queued-at-monotonic-ns", result.stderr)
+        self.assertFalse(self.output.exists())
+
+    def test_future_monotonic_queue_timestamp_is_rejected(self) -> None:
+        self.executable("codex", "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
+        argv = self.with_queued_timestamps([
+            "--repo", str(self.repo), "--ref", self.sha,
+            "--packet-file", str(self.packet), "--output-dir", str(self.output),
+            "--queued-at-monotonic-ns", str(time.monotonic_ns() + 10_000_000_000),
+        ])
+
+        result = self.invoke_raw(*argv)
+
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("no later than now on this host", result.stderr)
+        self.assertFalse(self.output.exists())
+
+    def test_wall_clock_step_before_runner_does_not_reject_monotonic_queue(self) -> None:
+        runner = load_runner_module()
+        self.executable("codex", "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
+        self.executable("claude", "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
+        argv = self.with_queued_timestamps([
+            "--repo", str(self.repo), "--ref", self.sha,
+            "--packet-file", str(self.packet), "--output-dir", str(self.output),
+            "--reviewers", "codex,opus", "--attempt-timeout-seconds", "2",
+            "--cleanup-budget-seconds", "0.5",
+            "--timeout-grace-seconds", "0.05", "--timeout-seconds", "10",
+            "--queued-at-epoch-ns", "1000100000",
+        ])
+        supervision = {
+            "descendant_termination_verified": True,
+            "descendants_surviving": [],
+        }
+        with mock.patch.dict(os.environ, self.env), mock.patch.object(
+            runner.time, "time_ns", return_value=999100000
+        ), mock.patch.object(
+            runner, "execute",
+            return_value=(
+                0, "VERDICT: APPROVED\\nCOVERAGE: all\\n", "", False, False,
+                supervision,
+            ),
+        ):
+            code = runner.main(argv)
+
+        receipt = json.loads((self.output / "receipt.json").read_text())
+        self.assertEqual(code, 0, repr(receipt))
+        self.assertFalse(receipt["attempt_deadline_exceeded"])
+        self.assertTrue(all(
+            result["status"] == "success"
+            for result in receipt["reviewers"].values()
+        ))
+
     def test_queued_timestamp_consumes_attempt_budget_before_process_entry(self) -> None:
         self.executable("codex", "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
         queued_at_ns = time.time_ns() - 1_000_000_000
+        queued_at_monotonic_ns = time.monotonic_ns() - 1_000_000_000
         started = time.monotonic()
         result = self.invoke(
             "--queued-at-epoch-ns", str(queued_at_ns),
+            "--queued-at-monotonic-ns", str(queued_at_monotonic_ns),
             "--attempt-timeout-seconds", "0.5",
             "--cleanup-budget-seconds", "0.1",
         )
@@ -677,7 +749,7 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
             raise subprocess.TimeoutExpired(["git", "clone"], 0.1)
 
         with redirect_stderr(io.StringIO()):
-            code = runner.main(self.with_queued_timestamp(argv), create_clone_fn=slow_clone)
+            code = runner.main(self.with_queued_timestamps(argv), create_clone_fn=slow_clone)
 
         self.assertEqual(code, 4)
         receipt = json.loads((self.output / "receipt.json").read_text())
@@ -688,11 +760,13 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         self.executable("codex", "exit 0\n")
         self.executable("claude", "exit 0\n")
         queued_at_ns = time.time_ns()
+        queued_at_monotonic_ns = time.monotonic_ns()
         argv = [
             "--repo", str(self.repo), "--ref", self.sha,
             "--packet-file", str(self.packet), "--output-dir", str(self.output),
             "--attempt-timeout-seconds", "4", "--cleanup-budget-seconds", "0.1",
             "--timeout-grace-seconds", "0.1", "--queued-at-epoch-ns", str(queued_at_ns),
+            "--queued-at-monotonic-ns", str(queued_at_monotonic_ns),
         ]
         original_executor = runner.concurrent.futures.ThreadPoolExecutor
         release = threading.Event()
@@ -715,7 +789,7 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
                 return super().submit(gated_call, *args, **kwargs)
 
         def instant_execute(command, cwd, prompt, timeout_seconds, timeout_grace_seconds):
-            recorded_timeouts.append((time.time_ns(), timeout_seconds))
+            recorded_timeouts.append((time.monotonic_ns(), timeout_seconds))
             return 0, "VERDICT: APPROVED\nCOVERAGE: all\n", "", False, False, {}
 
         def run_main():
@@ -735,7 +809,9 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         self.assertEqual(codes, [0])
         self.assertEqual(len(recorded_timeouts), 2)
         for completed_ns, timeout_seconds in recorded_timeouts:
-            remaining = 4 - 0.1 - 0.1 - (completed_ns - queued_at_ns) / 1_000_000_000
+            remaining = 4 - 0.1 - 0.1 - (
+                completed_ns - queued_at_monotonic_ns
+            ) / 1_000_000_000
             self.assertLessEqual(timeout_seconds, remaining + 0.03)
 
     def test_codex_lane_dispatch_barrier_wait_is_bounded_by_lane_budget(self) -> None:
@@ -760,7 +836,7 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
 
     def test_second_submit_failure_releases_first_reviewer_waiting_at_barrier(self) -> None:
         runner = load_runner_module()
-        argv = self.with_queued_timestamp([
+        argv = self.with_queued_timestamps([
             "--repo", str(self.repo), "--ref", self.sha,
             "--packet-file", str(self.packet), "--output-dir", str(self.output),
             "--reviewers", "codex,opus", "--attempt-timeout-seconds", "60",
@@ -823,7 +899,7 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         queued_at_ns = time.time_ns()
         attempt_timeout = 1.8
         cleanup_budget = 0.6
-        argv = self.with_queued_timestamp([
+        argv = self.with_queued_timestamps([
             "--repo", str(self.repo), "--ref", self.sha,
             "--packet-file", str(self.packet), "--output-dir", str(self.output),
             "--attempt-timeout-seconds", str(attempt_timeout),
@@ -858,6 +934,52 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         self.assertEqual(receipt["reviewers"]["codex"]["status"], "error")
         self.assertEqual(receipt["reviewers"]["opus"]["status"], "success")
 
+    def test_wall_clock_step_back_does_not_make_late_lane_timely(self) -> None:
+        runner = load_runner_module()
+        self.executable("codex", "exit 0\n")
+        self.executable("claude", "exit 0\n")
+        queued_at_monotonic_ns = time.monotonic_ns()
+        attempt_timeout = 2.0
+        cleanup_budget = 0.5
+        argv = [
+            "--repo", str(self.repo), "--ref", self.sha,
+            "--packet-file", str(self.packet), "--output-dir", str(self.output),
+            "--attempt-timeout-seconds", str(attempt_timeout),
+            "--cleanup-budget-seconds", str(cleanup_budget),
+            "--timeout-grace-seconds", "0.05", "--timeout-seconds", "10",
+            "--queued-at-epoch-ns", "1000000000",
+            "--queued-at-monotonic-ns", str(queued_at_monotonic_ns),
+        ]
+        wall_step_at_ns = queued_at_monotonic_ns + 1_520_000_000
+        wall_before_step_ns = 1_000_100_000
+        wall_after_step_ns = 999_000_000
+        supervision = {
+            "descendant_termination_verified": True,
+            "descendants_surviving": [],
+        }
+
+        def stepped_wall_clock_ns():
+            if time.monotonic_ns() >= wall_step_at_ns:
+                return wall_after_step_ns
+            return wall_before_step_ns
+
+        def delayed_success(command, cwd, prompt, timeout_seconds, timeout_grace_seconds):
+            if Path(command[0]).name == "codex":
+                delay = (wall_step_at_ns - time.monotonic_ns()) / 1_000_000_000
+                time.sleep(max(0, delay))
+            return 0, "VERDICT: APPROVED\nCOVERAGE: all\n", "", False, False, supervision
+
+        with mock.patch.dict(os.environ, self.env), mock.patch.object(
+            runner.time, "time_ns", side_effect=stepped_wall_clock_ns
+        ), mock.patch.object(runner, "execute", side_effect=delayed_success):
+            code = runner.main(argv)
+
+        receipt = json.loads((self.output / "receipt.json").read_text())
+        self.assertTrue(receipt["attempt_deadline_exceeded"] is False)
+        self.assertEqual(receipt["reviewers"]["opus"]["status"], "success")
+        self.assertEqual(receipt["reviewers"]["codex"]["status"], "error")
+        self.assertEqual(code, 0)
+
     def test_attempt_timed_out_lane_with_unverified_descendant_is_reported(self) -> None:
         runner = load_runner_module()
 
@@ -888,7 +1010,7 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
             return result
 
         with mock.patch.dict(os.environ, self.env):
-            code = runner.main(self.with_queued_timestamp(argv), cleanup_fn=slow_cleanup)
+            code = runner.main(self.with_queued_timestamps(argv), cleanup_fn=slow_cleanup)
 
         receipt = json.loads((self.output / "receipt.json").read_text())
         self.assertEqual(code, 4)
@@ -900,7 +1022,7 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
     def test_failed_late_receipt_rewrite_warns_that_stored_votes_are_stale(self) -> None:
         runner = load_runner_module()
         self.executable("codex", "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
-        argv = self.with_queued_timestamp([
+        argv = self.with_queued_timestamps([
             "--repo", str(self.repo), "--ref", self.sha,
             "--packet-file", str(self.packet), "--output-dir", str(self.output),
             "--reviewers", "codex", "--attempt-timeout-seconds", "1.0",
@@ -947,7 +1069,7 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
 
         with redirect_stderr(stderr):
             code = runner.main(
-                self.with_queued_timestamp(argv),
+                self.with_queued_timestamps(argv),
                 create_clone_fn=mock.Mock(side_effect=RuntimeError("clone setup failed")),
                 cleanup_fn=mock.Mock(side_effect=cleanup_success),
             )

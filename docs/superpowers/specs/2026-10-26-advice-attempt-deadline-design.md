@@ -7,14 +7,14 @@ Give each supported primary reviewer attempt one monotonic deadline that covers 
 No user-facing change. `/advice` receives a more honest, bounded attempt outcome and receipt when setup or review overruns.
 
 ## Goals and acceptance
-- Add a runner-owned attempt timeout, defaulting to 600 seconds, independent of the existing per-process timeout setting. Callers must pass `--queued-at-epoch-ns` captured when the reviewer request is actually queued or sent; the runner rejects invocations that omit it, so no vote can be counted without a queue boundary. The runner converts elapsed queue time to its monotonic deadline.
+- Add a runner-owned attempt timeout, defaulting to 600 seconds, independent of the existing per-process timeout setting. Callers must capture UTC epoch and same-host monotonic nanoseconds together immediately before dispatch and pass both required queue timestamps; the runner rejects missing or invalid timestamps. UTC is audit-only. Queue elapsed time, reviewer completion acceptance, and attempt deadlines use monotonic time. Caller and runner must share one host monotonic clock; cross-host orchestration accounts for its outer budget separately.
 - Start the attempt clock before per-reviewer clone setup; bound supported setup subprocesses and reviewer subprocesses by remaining time.
 - Bound each reviewer barrier wait by its remaining lane budget and abort the barrier if any worker submission fails, so executor shutdown cannot wait indefinitely for an unpaired lane.
 - Reserve a configured bounded portion for cleanup; begin cleanup when the work budget expires, and record deadline, elapsed time, timeout stage, and cleanup outcome.
 - Reject results/votes observed after their lane's work deadline and invalidate all votes only when the overall attempt deadline is exceeded; preserve a timely peer vote when another lane enters the cleanup reserve.
 - Require consumers to accept votes only when the runner exits zero and a readable receipt exists; disclose when a failed final receipt rewrite may leave stale approval-looking output.
 - Keep the existing independent clone and process identity supervision behavior; no new wrapper, watchdog, helper executable, or framework.
-- The `/advice` caller captures `QUEUED_AT_NS` after packet preparation and immediately before dispatch, then passes `--queued-at-epoch-ns "$QUEUED_AT_NS"`; the runner refuses calls without this value.
+- The `/advice` caller captures `QUEUED_AT_EPOCH_NS` and `QUEUED_AT_MONOTONIC_NS` together after packet preparation and immediately before dispatch. It passes both required options; the runner refuses either missing or invalid timestamp. Monotonic acceptance requires caller and runner on the same host and boot. UTC is audit-only; cross-host orchestration tracks its outer budget separately.
 - Preserve actionable partial receipts and report any cleanup uncertainty honestly.
 
 ## Non-goals

@@ -91,13 +91,18 @@ cannot be captured, mark the primary attempt unavailable rather than invoke the
 runner without it:
 
 ```bash
-QUEUED_AT_NS="$(python3 -c 'import time; print(time.time_ns())')"
+read -r QUEUED_AT_EPOCH_NS QUEUED_AT_MONOTONIC_NS <<< "$(
+  python3 -c 'import time; print(time.time_ns(), time.monotonic_ns())'
+)"
 ```
+
+These timestamps are captured together on the caller host. The runner must execute on that same host and boot because monotonic values are host-local. UTC epoch time is retained for audit only. Cross-host orchestration tracks its own outer budget separately; do not compare monotonic timestamps from different hosts.
 
 Add this required option to the runner command:
 
 ```bash
---queued-at-epoch-ns "$QUEUED_AT_NS" \
+--queued-at-epoch-ns "$QUEUED_AT_EPOCH_NS" \
+--queued-at-monotonic-ns "$QUEUED_AT_MONOTONIC_NS" \
 ```
 
 ```
