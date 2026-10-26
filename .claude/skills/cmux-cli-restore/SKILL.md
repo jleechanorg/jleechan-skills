@@ -53,10 +53,14 @@ Nothing is lost and nothing starts over. Verified on 9 Codex lanes at once: each
    A Codex resume can open a goal dialog (`1. Resume goal` / `2. Leave paused`). It lands on
    `1. Resume goal` — one `enter` accepts it.
 
-5. **Verify from the process, not the screen.**
+5. **Verify from the process, not the screen — and require a NEW pid.**
    ```bash
-   ps -Ao pid,tty,etime,command | awk '$2=="ttysNNN" && /codex resume|claude/'   # fresh process age
+   ps -Ao tty,pid,etime,command | awk '$1=="ttysNNN" && /codex resume|claude/'
    ```
+   Snapshot the pids before the restart and require one that was not there: an old process that
+   survived is **not** a restart, and `bash: 5ucodexc: command not found` leaves exactly that
+   situation (the old TUI still running while your command never ran). Check the `send` and `Enter`
+   exit codes too; a swallowed send failure must not be reported as success.
    Then confirm the *session* is live: its transcript file mtime should be seconds old, not hours.
    Codex: newest `~/.codex/sessions/**/rollout-*<uuid>*.jsonl`. pi: `~/.pi/agent/sessions/*/*.jsonl`.
 

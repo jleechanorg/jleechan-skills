@@ -31,6 +31,8 @@ class StubCmux:
             "#!/bin/bash\n"
             f'printf "%s\\n" "$*" >> "{self.log}"\n'
             'case "$*" in\n'
+            '  *top*)\n'
+            '    printf "%s\\n" "  0.0% 0 B 0 surface ' + SF + ' [terminal] tty=ttys003"; exit 0 ;;\n'
             f'  *capture-pane*)\n'
             f'    case "{mode}" in\n'
             '      fail) exit 1 ;;\n'
@@ -101,3 +103,62 @@ class FailClosedCaptureTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class RestartVerificationTest(unittest.TestCase):
+    """dot review at 05cbaafe: verification accepted an OLD surviving process as a restart.
+
+    A restart must be proven by a NEW pid, and a failed send must not be reported as success.
+    """
+
+    def _fake_ps(self, tmp: Path, pids_csv: str) -> Path:
+        # Each call emits the next line of the CSV, so call 1 = pre-snapshot, call 2 = post.
+        ps = tmp / "fakeps"
+        ps.write_text(
+            "#!/bin/bash\n"
+            f'printf "%s\\n" "{pids_csv}"\n'
+        )
+        ps.chmod(0o755)
+        return ps
+
+    def _run_with(self, stub: StubCmux, fakeps: Path):
+        env = dict(os.environ)
+        env["PATH"] = f"{stub.dir}:{env.get('PATH', '')}"
+        env["CMUX_CLI_RESTORE_PS"] = str(fakeps)
+        return subprocess.run(
+            ["bash", str(SCRIPT), "--workspace", WS, "--surface", SF, "--cli", "codex"],
+            capture_output=True, text=True, env=env, timeout=180,
+        )
+
+    def test_old_process_surviving_is_not_a_restart(self):
+        tmp = Path(tempfile.mkdtemp(prefix="fakeps-"))
+        fakeps = self._fake_ps(
+            tmp,
+            "ttys003 100 00:10 /usr/bin/command codex resume 01a174a5-7202 "
+            "X X X X",
+        )
+        stub = StubCmux("clean")
+        proc = self._run_with(stub, fakeps)
+        self.assertEqual(proc.returncode, 6, proc.stdout + proc.stderr)
+        self.assertIn("no NEW CLI process", proc.stderr)
+        self.assertNotIn("RESTARTED", proc.stdout)
+
+    def test_new_pid_after_restart_reports_success(self):
+        tmp = Path(tempfile.mkdtemp(prefix="fakeps-"))
+        ps = tmp / "fakeps2"
+        ps.write_text(
+            "#!/bin/bash\n"
+            f'state="{tmp}/calls"\n'
+            "n=$(cat \"$state\" 2>/dev/null || echo 0)\n"
+            "echo $((n+1)) > \"$state\"\n"
+            'if [ "$n" = "0" ]; then\n'
+            '  echo "ttys003 100 00:10 /usr/bin/command codex resume 01a174a5-7202"\n'
+            "else\n"
+            '  echo "ttys003 200 00:01 /usr/bin/command codex resume 01a174a5-7202"\n'
+            "fi\n"
+        )
+        ps.chmod(0o755)
+        stub = StubCmux("clean")
+        proc = self._run_with(stub, ps)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("RESTARTED", proc.stdout)

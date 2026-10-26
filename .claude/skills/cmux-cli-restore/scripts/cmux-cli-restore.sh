@@ -31,6 +31,11 @@ while [[ $# -gt 0 ]]; do
 done
 
 cmx() { command cmux "$@" 2>/dev/null; }
+PS_BIN="${CMUX_CLI_RESTORE_PS:-ps}"
+proc_list() { "$PS_BIN" -Ao tty,pid,etime,command 2>/dev/null; }
+lane_pids() { # tty -> pids of the CLI on that tty, one per line
+  proc_list | awk -v t="$1" '$1==t && ($0 ~ /codex resume|@openai\/codex|\/bin\/codex|(^| )claude( |$)/) {print $2}'
+}
 
 tty_of() { # ws sf -> ttysNNN  (single capture, parsed with awk; multi-pipe blanked under pipefail)
   local out want="$2"
@@ -187,18 +192,26 @@ if ! prompt_clean "$WS" "$SF"; then
   cmx capture-pane --workspace "$WS" --surface "$SF" --lines 4 >&2
   exit 5
 fi
-# 3. restart
-cmx send --workspace "$WS" --surface "$SF" "$cmd" >/dev/null; sleep 1
-cmx send-key --workspace "$WS" --surface "$SF" enter >/dev/null; sleep 15
+# 2b. snapshot the pids that were already there, so "restarted" cannot mean "still running"
+t_pre=$(tty_of "$WS" "$SF")
+pre_pids=$(lane_pids "$t_pre" | sort -u)
+
+# 3. restart — every input is checked; a silent send failure is not a restart
+cmx send --workspace "$WS" --surface "$SF" "$cmd" >/dev/null || { echo "ABORT: send of '$cmd' failed; nothing restarted"; exit 8; }
+sleep 1
+cmx send-key --workspace "$WS" --surface "$SF" enter >/dev/null || { echo "ABORT: Enter failed; '$cmd' may sit unsent"; exit 8; }
+sleep 15
 # 4. accept a goal-resume dialog if one opened
 if cmx capture-pane --workspace "$WS" --surface "$SF" --lines 10 | grep -q 'Resume goal'; then
   cmx send-key --workspace "$WS" --surface "$SF" enter >/dev/null; sleep 8
 fi
 # 5. verify at the process level
 t2=$(tty_of "$WS" "$SF")
-if ps -Ao tty,etime,command | awk -v t="$t2" '$1==t' | grep -qE 'codex resume|claude'; then
-  echo "RESTARTED $(ps -Ao tty,etime,command | awk -v t="$t2" '$1==t' | grep -E 'codex resume|claude' | head -1 | awk '{print "age="$2}')"
+post_pids=$(lane_pids "$t2" | sort -u)
+new_pids=$(comm -13 <(printf '%s\n' "$pre_pids" | sed '/^$/d' | sort -u) <(printf '%s\n' "$post_pids" | sed '/^$/d' | sort -u))
+if [[ -n "$new_pids" ]]; then
+  echo "RESTARTED new pid(s)=$(printf '%s' "$new_pids" | tr '\n' ' ') on ${t2:-?} (pre-restart pids: $(printf '%s' "${pre_pids:-none}" | tr '\n' ' '))"
   exit 0
 fi
-echo "UNVERIFIED: no resume process on ${t2:-?} yet — check the surface before reporting success" >&2
+echo "UNVERIFIED: no NEW CLI process on ${t2:-?} (pre-restart pids: $(printf '%s' "${pre_pids:-none}" | tr '\n' ' ')); an old process surviving is not a restart" >&2
 exit 6
