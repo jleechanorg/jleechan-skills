@@ -160,6 +160,15 @@ Aggregate Phase 1 (history) + Phase 2 (subagent findings) + Phase 3 (structural)
 6. **Push the branch**: `git push -u origin <branch>`. **Verify pre-push target matches intended PR branch** per the pre-push check rule.
 7. **Open the PR**: `gh pr create --repo jleechanorg/<repo> --draft --base main --head <branch>` with a body following `~/.codex/AGENTS.md` § PR descriptions (canonical owner), plus the target repository's `AGENTS.md`/`CLAUDE.md` and PR template when present.
 
+The draft body is complete when the draft opens; draft status does not defer
+the description contract. Write the body to a temporary file and pass it with
+`--body-file`. Include the opening production/non-production line-delta
+sentence and all required human-readable sections, the visible per-file Line
+Deltas section, and the repository-specific evidence, user-story, visual
+evidence, and review-ledger fields. Keep review records after the human-readable
+body and `## Advice Approval` last; record `N/A` with a reason when advice is optional and not run. Refresh the deltas and
+body after any change to the PR diff.
+
 **Do not auto-merge.** Per `~/.claude/CLAUDE.md` "Merge safety" rule, the literal phrase "MERGE APPROVED" from the operator is the only valid merge trigger.
 
 ### Phase 6 — Complete draft readiness, then `/green`
