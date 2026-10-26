@@ -394,25 +394,35 @@ def validate_codex_model(model: str | None = None) -> str:
 
 
 def wait_for_dispatch_barrier(
-    barrier: threading.Barrier, timeout_seconds: float
+    barrier: threading.Barrier, deadline: float
 ) -> float:
-    started = time.monotonic()
-    try:
-        barrier.wait(timeout=timeout_seconds)
-    except threading.BrokenBarrierError as error:
-        if time.monotonic() - started >= timeout_seconds:
-            raise TimeoutError("reviewer dispatch barrier timed out") from error
-        raise
-    remaining = timeout_seconds - (time.monotonic() - started)
+    remaining = deadline - time.monotonic()
     if remaining <= 0:
-        raise TimeoutError("reviewer dispatch budget expired")
+        raise TimeoutError("reviewer dispatch deadline expired")
+    try:
+        barrier.wait(timeout=remaining)
+    except threading.BrokenBarrierError as error:
+        if time.monotonic() >= deadline:
+            raise TimeoutError("reviewer dispatch deadline expired") from error
+        raise
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError("reviewer dispatch deadline expired")
     return remaining
 
 
 def dispatch_failure_result(
-    transport: str, started_ns: int, error: Exception
+    transport: str,
+    started_ns: int,
+    error: Exception,
+    attempt_limited: bool,
 ) -> dict[str, Any]:
-    failure = "dispatch_timeout" if isinstance(error, TimeoutError) else "dispatch_aborted"
+    if not isinstance(error, TimeoutError):
+        failure = "dispatch_aborted"
+    elif attempt_limited:
+        failure = "attempt_timeout"
+    else:
+        failure = "dispatch_timeout"
     return {
         "status": "error",
         "transport": None,
@@ -434,18 +444,21 @@ def codex_lane(
     cwd: Path,
     prompt: str,
     barrier: threading.Barrier,
-    timeout_seconds: float,
+    deadline: float,
     timeout_grace_seconds: float,
     model: str | None = None,
+    attempt_limited: bool = False,
 ) -> dict[str, Any]:
     resolved_model = validate_codex_model(
         model or os.environ.get("ADVICE_CODEX_MODEL") or DEFAULT_CODEX_MODEL
     )
     started = time.time_ns()
     try:
-        timeout_seconds = wait_for_dispatch_barrier(barrier, timeout_seconds)
+        timeout_seconds = wait_for_dispatch_barrier(barrier, deadline)
     except (TimeoutError, threading.BrokenBarrierError) as error:
-        return dispatch_failure_result("codex exec --yolo", started, error)
+        return dispatch_failure_result(
+            "codex exec --yolo", started, error, attempt_limited
+        )
     attempts: list[dict[str, Any]] = []
     codex = command_path("codex")
     if codex:
@@ -464,7 +477,11 @@ def codex_lane(
             timeout_seconds,
             timeout_grace_seconds,
         )
-        failure = "timeout" if timed_out else ("nonzero_exit" if code != 0 else None)
+        failure = (
+            ("attempt_timeout" if attempt_limited else "timeout")
+            if timed_out
+            else ("nonzero_exit" if code != 0 else None)
+        )
         if code == 0 and not has_verdict(stdout):
             failure = "missing_verdict"
         attempts.append(
@@ -500,15 +517,19 @@ def opus_lane(
     cwd: Path,
     prompt: str,
     barrier: threading.Barrier,
-    timeout_seconds: float,
+    deadline: float,
     timeout_grace_seconds: float,
+    attempt_limited: bool = False,
 ) -> dict[str, Any]:
     started = time.time_ns()
     try:
-        timeout_seconds = wait_for_dispatch_barrier(barrier, timeout_seconds)
+        timeout_seconds = wait_for_dispatch_barrier(barrier, deadline)
     except (TimeoutError, threading.BrokenBarrierError) as error:
         return dispatch_failure_result(
-            "claude -p --model opus --dangerously-skip-permissions", started, error
+            "claude -p --model opus --dangerously-skip-permissions",
+            started,
+            error,
+            attempt_limited,
         )
     claude = command_path("claude")
     if not claude:
@@ -524,7 +545,11 @@ def opus_lane(
     code, stdout, stderr, timed_out, forced_pipe_close, supervision = execute(
         command, cwd, prompt, timeout_seconds, timeout_grace_seconds
     )
-    failure = "timeout" if timed_out else ("nonzero_exit" if code != 0 else None)
+    failure = (
+        ("attempt_timeout" if attempt_limited else "timeout")
+        if timed_out
+        else ("nonzero_exit" if code != 0 else None)
+    )
     if code == 0 and not has_verdict(stdout):
         failure = "missing_verdict"
     return {
@@ -647,17 +672,27 @@ def create_clone(
     git(destination, "checkout", "--quiet", "--detach", sha, timeout=remaining())
 
 
-def reviewer_timeouts(
+def reviewer_deadlines(
     names: list[str], work_deadline: float, process_cap: float, drain_grace: float
-) -> dict[str, float]:
-    timeouts = {}
+) -> dict[str, tuple[float, bool]]:
+    deadlines = {}
     for name in names:
-        remaining = work_deadline - time.monotonic()
-        timeout = min(process_cap, remaining - drain_grace)
-        if timeout <= 0:
+        now = time.monotonic()
+        attempt_deadline = work_deadline - drain_grace
+        process_deadline = now + process_cap
+        deadline = min(attempt_deadline, process_deadline)
+        if deadline <= now:
             raise TimeoutError("attempt_timeout before reviewer dispatch")
-        timeouts[name] = timeout
-    return timeouts
+        deadlines[name] = (deadline, attempt_deadline <= process_deadline)
+    return deadlines
+
+
+def invalidate_reviewer_votes(reviewers: dict[str, Any], failure: str) -> None:
+    for result in reviewers.values():
+        result["status"] = "error"
+        result["failure"] = failure
+        for attempt in result.get("attempts", []):
+            attempt["failure"] = failure
 
 
 def descendant_termination_failures(reviewers: dict[str, Any]) -> list[str]:
@@ -810,6 +845,7 @@ def main(
         "operation": {"success": False, "error": "operation did not complete"},
     }
     operational_error: str | None = None
+    receipt_write_error: str | None = None
     timeout_stage: str | None = None
     operation_stage = "clone_setup"
     try:
@@ -839,7 +875,7 @@ def main(
             "codex": codex_lane,
             "opus": opus_lane,
         }
-        reviewer_limits = reviewer_timeouts(
+        reviewer_limits = reviewer_deadlines(
             reviewer_names,
             work_deadline,
             args.timeout_seconds,
@@ -849,16 +885,17 @@ def main(
             futures = {}
             try:
                 for name in reviewer_names:
-                    reviewer_timeout = reviewer_limits[name]
+                    reviewer_deadline, attempt_limited = reviewer_limits[name]
                     if name == "codex":
                         futures[name] = executor.submit(
                             codex_lane,
                             clones[name],
                             prompt,
                             barrier,
-                            reviewer_timeout,
+                            reviewer_deadline,
                             args.timeout_grace_seconds,
                             args.codex_model,
+                            attempt_limited,
                         )
                     else:
                         futures[name] = executor.submit(
@@ -866,8 +903,9 @@ def main(
                             clones[name],
                             prompt,
                             barrier,
-                            reviewer_timeout,
+                            reviewer_deadline,
                             args.timeout_grace_seconds,
+                            attempt_limited,
                         )
             except BaseException:
                 barrier.abort()
@@ -902,6 +940,8 @@ def main(
         if isinstance(error, (subprocess.TimeoutExpired, TimeoutError)):
             timeout_stage = operation_stage
             receipt["timeout_stage"] = timeout_stage
+            if timeout_stage == "clone_setup":
+                receipt["setup_process_cleanup_verified"] = False
     finally:
         cleanup_started = time.monotonic()
         receipt["cleanup"] = cleanup_fn(temp_root)
@@ -910,11 +950,7 @@ def main(
         receipt["elapsed_seconds"] = time.monotonic() - attempt_started
         receipt["attempt_deadline_exceeded"] = time.monotonic() > attempt_deadline
         if receipt["attempt_deadline_exceeded"]:
-            for result in receipt.get("reviewers", {}).values():
-                result["status"] = "error"
-                result["failure"] = "attempt_timeout"
-                for attempt in result.get("attempts", []):
-                    attempt["failure"] = "attempt_timeout"
+            invalidate_reviewer_votes(receipt.get("reviewers", {}), "attempt_timeout")
         try:
             after = repository_snapshot(repo, attempt_deadline)
             receipt["original_changed_components"] = sorted(
@@ -932,34 +968,34 @@ def main(
         receipt["elapsed_seconds"] = time.monotonic() - attempt_started
         receipt["attempt_deadline_exceeded"] = time.monotonic() > attempt_deadline
         if receipt["attempt_deadline_exceeded"]:
-            for result in receipt.get("reviewers", {}).values():
-                result["status"] = "error"
-                result["failure"] = "attempt_timeout"
-                for attempt in result.get("attempts", []):
-                    attempt["failure"] = "attempt_timeout"
+            invalidate_reviewer_votes(receipt.get("reviewers", {}), "attempt_timeout")
         try:
             receipt_path = output_dir / "receipt.json"
             receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
             receipt["elapsed_seconds"] = time.monotonic() - attempt_started
             receipt["attempt_deadline_exceeded"] = time.monotonic() > attempt_deadline
             if receipt["attempt_deadline_exceeded"]:
-                for result in receipt.get("reviewers", {}).values():
-                    result["status"] = "error"
-                    result["failure"] = "attempt_timeout"
-                    for attempt in result.get("attempts", []):
-                        attempt["failure"] = "attempt_timeout"
+                invalidate_reviewer_votes(receipt.get("reviewers", {}), "attempt_timeout")
                 receipt_path.write_text(
                     json.dumps(receipt, indent=2, sort_keys=True) + "\n"
                 )
         except Exception as error:
+            receipt_write_error = f"{type(error).__name__}: {error}"
             if operational_error is None:
-                operational_error = f"{type(error).__name__}: {error}"
+                operational_error = receipt_write_error
 
     if not receipt["cleanup"]["success"]:
         print(f"failed to clean disposable clones: {receipt['cleanup']['error']}", file=sys.stderr)
         return 5
     if receipt["attempt_deadline_exceeded"] or timeout_stage is not None:
-        print("primary reviewer attempt exceeded its deadline", file=sys.stderr)
+        if receipt_write_error is not None:
+            print(
+                "primary reviewer attempt exceeded its deadline; final receipt write failed; "
+                "do not use any reviewer vote because the stored receipt may be stale or absent",
+                file=sys.stderr,
+            )
+        else:
+            print("primary reviewer attempt exceeded its deadline", file=sys.stderr)
         return 4
     if operational_error is not None:
         print(f"primary reviewer operation failed: {operational_error}", file=sys.stderr)

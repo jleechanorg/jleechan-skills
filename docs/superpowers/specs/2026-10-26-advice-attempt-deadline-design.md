@@ -11,7 +11,8 @@ No user-facing change. `/advice` receives a more honest, bounded attempt outcome
 - Start the attempt clock before per-reviewer clone setup; bound supported setup subprocesses and reviewer subprocesses by remaining time.
 - Bound each reviewer barrier wait by its remaining lane budget and abort the barrier if any worker submission fails, so executor shutdown cannot wait indefinitely for an unpaired lane.
 - Reserve a configured bounded portion for cleanup; begin cleanup when the work budget expires, and record deadline, elapsed time, timeout stage, and cleanup outcome.
-- Reject results/votes observed after the attempt deadline.
+- Reject results/votes observed after the attempt deadline; preserve a timely peer vote when the other lane times out before the shared attempt deadline.
+- Require consumers to accept votes only when the runner exits zero and a readable receipt exists; disclose when a failed final receipt rewrite may leave stale approval-looking output.
 - Keep the existing independent clone and process identity supervision behavior; no new wrapper, watchdog, helper executable, or framework.
 - The `/advice` caller captures `QUEUED_AT_NS` after packet preparation and immediately before dispatch, then passes `--queued-at-epoch-ns "$QUEUED_AT_NS"`; the runner refuses calls without this value.
 - Preserve actionable partial receipts and report any cleanup uncertainty honestly.

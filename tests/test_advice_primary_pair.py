@@ -466,28 +466,34 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         self.assertEqual(receipt["reviewers"]["opus"]["status"], "success")
         self.assertTrue(receipt["cleanup"]["success"])
 
-    def test_attempt_deadline_caps_review_and_reserves_cleanup_budget(self) -> None:
-        self.executable("codex", "exec sleep 5\n")
-        self.executable("claude", "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
+    def test_attempt_budget_labels_limited_lane_and_keeps_timely_peer_vote(self) -> None:
+        runner = load_runner_module()
+        self.executable("codex", "exit 0\n")
+        self.executable("claude", "exit 0\n")
+        argv = self.with_queued_timestamp([
+            "--repo", str(self.repo), "--ref", self.sha,
+            "--packet-file", str(self.packet), "--output-dir", str(self.output),
+            "--attempt-timeout-seconds", "2", "--cleanup-budget-seconds", "0.2",
+            "--timeout-grace-seconds", "0.1", "--timeout-seconds", "10",
+        ])
 
-        started = time.monotonic()
-        result = self.invoke(
-            "--attempt-timeout-seconds", "2",
-            "--cleanup-budget-seconds", "0.2",
-            "--timeout-grace-seconds", "0.1",
-            "--timeout-seconds", "10",
-        )
-        elapsed = time.monotonic() - started
+        def deterministic_execute(command, cwd, prompt, timeout_seconds, timeout_grace_seconds):
+            if Path(command[0]).name == "codex":
+                return -signal.SIGKILL, "", "", True, False, {}
+            return 0, "VERDICT: APPROVED\nCOVERAGE: all\n", "", False, False, {}
 
-        self.assertEqual(result.returncode, 4, result.stderr)
-        self.assertLess(elapsed, 2.5)
+        with mock.patch.dict(os.environ, self.env), mock.patch.object(
+            runner, "execute", side_effect=deterministic_execute
+        ):
+            code = runner.main(argv)
+
         receipt = json.loads((self.output / "receipt.json").read_text())
-        self.assertEqual(receipt["attempt_timeout_seconds"], 2.0)
-        self.assertEqual(receipt["cleanup_budget_seconds"], 0.2)
+        self.assertEqual(code, 0)
+        self.assertFalse(receipt["attempt_deadline_exceeded"])
         self.assertEqual(receipt["reviewers"]["codex"]["status"], "error")
         self.assertEqual(receipt["reviewers"]["codex"]["attempts"][0]["failure"], "attempt_timeout")
+        self.assertEqual(receipt["reviewers"]["opus"]["status"], "success")
         self.assertTrue(receipt["cleanup"]["success"])
-        self.assertLessEqual(receipt["elapsed_seconds"], 2.5)
 
     def test_both_timed_out_lanes_exit_four_and_still_cleanup(self) -> None:
         self.executable("codex", "exec sleep 2\n")
@@ -627,6 +633,7 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         self.assertFalse(receipt["operation"]["success"])
         self.assertIn("TimeoutExpired", receipt["operation"]["error"])
         self.assertEqual(receipt["timeout_stage"], "clone_setup")
+        self.assertFalse(receipt["setup_process_cleanup_verified"])
         self.assertTrue(receipt["cleanup"]["success"])
         self.assertFalse(receipt["reviewers"] if "reviewers" in receipt else False)
 
@@ -672,13 +679,70 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         receipt = json.loads((self.output / "receipt.json").read_text())
         self.assertEqual(receipt["timeout_stage"], "clone_setup")
 
+    def test_review_execution_budget_uses_absolute_deadline_after_delayed_thread_start(self) -> None:
+        runner = load_runner_module()
+        self.executable("codex", "exit 0\n")
+        self.executable("claude", "exit 0\n")
+        queued_at_ns = time.time_ns()
+        argv = [
+            "--repo", str(self.repo), "--ref", self.sha,
+            "--packet-file", str(self.packet), "--output-dir", str(self.output),
+            "--attempt-timeout-seconds", "4", "--cleanup-budget-seconds", "0.1",
+            "--timeout-grace-seconds", "0.1", "--queued-at-epoch-ns", str(queued_at_ns),
+        ]
+        original_executor = runner.concurrent.futures.ThreadPoolExecutor
+        release = threading.Event()
+        both_ready = threading.Event()
+        ready_count = 0
+        ready_lock = threading.Lock()
+        recorded_timeouts = []
+        codes = []
+
+        class DelayedStartExecutor(original_executor):
+            def submit(self, function, *args, **kwargs):
+                def gated_call(*call_args, **call_kwargs):
+                    nonlocal ready_count
+                    with ready_lock:
+                        ready_count += 1
+                        if ready_count == 2:
+                            both_ready.set()
+                    release.wait(timeout=2)
+                    return function(*call_args, **call_kwargs)
+                return super().submit(gated_call, *args, **kwargs)
+
+        def instant_execute(command, cwd, prompt, timeout_seconds, timeout_grace_seconds):
+            recorded_timeouts.append((time.time_ns(), timeout_seconds))
+            return 0, "VERDICT: APPROVED\nCOVERAGE: all\n", "", False, False, {}
+
+        def run_main():
+            codes.append(runner.main(argv))
+
+        with mock.patch.dict(os.environ, self.env), mock.patch.object(
+            runner.concurrent.futures, "ThreadPoolExecutor", DelayedStartExecutor
+        ), mock.patch.object(runner, "execute", side_effect=instant_execute):
+            worker = threading.Thread(target=run_main)
+            worker.start()
+            self.assertTrue(both_ready.wait(timeout=2), "review lanes did not reach the test gate")
+            time.sleep(0.3)
+            release.set()
+            worker.join(timeout=2)
+
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(codes, [0])
+        self.assertEqual(len(recorded_timeouts), 2)
+        for completed_ns, timeout_seconds in recorded_timeouts:
+            remaining = 4 - 0.1 - 0.1 - (completed_ns - queued_at_ns) / 1_000_000_000
+            self.assertLessEqual(timeout_seconds, remaining + 0.03)
+
     def test_codex_lane_dispatch_barrier_wait_is_bounded_by_lane_budget(self) -> None:
         runner = load_runner_module()
         barrier = threading.Barrier(2)
         result = []
         worker = threading.Thread(
             target=lambda: result.append(
-                runner.codex_lane(Path("."), "prompt", barrier, 0.05, 0.01)
+                runner.codex_lane(
+                    Path("."), "prompt", barrier, time.monotonic() + 0.05, 0.01
+                )
             ),
             daemon=True,
         )
@@ -746,7 +810,7 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         runner = load_runner_module()
         with mock.patch.object(runner.time, "monotonic", side_effect=[9.5, 10.0]):
             with self.assertRaisesRegex(TimeoutError, "before reviewer dispatch"):
-                runner.reviewer_timeouts(["codex", "opus"], 10.0, 5.0, 0.1)
+                runner.reviewer_deadlines(["codex", "opus"], 10.0, 5.0, 0.1)
 
     def test_cleanup_overrun_invalidates_successful_review_vote(self) -> None:
         runner = load_runner_module()
@@ -773,6 +837,42 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         self.assertTrue(receipt["attempt_deadline_exceeded"])
         self.assertEqual(receipt["reviewers"]["codex"]["status"], "error")
         self.assertEqual(receipt["reviewers"]["codex"]["failure"], "attempt_timeout")
+
+    def test_failed_late_receipt_rewrite_warns_that_stored_votes_are_stale(self) -> None:
+        runner = load_runner_module()
+        self.executable("codex", "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
+        argv = self.with_queued_timestamp([
+            "--repo", str(self.repo), "--ref", self.sha,
+            "--packet-file", str(self.packet), "--output-dir", str(self.output),
+            "--reviewers", "codex", "--attempt-timeout-seconds", "1.0",
+            "--cleanup-budget-seconds", "0.1", "--timeout-grace-seconds", "0.05",
+        ])
+        original_write_text = Path.write_text
+        receipt_writes = 0
+
+        def delayed_receipt_write(path, data, *args, **kwargs):
+            nonlocal receipt_writes
+            if path.name == "receipt.json":
+                receipt_writes += 1
+                if receipt_writes == 1:
+                    result = original_write_text(path, data, *args, **kwargs)
+                    time.sleep(1.05)
+                    return result
+                raise OSError("simulated late receipt rewrite failure")
+            return original_write_text(path, data, *args, **kwargs)
+
+        stderr = io.StringIO()
+        with mock.patch.dict(os.environ, self.env), mock.patch.object(
+            Path, "write_text", delayed_receipt_write
+        ), redirect_stderr(stderr):
+            code = runner.main(argv)
+
+        stored_receipt = json.loads((self.output / "receipt.json").read_text())
+        self.assertEqual(code, 4)
+        self.assertEqual(receipt_writes, 2)
+        self.assertEqual(stored_receipt["reviewers"]["codex"]["status"], "success")
+        self.assertIn("receipt write failed", stderr.getvalue())
+        self.assertIn("do not use any reviewer vote", stderr.getvalue())
 
     def test_operation_failure_with_successful_cleanup_has_distinct_exit_and_receipt(self) -> None:
         runner = load_runner_module()

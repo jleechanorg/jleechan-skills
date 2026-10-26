@@ -198,9 +198,14 @@ be counted as an approval.
 An exit code of zero is not enough: each successful lane must return a nonempty
 line beginning with `VERDICT:`. Empty or malformed output records
 `missing_verdict` and counts as an errored lane. A primary vote is usable only
-when the process exits zero, returns a nonempty `VERDICT:` line, and the receipt
-shows no original-checkout mutation, surviving reviewer process, or cleanup
-failure. If either primary lane fails
+when the runner exits zero, the receipt exists and parses, the process exits
+zero, the lane returns a nonempty `VERDICT:` line, and the receipt shows no
+original-checkout mutation, surviving reviewer process, or cleanup failure.
+Ignore every receipt when the runner exits nonzero; a failed late-receipt rewrite
+can leave an older success-looking receipt on disk. Setup-timeout cleanup status
+covers removal of the disposable clone directory, not process-tree verification
+for setup subprocess descendants; record that uncertainty and do not count the
+attempt. If either primary lane fails
 to return a recognizable verdict, use an eligible alternate reviewer when
 needed to reach two independent full-coverage votes. The primary runner only
 launches and supervises Codex and Opus; it does not launch, time, or receipt
