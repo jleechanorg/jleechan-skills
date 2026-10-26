@@ -232,14 +232,22 @@ if [[ "$cli" == "codex" ]]; then
   echo "target conversation: $target -> '$cmd'"
 fi
 
+# 0c. An open Codex menu/dialog swallows ordinary keystrokes AND makes `cmux send`
+#     refuse (it exits non-zero, which is easy to miss). Clear it with a forced esc.
+if cmux capture-pane --workspace "$WS" --surface "$SF" --lines 12 2>/dev/null \
+     | grep -qE 'Press enter to confirm or esc to cancel|Enter to select|esc to cancel'; then
+  cmux send-key --force --workspace "$WS" --surface "$SF" esc >/dev/null 2>&1
+  sleep 2
+fi
+
 # 1. exit
 for _ in 1 2 3; do
-  cmx send-key --workspace "$WS" --surface "$SF" ctrl+c >/dev/null; sleep 3
+  cmx send-key --force --workspace "$WS" --surface "$SF" ctrl+c >/dev/null; sleep 3
   prompt_clean "$WS" "$SF" && break
 done
 # 2. sanitize the shell line (CSI-u residue: 9;5u, 17;5u, 5u)
 if ! prompt_clean "$WS" "$SF"; then
-  cmx send-key --workspace "$WS" --surface "$SF" ctrl+c >/dev/null; sleep 2
+  cmx send-key --force --workspace "$WS" --surface "$SF" ctrl+c >/dev/null; sleep 2
 fi
 if ! prompt_clean "$WS" "$SF"; then
   echo "ABORT: prompt still not clean after 3 ctrl+c; leaving the surface untouched" >&2
@@ -248,13 +256,13 @@ if ! prompt_clean "$WS" "$SF"; then
 fi
 
 # 3. restart — every input is checked; a silent send failure is not a restart
-cmx send --workspace "$WS" --surface "$SF" "$cmd" >/dev/null || { echo "ABORT: send of '$cmd' failed; nothing restarted"; exit 8; }
+cmx send --force --workspace "$WS" --surface "$SF" "$cmd" >/dev/null || { echo "ABORT: send of '$cmd' failed; nothing restarted"; exit 8; }
 sleep 1
-cmx send-key --workspace "$WS" --surface "$SF" enter >/dev/null || { echo "ABORT: Enter failed; '$cmd' may sit unsent"; exit 8; }
+cmx send-key --force --workspace "$WS" --surface "$SF" enter >/dev/null || { echo "ABORT: Enter failed; '$cmd' may sit unsent"; exit 8; }
 sleep 15
 # 4. accept a goal-resume dialog if one opened
 if cmx capture-pane --workspace "$WS" --surface "$SF" --lines 10 | grep -q 'Resume goal'; then
-  cmx send-key --workspace "$WS" --surface "$SF" enter >/dev/null; sleep 8
+  cmx send-key --force --workspace "$WS" --surface "$SF" enter >/dev/null; sleep 8
 fi
 # 5. verify at the process level
 t2=$(tty_of "$WS" "$SF")

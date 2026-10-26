@@ -82,17 +82,22 @@ Report these instead of restarting, because a restart only re-hits the same wall
 
 ## Traps that have burned this exact procedure
 
-1. **Stale banners are history, not state.** A lane can display `You've hit your usage limit` in
+1. **An open Codex dialog swallows everything.** If the surface rests on a Codex menu
+   (`Press enter to confirm or esc to cancel`, `Enter to select`), plain keystrokes are dropped and
+   `cmux send` refuses without `--force` — so your exit *and* your `codexc` both vanish with no error.
+   Send `esc --force` first, then use `--force` on the exit and restart keys. Verified live: without it,
+   a lane sat on its interrupt menu through three ctrl+c attempts and a codexc.
+2. **Stale banners are history, not state.** A lane can display `You've hit your usage limit` in
    scrollback while working perfectly. Prove it by sending one real prompt; do not declare a lane dead
    from a banner that sits above the current composer.
-2. **CSI-u garbage.** See step 3. Symptom: `bash: 9: command not found`, `bash: 5ucodexc: command not
+3. **CSI-u garbage.** See step 3. Symptom: `bash: 9: command not found`, `bash: 5ucodexc: command not
    found`. The cause is the terminal still encoding keys as `ESC [ code ; mods u`; `ctrl+c` on the
    shell line is the cheap fix, `printf '\x1b[<u'` pops the mode, and `reset` is the sledgehammer.
-3. **A live step timer is not progress.** `(1h 38m • esc to interrupt)` can mean "waiting on a
+4. **A live step timer is not progress.** `(1h 38m • esc to interrupt)` can mean "waiting on a
    background terminal that no longer exists". Check the session-file mtime.
-4. **Do not restart a lane that is waiting on a human.** `Goal remains blocked pending human merge
+5. **Do not restart a lane that is waiting on a human.** `Goal remains blocked pending human merge
    approval` is not a wedged CLI.
-5. **One lane, one writer.** Never restart a lane mid-push, and never restart two surfaces that share
+6. **One lane, one writer.** Never restart a lane mid-push, and never restart two surfaces that share
    a worktree concurrently.
 
 ## Automation
