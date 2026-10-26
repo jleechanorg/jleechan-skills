@@ -76,16 +76,17 @@ Use the same review packet for both reviewers:
 
 The currently installed primary-pair runner only has a per-reviewer
 `--timeout-seconds`; it does not bound the complete attempt and is `UNAVAILABLE`
-for the 600-second attempt contract. A conforming implementation must start its
-monotonic timer at runner main-entry, before argument parsing, output reservation,
-clone setup, and reviewer dispatch. The attempt budget covers all post-entry
-non-cleanup work, including fingerprinting, document or packet reads and hashes,
-reviewer output capture, and receipt I/O; a synchronous filesystem call can still
-delay return if the OS blocks it. Shared packet preparation may happen before the
-attempt. Record when invocation is sent and the recorded attempt start; any delay
-before main-entry is outside the timer and must be disclosed. Do not rely on a
-branch-only change or add a wrapper to impose the limit. A missing primary vote may be paired with a separately bounded eligible
-CLI reviewer; it never shares or inherits another reviewer's vote.
+for the 600-second attempt contract. An implementation may start a monotonic timer
+at runner main-entry and charge post-entry setup, fingerprinting, document or
+packet reads and hashes, reviewer work, output capture, and receipt I/O against
+it. This is only a partial implementation: it excludes queueing and delivery
+before main-entry and cannot by itself enforce the complete bound below. A
+synchronous filesystem call can also delay return if the OS blocks it. Shared
+immutable packet preparation may happen before the attempt. Record the queued/sent
+timestamp and when the runner starts; disclose any gap. Do not rely on a branch-only
+change or add a wrapper to impose the limit. A missing primary vote may be paired
+with a separately bounded eligible CLI reviewer; it never shares or inherits
+another reviewer's vote.
 
 ```
 You are a senior engineer giving a focused second opinion.
@@ -155,16 +156,23 @@ descendants observed while the reviewer root is alive, a surviving verified PID
 is recorded as a termination failure rather than silently treated as contained;
 after successful cleanup the runner exits 7 even if the peer returned a verdict.
 
-A conforming runner records its monotonic attempt start at main-entry. All
-post-entry non-cleanup work consumes the remaining budget, including setup,
+Each reviewer attempt has a hard 600-second end-to-end limit, starting when
+that reviewer request is queued or sent. Record that timestamp. Queueing and
+delivery, review-specific setup, dispatch, review, output capture, receipt
+recording, and cleanup all consume the same wall-clock budget; do not pause,
+reset, or extend it. Shared immutable packet preparation may happen before the
+attempt begins. Bound each transport call and poll/wait to the time remaining in
+the attempt.
+
+The current partial implementation starts its monotonic timer at runner
+main-entry and charges post-entry work against that timer, including setup,
 fingerprinting, document or packet reads and hashes, reviewer subprocess work,
-output capture, and receipt I/O; late results cannot vote. Synchronous filesystem
-calls cannot be interrupted if the OS blocks, so the budget does not guarantee a
-hard wall-clock return bound. The runner reserves a configured cleanup budget and
-records attempt start, total elapsed time, cleanup timing, and outcome. The cap
-does not include delay before the runner process reaches main-entry. Cleanup may
-also overrun while an OS call is blocked; cleanup finishing after the deadline
-invalidates all votes.
+output capture, and receipt I/O; late results cannot vote. It is insufficient by
+itself because it does not include time queued or sent before main-entry. A
+synchronous filesystem call cannot be interrupted if the OS blocks, so the timer
+also does not guarantee a hard wall-clock return bound. The implementation
+reserves a cleanup budget and records elapsed time, cleanup timing, and outcome;
+cleanup finishing after the deadline invalidates all votes.
 
 Use existing supported execution tools. Do not create an adapter, supervisor,
 watchdog, helper script, or embedded executable implementation to meet this
