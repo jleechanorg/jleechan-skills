@@ -23,6 +23,7 @@ No runtime timeout implementation, reviewer wrapper, test, script, CI change, po
 - The legacy example no longer presents a six-heading body as canonical or makes user stories optional without the required reason.
 - The factory-evolve draft step requires a complete body at draft creation, current line deltas, and the repository-specific evidence fields.
 - The sanitizer example retains leak-check evidence while dropping its duplicate body structure.
+- The shared catalog publishes `pr-workflow` as a pointer-only alias to the sole `pr-lifecycle` owner; `draft-first-pr` remains the legacy alias and `pr-workflow-manager` the discovery/command entry point.
 - Advice distinguishes reviewer-process timeout from a complete attempt deadline, accurately scopes timer start and cleanup limitations, and states that byte verification is integrity evidence rather than filesystem immutability.
 - Alternate reviewer command forms are not described as full-attempt bounded unless an existing supported invocation supplies that bound and its own receipt.
 - `git diff --check` and the portable-skill verifier pass; no code, scripts, tests, or CI changes are included.
