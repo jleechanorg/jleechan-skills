@@ -238,7 +238,7 @@ class RestartVerificationTest(unittest.TestCase):
         stub = StubCmux("clean")
         proc = self._run_with(stub, ps)
         self.assertEqual(proc.returncode, 10, proc.stdout + proc.stderr)
-        self.assertIn("resumed conversation", proc.stderr)
+        self.assertIn("but the lane was", proc.stderr)
         self.assertNotIn("RESTARTED", proc.stdout)
 
     def test_no_workspace_wide_id_fallback(self):
@@ -260,3 +260,29 @@ class RestartVerificationTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 11, proc.stdout + proc.stderr)
         self.assertIn("cannot resolve this lane's conversation id", proc.stdout)
         self.assertEqual(stub.sent(), [], f"sent without an id: {stub.sent()}")
+
+    def test_old_session_surviving_must_not_mask_a_new_wrong_session(self):
+        """dot review at 56c7f904: old PID100/session A + new PID200/session B.
+
+        Reading 'the first process on the tty' would see session A and call it a match.
+        Identity must be read from the NEW pid only, so this must exit 10.
+        """
+        tmp = Path(tempfile.mkdtemp(prefix="fakeps-mask-"))
+        ps = tmp / "fakeps_mask"
+        ps.write_text(
+            "#!/bin/bash\n"
+            f'state="{tmp}/calls"\n'
+            'n=$(cat "$state" 2>/dev/null || echo 0)\n'
+            'echo $((n+1)) > "$state"\n'
+            'if [ "$n" = "0" ]; then\n'
+            '  echo "ttys003 100 00:10 /usr/bin/command codex resume 01a174a5-7202-7af3-831e-0bfb5ae8544a"\n'
+            "else\n"
+            '  echo "ttys003 100 00:20 /usr/bin/command codex resume 01a174a5-7202-7af3-831e-0bfb5ae8544a"\n'
+            '  echo "ttys003 200 00:01 /usr/bin/command codex resume 01a99999-dead-beef-0000-111122223333"\n'
+            "fi\n"
+        )
+        ps.chmod(0o755)
+        stub = StubCmux("clean")
+        proc = self._run_with(stub, ps)
+        self.assertEqual(proc.returncode, 10, proc.stdout + proc.stderr)
+        self.assertNotIn("RESTARTED", proc.stdout)

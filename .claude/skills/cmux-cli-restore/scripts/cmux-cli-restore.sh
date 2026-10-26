@@ -190,6 +190,10 @@ echo "surface=$SF tty=${t:-?} cli=${cli} restart=${cmd:-(none)}"
 
 case "$cli" in
   shell) echo "nothing to restore: surface is a bare shell"; exit 0 ;;
+  claude|claude-wa)
+    echo "REFUSING: only Codex lanes can be identity-verified (explicit resume id on the new pid)."
+    echo "For a $cli lane, exit the TUI and run 'claude --continue' by hand, then confirm the thread."
+    exit 12 ;;
   unknown) echo "ABORT: could not resolve a CLI on that surface (tty=${t:-none}); nothing typed"; exit 3 ;;
   agy|pi) echo "no resume wrapper for $cli — relaunch it by hand and pick the conversation"; exit 3 ;;
 esac
@@ -265,13 +269,19 @@ post_pids=$(lane_pids_of "$post_raw" "$t2" | sed '/^$/d' | sort -u)
 new_pids=$(comm -13 <(printf '%s\n' "$pre_pids" | sed '/^$/d' | sort -u) <(printf '%s\n' "$post_pids" | sed '/^$/d' | sort -u))
 if [[ -n "$new_pids" ]]; then
   if [[ "$cli" == "codex" ]]; then
-    post_target=$(target_session "$post_raw" "$WS" "$t2")
-    if [[ "$post_target" != "$target" ]]; then
-      echo "FAILED: resumed conversation '${post_target:-unknown}' but the lane was '${target}' — 'resume --last' picked another session" >&2
-      exit 10
-    fi
-    echo "RESTARTED same conversation $target, new pid(s)=$(printf '%s' "$new_pids" | tr '\n' ' ')"
-    exit 0
+    # Identity is read from the NEW pid(s) only. Reading "the first our tty" would
+    # let a surviving old process (session A) mask a new process on session B
+    # (dot review at 56c7f904).
+    new_uuids=""
+    for pid in $new_pids; do
+      u=$(printf '%s\n' "$post_raw" | awk -v p="$pid" '$2==p' \
+          | grep -oE 'resume [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | awk '{print $2}' | head -1)
+      [[ -n "$u" ]] && new_uuids="$new_uuids $u"
+    done
+    case " $new_uuids " in
+      *" $target "*) echo "RESTARTED same conversation $target on new pid(s)=$(printf '%s' "$new_pids" | tr '\n' ' ')"; exit 0 ;;
+      *) echo "FAILED: new pid(s) $(printf '%s' "$new_pids" | tr '\n' ' ') resumed '${new_uuids:-unknown}' but the lane was '$target'" >&2; exit 10 ;;
+    esac
   fi
   echo "RESTARTED new pid(s)=$(printf '%s' "$new_pids" | tr '\n' ' ')"
   exit 0
