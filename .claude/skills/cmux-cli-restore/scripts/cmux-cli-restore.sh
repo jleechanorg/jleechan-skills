@@ -40,8 +40,15 @@ lane_pids_of() { # <raw listing> <tty> -> pids of the CLI on that tty
 tty_of() { # ws sf -> ttysNNN  (single capture, parsed with awk; multi-pipe blanked under pipefail)
   local out want="$2"
   case "$want" in surface:*) : ;; *) want="surface:$want" ;; esac
-  out=$(cmx top --workspace "$1" --processes)
-  printf '%s\n' "$out" | awk -v want="$want" 'index($0,want){ while (match($0,/tty=ttys[0-9]+/)) { print substr($0,RSTART+4,RLENGTH-4); exit } }'
+  local tries=0
+  while [[ $tries -lt 3 ]]; do
+    out=$(cmx top --workspace "$1" --processes)
+    local got
+    got=$(printf '%s\n' "$out" | awk -v want="$want" 'index($0,want){ while (match($0,/tty=ttys[0-9]+/)) { print substr($0,RSTART+4,RLENGTH-4); exit } }')
+    [[ -n "$got" ]] && { printf '%s' "$got"; return 0; }
+    tries=$((tries+1)); sleep 1
+  done
+  return 1
 }
 
 cli_on_tty() { # tty -> codex|claude-wa|claude|agy|pi|shell
@@ -65,6 +72,23 @@ cli_on_tty() { # tty -> codex|claude-wa|claude|agy|pi|shell
 }
 
 resume_cmd() { case "$1" in codex) echo codexc;; claude) echo claudec;; claude-wa) echo claudewac;; *) echo "";; esac; }
+
+target_session() { # <raw listing> <ws> <tty> -> explicit session id of the lane (empty if unknown)
+  local raw="$1" ws="$2" t="$3" sid
+  sid=$(printf '%s\n' "$raw" | awk -v t="$t" '$1==t' | grep -oE 'resume [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | awk '{print $2}' | head -1)
+  if [[ -z "$sid" ]]; then
+    sid=$(cmx top --workspace "$ws" --processes | grep -oE 'codex\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1 | sed 's/^codex\.//')
+  fi
+  printf '%s' "$sid"
+}
+
+explicit_resume() { # cli sid -> command that resumes THAT conversation, not "--last"
+  case "$1" in
+    codex) [[ -n "$2" ]] && echo "codex resume $2" ;;
+    claude) [[ -n "$2" ]] && echo "claude --resume $2" ;;
+    *) echo "" ;;
+  esac
+}
 
 session_file() { # cli tty [ws] [sf] -> path of newest session transcript for that lane
   local cli="$1" t="$2" sid cwd
@@ -191,6 +215,18 @@ if [[ $pre_rc -ne 0 || -z "$pre_raw" ]]; then
 fi
 pre_pids=$(lane_pids_of "$pre_raw" "$t_pre" | sed '/^$/d' | sort -u)
 
+# Resolve THIS lane's conversation from the same baseline. 'codexc' is
+# 'codex resume --last', which can select a different, newer conversation in the
+# same directory, so aim at the explicit id (dot review at c15525f0).
+target=$(target_session "$pre_raw" "$WS" "$t_pre")
+if [[ "$cli" == "codex" ]]; then
+  if [[ -z "$target" ]]; then
+    echo "ABORT: cannot resolve this lane's conversation id; 'codexc' could pick a different conversation in the same directory. Nothing sent."; exit 11
+  fi
+  cmd=$(explicit_resume codex "$target")
+  echo "target conversation: $target -> '$cmd'"
+fi
+
 # 1. exit
 for _ in 1 2 3; do
   cmx send-key --workspace "$WS" --surface "$SF" ctrl+c >/dev/null; sleep 3
@@ -227,7 +263,16 @@ fi
 post_pids=$(lane_pids_of "$post_raw" "$t2" | sed '/^$/d' | sort -u)
 new_pids=$(comm -13 <(printf '%s\n' "$pre_pids" | sed '/^$/d' | sort -u) <(printf '%s\n' "$post_pids" | sed '/^$/d' | sort -u))
 if [[ -n "$new_pids" ]]; then
-  echo "RESTARTED new pid(s)=$(printf '%s' "$new_pids" | tr '\n' ' ') on ${t2:-?} (pre-restart pids: $(printf '%s' "${pre_pids:-none}" | tr '\n' ' '))"
+  if [[ "$cli" == "codex" ]]; then
+    post_target=$(target_session "$post_raw" "$WS" "$t2")
+    if [[ "$post_target" != "$target" ]]; then
+      echo "FAILED: resumed conversation '${post_target:-unknown}' but the lane was '${target}' — 'resume --last' picked another session" >&2
+      exit 10
+    fi
+    echo "RESTARTED same conversation $target, new pid(s)=$(printf '%s' "$new_pids" | tr '\n' ' ')"
+    exit 0
+  fi
+  echo "RESTARTED new pid(s)=$(printf '%s' "$new_pids" | tr '\n' ' ')"
   exit 0
 fi
 echo "UNVERIFIED: no NEW CLI process on ${t2:-?} (pre-restart pids: $(printf '%s' "${pre_pids:-none}" | tr '\n' ' ')); an old process surviving is not a restart" >&2

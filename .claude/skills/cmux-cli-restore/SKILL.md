@@ -45,7 +45,10 @@ Nothing is lost and nothing starts over. Verified on 9 Codex lanes at once: each
    quits. Typing on top of that produces `bash: 5ucodexc: command not found`. Send `ctrl+c` (bash
    cancels the line) and confirm the prompt is clean *before* typing anything.
 
-4. **Restart with the wrapper.** One short line, then submit with an explicit Enter:
+4. **Restart with the wrapper — aimed at THIS conversation.** `codexc` is `codex resume --last`, and
+   "last" is not "this one": a newer conversation in the same directory wins. So resolve the lane's
+   session id from the pre-restart process listing and resume it explicitly (`codex resume <uuid>`).
+   If the id cannot be resolved, stop — do not fall back to `--last`. Then submit with an explicit Enter:
    ```bash
    cmux send --workspace <ws> --surface <sf> "codexc"   # or claudec / claudewac
    cmux send-key --workspace <ws> --surface <sf> enter
@@ -57,7 +60,8 @@ Nothing is lost and nothing starts over. Verified on 9 Codex lanes at once: each
    ```bash
    ps -Ao tty,pid,etime,command | awk '$1=="ttysNNN" && /codex resume|claude/'
    ```
-   Snapshot the pids before the restart and require one that was not there: an old process that
+   Snapshot the pids before the restart and require one that was not there, **and** require the resumed
+   conversation to be the same id (a `--last` resume into a different session exits 10): an old process that
    survived is **not** a restart, and `bash: 5ucodexc: command not found` leaves exactly that
    situation (the old TUI still running while your command never ran). Check the `send` and `Enter`
    exit codes too; a swallowed send failure must not be reported as success.

@@ -134,7 +134,7 @@ class RestartVerificationTest(unittest.TestCase):
         tmp = Path(tempfile.mkdtemp(prefix="fakeps-"))
         fakeps = self._fake_ps(
             tmp,
-            "ttys003 100 00:10 /usr/bin/command codex resume 01a174a5-7202 "
+            "ttys003 100 00:10 /usr/bin/command codex resume 01a174a5-7202-7af3-831e-0bfb5ae8544a "
             "X X X X",
         )
         stub = StubCmux("clean")
@@ -152,9 +152,9 @@ class RestartVerificationTest(unittest.TestCase):
             "n=$(cat \"$state\" 2>/dev/null || echo 0)\n"
             "echo $((n+1)) > \"$state\"\n"
             'if [ "$n" = "0" ]; then\n'
-            '  echo "ttys003 100 00:10 /usr/bin/command codex resume 01a174a5-7202"\n'
+            '  echo "ttys003 100 00:10 /usr/bin/command codex resume 01a174a5-7202-7af3-831e-0bfb5ae8544a"\n'
             "else\n"
-            '  echo "ttys003 200 00:01 /usr/bin/command codex resume 01a174a5-7202"\n'
+            '  echo "ttys003 200 00:01 /usr/bin/command codex resume 01a174a5-7202-7af3-831e-0bfb5ae8544a"\n'
             "fi\n"
         )
         ps.chmod(0o755)
@@ -203,14 +203,40 @@ class RestartVerificationTest(unittest.TestCase):
             'echo $((n+1)) > "$state"\n'
             'if [ "$n" = "0" ]; then\n'
             '  echo "TTY PID ELAPSED COMMAND"\n'
-            '  echo "ttys003 100 00:10 /usr/bin/command codex resume 01a174a5-7202"\n'
+            '  echo "ttys003 100 00:10 /usr/bin/command codex resume 01a174a5-7202-7af3-831e-0bfb5ae8544a"\n'
             '  exit 0\n'
             "fi\n"
-            'echo "ttys003 200 00:01 /usr/bin/command codex resume 01a174a5-7202"\n'
+            'echo "ttys003 200 00:01 /usr/bin/command codex resume 01a174a5-7202-7af3-831e-0bfb5ae8544a"\n'
             "exit 1\n"
         )
         ps.chmod(0o755)
         stub = StubCmux("clean")
         proc = self._run_with(stub, ps)
         self.assertEqual(proc.returncode, 9, proc.stdout + proc.stderr)
+        self.assertNotIn("RESTARTED", proc.stdout)
+
+    def test_resume_picking_another_conversation_is_a_failure(self):
+        """dot review at c15525f0: 'resume --last' can restore a DIFFERENT conversation.
+
+        The lane is 01a174a5 before the restart; after it, the process shows another
+        session id. That is a wrong-conversation restore, not a restart.
+        """
+        tmp = Path(tempfile.mkdtemp(prefix="fakeps-wrongconv-"))
+        ps = tmp / "fakeps_wrong"
+        ps.write_text(
+            "#!/bin/bash\n"
+            f'state="{tmp}/calls"\n'
+            'n=$(cat "$state" 2>/dev/null || echo 0)\n'
+            'echo $((n+1)) > "$state"\n'
+            'if [ "$n" = "0" ]; then\n'
+            '  echo "ttys003 100 00:10 /usr/bin/command codex resume 01a174a5-7202-7af3-831e-0bfb5ae8544a"\n'
+            "else\n"
+            '  echo "ttys003 200 00:01 /usr/bin/command codex resume 01a99999-dead-beef-0000-111122223333"\n'
+            "fi\n"
+        )
+        ps.chmod(0o755)
+        stub = StubCmux("clean")
+        proc = self._run_with(stub, ps)
+        self.assertEqual(proc.returncode, 10, proc.stdout + proc.stderr)
+        self.assertIn("resumed conversation", proc.stderr)
         self.assertNotIn("RESTARTED", proc.stdout)
