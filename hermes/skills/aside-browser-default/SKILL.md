@@ -1,6 +1,6 @@
 ---
 name: aside-browser-default
-description: Aside browser is the PRIMARY browser tool for all Hermes/Claude/Codex work. Use aside CLI (repl/mcp/exec modes) or aside-mcp before Playwright MCP / superpowers-chrome. Use when opening browsers, scraping, UI tests, localhost verification, cookie injection flows, or any browser-driven automation. Playwright MCP and superpowers-chrome are explicit fallbacks for cases Aside can't handle (e.g., headless CI runners, Playwright-specific test fixtures). Reversible — see ~/.hermes/scripts/rollback-aside-default.sh.
+description: Isolated headless Chromium is the default for browser work. Use Aside only when an already-running agent-owned background context is verified; never launch or activate it for a task. See browser-control for the personal-browser isolation contract.
 when_to_use: Browser automation, scraping, screenshots, localhost UI checks, cookie injection flows, /browser command, public-data lookups
 allowed-tools: mcp__aside-mcp, aside, mcp__playwright-mcp (fallback), mcp__plugin-superpowers-chrome__chrome_use_browser (fallback)
 context: hermes
@@ -10,15 +10,19 @@ context: hermes
 
 ## Contract
 
-**Default: Aside first.** For all browser work, agents should reach for the Aside CLI / Aside MCP server before Playwright MCP or superpowers-chrome. Playwright MCP and superpowers-chrome are **named fallbacks** — preserved, not deleted — for cases Aside can't handle (rare; mostly headless CI runners and Playwright-specific test fixtures).
+Aside is a real GUI browser, not headless. Its background behavior must be verified for the current operation.
+
+Apply `~/.claude/skills/browser-control/SKILL.md` § Personal browser isolation first. Aside is primary only when it can operate in the background in an agent-owned tab; otherwise use isolated headless Playwright Chromium. Never attach to, focus, or import cookies from the personal Chrome browser.
+
+**Default: isolated headless Chromium.** Aside is permitted only when an already-running browser context is verified as agent-owned and navigation stays in the background. Never launch or activate Aside to make it available. When ownership or background behavior is not proven, use isolated headless Playwright.
 
 | Tool | Role | When to use |
 |------|------|-------------|
-| **`aside` CLI / `aside-mcp`** | **Primary** | Default for everything: UI tests, localhost verification, scraping, cookie flows, public-data lookups |
-| `mcp__playwright-mcp` | Fallback | Only when Aside CLI is unavailable, or for Playwright-specific fixtures (trace viewer, `--isolated` profile mode, video recording) |
+| **`aside` CLI / `aside-mcp`** | Conditional | Already-running verified agent-owned background context only; no personal tabs/profile and no app launch/activation |
+| `mcp__playwright-mcp` | Default | Isolated headless browser for public pages and deterministic tests when Aside ownership/background behavior is unproven |
 | `mcp__plugin-superpowers-chrome__chrome_use_browser` | Fallback | Only when Chrome-specific behavior is required (e.g., you need Chrome's exact `--user-data-dir` semantics for a particular test) |
 
-**Explicit opt-in phrases only:** Jeffrey says *"show browser"*, *"headed mode"*, *"visible browser"*, or *"I want to see the window"* in the **current thread**. Aside drives a real GUI browser session and is not headless. Without opt-in, use Aside only when its existing session can be driven without surfacing a new window; otherwise use the guarded Playwright Chromium headless fallback.
+Keep Chromium headless by default. A current-thread explicit request for visible automation permits a headed window only in a separate, verified task-owned browser process/profile/context. Never use a personal or default profile, or launch/activate a desktop app as spontaneous recovery. Do not assume Aside navigation is background-safe; verify ownership and background operation for the current task, or use isolated headless Chromium.
 
 ## Why Aside
 
@@ -33,11 +37,11 @@ Aside is a Y Combinator–backed AI-native Chromium browser launched June 2026. 
 
 ### Phase 1 — Before any browser action
 
-1. **Check Aside is alive:** `aside account list` should show `* u0 $USER@gmail.com  signed in  profiles: Profile 0`. If not, see "Aside is not running" below.
+1. **Use Aside only if it is already running in an agent-owned context.** Confirm process/context ownership and background navigation; metadata or account-list output alone is insufficient.
 2. **For complex multi-step work** (scraping, public-data lookups, forms), prefer `aside "..."` NL agent with `--effort ultrabrowse`.
 3. **For deterministic scripted work** (screenshot a URL, click a button, fill a form), prefer `aside repl "..."` with the Playwright-shaped API (`openTab`, `snapshot`, `listBrowserTabs`).
 4. **For agent-runtime MCP tool exposure** (Claude Code/Codex tool calls), use `mcp__aside-mcp__*` if the runtime exposes it; otherwise drop to `aside repl` from a terminal tool call.
-5. **Only if Aside is unavailable or inappropriate**, fall back to `mcp__playwright-mcp` (headless Chromium).
+5. **Otherwise use** `mcp__playwright-mcp` (headless Chromium) in an isolated context.
 
 ### Phase 2 — During automation
 
@@ -53,15 +57,6 @@ Aside is a Y Combinator–backed AI-native Chromium browser launched June 2026. 
   //    (require the Aside REPL to have the `page` global — see gotchas §10)
   await page.evaluate(() => document.querySelector('[ref-attr], button').click());
 
-  // ✅ Workaround for high-trust flows: use the slack.getClient() bypass
-  //    (bypasses the browser entirely for Slack API calls that need
-  //     scopes the user's XOXP token lacks — see gotchas §11)
-  const c = await slack.getClient('T09FXQ4LCQP');
-  const r = await c.apiCall('conversations.invite', {
-    channel: 'C0BDEAJH8PK',
-    users: 'U0A4G7LDJ4R',
-  });
-  console.log('invite ok:', r.ok);
   ```
 
 - **Multi-line REPL scripts MUST go through `$(cat file)` or heredoc, NOT inline string args** — verified 2026-07-13. When JS contains parentheses inside template literals or string-concatenation (e.g. `String(s.tree).split('\n').filter(l => /ref=e\d+/.test(l))`), bash will mangle the parens before Aside ever sees them, returning `bash: eval: line 16: syntax error near unexpected token '('` instead of the Aside "ReferenceError" you'd expect. The fix:
@@ -101,24 +96,8 @@ Aside is a Y Combinator–backed AI-native Chromium browser launched June 2026. 
   const shot = await annotatedScreenshot(p);   // NOT screenshot() — that doesn't exist
   console.log('B64:' + shot.base64Image);
   ```
-- OAuth capture-and-drive pattern** (verified 2026-07-06 on Granola MCP): many Node.js OAuth clients (`mcporter`, etc.) call `spawn('open', [url])` to launch the system browser. If you shadow `open` on `$PATH` with a wrapper that logs the URL first, then drive Aside Chrome to that captured URL via `aside repl openTab(url)`, you can complete browser-based OAuth flows WITHOUT user-side terminal access. **Critical**: only `aside repl` works — `aside exec` is gated by Codex usage limits and will return "Codex error: The usage limit has reached" for OAuth flows. See `references/oauth-capture-and-drive.md` for the full 7-step recipe with the `PATH`-override wrapper, callback-server verification, and verification checklist.
-- **Slack API bypass via `slack.getClient()`** (verified 2026-07-13, aside v1.26.713.1911): when you need to call a Slack Web API method that the user's XOXP token lacks scope for (e.g. `conversations.invite` returns `missing_scope: channels:write.invites`, or `conversations.create` needs `channels:write`), use the Aside-managed Slack client instead of raw `curl`. The client is signed-in to all workspaces the user has profiles for and inherits the user's workspace scopes — bypassing bot-scope and channel-scope limits of any single token. Full method signature in gotchas-reference §11 (the canonical verified recipe):
-  ```js
-  // List joined workspaces
-  const ws = await slack.listWorkspaces();
-  // → [{ teamId: "T09FXQ4LCQP", name: "$USER AI", url: "...", isLastActive: true, userId: "U09GH5BR3QU" }]
-
-  // Get a Web-API client for the user's workspace
-  const c = await slack.getClient('T09FXQ4LCQP');
-
-  // Call any Slack method — accepts exact same args as web API docs
-  const inv = await c.apiCall('conversations.invite', {
-    channel: 'C0BDEAJH8PK',   // channel id, NOT name
-    users:   'U0A4G7LDJ4R',   // user id, NOT @handle
-  });
-  // → { ok: true, channel: { id, is_member: true, latest: { subtype: "channel_join", ... } } }
-  ```
-  **Use case (the bot-rejoin bug):** when a slack bot (`U…`) was removed from channels but is still a valid app, and the user's XOXP token returns `missing_scope: channels:write.invites` on `conversations.invite`, this is the ONLY path to re-add the bot without bothering the user to click in the Slack UI. Verified 2026-07-13 against MCP Mail bot `U0A4G7LDJ4R` across `#worldai-bugs`, `#life`, `#worldai`, `#all-$USER-ai`, etc.
+- **OAuth:** use the provider-supported flow in an isolated, agent-owned browser context. Do not intercept system URL openers, log authorization URLs, clear cached grants, or launch/drive a desktop browser. The old capture-and-drive reference is retired and non-executable.
+- **Slack operations:** use the approved Slack connector/API with its existing authorized scopes. If a method is unavailable or returns `missing_scope`, do not use `slack.getClient()` or browser cookies to bypass that limit; use an authorized Slack UI action in an already verified, isolated agent-owned browser context when appropriate, or report the missing authorization. See `references/aside-repl-api-gotchas.md` for this boundary and safe membership checks.
 
 - **Session continuity** (continue a prior NL session):
   ```bash
@@ -131,43 +110,27 @@ Aside is a Y Combinator–backed AI-native Chromium browser launched June 2026. 
 
 ### Phase 3 — After session
 
-- Close any tabs the agent opened if they're not useful for the user: `aside repl "closeAllTabs()"`.
-- If you called any headed action (no opt-in required for Aside, but worth checking), end the turn by confirming the next agent session starts headless again.
+- Close only the exact tabs opened by this task when they are no longer useful. Never call `closeAllTabs()` on a shared browser.
+- Keep Chromium headless by default. If the current thread explicitly requests visible automation, use only a separate, verified task-owned browser process/profile/context; never the personal/default browser.
 
 ## Aside is not running
 
-If `aside account list` fails or shows no signed-in account:
+If Aside is unavailable or background ownership is not verified, use isolated headless Chromium. Never open, launch, restart, or activate the Aside GUI app as recovery.
 
-```bash
-# 1. Is the Aside GUI app open?
-pgrep -lf "Aside.app" | head -3
-
-# 2. If not, launch it (the daemon will auto-start)
-open -a "/Applications/Aside.app"
-
-# 3. Wait ~3 seconds, then verify
-sleep 3 && aside account list
-```
-
-If `aside` CLI itself is missing:
-
-```bash
-curl -fsSL https://releases.aside.com/install.sh | bash
-```
+If the Aside CLI or app is unavailable, use isolated headless Chromium. Installation and app recovery are outside this browser-task route.
 
 ## Anti-patterns (BANNED)
 
-- ❌ Calling `mcp__playwright-mcp__*` as a first resort without checking Aside first
-- ❌ Calling `show_browser` / headed mode without explicit opt-in (Aside is a real GUI browser — not headless — and the headless-only default applies only when falling back to Playwright or `browserclaw`)
-- ❌ Spawning a fresh Playwright Chromium per agent call (Aside's persistent daemon is faster + more stateful)
+- ❌ Falling back to a personal browser when the isolated headless route is unavailable
+- ❌ Calling `show_browser` by default or launching headed mode as an ordinary fallback; the headless-only default applies to Playwright/browserclaw fallback routes. An explicit current-thread visible-mode request may use a separate verified task-owned profile.
 - ❌ Using `mcp__claude-in-chrome__*` for any browser work (requires extension, fails headless/CI)
-- ❌ Assuming Chrome Default cookies reflect the user's actual session — **Aside and Chrome have INDEPENDENT cookie DBs** (different Safe Storage keychains, different file paths). A user logged into `app.monarch.com` via Aside may have ZERO cookies for it in Chrome's `Default/Cookies`, yet the full session lives in `~/Library/Application Support/Aside/Default/Cookies`. Before declaring "no auth," sweep `browserclaw cookies decrypt --db <aside-db> --keychain-service 'Aside Safe Storage' --keychain-account 'Aside'` (verified 2026-07-22: 10 valid `.api.monarch.com` cookies including `session_id` + `csrftoken` lived in Aside's DB; Chrome's profile had zero). See `references/aside-cookie-portability.md` for the full multi-DB sweep pattern.
-- ❌ Copying cookies between browsers without re-encrypting under the target's Safe Storage key
+- ❌ Assuming one authorized agent-owned source reflects every browser session — **Aside and other browsers have independent cookie DBs**. Before declaring "no auth," inspect only the one source profile/DB explicitly authorized for this task, using its matching Safe Storage service/account and the guarded browser-control lifecycle. Never sweep desktop browser profiles or personal cookie stores. See `references/aside-cookie-portability.md` for portability constraints.
+- ❌ Copying cookies between browsers. The only permitted exception is the explicitly authorized, one-agent-owned-source transfer in browser-control; it must use the guarded private-temp lifecycle and must not bypass an access control.
 - ❌ Assuming Aside CLI can read Chrome/Comet/Arc history (separate cookie stores)
 - ❌ Calling `screenshot()` in the REPL — it doesn't exist; use `annotatedScreenshot()` which returns `{base64Image: "..."}`. See `references/aside-repl-api-gotchas.md`.
 - ❌ Using `listBrowserTabs()` synchronously — it's a Promise; entries are `{url, title}` plain-property objects, not callables. See `references/aside-repl-api-gotchas.md`.
 - ❌ Using `require('fs')` or `process.stdout` inside the REPL — only `Buffer` and the Aside functions are in scope. Save files by emitting base64 to stdout and decoding in the caller.
-- ❌ Calling `browser_click` / `browser_type` / `browser_fill` / `browser_press` from `aside repl` — **these primitives don't exist in the REPL** (verified v1.26.713.1911, 2026-07-13). Use `mcp__aside-mcp__*` from a runtime that exposes them, or drive the page via `page.evaluate(...)`. See Pattern `slack.getClient()` bypass below for Slack-specific shortcuts.
+- ❌ Calling `browser_click` / `browser_type` / `browser_fill` / `browser_press` from `aside repl` — **these primitives don't exist in the REPL** (verified v1.26.713.1911, 2026-07-13). Use `mcp__aside-mcp__*` from a runtime that exposes them, or drive the page via `page.evaluate(...)`.
 - ❌ Passing multi-line JS with parens / curly braces / template literals directly as an `aside repl "..."` inline arg — bash tokenizes before Aside sees the code. Use `$(cat /tmp/script.js)` or a quoted heredoc instead. Wasted two REPL invocations on 2026-07-13 on `aside repl "lines.filter(l => /button \"/button '.+'/i.test(l)).slice(0, 60)..."`.
 - ❌ Using Aside inference (`aside "..."` NL agent, `aside --effort ultrabrowse`, `aside exec`, `aside exec -m`) for `/web-advice` — `/web-advice` navigates directly to the real web chat pages to leverage the user's subscriptions. Prefer `aside-mcp` / `aside repl`; use the canonical skill's approved Playwright/Chrome browser fallbacks only when Aside is unavailable or unsupported. Aside inference consumes Aside's token quota and does not use the web chat subscriptions.
 
@@ -179,7 +142,7 @@ curl -fsSL https://releases.aside.com/install.sh | bash
 | Aside CLI binary | `$HOME/.local/bin/aside` → `~/.aside/cli/Aside CLI.app/Contents/MacOS/aside` | ✅ |
 | Aside CLI version | `1.26.626.1517` | ✅ |
 | Aside daemon | `~/Library/Application Support/Aside/AsideDaemon/mac-arm64/1.26.627.1553/Aside Daemon.app` | ✅ |
-| Aside account | `* u0 $USER@gmail.com` Google provider, `Profile 0` | ✅ |
+| Aside account | `* u0 '<account-email>'` Google provider, `Profile 0` | ✅ |
 | Aside MCP (HTTP) | `http://127.0.0.1:8013/mcp` | ✅ (in `~/.claude/mcp-strict.json` + `~/.claude.json`) |
 | Aside MCP (stdio) | `aside mcp` | ✅ |
 | Aside Safe Storage keychain | `Aside Safe Storage` / `Aside` | ✅ |
@@ -187,18 +150,18 @@ curl -fsSL https://releases.aside.com/install.sh | bash
 
 ## Cross-browser cookie portability
 
-Aside uses its own macOS Keychain entry (`Aside Safe Storage`), separate from Chrome's (`Chrome Safe Storage`). Cookies cannot be cross-imported without re-encryption. The `browserclaw` skill now supports `--keychain-service 'Aside Safe Storage'` and `--keychain-account 'Aside'` for Aside → Playwright inject. The reverse direction (Chrome → Aside) is not supported in `browserclaw` yet — log a request via `/learn` if needed.
+Aside and Chrome use separate macOS Keychain entries. This is portability background, not permission to copy cookies. Any transfer is limited to the exact, explicitly authorized agent-owned source and guarded private-temp lifecycle in browser-control; personal Chrome is never a source. Re-encryption does not authorize bypassing an access control.
 
 ## Verification
 
 ```bash
 # 1. CLI alive
 aside --version       # 1.26.626.1517
-aside account list    # * u0  $USER@gmail.com  signed in
+aside account list    # * u0  '<account-email>'  signed in
 
 # 2. REPL alive
 aside repl "console.log('ok')"        # [ok | <Nms>]
-aside repl "listBrowserTabs().length" # a number (0 if no tabs open)
+  aside repl "(async () => console.log((await listBrowserTabs()).length))()" # number of open tabs
 
 # 3. NL agent alive
 aside "Open https://example.com and report the title"  # returns "Example Domain"
@@ -212,34 +175,19 @@ curl -fsS http://127.0.0.1:8013/mcp -X POST -H 'Content-Type: application/json' 
 
 When reporting browser work, include `browser_mode: aside-cli` (or `aside-mcp` / `playwright-fallback` / `superpowers-chrome-fallback`) in the status line.
 
-## Reversal
+## Administrative rollback
 
-To switch back to Playwright MCP as the default:
-
-```bash
-bash ~/.hermes/scripts/rollback-aside-default.sh
-```
-
-This script:
-1. Saves a snapshot of the current `~/.claude.json` mcpServers block to `~/.hermes/snapshots/pre-aside-default-YYYY-MM-DD.json`.
-2. Removes the `aside-browser-default` skill folder.
-3. Removes `aside-mcp` from `~/.claude.json`.
-4. Reverts SOUL.md / AGENTS.md / CLAUDE.md browser COMMIT blocks to their pre-aside-default state (the blocks are read from the snapshot).
-5. Resets macOS default browser to Chrome via `defaultbrowser chrome`.
-
-The script is idempotent — running it twice is safe.
+`~/.hermes/scripts/rollback-aside-default.sh` changes user-wide agent configuration and resets the macOS default browser. It is not a browser-recovery fallback and must not be run during ordinary browser work. Any configuration migration requires a separate, explicitly scoped task.
 
 ## References
 - **Cross-references:**
-  - `references/aside-repl-api-gotchas.md` — verified REPL API surface (2026-07-05; updated 2026-07-09, 2026-07-13, 2026-07-14, 2026-07-15): `screenshot()` doesn't exist, `fs`/`require`/`process` not available, `listBrowserTabs()` is a Promise, `openTab()` returns CDP target object, `slack.getClient()` is the only zero-scope-setup Slack channel-create path, `aside repl` is stateless across invocations, `DOMRect` from `evaluate()` must be flattened before serialization, console.log required for output capture, "fetch failed" = Aside GUI not running, `aside --effort ultrabrowse` times out on multi-step structured flows, **heavy SPA landing pages disconnect CDP — capture lightweight JSON endpoints first** (2026-07-15). Must-read before writing any `aside repl` automation.
+  - `references/aside-repl-api-gotchas.md` — verified REPL API surface (2026-07-05; updated 2026-07-09, 2026-07-13, 2026-07-14, 2026-07-15): `screenshot()` doesn't exist, `fs`/`require`/`process` not available, `listBrowserTabs()` is a Promise, `openTab()` returns CDP target object, `aside repl` is stateless across invocations, `DOMRect` from `evaluate()` must be flattened before serialization, console.log required for output capture, "fetch failed" = Aside GUI not running, `aside --effort ultrabrowse` times out on multi-step structured flows, **heavy SPA landing pages disconnect CDP — capture lightweight JSON endpoints first** (2026-07-15). Must-read before writing any `aside repl` automation.
   - `references/slack-web-ui-scraping.md` — verified recipe for scraping Slack web views (Later page, Activity, Saved items, DMs) via Aside: tab click selectors (`button.c-tabs__tab`), virtualized-list scroll pattern, `Incomplete • X ago` / `Due in X` regex parser, XOX-P fallback for posting results back. Verified 2026-07-14 against the Later page.
-- `references/oauth-capture-and-drive.md` — 7-step recipe for driving browser-based OAuth flows (Granola MCP verified 2026-07-06) by shadowing `open` on PATH, capturing the URL mcporter tries to launch, then `aside repl openTab(url)` — works when the user is already signed in to the upstream IdP in Aside Chrome. **Correction**: the earlier claim that "Aside cannot do OAuth" was wrong for `aside repl`; only `aside exec` is Codex-gated.
-- `references/aside-cookie-portability.md` — full Chrome-vs-Aside cookie-DB sweep recipe + verified 2026-07-22 case where the user was authenticated to `api.monarch.com` in Aside but Chrome Default had 0 cookies. Always run the multi-DB sweep before declaring "the user isn't logged in." Covers `--keychain-service 'Aside Safe Storage'`, the no-entry-due-to-no-cookies-written-yet fail mode, and Slack's newer cookie-format caveat (Aside decrypts `d` to hex; Chrome keeps it as `xoxd-`; Slack rejects the Aside format).
+- `references/oauth-capture-and-drive.md` — retired OAuth recipe notice. Do not execute the former opener-shadowing, desktop-browser, or direct API-probe flow.
+  - `references/aside-cookie-portability.md` — background on Aside's separate cookie store and keychain. For an explicitly authorized authenticated-content task, inspect only the one authorized agent-owned source and use the canonical guarded lifecycle in `~/.claude/skills/browser-control/SKILL.md`; do not run the legacy multi-DB sweep or query personal Chrome stores. Covers `--keychain-service 'Aside Safe Storage'`, the no-entry-due-to-no-cookies-written-yet fail mode, and Slack's newer cookie-format caveat (Aside decrypts `d` to hex; Chrome keeps it as `xoxd-`; Slack rejects the Aside format).
 - `/learn` capture for this switch: `~/.claude/projects/-Users-$USER--hermes/memory/feedback_2026-06-27_aside-browser-default-switch.md`
 - Wiki source page: `~/llm_wiki/wiki/sources/aside-browser-default-switch-2026-06-27.md`
 - Wiki entity: `~/llm_wiki/wiki/entities/AsideBrowser.md`
 - Wiki concept: `~/llm_wiki/wiki/concepts/ReversibleFacadePattern.md`
 - Roadmap learnings: `~/roadmap/learnings-2026-06.md` (2026-06-27 entry)
-- Rollback script: `~/.hermes/scripts/rollback-aside-default.sh`
 - Aside docs: <https://docs.aside.com/help/developers>
-- Install: `curl -fsSL https://releases.aside.com/install.sh | bash`

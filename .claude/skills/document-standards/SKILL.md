@@ -29,7 +29,7 @@ real, full pass when installed; substitute an equivalent if you have one.
 | Thermo-nuclear code quality | Pattern source for the doc-audit rubric in lane 4 |
 | Writer | Prose-level AI-tell, voice, and rhythm rules (optional polish pass) |
 | gdocs-access | Google Docs tool order and edit-in-place rules |
-| pr-description-sections | Durable-state writing, zero-context reader, section order, User Story requirement |
+| pr-description-sections | Pointer to the shared PR-description owner and target-repository template |
 
 ## Universal lanes
 
@@ -93,8 +93,9 @@ real, full pass when installed; substitute an equivalent if you have one.
      defect.
    - One voice, one tense (present for current state).
    - **PR descriptions**: when the target is a PR description (or the repo's
-     `.github/pull_request_template.md`), the Background/Summary section is
-     followed by a **User Story** stated in plain, non-technical language —
+     `.github/pull_request_template.md`), include a **User Story** in the
+     order required by `~/.codex/AGENTS.md` § PR descriptions and the target
+     repository's template. State it in plain, non-technical language —
      what does the user encounter today (the problem/friction/bug) and what
      changes for them after this PR, with no jargon or internal file/function
      names. An implementation summary ("refactors X to use Y") does not
@@ -107,8 +108,9 @@ real, full pass when installed; substitute an equivalent if you have one.
      link is additional context, not a substitute for the one-sentence
      before/after; a bare link with no sentence does not satisfy this section.
      If the PR introduces new user-facing behavior with none, flag that a
-     story doc should be added. See the `pr-description-sections` skill for
-     the canonical section list.
+     story doc should be added. See `~/.codex/AGENTS.md` § PR descriptions
+     (canonical owner) for the shared structure, and the target repository's
+     instructions and template for local requirements.
    - **Run the AI-tell sub-pass** (catalogue and discriminator below) over the
      doc's own prose. This is a required part of lane 3, not optional polish.
      The `writer` skill's lexicon and rhythm rules, if installed, extend it.
@@ -320,4 +322,3 @@ should still run the lanes), do not run lanes and do not edit files. Report:
 `/code-standards` reviews code, diffs, and PRs; `/document-standards` reviews
 prose. When a PR changes both, run both commands against their respective
 surfaces. Neither replaces the other.
-
