@@ -33,8 +33,8 @@ done
 cmx() { command cmux "$@" 2>/dev/null; }
 PS_BIN="${CMUX_CLI_RESTORE_PS:-ps}"
 proc_list() { "$PS_BIN" -Ao tty,pid,etime,command 2>/dev/null; }
-lane_pids() { # tty -> pids of the CLI on that tty, one per line
-  proc_list | awk -v t="$1" '$1==t && ($0 ~ /codex resume|@openai\/codex|\/bin\/codex|(^| )claude( |$)/) {print $2}'
+lane_pids_of() { # <raw listing> <tty> -> pids of the CLI on that tty
+  printf '%s\n' "$1" | awk -v t="$2" '$1==t && ($0 ~ /codex resume|@openai\/codex|\/bin\/codex|(^| )claude( |$)/) {print $2}'
 }
 
 tty_of() { # ws sf -> ttysNNN  (single capture, parsed with awk; multi-pipe blanked under pipefail)
@@ -178,6 +178,19 @@ esac
 
 if [[ $DRY_RUN -eq 1 ]]; then echo "dry-run: would ctrl+c, sanitize, type '$cmd', accept goal dialog, verify"; exit 0; fi
 
+# 0. snapshot the pids that were already there, BEFORE any keystroke. Baseline
+#    acquisition must succeed: an empty baseline makes a surviving old pid look
+#    new in the post-snapshot (dot reviews at d2592291 / 05cbaafe).
+t_pre=$(tty_of "$WS" "$SF")
+if [[ -z "$t_pre" ]]; then
+  echo "ABORT: could not resolve the surface tty before restart; no keystroke sent"; exit 9
+fi
+pre_raw=$(proc_list)
+if [[ -z "$pre_raw" ]]; then
+  echo "ABORT: process listing failed before restart; cannot prove a new pid later; no keystroke sent"; exit 9
+fi
+pre_pids=$(lane_pids_of "$pre_raw" "$t_pre" | sed '/^$/d' | sort -u)
+
 # 1. exit
 for _ in 1 2 3; do
   cmx send-key --workspace "$WS" --surface "$SF" ctrl+c >/dev/null; sleep 3
@@ -192,9 +205,6 @@ if ! prompt_clean "$WS" "$SF"; then
   cmx capture-pane --workspace "$WS" --surface "$SF" --lines 4 >&2
   exit 5
 fi
-# 2b. snapshot the pids that were already there, so "restarted" cannot mean "still running"
-t_pre=$(tty_of "$WS" "$SF")
-pre_pids=$(lane_pids "$t_pre" | sort -u)
 
 # 3. restart — every input is checked; a silent send failure is not a restart
 cmx send --workspace "$WS" --surface "$SF" "$cmd" >/dev/null || { echo "ABORT: send of '$cmd' failed; nothing restarted"; exit 8; }
@@ -207,7 +217,14 @@ if cmx capture-pane --workspace "$WS" --surface "$SF" --lines 10 | grep -q 'Resu
 fi
 # 5. verify at the process level
 t2=$(tty_of "$WS" "$SF")
-post_pids=$(lane_pids "$t2" | sort -u)
+if [[ -z "$t2" || "$t2" != "$t_pre" ]]; then
+  echo "UNVERIFIED: tty changed or unreadable (pre=${t_pre:-none} post=${t2:-none}); cannot compare pids" >&2; exit 6
+fi
+post_raw=$(proc_list)
+if [[ -z "$post_raw" ]]; then
+  echo "UNVERIFIED: process listing failed after restart; cannot prove a new pid" >&2; exit 9
+fi
+post_pids=$(lane_pids_of "$post_raw" "$t2" | sed '/^$/d' | sort -u)
 new_pids=$(comm -13 <(printf '%s\n' "$pre_pids" | sed '/^$/d' | sort -u) <(printf '%s\n' "$post_pids" | sed '/^$/d' | sort -u))
 if [[ -n "$new_pids" ]]; then
   echo "RESTARTED new pid(s)=$(printf '%s' "$new_pids" | tr '\n' ' ') on ${t2:-?} (pre-restart pids: $(printf '%s' "${pre_pids:-none}" | tr '\n' ' '))"

@@ -162,3 +162,16 @@ class RestartVerificationTest(unittest.TestCase):
         proc = self._run_with(stub, ps)
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         self.assertIn("RESTARTED", proc.stdout)
+
+    def test_pre_snapshot_failure_aborts_before_any_send(self):
+        """dot review at d2592291: an unreadable baseline made an old pid look NEW."""
+        tmp = Path(tempfile.mkdtemp(prefix="fakeps-fail-"))
+        ps = tmp / "fakeps_fail"
+        ps.write_text("#!/bin/bash\nexit 1\n")
+        ps.chmod(0o755)
+        stub = StubCmux("clean")
+        proc = self._run_with(stub, ps)
+        self.assertEqual(proc.returncode, 9, proc.stdout + proc.stderr)
+        self.assertIn("process listing failed before restart", proc.stdout)
+        self.assertEqual(stub.sent(), [], f"sent without a baseline: {stub.sent()}")
+        self.assertNotIn("RESTARTED", proc.stdout)
