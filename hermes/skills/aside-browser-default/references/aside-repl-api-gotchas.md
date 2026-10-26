@@ -1,6 +1,6 @@
 # Aside REPL API — Verified Surface (gotchas + correct recipes)
 
-Captured 2026-07-05 against `aside` CLI v1.26.703.1528 (Aside Daemon 1.26.703.1528); **extended 2026-07-13 against v1.26.713.1911** with the `slack.getClient()` bot-rejoin recipe (was §7, now §11), the bash-shell escaping trap (§12), and the membership-vs-listing pitfall for Slack bot work (§13). Several examples in `SKILL.md` Phase 2 show functions that **don't exist or have different return shapes** than documented. This reference is the canonical fix list.
+Captured 2026-07-05 against `aside` CLI v1.26.703.1528 (Aside Daemon 1.26.703.1528); extended 2026-07-13 against v1.26.713.1911 with REPL and Slack membership observations. The historical `slack.getClient()` recipe is retired because it used browser-backed authentication to bypass API scope limits. Several examples in `SKILL.md` Phase 2 show functions that **don't exist or have different return shapes** than documented. This reference is the canonical fix list.
 
 ## Top-line gotchas
 
@@ -142,7 +142,7 @@ The `aside` CLI auto-updates the daemon on each invocation sometimes (saw daemon
 navigator, tabs, listBrowserTabs, attachBrowserTab, attachActiveBrowserTab,
 getTabByTargetId, openTab, closeTab, snapshot, annotatedScreenshot,
 installPageScript, page,
-slack,                       // Aside-managed Slack Web API client (see §11)
+slack,                       // Cookie-backed; do not use for Slack API calls (see §7)
 aside,                       // aside sub-primitives: pdf, settings, sessions, routines
 applePasswords, captcha, chrome, cua, gmail, googleAccounts, googleDocs,
 googlePeople, googleSearch, googleSheets, imageSearch, youtube, linkedin,
@@ -151,89 +151,13 @@ twitter, notion, blockToMarkdown, markdownToBlockSpecs, display
 
 `Buffer` is also available (built-in). Everything else (fs, require, process, fetch, setTimeout-as-promise) is **not** in the REPL sandbox — use the stdout pattern to ship data out.
 
-> **MISSING from the REPL — verified 2026-07-13 against v1.26.713.1911:** `browser_click`, `browser_type`, `browser_fill`, `browser_press`, `browser_hover`, `browser_snapshot` (full-named version; the bare `snapshot` IS available). Any SKILL.md example that calls `await browser_click({ ref: 'e73' })` will throw `ReferenceError: browser_click is not defined`. Use `mcp__aside-mcp__*` from a runtime that exposes them, or drive the page via `page.evaluate(() => element.click())`, or for Slack flows use the `slack.getClient()` bypass (§11).
+> **MISSING from the REPL — verified 2026-07-13 against v1.26.713.1911:** `browser_click`, `browser_type`, `browser_fill`, `browser_press`, `browser_hover`, `browser_snapshot` (full-named version; the bare `snapshot` IS available). Any SKILL.md example that calls `await browser_click({ ref: 'e73' })` will throw `ReferenceError: browser_click is not defined`. Use `mcp__aside-mcp__*` from a runtime that exposes them, or drive the page via `page.evaluate(() => element.click())`.
 
-### 7. `slack` is a top-level global — full Slack Web API via `getClient(teamId).apiCall()`
+### 7. Slack operations require approved scopes
 
-Aside ships a managed Slack Web client that **auto-injects auth cookies** for the signed-in workspaces — no token, no manual OAuth. Verified 2026-07-09 by creating the `#factory` channel (id `C0BGEC77EP4`) in workspace `T09FXQ4LCQP` from a fresh agent session, with zero environment setup.
+The Aside `slack` global uses browser-backed authentication. Do not call it, `slack.getClient()`, or any equivalent cookie-backed API path. For Slack operations, use the approved Slack connector/API with its existing authorized scopes. A missing scope is an authorization boundary: report it or use an appropriate Slack UI action in an already authorized, verified isolated agent-owned browser context. Never inherit personal-browser cookies or use browser cookies to bypass a missing scope.
 
-```js
-// 1. List joined workspaces (each entry has teamId, name, url, isLastActive)
-const ws = await slack.listWorkspaces();
-console.log(JSON.stringify(ws));
-
-// 2. Get a Web-API client bound to a specific team. lastActiveTeamId is
-//    the default if you pass nothing.
-const c = await slack.getClient(ws[0].teamId);
-
-// 3. Call any Slack Web API method. Returns the raw JSON response.
-const result = await c.apiCall('conversations.create', {
-  name: 'factory',
-  is_private: false,
-});
-// → { ok: true, channel: { id: "C0BGEC77EP4", creator: "U09GH5BR3QU", ... } }
-
-// 4. Send a message, set topic, invite users, list members — same shape.
-const inv = await c.apiCall('conversations.invite', {
-  channel: 'C0BGEC77EP4',
-  users: 'U0AEZC7RX1Q',   // user-id, NOT @handle
-});
-const msg = await c.apiCall('chat.postMessage', {
-  channel: 'C0BGEC77EP4',
-  text: ':factory: channel is live',
-});
-```
-
-**Critical pitfall:** `mcp__slack__*` does **not** expose `conversations.create`, `conversations.invite`, or `conversations.setTopic`. Direct `curl https://slack.com/api/conversations.create` requires `channels:write` scope on a token you own — Jeffrey's `SLACK_MCP_XOXP_TOKEN` only has `chat:write` as of 2026-07-09, so the raw Web-API path is **blocked**. **Use Aside's `slack.getClient()` instead** — it is the only zero-scope-setup path that actually creates channels.
-
-**Available `client` methods:** `apiCall`, `paginate`, `chatStream`, `filesUploadV2`, `fetchAllUploadURLExternal`, `completeFileUploads`, `postFileUploadsToExternalURL`, `getAllFileUploads`. Use `apiCall` for everything except file uploads — it accepts the exact same args as the Web API docs.
-
-## Canonical Slack bot-rejoin recipe (verified 2026-07-13)
-
-**Problem:** A Slack bot (e.g. MCP Mail `U0A4G7LDJ4R`) gets removed from some channels. Morning-sweep says "bot is in 0 channels" but the bot is actually fine — wait, no, this sweep is from the bot, and `conversations.list` returns names visible in the workspace, NOT membership. **First verify with `conversations.members` (see §13)**. If the bot IS missing from specific channels:
-
-```js
-// 1. Get the user's signed-in Slack client (Aside-managed, inherits workspace scopes)
-const ws = await slack.listWorkspaces();
-const c = await slack.getClient(ws[0].teamId);  // 'T09FXQ4LCQP' for $USER AI
-
-// 2. Resolve channel NAME → ID first (you typically know the name, not the C-id).
-//    Pass types=public_channel,private_channel so you catch all of them.
-const list = await c.apiCall('conversations.list', {
-  types: 'public_channel,private_channel',
-  limit: 200,
-  exclude_archived: true,
-});
-const byName = Object.fromEntries(list.channels.map(ch => [ch.name, ch.id]));
-
-// 3. Bulk-invite the bot to the channels it was removed from.
-//    First verify which channels it IS NOT a member of.
-const targets = ['life','worldai','worldai-bugs','all-$USER-ai','agent-orchestrator','ai-general','jleechanclaw','agentf','ai-universe','hermes-pc','mcp-mail','ralph-status'];
-const botUser = 'U0A4G7LDJ4R';
-for (const name of targets) {
-  const id = byName[name];
-  if (!id) { console.log('SKIP', name, '(not found)'); continue; }
-  const r = await c.apiCall('conversations.invite', { channel: id, users: botUser });
-  console.log(name, r.ok ? 'OK' : ('ERR ' + r.error), r.channel?.is_member ? '(now member)' : '');
-}
-```
-
-**Verified output (excerpt, 2026-07-13 against `aside` v1.26.713.1911, 35 channels):**
-```
-worldai-bugs OK (now member)
-life OK (now member)
-...
-```
-
-**Then verify from the bot side** (XOXB/XOXP token):
-```bash
-curl -sH "Authorization: Bearer $HERMES_SLACK_BOT_TOKEN" \
-  "https://slack.com/api/conversations.info?channel=C0BDEAJH8PK" \
-  | python3 -c "import json,sys; d=json.load(sys.stdin); print('is_member:', d['channel']['is_member'])"
-# 200 OK is_member: True
-```
-
-**Pitfall — `slack.getClient()` is stateless across invocations.** Each `aside repl "..."` call spawns a fresh VM. Capture the client in a closure variable, do all your channel resolutions in the SAME invocation. If you split into two repls the client from the first one is gone by the time the second runs.
+For bot membership checks, use `conversations.members` through an approved Slack connector/API whose existing scopes permit the call; `conversations.list` shows visible channels and does not prove membership. If the required read scope is unavailable, report that limitation. See §13 for the distinction.
 
 ### 8. **`aside repl` is stateless — `tabs[0]` does NOT survive across `repl` invocations**
 
@@ -349,15 +273,9 @@ JS
 
 **Heuristic:** if your `aside repl "<...>"` invocation has more than ~3 `(`/`)`, more than one `=>`, OR template-literal backticks — write it to a file first.
 
-### 13. **Slack bots are NOT auto-rejoined to channels after app reinstall or token rotation** (verified 2026-07-13)
+### 13. Slack bot membership after reinstall or token rotation
 
-A common slip: when an MCP Mail bot was uninstalled/reinstalled or its token rotated, agents assume Slack will "see the bot is back" and re-add it to its previous channels. It will not. Slack requires an explicit `conversations.invite` (or UI click) per channel. If the XOXP token lacks `channels:write.invites` scope (which is the default), the UI fallback path is the `slack.getClient()` bypass (§11).
-
-**Triage order when a sweep reports "bot is in 0 channels":**
-1. Confirm with `conversations.members` (§11) — not `conversations.list`.
-2. If actually missing, try `conversations.invite` from bot token first (some bot scopes include it: `{"ok":false,"error":"not_in_channel"}` not `missing_scope`).
-3. If bot token returns `missing_scope`, use Aside's `slack.getClient()` (§7).
-4. Only as a last resort, have the user click "Add people to channel" in the Slack UI.
+Slack does not automatically rejoin a bot to channels after app reinstall or token rotation. Verify actual membership through an approved Slack connector/API with the existing required scopes; `conversations.list` alone only shows channels visible to the caller. To rejoin, use an approved API call with its existing authorized scopes, or an authorized UI action in an already verified isolated agent-owned browser context. If the required scope or human authorization is missing, report the boundary. Do not use Aside's cookie-backed Slack client or any browser-cookie API bypass.
 
 ### 14. **Aside CLI exits "fetch failed" when its background service is unavailable**
 
@@ -443,20 +361,7 @@ aside repl "const s = await annotatedScreenshot(p); s.base64Image.slice(0,30)"
                                                       → "iVBORw0KGgoAAAANSUhEUgAAC0AAAAc"  (PNG base64 ✓)
 ```
 
-Bot-rejoin verification transcript (2026-07-13):
-
-```text
-aside repl "const ws = await slack.listWorkspaces(); console.log(JSON.stringify(ws))"
-→ [{"teamId":"T09FXQ4LCQP","name":"$USER AI","url":"https://app.slack.com/client/T09FXQ4LCQP","status":"joined","isLastActive":true,"slug":"jleechanai","userId":"U09GH5BR3QU"}]
-
-aside repl "const c = await slack.getClient('T09FXQ4LCQP'); const r = await c.apiCall('conversations.invite', {channel: 'C0BDEAJH8PK', users: 'U0A4G7LDJ4R'}); console.log(JSON.stringify(r))"
-→ {"ok":true,"channel":{"id":"C0BDEAJH8PK","name":"worldai-bugs","is_member":true,"latest":{"subtype":"channel_join","user":"U0A4G7LDJ4R","text":"<@U0A4G7LDJ4R> has joined the channel","inviter":"U09GH5BR3QU","ts":"1783982071.800869"},...}}
-
-# Bot-side confirmation via REST:
-curl -sH "Authorization: Bearer $HERMES_SLACK_BOT_TOKEN" \
-  "https://slack.com/api/conversations.info?channel=C0BDEAJH8PK"
-→ name=worldai-bugs is_member=True
-```
+Historical bot-rejoin transcript omitted because it documents the retired cookie-backed Slack API bypass.
 
 Heavy-SPA CDP-disconnect verification (2026-07-15, PR #7953 evidence):
 

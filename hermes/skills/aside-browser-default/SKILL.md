@@ -57,15 +57,6 @@ Aside is a Y Combinator–backed AI-native Chromium browser launched June 2026. 
   //    (require the Aside REPL to have the `page` global — see gotchas §10)
   await page.evaluate(() => document.querySelector('[ref-attr], button').click());
 
-  // ✅ Workaround for high-trust flows: use the slack.getClient() bypass
-  //    (bypasses the browser entirely for Slack API calls that need
-  //     scopes the user's XOXP token lacks — see gotchas §11)
-  const c = await slack.getClient('<team-id>');
-  const r = await c.apiCall('conversations.invite', {
-    channel: '<channel-id>',
-    users: '<user-id>',
-  });
-  console.log('invite ok:', r.ok);
   ```
 
 - **Multi-line REPL scripts MUST go through `$(cat file)` or heredoc, NOT inline string args** — verified 2026-07-13. When JS contains parentheses inside template literals or string-concatenation (e.g. `String(s.tree).split('\n').filter(l => /ref=e\d+/.test(l))`), bash will mangle the parens before Aside ever sees them, returning `bash: eval: line 16: syntax error near unexpected token '('` instead of the Aside "ReferenceError" you'd expect. The fix:
@@ -106,23 +97,7 @@ Aside is a Y Combinator–backed AI-native Chromium browser launched June 2026. 
   console.log('B64:' + shot.base64Image);
   ```
 - **OAuth:** use the provider-supported flow in an isolated, agent-owned browser context. Do not intercept system URL openers, log authorization URLs, clear cached grants, or launch/drive a desktop browser. The old capture-and-drive reference is retired and non-executable.
-- **Slack API bypass via `slack.getClient()`** (verified 2026-07-13, aside v1.26.713.1911): when you need to call a Slack Web API method that the user's XOXP token lacks scope for (e.g. `conversations.invite` returns `missing_scope: channels:write.invites`, or `conversations.create` needs `channels:write`), use the Aside-managed Slack client instead of raw `curl`. The client is signed-in to all workspaces the user has profiles for and inherits the user's workspace scopes — bypassing bot-scope and channel-scope limits of any single token. Full method signature in gotchas-reference §11 (the canonical verified recipe):
-  ```js
-  // List joined workspaces
-  const ws = await slack.listWorkspaces();
-  // → [{ teamId: "<team-id>", name: "<workspace-name>", url: "...", isLastActive: true, userId: "<user-id>" }]
-
-  // Get a Web-API client for the user's workspace
-  const c = await slack.getClient('<team-id>');
-
-  // Call any Slack method — accepts exact same args as web API docs
-  const inv = await c.apiCall('conversations.invite', {
-    channel: '<channel-id>',  // channel id, NOT name
-    users:   '<user-id>',     // user id, NOT @handle
-  });
-  // → { ok: true, channel: { id, is_member: true, latest: { subtype: "channel_join", ... } } }
-  ```
-  **Use case (the bot-rejoin bug):** when a slack bot (`U…`) was removed from channels but is still a valid app, and the user's XOXP token returns `missing_scope: channels:write.invites` on `conversations.invite`, this is the ONLY path to re-add the bot without bothering the user to click in the Slack UI. Verified 2026-07-13 against MCP Mail bot `<bot-user-id>` across its authorized channels.
+- **Slack operations:** use the approved Slack connector/API with its existing authorized scopes. If a method is unavailable or returns `missing_scope`, do not use `slack.getClient()` or browser cookies to bypass that limit; use an authorized Slack UI action in an already verified, isolated agent-owned browser context when appropriate, or report the missing authorization. See `references/aside-repl-api-gotchas.md` for this boundary and safe membership checks.
 
 - **Session continuity** (continue a prior NL session):
   ```bash
@@ -155,7 +130,7 @@ If the Aside CLI or app is unavailable, use isolated headless Chromium. Installa
 - ❌ Calling `screenshot()` in the REPL — it doesn't exist; use `annotatedScreenshot()` which returns `{base64Image: "..."}`. See `references/aside-repl-api-gotchas.md`.
 - ❌ Using `listBrowserTabs()` synchronously — it's a Promise; entries are `{url, title}` plain-property objects, not callables. See `references/aside-repl-api-gotchas.md`.
 - ❌ Using `require('fs')` or `process.stdout` inside the REPL — only `Buffer` and the Aside functions are in scope. Save files by emitting base64 to stdout and decoding in the caller.
-- ❌ Calling `browser_click` / `browser_type` / `browser_fill` / `browser_press` from `aside repl` — **these primitives don't exist in the REPL** (verified v1.26.713.1911, 2026-07-13). Use `mcp__aside-mcp__*` from a runtime that exposes them, or drive the page via `page.evaluate(...)`. See Pattern `slack.getClient()` bypass below for Slack-specific shortcuts.
+- ❌ Calling `browser_click` / `browser_type` / `browser_fill` / `browser_press` from `aside repl` — **these primitives don't exist in the REPL** (verified v1.26.713.1911, 2026-07-13). Use `mcp__aside-mcp__*` from a runtime that exposes them, or drive the page via `page.evaluate(...)`.
 - ❌ Passing multi-line JS with parens / curly braces / template literals directly as an `aside repl "..."` inline arg — bash tokenizes before Aside sees the code. Use `$(cat /tmp/script.js)` or a quoted heredoc instead. Wasted two REPL invocations on 2026-07-13 on `aside repl "lines.filter(l => /button \"/button '.+'/i.test(l)).slice(0, 60)..."`.
 - ❌ Using Aside inference (`aside "..."` NL agent, `aside --effort ultrabrowse`, `aside exec`, `aside exec -m`) for `/web-advice` — `/web-advice` navigates directly to the real web chat pages to leverage the user's subscriptions. Prefer `aside-mcp` / `aside repl`; use the canonical skill's approved Playwright/Chrome browser fallbacks only when Aside is unavailable or unsupported. Aside inference consumes Aside's token quota and does not use the web chat subscriptions.
 
@@ -206,7 +181,7 @@ When reporting browser work, include `browser_mode: aside-cli` (or `aside-mcp` /
 
 ## References
 - **Cross-references:**
-  - `references/aside-repl-api-gotchas.md` — verified REPL API surface (2026-07-05; updated 2026-07-09, 2026-07-13, 2026-07-14, 2026-07-15): `screenshot()` doesn't exist, `fs`/`require`/`process` not available, `listBrowserTabs()` is a Promise, `openTab()` returns CDP target object, `slack.getClient()` is the only zero-scope-setup Slack channel-create path, `aside repl` is stateless across invocations, `DOMRect` from `evaluate()` must be flattened before serialization, console.log required for output capture, "fetch failed" = Aside GUI not running, `aside --effort ultrabrowse` times out on multi-step structured flows, **heavy SPA landing pages disconnect CDP — capture lightweight JSON endpoints first** (2026-07-15). Must-read before writing any `aside repl` automation.
+  - `references/aside-repl-api-gotchas.md` — verified REPL API surface (2026-07-05; updated 2026-07-09, 2026-07-13, 2026-07-14, 2026-07-15): `screenshot()` doesn't exist, `fs`/`require`/`process` not available, `listBrowserTabs()` is a Promise, `openTab()` returns CDP target object, `aside repl` is stateless across invocations, `DOMRect` from `evaluate()` must be flattened before serialization, console.log required for output capture, "fetch failed" = Aside GUI not running, `aside --effort ultrabrowse` times out on multi-step structured flows, **heavy SPA landing pages disconnect CDP — capture lightweight JSON endpoints first** (2026-07-15). Must-read before writing any `aside repl` automation.
   - `references/slack-web-ui-scraping.md` — verified recipe for scraping Slack web views (Later page, Activity, Saved items, DMs) via Aside: tab click selectors (`button.c-tabs__tab`), virtualized-list scroll pattern, `Incomplete • X ago` / `Due in X` regex parser, XOX-P fallback for posting results back. Verified 2026-07-14 against the Later page.
 - `references/oauth-capture-and-drive.md` — retired OAuth recipe notice. Do not execute the former opener-shadowing, desktop-browser, or direct API-probe flow.
   - `references/aside-cookie-portability.md` — background on Aside's separate cookie store and keychain. For an explicitly authorized authenticated-content task, inspect only the one authorized agent-owned source and use the canonical guarded lifecycle in `~/.claude/skills/browser-control/SKILL.md`; do not run the legacy multi-DB sweep or query personal Chrome stores. Covers `--keychain-service 'Aside Safe Storage'`, the no-entry-due-to-no-cookies-written-yet fail mode, and Slack's newer cookie-format caveat (Aside decrypts `d` to hex; Chrome keeps it as `xoxd-`; Slack rejects the Aside format).

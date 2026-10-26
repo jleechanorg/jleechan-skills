@@ -55,12 +55,12 @@ Only an explicit current-thread request authorizes visible mode, and only in a s
 
 ## Automatic-auth default (added 2026-07-30, browserclaw v2 design review)
 
-The headless default extends one level deeper: **the operator should not have to open a browser at all for routine web work**. Login, session recovery, MFA, passkey, SSO, and device-confirmation must all be driven autonomously by an explicitly authorized agent-owned Aside session or the equivalent browser runtime. Manual fallback — asking the operator to log in, paste a credential, or complete a CAPTCHA — is the exception, not the default, and only fires after bounded autonomous recovery is exhausted.
+For routine web work, prefer provider-supported authentication and session recovery in an already authorized isolated agent-owned context. Do not attempt to automate or bypass human consent, MFA, passkey approval, SSO approval, or device confirmation. Stop and report when the provider requires one of these human actions; do not ask for or capture passwords, tokens, or other secrets, and do not use a personal browser. An explicit current-thread request for visible automation still permits only a separate, verified task-owned browser/profile, subject to these provider requirements.
 
 This applies regardless of which tool is driving the browser:
 
 - The browserclaw v2 design is design context only. It does not override the no-personal-browser, no credential capture, no bearer injection, or no auth-bypass rules in browser-control.
-- For ad-hoc browser work, use only an already authorized isolated agent-owned context and the provider's supported authentication flow. Do not fill passwords, capture credentials, bypass authentication, or open/activate a desktop browser as an autonomous recovery step.
+- For ad-hoc browser work, use only an already authorized isolated agent-owned context and the provider's supported authentication flow. Do not fill passwords, capture credentials, bypass authentication, or open/activate a desktop browser as an autonomous recovery step. If human consent, MFA, passkey approval, SSO approval, or device confirmation is required, stop and report that requirement.
 - For cron or babysit jobs that need auth: use an explicitly authorized agent-owned profile through the browser-control contract; do not schedule recurring cookie polling or relaunches against a personal profile.
 
 Operator verbatim (2026-07-30, Slack browserclaw design review): *"I want automatic auth and never wanna use my browser unless forced."*
