@@ -115,25 +115,12 @@ def evidence_gate_fires(draft_text: str) -> bool:
 
 **The principle:** when a recurring user correction has hit ≥3 times (as this one has), the fix must be a pre-send gate that intercepts the failure BEFORE the bad message is sent — not a post-hoc remediation rule that fires after the user complains. See `references/recurring-failure-pattern-2026-07.md` for the full 4-incident chain.
 
-## OAuth Scope Preflight (NEW in v1.6.0)
+## Scope preflight status
 
-**Before attempting Stage 1**, run the scope preflight:
-
-```bash
-python3 ~/.hermes/skills/evidence-attach-to-slack/scripts/check_token_scopes.py
-```
-
-The script probes `HERMES_SLACK_BOT_TOKEN` and `SLACK_USER_TOKEN` against `auth.test` and returns one of three states:
-
-| State | Token | Action |
-|---|---|---|
-| `bot_has_scope` | bot has `files:write` | Use canonical 3-stage flow with bot token |
-| `xoxp_has_scope` | bot fails, xoxp has `files:write:user` | Use xoxp token for Stage 1-3 |
-| `neither_has_scope` | neither configured token has the required scope | Stop and report the exact scope blocker; do not switch to a gist or change credentials/scopes |
-
-**Why this matters (verified 2026-07-14 on PR #8139):** I burned 4 curl calls discovering both tokens lacked `files:write` mid-flow. The preflight collapses that into 2 `auth.test` calls (one per token) and tells you the correct path upfront. Saves ~10s per evidence-attach cycle.
-
-**Historical scope record:** Earlier checks found a missing `files:write` scope. That record is dated evidence, not proof of the current credential state and not authorization to access a personal browser, change scopes, or rotate credentials. Use the current preflight result; if no already-configured token has the required scope, stop and report the blocker.
+Do not run the historical `check_token_scopes.py` helper as an operational
+routing decision; it contains stale fallback guidance. Use the configured,
+authorized native uploader and follow the API-error guidance under
+“Missing upload scope” below.
 
 ## When to use
 
@@ -215,7 +202,11 @@ After uploading all the files, post a single text message in the thread that nam
 
 For xoxp fallback: `grep '^export SLACK_USER_TOKEN=' ~/.profile | sed 's/^export SLACK_USER_TOKEN=//;s/"//g'` — it lives in `~/.profile`, NOT `~/.bashrc` (verified 2026-07-14, `bashrc-profile-xapp-drift-blocks-launchd` memory).
 
-**Current scope:** Use the preflight result for the configured tokens. If an already-configured token has `files:write`, use the native upload flow. If none does, report the exact blocker and stop; do not route around it through a public gist, personal browser session, OAuth reinstall, or credential/scope change.
+**Current scope:** Use the configured authorized uploader and its native upload
+flow. Treat the Slack API response as authoritative for this attempt. If it
+reports a scope error, report the exact blocker and stop; do not route around it
+through a public gist, personal browser session, OAuth reinstall, or
+credential/scope change.
 
 ## Python 3.14 f-string pitfall (NEW in v1.6.0)
 
@@ -293,7 +284,7 @@ User suggestion "use `/browser` to fix your scopes" was PARTIALLY misrouted in 2
 
 - `scripts/upload_batch.py` — parallel 3-stage upload loop for N PNGs in one `execute_code` call.
 - `scripts/upload_to_gist.sh` and the historical gist references document a retired fallback; do not use them to bypass a missing native-upload scope.
-- `scripts/check_token_scopes.py` — **NEW v1.6.0** — OAuth scope preflight. Probes both tokens against `auth.test` and returns `bot_has_scope` / `xoxp_has_scope` / `neither_has_scope`. Run BEFORE Stage 1 to avoid wasted curl calls.
+- `scripts/check_token_scopes.py` — historical preflight with stale third-tier gist guidance; do not invoke it to route upload failures. Use the configured authorized uploader and fail closed on its API scope error.
 - `references/github-gist-binary-upload.md` — historical gist behavior; not an operational fallback for missing upload scope.
 - `references/mp4-evidence-path.md` — historical gist behavior; not an operational fallback for missing upload scope.
 - `references/recurring-failure-pattern-2026-07.md` — **NEW v1.6.0** — the 4-incident chain across 12 days with verbatim user trigger phrases. The data backing the pre-send gate.
