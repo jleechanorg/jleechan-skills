@@ -138,6 +138,10 @@ next reader to fix the wrong thing; state the measured facts instead of the reme
 
 ### Stage, title and labels
 
+On creation, after each push, and when scope or status changes, refresh the descriptive title to match
+the implemented behavior and remaining work. Read back the published title. Preserve provenance and
+use the earliest unmet stage; changing the title never completes or advances a gate.
+
 Use one stage label, one two-letter stage prefix and one recognized trailing stage suffix.
 The prefix and suffix must name the same stage, for example
 `[er] Improve campaign loading [evidence review]`. Preserve the substantive title, unrelated tags/labels
@@ -213,6 +217,8 @@ These claim/risk rules apply to the generic lifecycle as well as opted-in reposi
 Classify the complete diff by effects and claimed outcomes, not its extension, a non-production label, or the latest commit size. For an entirely harmless documentation/mechanical change or obvious display-copy-only change under 50 total additions+deletions, a compact `/es` receipt with source before/after inspection and proportionate checks can suffice. Record `/er` and the extra independent `/dot` lane as `NOT REQUIRED — trivial-change exception`, never a fabricated PASS or reviewer vote. This exception applies at both review phases; explicitly requested reviews remain required. In opted-in repositories, the seven-element specification may be concise but remains required in its prescribed location. The >=50 advice boundary is unchanged.
 
 This exception excludes application prompts, schemas, selectors, URLs, interpolation, format/control strings, authentication, permissions, consent, payments, legal meaning, and approval, merge, review, evidence or security policy. Agent instructions changing these rules are not harmless documentation: this workflow policy cannot exempt its own review. A one-line change can be high risk. Mixed diffs follow the requirements of their affected claims.
+
+For Markdown-only instruction changes, focused proof may use the complete base-to-head source diff, link/heading/structure checks, and scenarios against both text versions. Application runtime, browser/media, and real-provider proof are `N/A` only when no changed claim depends on them. Markdown containing automation, prompts, schemas, or machine-consumed contracts still requires its applicable proof. Changed agent instructions still require at least one independent adversarial full-scope LLM review, plus any applicable `/advice` quorum and repository-required `/dot` route. Reuse one version-pinned receipt across applicable stages, preserving original SHAs and recording candidate applicability; rerun only proof affected by the delta.
 
 For logging-only changes, use bounded execution showing the actual emitted log, level and fields, with original source SHA, command, timestamps and sanitized output. Focused `/er` may approve that emission claim without unrelated browser or provider runs. Check privacy and side effects; new sensitive data, destinations, machine-consumed contracts, alerts, expensive expressions, exceptions, mutation or retries require their affected proof. Emission alone does not prove downstream ingestion or alert delivery.
 
