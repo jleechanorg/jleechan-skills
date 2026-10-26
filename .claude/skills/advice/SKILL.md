@@ -74,19 +74,16 @@ concurrently; do not wait for one healthy reviewer before starting another.
 
 Use the same review packet for both reviewers:
 
-The currently installed primary-pair runner only has a per-reviewer
-`--timeout-seconds`; it does not bound the complete attempt and is `UNAVAILABLE`
-for the 600-second attempt contract. An implementation may start a monotonic timer
-at runner main-entry and charge post-entry setup, fingerprinting, document or
-packet reads and hashes, reviewer work, output capture, and receipt I/O against
-it. This is only a partial implementation: it excludes queueing and delivery
-before main-entry and cannot by itself enforce the complete bound below. A
-synchronous filesystem call can also delay return if the OS blocks it. Shared
-immutable packet preparation may happen before the attempt. Record the queued/sent
-timestamp and when the runner starts; disclose any gap. Do not rely on a branch-only
-change or add a wrapper to impose the limit. A missing primary vote may be paired
-with a separately bounded eligible CLI reviewer; it never shares or inherits
-another reviewer's vote.
+Before invoking the existing primary-pair runner, verify that the specific
+supported invocation bounds the complete attempt to its remaining 600-second
+budget, including queueing, setup, dispatch, review, output capture, receipt
+recording, and cleanup. Its legacy per-reviewer timeout or default timeout does
+not prove that whole-attempt bound. If no existing invocation can enforce it,
+mark the primary runner unavailable and use another independently bounded,
+eligible reviewer path; do not count that runner's output as an approval. Do not
+add a wrapper or implementation to impose the limit. A missing primary vote may
+be paired with a separately bounded eligible CLI reviewer; it never shares or
+inherits another reviewer's vote.
 
 ```
 You are a senior engineer giving a focused second opinion.
@@ -163,16 +160,6 @@ recording, and cleanup all consume the same wall-clock budget; do not pause,
 reset, or extend it. Shared immutable packet preparation may happen before the
 attempt begins. Bound each transport call and poll/wait to the time remaining in
 the attempt.
-
-The separate proposed runner change, which is not installed or activated, starts
-its monotonic timer at runner main-entry and charges post-entry work against that
-timer, including setup, fingerprinting, document or packet reads and hashes,
-reviewer subprocess work, output capture, and receipt I/O; late results cannot
-vote. It is insufficient by itself because it does not include time queued or
-sent before main-entry. A synchronous filesystem call cannot be interrupted if
-the OS blocks, so the timer also does not guarantee a hard wall-clock return
-bound. The proposal reserves a cleanup budget and records elapsed time, cleanup
-timing, and outcome; cleanup finishing after the deadline invalidates all votes.
 
 Use existing supported execution tools. Do not create an adapter, supervisor,
 watchdog, helper script, or embedded executable implementation to meet this
