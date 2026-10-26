@@ -1,16 +1,16 @@
 ---
 name: fixpr
-description: Analyze and fix PR blockers (CI failures, merge conflicts, bot/review feedback) to get a PR into a mergeable state — never merges it. GitHub status is the sole source of truth over local assumptions. Slash command /fixpr. Also embodied as the copilot-fixpr subagent type for parallel/automated PR-fixing dispatch. Use when a PR has failing CI, merge conflicts, or unresolved bot comments and needs to be driven to green.
+description: Analyze and fix PR blockers (CI failures, merge conflicts, bot/review feedback) to get a PR into a mergeable state — never merges it. Fresh GitHub receipts and applicable validation establish status; follow the canonical /green owner. Slash command /fixpr. Also embodied as the copilot-fixpr subagent type for parallel/automated PR-fixing dispatch. Use when a PR has failing CI, merge conflicts, or unresolved bot comments and needs to be driven to green.
 ---
 
-# /fixpr — PR Fix Analysis (local-first, GitHub-authoritative)
+# /fixpr — PR Fix Analysis (focused validation, GitHub-authoritative)
 
-**Purpose**: get a PR to a mergeable state (all checks passing, no conflicts, no blocking reviews) — never merge it. The user retains control over when/if to merge.
+**Purpose**: fix authorized PR blockers and verify applicable checks and conflicts — never merge. Read the repository policy and `~/.claude/skills/pr-green-definition/SKILL.md` for /green; review applicability and merge authorization remain separate.
 
 ## The three commandments
 
-1. **Local-first**: never push a fix until you've reproduced the failure locally, fixed it, and verified the full local test suite passes.
-2. **GitHub is the sole source of truth**: never assume local conditions match GitHub reality. Fetch fresh GitHub status before any analysis, display it inline, and re-verify after every fix. `mergeable: "MERGEABLE"` decides Gate 2 (no conflicts) but does **not** mean CI passed — verify both `mergeable == "MERGEABLE"` and individual `statusCheckRollup` conclusions (reporting `mergeStateStatus` as informational context only).
+1. **Focused validation**: use the smallest relevant tests for the actual failure and fix; CI owns full regression. Respect repository bans on unfiltered local suites. If the user prohibits local tests, use authorized cloud/CI execution; never make a local run a prerequisite.
+2. **Fresh remote state and scoped proof**: GitHub is authoritative for PR head, remote checks and mergeability. Fetch and display fresh status before analysis and after every fix. `mergeable == "MERGEABLE"` establishes no conflicts, not passing CI; inspect applicable check conclusions. Qualifying local proof for backlogged CI may satisfy /green under its canonical owner and user/repository constraints. Report the evidence source and SHA; `mergeStateStatus` is informational.
 3. **Never merge**: success means the merge button would be green, not that you clicked it.
 
 ## 2026-07 fleet-drive lessons (read before touching a multi-PR backlog)
@@ -26,12 +26,19 @@ These came out of driving a real 40+ PR backlog and matter as much as the mechan
 
 ### Step 0: Verify GitHub CLI auth (mandatory pre-flight)
 
-```bash
-if ! gh auth status; then
-  echo "GitHub CLI not authenticated - run 'gh auth login' first"
-  exit 1
-fi
-```
+Run `gh auth status` and a cheap read-only API probe. An error is not a reason
+to ask the user to log in immediately. Inspect existing host auth without printing
+tokens. If `GITHUB_TOKEN` is stale, retry only the command with
+`env -u GITHUB_TOKEN gh auth status` and the same API probe, using saved host
+auth; do not edit credentials or persistent configuration.
+
+Before reporting blocked, follow
+`~/.claude/skills/github-cli-reference/SKILL.md`: inspect auth/quota errors,
+try bounded REST and GraphQL reads for the same target, and use unauthenticated
+REST for public data if authenticated quota is exhausted. Cite the attempted
+commands and errors. Escalate only a verified missing capability after existing
+auth paths are exhausted; never create credentials or recommend login from one
+status failure.
 
 ### Step 1: Gather repository context
 
@@ -40,76 +47,56 @@ Extract repo owner/name from git remote (handle both HTTPS and SSH URL forms), d
 ### Step 2: Fetch fresh GitHub PR status (authoritative — never trust cache or local state)
 
 ```bash
-status=$(gh pr view "$PR" --json mergeStateStatus,statusCheckRollup,mergeable,reviews,comments)
-mergeable=$(echo "$status" | jq -r '.mergeable // "UNKNOWN"')
-merge_state=$(echo "$status" | jq -r '.mergeStateStatus // "UNKNOWN"')
-
-# statusCheckRollup is an array of individual checks — align with canonical
-# success-only contract and exclude exact advisory checks ("Green Gate", "Cursor Bugbot").
-failed_checks=$(echo "$status" | jq '[(.statusCheckRollup // [])[]
-  | select((.__typename == "StatusContext" and (((.state // "") | ascii_upcase) != "SUCCESS")) or
-           (.__typename == "CheckRun" and .name != "Green Gate" and .name != "Cursor Bugbot" and
-            ((((.status // "") | ascii_upcase) != "COMPLETED") or (((.conclusion // "") | ascii_upcase) != "SUCCESS"))))]')
-failed_count=$(echo "$failed_checks" | jq 'length')
-
-if [[ "$mergeable" == "MERGEABLE" ]] && [[ "$failed_count" -eq 0 ]]; then
-  echo "Actually ready to merge (mergeable: MERGEABLE, mergeStateStatus: $merge_state)"
-else
-  echo "Blocked: mergeable=$mergeable, mergeStateStatus=$merge_state, $failed_count failing checks"
-fi
-
-# Human-readable failing-check summary
-gh pr view "$PR" --json statusCheckRollup --jq \
-  '[(.statusCheckRollup // [])[]
-   | select((.__typename == "StatusContext" and (((.state // "") | ascii_upcase) != "SUCCESS")) or
-            (.__typename == "CheckRun" and .name != "Green Gate" and .name != "Cursor Bugbot" and
-             ((((.status // "") | ascii_upcase) != "COMPLETED") or (((.conclusion // "") | ascii_upcase) != "SUCCESS"))))]
-   | map("\((.name // .context) // "unknown"): \((.description // .state // .conclusion // "no description provided"))")
-   | .[]'
+gh pr view "$PR" --json state,headRefOid,baseRefName,headRefName,url,mergeStateStatus,statusCheckRollup,mergeable,reviews,comments
+gh pr view "$PR" --json statusCheckRollup --jq '.statusCheckRollup[] | {name: (.name // .context), status, conclusion, state, url: (.detailsUrl // .targetUrl)}'
 ```
 
-Fetch and display inline, all from GitHub (never assume local state matches):
-- **CI/checks**: `statusCheckRollup` per above.
-- **Merge conflicts**: `mergeable`, `mergeStateStatus`; `gh pr diff <PR>` for actual conflict content.
-- **Bot/review feedback**: `reviews`, `comments` — both are LISTS; iterate, never `.get()` the array itself. Human reviews may block merge authorization (e.g. `CHANGES_REQUESTED by @human`), but CodeRabbit/Bugbot verdicts (including `CHANGES_REQUESTED`), approvals, silence, and review states are optional advisory feedback and are never `/green` or merge eligibility gates.
+Check open/merged/closed state first; a closed PR is not a failing mergeability
+probe. Bind findings to the returned head SHA, check/run URL and command output.
+Re-read the head before each verification round and after a push. Inspect the
+workflow and required-check configuration to establish which jobs apply.
 
-**Defensive parsing pattern** (GitHub API responses vary between dict/list shapes; never assume):
-```python
-checks = status_data.get('statusCheckRollup') or [] if isinstance(status_data, dict) else []
-if isinstance(checks, dict):
-    checks = (checks.get('contexts') or {}).get('nodes') or []
-for check in checks:
-    if isinstance(check, dict):
-        name = check.get('name') or check.get('context') or 'unknown'
-        if name in ('Green Gate', 'Cursor Bugbot'):
-            continue
-        typename = check.get('__typename')
-        if typename == 'StatusContext':
-            if (check.get('state') or '').upper() != 'SUCCESS':
-                print(f"Failed: {name}")
-        elif typename == 'CheckRun':
-            status = (check.get('status') or '').upper()
-            conclusion = (check.get('conclusion') or '').upper()
-            if status != 'COMPLETED' or conclusion != 'SUCCESS':
-                print(f"Failed: {name}")
-        else:
-            outcome = (check.get('conclusion') or check.get('state') or '').upper()
-            if outcome != 'SUCCESS':
-                print(f"Failed: {name}")
-```
+| Observed check | Report |
+|---|---|
+| Required, applicable failure/error/timeout/cancellation | Failure with exact log and current-head receipt |
+| Required, applicable queued/in-progress/pending | Pending, not failed; follow the owning /green backlog procedure within user/repo test limits |
+| Intentionally skipped conditional job | Skipped with the workflow reason; not a failure or a passed test |
+| Required check skipped, neutral, absent or applicability unknown | Unproven; inspect its condition and requirement before a gate verdict |
+| Optional/advisory check | Report separately; CodeRabbit/Bugbot do not gate /green |
+| Completed success | Passed at the recorded SHA, within that check's scope |
+
+Never use `status != SUCCESS` or `conclusion != SUCCESS` as a blanket failure
+classifier. `statusCheckRollup` mixes StatusContext `state` with CheckRun
+`status/conclusion`. Preserve the raw fields; unknown schemas are unverified,
+not invented failures. Follow the canonical /green owner for the final gate
+decision; a nonempty status list does not itself prove a blocker.
+
+Fetch and display current mergeability and review feedback too.
+`mergeable == MERGEABLE` establishes no conflicts, not successful CI or merge
+authorization. `mergeStateStatus` is informational. Use the fetched base/head
+and local merge inspection to identify actual conflict content; a PR diff alone
+does not contain conflict markers. Iterate review/comment lists rather than
+treating them as dictionaries. Human review restrictions remain separate;
+CodeRabbit/Bugbot verdicts, silence and approvals are advisory.
 
 ### Step 3: Detect CI-vs-local discrepancies
 
-Run the local test suite first (detect the runner: `npm test`, `pytest`, `make test`, etc). If local passes but GitHub CI fails, that's a discrepancy — common causes: Python/dependency version drift, missing CI env vars, race conditions only manifesting in CI, timezone/locale differences, filesystem case-sensitivity (CI often Linux, local often macOS).
+Inspect the exact failing workflow command and logs first. Reproduce with the
+smallest relevant test/filter in an authorized environment. Prefer cloud/CI when
+the user prohibits local tests. A current CI failure can supply RED evidence;
+do not require a duplicate local failure before fixing an already-established
+cause. Record where RED and GREEN actually ran.
 
-**When discrepancy detected, trigger `/redgreen` (alias `/tdd`)**:
-1. **RED**: `/redgreen --pr <PR> --check "<check-name>" --gh-log "<the exact GitHub error>"` — reproduce the GitHub failure as a local failing test.
-2. **GREEN**: fix the code so both local and GitHub pass.
-3. **REFACTOR**: clean up while keeping coverage.
-
-Do not modify code for a CI-vs-local discrepancy until `/redgreen` has produced the matching local failure — fixing blind against a discrepancy you haven't reproduced is how "fixes" that don't actually fix GitHub happen.
+For a genuine mismatch between environments, use `/redgreen` (alias `/tdd`)
+within those constraints: isolate the failing assertion/environment, fix the
+cause, and verify the focused case. Compare dependency versions, configuration,
+timezone/locale and filesystem behavior before guessing. If reproduction is
+blocked, continue read-only diagnosis and disclose the missing proof; do not
+invent a pass. Full regression remains in CI, never an unfiltered local default.
 
 ### Step 4: Apply fixes
+
+Already-authorized CI fixes proceed without another confirmation. Keep small test-only fixes proportional; honor a request for manual testing or no long reviews, while recording what remains untested. Do not add a review campaign or local suite as an invented prerequisite.
 
 Focus on the immediate blockers in this PR. Common categories: environment issues (deps, env vars, timeouts), code issues (imports, assertions, types), test issues (expectations, races, edge cases).
 
@@ -118,21 +105,24 @@ Focus on the immediate blockers in this PR. Common categories: environment issue
 ### Step 5: Merge conflicts (if present)
 
 ```bash
-git pull origin main
+git fetch origin
+# Inspect current branch/upstream, working tree, fetched base and PR head first.
+# Reconcile active writers; preserve unrelated edits. Select an explicit merge
+# or repository-approved rebase only after inspecting the exact target refs.
 # resolve conflicts
 PR_NUMBER="<pr-number>"
 BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
 DOCS_DIR="docs/conflicts/$(echo "$BRANCH_NAME" | tr '/' '-')-pr${PR_NUMBER}"
 mkdir -p "$DOCS_DIR"
 # document EACH conflict resolution in $DOCS_DIR/conflict_summary.md, then:
-# re-run full test suite, only then commit+push
+# run focused affected checks in the authorized environment, then commit
 ```
 
 **Every conflict resolution must document**: file, conflict type, original markers, resolution, WHY, risk level (Low/Medium/High). Preservation priority: never lose functionality (combine features when possible), prefer bug fixes over new features on conflict, maintain backward compatibility, keep security improvements from both branches.
 
 Example `conflict_summary.md` entry:
 ```markdown
-### File: src/auth.py
+### File: `src/auth.py`
 **Conflict Type**: Authentication logic
 **Risk Level**: High
 **Original Conflict**:
@@ -147,31 +137,71 @@ def login(user, password, mfa=None):
     return basic_auth(user, password)
 >>>>>>> main
 \```
-**Resolution**: Kept main branch version with MFA support
+**Resolution**: **Combined** — retained authentication and main's MFA support
+- Before: `<focused command>` → <observed result/environment>
+- After: `<focused command>` → <observed result/environment>
 **Reasoning**: Main branch added MFA (security improvement), backward compatible (mfa is optional), no conflicting business logic on our branch.
 ```
+
+Follow `~/.claude/skills/resolving-merge-conflicts/SKILL.md`. Before push, run
+its owning script with the explicit reviewed base and documentation directory:
+
+```bash
+~/.claude/skills/resolving-merge-conflicts/scripts/check_resolution_doc.sh "$BASE_REF" docs/conflicts
+```
+
+Each conflicted file must have a heading containing its path in backticks,
+a `Kept both`, `Combined` or `Dropped side` label, and `- Before:` /
+`- After:` test lines. The script checks merge commits in BASE..HEAD; for a
+rebase also compare the documented files with the original conflict list.
+Preserve both sides where compatible; record every dropped behavior and reason.
 
 ### Step 6: Pre-push checklist (mandatory — do not push if any item unchecked)
 
 ```
-[ ] Reproduced the failure locally (saw the exact error locally)
-[ ] Full local test suite passes (all tests, not just the affected one)
-[ ] If merge conflicts existed: pulled main, resolved, documented in docs/conflicts/, re-ran full suite
-[ ] git status is clean (no uncommitted changes)
+[ ] Exact current-head failure/log inspected; focused RED/GREEN recorded in the authorized environment
+[ ] Smallest relevant checks pass, or explicitly documented user-directed validation limits apply; full regression remains in CI
+[ ] If conflicts existed: explicit base inspected, resolution documented, affected checks run where permitted, owning documentation script passes
+[ ] Only intended files staged; staged diff inspected; unrelated work preserved and writer ownership reconciled
+[ ] Current branch, upstream and explicit push target printed and verified against the PR head branch
 ```
 
 ### Step 7: Push and re-verify GitHub (never claim success from local state alone)
 
+Stage named paths only; never stage the whole worktree. Before committing, inspect
+the staged diff and confirm it contains only this fix. Include the creating CLI
+and model in the commit message per the active repository contract.
+
 ```bash
-git add -A && git commit -m "fix: address CI failures / merge conflicts for PR #${PR_NUMBER}"
-git push origin HEAD
-sleep 60   # let GitHub CI process
-gh pr view "$PR_NUMBER" --json statusCheckRollup,mergeable,mergeStateStatus
+git status --short
+git add -- "$FIX_PATH" "$TEST_PATH" # include the named conflict doc when applicable
+git diff --cached --check
+git diff --cached --stat
+git diff --cached
+git commit -m "$COMMIT_MESSAGE"
+
+current_branch=$(git branch --show-current)
+upstream=$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}')
+printf 'branch=%s upstream=%s target=%s/%s\n' "$current_branch" "$upstream" "$PUSH_REMOTE" "$PR_HEAD_BRANCH"
+test -n "$current_branch" || exit 1
+test "$upstream" = "$PUSH_REMOTE/$PR_HEAD_BRANCH" || exit 1
+git push "$PUSH_REMOTE" "$current_branch:refs/heads/$PR_HEAD_BRANCH"
+gh pr view "$PR" --json headRefOid,url,statusCheckRollup,mergeable,mergeStateStatus
 ```
+
+Resolve `PUSH_REMOTE` and `PR_HEAD_BRANCH` from the actual PR and remote
+configuration, not guesswork. If tracking is missing, verify the target before
+setting it. A differently named local branch is valid when its upstream and the
+explicit local-to-remote mapping match the intended PR branch. Fetch that remote,
+re-read the PR head, and verify its ancestry and writer ownership before pushing.
+A mismatch requires ownership/target reconciliation, not a force-push.
+Record the pushed commit URL and re-fetch current-head checks; an accepted push
+does not establish green. Use asynchronous CI monitoring rather than a fixed
+sleep; never merge.
 
 ## Auto-apply mode (`--auto-apply`)
 
-More autonomous, but scoped to safe fixes only: import corrections, whitespace/formatting, doc updates, bot-suggested non-logic-changing improvements. Always preserve existing functionality, business logic, and security patterns from both branches. Apply one category at a time, test after each, stop on unexpected failure.
+This flag is not required to perform already-authorized fixes. Optional automatic expansion is scoped to safe fixes only: import corrections, whitespace/formatting, doc updates, bot-suggested non-logic-changing improvements. Always preserve existing functionality, business logic, and security patterns from both branches. Apply one category at a time, test after each, stop on unexpected failure.
 
 ## Risk classification for conflict/fix decisions
 
@@ -202,7 +232,7 @@ This is also the shape the `copilot-fixpr` subagent type embodies for automated/
 /fixpr 1234
 # -> detects discrepancy, issues:
 /redgreen --pr 1234 --check "test-unit" --gh-log "AssertionError: Expected 'foo' but got 'FOO'"
-# -> reproduces locally, fixes, verifies both environments
+# -> reproduces in the authorized environment, fixes, runs focused checks + CI
 ```
 
 ## Integration points
@@ -211,7 +241,7 @@ This is also the shape the `copilot-fixpr` subagent type embodies for automated/
 - `/commentreply` — respond to review feedback after fixing.
 - `/pushl` — push fixes to remote.
 - `/redgreen` (alias `/tdd`) — auto-triggered for CI-vs-local discrepancies.
-- Project test suite — verify locally before every push.
+- Project validation — smallest relevant checks in the authorized environment; CI runs full regression.
 
 ## Error recovery
 
