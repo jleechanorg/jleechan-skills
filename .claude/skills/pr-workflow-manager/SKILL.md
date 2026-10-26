@@ -9,15 +9,22 @@ scope: project
 
 ## One operational contract
 
-Read [pr-lifecycle](../pr-lifecycle/SKILL.md) before creating, staging or driving a PR.
-It is the self-contained owner of lifecycle, visible stages/title prefixes and suffixes/labels, specification placement,
-review routes and reasoned evidence/approval applicability. This entry point owns practical discovery,
-branch verification and publication steps. No dated design document is required.
+Before taking any workflow action, inspect the target repository's `AGENTS.md`, `CLAUDE.md`, and scoped
+instructions for an explicit PR-workflow contract, adapter, or opt-out. Do this before choosing a branch,
+worktree, PR stage, or gate. Follow an explicit local contract for its domain; do not infer an opt-out from
+the repository's name or apparent purpose. If no local opt-out or conflicting requirement is declared,
+use the shared defaults below.
 
-Keep these two skills in sync: a lifecycle or stage change updates the canonical contract and checks this
+Read [pr-lifecycle](../pr-lifecycle/SKILL.md) before creating, staging or driving a PR. It supplies shared
+defaults for lifecycle, visible stages/title prefixes and suffixes/labels, specification placement, review
+routes and reasoned evidence/approval applicability wherever local instructions are silent. This entry point
+owns practical discovery, branch verification and publication steps. No dated design document is required.
+
+Keep these two skills in sync: a lifecycle or stage change updates the shared default contract and checks this
 entry point and repository adapters for conflicting commands or summaries. Reference the contract rather
-than copying its tables. Preserve repository-specific evidence, safety, native and merge requirements.
-Apply pr-lifecycle's precedence and scope rule to conflicts. Do not invent stricter blanket lifecycle gates or bypass separate permissions.
+than copying its tables. Preserve repository-specific evidence, safety, native and merge requirements. When
+local instructions and shared defaults differ, follow the explicit local instruction in its domain and use
+the shared default only for unresolved details. Neither contract changes separate permissions.
 
 ## Find the skills before inventing a workflow
 
@@ -56,13 +63,17 @@ CI/conflict diagnosis, and review/readiness coordination.
   This skill grants none of those actions and no new writer/operator.
 - Re-read the remote head before publication. Unexpected movement requires reconciliation, not overwrite.
 
-## Draft-first publication
+## Shared-default publication
+
+The actions below are shared defaults only. After inspecting the target repository's instructions, use these
+creation and stage choices only where those instructions are silent; follow any explicit local creation state
+or workflow instead. Local instructions do not waive separate security, credential, ownership or merge gates.
 
 | Scenario | Safe ordinary action |
 |---|---|
 | First branch push | Verify target, then `git push -u <verified-remote> HEAD`. |
-| Same-repository PR | `gh pr create --repo <verified-base-owner/repo> --draft --base <verified-base> --head <verified-branch>`; verify head and base repositories are identical first. |
-| User-owned fork PR | Use the same explicit `--repo`/`--base` with `--head <verified-head-user>:<verified-branch>`. |
+| Same-repository PR | When local instructions are silent and the shared draft default applies, use `gh pr create --repo <verified-base-owner/repo> --draft --base <verified-base> --head <verified-branch>`; verify head and base repositories are identical first. |
+| User-owned fork PR | When local instructions are silent and the shared draft default applies, use the same explicit `--repo`/`--base` with `--head <verified-head-user>:<verified-branch>`. |
 | Existing PR update | Scoped commit and ordinary push through its sole writer; verify remote SHA. |
 | Missing upstream | Verify remote branch, then `git branch --set-upstream-to=<remote>/<branch>`. |
 | Status | Read PR head/base, all applicable check attempts, reviews and mergeability. |
@@ -70,8 +81,9 @@ CI/conflict diagnosis, and review/readiness coordination.
 
 The [GitHub CLI manual](https://cli.github.com/manual/gh_pr_create) documents owner-qualified fork heads and an organization-owner limitation. If the tool cannot express the exact head repository, use an already-authorized interface that can, or report the blocker; never guess from a same-named branch. After creation, read back both repository identities, head/base branches and head SHA before updating or claiming the intended PR.
 
-An optional helper is usable only if it actually exists, has been inspected and preserves the draft,
-ownership and expected-head requirements. No bundled creation script is assumed by this skill.
+An optional helper is usable only if it actually exists, has been inspected and preserves the applicable
+local or shared creation state, ownership and expected-head requirements. No bundled creation script is
+assumed by this skill.
 Do not execute a missing, unverified or incompatible helper just because old guidance names one.
 
 ## Stage changes and evidence

@@ -158,7 +158,7 @@ Aggregate Phase 1 (history) + Phase 2 (subagent findings) + Phase 3 (structural)
 4. **Write tests** (unit + count-pinning per the `~/.claude/CLAUDE.md` "Count-pinning tests" memory entry).
 5. **Verify locally**: `.venv/bin/python -m pytest tests/` (full suite must be green).
 6. **Push the branch**: `git push -u origin <branch>`. **Verify pre-push target matches intended PR branch** per the pre-push check rule.
-7. **Open the PR**: `gh pr create --repo jleechanorg/<repo> --draft --base main --head <branch>` with the canonical 6-section body (Background / Goals / Tenets / High-level description / Testing / Low-level details).
+7. **Open the PR**: `gh pr create --repo jleechanorg/<repo> --draft --base main --head <branch>` with a body following `~/.codex/AGENTS.md` § PR descriptions (canonical owner), plus the target repository's `AGENTS.md`/`CLAUDE.md` and PR template when present.
 
 **Do not auto-merge.** Per `~/.claude/CLAUDE.md` "Merge safety" rule, the literal phrase "MERGE APPROVED" from the operator is the only valid merge trigger.
 
@@ -218,7 +218,7 @@ Output:
 
 - **History search**: ALWAYS use `/history` (or the Python multi-source walker fallback). Never hand-coded `rg`. The `~/.claude/CLAUDE.md` "History search" rule is durable.
 - **Fan-out scope**: one proposal per subagent. Pre-check file overlap before parallelizing.
-- **PR creation**: read the `~/.claude/CLAUDE.md` "PR description — required sections (canonical)" rule for the 6-section body.
+- **PR creation**: follow `~/.codex/AGENTS.md` § PR descriptions (canonical owner) and resolve the target repository's `AGENTS.md`/`CLAUDE.md` and PR template for local requirements.
 - **/green**: `gh pr checks` alone is not sufficient. Use `/green <PR#>` and its canonical skill.
 - **Merge**: NEVER auto-merge. "MERGE APPROVED" is the only valid trigger. The user drives which proposals to implement and merge; /factory-evolve proposes, the operator decides.
 - **Source files for the gap taxonomy**: `docs/factory-evolve-research/reviewer-gap-taxonomy.md` (canonical) and `docs/factory-evolve-research/git-pr-forensics.md`. (Originally in `specs/factory-evolve-research/` but moved to `docs/` because the agent-facing boundary check in `benchmarks/scripts/check_boundary.py` flags `DARK_FACTORY_HOLDOUTS` references in `specs/`/`prompts/` as a leakage vector — `docs/` is operator-facing and exempt.)

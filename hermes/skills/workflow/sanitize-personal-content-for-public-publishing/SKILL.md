@@ -140,7 +140,7 @@ personal CLAUDE.md/AGENTS.md examples cover these):
 - Force-push safety (explicit human approval required)
 - Browser default (headless unless asked)
 - Commit often (push after every green unit)
-- PR description (canonical 6-section structure)
+- PR description: follow `~/.codex/AGENTS.md` § PR descriptions (canonical owner), then the target repository's `AGENTS.md`/`CLAUDE.md` and PR template when present.
 - Merge safety (literal approval phrase required)
 - Disk / resource discipline (three-lane diagnosis, structural preconditions)
 - Time-boxing (3-hour wall-clock cap)
