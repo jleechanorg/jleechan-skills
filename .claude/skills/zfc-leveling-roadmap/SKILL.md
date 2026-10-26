@@ -27,9 +27,9 @@ repository overlay `.claude/skills/worldai-zfc/SKILL.md`, the portable
 `.claude/skills/backend-justified/SKILL.md`. Do not infer permission to alter
 model-owned domain state from schema validity, determinism, or this file alone.
 
-> **"LLM Owns Domain Decisions; Backend Preserves and Executes"** — the model owns domain decisions and choices. Backend changes to model-owned state require an explicit field-specific repository contract, one-writer proof, and the applicable adjustment evidence; preserving a player's valid turn is the UX default.
+> **"LLM Owns Domain Decisions; Backend Preserves and Executes"** — the model owns gameplay interpretation, progression, rewards, and choices. The server owns authorization, storage, transport, concurrency, and modal/session control. A backend transformation of model-owned fields is an exception only when the active repository policy explicitly authorizes that named exception and its required evidence is recorded; preserving a valid player turn is the UX default.
 
-> **Correction Exception Boundary**: No backend correction is authorized by this guide alone. Follow the local ZFC/backend-justification contract, and use only a registered adjustment with the required evidence. Do not add defaults, clamps, suppressions, or normalization to model-owned domain fields based only on contradiction, UX, or determinism.
+> **Correction Exception Boundary**: This guide does not authorize backend correction of gameplay meaning. Follow the local ZFC/backend-justification contract for each proposed transformation. A registered adjustment is necessary only where that active contract requires it; registration or determinism alone does not authorize a domain transformation. Name the exact field, function, policy basis, necessity, and required evidence. Do not add defaults, clamps, suppressions, or normalization to model-owned domain fields based only on contradiction, UX, or determinism.
 
 > **Opaque Choice Boundary**: Planning choice IDs are opaque handles, not semantic signals. `level_up_now`, `finish_level_up_return_to_game`, and `custom_action` are migration/compatibility handles only. Level-up choice meaning must come from explicit model/schema fields on the resolved choice object, not from ID text, prefixes, labels, or backend allowlists.
 
@@ -42,12 +42,12 @@ Before modifying ANY file for level-up/rewards/XP work, verify against this tabl
 
 | File | OWNS | MUST NOT DO |
 |------|------|-------------|
-| `rewards_engine.py` | Format explicit model signals, correction-only contradiction guards, `canonicalize_level_up_signal()`, XP/reward field normalization from explicit values, `sync_level_up_signals()`, SSE atomicity enforcement (`_enforce_atomicity()`) | Model calls, Firestore writes, text interpretation, primary XP/level calculation, threshold-derived level-up decisions |
+| `rewards_engine.py` | Format and project explicit model signals; keep transport/payload atomicity handling limited to preserving complete supplied representations and server-owned transaction/control invariants. Any transformation of model-owned gameplay fields requires its own named, policy-authorized exception and evidence. | Model calls, Firestore writes, text interpretation, primary XP/level calculation, threshold-derived level-up decisions, or unregistered correction/normalization/suppression of gameplay meaning |
 | `world_logic.py` | Modal locks and consumption of model-authored finish choices; wrap payloads only where its contract permits | Inject or synthesize choices; recompute model-owned progression; call `canonicalize_level_up_signal()` directly |
 | `game_state.py` | State storage, deterministic mechanical primitives (`xp_needed_for_level`, `level_from_xp`, `coerce_int`) | Decide level-up from state, replace model choices, own level-up decisions, contain level-up dataclasses or resolvers |
 | `agents.py` | Route to correct agent using `rewards_engine.is_level_up_active()` | Inline flag interpretation, XP extraction, stale-flag recovery logic |
 | `llm_parser.py` | Parse model output, call the pipeline **once** via `canonicalize_rewards()`, persist/deliver | Duplicate rewards formatting, inline false-positive mutations, call canonicalization separately |
-| `narrative_response_schema.py` | Preserve model output losslessly, contradiction detection on model output boundary (e.g., `level_up=true` but `current_turn_exp < total_exp_for_next_level`) | Class feature synthesis, state mutation, building UI payloads |
+| `narrative_response_schema.py` | Preserve model output losslessly and validate structural/schema requirements without deciding gameplay meaning | Class feature synthesis, state mutation, building UI payloads, or rejecting a turn because model-authored progression fields appear contradictory |
 | `llm_service.py` | LLM request/response pipeline, retry on `SchemaRejectionError` | Rewards formatting, level-up flag interpretation, modal state mutation |
 | `structured_fields_utils.py` | Extract non-empty structured fields | Semantic validation, alias normalization, UI formatting |
 | `prompts/level_up_instruction.md` | Class-AGNOSTIC contracts only — generic enumeration ("enumerate ALL subclass options as separate clickable choices"), generic announce-all-gains rules. The model owns the D&D 5e SRD. | Hardcode subclass names (oaths/circles/patrons/archetypes/domains), feature names (Divine Health, Channel Divinity, Second Wind…), spell names, or per-class numeric gains as named rules/HARD INVARIANTs. Class names allowed ONLY inside `e.g.`/`for example` illustrations. |
@@ -220,9 +220,9 @@ For the full field registry, see `.claude/skills/field-ownership-contracts.md`.
 
 ## Key Architectural Invariants (Post-M2)
 
-1. **Correction-only validation**: `is_level_up_active()` validates explicit flags against explicit model/state fields only to suppress contradictions. A stale `level_up_pending=True` can be rejected when the persisted state proves the model-owned level-up signal is already applied or mechanically impossible, but this must not become a backend threshold-derived level-up decision.
+1. **Model-owned progression; server-owned modal control**: `is_level_up_active()` may read explicit model-authored progression fields and server-owned modal/session fields, but it must not adjudicate progression from XP thresholds or other game mechanics. Suppressing `level_up_pending=True` because a model-owned signal is “mechanically impossible” is a gameplay decision and is not authorized here. A correction to a model-owned field requires an exact active-policy exception, named field/function, concrete necessity, and that policy's evidence. Server-owned completion/cancellation state may control modal activity without rewriting the model's progression decision.
 
-2. **Streaming preservation**: Preserve supplied stream fields and their representation aliases. Missing one field is not a reason to drop the other or reject the turn; only corruption of server-owned storage can block persistence.
+2. **Streaming preservation**: Preserve supplied stream fields and their representation aliases. Missing one field is not a reason to drop the other or reject the turn. Stream/payload atomicity enforcement may protect complete transport representations or server-owned transaction invariants; it must not validate gameplay semantics or discard a valid player turn over metadata/representation mismatch. Reject only when committing would corrupt server-owned storage.
 
 3. **Completion/cancellation precedence**: `level_up_complete=True` or `level_up_cancelled=True` always returns `False` from `is_level_up_active()`, regardless of other flags.
 
@@ -233,7 +233,7 @@ For the full field registry, see `.claude/skills/field-ownership-contracts.md`.
 ---
 
 ## Canonical References
-For any WorldArchitect backend or progression change, read the local overlay `.claude/skills/worldai-zfc/SKILL.md` together with `~/.claude/skills/zero-framework-cognition/SKILL.md`, `.claude/skills/backend-justified/SKILL.md`, and `.claude/skills/root-cause-first/SKILL.md`. Prompt/schema correction comes before backend protection. Adjustments are exceptional and require a registered contract and evidence. This guide does not authorize finish-choice injection, paired payload dropping, gameplay defaults, clamps, or rejection of a valid turn.
+For any WorldArchitect backend or progression change, read the local overlay `.claude/skills/worldai-zfc/SKILL.md` together with `~/.claude/skills/zero-framework-cognition/SKILL.md`, `.claude/skills/backend-justified/SKILL.md`, and `.claude/skills/root-cause-first/SKILL.md`. Prompt/schema correction comes before backend protection. Preserve model-owned gameplay meaning and unknown fields; server-owned storage, authorization, transport, concurrency, and modal/session control remain server responsibilities. Any domain-field transformation must identify its exact active-policy exception, field and function, concrete necessity, and required evidence; where that policy requires registration, register it. This guide does not authorize finish-choice injection, paired payload dropping, gameplay defaults, clamps, semantic suppression, or rejection of a valid turn.
 
 ## Related Skills
 

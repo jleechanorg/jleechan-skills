@@ -11,7 +11,7 @@ execution_mode: immediate
 
 ## 🚨 EXECUTION WORKFLOW
 
-### Phase 1: Mode Selection & Parallel Agent Execution (2025 Optimization)
+### Phase 1: Mode Selection & Parallel Agent Execution
 
 **Action Steps:**
 1. Determine the correct execution mode using the "Modes & Scopes" guidance below. If the scope is ambiguous, pause and ask the user to choose a mode via TodoWrite before continuing.
@@ -57,7 +57,7 @@ When scope is ambiguous, ask the user which mode they want via TodoWrite before 
 4. **Verify synchronization with GitHub**:
    - Fetch PR files: `gh pr view <pr> --json files,headRefName,baseRefName`.
    - Confirm branch alignment (`git rev-parse HEAD` vs PR head SHA).
-5. **Basic credential filtering**: Remove obvious API keys/passwords from context (unlaunched MVP with zero external users - basic filtering sufficient)
+5. **Credential handling**: Apply the active credential policy and exclude secrets and credentials from every agent's context.
 6. **Assemble review bundle** containing: PR description, latest commit message, diff summaries, and local-only edits.
 
 ### Simplified Consensus Rules
@@ -85,7 +85,7 @@ When scope is ambiguous, ask the user which mode they want via TodoWrite before 
 - **Code Review Mode**:
   - **`code-review`**: Architecture validation, correctness, maintainability
   - **`codex-consultant`**: System design patterns, scalability foundations
-  - **`gemini-consultant`**: 2025 best practices, performance optimization
+  - **`gemini-consultant`**: Current best practices relevant to the verified stack, performance, and requirements
   - **`cursor-consultant`**: Practical concerns, deployment readiness
   - **`code-centralization-consultant`**: Duplication detection, shared utility recommendations
 - **Documentation & Spec Mode**:
@@ -111,7 +111,7 @@ When scope is ambiguous, ask the user which mode they want via TodoWrite before 
 
 **Agent Execution**: Launch 5 agents in parallel using Task tool with 180-second timeout. Provide custom prompts per mode:
 
-- **Code Review Mode**: Focus prompts on diff analysis, architecture correctness, high-impact bugs, and MVP launch risk.
+- **Code Review Mode**: Focus prompts on diff analysis, architecture correctness, high-impact bugs, and risks relevant to the verified product and deployment context.
 - **Documentation & Spec Mode**: Direct agents to cross-reference claims with evidence, note missing validation, and highlight unclear reasoning or terminology.
 - **Operational Decision Mode**: Ask agents to surface blockers, quantify risk, evaluate resource alignment, and recommend next steps.
 
@@ -133,7 +133,7 @@ When scope is ambiguous, ask the user which mode they want via TodoWrite before 
 - **Early termination**: Stop on architectural blockers or critical bugs
 - **Simple consensus**: Agents provide PASS/REWORK verdict with confidence (1-10)
 - **Evidence required**: Findings must include file:line references
-- **MVP Context**: GitHub rollbacks available, focus on architecture over security paranoia
+- **Context-aware review**: Assess architecture, security, and operational risks against verified requirements and evidence; do not assume a rollback is available or sufficient.
 
 ## Consensus and Follow-Through
 
@@ -142,15 +142,15 @@ Streamlined workflow optimized for speed and simplicity:
 1. **Parallel Agent Consultation** (2-3 minutes)
    - Launch all 5 agents simultaneously using Task tool with full context
    - **Context Provided to Each Agent**:
-     - Solo MVP project status (pre-launch, rollback safety available)
+     - Verified product, launch, user, and team context, with sources; label unknowns as unknown
      - Current PR/branch context and file changes
-     - Architecture focus over enterprise security concerns
-     - GitHub rollback strategy as primary safety mechanism
-     - 2025 best practices adapted for solo developer workflow
+     - Acceptance criteria and applicable security, authorization, and operational requirements
+     - Verified rollback and recovery options, if any; treat rollback as mitigation rather than authorization or a substitute for safeguards
+     - Current practices relevant to the project's actual stack and constraints
    - Each agent provides: PASS/REWORK + confidence (1-10) + specific issues
    - Early termination if any agent finds architectural blockers or critical bugs
    - Collect findings in structured format with file:line evidence
-   - **Agent Context Awareness**: Each agent understands the working multi-agent system and MVP context
+   - **Agent Context Awareness**: Each agent receives the verified orchestration, product, and user context, with unknowns labeled
 
 2. **Simple Consensus Calculation** (30 seconds)
    - **CONSENSUS_PASS**: 3+ agents PASS + average confidence ≥6
@@ -223,15 +223,15 @@ Continue through required review and fixes until PASS or a verified blocker/dead
 - **❌ TEST_FAILURE / EVIDENCE_FAILURE**: Automated tests or evidence cross-checks fail
 - **❌ COMPILATION_ERROR / EXECUTION_BLOCKER**: Code doesn't compile/parse or operational criteria can't be executed
 
-## General Consensus Principles (2025 MVP Optimization)
+## General Consensus Principles
 
 - **Progress**: Parallelize independent work and continue safe follow-through to the acceptance criteria
 - **Evidence Based**: All findings require references (file:line, document section, metric source) + confidence scores
 - **Clear Thresholds**: PASS ≥6 confidence, REWORK <5 confidence, mixed signals documented
 - **Mode-Aware Focus**: Tailor evaluation criteria to code quality, factual accuracy, or decision readiness
 - **Practical Focus**: Fix or flag the highest-impact issues now, document lower-priority work for later
-- **Basic Safety**: Filter obvious credentials, but don't over-engineer for solo MVP
-- **GitHub Safety Net**: Easy rollbacks available for any problematic changes
+- **Safety**: Apply the active security, authorization, and credential-handling requirements; ground findings in the scope and evidence
+- **Recovery**: Verify available rollback and recovery paths; they do not replace safeguards, approvals, or review requirements
 
 ## Output Format
 
@@ -241,8 +241,8 @@ Continue through required review and fixes until PASS or a verified blocker/dead
 
 ## Summary
 
-- Round count: <1-3>
-- Final status: PASS | REWORK_LIMIT_REACHED | VALIDATION_ABORT
+- Rounds completed: <count>
+- Final status: PASS | REWORK | VALIDATION_ABORT | BLOCKED
 - Mode: Code Review | Documentation & Spec | Operational Decision
 - Key validated areas
 
@@ -270,14 +270,14 @@ Continue through required review and fixes until PASS or a verified blocker/dead
 ```
 Include references to executed test commands, reviewed evidence files, and any required stakeholder approvals.
 
-## 🛡️ Solo MVP Developer Focus
+## Context-Aware Review Focus
 
-The solo MVP assumptions remain, but the emphasis shifts with each mode.
+Derive project, launch, user, team, and operational constraints from current source material. Do not carry assumptions from a template or prior review into the current task. Mark unavailable context as unknown and avoid conclusions that depend on it.
 
 ### **Code Review Mode Focus Areas**
 
-- Architecture quality, real bugs, maintainability, integration issues
-- Skip enterprise theater, complex compliance, and premature optimization
+- Architecture quality, real bugs, maintainability, integration issues, and risks supported by the current requirements and evidence
+- Assess security and compliance obligations proportionately to applicable requirements and the evidenced threat model
 
 ### **Documentation & Spec Mode Focus Areas**
 
@@ -298,10 +298,10 @@ Following `/reviewdeep` and `/arch` patterns for proper agent context. Claude mu
 ### **Enhanced Agent Prompt Template** (Mode-Aware Multi-Agent Analysis)
 
 ```markdown
-[Agent Role] consensus analysis of [target] for solo MVP project context.
+[Agent Role] consensus analysis of [target] using the verified project and user context.
 
 **ENHANCED CONTEXT FRAMEWORK**:
-- **Project Type**: Solo MVP (pre-launch, GitHub rollbacks available for safety)
+- **Project Context**: [verified product, launch, user, team, and operational facts with sources; mark unknowns]
 - **Current Scope**: [scope definition, e.g., PR details, document path, decision statement]
 - **Infrastructure**: Working multi-agent consensus system using Task tool parallel execution
 - **Agent Network**: Part of 5-agent consensus ([list selected agents])
@@ -315,7 +315,7 @@ Following `/reviewdeep` and `/arch` patterns for proper agent context. Claude mu
 1. **Strategic Layer**: Architecture/design/product implications
 2. **Tactical Layer**: Implementation details, factual accuracy, or operational feasibility
 3. **Consensus Layer**: Inter-agent agreement consideration, conflict resolution
-4. **Solo MVP Reality**: No team constraints, practical deployment focus, rollback safety net
+4. **Context Fit**: Assess constraints and recovery options from current evidence; do not assume team size, launch status, or rollback availability
 5. **Speed Optimization**: Fast analysis with early termination on critical issues
 
 **MODE-FOCUSED CHECKLIST**:
@@ -331,61 +331,61 @@ Following `/reviewdeep` and `/arch` patterns for proper agent context. Claude mu
 #### **`code-review` Agent Context**:
 
 ```markdown
-ARCHITECTURAL CORRECTNESS & MVP MAINTAINABILITY analysis for solo MVP consensus.
+ARCHITECTURAL CORRECTNESS & MAINTAINABILITY analysis for the verified project context.
 
 **Your Specialization**: Architecture quality, SOLID principles, code maintainability
 **Context Awareness**: You are the architectural authority in the mode-selected consensus system
 **Focus Priority**: Design patterns, technical debt, scalability foundations
 **Consensus Role**: Architecture quality gatekeeper - block on fundamental design flaws
-**Solo MVP Lens**: Practical architecture that supports rapid iteration and deployment
+**Context Lens**: Assess architecture against verified constraints, requirements, and operational evidence
 ```
 
 #### **`codex-consultant` Agent Context**:
 
 ```markdown
-SYSTEM DESIGN & SCALING INTELLIGENCE analysis for solo MVP consensus.
+SYSTEM DESIGN & SCALING INTELLIGENCE analysis for the verified project context.
 
 **Your Specialization**: Advanced system architecture, performance, distributed patterns
 **Context Awareness**: You provide the scaling perspective in the consensus-building process
 **Focus Priority**: Performance bottlenecks, database design, system integration patterns
 **Consensus Role**: Scalability validator - ensure architecture supports growth
-**Solo MVP Lens**: Foundation for scaling without over-engineering initial implementation
+**Context Lens**: Evaluate scaling needs against measured or evidenced requirements; avoid unsupported assumptions
 ```
 
 #### **`gemini-consultant` Agent Context**:
 
 ```markdown
-2025 BEST PRACTICES & OPTIMIZATION PATTERNS analysis for solo MVP consensus.
+CURRENT BEST PRACTICES & OPTIMIZATION PATTERNS analysis for the verified project context.
 
 **Your Specialization**: Modern frameworks, security best practices, optimization patterns
 **Context Awareness**: You ensure modern standards in consensus evaluation
 **Focus Priority**: Latest patterns, security (practical not paranoid), performance optimization
-**Consensus Role**: Best practices validator - ensure code follows 2025 standards
-**Solo MVP Lens**: Modern practices adapted for solo developer speed and efficiency
+**Consensus Role**: Best practices validator - assess practices against current standards relevant to the stack and requirements
+**Context Lens**: Account for verified team and operational constraints without weakening applicable safeguards
 ```
 
 #### **`cursor-consultant` Agent Context**:
 
 ```markdown
-PRAGMATIC REALITY CHECK & DEPLOYMENT READINESS analysis for solo MVP consensus.
+PRAGMATIC REALITY CHECK & DEPLOYMENT READINESS analysis for the verified project context.
 
 **Your Specialization**: Contrarian analysis, real-world deployment, practical concerns
 **Context Awareness**: You are the final reality check in the consensus process
-**Focus Priority**: Deployment practicalities, real failure modes, solo developer workflow
+**Focus Priority**: Deployment practicalities, real failure modes, and verified team workflow
 **Consensus Role**: Reality validator - ensure recommendations are actually implementable
-**Solo MVP Lens**: What actually works in production vs theoretical perfection
+**Context Lens**: Compare proposed solutions with observed production behavior and the stated acceptance criteria
 ```
 
 #### **`code-centralization-consultant` Agent Context**:
 
 ```markdown
-DUPLICATION & SHARED UTILITY analysis for solo MVP consensus.
+DUPLICATION & SHARED UTILITY analysis for the verified project context.
 
 **Your Specialization**: Identify redundant logic, recommend shared abstractions
 **Context Awareness**: You ensure code reuse and centralization opportunities are surfaced
 **Focus Priority**: Refactoring leverage, shared modules, maintainability boosts
 **Consensus Role**: Highlight consolidation wins without blocking progress unnecessarily
-**Solo MVP Lens**: Balance reuse with speed; favor pragmatic consolidation wins
+**Context Lens**: Balance reuse, maintainability, and delivery constraints supported by current evidence
 ```
 
 #### **`accuracy-reviewer` Agent Context**:
@@ -397,7 +397,7 @@ FACTUAL ACCURACY & CONSISTENCY analysis for documentation/spec consensus.
 **Context Awareness**: You ensure every claim maps to trusted evidence sources
 **Focus Priority**: Metrics, timelines, feature descriptions, terminology
 **Consensus Role**: Block on factual errors; approve when statements align with evidence
-**Solo MVP Lens**: Precision over polish—ensure the team can trust the document
+**Context Lens**: Prioritize accuracy and clarity for the intended audience
 ```
 
 #### **`evidence-verifier` Agent Context**:
@@ -409,7 +409,7 @@ EVIDENCE TRACEABILITY & VALIDATION analysis for documentation/spec consensus.
 **Context Awareness**: You validate that cited data truly exists and matches the narrative
 **Focus Priority**: Test reports, response payloads, metrics exports
 **Consensus Role**: Confirm evidence sufficiency or request additional validation
-**Solo MVP Lens**: Lightweight but rigorous verification of launch-critical facts
+**Context Lens**: Verify claims and requirements relevant to the actual launch or operating state
 ```
 
 #### **`clarity-editor` Agent Context**:
@@ -421,7 +421,7 @@ CLARITY & COMMUNICATION analysis for documentation/spec consensus.
 **Context Awareness**: You advocate for concise, high-signal documentation
 **Focus Priority**: Structure, terminology, actionability, unanswered questions
 **Consensus Role**: Flag comprehension blockers; suggest concise rewrites when necessary
-**Solo MVP Lens**: Keep docs fast to read so execution can continue at speed
+**Context Lens**: Make the output usable for its audience and decision
 ```
 
 #### **`product-strategist` Agent Context** (shared across documentation/operational modes):
@@ -433,7 +433,7 @@ PRODUCT STRATEGY ALIGNMENT analysis for consensus.
 **Context Awareness**: You anchor recommendations in product outcomes
 **Focus Priority**: Goal alignment, trade-offs, success metrics
 **Consensus Role**: Ensure decisions advance the product vision and guardrails
-**Solo MVP Lens**: Prioritize moves that unblock learning and launch velocity
+**Context Lens**: Prioritize actions that address evidenced goals and blockers
 ```
 
 #### **`delivery-ops` Agent Context** (shared across documentation/operational modes):
@@ -445,7 +445,7 @@ DELIVERY OPERATIONS & EXECUTION analysis for consensus.
 **Context Awareness**: You balance ambition with capacity and process safety
 **Focus Priority**: Timelines, dependencies, tooling readiness, runbooks
 **Consensus Role**: Flag missing owners or steps that could jeopardize launch
-**Solo MVP Lens**: Lightweight processes, but no hidden blockers
+**Context Lens**: Identify process requirements that apply to this task and surface blockers
 ```
 
 #### **`risk-analyst` Agent Context**:
@@ -457,7 +457,7 @@ RISK & MITIGATION analysis for operational decision consensus.
 **Context Awareness**: You provide the risk register and escalation triggers
 **Focus Priority**: Launch blockers, compliance obligations, customer-impacting defects
 **Consensus Role**: Recommend go/no-go posture based on residual risk
-**Solo MVP Lens**: Focus on existential threats, skip theoretical edge cases
+**Context Lens**: Prioritize credible risks and distinguish evidence-backed threats from speculation
 ```
 
 #### **`customer-advocate` Agent Context**:
@@ -469,7 +469,7 @@ CUSTOMER EXPERIENCE & SUPPORT IMPACT analysis for operational decision consensus
 **Context Awareness**: You translate technical choices into customer outcomes
 **Focus Priority**: Onboarding flows, communication plans, support load
 **Consensus Role**: Call out scenarios that would break trust or overwhelm support
-**Solo MVP Lens**: Protect first impressions with minimal overhead
+**Context Lens**: Assess user impact and mitigations against the verified audience and product state
 ```
 
 #### **`exec-synthesizer` Agent Context**:
@@ -481,7 +481,7 @@ EXECUTIVE SUMMARY & DECISION SYNTHESIS analysis for operational decision consens
 **Context Awareness**: You integrate findings from all agents into actionable direction
 **Focus Priority**: Decision framing, success criteria, required follow-ups
 **Consensus Role**: Deliver final recommendation and highlight unresolved risks
-**Solo MVP Lens**: Enable rapid decision-making with clear next steps
+**Context Lens**: Enable decisions with clear evidence, tradeoffs, and next steps
 ```
 
 ### **Dynamic Context Variables**
@@ -489,13 +489,13 @@ EXECUTIVE SUMMARY & DECISION SYNTHESIS analysis for operational decision consens
 - `{PR_NUMBER}`: Auto-detected from current branch context (when applicable)
 - `{FILE_LIST}`: From git diff and PR analysis (code mode)
 - `{TARGET_SCOPE}`: User-specified scope or default context (files, docs, decisions)
-- `{MVP_STAGE}`: Pre-launch, rollback-safe development phase
+- `{PROJECT_CONTEXT}`: Verified launch, user, team, and operational facts with sources; mark unknowns
 - `{AGENT_NETWORK}`: Selected 5-agent consensus roster for the chosen mode
 - `{CONSENSUS_ROUND}`: Current review round, continued as needed until acceptance or a verified blocker/deadline
 
 ## Post-Run Clean Up
 
 1. Ensure working tree cleanliness (`git status --short`).
-2. If changes were made, restate next steps (commit, push, or request manual review).
+2. Execute authorized remaining checks, commits, pushes, and reviews; stop only at a verified blocker or an unmet authority boundary, explaining the exact action and why the agent cannot take it.
 3. If user explicitly opts into memory persistence, record a sanitized, project-scoped summary of consensus patterns and key resolution decisions into Memory MCP (stripping private keys, user PII, or raw secret payloads).
-4. Note: GitHub rollbacks available if any issues discovered post-merge.
+4. Note: Verify available recovery options for post-release issues; do not assume rollback availability.

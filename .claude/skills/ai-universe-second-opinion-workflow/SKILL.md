@@ -36,8 +36,8 @@ scope: project
    call. Only after both fail may you report the physical authentication
    dependency; do not ask for login from status output alone.
 4. Ensure `http` (HTTPie), `jq`, and `python3` are installed. Use the active
-   host's nvm Node 22; on this Mac use
-   `/Users/jleechan/.nvm/versions/node/v22.22.0/bin/node`.
+   host's nvm-managed Node 22, resolved from its installed nvm configuration.
+   Verify the selected executable and `node --version` before invoking it.
 
 > ℹ️ **Seamless Auto-Refresh**: The `/secondo` command uses the exact same auth-cli.mjs from AI Universe repo. If your token is valid, it does nothing. If expired, it auto-refreshes using your refresh token (silent, no browser popup). Only prompts for login if refresh token expires (30+ days).
 
