@@ -5,41 +5,55 @@ description: Browser-based multi-model advice and review using ChatGPT, Gemini, 
 
 # /web-advice — Multi-Model Browser Review
 
-`/web-advice` queries independent web LLMs (ChatGPT, Gemini, and Perplexity when available) through their web UIs in the user's authenticated browser, then synthesizes their advice. It can review or advise on any user-supplied subject: code and PRs, designs, documents, plans, decisions, research questions, UX, and operational proposals. This is **different from `/advice`**, which is in-session and uses subagents + /secondo + /research.
+`/web-advice` queries independent web LLMs (ChatGPT, Gemini, and Perplexity when available) through their web UIs in an authorized, task-owned browser context, then synthesizes their advice. It can review or advise on any user-supplied subject: code and PRs, designs, documents, plans, decisions, research questions, UX, and operational proposals. This is **different from `/advice`**, which is in-session and uses subagents + /secondo + /research.
 
 | Skill | Mechanism | When to use |
 |---|---|---|
 | `/advice` | In-session: subagent + /secondo + /research | Architectural reasoning, ZFC reviews, code-path analysis |
-| `/web-advice` | Browser: ChatGPT + Gemini + Perplexity Web; Aside preferred, browser fallbacks supported | Independent external multi-model advice or review; visual/video context; web-search grounding |
+| `/web-advice` | Browser: ChatGPT + Gemini + Perplexity Web; isolated headless by default, existing verified task-owned Aside supported | Independent external multi-model advice or review; visual/video context; web-search grounding |
 | `/er` | In-session: evidence-standards skill | Evidence bundle integrity (4-gate checksum/SHA/real-services) |
 
 ## Real-Browser Transport Contract: Runtime-Specific
+
+**Runtime boundary:** Follow the [portable browser and sharing boundary](../../../portable/skills/web-advice/SKILL.md) in hosted/cloud runtimes. The host-specific routes and helper commands below apply only where the current runtime supports them and the task authorizes them; they grant no access. In a supported cloud browser, record the actual browser tool and observed per-seat state rather than requiring an unavailable local helper. Never classify a supported browser as unavailable solely because Aside or a local helper is absent. Preserve the authentication, packet, response, and two-provider quorum gates.
 
 > [!IMPORTANT]
 > **Zero Aside Inference Invariant (Strict Hard-Fail Rule)**:
 > `/web-advice` MUST use browser navigation and DOM automation against the real
 > vendor web-chat sites. In an interactive chat app, prefer that app's owned
-> built-in browser and create a new vendor chat. In a coding CLI or Bash run,
-> launch an isolated system-Chrome process through Playwright in strict
-> headless mode, with freshly decrypted local browser cookies. Do not reuse a
-> shared GUI tab as a CLI review transport.
+> built-in browser and create a new vendor chat when its browser context is
+> separately task-owned. In a coding CLI or Bash run, isolated headless
+> Chromium is the default. Use Aside only when its already-running context is
+> verified agent-owned and background-safe. Follow the [browser-control
+> contract](../browser-control/SKILL.md) for browser ownership and
+> authentication: never attach to personal/default Chrome or use its profile
+> or cookies. Cookie transfer requires explicit current-task authorization for
+> exactly one named agent-owned source, using the guarded lifecycle in
+> [browser-control](../browser-control/SKILL.md). If no authorized
+> authenticated route is available, report the affected seat as unavailable
+> instead of switching to a personal browser.
 >
 > **NEVER use Aside inference** (`aside "..."` NL agent, `aside --effort ultrabrowse`, `aside exec`, `aside exec -m <model>`, or Aside's backend AI models).
 > Aside inference consumes Aside's token quota / usage limits and does NOT use the operator's web chat subscriptions.
-> The entire purpose of `/web-advice` is to navigate to the web chat interfaces (`https://chatgpt.com/`, `https://gemini.google.com/app`, `https://www.perplexity.ai/`) to leverage the user's active web chat subscriptions (ChatGPT Plus/Team/Pro, Gemini Advanced, Perplexity Pro) via the authenticated browser.
+> The purpose is to review through the authenticated vendor web-chat accounts and subscriptions available in the authorized task-owned context.
 >
-> **Approved transport ladders**:
-> - **Interactive app:** `builtin_browser`, then `aside_mcp`, then `aside_repl`.
-> - **Coding CLI/Bash:** on macOS, `aside_repl` with an explicit signed-in
->   `--account` and fresh tabs; then `chrome_headless_cookies`, then
->   `playwright_mcp`, then `chrome_headless_cdp`. Any credential-backed fallback must remain within the current
->   session's explicit authorization and supported tool boundaries; this skill
->   does not grant additional access.
+> **Transport routing**:
+> - In an interactive app, use its supported browser in a separate task-owned
+>   context; `aside_mcp` or `aside_repl` is usable only when its existing context
+>   is verified agent-owned and background-safe.
+> - In CLI/Bash, prefer isolated headless Chromium through `playwright_mcp` or
+>   `chrome_headless_cdp` when supported. Reuse `aside_repl` only when its
+>   already-running context is verified agent-owned and background-safe.
+> - Credential-backed fallbacks, including `chrome_headless_cookies`, require
+>   the explicit, named-source authorization and guarded lifecycle in
+>   [browser-control contract](../browser-control/SKILL.md); this skill grants no additional access.
 >
-> **Aside account preflight**: run `aside account list`. The `*` (active)
-> account can drift to a signed-out profile, which makes Aside look down. Pick a
-> signed-in account and pass it on every call (`aside repl --account <signed-in-account> ...`);
-> a signed-out active account is not `aside_unavailable`.
+> **Aside account preflight**: only after selecting a verified task-owned Aside
+> context, run `aside account list` when that runtime exposes the command. The
+> `*` (active) account can be signed out; this is not evidence of context
+> ownership or of general Aside unavailability. Use a signed-in account only
+> within the verified task-owned context, passing it as `--account` when that
+> runtime supports account selection.
 >
 > Each fallback must prove the affected vendor is authenticated, exposes a
 > writable composer, returns the submitted prompt's real response, and supports
@@ -48,11 +62,7 @@ description: Browser-based multi-model advice and review using ChatGPT, Gemini, 
 > **Banned substitutes**: Provider APIs, CLI models (agy, codex CLI), Aside inference (`aside exec`, `aside "..."` NL agent), in-session subagents, and WebSearch/WebFetch synthesis remain strictly banned.
 > If no approved real-browser seat remains reachable, report every observed transport failure and stop `/web-advice`; do not launch or relabel an inference substitute.
 >
-> Before opening tabs and again before labeling captured output `/web-advice`, validate the selected transport:
-> `python3 ~/.claude/skills/web-advice/scripts/web_advice_transport.py assert-transport aside_mcp`
-> Use `aside_repl` instead of `aside_mcp` when driving the browser API through
-> `aside repl`. For a fallback, pass the observed reason, for example:
-> `python3 ~/.claude/skills/web-advice/scripts/web_advice_transport.py assert-transport chrome_headless_cookies --fallback-reason aside_unavailable`.
+> Before opening tabs and again before labeling output `/web-advice`, validate the selected route where the local transport validator applies, and record its output. For a browser fallback, use its observed fallback reason, for example: `python3 ~/.claude/skills/web-advice/scripts/web_advice_transport.py assert-transport playwright_mcp --fallback-reason aside_unavailable`. The validator does not establish browser ownership or cookie authorization; cookie transport remains subject to the explicit named-source rule above.
 > If Aside can browse but cannot visibly attach the packet after one clean-chat
 > retry, use the literal fallback reason `aside_upload_unavailable`.
 
@@ -163,11 +173,12 @@ The prompt should be materially the same for each model; adapt only for a model'
 
 ## Browser Execution Protocol
 
-First resolve the transport ladder. On macOS, probe Aside first. On non-macOS
-hosts, or after both Aside routes are unavailable, continue through the
-approved browser fallbacks. The examples below use Aside's Playwright-shaped
-API; apply the same selectors and evidence checks to a Playwright `Page` when a
-fallback is selected.
+First follow the [browser-control route](../browser-control/SKILL.md): isolated
+headless Chromium is the default, and an existing Aside context is usable only
+when its agent ownership and background safety are verified. Use the examples
+below only in such a verified Aside context; apply the same selectors and
+evidence checks to a Playwright `Page` when the supported isolated fallback is
+selected.
 
 ### Step 1 — Open 3 tabs
 
@@ -182,9 +193,10 @@ console.log('opened:', allTabs.length, 'tabs');
 for (const t of allTabs) console.log(' -', t.title, '(', t.url, ')');
 ```
 
-For Aside, expected output is 4 tabs (your existing tab + 3 new vendor tabs). A fallback
-may use separate pages or contexts, but must report the selected transport and
-the per-vendor authentication result.
+For a verified task-owned Aside context, expected output is 4 tabs (its current
+tab plus 3 new vendor tabs). An isolated fallback may use separate pages or
+contexts, but must report the selected transport and the per-vendor
+authentication result.
 
 ### Step 2 — Verify auth state (CRITICAL)
 
@@ -194,17 +206,18 @@ const tabs = await listBrowserTabs();
 const gemTab = tabs.find(t => t.title === 'Google Gemini');
 const gemPage = await attachBrowserTab(gemTab.targetId);
 const gemSnap = await snapshot(gemPage);
-const geminiLoggedIn = !gemSnap.tree.includes('Sign in') && !gemSnap.tree.includes('Log in');
-console.log('gemini logged in:', geminiLoggedIn);
+// Inspect positive account identity AND a writable composer in gemSnap.
+// Absence of login text alone is not authentication proof.
+console.log('Gemini authentication evidence:', gemSnap.tree);
 ```
 
-**Repeat for ChatGPT and Perplexity.** If any model is not logged in, **stop and ask the user to log in** — do NOT try to log in for them (no credentials, no auth cookies, no OAuth flow). Login state per model:
+**Repeat for ChatGPT and Perplexity.** Require positive account identity and a writable composer; an anonymous composer or absence of login text is insufficient. Record signed-out seats as `UNAVAILABLE (login)`. Do not perform an agent-driven sign-in, replay credentials, or bypass consent/MFA. An interactive caller may request human login only when the caller and runtime permit it; cookie transfer follows the explicit named-source rule in [browser-control](../browser-control/SKILL.md). A non-interactive caller such as `/sq` records the blocker without pausing for login and continues independent authorized work. Login-state indicators to inspect (not substitutes for positive account evidence):
 
 - **Gemini**: Logged in shows "Google Account: <email>" in the sidebar
-- **ChatGPT**: Logged in shows "Log in" button HIDDEN; prompt textbox visible. **Heads up:** ChatGPT may show the marketing landing page ("Where should we begin?") with a "Log in" button even when a session cookie exists, depending on cookie state. If the textbox is missing OR the page shows "Sign up for free", the session is genuinely gone — ask the user to log in. Try navigating to `chat.openai.com` as a fallback URL.
-- **Perplexity**: Logged in shows username in the top-right corner (e.g., "jleechan77861") AND a "Sessions" sidebar with prior chats
+- **ChatGPT**: Logged in shows "Log in" button HIDDEN; prompt textbox visible. **Heads up:** ChatGPT may show the marketing landing page ("Where should we begin?") with a "Log in" button even when a session cookie exists, depending on cookie state. A visible "Sign up for free" with "Log in" indicates a signed-out page. A missing textbox alone does not prove logout; inspect loading/error state first. Follow the caller-aware login handling above.
+- **Perplexity**: Verify the signed-in account identity and writable composer. Prior chats support the observation but are not required; an empty history alone does not prove logout.
 
-If the user can't log in to one model, run /web-advice with the others as long as at least two providers remain authenticated (2-of-3 still satisfies the multi-model adversarial requirement when the two models are from different families) and note the gap in the synthesis. If fewer than two providers are authenticated, **stop and ask the user to log in** — do NOT try to log in for them (no credentials, no auth cookies, no OAuth flow).
+If the user can't log in to one model, run /web-advice with the others as long as at least two providers remain authenticated (2-of-3 still satisfies the multi-model adversarial requirement when the two models are from different families) and note the gap in the synthesis. If fewer than two providers are authenticated, stop the multi-model review and report the unmet quorum, following the caller-aware login handling above. Do NOT try to log in for them or substitute anonymous reviews, APIs, CLI models, or internal agents.
 
 ### Step 2b — Create a clean chat and prove packet attachment (MANDATORY)
 
@@ -234,8 +247,13 @@ insufficient. These checks also apply when using a persistent Aside MCP session.
 
 The only successful upload state is every exact packet filename rendered by
 the composer. A no-exception `set_input_files()` result, local file size, a
-thumbnail, or truncated body text is not proof. The headless cookie fallback
-has a report-producing runner. Re-decrypt cookies into a fresh storage-state file for every run (Google signs a reused Gemini snapshot out after one use):
+thumbnail, or truncated body text is not proof. The cookie-backed headless
+runner is a credential-bearing fallback, not a default. Use it only when the
+current task explicitly authorizes cookie transfer from exactly one named
+agent-owned source; then follow the guarded decrypt/inject lifecycle in
+the [browser-control contract](../browser-control/SKILL.md). If used, create a fresh
+storage-state file for each run (Google signs a reused Gemini snapshot out
+after one use):
 
 ```bash
 python3 ~/.claude/skills/web-advice/scripts/playwright_cookie_driver.py \
@@ -428,26 +446,26 @@ Web chat LLM review sessions are stateful and interactive, not single-turn scrip
 - If a model responds with questions, requests additional files, or asks for clarification on an unattached caller or dependency:
   1. **Do NOT terminate early or report an inconclusive verdict**: The review is still actively in flight.
   2. **Locate the requested context**: Extract the relevant files, function definitions, or caller paths from the workspace.
-  3. **Reply in the active chat thread**: Type/upload the requested code or explanation directly into the existing browser tab session.
+  3. **Reply in the active chat thread**: Type/upload the requested code or explanation only in the selected, verified task-owned browser context.
   4. **Wait for re-evaluation**: Allow the model to re-analyze the updated context and render its finalized, fully grounded verdict.
 
 ### Step 5 — Synthesize & Report Share URLs / Snippets (MANDATORY)
 
 > [!IMPORTANT]
-> **Mandatory Share URL & Verbatim Conversation Snippet Invariant (Strict Hard-Fail Rule)**:
+> **Mandatory Receipt & Verbatim Conversation Snippet Invariant (Strict Hard-Fail Rule)**:
 > Every `/web-advice` run MUST output:
 > 1. **File Upload Confirmation**: Confirm that full files, diff patches, or real video/image assets were uploaded via file chooser (`setInputFiles`) into composer chips (zero ungrounded diff-only inlining for code reviews).
-> 2. **Public Conversation Share URLs**: The exact, clickable public permalink / share URL for each evaluated model (`https://chatgpt.com/share/...` or `/c/...`, `https://gemini.google.com/share/...`, `https://www.perplexity.ai/search/...`).
+> 2. **Conversation receipts and authorized links**: Record the exact observed conversation URL and retain a private local response receipt. Creating public share links requires separate authorization under Step 6 and the portable sharing boundary; otherwise report `not published (not authorized)` without invalidating a grounded verdict. A private `/c/...` conversation URL is not a public share. Never create or test a public share merely to satisfy this receipt gate.
 > 3. **Verbatim Conversation Snippets per PR / Subject**: Exact blockquotes of the model's verdict and analysis per reviewed PR or artifact to provide undeniable proof of review execution.
 
 ```markdown
 ## /web-advice synthesis
 
-| Model | Verdict | Confidence | Share URL | Coverage & Upload Confirmation | Key finding |
+| Model | Verdict | Confidence | Conversation receipt / authorized link | Coverage & Upload Confirmation | Key finding |
 |---|---|---|---|---|---|
-| ChatGPT | <verdict> | high/med/low | <share URL> | Files uploaded & confirmed | <one line> |
-| Gemini 3.8 Flash | <verdict> | high/med/low | <share URL> | Files uploaded & confirmed | <one line> |
-| Perplexity | <verdict> | high/med/low | <share URL> | Files uploaded & confirmed | <one line> (note: web-grounded) |
+| ChatGPT | <verdict> | high/med/low | <conversation receipt or authorized link> | Files uploaded & confirmed | <one line> |
+| Gemini 3.8 Flash | <verdict> | high/med/low | <conversation receipt or authorized link> | Files uploaded & confirmed | <one line> |
+| Perplexity | <verdict> | high/med/low | <conversation receipt or authorized link> | Files uploaded & confirmed | <one line> (note: web-grounded) |
 
 ### Verbatim Conversation Snippets per PR / Subject:
 #### 1. [Subject / PR #N]
@@ -490,6 +508,10 @@ The following publication steps apply only within that authorization.
 
 ## Failure Recovery
 
+### Renderer crash or transport timeout
+
+A blank/loading page, `Runtime.addBinding` timeout, or renderer crash (for example, `Aw, Snap!` / error code 9) is not proof of logout. Inspect the visible page and, when permitted, reload once through the supported browser controls, then recheck account identity and composer readiness. If recovery fails, record `UNAVAILABLE (renderer/transport)` with the exact error and authentication state `unknown`. Do not loop, change credentials/security settings, or retry an access denial. This recovery does not repair a visibly signed-out account.
+
 ### Aside daemon disconnects
 
 Symptom: `Task failed: fetch failed: other side closed. Aside daemon is not reachable — make sure Aside Browser is running, then retry.`
@@ -517,8 +539,8 @@ Recovery:
 Symptom: ChatGPT shows "Log in" button; Gemini shows "Sign in to continue"; Perplexity shows "Sign in" page.
 
 Recovery:
-1. **Do NOT attempt login** — no credentials, no OAuth flow
-2. Stop and ask the user to log in manually
+1. Do not perform an agent-driven sign-in or replay credentials.
+2. Follow Step 2 caller-aware login handling: request human login only when permitted; cookie transfer follows the explicit named-source rule in [browser-control](../browser-control/SKILL.md); `/sq` records `UNAVAILABLE (login)` without an interactive pause.
 3. Continue with the other models
 4. If only 1 model is logged in, that's a single-model review, not multi-model — note this in synthesis
 
@@ -580,6 +602,7 @@ Recovery:
 
 - Provenance: artifact `~/roadmap/2026-08-01-web-advice-and-evidence-review-guide.md` (Antigravity Genesis Coder, 2026-08-01)
 - 4-gate pre-flight: `~/.claude/skills/evidence-standards/SKILL.md`
-- Browser automation: `references/browser-transports.md` (Aside first in app;
-  isolated Playwright/Chrome in CLI/Bash)
+- Browser ownership and authentication: [browser-control](../browser-control/SKILL.md)
+- Browser automation examples: `references/browser-transports.md` (isolated
+  headless by default; existing Aside only when verified task-owned)
 - Companion skill: `/advice` (in-session multi-reviewer)

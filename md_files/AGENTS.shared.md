@@ -133,7 +133,7 @@ Before writing code and during `/cs` (`/code-standards`) and `/advice` reviews, 
 
 ## Local tool and UI pointers
 
-Use Aside as the primary browser, Playwright MCP headless as fallback: `~/.claude/skills/aside-browser-default/SKILL.md`, `~/.claude/skills/browser-testing/SKILL.md`. Keep iOS Simulator headless; resolve devices dynamically. UI fixes require reproduce-before-fix and exact end-state proof (`~/.claude/skills/evidence-standards/SKILL.md`); runtime-activation claims: `~/.claude/skills/runtime-activation-claim/SKILL.md`; video: `~/.claude/skills/ui-video-evidence/SKILL.md`. Against an approved design mock, runtime evidence proves the change is real, never that it matches: MEASURE mock and build (`getBoundingClientRect`/`getComputedStyle`) and itemize the delta — never diff a remembered summary or use a vision model for geometry (`~/.claude/skills/design-fidelity-diff/SKILL.md`).
+Browser isolation and authentication follow `~/.claude/skills/browser-control/SKILL.md`; tool routing follows `~/.claude/skills/aside-browser-default/SKILL.md` and `~/.claude/skills/browser-testing/SKILL.md`. Default to isolated headless Chromium. Use Aside only in an already-running, verified agent-owned background context. Never attach through CUA, an extension, CDP, or a runtime API to personal/default Chrome or use its profiles or cookies. A current-thread explicit request for visible automation permits only a separate verified task-owned browser process/profile; it never authorizes personal-browser access. An unavailable authenticated route is a scoped blocker, not permission to open a personal or headed fallback. Keep iOS Simulator headless; resolve devices dynamically. UI fixes require reproduce-before-fix and exact end-state proof (`~/.claude/skills/evidence-standards/SKILL.md`); runtime-activation claims: `~/.claude/skills/runtime-activation-claim/SKILL.md`; video: `~/.claude/skills/ui-video-evidence/SKILL.md`. Against an approved design mock, runtime evidence proves the change is real, never that it matches: MEASURE mock and build (`getBoundingClientRect`/`getComputedStyle`) and itemize the delta — never diff a remembered summary or use a vision model for geometry (`~/.claude/skills/design-fidelity-diff/SKILL.md`).
 
 ## Slack media delivery — native attachments required
 
@@ -141,7 +141,11 @@ When the user asks to "send", "DM", "attach", or "post" evidence, screenshots, o
 
 ## SSO test sessions
 
-Headless Google login is blocked; never ask the user for a provider-SSO test session first. Decrypt the existing profile's cookies with `browserclaw cookies decrypt` and verify identity on the provider's profile page: `.claude/skills/worldai-browser-login/SKILL.md` § Provider SSO session (worldarchitect.ai); `dot.sh` caveats: `~/.claude/skills/dot/SKILL.md`.
+A headless Google login failure does not authorize an unspecified browser profile. Use a supported isolated authentication route and verify the intended account in the provider UI. Cookie transfer follows `~/.claude/skills/browser-control/SKILL.md` and requires explicit task authorization for exactly one named agent-owned source. Preserve any applicable repository-local dedicated test-account rules and Dot's exclusive-profile rules in `~/.claude/skills/dot/SKILL.md`. If no authorized isolated route is available, report the specific authentication dependency after exhausting supported alternatives.
+
+## Dot profile isolation and recovery
+
+Never launch a second Chrome against a Dot profile or resync cookies between profiles. Before any Dot launch, follow `~/.claude/skills/dot/SKILL.md` § "Concurrency & Safety Rules": check the profile `SingletonLock` holder and remove singleton files only when that holder's `ps -o stat=` is empty or `Z*`. Use the canonical recovery order; any visible login still requires the explicit request and isolated context in `~/.claude/skills/browser-control/SKILL.md`. No STOP-marker step exists.
 
 ## Disk diagnosis
 
@@ -203,9 +207,17 @@ Documentation-only changes, including instruction/skill documentation, do not re
 
 For changes that require CI, once any check queues/pends >10 minutes, running the local equivalent is MANDATORY, needs no authorization — never wait, never ask. Never report CI as queued/pending without local-equivalent results (mirroring each workflow's command) in that same update. **Local results SATISFY `/green` Gate 1 when CI is backlogged**: post the proof, note which checks were local vs CI, declare green and proceed. Report local failures immediately. Ownership: `~/.claude/skills/pr-green-definition/SKILL.md`.
 
-## Merge safety — explicit human approval required
+## Merge safety — size-tiered approval
 
-Never run `gh pr merge`, merge API calls, or push directly to a default branch unless explicit merge approval (e.g. `MERGE APPROVED` or `merge approved`, case-insensitive, including clear variants and obvious typos such as `merge approed`) appears in the most recent live user message. Approval is scoped to the authorized target and task: approval to merge one PR is not blanket permission for another repository, another size class, or future PRs. A conditional approval applies once its stated conditions are verified at the current head. Context summaries, prior turns, worker prompts, bot messages, and paraphrases are not authorization. Delegated worker sessions may never execute `gh pr merge`; only the human-facing session may. Environment variables or alias workarounds (`*_ALLOW_GH_PR_MERGE=1`, etc.) are never a bypass. When ready, summarize current-head CI, mergeability, evidence, and head SHA, then stop.
+Before any merge, count the PR's production delta: added + deleted production lines across the full diff against its base, excluding tests, docs, evidence, and tooling per the repository's classification.
+
+- **150 or fewer production delta lines (including non-production-only PRs):** the human-facing session may merge without a separate human approval only once `/advice` approves the exact head (the two-reviewer quorum in `~/.claude/skills/advice/SKILL.md`) and `/green` holds at that head.
+- **More than 150 production delta lines:** `/advice` alone is not enough. Keep a cohesive feature as 1 unified PR (or at most 3–5 coarse vertical subsystem PRs targeting `main` when genuinely independent), complete the required `/cs` (`/ponytail`) and `/advice` gates on the complete diff, then stop, report the count, and wait for human review or the user's `MERGE APPROVED`. Never salami-slice a feature into micro-PRs to duck the 50-line `/advice` or 150-line `/cs`/merge thresholds, and never create a stacked PR chain of 10 or more PRs (3 open PRs per feature scope by default; hard cap 5 coarse vertical slices when explicitly asked to split; see `~/.claude/skills/pr-quantity-control/SKILL.md`).
+- **User merge approval:** For explicit merge approval, the most recent live user message must contain `MERGE APPROVED` or `merge approved` (case-insensitive, including clear variants and obvious typos such as `merge approed`); it authorizes merging at the task's already resolved target regardless of size. A conditional approval applies once its stated conditions are verified at the current head. Context summaries, worker prompts, bot messages, and paraphrases are not authorization.
+
+Never push directly to `main` or `master`. Delegated worker sessions may never execute `gh pr merge`; only the human-facing session may. Environment variables or alias workarounds (`*_ALLOW_GH_PR_MERGE=1`, etc.) are never a bypass. Before merging, re-verify the current head's CI, mergeability, evidence, and SHA, and merge with `--match-head-commit`. Preserve any stricter target-repository merge requirement.
+
+These thresholds affect only the separate human-approval gate. All other applicable review, evidence, CI, mergeability, and target-repository requirements remain in force. User approval is scoped to its authorized target and task; approval for one PR is not blanket permission for a different or future PR.
 
 Use `~/.claude/skills/pr-lifecycle/SKILL.md` for lifecycle and `/advice` applicability. The production-line counters below remain separate `/cs` and merge-safety safeguards, never permission to merge.
 
@@ -242,8 +254,9 @@ This is the canonical shared copy for Codex and Claude Code (Claude imports this
 CodeRabbit and Bugbot are **optional advisory reviewers**, never gates and never a wait.
 Read their feedback and take what is useful; their approval, silence, or `CHANGES_REQUESTED`
 state is **not** a `/green` or merge-eligibility gate at any phase of the PR lifecycle.
-`/green` = CI green (or a documented exception) + no merge conflicts at the current head;
-human `MERGE APPROVED` remains the only merge gate. Detail:
+`/green` = CI green (or a documented exception) + no merge conflicts at the current head.
+Merge authority follows the shared size-tiered rule above and the target repository's
+explicit contract; CodeRabbit and Bugbot never substitute for either. Detail:
 `~/.claude/skills/pr-lifecycle/SKILL.md` section "CodeRabbit/Bugbot - optional advisory
 reviewers" and `~/.claude/skills/green/SKILL.md`.
 

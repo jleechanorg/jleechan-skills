@@ -29,8 +29,7 @@ DRAFT
   → final /er PASS applicable to the candidate when required
   → final /advice APPROVED applicable to the candidate when required
   → READY
-  → separate merge authorization: explicit human "MERGE APPROVED" (case-insensitive)
-    in the most recent live user message
+  → separate merge authorization: apply `~/.codex/AGENTS.md` § Merge safety and the target repository's explicit merge contract; readiness and review receipts do not themselves grant authority
 ```
 
 Each arrow is a gate, not a formality. Do not skip ahead. A changed SHA triggers the reasoned delta assessment below, not automatic invalidation or a mandatory repeat review. Preserve the original tested/reviewed SHA and record why its evidence and verdict still apply to the candidate.
@@ -529,6 +528,6 @@ For checks queued/pending more than 10 minutes, follow the local-equivalent exce
 
 Neither draft-phase gate above nor `/green` includes CodeRabbit or Bugbot approval. **CodeRabbit/Bugbot: optional advisory reviewers** — read their feedback, take what's useful; never a gate, never a wait, at any phase.
 
-## Merge authorization — unchanged
+## Merge authorization
 
-Merge still requires the literal phrase `MERGE APPROVED` (case-insensitive) from the human in the most recent live message, scoped per-repo per existing policy (e.g. `$GITHUB_REPOSITORY`). Nothing in this skill changes that gate.
+Merge authorization follows the shared size-tiered rule in `~/.codex/AGENTS.md` § Merge safety and any explicit target-repository contract. This skill does not require or waive a human `MERGE APPROVED` phrase where the governing rule does not; explicit local approval requirements remain in force.
