@@ -20,7 +20,11 @@ attachment names, a submitted prompt, and a response that echoes the requested
 revision and attachment names. Do not enter credentials, bypass a login or
 CAPTCHA, or treat an upload call without visible chips as success.
 
-For strict-headless Chrome, use the installed Chrome channel with `headless=True`
-and a normal desktop user agent. Vendor upload controls are not interchangeable:
-use a documented unique file input only where one exists, otherwise use the
-vendor's visible upload menu and a file chooser.
+For strict-headless browser sessions, follow
+[`browser-control`](../../browser-control/SKILL.md): prefer its bundled
+Playwright Chromium with `headless=True` and a normal desktop user agent. Dot's
+live-profile transport is a specific exception; follow [`dot`](../../dot/SKILL.md)
+and do not generalize its installed-Chrome channel to other browser work. Vendor
+upload controls are not interchangeable: use a documented unique file input
+only where one exists, otherwise use the vendor's visible upload menu and a file
+chooser.
