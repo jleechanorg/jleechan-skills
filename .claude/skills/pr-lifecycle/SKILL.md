@@ -211,14 +211,14 @@ Missing, inaccessible or unauthorized publication is `PUBLICATION BLOCKED`: cont
 
 ## Default PR route — `/prw`
 
-Drive every PR through `/prw` (`/pr-workflow`) by default. UI changes and any user-facing change always use `/prw`. Use a lighter path only for:
+Drive every PR through `/prw` (`/pr-workflow`) by default, using this generic lifecycle unless the repository opted into the visible six-stage workflow. UI changes and any user-facing change always use `/prw` unless a human explicitly overrides it for that PR. A lighter path is allowed only for:
 
 - documentation-only changes;
 - backup or mirror repositories;
 - an explicit human instruction to skip `/prw` for that PR;
-- a very small change that needs no evidence or `/es`, such as a fix to a helper script with no user-visible effect.
+- a very small change that needs no evidence or `/es`, such as a fix to a helper script with no user-visible effect. This bullet never covers the classes excluded from § Proportional exceptions and fast paths (authentication, permissions, credentials, approval, merge, review, evidence or security policy, prompts, schemas, payments); those always use `/prw`.
 
-A skipped `/prw` still keeps CI, `/green`, the applicable `/advice` threshold, and merge authorization. When unsure, use `/prw`.
+The lighter path drops only the `/prw` driver and its stage ceremony. Every gate that applies to the change still applies: applicable CI or its documented exception, `/green`, the `/advice` threshold, any repository-required review or evidence, and merge authorization. When unsure, use `/prw`.
 
 ## Proportional exceptions and fast paths
 
