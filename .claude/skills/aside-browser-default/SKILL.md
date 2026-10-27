@@ -105,7 +105,7 @@ Do not assume a failing standalone CLI means the browser tool is dead, or that a
   const shot = await annotatedScreenshot(p);   // NOT screenshot() — that doesn't exist
   console.log('B64:' + shot.base64Image);
   ```
-- **OAuth:** use only the provider's supported OAuth flow in an already authorized, isolated browser context. Do not intercept a system opener, log authorization URLs, launch or drive a desktop browser, clear cached tokens, or reuse personal browser state. The legacy recipe at `references/oauth-capture-and-drive.md` is retired and non-executable.
+- **OAuth:** use only the provider's supported OAuth flow in an already authorized, isolated browser context. Do not intercept a system opener, log authorization URLs, launch or drive a personal desktop browser (Aside in background mode on an agent-owned profile is allowed), clear cached tokens, or reuse personal browser state. The legacy recipe at `references/oauth-capture-and-drive.md` is retired and non-executable.
 - **Session continuity** (continue a prior NL session):
   ```bash
   aside --session <id> "Continue from where we left off"

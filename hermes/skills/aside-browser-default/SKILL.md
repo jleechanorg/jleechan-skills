@@ -104,7 +104,7 @@ Aside is a Y Combinator–backed AI-native Chromium browser launched June 2026. 
   const shot = await annotatedScreenshot(p);   // NOT screenshot() — that doesn't exist
   console.log('B64:' + shot.base64Image);
   ```
-- **OAuth:** use the provider-supported flow in an isolated, agent-owned browser context. Do not intercept system URL openers, log authorization URLs, clear cached grants, or launch/drive a desktop browser. The old capture-and-drive reference is retired and non-executable.
+- **OAuth:** use the provider-supported flow in an isolated, agent-owned browser context. Do not intercept system URL openers, log authorization URLs, clear cached grants, or launch/drive a personal desktop browser (Aside in background mode on an agent-owned profile is allowed). The old capture-and-drive reference is retired and non-executable.
 - **Slack operations:** use the approved Slack connector/API with its existing authorized scopes. If a method is unavailable or returns `missing_scope`, do not use `slack.getClient()` or browser cookies to bypass that limit; use an authorized Slack UI action in an already verified, isolated agent-owned browser context when appropriate, or report the missing authorization. See `references/aside-repl-api-gotchas.md` for this boundary and safe membership checks.
 
 - **Session continuity** (continue a prior NL session):
