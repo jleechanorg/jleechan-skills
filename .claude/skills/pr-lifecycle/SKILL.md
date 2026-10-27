@@ -216,9 +216,9 @@ Drive every PR through `/prw` (`/pr-workflow`) by default, using this generic li
 - documentation-only changes;
 - backup or mirror repositories;
 - an explicit human instruction to skip `/prw` for that PR;
-- a very small change that needs no evidence or `/es`, such as a fix to a helper script with no user-visible effect. This bullet never covers the classes excluded from § Proportional exceptions and fast paths (authentication, permissions, credentials, approval, merge, review, evidence or security policy, prompts, schemas, payments); those always use `/prw`.
+- a very small change that needs no evidence or `/es`, such as a fix to a helper script with no user-visible effect. This bullet never covers any class excluded in § Proportional exceptions and fast paths or listed as high-risk in § Coding lifecycle — scale layers to risk; those always use `/prw`.
 
-The lighter path drops only the `/prw` driver and its stage ceremony. Every gate that applies to the change still applies: applicable CI or its documented exception, `/green`, the `/advice` threshold, any repository-required review or evidence, and merge authorization. When unsure, use `/prw`.
+The lighter path drops only the `/prw` driver; in opted-in repositories the stage title, labels and specification still apply. Every gate that applies to the change still applies: applicable CI or its documented exception, `/green`, the `/advice` threshold, any repository-required review or evidence, and merge authorization. When unsure, use `/prw`.
 
 ## Proportional exceptions and fast paths
 
