@@ -30,6 +30,8 @@ The six highlighted workflow entries are the `jleechanorg` `/superpowers-quick`
 wrapper, `/advice` + `/web-advice`, `/redgreen`, `/4layer`, `/evidence-review`,
 and `/harness`. These prompts and packages are portable and do not depend on
 WorldAI or private infrastructure.
+A plain install gets all six except `/web-advice`, a browser-review skill that
+installs only with `--profile web` or `--with web-advice`.
 
 > **Third-party attribution:** [`/superpowers-quick`](.claude/skills/superpowers-quick/SKILL.md)
 > is a `jleechanorg`-authored autonomous wrapper around

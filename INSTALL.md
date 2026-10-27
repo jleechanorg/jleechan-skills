@@ -72,7 +72,7 @@ git clone https://github.com/jleechanorg/jleechan-skills.git "$INSTALL_ROOT/sour
 CLAUDE_HOME="$INSTALL_ROOT/claude" \
   bash "$INSTALL_ROOT/source/install-claude-commands.sh"
 
-test -f "$INSTALL_ROOT/claude/skills/repro-evidence/SKILL.md"
+test -f "$INSTALL_ROOT/claude/skills/advice/SKILL.md"
 test -f "$INSTALL_ROOT/claude/commands/er.md"
 ```
 
@@ -81,7 +81,7 @@ command files directly; it does not assume `/help` or `/list` is available in
 every host application. Inspect an installed skill with:
 
 ```bash
-sed -n '1,80p' "$INSTALL_ROOT/claude/skills/repro-evidence/SKILL.md"
+sed -n '1,80p' "$INSTALL_ROOT/claude/skills/advice/SKILL.md"
 ```
 
 When finished, remove only the exact temporary directory printed by your shell:
@@ -164,12 +164,12 @@ For an isolated install, rollback is simply removal of its exact
 ## Use the installed skills
 
 Read a skill before invoking it. Examples present in this export include
-`repro-evidence`, `evidence-review`, `parallelize-to-ceiling`, and `redgreen`.
+`advice`, `evidence-review`, `harness-engineering`, and `redgreen`.
 Their canonical instructions are respectively at:
 
-- [`.claude/skills/repro-evidence/SKILL.md`](.claude/skills/repro-evidence/SKILL.md)
+- [`.claude/skills/advice/SKILL.md`](.claude/skills/advice/SKILL.md)
 - [`.claude/skills/evidence-review/SKILL.md`](.claude/skills/evidence-review/SKILL.md)
-- [`.claude/skills/parallelize-to-ceiling/SKILL.md`](.claude/skills/parallelize-to-ceiling/SKILL.md)
+- [`.claude/skills/harness-engineering/SKILL.md`](.claude/skills/harness-engineering/SKILL.md)
 - [`.claude/skills/redgreen/SKILL.md`](.claude/skills/redgreen/SKILL.md)
 
 See [README.md](README.md) for the catalog and [GitHub Issues](https://github.com/jleechanorg/jleechan-skills/issues) for support.
