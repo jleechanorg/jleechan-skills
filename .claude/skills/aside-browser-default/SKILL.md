@@ -172,13 +172,14 @@ Aside and Chrome use separate macOS Keychain entries. This is portability backgr
 # 1. CLI alive
 aside --version       # 1.26.626.1517
 aside account list    # * u0  '<account-email>'  signed in
+aside host profiles --account <agent-account>   # agent profile must show connected
 
 # 2. REPL alive
-aside repl "console.log('ok')"        # [ok | <Nms>]
-  aside repl "(async () => console.log((await listBrowserTabs()).length))()" # number of open tabs
+aside repl --account <agent-account> "console.log('ok')"        # [ok | <Nms>]
+  aside repl --account <agent-account> "(async () => console.log((await listBrowserTabs()).length))()" # number of open tabs
 
 # 3. NL agent alive
-aside "Open https://example.com and report the title"  # returns "Example Domain"
+aside --account <agent-account> "Open https://example.com and report the title"  # returns "Example Domain"
 
 # 4. MCP server reachable
 curl -fsS http://127.0.0.1:8013/mcp -X POST -H 'Content-Type: application/json' \

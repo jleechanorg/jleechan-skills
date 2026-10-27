@@ -70,17 +70,17 @@ Aside is a Y Combinator–backed AI-native Chromium browser launched June 2026. 
 - **Multi-line REPL scripts MUST go through `$(cat file)` or heredoc, NOT inline string args** — verified 2026-07-13. When JS contains parentheses inside template literals or string-concatenation (e.g. `String(s.tree).split('\n').filter(l => /ref=e\d+/.test(l))`), bash will mangle the parens before Aside ever sees them, returning `bash: eval: line 16: syntax error near unexpected token '('` instead of the Aside "ReferenceError" you'd expect. The fix:
   ```bash
   # ❌ Breaks on shell tokenization — bash reads `(` as a syntax error
-  aside repl "const x = String(s.tree).split('\n').filter(l => /ref=e\d+/.test(l));"
+  aside repl --account <agent-account> "const x = String(s.tree).split('\n').filter(l => /ref=e\d+/.test(l));"
 
   # ✅ Pattern A — write JS to a file, cat into the arg
   cat > /tmp/script.js <<'JS'
   const x = String(s.tree).split('\n').filter(l => /ref=e\d+\]/.test(l));
   console.log('hits:', x.length);
   JS
-  aside repl "$(cat /tmp/script.js)"
+  aside repl --account <agent-account> "$(cat /tmp/script.js)"
 
   # ✅ Pattern B — heredoc the file CONTENTS as the inline code
-  aside repl "$(cat <<'JS'
+  aside repl --account <agent-account> "$(cat <<'JS'
     const x = ...;
     console.log(x);
   JS
@@ -166,13 +166,14 @@ Aside and Chrome use separate macOS Keychain entries. This is portability backgr
 # 1. CLI alive
 aside --version       # 1.26.626.1517
 aside account list    # * u0  '<account-email>'  signed in
+aside host profiles --account <agent-account>   # agent profile must show connected
 
 # 2. REPL alive
-aside repl "console.log('ok')"        # [ok | <Nms>]
-  aside repl "(async () => console.log((await listBrowserTabs()).length))()" # number of open tabs
+aside repl --account <agent-account> "console.log('ok')"        # [ok | <Nms>]
+  aside repl --account <agent-account> "(async () => console.log((await listBrowserTabs()).length))()" # number of open tabs
 
 # 3. NL agent alive
-aside "Open https://example.com and report the title"  # returns "Example Domain"
+aside --account <agent-account> "Open https://example.com and report the title"  # returns "Example Domain"
 
 # 4. MCP server reachable
 curl -fsS http://127.0.0.1:8013/mcp -X POST -H 'Content-Type: application/json' \
