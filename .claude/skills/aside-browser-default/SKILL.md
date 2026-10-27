@@ -10,7 +10,7 @@ context: hermes
 
 ## Contract
 
-Aside is a real GUI browser with no headless mode. Run it in background mode by default (§ Background mode): agent-owned profile, started and driven without taking focus, frontmost app verified unchanged. If background mode cannot be verified, use isolated headless Chromium.
+Aside is a real GUI browser, not headless (it has no headless flag). Run it in background mode by default (§ Background mode): agent-owned profile, started and driven without taking focus, frontmost app verified unchanged. If background mode cannot be verified, use isolated headless Chromium.
 
 Apply [browser-control's personal browser isolation contract](../browser-control/SKILL.md#personal-browser-isolation--required-for-every-route) first. Aside is primary only when it can operate in the background in an agent-owned tab; otherwise use isolated headless Playwright Chromium. Never attach to, focus, or import cookies from the personal Chrome browser.
 
@@ -28,10 +28,9 @@ Keep Chromium headless by default. A current-thread explicit request for visible
 
 Aside has no headless flag; background mode is the supported no-focus-steal equivalent (macOS only).
 
-1. **App not running:** `open -g -a /Applications/Aside.app` (`-g` keeps it in the background). Never plain `open -a` or `open <url>`; both take focus. A cold start may restore other profile windows; never read or drive them.
-2. **Agent profile disconnected** (`aside host profiles --account <agent-account>` shows `disconnected`, or `aside repl` reports the profile is not connected): start only that profile with `/Applications/Aside.app/Contents/MacOS/Aside --profile-directory="<agent profile dir>" --no-startup-window &`. Find the directory in `~/Library/Application Support/Aside/Local State` (`profile.info_cache`, matching the agent account email). Never start a personal profile.
-3. **Drive tabs only through** `aside repl --account <agent-account>` or `aside-mcp` (`openTab`, `snapshot`, `closeTab`).
-4. **Verify:** record the frontmost app (`osascript -e 'tell application "System Events" to get name of first process whose frontmost is true'`) before step 1 and again after the first action. If it changed, stop using Aside for the task and switch to isolated headless Chromium.
+1. **Start only the agent profile,** whether the app is stopped or the profile shows `disconnected` in `aside host profiles --account <agent-account>` (or `aside repl` reports it is not connected). Never use `open -a`, `open -g -a`, or `open <url>`: a plain launch takes focus and a cold app start can restore personal profile windows. Run `/Applications/Aside.app/Contents/MacOS/Aside --profile-directory="<agent profile dir>" --no-startup-window &`. Afterwards, `aside host profiles` must show every personal account still `disconnected`; if a personal profile connected, stop using Aside for the task and report it. Find the directory in `~/Library/Application Support/Aside/Local State` (`profile.info_cache`, matching the agent account email). Never start a personal profile.
+2. **Drive tabs only through** `aside repl --account <agent-account>` or `aside-mcp` (`openTab`, `snapshot`, `closeTab`).
+3. **Verify:** record the frontmost app (`osascript -e 'tell application "System Events" to get name of first process whose frontmost is true'`) before starting Aside and again after the first action. If it changed, stop using Aside for the task and switch to isolated headless Chromium.
 
 ## Why Aside
 

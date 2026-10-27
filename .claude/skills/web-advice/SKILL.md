@@ -42,8 +42,8 @@ description: Browser-based multi-model advice and review using ChatGPT, Gemini, 
 >   context; `aside_mcp` or `aside_repl` is usable in background mode on an
 >   agent-owned profile (aside-browser-default § Background mode).
 > - In CLI/Bash, prefer isolated headless Chromium through `playwright_mcp` or
->   `chrome_headless_cdp` when supported. Reuse `aside_repl` only when its
->   already-running context is verified agent-owned and background-safe.
+>   `chrome_headless_cdp` when supported; for logged-in reviewer sites use
+>   `aside_repl` in background mode on an agent-owned profile.
 > - Credential-backed fallbacks, including `chrome_headless_cookies`, require
 >   the explicit, named-source authorization and guarded lifecycle in
 >   [browser-control contract](../browser-control/SKILL.md); this skill grants no additional access.

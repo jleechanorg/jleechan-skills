@@ -281,9 +281,9 @@ Slack does not automatically rejoin a bot to channels after app reinstall or tok
 
 Symptom: every `aside account list`, `aside repl`, and `aside mcp` returns `fetch failed` immediately. Diagnostic reports (`~/Library/Logs/DiagnosticReports/AsideUpdater-*.ips`) accumulate because the bundled updater can't reach the GUI.
 
-Do not launch, restart, activate, or repair the desktop app as part of browser
-automation. First verify whether the existing Aside session is already an
-agent-owned background context. If ownership is not established or the CLI is
+Do not activate, restart, or repair the desktop app as part of browser
+automation. Start or reconnect only an agent-owned profile in background mode
+(aside-browser-default § Background mode). If that fails or the CLI is
 unavailable, use isolated headless Chromium and report the layer that failed.
 Do not use this diagnosis as authority to inspect or change the user's desktop.
 
