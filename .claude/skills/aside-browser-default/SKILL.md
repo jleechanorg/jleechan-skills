@@ -104,7 +104,7 @@ Do not assume a failing standalone CLI means the browser tool is dead, or that a
   ```
 - **Account switching** (rare; for multi-account flows):
   ```bash
-  aside --account u1 "open https://example.com"
+  aside --account <agent-owned-account-id> "open https://example.com"
   ```
 
 ### Phase 3 — After session
