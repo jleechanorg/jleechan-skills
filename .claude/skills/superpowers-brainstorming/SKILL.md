@@ -38,9 +38,12 @@ another brainstorming phase or approval at each section.
 ## After the Design
 
 **Documentation:**
-- Write durable designs in the `~/roadmap/` repository as `<topic>-YYYY-MM-DD.md`.
+- Write durable designs to the current user's configured report destination as
+  `<topic>-YYYY-MM-DD.md`. Resolve it through [roadmap](../roadmap/SKILL.md);
+  do not save the design under the target project's docs tree.
 - Use elements-of-style:writing-clearly-and-concisely skill if available
-- Report the absolute path and `file:///Users/jleechan/roadmap/...` link.
+- Report the resolved path and its local file link, derived from this host's
+  user home directory.
 
 **Implementation (if continuing):**
 - Continue implementation when authorized; for design-only requests, deliver the design

@@ -30,7 +30,7 @@ execution_mode: immediate
 `/end2end-testing` (which fakes externals): real LLM, real services, and a real server.
 This is the execution mechanism behind `/es` evidence for `$PROJECT_ROOT/**` changes.
 
-See the full authoritative skill at: `.claude/skills/llm-testing.md`
+See the full authoritative skill at: `~/.claude/skills/llm-testing/SKILL.md`
 
 ## Usage
 ```bash

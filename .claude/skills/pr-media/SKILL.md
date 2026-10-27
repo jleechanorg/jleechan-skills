@@ -37,113 +37,55 @@ echo "$CHANGED_FILES"
 
 | Change type | Indicators | Capture method |
 |---|---|---|
-| Web/UI | `packages/web/`, `.tsx`, `.jsx`, `.css` | Screenshot through the repository's approved browser workflow |
-| CLI | `packages/cli/`, command-line output | Terminal output capture |
-| Core | `packages/core/src/` | Test output (`pnpm test`) |
-| Plugin | `packages/plugins/` | Test output or demo output |
-| Docs/Root | `.md`, docs/, roadmap/ | Not applicable — use text evidence only |
-| Config | `.yaml`, `.yml`, `.json` (config only) | Not applicable — use test output |
+| UI claim | User-visible behavior | Follow the repository's browser and visual-evidence owners |
+| CLI or service claim | Command or service behavior | Follow the repository's test and evidence owners |
+| Documentation claim | Instruction or documentation behavior | Use text evidence scoped to the claim |
+| Configuration claim | Configuration behavior | Follow the repository's validation owner |
 
-If the change touches multiple types, capture evidence for ALL types affected.
+Choose evidence by the claim and the target repository's owners, not by file
+extension or directory name alone.
 
 ### Step 2: Capture Evidence
 
 #### For Web/UI changes
 
-Use an isolated, approved browser route and save screenshots in the task's
-unique `/tmp` evidence directory. Follow the browser owner at
+Use an isolated, approved browser route and save screenshots under the task's
+unique `/tmp/<repo>/evidence/...` directory, as specified by
+`~/.codex/AGENTS.md` § Workspace and method fidelity. Follow the browser owner at
 `~/.claude/skills/browser-control/SKILL.md` and the repository evidence owner
 for authentication, capture, and artifact handling.
 
-#### For CLI/Core/Plugin changes
+### Step 3: Prepare the evidence record
 
-Run the relevant check and preserve its actual output in the task's unique
-`/tmp` evidence directory, following the evidence owner's capture requirements.
+Follow `~/.claude/skills/evidence-standards/SKILL.md` to classify the claim,
+assess what the artifact proves, and publish durable evidence when required.
+Store captures under the task's unique `/tmp/<repo>/evidence/...` directory;
+do not write artifacts into the repository. Do not assign a claim class or
+`PASS` verdict solely because a screenshot or command output exists.
 
-#### For config/refactor-only changes (no visual output possible)
+### Step 4: Update the PR description
 
-Capture applicable deterministic results in the task's unique `/tmp` evidence
-directory. Follow the evidence owner for claim scope and publication.
+Use the target repository's PR-description owner to add or update `## Evidence`
+in its owned location before review-gate records. Preserve the complete existing
+body and all review history. Never truncate or reconstruct the body, and never
+append evidence after the final `## Advice Approval` section. Include only the
+authorized evidence URL and claim supported by the artifact.
 
-### Step 3: Build Evidence Section
+### Step 5: Verify the readback
 
-Construct the evidence markdown to append to the PR body.
-
-For **screenshot evidence**:
-```markdown
-## Evidence
-**Claim class**: unit-test-coverage
-**Verdict**: PASS
-
-**Evidence artifact**: <authorized gist or GCS evidence URL>
-
-**Description**: Brief description of what the screenshot proves.
-```
-
-For **terminal output evidence**:
-```markdown
-## Evidence
-**Claim class**: unit-test-coverage
-**Verdict**: PASS
-
-**Test output**: pnpm test output (see code block below)
-
-```
-$ <command>
-<actual output showing expected behavior>
-```
-
-**Description**: Terminal output proving the change works correctly.
-```
-
-### Step 4: Attach to PR
-
-```bash
-BODY_DIR=$(mktemp -d /tmp/pr-media.XXXXXX)
-BODY_FILE="$BODY_DIR/pr-body.md"
-
-# Get current PR body in the task's unique temporary directory
-gh pr view <PR_NUMBER> --repo <OWNER>/<REPO> --json body --jq '.body' > "$BODY_FILE"
-
-# Append Evidence section
-head -c 65000 "$BODY_FILE" > "$BODY_DIR/pr-body-trimmed.md"  # GitHub limit
-printf '\n\n%s' "$EVIDENCE_SECTION" >> "$BODY_DIR/pr-body-trimmed.md"
-
-# Update PR body
-gh api repos/<OWNER>/<REPO>/pulls/<PR_NUMBER> \
-  --method PATCH \
-  --field body="@$BODY_DIR/pr-body-trimmed.md"
-```
-
-Note: If GitHub's API rejects the body update (e.g., image path doesn't exist), the Evidence section should be included in the initial PR body at creation time, not patched after.
-
-### Step 5: Publish evidence through the owning workflow
-
-Keep captures in the task's unique `/tmp` evidence directory. When the workflow
-requires durable evidence, publish it using the user-scope
-`~/.claude/skills/evidence-standards/SKILL.md` procedure and attach its
-authorized URL to the PR description. Never add screenshot or video artifacts
-to the source repository.
+Read the updated PR body and confirm the evidence record is present in the
+correct section, prior gate records remain intact, and `## Advice Approval`
+remains last. Verify the evidence URL through its owning workflow.
 
 ## Evidence Quality Standards
 
-- **Screenshot must show the change working** — not just the code diff, but the runtime result
-- **Terminal output must be actual output**, not fabricated — run the real command
-- **Include context**: what command was run, what the expected output is, how it proves the feature works
+- **Screenshots establish only the visual claim they show.** They do not establish test coverage or a passing test run.
+- **Terminal output must be actual output** from the target repository's supported check.
+- **Include context**: what claim the artifact supports, what it proves, and what remains unproven.
 - **Screenshots must be readable** — ensure adequate resolution and lighting (for UI screenshots)
-
-## Verification
-
-After attaching, verify the PR body contains the Evidence section:
-
-```bash
-gh pr view <PR_NUMBER> --repo <OWNER>/<REPO> --json body --jq '.body' | grep -A5 "## Evidence"
-```
-
-If the Evidence section is missing, the evidence-gate CI check will fail.
 
 ## Edge Cases
 
 - **Large screenshots**: Follow the evidence owner's size and integrity requirements before publication.
-- **No display available**: If running headless in CI, use Playwright in headless mode — it works without a physical display
-- **PR already created without evidence**: Update the PR body immediately using Step 4 above
+- **No display available**: Use the browser and capture route approved by the target repository's owner.
+- **PR already created without evidence**: Update `## Evidence` in its owned location while preserving the complete description and final gate section.

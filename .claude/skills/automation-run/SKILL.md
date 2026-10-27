@@ -1,78 +1,37 @@
 ---
 name: automation-run
-description: Run all crontab automation jobs and verify they worked
+description: Run selected scheduled PR automation jobs using the current package and scheduler owners.
 ---
 
-## ⚡ EXECUTION INSTRUCTIONS FOR CLAUDE
-**When this command is invoked, YOU (Claude) must execute these steps immediately:**
-**This is NOT documentation - these are COMMANDS to execute right now.**
+# Scheduled Automation Runner
 
-## Overview
-Safely parse the existing crontab in memory to find scheduled `jleechanorg-pr-monitor` jobs, execute the selected jobs with their configured parameters, and verify the requested results without displaying credential values.
+Use the current schedule and the installed automation package's owner
+documentation to identify and run the requested jobs. This entry does not
+hardcode package, repository, or command names.
 
-## CRITICAL: This command runs automation jobs - use with caution
+## Execution workflow
 
-**Jobs to run** (from crontab):
-1. `jleechanorg-pr-monitor --max-prs 10` (every 2 hours - PR monitoring)
-2. `jleechanorg-pr-monitor --fix-comment --cli-agent minimax --max-prs 3` (every hour at :45)
-3. `jleechanorg-pr-monitor --comment-validation --max-prs 10` (every 30 min)
-4. `jleechanorg-pr-monitor --codex-update --codex-task-limit 10` (every hour at :15)
-5. `jleechanorg-pr-monitor --codex-api --codex-apply-and-push --codex-task-limit 10` (every hour at :30)
-6. `jleechanorg-pr-monitor --fixpr --max-prs 10 --cli-agent minimax` (every 30 min)
+### Phase 1: Identify the requested jobs
 
-## EXECUTION WORKFLOW
+- Resolve the current repository from the invocation or `gh repo view`.
+- Inspect the schedule without printing raw crontab lines or credential values.
+- Report only the schedule, job identifier, executable, and non-secret
+  arguments; preserve all existing entries, including `GITHUB_TOKEN` lines.
+- Use the scheduler's current configuration as the source of truth; do not use
+  historical examples as a job inventory.
 
-### Phase 1: Extract Jobs from Crontab
+### Phase 2: Run the selected jobs
 
-**Action Steps:**
-1. Treat the crontab as credential-bearing configuration. Select matching jobs in memory without printing raw crontab lines or copying them into logs.
-2. Report only the schedule, job identifier, executable, and non-secret arguments; redact environment assignment values.
-3. Preserve all existing entries, including any `GITHUB_TOKEN` lines.
+- Follow the installed package's supported invocation for each selected job.
+- Keep credentials in the existing process environment and out of command
+  arguments, logs, and terminal output.
+- Capture the actual command result and exit status. Do not kill, restart, or
+  duplicate unrelated scheduled processes.
 
-### Phase 2: Run Each Job
+### Phase 3: Verify the requested result
 
-**Action Steps:**
-For each extracted command:
-1. Display only the sanitized job summary
-2. Execute the selected job with its existing environment kept out of command output and process arguments
-3. Capture output and exit code without logging credentials
-4. Verify the requested job's actual result; process presence or generic success wording alone is not proof
-
-### Phase 3: Verify Success
-
-**Action Steps:**
-1. Check exit codes for each job
-2. Look for success indicators in output:
-   - "Successfully processed PR"
-   - "Monitoring cycle complete"
-   - "No open PRs found"
-3. Report any failures with details
-
-## Reference: Cron Job Schedule
-
-```
-# [CRON-JOB-ID: pr-monitor] Run PR monitoring (comment-only mode) every 2 hours
-0 */2 * * * jleechanorg-pr-monitor --max-prs 10
-
-# [CRON-JOB-ID: fix-comment] Run fix-comment workflow with MiniMax every hour at :45
-45 * * * * jleechanorg-pr-monitor --fix-comment --cli-agent minimax --max-prs 3
-
-# [CRON-JOB-ID: comment-validation] Run comment validation workflow every 30 minutes
-*/30 * * * * jleechanorg-pr-monitor --comment-validation --max-prs 10
-
-# [CRON-JOB-ID: codex-update] Run Codex automation every hour at :15
-15 * * * * jleechanorg-pr-monitor --codex-update --codex-task-limit 10
-
-# [CRON-JOB-ID: codex-api] Run Codex API automation every hour at :30
-30 * * * * jleechanorg-pr-monitor --codex-api --codex-apply-and-push --codex-task-limit 10
-
-# [CRON-JOB-ID: fixpr] Run orchestrated PR fixes every 30 minutes
-*/30 * * * * jleechanorg-pr-monitor --fixpr --max-prs 10 --cli-agent minimax
-```
-
-## Verification Checklist
-
-- [ ] All jobs executed without crashes
-- [ ] Exit codes captured
-- [ ] Success/failure status reported for each job
-- [ ] Any errors logged with details
+- Check the selected job's concrete output or artifact using its owning
+  workflow.
+- A process start, exit code alone, or generic success message does not prove
+  the requested result.
+- Report the verified result and any unresolved part as `UNVERIFIED`.

@@ -1,20 +1,23 @@
 ---
 name: minimax-401-diagnostic
-description: Diagnose and fix MiniMax 401 auth errors in AO workers — the root cause is always a redacted or invalid MINIMAX_API_KEY, not the model name. Use when workers stall at /login, show API Error 401, or when ao-XXXX shows "minimax" in its tmux pane but isn't making progress.
+description: Diagnose MiniMax 401 auth errors in AO workers. A redacted or invalid MINIMAX_API_KEY is one possible cause; verify current provider errors and configuration before identifying the cause or changing settings.
 when_to_use: "Use when: (1) an AO worker tmux pane shows 'Please run /login · API Error: 401' or 'login fail: carry the API secret key', (2) worker is stuck waiting for input despite having 'minimax' model config, (3) /ms surfaces another 401 incident. Do NOT use for general auth issues — this skill is specifically for the MiniMax proxy 401 + /login prompt stall pattern."
 allowed-tools: ["Bash", "Read", "Write", "Edit"]
-context: "This is a recurring zero-to-knowledge failure. The root cause is always a redacted MINIMAX_API_KEY (__OPENCLAW_REDACTED__) in the launchd plist or environment. The worker's tmux pane will show a /login prompt from Claude Code because the model API returned 401. The fix is NOT to change the model to Claude Opus — that just masks the symptom. The fix is to verify and fix the MINIMAX_API_KEY env var. This skill captures 5+ occurrences across PRs #454, #453, #452, #450, #444, and the current ao-4449 incident."
+context: "A redacted or invalid MINIMAX_API_KEY in the launchd configuration is one known cause of 401 errors. A /login prompt may follow a provider 401, but verify the current response and configuration before concluding that credentials or model routing caused it. Do not swap models as a substitute for diagnosis."
 ---
 
 # MiniMax 401 Diagnostic
 
-## Pattern (always identical)
+## Common symptom pattern
+
+This sequence is one possible failure pattern; verify each step from current
+provider output and worker configuration.
 
 1. AO worker starts → hits MiniMax proxy → proxy returns `401 Unauthorized`
 2. Claude Code intercepts 401 → shows `/login` prompt in tmux pane
 3. Worker appears to hang ("waiting for input") but is actually blocked on `/login`
 4. `tmux capture-pane` shows: `Please run /login · API Error: 401` or `login fail: carry the API secret key in the 'Authorization' field`
-5. Config shows `agent: minimax` or `model: MiniMax-M2.7` — but the model name is NOT the cause
+5. Config shows `agent: minimax` or `model: MiniMax-M2.7` — this alone does not establish the cause
 
 ## Quick Diagnosis
 
@@ -39,7 +42,9 @@ bash scripts/setup-launchd.sh lifecycle
 bash scripts/test-launchd-env.sh
 ```
 
-If `@VAR@` tokens exist in the plist, the fix is to re-run `setup-launchd.sh` — no deeper diagnosis needed. This is the root cause ~90% of the time.
+Unsubstituted `@VAR@` tokens establish that the plist template was not rendered.
+Use the repository's launchd setup workflow, then continue diagnosis if the
+401 persists.
 
 ```bash
 python3 - "$HOME/Library/LaunchAgents/ai.agento.lifecycle-all.plist" <<'EOF'
@@ -130,19 +135,19 @@ pgrep -f "lifecycle-worker" | wc -l  # Should show 12+ workers
 tmux list-sessions | grep ao-        # Should show active sessions, not stuck on /login
 ```
 
-## Why Model Swap Does NOT Fix This
+## Verify Before Changing the Model
 
-You might see `model: MiniMax-M2.7` in the config and think "just switch to Claude Opus." This is wrong because:
+You might see `model: MiniMax-M2.7` in the config and think "just switch to Claude Opus." A model change does not establish or repair the cause of an authentication error. First:
 
-1. The /login prompt is not model-specific — ANY model hitting a 401 with a redacted key shows it
-2. Even if you switch to Claude Opus, if the worker is using the MiniMax proxy as a backend, it still passes the same `MINIMAX_API_KEY` and gets 401
-3. The correct fix is to fix the env var, not change the model
+1. Verify that the current provider response is a 401 and identify which route returned it.
+2. Confirm the active worker configuration and credential-presence status without displaying credential values.
+3. Change model routing only when the current configuration and provider evidence show it is the cause.
 
 ## Anti-Patterns
 
 - **WRONG**: `ao spawn --agent codex` to "fix" the 401 — masks the symptom, wrong model for the task
 - **WRONG**: `export MINIMAX_API_KEY=...` in a running shell — doesn't fix the launchd service's env
-- **WRONG**: Changing `model` in agent-orchestrator.yaml — the model is not the problem
+- **WRONG**: Changing `model` in agent-orchestrator.yaml without evidence that routing is the cause
 - **WRONG**: Killing and respawning the worker without fixing the plist — it will hit the same 401 immediately
 
 ## Recurring Incident History
@@ -160,4 +165,5 @@ You might see `model: MiniMax-M2.7` in the config and think "just switch to Clau
 
 ## Claim Class
 
-This is a **root-cause-regression skill** — the same failure mode has occurred 6+ times. The fix is trivial (regenerate plist with real key) but the diagnosis keeps getting confused by the model name in the config.
+This skill covers a recurring credential-related failure pattern. Verify the
+current error and active configuration before applying its remediation.

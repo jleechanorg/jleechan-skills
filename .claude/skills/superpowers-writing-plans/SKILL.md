@@ -15,7 +15,10 @@ Assume they are a skilled developer, but know almost nothing about our toolset o
 
 **Context:** This should be run in a dedicated worktree (created by brainstorming skill).
 
-**Save durable plans to:** `~/roadmap/<topic>-YYYY-MM-DD.md` in the `jleechanorg/roadmap` repository. Report the absolute path and `file:///Users/jleechan/roadmap/...` link.
+**Save durable plans to:** the current user's configured report destination as
+`<topic>-YYYY-MM-DD.md`, resolved through [roadmap](../roadmap/SKILL.md). Do
+not save the plan under the target project's docs tree. Report the resolved
+path and a local file link derived from this host's user home directory.
 
 ## Bite-Sized Task Granularity
 

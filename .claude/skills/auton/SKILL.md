@@ -1,6 +1,6 @@
 ---
 name: auton
-description: Diagnose why the automation system is not autonomously completing draft readiness and driving PRs to green. Invoked by `/auton`; measures canonical zero-touch readiness, detects stale sessions, and reviews worker outcomes.
+description: Diagnose why the configured application and agent-orchestrator are not autonomously completing draft readiness and driving PRs to green. Invoked by `/auton`; measures canonical zero-touch readiness, detects stale sessions, and reviews worker outcomes.
 ---
 
 # Autonomy Diagnostic Skill
@@ -21,7 +21,7 @@ The shared catalog preserves host-installed `/advice` and `/web-advice` integrat
 | `/babysit` | During active workers | Live monitoring, dispatch | Per-PR status, DRIVER nudges |
 | `/auton` | After block completes | Retrospective | Outcome table, root causes, metrics |
 
-When invoked, diagnose why the jleechanclaw + AO system is not autonomously
+When invoked, diagnose why the configured application and AO system are not autonomously
 completing draft readiness and `/green`. Use the canonical `pr-lifecycle`,
 `pr-green-definition`, and `zero-touch` skills for current readiness and
 merge-authority decisions.
@@ -88,24 +88,9 @@ ps aux | grep "lifecycle-worker" | grep -v grep | grep -o "AO_CONFIG_PATH=[^ ]*"
 **Why this matters:** `~/.openclaw/` (CLI) and `~/.openclaw_prod/` (workers) can diverge. The 2026-04-15 auth outage was caused by `~/.openclaw_prod/` having `model: gemini-3-flash-preview` while `~/.openclaw/` had `MiniMax-M2.7`. Always check the worker config first for auth issues.
 
 ### 1. Is AO lifecycle-worker and orchestrator running?
-```bash
-# Lifecycle-worker
-launchctl list com.agentorchestrator.lifecycle-jleechanclaw
-
-# Orchestrator — sessions are hash-prefixed, NEVER use hard-coded "ao-orchestrator"
-# Correct pattern:
-orch_session=$(tmux list-sessions 2>/dev/null | grep "ao-orchestrator" | cut -d: -f1)
-if [ -n "$orch_session" ]; then
-  echo "ao-orchestrator FOUND: $orch_session"
-  tmux capture-pane -t "$orch_session" -p -S -10
-else
-  echo "ao-orchestrator NOT FOUND"
-fi
-```
-```bash
-launchctl list com.agentorchestrator.lifecycle-jleechanclaw
-tail -20 /tmp/ao-lifecycle-jleechanclaw.log
-```
+Use the service labels and log locations from the active AO configuration or
+their owning service documentation. Before classifying a tmux or cmux session,
+follow the shared full-buffer rule and `../ao-session-monitor/SKILL.md`.
 
 ### 3. Are sessions being spawned?
 ```bash
@@ -124,14 +109,16 @@ done
 
 ### 5. What are the non-green reasons per PR?
 ```bash
-gh pr list --repo jleechanorg/agent-orchestrator --state open \
+repo=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
+gh pr list --repo "$repo" --state open \
   --json number,title,mergeable,mergeStateStatus,reviewDecision
 
 ```
 
 ### 6. Is CR rate-limited?
 ```bash
-gh api repos/jleechanorg/jleechanclaw/issues/comments?per_page=5 | \
+repo=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
+gh api "repos/$repo/issues/comments?per_page=5" | \
   python3 -c "import json,sys; [print(c['user']['login'],c['body'][:100]) for c in json.load(sys.stdin) if 'rate limit' in c['body'].lower()]"
 ```
 
@@ -140,7 +127,8 @@ gh api repos/jleechanorg/jleechanclaw/issues/comments?per_page=5 | \
 # Verify current-head CI and mergeability, and current-candidate applicability of required gate artifacts.
 # Follow pr-lifecycle: use a reasoned SHA-binding assessment for earlier receipts;
 # retain original tested/reviewed SHAs and timestamps; affected or uncertain coverage requires independent review.
-gh api repos/jleechanorg/agent-orchestrator/pulls/<PR_NUM> --jq '{head:.head.sha,mergeable,mergeable_state,draft}'
+repo=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
+gh api "repos/$repo/pulls/<PR_NUM>" --jq '{head:.head.sha,mergeable,mergeable_state,draft}'
 ```
 
 ### 8. Is the stray-worktree bug blocking spawns?
@@ -207,7 +195,8 @@ git -C ~/.openclaw worktree list 2>/dev/null | grep -v "~/.openclaw\b\|~/.worktr
 gh api rate_limit --jq '.resources | {core: .core.remaining, graphql: .graphql.remaining}'
 
 # B2. Open PRs with status
-gh pr list --repo jleechanorg/agent-orchestrator --state open --json number,title,mergeable,reviewDecision,statusCheckRollup --jq '.[] | {number, title, mergeable, reviewDecision, ci: (.statusCheckRollup // [] | map(select(.conclusion != "")) | map(.conclusion) | unique)}'
+repo=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
+gh pr list --repo "$repo" --state open --json number,title,mergeable,reviewDecision,statusCheckRollup --jq '.[] | {number, title, mergeable, reviewDecision, ci: (.statusCheckRollup // [] | map(select(.conclusion != "")) | map(.conclusion) | unique)}'
 
 # B3. Non-green reasons from poller log
 tail -100 /tmp/ao-pr-poller.log 2>/dev/null | grep -E "not green|SKIP|WARNING|ERROR" | tail -20
@@ -273,11 +262,11 @@ sessions automatically; follow the owning cleanup procedure and authorization.
 <List PRs with CR CHANGES_REQUESTED that have NO active session — these need attention>
 (If none, say "All CR_REQ PRs have active sessions ✓")
 
-### Stalled PRs (>1hr gap, not readiness-complete)
-| PR | Gap | Review state | Mergeable | Worker | Title |
-|---|---|---|---|---|---|
-<List each stalled PR. If worker=no, this is a coverage gap requiring ao spawn.>
-(If none, say "No stalled PRs ✓")
+### PRs without recent commits (triage candidates only)
+| PR | Commit gap | Readiness | Worker state evidence | Next inspection |
+|---|---|---|---|---|
+<List commit-gap candidates and the current evidence checked. A gap or missing worker alone does not establish a stall or authorize a spawn.>
+(If none, say "No commit-gap candidates ✓")
 
 ### Zombie session check
 <Sessions where AO status=killed but tmux still alive — lifecycle-worker is NOT managing these>

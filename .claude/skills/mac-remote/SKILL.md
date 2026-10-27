@@ -134,7 +134,7 @@ Note: jeff-ubuntu must be reachable from the MacBook. From the home LAN, it's `<
 |------|---------|
 | Check ezgha status | `ssh macbook '~/.cargo/bin/ezgha status \| grep -E "managed\|registered"'` |
 | Check fleet-watchdog log | `ssh macbook 'tail -n 20 /tmp/ezgha-watchdog.log'` |
-| Restart ezgha | `ssh macbook 'launchctl kickstart -k gui/$(id -u)/org.jleechanorg.ezgha'` |
+| Restart ezgha | Resolve the installed service label from its owner documentation, then use the `launchctl` procedure there |
 | Check colima VM | `ssh macbook 'limactl list'` |
 | Check disk | `ssh macbook 'df -h /'` |
 | Tail launchd stderr | `ssh macbook 'tail -n 30 ~/Library/Logs/ezgha-launchd-stderr.log'` |
