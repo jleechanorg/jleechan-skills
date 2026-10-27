@@ -71,6 +71,21 @@ existing target without moving it aside, use `--merge`:
 CLAUDE_HOME="$CLAUDE_ROOT" bash "$SOURCE_ROOT/install-claude-commands.sh" --merge
 ```
 
+Before writing, `--merge` copies every existing path whose content it would
+change into `${CLAUDE_HOME}.merge-backup-<timestamp>-<pid>` and prints that
+location; if the backup cannot be written it stops without overwriting
+anything. It also leaves existing skills and commands (including those under
+`commands/extended-library/`) alone when their name is listed in
+`$CLAUDE_HOME/.jleechan-skills-protected` (one name per line, `#` comments) or
+in this repository's `shared/retain-local.json` (when that file exists it must be
+a non-empty JSON object of names: a directory, a dangling symlink, an unreadable
+file, a JSON string or list, or an empty object stops the merge before any
+overwrite), printing each skipped path;
+`--migrate-archives` does not move them either. Every trailing slash is stripped
+from `CLAUDE_HOME` first, so the backup directory always sits beside the target. Add `--include-protected` to
+overwrite or migrate those as well (overwritten paths are still backed up
+first).
+
 If that command reports archive collisions, review each path. To move those
 specific same-named active packages into the sibling archive roots, rerun with:
 
@@ -100,8 +115,9 @@ mv "$BACKUP_ROOT" "$CLAUDE_ROOT"
 ```
 
 This preserves the post-install state in `RECOVERY_ROOT` for review. An
-in-place `--merge` install has no exact automatic rollback, because it may have
-replaced same-named files; restore a backup you made before merging.
+in-place `--merge` install has no exact automatic rollback: copy the files you
+need back from the `.merge-backup-*` directory it reported. Files the merge
+added (absent before) are not in that backup.
 
 For an isolated install, rollback is simply removal of its exact
 `$INSTALL_ROOT` directory shown above.
