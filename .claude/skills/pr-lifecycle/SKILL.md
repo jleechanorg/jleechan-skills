@@ -24,6 +24,7 @@ DRAFT
   → /es PASS @ SHA
   → /er PASS @ SHA (unless the narrow /er documentation allowlist, explicit trivial-change exception or a repo-exempted class applies)
   → /advice APPROVED @ SHA when required by Advice applicability below
+  → /visual-verification PASS @ SHA when gate 4 applies (media published, or a rendered/displayed-data claim)
   → mark ready-for-review (gh pr ready <N>)
   → /ready work: /green, comments, conflicts, and regression checks
   → final /er PASS applicable to the candidate when required
@@ -319,7 +320,23 @@ credential, or merge-path code.
 1. **`/es`** — evidence bundle passes (real evidence per `~/.claude/skills/evidence-standards/SKILL.md` + repo-specific extensions), bound to its original tested SHA and supported as applicable to the candidate by the delta assessment below.
 2. **`/er`** — for every PR except the documentation-only class below or a repo-exempted class, and except the explicit trivial-change class above, evidence review verdict is PASS (not PARTIAL/FAIL/INCONCLUSIVE), with its original reviewed/tested SHAs and a reasoned applicability assessment for the candidate; an older `/es` SHA alone does not require a rerun.
 3. **`/advice`** — second-opinion approval on the change itself (`APPROVED at <SHA>` / `NOT APPROVED at <SHA>` / `WITHHELD at <SHA>` — see `~/.claude/skills/advice/SKILL.md`), bound to its actual reviewed SHA and applicable to the candidate by the delta assessment, when required by Advice applicability. `WITHHELD` does not satisfy the draft gate.
-4. **`/visual-verification`** — required whenever the PR publishes any screenshot, GIF or video, **or** whenever a user-visible surface consumes the change even when that surface lives in another repository. A qualifying seat is independent of the author **and** of the `/er` seat that judged the bundle: it downloads each media artifact itself, verifies its hash, decodes the file, extracts the before and after frames, and returns `VISUAL-VERDICT: PASS|FAIL` naming what it saw and what the media does **not** prove. The Review Gate Ledger carries its own `/visual-verification` row; media that exists with no such row blocks undraft. Author-side frame reading, a difference score (PSNR or similar), "captions present", a published hash, and an `/er` line item saying media "VERIFIED" are **never** a substitute for this gate — that is the same recording read by the same side, not independent confirmation. When the PR's headline claim is player-visible, require **two** independent visual seats before undraft and record each verdict and receipt separately. A change whose prose is byte-identical is still player-visible when a client renders the new data or when a value a surface displays changes; "no web-visible change" may not be used to mark video `N/A` in that case. `N/A` is reserved for changes with no observable surface anywhere and must name the reason.
+4. **`/visual-verification`** — applies when the PR **publishes** any screenshot, GIF or video, or when the PR
+   **claims** a rendered, interaction or displayed-data effect that media would evidence. It does **not** apply to a
+   source-literal-only claim (copy, log or alert text inspected in source) that publishes no media: those keep the
+   bounded `N/A` allowance they already have. A qualifying seat is independent of the author **and** of the `/er` seat
+   that judged the bundle: it downloads each media artifact itself, verifies its hash, decodes the file, extracts the
+   before and after frames, and returns `VISUAL-VERDICT: PASS|FAIL` mapping what it observed to the claim, plus what
+   the media does **not** prove. The Review Gate Ledger carries its own `/visual-verification` row, and media that
+   exists with no such row blocks undraft. Author-side frame reading, a difference score (PSNR or similar),
+   "captions present", a published hash, and an `/er` line item saying media "VERIFIED" are **never** a substitute;
+   that is the same recording read by the same side. Every applicable seat must PASS, and required media that is
+   missing, inaccessible or insufficient leaves the gate open. When the PR's headline claim is user-visible, require
+   **two** independent visual seats before undraft; where a repository's review route genuinely cannot supply two,
+   require a recorded `SINGLE-SEAT` limitation naming the missing seat rather than a silent waiver. When the consuming
+   surface lives in another repository, this PR either cites a capture of that surface or records the visual proof as
+   deferred debt naming the owning repository and the limitation. A change whose prose is byte-identical is still
+   user-visible when a client renders the new data or a value that surface displays changes, so "no web-visible
+   change" may not be used to mark video `N/A` in that case; `N/A` otherwise needs the specific bounded reason.
 
 Only after every applicable gate is satisfied **for the candidate**, with original SHAs and explicit applicability where they differ: flip the PR from draft to ready-for-review (`gh pr ready <N>`).
 
