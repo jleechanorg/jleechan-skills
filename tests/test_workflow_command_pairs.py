@@ -257,8 +257,8 @@ class WorkflowCommandPairTest(unittest.TestCase):
         launch = coder.split("Direct CLI (primary)", 1)[1].split(
             "**Flag reference", 1
         )[0]
-        base_capture = 'BASE_REVISION="$(git rev-parse HEAD)"'
-        clean_check = 'if [ -n "$(git status --porcelain)" ]; then'
+        base_capture = 'if ! BASE_REVISION="$(git rev-parse HEAD)" ||'
+        clean_check = 'if [ -n "$CALLER_STATUS" ]; then'
         attempt_id = 'ATTEMPT_ID="<fresh unique attempt identifier>"'
         attempt_branch = 'ATTEMPT_BRANCH="agy-coder-$ATTEMPT_ID"'
         attempt_name = 'ATTEMPT_NAME="agy-coder-$ATTEMPT_ID"'

@@ -50,11 +50,24 @@ REVISION="<exact git SHA from IMPLEMENTATION_READY>"
 VERIFIER_ATTEMPT_ID="<fresh unique attempt identifier>"
 VERIFIER_BRANCH="agy-verifier-$VERIFIER_ATTEMPT_ID"
 VERIFIER_WORKTREE_NAME="agy-verifier-$VERIFIER_ATTEMPT_ID"
-VERIFIER_WORKTREE="$(
-    diskm worktree-new <repo-path> "$VERIFIER_BRANCH" \
-        --base "$REVISION" \
-        --name "$VERIFIER_WORKTREE_NAME"
-)"
+if git show-ref --verify --quiet "refs/heads/$VERIFIER_BRANCH" ||
+    git show-ref --verify --quiet "refs/remotes/origin/$VERIFIER_BRANCH"; then
+    echo "Choose an unused verifier branch." >&2
+    exit 1
+fi
+if ! VERIFIER_WORKTREE="$(diskm worktree-new <repo-path> "$VERIFIER_BRANCH" \
+    --base "$REVISION" --name "$VERIFIER_WORKTREE_NAME")"; then
+    echo "Could not create verifier worktree." >&2
+    exit 1
+fi
+if [ -z "$VERIFIER_WORKTREE" ]; then
+    echo "diskm returned no verifier worktree path." >&2
+    exit 1
+fi
+case "$VERIFIER_WORKTREE" in
+    "$HOME"/.worktrees/*) ;;
+    *) echo "Rejecting verifier worktree outside ~/.worktrees." >&2; exit 1 ;;
+esac
 # Use the approved worktree-creation path, never `mktemp -d` plus raw
 # `git worktree add`. Create it at REVISION and verify the returned path is allowed.
 if ! VERIFIER_HEAD="$(git -C "$VERIFIER_WORKTREE" rev-parse HEAD)"; then
@@ -141,11 +154,40 @@ worktree name. Set a fresh `VERIFIER_ATTEMPT_ID` for each retry and derive both:
 VERIFIER_ATTEMPT_ID="<fresh unique retry identifier>"
 VERIFIER_BRANCH="agy-verifier-$VERIFIER_ATTEMPT_ID"
 VERIFIER_WORKTREE_NAME="agy-verifier-$VERIFIER_ATTEMPT_ID"
-VERIFIER_WORKTREE="$(
-    diskm worktree-new <repo-path> "$VERIFIER_BRANCH" \
-        --base "$REVISION" \
-        --name "$VERIFIER_WORKTREE_NAME"
-)"
+if git show-ref --verify --quiet "refs/heads/$VERIFIER_BRANCH" ||
+    git show-ref --verify --quiet "refs/remotes/origin/$VERIFIER_BRANCH"; then
+    echo "Choose an unused verifier retry branch." >&2
+    exit 1
+fi
+if ! VERIFIER_WORKTREE="$(diskm worktree-new <repo-path> "$VERIFIER_BRANCH" \
+    --base "$REVISION" --name "$VERIFIER_WORKTREE_NAME")"; then
+    echo "Could not create verifier retry worktree." >&2
+    exit 1
+fi
+if [ -z "$VERIFIER_WORKTREE" ]; then
+    echo "diskm returned no verifier retry path." >&2
+    exit 1
+fi
+case "$VERIFIER_WORKTREE" in
+    "$HOME"/.worktrees/*) ;;
+    *) echo "Rejecting verifier retry path outside ~/.worktrees." >&2; exit 1 ;;
+esac
+if ! VERIFIER_HEAD="$(git -C "$VERIFIER_WORKTREE" rev-parse HEAD)"; then
+    echo "Verifier retry worktree HEAD is unreadable." >&2
+    exit 1
+fi
+if [ "$VERIFIER_HEAD" != "$REVISION" ]; then
+    echo "Rejecting verifier retry worktree at an unexpected revision." >&2
+    exit 1
+fi
+if ! VERIFIER_STATUS="$(git -C "$VERIFIER_WORKTREE" status --porcelain)"; then
+    echo "Verifier retry worktree status is unreadable." >&2
+    exit 1
+fi
+if [ -n "$VERIFIER_STATUS" ]; then
+    echo "Rejecting dirty verifier retry worktree." >&2
+    exit 1
+fi
 ```
 
 Verify the new worktree's `HEAD` equals `$REVISION`, then rerun focused checks

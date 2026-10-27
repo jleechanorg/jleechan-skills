@@ -35,20 +35,47 @@ You are an **agy CLI Coder Agent** that delegates implementation to the agy CLI 
 #   ATTEMPT_ID="<fresh unique attempt identifier>"
 #   ATTEMPT_BRANCH="agy-coder-$ATTEMPT_ID"
 #   ATTEMPT_NAME="agy-coder-$ATTEMPT_ID"
-#   BASE_REVISION="$(git rev-parse HEAD)"
-#   if [ -n "$(git status --porcelain)" ]; then
+#   if ! BASE_REVISION="$(git rev-parse HEAD)" ||
+#       ! CALLER_STATUS="$(git status --porcelain)"; then
+#     echo "Rejecting unreadable caller revision or status." >&2
+#     exit 1
+#   fi
+#   if [ -n "$CALLER_STATUS" ]; then
 #     echo "Rejecting dirty caller; the new worktree carries committed files only."
 #     exit 1
 #   fi
-#   CODER_WORKTREE="$(
-#     diskm worktree-new <repo-path> "$ATTEMPT_BRANCH" \
-#       --base "$BASE_REVISION" \
-#       --name "$ATTEMPT_NAME"
-#   )"
-#   # Confirm the returned path is approved, then verify its revision before use.
-#   CODER_HEAD="$(git -C "$CODER_WORKTREE" rev-parse HEAD)"
+#   if git show-ref --verify --quiet "refs/heads/$ATTEMPT_BRANCH" ||
+#       git show-ref --verify --quiet "refs/remotes/origin/$ATTEMPT_BRANCH"; then
+#     echo "Choose an unused coder branch." >&2
+#     exit 1
+#   fi
+#   if ! CODER_WORKTREE="$(diskm worktree-new <repo-path> "$ATTEMPT_BRANCH" \
+#       --base "$BASE_REVISION" --name "$ATTEMPT_NAME")"; then
+#     echo "Could not create coder worktree." >&2
+#     exit 1
+#   fi
+#   if [ -z "$CODER_WORKTREE" ]; then
+#     echo "diskm returned no coder worktree path." >&2
+#     exit 1
+#   fi
+#   case "$CODER_WORKTREE" in
+#     "$HOME"/.worktrees/*) ;;
+#     *) echo "Rejecting coder worktree outside ~/.worktrees." >&2; exit 1 ;;
+#   esac
+#   if ! CODER_HEAD="$(git -C "$CODER_WORKTREE" rev-parse HEAD)"; then
+#     echo "Coder worktree HEAD is unreadable." >&2
+#     exit 1
+#   fi
 #   if [ "$CODER_HEAD" != "$BASE_REVISION" ]; then
-#     echo "Rejecting coder worktree at an unexpected revision."
+#     echo "Rejecting coder worktree at an unexpected revision." >&2
+#     exit 1
+#   fi
+#   if ! CODER_STATUS="$(git -C "$CODER_WORKTREE" status --porcelain)"; then
+#     echo "Coder worktree status is unreadable." >&2
+#     exit 1
+#   fi
+#   if [ -n "$CODER_STATUS" ]; then
+#     echo "Rejecting dirty coder worktree." >&2
 #     exit 1
 #   fi
 #   cd "$CODER_WORKTREE"
@@ -183,11 +210,40 @@ If verifier sends VERIFICATION_FAILED:
    RETRY_ATTEMPT_ID="<fresh unique retry identifier>"
    RETRY_BRANCH="agy-coder-$RETRY_ATTEMPT_ID"
    RETRY_WORKTREE_NAME="agy-coder-$RETRY_ATTEMPT_ID"
-   CODER_WORKTREE="$(
-     diskm worktree-new <repo-path> "$RETRY_BRANCH" \
-       --base "$PRIOR_REVISION" \
-       --name "$RETRY_WORKTREE_NAME"
-   )"
+   if git show-ref --verify --quiet "refs/heads/$RETRY_BRANCH" ||
+       git show-ref --verify --quiet "refs/remotes/origin/$RETRY_BRANCH"; then
+     echo "Choose an unused retry branch." >&2
+     exit 1
+   fi
+   if ! CODER_WORKTREE="$(diskm worktree-new <repo-path> "$RETRY_BRANCH" \
+       --base "$PRIOR_REVISION" --name "$RETRY_WORKTREE_NAME")"; then
+     echo "Could not create coder retry worktree." >&2
+     exit 1
+   fi
+   if [ -z "$CODER_WORKTREE" ]; then
+     echo "diskm returned no coder retry path." >&2
+     exit 1
+   fi
+   case "$CODER_WORKTREE" in
+     "$HOME"/.worktrees/*) ;;
+     *) echo "Rejecting coder retry path outside ~/.worktrees." >&2; exit 1 ;;
+   esac
+   if ! CODER_HEAD="$(git -C "$CODER_WORKTREE" rev-parse HEAD)"; then
+     echo "Coder retry worktree HEAD is unreadable." >&2
+     exit 1
+   fi
+   if [ "$CODER_HEAD" != "$PRIOR_REVISION" ]; then
+     echo "Rejecting coder retry worktree at an unexpected revision." >&2
+     exit 1
+   fi
+   if ! CODER_STATUS="$(git -C "$CODER_WORKTREE" status --porcelain)"; then
+     echo "Coder retry worktree status is unreadable." >&2
+     exit 1
+   fi
+   if [ -n "$CODER_STATUS" ]; then
+     echo "Rejecting dirty coder retry worktree." >&2
+     exit 1
+   fi
    ```
    Use the approved worktree-creation path (never `mktemp -d` plus raw
    `git worktree add`); confirm the returned path is permitted before use.

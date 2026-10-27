@@ -62,6 +62,8 @@ class ApprovalContractsTest(unittest.TestCase):
         fence_count = 0
 
         for line_number, line in enumerate(path.read_text().splitlines(), start=1):
+            if line.startswith("### Phase 5:") or line.startswith("### Phase 6:"):
+                self.assertFalse(in_fence, f"phase heading fenced at {line_number}")
             if not line.startswith("```"):
                 continue
             fence_count += 1

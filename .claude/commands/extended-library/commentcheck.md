@@ -38,6 +38,7 @@ echo "=== QUALITY ASSESSMENT & FAKE COMMENT DETECTION (JSON-BASED) ==="
 echo "=================================================================="
 echo "🚨 COMPREHENSIVE COMMENT COVERAGE REPORT (COMMENTFETCH-BASED)"
 echo "=================================================================="
+```
 
 ### Phase 5: Integration with Workflow
 
@@ -111,6 +112,7 @@ Pure markdown command (no Python executable) that reports PR comment and respons
 
 ## Individual Comment Verification Process (ORCHESTRATED)
 
+```bash
 # 1. Get PR number and validate
 
 PR_NUMBER=${1:-$(gh pr view --json number --jq .number)}
