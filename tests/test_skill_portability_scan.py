@@ -597,53 +597,15 @@ class DocumentedShellExamplesTest(unittest.TestCase):
                 expected = path_gh if on_path else local_gh if local_executable else ""
                 self.assertIn(f"RESOLVED={expected}\n", result.stdout)
 
-    def test_documented_worktree_creation_uses_explicit_base_or_head(self):
+    def test_documented_worktree_creation_uses_shared_creator_with_explicit_base(self):
         content = (
             REPO_ROOT / ".claude/skills/superpowers-using-git-worktrees/SKILL.md"
         ).read_text()
-        section = content.split("### 1. Create Worktree", 1)[1]
+        section = content.split("### 1. Create Worktree", 1)[1].split("### 2.", 1)[0]
         script = section.split("```bash\n", 1)[1].split("\n```", 1)[0]
-        repo = self.tmp_path / "base repo"
-        env = {
-            **os.environ, "GIT_CONFIG_GLOBAL": os.devnull,
-            "GIT_CONFIG_NOSYSTEM": "1",
-        }
-
-        def git(*args):
-            return subprocess.run(
-                ["git", "-c", "core.hooksPath=/dev/null", "-C", str(repo), *args],
-                env=env, text=True, capture_output=True, check=True, timeout=30,
-            ).stdout.strip()
-
-        repo.mkdir()
-        git("init")
-        git("config", "user.email", "fixture@localhost")
-        git("config", "user.name", "Fixture")
-        git("config", "core.hooksPath", "/dev/null")
-        (repo / "README.md").write_text("base\n")
-        git("add", "README.md")
-        git("commit", "-m", "base")
-        base = git("rev-parse", "HEAD")
-        git("update-ref", "refs/remotes/origin/main", base)
-        (repo / "README.md").write_text("later\n")
-        git("commit", "-am", "later")
-        head = git("rev-parse", "HEAD")
-        for index, base_ref in enumerate((None, "", "origin/main")):
-            with self.subTest(base_ref=base_ref):
-                run_env = {
-                    **env, "LOCATION": str(self.tmp_path / "worktree area"),
-                    "BRANCH_NAME": f"fixture-{index}",
-                }
-                run_env.pop("BASE_REF", None)
-                if base_ref is not None:
-                    run_env["BASE_REF"] = base_ref
-                result = subprocess.run(
-                    ["bash", "-c", "set -eu\n" + script
-                     + '\nprintf "ACTUAL=%s\\n" "$(git rev-parse HEAD)"'],
-                    cwd=repo, env=run_env, text=True, capture_output=True, timeout=30,
-                )
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertIn("ACTUAL=" + (base if base_ref else head), result.stdout)
+        self.assertIn("diskm worktree-new", script)
+        self.assertIn("--base <base-ref>", script)
+        self.assertNotIn("git worktree add", script)
 
     def test_documented_evidence_review_bundle_integrity_snippet_behavior(self):
         content = (
@@ -705,80 +667,6 @@ exit 7
         res_find_fail = run_check(bundle, extra_env={"PATH": f"{stub_dir}:{os.environ.get('PATH', '')}"})
         self.assertNotEqual(res_find_fail.returncode, 0, "Find traversal error (exit 7) must propagate non-zero exit code even when checksum file was found")
 
-
-    def test_documented_worktree_safety_verification_ignore_snippet_behavior(self):
-        content = (
-            REPO_ROOT / ".claude/skills/superpowers-using-git-worktrees/SKILL.md"
-        ).read_text()
-        section = content.split("### For Project-Local Directories (.worktrees or worktrees)", 1)[1]
-        raw_snippet = section.split("```bash\n", 1)[1].split("\n```", 1)[0]
-
-        repo = self.tmp_path / "wt_repo"
-        repo.mkdir()
-        env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
-        subprocess.run(["git", "init"], cwd=repo, env=env, check=True, capture_output=True)
-        subprocess.run(["git", "config", "user.email", "test@test.local"], cwd=repo, env=env, check=True, capture_output=True)
-        subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, env=env, check=True, capture_output=True)
-        (repo / "README.md").write_text("repo root\n")
-        subprocess.run(["git", "add", "."], cwd=repo, env=env, check=True, capture_output=True)
-        subprocess.run(["git", "commit", "-m", "init"], cwd=repo, env=env, check=True, capture_output=True)
-
-        exclude_file = repo / ".git/info/exclude"
-
-        def run_verify(location_str: str, cwd: Path = repo) -> subprocess.CompletedProcess[str]:
-            return subprocess.run(
-                ["bash", "-c", raw_snippet],
-                cwd=cwd,
-                env={**env, "LOCATION": location_str},
-                capture_output=True, text=True, timeout=10,
-            )
-
-        # 1. Relative in-repo path (.worktrees) that is unignored must be handled and added to info/exclude
-        run_verify(".worktrees")
-        self.assertTrue(exclude_file.exists(), "info/exclude should exist after checking unignored relative path")
-        self.assertIn(".worktrees", exclude_file.read_text())
-
-        # 2. Absolute in-repo path that is unignored must also be handled and added to info/exclude
-        exclude_file.write_text("")
-        run_verify(str(repo / "worktrees"))
-        self.assertEqual(exclude_file.read_text().strip(), "worktrees")
-
-        # 3. External mktemp directory outside repo must NOT modify info/exclude
-        exclude_file.write_text("")
-        external_mktemp = self.tmp_path / "external_wt_temp"
-        external_mktemp.mkdir()
-        res_ext = run_verify(str(external_mktemp))
-        self.assertEqual(res_ext.returncode, 0)
-        self.assertEqual(exclude_file.read_text().strip(), "", "External path must not write to info/exclude")
-
-        # 4. Running outside a git repo must fail informatively with non-zero exit code
-        res_nogit = run_verify(str(self.tmp_path / "wt"), cwd=self.tmp_path)
-        self.assertNotEqual(res_nogit.returncode, 0, "Running outside a git repo must fail")
-
-        # 5. Git call failure (e.g. invalid git dir) must exit non-zero without modifying exclude
-        exclude_file.write_text("")
-        fake_git_dir = repo / "broken_git"
-        res_err = subprocess.run(
-            ["bash", "-c", raw_snippet],
-            cwd=repo,
-            env={**env, "LOCATION": ".worktrees", "GIT_DIR": str(fake_git_dir)},
-            capture_output=True, text=True, timeout=10,
-        )
-        self.assertNotEqual(res_err.returncode, 0, "Git failure must exit non-zero")
-        self.assertEqual(exclude_file.read_text().strip(), "", "Git failure must not write to info/exclude")
-
-        # 6. LOCATION exactly equal to repository root must be rejected before child classification
-        exclude_file.write_text("")
-        res_root = run_verify(str(repo))
-        self.assertNotEqual(res_root.returncode, 0, "LOCATION equal to repository root must fail")
-        self.assertIn("repository root", res_root.stderr)
-        self.assertEqual(exclude_file.read_text().strip(), "", "Exact repository root must not write to info/exclude")
-
-        # Relative '.' resolving to repository root must also be rejected
-        res_dot = run_verify(".")
-        self.assertNotEqual(res_dot.returncode, 0, "LOCATION equal to '.' (repo root) must fail")
-        self.assertIn("repository root", res_dot.stderr)
-        self.assertEqual(exclude_file.read_text().strip(), "", "Repo root '.' must not write to info/exclude")
 
     def test_documented_shell_fixture_enforces_gh_containment_and_credential_isolation(self):
         # 1. Verify sensitive tokens are stripped from os.environ

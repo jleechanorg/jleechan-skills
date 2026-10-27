@@ -27,10 +27,6 @@ unrelated dirty files and uncommitted work; do not reset, stash, or clean them
 to make worktree creation succeed. After creation, verify the reported path,
 branch, base commit, and clean status of the new checkout.
 
-### For directories outside the repository
-
-No .gitignore verification needed - outside project entirely.
-
 ## Creation Steps
 
 ### 1. Create Worktree
