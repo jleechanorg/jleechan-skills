@@ -38,8 +38,13 @@ Complete the required architectural design, specification self-review, implement
    - Inspect every task, fix missing, reordered, or vague steps, and recheck the saved plan before advice. Record each task's checked sequence or justified N/A under `TDD Plan Check` in the plan. If execution needs unavailable facts, tools, or authority, record the exact precondition and make the affected steps conditional.
    - This is plan inspection, not evidence that RED/GREEN tests have run: do not execute tests, edit implementation code, or commit during this planning-only check.
 6. **Execute advice reviews (`/advice` and conditional `/web-advice`):**
-   - Resolve the actual absolute `SPEC_PATH` and `PLAN_PATH` after saving both documents under the active artifact owner. Set `ROADMAP_REPO="$(git -C "$HOME/roadmap" rev-parse --show-toplevel)"`, then derive repository-relative names:
+   - Resolve the actual absolute `SPEC_PATH` and `PLAN_PATH` after saving both documents under the active artifact owner. Resolve and validate the roadmap repository before deriving repository-relative names:
      ```bash
+     if ! ROADMAP_REPO="$(git -C "$HOME/roadmap" rev-parse --show-toplevel)" ||
+         [ -z "$ROADMAP_REPO" ]; then
+       echo "The roadmap directory is unavailable or is not a Git repository." >&2
+       exit 1
+     fi
      case "$SPEC_PATH" in
        "$ROADMAP_REPO"/*) SPEC_DOCUMENT="${SPEC_PATH#"$ROADMAP_REPO"/}" ;;
        *) echo "Specification is outside the roadmap repository" >&2; exit 1 ;;

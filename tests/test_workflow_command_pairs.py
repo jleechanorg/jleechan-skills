@@ -1,6 +1,7 @@
 """Contracts for exported workflow command and skill pairs."""
 
 import os
+import shlex
 import subprocess
 import tempfile
 import unittest
@@ -383,6 +384,106 @@ class WorkflowCommandPairTest(unittest.TestCase):
             )
 
         self.assertNotEqual(result.returncode, 0)
+
+    def test_pair_worktree_recipes_reject_branch_reference_inspection_errors(self):
+        coder = (REPO_ROOT / ".claude" / "agents" / "agy-pair-coder.md").read_text(
+            encoding="utf-8"
+        )
+        verifier = (
+            REPO_ROOT / ".claude" / "agents" / "agy-pair-verifier.md"
+        ).read_text(encoding="utf-8")
+        coder_initial = coder.split("#   ATTEMPT_ID=", 1)[1].split(
+            "# Otherwise, verify cwd", 1
+        )[0]
+        coder_initial = "#   ATTEMPT_ID=" + coder_initial
+        coder_initial = "\n".join(
+            line[2:] if line.startswith("# ") else line
+            for line in coder_initial.splitlines()
+        )
+
+        def fenced_from(text, marker, end_marker=None):
+            start = text.index(marker)
+            end = (
+                text.index(end_marker, start)
+                if end_marker
+                else text.index("\n```", start)
+            )
+            return text[start:end]
+
+        recipes = (
+            ("coder-initial", coder_initial),
+            (
+                "coder-retry",
+                fenced_from(coder, 'RETRY_ATTEMPT_ID="<fresh unique retry identifier>"'),
+            ),
+            (
+                "verifier-initial",
+                fenced_from(
+                    verifier,
+                    'VERIFIER_ATTEMPT_ID="<fresh unique attempt identifier>"',
+                    "# Enter the fresh branch worktree",
+                ),
+            ),
+            (
+                "verifier-retry",
+                fenced_from(verifier, 'VERIFIER_ATTEMPT_ID="<fresh unique retry identifier>"'),
+            ),
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            repo = root / "repo"
+            repo.mkdir()
+            subprocess.run(
+                ["git", "init", "-q", "-b", "main"], cwd=repo, check=True
+            )
+            home = root / "home"
+            (home / ".worktrees").mkdir(parents=True)
+            bindir = root / "bin"
+            bindir.mkdir()
+            fake_git = bindir / "git"
+            fake_git.write_text(
+                "#!/bin/sh\n"
+                "case \"$1\" in\n"
+                "  rev-parse) printf '%s\\n' \"$BASE_REVISION\" ;;\n"
+                "  status) exit 0 ;;\n"
+                "  show-ref) exit 128 ;;\n"
+                "  *) exit 1 ;;\n"
+                "esac\n",
+                encoding="utf-8",
+            )
+            fake_git.chmod(0o755)
+            fake_diskm = bindir / "diskm"
+            fake_diskm.write_text(
+                "#!/bin/sh\nprintf called > \"$DISKM_CALLED\"\n",
+                encoding="utf-8",
+            )
+            fake_diskm.chmod(0o755)
+
+            for name, recipe in recipes:
+                with self.subTest(recipe=name):
+                    script = recipe.replace(
+                        "<repo-path>", shlex.quote(str(repo))
+                    )
+                    env = {
+                        **os.environ,
+                        "HOME": str(home),
+                        "PATH": f"{bindir}:/usr/bin:/bin",
+                        "BASE_REVISION": "a" * 40,
+                        "PRIOR_REVISION": "a" * 40,
+                        "REVISION": "a" * 40,
+                        "DISKM_CALLED": str(root / f"{name}.diskm"),
+                    }
+                    result = subprocess.run(
+                        ["/bin/bash", "-c", script],
+                        cwd=repo,
+                        env=env,
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+                    self.assertNotEqual(result.returncode, 0, result.stdout)
+                    self.assertFalse(Path(env["DISKM_CALLED"]).exists())
 
     def test_verifier_retries_are_read_only_and_do_not_commit(self):
         verifier = (

@@ -96,7 +96,9 @@ Use this same verified `AUTH_NODE` executable for every command below.
      --timeout=180 \
      --print=b > "$RESPONSE_FILE"
    ```
-5. **Parse embedded JSON** and display the summary with the repository parser:
+5. **Parse embedded JSON** and display the summary with the parser tracked in
+   the `worldarchitect.ai` repository. Run this workflow from that repository's
+   root so the relative path resolves:
    ```bash
    jq -r '.result.content[0].text' "$RESPONSE_FILE" > "$PARSED_FILE"
    python3 skills/second_opinion_workflow/scripts/parse_second_opinion.py "$PARSED_FILE"

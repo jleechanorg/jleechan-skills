@@ -44,11 +44,18 @@ You are an **agy CLI Coder Agent** that delegates implementation to the agy CLI 
 #     echo "Rejecting dirty caller; the new worktree carries committed files only."
 #     exit 1
 #   fi
-#   if git show-ref --verify --quiet "refs/heads/$ATTEMPT_BRANCH" ||
-#       git show-ref --verify --quiet "refs/remotes/origin/$ATTEMPT_BRANCH"; then
-#     echo "Choose an unused coder branch." >&2
-#     exit 1
-#   fi
+#   for BRANCH_REF in "refs/heads/$ATTEMPT_BRANCH" "refs/remotes/origin/$ATTEMPT_BRANCH"; do
+#     if git show-ref --verify --quiet "$BRANCH_REF"; then
+#       echo "Choose an unused coder branch." >&2
+#       exit 1
+#     else
+#       REF_STATUS=$?
+#       if [ "$REF_STATUS" -ne 1 ]; then
+#         echo "Could not inspect coder branch references." >&2
+#         exit 1
+#       fi
+#     fi
+#   done
 #   if ! CODER_WORKTREE="$(diskm worktree-new <repo-path> "$ATTEMPT_BRANCH" \
 #       --base "$BASE_REVISION" --name "$ATTEMPT_NAME")"; then
 #     echo "Could not create coder worktree." >&2
@@ -210,11 +217,18 @@ If verifier sends VERIFICATION_FAILED:
    RETRY_ATTEMPT_ID="<fresh unique retry identifier>"
    RETRY_BRANCH="agy-coder-$RETRY_ATTEMPT_ID"
    RETRY_WORKTREE_NAME="agy-coder-$RETRY_ATTEMPT_ID"
-   if git show-ref --verify --quiet "refs/heads/$RETRY_BRANCH" ||
-       git show-ref --verify --quiet "refs/remotes/origin/$RETRY_BRANCH"; then
-     echo "Choose an unused retry branch." >&2
-     exit 1
-   fi
+   for BRANCH_REF in "refs/heads/$RETRY_BRANCH" "refs/remotes/origin/$RETRY_BRANCH"; do
+     if git show-ref --verify --quiet "$BRANCH_REF"; then
+       echo "Choose an unused retry branch." >&2
+       exit 1
+     else
+       REF_STATUS=$?
+       if [ "$REF_STATUS" -ne 1 ]; then
+         echo "Could not inspect coder retry branch references." >&2
+         exit 1
+       fi
+     fi
+   done
    if ! CODER_WORKTREE="$(diskm worktree-new <repo-path> "$RETRY_BRANCH" \
        --base "$PRIOR_REVISION" --name "$RETRY_WORKTREE_NAME")"; then
      echo "Could not create coder retry worktree." >&2

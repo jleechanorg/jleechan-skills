@@ -96,8 +96,9 @@ done
 ### Phase 5: Prepare and ingest candidate pages
 
 Prepare candidate source documents outside the wiki. To persist them, invoke
-`/wiki-ingest <candidate-source>` for each approved source and let that command
-create the source/entity/concept pages. Do not create or edit wiki files here.
+`/wiki-ingest <candidate-source> --wiki "$WIKI"` for each approved source and
+let that command create the source/entity/concept pages in the selected wiki.
+Do not create or edit wiki files here.
 
 **Entity page template:**
 ```markdown
@@ -164,9 +165,10 @@ source document ingested through `/wiki-ingest`. Do not append directly to
 
 ### Phase 8: (Optional) wiki-assess
 
-If `--ingest` is set, ingest each approved candidate with `/wiki-ingest`, then
-run `wiki-assess` against the resulting pages. The flag does not authorize
-direct wiki writes.
+If `--ingest` is set, ingest each approved candidate with
+`/wiki-ingest <candidate-source> --wiki "$WIKI"`, then run
+`/wiki-assess --wiki "$WIKI"` against that same destination. The flag does not
+authorize direct wiki writes.
 
 ## BFS Layer Routing
 

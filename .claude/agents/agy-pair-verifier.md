@@ -50,11 +50,18 @@ REVISION="<exact git SHA from IMPLEMENTATION_READY>"
 VERIFIER_ATTEMPT_ID="<fresh unique attempt identifier>"
 VERIFIER_BRANCH="agy-verifier-$VERIFIER_ATTEMPT_ID"
 VERIFIER_WORKTREE_NAME="agy-verifier-$VERIFIER_ATTEMPT_ID"
-if git show-ref --verify --quiet "refs/heads/$VERIFIER_BRANCH" ||
-    git show-ref --verify --quiet "refs/remotes/origin/$VERIFIER_BRANCH"; then
-    echo "Choose an unused verifier branch." >&2
-    exit 1
-fi
+for BRANCH_REF in "refs/heads/$VERIFIER_BRANCH" "refs/remotes/origin/$VERIFIER_BRANCH"; do
+    if git show-ref --verify --quiet "$BRANCH_REF"; then
+        echo "Choose an unused verifier branch." >&2
+        exit 1
+    else
+        REF_STATUS=$?
+        if [ "$REF_STATUS" -ne 1 ]; then
+            echo "Could not inspect verifier branch references." >&2
+            exit 1
+        fi
+    fi
+done
 if ! VERIFIER_WORKTREE="$(diskm worktree-new <repo-path> "$VERIFIER_BRANCH" \
     --base "$REVISION" --name "$VERIFIER_WORKTREE_NAME")"; then
     echo "Could not create verifier worktree." >&2
@@ -154,11 +161,18 @@ worktree name. Set a fresh `VERIFIER_ATTEMPT_ID` for each retry and derive both:
 VERIFIER_ATTEMPT_ID="<fresh unique retry identifier>"
 VERIFIER_BRANCH="agy-verifier-$VERIFIER_ATTEMPT_ID"
 VERIFIER_WORKTREE_NAME="agy-verifier-$VERIFIER_ATTEMPT_ID"
-if git show-ref --verify --quiet "refs/heads/$VERIFIER_BRANCH" ||
-    git show-ref --verify --quiet "refs/remotes/origin/$VERIFIER_BRANCH"; then
-    echo "Choose an unused verifier retry branch." >&2
-    exit 1
-fi
+for BRANCH_REF in "refs/heads/$VERIFIER_BRANCH" "refs/remotes/origin/$VERIFIER_BRANCH"; do
+    if git show-ref --verify --quiet "$BRANCH_REF"; then
+        echo "Choose an unused verifier retry branch." >&2
+        exit 1
+    else
+        REF_STATUS=$?
+        if [ "$REF_STATUS" -ne 1 ]; then
+            echo "Could not inspect verifier retry branch references." >&2
+            exit 1
+        fi
+    fi
+done
 if ! VERIFIER_WORKTREE="$(diskm worktree-new <repo-path> "$VERIFIER_BRANCH" \
     --base "$REVISION" --name "$VERIFIER_WORKTREE_NAME")"; then
     echo "Could not create verifier retry worktree." >&2

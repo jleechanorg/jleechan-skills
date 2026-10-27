@@ -56,6 +56,14 @@ def cursor_coverage(output: str) -> dict:
 
 
 class ApprovalContractsTest(unittest.TestCase):
+    def test_wiki_bfs_forwards_the_selected_wiki_to_child_commands(self) -> None:
+        workflow = skill("wiki-bfs")
+        self.assertIn(
+            "`/wiki-ingest <candidate-source> --wiki \"$WIKI\"`",
+            workflow,
+        )
+        self.assertIn("`/wiki-assess --wiki \"$WIKI\"`", workflow)
+
     def test_commentcheck_fenced_code_blocks_are_not_nested(self) -> None:
         path = COMMANDS / "extended-library" / "commentcheck.md"
         in_fence = False
