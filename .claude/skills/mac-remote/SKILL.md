@@ -101,20 +101,14 @@ EOF
 
 Read and follow the shared [submission and response contract](../linux-remote/SKILL.md#agent-submission-and-response-proof--mandatory) for every Mac agent launch and follow-up, locally or over SSH. For cmux, verify the exact surface and its CLI controls; sending text alone is not submission. Echo a fresh, attributable agent response into the calling terminal before claiming delivery.
 
-## sudo with known password
+## sudo over SSH
 
 ```bash
-expect -c "
-spawn ssh macbook sudo <command>
-expect {
-  \"password\" { send \"<password>\r\"; exp_continue }
-  eof
-}
-"
-
-# OR pipe via stdin:
-echo '<password>' | ssh macbook 'sudo -S <command>'
+ssh -t macbook 'sudo -- id -u'
 ```
+
+Let `sudo` prompt in the interactive SSH session. Replace `id -u` with the
+required command. Never embed a password in a command, script, or stdin stream.
 
 ## File transfer
 
@@ -168,5 +162,5 @@ ssh macbook 'git clone https://github.com/$GITHUB_REPOSITORY.git /tmp/your-proje
 - **macOS SSH keychain**: First SSH attempt may prompt for keychain access; use `ssh-add --apple-use-keychain ~/.ssh/<mac-key>` to cache.
 - **No headless Docker**: MacBook uses colima for Docker; running Docker on the MacBook requires colima VM to be Running (the `ezgha-fleet-watchdog` script auto-starts it).
 - **macOS sandboxing**: Some `~/Library/...` paths may need Full Disk Access for the terminal app to read them.
-- **sudo prompts on macOS**: Touch ID prompt instead of password on physical Mac; over SSH use `expect` with password.
+- **sudo prompts on macOS**: Touch ID may be available on the physical Mac; over SSH use the interactive `ssh -t` prompt above.
 - **Always prefer SSH over VNC/Screen Sharing**: SSH is scriptable + auditable + doesn't steal focus.

@@ -42,18 +42,26 @@ bash scripts/test-launchd-env.sh
 If `@VAR@` tokens exist in the plist, the fix is to re-run `setup-launchd.sh` — no deeper diagnosis needed. This is the root cause ~90% of the time.
 
 ```bash
-# Check the plist's MINIMAX_API_KEY — the sentinel means broken
-grep -A2 "MINIMAX_API_KEY" ~/Library/LaunchAgents/ai.agento.lifecycle-all.plist
+python3 - "$HOME/Library/LaunchAgents/ai.agento.lifecycle-all.plist" <<'EOF'
+import plistlib, re, sys
 
-# Should show: <string>__OPENCLAW_REDACTED__</string>  ← BAD (redacted placeholder)
-# Should show: <string>eyJ...</string> or a real key   ← GOOD
-
-# Check if the keychain has a real value
-security find-generic-password -s MINIMAX_API_KEY -w
-
-# If keychain has real value, update the plist:
-# bash scripts/setup-launchd.sh lifecycle
+with open(sys.argv[1], "rb") as source:
+    data = plistlib.load(source)
+variables = re.findall(r"@[A-Z_][A-Z0-9_]*@", str(data))
+key = data.get("EnvironmentVariables", {}).get("MINIMAX_API_KEY", "")
+print("BAD: unsubstituted plist template tokens" if variables else "OK: no template tokens")
+if key == "__OPENCLAW_REDACTED__":
+    print("BAD: MINIMAX_API_KEY is the redacted sentinel")
+elif key:
+    print("OK: MINIMAX_API_KEY is configured; value not displayed")
+else:
+    print("BAD: MINIMAX_API_KEY is missing")
+EOF
 ```
+
+Do not print the plist or retrieve the keychain item's value. For safe
+credential handling, follow [cloud-ops-credential-guard](../cloud-ops-credential-guard/SKILL.md)
+and the repository's launchd setup workflow.
 
 ## Full Diagnostic Steps
 
@@ -69,16 +77,20 @@ tmux capture-pane -pt <session>:0.0 -S -100
 
 Look for: `Please run /login`, `API Error: 401`, `login fail`, `MINIMAX_API_KEY`
 
-### Step 2: Check the plist's MINIMAX_API_KEY
+### Step 2: Check the plist's MINIMAX_API_KEY without displaying it
 
 ```bash
 python3 - "$HOME/Library/LaunchAgents/ai.agento.lifecycle-all.plist" <<'EOF'
 import plistlib, sys
-data = plistlib.load(open(sys.argv[1], 'rb'))
-key = data.get('EnvironmentVariables', {}).get('MINIMAX_API_KEY', '')
-masked = f"{key[:4]}...{key[-4:]} (len={len(key)})" if len(key) > 8 else ("present" if key else "empty")
-print(f'MINIMAX_API_KEY status = {masked}')
-print('BAD: redacted sentinel' if key == '__OPENCLAW_REDACTED__' else 'OK: real key present' if key else 'EMPTY')
+with open(sys.argv[1], "rb") as source:
+    data = plistlib.load(source)
+key = data.get("EnvironmentVariables", {}).get("MINIMAX_API_KEY", "")
+if key == "__OPENCLAW_REDACTED__":
+    print("BAD: redacted sentinel")
+elif key:
+    print("OK: configured; value not displayed")
+else:
+    print("BAD: missing")
 EOF
 ```
 
@@ -89,20 +101,18 @@ EOF
 security find-generic-password -s MINIMAX_API_KEY >/dev/null 2>&1 && echo "Keychain: MINIMAX_API_KEY present" || echo "Keychain: MINIMAX_API_KEY missing"
 ```
 
-If keychain has a real key but plist has `__OPENCLAW_REDACTED__`, the plist was set from a legacy config export that used the sentinel.
+This check reports presence only. Never retrieve or print the keychain value.
 
-### Step 4: Fix — regenerate the plist from current keychain
+### Step 4: Fix — use the repository's launchd setup workflow
 
 ```bash
-# Update the launchd plist with the real key
+# Use the repository's launchd setup to repair the service configuration
 bash scripts/setup-launchd.sh lifecycle
 ```
 
-Or manually:
-```bash
-REAL_KEY=$(security find-generic-password -s MINIMAX_API_KEY -w)
-# Then update plist with the real key (not __OPENCLAW_REDACTED__)
-```
+Do not copy a credential into a plist or shell variable manually. Follow the
+repository's launchd setup workflow and the credential-handling rules in
+[cloud-ops-credential-guard](../cloud-ops-credential-guard/SKILL.md).
 
 ### Step 5: Reload the launchd service
 

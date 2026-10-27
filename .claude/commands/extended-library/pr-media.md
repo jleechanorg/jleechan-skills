@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Capture visual evidence that a PR change works and attach it to the PR body. Inspired by Ryan's OpenAI Codex talk: "I'm expecting they did the job and that they can prove to me that the code is worth merging."
+Capture visual evidence that a PR change works and attach it to the PR body. Show the evidence a reviewer needs to assess the change.
 
 ## Usage
 
@@ -32,7 +32,7 @@ echo "$CHANGED_FILES"
 
 | Change type | Indicators | Capture method |
 |---|---|---|
-| Web/UI | `packages/web/`, `.tsx`, `.jsx`, `.css` | Screenshot via Playwright or chrome MCP |
+| Web/UI | `packages/web/`, `.tsx`, `.jsx`, `.css` | Screenshot through the repository's approved browser workflow |
 | CLI | `packages/cli/`, command-line output | Terminal output capture |
 | Core | `packages/core/src/` | Test output (`pnpm test`) |
 | Plugin | `packages/plugins/` | Test output or demo output |
@@ -45,36 +45,20 @@ If the change touches multiple types, capture evidence for ALL types affected.
 
 #### For Web/UI changes
 
-```bash
-# Option A: Use Playwright (packages/web/e2e/screenshot.ts)
-cd packages/web
-pnpm exec playwright screenshot <url> [--full-page] output.png
-
-# Option B: Use chrome MCP navigate + screenshot tools
-# mcp__chrome-superpower__navigate_to(url)
-# mcp__chrome-superpower__take_screenshot(output_path)
-```
+Use an isolated, approved browser route and save screenshots in the task's
+unique `/tmp` evidence directory. Follow the browser owner at
+`~/.claude/skills/browser-control/SKILL.md` and the repository evidence owner
+for authentication, capture, and artifact handling.
 
 #### For CLI/Core/Plugin changes
 
-```bash
-# Run the relevant test suite and capture output
-pnpm test 2>&1 | tee /tmp/test-output.txt
-
-# Or capture relevant command output
-<your-command> 2>&1 | tee /tmp/cmd-output.txt
-
-# For packages/web: capture Playwright screenshot of key UI state
-cd packages/web
-# Ensure dev server is running, then screenshot
-```
+Run the relevant check and preserve its actual output in the task's unique
+`/tmp` evidence directory, following the evidence owner's capture requirements.
 
 #### For config/refactor-only changes (no visual output possible)
 
-```bash
-# Capture test results showing nothing broke
-pnpm test 2>&1 | tee /tmp/test-output.txt
-```
+Capture applicable deterministic results in the task's unique `/tmp` evidence
+directory. Follow the evidence owner for claim scope and publication.
 
 ### Step 3: Build Evidence Section
 
@@ -86,7 +70,7 @@ For **screenshot evidence**:
 **Claim class**: unit-test-coverage
 **Verdict**: PASS
 
-**Media**: https://github.com/<owner>/<repo>/raw/<branch>/path/to/screenshot.png
+**Evidence artifact**: <authorized gist or GCS evidence URL>
 
 **Description**: Brief description of what the screenshot proves.
 ```
@@ -110,28 +94,31 @@ $ <command>
 ### Step 4: Attach to PR
 
 ```bash
-# Get current PR body
-gh pr view <PR_NUMBER> --repo <OWNER>/<REPO> --json body --jq '.body' > /tmp/pr_body.txt
+BODY_DIR=$(mktemp -d /tmp/pr-media.XXXXXX)
+BODY_FILE="$BODY_DIR/pr-body.md"
+
+# Get current PR body in the task's unique temporary directory
+gh pr view <PR_NUMBER> --repo <OWNER>/<REPO> --json body --jq '.body' > "$BODY_FILE"
 
 # Append Evidence section
-cat /tmp/pr_body.txt | head -c 65000 > /tmp/pr_body_trimmed.txt  # GitHub limit
-printf '\n\n%s' "$EVIDENCE_SECTION" >> /tmp/pr_body_trimmed.txt
+head -c 65000 "$BODY_FILE" > "$BODY_DIR/pr-body-trimmed.md"  # GitHub limit
+printf '\n\n%s' "$EVIDENCE_SECTION" >> "$BODY_DIR/pr-body-trimmed.md"
 
 # Update PR body
 gh api repos/<OWNER>/<REPO>/pulls/<PR_NUMBER> \
   --method PATCH \
-  --field body="@/tmp/pr_body_trimmed.txt"
+  --field body="@$BODY_DIR/pr-body-trimmed.md"
 ```
 
 Note: If GitHub's API rejects the body update (e.g., image path doesn't exist), the Evidence section should be included in the initial PR body at creation time, not patched after.
 
-### Step 5: Commit the screenshot artifact (if any)
+### Step 5: Publish evidence through the owning workflow
 
-```bash
-git add path/to/screenshot.png
-git commit -m "[agento] chore: add pr-media screenshot for bd-<id>"
-git push
-```
+Keep captures in the task's unique `/tmp` evidence directory. When the workflow
+requires durable evidence, publish it using the user-scope
+`~/.claude/skills/evidence-standards/SKILL.md` procedure and attach its
+authorized URL to the PR description. Never add screenshot or video artifacts
+to the source repository.
 
 ## Evidence Quality Standards
 
@@ -152,6 +139,6 @@ If the Evidence section is missing, the evidence-gate CI check will fail.
 
 ## Edge Cases
 
-- **Large screenshots**: Compress to < 5MB before committing (use `pngquant` or similar)
+- **Large screenshots**: Follow the evidence owner's size and integrity requirements before publication.
 - **No display available**: If running headless in CI, use Playwright in headless mode — it works without a physical display
 - **PR already created without evidence**: Update the PR body immediately using Step 4 above

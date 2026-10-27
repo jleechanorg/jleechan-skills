@@ -225,10 +225,10 @@ Use CronCreate only when NOT in an interactive `/loop` session. Delete the job w
 
 When babysitting active testing or evidence generation:
 
-1. **Poll evidence traces**: Continuously verify that the testing framework writes traces to `/tmp/.../iteration_XXX`. Confirm `.jsonl` files are non-empty.
-2. **Copy to persistent path**: After iteration completes, copy to `docs/evidence/pr-<number>/` (e.g., `docs/evidence/pr-6851/`).
+1. **Poll evidence traces**: Verify that the testing framework writes traces to its unique `/tmp` evidence directory. Confirm `.jsonl` files are non-empty.
+2. **Publish durable evidence**: When the workflow requires evidence to outlive the task, use the authorized gist or GCS publication process in `~/.claude/skills/evidence-standards/SKILL.md`. Never copy capture bundles into the source repository.
 3. **Testing Gap Close Integration**: If evidence bundles fail to generate (empty `.jsonl` files, missing checksums, server timeout errors, or `EvidenceSignatureGuard` rejections), immediately invoke the `/testing-gap-close` skill to harden the server lifecycle and resolve the failure.
-4. **Nudge stale processes**: If a background daemon hangs on testing or evidence compilation, use scoped shutdown: (1) SIGTERM to the test-managed PID file, (2) `lsof -ti :<port> | xargs kill` for the bound port, (3) `kill -- -$(ps -o pgid= -p <pid>)` for the process group. Only fall back to `pkill -9 -f gunicorn` as a last resort when all scoped methods fail.
+4. **Stop task-owned processes**: If a task-owned process hangs, verify its PID still belongs to the expected task and worktree, then follow that service's cleanup owner. For local development servers, use [local-dev-server](../local-dev-server/SKILL.md) § Stopping Servers. Never kill processes by port or name, signal an unverified process group, or use broad `pkill` fallbacks.
 
 ## Anti-Patterns (BANNED)
 

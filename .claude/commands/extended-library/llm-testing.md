@@ -7,24 +7,27 @@ execution_mode: immediate
 **When this command is invoked, YOU (Claude) must execute these steps immediately:**
 **This is NOT documentation — these are COMMANDS to execute right now.**
 
-1. Display the ZERO-MOCKS core principle (no `TEST_MODE=mock`, `MOCK_SERVICES_MODE`,
-   `USE_MOCK_FIREBASE`, `USE_MOCK_GEMINI`, `FORCE_TEST_MODEL=true`, or any fake flag).
+1. State that this command proves real model/service behavior. Keep deterministic or mocked
+   unit checks outside `testing_mcp/` and `testing_ui/`; those checks do not satisfy this
+   command's acceptance claims.
 2. Locate the matching `testing_mcp/<domain>/test_*.py` (or `testing_ui/`) driver for the
    feature/blocker argument.
-3. Run it with the real-services env (`TESTING_AUTH_BYPASS=true`,
-   `GOOGLE_APPLICATION_CREDENTIALS=$HOME/serviceAccountKey.json`) against a real local
-   server, or `--preview-url <url>` for a remote GCP preview. `testing_mcp/` runs with `vpython`
-   **directly, never pytest**; `testing_ui/` runs via `python3 $PROJECT_ROOT/main.py testui`.
-4. Print the full absolute evidence bundle path
-   (`/tmp/your-project.com/<branch>/<test_name>/latest/`) and confirm streaming artifacts exist.
-5. Review the complete rules at `.claude/skills/llm-testing.md`.
+3. Read the owning `testing_mcp/CLAUDE.md` or `testing_ui/CLAUDE.md` before running. Use its
+   real-service account, provider, server, authentication, and runner instructions. Do not
+   enable authentication bypass. For `testing_mcp/`, use `python3` with the explicit
+   `PYTHONPATH` required by its owner; do not use `vpython` or pytest there. For `testing_ui/`,
+   use its approved real-application runner and services.
+4. Record the full absolute evidence path produced by the owning test workflow and confirm
+   the artifacts required for this claim exist. Use its unique `/tmp` path; do not invent a
+   repository evidence directory.
+5. Review the complete rules at `~/.claude/skills/llm-testing/SKILL.md`.
 
 ## 📋 REFERENCE DOCUMENTATION
 
 # /llm-testing — Real-LLM Zero-Mock Testing
 
 **Purpose**: Prove behavior that depends on the LLM's judgment. The opposite of
-`/end2end-testing` (which fakes externals): real LLM, real Firestore, real server, **zero mocks**.
+`/end2end-testing` (which fakes externals): real LLM, real services, and a real server.
 This is the execution mechanism behind `/es` evidence for `$PROJECT_ROOT/**` changes.
 
 See the full authoritative skill at: `.claude/skills/llm-testing.md`
@@ -35,10 +38,17 @@ See the full authoritative skill at: `.claude/skills/llm-testing.md`
 ```
 
 ## Quick Directory Map
-- **MCP API (Layer 3)**: `testing_mcp/` — `vpython testing_mcp/<domain>/test_*.py` (direct, not pytest)
-- **Browser/UI (Layer 5)**: `testing_ui/` — `python3 $PROJECT_ROOT/main.py testui` (`TESTING_AUTH_BYPASS=true`)
+- **MCP API (Layer 3)**: `testing_mcp/` — follow `testing_mcp/CLAUDE.md` for its direct `python3` runner and explicit `PYTHONPATH`.
+- **Browser/UI (Layer 5)**: `testing_ui/` — follow `testing_ui/CLAUDE.md` for the real application, services, account, and runner.
 
-## Zero-Mock Contract (a run is VOID if any are set)
+## Real-Service Acceptance Contract
+
+For acceptance runs in `testing_mcp/` and `testing_ui/`, use the real provider,
+database, server, browser, and account required by their owners. A bypassed-auth
+or mocked-services run does not prove those boundaries. Deterministic mocked
+unit checks remain valid outside those real-service acceptance directories.
+
+## Mock flags that invalidate a real-service acceptance run
 `TEST_MODE=mock` · `MOCK_SERVICES_MODE` · `USE_MOCK_FIREBASE` · `USE_MOCK_GEMINI` ·
 `FORCE_TEST_MODEL=true` · any mock-server/fake-LLM/fake-firestore flag.
 

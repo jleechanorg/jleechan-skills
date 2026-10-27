@@ -38,9 +38,9 @@ another brainstorming phase or approval at each section.
 ## After the Design
 
 **Documentation:**
-- Write the validated design to `docs/plans/YYYY-MM-DD-<topic>-design.md`
+- Write durable designs in the `~/roadmap/` repository as `<topic>-YYYY-MM-DD.md`.
 - Use elements-of-style:writing-clearly-and-concisely skill if available
-- Commit the design document to git
+- Report the absolute path and `file:///Users/jleechan/roadmap/...` link.
 
 **Implementation (if continuing):**
 - Continue implementation when authorized; for design-only requests, deliver the design

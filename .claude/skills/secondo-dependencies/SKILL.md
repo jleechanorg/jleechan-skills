@@ -151,12 +151,16 @@ brew install jq  # or apt-get install jq
 
 ### Firebase configuration errors
 
-Ensure environment variables are set:
+Check whether the existing configuration is present without printing values:
+
 ```bash
-echo $FIREBASE_API_KEY  # Should output your API key
-echo $FIREBASE_AUTH_DOMAIN  # Should output your domain
-echo $FIREBASE_PROJECT_ID  # Should output your project ID
+test -n "${FIREBASE_API_KEY:-}" && echo "FIREBASE_API_KEY is configured" || echo "FIREBASE_API_KEY is missing"
+test -n "${FIREBASE_AUTH_DOMAIN:-}" && echo "FIREBASE_AUTH_DOMAIN is configured" || echo "FIREBASE_AUTH_DOMAIN is missing"
+test -n "${FIREBASE_PROJECT_ID:-}" && echo "FIREBASE_PROJECT_ID is configured" || echo "FIREBASE_PROJECT_ID is missing"
 ```
+
+Keep existing authorized configuration in its designated secure store. Never
+print or paste the API key; see [cloud-ops-credential-guard](../cloud-ops-credential-guard/SKILL.md).
 
 ## See Also
 
