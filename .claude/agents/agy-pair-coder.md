@@ -102,17 +102,12 @@ PROMPT_EOF
 # MANDATORY (crash 2026-08-30): NEVER run this as a foreground Bash call —
 # a foreground fork of a multi-minute agy run killed the parent harness
 # under memory pressure. Run it via the Bash tool's run_in_background with
-# an output file, then poll the file; and pre-check resources first:
-# defer if swap >80% used or memory pressure >=2 (WARNING). The pre-check
-# must branch on OS so the gate works on Linux too:
-#   macOS: `sysctl vm.swapusage` + `sysctl kern.memorystatus_vm_pressure_level`
-#   Linux: `free` (swap used %) + `/proc/pressure/memory` PSI `some` line (avg10)
-# Cross-platform one-liner:
-#   case "$(uname -s)" in
-#     Darwin) sysctl vm.swapusage; sysctl kern.memorystatus_vm_pressure_level ;;
-#     Linux)  free | awk '/^Swap/{ if ($2==0) print "swap used=0%"; else printf "swap used=%.0f%%\n", $3/$2*100 }'; \
-#             awk '{print $2}' /proc/pressure/memory 2>/dev/null || true ;;
-#   esac
+# an output file, then poll the file. Before spawning, follow the active
+# `parallelize-to-ceiling` resource-admission gate: measure available RAM and
+# top RSS, and do not gate on a static swap used/total ratio. Normal admission
+# requires >8GB available and, on macOS, pressure <=2; reduce concurrency at
+# 4-8GB available or macOS pressure 3; defer only below 4GB or at macOS
+# pressure 4. Use the canonical gate's per-host commands for each measurement.
 
 # Allocate BOTH $AGY_OUT and $PROMPT_FILE in the INVOKING shell BEFORE the
 # background call, then ECHO their literal paths so the agent's next Bash

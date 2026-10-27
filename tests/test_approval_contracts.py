@@ -64,6 +64,17 @@ class ApprovalContractsTest(unittest.TestCase):
         )
         self.assertIn("`/wiki-assess --wiki \"$WIKI\"`", workflow)
 
+    def test_wiki_evolve_forwards_the_selected_wiki_to_ingest(self) -> None:
+        workflow = (COMMANDS / "extended-library" / "wiki-evolve.md").read_text()
+        self.assertIn(
+            'Pass `--wiki "$WIKI_DIR"` to every `/wiki-ingest` call',
+            workflow,
+        )
+        self.assertIn(
+            '`/wiki-ingest <candidate-source> --wiki "$WIKI_DIR"`',
+            workflow,
+        )
+
     def test_commentcheck_fenced_code_blocks_are_not_nested(self) -> None:
         path = COMMANDS / "extended-library" / "commentcheck.md"
         in_fence = False

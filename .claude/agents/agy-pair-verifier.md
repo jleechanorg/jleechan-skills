@@ -204,9 +204,9 @@ if [ -n "$VERIFIER_STATUS" ]; then
 fi
 ```
 
-Verify the new worktree's `HEAD` equals `$REVISION`, then rerun focused checks
-read-only. Never modify files or create a commit during verifier retries; only
-the coder retry may commit a revised implementation.
+Enter the verified retry worktree with `cd "$VERIFIER_WORKTREE"` before
+rerunning focused checks read-only. Never modify files or create a commit during
+verifier retries; only the coder retry may commit a revised implementation.
 
 ## Communication Protocol
 

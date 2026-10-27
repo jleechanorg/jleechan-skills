@@ -131,7 +131,7 @@ class WorkflowCommandPairTest(unittest.TestCase):
         normalized_skill = " ".join(skill.split())
         self.assertIn(
             "Every attempt, including initial execution and each retry, uses a "
-            "fresh workspace (either an allocated detached worktree or "
+            "fresh workspace (either an allocated worktree on a fresh branch or "
             "caller-provided clean workspace) and unique output/log paths "
             "disjoint from both coder and verifier lanes and from all previous "
             "attempts.",
@@ -176,10 +176,24 @@ class WorkflowCommandPairTest(unittest.TestCase):
                 self.assertNotIn("--conversation", content)
         normalized_skill = " ".join(skill.split())
         self.assertIn(
-            "every retry uses a fresh detached worktree and unique output/log paths",
+            "every retry uses a fresh worktree on its own branch and unique output/log paths",
             normalized_skill,
         )
         self.assertIn("fresh `agy --new-project`", normalized_skill)
+
+    def test_agy_coder_uses_the_shared_resource_admission_gate(self):
+        coder = (REPO_ROOT / ".claude" / "agents" / "agy-pair-coder.md").read_text(
+            encoding="utf-8"
+        )
+        skill = (SKILLS / "parallelize-to-ceiling" / "SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("Before spawning, follow the active", " ".join(coder.split()))
+        self.assertIn("`parallelize-to-ceiling` resource-admission gate", coder)
+        self.assertIn("do not gate on a static swap used/total ratio", coder)
+        self.assertNotIn("defer if swap >80% used", coder)
+        self.assertIn("Available >8GB **and** macOS pressure ≤2", skill)
+        self.assertIn("Swap is evidence, not a separate defer tier", skill)
 
     def test_implementation_ready_carries_exact_revision_handoff(self):
         skill = (SKILLS / "parallelize-to-ceiling" / "SKILL.md").read_text(
@@ -513,10 +527,18 @@ class WorkflowCommandPairTest(unittest.TestCase):
             " ".join(retry.split()),
         )
         self.assertIn("fresh worktree name", " ".join(retry.split()))
-        self.assertIn("new worktree's `HEAD` equals `$REVISION`", normalized_verifier)
         self.assertIn(
-            "rerun focused checks read-only",
+            'Enter the verified retry worktree with `cd "$VERIFIER_WORKTREE"`',
             normalized_verifier,
+        )
+        self.assertIn(
+            "rerunning focused checks read-only",
+            normalized_verifier,
+        )
+        self.assertIn('cd "$VERIFIER_WORKTREE"', retry)
+        self.assertLess(
+            retry.index('cd "$VERIFIER_WORKTREE"'),
+            retry.index("rerunning focused checks read-only"),
         )
         self.assertIn(
             "Never modify files or create a commit",

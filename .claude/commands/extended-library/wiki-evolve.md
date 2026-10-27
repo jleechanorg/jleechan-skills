@@ -68,11 +68,18 @@ Compare against Karpathy pattern:
 
 ### Phase 4: FIX — Implement Corrections
 
+Pass `--wiki "$WIKI_DIR"` to every `/wiki-ingest` call so child commands write
+to the destination selected for this `/wiki-evolve` run, not their default.
+
 For each gap found:
-1. **Structure gap**: Propose changes; perform wiki writes only through `/wiki-ingest`.
-2. **Ratio gap**: Re-ingest eligible key sources through `/wiki-ingest`.
-3. **Index gap**: Route index changes through `/wiki-ingest`.
-4. **Frontmatter gap**: Route page updates through `/wiki-ingest`.
+1. **Structure gap**: Propose changes; route wiki writes through
+   `/wiki-ingest <candidate-source> --wiki "$WIKI_DIR"`.
+2. **Ratio gap**: Re-ingest eligible key sources through
+   `/wiki-ingest <candidate-source> --wiki "$WIKI_DIR"`.
+3. **Index gap**: Route index changes through
+   `/wiki-ingest <candidate-source> --wiki "$WIKI_DIR"`.
+4. **Frontmatter gap**: Route page updates through
+   `/wiki-ingest <candidate-source> --wiki "$WIKI_DIR"`.
 
 ### Phase 5: VERIFY — Confirm Pattern Compliance
 
@@ -83,7 +90,8 @@ grep -r '\[\[' "$WIKI_DIR"/sources/*.md | head -20
 
 ### Phase 6: RECORD — Log Findings
 
-Record findings through `/wiki-ingest`; do not append to wiki files directly.
+Record findings through `/wiki-ingest <candidate-source> --wiki "$WIKI_DIR"`;
+do not append to wiki files directly.
 
 ### Phase 7: RECAP — Cycle Summary
 
