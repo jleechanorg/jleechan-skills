@@ -333,8 +333,12 @@ credential, or merge-path code.
    missing, inaccessible or insufficient leaves the gate open. When the PR's headline claim is user-visible, require
    **two** independent visual seats before undraft; where a repository's review route genuinely cannot supply two,
    require a recorded `SINGLE-SEAT` limitation naming the missing seat rather than a silent waiver. When the consuming
-   surface lives in another repository, this PR either cites a capture of that surface or records the visual proof as
-   deferred debt naming the owning repository and the limitation. A change whose prose is byte-identical is still
+   surface lives in another repository, this PR either cites a capture of that surface, which the visual seat then
+   reviews, or it records the visual proof as deferred debt naming the owning repository. Deferred debt does **not**
+   discharge this gate and never authorises undraft: it may be recorded only when this PR publishes no media and makes
+   no rendered or displayed-data claim for that surface. A PR whose headline claim *is* another repository's rendered
+   output keeps the gate open, and therefore stays draft, until that capture exists and an independent seat has
+   PASSed it. A change whose prose is byte-identical is still
    user-visible when a client renders the new data or a value that surface displays changes, so "no web-visible
    change" may not be used to mark video `N/A` in that case; `N/A` otherwise needs the specific bounded reason.
 
