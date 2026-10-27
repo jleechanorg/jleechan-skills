@@ -54,7 +54,7 @@ The doc has these sections in order:
 11. **TDD Plan** — fresh failure and verification for behavior fixes
 12. **/4layer Coverage** — sufficient layers selected by the repository's testing owner
 13. **Cross-References** — all related roadmap docs (active, predecessor, foundational, skills)
-14. **Sync Requirement** — paths to copy doc to
+14. **Durable Plan Path** — the canonical `~/roadmap/` plan path to link from repository materials when useful; do not copy the plan into the repository
 
 ---
 
@@ -225,7 +225,7 @@ Add entry to `~/.claude/projects/<project>/memory/` describing the plan and add 
 - **Missing RED proof**: a combined test/fix commit still needs evidence that the check failed before the behavior fix
 - **Unreviewable changes**: split incoherent changes by dependency or risk; a line count alone is not a split requirement
 - **Bead-after-the-fact**: creating a bead AFTER the PR opens — defeats tracking
-- **Roadmap-drift**: writing a plan but never syncing the repo copy
+- **Roadmap-drift**: failing to create or update the canonical `~/roadmap/` plan; link it from repository materials instead of creating a duplicate copy
 - **Generic plans**: "fix bugs", "improve performance" — must have concrete file ownership
 
 ---
@@ -252,7 +252,7 @@ boundaries required by the accepted plan; one coherent commit may be sufficient.
 
 | # | Type | Files | Size estimate, if useful | Bead | Description |
 |---|---|---|---|---|---|
-| 1 | tracking/docs, if needed | `roadmap/...md` | <estimate or n/a> | <tracking> | Link governing work |
+| 1 | tracking/docs, if needed | `~/roadmap/<topic>-YYYY-MM-DD.md` | <estimate or n/a> | <tracking> | Link the canonical plan |
 | 2 | test and implementation | <test and source paths> | <estimate or n/a> | <tracking> | Capture required RED before the fix and verify GREEN |
 | 3 | broader evidence, if needed | <scoped driver or artifact> | <estimate or n/a> | <tracking> | Record results at the authorized destination |
 

@@ -62,24 +62,24 @@ Inspect the supplied scope and available project context to choose the applicabl
 
 ### Simplified Consensus Rules
 
-**Mode-Specific Reviewer Roster**: Use the five defined roles for the selected mode. Calculate majority agreement only with at least 3 completed roles; when fewer than 3 complete, report DEFERRED rather than a majority verdict. Schedule independent roles through the measured resource and host policy; the roster is not a simultaneous worker count:
+**Mode-Specific Reviewer Roster**: Use the five defined roles for the selected mode. Majority may describe the direction of completed votes, but it does not satisfy the pass gate: `CONSENSUS_PASS` requires at least 3 distinct completed roles to vote PASS. With fewer than 3 completed roles, report DEFERRED. Schedule independent roles through the measured resource and host policy; the roster is not a simultaneous worker count:
 - **Code Review Mode (default)**: `code-review`, `codex-consultant`, `gemini-consultant`, `cursor-consultant`, `code-centralization-consultant`
 - **Documentation & Spec Mode**: `accuracy-reviewer`, `evidence-verifier`, `product-strategist`, `delivery-ops`, `clarity-editor`
 - **Operational Decision Mode**: `risk-analyst`, `product-strategist`, `delivery-ops`, `customer-advocate`, `exec-synthesizer`
 
-**Success threshold**: At least 3 completed reviewer roles PASS with average confidence ≥6 across completed votes
+**Success threshold**: At least 3 distinct completed reviewer roles vote PASS, with average confidence ≥6 across completed votes. Two PASS votes and one REWORK vote is not `CONSENSUS_PASS`.
 
 **Failure threshold**: At least 3 completed reviewer roles REWORK OR average confidence <5 across completed votes
 
-**Mixed signals**: Document disagreements. Proceed by majority only when at least 3 roles completed; with fewer than 3 completed roles, report **DEFERRED** and give the resource recheck condition.
+**Mixed signals**: Document disagreements. A majority can summarize the direction of votes but cannot override the three-PASS gate; two PASS votes and one REWORK vote is `MIXED_SIGNALS`, not `CONSENSUS_PASS`. If fewer than 3 roles completed, report **DEFERRED** and give the resource recheck condition.
 
 **Simple Consensus Calculation**:
 1. Schedule up to five reviewer roles using the canonical `/parallel` admission and host-selection policy; run ready roles concurrently up to the measured ceiling
 2. Collect PASS/REWORK + confidence (1-10) from each agent
 3. Calculate results:
-   - **CONSENSUS_PASS**: At least 3 completed roles PASS AND average confidence across completed votes ≥6
+   - **CONSENSUS_PASS**: At least 3 distinct completed roles vote PASS AND average confidence across completed votes ≥6; fewer than 3 PASS votes can never pass by majority
    - **CONSENSUS_REWORK**: At least 3 completed roles REWORK OR average confidence across completed votes <5
-   - **MIXED_SIGNALS**: Document conflicting votes; deferred roles are not votes. If fewer than 3 roles completed, report the result as DEFERRED and give the resource recheck condition.
+   - **MIXED_SIGNALS**: Document conflicting votes; deferred roles are not votes. With at least 3 completed roles but fewer than 3 PASS votes, do not report `CONSENSUS_PASS`; with fewer than 3 completed roles, report DEFERRED and give the resource recheck condition.
 
 **Agent Specialization**:
 - **Code Review Mode**:
@@ -155,9 +155,9 @@ Streamlined workflow optimized for speed and simplicity:
    - **Agent Context Awareness**: Each agent receives the verified orchestration, product, and user context, with unknowns labeled
 
 2. **Simple Consensus Calculation** (30 seconds)
-   - **CONSENSUS_PASS**: At least 3 completed roles PASS + average confidence across completed votes ≥6
+   - **CONSENSUS_PASS**: At least 3 distinct completed roles vote PASS + average confidence across completed votes ≥6; majority cannot replace the three-PASS threshold
    - **CONSENSUS_REWORK**: At least 3 completed roles REWORK OR average confidence across completed votes <5
-   - **MIXED_SIGNALS**: Document conflicts. Proceed by majority only when at least 3 roles completed; with fewer than 3 completed roles, report **DEFERRED** and give the resource recheck condition.
+   - **MIXED_SIGNALS**: Document conflicts; two PASS votes and one REWORK vote is not `CONSENSUS_PASS`. With fewer than 3 completed roles, report **DEFERRED** and give the resource recheck condition.
 
 3. **Quick Fix Application** (If REWORK, 1-2 minutes)
    - Apply highest-confidence architectural fixes with clear file:line references
@@ -205,7 +205,7 @@ command from package presence or run an unfiltered local full suite.
 For documentation and decision scopes, replace automated tests with evidence checklists and explicit sign-off from responsible agents.
 
 5. **Round Completion Decision**
-   - **CONSENSUS_PASS**: At least 3 completed roles PASS + average confidence across completed votes ≥6 + validation complete for the selected mode
+   - **CONSENSUS_PASS**: At least 3 distinct completed roles vote PASS + average confidence across completed votes ≥6 + validation complete for the selected mode
    - **CONSENSUS_REWORK**: At least 3 completed roles REWORK OR validation gaps OR average confidence across completed votes <5
    - **TEST_FAILURE_ABORT / VALIDATION_ABORT**: Critical test or evidence failures close this review round; diagnose/fix, rerun affected checks, and re-review before deciding the workflow outcome.
 
@@ -222,7 +222,7 @@ Early termination, `ABORT`, and `VALIDATION_ABORT` close only the current review
 
 #### Early Termination Triggers:
 
-- **✅ CONSENSUS_PASS**: At least 3 completed roles PASS + average confidence across completed votes ≥6 + validation complete
+- **✅ CONSENSUS_PASS**: At least 3 distinct completed roles vote PASS + average confidence across completed votes ≥6 + validation complete; a majority below 3 PASS votes is not a pass
 - **❌ CRITICAL_BUG**: Any agent reports severity 9-10 issue
 - **❌ TEST_FAILURE / EVIDENCE_FAILURE**: Automated tests or evidence cross-checks fail
 - **❌ COMPILATION_ERROR / EXECUTION_BLOCKER**: Code doesn't compile/parse or operational criteria can't be executed

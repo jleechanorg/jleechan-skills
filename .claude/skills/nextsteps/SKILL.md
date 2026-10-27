@@ -317,14 +317,23 @@ Create a subagent (or run concurrently) to save to mem0:
 4. Report back: `✅ mem0 saved` or `⚠️ mem0 unavailable (skipped)`
 
 #### Phase 7b — Create or update GitHub Issues (`--full` only)
-For each bead created in Stage 1, attempt to create a linked GitHub Issue. Run all issue creates in parallel:
-```bash
-# Resolve repo from git remote (default jleechanorg/agent-orchestrator-ts)
-REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || echo "jleechanorg/agent-orchestrator-ts")
+For each bead created in Stage 1, attempt to create a linked GitHub Issue. Resolve
+the repository from the current checkout; this publication is optional, so a
+lookup or creation failure blocks only the issue write. Record the exact failure
+and continue the other Phase 7/8 work. Never choose a different repository as a
+fallback.
 
-gh issue create --repo "$REPO" \
-  --title "[resilience] <bead title>" \
-  --body "## Summary
+Run all issue creates in parallel only after the current repository has been
+resolved:
+```bash
+if ! REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner); then
+  echo "⚠️ GitHub Issue publication unavailable: repository lookup failed; preserve the exact gh error and continue other artifacts. No issue was created."
+elif [[ -z "$REPO" ]]; then
+  echo "⚠️ GitHub Issue publication unavailable: repository lookup returned an empty name. Continue other artifacts. No issue was created."
+else
+  if ! gh issue create --repo "$REPO" \
+      --title "[resilience] <bead title>" \
+      --body "## Summary
 <one-paragraph description>
 
 ## Acceptance criteria
@@ -332,11 +341,15 @@ gh issue create --repo "$REPO" \
 - [ ] <criterion 2>
 
 **Bead:** <bd-id>" \
-  --label "task" 2>&1
+      --label "task" 2>&1; then
+    echo "⚠️ GitHub Issue publication unavailable: preserve the exact gh error; do not retry in another repository. Continue other artifacts."
+  fi
+fi
 ```
 - If `gh issue create` returns "repository has disabled issues", log `⚠️ GH Issues disabled on <repo> — bead only` and continue.
+- If repository lookup or issue creation fails for another reason, retain its exact error and leave that optional issue unpublished; never retry in a guessed repository.
 - If it succeeds, capture the issue URL and add it to the bead index in the Nextsteps document.
-- Report back: `✅ GH Issue #N created` or `⚠️ GH Issues disabled`
+- Report back: `✅ GH Issue #N created`, `⚠️ GH Issues disabled`, or `⚠️ GitHub Issue publication unavailable: <exact reason>`.
 
 ---
 

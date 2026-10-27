@@ -9,7 +9,7 @@ description: Analyze and fix PR blockers (CI failures, merge conflicts, bot/revi
 
 ## The three commandments
 
-1. **Local-first**: never push a fix until you've reproduced the failure locally, fixed it, and verified the full local test suite passes.
+1. **Focused local-first**: reproduce the failure when the relevant workflow supports local reproduction, fix it, and run the narrow local checks for the changed behavior before pushing. Do not require an unfiltered local suite; CI owns full regression. After pushing, verify required checks at the exact current PR head, or apply the documented `/green` local-equivalent exception when CI is backlogged.
 2. **GitHub is the sole source of truth**: never assume local conditions match GitHub reality. Fetch fresh GitHub status before any analysis, display it inline, and re-verify after every fix. `mergeable: "MERGEABLE"` decides Gate 2 (no conflicts) but does **not** mean CI passed — verify both `mergeable == "MERGEABLE"` and individual `statusCheckRollup` conclusions (reporting `mergeStateStatus` as informational context only).
 3. **Never merge**: success means the merge button would be green, not that you clicked it.
 
@@ -125,7 +125,7 @@ BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
 DOCS_DIR="docs/conflicts/$(echo "$BRANCH_NAME" | tr '/' '-')-pr${PR_NUMBER}"
 mkdir -p "$DOCS_DIR"
 # document EACH conflict resolution in $DOCS_DIR/conflict_summary.md, then:
-# re-run full test suite, only then commit+push
+# rerun affected focused checks, then commit+push; verify required CI at the exact pushed head
 ```
 
 **Every conflict resolution must document**: file, conflict type, original markers, resolution, WHY, risk level (Low/Medium/High). Preservation priority: never lose functionality (combine features when possible), prefer bug fixes over new features on conflict, maintain backward compatibility, keep security improvements from both branches.

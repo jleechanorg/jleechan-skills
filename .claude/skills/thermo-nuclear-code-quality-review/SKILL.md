@@ -166,19 +166,18 @@ Prioritize findings in this order:
 Do not flood the review with low-value nits if there are larger structural issues.
 Prefer a smaller number of high-conviction comments over a long list of cosmetic notes.
 
-## Approval Bar
+## Quality Review Criteria
 
-Do not approve merely because behavior seems correct.
-The bar for approval is:
+Behavioral correctness is not the whole structural review. Assess the maintainability dimensions below and report concrete recommendations; a missed simplification opportunity or other maintainability concern alone is not a reason to withhold approval.
 
-- no clear structural regression
-- no obvious missed opportunity to make the implementation dramatically simpler when such a path is visible
-- no unjustified file-size explosion
-- no obvious spaghetti-growth from special-case branching
-- no obviously hacky or magical abstraction that makes the code harder to reason about
-- no unnecessary wrapper/cast/optionality churn obscuring the real design
-- no clear architecture-boundary leak or avoidable canonical-helper duplication
-- no missed opportunity for an obvious decomposition that would materially improve maintainability
+- Look for clear structural regressions
+- Identify a materially simpler design when an obvious path is visible
+- Check whether file-size growth is justified
+- Note spaghetti growth from special-case branching
+- Review abstractions that make the code harder to reason about
+- Check for wrapper, cast, or optionality churn that obscures the design
+- Look for architecture-boundary leaks or avoidable canonical-helper duplication
+- Identify decomposition opportunities that would materially improve maintainability
 
 Investigate these maintainability risks and give concrete, actionable feedback.
 They are nonblocking P1 or lower unless a specific acceptance failure is proved.

@@ -155,7 +155,9 @@ Is my change about level-up/XP/rewards logic?
 
 ---
 
-## Milestone Status
+## Historical Milestone Snapshot
+
+The statuses and implementation notes below are a snapshot from [source commit `04afb7f1b93af731240f1298a1234237e4e608da`](https://github.com/jleechanorg/jleechan-skills/commit/04afb7f1b93af731240f1298a1234237e4e608da), dated 2026-05-13. They do not establish current project status or grant permission to add a transformation; verify current source and owner instructions before acting. In particular, the “fail-closed” semantic SSE wording describes that historical implementation report and does not authorize rejecting player turns.
 
 | Milestone | Status | Description |
 |-----------|--------|-------------|
@@ -163,36 +165,38 @@ Is my change about level-up/XP/rewards logic?
 | M1 | ✅ Complete | Model compliance probe — prompt contract + streaming evidence |
 | M1b | ✅ Complete | Repeated-run reliability harness (Wilson score intervals) |
 | M2 | 🟡 Near Complete | Legacy resolver deletion done; formatter narrowing partially done |
-| M3 | 🟢 Partially Started | CI grep gates active via `design-doc-gate.yml` (8 gates enforced) |
+| M3 | 🟢 Partially Started | Snapshot reported CI grep gates active via `design-doc-gate.yml` (8 gates reported enforced) |
 
-### M2 Completed Work (via PR #6641)
+### M2 Work Reported Complete at Snapshot (via [PR #6641](https://github.com/jleechanorg/worldarchitect.ai/pull/6641))
 - ✅ `game_state.py` — all legacy resolvers and dataclasses deleted (422 LOC)
 - ✅ `world_logic.py` — `build_level_up_rewards_box()` deleted, all `resolve_level_progression()` calls removed
 - ✅ `agents.py` — `_is_stale_level_up_pending()` deleted, all routing uses `is_level_up_active()`
 - ✅ `rewards_engine.sync_level_up_signals()` replaces 200-line `ensure_level_up_rewards_pending()`
-- ✅ `_enforce_atomicity()` rewritten for semantic SSE validation (fail-closed)
+- At the snapshot, `_enforce_atomicity()` was reported rewritten for semantic SSE validation (fail-closed); this is a historical implementation note, not current permission to reject turns.
 - ✅ Canonical XP field names enforced: `current_turn_exp`, `total_exp_for_next_level`
 - ✅ `ensure_rewards_box()` returns `tuple[dict|None, dict|None]`, field `resolved_target_level` → `new_level`
 
-### M2 Remaining Work
+### M2 Remaining Work as Reported at Snapshot
+The snapshot listed these follow-ups; verify current callers and ownership before using them as a plan:
 - `format_model_level_up_signal()` → make private (`_format_model_level_up_signal`)
-- `project_level_up_ui()` → delete when no remaining callers (currently used by `_project_level_up_ui_locally()`)
+- `project_level_up_ui()` → delete when no remaining callers (reported then as used by `_project_level_up_ui_locally()`)
 
-### M3 Status — CI Enforcement Gates (Active)
-The `design-doc-gate.yml` workflow enforces 8 grep-based boundary checks on every PR:
+### M3 Snapshot — CI Enforcement Gates (Reported Active)
+At the snapshot, `design-doc-gate.yml` was reported to enforce 8 grep-based boundary checks. Verify the workflow and its current scope before relying on this historical status.
 
-| Gate | Rule | Status |
+| Gate | Rule | Status at snapshot |
 |------|------|--------|
-| `world_logic 0 rewards_engine public API imports` | No direct `from rewards_engine import` in world_logic | ✅ Enforced |
-| `world_logic 0 resolve_level_up_signal calls` | No direct resolver calls | ✅ Enforced |
-| `constants get_xp_for_level` | No duplicate XP helpers in constants | ✅ Enforced |
-| `constants get_level_from_xp` | No duplicate level helpers in constants | ✅ Enforced |
-| `_is_state_flag_true 2 files` | Helper exists in exactly 2 files | ✅ Enforced |
-| `world_logic ≤1 project_level_up_ui` | At most 1 non-wrapper call | ✅ Enforced |
-| `non-rewards 0 direct level-up pair builders` | No external pair builders | ✅ Enforced |
-| `llm_parser canonicalize_rewards=1` | Exactly 1 canonicalize call | ✅ Enforced |
+| `world_logic 0 rewards_engine public API imports` | No direct `from rewards_engine import` in world_logic | Reported enforced at snapshot |
+| `world_logic 0 resolve_level_up_signal calls` | No direct resolver calls | Reported enforced at snapshot |
+| `constants get_xp_for_level` | No duplicate XP helpers in constants | Reported enforced at snapshot |
+| `constants get_level_from_xp` | No duplicate level helpers in constants | Reported enforced at snapshot |
+| `_is_state_flag_true 2 files` | Helper exists in exactly 2 files | Reported enforced at snapshot |
+| `world_logic ≤1 project_level_up_ui` | At most 1 non-wrapper call | Reported enforced at snapshot |
+| `non-rewards 0 direct level-up pair builders` | No external pair builders | Reported enforced at snapshot |
+| `llm_parser canonicalize_rewards=1` | Exactly 1 canonicalize call | Reported enforced at snapshot |
 
-### M3 Remaining Work
+### M3 Remaining Work as Reported at Snapshot
+The snapshot listed these planned checks; verify current code and workflow ownership before implementing them:
 - Centralization ratchet: no new `def` in `world_logic.py` whose name exists in `rewards_engine.py`
 - Architecture test: `level_up_signal` formatting stays in `rewards_engine.py`
 
