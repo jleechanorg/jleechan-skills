@@ -1751,6 +1751,7 @@ class InstallerProfileFixtureTest(unittest.TestCase):
             "default": {"description": "Alpha and its closure", "skills": ["alpha"]},
             "pair": {"description": "Beta plus one command", "skills": ["beta"], "commands": ["bc"]},
             "withdot": {"description": "Names dot explicitly", "skills": ["dot"]},
+            "dangling": {"description": "A command aimed at a skill that is not in the library", "skills": ["beta"], "commands": ["missingcmd"]},
             "leaky": {"description": "A command aimed at an excluded skill", "skills": ["beta"], "commands": ["dotc"]},
         },
     }
@@ -1769,6 +1770,7 @@ class InstallerProfileFixtureTest(unittest.TestCase):
         "commands/g.md": "Read `~/.claude/skills/gamma/SKILL.md` then skills/delta/SKILL.md.\n",
         "commands/d.md": "Read `~/.claude/skills/delta/SKILL.md`.\n",
         "commands/dotc.md": "Read `~/.claude/skills/dot/SKILL.md`.\n",
+        "commands/missingcmd.md": "Read `~/.claude/skills/missing/SKILL.md`.\n",
         "commands/plain.md": "No skill target.\n",
         "commands/longcmd.md": (
             "---\ndescription: Run a long orchestration workflow\n---\n"
@@ -1879,7 +1881,7 @@ class InstallerProfileFixtureTest(unittest.TestCase):
             for relative, content in self.FILES.items():
                 self.assertEqual((target / relative).read_text(), content, relative)
             self.assertIn("Profile: --all (full library)", result.stdout)
-            self.assertIn("Installed --all (full library): 5 skills, 10 commands, 2 agents", result.stdout)
+            self.assertIn("Installed --all (full library): 5 skills, 11 commands, 2 agents", result.stdout)
             self.assertNotIn("profile 'all'", result.stdout)
 
     def test_profile_selection_errors_fail_before_writing(self):
@@ -1890,6 +1892,7 @@ class InstallerProfileFixtureTest(unittest.TestCase):
             "portable": (("--portable", "--profile", "pair"), "--portable installs its own manifest"),
             "with-all": (("--all", "--with", "dot"), "--with adds to a profile"),
             "with-missing": (("--with", "nosuch"), "names missing skills: nosuch"),
+            "command-to-missing": (("--profile", "dangling"), "command missingcmd targets missing skill missing"),
             "command-to-excluded": (("--profile", "leaky"), "command dotc targets closure-excluded skill dot"),
         }
         for name, (args, message) in cases.items():
@@ -1913,6 +1916,21 @@ class InstallerProfileFixtureTest(unittest.TestCase):
             with self.subTest(name), tempfile.TemporaryDirectory() as directory:
                 fixture = self.make_fixture(Path(directory))
                 (fixture / "shared/install-profiles.json").write_text(json.dumps({**self.PROFILES, **override}))
+                target = Path(directory) / "home"
+                result = self.run_installer(fixture, target)
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn("Malformed install profiles", result.stdout + result.stderr)
+                self.assertFalse(target.exists())
+
+    def test_omitted_or_empty_closure_excluded_fails_closed(self):
+        variants = {
+            "omitted": {key: value for key, value in self.PROFILES.items() if key != "closure_excluded"},
+            "empty": {**self.PROFILES, "closure_excluded": []},
+        }
+        for name, data in variants.items():
+            with self.subTest(name), tempfile.TemporaryDirectory() as directory:
+                fixture = self.make_fixture(Path(directory))
+                (fixture / "shared/install-profiles.json").write_text(json.dumps(data))
                 target = Path(directory) / "home"
                 result = self.run_installer(fixture, target)
                 self.assertNotEqual(result.returncode, 0, result.stdout)

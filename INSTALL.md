@@ -23,10 +23,10 @@ linked dependencies; counts below are measured from a scratch install.
 
 | Option | Named set (plus linked dependencies) | Skills / commands / agents |
 | --- | --- | --- |
-| *(none)* or `--profile highlights` | the six highlighted skills | 20 / 10 / 1 |
-| `--profile highlights-prw` | `highlights` plus `prw` | 29 / 17 / 1 |
-| `--profile prw` | 12 PR workflow skills plus `/es`, `/er`, `/green`, `/cs` | 23 / 11 / 1 |
-| `--profile web` | `advice`, `web-advice`, `browser-control` | 17 / 5 / 1 |
+| *(none)* or `--profile highlights` | the six highlighted skills | 21 / 10 / 1 |
+| `--profile highlights-prw` | `highlights` plus `prw` | 30 / 17 / 1 |
+| `--profile prw` | 12 PR workflow skills plus `/es`, `/er`, `/green`, `/cs` | 24 / 11 / 1 |
+| `--profile web` | `advice`, `web-advice`, `browser-control` | 18 / 5 / 1 |
 | `--with SKILL` | add a named skill to the profile; repeatable | varies |
 | `--all` | every package, as before | 267 / 243 / 45 |
 
@@ -43,8 +43,10 @@ earlier `--all` install left behind, and `--backup`, `--merge`,
 `--include-protected` and `--migrate-archives` behave the same with every
 profile. `--portable` installs its own manifest and refuses profile flags. A
 profile command whose target skill is on `closure_excluded` is refused unless
-the profile names that skill or `--with` adds it, and malformed profile data
-(any list field that is not a list of names) stops the install before writing.
+the profile names that skill or `--with` adds it, a profile command whose own
+target skill is missing is refused, and malformed profile data (any list field
+that is not a list of names, and an omitted or empty `closure_excluded`) stops
+the install before writing.
 
 For `--all`, the installer copies four component trees into `CLAUDE_HOME`:
 

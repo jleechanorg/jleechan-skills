@@ -52,8 +52,11 @@ def load(source):
                 continue
             problems += [f"profiles.{name}.{field}" for field in ("skills", "commands", "include")
                          if field in spec and not string_list(spec[field])]
-    if not string_list(data.get("closure_excluded", []) if isinstance(data, dict) else None):
-        problems.append("closure_excluded")
+    # closure_excluded is safety metadata, so an omitted or empty list fails closed
+    # instead of silently installing the cookie- and personal-infra skills.
+    excluded = data.get("closure_excluded") if isinstance(data, dict) else None
+    if not string_list(excluded) or not excluded:
+        problems.append("closure_excluded (required non-empty list of names)")
     if problems:
         raise ProfileError(f"Malformed install profiles {path}: {', '.join(problems)} must be a list of names")
     return data
@@ -114,7 +117,12 @@ def resolve(source, name, extra_skills=()):
             if (commands_root / candidate).is_file():
                 explicit_commands.append(candidate)
                 target = COMMAND_TARGET.search((commands_root / candidate).read_text(encoding="utf-8"))
-                if target and target.group(1) in available:
+                if target:
+                    # A command whose own target skill is absent would install a
+                    # pointer to nothing, so refuse it before any write.
+                    if target.group(1) not in available:
+                        raise ProfileError(
+                            f"Profile {name} command {command} targets missing skill {target.group(1)}")
                     if target.group(1) in excluded and target.group(1) not in named_skills:
                         raise ProfileError(
                             f"Profile {name} command {command} targets closure-excluded skill "
