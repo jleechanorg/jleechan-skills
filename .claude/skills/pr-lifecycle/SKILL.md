@@ -160,6 +160,14 @@ or invent a tool/model identity. Existing suffix-only titles gain their matching
 
 A stage name describes work remaining. [final approval] does not mean approved or merged.
 Orthogonal hold labels are hold:reviewer, hold:operator, hold:conflict and hold:quota; they never replace the stage.
+Whoever applies a hold records in the PR body who applied it, the quoted instruction it rests on with its source
+and date, and the concrete, checkable condition that lifts it. A hold label is a pointer, never authority. A
+hold sourced from a handoff, coordinator or agent note is removed by the driving agent when its lift condition is
+met or a later live user message explicitly covers the held action; the removal note cites that evidence. A hold
+whose source is a live human instruction, or that guards a user-only item in shared policy (merge, destructive
+action, spending, credentials), is lifted only by that human or by that item's own approval; report only these
+as user-only gates. A hold on "deploys" does not cover PR preview deployment unless it names
+previews: preview deployment is a lifecycle step, not a release.
 For each transition, read the actual head/base, title, labels, body, artifacts and findings; choose the earliest
 unmet stage, synchronize title/label/`## PR Stage`, and read back all three.
 Place `## PR Stage` **below** the description's opening line-delta sentence
