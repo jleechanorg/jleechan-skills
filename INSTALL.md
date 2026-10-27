@@ -8,8 +8,9 @@ This export is skills-first: every canonical package is under
 `.claude/skills/<skill>/SKILL.md`; slash-command files are optional pointers.
 
 The default is now a curated profile, not the full library. With no flag the
-installer copies the `default` profile: the README's Skills at a Glance skills
-except `web-advice` and `browser-control`, plus the in-repo skills they link to
+installer copies the `highlights` profile: the six highlighted skills
+(`superpowers-quick`, `advice`, `redgreen`, `4layer`, `evidence-review`,
+`harness-engineering`), plus the in-repo skills they link to
 (`../X/SKILL.md`, `~/.claude/skills/X/`, `$CLAUDE_HOME/skills/X/`), the
 command aliases for the named skills together with any non-Markdown helper
 under `commands/` they run, and the agents and scripts those files reference. A
@@ -22,8 +23,8 @@ linked dependencies; counts below are measured from a scratch install.
 
 | Option | Named set (plus linked dependencies) | Skills / commands / agents |
 | --- | --- | --- |
-| *(none)* or `--profile default` | Skills at a Glance minus browser review (18 named) | 31 / 27 / 3 |
-| `--profile highlights-prw` | highlighted skills (minus `/web-advice`) plus the PR workflow set | 29 / 17 / 1 |
+| *(none)* or `--profile highlights` | the six highlighted skills | 20 / 10 / 1 |
+| `--profile highlights-prw` | `highlights` plus `prw` | 29 / 17 / 1 |
 | `--profile prw` | 12 PR workflow skills plus `/es`, `/er`, `/green`, `/cs` | 23 / 11 / 1 |
 | `--profile web` | `advice`, `web-advice`, `browser-control` | 17 / 5 / 1 |
 | `--with SKILL` | add a named skill to the profile; repeatable | varies |

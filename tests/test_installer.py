@@ -2034,16 +2034,23 @@ class InstallerRealProfileTest(unittest.TestCase):
                 targets[path.relative_to(commands).as_posix()] = match.group(1)
         return targets
 
-    def test_readme_glance_table_is_the_default_profile(self):
-        readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
-        table = readme.split("## 📋 Skills at a Glance", 1)[1].split("\n---", 1)[0]
-        listed = re.findall(r"\[`([^`]+)`\]\(\.claude/skills/\1/SKILL\.md\)", table)
-        self.assertEqual(len(listed), 20)
-        # Browser-review rows are opt-in (--profile web / --with); the rest is the default.
-        self.assertEqual(set(listed) & CLOSURE_DENYLIST, {"web-advice", "browser-control"})
-        self.assertEqual(set(self.data["profiles"]["default"]["skills"]), set(listed) - CLOSURE_DENYLIST)
-        self.assertEqual(self.data["default_profile"], "default")
+    def test_default_profile_is_the_six_highlights_and_no_catalog_profile_exists(self):
+        highlights = {"superpowers-quick", "advice", "redgreen", "4layer", "evidence-review", "harness-engineering"}
+        self.assertEqual(self.data["default_profile"], "highlights")
+        self.assertEqual(set(self.data["profiles"]), {"highlights", "highlights-prw", "prw", "web"})
+        self.assertEqual(set(self.data["profiles"]["highlights"]["skills"]), highlights)
+        self.assertEqual(self.data["profiles"]["highlights-prw"].get("skills", []), [])
+        self.assertEqual(set(self.data["profiles"]["highlights-prw"]["include"]), {"highlights", "prw"})
         self.assertEqual(set(self.data["closure_excluded"]), CLOSURE_DENYLIST)
+
+    def test_no_flag_install_equals_the_highlights_profile(self):
+        with tempfile.TemporaryDirectory() as directory:
+            plain, named = Path(directory) / "plain", Path(directory) / "named"
+            plain_result = self.install(plain)
+            self.install(named, "--profile", "highlights")
+            self.assertIn("Profile: highlights", plain_result.stdout)
+            for component in ("skills", "commands", "agents", "scripts"):
+                self.assertEqual(installed_tree(plain, component), installed_tree(named, component), component)
 
     def test_each_profile_installs_exactly_its_closure(self):
         targets = self.command_targets()

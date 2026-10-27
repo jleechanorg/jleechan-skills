@@ -50,9 +50,9 @@ Ask your coding agent to inspect the repository and install only what it needs:
 ```
 
 For a deterministic install, use the bundled installer. **By default it now
-installs a curated set, not the whole library**: the skills in
-[Skills at a Glance](#-skills-at-a-glance) except the browser-review rows
-(`web-advice`, `browser-control`), plus every in-repo skill they link to, the
+installs a curated set, not the whole library**: the six highlighted skills
+(`superpowers-quick`, `advice`, `redgreen`, `4layer`, `evidence-review`,
+`harness-engineering`), plus every in-repo skill they link to, the
 command aliases for the named skills (with any helper file they run; an alias
 is a command named after the skill, described as an alias, or at most 15
 lines long), and the
@@ -62,8 +62,8 @@ Named profiles select other sets:
 
 | Flag | Named set (plus linked dependencies) | Measured skills / commands / agents |
 |---|---|---|
-| *(none)* | `default`: the Skills at a Glance catalog minus browser review (18 named) | 31 / 27 / 3 |
-| `--profile highlights-prw` | the highlighted skills (minus `/web-advice`) plus the PR workflow set | 29 / 17 / 1 |
+| *(none)* or `--profile highlights` | `highlights`: the six highlighted skills above (6 named) | 20 / 10 / 1 |
+| `--profile highlights-prw` | `highlights` plus `prw` | 29 / 17 / 1 |
 | `--profile prw` | the PR workflow set: `prw`, `pr-workflow`, `pr-workflow-manager`, `draft-first-pr`, `pr-lifecycle`, `pr-green-definition`, `ready`, `advice`, `evidence-standards`, `evidence-review`, `testing-layers`, `code-standards` (12 named), and `/es`, `/er`, `/green`, `/cs` | 23 / 11 / 1 |
 | `--profile web` | opt-in browser review: `advice`, `web-advice`, `browser-control` (3 named) | 17 / 5 / 1 |
 | `--with SKILL` | adds one named skill, its dependencies and aliases to the chosen profile (repeatable) | varies |

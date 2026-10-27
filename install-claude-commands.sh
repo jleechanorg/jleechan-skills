@@ -77,7 +77,7 @@ show_usage() {
 Usage: $(basename "$0") [[--profile NAME] [--with SKILL]... | --all] [--merge [--migrate-archives] [--include-protected] | --backup]
        PORTABLE_HOME=/absolute/dedicated/package $(basename "$0") --portable [--backup]
 
-With no profile flag the curated default profile is installed. --profile NAME
+With no profile flag the curated highlights profile (six skills) is installed. --profile NAME
 installs that profile's named skills plus every in-repo skill they link to,
 the command aliases (and their helpers) for the named skills, and the agents
 and scripts those files reference. Closure never adds a skill on the profile data's
