@@ -209,6 +209,17 @@ Embed applicable screenshots and playable video inline in the PR description alo
 
 Missing, inaccessible or unauthorized publication is `PUBLICATION BLOCKED`: continue independent work, but do not claim that stage exit complete. Missing or failed required checks are not exemptions. Read back the description; preserve evidence history and title/stage-label consistency.
 
+## Default PR route — `/prw`
+
+Drive every PR through `/prw` (`/pr-workflow`) by default, using this generic lifecycle unless the repository opted into the visible six-stage workflow. UI changes and any user-facing change always use `/prw` unless a human explicitly overrides it for that PR. A lighter path is allowed only for:
+
+- documentation-only changes;
+- backup or mirror repositories;
+- an explicit human instruction to skip `/prw` for that PR;
+- a very small change that needs no evidence or `/es`, such as a fix to a helper script with no user-visible effect. This bullet never covers any class excluded in § Proportional exceptions and fast paths or listed as high-risk in § Coding lifecycle — scale layers to risk; those always use `/prw`.
+
+The lighter path drops only the `/prw` driver; in opted-in repositories the stage title, labels and specification still apply. Every gate that applies to the change still applies: applicable CI or its documented exception, `/green`, the `/advice` threshold, any repository-required review or evidence, and merge authorization. When unsure, use `/prw`.
+
 ## Proportional exceptions and fast paths
 
 These claim/risk rules apply to the generic lifecycle as well as opted-in repositories; the visible stage/title/label machinery remains opt-in.
