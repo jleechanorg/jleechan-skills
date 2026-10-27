@@ -366,6 +366,30 @@ class DocumentedShellExamplesTest(unittest.TestCase):
         os.environ.clear()
         os.environ.update(self._orig_env)
 
+    def _tmux_script_section(self):
+        content = (
+            REPO_ROOT / ".claude/skills/tmux-video-evidence/SKILL.md"
+        ).read_text(encoding="utf-8")
+        return content.split("## Evidence Script Template", 1)[1].split(
+            "## Recording", 1
+        )[0]
+
+    def _documented_tmux_sanitizer_args(self, script_sec):
+        sed_start = script_sec.find("| sed -E")
+        self.assertNotEqual(sed_start, -1, "documented sanitization pipeline missing")
+        rules = []
+        for line in script_sec[sed_start:].splitlines():
+            line = line.strip()
+            if line.startswith("-e '"):
+                rules.append(line[4:].split("'", 1)[0])
+            elif rules:
+                break
+        self.assertTrue(rules, "documented sanitizer rules missing")
+        args = ["sed", "-E"]
+        for rule in rules:
+            args.extend(("-e", rule))
+        return args
+
     def test_claw_resolved_skill_options_are_not_invocation_options(self):
         content = (REPO_ROOT / ".claude/skills/claw-dispatch/SKILL.md").read_text()
         execution = content.split("```bash\n", 1)[1].split("\n```", 1)[0]
@@ -902,7 +926,7 @@ print("NOT_VALID_JSON")
         # 1. tmux template must use text fence, not bash
         self.assertIn("## Evidence Script Template", standalone_content)
         self.assertIn("/tmp/${WORK_NAME:-work}_evidence.sh", standalone_content)
-        script_sec = standalone_content.split("## Evidence Script Template", 1)[1].split("## Recording", 1)[0]
+        script_sec = self._tmux_script_section()
         self.assertIn("```text\n", script_sec, "tmux Evidence Script Template must be non-runnable text fence")
         self.assertNotIn("```bash\n", script_sec, "tmux Evidence Script Template must not be bash fence")
 
@@ -926,17 +950,6 @@ print("NOT_VALID_JSON")
 
         # 6. The documented sanitizer removes private path components without
         # depending on the exact replacement text.
-        sed_start = script_sec.find("| sed -E")
-        self.assertNotEqual(sed_start, -1, "documented sanitization pipeline missing")
-        sed_rules = []
-        for line in script_sec[sed_start:].splitlines():
-            line = line.strip()
-            if line.startswith("-e '"):
-                sed_rules.append(line[4:].split("'", 1)[0])
-            elif sed_rules:
-                break
-        self.assertTrue(sed_rules, "documented sanitizer rules missing")
-
         payload = (
             "mac: /Users/alice/project/file.py\n"
             "linux: /home/bob/project/file.py\n"
@@ -945,11 +958,9 @@ print("NOT_VALID_JSON")
             "tmp: /tmp/private/session/file.py\n"
             "build log: 2 tests passed\n"
         )
-        sanitizer_args = ["sed", "-E"]
-        for rule in sed_rules:
-            sanitizer_args.extend(("-e", rule))
         sanitized = subprocess.run(
-            sanitizer_args, input=payload, capture_output=True, text=True,
+            self._documented_tmux_sanitizer_args(script_sec),
+            input=payload, capture_output=True, text=True,
             timeout=5,
         )
         self.assertEqual(sanitized.returncode, 0, sanitized.stderr)
@@ -977,14 +988,6 @@ print("NOT_VALID_JSON")
         lines = [line for line in res_diff.stdout.splitlines() if line.startswith("diff line")]
         self.assertEqual(len(lines), 80)
 
-        sed_pipeline = (
-            "sed -E "
-            "-e 's#/Users/[^/]+/#/Users/REDACTED/#g' "
-            "-e 's#/home/[^/]+/#/home/REDACTED/#g' "
-            "-e 's#/private/var/folders/[^[:space:]]+#/private/var/folders/REDACTED#g' "
-            "-e 's#/workspace/[^[:space:]]+#/workspace/REDACTED#g' "
-            "-e 's#/tmp/[^[:space:]]+#/tmp/REDACTED#g'"
-        )
         test_payload = (
             "mac: /Users/alice/repo/a.py\n"
             "mac_space_user: /Users/alice smith/repo/b.py\n"
@@ -997,20 +1000,26 @@ print("NOT_VALID_JSON")
             "tmp_space_surrounding: output written to /tmp/build-456/summary.txt successfully\n"
         )
         res_sed = subprocess.run(
-            ["bash", "-c", f"cat << 'EOF' | {sed_pipeline}\n{test_payload}EOF"],
-            capture_output=True, text=True,
+            self._documented_tmux_sanitizer_args(self._tmux_script_section()),
+            input=test_payload, capture_output=True, text=True,
         )
         self.assertEqual(res_sed.returncode, 0)
         out = res_sed.stdout
-        self.assertIn("mac: /Users/REDACTED/repo/a.py", out)
-        self.assertIn("mac_space_user: /Users/REDACTED/repo/b.py", out)
-        self.assertIn("mac_var: /private/var/folders/REDACTED", out)
-        self.assertIn("linux: /home/REDACTED/repo/c.py", out)
-        self.assertIn("linux_space_user: /home/REDACTED/repo/d.py", out)
-        self.assertIn("workspace: /workspace/REDACTED", out)
-        self.assertIn("workspace_space_surrounding: running /workspace/REDACTED in parallel", out)
-        self.assertIn("tmp: /tmp/REDACTED", out)
-        self.assertIn("tmp_space_surrounding: output written to /tmp/REDACTED successfully", out)
+        self.assertNotIn("alice", out)
+        self.assertNotIn("bob", out)
+        self.assertNotIn("xyz123", out)
+        self.assertIn("mac: ", out)
+        self.assertIn("mac_space_user: ", out)
+        self.assertIn("linux: ", out)
+        self.assertIn("linux_space_user: ", out)
+        self.assertIn("/repo/a.py", out)
+        self.assertIn("/repo/b.py", out)
+        self.assertIn("/repo/c.py", out)
+        self.assertIn("/repo/d.py", out)
+        self.assertIn("workspace: ", out)
+        self.assertIn("workspace_space_surrounding: running ", out)
+        self.assertIn("tmp: ", out)
+        self.assertIn("tmp_space_surrounding: output written to ", out)
 
 
     def _create_gh_test_env(self, test_dir: Path, calls_file: Path) -> dict[str, str]:

@@ -159,10 +159,10 @@ If verifier sends VERIFICATION_FAILED:
 2. Record the exact prior `Revision` from the preceding IMPLEMENTATION_READY as
    `PRIOR_REVISION`. When worktree isolation is used, allocate a new path and
    enter a fresh worktree pinned to it:
-   `CODER_WORKTREE="$(diskm worktree-new <repo-path> <branch>)"`
+   `CODER_WORKTREE="$(diskm worktree-new <repo-path> <branch> --base "$PRIOR_REVISION")"`
    Use the approved worktree-creation path (never `mktemp -d` plus raw
    `git worktree add`); confirm the returned path is permitted before use.
-   Create/pin the retry checkout at `PRIOR_REVISION` with that workflow.
+   Create the retry checkout at `PRIOR_REVISION` with `--base` before changing files.
    `cd "$CODER_WORKTREE"`. Verify `git -C "$CODER_WORKTREE" rev-parse HEAD`
    equals `PRIOR_REVISION` before changing files; fail closed if it does not.
    Otherwise, if running in the caller workspace, ensure the workspace is

@@ -267,7 +267,7 @@ class WorkflowCommandPairTest(unittest.TestCase):
         normalized_retry = " ".join(retry.split())
         self.assertIn("PRIOR_REVISION", retry)
         self.assertIn(
-            'CODER_WORKTREE="$(diskm worktree-new <repo-path> <branch>)"',
+            'CODER_WORKTREE="$(diskm worktree-new <repo-path> <branch> --base "$PRIOR_REVISION")"',
             retry,
         )
         self.assertIn('cd "$CODER_WORKTREE"', retry)
@@ -283,7 +283,7 @@ class WorkflowCommandPairTest(unittest.TestCase):
             REPO_ROOT / ".claude" / "agents" / "agy-pair-verifier.md"
         ).read_text(encoding="utf-8")
         self.assertIn(
-            'VERIFIER_WORKTREE="$(diskm worktree-new <repo-path> <branch>)"',
+            'VERIFIER_WORKTREE="$(diskm worktree-new <repo-path> <branch> --base "$REVISION")"',
             verifier,
         )
         self.assertIn(
