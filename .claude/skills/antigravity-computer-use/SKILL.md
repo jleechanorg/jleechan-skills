@@ -1628,45 +1628,47 @@ done
 - `peekaboo hover` does not reliably reveal hidden controls in Antigravity
 - Performance degrades over extended sessions; battery drain on laptops
 - **Git commands can hang indefinitely** — Antigravity agents sometimes stall on git operations (push, fetch, checkout). See "Git command guidance" below.
-- **`peekaboo see` hangs on large A11y trees** — when the Manager has 10+ conversations or many workspaces expanded, `peekaboo see` blocks indefinitely. See mitigation below.
+- **`peekaboo see` may time out on large A11y trees** — use bounded calls and treat a timeout as a failed observation, not proof of a stuck process. See guidance below.
 
-### `peekaboo see` hang — root cause and fix
+### `peekaboo see` stalls — inspect ownership before recovery
 
-**Root cause**: Multiple concurrent or abandoned `peekaboo see` calls accumulate as zombie processes and block macOS A11y queries **systemwide** — not just for Antigravity. When this happens, `peekaboo see` times out for ALL apps including Finder.
+Multiple or long-running `peekaboo see` processes alone do not establish that a
+process is stale or that it is blocking Accessibility queries. They may belong to
+another active operator or task. Do not infer staleness from process count or use
+broad pattern-based termination.
 
-**Diagnosis**:
+Inspect the exact process ID, full command, parent/child relationship, start time,
+and the task or attempt that launched it. Treat a process as eligible for cleanup
+only when its ownership is verified and its task has ended or it is confirmed
+stalled by task-specific evidence. If ownership or state is unclear, preserve the
+process and continue with bounded observation or report the concrete blocker.
+
+When cleanup is justified, terminate only the verified task-owned process (or its
+verified task-owned process group), prefer graceful termination, and confirm the
+process exited before retrying. Preserve processes belonging to unrelated
+operators. Avoid `pkill` or `killall` patterns that can match their work.
+
+Run `peekaboo see` calls sequentially and use the timeout guidance below. A
+timeout or multiple matching processes is a diagnostic signal, not proof of
+process ownership, a systemwide blockage, or a reason to restart Antigravity.
+
+### `peekaboo see` timeout guidance
+
+`peekaboo see` can take longer on large Manager windows. A timeout bounds the
+wait; window size alone does not establish that a call will hang.
+
+Use a bounded timeout for `peekaboo see` calls:
+
 ```bash
-pgrep -fl "peekaboo see"
-# If multiple lines appear → stale processes are blocking A11y
-```
-
-**Fix (takes 5 seconds)**:
-```bash
-pkill -f "peekaboo see"   # kill all stale peekaboo see processes
-sleep 1
-# Now peekaboo see works again for all apps
-```
-
-**Prevention**: Never fire multiple `peekaboo see` calls in parallel. Always wait for one to complete before starting another. If a call is in a background task (`run_in_background`), kill it explicitly before issuing another.
-
-**Antigravity restart is NOT needed** — the A11y blockage is in peekaboo, not Antigravity.
-
-### `peekaboo see` hang mitigation — ALWAYS use timeout prefix
-
-`peekaboo see` WILL hang indefinitely on large Manager windows (10+ conversations, many workspaces).
-
-**Rule**: Always wrap `peekaboo see` with `timeout 12`:
-
-```bash
-# Standard pattern — NEVER call bare peekaboo see
+# Bounded observation
 SNAP_JSON=$(timeout 12 peekaboo see --app Antigravity --window-id "$MANAGER_ID" --json 2>/dev/null)
 if [ -z "$SNAP_JSON" ]; then
-  echo "A11y tree unavailable (hang/timeout) — switching to screenshot+coordinate approach"
-  # Fall back to screencapture + pixel analysis for all interactions
+  echo "A11y observation unavailable or timed out; use another verified observation method"
+  # A missing snapshot does not establish process ownership or justify termination.
 fi
 ```
 
-When `peekaboo see` hangs:
+When a bounded `peekaboo see` call returns no snapshot:
 1. **Model selector**: use coordinate click from screenshot (model selector bottom of input area, ~y=395 in 455-tall image)
 2. **Text field focus**: after coordinate click, probe with `peekaboo press "period"`, take screenshot to verify cursor is in field, then `peekaboo press "delete"` and paste
 3. **Sending**: use `peekaboo press "Return"` — does NOT require A11y to be working
