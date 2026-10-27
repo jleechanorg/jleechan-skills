@@ -1,11 +1,11 @@
 ---
 name: browser-testing
-description: "Use when testing localhost URLs or web UIs. Default: isolated headless Playwright Chromium. Aside is conditional on verified agent-owned background context; forbids personal browser and desktop changes."
+description: "Use when testing localhost URLs or web UIs. Default: isolated headless Playwright Chromium. Aside only in background mode on an agent-owned profile; forbids personal browser and desktop changes."
 ---
 
 # Browser testing — isolated headless default
 
-Before choosing a tool, apply [browser-control's personal browser isolation contract](../browser-control/SKILL.md#personal-browser-isolation--required-for-every-route). Use isolated headless Playwright Chromium by default. Aside is usable only when its existing context is verified as agent-owned and it stays in the background. A visible test request does not permit a personal browser or app activation.
+Before choosing a tool, apply [browser-control's personal browser isolation contract](../browser-control/SKILL.md#personal-browser-isolation--required-for-every-route). Use isolated headless Playwright Chromium by default. Aside is usable in background mode on an agent-owned profile (aside-browser-default § Background mode). A visible test request does not permit a personal browser or app activation.
 
 **Aside (conditional):** Use the **Aside browser** CLI or `mcp__aside-mcp__*` only in background mode on an agent-owned profile ([aside-browser-default § Background mode](../aside-browser-default/SKILL.md#background-mode)); never activate it. Default testing remains isolated headless Playwright:
 

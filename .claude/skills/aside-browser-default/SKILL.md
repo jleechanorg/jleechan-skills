@@ -28,10 +28,10 @@ Keep Chromium headless by default. A current-thread explicit request for visible
 
 Aside has no headless flag; background mode is the supported no-focus-steal equivalent (macOS only).
 
-1. **App not running:** `open -g -a /Applications/Aside.app` (`-g` keeps it in the background). Never plain `open -a` or `open <url>`; both take focus.
+1. **App not running:** `open -g -a /Applications/Aside.app` (`-g` keeps it in the background). Never plain `open -a` or `open <url>`; both take focus. A cold start may restore other profile windows; never read or drive them.
 2. **Agent profile disconnected** (`aside host profiles --account <agent-account>` shows `disconnected`, or `aside repl` reports the profile is not connected): start only that profile with `/Applications/Aside.app/Contents/MacOS/Aside --profile-directory="<agent profile dir>" --no-startup-window &`. Find the directory in `~/Library/Application Support/Aside/Local State` (`profile.info_cache`, matching the agent account email). Never start a personal profile.
 3. **Drive tabs only through** `aside repl --account <agent-account>` or `aside-mcp` (`openTab`, `snapshot`, `closeTab`).
-4. **Verify:** record the frontmost app (`osascript -e 'tell application "System Events" to get name of first process whose frontmost is true'`) before and after the first action. If it changed, stop using Aside for the task and switch to isolated headless Chromium.
+4. **Verify:** record the frontmost app (`osascript -e 'tell application "System Events" to get name of first process whose frontmost is true'`) before step 1 and again after the first action. If it changed, stop using Aside for the task and switch to isolated headless Chromium.
 
 ## Why Aside
 
@@ -125,7 +125,7 @@ Do not assume a failing standalone CLI means the browser tool is dead, or that a
 
 Start it in background mode (§ Background mode). If the app is not installed, background start fails, or the frontmost app changes, use isolated headless Chromium. Never use plain `open -a Aside`, `open <url>`, or anything that activates the app.
 
-If the Aside CLI or app is unavailable, use isolated headless Chromium; installation and app recovery are outside this skill's browser-task path.
+If the Aside CLI or app is not installed, use isolated headless Chromium; installing or repairing Aside is outside this skill's browser-task path.
 
 ## Additional rules from the 2026-07-11 social-staging run
 

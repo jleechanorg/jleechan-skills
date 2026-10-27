@@ -1,6 +1,6 @@
 ---
 name: aside-browser-default
-description: Isolated headless Chromium is the default for browser work. Use Aside only when an already-running agent-owned background context is verified; never launch or activate it for a task. See browser-control for the personal-browser isolation contract.
+description: Run Aside in background (no-focus-steal) mode on an agent-owned profile by default for live and authenticated sites; use isolated headless Chromium for CI, Linux, deterministic tests, or when background mode cannot be verified. See browser-control for the personal-browser isolation contract.
 when_to_use: Browser automation, scraping, screenshots, localhost UI checks, cookie injection flows, /browser command, public-data lookups
 allowed-tools: mcp__aside-mcp, aside, mcp__playwright-mcp (fallback), mcp__plugin-superpowers-chrome__chrome_use_browser (fallback)
 context: hermes
@@ -14,11 +14,11 @@ Aside is a real GUI browser, not headless. Its background behavior must be verif
 
 Apply `~/.claude/skills/browser-control/SKILL.md` § Personal browser isolation first. Aside is primary only when it can operate in the background in an agent-owned tab; otherwise use isolated headless Playwright Chromium. Never attach to, focus, or import cookies from the personal Chrome browser.
 
-**Default: isolated headless Chromium.** Aside is permitted only when an already-running browser context is verified as agent-owned and navigation stays in the background. Never launch or activate Aside to make it available. When ownership or background behavior is not proven, use isolated headless Playwright.
+**Default: Aside in background mode on an agent-owned profile (aside-browser-default § Background mode)** for live and authenticated sites. Never activate Aside or use a personal profile. When background mode is not verified, and for CI, Linux and deterministic tests, use isolated headless Playwright.
 
 | Tool | Role | When to use |
 |------|------|-------------|
-| **`aside` CLI / `aside-mcp`** | Conditional | Already-running verified agent-owned background context only; no personal tabs/profile and no app launch/activation |
+| **`aside` CLI / `aside-mcp`** | Default (background mode) | Agent-owned profile in background mode; no personal tabs/profile and no app activation |
 | `mcp__playwright-mcp` | Default | Isolated headless browser for public pages and deterministic tests when Aside ownership/background behavior is unproven |
 | `mcp__plugin-superpowers-chrome__chrome_use_browser` | Fallback | Only when Chrome-specific behavior is required (e.g., you need Chrome's exact `--user-data-dir` semantics for a particular test) |
 

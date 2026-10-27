@@ -23,8 +23,8 @@ description: Browser-based multi-model advice and review using ChatGPT, Gemini, 
 > vendor web-chat sites. In an interactive chat app, prefer that app's owned
 > built-in browser and create a new vendor chat when its browser context is
 > separately task-owned. In a coding CLI or Bash run, isolated headless
-> Chromium is the default. Use Aside only when its already-running context is
-> verified agent-owned and background-safe. Follow the [browser-control
+> Chromium is the default. Use Aside in background mode on an agent-owned
+> profile (aside-browser-default § Background mode). Follow the [browser-control
 > contract](../browser-control/SKILL.md) for browser ownership and
 > authentication: never attach to personal/default Chrome or use its profile
 > or cookies. Cookie transfer requires explicit current-task authorization for
@@ -39,8 +39,8 @@ description: Browser-based multi-model advice and review using ChatGPT, Gemini, 
 >
 > **Transport routing**:
 > - In an interactive app, use its supported browser in a separate task-owned
->   context; `aside_mcp` or `aside_repl` is usable only when its existing context
->   is verified agent-owned and background-safe.
+>   context; `aside_mcp` or `aside_repl` is usable in background mode on an
+>   agent-owned profile (aside-browser-default § Background mode).
 > - In CLI/Bash, prefer isolated headless Chromium through `playwright_mcp` or
 >   `chrome_headless_cdp` when supported. Reuse `aside_repl` only when its
 >   already-running context is verified agent-owned and background-safe.
@@ -174,8 +174,8 @@ The prompt should be materially the same for each model; adapt only for a model'
 ## Browser Execution Protocol
 
 First follow the [browser-control route](../browser-control/SKILL.md): isolated
-headless Chromium is the default, and an existing Aside context is usable only
-when its agent ownership and background safety are verified. Use the examples
+headless Chromium is the default, and Aside is usable in background mode on an
+agent-owned profile (aside-browser-default § Background mode). Use the examples
 below only in such a verified Aside context; apply the same selectors and
 evidence checks to a Playwright `Page` when the supported isolated fallback is
 selected.

@@ -14,7 +14,7 @@ Apply the personal browser isolation contract in `~/.claude/skills/browser-contr
 
 **Headless by default.** Do not open a desktop browser window for routine work or as spontaneous recovery.
 
-**Browser default:** isolated headless Chromium through Playwright MCP or another task-owned isolated runtime. Aside is an optional existing background context only when its agent ownership is verified; do not launch or activate the Aside app to make it available.
+**Browser default:** isolated headless Chromium through Playwright MCP or another task-owned isolated runtime. Live and authenticated sites use Aside in background mode on an agent-owned profile (aside-browser-default § Background mode); never activate the Aside app or use a personal profile.
 
 | Tool | Default | Visible-mode boundary |
 |------|---------|--------------------------------------|
