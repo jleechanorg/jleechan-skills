@@ -20,7 +20,7 @@ ssh jeff-ubuntu          # alias in ~/.ssh/config → $USER@<ubuntu-lan-ip>
 - **User:** `$USER`
 - **Key:** `~/.ssh/<ubuntu-key>` (passwordless, no `-i` flag needed via alias)
 - **OS:** Ubuntu 24.04, kernel 6.17, x86_64
-- **sudo password:** stored in user's head — prompt user if needed, or use `expect` if already known in context
+- **sudo:** use the interactive SSH prompt shown below; never embed a password in a command
 
 ## Off-LAN fallback: Tailscale, then Slack
 
@@ -123,24 +123,14 @@ resumed sessions, follow-ups, and existing composer drafts:
 
 This contract applies through SSH, tmux, cmux, and terminals such as Warp.
 
-## sudo with known password
-
-If the user's password is in context (currently: ask user), use `expect`:
+## sudo over SSH
 
 ```bash
-expect -c "
-spawn ssh jeff-ubuntu sudo <command>
-expect {
-  \"password\" { send \"<password>\r\"; exp_continue }
-  eof
-}
-"
+ssh -t jeff-ubuntu 'sudo -- id -u'
 ```
 
-Or pass via stdin:
-```bash
-echo '<password>' | ssh jeff-ubuntu 'sudo -S <command>'
-```
+Let `sudo` prompt in the interactive SSH session. Replace `id -u` with the
+required command. Never embed a password in a command, script, or stdin stream.
 
 ## File transfer
 
