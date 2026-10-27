@@ -296,7 +296,18 @@ if [[ -n "$new_pids" ]]; then
             exit 8
           fi
           sleep 8
-          if cmx capture-pane --workspace "$WS" --surface "$SF" --lines 10 2>/dev/null | grep -q 'Resume goal'; then
+          # Readback must SUCCEED and be non-empty. A failed or empty capture used to
+          # grep as "no dialog" and the script claimed acceptance it never verified
+          # (dot review at afcbf5bf).
+          if ! rb=$(cmx capture-pane --workspace "$WS" --surface "$SF" --lines 10); then
+            echo "FAILED: could not read the surface after the accept Enter; goal state unverified, not claimed as accepted" >&2
+            exit 8
+          fi
+          if [[ -z "$rb" ]]; then
+            echo "FAILED: empty readback after the accept Enter; goal state unverified, not claimed as accepted" >&2
+            exit 8
+          fi
+          if printf '%s\n' "$rb" | grep -q 'Resume goal'; then
             echo "FAILED: goal dialog still present after the accept Enter; goal not resumed" >&2
             exit 8
           fi

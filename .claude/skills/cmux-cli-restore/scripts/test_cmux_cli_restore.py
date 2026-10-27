@@ -49,6 +49,8 @@ class StubCmux:
             '      empty) exit 0 ;;\n'
             '      gate) printf "%s\\n" "Goal remains blocked pending human merge approval"; exit 0 ;;\n'
             '      clean) printf "%s\\n" "user@host:~/work$"; exit 0 ;;\n'
+            '      acceptreadfail) if [ -f "__ACCEPTED__" ]; then exit 1; fi;\n'
+            '        if [ -f "__MARK__" ]; then printf "%s\\n" "  1. Resume goal   Mark it active and continue when idle"; else printf "%s\\n" "user@host:~/work$"; fi; exit 0 ;;\n'
             '      goal|goal2|acceptfail) if [ -f "__ACCEPTED__" ]; then\n'
             '          printf "%s\\n" "user@host:~/work$";\n'
             '        elif [ -f "__MARK__" ]; then\n'
@@ -400,4 +402,33 @@ class GoalAcceptanceOrderingTest(unittest.TestCase):
         )
         self.assertEqual(proc.returncode, 8, proc.stdout + proc.stderr)
         self.assertIn("accept Enter failed", proc.stderr)
+        self.assertNotIn("goal dialog accepted", proc.stdout)
+
+
+    def test_failed_readback_after_accept_is_not_reported_as_accepted(self):
+        """dot review at afcbf5bf: a failed readback grepped as 'dialog cleared'."""
+        script = (
+            "#!/bin/bash\n"
+            'state="__TMP__/calls"\n'
+            'n=$(cat "$state" 2>/dev/null || echo 0)\n'
+            'echo $((n+1)) > "$state"\n'
+            'if [ "$n" = "0" ]; then\n'
+            '  echo "ttys003 100 00:10 /usr/bin/command codex resume 01a174a5-7202-7af3-831e-0bfb5ae8544a"\n'
+            "else\n"
+            '  echo "ttys003 200 00:01 /usr/bin/command codex resume 01a174a5-7202-7af3-831e-0bfb5ae8544a"\n'
+            "fi\n"
+        )
+        tmp = Path(tempfile.mkdtemp(prefix="fakeps-readback-"))
+        ps = tmp / "fakeps"
+        ps.write_text(script.replace("__TMP__", str(tmp))); ps.chmod(0o755)
+        stub = StubCmux("acceptreadfail")
+        env = dict(os.environ)
+        env["PATH"] = f"{stub.dir}:{env.get('PATH', '')}"
+        env["CMUX_CLI_RESTORE_PS"] = str(ps)
+        proc = subprocess.run(
+            ["bash", str(SCRIPT), "--workspace", WS, "--surface", SF, "--cli", "codex"],
+            capture_output=True, text=True, env=env, timeout=180,
+        )
+        self.assertEqual(proc.returncode, 8, proc.stdout + proc.stderr)
+        self.assertIn("could not read the surface after the accept Enter", proc.stderr)
         self.assertNotIn("goal dialog accepted", proc.stdout)
