@@ -1730,6 +1730,7 @@ CLOSURE_DENYLIST = DOT_FAMILY | {
     "web-advice", "browser-control", "slack-media-upload", "github-cli-reference",
     "claw-dispatch", "ao-operator-discipline",
 }
+COMMAND_COMPANION = re.compile(r"commands/([A-Za-z0-9_./-]+)")
 RELATIVE_SKILL_LINK = re.compile(r"(?<![\w.])((?:\.\./)+[A-Za-z0-9_.-]+/SKILL\.md)")
 
 
@@ -1750,6 +1751,7 @@ class InstallerProfileFixtureTest(unittest.TestCase):
             "default": {"description": "Alpha and its closure", "skills": ["alpha"]},
             "pair": {"description": "Beta plus one command", "skills": ["beta"], "commands": ["bc"]},
             "withdot": {"description": "Names dot explicitly", "skills": ["dot"]},
+            "leaky": {"description": "A command aimed at an excluded skill", "skills": ["beta"], "commands": ["dotc"]},
         },
     }
     FILES = {
@@ -1762,7 +1764,7 @@ class InstallerProfileFixtureTest(unittest.TestCase):
         "skills/gamma/SKILL.md": "# Gamma\n",
         "skills/delta/SKILL.md": "# Delta\n",
         "skills/dot/SKILL.md": "# Dot reads cookie databases\n",
-        "commands/a.md": "Read `~/.claude/skills/alpha/SKILL.md`.\n",
+        "commands/a.md": "Read `~/.claude/skills/alpha/SKILL.md`, then run `.claude/commands/helper.py`.\n",
         "commands/bc.md": "Read `~/.claude/skills/beta/SKILL.md`.\n",
         "commands/g.md": "Read `~/.claude/skills/gamma/SKILL.md` then skills/delta/SKILL.md.\n",
         "commands/d.md": "Read `~/.claude/skills/delta/SKILL.md`.\n",
@@ -1808,15 +1810,16 @@ class InstallerProfileFixtureTest(unittest.TestCase):
                 installed_tree(target, "skills"),
                 {"alpha/SKILL.md", "alpha/scripts/run.sh", "beta/SKILL.md", "gamma/SKILL.md"},
             )
-            # g.md targets gamma (present); its secondary delta reference does not pull delta in.
+            # Aliases follow seeds only: beta and gamma arrive by closure, so bc.md and g.md stay out.
+            # a.md's companion helper.py installs with it; unreferenced plain.md does not.
             self.assertEqual(
                 installed_tree(target, "commands"),
-                {"a.md", "bc.md", "g.md", "extended-library/al.md"},
+                {"a.md", "helper.py", "extended-library/al.md"},
             )
             self.assertEqual(installed_tree(target, "agents"), {"helper-agent.md"})
             self.assertEqual(installed_tree(target, "scripts"), {"tool.py"})
             self.assertIn("Profile: default", result.stdout)
-            self.assertIn("Installed profile 'default': 3 skills, 4 commands, 1 agents", result.stdout)
+            self.assertIn("Installed profile 'default': 3 skills, 2 commands, 1 agents", result.stdout)
             self.assertIn("Source-derived manifest validation passed", result.stdout)
 
     def test_named_profile_adds_its_explicit_commands(self):
@@ -1826,9 +1829,9 @@ class InstallerProfileFixtureTest(unittest.TestCase):
             result = self.run_installer(fixture, target, "--profile", "pair")
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
             self.assertEqual(installed_tree(target, "skills"), {"beta/SKILL.md", "gamma/SKILL.md"})
-            self.assertEqual(installed_tree(target, "commands"), {"bc.md", "g.md"})
+            self.assertEqual(installed_tree(target, "commands"), {"bc.md"})
             self.assertEqual(installed_tree(target, "agents"), set())
-            self.assertIn("Installed profile 'pair': 2 skills, 2 commands, 0 agents", result.stdout)
+            self.assertIn("Installed profile 'pair': 2 skills, 1 commands, 0 agents", result.stdout)
 
     def test_dot_is_never_pulled_in_by_closure_but_installs_when_named(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -1852,7 +1855,7 @@ class InstallerProfileFixtureTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
             self.assertEqual({p.name for p in (target / "skills").iterdir()}, {"alpha", "beta", "gamma", "dot"})
             self.assertTrue((target / "commands/dotc.md").is_file())
-            self.assertIn("Installed profile 'default': 4 skills, 5 commands, 1 agents", result.stdout)
+            self.assertIn("Installed profile 'default': 4 skills, 3 commands, 1 agents", result.stdout)
 
     def test_all_installs_the_whole_library(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -1862,8 +1865,9 @@ class InstallerProfileFixtureTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
             for relative, content in self.FILES.items():
                 self.assertEqual((target / relative).read_text(), content, relative)
-            self.assertIn("Profile: all", result.stdout)
-            self.assertIn("Installed profile 'all': 5 skills, 8 commands, 2 agents", result.stdout)
+            self.assertIn("Profile: --all (full library)", result.stdout)
+            self.assertIn("Installed --all (full library): 5 skills, 8 commands, 2 agents", result.stdout)
+            self.assertNotIn("profile 'all'", result.stdout)
 
     def test_profile_selection_errors_fail_before_writing(self):
         cases = {
@@ -1873,6 +1877,7 @@ class InstallerProfileFixtureTest(unittest.TestCase):
             "portable": (("--portable", "--profile", "pair"), "--portable installs its own manifest"),
             "with-all": (("--all", "--with", "dot"), "--with adds to a profile"),
             "with-missing": (("--with", "nosuch"), "names missing skills: nosuch"),
+            "command-to-excluded": (("--profile", "leaky"), "command dotc targets closure-excluded skill dot"),
         }
         for name, (args, message) in cases.items():
             with self.subTest(name), tempfile.TemporaryDirectory() as directory:
@@ -1881,6 +1886,24 @@ class InstallerProfileFixtureTest(unittest.TestCase):
                 result = self.run_installer(fixture, target, *args)
                 self.assertNotEqual(result.returncode, 0, result.stdout)
                 self.assertIn(message, result.stdout + result.stderr)
+                self.assertFalse(target.exists())
+
+    def test_malformed_profile_data_fails_closed(self):
+        broken = {
+            "denylist-string": {"closure_excluded": "dot"},
+            "denylist-non-string": {"closure_excluded": ["dot", 3]},
+            "skills-string": {"profiles": {**self.PROFILES["profiles"], "default": {"skills": "alpha"}}},
+            "commands-dict": {"profiles": {**self.PROFILES["profiles"], "pair": {"skills": ["beta"], "commands": {"bc": 1}}}},
+            "include-non-string": {"profiles": {**self.PROFILES["profiles"], "pair": {"skills": ["beta"], "include": [None]}}},
+        }
+        for name, override in broken.items():
+            with self.subTest(name), tempfile.TemporaryDirectory() as directory:
+                fixture = self.make_fixture(Path(directory))
+                (fixture / "shared/install-profiles.json").write_text(json.dumps({**self.PROFILES, **override}))
+                target = Path(directory) / "home"
+                result = self.run_installer(fixture, target)
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn("Malformed install profiles", result.stdout + result.stderr)
                 self.assertFalse(target.exists())
 
     def test_help_lists_profiles(self):
@@ -2024,21 +2047,48 @@ class InstallerRealProfileTest(unittest.TestCase):
                     self.assertFalse(CLOSURE_DENYLIST & skills, profile)
                 unavailable = self.dangling_links(target)
                 self.assertLessEqual(set(unavailable.values()), CLOSURE_DENYLIST | {"<outside skills>"}, unavailable)
-                commands = {c for c in installed_tree(target, "commands") if c.endswith(".md")}
-                explicit = set(self.data["profiles"][profile].get("commands", []))
+                installed_commands = installed_tree(target, "commands")
+                commands = {c for c in installed_commands if c.endswith(".md")}
+                explicit = self.profile_field(profile, "commands")
+                # Aliases follow seeds (named skills and explicit-command targets), never closure-only skills.
+                seeds = self.profile_field(profile, "skills") | {
+                    targets[c] for c in targets if c.rsplit("/", 1)[-1][:-3] in explicit
+                }
                 for command in commands:
                     stem = command.rsplit("/", 1)[-1][:-3]
                     if stem not in explicit:
-                        self.assertIn(targets.get(command), skills, command)
+                        self.assertIn(targets.get(command), seeds, command)
                 for command, skill in targets.items():
-                    if skill in skills:
+                    if skill in seeds:
                         self.assertIn(command, commands)
                 for stem in explicit:
                     self.assertIn(f"{stem}.md", commands)
+                commands_root = REPO_ROOT / ".claude/commands"
+                for command in commands:
+                    for reference in COMMAND_COMPANION.findall((commands_root / command).read_text()):
+                        reference = reference.rstrip(".")
+                        if (commands_root / reference).is_file():
+                            self.assertIn(reference, installed_commands, f"{command} -> {reference}")
                 self.assertIn(
                     f"Installed profile '{profile}': {len(skills)} skills, {len(commands)} commands,",
                     result.stdout,
                 )
+                agents = len(installed_tree(target, "agents"))
+                key = "*(none)*" if profile == self.data["default_profile"] else f"`--profile {profile}`"
+                for doc in ("README.md", "INSTALL.md"):
+                    rows = [line for line in (REPO_ROOT / doc).read_text().splitlines() if line.startswith(f"| {key}")]
+                    self.assertEqual(len(rows), 1, f"{doc} needs one {key} row")
+                    self.assertTrue(
+                        rows[0].endswith(f"| {len(skills)} / {len(commands)} / {agents} |"),
+                        f"{doc} {key} row must state the measured counts: {rows[0]}",
+                    )
+
+    def profile_field(self, profile: str, field: str) -> set[str]:
+        spec = self.data["profiles"][profile]
+        values = set(spec.get(field, []))
+        for included in spec.get("include", []):
+            values |= self.profile_field(included, field)
+        return values
 
     def dangling_links(self, target: Path) -> dict[str, str]:
         """Map each unresolved ../X/SKILL.md link in an installed tree to the missing skill."""
@@ -2091,4 +2141,4 @@ class InstallerRealProfileTest(unittest.TestCase):
             installed = {p.name for p in (target / "skills").iterdir()}
             self.assertEqual(installed, self.skill_names)
             self.assertTrue(DOT_FAMILY <= installed)
-            self.assertIn(f"Installed profile 'all': {len(self.skill_names)} skills,", result.stdout)
+            self.assertIn(f"Installed --all (full library): {len(self.skill_names)} skills,", result.stdout)

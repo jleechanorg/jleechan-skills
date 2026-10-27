@@ -53,17 +53,19 @@ For a deterministic install, use the bundled installer. **By default it now
 installs a curated set, not the whole library**: the skills in
 [Skills at a Glance](#-skills-at-a-glance) except the browser-review rows
 (`web-advice`, `browser-control`), plus every in-repo skill they link to, the
-command aliases whose target skill is installed, and the agents and scripts
-those files use. Named profiles select other sets:
+command aliases for the named skills (with any helper file they run), and the
+agents and scripts those files use. Every profile installs its named set plus
+linked dependencies; the counts below were measured from a scratch install.
+Named profiles select other sets:
 
-| Flag | Installs |
-|---|---|
-| *(none)* | `default`: the Skills at a Glance catalog minus browser review |
-| `--profile highlights-prw` | the highlighted skills (minus `/web-advice`) plus the PR workflow set |
-| `--profile prw` | the PR workflow set: `prw`, `pr-workflow`, `pr-workflow-manager`, `draft-first-pr`, `pr-lifecycle`, `pr-green-definition`, `ready`, `advice`, `evidence-standards`, `evidence-review`, `testing-layers`, `code-standards`, and `/es`, `/er`, `/green`, `/cs` |
-| `--profile web` | opt-in browser review: `advice`, `web-advice`, `browser-control` |
-| `--with SKILL` | adds one skill to the chosen profile (repeatable) |
-| `--all` | the full library, which was the installer's previous default |
+| Flag | Named set (plus linked dependencies) | Measured skills / commands / agents |
+|---|---|---|
+| *(none)* | `default`: the Skills at a Glance catalog minus browser review (18 named) | 31 / 32 / 8 |
+| `--profile highlights-prw` | the highlighted skills (minus `/web-advice`) plus the PR workflow set | 29 / 20 / 1 |
+| `--profile prw` | the PR workflow set: `prw`, `pr-workflow`, `pr-workflow-manager`, `draft-first-pr`, `pr-lifecycle`, `pr-green-definition`, `ready`, `advice`, `evidence-standards`, `evidence-review`, `testing-layers`, `code-standards` (12 named), and `/es`, `/er`, `/green`, `/cs` | 23 / 13 / 1 |
+| `--profile web` | opt-in browser review: `advice`, `web-advice`, `browser-control` (3 named) | 17 / 5 / 1 |
+| `--with SKILL` | adds one named skill, its dependencies and aliases to the chosen profile (repeatable) | varies |
+| `--all` | the full library, which was the installer's previous default | 267 / 243 / 45 |
 
 Dependency closure never adds browser, cookie or personal-infrastructure
 skills (`dot`, `web-advice`, `browser-control`, `slack-media-upload`, and the

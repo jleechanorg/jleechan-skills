@@ -10,18 +10,21 @@ This export is skills-first: every canonical package is under
 The default is now a curated profile, not the full library. With no flag the
 installer copies the `default` profile: the README's Skills at a Glance skills
 except `web-advice` and `browser-control`, plus the in-repo skills they link to
-(`../X/SKILL.md`, `~/.claude/skills/X/`, `$CLAUDE_HOME/skills/X/`), every
-command alias whose target skill is installed, and the agents and scripts those
-files reference. Run with `--all` for the old full install.
+(`../X/SKILL.md`, `~/.claude/skills/X/`, `$CLAUDE_HOME/skills/X/`), the
+command aliases for the named skills together with any non-Markdown helper
+under `commands/` they run, and the agents and scripts those files reference. A
+skill that arrives only as a linked dependency brings no slash commands. Run
+with `--all` for the old full install. Each profile installs its named set plus
+linked dependencies; counts below are measured from a scratch install.
 
-| Option | Selection |
-| --- | --- |
-| *(none)* or `--profile default` | Skills at a Glance minus browser review |
-| `--profile highlights-prw` | highlighted skills (minus `/web-advice`) plus the PR workflow set |
-| `--profile prw` | PR workflow skills plus `/es`, `/er`, `/green`, `/cs` |
-| `--profile web` | `advice`, `web-advice`, `browser-control` |
-| `--with SKILL` | add a skill to the profile; repeatable |
-| `--all` | every package, as before |
+| Option | Named set (plus linked dependencies) | Skills / commands / agents |
+| --- | --- | --- |
+| *(none)* or `--profile default` | Skills at a Glance minus browser review (18 named) | 31 / 32 / 8 |
+| `--profile highlights-prw` | highlighted skills (minus `/web-advice`) plus the PR workflow set | 29 / 20 / 1 |
+| `--profile prw` | 12 PR workflow skills plus `/es`, `/er`, `/green`, `/cs` | 23 / 13 / 1 |
+| `--profile web` | `advice`, `web-advice`, `browser-control` | 17 / 5 / 1 |
+| `--with SKILL` | add a named skill to the profile; repeatable | varies |
+| `--all` | every package, as before | 267 / 243 / 45 |
 
 Profiles live in `shared/install-profiles.json`; `--help` lists them. Closure
 never adds a skill on that file's `closure_excluded` list (`dot`,
@@ -34,7 +37,10 @@ installer prints the profile and the number of skills, commands and agents it
 installed. A profile install is additive: `--merge` never removes skills an
 earlier `--all` install left behind, and `--backup`, `--merge`,
 `--include-protected` and `--migrate-archives` behave the same with every
-profile. `--portable` installs its own manifest and refuses profile flags.
+profile. `--portable` installs its own manifest and refuses profile flags. A
+profile command whose target skill is on `closure_excluded` is refused unless
+the profile names that skill or `--with` adds it, and malformed profile data
+(any list field that is not a list of names) stops the install before writing.
 
 For `--all`, the installer copies four component trees into `CLAUDE_HOME`:
 

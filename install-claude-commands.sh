@@ -78,9 +78,9 @@ Usage: $(basename "$0") [[--profile NAME] [--with SKILL]... | --all] [--merge [-
        PORTABLE_HOME=/absolute/dedicated/package $(basename "$0") --portable [--backup]
 
 With no profile flag the curated default profile is installed. --profile NAME
-installs that profile's skills plus every in-repo skill they link to, the
-command aliases whose target skill is installed, and the agents and scripts
-those files reference. Closure never adds a skill on the profile data's
+installs that profile's named skills plus every in-repo skill they link to,
+the command aliases (and their helpers) for the named skills, and the agents
+and scripts those files reference. Closure never adds a skill on the profile data's
 closure_excluded list (browser, cookie and personal-infra skills); name one in a
 profile or add it with --with SKILL (repeatable). --all installs the full
 library (the pre-profile behaviour). Profiles are defined in
@@ -222,6 +222,14 @@ is_selected_entry() {
         esac
     done
     return 1
+}
+
+profile_label() {
+    if [ "$SELECTION_ACTIVE" = true ]; then
+        printf '%s\n' "$PROFILE_NAME"
+    else
+        printf '%s\n' "--all (full library)"
+    fi
 }
 
 # Counts for an --all install; a component directory the source lacks counts as zero.
@@ -1074,7 +1082,7 @@ main() {
     [ "$SELECTION_ACTIVE" = true ] || count_full_library
     echo
     log_info "Claude Commands Installation Script"
-    log_info "Profile: $PROFILE_NAME"
+    log_info "Profile: $(profile_label)"
     log_info "Source: $PLUGIN_SRC_DIR"
     log_info "Target: $CLAUDE_HOME"
     echo
@@ -1093,7 +1101,11 @@ main() {
     finalize_backup_install
 
     echo
-    log_success "Installed profile '$PROFILE_NAME': $PROFILE_SKILLS skills, $PROFILE_COMMANDS commands, $PROFILE_AGENTS agents"
+    if [ "$SELECTION_ACTIVE" = true ]; then
+        log_success "Installed profile '$PROFILE_NAME': $PROFILE_SKILLS skills, $PROFILE_COMMANDS commands, $PROFILE_AGENTS agents"
+    else
+        log_success "Installed --all (full library): $PROFILE_SKILLS skills, $PROFILE_COMMANDS commands, $PROFILE_AGENTS agents"
+    fi
     show_next_steps
     echo
     log_success "Installation complete!"

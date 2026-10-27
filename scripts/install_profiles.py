@@ -15,6 +15,7 @@ from pathlib import Path
 PROFILES_FILE = Path("shared/install-profiles.json")
 SKILL_LINK = re.compile(r"(?:\.\./|skills/)([A-Za-z0-9_.-]+)/")
 COMMAND_TARGET = re.compile(r"skills/([A-Za-z0-9_.-]+)/SKILL\.md")
+COMMAND_COMPANION = re.compile(r"commands/([A-Za-z0-9_./-]+)")
 SCRIPT_LINK = re.compile(r"(?:\.claude|CLAUDE_HOME\}?|claude)/scripts/([A-Za-z0-9_.-]+)")
 AGENT_LINKS = (
     re.compile(r"agents/([A-Za-z0-9_.-]+)\.md"),
@@ -35,8 +36,25 @@ def load(source):
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as error:
         raise ProfileError(f"Cannot read install profiles {path}: {error}") from error
-    if not isinstance(data.get("profiles"), dict) or data.get("default_profile") not in data["profiles"]:
-        raise ProfileError(f"Malformed install profiles: {path}")
+    def string_list(value):
+        return isinstance(value, list) and all(isinstance(item, str) and item for item in value)
+
+    # A wrong type must fail closed: a denylist string would otherwise iterate as letters.
+    profiles = data.get("profiles") if isinstance(data, dict) else None
+    problems = []
+    if not isinstance(profiles, dict) or data.get("default_profile") not in profiles:
+        problems.append("profiles/default_profile")
+    else:
+        for name, spec in profiles.items():
+            if not isinstance(spec, dict):
+                problems.append(f"profiles.{name}")
+                continue
+            problems += [f"profiles.{name}.{field}" for field in ("skills", "commands", "include")
+                         if field in spec and not string_list(spec[field])]
+    if not string_list(data.get("closure_excluded", []) if isinstance(data, dict) else None):
+        problems.append("closure_excluded")
+    if problems:
+        raise ProfileError(f"Malformed install profiles {path}: {', '.join(problems)} must be a list of names")
     return data
 
 
@@ -77,14 +95,20 @@ def resolve(source, name, extra_skills=()):
     } if skills_root.is_dir() else set()
     seed_skills, seed_commands = seeds_for(data, name)
     seed_skills += list(extra_skills)
+    excluded = set(data.get("closure_excluded", []))
 
     explicit_commands = []
+    named_skills = set(seed_skills)
     for command in seed_commands:
         for candidate in (f"{command}.md", f"extended-library/{command}.md"):
             if (commands_root / candidate).is_file():
                 explicit_commands.append(candidate)
                 target = COMMAND_TARGET.search((commands_root / candidate).read_text(encoding="utf-8"))
                 if target and target.group(1) in available:
+                    if target.group(1) in excluded and target.group(1) not in named_skills:
+                        raise ProfileError(
+                            f"Profile {name} command {command} targets closure-excluded skill "
+                            f"{target.group(1)}; name it in the profile's skills or pass --with")
                     seed_skills.append(target.group(1))
                 break
         else:
@@ -94,7 +118,7 @@ def resolve(source, name, extra_skills=()):
         raise ProfileError(f"Profile {name} names missing skills: {', '.join(missing)}")
 
     # Closure never adds an excluded skill; only a profile entry or --with does.
-    seeds, excluded = set(seed_skills), set(data.get("closure_excluded", []))
+    seeds = set(seed_skills)
     skills, stack = set(seeds), sorted(seeds)
     while stack:
         current = stack.pop()
@@ -104,12 +128,20 @@ def resolve(source, name, extra_skills=()):
                     skills.add(linked)
                     stack.append(linked)
 
+    # Aliases follow seeds only; a skill that arrived by closure brings no slash commands.
     commands = set(explicit_commands)
     if commands_root.is_dir():
         for path in [*commands_root.glob("*.md"), *(commands_root / "extended-library").glob("*.md")]:
             target = COMMAND_TARGET.search(path.read_text(encoding="utf-8", errors="replace"))
-            if target and target.group(1) in skills:
+            if target and target.group(1) in seeds:
                 commands.add(path.relative_to(commands_root).as_posix())
+    # A selected command's referenced non-Markdown helper under commands/ installs with it.
+    for command in sorted(commands):
+        for reference in COMMAND_COMPANION.findall((commands_root / command).read_text(encoding="utf-8", errors="replace")):
+            reference = reference.rstrip(".")
+            if (not reference.endswith(".md") and ".." not in reference.split("/")
+                    and (commands_root / reference).is_file()):
+                commands.add(reference)
 
     texts = [t for s in sorted(skills) for t in read_texts(skills_root / s)]
     texts += [t for c in sorted(commands) for t in read_texts(commands_root / c)]
