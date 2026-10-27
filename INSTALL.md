@@ -13,15 +13,18 @@ except `web-advice` and `browser-control`, plus the in-repo skills they link to
 (`../X/SKILL.md`, `~/.claude/skills/X/`, `$CLAUDE_HOME/skills/X/`), the
 command aliases for the named skills together with any non-Markdown helper
 under `commands/` they run, and the agents and scripts those files reference. A
-skill that arrives only as a linked dependency brings no slash commands. Run
+skill that arrives only as a linked dependency brings no slash commands, and
+a command counts as an alias only when its name is the skill, its frontmatter
+description says "alias", or it is at most 15 lines; longer workflow commands
+such as `/polish` and `/savetmp` need `--all`. Run
 with `--all` for the old full install. Each profile installs its named set plus
 linked dependencies; counts below are measured from a scratch install.
 
 | Option | Named set (plus linked dependencies) | Skills / commands / agents |
 | --- | --- | --- |
-| *(none)* or `--profile default` | Skills at a Glance minus browser review (18 named) | 31 / 32 / 8 |
-| `--profile highlights-prw` | highlighted skills (minus `/web-advice`) plus the PR workflow set | 29 / 20 / 1 |
-| `--profile prw` | 12 PR workflow skills plus `/es`, `/er`, `/green`, `/cs` | 23 / 13 / 1 |
+| *(none)* or `--profile default` | Skills at a Glance minus browser review (18 named) | 31 / 27 / 3 |
+| `--profile highlights-prw` | highlighted skills (minus `/web-advice`) plus the PR workflow set | 29 / 17 / 1 |
+| `--profile prw` | 12 PR workflow skills plus `/es`, `/er`, `/green`, `/cs` | 23 / 11 / 1 |
 | `--profile web` | `advice`, `web-advice`, `browser-control` | 17 / 5 / 1 |
 | `--with SKILL` | add a named skill to the profile; repeatable | varies |
 | `--all` | every package, as before | 267 / 243 / 45 |

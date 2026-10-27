@@ -23,6 +23,7 @@ AGENT_LINKS = (
     re.compile(r"subagent_type\W{1,4}([A-Za-z0-9_.-]+)"),
 )
 EXTRAS = ("history_search.py", "integrate.sh")
+ALIAS_MAX_LINES = 15
 SKIPPED_PARTS = {"__pycache__", ".pytest_cache", "_archive"}
 
 
@@ -69,6 +70,15 @@ def read_texts(path):
             yield item.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError):
             continue
+
+
+def is_alias(path, text, skill):
+    """A command aliases skill when its stem names it, its description says alias, or it is <= 15 lines."""
+    description = ""
+    if text.startswith("---\n"):
+        front = text[4:].split("\n---", 1)[0]
+        description = next((line for line in front.splitlines() if line.startswith("description:")), "")
+    return path.stem == skill or "alias" in description.lower() or len(text.splitlines()) <= ALIAS_MAX_LINES
 
 
 def seeds_for(data, name, seen=()):
@@ -128,12 +138,14 @@ def resolve(source, name, extra_skills=()):
                     skills.add(linked)
                     stack.append(linked)
 
-    # Aliases follow seeds only; a skill that arrived by closure brings no slash commands.
+    # Aliases follow seeds only; a skill that arrived by closure brings no slash
+    # commands, and a long workflow that merely cites a seed is not its alias.
     commands = set(explicit_commands)
     if commands_root.is_dir():
         for path in [*commands_root.glob("*.md"), *(commands_root / "extended-library").glob("*.md")]:
-            target = COMMAND_TARGET.search(path.read_text(encoding="utf-8", errors="replace"))
-            if target and target.group(1) in seeds:
+            text = path.read_text(encoding="utf-8", errors="replace")
+            target = COMMAND_TARGET.search(text)
+            if target and target.group(1) in seeds and is_alias(path, text, target.group(1)):
                 commands.add(path.relative_to(commands_root).as_posix())
     # A selected command's referenced non-Markdown helper under commands/ installs with it.
     for command in sorted(commands):

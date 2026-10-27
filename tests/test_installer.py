@@ -1770,6 +1770,16 @@ class InstallerProfileFixtureTest(unittest.TestCase):
         "commands/d.md": "Read `~/.claude/skills/delta/SKILL.md`.\n",
         "commands/dotc.md": "Read `~/.claude/skills/dot/SKILL.md`.\n",
         "commands/plain.md": "No skill target.\n",
+        "commands/longcmd.md": (
+            "---\ndescription: Run a long orchestration workflow\n---\n"
+            "Read `~/.claude/skills/alpha/SKILL.md`, then run `.claude/commands/longhelper.py`.\n"
+            + "step\n" * 16
+        ),
+        "commands/longhelper.py": "print('long helper')\n",
+        "commands/described.md": (
+            "---\ndescription: Thin ALIAS for the alpha skill\n---\n"
+            "Read `~/.claude/skills/alpha/SKILL.md`.\n" + "note\n" * 16
+        ),
         "commands/helper.py": "print('helper')\n",
         "commands/extended-library/al.md": "Read `~/.claude/skills/alpha/SKILL.md`.\n",
         "commands/extended-library/de.md": "Read `~/.claude/skills/delta/SKILL.md`.\n",
@@ -1814,12 +1824,15 @@ class InstallerProfileFixtureTest(unittest.TestCase):
             # a.md's companion helper.py installs with it; unreferenced plain.md does not.
             self.assertEqual(
                 installed_tree(target, "commands"),
-                {"a.md", "helper.py", "extended-library/al.md"},
+                {"a.md", "helper.py", "extended-library/al.md", "described.md"},
             )
             self.assertEqual(installed_tree(target, "agents"), {"helper-agent.md"})
             self.assertEqual(installed_tree(target, "scripts"), {"tool.py"})
             self.assertIn("Profile: default", result.stdout)
-            self.assertIn("Installed profile 'default': 3 skills, 2 commands, 1 agents", result.stdout)
+            self.assertIn("Installed profile 'default': 3 skills, 3 commands, 1 agents", result.stdout)
+            # longcmd.md targets the seed but is a long non-alias workflow; neither it nor its helper installs.
+            self.assertFalse((target / "commands/longcmd.md").exists())
+            self.assertFalse((target / "commands/longhelper.py").exists())
             self.assertIn("Source-derived manifest validation passed", result.stdout)
 
     def test_named_profile_adds_its_explicit_commands(self):
@@ -1855,7 +1868,7 @@ class InstallerProfileFixtureTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
             self.assertEqual({p.name for p in (target / "skills").iterdir()}, {"alpha", "beta", "gamma", "dot"})
             self.assertTrue((target / "commands/dotc.md").is_file())
-            self.assertIn("Installed profile 'default': 4 skills, 3 commands, 1 agents", result.stdout)
+            self.assertIn("Installed profile 'default': 4 skills, 4 commands, 1 agents", result.stdout)
 
     def test_all_installs_the_whole_library(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -1866,7 +1879,7 @@ class InstallerProfileFixtureTest(unittest.TestCase):
             for relative, content in self.FILES.items():
                 self.assertEqual((target / relative).read_text(), content, relative)
             self.assertIn("Profile: --all (full library)", result.stdout)
-            self.assertIn("Installed --all (full library): 5 skills, 8 commands, 2 agents", result.stdout)
+            self.assertIn("Installed --all (full library): 5 skills, 10 commands, 2 agents", result.stdout)
             self.assertNotIn("profile 'all'", result.stdout)
 
     def test_profile_selection_errors_fail_before_writing(self):
@@ -2058,8 +2071,9 @@ class InstallerRealProfileTest(unittest.TestCase):
                     stem = command.rsplit("/", 1)[-1][:-3]
                     if stem not in explicit:
                         self.assertIn(targets.get(command), seeds, command)
+                        self.assertTrue(self.is_alias(command, targets[command]), command)
                 for command, skill in targets.items():
-                    if skill in seeds:
+                    if skill in seeds and self.is_alias(command, skill):
                         self.assertIn(command, commands)
                 for stem in explicit:
                     self.assertIn(f"{stem}.md", commands)
@@ -2082,6 +2096,17 @@ class InstallerRealProfileTest(unittest.TestCase):
                         rows[0].endswith(f"| {len(skills)} / {len(commands)} / {agents} |"),
                         f"{doc} {key} row must state the measured counts: {rows[0]}",
                     )
+
+    @staticmethod
+    def is_alias(command: str, skill: str) -> bool:
+        """Alias = stem names the skill, frontmatter says alias, or a file of at most 15 lines."""
+        text = (REPO_ROOT / ".claude/commands" / command).read_text(encoding="utf-8")
+        description = ""
+        if text.startswith("---\n"):
+            front = text[4:].split("\n---", 1)[0]
+            description = next((l for l in front.splitlines() if l.startswith("description:")), "")
+        return (Path(command).stem == skill or "alias" in description.lower()
+                or len(text.splitlines()) <= 15)
 
     def profile_field(self, profile: str, field: str) -> set[str]:
         spec = self.data["profiles"][profile]
@@ -2130,8 +2155,11 @@ class InstallerRealProfileTest(unittest.TestCase):
                           "pr-green-definition", "ready", "advice", "evidence-standards",
                           "evidence-review", "testing-layers", "code-standards"):
                 self.assertTrue((target / "skills" / skill / "SKILL.md").is_file(), skill)
-            for command in ("es", "er", "green", "cs"):
-                self.assertTrue((target / "commands" / f"{command}.md").is_file(), command)
+            for command in ("es", "er", "green", "cs", "r.md", "smart-advisor.md", "extended-library/testing-layers.md"):
+                name = command if command.endswith(".md") else f"{command}.md"
+                self.assertTrue((target / "commands" / name).is_file(), command)
+            for workflow in ("extended-library/polish.md", "extended-library/savetmp.md", "savetmp.py"):
+                self.assertFalse((target / "commands" / workflow).exists(), workflow)
         self.assertLessEqual(self.expected_skills("prw"), self.expected_skills("highlights-prw"))
 
     def test_all_installs_every_skill_package(self):
