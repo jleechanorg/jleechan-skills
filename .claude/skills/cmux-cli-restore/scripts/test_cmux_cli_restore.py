@@ -32,25 +32,34 @@ class StubCmux:
             "#!/bin/bash\n"
             f'printf "%s\\n" "$*" >> "{self.log}"\n'
             'case "$*" in *"codex resume"*) : > "__MARK__" ;; esac\n'
+            # in acceptfail mode the SECOND Enter (the goal accept) fails
+            'case "$*" in *send-key*enter*)\n'
+            '  if [ -f "__MARK__" ]; then\n'
+            '    n=$(cat "__ECTR__" 2>/dev/null || echo 0); echo $((n+1)) > "__ECTR__"\n'
+            f'    if [ "{mode}" = "acceptfail" ] && [ "$n" = "1" ]; then exit 1; fi\n'
+            '    if [ "$n" -ge 1 ]; then : > "__ACCEPTED__"; fi\n'
+            '  fi ;;\n'
+            'esac\n'
             'case "$*" in\n'
             '  *top*)\n'
             '    printf "%s\\n" "  0.0% 0 B 0 surface ' + SF + ' [terminal] tty=ttys003"; exit 0 ;;\n'
-            f'  *capture-pane*)\n'
+            '  *capture-pane*)\n'
             f'    case "{mode}" in\n'
             '      fail) exit 1 ;;\n'
             '      empty) exit 0 ;;\n'
             '      gate) printf "%s\\n" "Goal remains blocked pending human merge approval"; exit 0 ;;\n'
             '      clean) printf "%s\\n" "user@host:~/work$"; exit 0 ;;\n'
-            '      goal) printf "%s\\n" "  1. Resume goal   Mark it active and continue when idle" "  2. Leave paused"; exit 0 ;;\n'
-            '      goal2) if [ -f "__MARK__" ]; then\n'
-            '               printf "%s\\n" "  1. Resume goal   Mark it active and continue when idle" "  2. Leave paused";\n'
-            '             else\n'
-            '               printf "%s\\n" "user@host:~/work$";\n'
-            '             fi; exit 0 ;;\n'
+            '      goal|goal2|acceptfail) if [ -f "__ACCEPTED__" ]; then\n'
+            '          printf "%s\\n" "user@host:~/work$";\n'
+            '        elif [ -f "__MARK__" ]; then\n'
+            '          printf "%s\\n" "  1. Resume goal   Mark it active and continue when idle" "  2. Leave paused";\n'
+            '        else\n'
+            '          printf "%s\\n" "user@host:~/work$";\n'
+            '        fi; exit 0 ;;\n'
             '    esac ;;\n'
             '  *) exit 0 ;;\n'
             'esac\n'
-        ).replace("__MARK__", str(self.marker))
+        ).replace("__MARK__", str(self.marker)).replace("__ACCEPTED__", str(self.dir / "accepted")).replace("__ECTR__", str(self.dir / "enters"))
         stub.write_text(body)
         stub.chmod(stub.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
 
@@ -363,3 +372,32 @@ class GoalAcceptanceOrderingTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         self.assertIn("goal dialog accepted after identity check", proc.stdout)
         self.assertEqual(len(enters), 2, f"expected resume Enter + goal Enter: {enters}")
+
+
+    def test_failed_goal_accept_is_not_reported_as_accepted(self):
+        """dot review at 29718cee: a failed accept Enter printed 'goal dialog accepted'."""
+        script = (
+            "#!/bin/bash\n"
+            'state="__TMP__/calls"\n'
+            'n=$(cat "$state" 2>/dev/null || echo 0)\n'
+            'echo $((n+1)) > "$state"\n'
+            'if [ "$n" = "0" ]; then\n'
+            '  echo "ttys003 100 00:10 /usr/bin/command codex resume 01a174a5-7202-7af3-831e-0bfb5ae8544a"\n'
+            "else\n"
+            '  echo "ttys003 200 00:01 /usr/bin/command codex resume 01a174a5-7202-7af3-831e-0bfb5ae8544a"\n'
+            "fi\n"
+        )
+        tmp = Path(tempfile.mkdtemp(prefix="fakeps-acceptfail-"))
+        ps = tmp / "fakeps"
+        ps.write_text(script.replace("__TMP__", str(tmp))); ps.chmod(0o755)
+        stub = StubCmux("acceptfail")
+        env = dict(os.environ)
+        env["PATH"] = f"{stub.dir}:{env.get('PATH', '')}"
+        env["CMUX_CLI_RESTORE_PS"] = str(ps)
+        proc = subprocess.run(
+            ["bash", str(SCRIPT), "--workspace", WS, "--surface", SF, "--cli", "codex"],
+            capture_output=True, text=True, env=env, timeout=180,
+        )
+        self.assertEqual(proc.returncode, 8, proc.stdout + proc.stderr)
+        self.assertIn("accept Enter failed", proc.stderr)
+        self.assertNotIn("goal dialog accepted", proc.stdout)

@@ -288,7 +288,18 @@ if [[ -n "$new_pids" ]]; then
       *" $target "*)
         # identity confirmed -> only now may a paused goal be resumed
         if cmx capture-pane --workspace "$WS" --surface "$SF" --lines 10 2>/dev/null | grep -q 'Resume goal'; then
-          cmx send-key --force --workspace "$WS" --surface "$SF" enter >/dev/null 2>&1; sleep 8
+          # The accept key can fail (dialog changed, surface busy). Never claim acceptance
+          # without a successful send AND a readback that the dialog actually cleared
+          # (dot review at 29718cee).
+          if ! cmx send-key --force --workspace "$WS" --surface "$SF" enter >/dev/null 2>&1; then
+            echo "FAILED: goal dialog is open but the accept Enter failed; the CLI resumed, the goal may still be paused" >&2
+            exit 8
+          fi
+          sleep 8
+          if cmx capture-pane --workspace "$WS" --surface "$SF" --lines 10 2>/dev/null | grep -q 'Resume goal'; then
+            echo "FAILED: goal dialog still present after the accept Enter; goal not resumed" >&2
+            exit 8
+          fi
           echo "RESTARTED same conversation $target on new pid(s)=$(printf '%s' "$new_pids" | tr '\n' ' '); goal dialog accepted after identity check"
         else
           echo "RESTARTED same conversation $target on new pid(s)=$(printf '%s' "$new_pids" | tr '\n' ' ')"
