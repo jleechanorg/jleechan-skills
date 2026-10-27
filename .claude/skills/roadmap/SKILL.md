@@ -60,8 +60,12 @@ Required structure, in this order:
    - `Brief` = ONE sentence stating what the PR changes and whether it is prod or
      test-only. No changelog.
 3. **Not yet a PR** — items with an owner but no branch/PR yet.
-4. **Human actions outstanding** — merges needing approval, undrafts, deploys,
-   review attention (>150 prod-line PRs with no approval).
+4. **Human actions outstanding** — only actions that meet the shared human-only
+   boundary. For each, state `Why the LLM cannot execute this next step now:`
+   with the exact authority, physical dependency or essential unresolved decision.
+   Undrafting, evidence review, checks and authorized deployments are not human
+   actions merely because they remain undone. Execute available authorized work
+   in the caller's scope before ending; preserve a planning/status-only scope.
 5. **Owners (cmux surfaces)** — lane → workspace › surface title → PRs covered.
 6. **Later** — which PRs will need a `/pr-summary` (architecture diagram, Why It Is
    Needed, How It Works, prod vs non-prod deltas) and the condition for writing it.
@@ -84,14 +88,15 @@ status; a prose-only status is incomplete.
 
 - Commit only the board file (`git commit -- <path>`); never sweep unrelated dirty
   files into the commit. Preserve other lanes' uncommitted work exactly as found.
-- Rebase on `origin/main` before pushing; the roadmap repo is busy. If a rebase is
-  blocked by unrelated dirty files, stash only those paths, rebase, push, then restore
-  them and drop only your own stash entries.
-- Report the pushed commit URL and the file URL
-  (`https://github.com/jleechanorg/roadmap/blob/main/pr-inflight-YYYY-MM-DD.md`).
+- Use an isolated branch/worktree and the roadmap repository's PR workflow.
+  Preserve unrelated dirty files and the shared index; do not stash another
+  lane's work to force a rebase or push directly to main.
+- Report the actual pushed commit, PR and commit-pinned board URLs. Do not claim
+  the board is on main before the verified merge; merge authority remains separate.
 
 ## Canonical source
 
 `~/.claude/skills/roadmap/` is the live copy; `jleechan-skills/.claude/skills/roadmap/`
-is the published source. Edit both, keep them byte-identical, and verify with
-`shasum -a 256` after any change.
+is the published source. Diff both copies and repository status first, reconcile
+only authorized changes, then verify exact hashes after synchronization. Do not
+absorb another lane's unpublished edit merely to make copies match.

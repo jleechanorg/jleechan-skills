@@ -22,7 +22,10 @@ related_skills:
   - pr-green-definition
   - session-history-search
   - memory-search
+  - code-standards
   - ponytail
+  - zero-framework-cognition
+  - zfc-leveling-roadmap
   - root-cause-first
   - harness
 changelog:
@@ -170,10 +173,12 @@ Write the goal to `.converge/goal.md` in the session's cwd (the path `/harness` 
 Run the applicable gates at completion (from /harness). Applicability and timing follow `pr-lifecycle` § Coding lifecycle; user-required, high-risk/security, and real-proof gates always apply:
 - **/es** — Evidence Standards (both ~/.claude/skills/evidence-standards/SKILL.md AND .claude/skills/evidence-standards.md if the repo has one)
 - **/er** — Evidence Review (adversarial, independent reviewer): an applicable draft-phase gate and explicit final closing review per `pr-lifecycle`, separate from `/green`; apply the owner's required final `/advice` sequence as well.
-- **/code_standards** — 3 parallel lanes:
+- **/code_standards** — four canonical lanes, applied with the repository's documented applicability:
+  - Ponytail — reuse established pipelines and remove dead paths before adding code
   - ZFC (zero-framework cognition) — no keyword routing, no regex intent detection, no hand-tuned scoring
   - ZFC-leveling — no level-up fields leaking into non-leveled surfaces
   - root-cause-first — prompt/schema fixes tried before backend protection; document why if backend enforcement is added
+  - Record each lane's verdict and concrete file/line evidence; do not collapse these into a generic quality-pass statement.
 - **Independent Agent Review** — full-diff code review by an isolated subagent
 - All applicable gates PASS = DONE. Any FAIL = fix & loop with a changed approach. No cycle- or repeated-score count stops work; stop only at the autonomy deadline or a genuine human dependency (exact blocker + resumption trigger).
 

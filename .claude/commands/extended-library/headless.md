@@ -10,10 +10,10 @@ execution_mode: immediate
 
 ## 🚨 EXECUTION WORKFLOW
 
-### Phase 1: Execute Documented Workflow
+### Phase 1: Report Retirement
 
 **Action Steps:**
-1. Review the reference documentation below and execute the detailed steps sequentially.
+1. Report that `/headless` is retired. Do not execute the historical implementation below; use the current approved task-scoped workflow documented in the repository instead.
 
 ## 📋 REFERENCE DOCUMENTATION
 
@@ -52,24 +52,19 @@ if [ -z "$PROMPT" ]; then
     exit 1
 fi
 
-# Generate a unique branch name based on timestamp and prompt
+# Choose a task-specific branch name. Create worktrees only through the
+# approved worktree workflow; never create a relative checkout under the repo.
 
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 BRANCH_NAME="headless_${TIMESTAMP}"
-WORKTREE_DIR="headless_${TIMESTAMP}"
-
 echo "🚀 Creating headless development environment..."
 echo "Branch: $BRANCH_NAME"
-echo "Worktree: $WORKTREE_DIR"
 echo "Prompt: $PROMPT"
 
-# Determine the default branch dynamically
-
-DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD | sed 's@^refs/remotes/origin/@@')
-
-# Create git worktree with new branch from the default branch
-
-git worktree add -b "$BRANCH_NAME" "$WORKTREE_DIR" "$DEFAULT_BRANCH"
+# Create the task worktree with `diskm worktree-new <repo-path> <branch>`.
+# Use its reported path for WORKTREE_DIR and verify it is an approved root.
+# Do not use a relative path, mktemp, or raw `git worktree add`.
+WORKTREE_DIR="<approved path reported by diskm>"
 
 if [ $? -ne 0 ]; then
     echo "❌ Error: Failed to create git worktree"

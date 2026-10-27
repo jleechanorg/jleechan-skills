@@ -491,11 +491,15 @@ reviewed, authorized summary. If publication is not authorized, report the local
 receipt and the publication limitation; do not upload model snippets or edit a PR.
 The following publication steps apply only within that authorization.
 
-- **Subject is a PR**: publish the full synthesis table, verbatim per-model
-  snippets, and share URLs as an unlisted gist, then
-  `gh pr edit <N> --body "$(...)"` to **append** a `## /web-advice round <n>`
-  section to the PR body with the gist URL and the `Recommended action:`
-  line. Append, never silently overwrite a prior round.
+- **Subject is a PR**: publish the authorized synthesis receipt, then update
+  the PR's `## Review Gate Ledger` with a self-contained `/web-advice` round
+  record containing the exact reviewed SHA, phase, verdict, findings,
+  applicability, and sanitized receipt URL. Preserve earlier round records and
+  visual evidence. Place the ledger after the human-readable sections and
+  before the final `## Advice Approval` section; never append review metadata
+  after `Advice Approval`, replace the PR body, or imply an approval that was
+  not issued. Run `/ds` on the visible human-readable portion before submitting
+  any PR-body edit, and confirm `Advice Approval` remains the last section.
 - **Subject is a bare ref/commit with no open PR**: publish the same
   synthesis as an unlisted gist, then attach it as a GitHub commit comment
   (`gh api repos/<owner>/<repo>/commits/<sha>/comments -f body="..."`) linking

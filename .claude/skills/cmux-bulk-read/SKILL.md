@@ -84,11 +84,16 @@ done
 
 Reuse the existing collector — do not write a second one. `scan.py` writes `manifest.json` (per-surface
 `workspace_ref`/`surface_ref`/`surface_title`/`cpu_percent`/`file_10k`/`lines_read`, plus `"mode": "readonly"`),
-`ws_<ws>_sf_<sf>.txt` (≤10,000 trailing words; `pi` TUI panes get the prepended
+`ws_<ws>_sf_<sf>.txt` (up to 10,000 trailing words; `pi` TUI panes get the prepended
 `=== PI SESSION TRANSCRIPT ===` section), `top_flat.tsv`, and `gh_prs.json`. Cite `mode=readonly` plus
 `working_surfaces.txt` / `closed_surfaces.txt` as proof the sweep issued no mutating `cmux` verb. **`gh_prs_file:
 null` means `gh` had no repository context** (the sweep ran from `/tmp`): re-run with `GH_REPO=owner/repo` set rather
 than reporting a PR-less ownership map.
+
+The 10,000-word collector cap is not permission to classify a truncated surface. If a manifest row has
+`total_words > captured_words`, capture the full available scrollback for both time-separated samples with
+`cmux capture-pane --workspace <ws> --surface <sf> --scrollback --lines 1500` (or the deepest supported scrollback),
+into unique `/tmp` paths. Read the full captures; if that cannot be done, mark the surface UNVERIFIED.
 
 Build the in-scope surface list from the manifest filtered by `scope.txt`, and print its scale (surfaces, words,
 lines) before spawning anything.

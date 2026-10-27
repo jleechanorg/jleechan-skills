@@ -151,9 +151,11 @@ real, full pass when installed; substitute an equivalent if you have one.
      URL, say so inline ("no tracking issue exists") rather than leaving a bare
      identifier — the absence is itself information. Cross-surface docs link
      *to each other* both ways, so neither is a dead end.
-   - Formatting invariants: times in the reader's local timezone (never UTC
-     unless the audience is global); paths `~/`-relative (never literal home
-     directories); effort as delta LOC/files/PRs, never calendar time.
+   - Use the audience's timezone and the active interface's supported links.
+     Follow the artifact owner's absolute-path requirement in local reports;
+     exported portable instructions use generic paths. Measure scope with line,
+     file and PR deltas; include labeled time estimates when scheduling or the
+     parallel-workflow owner requires them.
    - Surface-render check: before delivery, open the doc in its target surface
      (rendered Markdown, HTML, or Google Doc) and check for escaping artifacts
      (literal `\n`, vertical tabs, eaten line-continuations), broken tables,
@@ -174,7 +176,8 @@ real, full pass when installed; substitute an equivalent if you have one.
    - Multi-surface sync: when the doc exists in N surfaces (local md, gdoc,
      repo mirror), name all N; a revision lands on all of them in the same
      work block or carries an explicit "surfaces pending" note. "Updated"
-     means pushed and URL-verifiable.
+     must distinguish local edits, published artifacts and installed copies.
+     A publication claim requires a successful push and a verified artifact URL.
 
 ## AI-tell sub-pass (runs inside lane 3)
 

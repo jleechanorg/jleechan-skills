@@ -54,7 +54,7 @@ documented as blocked.
 
 ## Recording Options
 
-### Option 1: Scoped headless driver (Aside / Playwright) — DEFAULT when a repo forbids headed capture
+### Option 1: Scoped headless driver (Aside / Playwright) — DEFAULT
 Follow `~/.claude/skills/browser-testing/SKILL.md`: drive the browser headlessly
 via Aside CLI/`aside-mcp` or headless Playwright, log the navigated URL/route to
 the terminal or an overlay, and record with the scoped repo's own recorder
@@ -62,8 +62,10 @@ the terminal or an overlay, and record with the scoped repo's own recorder
 Never use `mcp__claude-in-chrome__*` or any headed browser for this path.
 
 ### Option 2: Manual desktop capture (Kap) — LAST RESORT ONLY
-Only when no repo-scoped headless policy exists AND native browser chrome is
-required. Do not use this when the repo forbids headed/manual capture.
+Only when the current thread explicitly requests visible capture, the browser
+is independently verified as task-owned, and the repo permits it. Absence of a
+repo prohibition is not authorization. Follow the shared browser-control owner;
+never use personal/default Chrome, its profiles or its cookies.
 ```bash
 brew install --cask kap
 ```
@@ -241,9 +243,9 @@ The following GitHub release example applies only when that destination is autho
   sha_short="${CAPTURED_SHA:0:12}"
   tag="evidence-pr-${PR_NUMBER}-${sha_short}-${RUN_ID}"
 
-  archive_dir="$(mktemp -d "${TMPDIR:-/tmp}/evidence_archive.XXXXXX")"
-  trap 'rm -rf "$archive_dir"' EXIT
+  archive_dir="$(mktemp -d /tmp/evidence_archive.XXXXXX)"
   zip_file="$archive_dir/$(basename "$video_file").zip"
+  trap 'rm -f -- "$zip_file"; rmdir -- "$archive_dir"' EXIT
   zip -j "$zip_file" "$video_file"
 
   assets=("$zip_file" "$preview_file")
@@ -479,4 +481,3 @@ When distributing video or visual evidence to Slack (channels, incident threads,
   python3 ~/.claude/skills/slack-media-upload/scripts/slack_upload.py [--dm | --channel <id>] --file <path> [--title <title>...] [--thread-ts <ts>] [--comment <text>]
   ```
 - This wraps Slack's two-step `files.getUploadURLExternal` → `files.completeUploadExternal` API so videos and GIFs render directly inline in Slack.
-

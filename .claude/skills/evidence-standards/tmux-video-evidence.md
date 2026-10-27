@@ -62,8 +62,8 @@ gh pr view "<PR_NUMBER>" --json number,title,url,state,headRefName
 echo "=== 5. LIVE TEST EXECUTION (SANITIZED) ==="
 <SCOPED_TEST_COMMAND> 2>&1 \
   | sed -E \
-      -e 's#/Users/[^/]+/#/Users/REDACTED/#g' \
-      -e 's#/home/[^/]+/#/home/REDACTED/#g' \
+      -e 's#/Users/[^/]+/#/<redacted-home>/#g' \
+      -e 's#/home/[^/]+/#/<redacted-home>/#g' \
       -e 's#/private/var/folders/[^[:space:]]+#/private/var/folders/REDACTED#g' \
       -e 's#/workspace/[^[:space:]]+#/workspace/REDACTED#g' \
       -e 's#/tmp/[^[:space:]]+#/tmp/REDACTED#g'
@@ -255,9 +255,9 @@ The following GitHub release example applies only when that destination is autho
   sha_short="${CAPTURED_SHA:0:12}"
   tag="evidence-pr-${PR_NUMBER}-${sha_short}-${RUN_ID}"
 
-  archive_dir="$(mktemp -d "${TMPDIR:-/tmp}/evidence_archive.XXXXXX")"
-  trap 'rm -rf "$archive_dir"' EXIT
+  archive_dir="$(mktemp -d /tmp/evidence_archive.XXXXXX)"
   zip_file="$archive_dir/$(basename "$video_file").zip"
+  trap 'rm -f -- "$zip_file"; rmdir -- "$archive_dir"' EXIT
   zip -j "$zip_file" "$video_file"
 
   assets=("$zip_file" "$preview_file")

@@ -49,7 +49,7 @@ FACTORY_HOME="${DARK_FACTORY_HOME:-$(git rev-parse --show-toplevel 2>/dev/null)}
 
 **Why `/history`, not `rg`:** The 2026-06-22 /fe --days 1 run returned 0 factory invocations using a literal `rg --max-filesize 5M -l 'dark-factory --pipeline|...' ~/.claude/projects/` — the pattern missed `nohup dark-factory ... &`, `echo CMD: dark-factory | tee /tmp/log`, and multiline `dark-factory \\\n --pipeline` invocations. /history's multi-source walker surfaces all three styles. **This rule is durable: do not hand-code `rg` for history search.**
 
-**Fallback only when /history is unavailable** (e.g., running outside Claude Code): use the Python multi-source walker documented in `docs/factory-evolve-research/proposals-2026-06-22.md` Evidence section. Code-comment the three missed patterns so future readers don't revert.
+**Fallback only when /history is unavailable** (e.g., running outside Claude Code): use the source-owned `history_search.py` helper at `${CLAUDE_HOME:-$HOME/.claude}/scripts/history_search.py`, following the source-admission and coverage rules in [`conversation-history-sparse`](../conversation-history-sparse/SKILL.md). If the helper is unavailable, record the history source as unavailable; do not substitute an unverified path or claim no runs were found.
 
 **Verification gate (mandatory):** after the search, ask: *does the count match the user's expectation?* If the user said "the last 24 hours of factory runs" and the search returns 0, **do not declare 'no runs found'** — say "I found 0, but I may be missing patterns; want me to broaden the search?" before writing the proposals doc.
 
@@ -110,7 +110,7 @@ python -m runner.prompt_substitution_audit prompts pipelines runner
 
 These checks are wired into `.github/workflows/ci.yml` as blocking CI steps on every PR touching `pipelines/` or `prompts/`. CI runs on Python 3.13.
 
-### Phase 4 — Aggregate proposals + write `docs/factory-evolve-research/proposals-YYYY-MM-DD.md`
+### Phase 4 — Aggregate proposals + write `~/roadmap/factory-evolve-proposals-YYYY-MM-DD.md`
 
 Aggregate Phase 1 (history) + Phase 2 (subagent findings) + Phase 3 (structural) into one Markdown doc with this structure:
 
@@ -153,7 +153,7 @@ Aggregate Phase 1 (history) + Phase 2 (subagent findings) + Phase 3 (structural)
 **For each [P1], [P2], ... proposal that warrants a code change**:
 
 1. **Create the bead first** (if not exists): `br create "<P[N] title>" --type task --priority <1|2|3>`.
-2. **Open a worktree for the change**: `git worktree add ../worktree-<repo>-<P[N]>-<slug> -b <branch>`.
+2. **Open a worktree for the change**: `diskm worktree-new <repo-path> <branch>` (creates it under `~/.worktrees/<repo>/<name>`).
 3. **Implement the change** in the worktree. **Mirror existing patterns** the subagent surfaced (e.g., the `${diff}` injection pattern from PR #85 for the `${lint_findings}` proposal).
 4. **Write tests** (unit + count-pinning per the `~/.claude/CLAUDE.md` "Count-pinning tests" memory entry).
 5. **Verify locally**: `.venv/bin/python -m pytest tests/` (full suite must be green).
@@ -194,7 +194,7 @@ For force-push: per `~/.claude/CLAUDE.md` "Push safety" rule, never `git push --
 
 Output:
 
-- ✅ **Nextsteps doc**: `docs/factory-evolve-research/proposals-YYYY-MM-DD.md`
+- ✅ **Nextsteps doc**: `~/roadmap/factory-evolve-proposals-YYYY-MM-DD.md`
 - ✅ **Beads created**: <$USER-xxx list with links>
 - ✅ **PRs opened**: <PR #s with links + green-status>
 - ✅ **PRs merged**: <PR #s merged in this session, with merge commit SHAs>
@@ -217,7 +217,7 @@ Output:
 
 ## Output artifacts
 
-- `docs/factory-evolve-research/proposals-YYYY-MM-DD.md` — ranked proposal list with bead links
+- `~/roadmap/factory-evolve-proposals-YYYY-MM-DD.md` — ranked proposal list with bead links
 - Beads via `br create` for each proposal that warrants a code change
 - One PR per code-change proposal, driven through `/green`
 - Memory entry at `~/.claude/projects/<project_key>/memory/project_<date>_factory_evolve_<slug>.md` if any new lessons
