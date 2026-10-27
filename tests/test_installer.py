@@ -428,23 +428,24 @@ class InstallerIntegrationTest(unittest.TestCase):
             self.assertEqual((target / "commands/command.md").read_text(encoding="utf-8"), "local command\n")
 
     def test_backup_mode_stays_outside_target_with_trailing_slash_home(self):
-        with tempfile.TemporaryDirectory() as directory:
-            temp_dir = Path(directory)
-            fixture = self.make_fixture(temp_dir)
-            target = temp_dir / "claude-home"
-            target.mkdir()
-            (target / "local.txt").write_text("keep\n", encoding="utf-8")
+        for suffix in ("/", "//"):
+            with self.subTest(suffix), tempfile.TemporaryDirectory() as directory:
+                temp_dir = Path(directory)
+                fixture = self.make_fixture(temp_dir)
+                target = temp_dir / "claude-home"
+                target.mkdir()
+                (target / "local.txt").write_text("keep\n", encoding="utf-8")
 
-            result = self.run_installer(
-                fixture, target, "--backup", extra_environment={"CLAUDE_HOME": f"{target}/"}
-            )
+                result = self.run_installer(
+                    fixture, target, "--backup", extra_environment={"CLAUDE_HOME": f"{target}{suffix}"}
+                )
 
-            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-            self.assertTrue((target / "commands/command.md").is_file())
-            self.assertFalse(list(target.glob(".backup-*")) + list(target.glob(".staging.*")))
-            backups = list(temp_dir.glob("claude-home.backup-*"))
-            self.assertEqual(len(backups), 1, backups)
-            self.assertEqual((backups[0] / "local.txt").read_text(encoding="utf-8"), "keep\n")
+                self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+                self.assertTrue((target / "commands/command.md").is_file())
+                self.assertFalse(list(target.glob(".backup-*")) + list(target.glob(".staging.*")))
+                backups = list(temp_dir.glob("claude-home.backup-*"))
+                self.assertEqual(len(backups), 1, backups)
+                self.assertEqual((backups[0] / "local.txt").read_text(encoding="utf-8"), "keep\n")
 
     def test_merge_skips_names_in_local_protected_manifest(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -502,6 +503,63 @@ class InstallerIntegrationTest(unittest.TestCase):
             self.assertIn("Cannot parse protected list", result.stderr + result.stdout)
             self.assertEqual(
                 (target / "skills/example/SKILL.md").read_text(encoding="utf-8"), "# Local operator rules\n"
+            )
+
+    def test_merge_fails_closed_when_retain_local_json_is_not_a_name_object(self):
+        variants = {
+            "directory": "Cannot read protected list",
+            "dangling-symlink": "Cannot read protected list",
+            "json-string": "Cannot parse protected list",
+            "json-list": "Cannot parse protected list",
+            "empty-object": "Cannot parse protected list",
+        }
+        for variant, expected in variants.items():
+            with self.subTest(variant), tempfile.TemporaryDirectory() as directory:
+                temp_dir = Path(directory)
+                fixture = self.make_fixture(temp_dir)
+                target = self.install_then_edit_locally(temp_dir, fixture)
+                shared = fixture / "shared"
+                shared.mkdir(parents=True, exist_ok=True)
+                path = shared / "retain-local.json"
+                if variant == "directory":
+                    path.mkdir()
+                elif variant == "dangling-symlink":
+                    path.symlink_to(temp_dir / "absent.json")
+                elif variant == "json-string":
+                    path.write_text('"example"\n', encoding="utf-8")
+                elif variant == "json-list":
+                    path.write_text('["example"]\n', encoding="utf-8")
+                else:
+                    path.write_text("{}\n", encoding="utf-8")
+
+                result = self.run_installer(fixture, target, "--merge")
+
+                output = result.stderr + result.stdout
+                self.assertNotEqual(result.returncode, 0, output)
+                self.assertIn(expected, output)
+                self.assertEqual(
+                    (target / "skills/example/SKILL.md").read_text(encoding="utf-8"), "# Local operator rules\n"
+                )
+                self.assertEqual((target / "commands/command.md").read_text(encoding="utf-8"), "local command\n")
+                self.assertFalse(list(temp_dir.glob("claude-home.merge-backup-*")))
+
+    def test_merge_backup_stays_outside_target_with_double_trailing_slash_home(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            target = self.install_then_edit_locally(temp_dir, fixture)
+
+            result = self.run_installer(
+                fixture, target, "--merge", extra_environment={"CLAUDE_HOME": f"{target}//"}
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertFalse(list(target.glob(".merge-backup-*")))
+            backups = list(temp_dir.glob("claude-home.merge-backup-*"))
+            self.assertEqual(len(backups), 1, backups)
+            self.assertEqual(
+                (backups[0] / "skills/example/SKILL.md").read_text(encoding="utf-8"),
+                "# Local operator rules\n",
             )
 
     def test_include_protected_overwrites_protected_paths_after_backing_them_up(self):

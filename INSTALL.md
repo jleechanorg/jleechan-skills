@@ -77,8 +77,12 @@ location; if the backup cannot be written it stops without overwriting
 anything. It also leaves existing skills and commands (including those under
 `commands/extended-library/`) alone when their name is listed in
 `$CLAUDE_HOME/.jleechan-skills-protected` (one name per line, `#` comments) or
-in this repository's `shared/retain-local.json`, printing each skipped path;
-`--migrate-archives` does not move them either. Add `--include-protected` to
+in this repository's `shared/retain-local.json` (when that file exists it must be
+a non-empty JSON object of names: a directory, a dangling symlink, an unreadable
+file, a JSON string or list, or an empty object stops the merge before any
+overwrite), printing each skipped path;
+`--migrate-archives` does not move them either. Every trailing slash is stripped
+from `CLAUDE_HOME` first, so the backup directory always sits beside the target. Add `--include-protected` to
 overwrite or migrate those as well (overwritten paths are still backed up
 first).
 

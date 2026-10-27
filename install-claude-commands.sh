@@ -12,6 +12,17 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
+# Backups, staging and the portable target are derived by appending a suffix to
+# CLAUDE_HOME, so every trailing slash must go; one left behind puts them inside
+# the target instead of beside it. A bare "/" stays "/".
+strip_trailing_slashes() {
+    local path="$1"
+    while [ "${#path}" -gt 1 ] && [ "${path%/}" != "$path" ]; do
+        path="${path%/}"
+    done
+    printf '%s\n' "$path"
+}
+
 # Logging functions
 log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
 log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
@@ -22,7 +33,7 @@ log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 PLUGIN_SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Active Claude Code directories (system-level)
-CLAUDE_HOME="${CLAUDE_HOME:-$HOME/.claude}"
+CLAUDE_HOME="$(strip_trailing_slashes "${CLAUDE_HOME:-$HOME/.claude}")"
 CLAUDE_AGENTS_DIR="$CLAUDE_HOME/agents"
 CLAUDE_COMMANDS_DIR="$CLAUDE_HOME/commands"
 CLAUDE_SCRIPTS_DIR="$CLAUDE_HOME/scripts"
@@ -66,8 +77,10 @@ is separate because matching names may be user-authored; combine --merge with
 CLAUDE_HOME.merge-backup-<timestamp>-<pid>, and aborts before writing if that
 backup fails. It skips existing skills and commands named in
 CLAUDE_HOME/.jleechan-skills-protected (one name per line, # comments) or in
-the source's shared/retain-local.json, and --migrate-archives leaves them in
-place; --include-protected overwrites or migrates them too.
+the source's shared/retain-local.json (a required JSON object of names when the
+file is present; unreadable, malformed or empty data aborts the merge), and
+--migrate-archives leaves them in place; --include-protected overwrites or
+migrates them too.
 EOF
 }
 
@@ -103,7 +116,7 @@ install_portable() {
         return 1
     fi
     python3 "$PLUGIN_SRC_DIR/scripts/verify_portable_skills.py" "$PLUGIN_SRC_DIR/portable"
-    CLAUDE_HOME="$(python3 "$PLUGIN_SRC_DIR/scripts/verify_portable_skills.py" --target "${PORTABLE_HOME:-}" --canonical-home "$canonical_home")"
+    CLAUDE_HOME="$(strip_trailing_slashes "$(python3 "$PLUGIN_SRC_DIR/scripts/verify_portable_skills.py" --target "${PORTABLE_HOME:-}" --canonical-home "$canonical_home")")"
     INSTALL_ROOT="$CLAUDE_HOME"
     prepare_target
     install_component "$PLUGIN_SRC_DIR/portable/skills" "$INSTALL_ROOT/skills" "skills"
@@ -163,7 +176,7 @@ prepare_target() {
     fi
     if [ "$INSTALL_MODE" = "backup" ]; then
         mkdir -p "$(dirname "$CLAUDE_HOME")"
-        STAGING_DIR="$(mktemp -d "${CLAUDE_HOME%/}.staging.XXXXXX")"
+        STAGING_DIR="$(mktemp -d "${CLAUDE_HOME}.staging.XXXXXX")"
         INSTALL_ROOT="$STAGING_DIR"
         log_info "Staging backup installation in $STAGING_DIR"
     else
@@ -323,7 +336,7 @@ finalize_backup_install() {
     [ "$INSTALL_MODE" = "backup" ] || return 0
 
     if [ -e "$CLAUDE_HOME" ]; then
-        BACKUP_PATH="${CLAUDE_HOME%/}.backup-$(date +%Y%m%d%H%M%S)"
+        BACKUP_PATH="${CLAUDE_HOME}.backup-$(date +%Y%m%d%H%M%S)"
         if [ -e "$BACKUP_PATH" ]; then
             log_error "Backup path already exists: $BACKUP_PATH"
             return 1
@@ -377,10 +390,34 @@ load_protected_names() {
             [ -n "$line" ] && PROTECTED_NAMES+=("$line")
         done < "$manifest"
     fi
-    if [ -f "$retain_json" ]; then
+    # Safety metadata: anything that exists at that path must be a readable regular
+    # file holding a non-empty JSON object of names. A directory, a dangling
+    # symlink, a JSON string or list, or an unreadable file stops the merge here
+    # instead of silently protecting nothing and overwriting local edits.
+    if [ -e "$retain_json" ] || [ -L "$retain_json" ]; then
+        if [ -L "$retain_json" ] || [ ! -f "$retain_json" ] || [ ! -r "$retain_json" ]; then
+            log_error "Cannot read protected list (needs a regular readable file): $retain_json"
+            return 1
+        fi
         names_file="$(mktemp "${TMPDIR:-/tmp}/claude-install-protected.XXXXXX")"
-        if ! python3 -c 'import json, sys; print("\n".join(json.load(open(sys.argv[1]))))' \
-            "$retain_json" > "$names_file"; then
+        if ! python3 - "$retain_json" > "$names_file" <<'PROTECTED_NAMES_PY'
+import json
+import sys
+
+path = sys.argv[1]
+try:
+    with open(path, encoding="utf-8") as handle:
+        data = json.load(handle)
+except (OSError, ValueError) as error:
+    sys.exit(f"Cannot parse protected list {path}: {error}")
+if not isinstance(data, dict):
+    sys.exit(f"Cannot parse protected list {path}: expected a JSON object of name -> reason")
+names = [key for key in data if isinstance(key, str) and key.strip()]
+if not names or len(names) != len(data):
+    sys.exit(f"Cannot parse protected list {path}: keys must be non-empty names")
+print("\n".join(names))
+PROTECTED_NAMES_PY
+        then
             log_error "Cannot parse protected list: $retain_json"
             rm -f -- "$names_file"
             return 1
@@ -461,7 +498,7 @@ paths_differ() {
 backup_merge_path() {
     local relative="$1" parent_rel="."
     if [ -z "$MERGE_BACKUP_DIR" ]; then
-        MERGE_BACKUP_DIR="${CLAUDE_HOME%/}.merge-backup-$(date +%Y%m%d%H%M%S)-$$"
+        MERGE_BACKUP_DIR="${CLAUDE_HOME}.merge-backup-$(date +%Y%m%d%H%M%S)-$$"
         if ! mkdir "$MERGE_BACKUP_DIR"; then
             log_error "Cannot create merge backup directory: $MERGE_BACKUP_DIR"
             return 1
