@@ -47,21 +47,25 @@ Nothing is lost and nothing starts over. Verified on 9 Codex lanes at once: each
 
 4. **Restart with the wrapper — aimed at THIS conversation.** `codexc` is `codex resume --last`, and
    "last" is not "this one": a newer conversation in the same directory wins. So resolve the lane's
-   session id from the pre-restart process listing and resume it explicitly (`codex resume <uuid>`).
-   If the id cannot be resolved, stop — do not fall back to `--last`. Then submit with an explicit Enter:
+   session id from the pre-restart process listing and resume it explicitly. If the id cannot be
+   resolved, stop — do not fall back to `--last`. `claudec`/`claudewac` cannot be identity-verified this
+   way, so a Claude lane is refused rather than resumed blind.
    ```bash
-   cmux send --workspace <ws> --surface <sf> "codexc"   # or claudec / claudewac
-   cmux send-key --workspace <ws> --surface <sf> enter
+   cmux send --force --workspace <ws> --surface <sf> "codex resume <uuid>"
+   cmux send-key --force --workspace <ws> --surface <sf> enter
    ```
-   A Codex resume can open a goal dialog (`1. Resume goal` / `2. Leave paused`). It lands on
-   `1. Resume goal` — one `enter` accepts it.
+   **Do not accept a goal dialog here.** A Codex resume can open `1. Resume goal` / `2. Leave paused`,
+   and pressing Enter lets the lane start work immediately. Acceptance happens only in step 5, after the
+   resumed conversation has been proven to be the right one.
 
 5. **Verify from the process, not the screen — and require a NEW pid.**
    ```bash
    ps -Ao tty,pid,etime,command | awk '$1=="ttysNNN" && /codex resume|claude/'
    ```
    Snapshot the pids before the restart and require one that was not there, **and** require the resumed
-   conversation to be the same id (a `--last` resume into a different session exits 10): an old process that
+   conversation to be the same id (a `--last` resume into a different session exits 10). **Only after
+   that check passes** may a `Resume goal` dialog be accepted — a wrong or unknown session must never
+   reach the point where the lane begins work: an old process that
    survived is **not** a restart, and `bash: 5ucodexc: command not found` leaves exactly that
    situation (the old TUI still running while your command never ran). Check the `send` and `Enter`
    exit codes too; a swallowed send failure must not be reported as success.

@@ -260,11 +260,9 @@ cmx send --force --workspace "$WS" --surface "$SF" "$cmd" >/dev/null || { echo "
 sleep 1
 cmx send-key --force --workspace "$WS" --surface "$SF" enter >/dev/null || { echo "ABORT: Enter failed; '$cmd' may sit unsent"; exit 8; }
 sleep 15
-# 4. accept a goal-resume dialog if one opened
-if cmx capture-pane --workspace "$WS" --surface "$SF" --lines 10 | grep -q 'Resume goal'; then
-  cmx send-key --force --workspace "$WS" --surface "$SF" enter >/dev/null; sleep 8
-fi
-# 5. verify at the process level
+# 4. verify at the process level BEFORE touching any goal dialog: accepting a goal
+#    lets the lane start work, so a wrong or unknown session must be rejected first
+#    (dot reviews at 34b11e7c / 16ce00a4).
 t2=$(tty_of "$WS" "$SF")
 if [[ -z "$t2" || "$t2" != "$t_pre" ]]; then
   echo "UNVERIFIED: tty changed or unreadable (pre=${t_pre:-none} post=${t2:-none}); cannot compare pids" >&2; exit 6
@@ -287,7 +285,15 @@ if [[ -n "$new_pids" ]]; then
       [[ -n "$u" ]] && new_uuids="$new_uuids $u"
     done
     case " $new_uuids " in
-      *" $target "*) echo "RESTARTED same conversation $target on new pid(s)=$(printf '%s' "$new_pids" | tr '\n' ' ')"; exit 0 ;;
+      *" $target "*)
+        # identity confirmed -> only now may a paused goal be resumed
+        if cmx capture-pane --workspace "$WS" --surface "$SF" --lines 10 2>/dev/null | grep -q 'Resume goal'; then
+          cmx send-key --force --workspace "$WS" --surface "$SF" enter >/dev/null 2>&1; sleep 8
+          echo "RESTARTED same conversation $target on new pid(s)=$(printf '%s' "$new_pids" | tr '\n' ' '); goal dialog accepted after identity check"
+        else
+          echo "RESTARTED same conversation $target on new pid(s)=$(printf '%s' "$new_pids" | tr '\n' ' ')"
+        fi
+        exit 0 ;;
       *) echo "FAILED: new pid(s) $(printf '%s' "$new_pids" | tr '\n' ' ') resumed '${new_uuids:-unknown}' but the lane was '$target'" >&2; exit 10 ;;
     esac
   fi

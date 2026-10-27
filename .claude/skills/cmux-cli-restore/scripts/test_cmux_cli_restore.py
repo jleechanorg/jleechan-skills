@@ -24,12 +24,14 @@ class StubCmux:
 
     def __init__(self, mode: str):
         self.dir = Path(tempfile.mkdtemp(prefix="cmux-stub-"))
+        self.marker = self.dir / "resumed"
         self.log = self.dir / "calls.log"
         self.log.write_text("")
         stub = self.dir / "cmux"
-        stub.write_text(
+        body = (
             "#!/bin/bash\n"
             f'printf "%s\\n" "$*" >> "{self.log}"\n'
+            'case "$*" in *"codex resume"*) : > "__MARK__" ;; esac\n'
             'case "$*" in\n'
             '  *top*)\n'
             '    printf "%s\\n" "  0.0% 0 B 0 surface ' + SF + ' [terminal] tty=ttys003"; exit 0 ;;\n'
@@ -39,10 +41,17 @@ class StubCmux:
             '      empty) exit 0 ;;\n'
             '      gate) printf "%s\\n" "Goal remains blocked pending human merge approval"; exit 0 ;;\n'
             '      clean) printf "%s\\n" "user@host:~/work$"; exit 0 ;;\n'
+            '      goal) printf "%s\\n" "  1. Resume goal   Mark it active and continue when idle" "  2. Leave paused"; exit 0 ;;\n'
+            '      goal2) if [ -f "__MARK__" ]; then\n'
+            '               printf "%s\\n" "  1. Resume goal   Mark it active and continue when idle" "  2. Leave paused";\n'
+            '             else\n'
+            '               printf "%s\\n" "user@host:~/work$";\n'
+            '             fi; exit 0 ;;\n'
             '    esac ;;\n'
             '  *) exit 0 ;;\n'
             'esac\n'
-        )
+        ).replace("__MARK__", str(self.marker))
+        stub.write_text(body)
         stub.chmod(stub.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
 
     def calls(self) -> list[str]:
@@ -286,3 +295,71 @@ class RestartVerificationTest(unittest.TestCase):
         proc = self._run_with(stub, ps)
         self.assertEqual(proc.returncode, 10, proc.stdout + proc.stderr)
         self.assertNotIn("RESTARTED", proc.stdout)
+
+
+class GoalAcceptanceOrderingTest(unittest.TestCase):
+    """dot review at 34b11e7c: a goal accept Enter fired BEFORE identity verification.
+
+    Accepting a goal lets the lane start work, so a wrong or unknown session must be
+    rejected with no acceptance at all. The only Enter allowed on a failure path is the
+    one that submits the resume command itself.
+    """
+
+    def _run(self, pids_script: str, mode: str = "goal"):
+        tmp = Path(tempfile.mkdtemp(prefix="fakeps-goal-"))
+        ps = tmp / "fakeps"
+        ps.write_text(pids_script.replace("__TMP__", str(tmp)))
+        ps.chmod(0o755)
+        stub = StubCmux(mode)
+        env = dict(os.environ)
+        env["PATH"] = f"{stub.dir}:{env.get('PATH', '')}"
+        env["CMUX_CLI_RESTORE_PS"] = str(ps)
+        proc = subprocess.run(
+            ["bash", str(SCRIPT), "--workspace", WS, "--surface", SF, "--cli", "codex"],
+            capture_output=True, text=True, env=env, timeout=180,
+        )
+        enters = [c for c in stub.calls() if "send-key" in c and c.rstrip().endswith("enter")]
+        return proc, enters
+
+    def test_wrong_session_with_visible_goal_is_never_accepted(self):
+        script = (
+            "#!/bin/bash\n"
+            'state="__TMP__/calls"\n'
+            'n=$(cat "$state" 2>/dev/null || echo 0)\n'
+            'echo $((n+1)) > "$state"\n'
+            'if [ "$n" = "0" ]; then\n'
+            '  echo "ttys003 100 00:10 /usr/bin/command codex resume 01a174a5-7202-7af3-831e-0bfb5ae8544a"\n'
+            "else\n"
+            '  echo "ttys003 200 00:01 /usr/bin/command codex resume 01a99999-dead-beef-0000-111122223333"\n'
+            "fi\n"
+        )
+        proc, enters = self._run(script, mode="goal2")
+        self.assertEqual(proc.returncode, 10, proc.stdout + proc.stderr)
+        self.assertEqual(len(enters), 1, f"goal was accepted before identity check: {enters}")
+        self.assertNotIn("goal dialog accepted", proc.stdout)
+
+    def test_unknown_session_with_visible_goal_is_never_accepted(self):
+        script = (
+            "#!/bin/bash\n"
+            'echo "ttys003 100 00:10 node /opt/codex/bin/codex.js"\n'
+        )
+        proc, enters = self._run(script, mode="goal2")
+        self.assertEqual(proc.returncode, 11, proc.stdout + proc.stderr)
+        self.assertEqual(enters, [], f"keys sent without an id: {enters}")
+
+    def test_correct_session_then_accepts_goal(self):
+        script = (
+            "#!/bin/bash\n"
+            'state="__TMP__/calls"\n'
+            'n=$(cat "$state" 2>/dev/null || echo 0)\n'
+            'echo $((n+1)) > "$state"\n'
+            'if [ "$n" = "0" ]; then\n'
+            '  echo "ttys003 100 00:10 /usr/bin/command codex resume 01a174a5-7202-7af3-831e-0bfb5ae8544a"\n'
+            "else\n"
+            '  echo "ttys003 200 00:01 /usr/bin/command codex resume 01a174a5-7202-7af3-831e-0bfb5ae8544a"\n'
+            "fi\n"
+        )
+        proc, enters = self._run(script, mode="goal2")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("goal dialog accepted after identity check", proc.stdout)
+        self.assertEqual(len(enters), 2, f"expected resume Enter + goal Enter: {enters}")
