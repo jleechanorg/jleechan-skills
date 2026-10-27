@@ -113,7 +113,7 @@ Aside is a Y Combinator–backed AI-native Chromium browser launched June 2026. 
   ```
 - **Account switching** (rare; for multi-account flows):
   ```bash
-  aside --account u1 "open https://example.com"
+  aside --account <agent-owned-account-id> "open https://example.com"
   ```
 
 ### Phase 3 — After session

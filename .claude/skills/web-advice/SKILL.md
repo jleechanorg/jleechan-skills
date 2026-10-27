@@ -10,7 +10,7 @@ description: Browser-based multi-model advice and review using ChatGPT, Gemini, 
 | Skill | Mechanism | When to use |
 |---|---|---|
 | `/advice` | In-session: subagent + /secondo + /research | Architectural reasoning, ZFC reviews, code-path analysis |
-| `/web-advice` | Browser: ChatGPT + Gemini + Perplexity Web; isolated headless by default, existing verified task-owned Aside supported | Independent external multi-model advice or review; visual/video context; web-search grounding |
+| `/web-advice` | Browser: ChatGPT + Gemini + Perplexity Web; Aside in background mode on an agent-owned profile for the logged-in vendor sites; isolated headless otherwise | Independent external multi-model advice or review; visual/video context; web-search grounding |
 | `/er` | In-session: evidence-standards skill | Evidence bundle integrity (4-gate checksum/SHA/real-services) |
 
 ## Real-Browser Transport Contract: Runtime-Specific
@@ -22,9 +22,9 @@ description: Browser-based multi-model advice and review using ChatGPT, Gemini, 
 > `/web-advice` MUST use browser navigation and DOM automation against the real
 > vendor web-chat sites. In an interactive chat app, prefer that app's owned
 > built-in browser and create a new vendor chat when its browser context is
-> separately task-owned. In a coding CLI or Bash run, isolated headless
-> Chromium is the default. Use Aside in background mode on an agent-owned
-> profile (aside-browser-default § Background mode). Follow the [browser-control
+> separately task-owned. In a coding CLI or Bash run, use Aside in background
+> mode on an agent-owned profile (aside-browser-default § Background mode) for
+> the logged-in vendor sites; isolated headless Chromium otherwise. Follow the [browser-control
 > contract](../browser-control/SKILL.md) for browser ownership and
 > authentication: never attach to personal/default Chrome or use its profile
 > or cookies. Cookie transfer requires explicit current-task authorization for
@@ -173,9 +173,9 @@ The prompt should be materially the same for each model; adapt only for a model'
 
 ## Browser Execution Protocol
 
-First follow the [browser-control route](../browser-control/SKILL.md): isolated
-headless Chromium is the default, and Aside is usable in background mode on an
-agent-owned profile (aside-browser-default § Background mode). Use the examples
+First follow the [browser-control route](../browser-control/SKILL.md): the
+logged-in vendor sites use Aside in background mode on an agent-owned profile
+(aside-browser-default § Background mode); isolated headless Chromium otherwise. Use the examples
 below only in such a verified Aside context; apply the same selectors and
 evidence checks to a Playwright `Page` when the supported isolated fallback is
 selected.
