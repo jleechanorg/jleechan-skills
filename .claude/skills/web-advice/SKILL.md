@@ -611,5 +611,5 @@ Recovery:
 - 4-gate pre-flight: `~/.claude/skills/evidence-standards/SKILL.md`
 - Browser ownership and authentication: [browser-control](../browser-control/SKILL.md)
 - Browser automation examples: `references/browser-transports.md` (isolated
-  headless by default; existing Aside only when verified task-owned)
+  headless by default; Aside in background mode on an agent-owned profile)
 - Companion skill: `/advice` (in-session multi-reviewer)

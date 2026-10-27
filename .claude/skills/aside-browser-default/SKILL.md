@@ -90,7 +90,7 @@ Do not assume a failing standalone CLI means the browser tool is dead, or that a
   ```
 - **NL agent pattern** (best for "find X on this site" tasks):
   ```bash
-  aside --effort ultrabrowse "Find the next available AirBnB near 1127 Riverside Drive that sleeps 4 and has AC, return the listing URL + price + availability dates"
+  aside --account <agent-account> --effort ultrabrowse "Find the next available AirBnB near 1127 Riverside Drive that sleeps 4 and has AC, return the listing URL + price + availability dates"
   ```
 - **Live tab list pattern** (when an Aside tab is already open):
   ```js

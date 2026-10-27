@@ -19,7 +19,7 @@ Apply the personal browser isolation contract in `~/.claude/skills/browser-contr
 | Tool | Default | Visible-mode boundary |
 |------|---------|--------------------------------------|
 | **Playwright MCP** | **DEFAULT**, isolated headless | headed unless explicitly requested in the current thread and isolated in a separate task-owned profile/context |
-| **Aside CLI / `aside-mcp`** | optional only when verified agent-owned and background | launching/activating app; using personal browser state |
+| **Aside CLI / `aside-mcp`** | background mode on an agent-owned profile (aside-browser-default § Background mode) | activating/foregrounding the app; personal profile or browser state |
 | **superpowers-chrome** (`chrome_use_browser`) | fallback in isolated headless mode | headed unless explicitly requested in the current thread and isolated in a separate task-owned profile/context |
 | **claude-in-chrome / GUI Chrome** | do not use for localhost | driving a visible desktop browser for automation |
 
