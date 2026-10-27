@@ -1,0 +1,84 @@
+{
+  "default_profile": "default",
+  "closure_excluded": [
+    "dot",
+    "dot-coordinator",
+    "agy-dot-coordinator",
+    "web-advice",
+    "browser-control",
+    "slack-media-upload",
+    "github-cli-reference",
+    "claw-dispatch",
+    "ao-operator-discipline"
+  ],
+  "profiles": {
+    "default": {
+      "description": "The README Skills at a Glance catalog without its browser-review rows (add them with --profile web or --with)",
+      "skills": [
+        "advice",
+        "ablation",
+        "repro-evidence",
+        "research",
+        "memory-search",
+        "evidence-review",
+        "dark-factory",
+        "evidence-standards",
+        "skillify",
+        "harness-engineering",
+        "learn",
+        "4layer",
+        "redgreen",
+        "parallelize-to-ceiling",
+        "superpowers-quick",
+        "conversation-history-sparse",
+        "sidekick",
+        "swarm"
+      ]
+    },
+    "highlights-prw": {
+      "description": "The highlighted rows (minus /web-advice) plus the PR workflow set",
+      "include": [
+        "prw"
+      ],
+      "skills": [
+        "superpowers-quick",
+        "advice",
+        "redgreen",
+        "4layer",
+        "evidence-review",
+        "harness-engineering"
+      ]
+    },
+    "prw": {
+      "description": "The PR workflow set only",
+      "skills": [
+        "prw",
+        "pr-workflow",
+        "pr-workflow-manager",
+        "draft-first-pr",
+        "pr-lifecycle",
+        "pr-green-definition",
+        "ready",
+        "advice",
+        "evidence-standards",
+        "evidence-review",
+        "testing-layers",
+        "code-standards"
+      ],
+      "commands": [
+        "es",
+        "er",
+        "green",
+        "cs"
+      ]
+    },
+    "web": {
+      "description": "Opt-in browser review: advice, web-advice and browser-control",
+      "skills": [
+        "advice",
+        "web-advice",
+        "browser-control"
+      ]
+    }
+  }
+}

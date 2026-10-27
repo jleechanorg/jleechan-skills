@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # 🚨 Claude Commands Installation Script
-# Installs the complete Claude Code command system for development workflows
+# Installs a curated Claude Code skill profile (default) or the full library (--all)
 
 set -euo pipefail
 
@@ -61,11 +61,30 @@ INCLUDE_PROTECTED=false
 PROTECTED_NAMES=()
 PROTECTED_PATHS=()
 MERGE_BACKUP_DIR=""
+PROFILE_NAME=""
+INSTALL_ALL=false
+WITH_ARGS=()
+# "|component/path|" entries chosen by the profile; an --all install selects everything.
+SELECTION_ACTIVE=false
+SELECTED_INDEX="|"
+PROFILE_SKILLS=0
+PROFILE_COMMANDS=0
+PROFILE_AGENTS=0
+PROFILE_SCRIPT="$PLUGIN_SRC_DIR/scripts/install_profiles.py"
 
 show_usage() {
     cat <<EOF
-Usage: $(basename "$0") [--merge [--migrate-archives] [--include-protected] | --backup]
+Usage: $(basename "$0") [[--profile NAME] [--with SKILL]... | --all] [--merge [--migrate-archives] [--include-protected] | --backup]
        PORTABLE_HOME=/absolute/dedicated/package $(basename "$0") --portable [--backup]
+
+With no profile flag the curated default profile is installed. --profile NAME
+installs that profile's skills plus every in-repo skill they link to, the
+command aliases whose target skill is installed, and the agents and scripts
+those files reference. Closure never adds a skill on the profile data's
+closure_excluded list (browser, cookie and personal-infra skills); name one in a
+profile or add it with --with SKILL (repeatable). --all installs the full
+library (the pre-profile behaviour). Profiles are defined in
+shared/install-profiles.json.
 
 Installs into CLAUDE_HOME (default: ~/.claude). A nonempty target is refused
 by default. Use --merge to explicitly update source-managed files in place, or
@@ -82,6 +101,13 @@ file is present; unreadable, malformed or empty data aborts the merge), and
 --migrate-archives leaves them in place; --include-protected overwrites or
 migrates them too.
 EOF
+    if [ -f "$PROFILE_SCRIPT" ] && command -v python3 >/dev/null 2>&1; then
+        echo
+        echo "Profiles:"
+        python3 "$PROFILE_SCRIPT" "$PLUGIN_SRC_DIR" --list || true
+        echo "  all"
+        echo "      The full library (--all)"
+    fi
 }
 
 parse_arguments() {
@@ -92,6 +118,23 @@ parse_arguments() {
             --include-protected) INCLUDE_PROTECTED=true ;;
             --backup) INSTALL_MODE="backup" ;;
             --portable) PORTABLE=true ;;
+            --all) INSTALL_ALL=true ;;
+            --profile)
+                if [ "$#" -lt 2 ] || [ -z "$2" ]; then
+                    log_error "--profile requires a name"
+                    return 1
+                fi
+                PROFILE_NAME="$2"
+                shift
+                ;;
+            --with)
+                if [ "$#" -lt 2 ] || [ -z "$2" ]; then
+                    log_error "--with requires a skill name"
+                    return 1
+                fi
+                WITH_ARGS+=(--with "$2")
+                shift
+                ;;
             -h|--help) show_usage; exit 0 ;;
             *) log_error "Unknown option: $1"; show_usage >&2; return 1 ;;
         esac
@@ -104,6 +147,95 @@ parse_arguments() {
     if [ "$INCLUDE_PROTECTED" = true ] && [ "$INSTALL_MODE" != "merge" ]; then
         log_error "--include-protected requires --merge"
         return 1
+    fi
+    if [ "$INSTALL_ALL" = true ] && [ -n "$PROFILE_NAME" ]; then
+        log_error "--all and --profile are mutually exclusive"
+        return 1
+    fi
+    if [ "$INSTALL_ALL" = true ] && [ "${#WITH_ARGS[@]}" -gt 0 ]; then
+        log_error "--with adds to a profile; --all already installs every skill"
+        return 1
+    fi
+    if [ "$PORTABLE" = true ] && { [ "$INSTALL_ALL" = true ] || [ -n "$PROFILE_NAME" ] || [ "${#WITH_ARGS[@]}" -gt 0 ]; }; then
+        log_error "--portable installs its own manifest; it does not take --profile, --with or --all"
+        return 1
+    fi
+}
+
+# Resolves the profile before any write, so an unknown or malformed profile
+# leaves the target untouched.
+load_profile_selection() {
+    local entries_file entry
+    if [ "$INSTALL_ALL" = true ] || [ "$PROFILE_NAME" = "all" ]; then
+        if [ "${#WITH_ARGS[@]}" -gt 0 ]; then
+            log_error "--with adds to a profile; --all already installs every skill"
+            return 1
+        fi
+        PROFILE_NAME="all"
+        return 0
+    fi
+    if [ ! -f "$PROFILE_SCRIPT" ]; then
+        log_error "Profile resolver missing: $PROFILE_SCRIPT (use --all for the full library)"
+        return 1
+    fi
+    if [ -z "$PROFILE_NAME" ]; then
+        if ! PROFILE_NAME="$(python3 "$PROFILE_SCRIPT" "$PLUGIN_SRC_DIR" --default)"; then
+            log_error "Cannot determine the default install profile"
+            return 1
+        fi
+    fi
+    entries_file="$(mktemp "${TMPDIR:-/tmp}/claude-install-profile.XXXXXX")"
+    if ! python3 "$PROFILE_SCRIPT" "$PLUGIN_SRC_DIR" --resolve "$PROFILE_NAME" ${WITH_ARGS[@]+"${WITH_ARGS[@]}"} > "$entries_file"; then
+        rm -f -- "$entries_file"
+        log_error "Cannot resolve install profile: $PROFILE_NAME"
+        return 1
+    fi
+    while IFS= read -r entry; do
+        [ -n "$entry" ] || continue
+        SELECTED_INDEX="$SELECTED_INDEX$entry|"
+        case "$entry" in
+            skills/*) PROFILE_SKILLS=$((PROFILE_SKILLS + 1)) ;;
+            commands/*.md) PROFILE_COMMANDS=$((PROFILE_COMMANDS + 1)) ;;
+            agents/*) PROFILE_AGENTS=$((PROFILE_AGENTS + 1)) ;;
+        esac
+    done < "$entries_file"
+    rm -f -- "$entries_file"
+    SELECTION_ACTIVE=true
+}
+
+# Succeeds when component $1's relative path $2, or one of its parent
+# directories, was selected by the profile; always succeeds for --all.
+is_selected_entry() {
+    local prefix="" rest="$2" part
+    [ "$SELECTION_ACTIVE" = true ] || return 0
+    while [ -n "$rest" ]; do
+        if [ "${rest#*/}" = "$rest" ]; then
+            part="$rest"
+            rest=""
+        else
+            part="${rest%%/*}"
+            rest="${rest#*/}"
+        fi
+        prefix="${prefix:+$prefix/}$part"
+        case "$SELECTED_INDEX" in
+            *"|$1/$prefix|"*) return 0 ;;
+        esac
+    done
+    return 1
+}
+
+# Counts for an --all install; a component directory the source lacks counts as zero.
+count_full_library() {
+    if [ -d "$SRC_SKILLS_DIR" ]; then
+        PROFILE_SKILLS="$(find "$SRC_SKILLS_DIR" -mindepth 1 -maxdepth 1 -type d \
+            ! -name _archive ! -name '_archived_*' | wc -l | tr -d ' ')"
+    fi
+    if [ -d "$SRC_COMMANDS_DIR" ]; then
+        PROFILE_COMMANDS="$(find "$SRC_COMMANDS_DIR" -type d \( -name __pycache__ -o -name .pytest_cache \) -prune \
+            -o -type f -name '*.md' -print | wc -l | tr -d ' ')"
+    fi
+    if [ -d "$SRC_AGENTS_DIR" ]; then
+        PROFILE_AGENTS="$(find "$SRC_AGENTS_DIR" -type f -name '*.md' | wc -l | tr -d ' ')"
     fi
 }
 
@@ -531,6 +663,7 @@ backup_merge_collisions() {
         while IFS= read -r -d '' relative; do
             relative="${relative#./}"
             is_protected_entry "$component" "$relative" && continue
+            is_selected_entry "$component" "$relative" || continue
             parent_rel="."
             case "$relative" in */*) parent_rel="${relative%/*}" ;; esac
             find_linked_parent "$INSTALL_ROOT/$component" "$parent_rel" && continue
@@ -546,6 +679,7 @@ backup_merge_collisions() {
     rm -f -- "$listing_file"
     for extra in history_search.py integrate.sh; do
         [ -f "$PLUGIN_SRC_DIR/scripts/$extra" ] || continue
+        is_selected_entry extra "$extra" || continue
         path_exists "$INSTALL_ROOT/scripts/$extra" || continue
         paths_differ "$PLUGIN_SRC_DIR/scripts/$extra" "$INSTALL_ROOT/scripts/$extra" || continue
         backup_merge_path "scripts/$extra" || return 1
@@ -554,7 +688,8 @@ backup_merge_collisions() {
     # Install rewrites the helper's ownership receipt; keep it paired with the
     # backed-up helper so a restored helper is still recognised as installer-owned.
     receipt="$INSTALL_ROOT/scripts/.history_search.py.sha256"
-    if [ -f "$PLUGIN_SRC_DIR/scripts/history_search.py" ] && [ -f "$receipt" ] &&
+    if [ -f "$PLUGIN_SRC_DIR/scripts/history_search.py" ] && is_selected_entry extra history_search.py &&
+       [ -f "$receipt" ] &&
        [ "$(tr -d '[:space:]' < "$receipt")" != "$(file_sha256 "$PLUGIN_SRC_DIR/scripts/history_search.py")" ]; then
         backup_merge_path "scripts/.history_search.py.sha256" || return 1
         count=$((count + 1))
@@ -633,6 +768,7 @@ install_component() {
                 */*) parent_rel="${relative%/*}" ;;
             esac
             is_protected_entry "$component_name" "$relative" && continue
+            is_selected_entry "$component_name" "$relative" || continue
             local skip_file=false
             local linked_owner=""
             if [ "$parent_rel" != "." ]; then
@@ -738,6 +874,7 @@ preflight_history_helper() {
     local destination="$scripts_dir/history_search.py"
     local receipt="$scripts_dir/.history_search.py.sha256"
     [ -f "$source" ] || return 0
+    is_selected_entry extra history_search.py || return 0
 
     if [ -L "$scripts_dir" ] ||
        { path_exists "$scripts_dir" && [ ! -d "$scripts_dir" ]; }; then
@@ -798,7 +935,7 @@ preflight_history_helper() {
 # Copy scripts to ~/.claude/scripts/
 install_scripts() {
     install_component "$SRC_SCRIPTS_DIR" "$INSTALL_ROOT/scripts" "scripts"
-    if [ -f "$PLUGIN_SRC_DIR/scripts/history_search.py" ]; then
+    if [ -f "$PLUGIN_SRC_DIR/scripts/history_search.py" ] && is_selected_entry extra history_search.py; then
         preflight_history_helper
         mkdir -p "$INSTALL_ROOT/scripts"
         rm -f "$INSTALL_ROOT/scripts/history_search.py"
@@ -807,7 +944,9 @@ install_scripts() {
         rm -f "$receipt"
         file_sha256 "$INSTALL_ROOT/scripts/history_search.py" > "$receipt"
     fi
-    if [ -f "$SRC_INTEGRATE_SCRIPT" ]; then
+    if ! is_selected_entry extra integrate.sh; then
+        :
+    elif [ -f "$SRC_INTEGRATE_SCRIPT" ]; then
         mkdir -p "$INSTALL_ROOT/scripts"
         rm -f "$INSTALL_ROOT/scripts/integrate.sh"
         cp -a "$SRC_INTEGRATE_SCRIPT" "$INSTALL_ROOT/scripts/integrate.sh"
@@ -825,7 +964,7 @@ install_skills() {
 # Environment validation
 validate_installation() {
     local component source_dir relative destination_file files_checked=0
-    if [ -f "$PLUGIN_SRC_DIR/scripts/history_search.py" ] &&
+    if [ -f "$PLUGIN_SRC_DIR/scripts/history_search.py" ] && is_selected_entry extra history_search.py &&
        ! cmp -s "$PLUGIN_SRC_DIR/scripts/history_search.py" "$INSTALL_ROOT/scripts/history_search.py"; then
         log_error "Manifest validation failed for scripts/history_search.py"
         return 1
@@ -840,6 +979,7 @@ validate_installation() {
         while IFS= read -r -d '' relative; do
             relative="${relative#./}"
             is_protected_entry "$component" "$relative" && continue
+            is_selected_entry "$component" "$relative" || continue
             local cur_dir="$INSTALL_ROOT/$component"
             local part
             # Same newline-safe parent split as the install path: `read` and
@@ -906,7 +1046,7 @@ validate_installation() {
             list_installable_files "$component"
         )
     done
-    if [ -f "$SRC_INTEGRATE_SCRIPT" ]; then
+    if [ -f "$SRC_INTEGRATE_SCRIPT" ] && is_selected_entry extra integrate.sh; then
         if [ ! -f "$INSTALL_ROOT/scripts/integrate.sh" ] || \
             ! cmp -s "$SRC_INTEGRATE_SCRIPT" "$INSTALL_ROOT/scripts/integrate.sh"; then
             log_error "Manifest validation failed for scripts/integrate.sh"
@@ -930,9 +1070,11 @@ main() {
         install_portable
         return
     fi
+    load_profile_selection
+    [ "$SELECTION_ACTIVE" = true ] || count_full_library
     echo
     log_info "Claude Commands Installation Script"
-    log_info "Installing complete Claude Code command system..."
+    log_info "Profile: $PROFILE_NAME"
     log_info "Source: $PLUGIN_SRC_DIR"
     log_info "Target: $CLAUDE_HOME"
     echo
@@ -951,6 +1093,7 @@ main() {
     finalize_backup_install
 
     echo
+    log_success "Installed profile '$PROFILE_NAME': $PROFILE_SKILLS skills, $PROFILE_COMMANDS commands, $PROFILE_AGENTS agents"
     show_next_steps
     echo
     log_success "Installation complete!"

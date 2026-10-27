@@ -7,7 +7,36 @@ installs only its manifest scope, and leaves the canonical Claude workflows alon
 This export is skills-first: every canonical package is under
 `.claude/skills/<skill>/SKILL.md`; slash-command files are optional pointers.
 
-The bundled installer copies four component trees into `CLAUDE_HOME`:
+The default is now a curated profile, not the full library. With no flag the
+installer copies the `default` profile: the README's Skills at a Glance skills
+except `web-advice` and `browser-control`, plus the in-repo skills they link to
+(`../X/SKILL.md`, `~/.claude/skills/X/`, `$CLAUDE_HOME/skills/X/`), every
+command alias whose target skill is installed, and the agents and scripts those
+files reference. Run with `--all` for the old full install.
+
+| Option | Selection |
+| --- | --- |
+| *(none)* or `--profile default` | Skills at a Glance minus browser review |
+| `--profile highlights-prw` | highlighted skills (minus `/web-advice`) plus the PR workflow set |
+| `--profile prw` | PR workflow skills plus `/es`, `/er`, `/green`, `/cs` |
+| `--profile web` | `advice`, `web-advice`, `browser-control` |
+| `--with SKILL` | add a skill to the profile; repeatable |
+| `--all` | every package, as before |
+
+Profiles live in `shared/install-profiles.json`; `--help` lists them. Closure
+never adds a skill on that file's `closure_excluded` list (`dot`,
+`dot-coordinator`, `agy-dot-coordinator`, `web-advice`, `browser-control`,
+`slack-media-upload`, `github-cli-reference`, `claw-dispatch`,
+`ao-operator-discipline`): they read browser cookies or depend on personal
+infrastructure, so they install only under `--all`, a profile that names them,
+or `--with`. Skills that link to one of them report it as unavailable. The
+installer prints the profile and the number of skills, commands and agents it
+installed. A profile install is additive: `--merge` never removes skills an
+earlier `--all` install left behind, and `--backup`, `--merge`,
+`--include-protected` and `--migrate-archives` behave the same with every
+profile. `--portable` installs its own manifest and refuses profile flags.
+
+For `--all`, the installer copies four component trees into `CLAUDE_HOME`:
 
 | Source | Destination (when `CLAUDE_HOME` is unset) |
 | --- | --- |

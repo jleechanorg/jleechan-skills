@@ -49,9 +49,28 @@ Ask your coding agent to inspect the repository and install only what it needs:
 "Inspect https://github.com/jleechanorg/jleechan-skills and set up the skills most useful for my tech stack."
 ```
 
-For a deterministic install, use the bundled installer. It installs complete
-skill packages (including their helper files), commands, agents, and scripts
-under `CLAUDE_HOME` (default: `~/.claude`). It refuses a nonempty target by
+For a deterministic install, use the bundled installer. **By default it now
+installs a curated set, not the whole library**: the skills in
+[Skills at a Glance](#-skills-at-a-glance) except the browser-review rows
+(`web-advice`, `browser-control`), plus every in-repo skill they link to, the
+command aliases whose target skill is installed, and the agents and scripts
+those files use. Named profiles select other sets:
+
+| Flag | Installs |
+|---|---|
+| *(none)* | `default`: the Skills at a Glance catalog minus browser review |
+| `--profile highlights-prw` | the highlighted skills (minus `/web-advice`) plus the PR workflow set |
+| `--profile prw` | the PR workflow set: `prw`, `pr-workflow`, `pr-workflow-manager`, `draft-first-pr`, `pr-lifecycle`, `pr-green-definition`, `ready`, `advice`, `evidence-standards`, `evidence-review`, `testing-layers`, `code-standards`, and `/es`, `/er`, `/green`, `/cs` |
+| `--profile web` | opt-in browser review: `advice`, `web-advice`, `browser-control` |
+| `--with SKILL` | adds one skill to the chosen profile (repeatable) |
+| `--all` | the full library, which was the installer's previous default |
+
+Dependency closure never adds browser, cookie or personal-infrastructure
+skills (`dot`, `web-advice`, `browser-control`, `slack-media-upload`, and the
+others listed in [`shared/install-profiles.json`](shared/install-profiles.json));
+those install only under `--all`, `--profile web`, or `--with`. Packages are
+copied complete, with their helper files, under `CLAUDE_HOME` (default:
+`~/.claude`). It refuses a nonempty target by
 default; `--backup` preserves that target before installing and `--merge`
 updates it in place. A routine merge preserves active files whose names collide
 with archived packages; after reviewing those warnings, opt into their
