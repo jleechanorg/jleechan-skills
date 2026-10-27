@@ -453,6 +453,10 @@ Rules:
 5. URL and route match claim
 6. Git SHA linkage is visible
 7. The reviewed evidence receipt includes matching metadata/caption artifacts
+8. An independent AI reviewer (not the author) judged frames extracted from the
+   published video against each acceptance step, with PASS/FAIL and timestamps;
+   privacy, playback, and upload checks are separate and do not substitute
+   (`evidence-review` check 4)
 
 ## First-frame verification (MANDATORY)
 
