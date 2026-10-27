@@ -10,7 +10,7 @@ description: Browser-based multi-model advice and review using ChatGPT, Gemini, 
 | Skill | Mechanism | When to use |
 |---|---|---|
 | `/advice` | In-session: subagent + /secondo + /research | Architectural reasoning, ZFC reviews, code-path analysis |
-| `/web-advice` | Browser: ChatGPT + Gemini + Perplexity Web; isolated headless by default, existing verified task-owned Aside supported | Independent external multi-model advice or review; visual/video context; web-search grounding |
+| `/web-advice` | Browser: ChatGPT + Gemini + Perplexity Web; Aside in background mode on an agent-owned profile for the logged-in vendor sites; isolated headless otherwise | Independent external multi-model advice or review; visual/video context; web-search grounding |
 | `/er` | In-session: evidence-standards skill | Evidence bundle integrity (4-gate checksum/SHA/real-services) |
 
 ## Real-Browser Transport Contract: Runtime-Specific
@@ -22,9 +22,9 @@ description: Browser-based multi-model advice and review using ChatGPT, Gemini, 
 > `/web-advice` MUST use browser navigation and DOM automation against the real
 > vendor web-chat sites. In an interactive chat app, prefer that app's owned
 > built-in browser and create a new vendor chat when its browser context is
-> separately task-owned. In a coding CLI or Bash run, isolated headless
-> Chromium is the default. Use Aside only when its already-running context is
-> verified agent-owned and background-safe. Follow the [browser-control
+> separately task-owned. In a coding CLI or Bash run, use Aside in background
+> mode on an agent-owned profile (aside-browser-default § Background mode) for
+> the logged-in vendor sites; isolated headless Chromium otherwise. Follow the [browser-control
 > contract](../browser-control/SKILL.md) for browser ownership and
 > authentication: never attach to personal/default Chrome or use its profile
 > or cookies. Cookie transfer requires explicit current-task authorization for
@@ -39,11 +39,11 @@ description: Browser-based multi-model advice and review using ChatGPT, Gemini, 
 >
 > **Transport routing**:
 > - In an interactive app, use its supported browser in a separate task-owned
->   context; `aside_mcp` or `aside_repl` is usable only when its existing context
->   is verified agent-owned and background-safe.
+>   context; `aside_mcp` or `aside_repl` is usable in background mode on an
+>   agent-owned profile (aside-browser-default § Background mode).
 > - In CLI/Bash, prefer isolated headless Chromium through `playwright_mcp` or
->   `chrome_headless_cdp` when supported. Reuse `aside_repl` only when its
->   already-running context is verified agent-owned and background-safe.
+>   `chrome_headless_cdp` when supported; for logged-in reviewer sites use
+>   `aside_repl` in background mode on an agent-owned profile.
 > - Credential-backed fallbacks, including `chrome_headless_cookies`, require
 >   the explicit, named-source authorization and guarded lifecycle in
 >   [browser-control contract](../browser-control/SKILL.md); this skill grants no additional access.
@@ -173,9 +173,9 @@ The prompt should be materially the same for each model; adapt only for a model'
 
 ## Browser Execution Protocol
 
-First follow the [browser-control route](../browser-control/SKILL.md): isolated
-headless Chromium is the default, and an existing Aside context is usable only
-when its agent ownership and background safety are verified. Use the examples
+First follow the [browser-control route](../browser-control/SKILL.md): the
+logged-in vendor sites use Aside in background mode on an agent-owned profile
+(aside-browser-default § Background mode); isolated headless Chromium otherwise. Use the examples
 below only in such a verified Aside context; apply the same selectors and
 evidence checks to a Playwright `Page` when the supported isolated fallback is
 selected.
@@ -611,5 +611,5 @@ Recovery:
 - 4-gate pre-flight: `~/.claude/skills/evidence-standards/SKILL.md`
 - Browser ownership and authentication: [browser-control](../browser-control/SKILL.md)
 - Browser automation examples: `references/browser-transports.md` (isolated
-  headless by default; existing Aside only when verified task-owned)
+  headless by default; Aside in background mode on an agent-owned profile)
 - Companion skill: `/advice` (in-session multi-reviewer)

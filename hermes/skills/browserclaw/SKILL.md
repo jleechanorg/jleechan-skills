@@ -6,7 +6,7 @@ agent_scope: Any AI agent (Codex, Claude Code, Hermes, AO)
 
 # browserclaw
 
-Before any browser or authenticated-content task, apply `~/.claude/skills/browser-control/SKILL.md` § Personal browser isolation. The default is isolated headless Chromium. Never inspect, copy, attach to, launch against, or reuse a personal browser profile, cookies, login, or desktop window. Never launch, activate, restart, or kill a desktop browser or app as a recovery step.
+Before any browser or authenticated-content task, apply `~/.claude/skills/browser-control/SKILL.md` § Personal browser isolation. The default is isolated headless Chromium. Never inspect, copy, attach to, launch against, or reuse a personal browser profile, cookies, login, or desktop window. Never launch, activate, restart, or kill a desktop browser or app as a recovery step; the only exception is starting Aside in background mode on an agent-owned profile (aside-browser-default § Background mode).
 
 ## Public traffic capture
 

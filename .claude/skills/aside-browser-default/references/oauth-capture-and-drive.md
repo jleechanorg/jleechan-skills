@@ -8,7 +8,8 @@ do not execute or adapt it.
 For OAuth, use the provider's supported authorization flow in an isolated,
 agent-owned browser context. Do not invoke or wrap `/usr/bin/open`, `open`,
 `xdg-open`, or another system URL handler; do not launch, activate, or drive a
-personal or desktop browser; do not clear cached grants or extract tokens to
+personal desktop browser (Aside in background mode on an agent-owned profile,
+per aside-browser-default § Background mode, is allowed); do not clear cached grants or extract tokens to
 force a new flow. If the supported flow requires a human consent or MFA step,
 stop at that step and report the blocker. A task that explicitly authorizes
 transfer from one named agent-owned browser profile may use only the guarded
