@@ -55,7 +55,9 @@ under `CLAUDE_HOME` (default: `~/.claude`). It refuses a nonempty target by
 default; `--backup` preserves that target before installing and `--merge`
 updates it in place. A routine merge preserves active files whose names collide
 with archived packages; after reviewing those warnings, opt into their
-migration with `--merge --migrate-archives`.
+migration with `--merge --migrate-archives`. `--merge` backs up every existing
+path it would change before writing and skips locally protected skills and
+commands (see [INSTALL.md](INSTALL.md)) unless `--include-protected` is given.
 
 ```bash
 INSTALL_ROOT=$(mktemp -d /tmp/jleechan-skills.XXXXXX)

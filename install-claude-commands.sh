@@ -46,10 +46,14 @@ MIGRATION_ACTIVE_PATHS=()
 MIGRATION_ARCHIVE_PATHS=()
 MIGRATION_SOURCE_IDENTITIES=()
 PORTABLE=false
+INCLUDE_PROTECTED=false
+PROTECTED_NAMES=()
+PROTECTED_PATHS=()
+MERGE_BACKUP_DIR=""
 
 show_usage() {
     cat <<EOF
-Usage: $(basename "$0") [--merge [--migrate-archives] | --backup]
+Usage: $(basename "$0") [--merge [--migrate-archives] [--include-protected] | --backup]
        PORTABLE_HOME=/absolute/dedicated/package $(basename "$0") --portable [--backup]
 
 Installs into CLAUDE_HOME (default: ~/.claude). A nonempty target is refused
@@ -57,6 +61,13 @@ by default. Use --merge to explicitly update source-managed files in place, or
 --backup to move the existing target aside before installing. Archive migration
 is separate because matching names may be user-authored; combine --merge with
 --migrate-archives only after reviewing the reported collisions.
+
+--merge first copies every existing path whose content it would change into
+CLAUDE_HOME.merge-backup-<timestamp>-<pid>, and aborts before writing if that
+backup fails. It skips existing skills and commands named in
+CLAUDE_HOME/.jleechan-skills-protected (one name per line, # comments) or in
+the source's shared/retain-local.json, and --migrate-archives leaves them in
+place; --include-protected overwrites or migrates them too.
 EOF
 }
 
@@ -65,6 +76,7 @@ parse_arguments() {
         case "$1" in
             --merge) INSTALL_MODE="merge" ;;
             --migrate-archives) MIGRATE_ARCHIVES=true ;;
+            --include-protected) INCLUDE_PROTECTED=true ;;
             --backup) INSTALL_MODE="backup" ;;
             --portable) PORTABLE=true ;;
             -h|--help) show_usage; exit 0 ;;
@@ -74,6 +86,10 @@ parse_arguments() {
     done
     if [ "$MIGRATE_ARCHIVES" = true ] && [ "$INSTALL_MODE" != "merge" ]; then
         log_error "--migrate-archives requires --merge"
+        return 1
+    fi
+    if [ "$INCLUDE_PROTECTED" = true ] && [ "$INSTALL_MODE" != "merge" ]; then
+        log_error "--include-protected requires --merge"
         return 1
     fi
 }
@@ -147,7 +163,7 @@ prepare_target() {
     fi
     if [ "$INSTALL_MODE" = "backup" ]; then
         mkdir -p "$(dirname "$CLAUDE_HOME")"
-        STAGING_DIR="$(mktemp -d "${CLAUDE_HOME}.staging.XXXXXX")"
+        STAGING_DIR="$(mktemp -d "${CLAUDE_HOME%/}.staging.XXXXXX")"
         INSTALL_ROOT="$STAGING_DIR"
         log_info "Staging backup installation in $STAGING_DIR"
     else
@@ -217,6 +233,7 @@ prepare_archive_migration_on_merge() {
             package_path="$(dirname "$package_path")"
             relative_package="${package_path#"$archive_group"/}"
             package_name="$(basename "$package_path")"
+            is_protected_entry skills "$package_name" && continue
             active_path="$CLAUDE_HOME/skills/$package_name"
             path_exists "$active_path" || continue
             archive_path="$CLAUDE_HOME/skills_archive/$archive_name/$relative_package"
@@ -232,12 +249,12 @@ prepare_archive_migration_on_merge() {
             [ "$(basename "$command_path")" = "README.md" ] && continue
             package_name="$(basename "$command_path")"
             active_path="$CLAUDE_HOME/commands/$package_name"
-            if path_exists "$active_path"; then
+            if path_exists "$active_path" && ! is_protected_entry commands "$package_name"; then
                 archive_path="$CLAUDE_HOME/commands_archive/$archive_name/top-level/$package_name"
                 add_archive_migration_plan "$active_path" "$archive_path" || return 1
             fi
             active_path="$CLAUDE_HOME/commands/extended-library/$package_name"
-            if path_exists "$active_path"; then
+            if path_exists "$active_path" && ! is_protected_entry commands "extended-library/$package_name"; then
                 archive_path="$CLAUDE_HOME/commands_archive/$archive_name/extended-library/$package_name"
                 add_archive_migration_plan "$active_path" "$archive_path" || return 1
             fi
@@ -306,7 +323,7 @@ finalize_backup_install() {
     [ "$INSTALL_MODE" = "backup" ] || return 0
 
     if [ -e "$CLAUDE_HOME" ]; then
-        BACKUP_PATH="${CLAUDE_HOME}.backup-$(date +%Y%m%d%H%M%S)"
+        BACKUP_PATH="${CLAUDE_HOME%/}.backup-$(date +%Y%m%d%H%M%S)"
         if [ -e "$BACKUP_PATH" ]; then
             log_error "Backup path already exists: $BACKUP_PATH"
             return 1
@@ -336,6 +353,179 @@ list_installable_files() {
     else
         find . -type d \( -name __pycache__ -o -name .pytest_cache \) -prune \
             -o \( -type f -o -type l \) ! -name '*.py[co]' ! -name '.DS_Store' -print0
+    fi
+}
+
+# Protected names come from the operator's local manifest and the source's
+# retain-local.json; an unreadable list aborts the merge rather than allowing
+# overwrites.
+load_protected_names() {
+    local manifest="$CLAUDE_HOME/.jleechan-skills-protected"
+    local retain_json="$PLUGIN_SRC_DIR/shared/retain-local.json"
+    local line names_file
+    PROTECTED_NAMES=()
+    [ "$INSTALL_MODE" = "merge" ] || return 0
+    if path_exists "$manifest"; then
+        if [ ! -f "$manifest" ] || [ ! -r "$manifest" ]; then
+            log_error "Cannot read protected manifest: $manifest"
+            return 1
+        fi
+        while IFS= read -r line || [ -n "$line" ]; do
+            line="${line%%#*}"
+            line="${line#"${line%%[![:space:]]*}"}"
+            line="${line%"${line##*[![:space:]]}"}"
+            [ -n "$line" ] && PROTECTED_NAMES+=("$line")
+        done < "$manifest"
+    fi
+    if [ -f "$retain_json" ]; then
+        names_file="$(mktemp "${TMPDIR:-/tmp}/claude-install-protected.XXXXXX")"
+        if ! python3 -c 'import json, sys; print("\n".join(json.load(open(sys.argv[1]))))' \
+            "$retain_json" > "$names_file"; then
+            log_error "Cannot parse protected list: $retain_json"
+            rm -f -- "$names_file"
+            return 1
+        fi
+        while IFS= read -r line; do
+            [ -n "$line" ] && PROTECTED_NAMES+=("$line")
+        done < "$names_file"
+        rm -f -- "$names_file"
+    fi
+    snapshot_protected_paths
+}
+
+# Records, before any write, which existing top-level skill and command entries,
+# and entries of commands/extended-library, match a protected name (exactly or
+# minus its extension). A fresh install has none, so it is unaffected.
+snapshot_protected_paths() {
+    local scan_dir entry top name
+    PROTECTED_PATHS=()
+    [ "$INCLUDE_PROTECTED" != true ] || return 0
+    [ "${#PROTECTED_NAMES[@]}" -gt 0 ] || return 0
+    for scan_dir in skills commands commands/extended-library; do
+        [ -d "$INSTALL_ROOT/$scan_dir" ] || continue
+        while IFS= read -r -d '' entry; do
+            top="${entry##*/}"
+            for name in "${PROTECTED_NAMES[@]}"; do
+                if [ "$name" = "$top" ] || [ "$name" = "${top%.*}" ]; then
+                    PROTECTED_PATHS+=("$scan_dir/$top")
+                    log_warning "Skipping protected ${scan_dir%%/*} path (overwrite needs --include-protected): $INSTALL_ROOT/$scan_dir/$top"
+                    break
+                fi
+            done
+        done < <(find "$INSTALL_ROOT/$scan_dir/" -mindepth 1 -maxdepth 1 -print0)
+    done
+}
+
+# Succeeds when component $1's relative path $2 is a recorded protected entry
+# or lies beneath one.
+is_protected_entry() {
+    local recorded
+    for recorded in ${PROTECTED_PATHS[@]+"${PROTECTED_PATHS[@]}"}; do
+        case "$1/$2" in
+            "$recorded" | "$recorded"/*) return 0 ;;
+        esac
+    done
+    return 1
+}
+
+# Succeeds when a directory between $1 and the parent path $2 is a symlink;
+# the installer never writes beneath one.
+find_linked_parent() {
+    local cur_dir="$1" rest="$2" part
+    [ "$rest" != "." ] || return 1
+    while [ -n "$rest" ]; do
+        if [ "${rest#*/}" = "$rest" ]; then
+            part="$rest"
+            rest=""
+        else
+            part="${rest%%/*}"
+            rest="${rest#*/}"
+        fi
+        [ -n "$part" ] || continue
+        cur_dir="$cur_dir/$part"
+        [ -L "$cur_dir" ] && return 0
+    done
+    return 1
+}
+
+paths_differ() {
+    local src="$1" dst="$2"
+    if [ -L "$src" ] || [ -L "$dst" ]; then
+        [ -L "$src" ] && [ -L "$dst" ] && [ "$(readlink "$src")" = "$(readlink "$dst")" ] && return 1
+        return 0
+    fi
+    [ -f "$src" ] && [ -f "$dst" ] && cmp -s "$src" "$dst" && return 1
+    return 0
+}
+
+backup_merge_path() {
+    local relative="$1" parent_rel="."
+    if [ -z "$MERGE_BACKUP_DIR" ]; then
+        MERGE_BACKUP_DIR="${CLAUDE_HOME%/}.merge-backup-$(date +%Y%m%d%H%M%S)-$$"
+        if ! mkdir "$MERGE_BACKUP_DIR"; then
+            log_error "Cannot create merge backup directory: $MERGE_BACKUP_DIR"
+            return 1
+        fi
+    fi
+    case "$relative" in */*) parent_rel="${relative%/*}" ;; esac
+    if ! mkdir -p "$MERGE_BACKUP_DIR/$parent_rel" ||
+       ! cp -a "$INSTALL_ROOT/$relative" "$MERGE_BACKUP_DIR/$relative"; then
+        log_error "Cannot back up $INSTALL_ROOT/$relative; nothing was overwritten"
+        return 1
+    fi
+}
+
+# Copies every existing path a merge would change into a sibling of the target
+# (outside skill discovery) before any write, so local edits stay recoverable.
+backup_merge_collisions() {
+    local component src_dir relative parent_rel count=0 listing_file
+    local extra receipt
+    [ "$INSTALL_MODE" = "merge" ] || return 0
+    listing_file="$(mktemp "${TMPDIR:-/tmp}/claude-install-backup.XXXXXX")"
+    for component in agents commands scripts skills; do
+        src_dir="$PLUGIN_SRC_DIR/.claude/$component"
+        [ -d "$src_dir" ] || continue
+        [ -L "$INSTALL_ROOT/$component" ] && continue
+        if ! ( cd "$src_dir" && list_installable_files "$component" ) > "$listing_file"; then
+            log_error "Could not enumerate $component source files under $src_dir"
+            rm -f -- "$listing_file"
+            return 1
+        fi
+        while IFS= read -r -d '' relative; do
+            relative="${relative#./}"
+            is_protected_entry "$component" "$relative" && continue
+            parent_rel="."
+            case "$relative" in */*) parent_rel="${relative%/*}" ;; esac
+            find_linked_parent "$INSTALL_ROOT/$component" "$parent_rel" && continue
+            path_exists "$INSTALL_ROOT/$component/$relative" || continue
+            paths_differ "$src_dir/$relative" "$INSTALL_ROOT/$component/$relative" || continue
+            if ! backup_merge_path "$component/$relative"; then
+                rm -f -- "$listing_file"
+                return 1
+            fi
+            count=$((count + 1))
+        done < "$listing_file"
+    done
+    rm -f -- "$listing_file"
+    for extra in history_search.py integrate.sh; do
+        [ -f "$PLUGIN_SRC_DIR/scripts/$extra" ] || continue
+        path_exists "$INSTALL_ROOT/scripts/$extra" || continue
+        paths_differ "$PLUGIN_SRC_DIR/scripts/$extra" "$INSTALL_ROOT/scripts/$extra" || continue
+        backup_merge_path "scripts/$extra" || return 1
+        count=$((count + 1))
+    done
+    # Install rewrites the helper's ownership receipt; keep it paired with the
+    # backed-up helper so a restored helper is still recognised as installer-owned.
+    receipt="$INSTALL_ROOT/scripts/.history_search.py.sha256"
+    if [ -f "$PLUGIN_SRC_DIR/scripts/history_search.py" ] && [ -f "$receipt" ] &&
+       [ "$(tr -d '[:space:]' < "$receipt")" != "$(file_sha256 "$PLUGIN_SRC_DIR/scripts/history_search.py")" ]; then
+        backup_merge_path "scripts/.history_search.py.sha256" || return 1
+        count=$((count + 1))
+    fi
+    if [ "$count" -gt 0 ]; then
+        log_warning "Backed up $count path(s) this merge will overwrite: $MERGE_BACKUP_DIR"
+    else
+        log_info "No existing paths will change; no merge backup written"
     fi
 }
 
@@ -405,6 +595,7 @@ install_component() {
             case "$relative" in
                 */*) parent_rel="${relative%/*}" ;;
             esac
+            is_protected_entry "$component_name" "$relative" && continue
             local skip_file=false
             local linked_owner=""
             if [ "$parent_rel" != "." ]; then
@@ -611,6 +802,7 @@ validate_installation() {
         fi
         while IFS= read -r -d '' relative; do
             relative="${relative#./}"
+            is_protected_entry "$component" "$relative" && continue
             local cur_dir="$INSTALL_ROOT/$component"
             local part
             # Same newline-safe parent split as the install path: `read` and
@@ -709,7 +901,9 @@ main() {
     echo
 
     prepare_target
+    load_protected_names
     preflight_history_helper
+    backup_merge_collisions
     prepare_archive_migration_on_merge
     install_agents
     install_commands

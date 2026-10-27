@@ -357,6 +357,322 @@ class InstallerIntegrationTest(unittest.TestCase):
             self.assertEqual(user_file.read_text(encoding="utf-8"), "retain me\n")
             self.assertFalse((target / "skills/_archive").exists())
 
+    def install_then_edit_locally(self, temp_dir: Path, fixture: Path) -> Path:
+        target = temp_dir / "claude-home"
+        first = self.run_installer(fixture, target)
+        self.assertEqual(first.returncode, 0, first.stderr + first.stdout)
+        (target / "skills/example/SKILL.md").write_text("# Local operator rules\n", encoding="utf-8")
+        (target / "commands/command.md").write_text("local command\n", encoding="utf-8")
+        return target
+
+    def test_merge_backs_up_only_changed_colliding_paths_before_overwriting(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            target = self.install_then_edit_locally(temp_dir, fixture)
+            (target / "skills/local-only/SKILL.md").parent.mkdir()
+            (target / "skills/local-only/SKILL.md").write_text("mine\n", encoding="utf-8")
+
+            result = self.run_installer(fixture, target, "--merge")
+
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            backups = list(temp_dir.glob("claude-home.merge-backup-*"))
+            self.assertEqual(len(backups), 1, backups)
+            self.assertIn(str(backups[0]), result.stdout)
+            self.assertEqual(
+                (backups[0] / "skills/example/SKILL.md").read_text(encoding="utf-8"),
+                "# Local operator rules\n",
+            )
+            self.assertEqual(
+                (backups[0] / "commands/command.md").read_text(encoding="utf-8"), "local command\n"
+            )
+            backed_up = sorted(
+                str(path.relative_to(backups[0])) for path in backups[0].rglob("*") if path.is_file()
+            )
+            self.assertEqual(backed_up, ["commands/command.md", "skills/example/SKILL.md"])
+            self.assertEqual((target / "skills/example/SKILL.md").read_text(encoding="utf-8"), "# Skill\n")
+            self.assertEqual((target / "skills/local-only/SKILL.md").read_text(encoding="utf-8"), "mine\n")
+
+    def test_merge_without_changes_writes_no_backup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            target = temp_dir / "claude-home"
+            self.assertEqual(self.run_installer(fixture, target).returncode, 0)
+
+            result = self.run_installer(fixture, target, "--merge")
+
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertIn("no merge backup written", result.stdout)
+            self.assertFalse(list(temp_dir.glob("claude-home.merge-backup-*")))
+
+    @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0, "root bypasses directory permissions")
+    def test_merge_fails_closed_when_backup_cannot_be_written(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            parent = temp_dir / "locked"
+            parent.mkdir()
+            target = self.install_then_edit_locally(parent, fixture)
+            parent.chmod(0o555)
+            try:
+                result = self.run_installer(fixture, target, "--merge")
+            finally:
+                parent.chmod(0o755)
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Cannot create merge backup directory", result.stderr + result.stdout)
+            self.assertEqual(
+                (target / "skills/example/SKILL.md").read_text(encoding="utf-8"), "# Local operator rules\n"
+            )
+            self.assertEqual((target / "commands/command.md").read_text(encoding="utf-8"), "local command\n")
+
+    def test_backup_mode_stays_outside_target_with_trailing_slash_home(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            target = temp_dir / "claude-home"
+            target.mkdir()
+            (target / "local.txt").write_text("keep\n", encoding="utf-8")
+
+            result = self.run_installer(
+                fixture, target, "--backup", extra_environment={"CLAUDE_HOME": f"{target}/"}
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertTrue((target / "commands/command.md").is_file())
+            self.assertFalse(list(target.glob(".backup-*")) + list(target.glob(".staging.*")))
+            backups = list(temp_dir.glob("claude-home.backup-*"))
+            self.assertEqual(len(backups), 1, backups)
+            self.assertEqual((backups[0] / "local.txt").read_text(encoding="utf-8"), "keep\n")
+
+    def test_merge_skips_names_in_local_protected_manifest(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            target = self.install_then_edit_locally(temp_dir, fixture)
+            (target / ".jleechan-skills-protected").write_text(
+                "# operator-owned\n  example  \ncommand # trailing comment\n", encoding="utf-8"
+            )
+
+            result = self.run_installer(fixture, target, "--merge")
+
+            output = result.stderr + result.stdout
+            self.assertEqual(result.returncode, 0, output)
+            self.assertIn(f"Skipping protected skills path (overwrite needs --include-protected): {target}/skills/example", output)
+            self.assertIn(f"Skipping protected commands path (overwrite needs --include-protected): {target}/commands/command.md", output)
+            self.assertEqual(
+                (target / "skills/example/SKILL.md").read_text(encoding="utf-8"), "# Local operator rules\n"
+            )
+            self.assertEqual((target / "commands/command.md").read_text(encoding="utf-8"), "local command\n")
+            self.assertIn("Source-derived manifest validation passed", result.stdout)
+            self.assertFalse(list(temp_dir.glob("claude-home.merge-backup-*")))
+
+    def test_merge_skips_names_in_source_retain_local_json(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            target = self.install_then_edit_locally(temp_dir, fixture)
+            (fixture / "shared").mkdir()
+            (fixture / "shared/retain-local.json").write_text(
+                '{"example": "local operational variant"}\n', encoding="utf-8"
+            )
+
+            result = self.run_installer(fixture, target, "--merge")
+
+            output = result.stderr + result.stdout
+            self.assertEqual(result.returncode, 0, output)
+            self.assertIn(f"{target}/skills/example", output)
+            self.assertEqual(
+                (target / "skills/example/SKILL.md").read_text(encoding="utf-8"), "# Local operator rules\n"
+            )
+            self.assertEqual((target / "commands/command.md").read_text(encoding="utf-8"), "command\n")
+
+    def test_merge_fails_closed_on_unreadable_retain_local_json(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            target = self.install_then_edit_locally(temp_dir, fixture)
+            (fixture / "shared").mkdir()
+            (fixture / "shared/retain-local.json").write_text("{not json", encoding="utf-8")
+
+            result = self.run_installer(fixture, target, "--merge")
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Cannot parse protected list", result.stderr + result.stdout)
+            self.assertEqual(
+                (target / "skills/example/SKILL.md").read_text(encoding="utf-8"), "# Local operator rules\n"
+            )
+
+    def test_include_protected_overwrites_protected_paths_after_backing_them_up(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            target = self.install_then_edit_locally(temp_dir, fixture)
+            (target / ".jleechan-skills-protected").write_text("example\n", encoding="utf-8")
+
+            result = self.run_installer(fixture, target, "--merge", "--include-protected")
+
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertNotIn("Skipping protected", result.stdout)
+            self.assertEqual((target / "skills/example/SKILL.md").read_text(encoding="utf-8"), "# Skill\n")
+            backups = list(temp_dir.glob("claude-home.merge-backup-*"))
+            self.assertEqual(len(backups), 1)
+            self.assertEqual(
+                (backups[0] / "skills/example/SKILL.md").read_text(encoding="utf-8"),
+                "# Local operator rules\n",
+            )
+
+    def test_include_protected_requires_merge(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            result = self.run_installer(fixture, temp_dir / "claude-home", "--include-protected")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("--include-protected requires --merge", result.stderr + result.stdout)
+
+    def test_fresh_install_installs_protected_names_and_writes_no_backup(self):
+        for args in ((), ("--merge",)):
+            with self.subTest(args=args), tempfile.TemporaryDirectory() as directory:
+                temp_dir = Path(directory)
+                fixture = self.make_fixture(temp_dir)
+                (fixture / "shared").mkdir()
+                (fixture / "shared/retain-local.json").write_text('{"example": "x"}\n', encoding="utf-8")
+                target = temp_dir / "claude-home"
+
+                result = self.run_installer(fixture, target, *args)
+
+                self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+                self.assertNotIn("Skipping protected", result.stdout)
+                self.assertEqual((target / "skills/example/SKILL.md").read_text(encoding="utf-8"), "# Skill\n")
+                self.assertFalse(list(temp_dir.glob("claude-home.merge-backup-*")))
+
+    def test_archive_migration_leaves_protected_paths_in_discovery(self):
+        for args in ((), ("--include-protected",)):
+            with self.subTest(args=args), tempfile.TemporaryDirectory() as directory:
+                temp_dir = Path(directory)
+                fixture = self.make_fixture(temp_dir)
+                target = temp_dir / "claude-home"
+                active_skill = target / "skills/retired-skill/SKILL.md"
+                active_command = target / "commands/retired-command.md"
+                active_extended = target / "commands/extended-library/retired-command.md"
+                for path in (active_skill, active_command, active_extended):
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text("operator copy\n", encoding="utf-8")
+                (target / ".jleechan-skills-protected").write_text(
+                    "retired-skill\nretired-command\n", encoding="utf-8"
+                )
+
+                result = self.run_installer(fixture, target, "--merge", "--migrate-archives", *args)
+
+                self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+                archived_skill = target / "skills_archive/2026-retired/retired-skill/SKILL.md"
+                archived_command = target / "commands_archive/2026-retired/top-level/retired-command.md"
+                archived_extended = (
+                    target / "commands_archive/2026-retired/extended-library/retired-command.md"
+                )
+                if args:
+                    for path in (active_skill, active_command, active_extended):
+                        self.assertFalse(path.exists())
+                    for path in (archived_skill, archived_command, archived_extended):
+                        self.assertTrue(path.is_file())
+                else:
+                    self.assertIn(f"Skipping protected skills path (overwrite needs --include-protected): {target}/skills/retired-skill", result.stdout)
+                    self.assertIn(
+                        "Skipping protected commands path (overwrite needs --include-protected): "
+                        f"{target}/commands/extended-library/retired-command.md",
+                        result.stdout,
+                    )
+                    for path in (active_skill, active_command, active_extended):
+                        self.assertEqual(path.read_text(encoding="utf-8"), "operator copy\n")
+                    for path in (archived_skill, archived_command, archived_extended):
+                        self.assertFalse(path.exists())
+
+    def test_merge_skips_protected_command_nested_in_extended_library(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            nested_source = fixture / ".claude/commands/extended-library/factory-spec.md"
+            nested_source.parent.mkdir(parents=True)
+            nested_source.write_text("source spec\n", encoding="utf-8")
+            target = temp_dir / "claude-home"
+            self.assertEqual(self.run_installer(fixture, target).returncode, 0)
+            nested = target / "commands/extended-library/factory-spec.md"
+            nested.write_text("local spec\n", encoding="utf-8")
+            (target / ".jleechan-skills-protected").write_text("factory-spec\n", encoding="utf-8")
+
+            kept = self.run_installer(fixture, target, "--merge")
+
+            self.assertEqual(kept.returncode, 0, kept.stderr + kept.stdout)
+            self.assertIn(
+                f"Skipping protected commands path (overwrite needs --include-protected): {nested}",
+                kept.stdout,
+            )
+            self.assertEqual(nested.read_text(encoding="utf-8"), "local spec\n")
+            self.assertFalse(list(temp_dir.glob("claude-home.merge-backup-*")))
+
+            overwritten = self.run_installer(fixture, target, "--merge", "--include-protected")
+
+            self.assertEqual(overwritten.returncode, 0, overwritten.stderr + overwritten.stdout)
+            self.assertEqual(nested.read_text(encoding="utf-8"), "source spec\n")
+            backups = list(temp_dir.glob("claude-home.merge-backup-*"))
+            self.assertEqual(len(backups), 1, backups)
+            self.assertEqual(
+                (backups[0] / "commands/extended-library/factory-spec.md").read_text(encoding="utf-8"),
+                "local spec\n",
+            )
+
+    def test_history_helper_upgrade_backs_up_its_receipt(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            source = fixture / "scripts/history_search.py"
+            source.write_text("print('version one')\n")
+            target = temp_dir / "claude-home"
+            self.assertEqual(self.run_installer(fixture, target).returncode, 0)
+            receipt = target / "scripts/.history_search.py.sha256"
+            v1_receipt = receipt.read_text()
+
+            source.write_text("print('version two')\n")
+            upgraded = self.run_installer(fixture, target, "--merge")
+
+            self.assertEqual(upgraded.returncode, 0, upgraded.stdout + upgraded.stderr)
+            backups = list(temp_dir.glob("claude-home.merge-backup-*"))
+            self.assertEqual(len(backups), 1, backups)
+            self.assertEqual(
+                (backups[0] / "scripts/history_search.py").read_text(), "print('version one')\n"
+            )
+            self.assertEqual((backups[0] / "scripts/.history_search.py.sha256").read_text(), v1_receipt)
+
+            # Restoring the backup pair keeps the helper recognisably installer-owned.
+            for name in ("history_search.py", ".history_search.py.sha256"):
+                shutil.copy2(backups[0] / "scripts" / name, target / "scripts" / name)
+            source.write_text("print('version three')\n")
+            restored = self.run_installer(fixture, target, "--merge")
+            self.assertEqual(restored.returncode, 0, restored.stdout + restored.stderr)
+            self.assertEqual(
+                (target / "scripts/history_search.py").read_text(), "print('version three')\n"
+            )
+
+    def test_merge_backup_stays_outside_target_with_trailing_slash_home(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            target = self.install_then_edit_locally(temp_dir, fixture)
+
+            result = self.run_installer(
+                fixture, target, "--merge", extra_environment={"CLAUDE_HOME": f"{target}/"}
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertFalse(list(target.glob(".merge-backup-*")))
+            backups = list(temp_dir.glob("claude-home.merge-backup-*"))
+            self.assertEqual(len(backups), 1, backups)
+            self.assertEqual(
+                (backups[0] / "skills/example/SKILL.md").read_text(encoding="utf-8"),
+                "# Local operator rules\n",
+            )
+
     def test_merge_overwrites_stale_managed_files_including_readonly_and_symlinks(self):
         with tempfile.TemporaryDirectory() as directory:
             temp_dir = Path(directory)
