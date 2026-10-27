@@ -15,14 +15,10 @@ execution_mode: immediate
 **Action Steps:**
 🚨 **MANDATORY**: Use `/commentfetch` for comprehensive comment data instead of duplicating API calls:
 
-```bash
-
 ### Phase 2: Step 2: Individual Comment Threading Verification (JSON-BASED)
 
 **Action Steps:**
 🚨 **MANDATORY**: Use commentfetch JSON data for threading analysis instead of duplicate API calls:
-
-```bash
 
 ### Phase 3: Step 3: Quality Assessment & Fake Comment Detection (JSON-BASED)
 
@@ -31,6 +27,7 @@ execution_mode: immediate
 
 ```bash
 echo "=== QUALITY ASSESSMENT & FAKE COMMENT DETECTION (JSON-BASED) ==="
+```
 
 ### Phase 4: Step 4: Final Coverage Report (COMPREHENSIVE)
 
@@ -202,11 +199,12 @@ if [ "$TOTAL_COMMENTS" -eq 0 ]; then
 fi
 
 echo "🎯 COMMENTFETCH ORCHESTRATION: Successfully loaded $TOTAL_COMMENTS comments"
-echo "📈 UNRESPONDED ANALYSIS: $UNRESPONDED_COUNT comments require attention"
+echo "📈 UNRESPONDED ANALYSIS: $UNRESPONDED_COUNT comments have no recorded reply in commentfetch data"
 ```
 
 # Enhanced threading verification using commentfetch structured data
 
+```bash
 echo "=== THREADING VERIFICATION ANALYSIS (JSON-BASED) ==="
 
 # Use commentfetch JSON output instead of making new API calls
@@ -228,45 +226,46 @@ echo "$ALL_COMMENTS" | jq -r '.[] | "ID: \(.id) | Author: \(.author) | Type: \(.
 # Step 2B: Count threading success rates (using commentfetch metadata)
 
 TOTAL_COMMENTS=$(echo "$ALL_COMMENTS" | jq length)
-REQUIRES_RESPONSE=$(echo "$ALL_COMMENTS" | jq '[.[] | select(.requires_response == true)] | length')
-REPLIED_REQUIRED=$(echo "$ALL_COMMENTS" | jq '[.[] | select(.requires_response == true and .already_replied == true)] | length')
-OUTSTANDING_REQUIRED=$(echo "$ALL_COMMENTS" | jq '[.[] | select(.requires_response == true and .already_replied != true)] | length')
+FETCHER_FLAGGED_COUNT=$(echo "$ALL_COMMENTS" | jq '[.[] | select(.requires_response == true)] | length')
+REPLIED_FETCHER_FLAGGED_COUNT=$(echo "$ALL_COMMENTS" | jq '[.[] | select(.requires_response == true and .already_replied == true)] | length')
+OUTSTANDING_FETCHER_FLAGGED_COUNT=$(echo "$ALL_COMMENTS" | jq '[.[] | select(.requires_response == true and .already_replied != true)] | length')
 
 echo ""
 echo "📈 THREADING STATISTICS (from commentfetch):"
 echo "   Total comments: $TOTAL_COMMENTS"
-echo "   Requested/required response scope: $REQUIRES_RESPONSE"
-echo "   Replied within scope: $REPLIED_REQUIRED"
-echo "   Outstanding within scope: $OUTSTANDING_REQUIRED"
+echo "   Comments flagged by commentfetch as requiring a response: $FETCHER_FLAGGED_COUNT"
+echo "   Already replied among flagged comments: $REPLIED_FETCHER_FLAGGED_COUNT"
+echo "   Unanswered among flagged comments: $OUTSTANDING_FETCHER_FLAGGED_COUNT"
 
-if [ "$REQUIRES_RESPONSE" -gt 0 ]; then
-  RESPONSE_PERCENTAGE=$(( (REPLIED_REQUIRED * 100) / REQUIRES_RESPONSE ))
-  echo "   Requested-scope response rate: $RESPONSE_PERCENTAGE%"
+if [ "$FETCHER_FLAGGED_COUNT" -gt 0 ]; then
+  RESPONSE_PERCENTAGE=$(( (REPLIED_FETCHER_FLAGGED_COUNT * 100) / FETCHER_FLAGGED_COUNT ))
+  echo "   Reply rate among fetcher-flagged comments: $RESPONSE_PERCENTAGE%"
 else
-  echo "   Requested-scope response rate: N/A (no response scope requested or required)"
+  echo "   Reply rate among fetcher-flagged comments: N/A (no comments were flagged)"
 fi
 
-# Step 2C: Report the response scope marked by commentfetch
+# Step 2C: Report commentfetch metadata without inferring the current task's reply scope
 
 echo ""
-echo "🔍 REQUESTED RESPONSE SCOPE:"
+echo "🔍 COMMENTFETCH RESPONSE FLAGS:"
 AI_RESPONDER_COMMENTS=$(echo "$ALL_COMMENTS" | jq '[.[] | select(.body | startswith("[AI responder]"))]')
 AI_COUNT=$(echo "$AI_RESPONDER_COMMENTS" | jq length)
-NEEDS_RESPONSE_COMMENTS=$(echo "$ALL_COMMENTS" | jq '[.[] | select(.requires_response == true and .already_replied != true)]')
-NEEDS_RESPONSE_COUNT=$(echo "$NEEDS_RESPONSE_COMMENTS" | jq length)
+UNANSWERED_FETCHER_FLAGGED_COMMENTS=$(echo "$ALL_COMMENTS" | jq '[.[] | select(.requires_response == true and .already_replied != true)]')
+UNANSWERED_FETCHER_FLAGGED_COUNT=$(echo "$UNANSWERED_FETCHER_FLAGGED_COMMENTS" | jq length)
 
 echo "   AI responder comments: $AI_COUNT"
-echo "   Outstanding requested/required responses: $NEEDS_RESPONSE_COUNT"
+echo "   Unanswered comments flagged by commentfetch: $UNANSWERED_FETCHER_FLAGGED_COUNT"
 
-# Step 2D: List comments needing response (simple logic)
+# Step 2D: List comments flagged by commentfetch as unanswered
 
 echo ""
-echo "📌 OUTSTANDING REQUESTED/REQUIRED RESPONSES:"
-echo "$NEEDS_RESPONSE_COMMENTS" | jq -r '.[] | "• Comment #\(.id) (\(.author)): \(.body[0:80])..."'
+echo "📌 UNANSWERED COMMENTFETCH-FLAGGED COMMENTS:"
+echo "$UNANSWERED_FETCHER_FLAGGED_COMMENTS" | jq -r '.[] | "• Comment #\(.id) (\(.author)): \(.body[0:80])..."'
 ```
 
 # Use simple AI responder detection for quality analysis
 
+```bash
 AI_RESPONDER_RESPONSES=$(echo "$ALL_COMMENTS" | jq '[.[] | select(.body | startswith("[AI responder]"))]')
 AI_RESPONSE_COUNT=$(echo "$AI_RESPONDER_RESPONSES" | jq length)
 
@@ -297,8 +296,8 @@ echo "   CodeRabbit-specific templates: $CODERABBIT_COUNT"
 
 # Simple quality assessment - just check for basic response coverage
 
-if [ "$AI_RESPONSE_COUNT" -eq 0 ] && [ "$NEEDS_RESPONSE_COUNT" -gt 0 ]; then
-  echo "ℹ️ No AI-responder replies were found in the requested/required response scope; this count alone is not a lifecycle gate."
+if [ "$AI_RESPONSE_COUNT" -eq 0 ] && [ "$UNANSWERED_FETCHER_FLAGGED_COUNT" -gt 0 ]; then
+  echo "ℹ️ No AI-responder replies were found among comments flagged by commentfetch; this count alone is not a lifecycle gate."
   echo ""
   echo "EXIT CODE: 0 (report only)"
   exit 0
@@ -309,35 +308,36 @@ fi
 
 # Use simple direct comment counting
 
+```bash
 TOTAL_COMMENTS=$(jq '.comments | length' "$COMMENTS_FILE" 2>/dev/null || echo "0")
 AI_RESPONDER_COMMENTS=$(jq '[.comments[] | select(.body | startswith("[AI responder]"))] | length' "$COMMENTS_FILE" 2>/dev/null || echo "0")
-NEEDS_RESPONSE_COUNT=$(jq '[.comments[] | select(.requires_response == true and .already_replied != true)] | length' "$COMMENTS_FILE" 2>/dev/null || echo "0")
+UNANSWERED_FETCHER_FLAGGED_COUNT=$(jq '[.comments[] | select(.requires_response == true and .already_replied != true)] | length' "$COMMENTS_FILE" 2>/dev/null || echo "0")
 
-if [ "$NEEDS_RESPONSE_COUNT" -eq 0 ]; then
+if [ "$UNANSWERED_FETCHER_FLAGGED_COUNT" -eq 0 ]; then
     echo "✅ **COMMENT REPORT**: No outstanding comments marked as requiring a response"
     echo ""
     echo "📊 **SIMPLE STATISTICS:**"
     echo "   - Total comments: $TOTAL_COMMENTS"
     echo "   - AI responder comments: $AI_RESPONDER_COMMENTS"
-    echo "   - Outstanding requested/required responses: $NEEDS_RESPONSE_COUNT"
+    echo "   - Unanswered comments flagged by commentfetch: $UNANSWERED_FETCHER_FLAGGED_COUNT"
     echo ""
-    echo "🎯 **COMMENT REPORT**: Marked response coverage is complete"
+    echo "🎯 **COMMENT REPORT**: No comments are currently flagged as unanswered by commentfetch"
     echo ""
     echo "EXIT CODE: 0 (report only)"
     exit 0
 else
-    echo "ℹ️ $NEEDS_RESPONSE_COUNT responses remain outstanding in the requested/required scope; this count alone is not a lifecycle gate."
+    echo "ℹ️ $UNANSWERED_FETCHER_FLAGGED_COUNT comments flagged by commentfetch remain unanswered; this count alone is not a lifecycle gate."
     echo ""
-    echo "📌 **OUTSTANDING REQUESTED/REQUIRED RESPONSES**:"
+    echo "📌 **UNANSWERED COMMENTFETCH-FLAGGED COMMENTS**:"
 
     # List comments needing response (simple logic)
-    NEEDS_RESPONSE_LIST=$(jq -r '.comments[] | select(.requires_response == true and .already_replied != true) | "• Comment #\(.id) (\(.author)): \(.body[0:80])..."' "$COMMENTS_FILE" 2>/dev/null)
-    echo "$NEEDS_RESPONSE_LIST"
+    UNANSWERED_FETCHER_FLAGGED_LIST=$(jq -r '.comments[] | select(.requires_response == true and .already_replied != true) | "• Comment #\(.id) (\(.author)): \(.body[0:80])..."' "$COMMENTS_FILE" 2>/dev/null)
+    echo "$UNANSWERED_FETCHER_FLAGGED_LIST"
 
     echo ""
     echo "ℹ️ Review the requested task scope and authoritative lifecycle requirements. Unanswered advisory bot comments alone do not block readiness or merge."
     echo ""
-    echo "📊 **COMMENTFETCH DATA**: $TOTAL_COMMENTS total, $NEEDS_RESPONSE_COUNT unresponded"
+    echo "📊 **COMMENTFETCH DATA**: $TOTAL_COMMENTS total, $UNANSWERED_FETCHER_FLAGGED_COUNT flagged and unanswered"
     echo ""
     echo "EXIT CODE: 0 (report only; no gate inferred from comment count)"
     exit 0

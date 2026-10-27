@@ -56,6 +56,28 @@ def cursor_coverage(output: str) -> dict:
 
 
 class ApprovalContractsTest(unittest.TestCase):
+    def test_commentcheck_fenced_code_blocks_are_not_nested(self) -> None:
+        path = COMMANDS / "extended-library" / "commentcheck.md"
+        in_fence = False
+        fence_count = 0
+
+        for line_number, line in enumerate(path.read_text().splitlines(), start=1):
+            if not line.startswith("```"):
+                continue
+            fence_count += 1
+            if in_fence:
+                self.assertEqual(
+                    line.strip(),
+                    "```",
+                    f"unexpected nested fence at {line_number}",
+                )
+                in_fence = False
+            else:
+                in_fence = True
+
+        self.assertGreater(fence_count, 0)
+        self.assertFalse(in_fence, "commentcheck.md has an unclosed code fence")
+
     def test_lifecycle_entrypoints_reference_the_canonical_owner(self) -> None:
         for name in (
             "agento-report", "auton", "factory-evolve", "ironclad", "pr-report",

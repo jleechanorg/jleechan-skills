@@ -96,23 +96,9 @@ Use this same verified `AUTH_NODE` executable for every command below.
      --timeout=180 \
      --print=b > "$RESPONSE_FILE"
    ```
-5. **Parse embedded JSON** and display summary (or use the helper script):
+5. **Parse embedded JSON** and display the summary with the repository parser:
    ```bash
    jq -r '.result.content[0].text' "$RESPONSE_FILE" > "$PARSED_FILE"
-   python3 - "$PARSED_FILE" <<'PYEOF'
-   import json
-   import sys
-   with open(sys.argv[1], 'r') as f:
-       data = json.load(f)
-   print(f"✅ Received responses from {data['summary']['totalModels']} models")
-   print(f"💰 Total cost: ${data['summary']['totalCost']:.4f}")
-   print(f"📊 Total tokens: {data['summary']['totalTokens']:,}")
-   print("\nPrimary response:\n")
-   print(data['primary']['response'])
-   PYEOF
-   ```
-   Or run:
-   ```bash
    python3 skills/second_opinion_workflow/scripts/parse_second_opinion.py "$PARSED_FILE"
    ```
 6. **Review synthesis** to confirm consensus and recommended actions.

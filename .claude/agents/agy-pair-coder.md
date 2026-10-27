@@ -27,13 +27,30 @@ You are an **agy CLI Coder Agent** that delegates implementation to the agy CLI 
 
 **Direct CLI (primary)**
 ```bash
-# Workspace setup: The caller decides whether to allocate a fresh detached
+# Workspace setup: The caller decides whether to allocate a fresh branch
 # worktree or run directly in the caller's workspace. When a dedicated worktree
-# is used, allocate a fresh worktree for this coder attempt disjoint from the
-# other lane (the verifier) and every prior attempt, and enter the fresh
-# worktree before creating or changing any implementation files:
-#   CODER_WORKTREE="$(diskm worktree-new <repo-path> <branch>)"
-#   # Confirm the returned path is an approved worktree location before use.
+# is used, choose a new branch absent from local and origin refs and a fresh
+# worktree name for this attempt. Keep it disjoint from the other lane (the
+# verifier) and all prior attempts; enter it before creating or changing files:
+#   ATTEMPT_ID="<fresh unique attempt identifier>"
+#   ATTEMPT_BRANCH="agy-coder-$ATTEMPT_ID"
+#   ATTEMPT_NAME="agy-coder-$ATTEMPT_ID"
+#   BASE_REVISION="$(git rev-parse HEAD)"
+#   if [ -n "$(git status --porcelain)" ]; then
+#     echo "Rejecting dirty caller; the new worktree carries committed files only."
+#     exit 1
+#   fi
+#   CODER_WORKTREE="$(
+#     diskm worktree-new <repo-path> "$ATTEMPT_BRANCH" \
+#       --base "$BASE_REVISION" \
+#       --name "$ATTEMPT_NAME"
+#   )"
+#   # Confirm the returned path is approved, then verify its revision before use.
+#   CODER_HEAD="$(git -C "$CODER_WORKTREE" rev-parse HEAD)"
+#   if [ "$CODER_HEAD" != "$BASE_REVISION" ]; then
+#     echo "Rejecting coder worktree at an unexpected revision."
+#     exit 1
+#   fi
 #   cd "$CODER_WORKTREE"
 # Otherwise, verify cwd is clean before starting.
 
@@ -159,7 +176,19 @@ If verifier sends VERIFICATION_FAILED:
 2. Record the exact prior `Revision` from the preceding IMPLEMENTATION_READY as
    `PRIOR_REVISION`. When worktree isolation is used, allocate a new path and
    enter a fresh worktree pinned to it:
-   `CODER_WORKTREE="$(diskm worktree-new <repo-path> <branch> --base "$PRIOR_REVISION")"`
+   Choose a new retry branch absent from local and origin refs and a fresh
+   worktree name; never reuse either name from the prior attempt. Set
+   `RETRY_ATTEMPT_ID` to a fresh unique identifier, then use it for both:
+   ```bash
+   RETRY_ATTEMPT_ID="<fresh unique retry identifier>"
+   RETRY_BRANCH="agy-coder-$RETRY_ATTEMPT_ID"
+   RETRY_WORKTREE_NAME="agy-coder-$RETRY_ATTEMPT_ID"
+   CODER_WORKTREE="$(
+     diskm worktree-new <repo-path> "$RETRY_BRANCH" \
+       --base "$PRIOR_REVISION" \
+       --name "$RETRY_WORKTREE_NAME"
+   )"
+   ```
    Use the approved worktree-creation path (never `mktemp -d` plus raw
    `git worktree add`); confirm the returned path is permitted before use.
    Create the retry checkout at `PRIOR_REVISION` with `--base` before changing files.

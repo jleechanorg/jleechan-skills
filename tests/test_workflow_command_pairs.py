@@ -217,13 +217,16 @@ class WorkflowCommandPairTest(unittest.TestCase):
         for name, content in (("coder", coder), ("verifier", verifier)):
             normalized = " ".join(content.split())
             with self.subTest(document=name):
-                self.assertIn("allocate a fresh worktree", normalized.lower())
-                self.assertIn("enter the fresh", normalized.lower())
+                self.assertIn(
+                    "new branch absent from local and origin refs",
+                    normalized.lower(),
+                )
+                self.assertIn("fresh worktree name", normalized.lower())
                 self.assertIn("before", normalized.lower())
                 if name == "coder":
                     self.assertIn("creating or changing", normalized.lower())
                 else:
-                    self.assertIn("before reading files", normalized.lower())
+                    self.assertIn("enter the fresh branch worktree", normalized.lower())
                 self.assertIn("unique per-attempt output", normalized.lower())
                 self.assertIn("disjoint from", normalized.lower())
                 self.assertIn("other lane", normalized.lower())
@@ -247,6 +250,38 @@ class WorkflowCommandPairTest(unittest.TestCase):
             normalized_skill,
         )
 
+    def test_initial_coder_worktree_is_pinned_to_callers_revision(self):
+        coder = (REPO_ROOT / ".claude" / "agents" / "agy-pair-coder.md").read_text(
+            encoding="utf-8"
+        )
+        launch = coder.split("Direct CLI (primary)", 1)[1].split(
+            "**Flag reference", 1
+        )[0]
+        base_capture = 'BASE_REVISION="$(git rev-parse HEAD)"'
+        clean_check = 'if [ -n "$(git status --porcelain)" ]; then'
+        attempt_id = 'ATTEMPT_ID="<fresh unique attempt identifier>"'
+        attempt_branch = 'ATTEMPT_BRANCH="agy-coder-$ATTEMPT_ID"'
+        attempt_name = 'ATTEMPT_NAME="agy-coder-$ATTEMPT_ID"'
+        worktree_start = 'diskm worktree-new <repo-path> "$ATTEMPT_BRANCH" \\'
+        head_check = 'git -C "$CODER_WORKTREE" rev-parse HEAD'
+
+        self.assertIn(base_capture, launch)
+        self.assertIn(clean_check, launch)
+        self.assertIn(attempt_id, launch)
+        self.assertIn(attempt_branch, launch)
+        self.assertIn(attempt_name, launch)
+        self.assertIn('--base "$BASE_REVISION"', launch)
+        self.assertIn('--name "$ATTEMPT_NAME"', launch)
+        self.assertIn(head_check, launch)
+        self.assertIn('if [ "$CODER_HEAD" != "$BASE_REVISION" ]; then', launch)
+        self.assertIn(
+            "new branch absent from local and origin refs",
+            " ".join(launch.split()),
+        )
+        self.assertLess(launch.index(base_capture), launch.index(worktree_start))
+        self.assertLess(launch.index(clean_check), launch.index(worktree_start))
+        self.assertLess(launch.index(worktree_start), launch.index(head_check))
+
     def test_verifier_captures_each_attempt_to_unique_output_path(self):
         verifier = (
             REPO_ROOT / ".claude" / "agents" / "agy-pair-verifier.md"
@@ -267,9 +302,21 @@ class WorkflowCommandPairTest(unittest.TestCase):
         normalized_retry = " ".join(retry.split())
         self.assertIn("PRIOR_REVISION", retry)
         self.assertIn(
-            'CODER_WORKTREE="$(diskm worktree-new <repo-path> <branch> --base "$PRIOR_REVISION")"',
-            retry,
+            'RETRY_ATTEMPT_ID="<fresh unique retry identifier>"', retry
         )
+        self.assertIn('RETRY_BRANCH="agy-coder-$RETRY_ATTEMPT_ID"', retry)
+        self.assertIn(
+            'RETRY_WORKTREE_NAME="agy-coder-$RETRY_ATTEMPT_ID"', retry
+        )
+        self.assertIn(
+            "new retry branch absent from local and origin refs", normalized_retry
+        )
+        self.assertIn("fresh worktree name", normalized_retry)
+        self.assertIn(
+            'diskm worktree-new <repo-path> "$RETRY_BRANCH" \\', retry
+        )
+        self.assertIn('--base "$PRIOR_REVISION"', retry)
+        self.assertIn('--name "$RETRY_WORKTREE_NAME"', retry)
         self.assertIn('cd "$CODER_WORKTREE"', retry)
         self.assertIn('git -C "$CODER_WORKTREE" rev-parse HEAD', retry)
         self.assertIn("equals `PRIOR_REVISION`", retry)
@@ -283,9 +330,19 @@ class WorkflowCommandPairTest(unittest.TestCase):
             REPO_ROOT / ".claude" / "agents" / "agy-pair-verifier.md"
         ).read_text(encoding="utf-8")
         self.assertIn(
-            'VERIFIER_WORKTREE="$(diskm worktree-new <repo-path> <branch> --base "$REVISION")"',
-            verifier,
+            'VERIFIER_ATTEMPT_ID="<fresh unique attempt identifier>"', verifier
         )
+        self.assertIn(
+            "new branch absent from local and origin refs",
+            " ".join(verifier.split()),
+        )
+        self.assertIn("fresh worktree name", " ".join(verifier.split()))
+        self.assertIn(
+            'diskm worktree-new <repo-path> "$VERIFIER_BRANCH" \\', verifier
+        )
+        self.assertIn('--base "$REVISION"', verifier)
+        self.assertIn('--name "$VERIFIER_WORKTREE_NAME"', verifier)
+        self.assertNotIn("detached worktree", verifier)
         self.assertIn(
             'if ! VERIFIER_STATUS="$(git -C "$VERIFIER_WORKTREE" status --porcelain)";',
             verifier,
@@ -331,13 +388,33 @@ class WorkflowCommandPairTest(unittest.TestCase):
         verifier = (
             REPO_ROOT / ".claude" / "agents" / "agy-pair-verifier.md"
         ).read_text(encoding="utf-8")
+        retry = verifier.split("### Retry handling", 1)[1].split(
+            "## Communication Protocol", 1
+        )[0]
         normalized_verifier = " ".join(verifier.split())
         self.assertIn(
             "Every verifier retry carries the handed-off `Revision`",
             normalized_verifier,
         )
         self.assertIn(
-            "reruns focused checks read-only",
+            'diskm worktree-new <repo-path> "$VERIFIER_BRANCH" \\', retry
+        )
+        self.assertIn('--base "$REVISION"', retry)
+        self.assertIn('--name "$VERIFIER_WORKTREE_NAME"', retry)
+        self.assertIn(
+            'VERIFIER_ATTEMPT_ID="<fresh unique retry identifier>"', retry
+        )
+        self.assertIn(
+            'VERIFIER_BRANCH="agy-verifier-$VERIFIER_ATTEMPT_ID"', retry
+        )
+        self.assertIn(
+            "new branch absent from local and origin refs",
+            " ".join(retry.split()),
+        )
+        self.assertIn("fresh worktree name", " ".join(retry.split()))
+        self.assertIn("new worktree's `HEAD` equals `$REVISION`", normalized_verifier)
+        self.assertIn(
+            "rerun focused checks read-only",
             normalized_verifier,
         )
         self.assertIn(

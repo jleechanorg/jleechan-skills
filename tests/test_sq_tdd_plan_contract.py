@@ -60,6 +60,25 @@ class SqTddPlanContractTest(unittest.TestCase):
                 self.assertIn("not evidence that RED/GREEN tests have run", text)
                 self.assertIn("TDD plan step check is complete", text)
 
+    def test_sq_advice_uses_roadmap_repository_relative_documents(self):
+        text = QUICK_SKILLS[0].read_text()
+
+        self.assertIn(
+            'ROADMAP_REPO="$(git -C "$HOME/roadmap" rev-parse --show-toplevel)"',
+            text,
+        )
+        self.assertIn('case "$SPEC_PATH" in', text)
+        self.assertIn('SPEC_DOCUMENT="${SPEC_PATH#"$ROADMAP_REPO"/}"', text)
+        self.assertIn('case "$PLAN_PATH" in', text)
+        self.assertIn('PLAN_DOCUMENT="${PLAN_PATH#"$ROADMAP_REPO"/}"', text)
+        self.assertIn(
+            '--repo "$ROADMAP_REPO" --document "$SPEC_DOCUMENT" '
+            '--document "$PLAN_DOCUMENT"',
+            text,
+        )
+        self.assertNotIn('--document "$SPEC_PATH"', text)
+        self.assertNotIn('--document "$PLAN_PATH"', text)
+
 
 if __name__ == "__main__":
     unittest.main()
