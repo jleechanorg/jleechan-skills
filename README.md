@@ -30,6 +30,8 @@ The six highlighted workflow entries are the `jleechanorg` `/superpowers-quick`
 wrapper, `/advice` + `/web-advice`, `/redgreen`, `/4layer`, `/evidence-review`,
 and `/harness`. These prompts and packages are portable and do not depend on
 WorldAI or private infrastructure.
+A plain install gets all six except `/web-advice`, a browser-review skill that
+installs only with `--profile web` or `--with web-advice`.
 
 > **Third-party attribution:** [`/superpowers-quick`](.claude/skills/superpowers-quick/SKILL.md)
 > is a `jleechanorg`-authored autonomous wrapper around
@@ -49,9 +51,32 @@ Ask your coding agent to inspect the repository and install only what it needs:
 "Inspect https://github.com/jleechanorg/jleechan-skills and set up the skills most useful for my tech stack."
 ```
 
-For a deterministic install, use the bundled installer. It installs complete
-skill packages (including their helper files), commands, agents, and scripts
-under `CLAUDE_HOME` (default: `~/.claude`). It refuses a nonempty target by
+For a deterministic install, use the bundled installer. **By default it now
+installs a curated set, not the whole library**: the six highlighted skills
+(`superpowers-quick`, `advice`, `redgreen`, `4layer`, `evidence-review`,
+`harness-engineering`), plus every in-repo skill they link to, the
+command aliases for the named skills (with any helper file they run; an alias
+is a command named after the skill, described as an alias, or at most 15
+lines long), and the
+agents and scripts those files use. Every profile installs its named set plus
+linked dependencies; the counts below were measured from a scratch install.
+Named profiles select other sets:
+
+| Flag | Named set (plus linked dependencies) | Measured skills / commands / agents |
+|---|---|---|
+| *(none)* or `--profile highlights` | `highlights`: the six highlighted skills above (6 named) | 21 / 10 / 1 |
+| `--profile highlights-prw` | `highlights` plus `prw` | 30 / 17 / 1 |
+| `--profile prw` | the PR workflow set: `prw`, `pr-workflow`, `pr-workflow-manager`, `draft-first-pr`, `pr-lifecycle`, `pr-green-definition`, `ready`, `advice`, `evidence-standards`, `evidence-review`, `testing-layers`, `code-standards` (12 named), and `/es`, `/er`, `/green`, `/cs` | 24 / 11 / 1 |
+| `--profile web` | opt-in browser review: `advice`, `web-advice`, `browser-control` (3 named) | 18 / 5 / 1 |
+| `--with SKILL` | adds one named skill, its dependencies and aliases to the chosen profile (repeatable) | varies |
+| `--all` | the full library, which was the installer's previous default | 267 / 243 / 45 |
+
+Dependency closure never adds browser, cookie or personal-infrastructure
+skills (`dot`, `web-advice`, `browser-control`, `slack-media-upload`, and the
+others listed in [`shared/install-profiles.json`](shared/install-profiles.json));
+those install only under `--all`, `--profile web`, or `--with`. Packages are
+copied complete, with their helper files, under `CLAUDE_HOME` (default:
+`~/.claude`). It refuses a nonempty target by
 default; `--backup` preserves that target before installing and `--merge`
 updates it in place. A routine merge preserves active files whose names collide
 with archived packages; after reviewing those warnings, opt into their
