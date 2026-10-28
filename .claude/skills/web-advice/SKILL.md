@@ -5,11 +5,11 @@ description: Browser-based multi-model advice and review using ChatGPT, Gemini, 
 
 # /web-advice — Multi-Model Browser Review
 
-`/web-advice` queries independent web LLMs (ChatGPT, Gemini, and Perplexity when available) through their web UIs in an authorized, task-owned browser context, then synthesizes their advice. It can review or advise on any user-supplied subject: code and PRs, designs, documents, plans, decisions, research questions, UX, and operational proposals. This is **different from `/advice`**, which is in-session and uses subagents + /secondo + /research.
+`/web-advice` queries independent web LLMs (ChatGPT, Gemini, and Perplexity when available) through their web UIs in an authorized, task-owned browser context, then synthesizes their advice. It can review or advise on any user-supplied subject: code and PRs, designs, documents, plans, decisions, research questions, UX, and operational proposals. This is **different from `/advice`**, which is in-session and uses two independent CLI reviewers (normally Codex and Opus), with /research nonvoting.
 
 | Skill | Mechanism | When to use |
 |---|---|---|
-| `/advice` | In-session: subagent + /secondo + /research | Architectural reasoning, ZFC reviews, code-path analysis |
+| `/advice` | In-session: Codex + Opus CLI votes (/research nonvoting) | Architectural reasoning, ZFC reviews, code-path analysis |
 | `/web-advice` | Browser: ChatGPT + Gemini + Perplexity Web; Aside in background mode on an agent-owned profile for the logged-in vendor sites; isolated headless otherwise | Independent external multi-model advice or review; visual/video context; web-search grounding |
 | `/er` | In-session: evidence-standards skill | Evidence bundle integrity (4-gate checksum/SHA/real-services) |
 
