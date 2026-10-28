@@ -205,7 +205,12 @@ if echo "$ARGS" | grep -o '[0-9]\+' | head -2 | tail -1 | grep -q .; then
 fi
 
 echo "🚀 Fetching comments for PR #$PR_NUMBER..."
-cd .claude/commands && python3 -c "
+COMMANDS_DIR="${COMMENT_COMMANDS_DIR:-${CLAUDE_HOME:-$HOME/.claude}/commands}"
+if [ ! -f "$COMMANDS_DIR/_copilot_modules/commentfetch.py" ]; then
+    echo "❌ Canonical commentfetch installation unavailable at $COMMANDS_DIR" >&2
+    exit 2
+fi
+PYTHONPATH="$COMMANDS_DIR${PYTHONPATH:+:$PYTHONPATH}" python3 -c "
 import _copilot_modules.commentfetch as cf
 import sys
 fetch = cf.CommentFetch(sys.argv[1])

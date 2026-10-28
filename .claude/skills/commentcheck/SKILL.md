@@ -129,9 +129,15 @@ echo "🚀 ORCHESTRATING: Fetching comprehensive comment data via /commentfetch.
 echo "🔍 COMPREHENSIVE COMMENT ANALYSIS FOR PR #$PR_NUMBER"
 echo "=================================================================="
 
-# 2. Execute commentfetch Python implementation for comprehensive multi-API comment fetching
+# 2. Execute the canonical command installation independently of the target cwd.
+# The target repository remains the caller's cwd so repo/branch provenance stays correct.
 
-PYTHONPATH=.claude/commands python3 -c "
+COMMANDS_DIR="${COMMENT_COMMANDS_DIR:-${CLAUDE_HOME:-$HOME/.claude}/commands}"
+if [ ! -f "$COMMANDS_DIR/_copilot_modules/commentfetch.py" ]; then
+  echo "🚨 CRITICAL: canonical commentfetch installation unavailable at $COMMANDS_DIR" >&2
+  exit 2
+fi
+PYTHONPATH="$COMMANDS_DIR${PYTHONPATH:+:$PYTHONPATH}" python3 -c "
 from _copilot_modules.commentfetch import CommentFetch
 import sys
 fetch = CommentFetch(sys.argv[1])
@@ -318,6 +324,11 @@ elif ! RESPONDER_LOGIN=$(gh api user --jq '.login' 2>/dev/null); then
 fi
 [ -n "$RESPONDER_LOGIN" ] || coverage_fail "verified responder identity is empty"
 
+EXPECTED_REPO=$(jq -r '.metadata.repo // empty' "$COMMENTS_FILE" 2>/dev/null || true)
+if [[ ! "$EXPECTED_REPO" =~ ^[^/[:space:]]+/[^/[:space:]]+$ ]]; then
+  coverage_fail "commentfetch metadata does not contain a valid repository identity"
+fi
+
 if ! ORIGINAL_IDS=$(echo "$ALL_COMMENTS" | jq -r --arg responder "$RESPONDER_LOGIN" '.[] | select((.author != $responder) or ((((.body // "") | startswith("[AI responder]")) or ((.body // "") | startswith("## 🤖 [AI responder] Consolidated Comment Response Summary"))) | not)) | .id | tostring' | sort -u); then
   coverage_fail "failed to extract original comment IDs"
 fi
@@ -325,9 +336,17 @@ if ! POSTED_REPLY_IDS=$(echo "$ALL_COMMENTS" | jq -r --arg responder "$RESPONDER
   coverage_fail "failed to extract posted reply relationships"
 fi
 if ! POSTED_SUMMARY_IDS=$(
-  {
-    echo "$ALL_COMMENTS" | jq -r --arg responder "$RESPONDER_LOGIN" '[.[] | select(.author == $responder) | (.body // "") | select(startswith("## 🤖 [AI responder] Consolidated Comment Response Summary")) | [scan("(?i)Re:[[:space:]]+\\[Comment[[:space:]]+#([0-9]+)\\]\\(")[]] | .[]] | .[]'
-  } | sort -u
+  echo "$ALL_COMMENTS" | jq -r --arg responder "$RESPONDER_LOGIN" --arg repo "$EXPECTED_REPO" --arg pr "$PR_NUMBER" '
+    .[]
+    | select(.author == $responder)
+    | (.body // "") as $body
+    | select(($body | split("\n")[0]) == "## 🤖 [AI responder] Consolidated Comment Response Summary")
+    | $body
+    | split("\n")[]
+    | try capture("^### [0-9]+\\. Re: \\[Comment #(?<id>[1-9][0-9]*)\\]\\(https://github\\.com/" + $repo + "/pull/" + $pr + "#(?:discussion_r|issuecomment-|pullrequestreview-)(?<anchor_id>[1-9][0-9]*)\\)$") catch empty
+    | select(.id == .anchor_id)
+    | .id
+  ' | sort -u
 ); then
   coverage_fail "failed to extract verified responder summary references"
 fi

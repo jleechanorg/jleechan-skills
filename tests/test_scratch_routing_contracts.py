@@ -414,7 +414,9 @@ class ScratchRoutingContracts(unittest.TestCase):
                 responses_path = Path(directory) / "responses.json"
                 responses_path.write_text(json.dumps({"responses": responses}))
                 comments_path = Path(directory) / "comments.json"
-                comments_path.write_text(json.dumps({"comments": comments}))
+                comments_path.write_text(
+                    json.dumps({"comments": comments, "metadata": {"repo": "owner/repo"}})
+                )
                 fake_bin = Path(directory) / "bin"
                 fake_bin.mkdir()
                 fake_gh = fake_bin / "gh"
@@ -426,7 +428,9 @@ class ScratchRoutingContracts(unittest.TestCase):
                         **os.environ,
                         "COMMENTS_FILE": str(comments_path),
                         "RESPONSES_FILE": str(responses_path),
+                        "PR_NUMBER": "1",
                         "COPILOT_RESPONDER_LOGIN": "verified-bot",
+                        "COMMENT_COMMANDS_DIR": str(ROOT / ".claude/commands"),
                         "PATH": f"{fake_bin}:/usr/bin:/bin",
                     },
                     capture_output=True,
@@ -493,6 +497,21 @@ class ScratchRoutingContracts(unittest.TestCase):
         )
         self.assertEqual(summary.returncode, 0, summary.stdout + summary.stderr)
 
+        wrong_destination = run_step(
+            [
+                original,
+                {
+                    "id": 99,
+                    "body": "## 🤖 [AI responder] Consolidated Comment Response Summary\n### 1. Re: [Comment #7](https://example.invalid/unrelated)",
+                    "author": "verified-bot",
+                    "type": "general",
+                },
+            ],
+            generated,
+        )
+        self.assertNotEqual(wrong_destination.returncode, 0)
+        self.assertIn("Missing original comment ID: 7", wrong_destination.stdout)
+
         quoted_summary = run_step(
             [
                 original,
@@ -549,6 +568,26 @@ class ScratchRoutingContracts(unittest.TestCase):
         self.assertTrue(fetcher._has_exact_comment_reference("discussion_r7", "7"))
         self.assertFalse(fetcher._has_exact_comment_reference("Re: Comment #70", "7"))
         self.assertFalse(fetcher._has_exact_comment_reference("discussion_r70", "7"))
+
+    def test_commentreply_refuses_wrong_pr_cache_after_canonical_fetch_failure(self):
+        with tempfile.TemporaryDirectory(dir="/var/tmp") as directory:
+            root = Path(directory).resolve()
+            cache_dir = root / "jleechan-skills" / "feature" / "copilot"
+            cache_dir.mkdir(parents=True)
+            comments_file = cache_dir / "comments.json"
+            old_payload = {"pr": "99", "comments": [{"id": 99, "body": "wrong"}]}
+            comments_file.write_text(json.dumps(old_payload))
+            with mock.patch.object(scratch_paths, "resolve_scratch_root", return_value=root), mock.patch.object(
+                commentfetch.CommentFetch,
+                "execute",
+                side_effect=RuntimeError("fresh fetch failed"),
+            ):
+                with self.assertRaises(SystemExit) as raised:
+                    commentreply.load_comments_with_staleness_check(
+                        "feature", "owner", "repo", "7", "jleechan-skills"
+                    )
+            self.assertEqual(raised.exception.code, 1)
+            self.assertEqual(json.loads(comments_file.read_text()), old_payload)
 
     def test_commentcheck_fetch_load_fails_on_fetch_or_freshness_failure(self):
         document = (ROOT / ".claude/skills/commentcheck/SKILL.md").read_text()
@@ -608,6 +647,7 @@ class ScratchRoutingContracts(unittest.TestCase):
                         **os.environ,
                         "HOME": str(home),
                         "PATH": f"{fake_bin}:/opt/homebrew/bin:/usr/bin:/bin",
+                        "COMMENT_COMMANDS_DIR": str(ROOT / ".claude/commands"),
                         "TEST_FETCH_MODE": mode,
                         "TEST_COMMENTS_FILE": str(comments_file),
                     },
@@ -721,6 +761,53 @@ class ScratchRoutingContracts(unittest.TestCase):
             )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("configured Scratch unavailable", result.stderr)
+
+    def test_comment_docs_import_canonical_commands_outside_target_cwd(self):
+        with tempfile.TemporaryDirectory(dir="/var/tmp") as directory:
+            fixture = Path(directory).resolve()
+            commands = fixture / "canonical-commands"
+            modules = commands / "_copilot_modules"
+            modules.mkdir(parents=True)
+            (modules / "__init__.py").write_text("")
+            (modules / "commentfetch.py").write_text(
+                "class CommentFetch:\n"
+                "    def __init__(self, pr_number, repo=None):\n"
+                "        self.pr_number = pr_number\n"
+                "    def execute(self):\n"
+                "        return {'success': True}\n"
+            )
+            env = {
+                **os.environ,
+                "COMMENT_COMMANDS_DIR": str(commands),
+                "PR_NUMBER": "7",
+                "PATH": "/usr/bin:/bin",
+            }
+
+            check_doc = (ROOT / ".claude/skills/commentcheck/SKILL.md").read_text()
+            check_start = check_doc.index('COMMANDS_DIR="${COMMENT_COMMANDS_DIR')
+            check_end = check_doc.index("\n# 3. Use structured JSON output", check_start)
+            check_result = subprocess.run(
+                ["bash", "-c", check_doc[check_start:check_end]],
+                cwd=fixture,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(check_result.returncode, 0, check_result.stderr)
+
+            fetch_doc = (ROOT / ".claude/skills/commentfetch/SKILL.md").read_text()
+            fetch_start = fetch_doc.index('COMMANDS_DIR="${COMMENT_COMMANDS_DIR')
+            fetch_end = fetch_doc.index("\n# If user requested inline display", fetch_start)
+            fetch_result = subprocess.run(
+                ["bash", "-c", fetch_doc[fetch_start:fetch_end]],
+                cwd=fixture,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(fetch_result.returncode, 0, fetch_result.stderr)
 
     def test_web_advice_smoke_falls_back_from_aside_to_chrome(self):
         script = ROOT / ".claude/skills/web-advice/scripts/e2e_smoke.sh"

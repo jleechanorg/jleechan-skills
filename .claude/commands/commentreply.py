@@ -165,20 +165,25 @@ def load_comments_with_staleness_check(
     # Fallback to legacy single-file format
     comments_file = str(comments_path)
 
-    # COPILOT: Always fetch fresh data - no cache for PR processing
-    if comments_path.exists():
-        cache_age_minutes = (time.time() - os.path.getmtime(comments_file)) / 60
-        print(
-            f"🔄 COPILOT MODE: Ignoring {cache_age_minutes:.1f}min cache - fetching fresh comments"
-        )
-        fetch_fresh_comments(owner, repo, pr_number, comments_file)
-    else:
-        print(f"📥 NO CACHE: Fetching fresh comments for {owner}/{repo}#{pr_number}")
-        fetch_fresh_comments(owner, repo, pr_number, comments_file)
+    # Reuse the canonical producer so refresh failure cannot fall back to a
+    # stale or wrong-PR cache. The caller's cwd remains the target repository.
+    print(f"📡 FETCHING: Fresh canonical comments for {owner}/{repo}#{pr_number}")
+    try:
+        from _copilot_modules.commentfetch import CommentFetch
+
+        result = CommentFetch(str(pr_number), f"{owner}/{repo}").execute()
+        if not result.get("success"):
+            raise RuntimeError(result.get("message", "canonical comment fetch failed"))
+    except Exception as error:
+        print(f"❌ ERROR: Fresh canonical comment fetch failed: {error}")
+        sys.exit(1)
 
     try:
         with comments_path.open("r") as f:
             comment_data = json.load(f)
+        if str(comment_data.get("pr", "")) != str(pr_number):
+            print("❌ ERROR: Refusing comment cache for a different PR")
+            sys.exit(1)
         return comment_data.get("comments", [])
     except Exception as e:
         print(f"❌ ERROR: Failed to load comments: {e}")
