@@ -64,9 +64,10 @@ planning, handoff, and execution authorization boundaries.
 
 For cross-host CPU, RAM, disk, and I/O measurements and safe routing, follow
 [`references/host-load-balancing.md`](references/host-load-balancing.md).
-For Linux transfer, follow `~/.claude/skills/lm/SKILL.md`;
+For Linux transfer, follow
+`${CLAUDE_HOME:-$HOME/.claude}/skills/lm/SKILL.md`;
 for existing cmux Cloud capacity, follow
-`~/.claude/skills/cc/SKILL.md`.
+`${CLAUDE_HOME:-$HOME/.claude}/skills/cc/SKILL.md`.
 
 1. **Enumerate the independent items.** Rows, files, tests, migrations, doc
    sections, instances, jobs, agent lanes. If items share mutable state, they
