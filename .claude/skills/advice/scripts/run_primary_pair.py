@@ -307,7 +307,9 @@ class ProcessTreeSupervisor:
         except (OSError, subprocess.SubprocessError) as error:
             with self._lock:
                 self.errors.append(f"{type(error).__name__}: {error}")
-            return sorted(self.discovered)
+            # A cached PID is not safe to signal after its identity probe fails:
+            # the OS may already have reused it for an unrelated process.
+            return []
         with self._lock:
             return sorted(
                 pid
@@ -388,6 +390,10 @@ def execute(
     except subprocess.TimeoutExpired:
         supervisor.stop()
         terminated = set(supervisor.signal_active(signal.SIGTERM))
+        # start_new_session makes process.pid the group ID. poll() returning
+        # None leaves the direct child unreaped; keep it that way until killpg,
+        # so its PID/PGID cannot be reused between the check and the signal.
+        # Reap only after signaling; after reaping, skip group signals below.
         if process.poll() is None:
             try:
                 os.killpg(process.pid, signal.SIGKILL)
@@ -397,6 +403,13 @@ def execute(
                 process.kill()
             except ProcessLookupError:
                 pass
+        else:
+            with supervisor._lock:
+                supervisor.errors.append(
+                    "reviewer leader exited before timeout cleanup; skipped "
+                    "process-group signaling because group identity could no "
+                    "longer be proven atomically"
+                )
         forced_pipe_close = False
         try:
             remaining_grace = max(
@@ -582,7 +595,7 @@ def codex_lane(
                 **supervision,
             }
         )
-        if code == 0 and has_verdict(stdout):
+        if code == 0 and not timed_out and has_verdict(stdout):
             return {
                 "status": "success",
                 "transport": "codex exec --yolo",
@@ -649,7 +662,7 @@ def opus_lane(
     if code == 0 and not has_verdict(stdout):
         failure = "missing_verdict"
     return {
-        "status": "success" if code == 0 and has_verdict(stdout) else "error",
+        "status": "success" if code == 0 and not timed_out and has_verdict(stdout) else "error",
         "transport": "claude -p --model opus --dangerously-skip-permissions",
         "stdout": stdout,
         "attempts": [

@@ -176,6 +176,88 @@ class PrimaryPairTest(unittest.TestCase):
                 queued.extend(("--queued-at-monotonic-ns", str(monotonic_ns)))
         return queued
 
+    def test_reviewers_do_not_accept_zero_exit_after_timeout(self) -> None:
+        runner = load_runner_module()
+        self.executable("codex", "exit 0\n")
+        self.executable("claude", "exit 0\n")
+        supervision = {
+            "descendant_termination_verified": True,
+            "descendants_surviving": [],
+        }
+        timeout_result = (
+            0,
+            "VERDICT: APPROVED\nCOVERAGE: all\n",
+            "",
+            True,
+            False,
+            supervision,
+        )
+        deadline = time.monotonic() + 5
+        with mock.patch.dict(os.environ, self.env), mock.patch.object(
+            runner, "execute", return_value=timeout_result
+        ):
+            codex_result = runner.codex_lane(
+                self.repo, "prompt", threading.Barrier(1), deadline, 0.1
+            )
+            opus_result = runner.opus_lane(
+                self.repo, "prompt", threading.Barrier(1), deadline, 0.1
+            )
+
+        self.assertEqual(codex_result["status"], "error")
+        self.assertEqual(opus_result["status"], "error")
+        self.assertEqual(codex_result["attempts"][0]["failure"], "timeout")
+        self.assertEqual(opus_result["attempts"][0]["failure"], "timeout")
+
+    def test_timeout_does_not_signal_reused_group_after_reviewer_parent_exits(self) -> None:
+        runner = load_runner_module()
+        child_pid_file = self.sync / "pipe-holder.pid"
+        child_program = (
+            "import pathlib, subprocess, sys\n"
+            "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])\n"
+            f"pathlib.Path({str(child_pid_file)!r}).write_text(str(child.pid))\n"
+            "print('VERDICT: APPROVED')\n"
+            "print('COVERAGE: all')\n"
+        )
+
+        def child_is_running(pid: int) -> bool:
+            result = subprocess.run(
+                ["ps", "-o", "stat=", "-p", str(pid)],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=1,
+            )
+            state = result.stdout.strip()
+            return bool(state) and not state.startswith("Z")
+
+        with mock.patch.object(runner.ProcessTreeSupervisor, "start"), \
+                mock.patch.object(runner.ProcessTreeSupervisor, "stop"), \
+                mock.patch.object(runner.ProcessTreeSupervisor, "active_discovered", return_value=[]), \
+                mock.patch.object(runner.ProcessTreeSupervisor, "signal_active", return_value=[]), \
+                mock.patch.object(runner.ProcessTreeSupervisor, "verify_gone", return_value=[]), \
+                mock.patch.object(runner.os, "killpg") as killpg:
+            result = runner.execute(
+                [sys.executable, "-c", child_program], self.root, "prompt", 0.1, 0.05
+            )
+
+        child_pid = int(child_pid_file.read_text())
+        try:
+            self.assertTrue(result[3], "pipe-holding descendant did not trigger timeout")
+            killpg.assert_not_called()
+            self.assertFalse(result[5]["descendant_termination_verified"])
+            self.assertTrue(
+                any(
+                    "group identity could no longer be proven" in error
+                    for error in result[5]["descendant_supervision_errors"]
+                )
+            )
+            self.assertTrue(
+                child_is_running(child_pid), "fixture child should require its own cleanup"
+            )
+        finally:
+            if child_is_running(child_pid):
+                os.kill(child_pid, signal.SIGKILL)
+
     def test_reviewers_accepts_codex_opus_subset_and_rejects_unknown_or_duplicates(self) -> None:
         self.executable("codex", "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
         self.executable("claude", "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
@@ -1066,8 +1148,8 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         self.executable("codex", "exit 0\n")
         self.executable("claude", "exit 0\n")
         queued_at_monotonic_ns = time.monotonic_ns()
-        attempt_timeout = 2.0
-        cleanup_budget = 0.5
+        attempt_timeout = 10.0
+        cleanup_budget = 5.0
         argv = [
             "--repo", str(self.repo), "--ref", self.sha,
             "--packet-file", str(self.packet), "--output-dir", str(self.output),
@@ -1077,7 +1159,7 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
             "--queued-at-epoch-ns", "1000000000",
             "--queued-at-monotonic-ns", str(queued_at_monotonic_ns),
         ]
-        wall_step_at_ns = queued_at_monotonic_ns + 1_520_000_000
+        wall_step_at_ns = queued_at_monotonic_ns + 5_020_000_000
         wall_before_step_ns = 1_000_100_000
         wall_after_step_ns = 999_000_000
         supervision = {
