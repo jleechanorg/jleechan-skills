@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 from .base import CopilotCommandBase
 from .per_comment_cache import PerCommentCache
-from .scratch_paths import copilot_cache_dir
+from .scratch_paths import copilot_cache_dir, copilot_cache_file
 
 
 class CommentFetch(CopilotCommandBase):
@@ -69,7 +69,9 @@ class CommentFetch(CopilotCommandBase):
 
         # Set cache directory and initialize per-comment cache
         self.cache_dir = copilot_cache_dir(self.repo_name, self.branch_name)
-        self.output_file = self.cache_dir / "comments.json"  # Keep for backward compatibility
+        self.output_file = copilot_cache_file(
+            self.repo_name, self.branch_name, "comments.json"
+        )
         self.cache_metadata_file = self.cache_dir / "cache_metadata.json"
         self.per_comment_cache = PerCommentCache(self.cache_dir)
 

@@ -185,6 +185,13 @@ class ScratchRoutingContracts(unittest.TestCase):
         reply_doc = (ROOT / ".claude/skills/commentreply/SKILL.md").read_text()
         self.assertIn("responses.json", reply_doc)
         self.assertNotIn("replies.json", reply_doc)
+        self.assertIn("/{repo}/{branch}/copilot/comments.json", reply_doc)
+        self.assertIn("/{repo}/{branch}/copilot/responses.json", reply_doc)
+        commentcheck_doc = (ROOT / ".claude/skills/commentcheck/SKILL.md").read_text()
+        self.assertIn("original comment IDs", commentcheck_doc)
+        self.assertIn("attributable response", commentcheck_doc)
+        self.assertNotIn("length > 50", commentcheck_doc)
+        self.assertNotIn("Thank you CodeRabbit", commentcheck_doc)
 
         with tempfile.TemporaryDirectory(dir="/var/tmp") as directory:
             fixture = Path(directory).resolve()
@@ -231,6 +238,109 @@ class ScratchRoutingContracts(unittest.TestCase):
             with mock.patch.object(scratch_paths, "resolve_scratch_root", return_value=root):
                 with self.assertRaisesRegex(RuntimeError, "escaped canonical Scratch root"):
                     scratch_paths.copilot_cache_dir("repo", "branch")
+
+    def test_comment_leaf_files_reject_external_symlinks(self):
+        with tempfile.TemporaryDirectory(dir="/var/tmp") as directory:
+            root = (Path(directory) / "canonical-scratch").resolve()
+            outside = (Path(directory) / "outside").resolve()
+            root.mkdir()
+            outside.mkdir()
+            cache_dir = root / "repo" / "branch" / "copilot"
+            cache_dir.mkdir(parents=True)
+            (outside / "comments.json").write_text('{"comments": []}')
+            (outside / "responses.json").write_text('{"responses": []}')
+            (cache_dir / "comments.json").symlink_to(outside / "comments.json")
+            (cache_dir / "responses.json").symlink_to(outside / "responses.json")
+            with mock.patch.object(scratch_paths, "resolve_scratch_root", return_value=root):
+                for filename in ("comments.json", "responses.json"):
+                    with self.subTest(filename=filename):
+                        with self.assertRaisesRegex(RuntimeError, "escaped canonical"):
+                            scratch_paths.copilot_cache_file("repo", "branch", filename)
+
+                # The actual comment producer uses the same leaf validator;
+                # it must reject an existing escape before any API fetch/write.
+                with mock.patch.object(
+                    commentfetch.CommentFetch,
+                    "_get_pr_author",
+                    return_value=None,
+                ), mock.patch.object(
+                    commentfetch.subprocess,
+                    "run",
+                    return_value=subprocess.CompletedProcess(
+                        ["git"], 0, stdout="branch\n", stderr=""
+                    ),
+                ), mock.patch.object(
+                    commentfetch.subprocess,
+                    "check_output",
+                    return_value=b"/repo/repo\n",
+                ):
+                    with self.assertRaisesRegex(RuntimeError, "escaped canonical"):
+                        commentfetch.CommentFetch("42", "owner/repo")
+
+    def test_media_skill_allocators_fail_before_mktemp(self):
+        with tempfile.TemporaryDirectory(dir="/var/tmp") as directory:
+            root = Path(directory).resolve()
+            home = root / "home"
+            resolver = home / ".claude/skills/scratch-space/scripts/scratch-dir.sh"
+            resolver.parent.mkdir(parents=True)
+            resolver.write_text("#!/bin/sh\nexit 75\n")
+            resolver.chmod(0o755)
+            mktemp_marker = root / "mktemp-invoked"
+            fake_mktemp = root / "mktemp"
+            fake_mktemp.write_text(
+                f"#!/bin/sh\nprintf invoked > {mktemp_marker}\nexit 77\n"
+            )
+            fake_mktemp.chmod(0o755)
+            env = {
+                **os.environ,
+                "HOME": str(home),
+                "CLAUDE_HOME": str(home / ".claude"),
+                "PATH": f"{root}:/usr/bin:/bin",
+            }
+            video = subprocess.run(
+                [
+                    "bash",
+                    "-c",
+                    'scratch_tmp="$("$HOME/.claude/skills/scratch-space/scripts/scratch-dir.sh" tmp)" || exit 75; frames_dir="$(mktemp -d "$scratch_tmp/video-frames.XXXXXX")" || exit 77',
+                ],
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(video.returncode, 75)
+            self.assertFalse(mktemp_marker.exists())
+
+            # The game evidence recipe must fail closed on resolver failure too;
+            # an empty-output guard alone would allow a failed command to reach mktemp.
+            game_failed = subprocess.run(
+                [
+                    "bash",
+                    "-c",
+                    'scratch_root="$($HOME/.claude/skills/scratch-space/scripts/scratch-dir.sh)" || exit 75; if [ -z "$scratch_root" ]; then exit 75; fi; evidence_dir="$(mktemp -d "$scratch_root/game-er.XXXXXXXX")" || exit 77',
+                ],
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(game_failed.returncode, 75)
+            self.assertFalse(mktemp_marker.exists())
+
+            resolver.write_text("#!/bin/sh\nprintf '%s\\n' ''\n")
+            game = subprocess.run(
+                [
+                    "bash",
+                    "-c",
+                    'scratch_root="$("$HOME/.claude/skills/scratch-space/scripts/scratch-dir.sh")"; if [ -z "$scratch_root" ]; then exit 75; fi; evidence_dir="$(mktemp -d "$scratch_root/game-er.XXXXXXXX")" || exit 77',
+                ],
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(game.returncode, 75)
+            self.assertFalse(mktemp_marker.exists())
 
     def test_web_advice_smoke_stops_on_configured_resolver_failure(self):
         script = ROOT / ".claude/skills/web-advice/scripts/e2e_smoke.sh"

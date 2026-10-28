@@ -49,3 +49,15 @@ def copilot_cache_dir(repo_name: str, branch_name: str) -> Path:
     except ValueError as error:
         raise RuntimeError("comment cache escaped canonical Scratch root") from error
     return candidate
+
+
+def copilot_cache_file(repo_name: str, branch_name: str, filename: str) -> Path:
+    cache_dir = copilot_cache_dir(repo_name, branch_name)
+    candidate = (cache_dir / filename).resolve()
+    try:
+        candidate.relative_to(cache_dir)
+    except ValueError as error:
+        raise RuntimeError("comment cache file escaped canonical Scratch root") from error
+    if candidate.parent != cache_dir:
+        raise RuntimeError("comment cache file escaped canonical Scratch directory")
+    return candidate

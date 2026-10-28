@@ -36,7 +36,14 @@ Note: track whether audio exists — it affects the final ffmpeg command.
 
 ```bash
 # Resolve scratch directory via ~/.claude/skills/scratch-space/SKILL.md
-frames_dir=$(mktemp -d "$("${CLAUDE_HOME:-$HOME/.claude}/skills/scratch-space/scripts/scratch-dir.sh" tmp)/video-frames.XXXXXX")
+scratch_tmp="$("${CLAUDE_HOME:-$HOME/.claude}/skills/scratch-space/scripts/scratch-dir.sh" tmp)" || {
+    echo "Scratch resolver unavailable; refusing frame allocation" >&2
+    exit 75
+}
+frames_dir="$(mktemp -d "$scratch_tmp/video-frames.XXXXXX")" || {
+    echo "Scratch frame allocation failed" >&2
+    exit 75
+}
 ffmpeg -i "video.mov" -vf "fps=1/10,scale=1280:-1" -q:v 3 "$frames_dir/frame_%03d.jpg"
 ```
 

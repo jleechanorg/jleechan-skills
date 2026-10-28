@@ -62,14 +62,12 @@ If `/commentcheck` finds issues:
 
 **Usage**: `/commentcheck [PR_NUMBER] [--verify-urls]`
 
-🚨 **CRITICAL PURPOSE**: Verify 100% comment coverage and response quality after comment reply process. Count ALL comments requiring response (everything except '[AI responder]' comments).
+🚨 **CRITICAL PURPOSE**: Verify comment coverage after the reply process using original comment IDs and attributable response or consolidated-summary receipts. Semantic response quality remains a model judgment.
 
 🚨 **CRITICAL CLARIFICATION - Bot Comments Must Be Addressed**:
-- ✅ **"ALL comments" explicitly INCLUDES bot comments**: CodeRabbit, GitHub Copilot, automated reviewers
-- ✅ **"ALL comments" explicitly INCLUDES human comments**: Team members, manual reviewers
-- ❌ **ONLY EXCEPTION**: Comments starting with "[AI responder]" (our own AI-generated responses)
-- 🚨 **MANDATORY**: Bot code review comments MUST have responses - either fixes or "NOT DONE: [reason]"
-- 🚨 **ZERO SKIP TOLERANCE**: 100% reply rate means bot AND human comments must be addressed
+- ✅ **"ALL comments" includes bot and human comments**: coverage is checked by each original comment ID.
+- ✅ A response entry or refreshed consolidated summary must identify the original comment ID.
+- 🚫 **Do not infer response quality from keywords, character counts, or author labels**; model judgment handles technical adequacy.
 
 🔒 **Security**: Uses safe jq --arg parameter passing to prevent command injection vulnerabilities and explicit variable validation.
 
@@ -79,17 +77,11 @@ If `/commentcheck` finds issues:
 
 ## 🎯 INDIVIDUAL COMMENT VERIFICATION MANDATE
 
-**MANDATORY**: This command MUST count ALL comments requiring response:
-- **Zero tolerance policy** - Every comment needs response except '[AI responder]' comments
-  - 🚨 **Bot comments (CodeRabbit, GitHub Copilot, automated reviewers) = MUST respond**
-  - 🚨 **Human comments = MUST respond**
-  - ❌ **[AI responder] comments = Skip (our own responses)**
-- **Simple counting** - Count comments NOT starting with '[AI responder]'
-- **Warning system** - Clear alerts when unaddressed comments > 0
-- **No complex classification** - No bot detection
-- **Evidence requirement** - List any comments needing response by ID
-- **Simple principle** - Address everything (human AND bot) except our own '[AI responder]' responses
-- **Direct reply verification** - Every non-AI-responder comment (including bot comments) must have response
+**MANDATORY**: This command MUST compare original comment IDs with attributable response IDs:
+- **Bot and human comments are both in scope**; original IDs, not author classification, define coverage.
+- **Response evidence** comes from structured `responses.json` entries or a refreshed consolidated-summary receipt.
+- **Evidence requirement** - list any missing original IDs.
+- **Semantic response quality** is judged by the model after the mechanical coverage gate; this shell command must not use keyword or length heuristics.
 
 ## Description
 
@@ -108,15 +100,15 @@ Pure markdown command (no Python executable) that systematically verifies all PR
 - **PRE-PUSH GATE**: Must run before any push operations in copilot workflow
 - **HARD STOP ENFORCEMENT**: Non-zero exit codes must halt copilot execution
 - **NO BYPASS ALLOWED**: Cannot be skipped or ignored in copilot automation
-- **COVERAGE THRESHOLD**: Exactly 0 unaddressed comments (excluding '[AI responder]') required for success
+- **COVERAGE THRESHOLD**: Every original comment ID must have attributable response evidence before success
 
 ## What It Does
 
 1. **Orchestrates /commentfetch** for comprehensive comment data (eliminates duplicate API calls)
 2. **Analyzes JSON output** from commentfetch for coverage verification
 3. **Cross-references** original comments with posted responses using structured data
-4. **Verifies coverage** - ensures every comment has a corresponding response
-5. **Quality check** - confirms responses are substantial, not generic
+4. **Verifies coverage** - ensures every original comment ID has attributable response evidence
+5. **Delegates quality judgment** - does not score response prose mechanically
 6. **Reports status** with detailed breakdown using commentfetch metadata
 
 ## Individual Comment Verification Process (ORCHESTRATED)
@@ -188,7 +180,6 @@ fi
 # 4. Extract comprehensive comment statistics from commentfetch JSON
 
 TOTAL_COMMENTS=$(jq '.metadata.total' "$COMMENTS_FILE" 2>/dev/null || echo "0")
-UNRESPONDED_COUNT=$(jq '.metadata.unresponded_count' "$COMMENTS_FILE" 2>/dev/null || echo "0")
 INLINE_COUNT=$(jq '.metadata.by_type.inline' "$COMMENTS_FILE" 2>/dev/null || echo "0")
 GENERAL_COUNT=$(jq '.metadata.by_type.general' "$COMMENTS_FILE" 2>/dev/null || echo "0")
 REVIEW_COUNT=$(jq '.metadata.by_type.review' "$COMMENTS_FILE" 2>/dev/null || echo "0")
@@ -200,7 +191,6 @@ echo "   Inline review comments: $INLINE_COUNT"
 echo "   General PR comments: $GENERAL_COUNT"
 echo "   Review summary comments: $REVIEW_COUNT"
 echo "   Copilot comments: $COPILOT_COUNT"
-echo "   Unresponded comments: $UNRESPONDED_COUNT"
 
 # 5. Validate commentfetch data quality
 
@@ -210,7 +200,7 @@ if [ "$TOTAL_COMMENTS" -eq 0 ]; then
 fi
 
 echo "🎯 COMMENTFETCH ORCHESTRATION: Successfully loaded $TOTAL_COMMENTS comments"
-echo "📈 UNRESPONDED ANALYSIS: $UNRESPONDED_COUNT comments require attention"
+echo "📈 ID ANALYSIS: coverage is determined below from original IDs and attributable receipts"
 ```
 
 # Enhanced threading verification using commentfetch structured data
@@ -251,145 +241,49 @@ if [ "$TOTAL_COMMENTS" -gt 0 ]; then
   echo "   Response rate: $RESPONSE_PERCENTAGE%"
 fi
 
-# Step 2C: Simple comment classification (AI responder vs needs response)
+# Step 2C: Mechanical original-ID coverage (no semantic heuristics)
 
 echo ""
-echo "🔍 SIMPLE CLASSIFICATION (AI responder detection only):"
-AI_RESPONDER_COMMENTS=$(echo "$ALL_COMMENTS" | jq '[.[] | select(.body | startswith("[AI responder]"))]')
-AI_COUNT=$(echo "$AI_RESPONDER_COMMENTS" | jq length)
-NEEDS_RESPONSE_COMMENTS=$(echo "$ALL_COMMENTS" | jq '[.[] | select(.body | startswith("[AI responder]") | not)]')
-NEEDS_RESPONSE_COUNT=$(echo "$NEEDS_RESPONSE_COMMENTS" | jq length)
+echo "🔍 ORIGINAL COMMENT ID COVERAGE (MECHANICAL ONLY):"
 
-echo "   AI responder comments: $AI_COUNT"
-echo "   Comments needing response: $NEEDS_RESPONSE_COUNT"
+# Coverage is bound to the original comment IDs fetched from GitHub.  A response
+# entry or a refreshed consolidated-summary receipt may prove attribution; the
+# model, not shell text matching, judges whether the response is technically good.
+ORIGINAL_IDS=$(echo "$ALL_COMMENTS" | jq -r '.[] | select((.body // "") | startswith("[AI responder]") | not) | .id | tostring' | sort -u)
+RESPONSE_IDS=$(jq -r '.responses[]? | (.comment_id // .original_comment_id // empty) | tostring' "$RESPONSES_FILE" 2>/dev/null | sort -u)
+POSTED_SUMMARY_IDS=$(echo "$ALL_COMMENTS" | jq -r '.[] | select((.body // "") | startswith("[AI responder]")) | .body' | grep -oE 'Comment #[0-9]+' | sed 's/[^0-9]//g' | sort -u || true)
+ATTRIBUTED_IDS=$(printf '%s\n%s\n' "$RESPONSE_IDS" "$POSTED_SUMMARY_IDS" | sed '/^$/d' | sort -u)
+MISSING_IDS=$(comm -23 <(printf '%s\n' "$ORIGINAL_IDS") <(printf '%s\n' "$ATTRIBUTED_IDS"))
 
-# Step 2D: List comments needing response (simple logic)
+echo "   Original comment IDs: $(printf '%s\n' "$ORIGINAL_IDS" | sed '/^$/d' | wc -l | tr -d ' ')"
+echo "   Attributable response IDs: $(printf '%s\n' "$ATTRIBUTED_IDS" | sed '/^$/d' | wc -l | tr -d ' ')"
 
-echo ""
-echo "❌ COMMENTS NEEDING RESPONSE (simple logic):"
-echo "$NEEDS_RESPONSE_COMMENTS" | jq -r '.[] | "❌ Comment #\(.id) (\(.author)): \(.body[0:80])..."'
-```
-
-# Use simple AI responder detection for quality analysis
-
-AI_RESPONDER_RESPONSES=$(echo "$ALL_COMMENTS" | jq '[.[] | select(.body | startswith("[AI responder]"))]')
-AI_RESPONSE_COUNT=$(echo "$AI_RESPONDER_RESPONSES" | jq length)
-
-echo "📊 SIMPLE RESPONSE ANALYSIS:"
-echo "   AI responder comments found: $AI_RESPONSE_COUNT"
-
-# No complex pattern analysis - just check for basic quality
-
-echo "🔍 BASIC QUALITY CHECK:"
-
-# Only check if AI responder comments exist and have substance
-
-SUBSTANTIAL_RESPONSES=$(echo "$AI_RESPONDER_RESPONSES" | jq '[.[] | select(.body | length > 50)]')
-SUBSTANTIAL_COUNT=$(echo "$SUBSTANTIAL_RESPONSES" | jq length)
-echo "   Substantial AI responses (>50 chars): $SUBSTANTIAL_COUNT"
-
-# Calculate generic acknowledgments from AI responses
-
-GENERIC_RESPONSES=$(echo "$AI_RESPONDER_RESPONSES" | jq '[.[] | select(.body | length <= 50)]')
-GENERIC_COUNT=$(echo "$GENERIC_RESPONSES" | jq length)
-echo "   Generic acknowledgments: $GENERIC_COUNT"
-
-# Pattern 3: Bot-specific templating - use AI_RESPONDER_RESPONSES instead of undefined HUMAN_RESPONSES
-
-CODERABBIT_RESPONSES=$(echo "$AI_RESPONDER_RESPONSES" | jq '[.[] | select(.body | test("Thank you CodeRabbit"))]')
-CODERABBIT_COUNT=$(echo "$CODERABBIT_RESPONSES" | jq length)
-echo "   CodeRabbit-specific templates: $CODERABBIT_COUNT"
-
-# Simple quality assessment - just check for basic response coverage
-
-if [ "$AI_RESPONSE_COUNT" -eq 0 ] && [ "$NEEDS_RESPONSE_COUNT" -gt 0 ]; then
+if [ -n "$MISSING_IDS" ]; then
   echo "🚨 CRITICAL: COPILOT EXECUTION HALTED"
-  echo "🚨 REASON: No AI responder comments found but comments need responses"
-  echo "🚨 REQUIRED ACTION: Run /commentreply to generate responses"
-  echo ""
-  echo "EXIT CODE: 1 (FAILURE - No responses provided)"
+  echo "🚨 REASON: original comment IDs lack an attributable response or summary receipt"
+  printf '❌ Missing original comment ID: %s\n' $MISSING_IDS
+  echo "EXIT CODE: 1 (COVERAGE_FAILURE - Copilot execution must halt)"
   exit 1
-else
-  echo "✅ BASIC QUALITY CHECK PASSED: AI responses detected"
 fi
-```
 
-# Use simple direct comment counting
-
-TOTAL_COMMENTS=$(jq '.comments | length' "$COMMENTS_FILE" 2>/dev/null || echo "0")
-AI_RESPONDER_COMMENTS=$(jq '[.comments[] | select(.body | startswith("[AI responder]"))] | length' "$COMMENTS_FILE" 2>/dev/null || echo "0")
-NEEDS_RESPONSE_COUNT=$((TOTAL_COMMENTS - AI_RESPONDER_COMMENTS))
-
-if [ "$NEEDS_RESPONSE_COUNT" -eq 0 ]; then
-    echo "✅ **ZERO TOLERANCE POLICY: PASSED**"
-    echo "🎉 **SUCCESS**: All comments addressed (only AI responder comments remain)"
-    echo "📈 **COVERAGE SCORE**: 100% ✅ PASSED"
-    echo ""
-    echo "📊 **SIMPLE STATISTICS:**"
-    echo "   - Total comments: $TOTAL_COMMENTS"
-    echo "   - AI responder comments: $AI_RESPONDER_COMMENTS"
-    echo "   - Comments needing response: $NEEDS_RESPONSE_COUNT"
-    echo "   - All non-AI comments addressed: ✅"
-    echo ""
-    echo "🎯 **SIMPLE COVERAGE SUCCESS**: Zero tolerance policy satisfied"
-    echo "✅ COPILOT CLEARED: All comments processed successfully"
-    echo "✅ PROCEEDING: Copilot execution may continue"
-    echo ""
-    echo "EXIT CODE: 0 (SUCCESS - Copilot may proceed)"
-    exit 0
-else
-    echo "🚨 **ZERO TOLERANCE POLICY: FAILED**"
-    echo "❌ **FAILURE**: $NEEDS_RESPONSE_COUNT comments need responses"
-    echo "📈 **COVERAGE SCORE**: $(( AI_RESPONDER_COMMENTS * 100 / TOTAL_COMMENTS ))% ❌ FAILED"
-    echo ""
-    echo "🚨 **COMMENTS REQUIRING IMMEDIATE ATTENTION**:"
-
-    # List comments needing response (simple logic)
-    NEEDS_RESPONSE_LIST=$(jq -r '.comments[] | select(.body | startswith("[AI responder]") | not) | "❌ Comment #\(.id) (\(.author)): \(.body[0:80])..."' "$COMMENTS_FILE" 2>/dev/null)
-    echo "$NEEDS_RESPONSE_LIST"
-
-    echo ""
-    echo "🚨 CRITICAL: COPILOT EXECUTION HALTED"
-    echo "🚨 REASON: $NEEDS_RESPONSE_COUNT unresponded comments detected"
-    echo "🚨 REQUIRED ACTION: Address ALL unresponded comments before copilot can continue"
-    echo ""
-    echo "🔧 **REQUIRED ACTION**: Run /commentreply to address unresponded comments"
-    echo "⚠️ **WORKFLOW HALT**: Cannot proceed until all comments addressed"
-    echo "📊 **COMMENTFETCH DATA**: $TOTAL_COMMENTS total, $NEEDS_RESPONSE_COUNT unresponded"
-    echo ""
-    echo "EXIT CODE: 1 (FAILURE - Copilot execution must halt)"
-    exit 1
-fi
+echo "✅ Every original comment ID has an attributable response or posted summary receipt"
+echo "ℹ️ Semantic response quality is an LLM judgment; this gate performs no keyword or length scoring"
 ```
 
 ## Individual Comment Success Criteria (ZERO TOLERANCE)
 
-🚨 **✅ PASS REQUIREMENTS**: ZERO unresponded comments with quality responses
-- **ZERO unresponded comments detected** (explicit count must be 0)
-- **Clear warning system shows no alerts** (unresponded count = 0)
-- **Every bot comment (CodeRabbit, GitHub Copilot, automated reviewers) has a response** (bot feedback is NOT optional)
-- **Every human reviewer comment has a response** (team feedback must be addressed)
-- 🚨 **CRITICAL**: Bot comments are NOT skippable - they need 100% reply rate like human comments
-- **All responses address specific technical content** (not generic acknowledgments)
-- **Appropriate ✅ DONE/❌ NOT DONE status** (clear resolution indication)
-- **Professional and substantial replies** (meaningful engagement with feedback)
+🚨 **✅ PASS REQUIREMENTS**:
+- Every original comment ID has an attributable structured response or refreshed consolidated-summary receipt.
+- Missing IDs are listed and cause a non-zero exit.
+- Bot and human comments are treated identically for mechanical coverage.
+- Semantic adequacy, resolution state, and professional tone are judged by the model from the actual response text.
 
-🚨 **❌ FAIL CONDITIONS**: ANY unresponded comments detected
-- **ANY unresponded comment count > 0** (immediate failure with clear warning)
-- **Warning system alerts triggered** (explicit alerts when unresponded comments found)
-- **Generic/template responses** ("Thanks!" or "Will consider" are insufficient)
-- **Bot comment coverage failure** (skipping any Copilot/CodeRabbit/automated reviewer feedback violates 100% reply requirement)
-- **Responses don't address technical content** (must engage with specific suggestions from bots or humans)
-- **Unprofessional or inadequate replies** (maintain PR review standards for all comment sources)
+🚨 **❌ FAIL CONDITIONS**:
+- Any original comment ID lacks attributable response evidence.
+- The fetched data or response receipt is missing, malformed, or stale.
+- The model determines that a response does not address the comment's technical substance.
 
-### 🎯 SPECIFIC FAIL TRIGGERS (UNRESPONDED COMMENT FOCUS)
-
-- **Unresponded comment count > 0** (explicit count detection and warning)
-- **Zero individual responses** (like PR #864 - complete failure with 11 unresponded)
-- **Skipped bot comment detected** (any Copilot/CodeRabbit/automated reviewer comment without reply = failure)
-- **Warning system triggered** (any alerts about unresponded comments)
-- **Template responses only** (generic acknowledgments without substance)
-- **Ignored technical suggestions** (failing to address specific code feedback from bots or humans)
+The shell gate deliberately performs no character-count, keyword, template, or author-label quality scoring.
 
 ### When to Run
 
@@ -440,13 +334,9 @@ fi
 
 # Will orchestrate commentfetch and verify:
 
-# ✅ All comments have responses
+# ✅ Every original comment ID has attributable response evidence
 
-# ✅ Responses address specific content
-
-# ✅ Proper DONE/NOT DONE classification
-
-# ✅ Professional and substantial replies
+# ✅ Semantic response quality is reviewed from the actual text by the model
 
 # 📊 Generate detailed coverage report
 

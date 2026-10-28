@@ -21,7 +21,7 @@ import warnings
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
 
-from _copilot_modules.scratch_paths import copilot_cache_dir
+from _copilot_modules.scratch_paths import copilot_cache_file
 
 
 
@@ -111,7 +111,7 @@ def load_claude_responses(branch_name: str, repo_name: str) -> Dict:
         Dictionary containing responses data, empty dict if file not found
     """
     try:
-        responses_path = copilot_cache_dir(repo_name, branch_name) / "responses.json"
+        responses_path = copilot_cache_file(repo_name, branch_name, "responses.json")
     except RuntimeError as error:
         print(f"⚠️ SECURITY: Comment response path unavailable: {error}")
         return {}
@@ -157,11 +157,10 @@ def load_comments_with_staleness_check(
         List of comment dictionaries (fresh or cached)
     """
     try:
-        cache_dir = copilot_cache_dir(repo_name, branch_name)
+        comments_path = copilot_cache_file(repo_name, branch_name, "comments.json")
     except RuntimeError as error:
-        print(f"❌ ERROR: Comment cache path unavailable: {error}")
+        print(f"❌ ERROR: Comment cache file unavailable: {error}")
         sys.exit(1)
-    comments_path = cache_dir / "comments.json"
 
     # Fallback to legacy single-file format
     comments_file = str(comments_path)
