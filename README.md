@@ -64,10 +64,10 @@ Named profiles select other sets:
 
 | Flag | Named set (plus linked dependencies) | Measured skills / commands / agents |
 |---|---|---|
-| *(none)* or `--profile highlights` | `highlights`: the six highlighted skills above (6 named) | 21 / 10 / 1 |
-| `--profile highlights-prw` | `highlights` plus `prw` | 30 / 17 / 1 |
-| `--profile prw` | the PR workflow set: `prw`, `pr-workflow`, `pr-workflow-manager`, `draft-first-pr`, `pr-lifecycle`, `pr-green-definition`, `ready`, `advice`, `evidence-standards`, `evidence-review`, `testing-layers`, `code-standards` (12 named), and `/es`, `/er`, `/green`, `/cs` | 24 / 11 / 1 |
-| `--profile web` | opt-in browser review: `advice`, `web-advice`, `browser-control` (3 named) | 18 / 5 / 1 |
+| *(none)* or `--profile highlights` | `highlights`: the six highlighted skills above (6 named) | 22 / 10 / 1 |
+| `--profile highlights-prw` | `highlights` plus `prw` | 31 / 17 / 1 |
+| `--profile prw` | the PR workflow set: `prw`, `pr-workflow`, `pr-workflow-manager`, `draft-first-pr`, `pr-lifecycle`, `pr-green-definition`, `ready`, `advice`, `evidence-standards`, `evidence-review`, `testing-layers`, `code-standards` (12 named), and `/es`, `/er`, `/green`, `/cs` | 25 / 11 / 1 |
+| `--profile web` | opt-in browser review: `advice`, `web-advice`, `browser-control` (3 named) | 19 / 5 / 1 |
 | `--with SKILL` | adds one named skill, its dependencies and aliases to the chosen profile (repeatable) | varies |
 | `--all` | the full library, which was the installer's previous default | 267 / 243 / 45 |
 

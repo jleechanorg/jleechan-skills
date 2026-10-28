@@ -23,7 +23,7 @@ The `/game/` path segment is the Firestore campaign ID. Take the first non-empty
 |-------------|-----|
 | `/repro`, `/repro <campaign_id>`, or "copy and reproduce this bug" | Default copy + targeted repro in section 2 |
 | "first copy read-only, second copy gets actions" | Twin baseline + test subject in section 5 |
-| "repro_copy", canonical+variant replay | copy to <your-email@gmail.com> (`--dest-email <your-email@gmail.com>`); `scripts/repro_copy_campaign.py` only when that exact workflow is requested |
+| "repro_copy", canonical+variant replay | copy to <your-email@example.com> (`--dest-email <your-email@example.com>`); `scripts/repro_copy_campaign.py` only when that exact workflow is requested |
 | "five-class", "level-up suite", or all `test_level_up_class_*` | Heavy level-up suite only when explicitly requested |
 
 Do not silently substitute a broader or easier harness for the requested repro.
@@ -42,14 +42,14 @@ export GOOGLE_APPLICATION_CREDENTIALS="$HOME/serviceAccountKey.json"
 export WORLDAI_GOOGLE_APPLICATION_CREDENTIALS="$HOME/serviceAccountKey.json"
 ```
 
-For `<your-email@gmail.com>`, use `--dest-email <your-email@gmail.com>` — the UID is resolved automatically by `copy_campaign.py`.
+For `<your-email@example.com>`, use `--dest-email <your-email@example.com>` — the UID is resolved automatically by `copy_campaign.py`.
 
 ## 2. Default: copy campaign + targeted bug repro
 
 Goal: create a safe Firestore copy under the test user, then reproduce one reported bug with the narrowest faithful path.
 
 1. Resolve source with `scripts/copy_campaign.py --find-by-id <CAMPAIGN_ID>`. Do not guess source UID.
-2. Copy to the test user, usually `--dest-email <your-email@gmail.com>`.
+2. Copy to the test user, usually `--dest-email <your-email@example.com>`.
 3. For destructive replays, create two copies: read-only baseline and test subject.
 4. Align the test subject to the reported bug instant without mutating the baseline.
 5. Replay only the exact user action/input needed for the reported bug.
@@ -137,7 +137,7 @@ EVIDENCE_DIR="$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh "your-proj
 # EVIDENCE_DIR="$(diskm scratch-new <repo-path> repro-export --kind evidence)"
 
 ./venv/bin/python scripts/download_campaign.py \
-  --uid "$(./venv/bin/python scripts/copy_campaign.py --dest-email <your-email@gmail.com> --format json 2>/dev/null | python3 -c "import sys, json; print(json.load(sys.stdin)['dest_uid'])")" \
+  --uid "$(./venv/bin/python scripts/copy_campaign.py --dest-email <your-email@example.com> --format json 2>/dev/null | python3 -c "import sys, json; print(json.load(sys.stdin)['dest_uid'])")" \
   --campaign-id <TEST_CAMPAIGN_ID> \
   --output-dir "$EVIDENCE_DIR" \
   --format txt
