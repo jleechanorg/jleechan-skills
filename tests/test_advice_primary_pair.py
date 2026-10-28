@@ -891,23 +891,25 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         self.assertIsInstance(attempt["forced_pipe_close"], bool)
         detached_pid_text, detached_identity = (self.sync / "detached.pid").read_text().splitlines()
         detached_pid = int(detached_pid_text)
-        pidfd_supported = callable(getattr(os, "pidfd_open", None)) and callable(
-            getattr(signal, "pidfd_send_signal", None)
-        )
-        self.assertIn(detached_pid, attempt["descendants_discovered"])
-        if pidfd_supported:
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn(detached_pid, attempt["descendants_terminated"])
-            self.assertTrue(attempt["descendant_termination_verified"])
-            self.assertEqual(attempt["descendants_surviving"], [])
-        else:
-            self.assertEqual(result.returncode, 7, result.stderr)
-            self.assertNotIn(detached_pid, attempt["descendants_terminated"])
-            self.assertFalse(attempt["descendant_termination_verified"])
-            self.assertIn(detached_pid, attempt["descendants_surviving"])
-        self.assertTrue(receipt["cleanup"]["success"])
-        terminate_test_process(detached_pid, detached_identity)
-        self.assertTrue(wait_for_test_process_exit(detached_pid, detached_identity, 4.0))
+        try:
+            pidfd_supported = callable(getattr(os, "pidfd_open", None)) and callable(
+                getattr(signal, "pidfd_send_signal", None)
+            )
+            self.assertIn(detached_pid, attempt["descendants_discovered"])
+            if pidfd_supported:
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn(detached_pid, attempt["descendants_terminated"])
+                self.assertTrue(attempt["descendant_termination_verified"])
+                self.assertEqual(attempt["descendants_surviving"], [])
+            else:
+                self.assertEqual(result.returncode, 7, result.stderr)
+                self.assertNotIn(detached_pid, attempt["descendants_terminated"])
+                self.assertFalse(attempt["descendant_termination_verified"])
+                self.assertIn(detached_pid, attempt["descendants_surviving"])
+            self.assertTrue(receipt["cleanup"]["success"])
+        finally:
+            terminate_test_process(detached_pid, detached_identity)
+            self.assertTrue(wait_for_test_process_exit(detached_pid, detached_identity, 4.0))
 
     def test_timeout_grace_must_be_positive(self) -> None:
         result = self.invoke("--timeout-grace-seconds", "0")
