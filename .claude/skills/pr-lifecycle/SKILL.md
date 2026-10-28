@@ -224,12 +224,12 @@ Missing, inaccessible or unauthorized publication is `PUBLICATION BLOCKED`: cont
 Drive every PR through `/prw` (`/pr-workflow`) by default, using this generic lifecycle unless the repository opted into the visible six-stage workflow. UI changes and any user-facing change always use `/prw` unless a human explicitly overrides it for that PR. A lighter path is allowed only for:
 
 - documentation-only changes;
-- non-production changes (subject to the repository's non-production classifier and the high-risk exclusions below);
+- non-production changes (including documentation, tests, fixtures, and non-policy skill/instruction updates that do not alter approval, merge, review, evidence, or security policy, subject to the repository's non-production classifier and the exclusions below);
 - backup or mirror repositories;
 - an explicit human instruction to skip `/prw` for that PR;
 - a very small change that needs no evidence or `/es`, such as a fix to a helper script with no user-visible effect.
 
-Neither the non-production nor the small-change bullet covers any class excluded in § Proportional exceptions and fast paths or listed as high-risk in § Coding lifecycle — scale layers to risk; those always use `/prw`. The lighter path drops only the `/prw` driver; in opted-in repositories the stage title, labels and specification still apply. Every gate that applies to the change still applies: applicable CI or its documented exception, `/green`, the `/advice` threshold, any repository-required review or evidence, and merge authorization. When unsure, use `/prw`.
+Neither the non-production nor the small-change bullet covers any class excluded in § Proportional exceptions and fast paths or listed as high-risk in § Coding lifecycle — scale layers to risk, or any test change that weakens an assertion; those always use `/prw`. The lighter path drops the `/prw` driver and skips intermediate stage-by-stage ceremony (`Stage 0–3` transitions): in opted-in repositories, keep the specification in its prescribed location and synchronize `[fa]` / `stage:5-final-approval` once applicable gates pass. Every gate that applies to the change still applies: applicable CI or its documented exception, `/green`, the `/advice` threshold, at least one independent adversarial full-scope LLM review regardless of size when agent instructions change, any repository-required review, evidence, or `/dot` route, and merge authorization. When unsure, use `/prw`.
 
 ## Proportional exceptions and fast paths
 
