@@ -1,6 +1,6 @@
 ---
 name: cmux-cli-restore
-description: "Exit a stuck CLI inside a cmux terminal surface and restart it with the resume wrapper (`codexc` = `codex resume --last`, `claudec` = `claude --continue`, `claudewac`, `codexdc`). Use when a lane is wedged on a usage-limit wall, a model-capacity refusal, a 429 retry exhaustion, a stalled model turn, a malformed prompt, or an abandoned background-terminal wait, and the operator says 'restart that lane', 'exit and resume it', 'ctrl-c it and start it again'. Also use when a TUI left the shell holding `9;5u` / `17;5u` CSI-u keystroke garbage after the app quit, when a Codex lane is blocked by a usage limit and should continue on Claude, or when cmux lost surfaces/workspaces (shells killed) and they must be recreated from the session snapshot."
+description: "Exit a stuck CLI inside a cmux terminal surface and restart it with the resume wrapper (`codexc` = `codex resume --last`, `claudec` = `claude --continue`, `claudewac`, `codexdc`). Use when a lane is wedged on a usage-limit wall, a model-capacity refusal, a 429 retry exhaustion, a stalled model turn, a malformed prompt, or an abandoned background-terminal wait, and the operator says 'restart that lane', 'exit and resume it', 'ctrl-c it and start it again'. Also use when a TUI left the shell holding `9;5u` / `17;5u` CSI-u keystroke garbage after the app quit, when a Claude lane is walled and should continue on Gemini (agy), when a Codex lane is blocked by a usage limit and should continue on Claude, or when cmux lost surfaces/workspaces (shells killed) and they must be recreated from the session snapshot."
 ---
 
 # cmux-cli-restore — exit the CLI, restart it with the resume wrapper
@@ -78,7 +78,7 @@ Report these instead of restarting, because a restart only re-hits the same wall
 
 | Wall | How it reads | Real unblock |
 |---|---|---|
-| Usage allowance spent | `You've hit your usage limit … try again at <date>` | wait for the reset, or **swap the lane to Claude** (next section) |
+| Usage allowance spent | `You've hit your usage limit … try again at <date>` | wait for the reset, or **swap the lane**: Codex lane to Claude, Claude lane to Gemini (next two sections) |
 | Model at capacity | `Selected model is at capacity. Please try a different model.` | different model, or wait |
 | 429 retry exhaustion | `exceeded retry limit, last status: 429 Too Many Requests` | wait; a restart burns another retry |
 | 8-hour autonomy box | `autonomy rule requires a live human renewal` / `eight-hour authorization expired` | a live human renewal, not a restart |
@@ -103,6 +103,7 @@ a restart re-hits the same account-level wall. Gemini is a different provider an
 currently offers `gemini-4-argon-*` and `gemini-3.8-flash-*`; use only `gemini-3.8-flash-high` (or `-medium`) per the Gemini model invariant, and never fall back to Gemini 3.1 Pro
 or older Pro models. Per surface:
 
+0. **Confirm the wall is current before touching the lane.** Read the full scrollback and take two captures 20-30 s apart (cmux-steer rule): the limit text must still be the last event, with no `esc to cancel` spinner or live subagent growth. A stale wall above active work means the lane is working: leave it.
 1. **`escape` first — always.** A walled lane re-arms itself (`Continuing automatically at 4:20pm · esc to
    cancel`). Until that wait is cancelled, `/exit` is swallowed and the lane looks unexitable. Require the
    confirmation `Automatic continue cancelled`.
@@ -111,7 +112,7 @@ or older Pro models. Per surface:
    live subagents are worth keeping — on a dead provider quota they are normally already dead.
 3. Require a real shell prompt. The pane prints `Resume this session with: claude --resume <uuid>` just above it;
    keep that uuid — it is the only route back to Claude after the reset.
-4. `cmux send --force … "agy --model gemini-3.8-flash-high"` then `send-key --force … enter`.
+4. `cmux send --force … "agy --model gemini-3.8-flash-high --dangerously-skip-permissions"` (preserves the full-permission mode the Claude lane ran with) then `send-key --force … enter`.
 5. Wait for a frame containing `Gemini 3.8 Flash` **and** the composer `>` (≈3 s, poll ≤36 s). Do not type into the
    model splash — see trap 9.
 6. Send the resume brief in ONE line: cwd, branch, PR number, why the previous session died, and the literal words
@@ -137,7 +138,7 @@ Different problem: the process is gone, so there is nothing to ctrl-c. Recreate 
 
 - Snapshots: `~/Library/Application Support/cmux/session-history/*.json` (newest before the incident); each terminal panel carries `terminal.resumeBinding.command`, `kind`, `checkpointId`. Events (`~/.cmuxterm/events.jsonl`) rotate within hours; `closed-item-history-*.json` holds only individually closed panels.
 - Diff **panel ids**, not just workspace ids. Workspaces that survive on their browser tabs lose all their terminals (a workspace-level diff misses them). After a first restore the ids change, so match by title or a state file or a retry duplicates the workspace.
-- Recreate: `cmux workspace create --name=<title> --cwd <dir> --focus false [--command <resume cmd>]` (write `--name=`; a title starting with `-----` is parsed as a flag), extra terminals `cmux new-surface --workspace <ref> --working-directory <dir> --focus false --command …`, browser tabs `new-surface --type browser --url <urlString>`, then `workspace-action --action pin` and `reorder-workspace --index <n>` to snapshot order. Never `select`/focus. Skip a panel whose cwd no longer exists; cloud (VNC) workspaces reject `new-surface`.
+- Recreate: `cmux workspace create --name=<title> --cwd <dir> --focus false` (write `--name=`; a title starting with `-----` is parsed as a flag), extra terminals `cmux new-surface --workspace <ref> --working-directory <dir> --focus false`, browser tabs `new-surface --type browser --url <urlString>`, then `workspace-action --action pin` and `reorder-workspace --index <n>` to snapshot order. Recreate shells only: never pass a snapshot's recorded `resumeBinding.command` (or any recorded text) as `--command`; restart agents afterwards through the main procedure, only once nothing else is writing to that worktree. Never `select`/focus. Skip a panel whose cwd no longer exists; cloud (VNC) workspaces reject `new-surface`.
 - Closing a duplicate you created: pinned workspaces refuse `close-workspace` until unpinned.
 - Reference implementation: `~/.cmux-backups/cmux_restore_round2.py` (workspaces) and `cmux_restore_round3_surfaces.py` (surfaces in survivors). Record the order, pins and surfaces in `~/roadmap/cmux-workspace-layout-<date>.md` for the next incident.
 - Restore authorization: a clear live user request is enough (relaxed 2026-10-27); never close or replace live workspaces to make it fit.
