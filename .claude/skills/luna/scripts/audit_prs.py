@@ -209,14 +209,13 @@ def inspect_pr_status(pr_item, repo="jleechanorg/worldarchitect.ai"):
 
 
 def dispatch_review(pr_num, repo="jleechanorg/worldarchitect.ai"):
+    report_dir = get_luna_review_dir()
     diff = run_cmd(["gh", "pr", "diff", str(pr_num), "--repo", repo], check=False, timeout=90)
     if not diff:
         print(f"Error: could not fetch diff for PR #{pr_num}")
         return
 
-    out_dir = f"{_scratch_root()}/worldarchitect.ai/luna-reviews"
-    os.makedirs(out_dir, exist_ok=True)
-    report_file = f"{out_dir}/PR_{pr_num}_review.md"
+    report_file = os.path.join(report_dir, f"PR_{pr_num}_review.md")
 
     print(f"Running /luna fast diff triage via pil on PR #{pr_num}...")
     prompt = (
@@ -244,7 +243,8 @@ def dispatch_review(pr_num, repo="jleechanorg/worldarchitect.ai"):
     print(f"Review report saved to: {report_file}")
 
 
-def review_single_pr(item, repo="jleechanorg/worldarchitect.ai"):
+def review_single_pr(item, repo="jleechanorg/worldarchitect.ai", report_dir=None):
+    report_dir = report_dir or get_luna_review_dir()
     pr_num = item["number"]
     diff = run_cmd(["gh", "pr", "diff", str(pr_num), "--repo", repo], check=False, timeout=60)
     if not diff:
@@ -272,9 +272,7 @@ def review_single_pr(item, repo="jleechanorg/worldarchitect.ai"):
     except Exception as e:
         review_text = f"• Review timed out or errored: {e}"
 
-    out_dir = f"{_scratch_root()}/worldarchitect.ai/luna-reviews"
-    os.makedirs(out_dir, exist_ok=True)
-    report_file = f"{out_dir}/PR_{pr_num}_review.md"
+    report_file = os.path.join(report_dir, f"PR_{pr_num}_review.md")
     with open(report_file, "w") as f:
         f.write(f"# Review for PR #{pr_num}: {item['title']}\n\n")
         f.write(f"- Status: {item['category']}\n")
@@ -316,11 +314,14 @@ def main():
     audited.sort(key=lambda x: x["number"], reverse=True)
 
     if args.parallel:
+        report_dir = get_luna_review_dir()
         print(f"\nLaunching parallel tri-engine reviews across {len(audited)} PRs...")
         with ThreadPoolExecutor(max_workers=4) as pool:
-            audited = list(pool.map(lambda p: review_single_pr(p, repo=args.repo), audited))
+            audited = list(pool.map(lambda p: review_single_pr(
+                p, repo=args.repo, report_dir=report_dir
+            ), audited))
 
-        master_report = f"{_scratch_root()}/worldarchitect.ai/luna-reviews/MASTER_TRIAGE_REPORT.md"
+        master_report = os.path.join(report_dir, "MASTER_TRIAGE_REPORT.md")
         with open(master_report, "w") as f:
             f.write(f"# /luna Master Stale PR Triage Report\n\n")
             f.write(f"Generated: {datetime.datetime.now(datetime.timezone.utc).isoformat()}\n")

@@ -124,6 +124,28 @@ class ScratchRoutingContracts(unittest.TestCase):
                     result = audit_prs.inspect_pr_status({"number": 11})
                 self.assertEqual(result["category"], "PENDING_OR_BLOCKED")
 
+    def test_luna_admits_report_scratch_before_provider_dispatch(self):
+        item = {
+            "number": 12,
+            "title": "fixture",
+            "branch": "fixture",
+            "age_hours": 9,
+            "url": "https://example.invalid/12",
+            "category": "CLEAN_GREEN",
+        }
+        with mock.patch.object(
+            audit_prs,
+            "get_luna_review_dir",
+            side_effect=RuntimeError("configured Scratch unavailable"),
+        ), mock.patch.object(
+            audit_prs.subprocess,
+            "Popen",
+            side_effect=AssertionError("provider must not be called"),
+        ) as provider:
+            with self.assertRaisesRegex(RuntimeError, "configured Scratch unavailable"):
+                audit_prs.review_single_pr(item)
+        provider.assert_not_called()
+
     def test_comment_fetch_and_reply_roundtrip_uses_same_non_tmp_root(self):
         with tempfile.TemporaryDirectory(dir="/var/tmp") as directory:
             root = (Path(directory) / "canonical-scratch").resolve()
