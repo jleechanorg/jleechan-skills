@@ -8,6 +8,11 @@ the launched pane survives a short settle check and no Pi project-trust prompt
 is visible. Mirrored checkouts and generated agent output resolve to separate
 directories under the target host's configured Scratch volume; a registered
 unavailable volume or the resolver's unconfigured `/tmp` fallback fails closed.
+The launched CLI receives those Scratch variables explicitly in its own
+process environment, including a scoped `TMPDIR`; existing tmux servers do not
+control the canary's Scratch environment. Session names include the repository
+identity, existing sessions are verified before any checkout mutation, and all
+derived paths pass canonical containment checks.
 
 ## Non-goals
 
@@ -35,7 +40,7 @@ fresh mirror clone.
   refuses both registered-unavailable Scratch and the resolver's unconfigured
   `/tmp` fallback; it never returns to `$HOME/mirror`.
 - The mirrored checkout is placed under
-  `Scratch/mirrors/<repo-key>/<relative-path>`, while generated agent output
+  `Scratch/mirrors/<repo-key>/<branch-key>/<relative-path>`, while generated agent output
   and disposable test files use the separate
   `Scratch/mirror-output/<repo-key>/<branch-key>` directory. `READY` and
   `RESUMED` include that output path.
@@ -44,6 +49,22 @@ fresh mirror clone.
   remains the lease-bearing interface where its existing `build`/`evidence`
   allocation contract applies; mirror routing must not pretend that
   `scratch-dir` registered a lease.
+- The launched CLI receives `DISKM_SCRATCH`, `CLAUDE_CODE_TMPDIR`,
+  `PYTEST_DEBUG_TEMPROOT`, and `TMPDIR` through a scoped `env` prefix on the
+  process command; no global environment or unrelated tmux session is changed.
+- Before any clone, fetch, checkout, pull, or output-directory creation, an
+  existing exact tmux session is checked for its target path, origin, and
+  branch. Its session key includes both the repository key and branch key; a
+  mismatch or a session that appears during the check fails closed without
+  touching the live checkout.
+- `diskm scratch-dir <subpath>` is used for target and output allocation; its
+  existing realpath/commonpath containment check runs before and after mkdir.
+  An existing symlink escape fails closed before clone or write, without a
+  duplicate inline containment helper.
+- A pre-existing target with tracked or untracked changes is preserved, and a
+  local branch that is ahead of or diverged from `origin/$BRANCH` fails closed;
+  a behind target may fast-forward only when the final HEAD exactly equals the
+  fetched remote branch.
 
 ## User story
 
@@ -64,7 +85,10 @@ pane that exits between liveness probes. Verify the Scratch resolver's
 configured, registered-unavailable, and unconfigured-fallback outcomes, the
 two stable path namespaces, and the exported Scratch variables. Review the
 result against the four reported failure cases and the Scratch routing
-contract. No provider call or product-runtime test is needed.
+contract. Exercise controlled existing-session, cross-repository same-branch,
+dirty/ahead target, untracked target, tmux-server environment,
+unconfigured/unavailable Scratch, and symlink-escape cases. No provider call or
+product-runtime test is needed.
 
 ## Mock
 
@@ -86,7 +110,10 @@ project roots rather than mounted Scratch volumes, and their C14/live-cwd/open-
 file checks remain the protection boundary if an operator explicitly adds a
 Scratch root to a cleanup scope. A future cleanup policy that recursively
 targets `Scratch/mirrors` without those checks would be a merge-blocking P0;
-this specification does not authorize such a policy change.
+this specification does not authorize such a policy change. The explicit
+process environment and pre-mutation session checks close the three source
+review blockers; live acceptance must still observe the pane environment and
+prove the target/output paths on both hosts.
 
 ## File justification
 
@@ -97,6 +124,8 @@ NECESSITY: an empty SSH argument shifts the later CLI value; Pi reserves
 `@`-leading arguments for files; a pane may exit or stop at a trust prompt
 after `tmux new-session` returns success; and mirror checkouts/output must not
 consume the host HOME filesystem or claim a lease that the existing CLI did not
-create.
+create. Existing tmux-server environment inheritance, cross-repository session
+collisions, and lexical-only path construction would otherwise break the
+Scratch contract despite passing a source-only syntax check.
 INTEGRATION PROOF: both skills share the same context, liveness, prompt and
 READY contracts; syntax and behavioral canaries cover those paths.

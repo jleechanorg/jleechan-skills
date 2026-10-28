@@ -99,6 +99,11 @@ case "$CONTEXT_PAYLOAD" in
 esac
 AGENT_CLI=$(printf '%s' "$5" | base64 -d)
 
+if [ -z "$CONTEXT" ]; then
+  echo "FAILED:$TARGET — CONTEXT is empty; refusing to start a bare shell" >&2
+  exit 1
+fi
+
 # Scratch is the only mirror destination. `diskm scratch-dir` performs the
 # host-specific volume, availability, and admission checks. Keep the checkout
 # and the agent's generated output in separate paths. A resolver failure is
@@ -117,24 +122,61 @@ SCRATCH_ROOT="$(diskm scratch-dir 2>/dev/null)" || {
 }
 MIRROR_KEY=$(printf '%s' "$REL_PATH" | cksum | cut -d' ' -f1)
 BRANCH_KEY=$(printf '%s' "$BRANCH" | cksum | cut -d' ' -f1)
-TARGET="$SCRATCH_ROOT/mirrors/$MIRROR_KEY/$REL_PATH"
-OUTPUT_ROOT="$SCRATCH_ROOT/mirror-output/$MIRROR_KEY/$BRANCH_KEY"
-mkdir -p "$OUTPUT_ROOT"
-export DISKM_SCRATCH="$SCRATCH_ROOT"
-export CLAUDE_CODE_TMPDIR="$OUTPUT_ROOT"
-export PYTEST_DEBUG_TEMPROOT="$OUTPUT_ROOT"
+TARGET_SUBPATH="mirrors/$MIRROR_KEY/$BRANCH_KEY/$REL_PATH"
+TARGET="$(diskm scratch-dir "$TARGET_SUBPATH" 2>/dev/null)" || {
+  echo "FAILED:$REL_PATH — canonical Scratch target allocation failed" >&2
+  exit 75
+}
+OUTPUT_SUBPATH="mirror-output/$MIRROR_KEY/$BRANCH_KEY"
+OUTPUT_ROOT="$SCRATCH_ROOT/$OUTPUT_SUBPATH"
 
-if [ -z "$CONTEXT" ]; then
-  echo "FAILED:$TARGET — CONTEXT is empty; refusing to start a bare shell" >&2
-  exit 1
+BRANCH_SAFE=$(printf '%s' "$BRANCH" | tr -c 'a-zA-Z0-9_-' '-')
+BRANCH_HASH=$(printf '%s' "$BRANCH" | cksum | cut -d' ' -f1)
+SESSION="mirror-${MIRROR_KEY}-${BRANCH_SAFE}-${BRANCH_HASH}"
+# Check an existing session before any clone, fetch, checkout, pull, or output
+# mkdir. A matching branch in another repository cannot reuse this repo-keyed
+# session name; a mismatched target is a hard failure, never a RESUMED claim.
+if tmux has-session -t "=$SESSION" 2>/dev/null; then
+  SESSION_CWD=$(tmux display-message -p -t "=$SESSION" '#{pane_current_path}' 2>/dev/null || true)
+  [ -n "$SESSION_CWD" ] || { echo "FAILED:$SESSION — cannot inspect existing session cwd" >&2; exit 75; }
+  SESSION_CWD_REAL=$(cd "$SESSION_CWD" 2>/dev/null && pwd -P) || {
+    echo "FAILED:$SESSION — existing session cwd is unreadable" >&2
+    exit 75
+  }
+  TARGET_REAL=$(cd "$TARGET" 2>/dev/null && pwd -P) || {
+    echo "FAILED:$SESSION — existing session target is unreadable" >&2
+    exit 75
+  }
+  [ "$SESSION_CWD_REAL" = "$TARGET_REAL" ] || {
+    echo "FAILED:$SESSION — existing session target mismatch ($SESSION_CWD_REAL != $TARGET_REAL)" >&2
+    exit 75
+  }
+  SESSION_ORIGIN=$(git -C "$TARGET" remote get-url origin 2>/dev/null || true)
+  SESSION_BRANCH=$(git -C "$TARGET" branch --show-current 2>/dev/null || true)
+  [ "$SESSION_ORIGIN" = "$REMOTE_URL" ] || {
+    echo "FAILED:$SESSION — existing session origin mismatch" >&2
+    exit 75
+  }
+  [ "$SESSION_BRANCH" = "$BRANCH" ] || {
+    echo "FAILED:$SESSION — existing session branch mismatch" >&2
+    exit 75
+  }
+  echo "RESUMED:$SESSION:$TARGET:$OUTPUT_ROOT:$(git -C "$TARGET" rev-parse HEAD)"
+  exit 0
 fi
 
+OUTPUT_ROOT="$(diskm scratch-dir "$OUTPUT_SUBPATH" 2>/dev/null)" || {
+  echo "FAILED:$REL_PATH — canonical Scratch output allocation failed" >&2
+  exit 75
+}
+
 # Launch command for the caller's own CLI (see step 1: no hardcoded default).
+LAUNCH_ENV=(env "DISKM_SCRATCH=$SCRATCH_ROOT" "CLAUDE_CODE_TMPDIR=$OUTPUT_ROOT" "PYTEST_DEBUG_TEMPROOT=$OUTPUT_ROOT" "TMPDIR=$OUTPUT_ROOT")
 case "$AGENT_CLI" in
-  pi)     LAUNCH=(pi -- "Caller handoff context: $CONTEXT") ;;
-  claude) LAUNCH=(claude --dangerously-skip-permissions -- "$CONTEXT") ;;
-  codex)  LAUNCH=(codex --dangerously-bypass-approvals-and-sandbox -C "$TARGET" -- "$CONTEXT") ;;
-  agy)    LAUNCH=(agy --dangerously-skip-permissions --model gemini-3.8-flash-high --prompt-interactive="$CONTEXT") ;;
+  pi)     LAUNCH=("${LAUNCH_ENV[@]}" pi -- "Caller handoff context: $CONTEXT") ;;
+  claude) LAUNCH=("${LAUNCH_ENV[@]}" claude --dangerously-skip-permissions -- "$CONTEXT") ;;
+  codex)  LAUNCH=("${LAUNCH_ENV[@]}" codex --dangerously-bypass-approvals-and-sandbox -C "$TARGET" -- "$CONTEXT") ;;
+  agy)    LAUNCH=("${LAUNCH_ENV[@]}" agy --dangerously-skip-permissions --model gemini-3.8-flash-high --prompt-interactive="$CONTEXT") ;;
   *) echo "FAILED:$TARGET - unsupported AGENT_CLI '$AGENT_CLI' (pi|claude|codex|agy)" >&2; exit 1 ;;
 
 esac
@@ -153,13 +195,19 @@ if [ -n "$ORIGIN_URL" ] && [ "$ORIGIN_URL" != "$REMOTE_URL" ]; then
   exit 1
 fi
 
-if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+if [ -n "$(git status --porcelain --untracked-files=all --ignore-submodules=none)" ]; then
   echo "ERROR:$TARGET has uncommitted changes on the remote side — not overwriting them, resolve manually" >&2
   exit 1
 fi
 
 git fetch origin "$BRANCH"
 if git show-ref --verify --quiet "refs/heads/$BRANCH"; then
+  LOCAL_BRANCH_SHA=$(git rev-parse "$BRANCH")
+  REMOTE_BRANCH_SHA=$(git rev-parse "origin/$BRANCH")
+  if ! git merge-base --is-ancestor "$LOCAL_BRANCH_SHA" "$REMOTE_BRANCH_SHA"; then
+    echo "ERROR:$TARGET branch is ahead of or diverged from origin/$BRANCH — not overwriting it, resolve manually" >&2
+    exit 75
+  fi
   git checkout "$BRANCH"
 else
   git checkout -b "$BRANCH" "origin/$BRANCH"
@@ -169,19 +217,17 @@ if ! git pull --ff-only origin "$BRANCH"; then
   echo "DIVERGED:$TARGET — local $BRANCH has diverged from origin/$BRANCH, resolve manually before continuing" >&2
   exit 1
 fi
+if [ "$(git rev-parse HEAD)" != "$(git rev-parse "origin/$BRANCH")" ]; then
+  echo "ERROR:$TARGET did not converge exactly to origin/$BRANCH — refusing READY" >&2
+  exit 75
+fi
 
-# A stable checksum suffix disambiguates branches that sanitize to the same
-# session name (e.g. "feat/a" and "feat-a" both become "mirror-feat-a" via
-# tr alone) — cksum is portable everywhere (macOS + Linux), unlike
-# sha256sum/shasum which aren't guaranteed on both.
-BRANCH_SAFE=$(printf '%s' "$BRANCH" | tr -c 'a-zA-Z0-9_-' '-')
-BRANCH_HASH=$(printf '%s' "$BRANCH" | cksum | cut -d' ' -f1)
-SESSION="mirror-${BRANCH_SAFE}-${BRANCH_HASH}"
 # tmux has-session prefix-matches by default (checking for "mirror-feat"
 # would incorrectly succeed against an existing "mirror-feature-x") — the
 # leading "=" forces an exact match.
 if tmux has-session -t "=$SESSION" 2>/dev/null; then
-  echo "RESUMED:$SESSION:$TARGET:$OUTPUT_ROOT:$(git rev-parse HEAD)"
+  echo "FAILED:$SESSION — session appeared after preflight; refusing to attach or mutate its checkout" >&2
+  exit 75
 else
   # A bare shell in a checked-out repo is not "continuing the work session"
   # — launch the coding agent as the session's actual command, with
@@ -318,7 +364,7 @@ Note: `printf` (not `echo`) for the session-name sanitizing is deliberate — pi
 
 Follow the mandatory [Agent submission and response proof contract](../linux-remote/SKILL.md#agent-submission-and-response-proof--mandatory) for every initial launch and follow-up. READY/RESUMED establish transport only; require a fresh, attributable agent response echoed into the calling terminal before reporting delivery or working status. Inspect the CLI controls, submit separately from typing, distinguish queued from acknowledged work, and preserve active jobs. Continue driving the session until the requested outcome or a verified blocker.
 
-Report the session name, target path, and commit SHA from the `READY:`/`RESUMED:` line — cross-check that SHA against your local `git rev-parse HEAD` before trusting the mirror is on the commit you think it is. `READY` proves the pane passed the launch and liveness checks; it does not prove the agent received or acted on `$CONTEXT`. `RESUMED` means an existing session was found as-is and nothing was typed into it — inspect that work directly rather than assuming it is idle. This check isn't optional: `--ff-only` only guards against a genuinely diverged remote branch — if the remote already has local commits sitting *ahead* of `origin/$BRANCH` (not diverged, just ahead), the pull succeeds as a silent no-op and `READY` reports that ahead-of-origin SHA, not the one you just pushed. The SHA cross-check is what actually catches that case. Then give the user (or continue as) the attach command:
+Report the session name, target path, and commit SHA from the `READY:`/`RESUMED:` line — cross-check that SHA against your local `git rev-parse HEAD` before trusting the mirror is on the commit you think it is. `READY` proves the pane passed the launch and liveness checks; it does not prove the agent received or acted on `$CONTEXT`. `RESUMED` means an existing session was found as-is and nothing was typed into it — inspect that work directly rather than assuming it is idle. The preflight rejects local branches that are ahead of or diverged from the fetched remote branch, and the final HEAD is checked for exact equality before READY. Then give the user (or continue as) the attach command:
 
 ```bash
 ssh -t "${SSH_ARGS[@]}" "$SSH_TARGET" "tmux attach -t <SESSION>"
