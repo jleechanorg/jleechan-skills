@@ -15,6 +15,7 @@ from pathlib import Path
 PROFILES_FILE = Path("shared/install-profiles.json")
 SKILL_LINK = re.compile(r"(?:\.\./|skills/)([A-Za-z0-9_.-]+)/")
 COMMAND_TARGET = re.compile(r"skills/([A-Za-z0-9_.-]+)/SKILL\.md")
+COMMAND_REFERENCE = re.compile(r"`/([A-Za-z0-9_.-]+)`")
 COMMAND_COMPANION = re.compile(r"commands/([A-Za-z0-9_./-]+)")
 SCRIPT_LINK = re.compile(r"(?:\.claude|CLAUDE_HOME\}?|claude)/scripts/([A-Za-z0-9_.-]+)")
 AGENT_LINKS = (
@@ -75,13 +76,27 @@ def read_texts(path):
             continue
 
 
-def is_alias(path, text, skill):
-    """A command aliases skill when its stem names it, its description says alias, or it is <= 15 lines."""
-    description = ""
+def description_of(text):
     if text.startswith("---\n"):
         front = text[4:].split("\n---", 1)[0]
-        description = next((line for line in front.splitlines() if line.startswith("description:")), "")
-    return path.stem == skill or "alias" in description.lower() or len(text.splitlines()) <= ALIAS_MAX_LINES
+        return next((line for line in front.splitlines() if line.startswith("description:")), "")
+    return ""
+
+
+def is_alias(path, text, skill):
+    """A command aliases skill when its stem names it, its description says alias, or it is <= 15 lines."""
+    return (path.stem == skill or "alias" in description_of(text).lower()
+            or len(text.splitlines()) <= ALIAS_MAX_LINES)
+
+
+def alias_target(text, seeds):
+    """The seed skill a command targets: its skill path, or for a described alias the seed it runs as `/seed`."""
+    target = COMMAND_TARGET.search(text)
+    if target:
+        return target.group(1)
+    if "alias" in description_of(text).lower():
+        return next((m for m in COMMAND_REFERENCE.findall(text) if m in seeds), None)
+    return None
 
 
 def seeds_for(data, name, seen=()):
@@ -152,8 +167,8 @@ def resolve(source, name, extra_skills=()):
     if commands_root.is_dir():
         for path in [*commands_root.glob("*.md"), *(commands_root / "extended-library").glob("*.md")]:
             text = path.read_text(encoding="utf-8", errors="replace")
-            target = COMMAND_TARGET.search(text)
-            if target and target.group(1) in seeds and is_alias(path, text, target.group(1)):
+            target = alias_target(text, seeds)
+            if target in seeds and is_alias(path, text, target):
                 commands.add(path.relative_to(commands_root).as_posix())
     # A selected command's referenced non-Markdown helper under commands/ installs with it.
     for command in sorted(commands):

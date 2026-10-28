@@ -2110,9 +2110,15 @@ class InstallerRealProfileTest(unittest.TestCase):
         targets = {}
         commands = REPO_ROOT / ".claude/commands"
         for path in [*commands.glob("*.md"), *(commands / "extended-library").glob("*.md")]:
-            match = COMMAND_TARGET.search(path.read_text(encoding="utf-8"))
+            text = path.read_text(encoding="utf-8")
+            match = COMMAND_TARGET.search(text)
             if match:
                 targets[path.relative_to(commands).as_posix()] = match.group(1)
+            elif re.search(r"^description:.*alias", text, re.I | re.M):
+                # A described alias runs its skill as `/skill` instead of naming the skill path.
+                named = [m for m in re.findall(r"`/([A-Za-z0-9_.-]+)`", text) if m in self.skill_names]
+                if named:
+                    targets[path.relative_to(commands).as_posix()] = named[0]
         return targets
 
     def test_default_profile_is_the_six_highlights_and_no_catalog_profile_exists(self):
@@ -2224,6 +2230,13 @@ class InstallerRealProfileTest(unittest.TestCase):
                     name = "<outside skills>"
                 missing[f"{path.relative_to(skills_root)} -> {link}"] = name
         return missing
+
+    def test_default_profile_installs_the_rg_alias_of_redgreen(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "home"
+            self.install(target)
+            self.assertTrue((target / "commands/extended-library/rg.md").is_file())
+            self.assertTrue((target / "commands/extended-library/redgreen.md").is_file())
 
     def test_installed_skill_links_resolve_except_closure_excluded(self):
         excluded = set(self.data.get("closure_excluded", []))
