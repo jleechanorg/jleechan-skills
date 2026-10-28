@@ -405,11 +405,21 @@ class CodingLifecycleContract(unittest.TestCase):
         self.assertIn("state the measured facts instead of the remembered ones", self.owner)
 
     def test_lightweight_prw_nonprod_path_is_defined_and_bounded(self):
-        self.assertIn("## Default PR route — `/prw`", self.owner)
-        route = self.owner.split("## Default PR route — `/prw`", 1)[1].split(" ## ", 1)[0]
+        raw = (SKILLS / "pr-lifecycle" / "SKILL.md").read_text(encoding="utf-8")
+        section_raw = raw.split("\n## Default PR route — `/prw`\n", 1)[1].split("\n## ", 1)[0]
+        route = " ".join(section_raw.split())
         self.assertIn("non-production changes", route)
+        self.assertIn("do not alter approval, merge, review, evidence, or security policy", route)
+        self.assertIn("excluded in § Proportional exceptions and fast paths", route)
+        self.assertIn("listed as high-risk in § Coding lifecycle — scale layers to risk", route)
         self.assertIn("skips intermediate stage-by-stage ceremony", route)
+        self.assertIn("keep the specification in its prescribed location", route)
         self.assertIn("stage:5-final-approval", route)
+        self.assertIn(
+            "at least one independent adversarial full-scope LLM review regardless of size when agent instructions change",
+            route,
+        )
+        self.assertIn("any repository-required review, evidence, or `/dot` route", route)
         self.assertIn("merge authorization", route)
         self.assertIn("../pr-lifecycle/SKILL.md#default-pr-route--prw", read("pr-workflow-manager"))
 
