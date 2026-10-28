@@ -335,6 +335,70 @@ class ReviewerProcessTest(unittest.TestCase):
                 "reviewer survived supervision startup failure",
             )
 
+    def test_supervisor_start_failure_cleans_detached_reviewer_descendant(self) -> None:
+        runner = load_runner_module()
+        with tempfile.TemporaryDirectory() as directory:
+            child_file = Path(directory) / "detached-child.pid"
+            reviewer_program = (
+                "import pathlib, subprocess, sys, time\n"
+                "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(2)'], start_new_session=True)\n"
+                "proc = pathlib.Path(f'/proc/{child.pid}/stat')\n"
+                "if proc.exists():\n"
+                " fields = proc.read_text().rsplit(')', 1)[1].split()\n"
+                " identity = f'linux-start-ticks:{fields[19]}'\n"
+                "else:\n"
+                " identity = subprocess.run(['ps', '-o', 'lstart=', '-p', str(child.pid)], capture_output=True, text=True, check=True).stdout.strip()\n"
+                f"pathlib.Path({str(child_file)!r}).write_text(f'{{child.pid}}\\n{{identity}}')\n"
+                "time.sleep(30)\n"
+            )
+            observed: dict[str, object] = {}
+
+            def fail_before_initial_sample(supervisor) -> None:
+                deadline = time.monotonic() + 3
+                while not child_file.exists() and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                if not child_file.exists():
+                    raise AssertionError("detached reviewer child did not start")
+                observed["supervisor"] = supervisor
+                observed["leader_pid"] = supervisor.root_pid
+                leader_identity = runner.process_start_identity(supervisor.root_pid)
+                if leader_identity is None:
+                    raise AssertionError("reviewer leader identity was unavailable")
+                observed["leader_identity"] = leader_identity
+                raise RuntimeError("injected failure before initial process sample")
+
+            try:
+                with mock.patch.object(
+                    runner.ProcessTreeSupervisor, "start", fail_before_initial_sample
+                ):
+                    with self.assertRaisesRegex(
+                        RuntimeError, "injected failure before initial process sample"
+                    ):
+                        runner.execute(
+                            [sys.executable, "-c", reviewer_program],
+                            Path(__file__).resolve().parent,
+                            "prompt",
+                            5,
+                            0.2,
+                        )
+
+                child_text, child_identity = child_file.read_text().splitlines()
+                child_pid = int(child_text)
+                supervisor = observed["supervisor"]
+                self.assertIn(child_pid, supervisor.discovered)
+                self.assertFalse(
+                    test_process_is_running(child_pid, child_identity),
+                    "detached reviewer descendant survived supervisor startup failure",
+                )
+                self.assertFalse(
+                    test_process_is_running(
+                        observed["leader_pid"], observed["leader_identity"]
+                    ),
+                    "reviewer leader survived supervisor startup failure",
+                )
+            finally:
+                cleanup_test_process_file(child_file, 3.0)
+
     def test_unreaped_reviewer_leader_invalidates_cleanup_evidence(self) -> None:
         runner = load_runner_module()
 

@@ -476,6 +476,131 @@ class ProcessTreeSupervisor:
             }
 
 
+def cleanup_reviewer_process(
+    process: subprocess.Popen[str],
+    supervisor: ProcessTreeSupervisor,
+    timeout_grace_seconds: float,
+) -> tuple[int | None, str, str, bool, dict[str, Any], bool]:
+    """Stop supervision, discover and terminate descendants, then reap the leader."""
+    deadline = supervisor.deadline or time.monotonic() + timeout_grace_seconds
+
+    def remaining_grace() -> float:
+        return max(0.0, min(timeout_grace_seconds, deadline - time.monotonic()))
+
+    def record_error(stage: str, error: BaseException) -> None:
+        with supervisor._lock:
+            supervisor.errors.append(f"{stage}: {type(error).__name__}: {error}")
+
+    terminated: set[int] = set()
+    stdout = ""
+    stderr = ""
+    forced_pipe_close = False
+
+    try:
+        supervisor.stop()
+    except BaseException as error:
+        record_error("final process-tree sample failed", error)
+        supervisor._stop.set()
+    if supervisor._thread.is_alive():
+        try:
+            supervisor._thread.join(timeout=remaining_grace())
+        except BaseException as error:
+            record_error("process supervisor thread join failed", error)
+
+    try:
+        terminated.update(supervisor.signal_active(signal.SIGTERM))
+    except BaseException as error:
+        record_error("reviewer descendant TERM failed", error)
+
+    if process.poll() is None:
+        # Keep the direct child unreaped while its PID still identifies the
+        # session group. Once it exits, skip group signaling to avoid PID reuse.
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        except OSError as error:
+            record_error("reviewer process-group KILL failed", error)
+        try:
+            process.kill()
+        except ProcessLookupError:
+            pass
+        except OSError as error:
+            record_error("reviewer leader KILL failed", error)
+    else:
+        record_error(
+            "reviewer leader exited before process-group signaling; skipped signal "
+            "because group identity could no longer be proven atomically",
+            RuntimeError("process-group identity unavailable"),
+        )
+
+    def partial_text(value: str | bytes | None) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, bytes):
+            return value.decode(errors="replace")
+        return value
+
+    try:
+        stdout, stderr = process.communicate(timeout=remaining_grace())
+    except subprocess.TimeoutExpired as drain_timeout:
+        forced_pipe_close = True
+        stdout = partial_text(drain_timeout.output)
+        stderr = partial_text(drain_timeout.stderr)
+        for pipe in (process.stdout, process.stderr):
+            if pipe is not None:
+                try:
+                    pipe.close()
+                except OSError as error:
+                    record_error("reviewer output pipe close failed", error)
+    except BaseException as error:
+        forced_pipe_close = True
+        record_error("reviewer output drain failed", error)
+        for pipe in (process.stdout, process.stderr):
+            if pipe is not None:
+                try:
+                    pipe.close()
+                except OSError as close_error:
+                    record_error("reviewer output pipe close failed", close_error)
+
+    if process.returncode is None:
+        try:
+            process.wait(timeout=remaining_grace())
+        except subprocess.TimeoutExpired:
+            try:
+                process.kill()
+            except ProcessLookupError:
+                pass
+            except OSError as error:
+                record_error("reviewer leader retry KILL failed", error)
+            try:
+                process.wait(timeout=remaining_grace())
+            except subprocess.TimeoutExpired as error:
+                record_error("reviewer leader reap timed out", error)
+
+    try:
+        terminated.update(supervisor.signal_active(signal.SIGKILL))
+    except BaseException as error:
+        record_error("reviewer descendant KILL failed", error)
+    try:
+        survivors = supervisor.verify_gone(timeout_grace_seconds)
+    except BaseException as error:
+        record_error("reviewer descendant exit verification failed", error)
+        survivors = []
+    thread_stopped = not supervisor._thread.is_alive()
+    if not thread_stopped:
+        record_error("process supervisor thread did not stop", RuntimeError("thread remained alive"))
+    supervision = supervisor.evidence(terminated, survivors)
+    leader_reaped = process.returncode is not None
+    supervision["reviewer_leader_reaped"] = leader_reaped
+    cleanup_verified = (
+        leader_reaped
+        and thread_stopped
+        and supervision["descendant_termination_verified"] is True
+    )
+    return process.returncode, stdout, stderr, forced_pipe_close, supervision, cleanup_verified
+
+
 def execute(
     command: list[str],
     cwd: Path,
@@ -513,129 +638,15 @@ def execute(
         timed_out = time.monotonic() > execution_deadline
         return process.returncode, stdout, stderr, timed_out, False, supervision
     except subprocess.TimeoutExpired:
-        supervisor.stop()
-        terminated = set(supervisor.signal_active(signal.SIGTERM))
-        # start_new_session makes process.pid the group ID. poll() returning
-        # None leaves the direct child unreaped; keep it that way until killpg,
-        # so its PID/PGID cannot be reused between the check and the signal.
-        # Reap only after signaling; after reaping, skip group signals below.
-        if process.poll() is None:
-            try:
-                os.killpg(process.pid, signal.SIGKILL)
-            except (ProcessLookupError, PermissionError):
-                pass
-            try:
-                process.kill()
-            except ProcessLookupError:
-                pass
-        else:
-            with supervisor._lock:
-                supervisor.errors.append(
-                    "reviewer leader exited before timeout cleanup; skipped "
-                    "process-group signaling because group identity could no "
-                    "longer be proven atomically"
-                )
-        forced_pipe_close = False
-        try:
-            remaining_grace = max(
-                0.0, min(timeout_grace_seconds, supervision_deadline - time.monotonic())
-            )
-            stdout, stderr = process.communicate(timeout=remaining_grace)
-        except subprocess.TimeoutExpired as drain_timeout:
-            forced_pipe_close = True
-
-            def partial_text(value: str | bytes | None) -> str:
-                if value is None:
-                    return ""
-                if isinstance(value, bytes):
-                    return value.decode(errors="replace")
-                return value
-
-            stdout = partial_text(drain_timeout.output)
-            stderr = partial_text(drain_timeout.stderr)
-            for pipe in (process.stdout, process.stderr):
-                if pipe is not None:
-                    pipe.close()
-        try:
-            process.wait(timeout=max(0.0, min(timeout_grace_seconds, supervision_deadline - time.monotonic())))
-        except subprocess.TimeoutExpired:
-            process.kill()
-            try:
-                process.wait(timeout=max(0.0, min(timeout_grace_seconds, supervision_deadline - time.monotonic())))
-            except subprocess.TimeoutExpired:
-                pass
-        terminated.update(supervisor.signal_active(signal.SIGKILL))
-        survivors = supervisor.verify_gone(timeout_grace_seconds)
-        supervision = supervisor.evidence(terminated, survivors)
-        supervision["reviewer_leader_reaped"] = process.returncode is not None
-        return (
-            process.returncode,
-            stdout,
-            stderr,
-            True,
-            forced_pipe_close,
-            supervision,
+        code, stdout, stderr, forced_pipe_close, supervision, _ = cleanup_reviewer_process(
+            process, supervisor, timeout_grace_seconds
         )
+        return code, stdout, stderr, True, forced_pipe_close, supervision
     except BaseException as execution_error:
-        supervisor._stop.set()
-        if supervisor._thread.is_alive():
-            join_timeout = max(
-                0.0,
-                min(timeout_grace_seconds, supervision_deadline - time.monotonic()),
-            )
-            supervisor._thread.join(timeout=join_timeout)
-        supervisor.signal_active(signal.SIGTERM)
-        if process.poll() is None:
-            # Keep the direct child unreaped while its PID still identifies the
-            # session group; once it exits, skip group signaling to avoid PID reuse.
-            try:
-                os.killpg(process.pid, signal.SIGKILL)
-            except (ProcessLookupError, PermissionError):
-                pass
-            try:
-                process.kill()
-            except ProcessLookupError:
-                pass
-        remaining_grace = max(
-            0.0, min(timeout_grace_seconds, supervision_deadline - time.monotonic())
+        _, _, _, _, _, cleanup_verified = cleanup_reviewer_process(
+            process, supervisor, timeout_grace_seconds
         )
-        try:
-            process.communicate(timeout=remaining_grace)
-        except subprocess.TimeoutExpired:
-            for pipe in (process.stdout, process.stderr):
-                if pipe is not None:
-                    pipe.close()
-            try:
-                process.wait(
-                    timeout=max(
-                        0.0,
-                        min(timeout_grace_seconds, supervision_deadline - time.monotonic()),
-                    )
-                )
-            except subprocess.TimeoutExpired:
-                try:
-                    process.kill()
-                except ProcessLookupError:
-                    pass
-                try:
-                    process.wait(
-                        timeout=max(
-                            0.0,
-                            min(timeout_grace_seconds, supervision_deadline - time.monotonic()),
-                        )
-                    )
-                except subprocess.TimeoutExpired:
-                    pass
-        supervisor.signal_active(signal.SIGKILL)
-        survivors = supervisor.verify_gone(timeout_grace_seconds)
-        supervision = supervisor.evidence(set(), survivors)
-        supervision["reviewer_leader_reaped"] = process.returncode is not None
-        thread_stopped = not supervisor._thread.is_alive()
-        if (
-            process.returncode is None
-            or not thread_stopped
-            or not supervision["descendant_termination_verified"]
-        ):
+        if not cleanup_verified:
             raise RuntimeError(
                 "reviewer process cleanup could not be verified after execution failure"
             ) from execution_error
