@@ -40,14 +40,11 @@ across reviewers to approve.
 
 ## 2. Select independent reviewers
 
-Approval requires two independent votes, each covering the whole scope. They
-may be two eligible CLI reviewers, or one eligible CLI reviewer plus eligible
-Reviewer C (`/extended-library:secondo`). Use Codex and Opus concurrently when
-both are viable; pair a healthy CLI vote with a distinct eligible alternate or
-Reviewer C when needed. If Opus is known unavailable, launch Codex and an eligible
-alternate concurrently; do not serialize healthy seats. Reviewer C counts only when
-available, current and authorized, independent, and full-coverage. Follow the existing Secondo
-AI Universe route; never substitute direct-provider calls. The orchestrator's
+Approval requires two independent votes, each covering the whole scope, from
+two eligible CLI reviewers. Use Codex and Opus concurrently when both are
+viable; pair a healthy CLI vote with a distinct eligible alternate when needed.
+If Opus is known unavailable, launch Codex and an eligible alternate
+concurrently; do not serialize healthy seats. The orchestrator's
 synthesis and research-only output are not approval reviewers. `/research` is
 nonvoting and only for material unanswered questions. One competent objection
 may block.
