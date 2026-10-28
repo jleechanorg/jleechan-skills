@@ -970,9 +970,10 @@ class ScratchRoutingContracts(unittest.TestCase):
             aside = fake_bin / "aside"
             aside.write_text("#!/bin/sh\necho aside unavailable >&2\nexit 1\n")
             aside.chmod(0o755)
-            chrome = fake_bin / "google-chrome"
-            chrome.write_text("#!/bin/sh\nprintf '%s\\n' '<title>Example Domain</title>'\n")
-            chrome.chmod(0o755)
+            for chrome_name in ("google-chrome-stable", "google-chrome", "chromium", "chromium-browser"):
+                chrome = fake_bin / chrome_name
+                chrome.write_text("#!/bin/sh\nprintf '%s\\n' '<title>Example Domain</title>'\n")
+                chrome.chmod(0o755)
             claude_home = root / "claude"
             resolver = claude_home / "skills/scratch-space/scripts/scratch-dir.sh"
             resolver.parent.mkdir(parents=True)
