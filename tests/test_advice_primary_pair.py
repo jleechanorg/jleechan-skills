@@ -41,6 +41,66 @@ def run(*args: str, cwd: Path | None = None, env: dict[str, str] | None = None) 
     return subprocess.run(args, cwd=cwd, env=env, text=True, capture_output=True, check=False)
 
 
+def test_process_start_identity(pid: int) -> str | None:
+    proc_stat = Path("/proc") / str(pid) / "stat"
+    if Path("/proc").is_dir():
+        try:
+            fields = proc_stat.read_text().rsplit(")", 1)[1].split()
+            return f"linux-start-ticks:{fields[19]}"
+        except (OSError, IndexError):
+            return None
+    result = subprocess.run(
+        ["ps", "-o", "lstart=", "-p", str(pid)],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=1,
+    )
+    return result.stdout.strip() or None
+
+
+def test_process_is_running(pid: int, expected_identity: str) -> bool:
+    if test_process_start_identity(pid) != expected_identity:
+        return False
+    result = subprocess.run(
+        ["ps", "-o", "stat=", "-p", str(pid)],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=1,
+    )
+    state = result.stdout.strip()
+    return bool(state) and not state.startswith("Z")
+
+
+def terminate_test_process(pid: int, expected_identity: str) -> None:
+    pidfd_open = getattr(os, "pidfd_open", None)
+    pidfd_send_signal = getattr(signal, "pidfd_send_signal", None)
+    if not callable(pidfd_open) or not callable(pidfd_send_signal):
+        return
+    try:
+        pidfd = pidfd_open(pid, 0)
+    except ProcessLookupError:
+        return
+    try:
+        if test_process_start_identity(pid) == expected_identity:
+            try:
+                pidfd_send_signal(pidfd, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+    finally:
+        os.close(pidfd)
+
+
+def wait_for_test_process_exit(pid: int, expected_identity: str, timeout: float) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not test_process_is_running(pid, expected_identity):
+            return True
+        time.sleep(0.02)
+    return not test_process_is_running(pid, expected_identity)
+
+
 class ReviewerProcessTest(unittest.TestCase):
     def test_reviewer_receives_eof_while_parent_stdin_remains_open(self) -> None:
         child = (
@@ -94,7 +154,9 @@ class ReviewerProcessTest(unittest.TestCase):
         supervisor = runner.ProcessTreeSupervisor(100)
         with mock.patch.object(runner, "process_snapshot", side_effect=snapshots), mock.patch.object(
             runner, "process_start_identity", side_effect=["root-start", "root-start", "reused-pid-start"]
-        ), mock.patch.object(runner, "process_info", return_value=(100, "child-start")):
+        ), mock.patch.object(runner, "process_info", return_value=(100, "child-start")), mock.patch.object(
+            supervisor, "_pidfd_matches_identity", return_value=True
+        ):
             supervisor._sample()
             supervisor._sample()
 
@@ -124,14 +186,31 @@ class ReviewerProcessTest(unittest.TestCase):
             {100: (2, "reused-root-start"), 300: (100, "unrelated-child-start")},
         ]
         with mock.patch.object(runner, "process_snapshot", side_effect=snapshots), mock.patch.object(
-            runner, "process_start_identity", return_value="reused-root-start"
-        ), mock.patch.object(runner, "process_info", return_value=None):
+            runner, "process_start_identity", return_value=None
+        ), mock.patch.object(runner, "process_info", return_value=(100, "child-start")):
             supervisor._sample()
             supervisor._sample()
 
         self.assertEqual(supervisor.discovered, {})
         self.assertIsNone(supervisor.root_identity)
         self.assertTrue(supervisor._root_identity_initialized)
+
+    def test_supervisor_rechecks_parent_identity_after_reading_child_parent(self) -> None:
+        runner = load_runner_module()
+        supervisor = runner.ProcessTreeSupervisor(100)
+        with mock.patch.object(
+            runner, "process_snapshot", return_value={100: (1, "ps-root"), 300: (100, "ps-child")}
+        ), mock.patch.object(
+            runner, "process_start_identity", side_effect=["root-start", "reused-root-start"]
+        ), mock.patch.object(
+            runner, "process_info", return_value=(100, "child-start")
+        ), mock.patch.object(runner.os, "pidfd_open", return_value=77), mock.patch.object(
+            runner.os, "close"
+        ):
+            supervisor._sample()
+
+        self.assertEqual(supervisor.discovered, {})
+        self.assertTrue(any("parent identity" in error for error in supervisor.errors))
 
     def test_supervisor_does_not_use_numeric_kill_without_pidfd(self) -> None:
         runner = load_runner_module()
@@ -311,22 +390,18 @@ class PrimaryPairTest(unittest.TestCase):
         child_pid_file = self.sync / "pipe-holder.pid"
         child_program = (
             "import pathlib, subprocess, sys\n"
-            "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])\n"
-            f"pathlib.Path({str(child_pid_file)!r}).write_text(str(child.pid))\n"
+            "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(2)'])\n"
+            "proc = pathlib.Path(f'/proc/{child.pid}/stat')\n"
+            "if proc.exists():\n"
+            " fields = proc.read_text().rsplit(')', 1)[1].split()\n"
+            " identity = f'linux-start-ticks:{fields[19]}'\n"
+            "else:\n"
+            " identity = subprocess.run(['ps', '-o', 'lstart=', '-p', str(child.pid)], capture_output=True, text=True, check=True).stdout.strip()\n"
+            f"pathlib.Path({str(child_pid_file)!r}).write_text(f'{{child.pid}}\\n{{identity}}')\n"
             "print('VERDICT: APPROVED')\n"
             "print('COVERAGE: all')\n"
         )
 
-        def child_is_running(pid: int) -> bool:
-            result = subprocess.run(
-                ["ps", "-o", "stat=", "-p", str(pid)],
-                capture_output=True,
-                text=True,
-                check=False,
-                timeout=1,
-            )
-            state = result.stdout.strip()
-            return bool(state) and not state.startswith("Z")
 
         with mock.patch.object(runner.ProcessTreeSupervisor, "start"), \
                 mock.patch.object(runner.ProcessTreeSupervisor, "stop"), \
@@ -338,7 +413,8 @@ class PrimaryPairTest(unittest.TestCase):
                 [sys.executable, "-c", child_program], self.root, "prompt", 0.1, 0.05
             )
 
-        child_pid = int(child_pid_file.read_text())
+        child_pid_text, child_identity = child_pid_file.read_text().splitlines()
+        child_pid = int(child_pid_text)
         try:
             self.assertTrue(result[3], "pipe-holding descendant did not trigger timeout")
             killpg.assert_not_called()
@@ -350,11 +426,12 @@ class PrimaryPairTest(unittest.TestCase):
                 )
             )
             self.assertTrue(
-                child_is_running(child_pid), "fixture child should require its own cleanup"
+                test_process_is_running(child_pid, child_identity),
+                "fixture child should require its own cleanup",
             )
         finally:
-            if child_is_running(child_pid):
-                os.kill(child_pid, signal.SIGKILL)
+            terminate_test_process(child_pid, child_identity)
+            self.assertTrue(wait_for_test_process_exit(child_pid, child_identity, 3.0))
 
     def test_reviewers_accepts_codex_opus_subset_and_rejects_unknown_or_duplicates(self) -> None:
         self.executable("codex", "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
@@ -780,9 +857,15 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         self.executable(
             "codex",
             "python3 - \"$ADVICE_TEST_SYNC_DIR/detached.pid\" <<'PY'\n"
-            "import subprocess, sys, time\n"
-            "child = subprocess.Popen(['sleep', '8'], start_new_session=True)\n"
-            "open(sys.argv[1], 'w').write(str(child.pid))\n"
+            "import pathlib, subprocess, sys, time\n"
+            "child = subprocess.Popen(['sleep', '3'], start_new_session=True)\n"
+            "proc = pathlib.Path(f'/proc/{child.pid}/stat')\n"
+            "if proc.exists():\n"
+            " fields = proc.read_text().rsplit(')', 1)[1].split()\n"
+            " identity = f'linux-start-ticks:{fields[19]}'\n"
+            "else:\n"
+            " identity = subprocess.run(['ps', '-o', 'lstart=', '-p', str(child.pid)], capture_output=True, text=True, check=True).stdout.strip()\n"
+            "pathlib.Path(sys.argv[1]).write_text(f'{child.pid}\\n{identity}')\n"
             "time.sleep(1)\n"
             "PY\n"
             "exec sleep 8\n",
@@ -795,7 +878,7 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         )
         elapsed = time.monotonic() - started
 
-        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertLess(elapsed, 6.0)
         receipt = json.loads((self.output / "receipt.json").read_text())
         codex_result = receipt["reviewers"]["codex"]
         attempt = codex_result["attempts"][0]
@@ -806,26 +889,25 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         self.assertLess(attempt_duration, 6.0)
         self.assertEqual(attempt["failure"], "timeout")
         self.assertIsInstance(attempt["forced_pipe_close"], bool)
-        detached_pid = int((self.sync / "detached.pid").read_text())
-        try:
-            os.kill(detached_pid, 0)
-        except ProcessLookupError:
-            detached_alive = False
-        else:
-            detached_alive = True
-        if detached_alive:
-            # Emergency cleanup only on regression failure; the runner owns the
-            # normal termination path.
-            os.kill(detached_pid, signal.SIGKILL)
-        self.assertFalse(
-            detached_alive,
-            f"runner leaked detached PID {detached_pid}; evidence={attempt}",
+        detached_pid_text, detached_identity = (self.sync / "detached.pid").read_text().splitlines()
+        detached_pid = int(detached_pid_text)
+        pidfd_supported = callable(getattr(os, "pidfd_open", None)) and callable(
+            getattr(signal, "pidfd_send_signal", None)
         )
         self.assertIn(detached_pid, attempt["descendants_discovered"])
-        self.assertIn(detached_pid, attempt["descendants_terminated"])
-        self.assertTrue(attempt["descendant_termination_verified"])
-        self.assertEqual(attempt["descendants_surviving"], [])
+        if pidfd_supported:
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn(detached_pid, attempt["descendants_terminated"])
+            self.assertTrue(attempt["descendant_termination_verified"])
+            self.assertEqual(attempt["descendants_surviving"], [])
+        else:
+            self.assertEqual(result.returncode, 7, result.stderr)
+            self.assertNotIn(detached_pid, attempt["descendants_terminated"])
+            self.assertFalse(attempt["descendant_termination_verified"])
+            self.assertIn(detached_pid, attempt["descendants_surviving"])
         self.assertTrue(receipt["cleanup"]["success"])
+        terminate_test_process(detached_pid, detached_identity)
+        self.assertTrue(wait_for_test_process_exit(detached_pid, detached_identity, 4.0))
 
     def test_timeout_grace_must_be_positive(self) -> None:
         result = self.invoke("--timeout-grace-seconds", "0")

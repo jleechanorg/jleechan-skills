@@ -289,6 +289,27 @@ class ProcessTreeSupervisor:
             self._thread.start()
             self._thread_started = True
 
+    def _pidfd_matches_identity(self, pid: int, expected_identity: str) -> bool:
+        pidfd_open = getattr(os, "pidfd_open", None)
+        if not callable(pidfd_open):
+            self.errors.append("pidfd unavailable; cannot verify descendant parent identity")
+            return False
+        pidfd: int | None = None
+        try:
+            pidfd = pidfd_open(pid, 0)
+            return process_start_identity(pid) == expected_identity
+        except ProcessLookupError:
+            return False
+        except OSError as error:
+            self.errors.append(f"PID {pid}: parent pidfd verification failed: {error}")
+            return False
+        finally:
+            if pidfd is not None:
+                try:
+                    os.close(pidfd)
+                except OSError as error:
+                    self.errors.append(f"PID {pid}: parent pidfd close failed: {error}")
+
     def _sample(self) -> None:
         try:
             snapshot = self._snapshot()
@@ -312,8 +333,10 @@ class ProcessTreeSupervisor:
                     self.errors.append("reviewer root identity missing from initial process snapshot")
                 else:
                     self.root_identity = current_root_identity
-            elif root_entry is not None and current_root_identity != self.root_identity:
-                self.errors.append("reviewer root PID identity changed; ignoring reused PID")
+            elif root_entry is not None and (
+                self.root_identity is None or current_root_identity != self.root_identity
+            ):
+                self.errors.append("reviewer root PID identity changed or unavailable; ignoring reused PID")
 
             roots = set()
             for pid, started in self.discovered.items():
@@ -322,7 +345,11 @@ class ProcessTreeSupervisor:
                 current_identity = process_start_identity(pid, snapshot[pid][1])
                 if current_identity == started:
                     roots.add(pid)
-            if root_entry is not None and current_root_identity == self.root_identity:
+            if (
+                self.root_identity is not None
+                and root_entry is not None
+                and current_root_identity == self.root_identity
+            ):
                 roots.add(self.root_pid)
             changed = True
             while changed:
@@ -333,6 +360,18 @@ class ProcessTreeSupervisor:
                     info = process_info(pid)
                     if Path("/proc").is_dir():
                         if info is None or info[0] != ppid:
+                            continue
+                        parent_identity = (
+                            self.root_identity
+                            if ppid == self.root_pid
+                            else self.discovered.get(ppid)
+                        )
+                        if parent_identity is None or not self._pidfd_matches_identity(
+                            ppid, parent_identity
+                        ):
+                            self.errors.append(
+                                f"PID {pid}: parent identity unavailable or changed before descendant admission"
+                            )
                             continue
                         started = info[1]
                     else:
