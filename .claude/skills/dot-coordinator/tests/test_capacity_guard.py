@@ -137,7 +137,7 @@ class GuardTest(unittest.TestCase):
                 self.assertIn("active=1 cap=2", out)
 
     def test_nonstring_state_is_input_error(self):
-        for state_value in ([], {}):
+        for state_value in (None, [], {}):
             with self.subTest(state=state_value):
                 state = {"active": [entry("bad-state", "complex", state=state_value)]}
                 code, _, error = self.run_guard(state, "complex", "new")

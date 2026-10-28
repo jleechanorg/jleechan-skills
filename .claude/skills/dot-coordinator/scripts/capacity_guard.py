@@ -55,7 +55,7 @@ def is_executing(item: object) -> bool:
     if not isinstance(item.get("class"), str) or item.get("class") not in CAPS:
         raise InputError(f"unknown class: {item.get('class')!r}")
     state = item.get("state")
-    if state is not None and not isinstance(state, str):
+    if "state" in item and not isinstance(state, str):
         raise InputError("state must be a string")
     if state == "UNKNOWN":
         raise InputError("UNKNOWN occupancy must be reconciled before this check")
