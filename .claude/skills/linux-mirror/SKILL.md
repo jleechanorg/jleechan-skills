@@ -93,7 +93,7 @@ TARGET="$HOME/mirror/$REL_PATH"
 case "$AGENT_CLI" in
   pi)     LAUNCH=(pi -- "$CONTEXT") ;;
   claude) LAUNCH=(claude --dangerously-skip-permissions -- "$CONTEXT") ;;
-  codex)  LAUNCH=(codex exec --dangerously-bypass-approvals-and-sandbox -C "$TARGET" -- "$CONTEXT") ;;
+  codex)  LAUNCH=(codex --dangerously-bypass-approvals-and-sandbox -C "$TARGET" -- "$CONTEXT") ;;
   agy)    LAUNCH=(agy --prompt-interactive="$CONTEXT") ;;
   *) echo "FAILED:$TARGET - unsupported AGENT_CLI '$AGENT_CLI' (pi|claude|codex|agy)" >&2; exit 1 ;;
 
@@ -259,7 +259,7 @@ else
      && { [ "$AGENT_CLI" != "claude" ] || ! printf '%s' "$FINAL_PROBE" | grep -qF "Yes, I trust this folder"; }; then
     echo "READY:$SESSION:$TARGET:$(git rev-parse HEAD)"
   else
-    echo "FAILED:$SESSION:$TARGET — session did not survive launch (check that \`claude\` is on the remote PATH); pane retained by remain-on-exit for inspection: tmux capture-pane -p -t $SESSION" >&2
+    echo "FAILED:$SESSION:$TARGET — session did not survive launch (check that \`$AGENT_CLI\` is on the remote PATH); pane retained by remain-on-exit for inspection: tmux capture-pane -p -t $SESSION" >&2
     exit 1
   fi
 fi
