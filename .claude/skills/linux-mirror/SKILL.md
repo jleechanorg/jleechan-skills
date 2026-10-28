@@ -254,10 +254,9 @@ else
   fi
   if tmux has-session -t "=$SESSION" 2>/dev/null \
      && [ "$(tmux display-message -p -t "$SESSION" '#{pane_dead}')" = "0" ] \
-     && { [ "$AGENT_CLI" != "claude" ] || {
-            FINAL_PROBE=$(tmux capture-pane -p -t "$SESSION") || {
-              echo "FAILED:$SESSION - cannot capture the pane; refusing to report READY" >&2; exit 1; }
-            ! printf '%s' "$FINAL_PROBE" | grep -qF "Yes, I trust this folder"; }; }; then
+     && { FINAL_PROBE=$(tmux capture-pane -p -t "$SESSION") || {
+            echo "FAILED:$SESSION - cannot capture the pane; refusing to report READY" >&2; exit 1; }; } \
+     && { [ "$AGENT_CLI" != "claude" ] || ! printf '%s' "$FINAL_PROBE" | grep -qF "Yes, I trust this folder"; }; then
     echo "READY:$SESSION:$TARGET:$(git rev-parse HEAD)"
   else
     echo "FAILED:$SESSION:$TARGET — session did not survive launch (check that \`claude\` is on the remote PATH); pane retained by remain-on-exit for inspection: tmux capture-pane -p -t $SESSION" >&2
