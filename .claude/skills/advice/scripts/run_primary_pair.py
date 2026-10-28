@@ -674,11 +674,7 @@ def main(
     except RuntimeError as error:
         print(f"review scratch unavailable: {error}", file=sys.stderr)
         return 2
-    try:
-        # Reserve the result path before dispatch. Reusing a directory could
-        # leave an unselected review artifact beside a fresh receipt.
-        output_dir.mkdir(parents=True, exist_ok=False)
-    except FileExistsError:
+    if output_dir.exists():
         print(
             "output directory must be a fresh path per invocation; "
             "refusing to reuse existing reviewer artifacts",
@@ -689,6 +685,22 @@ def main(
         temp_root = Path(tempfile.mkdtemp(prefix="advice-primary-pair-", dir=scratch_root))
     except OSError as error:
         print(f"review scratch unavailable: {error}", file=sys.stderr)
+        return 2
+    try:
+        # Reserve the result path before dispatch. Reusing a directory could
+        # leave an unselected review artifact beside a fresh receipt.
+        output_dir.mkdir(parents=True, exist_ok=False)
+    except FileExistsError:
+        cleanup_fn(temp_root)
+        print(
+            "output directory must be a fresh path per invocation; "
+            "refusing to reuse existing reviewer artifacts",
+            file=sys.stderr,
+        )
+        return 2
+    except OSError as error:
+        cleanup_fn(temp_root)
+        print(f"could not reserve review output directory: {error}", file=sys.stderr)
         return 2
     receipt: dict[str, Any] = {
         "sha": sha,

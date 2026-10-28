@@ -80,6 +80,64 @@ class InstalledRunnerTest(unittest.TestCase):
         self.assertEqual(result.returncode, 75)
         self.assertEqual(result.stderr, "unavailable\n")
 
+    def test_scratch_dir_uses_user_local_cli_outside_login_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary) / "home"
+            diskm = home / ".local" / "bin" / "diskm"
+            diskm.parent.mkdir(parents=True)
+            diskm.write_text("#!/bin/sh\nprintf '/user-local-scratch\\n'\n")
+            diskm.chmod(0o755)
+            env = {
+                **os.environ,
+                "HOME": str(home),
+                "PATH": "/usr/bin:/bin",
+                "BASH_ENV": "/dev/null",
+            }
+            env.pop("DISK_MAGICIAN_DISKM_BIN", None)
+            result = subprocess.run(
+                [str(runner.SCRATCH_RESOLVER)], capture_output=True, text=True, env=env
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "/user-local-scratch\n")
+
+    def test_scratch_allocation_failure_does_not_reserve_output_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repo = root / "repo"
+            scratch = root / "scratch"
+            repo.mkdir()
+            scratch.mkdir()
+            for args in (
+                ("init", "-q"),
+                ("config", "user.email", "test@example.invalid"),
+                ("config", "user.name", "Test"),
+            ):
+                subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
+            (repo / "tracked.txt").write_text("base\n")
+            subprocess.run(["git", "-C", str(repo), "add", "tracked.txt"], check=True)
+            subprocess.run(["git", "-C", str(repo), "commit", "-qm", "base"], check=True)
+            packet = root / "packet.txt"
+            packet.write_text("Review this revision.\n")
+            output = root / "output"
+            args = [
+                "--repo", str(repo), "--ref", "HEAD", "--packet-file", str(packet),
+                "--output-dir", str(output), "--reviewers", "codex",
+            ]
+            with mock.patch.object(runner, "resolve_review_scratch_root", return_value=scratch), \
+                    mock.patch.object(runner.tempfile, "mkdtemp", side_effect=OSError("full")):
+                self.assertEqual(runner.main(args), 2)
+            self.assertFalse(output.exists())
+
+            review = {
+                "status": "success", "transport": "test",
+                "stdout": "VERDICT: APPROVED\nCOVERAGE: all\n", "attempts": [],
+                "started_ns": 1, "ended_ns": 2,
+            }
+            with mock.patch.object(runner, "resolve_review_scratch_root", return_value=scratch), \
+                    mock.patch.object(runner, "codex_lane", return_value=review):
+                self.assertEqual(runner.main(args), 0)
+            self.assertTrue((output / "receipt.json").is_file())
+
     def test_reviewer_gets_eof_with_parent_stdin_open(self) -> None:
         child = (
             "import importlib.util, sys\n"
