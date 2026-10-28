@@ -170,7 +170,7 @@ pointers and are intentionally not the documentation target.
 
 ### [`advice`](.claude/skills/advice/SKILL.md) — `/advice`, alias `/smart-advisor`
 
-Use this when you need independent reasoning at a real decision point. Give it a concise question and a pointer to the actual subject—a PR number, `base...head` ref, or file list—rather than pasting a preselected diff. It fans out to up to three reviewers concurrently: a Codex + Opus CLI primary pair and `/research`, then returns a comparison table and recommendation. The primary pair runs with explicit full-permission flags in separate disposable exact-SHA clones; `claude -p` → Cursor → AGY remains the fallback chain when neither primary returns a verdict. In `draft-first-pr`, an `APPROVED at <SHA>` verdict requires two independent reviewers whose declared coverage together spans the whole change; fewer than two such reviewers, partial coverage, or a truncated inline fallback produces `WITHHELD`, not approval. `/web-advice` remains a separate manual command for web-grounded review.
+Use this when you need independent reasoning at a real decision point. Give it a concise question and a pointer to the actual subject—a PR number, `base...head` ref, or file list—rather than pasting a preselected diff. It runs a Codex + Opus CLI pair concurrently, each reading the whole declared scope, and ends with one SHA-bound `VERDICT` line; `/research` is nonvoting and runs only for material unanswered questions. The reviewers run with explicit full-permission flags in separate disposable exact-SHA clones, each attempt has a 600-second budget, and when one primary is unavailable it is paired with a distinct eligible alternate (a Claude alternate, `claudewa`, Cursor, or AGY). In `draft-first-pr`, an `APPROVED at <SHA>` verdict requires two independent reviewers whose declared coverage together spans the whole change; fewer than two such reviewers, partial coverage, or a truncated inline fallback produces `WITHHELD`, not approval. `/web-advice` remains a separate manual command for web-grounded review.
 
 ```bash
 /advice "Should we switch this cache from LRU to LFU eviction?"
@@ -234,7 +234,7 @@ Cross-project evidence-strength policy: a raw request/response capture from the 
 
 ### [`web-advice`](.claude/skills/web-advice/SKILL.md) — `/web-advice`, alias `/webadvice`
 
-Use this when an external, web-grounded, multi-model perspective will improve a code review, design, document, plan, research question, or operational decision. Provide the subject, scope, and any relevant links or artifacts; it uses real authenticated browser sessions on ChatGPT, Gemini, Grok, and Perplexity Web—never a provider API or CLI substitute—and records each available model’s verdict and coverage. Run `/er` separately only when the subject includes an evidence bundle or production claim.
+Use this when an external, web-grounded, multi-model perspective will improve a code review, design, document, plan, research question, or operational decision. Provide the subject, scope, and any relevant links or artifacts; it uses real authenticated browser sessions on ChatGPT, Gemini, and Perplexity Web—never a provider API or CLI substitute—and records each available model’s verdict and coverage. Run `/er` separately only when the subject includes an evidence bundle or production claim.
 
 ```bash
 /web-advice "Should we migrate auth session storage from Redis to DynamoDB with TTL?"
