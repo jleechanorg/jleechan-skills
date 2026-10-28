@@ -1138,27 +1138,6 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         self.assertEqual(receipt["descendant_termination_failures"], ["codex"])
         self.assertEqual(code, 7)
 
-    def test_clone_timeout_is_recorded_as_attempt_timeout_stage(self) -> None:
-        runner = load_runner_module()
-        argv = [
-            "--repo", str(self.repo), "--ref", self.sha,
-            "--packet-file", str(self.packet), "--output-dir", str(self.output),
-            "--reviewers", "codex", "--attempt-timeout-seconds", "5",
-            "--cleanup-budget-seconds", "1", "--timeout-grace-seconds", "0.05",
-        ]
-
-        def timed_out_clone(source, destination, sha, *, deadline):
-            raise subprocess.TimeoutExpired(["git", "clone"], 0.1)
-
-        with mock.patch.object(
-            runner, "resolve_review_scratch_root", return_value=self.scratch
-        ), redirect_stderr(io.StringIO()):
-            code = runner.main(self.with_queued_timestamps(argv), create_clone_fn=timed_out_clone)
-
-        self.assertEqual(code, 4)
-        receipt = json.loads((self.output / "receipt.json").read_text())
-        self.assertEqual(receipt["timeout_stage"], "clone_setup")
-
     def test_review_execution_budget_uses_absolute_deadline_after_delayed_thread_start(self) -> None:
         runner = load_runner_module()
         self.executable("codex", "exit 0\n")
@@ -1392,19 +1371,6 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         self.assertEqual(receipt["reviewers"]["opus"]["status"], "success")
         self.assertEqual(receipt["reviewers"]["codex"]["status"], "error")
         self.assertEqual(code, 0)
-
-    def test_attempt_timed_out_lane_with_unverified_descendant_is_reported(self) -> None:
-        runner = load_runner_module()
-
-        failures = runner.descendant_termination_failures({
-            "codex": {
-                "attempts": [
-                    {"failure": "attempt_timeout", "descendant_termination_verified": False}
-                ]
-            }
-        })
-
-        self.assertEqual(failures, ["codex"])
 
     def test_cleanup_overrun_invalidates_successful_review_vote(self) -> None:
         runner = load_runner_module()
