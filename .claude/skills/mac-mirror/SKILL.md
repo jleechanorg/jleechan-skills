@@ -54,6 +54,8 @@ esac
 
 Also prepare `$CONTEXT`: a short, self-contained summary (1-3 sentences) of what should actually continue on the Mac — the real next action, not just "resume work." This isn't optional bookkeeping: step 4 types it as the first message to a freshly-launched coding agent on the target machine, which has no access to this conversation. Write it as if briefing a colleague who just walked in cold.
 
+If `$CONTEXT` is empty, stop here before pushing or opening SSH. The remote launcher checks it again before validating the CLI.
+
 Also resolve `$AGENT_CLI`: the CLI **that is calling this skill**, i.e. the operator's live runtime (Claude Code → `claude`, pi → `pi`, Codex → `codex`, Antigravity → `agy`). This skill deliberately has no default CLI — launching a CLI the operator is not using hands the work to an agent with different tools, skills, model and quota, so any substitution is stated explicitly, never a silent default. Only set a different `$AGENT_CLI` when the calling CLI is genuinely unusable on the target host (for example a quota wall), and say why. Implementation reference: the identical block in [../linux-mirror/SKILL.md](../linux-mirror/SKILL.md) step 4.
 
 If `$BRANCH` is empty (detached HEAD) or `$DIRTY` is non-empty, stop and tell the user — commit/name the branch first.
@@ -63,7 +65,11 @@ If `$REMOTE_URL` is an HTTPS URL with an embedded credential (`https://<token>@h
 ### 2. Push the branch
 
 ```bash
-git -C "$REPO_ROOT" push -u origin "$BRANCH"
+if [ -n "$CONTEXT" ]; then
+  git -C "$REPO_ROOT" push -u origin "$BRANCH"
+else
+  echo "ERROR: CONTEXT is required before pushing or opening SSH" >&2
+fi
 ```
 
 Confirm with the user first if the branch has no upstream yet or diverges from origin.
@@ -80,7 +86,7 @@ Arguments are base64-encoded before crossing the wire — `ssh host command args
 REL_PATH_B64=$(printf '%s' "$REL_PATH" | base64 | tr -d '\n')
 BRANCH_B64=$(printf '%s' "$BRANCH" | base64 | tr -d '\n')
 REMOTE_URL_B64=$(printf '%s' "$REMOTE_URL" | base64 | tr -d '\n')
-CONTEXT_B64=$(printf '%s' "$CONTEXT" | base64 | tr -d '\n')
+CONTEXT_B64=$(printf 'x%s' "$CONTEXT" | base64 | tr -d '\n')
 AGENT_CLI_B64=$(printf '%s' "$AGENT_CLI" | base64 | tr -d '\n')
 
 ssh "${SSH_ARGS[@]}" "$SSH_TARGET" bash -s -- "$REL_PATH_B64" "$BRANCH_B64" "$REMOTE_URL_B64" "$CONTEXT_B64" "$AGENT_CLI_B64" << 'EOF'
@@ -88,29 +94,29 @@ set -e
 REL_PATH=$(printf '%s' "$1" | base64 -d)
 BRANCH=$(printf '%s' "$2" | base64 -d)
 REMOTE_URL=$(printf '%s' "$3" | base64 -d)
-CONTEXT=$(printf '%s' "$4" | base64 -d)
-AGENT_CLI=$(printf '%s' "$5" | base64 -d)
 TARGET="$HOME/mirror/$REL_PATH"
+CONTEXT_PAYLOAD=$(printf '%s' "$4" | base64 -d)
+case "$CONTEXT_PAYLOAD" in
+  x*) CONTEXT=${CONTEXT_PAYLOAD#x} ;;
+  *) echo "FAILED:$TARGET — invalid CONTEXT payload" >&2; exit 1 ;;
+esac
+AGENT_CLI=$(printf '%s' "$5" | base64 -d)
+
+if [ -z "$CONTEXT" ]; then
+  echo "FAILED:$TARGET — CONTEXT is empty; refusing to start a bare shell" >&2
+  exit 1
+fi
 
 # Launch command for the caller's own CLI (see step 1: no hardcoded default).
 case "$AGENT_CLI" in
   claude) LAUNCH=(claude --dangerously-skip-permissions -- "$CONTEXT") ;;
-  pi)     LAUNCH=(pi -- "$CONTEXT") ;;
+  pi)     LAUNCH=(pi -- "Caller handoff context: $CONTEXT") ;;
   codex)  LAUNCH=(codex --dangerously-bypass-approvals-and-sandbox -C "$TARGET" -- "$CONTEXT") ;;
   agy)    LAUNCH=(agy --dangerously-skip-permissions --model gemini-3.8-flash-high --prompt-interactive="$CONTEXT") ;;
   *) echo "FAILED:$TARGET - unsupported AGENT_CLI '$AGENT_CLI' (claude|pi|codex|agy)" >&2; exit 1 ;;
 
 esac
 
-
-# $CONTEXT is a required briefing for the coding agent step 4 launches, not
-# optional bookkeeping (see step 1) — an empty value falling through to a
-# bare-shell session would still pass the has-session/pane_dead/no-dialog
-# READY check below with no agent actually running.
-if [ -z "$CONTEXT" ]; then
-  echo "FAILED:$TARGET — \$CONTEXT is empty; refusing to report READY on a bare shell with no agent launched" >&2
-  exit 1
-fi
 
 if [ ! -e "$TARGET/.git" ]; then
   mkdir -p "$(dirname "$TARGET")"
@@ -191,7 +197,7 @@ else
   # only fires the first time a given target directory is mirrored (the
   # dialog only appears once claude.json records the directory as
   # trusted); a no-op loop on an already-trusted directory is safe.
-  # Claude Code only: the first-run workspace-trust dialog. Other CLIs get no polling at all.
+  # Only Claude Code uses this dialog-acceptance loop; other CLIs use the checks below.
   if [ "$AGENT_CLI" = "claude" ]; then
   for _ in $(seq 1 40); do
     if ! PANE_PROBE=$(tmux capture-pane -p -t "$SESSION" 2>/dev/null); then
@@ -254,11 +260,24 @@ else
   # loaded box — /advice round 3 caught this) — re-check for it explicitly
   # rather than trusting silence from the poll loop as acceptance.
   fi
+  if [ "$AGENT_CLI" != "claude" ]; then
+    if ! tmux has-session -t "=$SESSION" 2>/dev/null \
+       || [ "$(tmux display-message -p -t "$SESSION" '#{pane_dead}')" != "0" ]; then
+      echo "FAILED:$SESSION:$TARGET — agent exited before the settle check" >&2
+      exit 1
+    fi
+    sleep 0.5
+  fi
   if tmux has-session -t "=$SESSION" 2>/dev/null \
      && [ "$(tmux display-message -p -t "$SESSION" '#{pane_dead}')" = "0" ] \
      && { FINAL_PROBE=$(tmux capture-pane -p -t "$SESSION") || {
             echo "FAILED:$SESSION - cannot capture the pane; refusing to report READY" >&2; exit 1; }; } \
      && { [ "$AGENT_CLI" != "claude" ] || ! printf '%s' "$FINAL_PROBE" | grep -qF "Yes, I trust this folder"; }; then
+    if [ "$AGENT_CLI" = "pi" ] \
+       && printf '%s' "$FINAL_PROBE" | grep -qF "Trust project folder?"; then
+      echo "FAILED:$SESSION:$TARGET — pi is waiting at its project-trust prompt; inspect it before reporting READY" >&2
+      exit 1
+    fi
     echo "READY:$SESSION:$TARGET:$(git rev-parse HEAD)"
   else
     echo "FAILED:$SESSION:$TARGET — session did not survive launch (check that \`$AGENT_CLI\` is on the remote PATH); pane retained by remain-on-exit for inspection: tmux capture-pane -p -t $SESSION" >&2
@@ -268,11 +287,13 @@ fi
 EOF
 ```
 
+Pi treats each positional argument beginning with `@` as a file attachment, even after `--`. The fixed `Caller handoff context:` prefix keeps caller text as message content. If Pi's `Trust project folder?` prompt is visible after the settle check, leave the pane open and report `FAILED`; do not approve project resources automatically.
+
 Note: `printf` (not `echo`) for the session-name sanitizing is deliberate — piping `echo`'s output through `tr -c '...' '-'` turns the trailing newline into a literal `-`, corrupting the session name.
 
 ### 5. Hand off
 
-Report the session name, target path, and commit SHA from the `READY:`/`RESUMED:` line — cross-check that SHA against your local `git rev-parse HEAD`. `READY` means a fresh session was created and the agent was just launched with `$CONTEXT`; `RESUMED` means an existing session was found as-is and nothing was typed into it — check on that work directly (attach or send a follow-up) rather than assuming it's idle. This check isn't optional: `--ff-only` only guards against a genuinely diverged remote branch — if the remote already has local commits sitting *ahead* of `origin/$BRANCH` (not diverged, just ahead), the pull succeeds as a silent no-op and `READY` reports that ahead-of-origin SHA, not the one you just pushed. The SHA cross-check is what actually catches that case. Then give the attach command:
+Report the session name, target path, and commit SHA from the `READY:`/`RESUMED:` line — cross-check that SHA against your local `git rev-parse HEAD`. `READY` proves the pane passed the launch and liveness checks; it does not prove the agent received or acted on `$CONTEXT`. `RESUMED` means an existing session was found as-is and nothing was typed into it — inspect that work directly rather than assuming it is idle. This check isn't optional: `--ff-only` only guards against a genuinely diverged remote branch — if the remote already has local commits sitting *ahead* of `origin/$BRANCH` (not diverged, just ahead), the pull succeeds as a silent no-op and `READY` reports that ahead-of-origin SHA, not the one you just pushed. The SHA cross-check is what actually catches that case. Then give the attach command:
 
 ```bash
 ssh -t "${SSH_ARGS[@]}" "$SSH_TARGET" "tmux attach -t <SESSION>"
@@ -290,7 +311,6 @@ If a PR is open for `$BRANCH`, pushes update its head automatically. Otherwise p
 
 - Committed-state-only mirror — see "What this carries over" above.
 - Source repo must live under `$HOME` (see Setup) — step 1 fails loudly rather than silently mirroring to the wrong place. The target-side checkout always lands under `$HOME/mirror/`, not at the identical path as the source.
-- Step 4 launches the **calling** CLI (`$AGENT_CLI`, resolved in step 1 — `claude`/`pi`/`codex`/`agy`) as the session's command with `$CONTEXT` passed as its argv (not typed via `send-keys`), but only on a freshly created session. The workspace-trust poll is gated to `claude` and is a no-op for `pi`/`codex`/`agy`. Never assume a `RESUMED` session is idle just because this skill didn't launch anything into it.
 - macOS SSH keychain may prompt on first connection; `ssh-add --apple-use-keychain ~/.ssh/id_ed25519` caches it.
 - A bare host alias is typically LAN-only; off-LAN, target the Tailscale IP + explicit `-i` per Tier 2 — and make sure step 4 actually uses the resolved `$SSH_ARGS`/`$SSH_TARGET`, not a re-hardcoded alias.
 - Never pass unencoded user-controlled values (repo path, branch name, remote URL) as literal SSH command arguments — base64-encode first (see step 4).
