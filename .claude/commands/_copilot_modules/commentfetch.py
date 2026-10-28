@@ -792,6 +792,7 @@ class CommentFetch(CopilotCommandBase):
 
     def execute(self) -> Dict[str, Any]:
         """Execute comment fetching from all sources."""
+        self.fetch_errors.clear()
         self.log(f"🔄 FETCHING FRESH COMMENTS for PR #{self.pr_number} from GitHub API")
         self.log("⚠️ NEVER reading from cache - always fresh API calls")
         self.log(f"📁 Will save to: {self.output_file}")
@@ -808,6 +809,7 @@ class CommentFetch(CopilotCommandBase):
 
             ci_status = None
 
+            failed_sources = []
             for future in as_completed(futures):
                 data_type = futures[future]
                 try:
@@ -825,6 +827,13 @@ class CommentFetch(CopilotCommandBase):
                         ci_status = {'overall_state': 'ERROR', 'error': str(e)}
                     else:
                         self.log_error(f"Failed to fetch {data_type} comments: {e}")
+                        failed_sources.append(f"{data_type}: {e}")
+
+        if failed_sources or self.fetch_errors:
+            details = "; ".join(failed_sources + self.fetch_errors)
+            raise RuntimeError(
+                f"Fresh GitHub comment fetch failed; preserving existing cache: {details}"
+            )
 
         # Sort by created_at (most recent first)
         self.comments.sort(key=lambda c: c.get("created_at", ""), reverse=True)

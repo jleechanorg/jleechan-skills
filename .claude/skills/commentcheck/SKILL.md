@@ -122,25 +122,41 @@ if [ -z "$PR_NUMBER" ]; then
   exit 2
 fi
 
+FETCH_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%S)
+FETCH_STARTED_EPOCH=$(date +%s)
+
 echo "🚀 ORCHESTRATING: Fetching comprehensive comment data via /commentfetch..."
 echo "🔍 COMPREHENSIVE COMMENT ANALYSIS FOR PR #$PR_NUMBER"
 echo "=================================================================="
 
 # 2. Execute commentfetch Python implementation for comprehensive multi-API comment fetching
 
-cd .claude/commands && python3 -c "
-import _copilot_modules.commentfetch as cf
+PYTHONPATH=.claude/commands python3 -c "
+from _copilot_modules.commentfetch import CommentFetch
 import sys
-fetch = cf.CommentFetch(sys.argv[1])
-fetch.execute()
-" "$PR_NUMBER"
+fetch = CommentFetch(sys.argv[1])
+result = fetch.execute()
+raise SystemExit(0 if result.get('success') else 1)
+" "$PR_NUMBER" || {
+  echo "🚨 CRITICAL: FRESH COMMENT FETCH FAILED; cached data will not be consumed" >&2
+  echo "EXIT CODE: 2 (API_FAILURE - Copilot execution must halt)" >&2
+  exit 2
+}
 
 # 3. Use structured JSON output from commentfetch
 
 BRANCH_NAME=$(git branch --show-current | tr -cd '[:alnum:]._-')
 REPO_NAME=$(basename "$(git rev-parse --show-toplevel)" | tr -cd '[:alnum:]._-')
 # Use copilot subdirectory for all copilot workflow files (see ~/.claude/skills/scratch-space/SKILL.md)
-COPILOT_DIR="$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh)/$REPO_NAME/$BRANCH_NAME/copilot"
+SCRATCH_ROOT="$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh)" || {
+  echo "🚨 CRITICAL: Scratch resolver unavailable; refusing comment cache path" >&2
+  exit 2
+}
+if [ -z "$SCRATCH_ROOT" ]; then
+  echo "🚨 CRITICAL: Scratch resolver returned no path; refusing comment cache path" >&2
+  exit 2
+fi
+COPILOT_DIR="$SCRATCH_ROOT/$REPO_NAME/$BRANCH_NAME/copilot"
 COMMENTS_FILE="$COPILOT_DIR/comments.json"
 # REV-qcu3t-counting: Also read responses.json for standardized counts
 RESPONSES_FILE="$COPILOT_DIR/responses.json"
@@ -149,6 +165,20 @@ if [ ! -f "$COMMENTS_FILE" ]; then
   echo "🚨 CRITICAL: COPILOT EXECUTION HALTED" >&2
   echo "🚨 REASON: commentfetch failed to provide structured data at $COMMENTS_FILE" >&2
   echo "This indicates commentfetch execution failure or missing output file." >&2
+  echo "EXIT CODE: 2 (API_FAILURE - Copilot execution must halt)" >&2
+  exit 2
+fi
+
+FETCHED_PR=$(jq -r '.pr // empty' "$COMMENTS_FILE" 2>/dev/null || true)
+FETCHED_AT=$(jq -r '.fetched_at // empty' "$COMMENTS_FILE" 2>/dev/null || true)
+if [ "$FETCHED_PR" != "$PR_NUMBER" ] || [ -z "$FETCHED_AT" ] || [[ "$FETCHED_AT" < "$FETCH_STARTED_AT" ]]; then
+  echo "🚨 CRITICAL: commentfetch output is stale or belongs to another PR" >&2
+  echo "EXIT CODE: 2 (API_FAILURE - Copilot execution must halt)" >&2
+  exit 2
+fi
+COMMENTS_MTIME=$(stat -c %Y "$COMMENTS_FILE" 2>/dev/null || stat -f %m "$COMMENTS_FILE" 2>/dev/null || echo 0)
+if [ "$COMMENTS_MTIME" -lt "$FETCH_STARTED_EPOCH" ]; then
+  echo "🚨 CRITICAL: commentfetch did not refresh comments.json" >&2
   echo "EXIT CODE: 2 (API_FAILURE - Copilot execution must halt)" >&2
   exit 2
 fi

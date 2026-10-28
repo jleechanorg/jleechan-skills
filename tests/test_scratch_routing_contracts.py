@@ -4,6 +4,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -401,6 +402,134 @@ class ScratchRoutingContracts(unittest.TestCase):
             generated,
         )
         self.assertEqual(summary.returncode, 0, summary.stdout + summary.stderr)
+
+    def test_commentcheck_fetch_load_fails_on_fetch_or_freshness_failure(self):
+        document = (ROOT / ".claude/skills/commentcheck/SKILL.md").read_text()
+        start = document.index("# 1. Get PR number and validate")
+        end = document.index("\n```", start)
+        fetch_block = document[start:end]
+
+        with tempfile.TemporaryDirectory(dir="/var/tmp") as directory:
+            fixture = Path(directory).resolve()
+            home = fixture / "home"
+            resolver = home / ".claude/skills/scratch-space/scripts/scratch-dir.sh"
+            resolver.parent.mkdir(parents=True)
+            resolver.write_text(f"#!/bin/sh\nprintf '%s\\n' {fixture / 'scratch'}\n")
+            resolver.chmod(0o755)
+            fake_bin = fixture / "bin"
+            fake_bin.mkdir()
+            fake_python = fake_bin / "python3"
+            fake_python.write_text(
+                "#!/bin/sh\n"
+                "mkdir -p \"$(dirname \"$TEST_COMMENTS_FILE\")\"\n"
+                "case \"$TEST_FETCH_MODE\" in\n"
+                "  fail) exit 1 ;;\n"
+                "  stale) exit 0 ;;\n"
+                "  wrong) printf '%s\\n' '{\"pr\":\"99\",\"fetched_at\":\"'\"$(date -u +%Y-%m-%dT%H:%M:%S+00:00)\"'\",\"comments\":[],\"metadata\":{}}' > \"$TEST_COMMENTS_FILE\" ;;\n"
+                "  fresh) printf '%s\\n' '{\"pr\":\"7\",\"fetched_at\":\"'\"$(date -u +%Y-%m-%dT%H:%M:%S+00:00)\"'\",\"comments\":[],\"metadata\":{}}' > \"$TEST_COMMENTS_FILE\" ;;\n"
+                "esac\n"
+            )
+            fake_python.chmod(0o755)
+            branch = "".join(
+                c
+                for c in subprocess.check_output(
+                    ["git", "branch", "--show-current"], cwd=ROOT, text=True
+                ).strip()
+                if c.isalnum() or c in "._-"
+            )
+            repo_name = "".join(c for c in ROOT.name if c.isalnum() or c in "._-")
+            comments_file = fixture / "scratch" / repo_name / branch / "copilot" / "comments.json"
+            comments_file.parent.mkdir(parents=True)
+            comments_file.write_text(
+                json.dumps(
+                    {
+                        "pr": "7",
+                        "fetched_at": "2000-01-01T00:00:00+00:00",
+                        "comments": [],
+                        "metadata": {"total": 0, "by_type": {}},
+                    }
+                )
+            )
+            old_time = time.time() - 120
+            os.utime(comments_file, (old_time, old_time))
+
+            def run(mode):
+                return subprocess.run(
+                    ["bash", "-c", fetch_block, "--", "7"],
+                    cwd=ROOT,
+                    env={
+                        **os.environ,
+                        "HOME": str(home),
+                        "PATH": f"{fake_bin}:/opt/homebrew/bin:/usr/bin:/bin",
+                        "TEST_FETCH_MODE": mode,
+                        "TEST_COMMENTS_FILE": str(comments_file),
+                    },
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+
+            for mode in ("fail", "stale", "wrong"):
+                with self.subTest(mode=mode):
+                    result = run(mode)
+                    self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                    self.assertIn("EXIT CODE: 2", result.stderr)
+
+            fresh = run("fresh")
+            self.assertEqual(fresh.returncode, 0, fresh.stdout + fresh.stderr)
+
+    def test_commentfetch_preserves_cache_on_api_error_but_accepts_empty_success(self):
+        with tempfile.TemporaryDirectory(dir="/var/tmp") as directory:
+            root = Path(directory).resolve()
+
+            def make_fetcher(name):
+                fetcher = object.__new__(commentfetch.CommentFetch)
+                fetcher.pr_number = "7"
+                fetcher.repo = "owner/repo"
+                fetcher.comments = []
+                fetcher.fetch_errors = []
+                fetcher.cache_dir = root / name
+                fetcher.output_file = fetcher.cache_dir / "comments.json"
+                fetcher.cache_metadata_file = fetcher.cache_dir / "cache_metadata.json"
+                fetcher.per_comment_cache = mock.Mock()
+                fetcher._get_inline_comments = lambda: fetcher.run_gh_command(
+                    ["gh", "api", "repos/owner/repo/pulls/7/comments", "--paginate"]
+                )
+                fetcher._get_general_comments = lambda: []
+                fetcher._get_review_comments = lambda: []
+                fetcher._get_copilot_comments = lambda: []
+                fetcher._get_ci_status = lambda: {"overall_state": "SUCCESS"}
+                fetcher._save_cache_metadata = mock.Mock()
+                return fetcher
+
+            failing = make_fetcher("failing")
+            failing.cache_dir.mkdir(parents=True)
+            old_payload = '{"pr":"7","fetched_at":"2000-01-01T00:00:00+00:00"}'
+            failing.output_file.write_text(old_payload)
+            with mock.patch.object(
+                commentfetch.subprocess,
+                "run",
+                side_effect=subprocess.CalledProcessError(
+                    1, ["gh", "api"], stderr="rate limited"
+                ),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "preserving existing cache"):
+                    failing.execute()
+            self.assertEqual(failing.output_file.read_text(), old_payload)
+            failing.per_comment_cache.save_comments.assert_not_called()
+
+            empty = make_fetcher("empty")
+            with mock.patch.object(
+                commentfetch.subprocess,
+                "run",
+                return_value=subprocess.CompletedProcess(
+                    ["gh", "api"], 0, stdout="", stderr=""
+                ),
+            ):
+                result = empty.execute()
+            self.assertTrue(result["success"])
+            self.assertEqual(json.loads(empty.output_file.read_text())["comments"], [])
+            self.assertEqual(empty.fetch_errors, [])
 
     def test_web_advice_smoke_stops_on_configured_resolver_failure(self):
         script = ROOT / ".claude/skills/web-advice/scripts/e2e_smoke.sh"
