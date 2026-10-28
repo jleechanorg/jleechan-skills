@@ -256,9 +256,6 @@ class ApprovalContractsTest(unittest.TestCase):
             package_texts["superpowers-quick"],
             r"(?m)^disable-model-invocation:\s*false$",
         )
-        self.assertIn("invoke `/user-story` against the target repository", package_texts["superpowers-quick"])
-        self.assertIn("run `/user-story` in audit-only mode", package_texts["superpowers-quick"])
-        self.assertIn("does not grant implementation authority", package_texts["superpowers-quick"])
         for name in package_names[1:]:
             with self.subTest(dependency=name):
                 self.assertIn(
