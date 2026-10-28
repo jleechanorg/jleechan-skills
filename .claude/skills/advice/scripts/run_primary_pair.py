@@ -484,7 +484,7 @@ def execute(
     timeout_grace_seconds: float,
     *,
     deadline: float | None = None,
-) -> tuple[int, str, str, bool, bool, dict[str, Any]]:
+) -> tuple[int | None, str, str, bool, bool, dict[str, Any]]:
     execution_deadline = (
         deadline if deadline is not None else time.monotonic() + timeout_seconds
     )
@@ -499,8 +499,8 @@ def execute(
         start_new_session=True,
     )
     supervisor = ProcessTreeSupervisor(process.pid, deadline=supervision_deadline)
-    supervisor.start()
     try:
+        supervisor.start()
         remaining = execution_deadline - time.monotonic()
         if remaining <= 0:
             raise subprocess.TimeoutExpired(command, timeout_seconds)
@@ -509,6 +509,7 @@ def execute(
             raise subprocess.TimeoutExpired(command, timeout_seconds)
         supervisor.stop()
         supervision = supervisor.evidence(set(), supervisor.active_discovered())
+        supervision["reviewer_leader_reaped"] = process.returncode is not None
         timed_out = time.monotonic() > execution_deadline
         return process.returncode, stdout, stderr, timed_out, False, supervision
     except subprocess.TimeoutExpired:
@@ -565,14 +566,80 @@ def execute(
                 pass
         terminated.update(supervisor.signal_active(signal.SIGKILL))
         survivors = supervisor.verify_gone(timeout_grace_seconds)
+        supervision = supervisor.evidence(terminated, survivors)
+        supervision["reviewer_leader_reaped"] = process.returncode is not None
         return (
-            process.returncode if process.returncode is not None else -signal.SIGKILL,
+            process.returncode,
             stdout,
             stderr,
             True,
             forced_pipe_close,
-            supervisor.evidence(terminated, survivors),
+            supervision,
         )
+    except BaseException as execution_error:
+        supervisor._stop.set()
+        if supervisor._thread.is_alive():
+            join_timeout = max(
+                0.0,
+                min(timeout_grace_seconds, supervision_deadline - time.monotonic()),
+            )
+            supervisor._thread.join(timeout=join_timeout)
+        supervisor.signal_active(signal.SIGTERM)
+        if process.poll() is None:
+            # Keep the direct child unreaped while its PID still identifies the
+            # session group; once it exits, skip group signaling to avoid PID reuse.
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+            try:
+                process.kill()
+            except ProcessLookupError:
+                pass
+        remaining_grace = max(
+            0.0, min(timeout_grace_seconds, supervision_deadline - time.monotonic())
+        )
+        try:
+            process.communicate(timeout=remaining_grace)
+        except subprocess.TimeoutExpired:
+            for pipe in (process.stdout, process.stderr):
+                if pipe is not None:
+                    pipe.close()
+            try:
+                process.wait(
+                    timeout=max(
+                        0.0,
+                        min(timeout_grace_seconds, supervision_deadline - time.monotonic()),
+                    )
+                )
+            except subprocess.TimeoutExpired:
+                try:
+                    process.kill()
+                except ProcessLookupError:
+                    pass
+                try:
+                    process.wait(
+                        timeout=max(
+                            0.0,
+                            min(timeout_grace_seconds, supervision_deadline - time.monotonic()),
+                        )
+                    )
+                except subprocess.TimeoutExpired:
+                    pass
+        supervisor.signal_active(signal.SIGKILL)
+        survivors = supervisor.verify_gone(timeout_grace_seconds)
+        supervision = supervisor.evidence(set(), survivors)
+        supervision["reviewer_leader_reaped"] = process.returncode is not None
+        thread_stopped = not supervisor._thread.is_alive()
+        if (
+            process.returncode is None
+            or not thread_stopped
+            or not supervision["descendant_termination_verified"]
+        ):
+            raise RuntimeError(
+                "reviewer process cleanup could not be verified after execution failure"
+            ) from execution_error
+        raise
 
 
 def has_verdict(output: str) -> bool:
@@ -653,6 +720,7 @@ def dispatch_failure_result(
                 "stderr": str(error),
                 "failure": failure,
                 "descendant_termination_verified": True,
+                "reviewer_leader_reaped": True,
                 "descendant_supervision_errors": [],
             }
         ],
@@ -941,6 +1009,7 @@ def descendant_termination_failures(reviewers: dict[str, Any]) -> list[str]:
     for reviewer, result in reviewers.items():
         if any(
             attempt.get("descendant_termination_verified") is not True
+            or attempt.get("reviewer_leader_reaped") is not True
             for attempt in result.get("attempts", [])
         ):
             failures.append(reviewer)

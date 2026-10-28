@@ -205,6 +205,7 @@ class ReviewerProcessTest(unittest.TestCase):
         self.assertIsNone(supervisor.root_identity)
         self.assertTrue(supervisor._root_identity_initialized)
 
+    @unittest.skipUnless(sys.platform.startswith("linux"), "requires Linux procfs parent identity checks")
     def test_supervisor_rechecks_parent_identity_after_reading_child_parent(self) -> None:
         runner = load_runner_module()
         supervisor = runner.ProcessTreeSupervisor(100)
@@ -289,6 +290,101 @@ class ReviewerProcessTest(unittest.TestCase):
 
         self.assertTrue(result[3], "supervisor startup exceeded the reviewer deadline")
 
+    def test_supervisor_start_failure_terminates_and_reaps_reviewer(self) -> None:
+        runner = load_runner_module()
+        with tempfile.TemporaryDirectory() as directory:
+            pid_file = Path(directory) / "start-failure.pid"
+            child_program = (
+                "import os, pathlib, subprocess, time\n"
+                "pid = os.getpid()\n"
+                "proc = pathlib.Path(f'/proc/{pid}/stat')\n"
+                "if proc.exists():\n"
+                " fields = proc.read_text().rsplit(')', 1)[1].split()\n"
+                " identity = f'linux-start-ticks:{fields[19]}'\n"
+                "else:\n"
+                " identity = subprocess.run(['ps', '-o', 'lstart=', '-p', str(pid)], capture_output=True, text=True, check=True).stdout.strip()\n"
+                f"pathlib.Path({str(pid_file)!r}).write_text(f'{{pid}}\\n{{identity}}')\n"
+                "time.sleep(30)\n"
+            )
+
+            def fail_after_child_launch(supervisor) -> None:
+                deadline = time.monotonic() + 3
+                while not pid_file.exists() and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                if not pid_file.exists():
+                    raise AssertionError("reviewer child did not start")
+                raise RuntimeError("injected supervision startup failure")
+
+            with mock.patch.object(
+                runner.ProcessTreeSupervisor, "start", fail_after_child_launch
+            ):
+                with self.assertRaisesRegex(
+                    RuntimeError, "injected supervision startup failure"
+                ):
+                    runner.execute(
+                        [sys.executable, "-c", child_program],
+                        Path(__file__).resolve().parent,
+                        "prompt",
+                        5,
+                        0.1,
+                    )
+
+            pid_text, identity = pid_file.read_text().splitlines()
+            self.assertTrue(
+                wait_for_test_process_exit(int(pid_text), identity, 2),
+                "reviewer survived supervision startup failure",
+            )
+
+    def test_unreaped_reviewer_leader_invalidates_cleanup_evidence(self) -> None:
+        runner = load_runner_module()
+
+        class UnreapableReviewer:
+            pid = 123
+            returncode = None
+            stdout = None
+            stderr = None
+
+            def poll(self):
+                return None
+
+            def communicate(self, timeout=None):
+                raise subprocess.TimeoutExpired(["reviewer"], timeout or 0.01)
+
+            def wait(self, timeout=None):
+                raise subprocess.TimeoutExpired(["reviewer"], timeout or 0.01)
+
+            def kill(self):
+                pass
+
+        evidence = {
+            "descendant_termination_verified": True,
+            "reviewer_leader_reaped": True,
+            "descendants_surviving": [],
+        }
+        with mock.patch.object(
+            runner.subprocess, "Popen", return_value=UnreapableReviewer()
+        ), mock.patch.object(runner.ProcessTreeSupervisor, "start"), mock.patch.object(
+            runner.ProcessTreeSupervisor, "stop"
+        ), mock.patch.object(
+            runner.ProcessTreeSupervisor, "signal_active", return_value=[]
+        ), mock.patch.object(
+            runner.ProcessTreeSupervisor, "verify_gone", return_value=[]
+        ), mock.patch.object(
+            runner.ProcessTreeSupervisor, "evidence", return_value=evidence
+        ), mock.patch.object(runner.os, "killpg"):
+            result = runner.execute(
+                ["reviewer"], Path(__file__).resolve().parent, "prompt", 0.1, 0.01
+            )
+
+        self.assertIsNone(result[0], "an unreaped reviewer must not receive a synthetic exit code")
+        self.assertFalse(result[5]["reviewer_leader_reaped"])
+        self.assertEqual(
+            runner.descendant_termination_failures(
+                {"codex": {"attempts": [result[5]]}}
+            ),
+            ["codex"],
+        )
+
 
 class PrimaryPairTest(unittest.TestCase):
     def setUp(self) -> None:
@@ -369,6 +465,7 @@ class PrimaryPairTest(unittest.TestCase):
         self.executable("claude", "exit 0\n")
         supervision = {
             "descendant_termination_verified": True,
+            "reviewer_leader_reaped": True,
             "descendants_surviving": [],
         }
         timeout_result = (
@@ -835,6 +932,7 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         def deterministic_execute(command, cwd, prompt, timeout_seconds, timeout_grace_seconds, *, deadline=None):
             supervision = {
                 "descendant_termination_verified": True,
+                "reviewer_leader_reaped": True,
                 "descendants_surviving": [],
             }
             if Path(command[0]).name == "codex":
@@ -1065,6 +1163,7 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         ])
         supervision = {
             "descendant_termination_verified": True,
+            "reviewer_leader_reaped": True,
             "descendants_surviving": [],
         }
         with mock.patch.dict(os.environ, self.env), mock.patch.object(
@@ -1122,6 +1221,7 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
                 "exit_code": 0,
                 "failure": None,
                 "descendant_termination_verified": False,
+                "reviewer_leader_reaped": True,
                 "descendant_supervision_errors": ["ps timed out"],
             }],
             "started_ns": time.time_ns(),
@@ -1175,6 +1275,7 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
             recorded_timeouts.append((time.monotonic_ns(), timeout_seconds))
             return 0, "VERDICT: APPROVED\nCOVERAGE: all\n", "", False, False, {
                 "descendant_termination_verified": True,
+                "reviewer_leader_reaped": True,
                 "descendants_surviving": [],
             }
 
@@ -1299,6 +1400,7 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         recorded = {}
         supervision = {
             "descendant_termination_verified": True,
+            "reviewer_leader_reaped": True,
             "descendants_surviving": [],
         }
 
@@ -1347,6 +1449,7 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         wall_after_step_ns = 999_000_000
         supervision = {
             "descendant_termination_verified": True,
+            "reviewer_leader_reaped": True,
             "descendants_surviving": [],
         }
 
@@ -1589,6 +1692,7 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
                     "exit_code": 0,
                     "failure": None,
                     "descendant_termination_verified": True,
+                    "reviewer_leader_reaped": True,
                     "descendants_surviving": [],
                     "descendant_supervision_errors": [],
                 }],
@@ -1620,6 +1724,7 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         self.executable("claude", "exit 0\n")
         supervision = {
             "descendant_termination_verified": True,
+            "reviewer_leader_reaped": True,
             "descendants_surviving": [],
             "descendant_supervision_errors": [],
         }
