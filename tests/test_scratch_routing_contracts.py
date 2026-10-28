@@ -484,7 +484,7 @@ class ScratchRoutingContracts(unittest.TestCase):
                 {"id": 8, "body": "second point", "author": "reviewer", "type": "general"},
                 {
                     "id": 99,
-                    "body": "[AI responder] Summary [Comment #7] [Comment #8]",
+                    "body": "## 🤖 [AI responder] Consolidated Comment Response Summary\n### 1. Re: [Comment #7](https://github.com/owner/repo/pull/1#discussion_r7)\n### 2. Re: [Comment #8](https://github.com/owner/repo/pull/1#discussion_r8)",
                     "author": "verified-bot",
                     "type": "general",
                 },
@@ -492,6 +492,21 @@ class ScratchRoutingContracts(unittest.TestCase):
             generated,
         )
         self.assertEqual(summary.returncode, 0, summary.stdout + summary.stderr)
+
+        quoted_summary = run_step(
+            [
+                original,
+                {
+                    "id": 99,
+                    "body": "> ## 🤖 [AI responder] Consolidated Comment Response Summary\n> Re: [Comment #7](https://github.com/owner/repo/pull/1#discussion_r7)",
+                    "author": "verified-bot",
+                    "type": "general",
+                },
+            ],
+            generated,
+        )
+        self.assertNotEqual(quoted_summary.returncode, 0)
+        self.assertIn("Missing original comment ID: 7", quoted_summary.stdout)
 
         malformed = run_step(["not-a-comment"], generated)
         self.assertEqual(malformed.returncode, 2)
@@ -518,7 +533,7 @@ class ScratchRoutingContracts(unittest.TestCase):
                 original,
                 {
                     "id": 70,
-                    "body": "[AI responder] Comment #70",
+                    "body": "## 🤖 [AI responder] Consolidated Comment Response Summary\n### 1. Re: [Comment #70](https://github.com/owner/repo/pull/1#discussion_r70)",
                     "author": "verified-bot",
                     "type": "general",
                 },

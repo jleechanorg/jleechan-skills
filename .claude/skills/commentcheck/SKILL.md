@@ -306,8 +306,9 @@ echo "🔍 ORIGINAL COMMENT ID COVERAGE (MECHANICAL ONLY):"
 # posted.  `already_replied` is deliberately ignored because it is derived by
 # heuristic code.  Direct replies require an exact GitHub in_reply_to_id and
 # the verified current responder login.  Consolidated summaries are accepted
-# only when the same verified responder authored them and their references are
-# exact numeric tokens; semantic response quality remains model-owned.
+# only when the same verified responder authored the producer's structured
+# summary marker and its linked references; arbitrary or quoted body mentions
+# are not receipts. Semantic response quality remains model-owned.
 if [ -n "${COPILOT_RESPONDER_LOGIN:-}" ]; then
   # The caller must source this value from the verified GitHub actor; tests use
   # the same explicit binding without making a network call.
@@ -317,7 +318,7 @@ elif ! RESPONDER_LOGIN=$(gh api user --jq '.login' 2>/dev/null); then
 fi
 [ -n "$RESPONDER_LOGIN" ] || coverage_fail "verified responder identity is empty"
 
-if ! ORIGINAL_IDS=$(echo "$ALL_COMMENTS" | jq -r --arg responder "$RESPONDER_LOGIN" '.[] | select((.author != $responder) or (((.body // "") | startswith("[AI responder]")) | not)) | .id | tostring' | sort -u); then
+if ! ORIGINAL_IDS=$(echo "$ALL_COMMENTS" | jq -r --arg responder "$RESPONDER_LOGIN" '.[] | select((.author != $responder) or ((((.body // "") | startswith("[AI responder]")) or ((.body // "") | startswith("## 🤖 [AI responder] Consolidated Comment Response Summary"))) | not)) | .id | tostring' | sort -u); then
   coverage_fail "failed to extract original comment IDs"
 fi
 if ! POSTED_REPLY_IDS=$(echo "$ALL_COMMENTS" | jq -r --arg responder "$RESPONDER_LOGIN" '.[] | select(.author == $responder) | select(.in_reply_to_id != null) | .in_reply_to_id | tostring' | sort -u); then
@@ -325,8 +326,7 @@ if ! POSTED_REPLY_IDS=$(echo "$ALL_COMMENTS" | jq -r --arg responder "$RESPONDER
 fi
 if ! POSTED_SUMMARY_IDS=$(
   {
-    echo "$ALL_COMMENTS" | jq -r --arg responder "$RESPONDER_LOGIN" '[.[] | select(.author == $responder) | (.body // "") | [scan("(?i)Comment[[:space:]]+#([0-9]+)")[]] | .[]] | .[]'
-    echo "$ALL_COMMENTS" | jq -r --arg responder "$RESPONDER_LOGIN" '[.[] | select(.author == $responder) | (.body // "") | [scan("(?i)discussion_r([0-9]+)")[]] | .[]] | .[]'
+    echo "$ALL_COMMENTS" | jq -r --arg responder "$RESPONDER_LOGIN" '[.[] | select(.author == $responder) | (.body // "") | select(startswith("## 🤖 [AI responder] Consolidated Comment Response Summary")) | [scan("(?i)Re:[[:space:]]+\\[Comment[[:space:]]+#([0-9]+)\\]\\(")[]] | .[]] | .[]'
   } | sort -u
 ); then
   coverage_fail "failed to extract verified responder summary references"
