@@ -11,7 +11,7 @@ dispatches work and never replaces the designated-writer queue guard. Exit codes
 Only entries with non-empty owner, current action and receipt strings are
 counted. The caller must independently validate freshness, ownership and UNKNOWN
 occupancy; this predicate cannot establish global admission. Queued, assigned, "busy",
-messaged or awaiting-review entries never consume capacity.
+messaged, awaiting-review or completed entries never consume capacity.
 """
 
 from __future__ import annotations
@@ -23,6 +23,9 @@ from pathlib import Path
 
 CAPS = {"complex": 2, "short": 2}
 EVIDENCE_FIELDS = ("owner", "action", "receipt")
+NON_EXECUTING_STATES = frozenset(
+    {"queued", "assigned", "busy", "messaged", "awaiting-review", "completed"}
+)
 
 
 class InputError(ValueError):
@@ -45,8 +48,11 @@ def is_executing(item: object) -> bool:
         raise InputError("each active entry must be an object")
     if not isinstance(item.get("class"), str) or item.get("class") not in CAPS:
         raise InputError(f"unknown class: {item.get('class')!r}")
-    if item.get("state") == "UNKNOWN":
+    state = item.get("state")
+    if state == "UNKNOWN":
         raise InputError("UNKNOWN occupancy must be reconciled before this check")
+    if isinstance(state, str) and state in NON_EXECUTING_STATES:
+        return False
     if item.get("parked") is True:
         return False
     evidence = item.get("evidence")

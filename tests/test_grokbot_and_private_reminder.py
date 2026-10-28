@@ -11,6 +11,9 @@ class NewSkillContracts(unittest.TestCase):
   self.assertIn('do not silently fall back',text)
   self.assertIn('recipient',text.lower())
   self.assertIn('No private inventory',text)
+  import re
+  self.assertIsNone(re.search(r'\b[A-Za-z0-9_.-]+/roadmap(?:/|\b)',text))
+  self.assertIn('locations supplied through authorized private context',text)
   self.assertIn('An acknowledgment or changed wording does not authorize another submit',text)
  def test_grok_identity_target_and_uncertain_send(self):
   text=(ROOT/'.claude/skills/grokbot/SKILL.md').read_text(encoding="utf-8")

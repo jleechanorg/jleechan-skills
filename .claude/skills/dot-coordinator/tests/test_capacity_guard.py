@@ -113,6 +113,19 @@ class GuardTest(unittest.TestCase):
         self.assertIn("active=0", out)
         self.assertTrue(out.startswith("BELOW_CAP"))
 
+    def test_nonexecuting_states_do_not_consume_capacity(self):
+        for state_name in (
+            "queued", "assigned", "busy", "messaged", "awaiting-review", "completed"
+        ):
+            with self.subTest(state=state_name):
+                state = {"active": [
+                    entry("running", "complex"),
+                    entry("inactive", "complex", state=state_name),
+                ]}
+                code, out, _ = self.run_guard(state, "complex", "new")
+                self.assertEqual(code, 0, out)
+                self.assertIn("active=1 cap=2", out)
+
     def test_stale_string_is_only_shape_checked_and_never_authority(self):
         old = {"owner": "owner", "action": "past action", "receipt": "2000-01-01T00:00:00Z"}
         code, out, _ = self.run_guard({"active": [entry("old", "complex", old)]}, "complex", "new")
