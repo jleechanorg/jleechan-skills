@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# check_autonomy_time_box.sh — enforce the 8-hour autonomy time-box
-# Policy: ~/.codex/AGENTS.md § "Autonomy time-box" (28,800 s per session or worker).
-# Returns 0 if within budget, 1 if any tracked flow/worker exceeded 28,800 s.
+# check_autonomy_time_box.sh — enforce the autonomy time-box (8-hour default)
+# Policy: ~/.codex/AGENTS.md § "Autonomy time-box" (default: 28,800 s per session or worker).
+# Returns 0 if within the configured budget, 1 if any tracked flow/worker exceeded it.
 # Sources of truth (in priority order):
 #   1. ~/.hermes/runtime/<flow>-<id>.started_at  — started_at epoch written by /converge, /eloop,
 #                                                  /goal_harness, /auton, /f, /goal, /babysit
 #   2. tmux session creation epoch for `ao-*` workers (tmux list-sessions -F '#{session_created}')
-# Each entry has a companion `.approved_until` file (epoch) that lifts the cap when present.
+# Started-at entries may have a companion `.approved_until` file (epoch) that lifts the cap.
 # Started-at flow renewals are recorded in `.approved_until` by the flow owner.
 # The owner uses receipt + 28,800 s for a new live user message, or now + N*3600
 # for an explicit `CONTINUE N HORUS` / `EXTEND TO N HORUS` message.
