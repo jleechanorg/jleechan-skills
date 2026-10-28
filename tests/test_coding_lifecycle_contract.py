@@ -404,6 +404,13 @@ class CodingLifecycleContract(unittest.TestCase):
         self.assertIn("gh pr list --head <branch> --state all", self.owner)
         self.assertIn("state the measured facts instead of the remembered ones", self.owner)
 
+    def test_stage5_requires_verified_ai_visual_approval_not_pending_dot(self):
+        for name in ("pr-lifecycle", "evidence-review", "pr-workflow-manager"):
+            text = read(name)
+            self.assertIn("VISUAL APPROVED at <40-char-sha>", text)
+            self.assertIn("`/dot: REQUESTED, pending`", text)
+            self.assertIn("stage:5-final-approval", text)
+
     def test_lightweight_prw_nonprod_path_is_defined_and_bounded(self):
         raw = (SKILLS / "pr-lifecycle" / "SKILL.md").read_text(encoding="utf-8")
         section_raw = raw.split("\n## Default PR route — `/prw`\n", 1)[1].split("\n## ", 1)[0]
