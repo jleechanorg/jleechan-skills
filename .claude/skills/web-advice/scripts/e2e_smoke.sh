@@ -65,6 +65,10 @@ scratch_tmp="$("${CLAUDE_HOME:-$HOME/.claude}/skills/scratch-space/scripts/scrat
   echo "Scratch resolver unavailable; refusing host-temp fallback (rc=${resolver_rc})" >&2
   exit "$resolver_rc"
 }
+if [ -z "$scratch_tmp" ]; then
+  echo "Scratch resolver returned an empty path; refusing host-temp fallback" >&2
+  exit 75
+fi
 chrome_profile_dir="$(mktemp -d "${scratch_tmp}/web-advice-chrome-smoke.XXXXXX")" || {
   profile_rc=$?
   echo "Scratch Chrome profile allocation failed; refusing unowned profile (rc=${profile_rc})" >&2

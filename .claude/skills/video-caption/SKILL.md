@@ -40,6 +40,10 @@ scratch_tmp="$("${CLAUDE_HOME:-$HOME/.claude}/skills/scratch-space/scripts/scrat
     echo "Scratch resolver unavailable; refusing frame allocation" >&2
     exit 75
 }
+if [ -z "$scratch_tmp" ]; then
+    echo "Scratch resolver returned an empty path; refusing frame allocation" >&2
+    exit 75
+fi
 frames_dir="$(mktemp -d "$scratch_tmp/video-frames.XXXXXX")" || {
     echo "Scratch frame allocation failed" >&2
     exit 75

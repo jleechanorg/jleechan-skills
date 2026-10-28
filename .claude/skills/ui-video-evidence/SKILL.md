@@ -244,6 +244,10 @@ The following GitHub release example applies only when that destination is autho
   tag="evidence-pr-${PR_NUMBER}-${sha_short}-${RUN_ID}"
 
   archive_scratch="$("${CLAUDE_HOME:-$HOME/.claude}/skills/scratch-space/scripts/scratch-dir.sh" tmp)"
+  if [ -z "$archive_scratch" ]; then
+    echo "Scratch resolver returned an empty path; refusing archive allocation" >&2
+    exit 75
+  fi
   archive_dir="$(mktemp -d "$archive_scratch/evidence_archive.XXXXXX")"
   zip_file="$archive_dir/$(basename "$video_file").zip"
   trap 'rm -f -- "$zip_file"; rmdir -- "$archive_dir"' EXIT
