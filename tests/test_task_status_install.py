@@ -26,7 +26,7 @@ class TaskStatusInstallTest(unittest.TestCase):
                 shutil.copy2(ROOT / relative, destination)
             target = root / "home"
             result = subprocess.run(
-                ["bash", str(source / "install-claude-commands.sh")],
+                ["bash", str(source / "install-claude-commands.sh"), "--all"],
                 env=os.environ | {"CLAUDE_HOME": str(target)},
                 capture_output=True, text=True,
             )

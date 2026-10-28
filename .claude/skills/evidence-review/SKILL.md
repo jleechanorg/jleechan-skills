@@ -5,6 +5,10 @@ description: Enforcement rules for reviewing evidence artifacts against the evid
 
 # Evidence Review Skill
 
+## Claim-proportionate evidence and publication
+
+For claim-proportionate proof, follow [pr-lifecycle](../pr-lifecycle/SKILL.md#proportional-exceptions-and-fast-paths); for PR publication, use its [stage-exit receipt contract](../pr-lifecycle/SKILL.md#evidence-attached-to-every-stage-exit). Evidence content and integrity remain governed by [evidence-standards](../evidence-standards/SKILL.md).
+
 ## Retained review integrations
 
 The shared catalog preserves host-installed `/advice` and `/web-advice` integrations instead of installing them. Before invoking either, resolve its `../advice/SKILL.md` or `../web-advice/SKILL.md` relative to this package and read the existing skill. For a remote invocation, check the corresponding skill on the target host. If absent, report that integration as `UNAVAILABLE` and identify the missing package; do not invent a replacement runner, claim an approval, or treat a required gate as passed. Continue independent authorized work, but leave any dependent readiness or plan-approval gate unmet. Existing review quorum, external-disclosure authorization, and optional-review rules still apply.
@@ -16,7 +20,7 @@ The shared catalog preserves host-installed `/advice` and `/web-advice` integrat
 
 **Standards source**: `evidence-standards` skill (`/es`). When in doubt about a requirement, read the standards first.
 
-**Repo overlay (always check)**: this is the **user-scope (global)** `/er` policy — the floor. Before judging, look for repo-level versions and read them too: `<repo>/.claude/skills/evidence-review.md` and `<repo>/.claude/skills/evidence-standards.md` add project-specific enforcement (e.g. worldarchitect.ai adds BQ/streaming/dice modes) and take precedence on conflict.
+**Repo overlay (always check)**: this is the **user-scope (global)** `/er` policy — the floor. Before judging, look for repo-level versions and read them too: `<repo>/.claude/skills/evidence-review.md` and `<repo>/.claude/skills/evidence-standards.md` add domain-specific proof (e.g. worldarchitect.ai adds BQ/streaming/dice modes). For lifecycle stages, generic review routing, proportionality and SHA reuse, the shared [pr-lifecycle precedence rule](../pr-lifecycle/SKILL.md#precedence-and-scope) governs conflicting copies. Domain proof, security and separate merge authority remain intact.
 
 ---
 
@@ -24,7 +28,7 @@ The shared catalog preserves host-installed `/advice` and `/web-advice` integrat
 
 | Verdict | Meaning |
 |---------|---------|
-| **PASS** | Every claim has a matching artifact of STRONG quality and every mandatory check below passes. Satisfies the draft-phase `/er` gate when `/er` is applicable. |
+| **PASS** | Every claim has a matching artifact of STRONG quality and every applicable mandatory check below passes. Satisfies the draft-phase `/er` gate when `/er` is applicable. |
 | **PARTIAL** | Claims are supported but one or more mandatory checks soft-warn (e.g., WARN in an optional verification_report.json, missing a required downloadable MP4). Does not satisfy the draft-phase `/er` gate. |
 | **FAIL** | A claim is contradicted by an artifact, or integrity is broken (sha256 mismatch, dirty capture producing the claim, scope exclusion). |
 | **INCONCLUSIVE** | Not enough artifact data exists to decide. Request more. |
@@ -32,20 +36,20 @@ The shared catalog preserves host-installed `/advice` and `/web-advice` integrat
 ## Draft-lifecycle integration
 
 The canonical lifecycle, its documentation-only `/er` allowlist, and the SHA-binding /
-staleness-tolerance rule (`draft-first-pr` § "SHA-binding rule") live in
-`draft-first-pr`; apply that policy — including the staleness-tolerance diff
+staleness-tolerance rule (`pr-lifecycle` § "SHA-binding rule") live in
+`pr-lifecycle`; apply that policy — including the staleness-tolerance diff
 test — before invoking this skill. Do not run a fresh `/er` pass on a HEAD
 move the staleness-tolerance test classifies as non-behavioral; re-affirm the
 prior verdict at the new SHA instead (see `evidence-standards` §
 "Evidence Sequencing"):
 
 - **Documentation-only exception**: when the complete PR diff matches the exact
-  documentation allowlist in `draft-first-pr`, `/er` is not run. Record
+  documentation allowlist in `pr-lifecycle`, `/er` is not run. Record
   `/er: NOT REQUIRED — documentation-only (<changed paths>)` at the reviewed
-  SHA. Mixed diffs and every path outside that allowlist follow the normal gate.
+  SHA. Other diffs follow the normal gate unless the entire diff qualifies for the explicit trivial-change exception in pr-lifecycle.
 
-Every PR outside that exception, and outside any low-risk class the repo's own
-instructions exempt per `draft-first-pr`, requires `/er` = **PASS** at the current SHA
+Every PR outside that exception and the canonical trivial-change exception, and outside any low-risk class the repo's own
+instructions exempt per `pr-lifecycle`, requires `/er` = **PASS** applicable to the candidate, retaining the original reviewed SHA and documented delta assessment when it differs
 before `/advice`. PARTIAL, FAIL, or INCONCLUSIVE remains informative reviewer
 output but does not satisfy the gate.
 
@@ -138,7 +142,7 @@ grep -A10 "Scope note" README.md
 ### 4. Video artifacts required by the claim
 
 Apply the user-scope evidence-standards and repository UI owner before selecting
-video requirements. User-visible behavior needs captioned video tied to the tested
+video requirements, including the canonical narrow trivial-copy exceptions above. Other user-visible behavior needs captioned video tied to the tested
 SHA. Terminal recording is required when the relevant owner or user asks for it,
 or when the claim depends on demonstrating terminal behavior; a test invocation
 alone does not create a GIF-plus-MP4 requirement.
@@ -148,9 +152,23 @@ For each applicable video requirement, verify:
 - The caption identifies the test/action, observed result, and tested SHA.
 - UI footage visibly shows the relevant element and before/action/after behavior.
 - Terminal footage, when required, shows the command and relevant result.
+- The mpdecimate retained-frame count and nominal count are reported with the fail-closed probe in `../ui-video-evidence/SKILL.md`; `kept < 10` or `kept/nominal < 5%` is **INSUFFICIENT** unless the caption names the action and after-state frame timestamps and they show the claim.
+- Each clip includes the user action (e.g. the Send tap) plus the before state; a window anchored only to completion that omits the action fails. If the observable has no user action, record N/A with the reason and require a before-state → after-state transition clip.
+- Before/after clips come from fresh runs of each build; any re-cut or reused baseline is labeled `derived` with its source.
+- This `/er` verdict (and any `/advice` on the evidence) comes from a different agent/lane than the one that produced the evidence, and the verdict names that lane (lanes may share one GitHub account).
 
 A missing applicable artifact yields **PARTIAL**. Record inapplicable formats as
 N/A with a reason; do not impose terminal and browser video on every PR.
+
+**Video acceptance needs an independent content review.** When a video backs an
+acceptance claim, an independent AI reviewer other than the author or orchestrator must extract
+frames from the published video itself (not the capture's own screenshots) and
+return, for each acceptance step, PASS/FAIL with the timestamp where it is
+visible. Privacy masking, decode/playback, upload read-back, captions, and
+turn-record or coverage-judge JSON are separate checks and never substitute.
+No content review → **PARTIAL**; a step the frames contradict → **FAIL**.
+
+**Mandatory AI Visual Inspection (`VISUAL APPROVED at <40-char-sha>`):** For any user-visible change (anything not covered by the narrow documentation-only / zero-UI-impact non-visual exemption), `/er` (or an independent `/advice` visual lane / `/dot`) MUST download and visually inspect the actual rendered image or extracted video frames—never just URL status or checksums—and record `VISUAL APPROVED at <40-char-sha>` (or `VISUAL REJECTED at <40-char-sha>`). A link-existence check or pending request (e.g., `/dot: REQUESTED, pending`) is NEVER a visual approval PASS, caps `/er` at **PARTIAL**, and blocks `stage:5-final-approval` and merge readiness. The approval record MUST include, per user-visible claim, the before (where a before state exists) and after artifact links, a concrete description of what the reviewer saw in each (the changed element, its state, and the viewport), and a matches-claim verdict, all bound to the evidenced SHA (the approved head, or the earlier SHA a reasoned delta assessment preserves); a bare stamp or approver name without those findings is not a visual approval PASS. Repositories may require the findings as a PR-body table and check its presence and SHA binding in CI.
 
 ### 5. Public-URL hosting check
 
@@ -228,6 +246,27 @@ without exact commands and expected results → PARTIAL.
 
 - [ ] **Commit Branch Containment Gate**: Run `git branch -r --contains <sha>` before asserting that a commit, fix, or schema change is present on a PR's remote branch. If the commit exists only on a sibling/worktree branch and NOT on the PR's target branch → **FAIL** (do not assume cross-branch propagation without git verification).
 
+### 9. Observed acceptance violations
+
+Before PASS, list every forbidden-state observation in the raw artifacts (request
+ledgers, logs, frames) and compare it verbatim against the user's stated
+acceptance and the UI's own disclosure text.
+
+- [ ] An observation either one forbids → **FAIL**. It may not be moved to Does
+  NOT Prove, `limits`, a follow-up bead, or a P1 "wording" item, and narrowing the
+  claim (e.g. "protected endpoints only", "no zero-network claim") does not clear
+  it. Exits: a code fix with fresh evidence, or the user accepting that exact
+  behavior in a live message.
+- [ ] A benign label (transport-only, warmup, best-effort, no content) is not a
+  waiver: the disclosure and acceptance govern, not the payload.
+- [ ] Reviewer prompts must not carry the author's classification of the
+  observation; the reviewer judges it from the raw artifact.
+
+Example: if a warm-up request fires while consent is off under a dialog saying
+"Nothing is sent until you allow it", filing it as a nonblocking follow-up or
+handing the reviewer a "transport-only" assessment does not allow PASS, nor can
+a video bundle pass without an independent AI review of the frames.
+
 ---
 
 ## Review Procedure
@@ -239,10 +278,7 @@ compare to the subject's current HEAD. If they match, skip to the verdict phase
 and re-emit the prior verdict. If they differ, read `git diff
 <prior-verdict-sha> <current-sha>` against the verdict's claims per the
 staleness-tolerance test in `evidence-standards`: a delta that leaves every
-claim intact lets you re-affirm the prior verdict at the new SHA without
-rerunning the later phases; a delta that changes production behavior or any
-assertion, driver, or executable instruction a claim depends on requires a full
-rerun. Never rerun once per finding —
+claim intact lets you record the prior verdict's applicability to the new SHA without rerunning the later phases or pretending it was a new review. A delta that changes production behavior or any assertion, driver, or executable instruction a claim depends on requires fresh affected proof and independent review of the affected coverage. Use a full rerun only when the impact cannot be safely bounded; preserve unaffected claims. Never rerun once per finding —
 if fixes are still landing, wait until they are batched into one new SHA
 (`evidence-standards` § "Evidence Sequencing") before spending a full pass.
 Continue necessary review and already-authorized fixes within the applicable task

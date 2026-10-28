@@ -59,6 +59,20 @@ Mode: --full (beads + ~/roadmap + Claude memory + mem0 + GH Issues)
 
 ## Fail-closed rule
 
+## Continue authorized work before handoff
+
+Before writing a handoff or ending the run, reconcile the live request and
+current task state. A status question, acknowledgement, checkpoint, or context
+transition does not withdraw authorization for the same action, target, and
+outcome. Complete the next safe, reversible, authorized action—including
+available reviews and evidence checks—before reporting it as a next step.
+Record a future task as queued only when it is outside the current request or
+requires a real gate. Keep explicit planning-only requests, user stops, the
+autonomy deadline, and user-only authority boundaries intact. If blocked, name
+the exact action, current reason it cannot proceed, controlling owner, attempts
+and alternatives, and a concrete resumption trigger; do not label routine
+verification or review as waiting for the user.
+
 A `/nextsteps` run is **incomplete** unless it leaves **all** of these artifacts
 **for its chosen mode**:
 
@@ -93,6 +107,7 @@ A normal `/nextsteps` invocation authorizes all relevant stages below. Complete 
 - Interim user updates are non-blocking status messages, not approval checkpoints.
 - If mem0, GitHub Issues, or another optional sink is unavailable in `--full` mode, record the exact attempted result, complete every other artifact, and report the unavailable sink in the final checklist.
 - Stop only for a genuine blocker that requires new authority or information and cannot be safely worked around. Routine external failures, disabled integrations, or partial tool availability are not stopping conditions.
+- Phase 8 completes this command's assessment and persistence work; it does not terminate an ongoing caller workflow or cancel already-authorized work. Return to that workflow and continue its next safe action after reporting.
 
 ## Doc discovery — prefer update over create
 
@@ -179,7 +194,7 @@ The independent `.md` file is the **handoff artifact**: a reader must be able to
 
 - Critical path and measured or provisional concurrency ceiling: …
 - Milestones: +20m, +40m, +60m (hourly rollup), then repeat while active.
-- Execution start: pending authorized resumption; this handoff does not start it.
+- Execution start: <started now, or the exact unmet gate and resumption trigger>. Do not mark already-authorized work pending resumption; continue it in the current workflow.
 
 ## PR / merge state
 
@@ -302,14 +317,23 @@ Create a subagent (or run concurrently) to save to mem0:
 4. Report back: `✅ mem0 saved` or `⚠️ mem0 unavailable (skipped)`
 
 #### Phase 7b — Create or update GitHub Issues (`--full` only)
-For each bead created in Stage 1, attempt to create a linked GitHub Issue. Run all issue creates in parallel:
-```bash
-# Resolve repo from git remote (default jleechanorg/agent-orchestrator-ts)
-REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || echo "jleechanorg/agent-orchestrator-ts")
+For each bead created in Stage 1, attempt to create a linked GitHub Issue. Resolve
+the repository from the current checkout; this publication is optional, so a
+lookup or creation failure blocks only the issue write. Record the exact failure
+and continue the other Phase 7/8 work. Never choose a different repository as a
+fallback.
 
-gh issue create --repo "$REPO" \
-  --title "[resilience] <bead title>" \
-  --body "## Summary
+Run all issue creates in parallel only after the current repository has been
+resolved:
+```bash
+if ! REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner); then
+  echo "⚠️ GitHub Issue publication unavailable: repository lookup failed; preserve the exact gh error and continue other artifacts. No issue was created."
+elif [[ -z "$REPO" ]]; then
+  echo "⚠️ GitHub Issue publication unavailable: repository lookup returned an empty name. Continue other artifacts. No issue was created."
+else
+  if ! gh issue create --repo "$REPO" \
+      --title "[resilience] <bead title>" \
+      --body "## Summary
 <one-paragraph description>
 
 ## Acceptance criteria
@@ -317,11 +341,15 @@ gh issue create --repo "$REPO" \
 - [ ] <criterion 2>
 
 **Bead:** <bd-id>" \
-  --label "task" 2>&1
+      --label "task" 2>&1; then
+    echo "⚠️ GitHub Issue publication unavailable: preserve the exact gh error; do not retry in another repository. Continue other artifacts."
+  fi
+fi
 ```
 - If `gh issue create` returns "repository has disabled issues", log `⚠️ GH Issues disabled on <repo> — bead only` and continue.
+- If repository lookup or issue creation fails for another reason, retain its exact error and leave that optional issue unpublished; never retry in a guessed repository.
 - If it succeeds, capture the issue URL and add it to the bead index in the Nextsteps document.
-- Report back: `✅ GH Issue #N created` or `⚠️ GH Issues disabled`
+- Report back: `✅ GH Issue #N created`, `⚠️ GH Issues disabled`, or `⚠️ GitHub Issue publication unavailable: <exact reason>`.
 
 ---
 

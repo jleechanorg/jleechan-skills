@@ -1,13 +1,13 @@
 # Claude Global Baseline
 
-Shared policy is loaded below. Edit universal rules in `$CODEX_HOME/AGENTS.md` (defaults to `~/.codex/AGENTS.md`); keep only Claude-specific additions in this adapter. The imported section explicitly labeled Codex-only does not apply to Claude. Do not duplicate shared rules here.
-PR lifecycle & quantity control: `~/.claude/skills/draft-first-pr/SKILL.md`, `~/.claude/skills/pr-green-definition/SKILL.md`, and `~/.claude/skills/pr-quantity-control/SKILL.md` (`<= 3` open PRs per feature scope by default; hard cap `<= 5` coarse vertical slices when splitting; never micro-slice by line count).
+Shared policy is loaded below. Edit universal rules in `~/.codex/AGENTS.md`; keep only Claude-specific additions in this adapter. The imported section explicitly labeled Codex-only does not apply to Claude. Do not duplicate shared rules here.
+PR lifecycle & quantity control: `~/.claude/skills/pr-lifecycle/SKILL.md`, `~/.claude/skills/pr-green-definition/SKILL.md`, and `~/.claude/skills/pr-quantity-control/SKILL.md` (`<= 3` open PRs per feature scope by default; hard cap `<= 5` coarse vertical slices when splitting; never micro-slice by line count).
 
 @~/.codex/AGENTS.md
 
 ## Parallel subagents and model routing
 
-Delegate a task that is genuinely independent and large enough to earn its own context: a wide multi-file investigation, a long CLI run, a parallel review lane, a sizeable coding track. Work you can finish in a handful of tool calls, do yourself. Never spawn a subagent to verify or double-check work you did yourself — that is self-verification you already perform, and it costs tokens without improving the result. A verifier reviewing a *different* agent's revision is an independent lane, not a re-check of your own output, and stays required wherever a coder/verifier pair is used. Route each delegated unit to the cheapest capable tier; never silently inherit an expensive session model. Prefer one capable agent over several, and keep spawn counts low.
+Delegate a task that is genuinely independent and large enough to earn its own context: a wide multi-file investigation, a long CLI run, a parallel review lane, a sizeable coding track. Work you can finish in a handful of tool calls, do yourself. Never spawn a subagent to verify or double-check work you did yourself — that is self-verification you already perform, and it costs tokens without improving the result. A verifier reviewing a *different* agent's revision is an independent lane, not a re-check of your own output, and stays required wherever a coder/verifier pair is used. Route each delegated unit to the cheapest capable tier; never silently inherit an expensive session model. Delegate read-only and code work only; execute authority-dependent steps (credential use, external sends) in this session, because subagents treat relayed authorization as non-authoritative (`~/.codex/AGENTS.md` § Escalate only what only the user can do). Prefer one capable agent over several, and keep spawn counts low.
 
 Confirm a delegated result against its own artifact before repeating its claim to the user: a lane reporting success is not the success, and a report that no lane returned is missing evidence, not assent. Tier table, CLI names, and the stalled-teammate transcript check: `~/.claude/skills/parallelize-to-ceiling/SKILL.md` § Model-tier routing and delegation defaults.
 
@@ -46,9 +46,25 @@ This governs the shape of the ending, never what may be said: a finding that blo
 Write plainly: name the thing and say why it matters in one sentence. Prefer "this breaks X because Y" to "it's worth noting that this is load-bearing."
 
 These are voice rules and nothing more. They never license omitting a failing test, an error, an unverified claim, a security warning, or a destructive-action confirmation, and they relax no gate in this file. Brevity is how a true report is delivered, never a reason to shorten one into a false one.
+
+## Destructive-path guard (Claude-specific enforcement; incident jleechan-lwn, 2026-10-18)
+
+Canonical rule: `~/.codex/AGENTS.md` § "Destructive-path guard". Claude-specific enforcement: `~/.claude/hooks/destructive-path-guard.sh` is a PreToolUse hook on Bash that blocks `rm -r`, `rsync --delete`, `find -delete`, and `mv` onto a computed or root-like destination. Treat its block as a real stop, not an obstacle to rephrase around. When the hook is unavailable, or when you write a script for later execution, self-check with `~/.claude/hooks/lib/destructive_path_guard.py --check '<cmd>'`. Never run `rsync -a --delete "$SRC/" "$DST/"` with an unvalidated `$DST`: `set -u`, require non-empty and not `/` (`${DST:?unset}`), and never `--delete` onto a computed destination. Scratch space is allocated per [`~/.claude/skills/scratch-space/SKILL.md`](~/.claude/skills/scratch-space/SKILL.md) via `diskm scratch-new <repo-path> <purpose> --kind build|evidence` for repo dirs and `~/.claude/skills/scratch-space/scripts/scratch-dir.sh [subpath]` for ad-hoc temp files (or `mktemp -d` inside scratch for tiny non-git file scratch only; never `git worktree add $(mktemp -d)` — all git worktrees must live under `~/.worktrees/<repo>/<name>` via `diskm worktree-new`, except roots explicitly listed in `~/.config/guards/worktree-allowlist`, enforced by `diskm guard-worktree-add` and `~/.local/bin/guards/git`), never hardcoding OS mountpoints or a fixed `/tmp/<name>` you then delete. Incident record: `br show jleechan-lwn`.
+
+
 ## Reply footer
 
 The status-line and `git-header.sh` procedure live in `~/.claude/CLAUDE-global-reference.md`. Refresh branch, upstream, and PR facts when reporting them or completing Git work, using the hook or direct queries when the status line is missing or stale. Unrelated replies do not require a manual status-hook call.
+
+## Agent Scratch placement (Mac and Linux)
+
+Single source of truth: [`~/.claude/skills/scratch-space/SKILL.md`](~/.claude/skills/scratch-space/SKILL.md).
+For disposable build output, test fixtures, ephemeral workspaces, and evidence:
+- **Repo build & evidence directories**: Allocate via `diskm scratch-new <repo-path> <purpose> --kind build|evidence` (enforces admission control, lease registration, and 48-hour recency; add `--owner-pid PID` for long-lived producers).
+- **Ad-hoc helper files, PR bodies, logs & ephemeral scripts**: Resolve via `~/.claude/skills/scratch-space/scripts/scratch-dir.sh [subpath]`.
+
+Both dynamically resolve the host's configured Scratch volume (`diskm volume path scratch`) and fall back to `/tmp` only when unconfigured. Never hardcode OS-specific mountpoints (`/Volumes/diskm-scratch`, `~/Scratch`) or fixed `/tmp/<name>`. A registered but unavailable, full, or mismatched volume refuses new work; report that result without writing beneath an unmounted mountpoint or silently routing to host temp.
+Invariants: Git worktrees still use `~/.worktrees/<repo>/<name>` through `diskm worktree-new`; durable human-readable reports stay in `~/roadmap/`; credentials, transcripts, and mutable tool state stay in `$HOME`. Do not remap global `TMPDIR` or replace host `/tmp`.
 
 ## Default skill installation targets
 

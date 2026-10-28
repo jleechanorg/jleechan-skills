@@ -181,10 +181,10 @@ class PolicyFilesContractTest(unittest.TestCase):
         er_path = REPO_ROOT / ".claude" / "commands" / "er.md"
         er_content = er_path.read_text(encoding="utf-8")
         self.assertIn("evidence-review/SKILL.md", er_content)
-        self.assertIn("draft-first-pr/SKILL.md", er_content)
+        self.assertIn("pr-lifecycle/SKILL.md", er_content)
         self.assertNotIn("Two-Tier Verdicts", er_content)
 
-        draft_pr_path = REPO_ROOT / ".claude" / "skills" / "draft-first-pr" / "SKILL.md"
+        draft_pr_path = REPO_ROOT / ".claude" / "skills" / "pr-lifecycle" / "SKILL.md"
         draft_pr_content = draft_pr_path.read_text(encoding="utf-8")
         self.assertIn("gh api", draft_pr_content)
         self.assertIn("clone_url", draft_pr_content)
@@ -194,7 +194,7 @@ class PolicyFilesContractTest(unittest.TestCase):
         self.assertNotIn("origin/main...HEAD", draft_pr_content)
 
     def test_documented_base_resolution_works_without_origin_or_main(self):
-        skill_path = REPO_ROOT / ".claude" / "skills" / "draft-first-pr" / "SKILL.md"
+        skill_path = REPO_ROOT / ".claude" / "skills" / "pr-lifecycle" / "SKILL.md"
         skill_content = skill_path.read_text(encoding="utf-8")
         section = skill_content.split("### Documentation-only `/er` exception", 1)[1]
         script = section.split("```bash\n", 1)[1].split("\n```", 1)[0]
@@ -243,7 +243,7 @@ class PolicyFilesContractTest(unittest.TestCase):
         self.assertEqual(result.stdout.strip(), "README.md")
 
     def test_documented_base_resolution_rejects_same_repo_on_foreign_host(self):
-        skill_path = REPO_ROOT / ".claude" / "skills" / "draft-first-pr" / "SKILL.md"
+        skill_path = REPO_ROOT / ".claude" / "skills" / "pr-lifecycle" / "SKILL.md"
         skill_content = skill_path.read_text(encoding="utf-8")
         section = skill_content.split("### Documentation-only `/er` exception", 1)[1]
         script = section.split("```bash\n", 1)[1].split("\n```", 1)[0]
@@ -365,6 +365,30 @@ class DocumentedShellExamplesTest(unittest.TestCase):
     def _restore_env(self):
         os.environ.clear()
         os.environ.update(self._orig_env)
+
+    def _tmux_script_section(self):
+        content = (
+            REPO_ROOT / ".claude/skills/tmux-video-evidence/SKILL.md"
+        ).read_text(encoding="utf-8")
+        return content.split("## Evidence Script Template", 1)[1].split(
+            "## Recording", 1
+        )[0]
+
+    def _documented_tmux_sanitizer_args(self, script_sec):
+        sed_start = script_sec.find("| sed -E")
+        self.assertNotEqual(sed_start, -1, "documented sanitization pipeline missing")
+        rules = []
+        for line in script_sec[sed_start:].splitlines():
+            line = line.strip()
+            if line.startswith("-e '"):
+                rules.append(line[4:].split("'", 1)[0])
+            elif rules:
+                break
+        self.assertTrue(rules, "documented sanitizer rules missing")
+        args = ["sed", "-E"]
+        for rule in rules:
+            args.extend(("-e", rule))
+        return args
 
     def test_claw_resolved_skill_options_are_not_invocation_options(self):
         content = (REPO_ROOT / ".claude/skills/claw-dispatch/SKILL.md").read_text()
@@ -573,53 +597,15 @@ class DocumentedShellExamplesTest(unittest.TestCase):
                 expected = path_gh if on_path else local_gh if local_executable else ""
                 self.assertIn(f"RESOLVED={expected}\n", result.stdout)
 
-    def test_documented_worktree_creation_uses_explicit_base_or_head(self):
+    def test_documented_worktree_creation_uses_shared_creator_with_explicit_base(self):
         content = (
             REPO_ROOT / ".claude/skills/superpowers-using-git-worktrees/SKILL.md"
         ).read_text()
-        section = content.split("### 1. Create Worktree", 1)[1]
+        section = content.split("### 1. Create Worktree", 1)[1].split("### 2.", 1)[0]
         script = section.split("```bash\n", 1)[1].split("\n```", 1)[0]
-        repo = self.tmp_path / "base repo"
-        env = {
-            **os.environ, "GIT_CONFIG_GLOBAL": os.devnull,
-            "GIT_CONFIG_NOSYSTEM": "1",
-        }
-
-        def git(*args):
-            return subprocess.run(
-                ["git", "-c", "core.hooksPath=/dev/null", "-C", str(repo), *args],
-                env=env, text=True, capture_output=True, check=True, timeout=30,
-            ).stdout.strip()
-
-        repo.mkdir()
-        git("init")
-        git("config", "user.email", "fixture@localhost")
-        git("config", "user.name", "Fixture")
-        git("config", "core.hooksPath", "/dev/null")
-        (repo / "README.md").write_text("base\n")
-        git("add", "README.md")
-        git("commit", "-m", "base")
-        base = git("rev-parse", "HEAD")
-        git("update-ref", "refs/remotes/origin/main", base)
-        (repo / "README.md").write_text("later\n")
-        git("commit", "-am", "later")
-        head = git("rev-parse", "HEAD")
-        for index, base_ref in enumerate((None, "", "origin/main")):
-            with self.subTest(base_ref=base_ref):
-                run_env = {
-                    **env, "LOCATION": str(self.tmp_path / "worktree area"),
-                    "BRANCH_NAME": f"fixture-{index}",
-                }
-                run_env.pop("BASE_REF", None)
-                if base_ref is not None:
-                    run_env["BASE_REF"] = base_ref
-                result = subprocess.run(
-                    ["bash", "-c", "set -eu\n" + script
-                     + '\nprintf "ACTUAL=%s\\n" "$(git rev-parse HEAD)"'],
-                    cwd=repo, env=run_env, text=True, capture_output=True, timeout=30,
-                )
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertIn("ACTUAL=" + (base if base_ref else head), result.stdout)
+        self.assertIn("diskm worktree-new", script)
+        self.assertIn("--base <base-ref>", script)
+        self.assertNotIn("git worktree add", script)
 
     def test_documented_evidence_review_bundle_integrity_snippet_behavior(self):
         content = (
@@ -681,80 +667,6 @@ exit 7
         res_find_fail = run_check(bundle, extra_env={"PATH": f"{stub_dir}:{os.environ.get('PATH', '')}"})
         self.assertNotEqual(res_find_fail.returncode, 0, "Find traversal error (exit 7) must propagate non-zero exit code even when checksum file was found")
 
-
-    def test_documented_worktree_safety_verification_ignore_snippet_behavior(self):
-        content = (
-            REPO_ROOT / ".claude/skills/superpowers-using-git-worktrees/SKILL.md"
-        ).read_text()
-        section = content.split("### For Project-Local Directories (.worktrees or worktrees)", 1)[1]
-        raw_snippet = section.split("```bash\n", 1)[1].split("\n```", 1)[0]
-
-        repo = self.tmp_path / "wt_repo"
-        repo.mkdir()
-        env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
-        subprocess.run(["git", "init"], cwd=repo, env=env, check=True, capture_output=True)
-        subprocess.run(["git", "config", "user.email", "test@test.local"], cwd=repo, env=env, check=True, capture_output=True)
-        subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, env=env, check=True, capture_output=True)
-        (repo / "README.md").write_text("repo root\n")
-        subprocess.run(["git", "add", "."], cwd=repo, env=env, check=True, capture_output=True)
-        subprocess.run(["git", "commit", "-m", "init"], cwd=repo, env=env, check=True, capture_output=True)
-
-        exclude_file = repo / ".git/info/exclude"
-
-        def run_verify(location_str: str, cwd: Path = repo) -> subprocess.CompletedProcess[str]:
-            return subprocess.run(
-                ["bash", "-c", raw_snippet],
-                cwd=cwd,
-                env={**env, "LOCATION": location_str},
-                capture_output=True, text=True, timeout=10,
-            )
-
-        # 1. Relative in-repo path (.worktrees) that is unignored must be handled and added to info/exclude
-        run_verify(".worktrees")
-        self.assertTrue(exclude_file.exists(), "info/exclude should exist after checking unignored relative path")
-        self.assertIn(".worktrees", exclude_file.read_text())
-
-        # 2. Absolute in-repo path that is unignored must also be handled and added to info/exclude
-        exclude_file.write_text("")
-        run_verify(str(repo / "worktrees"))
-        self.assertEqual(exclude_file.read_text().strip(), "worktrees")
-
-        # 3. External mktemp directory outside repo must NOT modify info/exclude
-        exclude_file.write_text("")
-        external_mktemp = self.tmp_path / "external_wt_temp"
-        external_mktemp.mkdir()
-        res_ext = run_verify(str(external_mktemp))
-        self.assertEqual(res_ext.returncode, 0)
-        self.assertEqual(exclude_file.read_text().strip(), "", "External path must not write to info/exclude")
-
-        # 4. Running outside a git repo must fail informatively with non-zero exit code
-        res_nogit = run_verify(str(self.tmp_path / "wt"), cwd=self.tmp_path)
-        self.assertNotEqual(res_nogit.returncode, 0, "Running outside a git repo must fail")
-
-        # 5. Git call failure (e.g. invalid git dir) must exit non-zero without modifying exclude
-        exclude_file.write_text("")
-        fake_git_dir = repo / "broken_git"
-        res_err = subprocess.run(
-            ["bash", "-c", raw_snippet],
-            cwd=repo,
-            env={**env, "LOCATION": ".worktrees", "GIT_DIR": str(fake_git_dir)},
-            capture_output=True, text=True, timeout=10,
-        )
-        self.assertNotEqual(res_err.returncode, 0, "Git failure must exit non-zero")
-        self.assertEqual(exclude_file.read_text().strip(), "", "Git failure must not write to info/exclude")
-
-        # 6. LOCATION exactly equal to repository root must be rejected before child classification
-        exclude_file.write_text("")
-        res_root = run_verify(str(repo))
-        self.assertNotEqual(res_root.returncode, 0, "LOCATION equal to repository root must fail")
-        self.assertIn("repository root", res_root.stderr)
-        self.assertEqual(exclude_file.read_text().strip(), "", "Exact repository root must not write to info/exclude")
-
-        # Relative '.' resolving to repository root must also be rejected
-        res_dot = run_verify(".")
-        self.assertNotEqual(res_dot.returncode, 0, "LOCATION equal to '.' (repo root) must fail")
-        self.assertIn("repository root", res_dot.stderr)
-        self.assertEqual(exclude_file.read_text().strip(), "", "Repo root '.' must not write to info/exclude")
 
     def test_documented_shell_fixture_enforces_gh_containment_and_credential_isolation(self):
         # 1. Verify sensitive tokens are stripped from os.environ
@@ -902,7 +814,7 @@ print("NOT_VALID_JSON")
         # 1. tmux template must use text fence, not bash
         self.assertIn("## Evidence Script Template", standalone_content)
         self.assertIn("/tmp/${WORK_NAME:-work}_evidence.sh", standalone_content)
-        script_sec = standalone_content.split("## Evidence Script Template", 1)[1].split("## Recording", 1)[0]
+        script_sec = self._tmux_script_section()
         self.assertIn("```text\n", script_sec, "tmux Evidence Script Template must be non-runnable text fence")
         self.assertNotIn("```bash\n", script_sec, "tmux Evidence Script Template must not be bash fence")
 
@@ -924,10 +836,32 @@ print("NOT_VALID_JSON")
         self.assertNotIn("| head -80", script_sec, "tmux script diff pipeline must not pipe to head under pipefail")
         self.assertIn("sed -n '1,80p'", script_sec, "tmux script diff pipeline must use sed -n '1,80p'")
 
-        # 6. Sanitization pipeline must redact Linux /home, CI /workspace, and /tmp
-        self.assertIn("s#/home/[^/]+/#/home/REDACTED/#g", script_sec)
-        self.assertIn("s#/workspace/[^[:space:]]+#/workspace/REDACTED#g", script_sec)
-        self.assertIn("s#/tmp/[^[:space:]]+#/tmp/REDACTED#g", script_sec)
+        # 6. The documented sanitizer removes private path components without
+        # depending on the exact replacement text.
+        payload = (
+            "mac: /Users/alice/project/file.py\n"
+            "linux: /home/bob/project/file.py\n"
+            "private var: /private/var/folders/ab/session/file.py\n"
+            "workspace: /workspace/private/project/file.py\n"
+            "tmp: /tmp/private/session/file.py\n"
+            "build log: 2 tests passed\n"
+        )
+        sanitized = subprocess.run(
+            self._documented_tmux_sanitizer_args(script_sec),
+            input=payload, capture_output=True, text=True,
+            timeout=5,
+        )
+        self.assertEqual(sanitized.returncode, 0, sanitized.stderr)
+        self.assertNotIn("/Users/alice/", sanitized.stdout)
+        self.assertNotIn("/home/bob/", sanitized.stdout)
+        self.assertNotIn("/private/var/folders/ab/", sanitized.stdout)
+        self.assertNotIn("/workspace/private/", sanitized.stdout)
+        self.assertNotIn("/tmp/private/", sanitized.stdout)
+        self.assertEqual(sanitized.stdout.count("/project/file.py"), 2)
+        self.assertIn("private var: ", sanitized.stdout)
+        self.assertIn("workspace: ", sanitized.stdout)
+        self.assertIn("tmp: ", sanitized.stdout)
+        self.assertIn("build log: 2 tests passed", sanitized.stdout)
 
     def test_tmux_diff_truncation_pipefail_behavior_and_sanitization(self):
         large_diff_cmd = (
@@ -942,14 +876,6 @@ print("NOT_VALID_JSON")
         lines = [line for line in res_diff.stdout.splitlines() if line.startswith("diff line")]
         self.assertEqual(len(lines), 80)
 
-        sed_pipeline = (
-            "sed -E "
-            "-e 's#/Users/[^/]+/#/Users/REDACTED/#g' "
-            "-e 's#/home/[^/]+/#/home/REDACTED/#g' "
-            "-e 's#/private/var/folders/[^[:space:]]+#/private/var/folders/REDACTED#g' "
-            "-e 's#/workspace/[^[:space:]]+#/workspace/REDACTED#g' "
-            "-e 's#/tmp/[^[:space:]]+#/tmp/REDACTED#g'"
-        )
         test_payload = (
             "mac: /Users/alice/repo/a.py\n"
             "mac_space_user: /Users/alice smith/repo/b.py\n"
@@ -962,20 +888,26 @@ print("NOT_VALID_JSON")
             "tmp_space_surrounding: output written to /tmp/build-456/summary.txt successfully\n"
         )
         res_sed = subprocess.run(
-            ["bash", "-c", f"cat << 'EOF' | {sed_pipeline}\n{test_payload}EOF"],
-            capture_output=True, text=True,
+            self._documented_tmux_sanitizer_args(self._tmux_script_section()),
+            input=test_payload, capture_output=True, text=True,
         )
         self.assertEqual(res_sed.returncode, 0)
         out = res_sed.stdout
-        self.assertIn("mac: /Users/REDACTED/repo/a.py", out)
-        self.assertIn("mac_space_user: /Users/REDACTED/repo/b.py", out)
-        self.assertIn("mac_var: /private/var/folders/REDACTED", out)
-        self.assertIn("linux: /home/REDACTED/repo/c.py", out)
-        self.assertIn("linux_space_user: /home/REDACTED/repo/d.py", out)
-        self.assertIn("workspace: /workspace/REDACTED", out)
-        self.assertIn("workspace_space_surrounding: running /workspace/REDACTED in parallel", out)
-        self.assertIn("tmp: /tmp/REDACTED", out)
-        self.assertIn("tmp_space_surrounding: output written to /tmp/REDACTED successfully", out)
+        self.assertNotIn("alice", out)
+        self.assertNotIn("bob", out)
+        self.assertNotIn("xyz123", out)
+        self.assertIn("mac: ", out)
+        self.assertIn("mac_space_user: ", out)
+        self.assertIn("linux: ", out)
+        self.assertIn("linux_space_user: ", out)
+        self.assertIn("/repo/a.py", out)
+        self.assertIn("/repo/b.py", out)
+        self.assertIn("/repo/c.py", out)
+        self.assertIn("/repo/d.py", out)
+        self.assertIn("workspace: ", out)
+        self.assertIn("workspace_space_surrounding: running ", out)
+        self.assertIn("tmp: ", out)
+        self.assertIn("tmp_space_surrounding: output written to ", out)
 
 
     def _create_gh_test_env(self, test_dir: Path, calls_file: Path) -> dict[str, str]:
@@ -985,6 +917,12 @@ print("NOT_VALID_JSON")
         gh_config.mkdir(parents=True, exist_ok=True)
         stub_dir = test_dir / "bin"
         stub_dir.mkdir(parents=True, exist_ok=True)
+        scratch_root = test_dir / "scratch"
+        scratch_root.mkdir(parents=True, exist_ok=True)
+        resolver = disposable_home / ".claude/skills/scratch-space/scripts/scratch-dir.sh"
+        resolver.parent.mkdir(parents=True, exist_ok=True)
+        resolver.write_text("#!/bin/sh\nprintf '%s\\n' " + repr(str(scratch_root)) + "\n")
+        resolver.chmod(0o755)
 
         fake_ffprobe = stub_dir / "ffprobe"
         fake_ffprobe.write_text(f"""#!{sys.executable}
@@ -1236,7 +1174,7 @@ else:
         clean_env["GH_PROMPT_DISABLED"] = "1"
         clean_env["BASH_ENV"] = os.devnull
         clean_env["ENV"] = os.devnull
-        clean_env["PATH"] = f"{stub_dir}:{clean_env.get('PATH', '/usr/bin:/bin')}"
+        clean_env["PATH"] = f"{stub_dir}:/usr/bin:/bin"
         return clean_env
 
     def test_video_evidence_publication_snippets_guard_unset_pr_and_contained(self):

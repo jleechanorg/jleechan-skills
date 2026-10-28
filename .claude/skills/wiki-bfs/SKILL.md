@@ -1,16 +1,20 @@
 ---
 name: wiki-bfs
-description: Run breadth-first research on a topic and optionally ingest results into the local LLM wiki.
+description: Run breadth-first research on a topic and route approved wiki changes through /wiki-ingest.
 ---
 
 # /wiki-bfs — Breadth-First Research + Wiki Ingest
+
+This skill researches, deduplicates, and prepares candidate content. All writes
+to wiki pages, directories, indexes, sources, or logs must go through
+`/wiki-ingest`; this workflow never edits the wiki directly.
 
 ## Usage
 ```
 /wiki-bfs <topic> [--layers N] [--ingest] [--wiki <wiki_dir>]
 ```
 
-Performs N-layer breadth-first search on a topic, discovers entities and concepts, creates wiki pages, and optionally triggers wiki-assess.
+Performs N-layer breadth-first search on a topic and prepares candidate source pages for `/wiki-ingest`.
 
 **Default: 2 layers. Use `--layers N` for N layers.**
 
@@ -38,7 +42,7 @@ fi
 if args contain "--wiki <path>"; then
   WIKI="<path>"
 fi
-mkdir -p "$WIKI/entities" "$WIKI/concepts" "$WIKI/sources"
+# Read existing pages for deduplication only; `/wiki-ingest` owns creation.
 ```
 
 ### Phase 3: BFS Research (N layers)
@@ -89,7 +93,12 @@ for concept in "${CONCEPTS[@]}"; do
 done
 ```
 
-### Phase 5: Create wiki pages
+### Phase 5: Prepare and ingest candidate pages
+
+Prepare candidate source documents outside the wiki. To persist them, invoke
+`/wiki-ingest <candidate-source> --wiki "$WIKI"` for each approved source and
+let that command create the source/entity/concept pages in the selected wiki.
+Do not create or edit wiki files here.
 
 **Entity page template:**
 ```markdown
@@ -143,17 +152,23 @@ How this concept relates to the BFS root topic.
 - [[RelatedConcept]]
 ```
 
-### Phase 6: Update index
+### Phase 6: Index and entity/concept updates
 
-Add new entities and concepts to `wiki/index.md` under appropriate sections with brief descriptions.
+Route index, entity, and concept changes through `/wiki-ingest`; do not edit
+`wiki/index.md` or page files directly.
 
-### Phase 7: Log
+### Phase 7: Log through ingest
 
-Append to `wiki/log.md`: `## [YYYY-MM-DD] bfs | <TOPIC> — <N> layers, <X> new entities, <Y> new concepts`
+Include the BFS topic and discovered entity/concept counts in the candidate
+source document ingested through `/wiki-ingest`. Do not append directly to
+`wiki/log.md`.
 
 ### Phase 8: (Optional) wiki-assess
 
-If `--ingest` flag is set, run wiki-assess after all pages created.
+If `--ingest` is set, ingest each approved candidate with
+`/wiki-ingest <candidate-source> --wiki "$WIKI"`, then run
+`/wiki-assess --wiki "$WIKI"` against that same destination. The flag does not
+authorize direct wiki writes.
 
 ## BFS Layer Routing
 

@@ -1,6 +1,7 @@
 """Fail-closed contract tests for the scheduler-bound Pi coordinator launcher."""
 import importlib.util
 import os
+import socket
 from pathlib import Path
 import subprocess
 import sys
@@ -235,6 +236,32 @@ module.main()
 
 
 
+
+    def _plant_singleton(self, pid):
+        lock = self.profile / 'SingletonLock'
+        lock.symlink_to(f'{socket.gethostname()}-{pid}')
+        (self.profile / 'SingletonCookie').symlink_to('cookie-value')
+        (self.profile / 'SingletonSocket').symlink_to(str(self.home / 'sock'))
+        return lock
+
+    def test_dead_singleton_blocks_names_the_files_and_is_never_deleted(self):
+        self._plant_singleton(9_000_000_001)  # never a live pid
+        with self.assertRaises(PING.Blocked) as caught:
+            self.invoke()
+        message = str(caught.exception)
+        for name in ('SingletonLock', 'SingletonCookie', 'SingletonSocket'):
+            self.assertIn(str(self.profile / name), message)
+            self.assertTrue(os.path.lexists(self.profile / name), f'{name} must survive')
+        # A dead PID alone is never sufficient reason to remove the singletons.
+        self.assertIn('verify', message)
+        self.assertIn('uncertain', message)
+        self.assertNotIn('if its process is dead', message)
+
+    def test_live_singleton_blocks_without_deleting(self):
+        lock = self._plant_singleton(os.getpid())
+        with self.assertRaisesRegex(PING.Blocked, 'SingletonLock'):
+            self.invoke()
+        self.assertTrue(os.path.lexists(lock))
 
 class PiLogRetentionTests(unittest.TestCase):
     """The retained Pi transcript must be private and redacted end-to-end."""

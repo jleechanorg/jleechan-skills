@@ -4,9 +4,10 @@ _Last updated: 2026-04-26_
 
 **Repo mirror (WorldArchitect):** [docs/evidence-standards/bundle-anatomy.md](https://github.com/$GITHUB_REPOSITORY/blob/main/docs/evidence-standards/bundle-anatomy.md) on `main` (or the branch that introduced it) — keep in sync when editing either copy.
 
-This describes artifacts produced under a typical path:
+This describes artifacts produced under a typical path on the dedicated Scratch volume resolved dynamically via `~/.claude/skills/scratch-space/SKILL.md` (`diskm scratch-new <repo-path> <purpose> --kind evidence` or `$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh "<repo>/evidence/<date>-<slug>")`):
 
-`/tmp/your-project.com/<branch-alias>/<test_name>/iteration_NNN/`
+`<scratch-root>/your-project.com/<branch-alias>/<test_name>/iteration_NNN/`
+(resolved dynamically via `diskm scratch-new` or `~/.claude/skills/scratch-space/scripts/scratch-dir.sh`)
 
 and the [`latest`](https://github.com/$GITHUB_REPOSITORY/blob/main/testing_mcp/lib/evidence_utils.py#L1878) symlink (points at the newest `iteration_*`; see [`create_evidence_bundle()`](https://github.com/$GITHUB_REPOSITORY/blob/main/testing_mcp/lib/evidence_utils.py#L1833)). **Normative process rules** (video, hosted URLs, mock vs real) live in [SKILL.md](./SKILL.md) in this directory; this doc is **structural**.
 

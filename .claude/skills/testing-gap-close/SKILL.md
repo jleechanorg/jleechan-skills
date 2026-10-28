@@ -7,31 +7,34 @@ description: Mandatory architectural and testing processes to get testing_mcp an
 
 This skill codifies the mandatory architectural and testing processes required to get `testing_mcp` and `testing_ui` tests to pass `/es` (Evidence Standards) and `/er` (Evidence Review) verification gates.
 
-## The Evidence Triad Requirement
+## Select evidence for the claim
 
-Any PR touching `$PROJECT_ROOT/` or its subdirectories must produce an evidence bundle containing the complete "Evidence Triad" to pass the `/er` evidence-review gate:
-1. `http_request_responses.jsonl`
-2. `llm_request_responses.jsonl`
-3. `gemini_http_request_responses.jsonl`
+There is no universal evidence triad for every PR. Resolve the current project root
+and read its `AGENTS.md`, the scoped `testing_mcp/AGENTS.md` or `testing_ui/CLAUDE.md`
+when those paths are involved, and the current evidence-standards owner. Select the
+lowest sufficient evidence class for each actual claim. Capture request, provider,
+server, persistence, and UI artifacts only when that claim requires them; do not
+invent missing provider traffic or require unrelated evidence classes.
 
 ## Mandatory Execution Protocols
 
 When investigating or resolving gaps in `/es` bundle generation, follow these non-negotiable protocols:
 
 ### 1. Hardening the Server Boot Lifecycle
-Tests must run against a **real local gunicorn server**.
+Use the server target required by the claim and the scoped test owner. A local
+behavior claim uses the authorized local server route; use gunicorn only when the
+claim depends on its worker or deployment behavior.
 - **Mock Fallback Banned**: Never rely on `TEST_MODE=mock` for production `/es` verification.
-- **Environment Parity**: You must inject `WORLDAI_DEV_MODE=true` to enable comprehensive logging. `TESTING_AUTH_BYPASS=true` is allowed **only for local test runs** — never in CI, production, or deploy-like contexts. Do not treat this bypass as a standard operating mode. Implementers MUST add a CI guard step (e.g., a workflow pre-step that exits 1 when `TESTING_AUTH_BYPASS` is set) to prevent this env var from leaking into any non-local run; CI pipelines should fail loudly if `TESTING_AUTH_BYPASS` is present outside an explicit local-development marker.
-- **Worker Stability**: Use scoped shutdown during test teardown to prevent orphaned worker lock-ups. Preferred order: (1) send SIGTERM to the test-managed PID file, (2) kill the specific bound port with `lsof -ti :<port> | xargs kill`, (3) target the test-owned process group with `kill -- -$(ps -o pgid= -p <pid>)`. Only fall back to `pkill -9 -f gunicorn` as a last resort when scoped methods fail, since broad signal matching can kill unrelated gunicorn workloads on shared environments.
+- **Environment Parity**: Set only the environment required by the claim. Tests under `testing_mcp/` and `testing_ui/` must authenticate with real Firebase Auth and dedicated test accounts; explicitly set `TESTING_AUTH_BYPASS=false ALLOW_TEST_AUTH_BYPASS=false`. Their scoped owners prohibit bypass, mocks, and synthetic results. Offline mocks remain valid for deterministic tests outside those directories and never count as live-service proof.
+- **Worker Stability**: Use the scoped test-owned server lifecycle and teardown. Stop only the exact process started by the test after verifying its PID/ownership; never use broad `pkill` patterns or force-kill unrelated workers.
 
-### 2. Evidence Signature Validation (`EvidenceSignatureGuard`)
-- The server intercept wrappers in `base_test.py` must enforce `REQUIRE_FULL_TRACE_LOGS=True`.
-- Ensure that the testing framework actually executes streaming requests all the way to completion. The payload triggers a "done" event which `evidence_utils.py` relies upon to synthesize the traces. If tests exit early, the `EvidenceSignatureGuard` will fail the bundle.
+### 2. Validate evidence required by the claim
+- Resolve the current project root and follow the scoped test owner for its harness and capture contract. Require complete streaming traces only when the claim exercises streaming and its evidence class requires them.
+- When the claim includes a streamed interaction, verify the run reaches the completion event required by that harness; do not require unrelated trace files for claims that do not exercise those paths.
 
-### 3. Automated Synthesis & Checksumming
-- You must use the `save_evidence()` helper to automatically aggregate `run.json`, `metadata.json`, and terminal output into versioned `/tmp` iteration directories (e.g., `iteration_003`).
-- **Checksum Mode**: Always verify that `checksum_mode: per_file_checksums` is active so `.sha256` checksums are generated. `/er` validation will reject bundles that lack strict cryptographic provenance.
+### 3. Evidence packaging and checksums
+- Use the helper and metadata required by the scoped test owner for the selected evidence class; keep scratch output in a unique `/tmp/<repo>/...` run directory.
+- Verify the checksum mode required by the current `/es` or `/er` contract for that claim. Do not assert a universal bundle schema beyond that contract.
 
 ### 4. Bundle Archival and Git Registration
-- After the evidence is generated in `/tmp/.../iteration_XXX`, it MUST be copied into the persistent repository path: `docs/evidence/pr-<number>/` (e.g., `docs/evidence/pr-6851/`).
-- The PR description must be explicitly updated with the Markdown link to this `docs/evidence/` bundle and the remote HEAD SHA URL.
+- Keep bulky and ephemeral evidence under a unique `/tmp/<repo>/...` run directory. When an evidence artifact must outlive the session or a gate requires publication, use an authorized hosted evidence route and link its receipt with the tested SHA in the PR description. Never copy evidence bundles into the repository tree.
