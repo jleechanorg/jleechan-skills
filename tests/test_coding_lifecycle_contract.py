@@ -404,6 +404,15 @@ class CodingLifecycleContract(unittest.TestCase):
         self.assertIn("gh pr list --head <branch> --state all", self.owner)
         self.assertIn("state the measured facts instead of the remembered ones", self.owner)
 
+    def test_lightweight_prw_nonprod_path_is_defined_and_bounded(self):
+        self.assertIn("## Default PR route — `/prw`", self.owner)
+        route = self.owner.split("## Default PR route — `/prw`", 1)[1].split(" ## ", 1)[0]
+        self.assertIn("non-production changes", route)
+        self.assertIn("skips intermediate stage-by-stage ceremony", route)
+        self.assertIn("stage:5-final-approval", route)
+        self.assertIn("merge authorization", route)
+        self.assertIn("../pr-lifecycle/SKILL.md#default-pr-route--prw", read("pr-workflow-manager"))
+
 
 if __name__ == "__main__":
     unittest.main()
