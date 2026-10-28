@@ -2225,6 +2225,34 @@ class InstallerRealProfileTest(unittest.TestCase):
                 missing[f"{path.relative_to(skills_root)} -> {link}"] = name
         return missing
 
+    def test_installed_skill_links_resolve_except_closure_excluded(self):
+        excluded = set(self.data.get("closure_excluded", []))
+        for profile in self.data["profiles"]:
+            with self.subTest(profile), tempfile.TemporaryDirectory() as directory:
+                target = Path(directory) / "home"
+                args = () if profile == self.data["default_profile"] else ("--profile", profile)
+                self.install(target, *args)
+                skills_root = (target / "skills").resolve()
+                unresolved = {}
+                for skill_md in skills_root.glob("*/SKILL.md"):
+                    for link in RELATIVE_SKILL_LINK.findall(skill_md.read_text(encoding="utf-8")):
+                        resolved = Path(os.path.normpath(skill_md.parent / link))
+                        if resolved.is_file():
+                            continue
+                        try:
+                            name = resolved.relative_to(skills_root).parts[0]
+                        except ValueError:
+                            name = "<outside skills>"
+                        if name not in excluded:
+                            unresolved[f"{skill_md.parent.name} -> {link}"] = name
+                self.assertEqual(unresolved, {})
+
+    def test_usage_says_linked_dependencies_join_the_default_profile(self):
+        result = subprocess.run(["bash", str(INSTALLER), "--help"], text=True, capture_output=True, check=False)
+        default_line = next(line for line in result.stdout.splitlines() if "highlights profile" in line)
+        self.assertIn("linked", default_line)
+        self.assertNotIn("(six skills)", default_line)
+
     def test_web_profile_and_with_opt_in_to_browser_review_without_dot(self):
         for args in (("--profile", "web"), ("--profile", "prw", "--with", "web-advice", "--with", "browser-control")):
             with self.subTest(args), tempfile.TemporaryDirectory() as directory:
