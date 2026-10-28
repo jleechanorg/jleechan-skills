@@ -22,7 +22,11 @@ Merge authorization is separate from `/green`: follow `~/.codex/AGENTS.md` § Me
 
 ## Retained review integrations
 
-The shared catalog preserves host-installed `/advice` and `/web-advice` integrations instead of installing them. Before invoking either, resolve its `../advice/SKILL.md` or `../web-advice/SKILL.md` relative to this package and read the existing skill. For a remote invocation, check the corresponding skill on the target host. If absent, report that integration as `UNAVAILABLE` and identify the missing package; do not invent a replacement runner, claim an approval, or treat a required gate as passed. Continue independent authorized work, but leave any dependent readiness or plan-approval gate unmet. Existing review quorum, external-disclosure authorization, and optional-review rules still apply.
+Follow [pr-lifecycle's retained review integrations](../pr-lifecycle/SKILL.md#retained-review-integrations)
+for skill discovery, quorum and disclosure boundaries. For a remote invocation, check
+the target host's actual review skill. If a required integration is missing, report
+`UNAVAILABLE` with its package name; do not invent a runner or approval. Continue
+independent authorized work, but leave any dependent readiness or plan-approval gate unmet.
 
 ## Documentation-only CI exception
 

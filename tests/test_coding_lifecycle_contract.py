@@ -404,6 +404,18 @@ class CodingLifecycleContract(unittest.TestCase):
         self.assertIn("gh pr list --head <branch> --state all", self.owner)
         self.assertIn("state the measured facts instead of the remembered ones", self.owner)
 
+    def test_entrypoint_reuses_canonical_rules_and_same_head_requires_applicability(self):
+        manager = read("pr-workflow-manager")
+        self.assertIn("../pr-lifecycle/SKILL.md#review-routes-for-opted-in-repositories", manager)
+        self.assertIn("../pr-lifecycle/SKILL.md#draft-phase-final-acceptance-gates-in-order", manager)
+        for name in ("evidence-review", "pr-green-definition"):
+            self.assertIn("../pr-lifecycle/SKILL.md#retained-review-integrations", read(name))
+            self.assertIn("leave any dependent readiness or plan-approval gate unmet", read(name))
+        er = read("evidence-review")
+        self.assertIn("matching HEAD alone does not establish unchanged evidence", er)
+        self.assertIn("base, scope or final-phase coverage", er)
+        self.assertNotIn("If they match, skip to the verdict phase", er)
+
     def test_stage5_requires_verified_ai_visual_approval_not_pending_dot(self):
         for name in ("pr-lifecycle", "evidence-review", "pr-workflow-manager"):
             text = read(name)

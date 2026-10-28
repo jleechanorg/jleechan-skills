@@ -25,11 +25,9 @@ defaults for lifecycle, visible stages/title prefixes and suffixes/labels, speci
 routes and reasoned evidence/approval applicability wherever local instructions are silent. This entry point
 owns practical discovery, branch verification and publication steps. No dated design document is required.
 
-Keep these two skills in sync: a lifecycle or stage change updates the shared default contract and checks this
-entry point and repository adapters for conflicting commands or summaries. Reference the contract rather
-than copying its tables. Preserve repository-specific evidence, safety, native and merge requirements. When
-local instructions and shared defaults differ, follow the explicit local instruction in its domain and use
-the shared default only for unresolved details. Neither contract changes separate permissions.
+Keep these two skills in sync: a lifecycle or stage change updates the shared contract and checks this
+entry point and repository adapters for conflicts. Link to the contract instead of copying its rules.
+Preserve repository-specific evidence, safety, native and merge requirements and separate permissions.
 
 ## Find the skills before inventing a workflow
 
@@ -56,6 +54,24 @@ to invent an alias or claim one exists.
 Use for opening or driving PRs, post-push follow-through, branch/upstream problems, stage changes,
 CI/conflict diagnosis, and review/readiness coordination.
 
+## Retained review integrations
+
+Follow [pr-lifecycle's retained review integrations](../pr-lifecycle/SKILL.md#retained-review-integrations)
+for skill discovery, quorum and disclosure boundaries. For a remote invocation, check
+the target host's actual review skill. If a required integration is missing, report
+`UNAVAILABLE` with its package name; do not invent a runner or approval. Continue
+independent authorized work, but leave any dependent readiness or plan-approval gate unmet.
+
+## Useful highlighted skills
+
+Choose a helper for the actual question, not an extra mandatory checklist.
+[pr-lifecycle](../pr-lifecycle/SKILL.md) and the target repository still determine
+which reviews and evidence are required; these links add no gates.
+
+- [advice](../advice/SKILL.md): obtain independent perspectives on a design or implementation decision; preserve the applicable review quorum.
+- [4layer](../4layer/SKILL.md): locate a failure at the lowest sufficient test layer before escalating to broader or live tests.
+- [evidence-review](../evidence-review/SKILL.md): check that PR claims resolve to real, provenance-backed artifacts and disclose gaps.
+
 ## Verify ownership and the exact branch
 
 - Read repository AGENTS.md/CLAUDE.md, current user scope, existing PR and source-owner/hold records.
@@ -70,9 +86,8 @@ CI/conflict diagnosis, and review/readiness coordination.
 
 ## Shared-default publication
 
-The actions below are shared defaults only. After inspecting the target repository's instructions, use these
-creation and stage choices only where those instructions are silent; follow any explicit local creation state
-or workflow instead. Local instructions do not waive separate security, credential, ownership or merge gates.
+Use these publication defaults only where the repository's explicit creation and stage instructions are
+silent. They do not waive security, credential, ownership or merge gates.
 
 | Scenario | Safe ordinary action |
 |---|---|
@@ -98,7 +113,12 @@ For opted-in repositories, apply [stage transitions](../pr-lifecycle/SKILL.md#st
 After each push, inspect applicable latest checks and review findings. Diagnose original logs before a
 targeted fix/retry, preserve assertions, and follow the canonical ready/final phases. Waiting/blocked is not
 Working. Do not call a PR ready from badges, skipped tests, an assignment or a pending review.
-For any user-visible change (anything not covered by the narrow documentation-only / zero-UI-impact non-visual exemption), Stage 3 -> Stage 5 (`stage:5-final-approval`) promotion and merge readiness MUST include an explicit `VISUAL APPROVED at <40-char-sha>` (or a reasoned delta assessment preserving an earlier evidenced SHA whose rendered UI did not change) from an independent AI reviewer (`/er` visual lane inspecting actual rendered image/video frames, advice visual inspection, or `/dot`). A pending request (e.g., `/dot: REQUESTED, pending`) or link-existence check alone is NOT a visual approval PASS; if `/dot` is unavailable or pending, run an independent AI visual reviewer (advice or `/er` visual lane that downloads and inspects the rendered stills/frames) and record `VISUAL APPROVED at <40-char-sha>` before labeling `stage:5-final-approval`. The approval record MUST include, per user-visible claim, the before (where a before state exists) and after artifact links, a concrete description of what the reviewer saw in each (the changed element, its state, and the viewport), and a matches-claim verdict, all bound to the evidenced SHA (the approved head, or the earlier SHA a reasoned delta assessment preserves); a bare stamp or approver name without those findings is not a visual approval PASS. Repositories may require the findings as a PR-body table and check its presence and SHA binding in CI.
+Before promoting a user-visible change to `stage:5-final-approval`, apply the
+[canonical visual-approval contract](../pr-lifecycle/SKILL.md#review-routes-for-opted-in-repositories)
+and [draft-phase visual gate](../pr-lifecycle/SKILL.md#draft-phase-final-acceptance-gates-in-order),
+including independent reviewers, claim-by-claim before/after findings, artifact links,
+`VISUAL APPROVED at <40-char-sha>` and reasoned earlier-SHA applicability.
+`/dot: REQUESTED, pending`, author inspection and link checks do not satisfy approval.
 
 ## PR description and reporting
 
