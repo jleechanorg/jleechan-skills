@@ -18,7 +18,7 @@ No runtime code, automated scheduler, new thresholds for Linux, VM provisioning 
 ## Acceptance
 - When current-host capacity fits the independent work, instructions direct agents to use that host even if a remote host has more idle CPU.
 - Remote hosts are eligible only after current-host capacity is full under its measured rules or another measured constraint excludes it.
-- At 20% Mac CPU idle with one active heavy lane and no test-suite conflict, another permitted heavy lane stays local; below 10% idle, no new heavy lane starts and another host is considered only after its own capacity is measured.
+- At 20% Mac CPU idle with one active heavy lane and no test-suite conflict, another permitted review lane stays local; below 10% idle, no new heavy lane starts and another host is considered only after its own capacity is measured. Below 25% idle, well-scoped coding tasks still follow the separate `/dot` cloud-computer gate in `~/.codex/AGENTS.md`.
 - CPU-bound transfer occurs only when the current host's workload-specific admission rule refuses the next lane; Linux uses the same measured-bound rule without adding a new fixed threshold.
 - Mac retains the `<25%` and `<10%` CPU tiers; Linux retains its own workload-specific measurements.
 - The current-host preference appears in the core law, decision procedure, one-line configuration form, capacity table, quick diagnostic, and pytest guidance.
@@ -28,7 +28,7 @@ No runtime code, automated scheduler, new thresholds for Linux, VM provisioning 
 An agent starting a task continues on a suitable, already-authorized current machine. If that host cannot safely admit more work, it measures an alternative, transfers only when the alternative is eligible, and preserves one writer. No player-facing behavior or product UI changes.
 
 ## Proof plan
-Inspect the full source diff, run structural and semantic text canaries for a 20%-idle Mac with a permitted lane, a below-10%-idle Mac refusing new heavy work, Linux's measured admission decision, cloud restrictions, and reference resolution; run `git diff --check` and the source skill-inventory scan. Portable-manifest verification is separate and does not prove the edited canonical files.
+Inspect the full source diff, run structural and semantic text canaries for a 20%-idle Mac with a permitted review lane, a below-25%-idle coding task routed through `/dot`, a below-10%-idle Mac refusing new heavy work, Linux's measured admission decision, cloud restrictions, and reference resolution; run `git diff --check` and the source skill-inventory scan. Portable-manifest verification is separate and does not prove the edited canonical files.
 
 ## Mock exemption
 This PR changes Markdown agent instructions only. Application runtime behavior and product mocks are inapplicable.

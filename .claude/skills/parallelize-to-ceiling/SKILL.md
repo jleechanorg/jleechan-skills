@@ -22,6 +22,12 @@ ineligible; a remote host having more idle CPU by itself is not a reason to
 transfer. Use already available, authorized capacity by default; greater demand
 does not authorize provisioning or additional spend.
 
+Apply higher-priority shared routing gates before choosing a host. In
+particular, below 25% Mac CPU idle, a well-scoped coding task follows the
+`~/.codex/AGENTS.md` `/dot` cloud-computer instruction; current-host-first
+placement applies to work that remains eligible for local execution, such as
+review lanes.
+
 Serialize only with a named determinism/corruption constraint. A driver that
 only supports serial for parallelizable work is **fixable tooling debt**, not
 the answer.
