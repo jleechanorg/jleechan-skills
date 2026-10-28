@@ -48,30 +48,31 @@ class TmuxScratchFailClosedTests(unittest.TestCase):
                 text=True,
                 check=False,
             )
-            return result, marker, root
+            downstream_called = marker.exists()
+            media_created = tuple(
+                (root / f"tmux-failure-fixture{suffix}").exists()
+                for suffix in (".cast", ".gif", ".mp4")
+            )
+            return result, downstream_called, media_created
 
     def test_recording_blocks_fail_before_downstream_commands_on_resolver_error(self):
         for document in DOCS:
             with self.subTest(document=document.name):
-                result, marker, root = self.run_recording_block(
+                result, downstream_called, media_created = self.run_recording_block(
                     document, "#!/bin/sh\necho resolver-failed >&2\nexit 75\n"
                 )
                 self.assertEqual(result.returncode, 75, result.stderr)
                 self.assertIn("refusing recording", result.stderr)
-                self.assertFalse(marker.exists())
-                self.assertFalse(list(root.rglob("*.cast")))
-                self.assertFalse(list(root.rglob("*.gif")))
-                self.assertFalse(list(root.rglob("*.mp4")))
+                self.assertFalse(downstream_called)
+                self.assertEqual(media_created, (False, False, False))
 
     def test_recording_blocks_fail_before_downstream_commands_on_empty_path(self):
         for document in DOCS:
             with self.subTest(document=document.name):
-                result, marker, root = self.run_recording_block(
+                result, downstream_called, media_created = self.run_recording_block(
                     document, "#!/bin/sh\nprintf '\\n'\nexit 0\n"
                 )
                 self.assertEqual(result.returncode, 75, result.stderr)
                 self.assertIn("empty path", result.stderr)
-                self.assertFalse(marker.exists())
-                self.assertFalse(list(root.rglob("*.cast")))
-                self.assertFalse(list(root.rglob("*.gif")))
-                self.assertFalse(list(root.rglob("*.mp4")))
+                self.assertFalse(downstream_called)
+                self.assertEqual(media_created, (False, False, False))
