@@ -271,5 +271,46 @@ class ScratchRoutingContracts(unittest.TestCase):
         self.assertIn("Aside REPL browser: DOWN", result.stdout)
         self.assertIn("Chrome headless browser: UP", result.stdout)
 
+    def test_web_advice_smoke_stops_when_profile_allocation_fails(self):
+        script = ROOT / ".claude/skills/web-advice/scripts/e2e_smoke.sh"
+        with tempfile.TemporaryDirectory(dir="/var/tmp") as directory:
+            root = Path(directory).resolve()
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            aside = fake_bin / "aside"
+            aside.write_text("#!/bin/sh\nexit 1\n")
+            aside.chmod(0o755)
+            marker = root / "chrome-invoked"
+            chrome = fake_bin / "google-chrome"
+            chrome.write_text(
+                "#!/bin/sh\nprintf '%s\\n' invoked > \"$CHROME_MARKER\"\n"
+                "printf '%s\\n' '<title>Example Domain</title>'\n"
+            )
+            chrome.chmod(0o755)
+            mktemp = fake_bin / "mktemp"
+            mktemp.write_text("#!/bin/sh\nexit 77\n")
+            mktemp.chmod(0o755)
+            claude_home = root / "claude"
+            resolver = claude_home / "skills/scratch-space/scripts/scratch-dir.sh"
+            resolver.parent.mkdir(parents=True)
+            resolver.write_text(f"#!/bin/sh\nprintf '%s\\n' {root / 'scratch'}\n")
+            resolver.chmod(0o755)
+            (root / "scratch").mkdir()
+            result = subprocess.run(
+                ["bash", str(script)],
+                env={
+                    **os.environ,
+                    "PATH": f"{fake_bin}:/usr/bin:/bin",
+                    "CLAUDE_HOME": str(claude_home),
+                    "CHROME_MARKER": str(marker),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        self.assertEqual(result.returncode, 77, result.stderr)
+        self.assertIn("profile allocation failed", result.stderr)
+        self.assertFalse(marker.exists(), "Chrome must not run after profile allocation failure")
+
 if __name__ == "__main__":
     unittest.main()

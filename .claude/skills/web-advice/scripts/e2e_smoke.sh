@@ -65,7 +65,23 @@ scratch_tmp="$("${CLAUDE_HOME:-$HOME/.claude}/skills/scratch-space/scripts/scrat
   echo "Scratch resolver unavailable; refusing host-temp fallback (rc=${resolver_rc})" >&2
   exit "$resolver_rc"
 }
-chrome_profile_dir="$(mktemp -d "${scratch_tmp}/web-advice-chrome-smoke.XXXXXX")"
+chrome_profile_dir="$(mktemp -d "${scratch_tmp}/web-advice-chrome-smoke.XXXXXX")" || {
+  profile_rc=$?
+  echo "Scratch Chrome profile allocation failed; refusing unowned profile (rc=${profile_rc})" >&2
+  exit "$profile_rc"
+}
+case "$chrome_profile_dir" in
+  "$scratch_tmp"/web-advice-chrome-smoke.*)
+    if [ ! -d "$chrome_profile_dir" ]; then
+      echo "Scratch Chrome profile allocation returned a non-directory" >&2
+      exit 75
+    fi
+    ;;
+  *)
+    echo "Scratch Chrome profile escaped the configured Scratch directory" >&2
+    exit 75
+    ;;
+esac
 trap 'rm -rf -- "$chrome_profile_dir"' EXIT
 chrome_rc=0
 chrome_out="$(
