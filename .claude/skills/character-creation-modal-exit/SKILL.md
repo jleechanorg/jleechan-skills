@@ -276,6 +276,6 @@ See `.claude/skills/character-creation-modal-exit/SKILL.md` for complete protoco
 **Production Campaign with Bug**:
 - URL: `https://mvp-site-app-s7-i6xf2p72ka-uc.a.run.app/game/Wf1OZ1E6UYxP1kRFRpps`
 - Campaign ID: `Wf1OZ1E6UYxP1kRFRpps`
-- Owner: $USER@gmail.com (UID: vnLp2G3m21PJL6kxcuAqmWSOtm73)
+- Owner: owner@example.com (UID: vnLp2G3m21PJL6kxcuAqmWSOtm73)
 - Issue: Character creation completed immediately without review
 - Root cause: Pre-PR #5225 code without explicit review stage protocol
