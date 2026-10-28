@@ -883,6 +883,22 @@ class InstallerIntegrationTest(unittest.TestCase):
                 self.assertEqual(path.read_text(encoding="utf-8"), f"custom {path.name}\n")
             self.assertIn("requires --migrate-archives", result.stderr + result.stdout)
 
+    def test_merge_and_backup_are_mutually_exclusive(self):
+        for flags in (("--merge", "--backup"), ("--backup", "--merge")):
+            with self.subTest(flags), tempfile.TemporaryDirectory() as directory:
+                temp_dir = Path(directory)
+                fixture = self.make_fixture(temp_dir)
+                target = temp_dir / "claude-home"
+                target.mkdir()
+                (target / "mine.txt").write_text("keep\n", encoding="utf-8")
+
+                result = self.run_installer(fixture, target, *flags)
+
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn("mutually exclusive", result.stderr + result.stdout)
+                self.assertTrue((target / "mine.txt").is_file())
+                self.assertEqual(list(temp_dir.glob("claude-home.backup-*")), [])
+
     def test_archive_migration_requires_merge_mode(self):
         with tempfile.TemporaryDirectory() as directory:
             temp_dir = Path(directory)

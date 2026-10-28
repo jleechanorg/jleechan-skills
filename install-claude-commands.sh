@@ -113,10 +113,22 @@ EOF
 parse_arguments() {
     while [ "$#" -gt 0 ]; do
         case "$1" in
-            --merge) INSTALL_MODE="merge" ;;
+            --merge)
+                if [ "$INSTALL_MODE" = "backup" ]; then
+                    log_error "--merge and --backup are mutually exclusive"
+                    return 1
+                fi
+                INSTALL_MODE="merge"
+                ;;
             --migrate-archives) MIGRATE_ARCHIVES=true ;;
             --include-protected) INCLUDE_PROTECTED=true ;;
-            --backup) INSTALL_MODE="backup" ;;
+            --backup)
+                if [ "$INSTALL_MODE" = "merge" ]; then
+                    log_error "--merge and --backup are mutually exclusive"
+                    return 1
+                fi
+                INSTALL_MODE="backup"
+                ;;
             --portable) PORTABLE=true ;;
             --all) INSTALL_ALL=true ;;
             --profile)
