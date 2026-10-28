@@ -880,6 +880,42 @@ class SharedPolicySemanticCanaryTests(unittest.TestCase):
         self.assertNotIn("jeff-ubuntu", self.collapsed)
         self.assertIn("resolve locally, never from a dated snapshot", self.collapsed)
 
+    def test_native_ios_proof_is_required_without_broadening_merge_authority(self):
+        self.assertIn("## Native iOS proof for user-visible UI changes (canonical)", self.text)
+        self.assertIn("requires NATIVE iOS PROOF before `/ready`", self.collapsed)
+        self.assertIn("alters what a user can observe in any client", self.collapsed)
+        self.assertIn("including changes that originate in backend or web UI", self.collapsed)
+        self.assertIn("Passing `/green` is not proof and does not substitute for it", self.collapsed)
+        self.assertIn("The pair is required; sharing a repository is not", self.collapsed)
+        self.assertIn("iOS-only UI work need not be reverse-ported to the web client", self.collapsed)
+        self.assertIn("bound to the exact candidate SHA plus build identity", self.collapsed)
+        self.assertIn("A capture whose SHA or build identity is ambiguous is not proof", self.collapsed)
+        self.assertIn("a Metro bundle export on their own", self.collapsed)
+        self.assertIn("they never stand in for native iOS proof", self.collapsed)
+        self.assertIn("This requirement creates no broader merge authority", self.collapsed)
+        self.assertIn("human `MERGE APPROVED` merge gate are unchanged", self.collapsed)
+        self.assertEqual(
+            self.collapsed.count("Native iOS proof for user-visible UI changes"),
+            1,
+        )
+
+    def test_downstream_insertions_note_is_pointer_only(self):
+        note = (REPO_ROOT / "docs" / "2026-10-17-native-ios-proof-rule-downstream-insertions.md")
+        self.assertTrue(note.exists(), "downstream insertions note is missing")
+        collapsed = " ".join(note.read_text().split())
+        self.assertIn("Native iOS proof for user-visible UI changes (canonical)", collapsed)
+        self.assertIn("This note only points at the canonical section", collapsed)
+        # Pointer-only: no restated evidence classes or gate text.
+        for restated in (
+            "AX tree dumps",
+            "real interaction recordings",
+            "fixture-only renders",
+            "Jest snapshots",
+            "Metro bundle",
+            "`MERGE APPROVED` gate",
+        ):
+            self.assertNotIn(restated, collapsed, f"note restates canonical policy text: {restated}")
+
     def test_workspace_classes_are_distinguished_once(self):
         self.assertIn(
             "Persistent coding worktrees live only under `~/.worktrees/<repo>/<name>`",

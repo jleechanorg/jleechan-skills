@@ -231,6 +231,30 @@ Never push directly to main/master. Before merging, re-verify the current head's
 `worldarchitect.ai` and `worldai_frontend` do not restate this policy's numbers or gate text in their own `CLAUDE.md`/`AGENTS.md`; they point to this canonical file for the readiness and merge-safety rules. Each downstream repository defines and owns a production-file classifier (for the frontend, the source/runtime app code that ships to users, excluding tests, fixtures, docs, snapshots, generated assets, and build tooling) and uses it to count the added and added-plus-deleted production lines this policy references. A clean checkout must name this canonical owner so the pointer resolves without a local copy of the numbers.
 
 
+## Native iOS proof for user-visible UI changes (canonical)
+
+This section owns the native-iOS-proof requirement for every repository. Downstream repositories point
+here for it and do not restate its text or its evidence classes in their own `CLAUDE.md`/`AGENTS.md`.
+
+- **Trigger.** Any UI change, UI fix, or PR that alters what a user can observe in any client — web or
+  native, including changes that originate in backend or web UI — requires NATIVE iOS PROOF before
+  `/ready`; iOS-only UI work need not be reverse-ported to the web client. Passing `/green` is not proof
+  and does not substitute for it.
+- **Paired implementation, not paired repository.** Backend or web-UI work that changes user-visible UI
+  must ship with its accompanying iOS implementation and a paired PR, head, and evidence bundle. The
+  pair is required; sharing a repository is not — the iOS side may live in its own repository with its
+  own PR.
+- **What counts as proof.** Native iOS captures, accessibility (AX) tree dumps, and real interaction
+  recordings, all bound to the exact candidate SHA plus build identity. State the candidate SHA and the
+  build identity (scheme/configuration, bundle identifier, build number, and simulator or device
+  identity) in the evidence itself. A capture whose SHA or build identity is ambiguous is not proof.
+- **What does not count.** Web screenshots, browser captures of the web SPA, fixture-only renders, and
+  Jest/unit snapshots, typecheck, or a Metro bundle export on their own. These are useful supporting
+  evidence; they never stand in for native iOS proof.
+- **No new authority.** This requirement creates no broader merge authority. Existing review depth, the
+  `/cs` and `/advice` gates, `/es` evidence requirements, and the human `MERGE APPROVED` merge gate are
+  unchanged; it adds one missing native-iOS evidence class to what a user-visible UI PR must show.
+
 ## Configuration and service safety
 
 MCP server registration is per runtime and the destinations are not interchangeable: Claude Code MCP servers belong in `~/.claude.json`, never `~/.claude/settings.json`; Codex MCP servers belong in the active `CODEX_HOME/config.toml`. Stable user-scope MCP installs use `npm -g` or `uvx`; never repo, worktree, or temp paths. Register HTTP MCPs in `$HOME/.config/mcp-daemon/start-mcp-daemons.sh`. Launchd plist template ownership remains with `~/.claude/skills/launchd-plist-template/SKILL.md`. Before replacing a service, verify old processes are gone and prevent duplicate credential-sharing connections. Do not write `wiki/` except through `/wiki-ingest`.
