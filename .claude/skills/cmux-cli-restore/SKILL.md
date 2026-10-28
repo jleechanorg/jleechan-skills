@@ -90,9 +90,9 @@ A restart re-hits the Codex wall, so continue the work on Claude instead. Per su
 
 0. **Confirm the wall is current before touching the lane.** Read the full scrollback and take two captures 20-30 s apart (cmux-steer rule): the limit text must still be the last event, with no live spinner or subagent growth. A stale wall above active work means the lane is working: leave it. Note the Codex session id (`codex resume` lists it) so the lane can return to Codex after the reset.
 1. `ctrl+c` twice (`--force` if a dialog is open); capture and require a shell prompt (`[$%] ?$`). If not at a shell, stop and report.
-2. `cmux send ... "ANTHROPIC_MODEL=claude-sonnet-5-5 claude --permission-mode bypassPermissions"` then `send-key enter` (the full-permission mode the Codex lane ran with, e.g. `--yolo`, is preserved).
+2. `cmux send ... "ANTHROPIC_MODEL=claude-sonnet-5-5 claude --permission-mode bypassPermissions"` then `send-key enter` (match the old lane's mode: that flag is for a lane that ran full-permission, e.g. `--yolo`; if the Codex lane was approval-gated, launch `claude` with no permission flag).
 3. Poll `capture-pane` until `bypass permissions` or `? for shortcuts` appears (≤36 s); a folder-trust prompt means stop and report.
-4. `cmux send ... "/hr resume the work Codex session <id from step 0> was doing in this worktree; it stopped at the usage limit; continue until done."` then `send-key enter`.
+4. `cmux send ... "/hr resume the work Codex session <id from step 0> was doing in this worktree; it stopped at the usage limit; continue until done."` then `send-key enter`. Where `/hr` is not installed, brief the new lane to read the worktree's `nextsteps`/bead state and the git log instead.
 5. Verify a spinner line (`✻ Thinking… (12s`) within ~60 s, via two captures. A Claude lane that ends its first turn with a recap and "needs MERGE APPROVED" is not stuck: send once, "do not stop at a recap; continue every step that does not need a user-only gate (merge approval, credentials, spend)".
 
 Other Codex traps seen in the same run: a `Hooks need review` menu (`1. Review hooks / 2. Trust all / 3. Continue without trusting`) — pick **3** (`cmux send ... "3"` selects immediately); never choose "Trust all" for the user. A `Resume goal / Leave paused` menu: Enter resumes (only after the session id check in Procedure step 5).
@@ -113,7 +113,7 @@ or older Pro models. Per surface:
    live subagents are worth keeping — on a dead provider quota they are normally already dead.
 3. Require a real shell prompt. The pane prints `Resume this session with: claude --resume <uuid>` just above it;
    keep that uuid — it is the only route back to Claude after the reset.
-4. `cmux send --force … "agy --model gemini-3.8-flash-high --dangerously-skip-permissions"` (preserves the full-permission mode the Claude lane ran with) then `send-key --force … enter`.
+4. `cmux send --force … "agy --model gemini-3.8-flash-high --dangerously-skip-permissions"` (match the old lane's mode: pass `--dangerously-skip-permissions` only if the Claude lane ran full-permission, otherwise omit it) then `send-key --force … enter`.
 5. Wait for a frame containing `Gemini 3.8 Flash` **and** the composer `>` (≈3 s, poll ≤36 s). Do not type into the
    model splash — see trap 9.
 6. Send the resume brief in ONE line: cwd, branch, PR number, why the previous session died, and the literal words
