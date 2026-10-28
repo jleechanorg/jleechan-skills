@@ -12,19 +12,44 @@ import os
 import subprocess
 import sys
 import time
+from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 
 ADVISORY_CHECKS = {"CodeRabbit", "Cursor Bugbot", "Green Gate"}
 
 
+SCRATCH_RESOLVER = (
+    Path(__file__).resolve().parents[2]
+    / "scratch-space"
+    / "scripts"
+    / "scratch-dir.sh"
+)
+
+
 def _scratch_root() -> str:
-    env_root = os.environ.get("DISKM_SCRATCH")
-    if env_root and os.path.isdir(env_root) and os.access(env_root, os.W_OK):
-        return env_root
-    for candidate in ("/Volumes/diskm-scratch", os.path.expanduser("~/Scratch")):
-        if os.path.isdir(candidate) and os.access(candidate, os.W_OK):
-            return candidate
-    return "/tmp"
+    try:
+        result = subprocess.run(
+            [str(SCRATCH_RESOLVER)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except OSError as error:
+        raise RuntimeError(f"canonical Scratch resolver unavailable: {error}") from error
+    except subprocess.TimeoutExpired as error:
+        raise RuntimeError("canonical Scratch resolver timed out") from error
+    if result.returncode != 0:
+        detail = result.stderr.strip() or f"exit {result.returncode}"
+        raise RuntimeError(f"canonical Scratch resolver failed: {detail}")
+    candidate = result.stdout.strip()
+    if not candidate:
+        raise RuntimeError("canonical Scratch resolver returned no path")
+    path = Path(candidate)
+    if not path.is_absolute():
+        raise RuntimeError("canonical Scratch resolver returned a relative path")
+    return str(path)
 
 
 def get_luna_review_dir() -> str:
@@ -115,20 +140,30 @@ def inspect_pr_status(pr_item, repo="jleechanorg/worldarchitect.ai"):
 
     checks = data.get("statusCheckRollup", []) or []
     failed_checks = []
+    pending_checks = []
+    required_check_count = 0
     for c in checks:
         name = c.get("name") or c.get("context") or "check"
         if name in ADVISORY_CHECKS:
             continue
+        required_check_count += 1
         state = (c.get("state") or "").upper()
         status = (c.get("status") or "").upper()
         conclusion = (c.get("conclusion") or "").upper()
 
         if c.get("__typename") == "StatusContext":
-            if state and state != "SUCCESS":
+            if state in {"ERROR", "FAILURE"}:
                 failed_checks.append(name)
+            elif state != "SUCCESS":
+                pending_checks.append(name)
         elif c.get("__typename") == "CheckRun":
-            if status == "COMPLETED" and conclusion not in ["SUCCESS", "NEUTRAL", "SKIPPED"]:
+            if status != "COMPLETED":
+                pending_checks.append(name)
+            elif conclusion not in ["SUCCESS", "NEUTRAL", "SKIPPED"]:
                 failed_checks.append(name)
+
+    if not required_check_count:
+        pending_checks.append("no required checks reported")
 
     mergeable = data.get("mergeable", "UNKNOWN")
     merge_state = data.get("mergeStateStatus", "UNKNOWN")
@@ -138,7 +173,9 @@ def inspect_pr_status(pr_item, repo="jleechanorg/worldarchitect.ai"):
         category = "CONFLICTING"
     elif failed_checks:
         category = "CI_FAILED"
-    elif mergeable == "MERGEABLE" and (merge_state == "CLEAN" or merge_state == "BLOCKED"):
+    elif pending_checks:
+        category = "PENDING_OR_BLOCKED"
+    elif mergeable == "MERGEABLE" and merge_state == "CLEAN":
         category = "CLEAN_GREEN"
     else:
         category = "PENDING_OR_BLOCKED"
@@ -147,6 +184,7 @@ def inspect_pr_status(pr_item, repo="jleechanorg/worldarchitect.ai"):
         "mergeable": mergeable,
         "mergeStateStatus": merge_state,
         "failed_checks": failed_checks,
+        "pending_checks": pending_checks,
         "files_count": len(files),
         "category": category,
     })

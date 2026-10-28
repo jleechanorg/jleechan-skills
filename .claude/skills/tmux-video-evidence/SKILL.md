@@ -257,7 +257,7 @@ The following GitHub release example applies only when that destination is autho
   sha_short="${CAPTURED_SHA:0:12}"
   tag="evidence-pr-${PR_NUMBER}-${sha_short}-${RUN_ID}"
 
-  archive_scratch="$("${CLAUDE_HOME:-$HOME/.claude}/skills/scratch-space/scripts/scratch-dir.sh" tmp 2>/dev/null || printf '%s' "${TMPDIR:-/tmp}")"
+  archive_scratch="$("${CLAUDE_HOME:-$HOME/.claude}/skills/scratch-space/scripts/scratch-dir.sh" tmp)"
   archive_dir="$(mktemp -d "$archive_scratch/evidence_archive.XXXXXX")"
   zip_file="$archive_dir/$(basename "$video_file").zip"
   trap 'rm -f -- "$zip_file"; rmdir -- "$archive_dir"' EXIT
@@ -375,7 +375,7 @@ Once the comment file is constructed, post the comment to the authorized PR:
     exit 1
   fi
 
-  comment_scratch="$("${CLAUDE_HOME:-$HOME/.claude}/skills/scratch-space/scripts/scratch-dir.sh" tmp 2>/dev/null || printf '%s' "${TMPDIR:-/tmp}")"
+  comment_scratch="$("${CLAUDE_HOME:-$HOME/.claude}/skills/scratch-space/scripts/scratch-dir.sh" tmp)"
   comment_file="${COMMENT_FILE:-$comment_scratch/evidence_comment.md}"
   if [ ! -s "$comment_file" ]; then
     echo "Error: Comment body file '$comment_file' does not exist or is empty" >&2

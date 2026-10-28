@@ -22,6 +22,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+from _copilot_modules.scratch_paths import resolve_scratch_root
+
 
 
 
@@ -120,12 +122,12 @@ def load_claude_responses(branch_name: str, repo_name: str) -> Dict:
     safe_repo = sanitize_repo_name(repo_name) or "unknown-repo"
     safe_branch = sanitize_branch_name(branch_name) or "unknown-branch"
 
-    base_dir = Path("/tmp").resolve()
+    base_dir = resolve_scratch_root()
     copilot_dir = "copilot"
     responses_path = (base_dir / safe_repo / safe_branch / copilot_dir / "responses.json").resolve()
     expected_dir = (base_dir / safe_repo / safe_branch / copilot_dir).resolve()
 
-    # Verify the resolved path stays within /tmp (symlink-safe) and matches expected dir
+    # Verify the resolved path stays within the canonical Scratch root (symlink-safe) and matches expected dir
     if (
         not _is_relative_to(responses_path, base_dir)
         or not _is_relative_to(expected_dir, base_dir)
@@ -135,15 +137,9 @@ def load_claude_responses(branch_name: str, repo_name: str) -> Dict:
         return {}
 
     if not responses_path.exists():
-        # Fallback to legacy path for backward compatibility during migration
-        legacy_path = (base_dir / safe_repo / safe_branch / "responses.json").resolve()
-        if _is_relative_to(legacy_path, base_dir) and legacy_path.exists():
-            print(f"⚠️  Using legacy path: {legacy_path}")
-            responses_path = legacy_path
-        else:
-            print(f"⚠️  RESPONSES FILE NOT FOUND: {responses_path}")
-            print("⚠️  Claude should have generated responses.json after analyzing comments")
-            return {}
+        print(f"RESPONSES FILE NOT FOUND: {responses_path}")
+        print("Claude should have generated responses.json after analyzing comments")
+        return {}
 
     try:
         # Additional security: check file size before reading
@@ -183,7 +179,7 @@ def load_comments_with_staleness_check(
     safe_repo = sanitize_repo_name(repo_name) or "unknown-repo"
     safe_branch = sanitize_branch_name(branch_name) or "unknown-branch"
 
-    base_dir = Path("/tmp").resolve()
+    base_dir = resolve_scratch_root()
     copilot_dir = "copilot"
     cache_dir = (base_dir / safe_repo / safe_branch / copilot_dir).resolve()
     comments_path = (cache_dir / "comments.json").resolve()

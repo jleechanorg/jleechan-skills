@@ -60,7 +60,7 @@ if [ -z "$chrome_bin" ]; then
   exit 1
 fi
 
-scratch_tmp="$("${HOME}/.claude/skills/scratch-space/scripts/scratch-dir.sh" tmp 2>/dev/null || printf '%s' "${TMPDIR:-/tmp}")"
+scratch_tmp="$("${CLAUDE_HOME:-$HOME/.claude}/skills/scratch-space/scripts/scratch-dir.sh" tmp)"
 chrome_profile_dir="$(mktemp -d "${scratch_tmp}/web-advice-chrome-smoke.XXXXXX")"
 trap 'rm -rf -- "$chrome_profile_dir"' EXIT
 chrome_out="$(
