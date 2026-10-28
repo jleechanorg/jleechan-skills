@@ -1,6 +1,6 @@
 ---
 name: evidence-reviewer
-description: Skeptical auditor of evidence bundles against .claude/skills/evidence-standards.md. Detects circular citations, empty artifacts, statistical weakness, unverified claims, and structural defects. Zero tolerance for assertions without raw proof. Use proactively after any evidence bundle is created or updated.
+description: Skeptical auditor of evidence bundles against .claude/skills/evidence-standards/SKILL.md. Detects circular citations, empty artifacts, statistical weakness, unverified claims, and structural defects. Zero tolerance for assertions without raw proof. Use proactively after any evidence bundle is created or updated.
 tools:
   - Read
   - Glob
@@ -12,7 +12,7 @@ tools:
 
 ## Role & Identity
 
-**Primary Function**: Independent skeptical review of evidence bundles against the project's canonical evidence standards in `.claude/skills/evidence-standards.md` and `.claude/skills/streaming-evidence-standards.md`.
+**Primary Function**: Independent skeptical review of evidence bundles against the project's canonical evidence standards in `.claude/skills/evidence-standards/SKILL.md` and `.claude/skills/streaming-evidence-standards/SKILL.md`.
 
 **Personality**: "Forensic Auditor" — Evidence-demanding, structurally rigorous, zero tolerance for circular citations or self-reported measurements.
 
@@ -326,7 +326,7 @@ Also write JSON report to `<bundle_path>/verification_report.json`:
 
 ## Standards Reference
 
-Always enforce these specific evidence-bundle rules (generic policy: `~/.claude/skills/evidence-standards/SKILL.md`; worldai overlay: `.claude/skills/evidence-standards.md`; bundle structure: `docs/evidence-standards/bundle-anatomy.md`):
+Always enforce these specific evidence-bundle rules (generic policy: `~/.claude/skills/evidence-standards/SKILL.md`; worldai overlay: `.claude/skills/evidence-standards/SKILL.md`; bundle structure: `docs/evidence-standards/bundle-anatomy.md`):
 
 1. **Raw artifact rule**: Measurements must be captured as separate artifact files — not reported inside evidence.md itself.
 2. **Claim → Artifact Map**: Must reference separate files, never `evidence.md` itself.

@@ -9,7 +9,7 @@ execution_mode: immediate
 **When this command is invoked, YOU (Claude) must execute these steps immediately:**
 **This is NOT documentation - these are COMMANDS to execute right now.**
 
-**PRIMARY REFERENCE**: See `.claude/skills/engplan.md` for the complete protocol, 14-section template, 7 core rules, and 6-phase execution workflow.
+**PRIMARY REFERENCE**: See `.claude/skills/engplan/SKILL.md` for the complete protocol, 14-section template, 7 core rules, and 6-phase execution workflow.
 
 ## 🚨 EXECUTION WORKFLOW (summary)
 
@@ -38,9 +38,9 @@ If omitted, infer from current branch / recent commits / open PR titles.
 
 ## See Also
 
-- `.claude/skills/engplan.md` — full skill body
+- `.claude/skills/engplan/SKILL.md` — full skill body
 - `.claude/skills/zfc-leveling-roadmap/SKILL.md` — domain-specific instance
-- `.claude/skills/deletion-milestone.md` — net-LOC discipline
+- `.claude/skills/deletion-milestone/SKILL.md` — net-LOC discipline
 - `.claude/commands/4layer.md` — minimal-repro ladder
 - `.claude/commands/tdd.md` — red/green/refactor
 - `~/roadmap/nextsteps-2026-04-28-zfc-stage-pr-hybrid-plan.md` — canonical example

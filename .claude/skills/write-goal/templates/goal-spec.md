@@ -39,7 +39,7 @@
 
 ## Quality bar (adversarial gates this repo uses)
 Select the applicable checks from the repository instructions and user request:
-- **/es** — Evidence Standards (both ~/.claude/skills/evidence-standards/SKILL.md AND .claude/skills/evidence-standards.md if the repo has one)
+- **/es** — Evidence Standards (both ~/.claude/skills/evidence-standards/SKILL.md AND .claude/skills/evidence-standards/SKILL.md if the repo has one)
 - **/er** — Evidence Review (adversarial, independent reviewer)
 - **code-standards**, when required by this repository:
   - ZFC (zero-framework cognition) — no keyword routing, no regex intent detection, no hand-tuned scoring

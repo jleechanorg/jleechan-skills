@@ -20,7 +20,7 @@ The shared catalog preserves host-installed `/advice` and `/web-advice` integrat
 
 **Standards source**: `evidence-standards` skill (`/es`). When in doubt about a requirement, read the standards first.
 
-**Repo overlay (always check)**: this is the **user-scope (global)** `/er` policy — the floor. Before judging, look for repo-level versions and read them too: `<repo>/.claude/skills/evidence-review.md` and `<repo>/.claude/skills/evidence-standards.md` add domain-specific proof (e.g. worldarchitect.ai adds BQ/streaming/dice modes). For lifecycle stages, generic review routing, proportionality and SHA reuse, the shared [pr-lifecycle precedence rule](../pr-lifecycle/SKILL.md#precedence-and-scope) governs conflicting copies. Domain proof, security and separate merge authority remain intact.
+**Repo overlay (always check)**: this is the **user-scope (global)** `/er` policy — the floor. Before judging, look for repo-level versions and read them too: `<repo>/.claude/skills/evidence-review/SKILL.md` and `<repo>/.claude/skills/evidence-standards/SKILL.md` add domain-specific proof (e.g. worldarchitect.ai adds BQ/streaming/dice modes). For lifecycle stages, generic review routing, proportionality and SHA reuse, the shared [pr-lifecycle precedence rule](../pr-lifecycle/SKILL.md#precedence-and-scope) governs conflicting copies. Domain proof, security and separate merge authority remain intact.
 
 ---
 

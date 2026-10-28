@@ -291,7 +291,8 @@ class ApprovalContractsTest(unittest.TestCase):
         self.assertNotIn("/web-advice", advice)
         self.assertNotIn("Reviewer D", advice)
         advice_readme = readme[readme.index("Use this when you need independent reasoning"):][:1500]
-        self.assertIn("up to three reviewers concurrently", advice_readme)
+        self.assertIn("`/research` is nonvoting", advice_readme)
+        self.assertNotIn("up to three reviewers", advice_readme)
         self.assertNotIn("secondo", advice_readme)
         self.assertNotIn("Reviewer C", advice_readme)
 

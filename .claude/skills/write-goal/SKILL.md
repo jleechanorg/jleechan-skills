@@ -171,7 +171,7 @@ Write the goal to `.converge/goal.md` in the session's cwd (the path `/harness` 
 
 ## Quality bar (adversarial gates this repo uses)
 Run the applicable gates at completion (from /harness). Applicability and timing follow `pr-lifecycle` § Coding lifecycle; user-required, high-risk/security, and real-proof gates always apply:
-- **/es** — Evidence Standards (both ~/.claude/skills/evidence-standards/SKILL.md AND .claude/skills/evidence-standards.md if the repo has one)
+- **/es** — Evidence Standards (both ~/.claude/skills/evidence-standards/SKILL.md AND .claude/skills/evidence-standards/SKILL.md if the repo has one)
 - **/er** — Evidence Review (adversarial, independent reviewer): an applicable draft-phase gate and explicit final closing review per `pr-lifecycle`, separate from `/green`; apply the owner's required final `/advice` sequence as well.
 - **/code_standards** — four canonical lanes, applied with the repository's documented applicability:
   - Ponytail — reuse established pipelines and remove dead paths before adding code

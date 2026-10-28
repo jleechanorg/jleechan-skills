@@ -64,17 +64,19 @@ Named profiles select other sets:
 
 | Flag | Named set (plus linked dependencies) | Measured skills / commands / agents |
 |---|---|---|
-| *(none)* or `--profile highlights` | `highlights`: the six highlighted skills above (6 named) | 22 / 10 / 1 |
-| `--profile highlights-prw` | `highlights` plus `prw` | 31 / 17 / 1 |
-| `--profile prw` | the PR workflow set: `prw`, `pr-workflow`, `pr-workflow-manager`, `draft-first-pr`, `pr-lifecycle`, `pr-green-definition`, `ready`, `advice`, `evidence-standards`, `evidence-review`, `testing-layers`, `code-standards` (12 named), and `/es`, `/er`, `/green`, `/cs` | 25 / 11 / 1 |
-| `--profile web` | opt-in browser review: `advice`, `web-advice`, `browser-control` (3 named) | 19 / 5 / 1 |
+| *(none)* or `--profile highlights` | `highlights`: the six highlighted skills above (6 named) | 20 / 11 / 1 |
+| `--profile highlights-prw` | `highlights` plus `prw` | 30 / 18 / 1 |
+| `--profile prw` | the PR workflow set: `prw`, `pr-workflow`, `pr-workflow-manager`, `draft-first-pr`, `pr-lifecycle`, `pr-green-definition`, `ready`, `advice`, `evidence-standards`, `evidence-review`, `testing-layers`, `code-standards` (12 named), and `/es`, `/er`, `/green`, `/cs` | 24 / 11 / 1 |
+| `--profile web` | opt-in browser review: `advice`, `web-advice`, `browser-control`, `aside-browser-default`, `browser-testing` (5 named) | 19 / 5 / 1 |
 | `--with SKILL` | adds one named skill, its dependencies and aliases to the chosen profile (repeatable) | varies |
-| `--all` | the full library, which was the installer's previous default | 267 / 243 / 45 |
+| `--all` | the full library, which was the installer's previous default | 274 / 243 / 45 |
 
 Dependency closure never adds browser, cookie or personal-infrastructure
-skills (`dot`, `web-advice`, `browser-control`, `slack-media-upload`, and the
+skills (`dot`, `web-advice`, `browser-control`, `browser-testing`, `slack-media-upload`, and the
 others listed in [`shared/install-profiles.json`](shared/install-profiles.json));
-those install only under `--all`, `--profile web`, or `--with`. Packages are
+those install only under `--all`, `--profile web`, or `--with`. `--with` adds
+only the excluded skill it names, so `--with browser-control` also needs
+`--with aside-browser-default --with browser-testing` (or use `--profile web`). Packages are
 copied complete, with their helper files, under `CLAUDE_HOME` (default:
 `~/.claude`). It refuses a nonempty target by
 default; `--backup` preserves that target before installing and `--merge`
@@ -170,7 +172,7 @@ pointers and are intentionally not the documentation target.
 
 ### [`advice`](.claude/skills/advice/SKILL.md) — `/advice`, alias `/smart-advisor`
 
-Use this when you need independent reasoning at a real decision point. Give it a concise question and a pointer to the actual subject—a PR number, `base...head` ref, or file list—rather than pasting a preselected diff. It fans out to up to three reviewers concurrently: a Codex + Opus CLI primary pair and `/research`, then returns a comparison table and recommendation. The primary pair runs with explicit full-permission flags in separate disposable exact-SHA clones; `claude -p` → Cursor → AGY remains the fallback chain when neither primary returns a verdict. In `draft-first-pr`, an `APPROVED at <SHA>` verdict requires two independent reviewers whose declared coverage together spans the whole change; fewer than two such reviewers, partial coverage, or a truncated inline fallback produces `WITHHELD`, not approval. `/web-advice` remains a separate manual command for web-grounded review.
+Use this when you need independent reasoning at a real decision point. Give it a concise question and a pointer to the actual subject—a PR number, `base...head` ref, or file list—rather than pasting a preselected diff. It runs a Codex + Opus CLI pair concurrently, each reading the whole declared scope, and ends with one SHA-bound `VERDICT` line; `/research` is nonvoting and runs only for material unanswered questions. The reviewers run with explicit full-permission flags in separate disposable exact-SHA clones, each attempt has a 600-second budget, and when one primary is unavailable it is paired with a distinct eligible alternate (a Claude alternate, `claudewa`, Cursor, or AGY). In `draft-first-pr`, an `APPROVED at <SHA>` verdict requires two independent reviewers, each of whom reads the whole declared scope; fewer than two such reviewers, partial coverage, or a truncated inline fallback produces `WITHHELD`, not approval. `/web-advice` remains a separate manual command for web-grounded review.
 
 ```bash
 /advice "Should we switch this cache from LRU to LFU eviction?"
@@ -234,7 +236,7 @@ Cross-project evidence-strength policy: a raw request/response capture from the 
 
 ### [`web-advice`](.claude/skills/web-advice/SKILL.md) — `/web-advice`, alias `/webadvice`
 
-Use this when an external, web-grounded, multi-model perspective will improve a code review, design, document, plan, research question, or operational decision. Provide the subject, scope, and any relevant links or artifacts; it uses real authenticated browser sessions on ChatGPT, Gemini, Grok, and Perplexity Web—never a provider API or CLI substitute—and records each available model’s verdict and coverage. Run `/er` separately only when the subject includes an evidence bundle or production claim.
+Use this when an external, web-grounded, multi-model perspective will improve a code review, design, document, plan, research question, or operational decision. Provide the subject, scope, and any relevant links or artifacts; it uses real authenticated browser sessions on ChatGPT, Gemini, and Perplexity Web—never a provider API or CLI substitute—and records each available model’s verdict and coverage. Run `/er` separately only when the subject includes an evidence bundle or production claim.
 
 ```bash
 /web-advice "Should we migrate auth session storage from Redis to DynamoDB with TTL?"

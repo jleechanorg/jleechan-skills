@@ -9,7 +9,9 @@
     "slack-media-upload",
     "github-cli-reference",
     "claw-dispatch",
-    "ao-operator-discipline"
+    "ao-operator-discipline",
+    "aside-browser-default",
+    "browser-testing"
   ],
   "profiles": {
     "highlights": {
@@ -54,11 +56,13 @@
       ]
     },
     "web": {
-      "description": "Opt-in browser review: advice, web-advice and browser-control",
+      "description": "Opt-in browser review: advice, web-advice, browser-control and its browser skills",
       "skills": [
         "advice",
         "web-advice",
-        "browser-control"
+        "browser-control",
+        "aside-browser-default",
+        "browser-testing"
       ]
     }
   }

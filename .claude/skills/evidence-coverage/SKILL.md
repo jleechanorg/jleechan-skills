@@ -134,6 +134,6 @@ After the matrix, include:
 ## Cross-references
 
 - Testing layers: `.claude/skills/testing-layers/SKILL.md`
-- E2E testing: `.claude/skills/end2end-testing.md`
-- Evidence standards: `../evidence-standards/SKILL.md` (user-scope) and `.claude/skills/evidence-standards.md` (repo-scope)
+- E2E testing: `.claude/skills/end2end-testing/SKILL.md`
+- Evidence standards: `../evidence-standards/SKILL.md` (user-scope) and `.claude/skills/evidence-standards/SKILL.md` (repo-scope)
 - Root-cause first: `.claude/skills/root-cause-first/SKILL.md`

@@ -23,20 +23,22 @@ linked dependencies; counts below are measured from a scratch install.
 
 | Option | Named set (plus linked dependencies) | Skills / commands / agents |
 | --- | --- | --- |
-| *(none)* or `--profile highlights` | the six highlighted skills | 22 / 10 / 1 |
-| `--profile highlights-prw` | `highlights` plus `prw` | 31 / 17 / 1 |
-| `--profile prw` | 12 PR workflow skills plus `/es`, `/er`, `/green`, `/cs` | 25 / 11 / 1 |
-| `--profile web` | `advice`, `web-advice`, `browser-control` | 19 / 5 / 1 |
+| *(none)* or `--profile highlights` | the six highlighted skills | 20 / 11 / 1 |
+| `--profile highlights-prw` | `highlights` plus `prw` | 30 / 18 / 1 |
+| `--profile prw` | 12 PR workflow skills plus `/es`, `/er`, `/green`, `/cs` | 24 / 11 / 1 |
+| `--profile web` | `advice`, `web-advice`, `browser-control`, `aside-browser-default`, `browser-testing` | 19 / 5 / 1 |
 | `--with SKILL` | add a named skill to the profile; repeatable | varies |
-| `--all` | every package, as before | 267 / 243 / 45 |
+| `--all` | every package, as before | 274 / 243 / 45 |
 
 Profiles live in `shared/install-profiles.json`; `--help` lists them. Closure
 never adds a skill on that file's `closure_excluded` list (`dot`,
 `dot-coordinator`, `agy-dot-coordinator`, `web-advice`, `browser-control`,
 `slack-media-upload`, `github-cli-reference`, `claw-dispatch`,
-`ao-operator-discipline`): they read browser cookies or depend on personal
+`ao-operator-discipline`, `aside-browser-default`, `browser-testing`): they read browser cookies or depend on personal
 infrastructure, so they install only under `--all`, a profile that names them,
-or `--with`. Skills that link to one of them report it as unavailable. The
+or `--with`. `--with` adds only the excluded skill it names, not other excluded
+skills it links to (`--with browser-control` also needs `--with aside-browser-default
+--with browser-testing`). Skills that link to one of them report it as unavailable. The
 installer prints the profile and the number of skills, commands and agents it
 installed. A profile install is additive: `--merge` never removes skills an
 earlier `--all` install left behind, and `--backup`, `--merge`,

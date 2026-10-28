@@ -77,7 +77,7 @@ show_usage() {
 Usage: $(basename "$0") [[--profile NAME] [--with SKILL]... | --all] [--merge [--migrate-archives] [--include-protected] | --backup]
        PORTABLE_HOME=/absolute/dedicated/package $(basename "$0") --portable [--backup]
 
-With no profile flag the curated highlights profile (six skills) is installed. --profile NAME
+With no profile flag the curated highlights profile is installed: six named skills plus their linked dependencies. --profile NAME
 installs that profile's named skills plus every in-repo skill they link to,
 the command aliases (and their helpers) for the named skills, and the agents
 and scripts those files reference. Closure never adds a skill on the profile data's
@@ -113,10 +113,22 @@ EOF
 parse_arguments() {
     while [ "$#" -gt 0 ]; do
         case "$1" in
-            --merge) INSTALL_MODE="merge" ;;
+            --merge)
+                if [ "$INSTALL_MODE" = "backup" ]; then
+                    log_error "--merge and --backup are mutually exclusive"
+                    return 1
+                fi
+                INSTALL_MODE="merge"
+                ;;
             --migrate-archives) MIGRATE_ARCHIVES=true ;;
             --include-protected) INCLUDE_PROTECTED=true ;;
-            --backup) INSTALL_MODE="backup" ;;
+            --backup)
+                if [ "$INSTALL_MODE" = "merge" ]; then
+                    log_error "--merge and --backup are mutually exclusive"
+                    return 1
+                fi
+                INSTALL_MODE="backup"
+                ;;
             --portable) PORTABLE=true ;;
             --all) INSTALL_ALL=true ;;
             --profile)
@@ -387,6 +399,8 @@ prepare_archive_migration_on_merge() {
             relative_package="${package_path#"$archive_group"/}"
             package_name="$(basename "$package_path")"
             is_protected_entry skills "$package_name" && continue
+            # A skill the source still ships active is not retired, whatever a stale archive copy says.
+            [ -f "$SRC_SKILLS_DIR/$package_name/SKILL.md" ] && continue
             active_path="$CLAUDE_HOME/skills/$package_name"
             path_exists "$active_path" || continue
             archive_path="$CLAUDE_HOME/skills_archive/$archive_name/$relative_package"
@@ -422,7 +436,7 @@ prepare_archive_migration_on_merge() {
         fi
     done
 
-    for archive_path in "${MIGRATION_ARCHIVE_PATHS[@]}"; do
+    for archive_path in ${MIGRATION_ARCHIVE_PATHS[@]+"${MIGRATION_ARCHIVE_PATHS[@]}"}; do
         if ! mkdir -p "$(dirname "$archive_path")"; then
             log_error "Cannot prepare archive parent for: $archive_path"
             return 1
@@ -1068,7 +1082,7 @@ validate_installation() {
 # Post-install information
 show_next_steps() {
     log_info "Start Claude Code to use the installed commands and skills."
-    log_info "Documentation: https://github.com/jleechanorg/claude-commands"
+    log_info "Documentation: https://github.com/jleechanorg/jleechan-skills"
 }
 
 # Main installation flow
