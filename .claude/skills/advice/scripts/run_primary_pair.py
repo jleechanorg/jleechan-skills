@@ -212,6 +212,25 @@ def command_path(name: str) -> str | None:
     return shutil.which(name)
 
 
+def process_start_identity(pid: int, fallback: str | None = None) -> str | None:
+    """Return a high-resolution Linux start identity, or portable ps lstart."""
+    info = process_info(pid)
+    if Path("/proc").is_dir():
+        return info[1] if info is not None else None
+    return fallback
+
+
+def process_info(pid: int) -> tuple[int, str] | None:
+    """Read a Linux process parent and start identity from one proc stat record."""
+    if not Path("/proc").is_dir():
+        return None
+    try:
+        fields = (Path("/proc") / str(pid) / "stat").read_text().rsplit(")", 1)[1].split()
+        return int(fields[1]), f"linux-start-ticks:{fields[19]}"
+    except (OSError, IndexError, ValueError):
+        return None
+
+
 def process_snapshot(timeout_seconds: float = 10.0) -> dict[int, tuple[int, str]]:
     """Return PID -> (PPID, start identity) using portable macOS/Linux ps fields."""
     completed = subprocess.run(
@@ -247,6 +266,8 @@ class ProcessTreeSupervisor:
         self.root_pid = root_pid
         self.interval_seconds = interval_seconds
         self.deadline = deadline
+        self.root_identity: str | None = None
+        self._root_identity_initialized = False
         self.discovered: dict[int, str] = {}
         self.errors: list[str] = []
         self._lock = threading.Lock()
@@ -274,17 +295,51 @@ class ProcessTreeSupervisor:
         except (OSError, subprocess.SubprocessError) as error:
             with self._lock:
                 self.errors.append(f"{type(error).__name__}: {error}")
+                if not self._root_identity_initialized:
+                    self._root_identity_initialized = True
+                    self.errors.append("reviewer root identity unavailable during initial process snapshot")
             return
         with self._lock:
-            roots = {self.root_pid, *self.discovered}
+            root_entry = snapshot.get(self.root_pid)
+            current_root_identity = (
+                process_start_identity(self.root_pid, root_entry[1])
+                if root_entry is not None
+                else None
+            )
+            if not self._root_identity_initialized:
+                self._root_identity_initialized = True
+                if current_root_identity is None:
+                    self.errors.append("reviewer root identity missing from initial process snapshot")
+                else:
+                    self.root_identity = current_root_identity
+            elif root_entry is not None and current_root_identity != self.root_identity:
+                self.errors.append("reviewer root PID identity changed; ignoring reused PID")
+
+            roots = set()
+            for pid, started in self.discovered.items():
+                if pid not in snapshot:
+                    continue
+                current_identity = process_start_identity(pid, snapshot[pid][1])
+                if current_identity == started:
+                    roots.add(pid)
+            if root_entry is not None and current_root_identity == self.root_identity:
+                roots.add(self.root_pid)
             changed = True
             while changed:
                 changed = False
-                for pid, (ppid, started) in snapshot.items():
-                    if pid not in roots and ppid in roots:
-                        roots.add(pid)
-                        self.discovered[pid] = started
-                        changed = True
+                for pid, (ppid, ps_started) in snapshot.items():
+                    if pid in roots or ppid not in roots:
+                        continue
+                    info = process_info(pid)
+                    if Path("/proc").is_dir():
+                        if info is None or info[0] != ppid:
+                            continue
+                        started = info[1]
+                    else:
+                        started = ps_started
+                    roots.add(pid)
+                    self.discovered[pid] = started
+                    changed = True
 
     def _run(self) -> None:
         while not self._stop.wait(self.interval_seconds):
@@ -301,34 +356,60 @@ class ProcessTreeSupervisor:
                 join_timeout = min(join_timeout, max(0.0, self.deadline - time.monotonic()))
             self._thread.join(timeout=join_timeout)
 
-    def active_discovered(self) -> list[int]:
+    def active_discovered_identities(self) -> dict[int, str]:
         try:
             snapshot = self._snapshot()
         except (OSError, subprocess.SubprocessError) as error:
             with self._lock:
                 self.errors.append(f"{type(error).__name__}: {error}")
-            # A cached PID is not safe to signal after its identity probe fails:
-            # the OS may already have reused it for an unrelated process.
-            return []
+            return {}
         with self._lock:
-            return sorted(
-                pid
-                for pid, started in self.discovered.items()
-                if pid in snapshot and snapshot[pid][1] == started
-            )
+            active = {}
+            for pid, started in self.discovered.items():
+                if pid not in snapshot:
+                    continue
+                current_identity = process_start_identity(pid, snapshot[pid][1])
+                if current_identity == started:
+                    active[pid] = started
+            return active
+
+    def active_discovered(self) -> list[int]:
+        return sorted(self.active_discovered_identities())
 
     def signal_active(self, signal_number: int) -> list[int]:
+        pidfd_open = getattr(os, "pidfd_open", None)
+        pidfd_send_signal = getattr(signal, "pidfd_send_signal", None)
+        if not callable(pidfd_open) or not callable(pidfd_send_signal):
+            return []
+
         signaled: list[int] = []
-        for pid in self.active_discovered():
+        for pid, expected_identity in self.active_discovered_identities().items():
+            pidfd: int | None = None
             try:
-                os.kill(pid, signal_number)
+                pidfd = pidfd_open(pid, 0)
+                # Opening the pidfd pins the process object. Rechecking its
+                # start identity after acquisition rejects a PID reused between
+                # the ps snapshot and pidfd_open; signaling the fd cannot hit a
+                # later process that reuses the numeric PID.
+                current_identity = process_start_identity(pid)
+                if current_identity != expected_identity:
+                    with self._lock:
+                        self.errors.append(f"PID {pid}: identity changed before pidfd signal")
+                    continue
+                pidfd_send_signal(pidfd, signal_number)
+                signaled.append(pid)
             except ProcessLookupError:
                 continue
             except OSError as error:
                 with self._lock:
                     self.errors.append(f"PID {pid}: {type(error).__name__}: {error}")
-            else:
-                signaled.append(pid)
+            finally:
+                if pidfd is not None:
+                    try:
+                        os.close(pidfd)
+                    except OSError as error:
+                        with self._lock:
+                            self.errors.append(f"PID {pid}: pidfd close failed: {error}")
         return signaled
 
     def verify_gone(self, grace_seconds: float) -> list[int]:
@@ -344,7 +425,11 @@ class ProcessTreeSupervisor:
     def evidence(self, terminated: set[int], survivors: list[int]) -> dict[str, Any]:
         with self._lock:
             return {
+                "reviewer_root_start_identity": self.root_identity,
                 "descendants_discovered": sorted(self.discovered),
+                "descendant_start_identities": {
+                    str(pid): started for pid, started in sorted(self.discovered.items())
+                },
                 "descendants_terminated": sorted(terminated),
                 "descendants_surviving": survivors,
                 "descendant_termination_verified": not survivors and not self.errors,

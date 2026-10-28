@@ -81,6 +81,104 @@ class ReviewerProcessTest(unittest.TestCase):
             self.assertEqual(runner.process_snapshot(), {123: (1, "Mon Oct 25 00:00:00 2026")})
         self.assertEqual(ps.call_args.kwargs["timeout"], 10.0)
 
+    def test_supervisor_ignores_descendants_of_reused_cached_pid(self) -> None:
+        runner = load_runner_module()
+        snapshots = [
+            {100: (1, "root-start"), 200: (100, "child-start")},
+            {
+                100: (1, "root-start"),
+                200: (2, "reused-pid-start"),
+                300: (200, "unrelated-descendant-start"),
+            },
+        ]
+        supervisor = runner.ProcessTreeSupervisor(100)
+        with mock.patch.object(runner, "process_snapshot", side_effect=snapshots), mock.patch.object(
+            runner, "process_start_identity", side_effect=["root-start", "root-start", "reused-pid-start"]
+        ), mock.patch.object(runner, "process_info", return_value=(100, "child-start")):
+            supervisor._sample()
+            supervisor._sample()
+
+        self.assertEqual(supervisor.discovered, {200: "child-start"})
+
+    def test_supervisor_ignores_children_of_reused_reviewer_pid(self) -> None:
+        runner = load_runner_module()
+        snapshots = [
+            {100: (1, "root-start")},
+            {100: (2, "reused-root-pid-start"), 300: (100, "unrelated-child-start")},
+        ]
+        supervisor = runner.ProcessTreeSupervisor(100)
+        with mock.patch.object(runner, "process_snapshot", side_effect=snapshots), mock.patch.object(
+            runner, "process_start_identity", side_effect=["root-start", "reused-root-pid-start"]
+        ), mock.patch.object(runner, "process_info", return_value=None):
+            supervisor._sample()
+            supervisor._sample()
+
+        self.assertEqual(supervisor.discovered, {})
+        self.assertTrue(any("root PID identity changed" in error for error in supervisor.errors))
+
+    def test_supervisor_does_not_bind_reused_root_after_initial_probe_failure(self) -> None:
+        runner = load_runner_module()
+        supervisor = runner.ProcessTreeSupervisor(100)
+        snapshots = [
+            subprocess.TimeoutExpired(["ps"], 1),
+            {100: (2, "reused-root-start"), 300: (100, "unrelated-child-start")},
+        ]
+        with mock.patch.object(runner, "process_snapshot", side_effect=snapshots), mock.patch.object(
+            runner, "process_start_identity", return_value="reused-root-start"
+        ), mock.patch.object(runner, "process_info", return_value=None):
+            supervisor._sample()
+            supervisor._sample()
+
+        self.assertEqual(supervisor.discovered, {})
+        self.assertIsNone(supervisor.root_identity)
+        self.assertTrue(supervisor._root_identity_initialized)
+
+    def test_supervisor_does_not_use_numeric_kill_without_pidfd(self) -> None:
+        runner = load_runner_module()
+        supervisor = runner.ProcessTreeSupervisor(100)
+        supervisor.discovered = {200: "expected-start"}
+        with mock.patch.object(
+            supervisor, "_snapshot", return_value={200: (1, "expected-start")}
+        ), mock.patch.object(runner.os, "pidfd_open", None, create=True), mock.patch.object(
+            runner.signal, "pidfd_send_signal", None, create=True
+        ), mock.patch.object(runner.os, "kill") as numeric_kill:
+            self.assertEqual(supervisor.signal_active(signal.SIGTERM), [])
+
+        numeric_kill.assert_not_called()
+        self.assertEqual(supervisor.errors, [])
+
+    def test_supervisor_signals_pidfd_only_after_identity_recheck(self) -> None:
+        runner = load_runner_module()
+        supervisor = runner.ProcessTreeSupervisor(100)
+        supervisor.discovered = {200: "expected-start"}
+        with mock.patch.object(
+            supervisor, "_snapshot", return_value={200: (1, "expected-start")}
+        ), mock.patch.object(runner.os, "pidfd_open", return_value=77), mock.patch.object(
+            runner, "process_start_identity", side_effect=["expected-start", "reused-start"]
+        ), mock.patch.object(runner.signal, "pidfd_send_signal") as pidfd_signal, mock.patch.object(
+            runner.os, "close"
+        ):
+            self.assertEqual(supervisor.signal_active(signal.SIGTERM), [])
+
+        pidfd_signal.assert_not_called()
+        self.assertTrue(any("identity changed" in error for error in supervisor.errors))
+
+    def test_supervisor_uses_pidfd_for_verified_descendant_signal(self) -> None:
+        runner = load_runner_module()
+        supervisor = runner.ProcessTreeSupervisor(100)
+        supervisor.discovered = {200: "expected-start"}
+        with mock.patch.object(
+            supervisor, "_snapshot", return_value={200: (1, "expected-start")}
+        ), mock.patch.object(runner.os, "pidfd_open", return_value=77), mock.patch.object(
+            runner, "process_start_identity", return_value="expected-start"
+        ), mock.patch.object(runner.signal, "pidfd_send_signal") as pidfd_signal, mock.patch.object(
+            runner.os, "close"
+        ) as close:
+            self.assertEqual(supervisor.signal_active(signal.SIGTERM), [200])
+
+        pidfd_signal.assert_called_once_with(77, signal.SIGTERM)
+        close.assert_called_once_with(77)
+
     def test_supervisor_startup_consumes_reviewer_timeout(self) -> None:
         runner = load_runner_module()
 
