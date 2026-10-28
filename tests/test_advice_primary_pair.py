@@ -603,7 +603,10 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
             return cleanup
         stderr = io.StringIO()
 
-        with redirect_stderr(stderr):
+        with mock.patch.dict(runner.os.environ, {
+            "DISK_MAGICIAN_DISKM_BIN": str(self.bin / "diskm"),
+            "ADVICE_TEST_SCRATCH": str(self.scratch),
+        }), redirect_stderr(stderr):
             code = runner.main(
                 argv,
                 create_clone_fn=mock.Mock(side_effect=RuntimeError("clone setup failed")),
@@ -629,7 +632,10 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
             return cleanup
         stderr = io.StringIO()
 
-        with redirect_stderr(stderr):
+        with mock.patch.dict(runner.os.environ, {
+            "DISK_MAGICIAN_DISKM_BIN": str(self.bin / "diskm"),
+            "ADVICE_TEST_SCRATCH": str(self.scratch),
+        }), redirect_stderr(stderr):
             code = runner.main(
                 argv,
                 create_clone_fn=mock.Mock(side_effect=RuntimeError("clone setup failed")),
