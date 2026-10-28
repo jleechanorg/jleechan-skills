@@ -7,6 +7,7 @@ The source checkout has deeper integration tests in tests/test_advice_primary_pa
 from __future__ import annotations
 
 import importlib.util
+import os
 import subprocess
 import sys
 import tempfile
@@ -31,7 +32,7 @@ class InstalledRunnerTest(unittest.TestCase):
                 [str(runner.SCRATCH_RESOLVER)], 0, stdout=f"{scratch}\n", stderr=""
             )
             with mock.patch.object(runner.subprocess, "run", return_value=completed) as resolve:
-                self.assertEqual(runner.resolve_review_scratch_root(), scratch.resolve())
+                self.assertEqual(runner.resolve_review_scratch_root(), scratch)
         self.assertEqual(resolve.call_args.args[0], [str(runner.SCRATCH_RESOLVER)])
 
     def test_review_scratch_root_refuses_unavailable_resolver(self) -> None:
@@ -42,13 +43,42 @@ class InstalledRunnerTest(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "canonical Scratch resolver failed"):
                 runner.resolve_review_scratch_root()
 
-    def test_review_scratch_root_refuses_system_temp_fallback(self) -> None:
+    def test_review_scratch_root_accepts_canonical_no_scratch_fallback(self) -> None:
         completed = subprocess.CompletedProcess(
             [str(runner.SCRATCH_RESOLVER)], 0, stdout="/tmp\n", stderr=""
         )
         with mock.patch.object(runner.subprocess, "run", return_value=completed):
-            with self.assertRaisesRegex(RuntimeError, "refusing system temporary-directory fallback"):
-                runner.resolve_review_scratch_root()
+            self.assertEqual(runner.resolve_review_scratch_root(), Path("/tmp"))
+
+    def test_scratch_dir_thin_dispatches_to_explicit_disk_magician_cli(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            diskm = root / "diskm"
+            diskm.write_text("#!/bin/sh\nprintf '/canonical-scratch\\n'\n")
+            diskm.chmod(0o755)
+            result = subprocess.run(
+                [str(runner.SCRATCH_RESOLVER), "tmp"],
+                capture_output=True,
+                text=True,
+                env={**os.environ, "DISK_MAGICIAN_DISKM_BIN": str(diskm)},
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "/canonical-scratch\n")
+
+    def test_scratch_dir_preserves_disk_magician_error(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            diskm = root / "diskm"
+            diskm.write_text("#!/bin/sh\necho unavailable >&2\nexit 75\n")
+            diskm.chmod(0o755)
+            result = subprocess.run(
+                [str(runner.SCRATCH_RESOLVER)],
+                capture_output=True,
+                text=True,
+                env={**os.environ, "DISK_MAGICIAN_DISKM_BIN": str(diskm)},
+            )
+        self.assertEqual(result.returncode, 75)
+        self.assertEqual(result.stderr, "unavailable\n")
 
     def test_reviewer_gets_eof_with_parent_stdin_open(self) -> None:
         child = (

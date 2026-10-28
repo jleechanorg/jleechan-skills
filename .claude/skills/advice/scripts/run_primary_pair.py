@@ -55,19 +55,9 @@ def resolve_review_scratch_root() -> Path:
     candidate = result.stdout.strip()
     if not candidate:
         raise RuntimeError("canonical Scratch resolver returned no path")
-    root = Path(candidate).expanduser()
+    root = Path(candidate)
     if not root.is_absolute():
         raise RuntimeError("canonical Scratch resolver returned a relative path")
-    try:
-        root = root.resolve(strict=True)
-    except OSError as error:
-        raise RuntimeError(f"resolved Scratch path is unavailable: {candidate}") from error
-
-    system_temp_roots = (Path("/tmp").resolve(), Path("/private/tmp").resolve())
-    if any(root == temp_root or root.is_relative_to(temp_root) for temp_root in system_temp_roots):
-        raise RuntimeError("Scratch is unavailable; refusing system temporary-directory fallback")
-    if not root.is_dir() or not os.access(root, os.W_OK | os.X_OK):
-        raise RuntimeError(f"resolved Scratch path is not writable: {root}")
     return root
 
 
