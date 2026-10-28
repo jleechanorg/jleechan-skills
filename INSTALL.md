@@ -36,7 +36,9 @@ never adds a skill on that file's `closure_excluded` list (`dot`,
 `slack-media-upload`, `github-cli-reference`, `claw-dispatch`,
 `ao-operator-discipline`, `aside-browser-default`, `browser-testing`): they read browser cookies or depend on personal
 infrastructure, so they install only under `--all`, a profile that names them,
-or `--with`. Skills that link to one of them report it as unavailable. The
+or `--with`. `--with` adds only the excluded skill it names, not other excluded
+skills it links to (`--with browser-control` also needs `--with aside-browser-default
+--with browser-testing`). Skills that link to one of them report it as unavailable. The
 installer prints the profile and the number of skills, commands and agents it
 installed. A profile install is additive: `--merge` never removes skills an
 earlier `--all` install left behind, and `--backup`, `--merge`,

@@ -74,7 +74,9 @@ Named profiles select other sets:
 Dependency closure never adds browser, cookie or personal-infrastructure
 skills (`dot`, `web-advice`, `browser-control`, `browser-testing`, `slack-media-upload`, and the
 others listed in [`shared/install-profiles.json`](shared/install-profiles.json));
-those install only under `--all`, `--profile web`, or `--with`. Packages are
+those install only under `--all`, `--profile web`, or `--with`. `--with` adds
+only the excluded skill it names, so `--with browser-control` also needs
+`--with aside-browser-default --with browser-testing` (or use `--profile web`). Packages are
 copied complete, with their helper files, under `CLAUDE_HOME` (default:
 `~/.claude`). It refuses a nonempty target by
 default; `--backup` preserves that target before installing and `--merge`
