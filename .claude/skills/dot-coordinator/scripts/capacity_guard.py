@@ -43,15 +43,17 @@ def load_state(path: Path) -> dict:
 
 
 def is_executing(item: object) -> bool:
-    """Check evidence string shape; freshness and actual activity are caller checks."""
+    """Check row state and evidence shape; freshness and activity remain caller checks."""
     if not isinstance(item, dict):
         raise InputError("each active entry must be an object")
     if not isinstance(item.get("class"), str) or item.get("class") not in CAPS:
         raise InputError(f"unknown class: {item.get('class')!r}")
     state = item.get("state")
+    if state is not None and not isinstance(state, str):
+        raise InputError("state must be a string")
     if state == "UNKNOWN":
         raise InputError("UNKNOWN occupancy must be reconciled before this check")
-    if isinstance(state, str) and state in NON_EXECUTING_STATES:
+    if state in NON_EXECUTING_STATES:
         return False
     if item.get("parked") is True:
         return False

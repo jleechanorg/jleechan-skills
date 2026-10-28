@@ -126,6 +126,14 @@ class GuardTest(unittest.TestCase):
                 self.assertEqual(code, 0, out)
                 self.assertIn("active=1 cap=2", out)
 
+    def test_nonstring_state_is_input_error(self):
+        for state_value in ([], {}):
+            with self.subTest(state=state_value):
+                state = {"active": [entry("bad-state", "complex", state=state_value)]}
+                code, _, error = self.run_guard(state, "complex", "new")
+                self.assertEqual(code, 2)
+                self.assertIn("state must be a string", error)
+
     def test_stale_string_is_only_shape_checked_and_never_authority(self):
         old = {"owner": "owner", "action": "past action", "receipt": "2000-01-01T00:00:00Z"}
         code, out, _ = self.run_guard({"active": [entry("old", "complex", old)]}, "complex", "new")
