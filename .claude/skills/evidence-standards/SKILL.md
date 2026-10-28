@@ -25,7 +25,10 @@ the structural and recording details; this file is the policy.
 **After running any evidence-gathering pass, you MUST always reconfirm** by
 explicitly stating what the evidence proves vs what it does NOT prove — this
 applies to the response you give the user, not just the bundle's own
-"What This Evidence Does NOT Prove" section (below).
+"What This Evidence Does NOT Prove" section (below). That section lists untested
+scope only: behavior you observed that the user's acceptance or the UI's own
+disclosure forbids is a FAIL, never a limit or follow-up
+(`evidence-review` check 9).
 
 ## Aiming gate — run BEFORE spending on an evidence campaign
 
@@ -51,7 +54,7 @@ Hard rules:
   just written down that you aimed at the wrong target. Re-aim before
   continuing; do not ship the caveat as a substitute for hitting the target.
 - For a model-behavior bug, prefer replaying **real captured production input
-  through the real path** (`../ablation/SKILL.md`) over
+  through the real path** (`~/.claude/skills/ablation/SKILL.md`) over
   synthesizing new prompts. Synthetic prompts test the schema; captured
   payloads test the bug.
 - Forensics on already-captured data (logs, BigQuery, Firestore) is usually
@@ -112,7 +115,7 @@ Hard rules:
   just written down that you aimed at the wrong target. Re-aim before
   continuing; do not ship the caveat as a substitute for hitting the target.
 - For a model-behavior bug, prefer replaying **real captured production input
-  through the real path** (`../ablation/SKILL.md`) over
+  through the real path** (`~/.claude/skills/ablation/SKILL.md`) over
   synthesizing new prompts. Synthetic prompts test the schema; captured
   payloads test the bug.
 - Forensics on already-captured data (logs, BigQuery, Firestore) is usually
@@ -204,10 +207,7 @@ hours of LLM time for zero added confidence. The evidence proves a *behavior*; i
 code is byte-identical at HEAD and no assertion or driver backing it changed, the proof is
 byte-valid at HEAD. Repo-level files may add
 project-specific context (e.g. `<repo>/.claude/skills/evidence-standards.md` §
-"Claim-scoped evidence revalidation"). Follow explicit repository requirements for their domain;
-shared [pr-lifecycle defaults](../pr-lifecycle/SKILL.md#precedence-and-scope) fill only details the
-repository leaves silent. A local workflow may alter which shared gates apply, but an applicable evidence
-claim cannot waive the delta-and-claim test above.
+"Claim-scoped evidence revalidation"). Shared [pr-lifecycle precedence](../pr-lifecycle/SKILL.md#precedence-and-scope) governs conflicting lifecycle copies; domain-specific proof and separate safety/merge restrictions remain. Repo overlays cannot waive the delta-and-claim test above.
 
 ## Evidence Sequencing — expensive evidence runs LAST, once
 
@@ -229,8 +229,7 @@ stack against it. Running expensive evidence mid-iteration guarantees it is
 voided by the next fix (PR #9604/#9640, 2026-09-01: ~40 of 50 commits were
 evidence churn; the RED/GREEN pair and bundle had to be scheduled for a full
 rerun anyway). The final comparison may replay the preserved baseline alongside
-the completed candidate only if that baseline is labeled `derived` with its
-source (artifact, build SHA, run); scheduling that package last does not defer the initial
+the completed candidate; scheduling that package last does not defer the initial
 failure reproduction until after the behavior fix.
 
 Rerun expensive evidence ONLY on a material change per the Staleness Tolerance
@@ -339,7 +338,8 @@ Follow any actual repository gate requiring particular in-tree evidence paths.
 ## Bundle anatomy (minimal)
 
 The canonical bundle shape is the iteration directory produced by the
-project's evidence harness. For the WorldArchitect MCP harness, see
+project's evidence harness on the dedicated Scratch volume resolved dynamically via
+`~/.claude/skills/scratch-space/SKILL.md` (`diskm scratch-new <repo-path> <purpose> --kind evidence`, or `$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh "<repo>/evidence/<date>-<slug>")`). For the WorldArchitect MCP harness, see
 `bundle-anatomy.md` in this directory. At minimum, a bundle contains:
 
 - `metadata.json` — git provenance (`git_head`, `merge_base`, `commits_ahead_of_main`, `diff_stat_vs_main`), server runtime (PID, port, cmdline, env vars), `bundle_version`, `run_id`, `iteration`, `bundle_timestamp`
@@ -389,7 +389,7 @@ a synthetic-LLM claim.
 
 ```text
 # PR description includes:
-- Evidence bundle: /tmp/your-project.com/fix-attack-roll/iteration_001/
+- Evidence bundle: <scratch-root>/your-project.com/fix-attack-roll/iteration_001/ (resolved dynamically via `~/.claude/skills/scratch-space/SKILL.md`: `diskm scratch-new <repo-path> <purpose> --kind evidence` or `$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh "<repo>/evidence/<date>-<slug>")`)
 - Video: https://storage.googleapis.com/<bucket>/agent-evidence/<repo>/<pr>-<topic>/attack-roll.mp4
   (or another host the current task authorizes; NOT github.com/.../releases/download/untagged-* — that is a red flag)
 - Paired inline GIF of the same run, embedded in the PR body (see § Visual Evidence)
@@ -488,10 +488,9 @@ standards, always read both this skill and the relevant repo-level file:
 2. **Repo-level /es** — most repos mirror this skill at
    `<repo>/.claude/skills/evidence-standards.md` with project-specific
    extensions (e.g. `your-project.com` has dice-claim, campaign-isolation,
-   BigQuery, and Gemini specifics). **Always read both**. Explicit repository
-   requirements govern their domain; shared
-   [lifecycle defaults](../pr-lifecycle/SKILL.md#precedence-and-scope) apply
-   only where repository instructions are silent.
+   BigQuery, and Gemini specifics). **Always read both** and apply the
+   [scoped precedence rule](../pr-lifecycle/SKILL.md#precedence-and-scope);
+   repository domain proof does not override the shared lifecycle.
 3. **Companion files in this directory** — `bundle-anatomy.md` (bundle
    structure, JSONL shapes, integrity rules), `tmux-video-evidence.md`
    (tmux/asciinema recording), `ui-video-evidence.md` (browser/UI video).

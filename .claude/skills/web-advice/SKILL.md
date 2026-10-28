@@ -256,12 +256,16 @@ storage-state file for each run (Google signs a reused Gemini snapshot out
 after one use):
 
 ```bash
+# Resolve scratch directory via ~/.claude/skills/scratch-space/SKILL.md
+SCRATCH_DIR="$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh "web-advice")"
+# Or allocate a managed evidence directory: diskm scratch-new <repo-path> web-advice --kind evidence
+
 python3 ~/.claude/skills/web-advice/scripts/playwright_cookie_driver.py \
-  --site chatgpt --storage-state /tmp/chatgpt-storage.json \
-  --prompt-file /tmp/review-prompt.md \
-  --attachment /tmp/web-advice-packets/PR_<N>_FULL_CODE_FILES.txt \
-  --attachment /tmp/web-advice-packets/PR_<N>_BASE_CODE_FILES_AND_DIFF.txt \
-  --output /tmp/chatgpt-review-report.json
+  --site chatgpt --storage-state "${SCRATCH_DIR}/chatgpt-storage.json" \
+  --prompt-file "${SCRATCH_DIR}/review-prompt.md" \
+  --attachment "${SCRATCH_DIR}/packets/PR_<N>_FULL_CODE_FILES.txt" \
+  --attachment "${SCRATCH_DIR}/packets/PR_<N>_BASE_CODE_FILES_AND_DIFF.txt" \
+  --output "${SCRATCH_DIR}/chatgpt-review-report.json"
 ```
 
 Require `assert_packet_attachments_verified(manifest, report)` to pass before
@@ -324,8 +328,8 @@ if (attachmentChipSelector.startsWith('REPLACE_')) {
 }
 // 1. For each model tab (Gemini, ChatGPT, Perplexity):
 // Step 3a: Stage and attach lossless review packets + evidence artifacts via file input
-// In Aside: stage inside pwd first:
-// cp /tmp/wa_packets/pr<N>/* ${pwd}/pr<N>/
+// In Aside: stage inside pwd first from scratch-dir.sh (see ~/.claude/skills/scratch-space/SKILL.md):
+// cp "$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh "web-advice")/packets/pr<N>/"* ${pwd}/pr<N>/
 const uploadFiles = [
   path.join(pwd, 'pr<N>', 'raw_git_diff.patch'),
   path.join(pwd, 'pr<N>', 'full_changed_files.txt'),

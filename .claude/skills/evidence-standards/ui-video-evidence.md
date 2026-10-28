@@ -9,7 +9,7 @@ This file previously duplicated UI video evidence rules (mandatory frames,
 recording options, caption requirements, GitHub hosting, anti-patterns,
 reviewer checklist). All of that now lives in one place:
 
-`../ui-video-evidence/SKILL.md`
+`~/.claude/skills/ui-video-evidence/SKILL.md`
 
 Read that file for the current requirements, including scoped-browser-ownership
 resolution and headless capture routes. Do not add or restore rules here — any

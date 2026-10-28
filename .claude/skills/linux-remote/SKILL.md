@@ -150,7 +150,13 @@ rsync -avz /local/ jeff-ubuntu:/remote/       # sync directory
 | Tail a log | `ssh jeff-ubuntu 'sudo journalctl -fu <service>'` |
 | Advice Review | `ssh jeff-ubuntu '~/.claude/commands/advice.md'` (or execute `~/.claude/skills/advice/SKILL.md`) |
 | Web Advice Review | `ssh jeff-ubuntu '~/.claude/commands/web-advice.md'` (or execute `~/.claude/skills/web-advice/SKILL.md`) |
+| Allocate Scratch dir | `ssh jeff-ubuntu 'diskm scratch-new <repo-path> <purpose> --kind build\|evidence'` |
 | Reboot | `ssh jeff-ubuntu 'sudo reboot'` (warn user first) |
+
+## Scratch and worktree placement (Mac and Linux)
+
+- **Scratch and evidence placement**: Follow the canonical scratch skill [`~/.claude/skills/scratch-space/SKILL.md`](../scratch-space/SKILL.md) for disposable build output, test scratch, ephemeral review workspaces, and evidence bundles across Mac and Linux (`jeff-ubuntu`). Allocate managed directories via `diskm scratch-new <repo-path> <purpose> --kind build|evidence` or resolve ad-hoc scratch via `~/.claude/skills/scratch-space/scripts/scratch-dir.sh [subpath]`.
+- **Git worktrees**: Create git worktrees only under `~/.worktrees/<repo>/<name>` via `diskm worktree-new <repo-path> <branch>`, never in `$HOME`, repo trees, or `/tmp`.
 
 ## Caveats
 

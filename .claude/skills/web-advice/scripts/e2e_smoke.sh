@@ -60,12 +60,14 @@ if [ -z "$chrome_bin" ]; then
   exit 1
 fi
 
-chrome_profile_dir="$(mktemp -d "${TMPDIR:-/tmp}/web-advice-chrome-smoke.XXXXXX")"
+scratch_tmp="$("${HOME}/.claude/skills/scratch-space/scripts/scratch-dir.sh" tmp 2>/dev/null || printf '%s' "${TMPDIR:-/tmp}")"
+chrome_profile_dir="$(mktemp -d "${scratch_tmp}/web-advice-chrome-smoke.XXXXXX")"
 trap 'rm -rf -- "$chrome_profile_dir"' EXIT
 chrome_out="$(
   run_with_timeout 15 "$chrome_bin" \
     --headless=new \
     --disable-gpu \
+    --disable-features=MacAppCodeSignClone \
     --no-first-run \
     --no-default-browser-check \
     --user-data-dir="$chrome_profile_dir" \

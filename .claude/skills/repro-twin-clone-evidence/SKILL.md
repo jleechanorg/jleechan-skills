@@ -126,13 +126,20 @@ When the first copy must stay read-only:
 
 ## 6. Save state after repro
 
+Export the post-replay state and execution artifacts to a discoverable directory on the dedicated Scratch volume resolved dynamically via the canonical scratch skill [`~/.claude/skills/scratch-space/SKILL.md`](../scratch-space/SKILL.md) (`diskm scratch-new <repo-path> <purpose> --kind evidence` or `~/.claude/skills/scratch-space/scripts/scratch-dir.sh`):
+
 Note: The inline subcommand below uses `copy_campaign.py` with `--format json` to perform an early-exit email-to-UID lookup (it exits immediately and does not perform a copy).
 
 ```bash
+# Resolve canonical evidence directory via ~/.claude/skills/scratch-space/SKILL.md
+EVIDENCE_DIR="$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh "your-project.com/repro-exports/<slug>")"
+# Or allocate a managed lease:
+# EVIDENCE_DIR="$(diskm scratch-new <repo-path> repro-export --kind evidence)"
+
 ./venv/bin/python scripts/download_campaign.py \
   --uid "$(./venv/bin/python scripts/copy_campaign.py --dest-email <your-email@gmail.com> --format json 2>/dev/null | python3 -c "import sys, json; print(json.load(sys.stdin)['dest_uid'])")" \
   --campaign-id <TEST_CAMPAIGN_ID> \
-  --output-dir /tmp/your-project.com/repro-exports/<slug> \
+  --output-dir "$EVIDENCE_DIR" \
   --format txt
 ```
 

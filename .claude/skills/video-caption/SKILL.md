@@ -35,7 +35,8 @@ Note: track whether audio exists — it affects the final ffmpeg command.
 ### 2. Extract frames for analysis
 
 ```bash
-frames_dir=$(mktemp -d /tmp/video-frames.XXXXXX)
+# Resolve scratch directory via ~/.claude/skills/scratch-space/SKILL.md
+frames_dir=$(mktemp -d "$("${CLAUDE_HOME:-$HOME/.claude}/skills/scratch-space/scripts/scratch-dir.sh" tmp)/video-frames.XXXXXX")
 ffmpeg -i "video.mov" -vf "fps=1/10,scale=1280:-1" -q:v 3 "$frames_dir/frame_%03d.jpg"
 ```
 
@@ -56,6 +57,8 @@ Use the `Read` tool on each frame image — Claude can view them directly. Read 
 
 ```python
 from pathlib import Path
+import os
+import subprocess
 import tempfile
 import textwrap
 
@@ -73,7 +76,12 @@ captions = [
 ]
 
 font = ImageFont.truetype(FONT, FONT_SIZE)
-caption_dir = Path(tempfile.mkdtemp(prefix="video-captions-", dir="/tmp"))
+# Resolve scratch directory via ~/.claude/skills/scratch-space/SKILL.md
+scratch_tmp = subprocess.check_output(
+    [os.path.expanduser("~/.claude/skills/scratch-space/scripts/scratch-dir.sh"), "tmp"],
+    text=True
+).strip()
+caption_dir = Path(tempfile.mkdtemp(prefix="video-captions-", dir=scratch_tmp))
 
 for i, (start, end, text) in enumerate(captions):
     avg_char_w = FONT_SIZE * 0.55
