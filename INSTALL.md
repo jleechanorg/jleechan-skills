@@ -26,7 +26,7 @@ linked dependencies; counts below are measured from a scratch install.
 | *(none)* or `--profile highlights` | the six highlighted skills | 20 / 11 / 1 |
 | `--profile highlights-prw` | `highlights` plus `prw` | 30 / 18 / 1 |
 | `--profile prw` | 12 PR workflow skills plus `/es`, `/er`, `/green`, `/cs` | 24 / 11 / 1 |
-| `--profile web` | `advice`, `web-advice`, `browser-control` | 19 / 5 / 1 |
+| `--profile web` | `advice`, `web-advice`, `browser-control`, `aside-browser-default`, `browser-testing` | 19 / 5 / 1 |
 | `--with SKILL` | add a named skill to the profile; repeatable | varies |
 | `--all` | every package, as before | 274 / 243 / 45 |
 
