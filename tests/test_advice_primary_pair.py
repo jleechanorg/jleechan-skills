@@ -88,9 +88,11 @@ class PrimaryPairTest(unittest.TestCase):
         self.repo = self.root / "repo"
         self.bin = self.root / "bin"
         self.sync = self.root / "sync"
+        self.scratch = self.root / "scratch"
         self.output = self.root / "out"
         self.bin.mkdir()
         self.sync.mkdir()
+        self.scratch.mkdir()
         run("git", "init", "-q", str(self.repo))
         run("git", "config", "user.email", "jleechan2015@users.noreply.github.com", cwd=self.repo)
         run("git", "config", "user.name", "Test", cwd=self.repo)
@@ -104,6 +106,12 @@ class PrimaryPairTest(unittest.TestCase):
         self.env.pop("ADVICE_CODEX_MODEL", None)
         self.env["PATH"] = f"{self.bin}:{self.env['PATH']}"
         self.env["ADVICE_TEST_SYNC_DIR"] = str(self.sync)
+        self.env["ADVICE_TEST_SCRATCH"] = str(self.scratch)
+        self.executable(
+            "diskm",
+            'if [ "$1" = "scratch-dir" ]; then printf "%s\\n" "$ADVICE_TEST_SCRATCH"; else exit 2; fi\n',
+        )
+        self.env["DISK_MAGICIAN_DISKM_BIN"] = str(self.bin / "diskm")
 
     def tearDown(self) -> None:
         self.temp.cleanup()
