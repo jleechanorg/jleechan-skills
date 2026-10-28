@@ -2249,3 +2249,12 @@ class InstallerRealProfileTest(unittest.TestCase):
             self.assertEqual(installed, self.skill_names)
             self.assertTrue(DOT_FAMILY <= installed)
             self.assertIn(f"Installed --all (full library): {len(self.skill_names)} skills,", result.stdout)
+            commands = len([c for c in installed_tree(target, "commands") if c.endswith(".md")])
+            agents = len(installed_tree(target, "agents"))
+            for doc in ("README.md", "INSTALL.md"):
+                rows = [line for line in (REPO_ROOT / doc).read_text().splitlines() if line.startswith("| `--all`")]
+                self.assertEqual(len(rows), 1, f"{doc} needs one --all row")
+                self.assertTrue(
+                    rows[0].endswith(f"| {len(self.skill_names)} / {commands} / {agents} |"),
+                    f"{doc} --all row must state the measured counts: {rows[0]}",
+                )
