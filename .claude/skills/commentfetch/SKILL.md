@@ -62,11 +62,11 @@ get_comprehensive_comment_count() {
 
 ## Description
 
-Pure Python implementation that collects ALL comments from all GitHub PR sources AND GitHub CI status. Marks comments starting with '[AI responder]' as our responses. Implements /fixpr CI status methodology with defensive programming patterns. Always fetches fresh data on each execution and saves to `"$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh tmp)/{repo_name}/{branch_name}/copilot/comments.json"` (referencing `~/.claude/skills/scratch-space/SKILL.md`) for downstream processing by `/commentreply`.
+Pure Python implementation that collects ALL comments from all GitHub PR sources AND GitHub CI status. Marks comments starting with '[AI responder]' as our responses. Implements /fixpr CI status methodology with defensive programming patterns. Always fetches fresh data on each execution and saves to `"$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh)/{repo_name}/{branch_name}/copilot/comments.json"` (referencing `~/.claude/skills/scratch-space/SKILL.md`) for downstream processing by `/commentreply`.
 
 ## Output Format
 
-Saves structured JSON data to `"$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh tmp)/{repo_name}/{branch_name}/copilot/comments.json"` with:
+Saves structured JSON data to `"$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh)/{repo_name}/{branch_name}/copilot/comments.json"` with:
 
 ```json
 {
@@ -217,7 +217,7 @@ fetch.execute()
 if [ "$PRINT_INLINE" = "true" ]; then
     BRANCH_NAME=$(git branch --show-current | tr -cd '[:alnum:]._-')
     REPO_NAME=$(basename "$(git rev-parse --show-toplevel)" | tr -cd '[:alnum:]._-')
-    COPILOT_DIR="$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh tmp)/$REPO_NAME/$BRANCH_NAME/copilot"
+    COPILOT_DIR="$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh)/$REPO_NAME/$BRANCH_NAME/copilot"
     COMMENTS_FILE="$COPILOT_DIR/comments.json"
 
     if [ -f "$COMMENTS_FILE" ]; then
@@ -250,7 +250,7 @@ fi
 
 # Internally runs: cd .claude/commands && python3 -c "import _copilot_modules.commentfetch as cf; ..."
 
-# Saves comments to "$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh tmp)/{repo_name}/{branch_name}/copilot/comments.json" (see ~/.claude/skills/scratch-space/SKILL.md)
+# Saves comments to "$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh)/{repo_name}/{branch_name}/copilot/comments.json" (see ~/.claude/skills/scratch-space/SKILL.md)
 
 # Downstream commands read from the saved file
 
@@ -258,7 +258,7 @@ fi
 
 ## Integration
 
-This command is typically the first step in the `/copilot` workflow, providing fresh comment data AND CI status to `"$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh tmp)/{repo_name}/{branch_name}/copilot/comments.json"` (referencing `~/.claude/skills/scratch-space/SKILL.md`) for other commands like `/fixpr` and `/commentreply`. Uses /fixpr methodology for authoritative GitHub CI status with defensive programming patterns. Always fetches current data and overwrites the comments file.
+This command is typically the first step in the `/copilot` workflow, providing fresh comment data AND CI status to `"$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh)/{repo_name}/{branch_name}/copilot/comments.json"` (referencing `~/.claude/skills/scratch-space/SKILL.md`) for other commands like `/fixpr` and `/commentreply`. Uses /fixpr methodology for authoritative GitHub CI status with defensive programming patterns. Always fetches current data and overwrites the comments file.
 
 ## CI Status Integration
 

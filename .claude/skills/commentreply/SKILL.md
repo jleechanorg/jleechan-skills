@@ -28,7 +28,7 @@ description: /commentreply Command
 2. **Analyze technical issues** raised in each comment
 3. **Implement actual fixes** using Edit/MultiEdit tools when code changes needed
 4. **Generate technical responses** addressing specific points raised
-5. **Write reply JSON file** to `"$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh tmp)/{repo_name}/{branch_name}/replies.json"` (referencing `~/.claude/skills/scratch-space/SKILL.md`) with structure:
+5. **Write reply JSON file** to `"$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh)/{repo_name}/{branch_name}/responses.json"` (referencing `~/.claude/skills/scratch-space/SKILL.md`) with structure:
    ```json
    {
      "replies": [
@@ -120,7 +120,7 @@ graph TD
 
 # MUST run /commentfetch first in session to populate comment data
 
-# Load comments from: $(~/.claude/skills/scratch-space/scripts/scratch-dir.sh tmp)/{repo_name}/{branch_name}/comments.json
+# Load comments from: $(~/.claude/skills/scratch-space/scripts/scratch-dir.sh)/{repo_name}/{branch_name}/comments.json
 
 ```
 
@@ -164,7 +164,7 @@ GitHub provides two methods for posting replies to PR review comments:
 - Removed undefined `${branch_name}` variable reference
 - Aligned documentation to match actual 3-parameter script signature
 - Python script derives branch automatically via `git branch --show-current`
-- Loads responses from `"$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh tmp)/<repo>/<branch>/responses.json"` internally (see `~/.claude/skills/scratch-space/SKILL.md`)
+- Loads responses from `"$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh)/<repo>/<branch>/responses.json"` internally (see `~/.claude/skills/scratch-space/SKILL.md`)
 
 ```bash
 
@@ -314,10 +314,10 @@ Before processing any comments:
 
 ### Data Flow Details
 
-1. **Input**: `"$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh tmp)/{repo}/{branch}/comments.json"` (from commentfetch)
+1. **Input**: `"$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh)/{repo}/{branch}/comments.json"` (from commentfetch)
 2. **Processing**: Claude analyzes and fixes issues in codebase
-3. **Output**: `"$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh tmp)/{repo}/{branch}/replies.json"` (structured reply data, referencing `~/.claude/skills/scratch-space/SKILL.md`)
-4. **Posting**: Python script reads replies.json and posts via GitHub API
+3. **Output**: `"$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh)/{repo}/{branch}/responses.json"` (structured reply data, referencing `~/.claude/skills/scratch-space/SKILL.md`)
+4. **Posting**: Python script reads responses.json and posts via GitHub API
 
 ## 📊 SUCCESS CRITERIA
 

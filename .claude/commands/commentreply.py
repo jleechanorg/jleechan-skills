@@ -19,10 +19,9 @@ import re
 import time
 import warnings
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from _copilot_modules.scratch_paths import resolve_scratch_root
+from _copilot_modules.scratch_paths import copilot_cache_dir
 
 
 
@@ -78,14 +77,6 @@ def sanitize_repo_name(repo_name: str) -> str:
     return re.sub(r"[^a-zA-Z0-9._-]", "", repo_name or "")
 
 
-def _is_relative_to(path: Path, base: Path) -> bool:
-    try:
-        path.relative_to(base)
-        return True
-    except ValueError:
-        return False
-
-
 def get_current_branch() -> str:
     """Get current git branch name for temp file path"""
     success, branch, _ = run_command(["git", "branch", "--show-current"])
@@ -119,21 +110,10 @@ def load_claude_responses(branch_name: str, repo_name: str) -> Dict:
     Returns:
         Dictionary containing responses data, empty dict if file not found
     """
-    safe_repo = sanitize_repo_name(repo_name) or "unknown-repo"
-    safe_branch = sanitize_branch_name(branch_name) or "unknown-branch"
-
-    base_dir = resolve_scratch_root()
-    copilot_dir = "copilot"
-    responses_path = (base_dir / safe_repo / safe_branch / copilot_dir / "responses.json").resolve()
-    expected_dir = (base_dir / safe_repo / safe_branch / copilot_dir).resolve()
-
-    # Verify the resolved path stays within the canonical Scratch root (symlink-safe) and matches expected dir
-    if (
-        not _is_relative_to(responses_path, base_dir)
-        or not _is_relative_to(expected_dir, base_dir)
-        or responses_path.parent != expected_dir
-    ):
-        print(f"⚠️ SECURITY: Path traversal/symlink escape blocked: {responses_path}")
+    try:
+        responses_path = copilot_cache_dir(repo_name, branch_name) / "responses.json"
+    except RuntimeError as error:
+        print(f"⚠️ SECURITY: Comment response path unavailable: {error}")
         return {}
 
     if not responses_path.exists():
@@ -176,20 +156,12 @@ def load_comments_with_staleness_check(
     Returns:
         List of comment dictionaries (fresh or cached)
     """
-    safe_repo = sanitize_repo_name(repo_name) or "unknown-repo"
-    safe_branch = sanitize_branch_name(branch_name) or "unknown-branch"
-
-    base_dir = resolve_scratch_root()
-    copilot_dir = "copilot"
-    cache_dir = (base_dir / safe_repo / safe_branch / copilot_dir).resolve()
-    comments_path = (cache_dir / "comments.json").resolve()
-
-    # Security check
-    if not _is_relative_to(cache_dir, base_dir) or not _is_relative_to(
-        comments_path, base_dir
-    ):
-        print(f"⚠️ SECURITY: Path traversal/symlink escape blocked: {cache_dir}")
+    try:
+        cache_dir = copilot_cache_dir(repo_name, branch_name)
+    except RuntimeError as error:
+        print(f"❌ ERROR: Comment cache path unavailable: {error}")
         sys.exit(1)
+    comments_path = cache_dir / "comments.json"
 
     # Fallback to legacy single-file format
     comments_file = str(comments_path)

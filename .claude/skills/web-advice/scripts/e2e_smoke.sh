@@ -6,7 +6,7 @@
 # through its MCP tool. It never invokes Aside inference, submits a prompt, or
 # inspects browser cookies. Vendor authentication is qualified separately.
 
-set -euo pipefail
+set -uo pipefail
 
 TIMEOUT_BIN="$(command -v timeout || command -v gtimeout || true)"
 
@@ -26,12 +26,12 @@ echo " No prompt is submitted. Probe aside-mcp and vendor auth separately."
 echo "==============================================================================="
 
 if command -v aside >/dev/null 2>&1; then
+  aside_repl_rc=0
   aside_repl_out="$(
     run_with_timeout 15 aside repl \
       "console.log((await listBrowserTabs()).length)" 2>&1
-  )"
-  aside_repl_rc=$?
-  tab_count="$(printf '%s\n' "$aside_repl_out" | grep -oE '^[0-9]+$' | head -1)"
+  )" || aside_repl_rc=$?
+  tab_count="$(printf '%s\n' "$aside_repl_out" | grep -oE '^[0-9]+$' | head -1)" || tab_count=""
 
   if [ "$aside_repl_rc" -eq 0 ] && [ -n "$tab_count" ]; then
     echo "Aside REPL browser: UP — ${tab_count} tab(s) visible"
@@ -60,9 +60,14 @@ if [ -z "$chrome_bin" ]; then
   exit 1
 fi
 
-scratch_tmp="$("${CLAUDE_HOME:-$HOME/.claude}/skills/scratch-space/scripts/scratch-dir.sh" tmp)"
+scratch_tmp="$("${CLAUDE_HOME:-$HOME/.claude}/skills/scratch-space/scripts/scratch-dir.sh" tmp)" || {
+  resolver_rc=$?
+  echo "Scratch resolver unavailable; refusing host-temp fallback (rc=${resolver_rc})" >&2
+  exit "$resolver_rc"
+}
 chrome_profile_dir="$(mktemp -d "${scratch_tmp}/web-advice-chrome-smoke.XXXXXX")"
 trap 'rm -rf -- "$chrome_profile_dir"' EXIT
+chrome_rc=0
 chrome_out="$(
   run_with_timeout 15 "$chrome_bin" \
     --headless=new \
@@ -73,8 +78,7 @@ chrome_out="$(
     --user-data-dir="$chrome_profile_dir" \
     --dump-dom \
     https://example.com/ 2>/dev/null
-)"
-chrome_rc=$?
+)" || chrome_rc=$?
 
 if printf '%s' "$chrome_out" | grep -q "Example Domain"; then
   echo "Chrome headless browser: UP — basic render succeeded (rc=${chrome_rc})"

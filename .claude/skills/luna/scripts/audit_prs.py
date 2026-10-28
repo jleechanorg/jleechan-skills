@@ -16,6 +16,14 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 
 ADVISORY_CHECKS = {"CodeRabbit", "Cursor Bugbot", "Green Gate"}
+FAILED_CHECK_CONCLUSIONS = {
+    "ACTION_REQUIRED",
+    "CANCELLED",
+    "FAILURE",
+    "STARTUP_FAILURE",
+    "STALE",
+    "TIMED_OUT",
+}
 
 
 SCRATCH_RESOLVER = (
@@ -147,20 +155,29 @@ def inspect_pr_status(pr_item, repo="jleechanorg/worldarchitect.ai"):
         if name in ADVISORY_CHECKS:
             continue
         required_check_count += 1
+        typename = c.get("__typename")
         state = (c.get("state") or "").upper()
         status = (c.get("status") or "").upper()
         conclusion = (c.get("conclusion") or "").upper()
 
-        if c.get("__typename") == "StatusContext":
+        if typename == "StatusContext":
             if state in {"ERROR", "FAILURE"}:
                 failed_checks.append(name)
-            elif state != "SUCCESS":
+            elif state == "SUCCESS":
+                continue
+            else:
                 pending_checks.append(name)
-        elif c.get("__typename") == "CheckRun":
-            if status != "COMPLETED":
-                pending_checks.append(name)
-            elif conclusion not in ["SUCCESS", "NEUTRAL", "SKIPPED"]:
+        elif typename == "CheckRun":
+            if status == "COMPLETED" and conclusion in ["SUCCESS", "NEUTRAL", "SKIPPED"]:
+                continue
+            if status == "COMPLETED" and conclusion in FAILED_CHECK_CONCLUSIONS:
                 failed_checks.append(name)
+            else:
+                pending_checks.append(name)
+        else:
+            # GitHub can add union variants, and malformed fixtures can omit the
+            # discriminator. Unknown evidence is incomplete, never green.
+            pending_checks.append(name)
 
     if not required_check_count:
         pending_checks.append("no required checks reported")

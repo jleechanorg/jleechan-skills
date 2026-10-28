@@ -148,7 +148,7 @@ fetch.execute()
 BRANCH_NAME=$(git branch --show-current | tr -cd '[:alnum:]._-')
 REPO_NAME=$(basename "$(git rev-parse --show-toplevel)" | tr -cd '[:alnum:]._-')
 # Use copilot subdirectory for all copilot workflow files (see ~/.claude/skills/scratch-space/SKILL.md)
-COPILOT_DIR="$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh tmp)/$REPO_NAME/$BRANCH_NAME/copilot"
+COPILOT_DIR="$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh)/$REPO_NAME/$BRANCH_NAME/copilot"
 COMMENTS_FILE="$COPILOT_DIR/comments.json"
 # REV-qcu3t-counting: Also read responses.json for standardized counts
 RESPONSES_FILE="$COPILOT_DIR/responses.json"

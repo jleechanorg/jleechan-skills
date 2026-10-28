@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -65,11 +66,69 @@ class ScratchRoutingContracts(unittest.TestCase):
         self.assertEqual(result["category"], "CLEAN_GREEN")
         self.assertEqual(result["pending_checks"], [])
 
+    def test_luna_rejects_unknown_or_incomplete_required_entries(self):
+        entries = [
+            {"name": "missing-type", "status": "COMPLETED", "conclusion": "SUCCESS"},
+            {"__typename": "UnknownUnion", "name": "unknown-type", "status": "IN_PROGRESS"},
+            {"__typename": "StatusContext", "name": "missing-state"},
+            {"__typename": "CheckRun", "name": "missing-status", "conclusion": "SUCCESS"},
+            {"__typename": "CheckRun", "name": "unknown-conclusion",
+             "status": "COMPLETED", "conclusion": ""},
+        ]
+        for entry in entries:
+            with self.subTest(entry=entry):
+                payload = {
+                    "mergeable": "MERGEABLE",
+                    "mergeStateStatus": "CLEAN",
+                    "statusCheckRollup": [entry],
+                    "files": [],
+                }
+                with mock.patch.object(audit_prs, "run_cmd", return_value=json.dumps(payload)):
+                    result = audit_prs.inspect_pr_status({"number": 9})
+                self.assertEqual(result["category"], "PENDING_OR_BLOCKED")
+                self.assertIn(entry["name"], result["pending_checks"])
+
+    def test_luna_accepts_both_github_check_union_variants(self):
+        entries = [
+            {"__typename": "StatusContext", "name": "status-context",
+             "state": "SUCCESS"},
+            {"__typename": "CheckRun", "name": "check-run",
+             "status": "COMPLETED", "conclusion": "SUCCESS"},
+        ]
+        for entry in entries:
+            with self.subTest(entry=entry):
+                payload = {
+                    "mergeable": "MERGEABLE",
+                    "mergeStateStatus": "CLEAN",
+                    "statusCheckRollup": [entry],
+                    "files": [],
+                }
+                with mock.patch.object(audit_prs, "run_cmd", return_value=json.dumps(payload)):
+                    result = audit_prs.inspect_pr_status({"number": 10})
+                self.assertEqual(result["category"], "CLEAN_GREEN")
+                self.assertEqual(result["pending_checks"], [])
+
+    def test_luna_keeps_unknown_merge_states_pending(self):
+        for merge_state in ("BLOCKED", "UNKNOWN"):
+            with self.subTest(merge_state=merge_state):
+                payload = {
+                    "mergeable": "MERGEABLE",
+                    "mergeStateStatus": merge_state,
+                    "statusCheckRollup": [
+                        {"__typename": "CheckRun", "name": "required-ci",
+                         "status": "COMPLETED", "conclusion": "SUCCESS"}
+                    ],
+                    "files": [],
+                }
+                with mock.patch.object(audit_prs, "run_cmd", return_value=json.dumps(payload)):
+                    result = audit_prs.inspect_pr_status({"number": 11})
+                self.assertEqual(result["category"], "PENDING_OR_BLOCKED")
+
     def test_comment_fetch_and_reply_roundtrip_uses_same_non_tmp_root(self):
         with tempfile.TemporaryDirectory(dir="/var/tmp") as directory:
-            root = Path(directory) / "canonical-scratch"
+            root = (Path(directory) / "canonical-scratch").resolve()
             root.mkdir()
-            with mock.patch.object(scratch_paths, "resolve_scratch_root", return_value=root),                  mock.patch.object(commentreply, "resolve_scratch_root", return_value=root),                  mock.patch.object(commentfetch.CommentFetch, "_get_pr_author", return_value=None),                  mock.patch.object(
+            with mock.patch.object(scratch_paths, "resolve_scratch_root", return_value=root),                  mock.patch.object(commentfetch.CommentFetch, "_get_pr_author", return_value=None),                  mock.patch.object(
                      commentfetch.subprocess,
                      "run",
                      return_value=subprocess.CompletedProcess(
@@ -85,11 +144,71 @@ class ScratchRoutingContracts(unittest.TestCase):
             fetcher.cache_dir.mkdir(parents=True, exist_ok=True)
             responses = fetcher.cache_dir / "responses.json"
             responses.write_text(json.dumps({"responses": [{"comment_id": 1, "response": "fixed"}]}))
-            with mock.patch.object(commentreply, "resolve_scratch_root", return_value=root):
+            with mock.patch.object(scratch_paths, "resolve_scratch_root", return_value=root):
                 loaded = commentreply.load_claude_responses("feature/roundtrip", "jleechan-skills")
             self.assertEqual(loaded["responses"][0]["comment_id"], 1)
             self.assertTrue(str(fetcher.cache_dir).startswith(str(root)))
             self.assertFalse(str(fetcher.cache_dir).startswith("/tmp/"))
+
+    def test_comment_docs_use_the_producer_path_and_response_filename(self):
+        docs = [
+            ROOT / ".claude/skills/commentcheck/SKILL.md",
+            ROOT / ".claude/skills/commentfetch/SKILL.md",
+            ROOT / ".claude/skills/commentreply/SKILL.md",
+        ]
+        for doc in docs:
+            content = doc.read_text()
+            self.assertNotIn("scratch-dir.sh tmp", content)
+            self.assertIn("scratch-dir.sh", content)
+        reply_doc = (ROOT / ".claude/skills/commentreply/SKILL.md").read_text()
+        self.assertIn("responses.json", reply_doc)
+        self.assertNotIn("replies.json", reply_doc)
+
+        with tempfile.TemporaryDirectory(dir="/var/tmp") as directory:
+            fixture = Path(directory).resolve()
+            home = fixture / "home"
+            resolver = home / ".claude/skills/scratch-space/scripts/scratch-dir.sh"
+            resolver.parent.mkdir(parents=True)
+            resolver.write_text(f"#!/bin/sh\nprintf '%s\\n' {fixture / 'scratch'}\n")
+            resolver.chmod(0o755)
+            repo_name = "jleechan-skills"
+            branch_name = "feature-roundtrip"
+            reader_line = next(
+                line.strip()
+                for line in (ROOT / ".claude/skills/commentfetch/SKILL.md").read_text().splitlines()
+                if line.strip().startswith("COPILOT_DIR=")
+            )
+            result = subprocess.run(
+                ["bash", "-c", f"REPO_NAME={repo_name} BRANCH_NAME={branch_name}\n{reader_line}\nprintf '%s' \"$COPILOT_DIR\""],
+                env={**os.environ, "HOME": str(home)},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            expected = fixture / "scratch" / repo_name / branch_name / "copilot"
+            self.assertEqual(Path(result.stdout), expected)
+
+    def test_comment_paths_fail_closed_for_resolver_and_symlink_escape(self):
+        with mock.patch.object(
+            scratch_paths,
+            "resolve_scratch_root",
+            side_effect=RuntimeError("configured Scratch unavailable"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "configured Scratch unavailable"):
+                scratch_paths.copilot_cache_dir("repo", "branch")
+            with self.assertRaisesRegex(RuntimeError, "configured Scratch unavailable"):
+                commentfetch.CommentFetch("42", "owner/repo")
+
+        with tempfile.TemporaryDirectory(dir="/var/tmp") as directory:
+            root = (Path(directory) / "canonical-scratch").resolve()
+            root.mkdir()
+            outside = (Path(directory) / "outside").resolve()
+            outside.mkdir()
+            (root / "repo").symlink_to(outside, target_is_directory=True)
+            with mock.patch.object(scratch_paths, "resolve_scratch_root", return_value=root):
+                with self.assertRaisesRegex(RuntimeError, "escaped canonical Scratch root"):
+                    scratch_paths.copilot_cache_dir("repo", "branch")
 
     def test_web_advice_smoke_stops_on_configured_resolver_failure(self):
         script = ROOT / ".claude/skills/web-advice/scripts/e2e_smoke.sh"
@@ -119,6 +238,38 @@ class ScratchRoutingContracts(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("configured Scratch unavailable", result.stderr)
 
+    def test_web_advice_smoke_falls_back_from_aside_to_chrome(self):
+        script = ROOT / ".claude/skills/web-advice/scripts/e2e_smoke.sh"
+        with tempfile.TemporaryDirectory(dir="/var/tmp") as directory:
+            root = Path(directory).resolve()
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            aside = fake_bin / "aside"
+            aside.write_text("#!/bin/sh\necho aside unavailable >&2\nexit 1\n")
+            aside.chmod(0o755)
+            chrome = fake_bin / "google-chrome"
+            chrome.write_text("#!/bin/sh\nprintf '%s\\n' '<title>Example Domain</title>'\n")
+            chrome.chmod(0o755)
+            claude_home = root / "claude"
+            resolver = claude_home / "skills/scratch-space/scripts/scratch-dir.sh"
+            resolver.parent.mkdir(parents=True)
+            resolver.write_text(f"#!/bin/sh\nprintf '%s\\n' {root / 'scratch'}\n")
+            resolver.chmod(0o755)
+            (root / "scratch").mkdir()
+            result = subprocess.run(
+                ["bash", str(script)],
+                env={
+                    **os.environ,
+                    "PATH": f"{fake_bin}:/usr/bin:/bin",
+                    "CLAUDE_HOME": str(claude_home),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Aside REPL browser: DOWN", result.stdout)
+        self.assertIn("Chrome headless browser: UP", result.stdout)
 
 if __name__ == "__main__":
     unittest.main()
