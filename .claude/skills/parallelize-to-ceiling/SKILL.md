@@ -13,10 +13,14 @@ For ANY work with independent items, the speed ceiling is the workload's
 **real resource bound** — per-item CPU / IO / network, or per-machine
 capacity — NOT an arbitrary worker count and NOT "one at a time."
 
-When a full set of N items can run concurrently, run **all N at once**;
-**scale across eligible machines/containers rather than serialize onto fewer.**
-Use already available, authorized capacity by default; greater demand does
-not authorize provisioning or additional spend.
+When N independent items fit within the current host's measured task-specific
+capacity, run **all N at once on that host**. Prefer the current host when it is
+eligible and has headroom. Add another eligible machine/container only when the
+current host cannot safely admit the work under the host-specific rules in
+`references/host-load-balancing.md`, or another measured constraint makes it
+ineligible; a remote host having more idle CPU by itself is not a reason to
+transfer. Use already available, authorized capacity by default; greater demand
+does not authorize provisioning or additional spend.
 
 Serialize only with a named determinism/corruption constraint. A driver that
 only supports serial for parallelizable work is **fixable tooling debt**, not
@@ -25,16 +29,17 @@ the answer.
 This applies to local CLI work and to remote/distributed compute equally, to
 one-off scripts and to production pipelines alike.
 
-`/parallel` means **maximum parallelism**: when invoked, schedule every step
-from its true dependencies, not from list order, and overlap everything that
-can overlap. A step waits only on outputs it actually consumes. Read-only
-verification (reviews, audits, evidence checks) never blocks a reversible
-action (push, CI start, preview deploy); run them side by side and handle a
-finding with a follow-up commit. Start the longest pole (CI, real-LLM runs,
-slow builds) as early as its inputs allow. Hand idle-capable work to every
-available lane (subagents, CLI delegates, the dot) instead of queueing it
-behind your own turn. Merges, force-pushes, and destructive actions keep
-their own gates and are never "overlapped" past them.
+`/parallel` means **maximum parallelism within measured eligible capacity**:
+when invoked, schedule every step from its true dependencies, not from list
+order, and overlap everything that fits the current host's safe resource bound.
+A step waits only on outputs it actually consumes. Read-only verification
+(reviews, audits, evidence checks) never blocks a reversible action (push, CI
+start, preview deploy); run them side by side and handle a finding with a
+follow-up commit. Start the longest pole (CI, real-LLM runs, slow builds) as
+early as its inputs allow. Hand idle-capable work to available lanes up to that
+bound; use another host only under the selection rules above. Merges,
+force-pushes, and destructive actions keep their own gates and are never
+"overlapped" past them.
 
 Every subagent or lane launched under `/parallel` drives its unit to done:
 implement, verify, and push or produce the artifact. It does not return a
@@ -53,6 +58,9 @@ planning, handoff, and execution authorization boundaries.
 
 For cross-host CPU, RAM, disk, and I/O measurements and safe routing, follow
 [`references/host-load-balancing.md`](references/host-load-balancing.md).
+For Linux transfer, follow `~/.claude/skills/lm/SKILL.md`;
+for existing cmux Cloud capacity, follow
+`~/.claude/skills/cc/SKILL.md`.
 
 1. **Enumerate the independent items.** Rows, files, tests, migrations, doc
    sections, instances, jobs, agent lanes. If items share mutable state, they
@@ -61,16 +69,22 @@ For cross-host CPU, RAM, disk, and I/O measurements and safe routing, follow
    heavy (self-saturates a machine: many cores, large memory, or long
    runtime). Measure with a quick probe; don't guess.
 3. **Pick the parallelism unit.**
-   - **Machine-level sharding is primary** — split the item set into disjoint
-     shards across every available machine/container. This is the biggest,
-     safest win.
-   - **Within a machine, run light items to machine concurrency** (cores /
-     per-item cores). Heavy items get their own machine — a high
-     `--max-workers` can't make a CPU-saturated item faster and just thrashes.
-4. **Scale across eligible capacity.** If N items are independent, use each
-   suitable, already available and authorized host. If the ideal needs more
-   capacity than is available, report that gap; do not provision machines or
-   incur new spend without separate authorization.
+   - **Current-host-first for host selection.** Keep work on the current host
+     when it is eligible and has task-specific headroom. Do not move work just
+     because another host has more idle CPU. Within the current host, run light
+     items to measured machine concurrency (cores / per-item cores); heavy
+     items get a machine where they will not contend with another self-saturating
+     workload.
+   - **Shard across hosts when needed.** Split independent items across other
+     suitable, already available and authorized hosts when current-host CPU is
+     highly used for the workload under the host-specific thresholds in
+     `references/host-load-balancing.md`, or another measured constraint makes
+     the current host ineligible. A comparative idle-CPU ranking alone is not
+     a reason to transfer.
+4. **Scale across eligible capacity.** Use current-host headroom first, then
+   eligible remote capacity when the current host cannot safely admit the work.
+   If the ideal needs more capacity than is available, report that gap; do not
+   provision machines or incur new spend without separate authorization.
 5. **Prove the concurrency** by sampling live CPU idle and process/container
    counts, not by trusting the flag or load average. A passed `--max-workers N`
    that yields
@@ -81,13 +95,16 @@ For cross-host CPU, RAM, disk, and I/O measurements and safe routing, follow
 
 | Item profile | Per-machine concurrency | Parallelism unit | Why |
 |---|---|---|---|
-| Light (small tests, quick scripts, transforms) | ~4–6 on an 8-core machine | shard across machines + workers/machine | each uses ~1–2 cores |
+| Light (small tests, quick scripts, transforms) | ~4–6 on an 8-core machine | workers on current host first; add hosts only when its safe capacity is full | each uses ~1–2 cores |
 | Heavy CPU (big builds, ML training, large test suites) | 1 (self-saturates the cores) | **its own machine** | self-parallelizes; a worker flag can't help |
 | IO/network-bound (API sweeps, fetches, downloads) | high (10s) | workers, not machines | CPU idle; bound is latency/rate-limit |
 | Memory-bound | per host's RAM admission tier | fewer per machine | measure available RAM and current RSS |
 
 ## Worked example (a gold-test preflight across 4 machines)
 
+- **Capacity boundary:** This example assumes a measured safe per-host capacity
+  of 6 light rows; other machines take the remaining independent rows only
+  after the current host reaches that bound, not just because they are quieter.
 - **Bug:** a sharded preflight passed `--max-workers 1` → each of 4 machines
   ran its ~8 rows **serially** → 4 concurrent total, ~7 min wall-time.
 - **Token fix:** `--max-workers 3` → 6 concurrent.
@@ -104,9 +121,10 @@ For cross-host CPU, RAM, disk, and I/O measurements and safe routing, follow
   measured per-item bound. Ask: what does one item actually use?
 - **The passed-flag mirage.** `--max-workers 4` passed but 1 worker running
   (a hidden lock / saturated resource / serial driver). Measure live.
-- **Ignoring eligible capacity.** "I have 4 machines so I'll run 4 at a time"
-  when independent work fits more workers on those hosts — measure the bound
-  and fill the capacity already authorized.
+- **Ignoring eligible capacity.** Underfilling the current host when independent
+  work fits more workers there — measure the bound and use its safe capacity
+  first; add remote capacity only when that bound is full or another measured
+  constraint excludes the current host.
 - **Broad-parallel without isolation.** Parallel writers sharing a mutable
   file/db → the real failure is the shared state, not the parallelism. Give
   each worker a disjoint workspace/output; single-writer for any merged
@@ -169,8 +187,9 @@ Before spawning any new lane, subprocess fleet, or CLI delegation:
    a foreground fork pins the parent at the worst possible moment.
 6. **Cap concurrent pytest lanes** in gRPC-loaded repos (macOS
    fork-unsafety: "multi-threaded process forked" SIGTRAP storms). 2-3
-   lanes max per host unless measured safe; prefer sharding across
-   machines.
+   lanes max per host unless measured safe; fill the current host's safe
+   capacity first, then shard across machines only when that bound is full or
+   another measured constraint makes the current host ineligible.
 7. **Watch delegate RSS.** A CLI delegate above ~2-3GB RSS is itself a
    heavy item — one per machine, per the resource-bound table.
 
@@ -300,9 +319,7 @@ If `gpt-6-luna` is unavailable or fails, use the active GPT 6 / 6.1 tier
 
 ## One-line form (for config files)
 
-> Parallelize independent work to its measured resource bound; shard across
-> suitable, already available and authorized capacity rather than serialize.
-> Provisioning or new spend requires separate authorization.
+> Parallelize independent work up to the current host's measured safe resource bound first; add suitable, already available and authorized hosts only when that bound is full or another measured constraint excludes the current host; do not transfer solely for comparative idle CPU. Provisioning or new spend requires separate authorization.
 
 ## Quick diagnostic — "why is it slow?"
 
@@ -317,9 +334,12 @@ Run this in order; stop at the first that explains it:
    and inspect live RSS. Load average alone is not a saturation verdict.
 4. **Is the per-item bound actually IO/network?** Workers/machine can go high
    (10s); the ceiling is rate limits, not cores.
-5. **Are you using eligible capacity?** Route to suitable hosts already
-   available and authorized. Additional provisioning or spend needs separate
-   authorization; don't serialize work that fits existing headroom.
+5. **Are you using eligible capacity?** Fill the current host's safe measured
+   capacity first. Route remaining independent work to another suitable,
+   already available and authorized host only when that bound is full or
+   another measured constraint excludes the current host; do not transfer just
+   because another host has more idle CPU. Additional provisioning or spend
+   needs separate authorization.
 
 ## Resource admission gate (macOS) — command source of truth
 
