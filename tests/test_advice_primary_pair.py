@@ -9,6 +9,7 @@ import io
 import os
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
@@ -37,6 +38,47 @@ def load_runner_module():
 
 def run(*args: str, cwd: Path | None = None, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     return subprocess.run(args, cwd=cwd, env=env, text=True, capture_output=True, check=False)
+
+
+class ReviewerProcessTest(unittest.TestCase):
+    def test_reviewer_receives_eof_while_parent_stdin_remains_open(self) -> None:
+        child = (
+            "import importlib.util, sys\n"
+            f"spec = importlib.util.spec_from_file_location('runner', {str(SCRIPT)!r})\n"
+            "runner = importlib.util.module_from_spec(spec); spec.loader.exec_module(runner)\n"
+            "result = runner.execute([sys.executable, '-c', "
+            "'import sys; sys.stdin.read(); print(\"EOF\")'], '.', 'review', 1, 0.2)\n"
+            "print('RESULT', result[0], result[1].strip(), result[3], flush=True)\n"
+        )
+        parent = subprocess.Popen(
+            [sys.executable, "-c", child],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            parent.wait(timeout=8)
+            output = parent.stdout.read()
+            error = parent.stderr.read()
+            self.assertEqual(parent.returncode, 0, error)
+            self.assertIn("RESULT 0 EOF False", output)
+        finally:
+            if parent.poll() is None:
+                parent.kill()
+                parent.wait(timeout=2)
+            parent.stdin.close()
+            parent.stdout.close()
+            parent.stderr.close()
+
+    def test_process_snapshot_allows_ten_seconds_for_ps(self) -> None:
+        runner = load_runner_module()
+        result = subprocess.CompletedProcess(
+            ["ps"], 0, stdout=" 123 1 Mon Oct 25 00:00:00 2026\n", stderr=""
+        )
+        with mock.patch.object(runner.subprocess, "run", return_value=result) as ps:
+            self.assertEqual(runner.process_snapshot(), {123: (1, "Mon Oct 25 00:00:00 2026")})
+        self.assertEqual(ps.call_args.kwargs["timeout"], 10.0)
 
 
 class PrimaryPairTest(unittest.TestCase):
