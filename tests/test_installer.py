@@ -957,6 +957,23 @@ class InstallerIntegrationTest(unittest.TestCase):
             self.assertTrue((target / "skills/example/SKILL.md").is_file(), output)
             self.assertIn("Installation complete", output)
 
+    def test_migrate_archives_keeps_skills_the_source_still_ships_active(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            stale = fixture / ".claude/skills_archive/legacy-pre/packages/example/SKILL.md"
+            stale.parent.mkdir(parents=True)
+            stale.write_text("# stale copy\n", encoding="utf-8")
+            target = temp_dir / "claude-home"
+            first = self.run_installer(fixture, target)
+            self.assertEqual(first.returncode, 0, first.stderr + first.stdout)
+
+            result = self.run_installer(fixture, target, "--merge", "--migrate-archives")
+
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertEqual((target / "skills/example/SKILL.md").read_text(encoding="utf-8"), "# Skill\n")
+            self.assertFalse((target / "skills_archive/legacy-pre/packages/example").exists())
+
     def test_merge_rejects_duplicate_archive_mappings_before_copy(self):
         with tempfile.TemporaryDirectory() as directory:
             temp_dir = Path(directory)

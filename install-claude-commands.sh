@@ -387,6 +387,8 @@ prepare_archive_migration_on_merge() {
             relative_package="${package_path#"$archive_group"/}"
             package_name="$(basename "$package_path")"
             is_protected_entry skills "$package_name" && continue
+            # A skill the source still ships active is not retired, whatever a stale archive copy says.
+            [ -f "$SRC_SKILLS_DIR/$package_name/SKILL.md" ] && continue
             active_path="$CLAUDE_HOME/skills/$package_name"
             path_exists "$active_path" || continue
             archive_path="$CLAUDE_HOME/skills_archive/$archive_name/$relative_package"
