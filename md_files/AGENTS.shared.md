@@ -260,6 +260,17 @@ explicit contract; CodeRabbit and Bugbot never substitute for either. Detail:
 `~/.claude/skills/pr-lifecycle/SKILL.md` section "CodeRabbit/Bugbot - optional advisory
 reviewers" and `~/.claude/skills/green/SKILL.md`.
 
+### PR-review priority and merge blocking
+
+When reviewing a PR, use **P0 only for merge-blocking findings**. Every finding
+that blocks merge must be P0 and explain the concrete failure, the violated
+acceptance requirement, and the verification needed to clear it. Use **P1 or
+lower for nonblocking findings**; record them proactively in Beads and do not
+hold the merge for them. Do not promote a finding to P0 merely to justify a
+hold. Apply this convention consistently in review reports, Beads, and review
+gate verdicts; do not use a conflicting generic severity scale. Required CI,
+evidence, and merge-authorization gates remain separate from finding priority.
+
 ### Provider and credential state — resolve locally, never from a dated snapshot
 The active provider lane, its current quota status, its model slugs, and the presence of any credential file or environment variable are host-local and time-sensitive. Discover them from the owning local configuration or skill — the active `CODEX_HOME/config.toml`, `~/.claude/skills/hermes-models/SKILL.md`, or the repository's LLM service — before spawning lanes. Do not encode a dated outage as a permanent routing override, and do not assume a specific credential file or environment variable exists. Route only through an explicitly authorized provider; this creates no new provider or credential authority. Resource and concurrency safety still apply: `~/.claude/skills/parallelize-to-ceiling/SKILL.md`. Fleet mechanics, when used, stay with the owning skill.
 
