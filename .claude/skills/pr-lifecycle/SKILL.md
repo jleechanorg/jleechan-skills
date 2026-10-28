@@ -317,9 +317,9 @@ the default when the repo defines none, alongside the explicit trivial-change ex
 merge, review, evidence, or security rules, or to security, permission,
 credential, or merge-path code.
 
-1. **`/es`** — evidence bundle passes (real evidence per `~/.claude/skills/evidence-standards/SKILL.md` + repo-specific extensions), bound to its original tested SHA and supported as applicable to the candidate by the delta assessment below.
+1. **`/es`** — evidence bundle passes (real evidence per `../evidence-standards/SKILL.md` + repo-specific extensions), bound to its original tested SHA and supported as applicable to the candidate by the delta assessment below.
 2. **`/er`** — for every PR except the documentation-only class below or a repo-exempted class, and except the explicit trivial-change class above, evidence review verdict is PASS (not PARTIAL/FAIL/INCONCLUSIVE), with its original reviewed/tested SHAs and a reasoned applicability assessment for the candidate; an older `/es` SHA alone does not require a rerun.
-3. **`/advice`** — second-opinion approval on the change itself (`APPROVED at <SHA>` / `NOT APPROVED at <SHA>` / `WITHHELD at <SHA>` — see `~/.claude/skills/advice/SKILL.md`), bound to its actual reviewed SHA and applicable to the candidate by the delta assessment, when required by Advice applicability. `WITHHELD` does not satisfy the draft gate.
+3. **`/advice`** — second-opinion approval on the change itself (`APPROVED at <SHA>` / `NOT APPROVED at <SHA>` / `WITHHELD at <SHA>` — see `../advice/SKILL.md`), bound to its actual reviewed SHA and applicable to the candidate by the delta assessment, when required by Advice applicability. `WITHHELD` does not satisfy the draft gate.
 4. **`/visual-verification`** — applies when the PR **publishes** any screenshot, GIF or video, or when the PR
    **claims** a rendered, interaction or displayed-data effect that media would evidence. It does **not** apply to a
    source-literal-only claim (copy, log or alert text inspected in source) that publishes no media: those keep the
@@ -346,7 +346,7 @@ Only after every applicable gate is satisfied **for the candidate**, with origin
 
 ### Documentation-only CI exception
 
-Documentation-only changes, including instruction/skill documentation, do not require CI or waiting for runners. Apply `~/.claude/skills/pr-green-definition/SKILL.md` § Documentation-only CI exception for scope, proportionate local validation, and SHA-bound reporting. That exception is independent of the narrower `/er` allowlist below; it does not remove applicable draft-phase gates, conflict checks, or merge authorization.
+Documentation-only changes, including instruction/skill documentation, do not require CI or waiting for runners. Apply `../pr-green-definition/SKILL.md` § Documentation-only CI exception for scope, proportionate local validation, and SHA-bound reporting. That exception is independent of the narrower `/er` allowlist below; it does not remove applicable draft-phase gates, conflict checks, or merge authorization.
 
 ### Documentation-only `/er` exception (narrow allowlist)
 
@@ -440,8 +440,8 @@ mixed diff uses the normal `/er` gate unless the entire diff independently quali
 Initial gate applicability follows the rules above. For a later delta, read the
 full change and identify which claims, contracts, assertions, or drivers it can
 invalidate before choosing full re-review versus focused reaffirmation. Use
-`~/.claude/skills/4layer/SKILL.md` (`/4layer`) and
-`~/.claude/skills/testing-layers/SKILL.md`, plus the repository testing-layers
+`../4layer/SKILL.md` (`/4layer`) and
+`../testing-layers/SKILL.md`, plus the repository testing-layers
 overlay, to select the lowest sufficient layer. Evidence classification (`/es`)
 does not by itself require a paid model call or browser run.
 
@@ -554,7 +554,7 @@ retrying. Optional/skipped reviews are recorded honestly without fabricated gist
 Documentation-only changes use the CI exception immediately; the ten-minute threshold below applies only to changes that require CI.
 
 **CI that does not exist is not CI to wait on.** Apply the canonical
-`~/.claude/skills/pr-green-definition/SKILL.md` § No-CI exception only after
+`../pr-green-definition/SKILL.md` § No-CI exception only after
 recording the bounded workflow/path applicability or eligible-runner-capacity
 evidence it requires. If that evidence cannot establish a qualifying
 exception, leave Gate 1 unproven. For a qualifying exception, record
@@ -563,7 +563,7 @@ run the documented bounded local equivalent when one exists; otherwise leave
 the result unproven. Never replace this with `sleep N` + `gh pr checks`, and
 never call unrun CI passed.
 
-For checks queued/pending more than 10 minutes, follow the local-equivalent exception in `~/.claude/skills/pr-green-definition/SKILL.md`: run the workflow's actual command and post current-head proof. Passing local equivalents satisfy Gate 1 for backlogged checks; remote completion is not required for those checks. Failed checks, no-conflict verification, and merge authorization remain separate requirements.
+For checks queued/pending more than 10 minutes, follow the local-equivalent exception in `../pr-green-definition/SKILL.md`: run the workflow's actual command and post current-head proof. Passing local equivalents satisfy Gate 1 for backlogged checks; remote completion is not required for those checks. Failed checks, no-conflict verification, and merge authorization remain separate requirements.
 
 ## CodeRabbit/Bugbot — optional advisory reviewers
 

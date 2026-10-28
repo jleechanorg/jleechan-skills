@@ -35,7 +35,7 @@ Each UI evidence run must provide:
 
 Before choosing how to capture evidence, check whether the target repo has its
 own browser-execution owner (e.g. `testing_ui/CLAUDE.md`,
-`~/.claude/skills/browser-testing/SKILL.md`). If a scoped owner exists and
+`../browser-testing/SKILL.md`). If a scoped owner exists and
 forbids headed/manual capture or Claude-in-Chrome, its policy wins — use its
 designated headless tool (Aside CLI/`aside-mcp`, or headless Playwright). Do
 not escalate to a native-chrome/manual-capture requirement, and do not ask for
@@ -55,7 +55,7 @@ documented as blocked.
 ## Recording Options
 
 ### Option 1: Scoped headless driver (Aside / Playwright) — DEFAULT
-Follow `~/.claude/skills/browser-testing/SKILL.md`: drive the browser headlessly
+Follow `../browser-testing/SKILL.md`: drive the browser headlessly
 via Aside CLI/`aside-mcp` or headless Playwright, log the navigated URL/route to
 the terminal or an overlay, and record with the scoped repo's own recorder
 (e.g. `testing_ui/streaming/base.py` `UIVideoRecorder`) or `ffmpeg` (Option 3).
@@ -84,11 +84,11 @@ Accepted forms:
 1. Burned-in captions in the video (preferred)
 2. Sidecar caption file (`.vtt`/`.srt`) linked alongside the reviewed media artifacts
 
-Use `~/.claude/skills/video-caption/SKILL.md` for reliable burned-in captions.
+Use `../video-caption/SKILL.md` for reliable burned-in captions.
 
 ## Evidence access and authorized publication
 
-Follow `~/.claude/skills/evidence-standards/SKILL.md` for publication authority, audience, and destination. A PR, checked-in document, access-controlled receipt/store, or authorized gist may link the evidence. For PRs governed by pr-lifecycle, its review receipts belong in the PR description; opted-in repositories also link every stage-exit receipt through its required sanitized gist URL. Applicable inline viewable media and original media URLs are required there. Other authorized artifact storage does not remove that description/publication requirement. Preserve real media, captions, exact source provenance, and reviewer access; publish only within the current authorization.
+Follow `../evidence-standards/SKILL.md` for publication authority, audience, and destination. A PR, checked-in document, access-controlled receipt/store, or authorized gist may link the evidence. For PRs governed by pr-lifecycle, its review receipts belong in the PR description; opted-in repositories also link every stage-exit receipt through its required sanitized gist URL. Applicable inline viewable media and original media URLs are required there. Other authorized artifact storage does not remove that description/publication requirement. Preserve real media, captions, exact source provenance, and reviewer access; publish only within the current authorization.
 
 The following GitHub release example applies only when that destination is authorized. Verify the intended PR exists via `gh pr view` before creating any release or upload. Caller must provide non-empty `VIDEO_FILE` and `PREVIEW_FILE` artifacts, an explicit non-empty `RUN_ID`, an explicit non-empty `CAPTURED_SHA` matching the PR head SHA, and declare an explicit caption choice: set `CAPTION_FILE` to the actual .vtt or .srt sidecar path, or set `CAPTION_MODE=burned` when captions are burned into the video. All media and subtitle formats are verified with ffprobe prior to archive creation and publication. Packaging creates a new archive in a private temporary directory so existing user archives are never overwritten or updated with stale entries. Each run publishes to an immutable unique release tag combining the PR number, commit SHA, and run identifier without overwriting or clobbering existing releases.
 
@@ -453,6 +453,41 @@ Rules:
 5. URL and route match claim
 6. Git SHA linkage is visible
 7. The reviewed evidence receipt includes matching metadata/caption artifacts
+8. Unique-frame count reported (see Frozen-frame detection); mostly-stills clips are INSUFFICIENT
+9. Each clip contains the user action itself plus the before state
+10. Before/after provenance is fresh runs of each build, or labeled `derived` with source
+11. `/er` and second-opinion (`advice` skill) verdicts come from an agent other than the evidence producer
+
+## Frozen-frame and slideshow detection (MANDATORY)
+
+Report the unique-frame count for every clip:
+
+```bash
+ffmpeg -i v.mp4 -vf mpdecimate -f null - 2>&1 | grep -o 'frame= *[0-9]*' | tail -1
+```
+
+A clip that is mostly a few stills (a slideshow of screenshots, or a frozen
+frame padded to length) is **INSUFFICIENT**, not just one with a blank first
+frame.
+
+## Action must be in the window (MANDATORY)
+
+Each clip must include the user action under test (for example the Send tap)
+and the before state that precedes it. A capture window anchored only to
+completion (e.g. trimmed to the DONE state) that omits the action fails.
+
+## Provenance of before/after clips (MANDATORY)
+
+Before and after clips must come from fresh runs of each build (baseline and
+candidate). Any re-cut, trimmed, or reused baseline clip must be labeled
+`derived` in its caption and receipt, with its source (original artifact URL,
+build SHA, and run). Unlabeled derived clips are INSUFFICIENT.
+
+## Reviewer independence
+
+`/er` and second-opinion (`advice` skill) verdicts on UI video evidence must come from an agent other
+than the one that produced the evidence. Self-review does not satisfy either
+gate.
 
 ## First-frame verification (MANDATORY)
 

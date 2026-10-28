@@ -152,6 +152,10 @@ For each applicable video requirement, verify:
 - The caption identifies the test/action, observed result, and tested SHA.
 - UI footage visibly shows the relevant element and before/action/after behavior.
 - Terminal footage, when required, shows the command and relevant result.
+- The unique-frame count (`ffmpeg -i v.mp4 -vf mpdecimate -f null -`) is reported; a clip that is mostly a few stills is **INSUFFICIENT**.
+- Each clip includes the user action (e.g. the Send tap) plus the before state; a window anchored only to completion that omits the action fails.
+- Before/after clips come from fresh runs of each build; any re-cut or reused baseline is labeled `derived` with its source.
+- This `/er` verdict (and any `/advice` on the evidence) comes from an agent other than the one that produced the evidence.
 
 A missing applicable artifact yields **PARTIAL**. Record inapplicable formats as
 N/A with a reason; do not impose terminal and browser video on every PR.
