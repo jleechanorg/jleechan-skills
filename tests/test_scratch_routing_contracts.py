@@ -190,6 +190,8 @@ class ScratchRoutingContracts(unittest.TestCase):
         commentcheck_doc = (ROOT / ".claude/skills/commentcheck/SKILL.md").read_text()
         self.assertIn("original comment IDs", commentcheck_doc)
         self.assertIn("attributable response", commentcheck_doc)
+        self.assertIn("generated intent only", commentcheck_doc)
+        self.assertIn("POSTED_REPLY_IDS", commentcheck_doc)
         self.assertNotIn("length > 50", commentcheck_doc)
         self.assertNotIn("Thank you CodeRabbit", commentcheck_doc)
 
@@ -342,6 +344,64 @@ class ScratchRoutingContracts(unittest.TestCase):
             self.assertEqual(game.returncode, 75)
             self.assertFalse(mktemp_marker.exists())
 
+    def test_commentcheck_coverage_requires_posted_readback(self):
+        document = (ROOT / ".claude/skills/commentcheck/SKILL.md").read_text()
+        start = document.index("# Step 2C: Mechanical original-ID coverage")
+        end = document.index("\n```", start)
+        step = document[start:end]
+
+        def run_step(comments, responses):
+            with tempfile.TemporaryDirectory(dir="/var/tmp") as directory:
+                responses_path = Path(directory) / "responses.json"
+                responses_path.write_text(json.dumps({"responses": responses}))
+                return subprocess.run(
+                    ["bash", "-c", step],
+                    env={
+                        **os.environ,
+                        "ALL_COMMENTS": json.dumps(comments),
+                        "RESPONSES_FILE": str(responses_path),
+                    },
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+
+        original = {"id": 7, "body": "review point", "already_replied": False}
+        generated = [{"comment_id": 7, "reply_text": "generated but not posted"}]
+        unposted = run_step([original], generated)
+        self.assertNotEqual(unposted.returncode, 0)
+        self.assertIn("Missing original comment ID: 7", unposted.stdout)
+
+        posted = run_step(
+            [{"id": 7, "body": "review point", "already_replied": True}],
+            generated,
+        )
+        self.assertEqual(posted.returncode, 0, posted.stdout + posted.stderr)
+
+        partial = run_step(
+            [
+                {"id": 7, "body": "review point", "already_replied": True},
+                {"id": 8, "body": "second point", "already_replied": False},
+            ],
+            generated,
+        )
+        self.assertNotEqual(partial.returncode, 0)
+        self.assertIn("Missing original comment ID: 8", partial.stdout)
+
+        summary = run_step(
+            [
+                {"id": 7, "body": "review point", "already_replied": False},
+                {"id": 8, "body": "second point", "already_replied": False},
+                {
+                    "id": 99,
+                    "body": "[AI responder] Summary [Comment #7] [Comment #8]",
+                    "already_replied": False,
+                },
+            ],
+            generated,
+        )
+        self.assertEqual(summary.returncode, 0, summary.stdout + summary.stderr)
+
     def test_web_advice_smoke_stops_on_configured_resolver_failure(self):
         script = ROOT / ".claude/skills/web-advice/scripts/e2e_smoke.sh"
         with tempfile.TemporaryDirectory(dir="/var/tmp") as directory:
@@ -440,9 +500,9 @@ class ScratchRoutingContracts(unittest.TestCase):
                 text=True,
                 check=False,
             )
-        self.assertEqual(result.returncode, 77, result.stderr)
-        self.assertIn("profile allocation failed", result.stderr)
-        self.assertFalse(marker.exists(), "Chrome must not run after profile allocation failure")
+            self.assertEqual(result.returncode, 77, result.stderr)
+            self.assertIn("profile allocation failed", result.stderr)
+            self.assertFalse(marker.exists(), "Chrome must not run after profile allocation failure")
 
 if __name__ == "__main__":
     unittest.main()

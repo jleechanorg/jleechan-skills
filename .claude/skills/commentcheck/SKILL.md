@@ -246,13 +246,15 @@ fi
 echo ""
 echo "🔍 ORIGINAL COMMENT ID COVERAGE (MECHANICAL ONLY):"
 
-# Coverage is bound to the original comment IDs fetched from GitHub.  A response
-# entry or a refreshed consolidated-summary receipt may prove attribution; the
-# model, not shell text matching, judges whether the response is technically good.
+# Coverage is bound to original comment IDs read back from GitHub.  The cached
+# response file is generated intent only; it cannot prove that a reply was
+# posted.  Existing commentfetch metadata (`already_replied`) or a refreshed
+# consolidated-summary comment body may prove posted attribution; the model,
+# not shell text matching, judges whether the response is technically good.
 ORIGINAL_IDS=$(echo "$ALL_COMMENTS" | jq -r '.[] | select((.body // "") | startswith("[AI responder]") | not) | .id | tostring' | sort -u)
-RESPONSE_IDS=$(jq -r '.responses[]? | (.comment_id // .original_comment_id // empty) | tostring' "$RESPONSES_FILE" 2>/dev/null | sort -u)
+POSTED_REPLY_IDS=$(echo "$ALL_COMMENTS" | jq -r '.[] | select((.body // "") | startswith("[AI responder]") | not) | select(.already_replied == true) | .id | tostring' | sort -u)
 POSTED_SUMMARY_IDS=$(echo "$ALL_COMMENTS" | jq -r '.[] | select((.body // "") | startswith("[AI responder]")) | .body' | grep -oE 'Comment #[0-9]+' | sed 's/[^0-9]//g' | sort -u || true)
-ATTRIBUTED_IDS=$(printf '%s\n%s\n' "$RESPONSE_IDS" "$POSTED_SUMMARY_IDS" | sed '/^$/d' | sort -u)
+ATTRIBUTED_IDS=$(printf '%s\n%s\n' "$POSTED_REPLY_IDS" "$POSTED_SUMMARY_IDS" | sed '/^$/d' | sort -u)
 MISSING_IDS=$(comm -23 <(printf '%s\n' "$ORIGINAL_IDS") <(printf '%s\n' "$ATTRIBUTED_IDS"))
 
 echo "   Original comment IDs: $(printf '%s\n' "$ORIGINAL_IDS" | sed '/^$/d' | wc -l | tr -d ' ')"
@@ -273,7 +275,7 @@ echo "ℹ️ Semantic response quality is an LLM judgment; this gate performs no
 ## Individual Comment Success Criteria (ZERO TOLERANCE)
 
 🚨 **✅ PASS REQUIREMENTS**:
-- Every original comment ID has an attributable structured response or refreshed consolidated-summary receipt.
+- Every original comment ID has a posted/read-back reply relationship or refreshed consolidated-summary receipt; generated response intent alone is insufficient.
 - Missing IDs are listed and cause a non-zero exit.
 - Bot and human comments are treated identically for mechanical coverage.
 - Semantic adequacy, resolution state, and professional tone are judged by the model from the actual response text.
