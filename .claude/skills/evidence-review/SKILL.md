@@ -157,7 +157,7 @@ A missing applicable artifact yields **PARTIAL**. Record inapplicable formats as
 N/A with a reason; do not impose terminal and browser video on every PR.
 
 **Video acceptance needs an independent content review.** When a video backs an
-acceptance claim, a reviewer other than the author or orchestrator must extract
+acceptance claim, an independent AI reviewer other than the author or orchestrator must extract
 frames from the published video itself (not the capture's own screenshots) and
 return, for each acceptance step, PASS/FAIL with the timestamp where it is
 visible. Privacy masking, decode/playback, upload read-back, captions, and
