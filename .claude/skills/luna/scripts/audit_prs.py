@@ -61,9 +61,51 @@ def _scratch_root() -> str:
 
 
 def get_luna_review_dir() -> str:
-    review_dir = f"{_scratch_root()}/worldarchitect.ai/luna-reviews"
-    os.makedirs(review_dir, exist_ok=True)
-    return review_dir
+    scratch_root = Path(_scratch_root()).resolve(strict=True)
+    review_dir = scratch_root / "worldarchitect.ai" / "luna-reviews"
+    resolved = review_dir.resolve(strict=False)
+    if os.path.commonpath((str(scratch_root), str(resolved))) != str(scratch_root):
+        raise RuntimeError("Luna review directory resolves outside Scratch")
+    review_dir.mkdir(parents=True, exist_ok=True)
+    resolved = review_dir.resolve(strict=True)
+    if os.path.commonpath((str(scratch_root), str(resolved))) != str(scratch_root):
+        raise RuntimeError("Luna review directory moved outside Scratch")
+    return str(resolved)
+
+
+def _safe_report_path(report_dir: str, filename: str) -> Path:
+    if Path(filename).name != filename:
+        raise RuntimeError("Luna report filename is not a leaf name")
+    scratch_root = Path(_scratch_root()).resolve(strict=True)
+    resolved_dir = Path(report_dir).resolve(strict=True)
+    if os.path.commonpath((str(scratch_root), str(resolved_dir))) != str(scratch_root):
+        raise RuntimeError("Luna report directory resolves outside Scratch")
+    report_path = resolved_dir / filename
+    if report_path.is_symlink():
+        raise RuntimeError("Luna report leaf is a symlink")
+    return report_path
+
+
+def _write_report_file(report_dir: str, filename: str, content: str) -> Path:
+    report_path = _safe_report_path(report_dir, filename)
+    directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    directory_fd = os.open(str(report_path.parent), directory_flags)
+    file_fd = None
+    try:
+        file_fd = os.open(
+            report_path.name,
+            os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0),
+            0o600,
+            dir_fd=directory_fd,
+        )
+        with os.fdopen(file_fd, "w") as report:
+            report.write(content)
+        file_fd = None
+    finally:
+        if file_fd is not None:
+            os.close(file_fd)
+        os.close(directory_fd)
+    return report_path
 
 
 def run_cmd(cmd, check=True, timeout=60):
@@ -210,12 +252,12 @@ def inspect_pr_status(pr_item, repo="jleechanorg/worldarchitect.ai"):
 
 def dispatch_review(pr_num, repo="jleechanorg/worldarchitect.ai"):
     report_dir = get_luna_review_dir()
+    report_name = f"PR_{pr_num}_review.md"
+    _safe_report_path(report_dir, report_name)
     diff = run_cmd(["gh", "pr", "diff", str(pr_num), "--repo", repo], check=False, timeout=90)
     if not diff:
         print(f"Error: could not fetch diff for PR #{pr_num}")
         return
-
-    report_file = os.path.join(report_dir, f"PR_{pr_num}_review.md")
 
     print(f"Running /luna fast diff triage via pil on PR #{pr_num}...")
     prompt = (
@@ -234,10 +276,13 @@ def dispatch_review(pr_num, repo="jleechanorg/worldarchitect.ai"):
     stdout, stderr = proc.communicate(input=diff)
     review_content = stdout.strip()
 
-    with open(report_file, "w") as f:
-        f.write(f"# /luna Triage Review: PR #{pr_num}\n\n")
-        f.write(f"Generated: {datetime.datetime.now(datetime.timezone.utc).isoformat()}\n\n")
-        f.write(review_content + "\n")
+    report_file = _write_report_file(
+        report_dir,
+        report_name,
+        f"# /luna Triage Review: PR #{pr_num}\n\n"
+        f"Generated: {datetime.datetime.now(datetime.timezone.utc).isoformat()}\n\n"
+        f"{review_content}\n",
+    )
 
     print(f"\n{review_content}\n")
     print(f"Review report saved to: {report_file}")
@@ -246,6 +291,8 @@ def dispatch_review(pr_num, repo="jleechanorg/worldarchitect.ai"):
 def review_single_pr(item, repo="jleechanorg/worldarchitect.ai", report_dir=None):
     report_dir = report_dir or get_luna_review_dir()
     pr_num = item["number"]
+    report_name = f"PR_{pr_num}_review.md"
+    _safe_report_path(report_dir, report_name)
     diff = run_cmd(["gh", "pr", "diff", str(pr_num), "--repo", repo], check=False, timeout=60)
     if not diff:
         item["review_summary"] = "• Core Purpose: Diff unavailable or branch deleted\n• Risks: None\n• Next Action: Check PR status on GitHub"
@@ -272,14 +319,16 @@ def review_single_pr(item, repo="jleechanorg/worldarchitect.ai", report_dir=None
     except Exception as e:
         review_text = f"• Review timed out or errored: {e}"
 
-    report_file = os.path.join(report_dir, f"PR_{pr_num}_review.md")
-    with open(report_file, "w") as f:
-        f.write(f"# Review for PR #{pr_num}: {item['title']}\n\n")
-        f.write(f"- Status: {item['category']}\n")
-        f.write(f"- Branch: {item['branch']}\n")
-        f.write(f"- Age: {item['age_hours']:.1f} hours\n")
-        f.write(f"- URL: {item['url']}\n\n")
-        f.write(review_text + "\n")
+    report_file = _write_report_file(
+        report_dir,
+        report_name,
+        f"# Review for PR #{pr_num}: {item['title']}\n\n"
+        f"- Status: {item['category']}\n"
+        f"- Branch: {item['branch']}\n"
+        f"- Age: {item['age_hours']:.1f} hours\n"
+        f"- URL: {item['url']}\n\n"
+        f"{review_text}\n",
+    )
 
     item["review_report_file"] = report_file
     item["review_summary"] = review_text
@@ -315,29 +364,31 @@ def main():
 
     if args.parallel:
         report_dir = get_luna_review_dir()
+        master_report_name = "MASTER_TRIAGE_REPORT.md"
+        _safe_report_path(report_dir, master_report_name)
         print(f"\nLaunching parallel tri-engine reviews across {len(audited)} PRs...")
         with ThreadPoolExecutor(max_workers=4) as pool:
             audited = list(pool.map(lambda p: review_single_pr(
                 p, repo=args.repo, report_dir=report_dir
             ), audited))
 
-        master_report = os.path.join(report_dir, "MASTER_TRIAGE_REPORT.md")
-        with open(master_report, "w") as f:
-            f.write(f"# /luna Master Stale PR Triage Report\n\n")
-            f.write(f"Generated: {datetime.datetime.now(datetime.timezone.utc).isoformat()}\n")
-            f.write(f"Audited: {len(audited)} PRs unmodified for >={args.hours} hours\n\n")
-
-            for cat, label in [("CI_FAILED", "🚨 CI FAILED"), ("CONFLICTING", "⚠️  CONFLICTING / DIRTY"), ("CLEAN_GREEN", "✅ CLEAN & ALL GREEN")]:
-                group = [p for p in audited if p["category"] == cat]
-                f.write(f"## {label} ({len(group)})\n\n")
-                for p in group:
-                    f.write(f"### PR #{p['number']}: {p['title']}\n")
-                    f.write(f"- **URL**: {p['url']}\n")
-                    f.write(f"- **Branch**: `{p['branch']}` | **Age**: {p['age_hours']:.1f}h\n")
-                    if p.get("failed_checks"):
-                        f.write(f"- **Failed Checks**: `{', '.join(p['failed_checks'])}`\n")
-                    f.write(f"- **Review Summary**:\n{p.get('review_summary', '')}\n")
-                    f.write(f"- **Detailed Report**: `{p.get('review_report_file', '')}`\n\n")
+        master_content = (
+            f"# /luna Master Stale PR Triage Report\n\n"
+            f"Generated: {datetime.datetime.now(datetime.timezone.utc).isoformat()}\n"
+            f"Audited: {len(audited)} PRs unmodified for >={args.hours} hours\n\n"
+        )
+        for cat, label in [("CI_FAILED", "🚨 CI FAILED"), ("CONFLICTING", "⚠️  CONFLICTING / DIRTY"), ("CLEAN_GREEN", "✅ CLEAN & ALL GREEN")]:
+            group = [p for p in audited if p["category"] == cat]
+            master_content += f"## {label} ({len(group)})\n\n"
+            for p in group:
+                master_content += f"### PR #{p['number']}: {p['title']}\n"
+                master_content += f"- **URL**: {p['url']}\n"
+                master_content += f"- **Branch**: `{p['branch']}` | **Age**: {p['age_hours']:.1f}h\n"
+                if p.get("failed_checks"):
+                    master_content += f"- **Failed Checks**: `{', '.join(p['failed_checks'])}`\n"
+                master_content += f"- **Review Summary**:\n{p.get('review_summary', '')}\n"
+                master_content += f"- **Detailed Report**: `{p.get('review_report_file', '')}`\n\n"
+        master_report = _write_report_file(report_dir, master_report_name, master_content)
 
         print(f"\nMaster triage report generated: {master_report}")
 
