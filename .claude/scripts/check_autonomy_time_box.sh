@@ -7,9 +7,9 @@
 #                                                  /goal_harness, /auton, /f, /goal, /babysit
 #   2. tmux session creation epoch for `ao-*` workers (tmux list-sessions -F '#{session_created}')
 # Each entry has a companion `.approved_until` file (epoch) that lifts the cap when present.
-# Renewal: every new live human user message renews the flow for 8 hours, recorded as
-# `approved_until` = receipt + 28,800 s. An explicit `CONTINUE N HORUS` / `EXTEND TO N HORUS`
-# in the live user message writes `approved_until` = now + N*3600.
+# Started-at flow renewals are recorded in `.approved_until` by the flow owner.
+# The owner uses receipt + 28,800 s for a new live user message, or now + N*3600
+# for an explicit `CONTINUE N HORUS` / `EXTEND TO N HORUS` message.
 set -euo pipefail
 
 MAX_SECONDS=${MAX_AUTONOMY_SECONDS:-28800}
@@ -63,7 +63,7 @@ if [ "${#EXCEEDED[@]}" -gt 0 ]; then
     printf "  - %s\n" "$e"
   done
   printf "Detail:\n%b" "$DETAIL"
-  printf "Renewal: a new live user message renews the flow for 8 hours, or state CONTINUE <N> HORUS / EXTEND TO <N> HORUS\n"
+  printf "Renewal: started-at flows read .approved_until; ao-* tmux sessions remain timed from creation\n"
   exit 1
 fi
 
