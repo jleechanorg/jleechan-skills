@@ -9,7 +9,9 @@ description: Use shared testing utilities, debug protocols, and CI/local parity 
 
 ## Test Utilities (MANDATORY)
 
-**Always use `testing_mcp/lib/` utilities - NEVER reimplement test infrastructure.**
+Use the shared utilities owned by the test layer being exercised. For tests under
+`testing_mcp/`, reuse its `lib/` utilities; for other directories, use their
+scoped utilities instead of importing a service harness that does not own them.
 
 ### Available Shared Utilities
 
@@ -22,7 +24,7 @@ description: Use shared testing utilities, debug protocols, and CI/local parity 
 | `lib/model_utils.py` | `settings_for_model()`, `update_user_settings()` |
 | `lib/narrative_validation.py` | `validate_narrative_quality()`, `extract_dice_notation()` |
 
-### Required Pattern
+### `testing_mcp/` Pattern
 ```python
 # Import from lib modules
 from testing_mcp.lib.evidence_utils import get_evidence_dir, capture_provenance
@@ -33,7 +35,10 @@ from testing_mcp.lib.campaign_utils import create_campaign, process_action
 ```
 
 ### Anti-Pattern
-Writing custom `capture_provenance()`, `get_evidence_dir()`, `save_evidence()`, or any function that duplicates `testing_mcp/lib/` functionality.
+For a test under `testing_mcp/`, writing custom evidence, server, client, or
+campaign helpers that duplicate its `lib/` functionality. Outside that directory,
+follow the local test-layer owner; do not force MCP-specific utilities onto unit,
+HTTP, or browser suites.
 
 ## Browser Testing Tools
 
@@ -78,7 +83,8 @@ assert len(elements) > 0, "Expected story content"
 
 ## CI/Local Parity
 
-Mock external dependencies to ensure tests pass in both CI and local environments:
+For deterministic tests outside `testing_mcp/` and `testing_ui/`, mock external
+dependencies when the test's claim is offline and isolated:
 
 ```python
 with patch('shutil.which', return_value='/usr/bin/command'):
@@ -110,31 +116,32 @@ print(f"Debug: {result}")
 
 ## Testing Protocol
 
-**ZERO TOLERANCE:** Fix ALL test failures in CI
+Triage CI failures against the tested SHA and change scope. Fix failures caused
+by the change and follow the inherited-failure policy for failures proven outside
+the change.
 
-**LOCAL TESTING:** Don't run full test suite locally - rely on GitHub CI
-- Run only SPECIFIC tests: `TESTING=true python $PROJECT_ROOT/tests/test_<specific>.py`
-- GitHub CI is the authoritative source for test results
+**LOCAL TESTING:** Do not run an unfiltered full suite locally. Run the targeted
+checks selected by the repository's test owner. CI is authoritative for its
+required checks; when a check is queued or pending beyond the repository's
+backlog threshold, follow `/green` for its local equivalent and applicable
+documentation-only exception.
 
 ## README-aligned Runner Selection (Critical)
 
 ### `testing_mcp` suites
-- Treat many `testing_mcp/*.py` files as **script entrypoints**, not pytest-collected test modules.
-- Prefer direct execution:
-  - `cd testing_mcp && ../vpython test_<name>.py --server http://127.0.0.1:8001`
-  - `cd testing_mcp && ../vpython test_<name>.py --start-local`
-  - Schema scripts: `./vpython testing_mcp/schema/test_schema_<name>.py`
-- Avoid `pytest testing_mcp/...` for script-style files that parse CLI args or expect script runtime setup.
+- Resolve the project root and follow its `testing_mcp/AGENTS.md` for exact
+  invocation, authentication, provider, server, and evidence requirements.
+- Do not use `vpython`, change into `testing_mcp/`, collect these scripts with
+  pytest, or use mock/bypass mode there. The scoped owner documents the supported
+  direct `python3` + explicit-`PYTHONPATH` invocation and dedicated real account.
 
-### `testing_ui` browser auth bypass
-- Follow `$PROJECT_ROOT/testing_ui/README_TEST_MODE.md` exactly:
-  - Start backend with `TESTING_AUTH_BYPASS=true`.
-  - Open UI with `?test_mode=true&test_user_id=<id>`.
-  - Verify browser flow sets/uses:
-    - `window.testAuthBypass.enabled`
-    - `X-Test-Bypass-Auth: true`
-    - `X-Test-User-ID: <id>`
-- This is mandatory for browser E2E runs that cannot inject custom auth headers directly.
+### `testing_ui` authentication
+- Resolve the project root and follow its `testing_ui/CLAUDE.md` and linked
+  `testing_mcp/AGENTS.md`. Browser acceptance uses a dedicated real account,
+  real Firebase Auth, and a bypass-disabled server. Do not use `TESTING_AUTH_BYPASS`,
+  `ALLOW_TEST_AUTH_BYPASS`, `?test_mode=true`, synthetic identity headers, or a
+  mocked browser route for acceptance evidence. Missing credentials or account
+  access is a reported blocker, not a reason to enable bypass.
 
 ## MCP Smoke Tests
 
@@ -144,33 +151,16 @@ MCP_SERVER_URL="https://..." MCP_TEST_MODE=real node scripts/mcp-smoke-tests.mjs
 - Hard-fails on any non-200 response
 - Results saved to `/tmp/repo/branch/smoke_tests/`
 
-## Local-run command contract (your-project.com repo)
+## Local test selection and runner
 
-Moved here from `~/.claude/CLAUDE.md` and `~/.codex/AGENTS.md` on 2026-07-25 — it is repo-specific, so it does not belong in the user-global "applies to all repos" files.
-
-When CI is stalled and you fall back to local tests, use this exact invocation contract to avoid three recurring footguns:
-
-1. **Run via `python -m unittest`, NOT `python $PROJECT_ROOT/tests/<file>.py` directly.** Direct-file execution causes module-level `from mvp_site.rewards_engine import (_private_func_a, _private_func_b, ...)` (line 19 of `$PROJECT_ROOT/tests/test_rewards_engine.py` and similar files) to bind local names. Subsequent tests do `setattr(rewards_engine, "_private_func_a", mock)`, which updates the module attribute but NOT the test module's local binding, producing spurious `TypeError: ... got an unexpected keyword argument 'cc_finish_authorized'` failures on tests that reference the private helpers indirectly. `python -m unittest mvp_site.tests.<file>` runs each test method in isolation and avoids this pollution. Observed: PR #7888 session 2026-07-05.
-
-   ```bash
-   # CORRECT — reliable
-   TESTING_AUTH_BYPASS=true vpython -m unittest mvp_site.tests.test_rewards_engine
-
-   # WRONG — produces 14 spurious TypeError failures in TestLevelMutationGuards
-   TESTING_AUTH_BYPASS=true vpython $PROJECT_ROOT/tests/test_rewards_engine.py
-   ```
-
-2. **`vpython` is a bash function, not on `$PATH`** — it lives at `~/.bashrc:677` and activates `~/projects/your-project.com/venv/`. When wrapping with `timeout` or `bash -c` the function is invisible, so use the venv python directly:
-
-   ```bash
-   PY="$HOME/projects/your-project.com/venv/bin/python"
-   TESTING_AUTH_BYPASS=true timeout 90 $PY -m unittest mvp_site.tests.test_end2end.test_xxx
-   ```
-
-   The `timeout` external binary cannot see bash functions, and the embedded PATH has spaces in cmux-cli-shim directories that break `export PATH=...` inside `bash -c`.
-
-3. **Module-level `def test_xxx` (not class methods) needs explicit discovery** — `$PROJECT_ROOT/tests/test_conclude_signal_detection.py` defines top-level `def test_*` functions instead of `class TestXxx(unittest.TestCase)`. `python -m unittest mvp_site.tests.test_conclude_signal_detection` runs 0 tests (rc=5). Use `python -m unittest -t . discover -p 'test_*.py'` to pick these up, or restructure to a class.
+Resolve the current project root with `git rev-parse --show-toplevel` and follow
+its `AGENTS.md`, the relevant testing-layer owner, and the current runner's help.
+For this repository, use the documented targeted `./run_tests.sh <path-or-filter>`
+contract; never substitute an unfiltered local full suite when CI owns it. For
+`testing_mcp/` and `testing_ui/`, follow their stricter scoped owners for Python,
+authentication, account, provider, server, and evidence requirements. Do not
+carry forward historical home-directory interpreter paths or assume that a
+shell-level `vpython` function is available inside another process.
 
 ## Related Skills
-- `evidence-standards/SKILL.md` - Evidence capture standards
-- `end2end-testing/SKILL.md` - E2E test patterns
+- Resolve the current evidence-standards and end-to-end testing owners through the active skill catalog.

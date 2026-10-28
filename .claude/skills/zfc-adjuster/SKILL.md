@@ -15,6 +15,11 @@ Use this skill before accepting code that adjusts, corrects, defaults,
 suppresses, clamps, retries, rolls back, composes, or otherwise reshapes
 model-owned output after the model responds.
 
+For WorldArchitect changes, read the repository overlay
+`.claude/skills/worldai-zfc/SKILL.md` alongside the portable ZFC contract.
+Repository-local field ownership, registered adjustment contracts, and the
+backend-justification gate determine whether any adjustment is allowed.
+
 ## Default Position
 
 Assume backend adjustment is not allowed until proven necessary.

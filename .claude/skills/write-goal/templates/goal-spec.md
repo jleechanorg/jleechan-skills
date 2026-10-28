@@ -34,7 +34,7 @@
   - <workflow 2> — PASS
   - ...
 - Green Gate exit-0 is NOT sufficient — verify current-head CI conclusions and mergeability using the canonical `/green` skill
-- Draft acceptance and ready/final review closure follow the canonical `draft-first-pr` skill; undrafting starts ready work, not completed readiness
+- Draft acceptance and ready/final review closure follow the canonical `pr-lifecycle` skill; undrafting starts ready work, not completed readiness
 - Failure on a gate = iterate the fix, push to PR head branch (pr-ci-fix-autopush rule: push without being asked), re-check. Do NOT report "fixed" until the new head SHA shows the gate green.
 
 ## Quality bar (adversarial gates this repo uses)

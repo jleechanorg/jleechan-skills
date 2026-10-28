@@ -68,11 +68,18 @@ Compare against Karpathy pattern:
 
 ### Phase 4: FIX — Implement Corrections
 
+Pass `--wiki "$WIKI_DIR"` to every `/wiki-ingest` call so child commands write
+to the destination selected for this `/wiki-evolve` run, not their default.
+
 For each gap found:
-1. **Structure gap**: Move content to wiki/, delete root duplicates
-2. **Ratio gap**: Re-ingest key sources with mandatory entity/concept extraction
-3. **Index gap**: Edit index entries to be curated summaries
-4. **Frontmatter gap**: Add missing frontmatter to pages
+1. **Structure gap**: Propose changes; route wiki writes through
+   `/wiki-ingest <candidate-source> --wiki "$WIKI_DIR"`.
+2. **Ratio gap**: Re-ingest eligible key sources through
+   `/wiki-ingest <candidate-source> --wiki "$WIKI_DIR"`.
+3. **Index gap**: Route index changes through
+   `/wiki-ingest <candidate-source> --wiki "$WIKI_DIR"`.
+4. **Frontmatter gap**: Route page updates through
+   `/wiki-ingest <candidate-source> --wiki "$WIKI_DIR"`.
 
 ### Phase 5: VERIFY — Confirm Pattern Compliance
 
@@ -83,11 +90,8 @@ grep -r '\[\[' "$WIKI_DIR"/sources/*.md | head -20
 
 ### Phase 6: RECORD — Log Findings
 
-```bash
-echo "## $(date '+%Y-%m-%d %H:%M')" >> "$WIKI_DIR"/evolution-log.md
-echo "Sources: $SOURCES, Entities: $ENTITIES, Concepts: $CONCEPTS" >> "$WIKI_DIR"/evolution-log.md
-echo "Issues: [list]" >> "$WIKI_DIR"/evolution-log.md
-```
+Record findings through `/wiki-ingest <candidate-source> --wiki "$WIKI_DIR"`;
+do not append to wiki files directly.
 
 ### Phase 7: RECAP — Cycle Summary
 
@@ -104,5 +108,5 @@ echo "Issues: [list]" >> "$WIKI_DIR"/evolution-log.md
 ## Termination Conditions
 
 1. User says "stop" or "pause"
-2. All pattern checks pass for 3 consecutive cycles
-3. 2 hours elapsed
+2. Acceptance criteria are met and verified.
+3. The shared eight-hour autonomy deadline is reached; report progress, remaining work, and the resumption trigger.

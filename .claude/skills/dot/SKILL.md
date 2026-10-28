@@ -55,6 +55,18 @@ For a user-requested coordinator recovery cycle, this contract overrides the gen
 
 ### Other delegated work
 
+For PR/lifecycle review requests, including a requested `/dot` review, the
+600-second end-to-end reviewer-attempt limit in `pr-lifecycle` § Reviewer timeout
+and completion takes precedence over this section's generic four-hour wait and
+polling schedule. Preserve the reviewer quorum and eligibility rules in
+`pr-lifecycle`. Start the clock when the request is queued or sent; queueing/delivery,
+setup, transport calls, polling/waits, review, result capture, receipt recording,
+and cleanup all consume the same budget. Bound each transport timeout and wait
+to the remaining time; a 150-second minimum transport setting never extends the
+reviewer deadline. On timeout, record the attempt as non-approving and continue
+to the next eligible independent reviewer, subject to verified cleanup of any
+shared execution resource. Ordinary delegated work keeps its existing schedule.
+
 - For other delegated work only, poll the dot with exponential backoff while it has work in flight: first poll 1 minute after the send, then 2 minutes later, then 5 minutes later, then every 10 minutes. Give up 4 hours after the first send if the dot has not started or done the work, and report that to the user with the last reply seen. Each poll runs `dot.sh read 3000`, then double-checks the claimed status at the source (`gh pr view`/`gh pr checks`, branch head SHA). Reply only when the dot asks something, stalls, or a check contradicts its claim. Any reply from the dot that shows real progress (a claimed lane, branch or PR) restarts the backoff at 1 minute and the 4-hour clock.
   - **Set a `/goal` for the wait** (via `/cmux-goal`): condition "the dot's deliverable exists and is verified at the source (PR open, RED then GREEN re-run by me, CI green), or 4 hours have passed since the first send". The goal keeps the session polling; do not rely on remembering to poll.
   - **Claude Code:** one-shot `ScheduleWakeup` calls at the backoff delays (60s, 120s, 300s), then a 600s wakeup repeated every 10 minutes; or a durable `CronCreate` `*/10 * * * *` after the first three polls. Record the first-send time (absolute, with timezone) in the poll prompt so each tick can compute the 4-hour deadline.
@@ -77,7 +89,7 @@ channels only when that channel and recipient are authorized for the task.
 
 ## Actions
 
-- `restore-session` — restore this profile's last own-session snapshot (Chrome must be stopped; verify with read/probe afterward; `login` remains the canonical recovery).
+- `restore-session` — restore this profile's last own-session snapshot (Chrome must be stopped; verify with read/probe afterward). This is opportunistic recovery; token rotation can invalidate the snapshot.
 
 - Read: `dot.sh [--account <name>] [--url <url>] read [chars]` prints the tail of the page text (default 5000). While the dot is working the tail ends with `dot` / `Thinking` / `Working`.
 - Probe: `dot.sh [--account <name>] probe <expected-email-sha256>` checks the current session with the existing profile and returns a typed `DOT_SESSION_PROBE` JSON result. Pass the frozen expected email's SHA-256 digest of its exact UTF-8 bytes, encoded as lowercase hex; do not trim or change the email's case before hashing. The output includes identity match, endpoint status, probe status, composer availability, an opaque profile slot, probe ID, and timestamp; it never includes the raw email or digest.
@@ -129,14 +141,16 @@ Profile directory resolution is unified between `dot.sh` and `scripts/dot_chrome
 ## Interactive Login & Session Recovery
 
 If an account returns `DOT_CHROME_UNAVAILABLE: not signed in`:
-1. **Canonical Login Command:** Run `login` on that exact account:
+1. Use `restore-session` only when Chrome for that profile is stopped, then verify with `read` and the account's expected-identity `probe`. A missing or expired snapshot does not authorize a browser fallback.
+2. If recovery does not restore the session, do not open the personal/default Chrome profile, transfer cookies, or route the live Dot profile through another browser or the bundled-browser fallback. Report the scoped authentication blocker unless both conditions in step 3 are met.
+3. Run visible `login` only when the current thread explicitly requests it and the resolved profile is independently verified as a separate, task-owned Dot profile, distinct from personal/default Chrome. Check the `dot.sh` account/backend/profile banner and verify the profile's task ownership before opening the window; stop if either condition cannot be established. Then run `login` on that exact account:
    ```bash
    scripts/dot.sh --account <name> login
    ```
    This launches a visible Google Chrome window attached to the exact resolved profile directory for that account.
-2. Sign in to ChatGPT manually in the browser window.
-3. Once logged in and the ChatGPT chat/dot page loads, close the browser window. The session is saved in that host/account's dedicated profile directory. Repeat login independently for each account on each host.
-4. Re-test with `dot.sh --account <name> read 500`.
+4. Sign in to ChatGPT manually in the browser window.
+5. Once logged in and the ChatGPT chat/dot page loads, close the browser window. The session is saved in that host/account's dedicated profile directory. Repeat login independently for each account on each host.
+6. Re-test with `dot.sh --account <name> read 500` and the expected-identity `probe`.
 
 ## Cloudflare & Session Verification
 
@@ -146,17 +160,17 @@ If an account returns `DOT_CHROME_UNAVAILABLE: not signed in`:
 
 ## Concurrency & Safety Rules
 
-- **MANDATORY: every dot profile owns an INDEPENDENT session, created only via `dot.sh --account <name> login`** (a visible Chrome window the user signs into; the script itself never enters, stores, or extracts credentials). This is the one canonical recovery from `logged_out` and the only sanctioned way a dot profile ever gets a session. Do not "help" by sharing a session from any other browser — see the resync ban below.
-- **BANNED: cookie-store resync from desktop/other profiles** (copying `Cookies` from a desktop Chrome profile into a dot profile, in either direction). A session shared between two live browsers is a rotation race: ChatGPT rotates the session token on activity, the rotation supersedes the old token server-side, and the browser that did not rotate renders logged out. On 2026-10-11 this logged the user's personal Chrome out of their own account after a resync-based restore. Sessions are cheap and independent — use `dot.sh login` instead.
+- **MANDATORY: every dot profile owns an INDEPENDENT session.** For session creation and recovery, follow [Interactive Login & Session Recovery](#interactive-login--session-recovery); its restore-first sequence and visible-login gate are authoritative.
+- **BANNED: cookie-store resync from desktop/other profiles** (copying `Cookies` from a desktop Chrome profile into a dot profile, in either direction). A session shared between two live browsers is a rotation race: ChatGPT rotates the session token on activity, the rotation supersedes the old token server-side, and the browser that did not rotate renders logged out. On 2026-10-11 this logged the user's personal Chrome out of their own account after a resync-based restore. If recovery is needed, follow the sequence above.
 - **Never launch a browser other than system Google Chrome against a live Dot
   profile.** Use `dot.sh` for profile operations; it selects the host-specific
   password store: macOS `--password-store=keychain`; Linux uses
   `--password-store=gnome-libsecret` for headless Chrome when `DISPLAY` or
   `DBUS_SESSION_BUS_ADDRESS` is set, and for login. Playwright/Puppeteer and bundled Chromium may use an incompatible keychain backend and damage session cookies.
 - **To check login/session status, use `dot.sh --account <name> read` or `dot.sh --account <name> probe`** — they launch the correct binary with the correct flags. Never open the profile with a foreign browser; if a custom script must inspect the profile internals, copy the profile directory first (e.g. `cp -R ~/.config/dot-headless-chrome-X /tmp/probe-copy`) and run against the copy, or use read-only SQLite (`sqlite3 "file:.../Cookies?mode=ro"`, or `sqlite3 <db> ".backup /tmp/c.sqlite"` for a live store) without launching any browser. **Never `immutable=1` on a database Chrome may be writing** — it ignores the WAL and can mislead on a live store.
-- **Session-loss forensics (read-only, before any recovery):** a wiped profile shows a rebuilt anonymous cookie store (fresh `oai-did`/csrf cookies, zero `session-token` rows) while the account itself is fine server-side. `dot.sh` now classifies this automatically: a not-signed-in read/send also emits `DOT_STORE_REBUILD: ...` when the store shows the rebuild signature. Recover ONLY via `dot.sh login`. Never treat profile logout as an account logout.
+- **Session-loss forensics (read-only, before any recovery):** a wiped profile shows a rebuilt anonymous cookie store (fresh `oai-did`/csrf cookies, zero `session-token` rows) while the account itself is fine server-side. `dot.sh` now classifies this automatically: a not-signed-in read/send also emits `DOT_STORE_REBUILD: ...` when the store shows the rebuild signature. After diagnosis, follow [Interactive Login & Session Recovery](#interactive-login--session-recovery); visible login remains subject to its step 3. Never treat profile logout as an account logout.
 - **Machine checks now built into dot.sh (do not weaken them):** disk-space floor (`DOT_MIN_FREE_MB`, default 512 — a full disk corrupts the SQLite cookie store); OPT-IN foreign-binary enforcement (`DOT_ENFORCE_SYSTEM_CHROME=1`, honoured on login, headless and send-prepared): refuses a non-system binary unless `DOT_ALLOW_FOREIGN_BINARY=1`, because `DOT_CHROME_BIN` is a supported override for tests and alternate Chrome channels — the real 2026-10-11 wipe came from an ad-hoc script that bypassed `dot.sh` entirely; login launches with the same `--password-store` flags as headless; process-group teardown even when the node wrapper exits before the browser. The per-profile kernel flock and the coordinator STOP marker were deleted on 2026-10-20 at the operator's request: dot.sh no longer serializes concurrent invocations on one profile and `DOT_PROFILE_LOCKED` no longer exists, so concurrent launches against the same profile are the caller's own risk.
-- **Session snapshots (own-profile, no coupling):** every authenticated read/send/probe keeps `Cookies.snapshot` next to the live store (SQLite online backup; `DOT_SNAPSHOT=0` disables). `dot.sh restore-session` restores it — only with Chrome fully stopped, keeping a `.pre-restore` copy. Restoration is opportunistic: server-side token rotation may make a snapshot stale, in which case the probe reports logged out and the canonical `dot.sh --account <name> login` path still applies. Never resync cookies from another browser profile.
+- **Session snapshots (own-profile, no coupling):** every authenticated read/send/probe keeps `Cookies.snapshot` next to the live store (SQLite online backup; `DOT_SNAPSHOT=0` disables). `dot.sh restore-session` restores it — only with Chrome fully stopped, keeping a `.pre-restore` copy. Restoration is opportunistic: server-side token rotation may make a snapshot stale, in which case the probe reports logged out and the recovery sequence above applies; any visible login remains subject to its step 3. Never resync cookies from another browser profile.
 - **Login-window hygiene:** there is no per-profile flock or coordinator STOP marker any more (removed 2026-10-20), so
   concurrent launches against the same profile remain the caller's own risk; `.dot-profile.lock.ready.*` files are
   legacy scratch and carry no authority.

@@ -1,408 +1,132 @@
 ---
 name: advice
-description: "Token-efficient second opinion slash command /advice. Extracts the decision point plus a pointer to the change (PR / ref / paths) so each reviewer reads the code itself, then fans out in parallel to up to four reviewers: (1) Codex + Opus CLI reviewers launched concurrently as the primary pair, (2) fallback chain claude -p→cursor→agy if neither primary reviewer returns a verdict, (3) /research on the decision topic, (4) /secondo multi-model opinion. Reviewers A and B are the portable core; C needs personal infrastructure and is skipped when unavailable. Use instead of advisor() which ships the full conversation uncached."
+description: Use when a focused second opinion is needed; collect two independent, full-coverage reviewer votes on an exact change or saved-document bundle.
 ---
 
-# /advice — Token-Efficient Second Opinion
-
-**Replaces `advisor()`. Never call advisor() — use this instead.**
-
-For PR lifecycle applicability, follow `pr-lifecycle` § Advice applicability;
-its size exception does not change this command's reviewer quorum when it runs.
-Record each run under that owner's Review records in the PR description contract.
-
-## When invoked
-
-`/advice [optional: specific question]` — invoked manually or automatically at a decision point.
-
-## Step 1: Build the review packet
-
-From the current conversation, extract:
-- **Decision** (3–5 sentences): what specifically needs a second opinion — be concrete about constraints and tradeoffs
-- **Pointer**: where the reviewer can read the change *itself* — a PR number, a `base...head` ref, or an explicit file-path list. Include `git diff --stat` (or `gh pr diff --name-only`) so the reviewer sees the shape of what it is about to read.
-
-If no specific question was passed, infer from most recent context.
-
-**Send the pointer, not a transcription.** Every reviewer transport in Step 2 is an *agent* that can read the repo for itself — Codex and Opus run in independent exact-SHA clones, `cursor -p` has access to write and shell tools, `agy`/`claude -p` run with permissions pre-approved, and `/secondo` gathers its own `git diff origin/main...HEAD`. Handing them a pre-chewed excerpt does not save them a fetch; it *removes* their ability to look. Give the pointer and let each one pull the context it decides it needs.
-
-### The inline-artifact fallback (≤150 lines) — narrow, and it caps the verdict
-
-Inline an artifact only when the reviewer genuinely cannot fetch: no repo access, no PR, or the subject is not in version control (a plan, a pasted stack trace, an architecture sketch). Then keep it under ~150 lines.
-
-**A verdict built on a truncated inline artifact may not be `APPROVED`.** Record `REVIEWED: <n> of <total> lines (<what was omitted>)`, carry it into the synthesis, and emit `WITHHELD` — see Quorum. This is not a formality: across the last 300 merged PRs in `jleechanorg/worldarchitect.ai`, **65% exceed 150 changed lines** (median 349), and for those, a 150-line cap shows a reviewer a median **22.5%** of the diff. A gate that says `APPROVED at <SHA>` after seeing a fifth of the change is asserting something it did not check.
-
-## Document-only review (including /sq plans)
-
-For saved specifications or plans, add repeated `--document <repo-relative-path.md>`
-arguments to the same primary-pair runner. Read the complete documents; do not truncate
-them to the inline-artifact limit. Documents may be committed, staged, modified, or
-untracked. No commit, stash, clean checkout, or publication is required for this mode.
-The runner overlays only explicitly named, non-ignored, non-symlink Markdown documents
-into each independent reviewer clone, records their SHA256 hashes and bundle identity,
-and checks that source and reviewer copies remain unchanged. HEAD is context only;
-unrelated uncommitted code is outside this review and is not approved.
-
-Preserve normal reviewer selection, quorum, coverage, authorization, and failure rules.
-Bind the final verdict to `DOCUMENTS sha256:<document_bundle_sha256>` plus the per-file
-hashes in the receipt. This is document approval only, never `APPROVED at <HEAD>` for
-code or a PR. Save the synthesis with the local review receipt; the PR/commit publication
-section below applies only to revision reviews. External publication still requires
-applicable user authority. If a selected document changes, re-review its new bytes.
-
-## Step 2: Fan out the reviewers in parallel
-
-**Size/risk gate first.** For low-risk diffs (docs/tests/config-only, or under ~100 changed production lines with no schema/security/prompt-contract surface), Reviewer A alone (Codex + Opus — two independent verdicts, so the ≥2-reviewer quorum for `APPROVED` still holds) satisfies the gate; skip B/C. Reserve the full A+B+C fan-out for diffs touching production behavior, schemas, security, or above that threshold. The quorum, coverage, and inline-artifact rules below apply unchanged regardless of which lanes run.
-
-Before dispatch, use existing quota/session receipts and non-model capability
-checks to identify viable reviewers and whether they can meet the approval quorum.
-Do not spend a separate paid model call solely to probe quota; when availability is
-unknown, launch selected review lanes concurrently. Only A and C are approval
-reviewers. `/research` seats, including Gemini, may inform the
-synthesis but never substitute for a quorum vote.
-
-Spawn every selected reviewer in a single message. **A and B are the portable core** — they work on any machine. **C depends on personal infrastructure** and is skipped, not faked, when unavailable.
-
----
-
-**Reviewer A — Primary pair fired IN PARALLEL:**
-
-**Codex + Opus run concurrently when both are available.** Each reviewer reads
-the change independently and returns its own verdict. Use the executable runner
-below: descriptive prose or a foreground Codex call followed by an Opus spawn
-does not satisfy this contract.
-
-Use the same review packet for both reviewers:
-
-The primary pair selection is explicit: pass `--reviewers codex,opus` to the
-canonical runner. Additional reviewers come only from the existing fallback
-chain or an explicit selection; this does not change the quorum.
-
-```
-You are a senior engineer giving a focused second opinion.
-
-DECISION:
-[decision, 3–5 sentences]
-
-WHAT TO REVIEW:
-[PR number / base...head ref / file-path list, plus diff --stat]
-
-Read the change yourself — do not rely on any summary in this prompt.
-Read as much of it as your judgment requires. If you could not read
-what you needed, say so in COVERAGE rather than guessing.
-Apply `/ponytail` (`~/.claude/skills/ponytail/SKILL.md`): reject parallel-module
-duplication (re-implementing an existing pipeline in a new module), post-hoc
-undo / mutate-then-reverse-diff machinery (mutating shared state before
-preconditions or persistence succeed and building an inverse-diff engine instead
-of staging before merge), and additive compensator accretion across review
-rounds (never demand round-trip preservation of malformed legacy wrappers when
-canonicalizing at the ingestion boundary suffices).
-
-Return exactly:
-VERDICT: [recommended approach, one line]
-REASONING: [3–4 sentences]
-RISK: [main risk, one sentence]
-COVERAGE: [what you actually read; note anything you could not reach]
-CONFIDENCE: [high / medium / low]
-```
-
-Write that packet to a temporary file, capture the exact review SHA, and invoke:
-
-```bash
-REVIEW_SHA="$(git rev-parse HEAD)"
-ADVICE_TMP="$(mktemp -d)"
-ADVICE_RUNNER="${CLAUDE_HOME:-$HOME/.claude}/skills/advice/scripts/run_primary_pair.py"
-python3 "$ADVICE_RUNNER" \
-  --repo "$(git rev-parse --show-toplevel)" \
-  --ref "$REVIEW_SHA" \
-  --packet-file "$ADVICE_TMP/review-packet.txt" \
-  --output-dir "$ADVICE_TMP/results" \
-  --reviewers codex,opus \
-  --timeout-seconds 1200 \
-  --timeout-grace-seconds 2
-```
-
-Create `$ADVICE_TMP/review-packet.txt` before invoking the runner. The output
-directory is deliberately outside the repository and must be a fresh path that
-does not already exist. The runner atomically reserves that path and exits 2
-before dispatch if it already exists, preserving its contents; create a new
-results directory for every invocation. Read `codex.txt`, `opus.txt`,
-and `receipt.json`; the receipt records the resolved SHA, each transport, launch
-times, each clone SHA, cleanup status, and any changed original-repository
-fingerprint components. The
-input checkout must be clean, including untracked files, for revision reviews only.
-For document-only review, use `--document` as described above; that mode accepts saved
-documents regardless of their commit status. The runner refuses a
-dirty checkout because those changes are not represented by the requested SHA.
-
-The runner creates two independent disposable clones with `git clone --no-local`,
-removes their `origin` remotes, and detaches both at the exact same SHA. It then
-starts A1 and A2 behind one concurrency barrier, gives them disjoint output
-files, and removes the clones afterward. It preserves the requested
-full-permission transports explicitly: `codex exec --yolo` for A1 and
-`claude -p --model opus --dangerously-skip-permissions` for A2. Independent
-clones prevent reviewer writes to refs, config, or hooks from sharing the
-original repository's `.git` state; they are deliberately **not** an OS security
-sandbox. If the original checkout, refs, local config, or hooks change, the
-runner fails closed and its verdicts may not be used.
-
-While each reviewer root is alive, the runner samples the macOS/Linux process
-tree, retains PID plus process-start identity for discovered descendants even
-after reparenting, and on timeout terminates those descendants before/with the
-root process group. The receipt lists discovered, signaled, and surviving PIDs
-plus whether termination was verified. Bounded drain then guarantees that a
-remaining inherited pipe cannot block runner return or clone cleanup.
-
-This lifecycle supervision does not change full-permission mode and is not an
-OS sandbox: it does not restrict network, environment, or process creation. An
-arbitrary daemon that forks, reparents, and disappears from the sampled lineage
-before the first observation can evade user-space process-tree tracking. For
-descendants observed while the reviewer root is alive, a surviving verified PID
-is recorded as a termination failure rather than silently treated as contained;
-after successful cleanup the runner exits 7 even if the peer returned a verdict.
-
-Each primary reviewer has a bounded runtime. `--timeout-seconds` sets the
-per-lane limit and defaults to 1200 seconds (20 minutes).
-`--timeout-grace-seconds` sets the bounded post-kill output-drain grace and
-defaults to 2 seconds; both values must be positive. A timeout kills the primary
-process group, drains output only for that grace, then closes inherited output
-pipes if they remain open. The attempt records `failure: timeout` and
-`forced_pipe_close`; the peer may still supply the sole primary verdict. If both
-time out, the runner exits 4 and A3 applies. Clone cleanup and receipt writing
-still run after timeouts. Cleanup itself is a gate:
-failure is recorded in `receipt.json` and the runner exits 5 rather than hiding
-leftover full-permission checkouts. Setup, reviewer, and result-output exceptions
-are captured under `operation` instead of escaping as traceback-only failures;
-after successful cleanup they exit 6. If operation and cleanup both fail,
-`receipt.json` records both and cleanup exit 5 takes precedence.
-
-Ignored regular files may contain credentials, so the fingerprint never opens
-or hashes their contents. It records each ignored relative path plus `lstat`
-mode, size, and nanosecond modification time; for a symlink it additionally
-records the link target without following it. This detects ordinary ignored-file
-creation, deletion, replacement, and modification while keeping secret content
-unread. It is a mutation tripwire, not a defense against an adversarial process
-that deliberately restores identical metadata, and it does not change the
-runner's non-sandbox boundary.
-
-Hook coverage follows Git's effective `core.hooksPath`, including configured
-absolute or relative hook locations. The fingerprint includes ordinary hook
-content and `lstat` metadata; symlinks, including dangling ones, contribute
-their link target without being followed. This avoids unsafe traversal while
-detecting hook-path and dangling-link mutations.
-
-An exit code of zero is not enough: each successful lane must return a nonempty
-line beginning with `VERDICT:`. Empty or malformed output records
-`missing_verdict` and counts as an errored lane. If neither primary lane returns
-a recognizable verdict, invoke A3.
-
-**A1 — Codex CLI (primary):** `codex exec --yolo -m gpt-6-sol --config
-model_reasoning_effort=high`. The explicit command guarantees full-permission
-mode without relying on wrapper internals. Only the exact catalog IDs
-`gpt-6-astra`, `gpt-6-luna`, `gpt-6-sol`, and `gpt-6.1-sol` are accepted;
-5.6 and unknown model IDs are forbidden.
-
-**A2 — Opus CLI (primary):** `claude -p --model opus
---dangerously-skip-permissions`. It is dispatched concurrently with A1, not
-after A1 returns.
-
-**A3 — Fallback chain (whenever neither primary leg produces a verdict):**
-
-A3 activates whenever Reviewer A cannot return a verdict. That covers:
-- BOTH A1 (Codex) and A2 (Opus) are unavailable (binary / model missing)
-- BOTH A1 and A2 dispatched and both errored
-- A1 unavailable AND A2 errored (mixed failure — still no primary verdict)
-- A1 errored AND A2 unavailable (mixed failure — still no primary verdict)
-
-In all of the above, fall through this chain in order, stopping at the first success:
-
-**A3.1 — `claude -p` (first-class fallback when invoked outside Claude Code):**
-```bash
-claude -p --dangerously-skip-permissions "$(cat <<'EOF'
-Senior engineer second opinion.
-
-DECISION:
-[decision]
-
-WHAT TO REVIEW:
-[PR / ref / paths]
-
-Read the change yourself. Return VERDICT, REASONING (3-4 sentences), RISK, COVERAGE, CONFIDENCE.
-EOF
-)"
-```
-Note: Same Claude Code context inheritance as agy. For a cleaner isolated call: add `--cwd /tmp`.
-
-**A3.2 — `cursor agent -p` (fallback if claude -p errors):**
-```bash
-cursor agent -p --force "$(cat <<'EOF'
-Senior engineer second opinion.
-
-DECISION:
-[decision]
-
-WHAT TO REVIEW:
-[PR / ref / paths]
-
-Read the change yourself. Return VERDICT, REASONING (3-4 sentences), RISK, COVERAGE, CONFIDENCE.
-EOF
-)"
-```
-
-**A3.3 — `agy` (fallback if cursor errors):**
-```bash
-agy --print --dangerously-skip-permissions "$(cat <<'EOF'
-Senior engineer second opinion.
-
-DECISION:
-[decision]
-
-WHAT TO REVIEW:
-[PR / ref / paths]
-
-Read the change yourself. Return VERDICT, REASONING (3-4 sentences), RISK, COVERAGE, CONFIDENCE.
-EOF
-)"
-```
-Note: agy is the Antigravity CLI (reads CLAUDE.md on startup like any CC session, but starts fresh — no current conversation history). Independent perspective, slightly slower than cursor. When selecting Gemini models, never use `gemini-3.1-pro` (or older Gemini Pro models); always use `gemini-3.8-flash` or later (`gemini-3.8-flash-high`).
-
-If all options fail, note "Reviewer A unavailable" in the synthesis table.
-
-**No-verdict guarantee:** A host that lacks BOTH Codex (no codex binary) AND the
-Opus CLI MUST still emit at least one
-A-leg verdict if any of A3.1 / A3.2 / A3.3 is on PATH. The fallback chain is
-gated on "unavailable OR error" — not error alone — so a fully bare host with
-just `claude -p` installed still produces a verdict. If every leg (A1 + A2 +
-A3.1 + A3.2 + A3.3) is unavailable, mark **A unavailable (no agent binary on
-host)** and continue with B / C.
-
-**A — solo-mode rule:** If only ONE of {Codex, Opus} is available (the other
-binary / model is missing or errors immediately at dispatch), run whichever
-survives as the sole A reviewer — do NOT synthesize a "pair" from a single
-verdict. Mark the missing partner `unavailable (<reason>)` in the synthesis
-table so the reader sees we did not silently drop a leg.
-
----
-
-**Reviewer B — Research:**
-
-Invoke `/research [decision topic distilled to 6 words]`
-
----
-
-**Reviewer C — Secondo (optional — needs infrastructure):**
-
-Invoke `/secondo` with the decision and declared review scope, and let it gather
-its own context — it already captures `git diff origin/main...HEAD` under its own
-budget (`SECOND_OPINION_MAX_DIFF_CHARS`, default 32,000 chars). Require
-`COVERAGE: <files/diff scope actually read>` in its response. Do **not** hand it
-a ≤150-line extract instead; that throttles it to a fraction of the context it
-would have collected on its own.
-
-Requires the AI-Universe MCP endpoint (`AI_UNIVERSE_MCP_ENDPOINT`) and its OAuth flow. `/secondo` bans substituting WebSearch or direct provider MCPs, so there is no portable fallback — if the endpoint is unreachable, mark **C unavailable** and continue.
-
----
-
-## Step 3: Synthesize
-
-Present:
-
-```
-| Reviewer    | Verdict              | Key concern         | Confidence |
-|-------------|----------------------|---------------------|------------|
-| A1 Codex    | ...                  | ...                 | high/med/low |
-| A2 Opus     | ...                  | ...                 | high/med/low |
-| B Research  | [consensus finding]  | [main caveat]       | —          |
-| C Secondo   | ...                  | ...                 | —          |
-```
-
-- Give every reviewer a row, including the ones that failed — write `unavailable (<reason>)` in the Verdict column. Never drop a row; a missing row hides a missing opinion.
-- 2+ available reviewers may inform a recommendation. Only the full-coverage
-  reviewer quorum below may emit `APPROVED`.
-- Available reviewers diverge → surface the disagreement, ask user which axis matters most (speed / safety / cost).
-
-## Quorum — what you are allowed to conclude (mandatory)
-
-**The orchestrating agent and research-only output are not approval reviewers.**
-They write or inform the table; they do not vote. Only A and C count toward
-approval quorum, and each must declare `COVERAGE` after reading the change.
-
-| Independent full-coverage reviewers that returned a verdict | What you may emit |
+# /advice — independent second opinion
+
+Use `/advice [question]` instead of `advisor()`. This skill owns reviewer
+orchestration. The `pr-lifecycle` owner has the
+[Advice applicability](../pr-lifecycle/SKILL.md#advice-applicability) section;
+it owns phases, thresholds, applicability, and review publication. The
+evidence-standards skill owns evidence classes and publication rules. Do not
+duplicate those procedures here.
+
+## 1. Pin the question and complete scope
+
+**Pointer**: Send the pointer, not a transcription.
+A verdict built on a truncated inline artifact may not be `APPROVED`.
+
+Write a focused decision question and give every reviewer the same exact
+pointer: repository plus `base...head` and current head SHA, or an explicit
+file list. Include `git diff --stat` and make the pointer reach the complete
+change. A summary or excerpt never replaces the source.
+
+For revision review, pin the requested commit and use an eligible clean
+checkout. For saved specifications, plans, or other document-only reviews, use
+an existing CLI input path to give each reviewer identical complete bytes for
+explicitly named, non-ignored, non-symlink Markdown files, committed or not.
+Keep a temporary packet of the named files and record per-file and bundle
+SHA256 hashes. Byte checks verify integrity, not filesystem immutability. This
+Markdown skill does not require a particular runner; do not add a wrapper or
+runtime mechanism to deliver files.
+
+Document-only review excludes code outside the named files and never approves
+`HEAD` or dirty code. Revision review covers the exact pinned code scope. Each
+reviewer must independently read the entire declared scope.
+The combined scope covers the whole declared change
+only when each approver reads it in full. Partial coverage cannot be combined
+across reviewers to approve.
+
+## 2. Select independent reviewers
+
+Approval requires two independent votes, each covering the whole scope, from
+two eligible CLI reviewers. Use Codex and Opus concurrently when both are
+viable; pair a healthy CLI vote with a distinct eligible alternate when needed.
+If Opus is known unavailable, launch Codex and an eligible alternate
+concurrently; do not serialize healthy seats. The orchestrator's
+synthesis and research-only output are not approval reviewers. `/research` is
+nonvoting and only for material unanswered questions. One competent objection
+may block.
+
+Preserve full-permission reviewer execution and declare the actual command,
+model, account or reviewer identity, and transport for every attempt:
+
+| Reviewer | Invocation form |
 |---|---|
-| 2 or more | `APPROVED` or `NOT APPROVED`, per the synthesis |
-| exactly 1 | `NOT APPROVED` allowed; `APPROVED` is **not** — emit `WITHHELD` |
-| 0 | `WITHHELD` |
+| Codex | `codex exec --yolo -m gpt-6-sol --config model_reasoning_effort=high` |
+| Opus | `claude -p --model opus --dangerously-skip-permissions` |
+| Claude alternate | `claude -p --model <actual-model> --dangerously-skip-permissions` |
+| Claude wrapper alternate | `claudewa -p "<review request>" --dangerously-skip-permissions` |
+| Cursor alternate | `cursor agent -p --force` |
+| AGY alternate | `agy --print="<review request>" --model gemini-3.8-flash-high --dangerously-skip-permissions --new-project` |
 
-Below quorum a lone reviewer may still block — one competent objection is enough to stop — but may never approve. Never resolve unreachable reviewers into `APPROVED`: an unreachable reviewer is missing evidence, not assent.
+A wrapper, alias, retry, or duplicate reviewer identity is not another vote.
+Codex models may be only `gpt-6-astra`, `gpt-6-luna`, `gpt-6-sol`, or
+`gpt-6.1-sol`; 5.6 and unknown IDs are not eligible. Count `claudewa` only when
+it resolves to a distinct reviewer identity and records the actual model. Each
+alternate needs an existing supported invocation that bounds its complete
+attempt and produces its own receipt; a per-process timeout alone is
+insufficient. If no eligible path can meet the full bound, record it as
+`UNAVAILABLE`. Do not add a particular runner, wrapper, watchdog, or runtime
+mechanism.
 
-**Worked seats (examples, not a second rule set):**
+## 3. Enforce the attempt deadline
 
-| Reviewers that returned a verdict | Votes | May emit |
-|---|---|---|
-| Codex PASS + Opus PASS, both declare full `COVERAGE`, neither blocks | 2 (A) | `APPROVED` (or `NOT APPROVED` if either blocks) |
-| Codex PASS + Opus unavailable | 1 (A) | `WITHHELD`, or `NOT APPROVED` when the single vote blocks |
-| Codex unavailable + Opus unavailable + A3 APPROVE | 1 (A, fallback chain) | `WITHHELD` |
-| A primary PASS **plus** A3 APPROVE | **1 (A)** - A3 shares seat A and never adds a vote | `WITHHELD` |
-| A vote + C (`/secondo`) vote, both full `COVERAGE`, neither blocks | 2 (A + C) | `APPROVED` (or `NOT APPROVED` if either blocks) |
+Each reviewer attempt has one 600-second end-to-end budget beginning when that
+request is queued or sent. Record the start time. Shared immutable packet
+preparation may precede the clock; all review-specific setup, queueing,
+delivery, dispatch, review, output capture, receipt writing, and cleanup consume
+the same budget. Do not pause, reset, or extend it; bound every call and wait by
+the remaining time. Use existing CLI timeouts with native tool deadlines and
+cancellation. If the supported route cannot enforce the complete attempt and
+produce its receipt, mark it `UNAVAILABLE`; do not build timer machinery.
 
-No row relaxes coverage or single-objection blocking: one competent objection still stops the change.
+A late, incomplete, failed, or timed-out result is not an approval. Preserve
+partial output and findings, record cleanup status, and use another independent
+eligible reviewer when needed. Do not keep waiting for unresolved cleanup or
+reuse a resource whose prior process or cleanup state is unresolved; continue
+with another safe independent path when available. Never claim cleanup
+succeeded without receipt evidence.
 
-**Coverage gates approval too.** A reviewer whose `COVERAGE` does not cover the
-declared diff/scope counts toward *blocking* but not toward *approving* — it is
-an opinion, not a review. `APPROVED` requires two independent coverage declarations
-whose combined scope covers the whole declared change. Otherwise emit `WITHHELD`.
+## 4. Isolate review copies
 
-## Final verdict format — SHA-bound (mandatory)
+Use independent temporary clones without an `origin` remote. For revision
+reviews, pin each clone to the same exact SHA. For document-only reviews,
+overlay only the explicitly named Markdown files as saved bytes in those copies;
+unrelated code stays outside the review scope. Copy isolation protects Git
+metadata and review state, not the host: it is not an OS sandbox and does not
+restrict network, environment, or process creation. Full-permission execution
+preserves the requested reviewer transport; it does not authorize unrelated
+destructive actions, credential changes, or publication. Before and after each
+attempt, use the available receipt or read-only checks to verify the original
+checkout, refs, local config, and hooks are unchanged; any detected mutation
+invalidates that vote.
 
-When `/advice` is being run as the gate in the `pr-lifecycle` lifecycle (`~/.claude/skills/pr-lifecycle/SKILL.md`), the synthesis MUST end with exactly one verdict line, bound to what was reviewed:
+## 5. Reconcile and report
 
-```
-VERDICT: APPROVED at <SHA>
-```
-```
-VERDICT: NOT APPROVED at <SHA>
-```
-```
-VERDICT: WITHHELD at <SHA> — <quorum or availability reason>
-```
+Require each counted reviewer to return a nonempty `VERDICT:` and explicit
+full-scope `COVERAGE`. Reconcile disagreements within the declared scope; do not
+ask the user to choose between reviewer axes. One competent blocking objection
+means `NOT APPROVED`, including a competent objection from a reviewer with
+partial coverage; partial coverage never supplies an approval. Use `WITHHELD`
+when two independent full-coverage approvals are unavailable. A vote also
+requires receipt evidence of zero exit, no original checkout mutation, no
+surviving reviewer process, and no cleanup failure.
 
-`WITHHELD` means the review did not happen, not that it failed. It fails the gate exactly like `NOT APPROVED`, so consumers that look for `APPROVED` need no change — the distinction only tells a later reader whether to re-run reviewers or fix the code.
-
-**Capturing `<SHA>`:**
-- Reviewing a PR — `gh pr view <N> --json headRefOid --jq '.headRefOid'`
-- Reviewing the working tree — `git rev-parse HEAD`, **but HEAD does not identify uncommitted changes.** If `git status --porcelain` is non-empty, that SHA does not name the tree you reviewed. Commit the intended state before review; the primary-pair runner refuses dirty input and no approval verdict may be emitted for it.
-
-The verdict records the exact state actually reviewed. Apply the reasoned SHA-applicability rule in `pr-lifecycle/SKILL.md`: compare it with the candidate and inspect the complete actual delta, claims, evidence and phase. Preserve the original reviewers and reviewed SHAs. An assessor may document that their existing approvals remain applicable without recalling every reviewer solely to restamp a new SHA. This is an applicability record, not a new independent vote or a claim that a reviewer inspected new bytes. Uncovered material changes, changed evidence within the review scope, unresolved findings or uncertain applicability require affected independent review. Classify runner, script and skill-instruction changes by behavior and contract effect, never by directory or path alone. A genuinely harmless non-behavioral delta may be re-affirmed after documenting why its coverage remains intact; do not force a full `/advice` rerun for the hash change alone.
-Preserve the two independent full-coverage approvals required by Quorum;
-re-affirmation never turns one reviewer into approval. Do not emit a bare
-"APPROVED"/"looks good" without the SHA — an unbound verdict cannot be checked
-for staleness.
-
-## Token budget
-
-What `/advice` saves is **the conversation**, not the change. `advisor()` ships the entire uncached transcript; `/advice` sends a decision plus a pointer, and each reviewer pulls only the code it decides it needs. That is the whole economy — and it is preserved without capping the diff.
-
-| Reviewer | What you send |
-|---|---|
-| A1 Codex | Decision + pointer (reviewer fetches the rest) |
-| A2 Opus CLI | Decision + pointer (reviewer fetches the rest) |
-| B — /research | Web queries only |
-| C — /secondo | Decision; it gathers its own diff under its own budget |
-
-Do not cite a percentage saving — none has ever been measured here. And do not shrink the pointer to buy tokens: sending a 349-line diff is nothing like sending an 80K-token transcript, so trading review coverage for that margin is a bad trade in the only direction that matters.
-
-## Fallback chain summary
-
-| Priority | CLI | When |
-|---|---|---|
-| A1 | `codex exec --yolo -m gpt-6-sol --config model_reasoning_effort=high` | Primary — runs IN PARALLEL with A2 (exact IDs: `gpt-6-astra`, `gpt-6-luna`, `gpt-6-sol`, `gpt-6.1-sol`; 5.6 and unknown IDs forbidden) |
-| A2 | `claude -p --model opus --dangerously-skip-permissions` | Primary — runs IN PARALLEL with A1 |
-| A3.1 | `claude -p --dangerously-skip-permissions` | Fallback when no primary leg produced a verdict (outside Claude Code) |
-| A3.2 | `cursor agent -p --force` | Fallback if A3.1 errors |
-| A3.3 | `agy --print --dangerously-skip-permissions` | Fallback if A3.2 errors |
-
-Notes:
-- Codex + Opus are the primary PAIR, not a fallback chain. Both are fired in the same turn whenever both are available. A reviewer quorum table needs BOTH rows; mark missing partner `unavailable (<reason>)` per the solo-mode rule.
-- The A3.x fallback chain activates whenever no primary leg produces a verdict — Codex alone being unavailable or alone failing does NOT drop to A3 (the surviving leg still counts as the A verdict). The gate is "neither primary succeeded," not "both errored," so hosts with mixed failure modes (one unavailable, one errored) still get a verdict. This keeps `/advice` productive on hosts where only one of {codex, opus} is installed OR only one dispatched cleanly.
-- Check a CLI is on `PATH` before counting it as a rung. An absent CLI is an unavailable rung, not a failed reviewer — drop to the next rung without recording a failure.
-- `agy --print-timeout` defaults to 5m. Pass a longer value for a full 150-line artifact, or the review dies as an opaque timeout that looks like an error.
-- A primary process counts as successful only when it exits zero and emits a nonempty `VERDICT:` line. Otherwise preserve its failure in `receipt.json` and apply the solo/fallback rules above.
+Report the exact reviewed SHA or `DOCUMENTS sha256:<bundle hash>` for
+document-only review, with verdict, coverage, concise reasoning, risk, and
+findings. Require `COVERAGE: <files/diff scope actually read>`. End with
+exactly one SHA-bound line: `VERDICT: APPROVED at <SHA>`,
+`VERDICT: NOT APPROVED at <SHA>`, or `VERDICT: WITHHELD at <SHA> — <reason>`.
+For document-only review, use `DOCUMENTS sha256:<bundle hash>` in place of
+`<SHA>`; never use `HEAD`. Preserve a receipt for every attempt: reviewer
+identity, actual CLI, account and model, start/completion times, exit or timeout
+status, complete output, coverage, and cleanup result.
+Preserve the original reviewers and reviewed SHAs.
+Before applicability, inspect the complete actual delta, claims, evidence and phase.
+Applicability is not a new independent vote.
+Material uncovered changes require affected independent review.
+Classify instruction changes by behavior and contract effect, never by directory or
+path alone. Do not claim approval,
+applicability, or publication without its supporting receipt.

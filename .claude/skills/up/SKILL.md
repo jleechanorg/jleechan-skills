@@ -10,7 +10,7 @@ description: "Use when the user invokes /up or asks to persist a coding-agent ru
 **Default scope is the active repo, not `~/.claude/`.** A rule lives in the
 repo's Markdown files (CLAUDE.md / AGENTS.md / README.md / docs/**) where it
 naturally applies — with one canonical copy and tight cross-references,
-*not* scattered duplicates. The cross-runtime `~/.claude/CLAUDE.md` family is
+*not* scattered duplicates. The shared cross-runtime `~/.codex/AGENTS.md` owner is
 reached only when a rule must apply across every coding-agent surface in
 every session, or when the operator passes `--global`.
 
@@ -18,31 +18,31 @@ every session, or when the operator passes `--global`.
 
 - `/up` — **default**, edit the active repo's Markdown files only.
 - `/up --repo <path>` — explicit repo override (when called from outside a repo).
-- `/up --global` — full cross-runtime rewrite of the `~` surfaces
-  (legacy behavior; rare).
-- `/up --both` — repo **plus** the narrowest needed `~/.claude/CLAUDE.md`
+- `/up --global` — update the narrow shared owner or runtime adapter required by
+  the request; it is not a blanket rewrite of every runtime surface.
+- `/up --both` — repo **plus** the narrowest needed `~/.codex/AGENTS.md`
   pointer (the common "this rule is repo-canonical but also useful globally"
   case). The repo file gets the full text; the `~` file gets a
   one-line pointer that names the repo owner.
 
 ## Workflow
 
-1. Read the proposed instruction; search the *active repo's* Markdown
+1. Read the proposed instruction; inspect both the home owner and active repo's Markdown
    (`<repo>/CLAUDE.md`, `<repo>/AGENTS.md`, `<repo>/README.md`, plus any
-   existing sub-doc) for the distinctive concepts. Don't search `~` first
-   unless `--global` was passed — the repo is the natural owner for most
-   rules, and editing `~` doesn't help anyone who clones your repo.
+   existing sub-doc) for the distinctive concepts. Resolve declared ownership
+   before editing; repo-specific rules remain in their repository.
 2. Choose the narrowest owner in this order (first match wins):
    - Repo behavior (one repo, scope = this worktree): `<repo>/CLAUDE.md`,
      `<repo>/AGENTS.md`, or `<repo>/README.md` — pick whichever the repo
-     already uses (look at file mtime + history of edits; if the repo has
-     CLAUDE.md, prefer it; some repos use only AGENTS.md).
+     declares as owner, resolving any symlink/import and checking current content.
+     A newer mtime alone does not establish authority.
    - Multi-step workflow with thresholds / examples / reusable judgment:
      a directory-form `skills/<name>/SKILL.md` *inside the repo* under
      `.claude/skills/...` or the repo's own skills dir; check what the
      repo already does.
    - Cross-runtime invariant needed in every session across machines:
-     canonical copy in `~/.claude/CLAUDE.md` with concise pointers elsewhere.
+     canonical copy in `~/.codex/AGENTS.md`; Claude imports it through
+     `~/.claude/CLAUDE.md`. Keep runtime-only rules in their own adapters.
      This is the *fallback*, not the default.
    - Runtime-only behavior: only that runtime's surface.
 3. Back up the target file before editing. Update the canonical copy once.
@@ -63,9 +63,9 @@ every session, or when the operator passes `--global`.
 | `<repo>/README.md` | User-facing summary; only editable if the rule is genuinely user-visible (rare — behavior rules belong in CLAUDE.md/AGENTS.md). |
 | `<repo>/docs/<topic>.md` | Long-form docs (architecture, runbooks, design), referenced from CLAUDE.md. |
 
-If the repo already has both `CLAUDE.md` and `AGENTS.md` and they
-disagree, the behavior that already worked is the canonical copy. Add a
-cross-reference rather than rewriting both.
+If the repo has both `CLAUDE.md` and `AGENTS.md`, resolve their declared scope,
+symlink/import relationship and current owner. Reconcile a real contradiction
+at that owner; prior apparent success does not establish instruction authority.
 
 ## Cross-runtime surfaces (only when `--global` or `--both`)
 
@@ -88,8 +88,9 @@ cross-reference rather than rewriting both.
 ## Brief-report contract (operational table goes in Markdown, not chat)
 
 When `/up` writes or updates instructions, **produce a brief Markdown
-report** (default location: `<active-repo>/roadmap/up-changelog-<YYYYMMDD-HHMM>.md`,
-or `~/roadmap/up-changelog-<YYYYMMDD-HHMM>.md` for `--global`). The table
+report** under `~/roadmap/up-changelog-<YYYYMMDD-HHMM>.md` for every scope.
+Durable agent-authored reports belong in `~/roadmap/`, never a code repo's
+roadmap directory. The table
 must stay short:
 
 | Surface | Status | One-line reason |
@@ -98,6 +99,16 @@ Three columns, one row per touched surface. No prose, no captured-chat —
 the file IS the receipt. **Do not dump the full table into the chat
 reply.** A two-line pointer in chat is enough.
 
+## Instruction consistency contract
+
+- **Outcome:** Active instructions lead agents through authorized work to its verified result without conflicting owners or premature handoffs.
+- **Non-goals:** No new runtime code, credentials, paid capacity, unrelated task authority, or weakening of explicit approval and repository-specific gates.
+- **Acceptance:** Each confirmed active conflict is reconciled at its owner; references resolve; unrelated changes survive; installed copies are compared before synchronization.
+- **User story:** An operator asks for work and the agent performs available reversible next steps, including reviews, instead of returning those steps as work for the operator.
+- **Proof plan:** Inspect the complete before/after diff, run applicable structure checks and policy scenarios, and obtain the lifecycle's independent full-scope review before claiming approval.
+- **Mock exemption:** Markdown instruction changes need no application UI mock; claimed application or agent runtime behavior still needs its own evidence.
+- **Risk:** Shortening a rule can remove enforcement. Preserve standalone autonomy/safety headings and verify both continuation and genuine authority-boundary scenarios.
+
 ## Verification
 
 - Grep the *canonical* surface (and pointers, if any) for the distinctive
@@ -105,7 +116,8 @@ reply.** A two-line pointer in chat is enough.
 - Confirm every pointer exists in the targeted runtime files.
 - After changing a skill, verify YAML frontmatter begins with `---`.
 - Smoke `codex debug prompt-input` when available.
-- Run the managed-file tests; brief report file is the only deliverable.
+- Run applicable existing managed-file checks. The brief report records the
+  completed instruction changes; it does not replace them or their validation.
 
 ## Common failure
 

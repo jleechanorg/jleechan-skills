@@ -11,14 +11,14 @@ metadata:
 
 | # | Gate | Verification |
 |---|---|---|
-| 1 | **Applicable validation** | Documentation-only: CI NOT REQUIRED with proportionate local validation below. Otherwise every required check passes at HEAD, through CI or the local-equivalent exception for backlogged checks. |
+| 1 | **Applicable validation** | Documentation-only: CI NOT REQUIRED with proportionate local validation below. Otherwise every required check passes at HEAD, through CI, the documented `CI NOT APPLICABLE` exception, or the local-equivalent exception for backlogged checks. |
 | 2 | **No merge conflicts** | `mergeable == MERGEABLE` (retry while `UNKNOWN`; `CONFLICTING` is a hard FAIL) |
 
 **Nothing else gates `/green`.** Inline-comment resolution (`resolveReviewThread`), the evidence-link gate, the PR-description gate, and the old "6-green" numbering are **not** `/green` gates anymore (operator directive, 2026-07-28). Those quality checks follow the canonical **draft and ready/final phases** in `~/.claude/skills/pr-lifecycle/SKILL.md`; green alone does not establish READY. Apply that owner's applicability (including when `/er` is required by that lifecycle), final `/er` and `/advice` closure, and SHA-binding rule, including justified delta-based reaffirmation — do not restate that chain here, just apply it. Recheck `/green` at the live head and base before stating its verdict.
 
-**CodeRabbit/Bugbot: optional advisory reviewers** — read their feedback, take what's useful; never a gate, never a wait, at any phase of the PR lifecycle. Human `MERGE APPROVED` remains the only merge gate.
+**CodeRabbit/Bugbot: optional advisory reviewers** — read their feedback, take what's useful; never a gate, never a wait, at any phase of the PR lifecycle.
 
-Merge authorization is unchanged and separate from `/green`: never call `gh pr merge` / `gh api .../merge` without literal `MERGE APPROVED` (case-insensitive) in the human's most recent live message, for `$GITHUB_REPOSITORY`. Reaching `/green` is not merge authorization.
+Merge authorization is separate from `/green`: follow `~/.codex/AGENTS.md` § Merge safety and the target repository's explicit merge contract. `/green` alone is not merge authorization.
 
 ## Retained review integrations
 
@@ -31,6 +31,25 @@ Classify the complete diff at the current PR HEAD by what changed, not by file e
 Executable code or embedded automation, application prompts, workflows, schemas, runtime configuration, and mixed diffs containing those changes do not qualify, even inside a Markdown file or docs directory. An agent workflow described in prose is instruction documentation; changing executable hook/script content is not.
 
 Run proportionate local checks for the actual change, such as diff hygiene, link/pointer resolution, or skill metadata validation. Record `Gate 1: CI NOT REQUIRED — documentation-only` with the reviewed SHA, scope, commands and results; never label skipped or unrun CI as passed. Address relevant failures in those local checks. Gate 2, applicable draft and final review/evidence requirements, and merge authorization remain unchanged. This policy does not bypass branch protection or authorize disabling/canceling CI jobs.
+
+## No-CI exception — a check that cannot run is not a check to wait on
+
+When CI **does not exist** for this PR, do not sleep-poll it. Three provable shapes qualify, and each needs its evidence recorded before you skip the wait:
+
+1. **No workflow applies.** Establish this with a named bounded repository validation that evaluates the workflow files and their event/path filters against the changed paths, and record the command and actual output. A directory listing or path inspection alone is insufficient. If no bounded validation can establish applicability, leave Gate 1 unproven; do not invent a nonexistent workflow command.
+2. **No eligible runner can host it.** Resolve the job's `runs-on` labels and runner group, repository access, and the corresponding eligible runner pool (repository, organization, or hosted capacity as applicable). A repository self-hosted-runner endpoint alone cannot prove GitHub-hosted or organization-level capacity. Qualifying capacity evidence is zero eligible runners, or repeated observations at separate times showing every eligible runner busy while the check remains `QUEUED` or `PENDING`; one busy snapshot is insufficient.
+3. **Checks are structurally stuck.** The rollup is `QUEUED`/`PENDING` with no start, and a runner-capacity read explains it — repeatedly, not once. Apply the full labels, runner-group, repository-access, eligible-pool, and repeated queued-or-pending observation requirements in case 2; a structurally stuck rollup alone is insufficient.
+
+On any of those, apply the local-equivalent exception immediately — do not wait for the ten-minute backlog threshold, and never substitute a `sleep N` + `gh pr checks` loop for actually running the command. Then record:
+
+```
+Gate 1: CI NOT APPLICABLE — <reason: no matching workflow | zero eligible runners | runners saturated QUEUED or PENDING>
+  evidence: <command + the output line proving it>
+  local equivalent: <workflow command, or bounded repository validation when no workflow applies> → <result at SHA>
+  validation/capacity details: <bounded validation result, or timestamped eligibility and queue observations>
+```
+
+Guardrails that do not move: never label unrun CI as passed, never disable or cancel a job or touch branch protection, never widen this into "skip CI" for a repo whose checks are merely slow or red, and keep Gate 2, applicable review/evidence gates, and merge authorization exactly as they are. A check that has actually started is backlogged CI, not missing CI — that stays under the local-equivalent exception with its own reporting.
 
 ## Gate 1 — CI green: verification procedure (when CI applies)
 

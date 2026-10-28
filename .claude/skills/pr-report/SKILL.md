@@ -55,13 +55,15 @@ gate1=$(gh pr view N --json statusCheckRollup --jq '[.statusCheckRollup[] | sele
 gate2=$(gh pr view N --json mergeable --jq '.mergeable')
 ```
 
-- `gate1 == 0` AND `gate2 == "MERGEABLE"` → `MERGE_READY`
+- `gate1 == 0` AND `gate2 == "MERGEABLE"` → `GREEN`
 - `gate1 == 0` AND `gate2 == "UNKNOWN"` → `PENDING` (re-poll)
 - `gate1 == 0` AND `gate2 == "CONFLICTING"` → `BLOCKED_CONFLICT`
 - `gate1 > 0` → `BLOCKED_CI` (real test failure)
 - Otherwise → `BLOCKED`
 
-Green Gate and Cursor Bugbot checks are advisory and excluded from Gate 1; CodeRabbit/Bugbot feedback is advisory across all phases (per `draft-first-pr` + `pr-green-definition` skills).
+This is only the two-gate result: green alone does not establish READY or merge authorization. Apply `pr-lifecycle` for draft and ready/final obligations and `pr-green-definition` for documented CI exceptions.
+
+Green Gate and Cursor Bugbot checks are advisory and excluded from Gate 1; CodeRabbit/Bugbot feedback is advisory across all phases (per `pr-lifecycle` + `pr-green-definition` skills).
 
 ## Conventions
 
@@ -85,7 +87,7 @@ Green Gate and Cursor Bugbot checks are advisory and excluded from Gate 1; CodeR
 - `/thermo` (`thermo-nuclear-code-quality-review`) — strict structural audit
 - `/ponytail` — lazy senior dev ladder
 - `/pr-green-definition` — canonical 2-gate /green status check
-- `/draft-first-pr` — PR lifecycle (draft → /es → /er → /advice → /green)
+- `/pr-lifecycle` — canonical lifecycle, applicability and separate merge authority
 - `/sidekick` — durable Sonnet teammate wrapper
 - `/swarm` — multi-agent orchestration playbook
 - `/e` — cost-aware model routing

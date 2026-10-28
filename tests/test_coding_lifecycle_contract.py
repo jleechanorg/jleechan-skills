@@ -13,13 +13,17 @@ def read(name: str) -> str:
 
 
 class CodingLifecycleContract(unittest.TestCase):
-    def test_stage_is_one_trailing_suffix_not_a_prefix(self):
+    def test_stage_has_matching_short_prefix_and_full_suffix(self):
+        self.assertIn("one two-letter stage prefix", self.owner)
         self.assertIn("one recognized trailing stage suffix", self.owner)
-        self.assertIn("Improve campaign loading [evidence review]", self.owner)
+        self.assertIn("[er] Improve campaign loading [evidence review]", self.owner)
         self.assertIn("remove only recognized stage markers", self.owner)
         self.assertIn("stage suffix goes last", self.owner)
-        self.assertNotIn("leading title prefix", self.owner)
-        self.assertNotIn("Title prefix", self.owner)
+        for prefix, suffix in (("sp", "specification"), ("cd", "coding"),
+                               ("ev", "evidence generation"), ("er", "evidence review"),
+                               ("ci", "CI and undraft"), ("fa", "final approval")):
+            self.assertIn(f"| [{prefix}] | [{suffix}] |", self.owner)
+        self.assertIn("prefix and suffix must name the same stage", self.owner)
 
     def test_generic_exceptions_preserve_opt_in_spec_and_review_route_scope(self):
         raw = (SKILLS / "pr-lifecycle" / "SKILL.md").read_text()
@@ -146,7 +150,7 @@ class CodingLifecycleContract(unittest.TestCase):
         self.assertIn("execute the phases that apply", goal)
         self.assertIn("Run the applicable gates at completion", goal)
         iron = read("ironclad")
-        self.assertIn("applicability follows `draft-first-pr` § Coding lifecycle", iron)
+        self.assertIn("applicability follows `pr-lifecycle` § Coding lifecycle", iron)
         self.assertIn("never waives user-required, high-risk, approval/merge, or real-proof gates", iron)
 
     def test_small_code_fix_is_eligible_for_the_proportional_path(self):
@@ -399,6 +403,32 @@ class CodingLifecycleContract(unittest.TestCase):
         self.assertIn("git status --porcelain", self.owner)
         self.assertIn("gh pr list --head <branch> --state all", self.owner)
         self.assertIn("state the measured facts instead of the remembered ones", self.owner)
+
+    def test_stage5_requires_verified_ai_visual_approval_not_pending_dot(self):
+        for name in ("pr-lifecycle", "evidence-review", "pr-workflow-manager"):
+            text = read(name)
+            self.assertIn("VISUAL APPROVED at <40-char-sha>", text)
+            self.assertIn("`/dot: REQUESTED, pending`", text)
+            self.assertIn("stage:5-final-approval", text)
+
+    def test_lightweight_prw_nonprod_path_is_defined_and_bounded(self):
+        raw = (SKILLS / "pr-lifecycle" / "SKILL.md").read_text(encoding="utf-8")
+        section_raw = raw.split("\n## Default PR route — `/prw`\n", 1)[1].split("\n## ", 1)[0]
+        route = " ".join(section_raw.split())
+        self.assertIn("non-production changes", route)
+        self.assertIn("do not alter approval, merge, review, evidence, or security policy", route)
+        self.assertIn("excluded in § Proportional exceptions and fast paths", route)
+        self.assertIn("listed as high-risk in § Coding lifecycle — scale layers to risk", route)
+        self.assertIn("skips intermediate stage-by-stage ceremony", route)
+        self.assertIn("keep the specification in its prescribed location", route)
+        self.assertIn("stage:5-final-approval", route)
+        self.assertIn(
+            "at least one independent adversarial full-scope LLM review regardless of size when agent instructions change",
+            route,
+        )
+        self.assertIn("any repository-required review, evidence, or `/dot` route", route)
+        self.assertIn("merge authorization", route)
+        self.assertIn("../pr-lifecycle/SKILL.md#default-pr-route--prw", read("pr-workflow-manager"))
 
 
 if __name__ == "__main__":

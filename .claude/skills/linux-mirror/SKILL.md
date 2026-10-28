@@ -7,19 +7,24 @@ description: "Mirror the current git dir/worktree/branch onto a Linux machine an
 
 Companion to [mac-mirror](../mac-mirror/SKILL.md) (same flow, opposite direction). Unlike a plain SSH-steering skill, this mirrors the **current repo's committed state** onto the target machine and resumes work there in a persistent tmux session.
 
+For capacity-driven handoffs, follow
+[host load balancing](../parallelize-to-ceiling/references/host-load-balancing.md)
+for host selection and task ownership; this skill owns Linux transport and
+response proof.
+
 ## Setup (once, per pair of machines)
 
 This skill assumes you've already got:
 - An SSH host alias for the Linux box in `~/.ssh/config` (LAN), e.g.:
   ```
   Host mylinux
-      HostName 192.168.1.50
+      HostName 192.0.2.10
       User myusername
-      IdentityFile ~/.ssh/id_mylinux
+      IdentityFile ~/.ssh/id_ed25519
   ```
   (`ssh_config` does not expand environment variables — write your actual username literally, not `$USER`.)
 - Your repo lives under `$HOME` on the source machine (any relative path). This skill mirrors it onto the target machine under `$HOME/mirror/<same relative path>` — a dedicated namespace so every mirrored checkout is easy to find on either machine and never collides with (or silently overwrites) a normal checkout that happens to already exist at that same path. A repo outside `$HOME` on the source side isn't supported — step 1 below checks for this and stops rather than silently producing a wrong path.
-- (Optional, for off-LAN/travel use) Both machines joined to the same Tailscale tailnet. Note: a bare SSH alias like the one above resolves its `HostName` literally — it does NOT fail over to Tailscale automatically. Off-LAN, connect via the Tailscale IP directly with the identity file explicit: `ssh -i ~/.ssh/id_mylinux myusername@<tailscale-ip>` (look it up with `tailscale status | grep <hostname>` — don't hardcode it, Tailscale IPs are stable per-device but you should still re-verify rather than assume).
+- (Optional, for off-LAN/travel use) Both machines joined to the same Tailscale tailnet. Note: a bare SSH alias like the one above resolves its `HostName` literally — it does NOT fail over to Tailscale automatically. Off-LAN, connect via the Tailscale IP directly with the identity file explicit: `ssh -i ~/.ssh/id_ed25519 myusername@<tailscale-ip>` (look it up with `tailscale status | grep <hostname>` — don't hardcode it, Tailscale IPs are stable per-device but you should still re-verify rather than assume).
 - (Optional, for SSH-fully-down fallback) A messaging-gateway agent (e.g. a Hermes-style gateway, or anything that runs commands on your behalf) running on the Linux box, watching a Slack channel (or similar) you can post to.
 
 Substitute your own host alias / IP / key path / username everywhere `mylinux` / `myusername` appears below.

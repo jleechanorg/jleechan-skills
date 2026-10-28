@@ -5,7 +5,7 @@ description: your-project.com-specific practice for the no-code visual user-stor
 
 # /user-story — your-project.com specifics
 
-**This file is self-contained** — the general-law summary below covers what a fresh clone, CI job, or automation account needs. If `~/.claude/skills/user-story/SKILL.md` exists on the machine you're running on (a user-scope personal skill, not part of this repo), read it too for the full rationale and worked examples; treat it as a supplement, not a hard dependency.
+**This file is self-contained** — the general-law summary below covers what a fresh clone, CI job, or automation account needs. If the active skill catalog provides the general `/user-story` skill, read it for rationale and examples; treat it as a supplement, not a hard dependency.
 
 ### General law (inline summary)
 
@@ -42,17 +42,25 @@ The non-visual half — the data model, persistence, the backend-versus-model re
 
 **`ARCHITECTURE-rules-corpus.md` is load-bearing.** Roughly half the combat and progression criteria say a value must be "correct" or "match the table" without restating the table. That page names the fifth-edition tabletop rules as normative and lists the dependent stories. If you add a mechanics criterion, link it there — a criterion saying "correct" with no corpus is a placeholder, not a criterion.
 
-## Never capture against a deployment
+## Choose the capture target by the claim
 
 `/api/waitlist/status` is rate-limited **per client IP, not per user**, and the app re-checks access on every page load, sign-in, token refresh, and tab refocus. Capture automation from one machine exhausts the bucket for every human on that IP — and the client then renders the failure as *"you are not approved for access."* This locked the repo owner out of the dev site on 2026-07-26.
 
-Capture against a **local server** only:
+Use a **local server** for a local-capable story capture. Disable auth bypass and
+authenticate through a dedicated non-primary test account when the flow requires
+sign-in. For a claim that specifically concerns deployed behavior, use the exact
+authorized PR preview and its real-auth flow; do not test against production.
+Follow the current project root's `testing_ui/CLAUDE.md` for UI acceptance and
+`testing_mcp/AGENTS.md` when the capture exercises MCP/service behavior.
 
 ```bash
-export WORLDAI_DEV_MODE=true TESTING_AUTH_BYPASS=true
+export WORLDAI_DEV_MODE=true TESTING_AUTH_BYPASS=false ALLOW_TEST_AUTH_BYPASS=false
 export WAITLIST_STATUS_RATE_LIMIT="100000 per hour, 10000 per minute"
-./run_local_server.sh --no-log-stream --force-default-port   # serves :8081
+./run_local_server.sh --no-log-stream
 ```
+
+Discover the server's bound port from its log; do not force a shared default
+port or terminate an existing listener.
 
 Verify before trusting it: `GET /health` → 200 **and** the landing page renders real content (title `WorldAI`, "YOUR AI-POWERED DUNGEON MASTER"). A 200 on `/health` does not mean the app paints.
 
@@ -99,28 +107,28 @@ Each omission has its own failure signature: without the ObjC var the worker abo
 
 **CHECK THE DATE BEFORE YOU TRUST A TRANSCRIPT.** The corpus spans years. A defect visible in an old campaign may be long fixed, and a "not found" against old campaigns says nothing about now — both were real errors here. Four findings once rested on a campaign last played **thirteen months** earlier, and two `NOT FOUND` verdicts turned out to be false negatives that fresh play immediately contradicted.
 
-```bash
-# rank the whole corpus by when it was last played
-cd ~/llm_wiki/raw/campaigns
-for f in */*game_state.json; do
-  python3 -c "import json,sys;print(json.load(open('$f'))['last_state_update_timestamp'][:10],'$f')" 2>/dev/null
-done | sort -r | head -20
-```
+When the corpus is available, rank campaigns by last-played date using its
+documented structure. Prefer campaigns played within the last month; state the
+date of every transcript you cite. Campaign archetype skews results — sample
+across archetypes before generalising.
 
-Prefer campaigns played within the last month; state the date of every transcript you cite. Note also that campaign *archetype* skews results — god-mode/deity runs show no player damage at all, while traditional combat runs show 12–33%. Sample across archetypes before generalising.
+Long campaign transcripts may be available in the corpus documented by the
+current project environment. Resolve that location before searching; if it is
+unavailable, state the source limitation and do not treat missing matches as
+evidence. Scenes are delimited by lines reading `SCENE <N>`; turns are marked
+`Game Master:`, `You:`, `God Mode:`, `Location:`. Large files should be searched
+first and only the relevant bounded range read.
 
-Long campaigns live at `~/llm_wiki/raw/campaigns/<ID>/*.txt`. Scenes are delimited by lines reading `SCENE <N>`; turns are marked `Game Master:`, `You:`, `God Mode:`, `Location:`. Files are 1–3.5 MB — grep to locate, then read only that range. Never read one whole into context.
-
-Four long campaigns are copied under `<your-email@gmail.com>` for live use:
+Four long campaigns are copied under `<dedicated-non-primary-test-account-email>` for live use:
 
 | Campaign | Scenes | Rich in |
 |---|---|---|
-| `CqqQtPrqRfu6ecbRDOVi` Itachi Evil 2 | 527 | gold, time-skips, nat-1s |
-| `7Ptv1Z5iKrKIHNAenZi1` Vespera Thul | 700 | siege runs, HP lines |
-| `Vk9qjPWdSQ4WjziyWMBl` aurelius caesar | 490 | factions, world dials |
-| `aPP5Nj10LiC91ofA9gwT` Thay trader | 424 | companions |
+| `<campaign-id-1>` Itachi Evil 2 | 527 | gold, time-skips, nat-1s |
+| `<campaign-id-2>` Vespera Thul | 700 | siege runs, HP lines |
+| `<campaign-id-3>` aurelius caesar | 490 | factions, world dials |
+| `<campaign-id-4>` Thay trader | 424 | companions |
 
-Copying more: `scripts/copy_campaign.py` **fail-closes** when the source is resolved via `--find-by-id`/`--source-email` and neither `--dest-email` nor `--allow-same-user` is given — it prints `refusing copy: no --dest-email and no --allow-same-user flag` and exits 1 (`scripts/copy_campaign.py:718-733`). Always pass `--dest-email <your-email@gmail.com>` explicitly rather than relying on the refusal path. `$USER@gmail.com` is read-only.
+Copying more: `scripts/copy_campaign.py` **fail-closes** when the source is resolved via `--find-by-id`/`--source-email` and neither `--dest-email` nor `--allow-same-user` is given — it prints `refusing copy: no --dest-email and no --allow-same-user flag` and exits 1 (`scripts/copy_campaign.py:718-733`). Always pass `--dest-email <dedicated-non-primary-test-account-email>` explicitly rather than relying on the refusal path. The source account is read-only.
 
 ## Traps that have produced false claims here
 
@@ -155,10 +163,16 @@ The fourth is the most instructive: an unverified **negative** shipped as settle
 
 ## Evidence bar for code changes
 
-`AGENTS.md` (§ Evidence for mvp_site Production Changes) governs any non-test `$PROJECT_ROOT/**` change: unit tests are supporting checks only and do **not** satisfy `/es`; a user-visible or interactive change needs captioned video tied to the PR HEAD SHA; `N/A` is valid only for comments, docs, formatting, type hints, and import order. Scoping an `N/A` around the population a change doesn't affect is not a valid use of it.
+The current project `AGENTS.md` and evidence-standards owner govern `/es` for any
+non-test `$PROJECT_ROOT/**` change. Select the lowest sufficient evidence class
+for the actual claim: unit tests may establish bounded deterministic behavior,
+but do not prove model compliance, auth, persistence races, or UI behavior. A
+user-visible or interactive change retains the repository's captioned-video
+requirement tied to the tested SHA. Use `N/A` only when the claim and affected
+behavior justify it under those owners.
 
 Evidence bucket: `gs://wa-test-evidence/` (private, `pr-NNNN/` convention, gcloud auth already works).
 
 ## Keeping this file honest
 
-When a session learns something durable about documenting *this* product — a new trap, a refuted claim, a better evidence source — add it here rather than to the user-scope skill. General practice goes up to `~/.claude/skills/user-story/SKILL.md`; product specifics stay here. Cite provenance (scene numbers, PR, bead) so the next reader can verify without re-deriving.
+When a session learns something durable about documenting *this* product — a new trap, a refuted claim, a better evidence source — add it here rather than to the general user-story skill. Product specifics stay here. Cite provenance (scene numbers, PR, bead) so the next reader can verify without re-deriving.

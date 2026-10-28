@@ -155,13 +155,17 @@ echo "$REQUEST_JSON" | http POST "$MCP_URL" \
   --output=response.json
 ```
 
-### 3. Show Request Headers
+### 3. Inspect the Response Without Logging Credentials
 
 ```bash
 echo "$REQUEST_JSON" | http POST "$MCP_URL" \
   Authorization:"Bearer $TOKEN" \
-  --print=HhBb  # H=request headers, h=response headers, B=request body, b=response body
+  --print=b
 ```
+
+Do not enable request-header, verbose or debug logging on authenticated calls:
+the Authorization header contains the bearer token. Redact credentials before
+sharing any saved response or diagnostic output.
 
 ### 4. Follow Redirects
 

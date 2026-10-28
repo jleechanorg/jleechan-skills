@@ -7,7 +7,7 @@ description: Enforcement rules for reviewing evidence artifacts against the evid
 
 ## Claim-proportionate evidence and publication
 
-Use [evidence-standards](../evidence-standards/SKILL.md#claim-proportionate-evidence-and-publication) for compact artifact classes and [pr-lifecycle](../pr-lifecycle/SKILL.md) for gate exceptions and PR-description stage receipts. Review every applicable integrity/provenance check and the declared claim; record justified N/A without turning missing required proof into an exemption. These canonical rules qualify generic bundle/media wording below; they do not grant a new approval or waive explicit user/risk-specific proof.
+For claim-proportionate proof, follow [pr-lifecycle](../pr-lifecycle/SKILL.md#proportional-exceptions-and-fast-paths); for PR publication, use its [stage-exit receipt contract](../pr-lifecycle/SKILL.md#evidence-attached-to-every-stage-exit). Evidence content and integrity remain governed by [evidence-standards](../evidence-standards/SKILL.md).
 
 ## Retained review integrations
 
@@ -152,9 +152,23 @@ For each applicable video requirement, verify:
 - The caption identifies the test/action, observed result, and tested SHA.
 - UI footage visibly shows the relevant element and before/action/after behavior.
 - Terminal footage, when required, shows the command and relevant result.
+- The mpdecimate retained-frame count and nominal count are reported with the fail-closed probe in `../ui-video-evidence/SKILL.md`; `kept < 10` or `kept/nominal < 5%` is **INSUFFICIENT** unless the caption names the action and after-state frame timestamps and they show the claim.
+- Each clip includes the user action (e.g. the Send tap) plus the before state; a window anchored only to completion that omits the action fails. If the observable has no user action, record N/A with the reason and require a before-state → after-state transition clip.
+- Before/after clips come from fresh runs of each build; any re-cut or reused baseline is labeled `derived` with its source.
+- This `/er` verdict (and any `/advice` on the evidence) comes from a different agent/lane than the one that produced the evidence, and the verdict names that lane (lanes may share one GitHub account).
 
 A missing applicable artifact yields **PARTIAL**. Record inapplicable formats as
 N/A with a reason; do not impose terminal and browser video on every PR.
+
+**Video acceptance needs an independent content review.** When a video backs an
+acceptance claim, an independent AI reviewer other than the author or orchestrator must extract
+frames from the published video itself (not the capture's own screenshots) and
+return, for each acceptance step, PASS/FAIL with the timestamp where it is
+visible. Privacy masking, decode/playback, upload read-back, captions, and
+turn-record or coverage-judge JSON are separate checks and never substitute.
+No content review → **PARTIAL**; a step the frames contradict → **FAIL**.
+
+**Mandatory AI Visual Inspection (`VISUAL APPROVED at <40-char-sha>`):** For any user-visible change (anything not covered by the narrow documentation-only / zero-UI-impact non-visual exemption), `/er` (or an independent `/advice` visual lane / `/dot`) MUST download and visually inspect the actual rendered image or extracted video frames—never just URL status or checksums—and record `VISUAL APPROVED at <40-char-sha>` (or `VISUAL REJECTED at <40-char-sha>`). A link-existence check or pending request (e.g., `/dot: REQUESTED, pending`) is NEVER a visual approval PASS, caps `/er` at **PARTIAL**, and blocks `stage:5-final-approval` and merge readiness. The approval record MUST include, per user-visible claim, the before (where a before state exists) and after artifact links, a concrete description of what the reviewer saw in each (the changed element, its state, and the viewport), and a matches-claim verdict, all bound to the evidenced SHA (the approved head, or the earlier SHA a reasoned delta assessment preserves); a bare stamp or approver name without those findings is not a visual approval PASS. Repositories may require the findings as a PR-body table and check its presence and SHA binding in CI.
 
 ### 5. Public-URL hosting check
 
@@ -231,6 +245,27 @@ without exact commands and expected results → PARTIAL.
 ### 8. Branch & Commit Containment Verification
 
 - [ ] **Commit Branch Containment Gate**: Run `git branch -r --contains <sha>` before asserting that a commit, fix, or schema change is present on a PR's remote branch. If the commit exists only on a sibling/worktree branch and NOT on the PR's target branch → **FAIL** (do not assume cross-branch propagation without git verification).
+
+### 9. Observed acceptance violations
+
+Before PASS, list every forbidden-state observation in the raw artifacts (request
+ledgers, logs, frames) and compare it verbatim against the user's stated
+acceptance and the UI's own disclosure text.
+
+- [ ] An observation either one forbids → **FAIL**. It may not be moved to Does
+  NOT Prove, `limits`, a follow-up bead, or a P1 "wording" item, and narrowing the
+  claim (e.g. "protected endpoints only", "no zero-network claim") does not clear
+  it. Exits: a code fix with fresh evidence, or the user accepting that exact
+  behavior in a live message.
+- [ ] A benign label (transport-only, warmup, best-effort, no content) is not a
+  waiver: the disclosure and acceptance govern, not the payload.
+- [ ] Reviewer prompts must not carry the author's classification of the
+  observation; the reviewer judges it from the raw artifact.
+
+Example: if a warm-up request fires while consent is off under a dialog saying
+"Nothing is sent until you allow it", filing it as a nonblocking follow-up or
+handing the reviewer a "transport-only" assessment does not allow PASS, nor can
+a video bundle pass without an independent AI review of the frames.
 
 ---
 
