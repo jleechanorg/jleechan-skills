@@ -23,7 +23,7 @@ This skill assumes you've already got:
       IdentityFile ~/.ssh/id_ed25519
   ```
   (`ssh_config` does not expand environment variables — write your actual username literally, not `$USER`.)
-- Your repo lives under `$HOME` on the source machine (any relative path). This skill mirrors it onto the target machine under `$HOME/mirror/<same relative path>` — a dedicated namespace so every mirrored checkout is easy to find on either machine and never collides with (or silently overwrites) a normal checkout that happens to already exist at that same path. A repo outside `$HOME` on the source side isn't supported — step 1 below checks for this and stops rather than silently producing a wrong path.
+- Your repo lives under `$HOME` on the source machine (any relative path). This skill resolves a writable target root with the target host's canonical `diskm scratch-dir` command, then mirrors the checkout under that Scratch root. Agent output and disposable tool files use a separate Scratch output directory. If the configured Scratch volume is unavailable, the resolver failure is fatal; do not fall back to `/tmp` or `$HOME/mirror`. A repo outside `$HOME` on the source side isn't supported — step 1 below checks for this and stops rather than silently producing a wrong path.
 - (Optional, for off-LAN/travel use) Both machines joined to the same Tailscale tailnet. Note: a bare SSH alias like the one above resolves its `HostName` literally — it does NOT fail over to Tailscale automatically. Off-LAN, connect via the Tailscale IP directly with the identity file explicit: `ssh -i ~/.ssh/id_ed25519 myusername@<tailscale-ip>` (look it up with `tailscale status | grep <hostname>` — don't hardcode it, Tailscale IPs are stable per-device but you should still re-verify rather than assume).
 - (Optional, for SSH-fully-down fallback) A messaging-gateway agent (e.g. a Hermes-style gateway, or anything that runs commands on your behalf) running on the Linux box, watching a Slack channel (or similar) you can post to.
 
@@ -91,13 +91,34 @@ set -e
 REL_PATH=$(printf '%s' "$1" | base64 -d)
 BRANCH=$(printf '%s' "$2" | base64 -d)
 REMOTE_URL=$(printf '%s' "$3" | base64 -d)
-TARGET="$HOME/mirror/$REL_PATH"
+TARGET=""
 CONTEXT_PAYLOAD=$(printf '%s' "$4" | base64 -d)
 case "$CONTEXT_PAYLOAD" in
   x*) CONTEXT=${CONTEXT_PAYLOAD#x} ;;
   *) echo "FAILED:$TARGET — invalid CONTEXT payload" >&2; exit 1 ;;
 esac
 AGENT_CLI=$(printf '%s' "$5" | base64 -d)
+
+# Scratch is the only mirror destination. `diskm scratch-dir` performs the
+# host-specific volume, availability, and admission checks. Keep the checkout
+# and the agent's generated output in separate paths. A resolver failure is
+# fatal; do not fall back to HOME or /tmp.
+SCRATCH_ROOT="$(diskm scratch-dir 2>/dev/null)" || {
+  echo "FAILED:$REL_PATH — canonical Scratch resolver failed; refusing HOME/tmp fallback" >&2
+  exit 75
+}
+[ -n "$SCRATCH_ROOT" ] && [ -d "$SCRATCH_ROOT" ] || {
+  echo "FAILED:$REL_PATH — canonical Scratch resolver returned no usable root" >&2
+  exit 75
+}
+MIRROR_KEY=$(printf '%s' "$REL_PATH" | cksum | cut -d' ' -f1)
+BRANCH_KEY=$(printf '%s' "$BRANCH" | cksum | cut -d' ' -f1)
+TARGET="$SCRATCH_ROOT/mirrors/$MIRROR_KEY/$REL_PATH"
+OUTPUT_ROOT="$SCRATCH_ROOT/mirror-output/$MIRROR_KEY/$BRANCH_KEY"
+mkdir -p "$OUTPUT_ROOT"
+export DISKM_SCRATCH="$SCRATCH_ROOT"
+export CLAUDE_CODE_TMPDIR="$OUTPUT_ROOT"
+export PYTEST_DEBUG_TEMPROOT="$OUTPUT_ROOT"
 
 if [ -z "$CONTEXT" ]; then
   echo "FAILED:$TARGET — CONTEXT is empty; refusing to start a bare shell" >&2
@@ -156,7 +177,7 @@ SESSION="mirror-${BRANCH_SAFE}-${BRANCH_HASH}"
 # would incorrectly succeed against an existing "mirror-feature-x") — the
 # leading "=" forces an exact match.
 if tmux has-session -t "=$SESSION" 2>/dev/null; then
-  echo "RESUMED:$SESSION:$TARGET:$(git rev-parse HEAD)"
+  echo "RESUMED:$SESSION:$TARGET:$OUTPUT_ROOT:$(git rev-parse HEAD)"
 else
   # A bare shell in a checked-out repo is not "continuing the work session"
   # — launch the coding agent as the session's actual command, with
@@ -276,7 +297,7 @@ else
       echo "FAILED:$SESSION:$TARGET — pi is waiting at its project-trust prompt; inspect it before reporting READY" >&2
       exit 1
     fi
-    echo "READY:$SESSION:$TARGET:$(git rev-parse HEAD)"
+    echo "READY:$SESSION:$TARGET:$OUTPUT_ROOT:$(git rev-parse HEAD)"
   else
     echo "FAILED:$SESSION:$TARGET — session did not survive launch (check that \`$AGENT_CLI\` is on the remote PATH); pane retained by remain-on-exit for inspection: tmux capture-pane -p -t $SESSION" >&2
     exit 1
@@ -314,7 +335,9 @@ If a PR is already open for `$BRANCH`, pushes update that PR's head automaticall
 ## Caveats
 
 - Committed-state-only mirror (see "What this carries over" above) — this is the chosen tradeoff over rsyncing the dirty working tree.
-- Source repo must live under `$HOME` (see Setup) — step 1 fails loudly rather than silently mirroring to the wrong place. The target-side checkout always lands under `$HOME/mirror/`, not at the identical path as the source.
+- Source repo must live under `$HOME` (see Setup) — step 1 fails loudly rather than silently mirroring to the wrong place. The target-side checkout and agent output land under the target's configured Scratch root; existing `$HOME/mirror` paths are not reused or modified.
+- Tool-owned auth, transcripts, and tmux state remain in their normal HOME locations; generated agent output and disposable test files use the Scratch output path reported by `READY`/`RESUMED`.
+- Step 4 auto-launches `claude` (hardcoded) as the session's command with `$CONTEXT` passed as its argv (not typed via `send-keys`), but only on a freshly created session — edit the hardcoded command if you use a different CLI. Never assume a `RESUMED` session is idle just because this skill didn't launch anything into it.
 - A bare host alias is typically LAN-only; off-LAN (traveling), target the Tailscale IP + explicit `-i` per Tier 2 — and make sure step 4 actually uses the resolved `$SSH_ARGS`/`$SSH_TARGET` from step 3, not a re-hardcoded alias, or the whole point of the fallback is lost.
 - Never pass unencoded user-controlled values (repo path, branch name, remote URL) as literal SSH command arguments — a branch name is attacker-controllable shell input the moment someone else can push to your fork, and SSH doesn't preserve argv separation across the wire. Base64-encode first (see step 4).
 - Tier 3 (messaging-gateway handoff) hands off to a *different* agent/process with no shared context — give it complete, explicit instructions, don't assume it can infer intent from this conversation. Also verify it's genuinely reactive before relying on it (see Tier 3 caveats above) — a live-looking connection isn't proof it's actually processing events, and a missing permission grant is a much likelier culprit than the connection itself.
