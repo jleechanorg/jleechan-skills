@@ -333,7 +333,7 @@ If a PR is open for `$BRANCH`, pushes update its head automatically. Otherwise p
 - Committed-state-only mirror — see "What this carries over" above.
 - Source repo must live under `$HOME` (see Setup) — step 1 fails loudly rather than silently mirroring to the wrong place. The target-side checkout and agent output land under the target's configured Scratch root; existing `$HOME/mirror` paths are not reused or modified.
 - Tool-owned auth, transcripts, and tmux state remain in their normal HOME locations; generated agent output and disposable test files use the Scratch output path reported by `READY`/`RESUMED`.
-- Step 4 auto-launches `claude` (hardcoded) as the session's command with `$CONTEXT` passed as its argv (not typed via `send-keys`), but only on a freshly created session — edit the hardcoded command if you use a different CLI. Never assume a `RESUMED` session is idle just because this skill didn't launch anything into it.
+- Step 4 launches the calling CLI (`$AGENT_CLI`, resolved in step 1 — `pi`/`claude`/`codex`/`agy`) as the session's command with `$CONTEXT` passed as its argv (not typed via `send-keys`), but only on a freshly created session. Never assume a `RESUMED` session is idle just because this skill didn't launch anything into it.
 - macOS SSH keychain may prompt on first connection; `ssh-add --apple-use-keychain ~/.ssh/id_ed25519` caches it.
 - A bare host alias is typically LAN-only; off-LAN, target the Tailscale IP + explicit `-i` per Tier 2 — and make sure step 4 actually uses the resolved `$SSH_ARGS`/`$SSH_TARGET`, not a re-hardcoded alias.
 - Never pass unencoded user-controlled values (repo path, branch name, remote URL) as literal SSH command arguments — base64-encode first (see step 4).
