@@ -186,7 +186,7 @@ Different problem: the process is gone, so there is nothing to ctrl-c. Recreate 
 
 ## Automation
 
-`scripts/cmux-cli-restore.sh` does steps 1-5 for one surface, and supports `--dry-run` (report the CLI
+`scripts/cmux-cli-restore.sh` does steps 2-5 for one surface, and supports `--dry-run` (report the CLI
 and the plan, touch nothing) and `--list-above-p1` (enumerate in-scope terminal surfaces with their CLI
 and last session-write age, so you can pick the wedged ones instead of restarting everything).
 
@@ -195,6 +195,8 @@ scripts/cmux-cli-restore.sh --dry-run --workspace workspace:1000120002 --surface
 scripts/cmux-cli-restore.sh --list-above-p1
 scripts/cmux-cli-restore.sh --workspace workspace:1000120002 --surface surface:1000120005
 ```
+
+The script does not do step 2's live-state check (full scrollback plus two captures 20-30 s apart): run that preflight yourself before any non-`--dry-run` invocation, and never run it on a surface you have not confirmed is wedged.
 
 The script refuses to type into a surface whose prompt line still contains CSI-u residue, and it
 verifies the restart at the process level before reporting success.
