@@ -7,37 +7,37 @@ description: Verify images, sprites, screenshots, and videos with tools that can
 
 ## Purpose
 
-Handle all visual verification tasks (images, sprites, screenshots, videos) with the correct tools that actually work on Linux.
+Handle visual verification with a currently available image-capable tool. Check
+the active runtime's tool catalog and the current image's accessible path before
+choosing a route; platform and tool availability can change.
 
 ## The Problem
 
-Claude Code's Read tool returns `null` for PNG/JPG files on Linux. This is a known bug (#18588, #20822, #55338). Do NOT rely on Read for image files on Linux.
+Some runtime Read tools may not render PNG/JPG files on some Linux versions.
+Treat that as a limitation of the specific route: probe the available image
+viewers or approved analysis tools before concluding that visual inspection is
+unavailable. Do not generalize a past tool failure to every Linux host or runtime.
 
 ## Working Tools
 
 ### For Image Analysis
-**Use `mcp__minimax__understand_image` — this works reliably:**
-```
-mcp__minimax__understand_image({
-  image_source: "/path/to/image.png",
-  prompt: "Describe what you see. Is it good quality or garbage?"
-})
-```
+Use an image-capable tool available in the active runtime, such as its native
+image viewer or an approved image-analysis MCP when present. Do not assume a
+specific provider/tool is installed; verify availability before invoking it.
 
 ### For Browser Screenshots
-Use Playwright MCP:
-```
-mcp__playwright-mcp__browser_navigate({ url: "http://..." })
-mcp__playwright-mcp__browser_take_screenshot({ filename: "/tmp/screenshot.png" })
-```
+Use the repository's supported browser automation route and save captures to a
+unique `/tmp` run directory:
 
 ### For Video Frames
-1. Extract frames with ffmpeg: `ffmpeg -i video.mp4 /tmp/frames/frame_%04d.png`
-2. Analyze with `mcp__minimax__understand_image`
+1. Extract frames with ffmpeg into a unique `/tmp` run directory.
+2. Inspect the frames with an available image-capable tool.
 
 ## Verification Rule — FAIL LOUDLY
 
-**If you cannot visually verify something, STOP and say so.**
+If visual verification remains unavailable after probing supported routes, state
+the exact route(s) attempted and the limitation. Continue other authorized work;
+do not infer that one unavailable tool means all visual inspection is impossible.
 
 Bad behavior (DO NOT DO):
 - "The sprite looks good based on pixel values" (you can't see it)
@@ -46,25 +46,17 @@ Bad behavior (DO NOT DO):
 - Using subagent pixel analysis as a substitute for actually seeing
 
 Correct behavior:
-- Use `mcp__minimax__understand_image` for visual analysis
-- If that fails, admit "I cannot visually verify this"
-- If user asks for visual assessment, use the minimax tool first
+- Use an available visual-capable tool and identify the method used.
+- If it fails, try another supported route available in the active runtime.
+- If all supported routes fail, report the exact limitation and leave the visual claim unproven.
 
 ## When Assessing Sprites/Game Graphics
 
 1. Capture screenshot or locate sprite file
-2. Call `mcp__minimax__understand_image` with detailed prompt
-3. Report what the model says, not what your pixel analysis suggests
-4. If minimax fails, say you cannot verify visually
+2. Use a visual-capable tool that is currently available.
+3. Report observed content and any tool-derived analysis separately.
+4. If no supported route can inspect the image, report that limitation without making a visual claim.
 
 ## Sprite Quality Claims
 
-For sprite quality evaluations, use the `/sprite-eval` skill which mandates visual evidence. Do not make sprite quality claims without actual visual analysis via working tools.
-
-## Test
-
-If you need to verify image viewing works:
-```
-/test-vision
-```
-This will test minimax understand_image on a known image.
+For sprite quality evaluations, use `/sprite-eval` when its current definition is available. Do not make sprite quality claims without actual visual inspection through a working tool.

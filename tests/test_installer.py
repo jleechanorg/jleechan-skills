@@ -1,6 +1,8 @@
 """Public integration contracts for install-claude-commands.sh."""
 
+import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -54,6 +56,9 @@ class InstallerIntegrationTest(unittest.TestCase):
         environment = os.environ | {"CLAUDE_HOME": str(target)}
         if extra_environment:
             environment |= extra_environment
+        # Fixtures model the full library; profile tests pass their own selection.
+        if not {"--all", "--profile", "--portable", "-h", "--help"}.intersection(args):
+            args = (*args, "--all")
         return subprocess.run(
             ["bash", str(fixture / INSTALLER.name), *args],
             cwd=fixture,
@@ -356,6 +361,380 @@ class InstallerIntegrationTest(unittest.TestCase):
             self.assertEqual(managed_file.read_text(encoding="utf-8"), "command\n")
             self.assertEqual(user_file.read_text(encoding="utf-8"), "retain me\n")
             self.assertFalse((target / "skills/_archive").exists())
+
+    def install_then_edit_locally(self, temp_dir: Path, fixture: Path) -> Path:
+        target = temp_dir / "claude-home"
+        first = self.run_installer(fixture, target)
+        self.assertEqual(first.returncode, 0, first.stderr + first.stdout)
+        (target / "skills/example/SKILL.md").write_text("# Local operator rules\n", encoding="utf-8")
+        (target / "commands/command.md").write_text("local command\n", encoding="utf-8")
+        return target
+
+    def test_merge_backs_up_only_changed_colliding_paths_before_overwriting(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            target = self.install_then_edit_locally(temp_dir, fixture)
+            (target / "skills/local-only/SKILL.md").parent.mkdir()
+            (target / "skills/local-only/SKILL.md").write_text("mine\n", encoding="utf-8")
+
+            result = self.run_installer(fixture, target, "--merge")
+
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            backups = list(temp_dir.glob("claude-home.merge-backup-*"))
+            self.assertEqual(len(backups), 1, backups)
+            self.assertIn(str(backups[0]), result.stdout)
+            self.assertEqual(
+                (backups[0] / "skills/example/SKILL.md").read_text(encoding="utf-8"),
+                "# Local operator rules\n",
+            )
+            self.assertEqual(
+                (backups[0] / "commands/command.md").read_text(encoding="utf-8"), "local command\n"
+            )
+            backed_up = sorted(
+                str(path.relative_to(backups[0])) for path in backups[0].rglob("*") if path.is_file()
+            )
+            self.assertEqual(backed_up, ["commands/command.md", "skills/example/SKILL.md"])
+            self.assertEqual((target / "skills/example/SKILL.md").read_text(encoding="utf-8"), "# Skill\n")
+            self.assertEqual((target / "skills/local-only/SKILL.md").read_text(encoding="utf-8"), "mine\n")
+
+    def test_merge_without_changes_writes_no_backup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            target = temp_dir / "claude-home"
+            self.assertEqual(self.run_installer(fixture, target).returncode, 0)
+
+            result = self.run_installer(fixture, target, "--merge")
+
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertIn("no merge backup written", result.stdout)
+            self.assertFalse(list(temp_dir.glob("claude-home.merge-backup-*")))
+
+    @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0, "root bypasses directory permissions")
+    def test_merge_fails_closed_when_backup_cannot_be_written(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            parent = temp_dir / "locked"
+            parent.mkdir()
+            target = self.install_then_edit_locally(parent, fixture)
+            parent.chmod(0o555)
+            try:
+                result = self.run_installer(fixture, target, "--merge")
+            finally:
+                parent.chmod(0o755)
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Cannot create merge backup directory", result.stderr + result.stdout)
+            self.assertEqual(
+                (target / "skills/example/SKILL.md").read_text(encoding="utf-8"), "# Local operator rules\n"
+            )
+            self.assertEqual((target / "commands/command.md").read_text(encoding="utf-8"), "local command\n")
+
+    def test_backup_mode_stays_outside_target_with_trailing_slash_home(self):
+        for suffix in ("/", "//"):
+            with self.subTest(suffix), tempfile.TemporaryDirectory() as directory:
+                temp_dir = Path(directory)
+                fixture = self.make_fixture(temp_dir)
+                target = temp_dir / "claude-home"
+                target.mkdir()
+                (target / "local.txt").write_text("keep\n", encoding="utf-8")
+
+                result = self.run_installer(
+                    fixture, target, "--backup", extra_environment={"CLAUDE_HOME": f"{target}{suffix}"}
+                )
+
+                self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+                self.assertTrue((target / "commands/command.md").is_file())
+                self.assertFalse(list(target.glob(".backup-*")) + list(target.glob(".staging.*")))
+                backups = list(temp_dir.glob("claude-home.backup-*"))
+                self.assertEqual(len(backups), 1, backups)
+                self.assertEqual((backups[0] / "local.txt").read_text(encoding="utf-8"), "keep\n")
+
+    def test_merge_skips_names_in_local_protected_manifest(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            target = self.install_then_edit_locally(temp_dir, fixture)
+            (target / ".jleechan-skills-protected").write_text(
+                "# operator-owned\n  example  \ncommand # trailing comment\n", encoding="utf-8"
+            )
+
+            result = self.run_installer(fixture, target, "--merge")
+
+            output = result.stderr + result.stdout
+            self.assertEqual(result.returncode, 0, output)
+            self.assertIn(f"Skipping protected skills path (overwrite needs --include-protected): {target}/skills/example", output)
+            self.assertIn(f"Skipping protected commands path (overwrite needs --include-protected): {target}/commands/command.md", output)
+            self.assertEqual(
+                (target / "skills/example/SKILL.md").read_text(encoding="utf-8"), "# Local operator rules\n"
+            )
+            self.assertEqual((target / "commands/command.md").read_text(encoding="utf-8"), "local command\n")
+            self.assertIn("Source-derived manifest validation passed", result.stdout)
+            self.assertFalse(list(temp_dir.glob("claude-home.merge-backup-*")))
+
+    def test_merge_skips_names_in_source_retain_local_json(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            target = self.install_then_edit_locally(temp_dir, fixture)
+            (fixture / "shared").mkdir()
+            (fixture / "shared/retain-local.json").write_text(
+                '{"example": "local operational variant"}\n', encoding="utf-8"
+            )
+
+            result = self.run_installer(fixture, target, "--merge")
+
+            output = result.stderr + result.stdout
+            self.assertEqual(result.returncode, 0, output)
+            self.assertIn(f"{target}/skills/example", output)
+            self.assertEqual(
+                (target / "skills/example/SKILL.md").read_text(encoding="utf-8"), "# Local operator rules\n"
+            )
+            self.assertEqual((target / "commands/command.md").read_text(encoding="utf-8"), "command\n")
+
+    def test_merge_fails_closed_on_unreadable_retain_local_json(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            target = self.install_then_edit_locally(temp_dir, fixture)
+            (fixture / "shared").mkdir()
+            (fixture / "shared/retain-local.json").write_text("{not json", encoding="utf-8")
+
+            result = self.run_installer(fixture, target, "--merge")
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Cannot parse protected list", result.stderr + result.stdout)
+            self.assertEqual(
+                (target / "skills/example/SKILL.md").read_text(encoding="utf-8"), "# Local operator rules\n"
+            )
+
+    def test_merge_fails_closed_when_retain_local_json_is_not_a_name_object(self):
+        variants = {
+            "directory": "Cannot read protected list",
+            "dangling-symlink": "Cannot read protected list",
+            "json-string": "Cannot parse protected list",
+            "json-list": "Cannot parse protected list",
+            "empty-object": "Cannot parse protected list",
+        }
+        for variant, expected in variants.items():
+            with self.subTest(variant), tempfile.TemporaryDirectory() as directory:
+                temp_dir = Path(directory)
+                fixture = self.make_fixture(temp_dir)
+                target = self.install_then_edit_locally(temp_dir, fixture)
+                shared = fixture / "shared"
+                shared.mkdir(parents=True, exist_ok=True)
+                path = shared / "retain-local.json"
+                if variant == "directory":
+                    path.mkdir()
+                elif variant == "dangling-symlink":
+                    path.symlink_to(temp_dir / "absent.json")
+                elif variant == "json-string":
+                    path.write_text('"example"\n', encoding="utf-8")
+                elif variant == "json-list":
+                    path.write_text('["example"]\n', encoding="utf-8")
+                else:
+                    path.write_text("{}\n", encoding="utf-8")
+
+                result = self.run_installer(fixture, target, "--merge")
+
+                output = result.stderr + result.stdout
+                self.assertNotEqual(result.returncode, 0, output)
+                self.assertIn(expected, output)
+                self.assertEqual(
+                    (target / "skills/example/SKILL.md").read_text(encoding="utf-8"), "# Local operator rules\n"
+                )
+                self.assertEqual((target / "commands/command.md").read_text(encoding="utf-8"), "local command\n")
+                self.assertFalse(list(temp_dir.glob("claude-home.merge-backup-*")))
+
+    def test_merge_backup_stays_outside_target_with_double_trailing_slash_home(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            target = self.install_then_edit_locally(temp_dir, fixture)
+
+            result = self.run_installer(
+                fixture, target, "--merge", extra_environment={"CLAUDE_HOME": f"{target}//"}
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertFalse(list(target.glob(".merge-backup-*")))
+            backups = list(temp_dir.glob("claude-home.merge-backup-*"))
+            self.assertEqual(len(backups), 1, backups)
+            self.assertEqual(
+                (backups[0] / "skills/example/SKILL.md").read_text(encoding="utf-8"),
+                "# Local operator rules\n",
+            )
+
+    def test_include_protected_overwrites_protected_paths_after_backing_them_up(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            target = self.install_then_edit_locally(temp_dir, fixture)
+            (target / ".jleechan-skills-protected").write_text("example\n", encoding="utf-8")
+
+            result = self.run_installer(fixture, target, "--merge", "--include-protected")
+
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertNotIn("Skipping protected", result.stdout)
+            self.assertEqual((target / "skills/example/SKILL.md").read_text(encoding="utf-8"), "# Skill\n")
+            backups = list(temp_dir.glob("claude-home.merge-backup-*"))
+            self.assertEqual(len(backups), 1)
+            self.assertEqual(
+                (backups[0] / "skills/example/SKILL.md").read_text(encoding="utf-8"),
+                "# Local operator rules\n",
+            )
+
+    def test_include_protected_requires_merge(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            result = self.run_installer(fixture, temp_dir / "claude-home", "--include-protected")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("--include-protected requires --merge", result.stderr + result.stdout)
+
+    def test_fresh_install_installs_protected_names_and_writes_no_backup(self):
+        for args in ((), ("--merge",)):
+            with self.subTest(args=args), tempfile.TemporaryDirectory() as directory:
+                temp_dir = Path(directory)
+                fixture = self.make_fixture(temp_dir)
+                (fixture / "shared").mkdir()
+                (fixture / "shared/retain-local.json").write_text('{"example": "x"}\n', encoding="utf-8")
+                target = temp_dir / "claude-home"
+
+                result = self.run_installer(fixture, target, *args)
+
+                self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+                self.assertNotIn("Skipping protected", result.stdout)
+                self.assertEqual((target / "skills/example/SKILL.md").read_text(encoding="utf-8"), "# Skill\n")
+                self.assertFalse(list(temp_dir.glob("claude-home.merge-backup-*")))
+
+    def test_archive_migration_leaves_protected_paths_in_discovery(self):
+        for args in ((), ("--include-protected",)):
+            with self.subTest(args=args), tempfile.TemporaryDirectory() as directory:
+                temp_dir = Path(directory)
+                fixture = self.make_fixture(temp_dir)
+                target = temp_dir / "claude-home"
+                active_skill = target / "skills/retired-skill/SKILL.md"
+                active_command = target / "commands/retired-command.md"
+                active_extended = target / "commands/extended-library/retired-command.md"
+                for path in (active_skill, active_command, active_extended):
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text("operator copy\n", encoding="utf-8")
+                (target / ".jleechan-skills-protected").write_text(
+                    "retired-skill\nretired-command\n", encoding="utf-8"
+                )
+
+                result = self.run_installer(fixture, target, "--merge", "--migrate-archives", *args)
+
+                self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+                archived_skill = target / "skills_archive/2026-retired/retired-skill/SKILL.md"
+                archived_command = target / "commands_archive/2026-retired/top-level/retired-command.md"
+                archived_extended = (
+                    target / "commands_archive/2026-retired/extended-library/retired-command.md"
+                )
+                if args:
+                    for path in (active_skill, active_command, active_extended):
+                        self.assertFalse(path.exists())
+                    for path in (archived_skill, archived_command, archived_extended):
+                        self.assertTrue(path.is_file())
+                else:
+                    self.assertIn(f"Skipping protected skills path (overwrite needs --include-protected): {target}/skills/retired-skill", result.stdout)
+                    self.assertIn(
+                        "Skipping protected commands path (overwrite needs --include-protected): "
+                        f"{target}/commands/extended-library/retired-command.md",
+                        result.stdout,
+                    )
+                    for path in (active_skill, active_command, active_extended):
+                        self.assertEqual(path.read_text(encoding="utf-8"), "operator copy\n")
+                    for path in (archived_skill, archived_command, archived_extended):
+                        self.assertFalse(path.exists())
+
+    def test_merge_skips_protected_command_nested_in_extended_library(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            nested_source = fixture / ".claude/commands/extended-library/factory-spec.md"
+            nested_source.parent.mkdir(parents=True)
+            nested_source.write_text("source spec\n", encoding="utf-8")
+            target = temp_dir / "claude-home"
+            self.assertEqual(self.run_installer(fixture, target).returncode, 0)
+            nested = target / "commands/extended-library/factory-spec.md"
+            nested.write_text("local spec\n", encoding="utf-8")
+            (target / ".jleechan-skills-protected").write_text("factory-spec\n", encoding="utf-8")
+
+            kept = self.run_installer(fixture, target, "--merge")
+
+            self.assertEqual(kept.returncode, 0, kept.stderr + kept.stdout)
+            self.assertIn(
+                f"Skipping protected commands path (overwrite needs --include-protected): {nested}",
+                kept.stdout,
+            )
+            self.assertEqual(nested.read_text(encoding="utf-8"), "local spec\n")
+            self.assertFalse(list(temp_dir.glob("claude-home.merge-backup-*")))
+
+            overwritten = self.run_installer(fixture, target, "--merge", "--include-protected")
+
+            self.assertEqual(overwritten.returncode, 0, overwritten.stderr + overwritten.stdout)
+            self.assertEqual(nested.read_text(encoding="utf-8"), "source spec\n")
+            backups = list(temp_dir.glob("claude-home.merge-backup-*"))
+            self.assertEqual(len(backups), 1, backups)
+            self.assertEqual(
+                (backups[0] / "commands/extended-library/factory-spec.md").read_text(encoding="utf-8"),
+                "local spec\n",
+            )
+
+    def test_history_helper_upgrade_backs_up_its_receipt(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            source = fixture / "scripts/history_search.py"
+            source.write_text("print('version one')\n")
+            target = temp_dir / "claude-home"
+            self.assertEqual(self.run_installer(fixture, target).returncode, 0)
+            receipt = target / "scripts/.history_search.py.sha256"
+            v1_receipt = receipt.read_text()
+
+            source.write_text("print('version two')\n")
+            upgraded = self.run_installer(fixture, target, "--merge")
+
+            self.assertEqual(upgraded.returncode, 0, upgraded.stdout + upgraded.stderr)
+            backups = list(temp_dir.glob("claude-home.merge-backup-*"))
+            self.assertEqual(len(backups), 1, backups)
+            self.assertEqual(
+                (backups[0] / "scripts/history_search.py").read_text(), "print('version one')\n"
+            )
+            self.assertEqual((backups[0] / "scripts/.history_search.py.sha256").read_text(), v1_receipt)
+
+            # Restoring the backup pair keeps the helper recognisably installer-owned.
+            for name in ("history_search.py", ".history_search.py.sha256"):
+                shutil.copy2(backups[0] / "scripts" / name, target / "scripts" / name)
+            source.write_text("print('version three')\n")
+            restored = self.run_installer(fixture, target, "--merge")
+            self.assertEqual(restored.returncode, 0, restored.stdout + restored.stderr)
+            self.assertEqual(
+                (target / "scripts/history_search.py").read_text(), "print('version three')\n"
+            )
+
+    def test_merge_backup_stays_outside_target_with_trailing_slash_home(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            target = self.install_then_edit_locally(temp_dir, fixture)
+
+            result = self.run_installer(
+                fixture, target, "--merge", extra_environment={"CLAUDE_HOME": f"{target}/"}
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertFalse(list(target.glob(".merge-backup-*")))
+            backups = list(temp_dir.glob("claude-home.merge-backup-*"))
+            self.assertEqual(len(backups), 1, backups)
+            self.assertEqual(
+                (backups[0] / "skills/example/SKILL.md").read_text(encoding="utf-8"),
+                "# Local operator rules\n",
+            )
 
     def test_merge_overwrites_stale_managed_files_including_readonly_and_symlinks(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -1017,7 +1396,7 @@ class InstallerSymlinkModeSafetyTest(unittest.TestCase):
         (target / "commands" / "cmd.md").symlink_to(external)
 
         result = subprocess.run(
-            ["bash", str(fixture / INSTALLER.name), "--merge"],
+            ["bash", str(fixture / INSTALLER.name), "--merge", "--all"],
             cwd=fixture,
             env=os.environ | {"CLAUDE_HOME": str(target)},
             text=True,
@@ -1057,7 +1436,7 @@ class InstallerShellPortabilityTest(unittest.TestCase):
             target = root / "target"
 
             result = subprocess.run(
-                [str(bash32), str(fixture / INSTALLER.name)],
+                [str(bash32), str(fixture / INSTALLER.name), "--all"],
                 cwd=fixture,
                 env=os.environ | {"CLAUDE_HOME": str(target)},
                 text=True,
@@ -1087,7 +1466,7 @@ class InstallerEntryKindsTest(unittest.TestCase):
 
     def run_merge(self, fixture, target, timeout=120):
         return subprocess.run(
-            ["bash", str(fixture / INSTALLER.name), "--merge"],
+            ["bash", str(fixture / INSTALLER.name), "--merge", "--all"],
             cwd=fixture,
             env=os.environ | {"CLAUDE_HOME": str(target)},
             text=True,
@@ -1146,7 +1525,7 @@ class InstallerEntryKindsTest(unittest.TestCase):
         fake_mv.chmod(0o755)
 
         result = subprocess.run(
-            ["bash", str(fixture / INSTALLER.name), "--merge"],
+            ["bash", str(fixture / INSTALLER.name), "--merge", "--all"],
             cwd=fixture,
             env=os.environ
             | {"CLAUDE_HOME": str(target), "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}"},
@@ -1191,7 +1570,7 @@ class InstallerMovesWrongKindEntryAsideTest(unittest.TestCase):
         environment = os.environ | {"CLAUDE_HOME": str(target)}
 
         first = subprocess.run(
-            ["bash", str(fixture / INSTALLER.name), "--merge"],
+            ["bash", str(fixture / INSTALLER.name), "--merge", "--all"],
             cwd=fixture,
             env=environment,
             text=True,
@@ -1205,7 +1584,7 @@ class InstallerMovesWrongKindEntryAsideTest(unittest.TestCase):
         (installed / "stale.txt").write_text("stale\n", encoding="utf-8")
 
         second = subprocess.run(
-            ["bash", str(fixture / INSTALLER.name), "--merge"],
+            ["bash", str(fixture / INSTALLER.name), "--merge", "--all"],
             cwd=fixture,
             env=environment,
             text=True,
@@ -1242,7 +1621,7 @@ class NewlinePathEscapeTest(unittest.TestCase):
             shutil.copy2(INSTALLER, fixture / INSTALLER.name)
 
             result = subprocess.run(
-                ["bash", str(fixture / INSTALLER.name), "--merge"],
+                ["bash", str(fixture / INSTALLER.name), "--merge", "--all"],
                 cwd=fixture,
                 env=os.environ | {"CLAUDE_HOME": str(target)},
                 text=True,
@@ -1259,3 +1638,560 @@ class NewlinePathEscapeTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PathContainmentGuardTest(unittest.TestCase):
+    """The installer refuses to write through a parent that resolves outside the root."""
+
+    def _call_guard(self, parent, root):
+        # argv, not interpolation: a path may contain quotes or newlines.
+        script = 'source "$1" >/dev/null 2>&1; path_within_root "$2" "$3"'
+        return subprocess.run(["bash", "-c", script, "_", str(INSTALLER), str(parent), str(root)],
+                              capture_output=True, text=True)
+
+    def test_relative_claude_home_installs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fixture = root / "fixture"
+            (fixture / ".claude" / "commands").mkdir(parents=True)
+            (fixture / ".claude" / "commands" / "cmd.md").write_text("managed\n", encoding="utf-8")
+            (fixture / "scripts").mkdir()
+            shutil.copy2(INSTALLER, fixture / INSTALLER.name)
+            result = subprocess.run(
+                ["bash", INSTALLER.name, "--merge", "--all"],
+                cwd=fixture,
+                env=os.environ | {"CLAUDE_HOME": "target"},
+                text=True,
+                capture_output=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(
+                (fixture / "target" / "commands" / "cmd.md").read_text(encoding="utf-8"),
+                "managed\n",
+            )
+
+    def test_symlinked_parent_outside_the_root_is_refused(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "target"
+            outside = root / "outside"
+            (target / "commands").mkdir(parents=True)
+            outside.mkdir()
+            (target / "commands" / "link").symlink_to(outside)
+            result = self._call_guard(str(target / "commands" / "link"), str(target))
+            self.assertNotEqual(result.returncode, 0, "a symlinked parent must fail containment")
+
+    def test_ordinary_path_inside_the_root_passes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "target"
+            (target / "commands").mkdir(parents=True)
+            result = self._call_guard(str(target / "commands"), str(target))
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_newline_ending_directory_name_is_not_mangled(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "target"
+            (target / "commands" / "nl\n").mkdir(parents=True)
+            result = self._call_guard(str(target / "commands" / "nl\n"), str(target))
+            self.assertEqual(
+                result.returncode, 0,
+                "a directory whose name ends in a newline must still pass containment: "
+                + result.stderr,
+            )
+
+    def test_installer_still_installs_a_normal_tree(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fixture = root / "fixture"
+            (fixture / ".claude" / "commands").mkdir(parents=True)
+            (fixture / ".claude" / "commands" / "cmd.md").write_text("managed\n", encoding="utf-8")
+            (fixture / "scripts").mkdir()
+            shutil.copy2(INSTALLER, fixture / INSTALLER.name)
+            target = root / "target"
+            result = subprocess.run(
+                ["bash", str(fixture / INSTALLER.name), "--merge", "--all"],
+                cwd=fixture,
+                env=os.environ | {"CLAUDE_HOME": str(target)},
+                text=True,
+                capture_output=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual((target / "commands" / "cmd.md").read_text(encoding="utf-8"), "managed\n")
+
+
+PROFILE_SCRIPT = REPO_ROOT / "scripts" / "install_profiles.py"
+PROFILE_DATA = REPO_ROOT / "shared" / "install-profiles.json"
+SKILL_LINK = re.compile(r"(?:\.\./|skills/)([A-Za-z0-9_.-]+)/")
+COMMAND_TARGET = re.compile(r"skills/([A-Za-z0-9_.-]+)/SKILL\.md")
+DOT_FAMILY = {"dot", "dot-coordinator", "agy-dot-coordinator"}
+CLOSURE_DENYLIST = DOT_FAMILY | {
+    "web-advice", "browser-control", "slack-media-upload", "github-cli-reference",
+    "claw-dispatch", "ao-operator-discipline",
+}
+COMMAND_COMPANION = re.compile(r"commands/([A-Za-z0-9_./-]+)")
+RELATIVE_SKILL_LINK = re.compile(r"(?<![\w.])((?:\.\./)+[A-Za-z0-9_.-]+/SKILL\.md)")
+
+
+def installed_tree(target: Path, component: str) -> set[str]:
+    root = target / component
+    if not root.is_dir():
+        return set()
+    return {p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file()}
+
+
+class InstallerProfileFixtureTest(unittest.TestCase):
+    """Profiles select a dependency closure from a small synthetic library."""
+
+    PROFILES = {
+        "default_profile": "default",
+        "closure_excluded": ["dot"],
+        "profiles": {
+            "default": {"description": "Alpha and its closure", "skills": ["alpha"]},
+            "pair": {"description": "Beta plus one command", "skills": ["beta"], "commands": ["bc"]},
+            "withdot": {"description": "Names dot explicitly", "skills": ["dot"]},
+            "dangling": {"description": "A command aimed at a skill that is not in the library", "skills": ["beta"], "commands": ["missingcmd"]},
+            "leaky": {"description": "A command aimed at an excluded skill", "skills": ["beta"], "commands": ["dotc"]},
+        },
+    }
+    FILES = {
+        "skills/alpha/SKILL.md": (
+            "# Alpha\nSee [beta](../beta/SKILL.md) and ~/.claude/skills/dot/SKILL.md.\n"
+            "Run `~/.claude/scripts/tool.py`; dispatch the `helper-agent` subagent.\n"
+        ),
+        "skills/alpha/scripts/run.sh": "#!/bin/sh\n",
+        "skills/beta/SKILL.md": "# Beta\nLoad ${CLAUDE_HOME:-$HOME/.claude}/skills/gamma/SKILL.md.\n",
+        "skills/gamma/SKILL.md": "# Gamma\n",
+        "skills/delta/SKILL.md": "# Delta\n",
+        "skills/dot/SKILL.md": "# Dot reads cookie databases\n",
+        "commands/a.md": "Read `~/.claude/skills/alpha/SKILL.md`, then run `.claude/commands/helper.py`.\n",
+        "commands/bc.md": "Read `~/.claude/skills/beta/SKILL.md`.\n",
+        "commands/g.md": "Read `~/.claude/skills/gamma/SKILL.md` then skills/delta/SKILL.md.\n",
+        "commands/d.md": "Read `~/.claude/skills/delta/SKILL.md`.\n",
+        "commands/dotc.md": "Read `~/.claude/skills/dot/SKILL.md`.\n",
+        "commands/missingcmd.md": "Read `~/.claude/skills/missing/SKILL.md`.\n",
+        "commands/plain.md": "No skill target.\n",
+        "commands/longcmd.md": (
+            "---\ndescription: Run a long orchestration workflow\n---\n"
+            "Read `~/.claude/skills/alpha/SKILL.md`, then run `.claude/commands/longhelper.py`.\n"
+            + "step\n" * 16
+        ),
+        "commands/longhelper.py": "print('long helper')\n",
+        "commands/described.md": (
+            "---\ndescription: Thin ALIAS for the alpha skill\n---\n"
+            "Read `~/.claude/skills/alpha/SKILL.md`.\n" + "note\n" * 16
+        ),
+        "commands/helper.py": "print('helper')\n",
+        "commands/extended-library/al.md": "Read `~/.claude/skills/alpha/SKILL.md`.\n",
+        "commands/extended-library/de.md": "Read `~/.claude/skills/delta/SKILL.md`.\n",
+        "agents/helper-agent.md": "helper\n",
+        "agents/other-agent.md": "other\n",
+        "scripts/tool.py": "print('tool')\n",
+        "scripts/other.py": "print('other')\n",
+    }
+
+    def make_fixture(self, temp_dir: Path) -> Path:
+        fixture = temp_dir / "fixture"
+        (fixture / "scripts").mkdir(parents=True)
+        (fixture / "shared").mkdir()
+        shutil.copy2(INSTALLER, fixture / INSTALLER.name)
+        shutil.copy2(PROFILE_SCRIPT, fixture / "scripts" / PROFILE_SCRIPT.name)
+        (fixture / "scripts/integrate.sh").write_text("#!/bin/sh\n", encoding="utf-8")
+        (fixture / "shared/install-profiles.json").write_text(json.dumps(self.PROFILES), encoding="utf-8")
+        for relative, content in self.FILES.items():
+            path = fixture / ".claude" / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+        return fixture
+
+    def run_installer(self, fixture: Path, target: Path, *args: str, bash: str = "bash"):
+        return subprocess.run(
+            [bash, str(fixture / INSTALLER.name), *args],
+            cwd=fixture, env=os.environ | {"CLAUDE_HOME": str(target)},
+            text=True, capture_output=True, check=False,
+        )
+
+    def test_default_profile_installs_the_seed_closure_and_matching_aliases_only(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = self.make_fixture(Path(directory))
+            target = Path(directory) / "home"
+            result = self.run_installer(fixture, target)
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertEqual(
+                installed_tree(target, "skills"),
+                {"alpha/SKILL.md", "alpha/scripts/run.sh", "beta/SKILL.md", "gamma/SKILL.md"},
+            )
+            # Aliases follow seeds only: beta and gamma arrive by closure, so bc.md and g.md stay out.
+            # a.md's companion helper.py installs with it; unreferenced plain.md does not.
+            self.assertEqual(
+                installed_tree(target, "commands"),
+                {"a.md", "helper.py", "extended-library/al.md", "described.md"},
+            )
+            self.assertEqual(installed_tree(target, "agents"), {"helper-agent.md"})
+            self.assertEqual(installed_tree(target, "scripts"), {"tool.py"})
+            self.assertIn("Profile: default", result.stdout)
+            self.assertIn("Installed profile 'default': 3 skills, 3 commands, 1 agents", result.stdout)
+            # longcmd.md targets the seed but is a long non-alias workflow; neither it nor its helper installs.
+            self.assertFalse((target / "commands/longcmd.md").exists())
+            self.assertFalse((target / "commands/longhelper.py").exists())
+            self.assertIn("Source-derived manifest validation passed", result.stdout)
+
+    def test_named_profile_adds_its_explicit_commands(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = self.make_fixture(Path(directory))
+            target = Path(directory) / "home"
+            result = self.run_installer(fixture, target, "--profile", "pair")
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertEqual(installed_tree(target, "skills"), {"beta/SKILL.md", "gamma/SKILL.md"})
+            self.assertEqual(installed_tree(target, "commands"), {"bc.md"})
+            self.assertEqual(installed_tree(target, "agents"), set())
+            self.assertIn("Installed profile 'pair': 2 skills, 1 commands, 0 agents", result.stdout)
+
+    def test_dot_is_never_pulled_in_by_closure_but_installs_when_named(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = self.make_fixture(Path(directory))
+            closure_home = Path(directory) / "closure"
+            result = self.run_installer(fixture, closure_home)
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertFalse((closure_home / "skills/dot").exists())
+            self.assertFalse((closure_home / "commands/dotc.md").exists())
+            named_home = Path(directory) / "named"
+            result = self.run_installer(fixture, named_home, "--profile", "withdot")
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertEqual(installed_tree(named_home, "skills"), {"dot/SKILL.md"})
+            self.assertEqual(installed_tree(named_home, "commands"), {"dotc.md"})
+
+    def test_with_adds_a_closure_excluded_skill_to_the_profile(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = self.make_fixture(Path(directory))
+            target = Path(directory) / "home"
+            result = self.run_installer(fixture, target, "--with", "dot")
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertEqual({p.name for p in (target / "skills").iterdir()}, {"alpha", "beta", "gamma", "dot"})
+            self.assertTrue((target / "commands/dotc.md").is_file())
+            self.assertIn("Installed profile 'default': 4 skills, 4 commands, 1 agents", result.stdout)
+
+    def test_all_installs_the_whole_library(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = self.make_fixture(Path(directory))
+            target = Path(directory) / "home"
+            result = self.run_installer(fixture, target, "--all")
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            for relative, content in self.FILES.items():
+                self.assertEqual((target / relative).read_text(), content, relative)
+            self.assertIn("Profile: --all (full library)", result.stdout)
+            self.assertIn("Installed --all (full library): 5 skills, 11 commands, 2 agents", result.stdout)
+            self.assertNotIn("profile 'all'", result.stdout)
+
+    def test_profile_selection_errors_fail_before_writing(self):
+        cases = {
+            "unknown": (("--profile", "nope"), "Unknown install profile: nope"),
+            "conflict": (("--all", "--profile", "pair"), "--all and --profile are mutually exclusive"),
+            "missing": (("--profile",), "--profile requires a name"),
+            "portable": (("--portable", "--profile", "pair"), "--portable installs its own manifest"),
+            "with-all": (("--all", "--with", "dot"), "--with adds to a profile"),
+            "with-missing": (("--with", "nosuch"), "names missing skills: nosuch"),
+            "command-to-missing": (("--profile", "dangling"), "command missingcmd targets missing skill missing"),
+            "command-to-excluded": (("--profile", "leaky"), "command dotc targets closure-excluded skill dot"),
+        }
+        for name, (args, message) in cases.items():
+            with self.subTest(name), tempfile.TemporaryDirectory() as directory:
+                fixture = self.make_fixture(Path(directory))
+                target = Path(directory) / "home"
+                result = self.run_installer(fixture, target, *args)
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn(message, result.stdout + result.stderr)
+                self.assertFalse(target.exists())
+
+    def test_malformed_profile_data_fails_closed(self):
+        broken = {
+            "denylist-string": {"closure_excluded": "dot"},
+            "denylist-non-string": {"closure_excluded": ["dot", 3]},
+            "skills-string": {"profiles": {**self.PROFILES["profiles"], "default": {"skills": "alpha"}}},
+            "commands-dict": {"profiles": {**self.PROFILES["profiles"], "pair": {"skills": ["beta"], "commands": {"bc": 1}}}},
+            "include-non-string": {"profiles": {**self.PROFILES["profiles"], "pair": {"skills": ["beta"], "include": [None]}}},
+        }
+        for name, override in broken.items():
+            with self.subTest(name), tempfile.TemporaryDirectory() as directory:
+                fixture = self.make_fixture(Path(directory))
+                (fixture / "shared/install-profiles.json").write_text(json.dumps({**self.PROFILES, **override}))
+                target = Path(directory) / "home"
+                result = self.run_installer(fixture, target)
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn("Malformed install profiles", result.stdout + result.stderr)
+                self.assertFalse(target.exists())
+
+    def test_omitted_or_empty_closure_excluded_fails_closed(self):
+        variants = {
+            "omitted": {key: value for key, value in self.PROFILES.items() if key != "closure_excluded"},
+            "empty": {**self.PROFILES, "closure_excluded": []},
+        }
+        for name, data in variants.items():
+            with self.subTest(name), tempfile.TemporaryDirectory() as directory:
+                fixture = self.make_fixture(Path(directory))
+                (fixture / "shared/install-profiles.json").write_text(json.dumps(data))
+                target = Path(directory) / "home"
+                result = self.run_installer(fixture, target)
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn("Malformed install profiles", result.stdout + result.stderr)
+                self.assertFalse(target.exists())
+
+    def test_help_lists_profiles(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = self.make_fixture(Path(directory))
+            result = self.run_installer(fixture, Path(directory) / "home", "--help")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            for line in ("default (default)", "Alpha and its closure", "pair", "withdot", "--all",
+                         "--profile NAME", "--with SKILL"):
+                self.assertIn(line, result.stdout)
+
+    def test_merge_under_profile_backs_up_and_honours_protected_names(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = self.make_fixture(Path(directory))
+            target = Path(directory) / "home"
+            self.assertEqual(self.run_installer(fixture, target).returncode, 0)
+            (target / "skills/alpha/SKILL.md").write_text("local alpha\n")
+            (target / "skills/beta/SKILL.md").write_text("local beta\n")
+            (target / "skills/delta").mkdir()
+            (target / "skills/delta/SKILL.md").write_text("unmanaged delta\n")
+            (target / ".jleechan-skills-protected").write_text("beta\n")
+
+            result = self.run_installer(fixture, target, "--merge")
+
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertEqual((target / "skills/alpha/SKILL.md").read_text(), self.FILES["skills/alpha/SKILL.md"])
+            self.assertEqual((target / "skills/beta/SKILL.md").read_text(), "local beta\n")
+            self.assertEqual((target / "skills/delta/SKILL.md").read_text(), "unmanaged delta\n")
+            self.assertIn("Skipping protected skills path", result.stdout + result.stderr)
+            backups = list(Path(directory).glob("home.merge-backup-*"))
+            self.assertEqual(len(backups), 1)
+            self.assertEqual(installed_tree(backups[0], "skills"), {"alpha/SKILL.md"})
+            self.assertEqual((backups[0] / "skills/alpha/SKILL.md").read_text(), "local alpha\n")
+            self.assertIn("Source-derived manifest validation passed", result.stdout)
+
+    def test_backup_mode_under_profile_replaces_target_with_profile_only(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = self.make_fixture(Path(directory))
+            target = Path(directory) / "home"
+            target.mkdir()
+            (target / "keep.txt").write_text("old\n")
+            result = self.run_installer(fixture, target, "--backup", "--profile", "pair")
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertEqual(installed_tree(target, "skills"), {"beta/SKILL.md", "gamma/SKILL.md"})
+            backups = list(Path(directory).glob("home.backup-*"))
+            self.assertEqual(len(backups), 1)
+            self.assertEqual((backups[0] / "keep.txt").read_text(), "old\n")
+
+    def test_profile_install_under_bash32(self):
+        bash32 = Path("/bin/bash")
+        version = subprocess.run([str(bash32), "--version"], capture_output=True, text=True).stdout.split() \
+            if bash32.exists() else []
+        if len(version) < 4 or not version[3].startswith("3."):
+            self.skipTest("/bin/bash is not 3.x")
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = self.make_fixture(Path(directory))
+            target = Path(directory) / "home"
+            result = self.run_installer(fixture, target, bash=str(bash32))
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertEqual(installed_tree(target, "agents"), {"helper-agent.md"})
+
+
+class InstallerRealProfileTest(unittest.TestCase):
+    """Each shipped profile installs exactly its seed closure from this repository."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.data = json.loads(PROFILE_DATA.read_text())
+        cls.skills_root = REPO_ROOT / ".claude/skills"
+        cls.skill_names = {
+            p.name for p in cls.skills_root.iterdir()
+            if p.is_dir() and (p / "SKILL.md").is_file() and not p.name.startswith("_")
+        }
+        cls.links = {}
+        for name in cls.skill_names:
+            found = set()
+            for path in (cls.skills_root / name).rglob("*"):
+                if path.is_file() and not {"__pycache__", ".pytest_cache"}.intersection(path.parts):
+                    try:
+                        found |= set(SKILL_LINK.findall(path.read_text(encoding="utf-8")))
+                    except (UnicodeDecodeError, OSError):
+                        continue
+            cls.links[name] = (found & cls.skill_names) - {name}
+
+    def expected_skills(self, profile: str) -> set[str]:
+        spec = self.data["profiles"][profile]
+        seeds = set(spec.get("skills", []))
+        for included in spec.get("include", []):
+            seeds |= self.expected_skills(included)
+        excluded = set(self.data.get("closure_excluded", []))
+        result, stack = set(seeds), list(seeds)
+        while stack:
+            for dependency in self.links[stack.pop()]:
+                if dependency not in result and (dependency not in excluded or dependency in seeds):
+                    result.add(dependency)
+                    stack.append(dependency)
+        return result
+
+    def install(self, target: Path, *args: str):
+        result = subprocess.run(
+            ["bash", str(INSTALLER), *args],
+            env=os.environ | {"CLAUDE_HOME": str(target)},
+            text=True, capture_output=True, check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr[-4000:] + result.stdout[-4000:])
+        self.assertIn("Source-derived manifest validation passed", result.stdout)
+        return result
+
+    def command_targets(self) -> dict[str, str]:
+        targets = {}
+        commands = REPO_ROOT / ".claude/commands"
+        for path in [*commands.glob("*.md"), *(commands / "extended-library").glob("*.md")]:
+            match = COMMAND_TARGET.search(path.read_text(encoding="utf-8"))
+            if match:
+                targets[path.relative_to(commands).as_posix()] = match.group(1)
+        return targets
+
+    def test_default_profile_is_the_six_highlights_and_no_catalog_profile_exists(self):
+        highlights = {"superpowers-quick", "advice", "redgreen", "4layer", "evidence-review", "harness-engineering"}
+        self.assertEqual(self.data["default_profile"], "highlights")
+        self.assertEqual(set(self.data["profiles"]), {"highlights", "highlights-prw", "prw", "web"})
+        self.assertEqual(set(self.data["profiles"]["highlights"]["skills"]), highlights)
+        self.assertEqual(self.data["profiles"]["highlights-prw"].get("skills", []), [])
+        self.assertEqual(set(self.data["profiles"]["highlights-prw"]["include"]), {"highlights", "prw"})
+        self.assertEqual(set(self.data["closure_excluded"]), CLOSURE_DENYLIST)
+
+    def test_no_flag_install_equals_the_highlights_profile(self):
+        with tempfile.TemporaryDirectory() as directory:
+            plain, named = Path(directory) / "plain", Path(directory) / "named"
+            plain_result = self.install(plain)
+            self.install(named, "--profile", "highlights")
+            self.assertIn("Profile: highlights", plain_result.stdout)
+            for component in ("skills", "commands", "agents", "scripts"):
+                self.assertEqual(installed_tree(plain, component), installed_tree(named, component), component)
+
+    def test_each_profile_installs_exactly_its_closure(self):
+        targets = self.command_targets()
+        for profile in self.data["profiles"]:
+            with self.subTest(profile), tempfile.TemporaryDirectory() as directory:
+                target = Path(directory) / "home"
+                args = () if profile == self.data["default_profile"] else ("--profile", profile)
+                result = self.install(target, *args)
+                skills = {p.name for p in (target / "skills").iterdir()}
+                expected = self.expected_skills(profile)
+                self.assertEqual(skills, expected)
+                self.assertFalse(DOT_FAMILY & skills)
+                if profile != "web":
+                    self.assertFalse(CLOSURE_DENYLIST & skills, profile)
+                unavailable = self.dangling_links(target)
+                self.assertLessEqual(set(unavailable.values()), CLOSURE_DENYLIST | {"<outside skills>"}, unavailable)
+                installed_commands = installed_tree(target, "commands")
+                commands = {c for c in installed_commands if c.endswith(".md")}
+                explicit = self.profile_field(profile, "commands")
+                # Aliases follow seeds (named skills and explicit-command targets), never closure-only skills.
+                seeds = self.profile_field(profile, "skills") | {
+                    targets[c] for c in targets if c.rsplit("/", 1)[-1][:-3] in explicit
+                }
+                for command in commands:
+                    stem = command.rsplit("/", 1)[-1][:-3]
+                    if stem not in explicit:
+                        self.assertIn(targets.get(command), seeds, command)
+                        self.assertTrue(self.is_alias(command, targets[command]), command)
+                for command, skill in targets.items():
+                    if skill in seeds and self.is_alias(command, skill):
+                        self.assertIn(command, commands)
+                for stem in explicit:
+                    self.assertIn(f"{stem}.md", commands)
+                commands_root = REPO_ROOT / ".claude/commands"
+                for command in commands:
+                    for reference in COMMAND_COMPANION.findall((commands_root / command).read_text()):
+                        reference = reference.rstrip(".")
+                        if (commands_root / reference).is_file():
+                            self.assertIn(reference, installed_commands, f"{command} -> {reference}")
+                self.assertIn(
+                    f"Installed profile '{profile}': {len(skills)} skills, {len(commands)} commands,",
+                    result.stdout,
+                )
+                agents = len(installed_tree(target, "agents"))
+                key = "*(none)*" if profile == self.data["default_profile"] else f"`--profile {profile}`"
+                for doc in ("README.md", "INSTALL.md"):
+                    rows = [line for line in (REPO_ROOT / doc).read_text().splitlines() if line.startswith(f"| {key}")]
+                    self.assertEqual(len(rows), 1, f"{doc} needs one {key} row")
+                    self.assertTrue(
+                        rows[0].endswith(f"| {len(skills)} / {len(commands)} / {agents} |"),
+                        f"{doc} {key} row must state the measured counts: {rows[0]}",
+                    )
+
+    @staticmethod
+    def is_alias(command: str, skill: str) -> bool:
+        """Alias = stem names the skill, frontmatter says alias, or a file of at most 15 lines."""
+        text = (REPO_ROOT / ".claude/commands" / command).read_text(encoding="utf-8")
+        description = ""
+        if text.startswith("---\n"):
+            front = text[4:].split("\n---", 1)[0]
+            description = next((l for l in front.splitlines() if l.startswith("description:")), "")
+        return (Path(command).stem == skill or "alias" in description.lower()
+                or len(text.splitlines()) <= 15)
+
+    def profile_field(self, profile: str, field: str) -> set[str]:
+        spec = self.data["profiles"][profile]
+        values = set(spec.get(field, []))
+        for included in spec.get("include", []):
+            values |= self.profile_field(included, field)
+        return values
+
+    def dangling_links(self, target: Path) -> dict[str, str]:
+        """Map each unresolved ../X/SKILL.md link in an installed tree to the missing skill."""
+        skills_root = (target / "skills").resolve()
+        missing = {}
+        for path in skills_root.rglob("*"):
+            if not path.is_file():
+                continue
+            try:
+                text = path.read_text(encoding="utf-8")
+            except (UnicodeDecodeError, OSError):
+                continue
+            for link in RELATIVE_SKILL_LINK.findall(text):
+                resolved = Path(os.path.normpath(path.parent / link))
+                if resolved.is_file():
+                    continue
+                try:
+                    name = resolved.relative_to(skills_root).parts[0]
+                except ValueError:
+                    name = "<outside skills>"
+                missing[f"{path.relative_to(skills_root)} -> {link}"] = name
+        return missing
+
+    def test_web_profile_and_with_opt_in_to_browser_review_without_dot(self):
+        for args in (("--profile", "web"), ("--profile", "prw", "--with", "web-advice", "--with", "browser-control")):
+            with self.subTest(args), tempfile.TemporaryDirectory() as directory:
+                target = Path(directory) / "home"
+                self.install(target, *args)
+                skills = {p.name for p in (target / "skills").iterdir()}
+                self.assertTrue({"advice", "web-advice", "browser-control"} <= skills)
+                self.assertFalse(DOT_FAMILY & skills)
+                self.assertTrue((target / "commands/web-advice.md").is_file())
+
+    def test_prw_profile_carries_the_pr_workflow_set(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "home"
+            self.install(target, "--profile", "prw")
+            for skill in ("prw", "pr-workflow", "pr-workflow-manager", "draft-first-pr", "pr-lifecycle",
+                          "pr-green-definition", "ready", "advice", "evidence-standards",
+                          "evidence-review", "testing-layers", "code-standards"):
+                self.assertTrue((target / "skills" / skill / "SKILL.md").is_file(), skill)
+            for command in ("es", "er", "green", "cs", "r.md", "smart-advisor.md", "extended-library/testing-layers.md"):
+                name = command if command.endswith(".md") else f"{command}.md"
+                self.assertTrue((target / "commands" / name).is_file(), command)
+            for workflow in ("extended-library/polish.md", "extended-library/savetmp.md", "savetmp.py"):
+                self.assertFalse((target / "commands" / workflow).exists(), workflow)
+        self.assertLessEqual(self.expected_skills("prw"), self.expected_skills("highlights-prw"))
+
+    def test_all_installs_every_skill_package(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "home"
+            result = self.install(target, "--all")
+            installed = {p.name for p in (target / "skills").iterdir()}
+            self.assertEqual(installed, self.skill_names)
+            self.assertTrue(DOT_FAMILY <= installed)
+            self.assertIn(f"Installed --all (full library): {len(self.skill_names)} skills,", result.stdout)

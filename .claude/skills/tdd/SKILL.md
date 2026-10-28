@@ -99,11 +99,13 @@ and database side channels that bypass the agreed interface.
 - **Refactoring:** Keep unrelated cleanup out of the implementation cycle. Preserve
   this workflow's review-stage refactoring policy; use the available `code-review`
   skill for that stage and rerun tests after any approved refactor.
-- **Completion:** Run the project's documented full suite, even when the change
-  names a single test file. Report every observed failure by name, including
-  pre-existing failures, and distinguish failed, unsupported, skipped, and not-run
-  checks. A focused GREEN result is not a green suite. Do not fix unrelated failures
-  without appropriate scope; report the remaining verification gap.
+- **Completion:** Run the focused test and relevant regression checks selected by
+  the current repository's testing-layer owner. Do not run an unfiltered local
+  full suite when repository policy assigns it to CI or prohibits it. Report
+  observed failures by name, including pre-existing failures, and distinguish
+  failed, unsupported, skipped, and not-run checks. A focused GREEN result proves
+  only its stated claim; use current CI or other required gates for broader
+  regression coverage. Do not fix unrelated failures without scope.
 
 Record revision, command, working directory, environment, and fresh RED/GREEN evidence
 paths. Report each attempted layer's result and leave unexecuted layers as not run.

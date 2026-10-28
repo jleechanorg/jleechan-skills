@@ -19,8 +19,9 @@ import re
 import time
 import warnings
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+
+from _copilot_modules.scratch_paths import copilot_cache_file
 
 
 
@@ -76,14 +77,6 @@ def sanitize_repo_name(repo_name: str) -> str:
     return re.sub(r"[^a-zA-Z0-9._-]", "", repo_name or "")
 
 
-def _is_relative_to(path: Path, base: Path) -> bool:
-    try:
-        path.relative_to(base)
-        return True
-    except ValueError:
-        return False
-
-
 def get_current_branch() -> str:
     """Get current git branch name for temp file path"""
     success, branch, _ = run_command(["git", "branch", "--show-current"])
@@ -117,33 +110,16 @@ def load_claude_responses(branch_name: str, repo_name: str) -> Dict:
     Returns:
         Dictionary containing responses data, empty dict if file not found
     """
-    safe_repo = sanitize_repo_name(repo_name) or "unknown-repo"
-    safe_branch = sanitize_branch_name(branch_name) or "unknown-branch"
-
-    base_dir = Path("/tmp").resolve()
-    copilot_dir = "copilot"
-    responses_path = (base_dir / safe_repo / safe_branch / copilot_dir / "responses.json").resolve()
-    expected_dir = (base_dir / safe_repo / safe_branch / copilot_dir).resolve()
-
-    # Verify the resolved path stays within /tmp (symlink-safe) and matches expected dir
-    if (
-        not _is_relative_to(responses_path, base_dir)
-        or not _is_relative_to(expected_dir, base_dir)
-        or responses_path.parent != expected_dir
-    ):
-        print(f"⚠️ SECURITY: Path traversal/symlink escape blocked: {responses_path}")
+    try:
+        responses_path = copilot_cache_file(repo_name, branch_name, "responses.json")
+    except RuntimeError as error:
+        print(f"⚠️ SECURITY: Comment response path unavailable: {error}")
         return {}
 
     if not responses_path.exists():
-        # Fallback to legacy path for backward compatibility during migration
-        legacy_path = (base_dir / safe_repo / safe_branch / "responses.json").resolve()
-        if _is_relative_to(legacy_path, base_dir) and legacy_path.exists():
-            print(f"⚠️  Using legacy path: {legacy_path}")
-            responses_path = legacy_path
-        else:
-            print(f"⚠️  RESPONSES FILE NOT FOUND: {responses_path}")
-            print("⚠️  Claude should have generated responses.json after analyzing comments")
-            return {}
+        print(f"RESPONSES FILE NOT FOUND: {responses_path}")
+        print("Claude should have generated responses.json after analyzing comments")
+        return {}
 
     try:
         # Additional security: check file size before reading
@@ -180,38 +156,34 @@ def load_comments_with_staleness_check(
     Returns:
         List of comment dictionaries (fresh or cached)
     """
-    safe_repo = sanitize_repo_name(repo_name) or "unknown-repo"
-    safe_branch = sanitize_branch_name(branch_name) or "unknown-branch"
-
-    base_dir = Path("/tmp").resolve()
-    copilot_dir = "copilot"
-    cache_dir = (base_dir / safe_repo / safe_branch / copilot_dir).resolve()
-    comments_path = (cache_dir / "comments.json").resolve()
-
-    # Security check
-    if not _is_relative_to(cache_dir, base_dir) or not _is_relative_to(
-        comments_path, base_dir
-    ):
-        print(f"⚠️ SECURITY: Path traversal/symlink escape blocked: {cache_dir}")
+    try:
+        comments_path = copilot_cache_file(repo_name, branch_name, "comments.json")
+    except RuntimeError as error:
+        print(f"❌ ERROR: Comment cache file unavailable: {error}")
         sys.exit(1)
 
     # Fallback to legacy single-file format
     comments_file = str(comments_path)
 
-    # COPILOT: Always fetch fresh data - no cache for PR processing
-    if comments_path.exists():
-        cache_age_minutes = (time.time() - os.path.getmtime(comments_file)) / 60
-        print(
-            f"🔄 COPILOT MODE: Ignoring {cache_age_minutes:.1f}min cache - fetching fresh comments"
-        )
-        fetch_fresh_comments(owner, repo, pr_number, comments_file)
-    else:
-        print(f"📥 NO CACHE: Fetching fresh comments for {owner}/{repo}#{pr_number}")
-        fetch_fresh_comments(owner, repo, pr_number, comments_file)
+    # Reuse the canonical producer so refresh failure cannot fall back to a
+    # stale or wrong-PR cache. The caller's cwd remains the target repository.
+    print(f"📡 FETCHING: Fresh canonical comments for {owner}/{repo}#{pr_number}")
+    try:
+        from _copilot_modules.commentfetch import CommentFetch
+
+        result = CommentFetch(str(pr_number), f"{owner}/{repo}").execute()
+        if not result.get("success"):
+            raise RuntimeError(result.get("message", "canonical comment fetch failed"))
+    except Exception as error:
+        print(f"❌ ERROR: Fresh canonical comment fetch failed: {error}")
+        sys.exit(1)
 
     try:
         with comments_path.open("r") as f:
             comment_data = json.load(f)
+        if str(comment_data.get("pr", "")) != str(pr_number):
+            print("❌ ERROR: Refusing comment cache for a different PR")
+            sys.exit(1)
         return comment_data.get("comments", [])
     except Exception as e:
         print(f"❌ ERROR: Failed to load comments: {e}")
@@ -1269,6 +1241,7 @@ def post_consolidated_summary(
 
     # Build consolidated replies section
     replies_section_parts = []
+    coverage_records = []
     for idx, reply_data in enumerate(collected_replies, 1):
         comment_id = reply_data.get("comment_id")
         author = reply_data.get("author", "unknown")
@@ -1285,6 +1258,7 @@ def post_consolidated_summary(
             anchor = f"issuecomment-{comment_id}"
 
         comment_link = f"https://github.com/{owner}/{repo}/pull/{pr_number}#{anchor}"
+        coverage_records.append({"comment_id": str(comment_id), "url": comment_link})
 
         reply_entry = f"""
 ---
@@ -1300,12 +1274,24 @@ def post_consolidated_summary(
     max_comment_size = 65000
     part_placeholder = "\n**Summary Part 1 of 10**"
 
-    def build_summary_body(replies_text: str, part_line: str) -> str:
+    def build_summary_body(
+        replies_text: str, part_line: str, part_records: List[Dict]
+    ) -> str:
         replies_section = (
             replies_text
             if replies_text.strip()
             else "\n*No new replies needed - all comments already addressed.*\n"
         )
+        coverage_footer = "<!-- COPILOT_COVERAGE_V1 " + json.dumps(
+            {
+                "schema": "copilot-coverage/v1",
+                "repo": f"{owner}/{repo}",
+                "pr": str(pr_number),
+                "responses": part_records,
+            },
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ) + " -->"
         return f"""## 🤖 [AI responder] Consolidated Comment Response Summary{part_line}
 
 **Processing Overview**:
@@ -1344,45 +1330,52 @@ Please re-review this PR and confirm whether all prior issues are resolved.
 
 **Anti-Spam Design**: Consolidated into single comment to reduce notification noise while maintaining 100% coverage.
 
-*Generated by /commentreply - Systematic comment processing with consolidated response format*"""
+*Generated by /commentreply - Systematic comment processing with consolidated response format*
 
-    def split_reply_entries(entries: List[str]) -> List[str]:
-        chunks: List[List[str]] = []
+{coverage_footer}"""
+
+    def split_reply_entries(entries: List[str], records: List[Dict]) -> List[Tuple[str, List[Dict]]]:
+        chunks: List[Tuple[str, List[Dict]]] = []
         current_chunk: List[str] = []
-        base_size = len(build_summary_body("", part_placeholder))
+        current_records: List[Dict] = []
+        base_size = len(build_summary_body("", part_placeholder, []))
         max_replies_size = max_comment_size - base_size - 200
-        for entry in entries:
+        for entry, record in zip(entries, records):
             candidate = current_chunk + [entry]
             candidate_text = "\n".join(candidate)
-            if len(build_summary_body(candidate_text, part_placeholder)) <= max_comment_size:
+            candidate_records = current_records + [record]
+            if len(build_summary_body(candidate_text, part_placeholder, candidate_records)) <= max_comment_size:
                 current_chunk = candidate
+                current_records = candidate_records
                 continue
             if current_chunk:
-                chunks.append(current_chunk)
+                chunks.append(("\n".join(current_chunk), current_records))
                 current_chunk = []
+                current_records = []
                 candidate = [entry]
             entry_text = candidate[0]
-            if len(build_summary_body(entry_text, part_placeholder)) > max_comment_size:
+            if len(build_summary_body(entry_text, part_placeholder, [record])) > max_comment_size:
                 truncated = entry_text[:max_replies_size].rstrip()
                 entry_text = (
                     truncated
                     + "\n\n... [TRUNCATED TO FIT GITHUB COMMENT LIMIT]"
                 )
             current_chunk = [entry_text]
+            current_records = [record]
         if current_chunk:
-            chunks.append(current_chunk)
-        return ["\n".join(chunk) for chunk in chunks]
+            chunks.append(("\n".join(current_chunk), current_records))
+        return chunks
 
-    reply_chunks = split_reply_entries(replies_section_parts)
+    reply_chunks = split_reply_entries(replies_section_parts, coverage_records)
     total_parts = len(reply_chunks) if reply_chunks else 1
     bodies_to_post = []
-    for idx, replies_text in enumerate(reply_chunks or [""], 1):
+    for idx, (replies_text, part_records) in enumerate(reply_chunks or [("", [])], 1):
         part_line = (
             f"\n**Summary Part {idx} of {total_parts}**"
             if total_parts > 1
             else ""
         )
-        bodies_to_post.append(build_summary_body(replies_text, part_line))
+        bodies_to_post.append(build_summary_body(replies_text, part_line, part_records))
 
     for idx, summary_body in enumerate(bodies_to_post, 1):
         if total_parts > 1:
