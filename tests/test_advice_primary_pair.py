@@ -1595,5 +1595,103 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         barrier.wait.assert_not_called()
 
 
+    def test_healthy_peer_result_survives_other_lane_exception(self) -> None:
+        runner = load_runner_module()
+        argv = self.with_queued_timestamps([
+            "--repo", str(self.repo), "--ref", self.sha,
+            "--packet-file", str(self.packet), "--output-dir", str(self.output),
+            "--reviewers", "codex,opus",
+        ])
+        opus_done = threading.Event()
+        started_ns = time.time_ns()
+        started_monotonic_ns = time.monotonic_ns()
+        opus_output = "VERDICT: APPROVED\nCOVERAGE: all\n"
+
+        def fail_codex(*_args: object, **_kwargs: object) -> dict[str, object]:
+            if not opus_done.wait(timeout=2):
+                raise RuntimeError("Opus did not finish before simulated Codex launch failure")
+            raise RuntimeError("simulated Codex launch failure")
+
+        def complete_opus(*_args: object, **_kwargs: object) -> dict[str, object]:
+            opus_done.set()
+            return {
+                "status": "success",
+                "transport": "claude -p",
+                "stdout": opus_output,
+                "attempts": [{
+                    "transport": "claude -p",
+                    "exit_code": 0,
+                    "failure": None,
+                    "descendant_termination_verified": True,
+                    "descendants_surviving": [],
+                    "descendant_supervision_errors": [],
+                }],
+                "started_ns": started_ns,
+                "ended_ns": time.time_ns(),
+                "started_monotonic_ns": started_monotonic_ns,
+                "ended_monotonic_ns": time.monotonic_ns(),
+            }
+
+        with mock.patch.dict(os.environ, self.env), mock.patch.object(
+            runner, "resolve_review_scratch_root", return_value=self.scratch
+        ), mock.patch.object(runner, "codex_lane", side_effect=fail_codex), mock.patch.object(
+            runner, "opus_lane", side_effect=complete_opus
+        ):
+            code = runner.main(argv)
+
+        receipt = json.loads((self.output / "receipt.json").read_text())
+        self.assertEqual(code, 6)
+        self.assertFalse(receipt["operation"]["success"])
+        self.assertIn("simulated Codex launch failure", receipt["operation"]["error"])
+        self.assertIn("codex", receipt["reviewer_future_errors"])
+        self.assertEqual(receipt["descendant_termination_failures"], ["codex"])
+        self.assertEqual(receipt["reviewers"]["opus"]["status"], "success")
+        self.assertEqual((self.output / "opus.txt").read_text(), opus_output)
+
+    def test_timeout_failure_is_not_relabelled_as_missing_verdict(self) -> None:
+        runner = load_runner_module()
+        self.executable("codex", "exit 0\n")
+        self.executable("claude", "exit 0\n")
+        supervision = {
+            "descendant_termination_verified": True,
+            "descendants_surviving": [],
+            "descendant_supervision_errors": [],
+        }
+        timed_out_partial_output = (
+            0,
+            "partial output without verdict",
+            "partial stderr",
+            True,
+            False,
+            supervision,
+        )
+        lanes = (
+            ("codex", runner.codex_lane),
+            ("opus", runner.opus_lane),
+        )
+
+        with mock.patch.dict(os.environ, self.env), mock.patch.object(
+            runner, "execute", return_value=timed_out_partial_output
+        ):
+            for name, lane in lanes:
+                with self.subTest(lane=name):
+                    result = lane(
+                        self.repo,
+                        "review prompt",
+                        threading.Barrier(1),
+                        time.monotonic() + 1,
+                        0.1,
+                        "gpt-6-sol",
+                    ) if name == "codex" else lane(
+                        self.repo,
+                        "review prompt",
+                        threading.Barrier(1),
+                        time.monotonic() + 1,
+                        0.1,
+                    )
+                    self.assertEqual(result["status"], "error")
+                    self.assertEqual(result["attempts"][0]["failure"], "timeout")
+
+
 if __name__ == "__main__":
     unittest.main()

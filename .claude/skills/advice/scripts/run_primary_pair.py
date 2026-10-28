@@ -707,7 +707,7 @@ def codex_lane(
             if timed_out
             else ("nonzero_exit" if code != 0 else None)
         )
-        if code == 0 and not has_verdict(stdout):
+        if failure is None and not has_verdict(stdout):
             failure = "missing_verdict"
         attempts.append(
             {
@@ -783,7 +783,7 @@ def opus_lane(
         if timed_out
         else ("nonzero_exit" if code != 0 else None)
     )
-    if code == 0 and not has_verdict(stdout):
+    if failure is None and not has_verdict(stdout):
         failure = "missing_verdict"
     return {
         "status": "success" if code == 0 and not timed_out and has_verdict(stdout) else "error",
@@ -1241,7 +1241,13 @@ def main(
             except BaseException:
                 barrier.abort()
                 raise
-            results = {name: future.result() for name, future in futures.items()}
+            results: dict[str, Any] = {}
+            future_errors: dict[str, str] = {}
+            for name, future in futures.items():
+                try:
+                    results[name] = future.result()
+                except Exception as error:
+                    future_errors[name] = f"{type(error).__name__}: {error}"
         for name, result in results.items():
             (output_dir / f"{name}.txt").write_text(result.pop("stdout"))
         late_reviewers = [
@@ -1254,17 +1260,24 @@ def main(
             invalidate_reviewer_votes({name: results[name]}, "attempt_timeout")
         receipt["work_deadline_late_reviewers"] = late_reviewers
         receipt["reviewers"] = results
-        receipt["descendant_termination_failures"] = descendant_termination_failures(
-            results
+        if future_errors:
+            receipt["reviewer_future_errors"] = future_errors
+        receipt["descendant_termination_failures"] = sorted(
+            set(descendant_termination_failures(results)) | set(future_errors)
         )
         for name in receipt["descendant_termination_failures"]:
-            if results[name].get("status") == "success":
+            if name in results and results[name].get("status") == "success":
                 invalidate_reviewer_votes(
                     {name: results[name]}, "descendant_supervision_unverified"
                 )
         receipt["overlap_proven"] = len(results) > 1 and max(
             r["started_monotonic_ns"] for r in results.values()
         ) <= min(r["ended_monotonic_ns"] for r in results.values())
+        if future_errors:
+            details = "; ".join(
+                f"{name}: {message}" for name, message in future_errors.items()
+            )
+            raise RuntimeError(f"reviewer future failed: {details}")
         # Preserve every completed lane before integrity checks invalidate approval.
         for path in clones.values():
             for i, data in enumerate(documents.values()):
