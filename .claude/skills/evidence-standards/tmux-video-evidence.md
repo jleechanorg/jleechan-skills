@@ -81,6 +81,14 @@ echo "POST=$POST_SHA"
 ```bash
 # Resolve scratch directory via ~/.claude/skills/scratch-space/SKILL.md
 SCRATCH_TMP="$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh tmp)"
+if [ "$?" -ne 0 ]; then
+  echo "Scratch resolver unavailable; refusing recording" >&2
+  exit 75
+fi
+if [ -z "$SCRATCH_TMP" ]; then
+  echo "Scratch resolver returned an empty path; refusing recording" >&2
+  exit 75
+fi
 chmod +x "${SCRATCH_TMP}/${WORK_NAME:-work}_evidence.sh"
 
 # Option A: direct screen recording (mp4)
