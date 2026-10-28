@@ -883,6 +883,15 @@ class InstallerIntegrationTest(unittest.TestCase):
                 self.assertEqual(path.read_text(encoding="utf-8"), f"custom {path.name}\n")
             self.assertIn("requires --migrate-archives", result.stderr + result.stdout)
 
+    def test_install_prints_the_current_repository_url(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            result = self.run_installer(fixture, temp_dir / "claude-home")
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertIn("https://github.com/jleechanorg/jleechan-skills", result.stdout)
+            self.assertNotIn("jleechanorg/claude-commands", result.stdout)
+
     def test_merge_and_backup_are_mutually_exclusive(self):
         for flags in (("--merge", "--backup"), ("--backup", "--merge")):
             with self.subTest(flags), tempfile.TemporaryDirectory() as directory:

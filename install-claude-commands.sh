@@ -1082,7 +1082,7 @@ validate_installation() {
 # Post-install information
 show_next_steps() {
     log_info "Start Claude Code to use the installed commands and skills."
-    log_info "Documentation: https://github.com/jleechanorg/claude-commands"
+    log_info "Documentation: https://github.com/jleechanorg/jleechan-skills"
 }
 
 # Main installation flow
