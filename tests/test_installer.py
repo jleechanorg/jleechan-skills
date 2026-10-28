@@ -936,6 +936,27 @@ class InstallerIntegrationTest(unittest.TestCase):
                 archived.read_text(encoding="utf-8"), "active legacy skill\n"
             )
 
+    def test_merge_migrate_archives_without_collisions_installs_under_bash32(self):
+        bash32 = Path("/bin/bash")
+        version = subprocess.run([str(bash32), "--version"], capture_output=True, text=True).stdout.split() \
+            if bash32.exists() else []
+        if len(version) < 4 or not version[3].startswith("3."):
+            self.skipTest("/bin/bash is not 3.x")
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            target = temp_dir / "claude-home"
+            result = subprocess.run(
+                [str(bash32), str(fixture / INSTALLER.name), "--merge", "--migrate-archives", "--all"],
+                cwd=fixture, env=os.environ | {"CLAUDE_HOME": str(target)},
+                text=True, capture_output=True, check=False,
+            )
+            output = result.stderr + result.stdout
+            self.assertNotIn("unbound variable", output)
+            self.assertEqual(result.returncode, 0, output)
+            self.assertTrue((target / "skills/example/SKILL.md").is_file(), output)
+            self.assertIn("Installation complete", output)
+
     def test_merge_rejects_duplicate_archive_mappings_before_copy(self):
         with tempfile.TemporaryDirectory() as directory:
             temp_dir = Path(directory)

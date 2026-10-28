@@ -422,7 +422,7 @@ prepare_archive_migration_on_merge() {
         fi
     done
 
-    for archive_path in "${MIGRATION_ARCHIVE_PATHS[@]}"; do
+    for archive_path in ${MIGRATION_ARCHIVE_PATHS[@]+"${MIGRATION_ARCHIVE_PATHS[@]}"}; do
         if ! mkdir -p "$(dirname "$archive_path")"; then
             log_error "Cannot prepare archive parent for: $archive_path"
             return 1
