@@ -6,7 +6,7 @@
 # through its MCP tool. It never invokes Aside inference, submits a prompt, or
 # inspects browser cookies. Vendor authentication is qualified separately.
 
-set -uo pipefail
+set -euo pipefail
 
 TIMEOUT_BIN="$(command -v timeout || command -v gtimeout || true)"
 
