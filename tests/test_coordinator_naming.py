@@ -7,6 +7,7 @@ import tempfile
 from pathlib import Path
 import subprocess
 import unittest
+from tests.subprocess_environment import isolated_home_environment
 ROOT = Path(__file__).resolve().parents[1]
 NEW = ROOT / '.claude/skills/dot-coordinator'
 OLD = ROOT / '.claude/skills/agy-dot-coordinator'
@@ -53,7 +54,15 @@ class CoordinatorNaming(unittest.TestCase):
             pending = state / 'send-fixture.pending'; pending.write_text('uncertain fixture')
             before = [(p.stat().st_ino, p.read_bytes()) for p in (stop, pending)]
             target = root / 'installed'
-            result = helper.run_installer(fixture, target, extra_environment={'HOME': str(home)})
+            environment = isolated_home_environment(home)
+            result = helper.run_installer(
+                fixture,
+                target,
+                extra_environment={
+                    'HOME': environment['HOME'],
+                    'PATH': environment['PATH'],
+                },
+            )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             alias = target / 'skills/agy-dot-coordinator/scripts/ping-dots.py'
             self.assertFalse(alias.is_symlink())

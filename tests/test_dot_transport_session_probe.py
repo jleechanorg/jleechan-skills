@@ -10,6 +10,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from tests.subprocess_environment import isolated_home_environment
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DOT_SH = REPO_ROOT / ".claude" / "skills" / "dot" / "scripts" / "dot.sh"
 NVM_NODE22 = Path.home() / ".nvm" / "versions" / "node" / "v22.22.0" / "bin" / "node"
@@ -54,13 +56,12 @@ class DotSessionProbeTest(unittest.TestCase):
         self.state_path = self.root / "probe-state.json"
         self.audit_path = self.root / "profile-access-audit.json"
         self.env = {
-            name: os.environ[name]
-            for name in ("PATH", "TMPDIR", "LANG", "LC_ALL")
-            if name in os.environ
+            key: value
+            for key, value in isolated_home_environment(self.home).items()
+            if key in {"HOME", "PATH", "TMPDIR", "LANG", "LC_ALL"}
         }
         self.env.update(
             {
-                "HOME": str(self.home),
                 "DOT_ACCOUNT": "fixture",
                 "DOT_CONFIG_FILE": str(self.config),
                 "DOT_CHROME_USER_DATA": str(self.profile),

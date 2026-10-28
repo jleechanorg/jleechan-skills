@@ -6,6 +6,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from tests.subprocess_environment import isolated_home_environment
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 INTEGRATE_SCRIPT = REPO_ROOT / "scripts" / "integrate.sh"
 
@@ -30,8 +32,7 @@ class IntegrateCleanupTests(unittest.TestCase):
         fake_gh.write_text("#!/bin/sh\necho '[]'\nexit 0\n", encoding="utf-8")
         fake_gh.chmod(0o755)
 
-        env = os.environ.copy()
-        env["HOME"] = str(fake_home)
+        env = isolated_home_environment(fake_home)
         path_val = env.get("PATH", "")
         env["PATH"] = f"{fake_bin}:{path_val}"
         env["CI"] = "1"
