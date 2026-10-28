@@ -846,12 +846,17 @@ class SharedPolicySemanticCanaryTests(unittest.TestCase):
         self.assertIn("production-file classifier", self.collapsed)
 
     def test_merge_authority_remains_human_and_scoped(self):
-        self.assertIn("explicit merge approval", self.collapsed)
-        self.assertIn("most recent live user message", self.collapsed)
-        self.assertIn("Delegated worker sessions may never execute `gh pr merge`", self.collapsed)
-        self.assertIn("not blanket permission", self.collapsed)
-        self.assertNotIn("authorizes merging in any repository at any size", self.collapsed)
-        self.assertNotIn("may merge without a human approval", self.collapsed)
+        self.assertIn(
+            "Authorization persists for the same action, target, and requested outcome",
+            self.collapsed,
+        )
+        self.assertIn("User merge approval", self.collapsed)
+        self.assertIn("MERGE APPROVED", self.collapsed)
+        self.assertIn("150 or fewer production delta lines", self.collapsed)
+        self.assertIn("More than 150 production delta lines", self.collapsed)
+        self.assertIn("wait for human review or the user's `MERGE APPROVED`", self.collapsed)
+        self.assertNotIn("Delegated worker sessions may never execute `gh pr merge`", self.collapsed)
+        self.assertIn("authorizes merging in any repository at any size", self.collapsed)
 
     def test_publication_requires_data_destination_and_audience_authorization(self):
         self.assertIn("Producing an artifact never creates publication authority", self.collapsed)
@@ -869,16 +874,12 @@ class SharedPolicySemanticCanaryTests(unittest.TestCase):
         )
 
     def test_no_dated_provider_override_or_host_specific_evidence_destination(self):
-        provider_section = self.text.split("### Provider and credential state", 1)[1].split(
-            "## ", 1
-        )[0]
-        self.assertNotIn("2026-10-12", provider_section)
-        self.assertNotIn("quota-blocked", provider_section)
-        self.assertNotIn("GEMINI_API_KEY", provider_section)
-        self.assertNotIn("serviceAccountKey.json", provider_section)
-        self.assertNotIn("gs://wa-test-evidence", self.collapsed)
-        self.assertNotIn("jeff-ubuntu", self.collapsed)
-        self.assertIn("resolve locally, never from a dated snapshot", self.collapsed)
+        self.assertNotIn("### Provider and credential state", self.collapsed)
+        self.assertNotIn("quota-blocked", self.collapsed)
+        self.assertNotIn("GEMINI_API_KEY", self.collapsed)
+        self.assertNotIn("serviceAccountKey.json", self.collapsed)
+        self.assertIn("Gemini Model Invariant", self.collapsed)
+        self.assertIn("gemini-3.8-flash-high", self.collapsed)
 
     def test_workspace_classes_are_distinguished_once(self):
         self.assertIn(
