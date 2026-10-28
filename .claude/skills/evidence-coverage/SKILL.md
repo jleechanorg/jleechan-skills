@@ -63,7 +63,7 @@ git diff <evidence_sha>..HEAD -- $PROJECT_ROOT/
 
 Read the full diff, including test files, against the claims the evidence backs.
 
-Apply `~/.claude/skills/evidence-standards/SKILL.md` sections Evidence Staleness
+Apply `../evidence-standards/SKILL.md` sections Evidence Staleness
 Tolerance and Evidence Sequencing. Re-run evidence affected by a material behavior
 change after batching pending fixes. For a qualifying nonbehavioral delta, record
 the diff assessment and re-affirm the prior result for the current SHA. Preserve
@@ -135,5 +135,5 @@ After the matrix, include:
 
 - Testing layers: `.claude/skills/testing-layers/SKILL.md`
 - E2E testing: `.claude/skills/end2end-testing.md`
-- Evidence standards: `~/.claude/skills/evidence-standards/SKILL.md` (user-scope) and `.claude/skills/evidence-standards.md` (repo-scope)
+- Evidence standards: `../evidence-standards/SKILL.md` (user-scope) and `.claude/skills/evidence-standards.md` (repo-scope)
 - Root-cause first: `.claude/skills/root-cause-first/SKILL.md`
