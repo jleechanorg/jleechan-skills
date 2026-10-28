@@ -509,7 +509,6 @@ build SHA, and run). Unlabeled derived clips are INSUFFICIENT.
 `/er` and second-opinion (`advice` skill) verdicts on UI video evidence must come from an agent other
 than the one that produced the evidence. Self-review does not satisfy either
 gate.
->>>>>>> origin/main
 
 ## First-frame verification (MANDATORY)
 
