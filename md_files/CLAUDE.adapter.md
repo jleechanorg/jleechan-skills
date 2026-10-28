@@ -1,7 +1,7 @@
 # Claude Global Baseline
 
 Shared policy is loaded below. Edit universal rules in `~/.codex/AGENTS.md`; keep only Claude-specific additions in this adapter. The imported section explicitly labeled Codex-only does not apply to Claude. Do not duplicate shared rules here.
-PR lifecycle & quantity control: `~/.claude/skills/pr-lifecycle/SKILL.md`, `~/.claude/skills/pr-green-definition/SKILL.md`, and `/Users/jleechan/.claude/skills/pr-quantity-control/SKILL.md` (`<= 3` open PRs per feature scope by default; hard cap `<= 5` coarse vertical slices when splitting; never micro-slice by line count).
+PR lifecycle & quantity control: `~/.claude/skills/pr-lifecycle/SKILL.md`, `~/.claude/skills/pr-green-definition/SKILL.md`, and `~/.claude/skills/pr-quantity-control/SKILL.md` (`<= 3` open PRs per feature scope by default; hard cap `<= 5` coarse vertical slices when splitting; never micro-slice by line count).
 
 @~/.codex/AGENTS.md
 
