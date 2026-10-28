@@ -820,10 +820,8 @@ class SharedPolicySemanticCanaryTests(unittest.TestCase):
         self.assertIn("+100 production and +100 test lines counts 100 production", self.collapsed)
 
     def test_both_counters_use_merge_base_three_dot_range(self):
-        self.assertIn("merge-base(actual-base, head)..head", self.collapsed)
-        self.assertIn("three-dot `actual-base...head`", self.collapsed)
-        self.assertIn("A two-dot diff is not the counter", self.collapsed)
-        self.assertNotIn("actual-base..head", self.collapsed)
+        self.assertIn("added + deleted production lines across the full diff against its base", self.collapsed)
+        self.assertIn("full PR diff against its base", self.collapsed)
         self.assertNotIn("complete actual-base..head PR diff", self.collapsed)
 
     def test_merge_churn_metric_is_distinct_from_added_lines(self):

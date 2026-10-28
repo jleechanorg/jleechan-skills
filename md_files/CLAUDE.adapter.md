@@ -58,7 +58,7 @@ The status-line and `git-header.sh` procedure live in `~/.claude/CLAUDE-global-r
 
 ## Agent Scratch placement (Mac and Linux)
 
-Single source of truth: [`~/.claude/skills/scratch-space/SKILL.md`](/Users/jleechan/.claude/skills/scratch-space/SKILL.md).
+Single source of truth: [`~/.claude/skills/scratch-space/SKILL.md`](~/.claude/skills/scratch-space/SKILL.md).
 For disposable build output, test fixtures, ephemeral workspaces, and evidence:
 - **Repo build & evidence directories**: Allocate via `diskm scratch-new <repo-path> <purpose> --kind build|evidence` (enforces admission control, lease registration, and 48-hour recency; add `--owner-pid PID` for long-lived producers).
 - **Ad-hoc helper files, PR bodies, logs & ephemeral scripts**: Resolve via `~/.claude/skills/scratch-space/scripts/scratch-dir.sh [subpath]`.

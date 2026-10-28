@@ -99,7 +99,7 @@ While jobs run, do independent work that cannot invalidate their inputs, and use
 
 Never create, edit, commit, write, or read secrets from `.env` files. Credentials belong in the process environment, macOS Keychain, or another designated secure credential store. Existing `~/.bashrc` exports may be read, but do not add credentials there without an explicit request (see the wrapper-edit rule below). Codex authenticates with `codex login` and its active profile's credential store; never export `OPENAI_API_KEY` for Codex, in `~/.bashrc` or anywhere else. Do not recommend re-login until a non-empty Keychain probe and a cheap non-UI tool call both fail; a TTY or sandbox-token error alone is insufficient. Do not edit user-owned shell wrappers without explicit request.
 
-**Runtime:** Use nvm Node 22 (`/Users/jleechan/.nvm/versions/node/v22.22.0/bin/node`), never Homebrew Node 24 (`/opt/homebrew/bin/node`).
+**Runtime:** Use nvm Node 22 (`$HOME/.nvm/versions/node/v22.22.0/bin/node`), never Homebrew Node 24 (`/opt/homebrew/bin/node`).
 
 ## Workspace and method fidelity
 
@@ -110,7 +110,7 @@ Reads, coding work, and non-code configuration edits may occur in the directory 
 Write every durable agent-authored deliverable — investigation reports, analyses, handoffs, learnings,
 design notes, PR summaries, comparison tables, and any Markdown a human will read — under `~/roadmap/`
 (the `jleechanorg/roadmap` git repo), as `<topic>-YYYY-MM-DD.md`. Report the absolute path plus a
-`file:///Users/jleechan/roadmap/...` link.
+`file://$HOME/roadmap/...` link.
 
 `/tmp` and scratch volumes are scratch, not storage. A host restart wipes `/tmp`: on 2026-10-25 a restart deleted
 `/tmp/worldai-cost-audit/` — a complete cost-investigation bundle — while the `~/roadmap` report, the
@@ -419,7 +419,7 @@ Runtime configuration belongs to the active `CODEX_HOME/config.toml`; another pr
 - Default actual coding (edits, new files, generated code) to a delegated lane, not the primary session; the primary session's job is orchestration, delegation, and verification. Delegate bounded independent work unless coordination cost demonstrably exceeds execution cost; the primary agent retains requirements, integration, and final verification.
 - **Token efficiency is a default:** preserve the requested scope and every required quality, review, and evidence gate while minimizing total model input/output. Reuse verified checkpoints and artifacts; use shell for deterministic discovery and return bounded excerpts instead of full logs or transcripts. Give each call only changed context, exact scope, and acceptance criteria; reference available files instead of re-pasting them. Do not repeat unchanged analysis or create duplicate lanes. Parallelize genuinely independent work per the rule above; never save tokens by skipping required checks.
 - Use `terra_scout` for discovery, `terra_reviewer` for semantic review, and `luna_verifier` for focused test execution.
-- For bounded implementation, prefer `/Users/jleechan/.local/bin/codex-luna` for small mechanical edits when available; otherwise use `luna_worker`.
+- For bounded implementation, prefer `$HOME/.local/bin/codex-luna` for small mechanical edits when available; otherwise use `luna_worker`.
 - Treat model lists in tool descriptions as advisory discovery metadata, not an exhaustive allowlist. If a requested installed model is omitted, first probe one harmless `spawn_agent` call with the exact model slug; only after a concrete rejection may you fall back to its canonical CLI wrapper (Luna: `/Users/jleechan/.local/bin/codex-luna`) or another model, and report the actual rejection.
 - Resource admission gate (corrected 2026-09-02): before spawning lanes, subprocess fleets, or CLI delegations — or any time diagnosing memory pressure — compute available RAM from `vm_stat` as (free+inactive+purgeable+speculative)×page_size and attribute the top RSS consumer with `ps -Ao rss,comm -r | head`. Never gate on `vm.swapusage` used/total ratio (macOS sizes the swapfile dynamically; "89% full" can coexist with 12+GB available). `kern.memorystatus_vm_pressure_level`: 2 is amber/informational, only 4 is critical. Spawn normally when available >8GB and pressure ≤2; reduce lane count at 4-8GB or pressure=3; for memory, defer only at <4GB or pressure=4, and attribute it to the real top-RSS source first; CPU load has its own heavy-lane cap (§ CPU tier). Never fork a multi-minute CLI delegation as foreground Bash: always background + timeout. Full gate: `~/.claude/skills/parallelize-to-ceiling/SKILL.md` — treat that skill as source of truth if this summary drifts from it.
 - When a teammate or background subagent goes quiet, read its actual transcript/output file before concluding it is stalled — file mtimes alone cannot distinguish a hang from a long synchronous tool call. Only ping or take over once the transcript itself shows no forward progress.
