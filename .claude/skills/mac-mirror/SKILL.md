@@ -114,6 +114,10 @@ SCRATCH_ROOT="$(diskm scratch-dir 2>/dev/null)" || {
   echo "FAILED:$REL_PATH — canonical Scratch resolver returned no usable root" >&2
   exit 75
 }
+[ "$SCRATCH_ROOT" != "/tmp" ] || {
+  echo "FAILED:$REL_PATH — Scratch is unconfigured; refusing the canonical /tmp fallback" >&2
+  exit 75
+}
 MIRROR_KEY=$(printf '%s' "$REL_PATH" | cksum | cut -d' ' -f1)
 BRANCH_KEY=$(printf '%s' "$BRANCH" | cksum | cut -d' ' -f1)
 TARGET="$SCRATCH_ROOT/mirrors/$MIRROR_KEY/$REL_PATH"
