@@ -198,7 +198,7 @@ else
       echo "FAILED:$SESSION - cannot capture the pane; refusing to infer a ready state" >&2
       exit 1
     fi
-    if echo "$PANE_PROBE" | grep -qF "$TRUST_MARKER"; then
+    if printf '%s' "$PANE_PROBE" | grep -qF "Yes, I trust this folder"; then
       # The dialog's text can be captured before its keyboard handler is
       # actually wired up — confirmed live under real load (this box
       # routinely runs 20+ concurrent mirror tmux sessions): a Down sent
@@ -211,7 +211,7 @@ else
       # that would toggle the two-item list back to "No, exit".
       sleep 0.2
       for _ in $(seq 1 15); do
-        tmux capture-pane -p -t "$SESSION" 2>/dev/null | grep -qE "$TRUST_PROMPT_RE" && break
+        tmux capture-pane -p -t "$SESSION" 2>/dev/null | grep -qE '❯[[:space:]]*Yes, I trust this folder' && break
         tmux send-keys -t "$SESSION" Down || true
         sleep 0.2
       done
@@ -228,7 +228,7 @@ else
       # FAILED on a session that was actually fine one second later.
       # Poll (bounded) until the dialog text actually clears.
       for _ in $(seq 1 10); do
-        echo "$(tmux capture-pane -p -t "$SESSION" 2>/dev/null)" | grep -qF "$TRUST_MARKER" || break
+        tmux capture-pane -p -t "$SESSION" 2>/dev/null | grep -qF "Yes, I trust this folder" || break
         sleep 0.2
       done
       break
@@ -239,7 +239,7 @@ else
     # claude's status bar ("bypass permissions on") only ever appears
     # once past the dialog (confirmed live: never co-occurs with the
     # dialog text), so treat it as the "no dialog is coming" signal.
-    echo "$PANE_PROBE" | grep -qF "$READY_MARKER" && break
+    printf '%s' "$PANE_PROBE" | grep -qF "bypass permissions on" && break
     sleep 0.5
   done
   # tmux new-session exits 0 even when the launched command can't be
@@ -256,7 +256,10 @@ else
   fi
   if tmux has-session -t "=$SESSION" 2>/dev/null \
      && [ "$(tmux display-message -p -t "$SESSION" '#{pane_dead}')" = "0" ] \
-     && ! tmux capture-pane -p -t "$SESSION" 2>/dev/null | grep -qF "$TRUST_MARKER"; then
+     && { [ "$AGENT_CLI" != "claude" ] || {
+            FINAL_PROBE=$(tmux capture-pane -p -t "$SESSION") || {
+              echo "FAILED:$SESSION - cannot capture the pane; refusing to report READY" >&2; exit 1; }
+            ! printf '%s' "$FINAL_PROBE" | grep -qF "Yes, I trust this folder"; }; }; then
     echo "READY:$SESSION:$TARGET:$(git rev-parse HEAD)"
   else
     echo "FAILED:$SESSION:$TARGET — session did not survive launch (check that \`claude\` is on the remote PATH); pane retained by remain-on-exit for inspection: tmux capture-pane -p -t $SESSION" >&2
