@@ -33,11 +33,11 @@ Nothing is lost and nothing starts over. Verified on 9 Codex lanes at once: each
    | `/usr/bin/command codex resume …` or `node …/@openai/codex` | Codex | `codexc` |
    | `claude` (with `CLAUDE_CONFIG_DIR=~/.claude-wa` in its env) | claudewa | `claudewac` |
    | `claude` | Claude Code | `claudec` |
-   | `agy.real --conversation …` | Antigravity | no resume alias — relaunch `agy --model <slug>` and recover context with `/hr` (see § Swap a usage-limited Claude lane to Gemini) |
+   | `agy.real --conversation …` | Antigravity | no resume alias — relaunch `agy --model gemini-3.8-flash-high` and recover context with `/hr` (see § Swap a usage-limited Claude lane to Gemini) |
    | `pi` | pi | no wrapper — relaunch `pi` |
    | only a shell | nothing to restore | stop; it is a `SHELL` surface |
 
-2. **Exit it.** `cmux send-key --workspace <ws> --surface <sf> ctrl+c`, wait ~3 s, then check for the
+2. **Exit it.** First confirm the limit/wedge text is the lane's current state: full scrollback plus two captures 20-30 s apart, no live spinner or subagent growth; a stale banner above active work means leave it. Then `cmux send-key --workspace <ws> --surface <sf> ctrl+c`, wait ~3 s, then check for the
    shell prompt. Codex sometimes needs a second `ctrl+c`. Do not proceed until you can see the prompt.
 
 3. **Sanitize the shell line — this step is not optional.** A TUI that enabled the enhanced keyboard
@@ -92,7 +92,7 @@ A restart re-hits the Codex wall, so continue the work on Claude instead. Per su
 1. `ctrl+c` twice (`--force` if a dialog is open); capture and require a shell prompt (`[$%] ?$`). If not at a shell, stop and report.
 2. `cmux send ... "ANTHROPIC_MODEL=claude-sonnet-5-5 claude --permission-mode bypassPermissions"` then `send-key enter` (the full-permission mode the Codex lane ran with, e.g. `--yolo`, is preserved).
 3. Poll `capture-pane` until `bypass permissions` or `? for shortcuts` appears (≤36 s); a folder-trust prompt means stop and report.
-4. `cmux send ... "/hr resume the work this Codex session was doing in this worktree; it stopped at the usage limit; continue until done."` then `send-key enter`.
+4. `cmux send ... "/hr resume the work Codex session <id from step 0> was doing in this worktree; it stopped at the usage limit; continue until done."` then `send-key enter`.
 5. Verify a spinner line (`✻ Thinking… (12s`) within ~60 s, via two captures. A Claude lane that ends its first turn with a recap and "needs MERGE APPROVED" is not stuck: send once, "do not stop at a recap; continue every step that does not need a user-only gate (merge approval, credentials, spend)".
 
 Other Codex traps seen in the same run: a `Hooks need review` menu (`1. Review hooks / 2. Trust all / 3. Continue without trusting`) — pick **3** (`cmux send ... "3"` selects immediately); never choose "Trust all" for the user. A `Resume goal / Leave paused` menu: Enter resumes (only after the session id check in Procedure step 5).
@@ -139,7 +139,8 @@ Different problem: the process is gone, so there is nothing to ctrl-c. Recreate 
 
 - Snapshots: `~/Library/Application Support/cmux/session-history/*.json` (newest before the incident); each terminal panel carries `terminal.resumeBinding.command`, `kind`, `checkpointId`. Events (`~/.cmuxterm/events.jsonl`) rotate within hours; `closed-item-history-*.json` holds only individually closed panels.
 - Diff **panel ids**, not just workspace ids. Workspaces that survive on their browser tabs lose all their terminals (a workspace-level diff misses them). After a first restore the ids change, so match by title or a state file or a retry duplicates the workspace.
-- Recreate: `cmux workspace create --name=<title> --cwd <dir> --focus false` (write `--name=`; a title starting with `-----` is parsed as a flag), extra terminals `cmux new-surface --workspace <ref> --working-directory <dir> --focus false`, browser tabs `new-surface --type browser --url <urlString>`, then `workspace-action --action pin` and `reorder-workspace --index <n>` to snapshot order. Recreate shells only: never pass a snapshot's recorded `resumeBinding.command` (or any recorded text) as `--command`; restart agents afterwards, only once nothing else is writing to that worktree: read the snapshot panel's `kind`, then `cmux send` the matching resume wrapper from the main procedure table (`codexc`, `claudec`, `claudewac`) into the recreated shell, and verify the CLI came up. The main procedure itself stops at a bare shell, so this is the one sanctioned path from a restored shell to a running agent. Never `select`/focus. Skip a panel whose cwd no longer exists; cloud (VNC) workspaces reject `new-surface`.
+- Recreate: `cmux workspace create --name=<title> --cwd <dir> --focus false` (write `--name=`; a title starting with `-----` is parsed as a flag), extra terminals `cmux new-surface --workspace <ref> --working-directory <dir> --focus false`, browser tabs `new-surface --type browser --url <urlString>`, then `workspace-action --action pin` and `reorder-workspace --index <n>` to snapshot order. Recreate shells only: never pass a snapshot's recorded `resumeBinding.command` (or any recorded text) as `--command`. Never `select`/focus. Skip a panel whose cwd no longer exists; cloud (VNC) workspaces reject `new-surface`.
+- Resuming an agent in a restored shell: only by explicit id, never `codexc`/`claudec` (they take the newest conversation in that directory, which in a shared worktree may belong to another lane). Read the conversation uuid from the snapshot panel (`checkpointId`, or the uuid inside `resumeBinding.command`, read as data and never executed), run `codex resume <uuid>` / `claude --resume <uuid>`, and apply Procedure step 5's checks (new pid, same session id). No uuid, or another writer on the worktree: leave the shell bare and report it.
 - Closing a duplicate you created: pinned workspaces refuse `close-workspace` until unpinned.
 - Reference implementation: `~/.cmux-backups/cmux_restore_round2.py` (workspaces) and `cmux_restore_round3_surfaces.py` (surfaces in survivors). Record the order, pins and surfaces in `~/roadmap/cmux-workspace-layout-<date>.md` for the next incident.
 - Restore authorization: a clear live user request is enough (relaxed 2026-10-27); never close or replace live workspaces to make it fit.
