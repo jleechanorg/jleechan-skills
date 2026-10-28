@@ -457,6 +457,10 @@ Rules:
 9. Each clip contains the user action itself plus the before state
 10. Before/after provenance is fresh runs of each build, or labeled `derived` with source
 11. `/er` and second-opinion (`advice` skill) verdicts come from a different agent/lane than the evidence producer, and name that lane
+12. An independent AI reviewer (not the author or orchestrator) judged frames extracted from the
+    published video against each acceptance step, with PASS/FAIL and timestamps;
+    privacy, playback, and upload checks are separate and do not substitute
+    (`evidence-review` check 4)
 
 ## Frozen-frame and slideshow detection (MANDATORY)
 

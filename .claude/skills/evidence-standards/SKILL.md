@@ -413,6 +413,9 @@ frames. When reviewing UI video (`/er`), **extract frames and look**
 (`ffmpeg -i <video> -vf fps=1 /tmp/frames/f_%02d.png`); if the element is never
 in-frame, or the only on-screen evidence is a caption overlay, the UI evidence is
 INSUFFICIENT even if the video exists, is captioned, and the test passed.
+Acceptance by video also requires an independent AI content review (other than
+the author or orchestrator) of the published video's frames per acceptance step
+(`evidence-review` check 4); privacy, playback, and turn-record reviews do not count.
 
 ## Visual Evidence & Mandatory Inline Rendering in PRs
 
