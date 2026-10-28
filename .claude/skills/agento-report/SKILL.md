@@ -21,7 +21,11 @@ and zero-touch skills; display inline and post the summary to Slack.
 
 ### Step 1 — Collect open PRs
 
-Use REST (not GraphQL — GraphQL is frequently exhausted):
+Use REST as the primary read path for these listings. REST and GraphQL have
+separate quota buckets. Before reporting GitHub/API work blocked, try one
+bounded equivalent read through both APIs where the operation permits; see
+`github-cli-reference/SKILL.md`. A quota failure for one operation does not
+block unrelated AO work.
 
 ```bash
 gh api "repos/jleechanorg/agent-orchestrator-ts/pulls?state=open&per_page=30&sort=updated" \
@@ -37,7 +41,9 @@ Filter merged ones to last 24h by comparing `.merged_at` timestamp.
 
 ### Step 2 — Per-PR data fetch (open PRs)
 
-For each open PR number NUM, fetch mergeability, CI, and reviews via REST:
+For each open PR number NUM, fetch mergeability, CI, reviews, and comments.
+Use REST for the shown reads; if a call is unavailable, try an equivalent
+read-only GraphQL query before reporting the data unavailable:
 
 ```bash
 # Mergeability (REST returns boolean mergeable + string mergeable_state)
@@ -52,9 +58,9 @@ gh pr view NUM --json statusCheckRollup \
 gh api "repos/jleechanorg/agent-orchestrator-ts/pulls/NUM/reviews" \
   --jq '.[] | {user: .user.login, state}'
 
-# Inline comments (check for High Severity / Critical / Major blockers)
+# Fetch comment text for model review; never infer severity from words.
 gh api "repos/jleechanorg/agent-orchestrator-ts/pulls/NUM/comments" \
-  --jq '[.[] | select(.body | test("High Severity|Critical|Major"))] | length'
+  --jq '.[] | {id, user: .user.login, body, path, line, created_at}'
 ```
 
 ### Step 3 — Draft readiness + `/green` per open PR
@@ -63,10 +69,17 @@ Use `~/.claude/skills/pr-lifecycle/SKILL.md` and
 `~/.claude/skills/pr-green-definition/SKILL.md`. Advisory checks (`Green Gate` and `Cursor Bugbot`) are excluded from gating.
 
 **Status label** (pick worst failing condition):
+- Classify each check in order: an incomplete or missing/null `status` is
+  `CI_PENDING` regardless of `conclusion`; evaluate `conclusion` only when
+  `status == COMPLETED`. A completed null conclusion is `CI_UNKNOWN`, not
+  `CI_FAILED` and never a pass. For a `StatusContext`, pending/expected means
+  `CI_PENDING`, explicit failure/error means `CI_FAILED`, and missing/unknown
+  state means `CI_UNKNOWN`.
 - `GREEN` — draft readiness and both `/green` gates pass; green alone does not establish READY, and merge authorization remains separate under `pr-lifecycle`
 - `CONFLICT` — mergeable_state is `dirty`
-- `CI_FAILED` — any non-advisory check has non-`SUCCESS` conclusion (`FAILURE`, `CANCELLED`, `SKIPPED`, `NEUTRAL`, `TIMED_OUT`, `ACTION_REQUIRED`, null) or `StatusContext` state != `SUCCESS`
-- `CI_PENDING` — any non-advisory check has status != `COMPLETED` (`in_progress`, `queued`, `waiting`, null)
+- `CI_PENDING` — any non-advisory check is not complete (`status` is `QUEUED`, `PENDING`, `IN_PROGRESS`, missing, or null), regardless of its conclusion field
+- `CI_FAILED` — a non-advisory check is `COMPLETED` and its conclusion is explicitly non-success (`FAILURE`, `CANCELLED`, `SKIPPED`, `NEUTRAL`, `TIMED_OUT`, `ACTION_REQUIRED`); a completed check with a null conclusion is `CI_UNKNOWN`, never silently passed
+- `CI_UNKNOWN` — check data is malformed or incomplete in a way not covered by pending/failed; report the exact row and leave Gate 1 unproven
 - `DRAFT_NOT_READY` — an applicable draft gate lacks coverage for the candidate under `pr-lifecycle`; assess earlier-SHA evidence by its delta-and-scope rule rather than requiring a new verdict solely for a new hash
 
 ### Step 4 — Zero-touch rate analysis
@@ -145,9 +158,9 @@ mcp__slack__conversations_add_message(
 ## Notes
 
 - Scope: `jleechanorg/agent-orchestrator-ts` (not jleechanclaw — that repo is deprecated for AO work).
-- Use REST API (`gh api`) not GraphQL (`gh pr view --json`) — GraphQL is frequently exhausted.
+- REST is this report's primary API, not an exclusive fallback policy. Before declaring an API read blocked, follow `github-cli-reference/SKILL.md` and try the other read API where equivalent.
 - `mergeable_state` from REST: `clean`, `dirty`, `unstable`, `unknown`.
 - Zero-touch classification follows `~/.claude/skills/zero-touch/SKILL.md`; title tags are discovery hints, not execution evidence.
-- If `ao status` is unavailable, use `tmux list-sessions | grep -E 'ao-[0-9]+'` as fallback.
+- If `ao status` is unavailable, `tmux list-sessions` may confirm that a pane exists, but it does not prove that the worker is working or idle. Use `ao-session-monitor/SKILL.md` to assess state.
 - Always display inline report FIRST, then post Slack.
 - The Slack post uses MCP, NOT curl.

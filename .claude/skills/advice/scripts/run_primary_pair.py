@@ -27,6 +27,51 @@ from pathlib import Path
 from typing import Any
 
 
+SCRATCH_RESOLVER = (
+    Path(__file__).resolve().parents[2] / "scratch-space" / "scripts" / "scratch-dir.sh"
+)
+
+
+def resolve_review_scratch_root(deadline: float | None = None) -> Path:
+    """Resolve a writable, provisioned Scratch root for disposable review clones."""
+    timeout = 10.0
+    deadline_limited = False
+    if deadline is not None:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("attempt_timeout during Scratch resolution")
+        if remaining < timeout:
+            timeout = remaining
+            deadline_limited = True
+    try:
+        result = subprocess.run(
+            [str(SCRATCH_RESOLVER)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as error:
+        if deadline_limited or (deadline is not None and time.monotonic() >= deadline):
+            raise TimeoutError("attempt_timeout during Scratch resolution") from error
+        raise RuntimeError("canonical Scratch resolver timed out") from error
+    except OSError as error:
+        raise RuntimeError(f"cannot run canonical Scratch resolver: {error}") from error
+
+    if result.returncode != 0:
+        message = result.stderr.strip() or f"exit {result.returncode}"
+        raise RuntimeError(f"canonical Scratch resolver failed: {message}")
+
+    candidate = result.stdout.strip()
+    if not candidate:
+        raise RuntimeError("canonical Scratch resolver returned no path")
+    root = Path(candidate)
+    if not root.is_absolute():
+        raise RuntimeError("canonical Scratch resolver returned a relative path")
+    return root
+
+
 def git(
     repo: Path,
     *args: str,
@@ -175,7 +220,7 @@ def process_snapshot() -> dict[int, tuple[int, str]]:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         check=True,
-        timeout=2.0,
+        timeout=10.0,
     )
     snapshot: dict[int, tuple[int, str]] = {}
     for line in completed.stdout.splitlines():
@@ -291,6 +336,7 @@ def execute(
         [*command, prompt],
         cwd=cwd,
         text=True,
+        stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         start_new_session=True,
@@ -787,6 +833,10 @@ def main(
         print("--timeout-grace-seconds must be greater than zero", file=sys.stderr)
         return 2
     attempt_deadline = attempt_started + args.attempt_timeout_seconds
+    work_deadline = attempt_deadline - args.cleanup_budget_seconds
+    work_deadline_monotonic_ns = queued_at_monotonic_ns + int(
+        (args.attempt_timeout_seconds - args.cleanup_budget_seconds) * 1_000_000_000
+    )
     try:
         repo = Path(
             git(
@@ -845,21 +895,43 @@ def main(
             + "\n\n" + packet
         )
     try:
-        # Reserve the result path before dispatch. Reusing a directory could
-        # leave an unselected review artifact beside a fresh receipt.
-        output_dir.mkdir(parents=True, exist_ok=False)
-    except FileExistsError:
+        scratch_root = resolve_review_scratch_root(deadline=work_deadline)
+    except TimeoutError as error:
+        print(f"attempt_timeout during Scratch resolution: {error}", file=sys.stderr)
+        return 4
+    except RuntimeError as error:
+        print(f"review scratch unavailable: {error}", file=sys.stderr)
+        return 2
+    if output_dir.exists():
         print(
             "output directory must be a fresh path per invocation; "
             "refusing to reuse existing reviewer artifacts",
             file=sys.stderr,
         )
         return 2
-    temp_root = Path(tempfile.mkdtemp(prefix="advice-primary-pair-"))
-    work_deadline = attempt_deadline - args.cleanup_budget_seconds
-    work_deadline_monotonic_ns = queued_at_monotonic_ns + int(
-        (args.attempt_timeout_seconds - args.cleanup_budget_seconds) * 1_000_000_000
-    )
+    try:
+        temp_root = Path(
+            tempfile.mkdtemp(prefix="advice-primary-pair-", dir=scratch_root)
+        )
+    except OSError as error:
+        print(f"review scratch unavailable: {error}", file=sys.stderr)
+        return 2
+    try:
+        # Reserve the result path before dispatch. Reusing a directory could
+        # leave an unselected review artifact beside a fresh receipt.
+        output_dir.mkdir(parents=True, exist_ok=False)
+    except FileExistsError:
+        cleanup_fn(temp_root)
+        print(
+            "output directory must be a fresh path per invocation; "
+            "refusing to reuse existing reviewer artifacts",
+            file=sys.stderr,
+        )
+        return 2
+    except OSError as error:
+        cleanup_fn(temp_root)
+        print(f"could not reserve review output directory: {error}", file=sys.stderr)
+        return 2
     receipt: dict[str, Any] = {
         "sha": sha,
         "review_kind": "documents" if documents else "revision",
@@ -867,6 +939,7 @@ def main(
         "document_bundle_sha256": document_bundle_sha256,
         "parallel_dispatch": len(args.reviewers) > 1,
         "checkout_kind": "independent_clone_no_local",
+        "scratch_root": str(scratch_root),
         "timeout_seconds": args.timeout_seconds,
         "attempt_started_ns": attempt_started_ns,
         "attempt_started_monotonic_ns": queued_at_monotonic_ns,

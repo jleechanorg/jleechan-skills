@@ -168,7 +168,7 @@ Capture every terminal surface's deep scrollback (`~10,000` trailing words, pres
 ```bash
 # Two-sample sweep: ONE fleet-wide 20 s wait (never a per-verdict sleep).
 # Add --readonly to BOTH calls for a read-only audit (recorded in manifest.json as "mode": "readonly").
-OUT_DIR="/tmp/cmux_fleet_$(date +%H%M%S)"
+OUT_DIR="$(mktemp -d /tmp/cmux_fleet.XXXXXX)"
 FIRST="$OUT_DIR/first"
 python3 ~/.claude/skills/cmux-bulk-steer/scripts/scan.py --out-dir "$FIRST"   # no --with-gh: one GitHub query per sweep
 sleep 20
@@ -189,12 +189,13 @@ classifiable from this sweep.
 What `scripts/scan.py` writes to `$OUT_DIR`:
 - `manifest.json`: deterministic inventory of all terminal surfaces (`workspace`, `workspace_ref`, `surface`, `surface_ref`, `surface_title`, `cpu_percent`, `file_10k`, `pi_session_jsonl`, `total_words`, `captured_words`, `lines_read`, `tail_lines`). Non-terminal browser surfaces (`Surface is not a terminal`) are skipped automatically.
 - `ws_<ws_id>_sf_<sf_id>.txt`: up to `10,000` trailing words of scrollback per terminal surface. For alternate-screen `pi` (`π`) TUI panes (where `cmux capture-pane` only sees the `35`-row TUI screen), `scan.py` automatically matches the pane's `cwd` footer to the newest session file in `~/.pi/agent/sessions/*/*.jsonl` and prepends `=== PI SESSION TRANSCRIPT (<jsonl_path>) ===` ahead of `=== LIVE TERMINAL PANE ===` so every `pi` surface also receives a full `10,000`-word capture.
+- The 10,000-word cap is only a collector limit. If `total_words > captured_words`, capture the full available history for both time-separated samples with `cmux capture-pane --workspace <ws> --surface <sf> --scrollback --lines 1500` (or the deepest supported scrollback) into unique `/tmp` paths and read all of it. If that cannot be done, mark the surface UNVERIFIED and do not classify or steer it.
 - `top_flat.tsv`: raw `cmux top --all --flat` output (`CPU%`, memory, process count per workspace/pane/surface).
 - `gh_prs.json` (when `--with-gh` is passed): live open PR metadata.
 
 Rules:
 - **The full-read rule binds every substantive surface.** A surface whose whole capture is under ~`100` words has nothing to slice (a shell, or a session that just started); classify it from its complete capture and record it as `SHELL`/`IDLE_*` rather than forcing the four-slice ritual — but never use "short capture" as a reason to skip a surface that does have content.
-- **Read 100% of the 10,000-word buffer before any decision (Sequential Slice Rule)** — canonical rule in `~/.codex/AGENTS.md` § "Reading a cmux terminal before deciding (full-buffer rule)": because `view_file` / `Read` tools cap at `800` lines per call while a `10,000`-word `ws_<ws_id>_sf_<sf_id>.txt` file spans `1,000–3,500` lines, each subagent MUST read sequential line slices (`1..800`, `801..1600`, `1601..2400`, `2401..end`) until `lines_read` is 100% covered. Never rely on a single `view_file` call or a short tail!
+- **Read 100% of the available buffer before any decision (Sequential Slice Rule)** — canonical rule in `~/.codex/AGENTS.md` § "Reading a cmux terminal before deciding (full-buffer rule)": because `view_file` / `Read` tools cap at `800` lines per call, read sequential line slices (`1..800`, `801..1600`, and onward) until every line of the complete captured file is covered. If the collector truncated it, use the full-capture procedure above. Never rely on a single `view_file` call or a short tail!
 - Use `capture-pane` for every read.
 
 ---

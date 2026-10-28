@@ -61,19 +61,14 @@ Modal activates when ANY of these are true:
 
 **Prevented by stale guards**: If `level_up_in_progress=False` or `level_up_pending=False` explicitly set, modal won't activate.
 
-## Finish Choice Injection (world_logic.py)
+## Finish Choice Ownership
 
-Modal exit enforcement via server-side choice injection:
-
-```python
-# In _inject_modal_finish_choice_if_needed():
-# 1. Uses pre-update state (not post-update) to prevent race conditions
-# 2. Checks modal is active (no stale guards blocking)
-# 3. Adds canonical finish choice as LAST item in planning_block.choices
-# 4. Uses structured_fields["planning_block"] not structured_response (preserves injection)
-```
-
-**Key fix**: Use `current_game_state_dict` (pre-update) instead of `updated_game_state_dict` to avoid race condition where LLM sets `level_up_in_progress=False` in same turn.
+The model authors planning choices, including modal completion choices. The
+backend must not inject or synthesize a finish choice. If a registered
+`AdjustmentSpec` applies, follow the repository's ZFC adjuster contract and
+provide its required provenance and evidence. Before changing level-up routing,
+read `.claude/skills/worldai-zfc/SKILL.md` and
+`.claude/skills/zfc-adjuster/SKILL.md`.
 
 ## Time Freezing During Modals
 
@@ -94,7 +89,7 @@ return is_char_creation or is_level_up_mode
 | Modal bypass | `level_up_pending=True` didn't activate lock | agents.py:2871-2876 | Added pending flag to activation logic |
 | Routing inconsistency | Injection used different detection logic than routing | agents.py + world_logic.py | Unified stale flag guards |
 | Cross-modal interference | Char creation protected level-up flags | world_logic.py `_should_protect_field()` | Scoped protection per modal |
-| Finish choice position | LLM response overwrote server injection | world_logic.py:5414 | Use structured_fields not structured_response |
+| Missing finish choice | Model output lacks a completion choice | model prompt/schema contract | Improve the prompt/schema; do not synthesize a choice in backend code |
 | Stale reactivation | Old flags reactivated completed modals | agents.py:2864-2876 | Check explicit False flags |
 
 ## Testing Patterns

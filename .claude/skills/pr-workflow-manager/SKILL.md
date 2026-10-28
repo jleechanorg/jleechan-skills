@@ -93,11 +93,12 @@ Do not execute a missing, unverified or incompatible helper just because old gui
 
 ## Stage changes and evidence
 
-For opted-in repositories, apply [stage transitions](../pr-lifecycle/SKILL.md#stage-title-and-labels) and [evidence applicability](../pr-lifecycle/SKILL.md#sha-binding-rule-critical--applies-to-every-gate-in-this-chain). Title/label changes are not execution proof, review approval or merge authority.
+For opted-in repositories, apply [stage transitions](../pr-lifecycle/SKILL.md#stage-title-and-labels), [default PR route and lighter non-production path](../pr-lifecycle/SKILL.md#default-pr-route--prw), and [evidence applicability](../pr-lifecycle/SKILL.md#sha-binding-rule-critical--applies-to-every-gate-in-this-chain). Title/label changes are not execution proof, review approval or merge authority.
 
 After each push, inspect applicable latest checks and review findings. Diagnose original logs before a
 targeted fix/retry, preserve assertions, and follow the canonical ready/final phases. Waiting/blocked is not
 Working. Do not call a PR ready from badges, skipped tests, an assignment or a pending review.
+For any user-visible change (anything not covered by the narrow documentation-only / zero-UI-impact non-visual exemption), Stage 3 -> Stage 5 (`stage:5-final-approval`) promotion and merge readiness MUST include an explicit `VISUAL APPROVED at <40-char-sha>` (or a reasoned delta assessment preserving an earlier evidenced SHA whose rendered UI did not change) from an independent AI reviewer (`/er` visual lane inspecting actual rendered image/video frames, advice visual inspection, or `/dot`). A pending request (e.g., `/dot: REQUESTED, pending`) or link-existence check alone is NOT a visual approval PASS; if `/dot` is unavailable or pending, run an independent AI visual reviewer (advice or `/er` visual lane that downloads and inspects the rendered stills/frames) and record `VISUAL APPROVED at <40-char-sha>` before labeling `stage:5-final-approval`. The approval record MUST include, per user-visible claim, the before (where a before state exists) and after artifact links, a concrete description of what the reviewer saw in each (the changed element, its state, and the viewport), and a matches-claim verdict, all bound to the evidenced SHA (the approved head, or the earlier SHA a reasoned delta assessment preserves); a bare stamp or approver name without those findings is not a visual approval PASS. Repositories may require the findings as a PR-body table and check its presence and SHA binding in CI.
 
 ## PR description and reporting
 

@@ -22,7 +22,7 @@ Run a goal as a **swarm**: a deterministic Workflow-tool fan-out (ultracode) or 
 | Durability | ALL swarm work runs INSIDE a sidekick — always, no inline exception |
 | Verification | 3-lens refute-by-default, ≥2/3 to survive; audit dead-verifier false kills |
 | Models | HARD INVARIANT: every `Agent()`/`agent()` spawn sets `model` explicitly — haiku (mechanical/pollers/monitors), sonnet (miners/verifiers/fix lanes/docs), top tier only for adversarial judgment with stated reason. A spawn with no `model` param silently inherits the session model = violation (2026-07-14 incident: 10 Fable-inherited spawns, user-caught). Audit each fan-out: if every lane runs the session model, the routing was skipped. |
-| Output | disjoint OUTDIR per lane under repo `docs/` (or `~/roadmap/`), commit+push per completed package |
+| Output | durable narrative under `~/roadmap/`; unique `/tmp` capture/dataset directories with authorized durable evidence publication |
 | Close-out | `/advice` pass → PR comment with runId/agent/token provenance → `/learn` |
 
 ## Examples
@@ -168,24 +168,15 @@ A resume must be possible from the bead body ALONE: repo/branch, task list with 
 | innov | Innovate → Challenge | one "smartest addition" per finding → adversarial challenge kills weak ideas |
 | fleet-triage | single fan-out | one triage agent per PR/lane, structured verdicts (19 agents) |
 
-## Resource admission gate (mandatory, crash 2026-08-30)
+## Resource admission gate
 
-A harness process died silently at the instant a lane forked a 20-minute
-FOREGROUND `agy` CLI call on a host at 92% swap / memory-pressure WARNING /
-~64MB free — the spawn was the kill site; silent self-exits leave no OS
-trace, and the whole swarm died with the parent. Therefore, before any
-fan-out, lane spawn, or CLI delegation:
-
-1. Probe `sysctl vm.swapusage` + `sysctl kern.memorystatus_vm_pressure_level`
-   (Linux: `free` + PSI). DEFER spawns when swap >80% used or pressure >=2
-   (WARNING); finish or kill existing heavy children first.
-2. NEVER fork multi-minute CLI delegations (agy / codex / claude -p) as
-   foreground Bash — always `run_in_background` + explicit timeout, read
-   the output file on the task notification.
-3. Cap concurrent pytest lanes at 2-3 per host in gRPC-loaded repos (macOS
-   fork-unsafety SIGTRAP storms degrade the host before the crash).
-4. Treat any delegate above ~2-3GB RSS as a heavy item per /parallel — one
-   per machine; watchdog or restart it.
+Before fan-out or CLI delegation, apply the measured CPU/RAM/host-selection
+gate in [parallelize-to-ceiling](../parallelize-to-ceiling/SKILL.md), subject
+to current shared policy. Static swap utilization and load average do not
+establish saturation. Attribute pressure to live processes and move eligible
+work to a suitable host instead of imposing a blanket stop. A resource probe
+does not authorize killing or restarting another lane. Multi-minute delegates
+run asynchronously with bounded attempts and captured output.
 
 ## Hard rules (each one cost a failure to learn)
 
@@ -196,8 +187,8 @@ fan-out, lane spawn, or CLI delegation:
 3. **Audit verifier-death false kills — and detect false-empty completions.** A verifier that died (rate limit, API error) is NOT a refutation. After any run with agent failures, re-verify findings whose "refutations" were dead agents before accepting the kill. This generalizes to whole-workflow results: **a run that returns 0 confirmed findings is a VOID, not a verdict, if its `failures[]` list shows mass agent death** (e.g. every `rejected[].why` reads `DEAD_VERIFIER`/`verifier died`, or the failures array is dominated by `Server is temporarily limiting requests`). Distinguish the two before reporting: 0 findings + all agents healthy = real "nothing here" result; 0 findings + mass 429/error failures = the mining/verify stage never actually ran — re-run it, don't ship or record the empty result. Hit twice on 2026-07-07: `pr-retro-gapfill` (15/15 verify agents died, 5 real Collect-stage findings falsely zeroed out) and `code-quality` (60/60 verify agents died, 20 real Collect-stage findings falsely zeroed out) — both had genuine candidate findings from a healthy Collect phase; only Verify was VOID.
 4. **Rate-limit resilience — concurrency is aggregate, not per-workflow.** Provider 429s ("Server is temporarily limiting requests") kill whole fan-outs, and the trigger is **total agents in flight across ALL concurrently-running swarms on the account**, not any single workflow's size (confirmed 2026-07-07: two separate workflows, each individually reasonable, hit 429 in the same window once their combined in-flight count reached ~75). Rules: (a) do not launch a new multi-agent fan-out while another large workflow is mid-fan-out — serialize big stages across sibling swarms, not just within one; (b) on mass 429, stop, start a ~20-min background cool-down timer (`sleep 1200` run_in_background or `ScheduleWakeup`), then retry via a **sibling-workflow-as-canary**: a tiny throwaway 1-agent workflow (not just "the smallest of the affected workflows") used purely as a health probe, cheaper than blind-resuming the real fan-out; only relaunch/resume the real workflow(s) after the canary succeeds; (c) while cooling down, keep any other concurrently-running lane to ≤4 concurrent sub-agents; (d) **stagger large fan-out starts — bursts kill, ramps don't.** Root-cause analysis of three separate 429 storms in one evening showed every kill coincided with an INSTANT N-wide `parallel()` fan-out (16-, 60-, and 15-wide simultaneous cold starts), while gradual ramps (`pipeline()`, which naturally staggers stage-by-stage) and ordinary serial work were never throttled. Inside a large fan-out, chunk the thunk array into batches of ~8 with a few seconds between batches instead of one `parallel()` call over the whole array; treat ~16 simultaneous cold starts as roughly the survived ceiling, not a safe target to build up to. Never start two different workflows' fan-out stages within the same minute, even if each individually looks small.
 5. **Resume semantics.** Persist scripts to the session scratchpad (`cp` from the returned Script file path) so they survive crashes. To resume: TaskStop the run, edit only NOT-yet-completed `agent()` calls (touching a completed call's prompt/opts invalidates its cache), relaunch with `{scriptPath, resumeFromRunId}`. Resume journals are same-session only — after a crash, re-run fresh from the persisted script. **Cross-session / cross-reboot recovery** needs more than the script: write a P1 `br` bead (see "Bead runbook" above) with session id, script paths, live runIds, and output-dir/doc-numbering state, since `/tmp` and same-session journals both vanish on a host reboot or `/tmp` cleanup.
-6. **Disjoint output dirs per lane.** Each workflow writes to its own OUTDIR (`docs/plans/<retro>/pr-retro/`, `.../code-quality/`, `.../innovations/`); parallel workflows must never share a mutable file. Each doc-writer agent may write EXACTLY ONE file.
-7. **Commit + push artifacts as they materialize — two layers.** (a) Each doc-writer agent commits its own single file immediately after writing it (`git add <path> && git commit`), so partial progress survives even if the workflow itself dies mid-run before ever returning. (b) The workflow's final phase includes one explicit **Commit agent** that sweeps any stragglers and pushes (`git status --short` for anything the per-doc commits missed, then `git push`) and reports the resulting HEAD SHA — never rely on "the doc writers probably committed everything" without a final agent that verifies and pushes. Never leave swarm output only in /tmp or the session dir; repo docs (`docs/plans/...`) or `~/roadmap/` are the durable homes.
+6. **Disjoint outputs per lane.** Give each narrative writer an explicit file under `~/roadmap/` and each capture/dataset lane its own `mktemp` directory under `/tmp`. Parallel workflows must never share a mutable file.
+7. **Persist completed units.** One integration owner stages exact authorized files, commits and pushes green units using the owning repository's workflow; concurrent writers do not share an index. Publish durable evidence through the evidence owner, and verify the published artifact and final commit. Do not commit raw captures or temporary datasets into a code repository or leave durable findings only in `/tmp`.
 8. **Pre-build datasets in the main loop.** Miners read a static dataset JSON (e.g. `prs-last-month.json` built once via gh) instead of each making live API calls — deterministic, cheap, rate-limit-proof.
 9. **Heartbeats + time-box, cadence scaled to what you're waiting for.** Don't default every wakeup to ~270s — that's for tight external polling loops (CI runs, deploys) where the cache stays warm and the state changes fast. For a long multi-agent fan-out (tens of agents, many minutes), poll on a 1200-1800s cadence instead; checking every 270s on a 10-minute workflow just burns cache misses for no new information. Obey the eight-hour autonomy time-box (user-scope rule) regardless of cadence.
 10. **Finish with /advice.** Final package gets an /advice pass (3 parallel reviewers: Opus subagent, /research, /secondo) before the closing PR comment; then /learn.
@@ -210,7 +201,7 @@ fan-out, lane spawn, or CLI delegation:
 
 ## Execution recipe
 
-0. **Instant start (mandatory UX)**: before ANY analysis — write the mission STATE.md from the goal text, then spawn the worker lanes as OFFICIAL Agent Teams teammates IN THE CURRENT SESSION (Agent tool + `name: lane-<n>-<topic>`; visible in the user's own team UI, SendMessage-addressable, registered in `~/.claude/teams/session-*/config.json` — the real /team-claude-class feature), and spawn the in-session sidekick teammate as the durability keeper (STATE.md owner; explicit `model: "sonnet"`). The user SEES the team in their own window within the first minute.
+0. **Prompt visible start:** state the deliverable, resolve current task context and perform resource admission before spawning. Then start supported in-session worker lanes promptly with disjoint ownership and a durable mission record. A first-minute visibility target never bypasses admission or requires an unavailable runtime tool.
 1. **Recall context first**: `/history <goal keywords>` + `/ms <goal keywords>` — find prior swarms, datasets, and findings before spawning anything else. Session JSONLs may live under `~/.claude-wa/projects/` (not only `~/.claude/projects/`); workflow journals under `<project>/<session-id>/workflows/*.json`.
 1.5. **Sidekick wrap (mandatory, no exceptions)**: write/refresh STATE.md, spawn (or reuse) the sidekick via `/sidekick` (named in-session Agent-Team teammate per the team-only sidekick skill; SendMessage-addressable; tmux/codex/`-p` sidekicks are banned). Division of labor: the visible in-session Agent Teams lanes (step 0) do the work; the sidekick teammate keeps durable state (STATE.md + resumption bead) so any fresh session can respawn and resume. STATE.md path resolution for swarm missions: on a git feature branch, use `<branch>` per the sidekick convention; on `main`/no branch, derive the mission slug with the sidekick skill's OWN rule applied to the full goal text (first 4–6 significant words, lowercased, kebab-case, ~40 char cap) — never a `--shape`-specific variant, so a later bare `/sidekick` crash-recovery invocation recomputes the SAME slug. Before spawning, ALWAYS `ls` the computed STATE_DIR: existing STATE.md → reuse/respawn the existing sidekick; missing → fresh spawn. Never let two derivations of the same goal spawn two concurrent sidekicks owning one OUTDIR.
 2. **Scope lanes** and check independence (disjoint files/OUTDIRs).

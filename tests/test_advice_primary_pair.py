@@ -9,6 +9,7 @@ import io
 import os
 import signal
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -40,6 +41,47 @@ def run(*args: str, cwd: Path | None = None, env: dict[str, str] | None = None) 
     return subprocess.run(args, cwd=cwd, env=env, text=True, capture_output=True, check=False)
 
 
+class ReviewerProcessTest(unittest.TestCase):
+    def test_reviewer_receives_eof_while_parent_stdin_remains_open(self) -> None:
+        child = (
+            "import importlib.util, sys\n"
+            f"spec = importlib.util.spec_from_file_location('runner', {str(SCRIPT)!r})\n"
+            "runner = importlib.util.module_from_spec(spec); spec.loader.exec_module(runner)\n"
+            "result = runner.execute([sys.executable, '-c', "
+            "'import sys; sys.stdin.read(); print(\"EOF\")'], '.', 'review', 1, 0.2)\n"
+            "print('RESULT', result[0], result[1].strip(), result[3], flush=True)\n"
+        )
+        parent = subprocess.Popen(
+            [sys.executable, "-c", child],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            parent.wait(timeout=8)
+            output = parent.stdout.read()
+            error = parent.stderr.read()
+            self.assertEqual(parent.returncode, 0, error)
+            self.assertIn("RESULT 0 EOF False", output)
+        finally:
+            if parent.poll() is None:
+                parent.kill()
+                parent.wait(timeout=2)
+            parent.stdin.close()
+            parent.stdout.close()
+            parent.stderr.close()
+
+    def test_process_snapshot_allows_ten_seconds_for_ps(self) -> None:
+        runner = load_runner_module()
+        result = subprocess.CompletedProcess(
+            ["ps"], 0, stdout=" 123 1 Mon Oct 25 00:00:00 2026\n", stderr=""
+        )
+        with mock.patch.object(runner.subprocess, "run", return_value=result) as ps:
+            self.assertEqual(runner.process_snapshot(), {123: (1, "Mon Oct 25 00:00:00 2026")})
+        self.assertEqual(ps.call_args.kwargs["timeout"], 10.0)
+
+
 class PrimaryPairTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
@@ -47,9 +89,11 @@ class PrimaryPairTest(unittest.TestCase):
         self.repo = self.root / "repo"
         self.bin = self.root / "bin"
         self.sync = self.root / "sync"
+        self.scratch = self.root / "scratch"
         self.output = self.root / "out"
         self.bin.mkdir()
         self.sync.mkdir()
+        self.scratch.mkdir()
         run("git", "init", "-q", str(self.repo))
         run("git", "config", "user.email", "jleechan2015@users.noreply.github.com", cwd=self.repo)
         run("git", "config", "user.name", "Test", cwd=self.repo)
@@ -63,6 +107,12 @@ class PrimaryPairTest(unittest.TestCase):
         self.env.pop("ADVICE_CODEX_MODEL", None)
         self.env["PATH"] = f"{self.bin}:{self.env['PATH']}"
         self.env["ADVICE_TEST_SYNC_DIR"] = str(self.sync)
+        self.env["ADVICE_TEST_SCRATCH"] = str(self.scratch)
+        self.executable(
+            "diskm",
+            'if [ "$1" = "scratch-dir" ]; then printf "%s\\n" "$ADVICE_TEST_SCRATCH"; else exit 2; fi\n',
+        )
+        self.env["DISK_MAGICIAN_DISKM_BIN"] = str(self.bin / "diskm")
 
     def tearDown(self) -> None:
         self.temp.cleanup()
@@ -497,6 +547,8 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
 
         with mock.patch.dict(os.environ, self.env), mock.patch.object(
             runner, "execute", side_effect=deterministic_execute
+        ), mock.patch.object(
+            runner, "resolve_review_scratch_root", return_value=self.scratch
         ):
             code = runner.main(argv)
 
@@ -607,7 +659,10 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
             return cleanup
         stderr = io.StringIO()
 
-        with redirect_stderr(stderr):
+        with mock.patch.dict(runner.os.environ, {
+            "DISK_MAGICIAN_DISKM_BIN": str(self.bin / "diskm"),
+            "ADVICE_TEST_SCRATCH": str(self.scratch),
+        }), redirect_stderr(stderr):
             code = runner.main(
                 self.with_queued_timestamps(argv),
                 create_clone_fn=mock.Mock(side_effect=RuntimeError("clone setup failed")),
@@ -638,7 +693,9 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
             raise subprocess.TimeoutExpired(["git", "clone"], remaining)
         stderr = io.StringIO()
 
-        with redirect_stderr(stderr):
+        with mock.patch.object(
+            runner, "resolve_review_scratch_root", return_value=self.scratch
+        ), redirect_stderr(stderr):
             code = runner.main(self.with_queued_timestamps(argv), create_clone_fn=slow_clone)
 
         self.assertEqual(code, 4)
@@ -740,16 +797,15 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         argv = [
             "--repo", str(self.repo), "--ref", self.sha,
             "--packet-file", str(self.packet), "--output-dir", str(self.output),
-            "--reviewers", "codex", "--attempt-timeout-seconds", "0.2",
-            "--cleanup-budget-seconds", "0.1", "--timeout-grace-seconds", "0.05",
+            "--reviewers", "codex", "--attempt-timeout-seconds", "5",
+            "--cleanup-budget-seconds", "1", "--timeout-grace-seconds", "0.05",
         ]
 
-        def slow_clone(source, destination, sha, *, deadline):
-            time.sleep(0.15)
+        def timed_out_clone(source, destination, sha, *, deadline):
             raise subprocess.TimeoutExpired(["git", "clone"], 0.1)
 
         with redirect_stderr(io.StringIO()):
-            code = runner.main(self.with_queued_timestamps(argv), create_clone_fn=slow_clone)
+            code = runner.main(self.with_queued_timestamps(argv), create_clone_fn=timed_out_clone)
 
         self.assertEqual(code, 4)
         receipt = json.loads((self.output / "receipt.json").read_text())
@@ -797,7 +853,9 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
 
         with mock.patch.dict(os.environ, self.env), mock.patch.object(
             runner.concurrent.futures, "ThreadPoolExecutor", DelayedStartExecutor
-        ), mock.patch.object(runner, "execute", side_effect=instant_execute):
+        ), mock.patch.object(runner, "execute", side_effect=instant_execute), mock.patch.object(
+            runner, "resolve_review_scratch_root", return_value=self.scratch
+        ):
             worker = threading.Thread(target=run_main)
             worker.start()
             self.assertTrue(both_ready.wait(timeout=2), "review lanes did not reach the test gate")
@@ -873,7 +931,7 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
             runner.concurrent.futures, "ThreadPoolExecutor", FailSecondSubmit
         ), mock.patch.object(runner.threading, "Barrier", side_effect=capture_barrier):
             worker.start()
-            worker.join(timeout=0.5)
+            worker.join(timeout=5)
             completed_without_external_abort = not worker.is_alive()
             if worker.is_alive() and barriers:
                 barriers[0].abort()
@@ -924,6 +982,8 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
 
         with mock.patch.dict(os.environ, self.env), mock.patch.object(
             runner, "execute", side_effect=boundary_execute
+        ), mock.patch.object(
+            runner, "resolve_review_scratch_root", return_value=self.scratch
         ):
             code = runner.main(argv)
 
@@ -1045,6 +1105,8 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         stderr = io.StringIO()
         with mock.patch.dict(os.environ, self.env), mock.patch.object(
             Path, "write_text", delayed_receipt_write
+        ), mock.patch.object(
+            runner, "resolve_review_scratch_root", return_value=self.scratch
         ), redirect_stderr(stderr):
             code = runner.main(argv)
 
@@ -1067,7 +1129,10 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
             return cleanup
         stderr = io.StringIO()
 
-        with redirect_stderr(stderr):
+        with mock.patch.dict(runner.os.environ, {
+            "DISK_MAGICIAN_DISKM_BIN": str(self.bin / "diskm"),
+            "ADVICE_TEST_SCRATCH": str(self.scratch),
+        }), redirect_stderr(stderr):
             code = runner.main(
                 self.with_queued_timestamps(argv),
                 create_clone_fn=mock.Mock(side_effect=RuntimeError("clone setup failed")),

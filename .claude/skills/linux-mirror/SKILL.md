@@ -7,19 +7,24 @@ description: "Mirror the current git dir/worktree/branch onto a Linux machine an
 
 Companion to [mac-mirror](../mac-mirror/SKILL.md) (same flow, opposite direction). Unlike a plain SSH-steering skill, this mirrors the **current repo's committed state** onto the target machine and resumes work there in a persistent tmux session.
 
+For capacity-driven handoffs, follow
+[host load balancing](../parallelize-to-ceiling/references/host-load-balancing.md)
+for host selection and task ownership; this skill owns Linux transport and
+response proof.
+
 ## Setup (once, per pair of machines)
 
 This skill assumes you've already got:
 - An SSH host alias for the Linux box in `~/.ssh/config` (LAN), e.g.:
   ```
   Host mylinux
-      HostName 192.168.1.50
+      HostName 192.0.2.10
       User myusername
-      IdentityFile ~/.ssh/id_mylinux
+      IdentityFile ~/.ssh/id_ed25519
   ```
   (`ssh_config` does not expand environment variables — write your actual username literally, not `$USER`.)
 - Your repo lives under `$HOME` on the source machine (any relative path). This skill mirrors it onto the target machine under `$HOME/mirror/<same relative path>` — a dedicated namespace so every mirrored checkout is easy to find on either machine and never collides with (or silently overwrites) a normal checkout that happens to already exist at that same path. A repo outside `$HOME` on the source side isn't supported — step 1 below checks for this and stops rather than silently producing a wrong path.
-- (Optional, for off-LAN/travel use) Both machines joined to the same Tailscale tailnet. Note: a bare SSH alias like the one above resolves its `HostName` literally — it does NOT fail over to Tailscale automatically. Off-LAN, connect via the Tailscale IP directly with the identity file explicit: `ssh -i ~/.ssh/id_mylinux myusername@<tailscale-ip>` (look it up with `tailscale status | grep <hostname>` — don't hardcode it, Tailscale IPs are stable per-device but you should still re-verify rather than assume).
+- (Optional, for off-LAN/travel use) Both machines joined to the same Tailscale tailnet. Note: a bare SSH alias like the one above resolves its `HostName` literally — it does NOT fail over to Tailscale automatically. Off-LAN, connect via the Tailscale IP directly with the identity file explicit: `ssh -i ~/.ssh/id_ed25519 myusername@<tailscale-ip>` (look it up with `tailscale status | grep <hostname>` — don't hardcode it, Tailscale IPs are stable per-device but you should still re-verify rather than assume).
 - (Optional, for SSH-fully-down fallback) A messaging-gateway agent (e.g. a Hermes-style gateway, or anything that runs commands on your behalf) running on the Linux box, watching a Slack channel (or similar) you can post to.
 
 Substitute your own host alias / IP / key path / username everywhere `mylinux` / `myusername` appears below.
@@ -46,6 +51,8 @@ esac
 
 Also prepare `$CONTEXT`: a short, self-contained summary (1-3 sentences) of what should actually continue on the Linux machine — the real next action, not just "resume work." This isn't optional bookkeeping: step 4 types it as the first message to a freshly-launched coding agent on the target machine, which has no access to this conversation. Write it as if briefing a colleague who just walked in cold.
 
+Also resolve `$AGENT_CLI`: the CLI **that is calling this skill**, i.e. the operator's live runtime (pi → `pi`, Claude Code → `claude`, Codex → `codex`, Antigravity → `agy`). This skill deliberately has no default CLI. Launching a CLI the operator is not using hands the work to an agent with different tools, skills, model and quota — that is a substitution to state explicitly in the report, never a silent default. Only set a different `$AGENT_CLI` when the calling CLI is genuinely unusable on the target host (for example its seat is quota-walled), and say why.
+
 If `$BRANCH` is empty (detached HEAD) or `$DIRTY` is non-empty, stop and tell the user — commit/name the branch first.
 
 If `$REMOTE_URL` is an HTTPS URL with an embedded credential (`https://<token>@host/...`), warn the user before continuing: that URL gets written verbatim into the remote clone's `.git/config` in step 4, so the credential ends up live on the target machine too. Prefer an SSH remote, or a credential helper that doesn't embed the token in the URL. (Step 4's base64 encoding is not a confidentiality measure for this value — it only prevents argv re-tokenization/injection. A trivially-decodable token is still visible in the remote host's `ps` output during the mirror.)
@@ -71,14 +78,27 @@ REL_PATH_B64=$(printf '%s' "$REL_PATH" | base64 | tr -d '\n')
 BRANCH_B64=$(printf '%s' "$BRANCH" | base64 | tr -d '\n')
 REMOTE_URL_B64=$(printf '%s' "$REMOTE_URL" | base64 | tr -d '\n')
 CONTEXT_B64=$(printf '%s' "$CONTEXT" | base64 | tr -d '\n')
+AGENT_CLI_B64=$(printf '%s' "$AGENT_CLI" | base64 | tr -d '\n')
 
-ssh "${SSH_ARGS[@]}" "$SSH_TARGET" bash -s -- "$REL_PATH_B64" "$BRANCH_B64" "$REMOTE_URL_B64" "$CONTEXT_B64" << 'EOF'
+ssh "${SSH_ARGS[@]}" "$SSH_TARGET" bash -s -- "$REL_PATH_B64" "$BRANCH_B64" "$REMOTE_URL_B64" "$CONTEXT_B64" "$AGENT_CLI_B64" << 'EOF'
 set -e
 REL_PATH=$(printf '%s' "$1" | base64 -d)
 BRANCH=$(printf '%s' "$2" | base64 -d)
 REMOTE_URL=$(printf '%s' "$3" | base64 -d)
 CONTEXT=$(printf '%s' "$4" | base64 -d)
+AGENT_CLI=$(printf '%s' "$5" | base64 -d)
 TARGET="$HOME/mirror/$REL_PATH"
+
+# Launch command for the caller's own CLI (see step 1: no hardcoded default).
+case "$AGENT_CLI" in
+  pi)     LAUNCH=(pi -- "$CONTEXT") ;;
+  claude) LAUNCH=(claude --dangerously-skip-permissions -- "$CONTEXT") ;;
+  codex)  LAUNCH=(codex --dangerously-bypass-approvals-and-sandbox -C "$TARGET" -- "$CONTEXT") ;;
+  agy)    LAUNCH=(agy --dangerously-skip-permissions --model gemini-3.8-flash-high --prompt-interactive="$CONTEXT") ;;
+  *) echo "FAILED:$TARGET - unsupported AGENT_CLI '$AGENT_CLI' (pi|claude|codex|agy)" >&2; exit 1 ;;
+
+esac
+
 
 # $CONTEXT is a required briefing for the coding agent step 4 launches, not
 # optional bookkeeping (see step 1) — an empty value falling through to a
@@ -162,16 +182,21 @@ else
   # call) so a session that dies immediately — missing `claude` binary,
   # PATH not resolving it under a non-login tmux shell, a crash — leaves a
   # dead-but-inspectable pane instead of vanishing outright.
-  tmux new-session -d -s "$SESSION" -c "$TARGET" claude --dangerously-skip-permissions -- "$CONTEXT" \; set-option -t "$SESSION" remain-on-exit on
+  tmux new-session -d -s "$SESSION" -c "$TARGET" "${LAUNCH[@]}" \; set-option -t "$SESSION" remain-on-exit on
   # Poll for the trust dialog and accept it with fixed navigation keys
   # (Down, Enter) — never $CONTEXT — so this carries none of the
   # injection risk the original send-keys-typed-$CONTEXT bug had. This
   # only fires the first time a given target directory is mirrored (the
   # dialog only appears once claude.json records the directory as
   # trusted); a no-op loop on an already-trusted directory is safe.
+  # Claude Code only: the first-run workspace-trust dialog. Other CLIs get no polling at all.
+  if [ "$AGENT_CLI" = "claude" ]; then
   for _ in $(seq 1 40); do
-    PANE_PROBE=$(tmux capture-pane -p -t "$SESSION" 2>/dev/null || true)
-    if echo "$PANE_PROBE" | grep -q "Yes, I trust this folder"; then
+    if ! PANE_PROBE=$(tmux capture-pane -p -t "$SESSION" 2>/dev/null); then
+      echo "FAILED:$SESSION - cannot capture the pane; refusing to infer a ready state" >&2
+      exit 1
+    fi
+    if printf '%s' "$PANE_PROBE" | grep -qF "Yes, I trust this folder"; then
       # The dialog's text can be captured before its keyboard handler is
       # actually wired up — confirmed live under real load (this box
       # routinely runs 20+ concurrent mirror tmux sessions): a Down sent
@@ -201,7 +226,7 @@ else
       # FAILED on a session that was actually fine one second later.
       # Poll (bounded) until the dialog text actually clears.
       for _ in $(seq 1 10); do
-        echo "$(tmux capture-pane -p -t "$SESSION" 2>/dev/null)" | grep -q "Yes, I trust this folder" || break
+        tmux capture-pane -p -t "$SESSION" 2>/dev/null | grep -qF "Yes, I trust this folder" || break
         sleep 0.2
       done
       break
@@ -212,7 +237,7 @@ else
     # claude's status bar ("bypass permissions on") only ever appears
     # once past the dialog (confirmed live: never co-occurs with the
     # dialog text), so treat it as the "no dialog is coming" signal.
-    echo "$PANE_PROBE" | grep -q "bypass permissions on" && break
+    printf '%s' "$PANE_PROBE" | grep -qF "bypass permissions on" && break
     sleep 0.5
   done
   # tmux new-session exits 0 even when the launched command can't be
@@ -226,12 +251,15 @@ else
   # exhausted its window before the dialog rendered (a real risk on a
   # loaded box — /advice round 3 caught this) — re-check for it explicitly
   # rather than trusting silence from the poll loop as acceptance.
+  fi
   if tmux has-session -t "=$SESSION" 2>/dev/null \
      && [ "$(tmux display-message -p -t "$SESSION" '#{pane_dead}')" = "0" ] \
-     && ! tmux capture-pane -p -t "$SESSION" 2>/dev/null | grep -q "Yes, I trust this folder"; then
+     && { FINAL_PROBE=$(tmux capture-pane -p -t "$SESSION") || {
+            echo "FAILED:$SESSION - cannot capture the pane; refusing to report READY" >&2; exit 1; }; } \
+     && { [ "$AGENT_CLI" != "claude" ] || ! printf '%s' "$FINAL_PROBE" | grep -qF "Yes, I trust this folder"; }; then
     echo "READY:$SESSION:$TARGET:$(git rev-parse HEAD)"
   else
-    echo "FAILED:$SESSION:$TARGET — session did not survive launch (check that \`claude\` is on the remote PATH); pane retained by remain-on-exit for inspection: tmux capture-pane -p -t $SESSION" >&2
+    echo "FAILED:$SESSION:$TARGET — session did not survive launch (check that \`$AGENT_CLI\` is on the remote PATH); pane retained by remain-on-exit for inspection: tmux capture-pane -p -t $SESSION" >&2
     exit 1
   fi
 fi
@@ -266,7 +294,7 @@ If a PR is already open for `$BRANCH`, pushes update that PR's head automaticall
 
 - Committed-state-only mirror (see "What this carries over" above) — this is the chosen tradeoff over rsyncing the dirty working tree.
 - Source repo must live under `$HOME` (see Setup) — step 1 fails loudly rather than silently mirroring to the wrong place. The target-side checkout always lands under `$HOME/mirror/`, not at the identical path as the source.
-- Step 4 auto-launches `claude` (hardcoded) as the session's command with `$CONTEXT` passed as its argv (not typed via `send-keys`), but only on a freshly created session — edit the hardcoded command if you use a different CLI. Never assume a `RESUMED` session is idle just because this skill didn't launch anything into it.
+- Step 4 launches the **calling** CLI (`$AGENT_CLI`, resolved in step 1 — `pi`/`claude`/`codex`/`agy`) as the session's command with `$CONTEXT` passed as its argv (not typed via `send-keys`), but only on a freshly created session. The `pi`/`agy`/`codex` launches have no first-run workspace-trust dialog, so that poll is gated to `claude` and becomes a no-op elsewhere. Never assume a `RESUMED` session is idle just because this skill didn't launch anything into it.
 - A bare host alias is typically LAN-only; off-LAN (traveling), target the Tailscale IP + explicit `-i` per Tier 2 — and make sure step 4 actually uses the resolved `$SSH_ARGS`/`$SSH_TARGET` from step 3, not a re-hardcoded alias, or the whole point of the fallback is lost.
 - Never pass unencoded user-controlled values (repo path, branch name, remote URL) as literal SSH command arguments — a branch name is attacker-controllable shell input the moment someone else can push to your fork, and SSH doesn't preserve argv separation across the wire. Base64-encode first (see step 4).
 - Tier 3 (messaging-gateway handoff) hands off to a *different* agent/process with no shared context — give it complete, explicit instructions, don't assume it can infer intent from this conversation. Also verify it's genuinely reactive before relying on it (see Tier 3 caveats above) — a live-looking connection isn't proof it's actually processing events, and a missing permission grant is a much likelier culprit than the connection itself.

@@ -214,14 +214,11 @@ the reviewer can confirm the check happened.
 
 5. **Open the PR with `gh pr create` and a body that includes:**
 
-   - **Summary** (1-4 bullets)
-   - **Background** — why this example is needed
-   - **Goals** — user-visible outcomes
-   - **High-level description** — file structure / sections covered
-   - **Testing** — paste the Phase 3 grep results (`0 matches`,
-     `N placeholders`, `git diff --stat` output)
-   - **Low-level details** — naming choices (`.example` suffix vs
-     `CLAUDE.md`), excluded sections, why no slash command
+   - Follow `~/.codex/AGENTS.md` § PR descriptions and the target repository's
+     policy and PR template. Keep the example-specific leak-check results
+     (`0 matches`, placeholder count, and `git diff --stat`) in the test plan
+     and evidence. Do not add a separate Low-level details section; put naming
+     and exclusion rationale with the relevant change area or risks.
 
 6. **Do NOT merge.** Wait for the user's review. Per the project's
    merge-safety rules, a public-facing file needs human eyes before

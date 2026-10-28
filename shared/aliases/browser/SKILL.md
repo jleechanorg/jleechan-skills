@@ -8,3 +8,5 @@ Read [the canonical browser-control skill](../browser-control/SKILL.md) complete
 When reading this alias in the source repository rather than an installed
 canonical package root, resolve `../../../.claude/skills/browser-control/SKILL.md`
 instead. Use the path appropriate to the inspected package location.
+
+Keep browser automation headless by default. Use cookie transfer only with explicit authorization for the requested authenticated content. For deterministic app testing, CI, isolated profiles, traces, video or multi-browser coverage, follow ../playwright-ui-testing/SKILL.md.

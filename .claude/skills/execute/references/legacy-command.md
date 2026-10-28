@@ -42,7 +42,7 @@ execution_mode: immediate
    - If work is blocked by dependencies, keep the bead in `open` or `in_progress` and add a note/label indicating "blocked" and the specific dependency
    - Use only `open`, `in_progress`, or `closed` for the `status` field
    - Example: `br update <bead-id> --status in_progress`
-   - Direct-file fallback: append the corresponding JSONL update in `.beads/issues.jsonl` per `docs/beads_creation_manual.md`
+   - Never mutate `.beads/issues.jsonl` directly. If `br` fails because interchange is malformed, bounded read-only forensic inspection of a copy is allowed; do not rewrite raw records.
 3. Uses systematic tool progression and the execution method determined in planning
 4. Executes tasks as planned (parallel Task tool agents or sequential based on plan decision)
 5. 🚨 **PARALLEL TASK EXECUTION**: Can use multiple Task tool calls in single message for up to 10 concurrent subagents

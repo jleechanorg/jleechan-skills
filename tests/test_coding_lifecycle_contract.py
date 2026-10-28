@@ -404,6 +404,32 @@ class CodingLifecycleContract(unittest.TestCase):
         self.assertIn("gh pr list --head <branch> --state all", self.owner)
         self.assertIn("state the measured facts instead of the remembered ones", self.owner)
 
+    def test_stage5_requires_verified_ai_visual_approval_not_pending_dot(self):
+        for name in ("pr-lifecycle", "evidence-review", "pr-workflow-manager"):
+            text = read(name)
+            self.assertIn("VISUAL APPROVED at <40-char-sha>", text)
+            self.assertIn("`/dot: REQUESTED, pending`", text)
+            self.assertIn("stage:5-final-approval", text)
+
+    def test_lightweight_prw_nonprod_path_is_defined_and_bounded(self):
+        raw = (SKILLS / "pr-lifecycle" / "SKILL.md").read_text(encoding="utf-8")
+        section_raw = raw.split("\n## Default PR route — `/prw`\n", 1)[1].split("\n## ", 1)[0]
+        route = " ".join(section_raw.split())
+        self.assertIn("non-production changes", route)
+        self.assertIn("do not alter approval, merge, review, evidence, or security policy", route)
+        self.assertIn("excluded in § Proportional exceptions and fast paths", route)
+        self.assertIn("listed as high-risk in § Coding lifecycle — scale layers to risk", route)
+        self.assertIn("skips intermediate stage-by-stage ceremony", route)
+        self.assertIn("keep the specification in its prescribed location", route)
+        self.assertIn("stage:5-final-approval", route)
+        self.assertIn(
+            "at least one independent adversarial full-scope LLM review regardless of size when agent instructions change",
+            route,
+        )
+        self.assertIn("any repository-required review, evidence, or `/dot` route", route)
+        self.assertIn("merge authorization", route)
+        self.assertIn("../pr-lifecycle/SKILL.md#default-pr-route--prw", read("pr-workflow-manager"))
+
 
 if __name__ == "__main__":
     unittest.main()
