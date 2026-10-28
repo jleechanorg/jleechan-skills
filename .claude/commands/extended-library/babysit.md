@@ -99,5 +99,5 @@ Each wakeup iteration runs only a **lightweight stale-status sweep** (see Phase 
 - **PR Green Loop Protocol**: Batch fixes, push once.
 - **CodeRabbit/Bugbot: optional advisory reviewers** — read their feedback, take what's useful; never a gate, never a wait. Dismissing their CHANGES_REQUESTED reviews is allowed.
 - **Never merge** — no automated path merges; only explicit human "MERGE APPROVED" authorizes `gh pr merge`
-- **`/green` verification**: `/green` = CI green + no merge conflicts only (see `.claude/skills/pr-green-definition.md`); CodeRabbit/Bugbot/comments/evidence are draft-phase quality gates, not part of `/green`. Must read the Green Gate gate-by-gate log for Gate 1, not just `gh pr checks`
+- **`/green` verification**: `/green` = CI green + no merge conflicts only (see `.claude/skills/pr-green-definition/SKILL.md`); CodeRabbit/Bugbot/comments/evidence are draft-phase quality gates, not part of `/green`. Must read the Green Gate gate-by-gate log for Gate 1, not just `gh pr checks`
 - **Evidence required** for non-docs PRs touching `$PROJECT_ROOT/**`

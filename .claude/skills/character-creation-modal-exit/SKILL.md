@@ -262,7 +262,7 @@ Character creation is a MODAL DIALOG - user cannot exit until selecting specific
 - Manual Creation: "PlayCharacter" choice
 - Cancellation: "Cancel Character Creation" choice
 
-See `.claude/skills/character-creation-modal-exit.md` for complete protocol.
+See `.claude/skills/character-creation-modal-exit/SKILL.md` for complete protocol.
 ```
 
 ## Evidence Locations

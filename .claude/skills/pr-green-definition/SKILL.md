@@ -65,7 +65,7 @@ gh pr view N --json statusCheckRollup --jq '[.statusCheckRollup[] | select((.__t
 - Pull the PR's current head SHA first: `gh pr view N --json headRefOid --jq '.headRefOid'`.
 - When reading raw check-runs via `commits/{sha}/check-runs`, use that head SHA, not a cached value from an earlier turn — rerun cycles leave stale check-runs from prior SHAs in the same job-name bucket (memory: `feedback_2026-07-21_check_runs_stale_pickup_across_reruns.md`). Scope to the current run's own job list via `actions/runs/<run_id>/jobs`, not a `max_by(started_at)` dedup across all reruns.
 - `gh api .../check-runs` **silently truncates to 30 rows** without `--paginate` — always compare `total_count` to the returned array length before concluding a check "doesn't exist" (memory: `feedback_2026-07-21_gh_api_check_runs_pagination_silent_truncation.md`).
-- REST and GraphQL are **separate quota buckets**; `gh api rate_limit` is quota-exempt — check it first, and fall back to the other bucket for the same data before declaring "rate-limited". Full procedure: `~/.claude/skills/github-cli-reference.md`.
+- REST and GraphQL are **separate quota buckets**; `gh api rate_limit` is quota-exempt — check it first, and fall back to the other bucket for the same data before declaring "rate-limited". Full procedure: `~/.claude/skills/github-cli-reference/SKILL.md`.
 
 ## Gate 2 — No merge conflicts: verification procedure
 
@@ -107,4 +107,4 @@ Distinguish CI PASS, local-equivalent PASS, pending, failed and unproven for eve
 ## Related
 
 - `~/.claude/skills/pr-lifecycle/SKILL.md` — applicable draft and ready/final quality gates, separate from `/green`
-- `~/.claude/skills/github-cli-reference.md` — REST ↔ GraphQL dual-bucket procedure
+- `~/.claude/skills/github-cli-reference/SKILL.md` — REST ↔ GraphQL dual-bucket procedure

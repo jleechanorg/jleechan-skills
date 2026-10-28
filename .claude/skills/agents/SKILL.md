@@ -116,6 +116,6 @@ return is_char_creation or is_level_up_mode
 - Verify `character_creation_completed` not interfering with level-up
 
 **See also**:
-- `.claude/skills/character-creation-modal-exit.md` - Character creation specific patterns
+- `.claude/skills/character-creation-modal-exit/SKILL.md` - Character creation specific patterns
 - `$PROJECT_ROOT/agents.py` - Full implementation (lines 2739-3200)
 - `$PROJECT_ROOT/world_logic.py` - Modal injection and protection (lines 1800-1900, 5400-5500)

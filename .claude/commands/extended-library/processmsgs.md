@@ -155,7 +155,7 @@ mark it read without that authorization.
 
 ## 📖 Related Skills
 
-See `.claude/skills/mcp-agent-mail.md` for detailed MCP Agent Mail server setup and usage instructions.
+See `.claude/skills/mcp-agent-mail/SKILL.md` for detailed MCP Agent Mail server setup and usage instructions.
 
 ## Historical Example (not an execution template)
 
@@ -221,7 +221,7 @@ Performance: 1 tool call, ~3s
 
 ## ⚙️ Configuration
 
-**MCP Agent Mail Setup**: See `.claude/skills/mcp-agent-mail.md` for:
+**MCP Agent Mail Setup**: See `.claude/skills/mcp-agent-mail/SKILL.md` for:
 - Server configuration
 - Agent registration
 - Project initialization
