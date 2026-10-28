@@ -453,28 +453,45 @@ Rules:
 5. URL and route match claim
 6. Git SHA linkage is visible
 7. The reviewed evidence receipt includes matching metadata/caption artifacts
-8. Unique-frame count reported (see Frozen-frame detection); mostly-stills clips are INSUFFICIENT
+8. mpdecimate retained-frame count reported as kept/nominal (see Frozen-frame detection); clips under the threshold are INSUFFICIENT
 9. Each clip contains the user action itself plus the before state
 10. Before/after provenance is fresh runs of each build, or labeled `derived` with source
-11. `/er` and second-opinion (`advice` skill) verdicts come from an agent other than the evidence producer
+11. `/er` and second-opinion (`advice` skill) verdicts come from a different agent/lane than the evidence producer, and name that lane
 
 ## Frozen-frame and slideshow detection (MANDATORY)
 
-Report the unique-frame count for every clip:
+Report the mpdecimate **retained-frame count** (kept) and the nominal frame
+count for every clip. The probe must fail closed: a failed decode or empty count
+is an error, never "zero frames".
 
 ```bash
-ffmpeg -i v.mp4 -vf mpdecimate -f null - 2>&1 | grep -o 'frame= *[0-9]*' | tail -1
+set -o pipefail
+kept=$(ffmpeg -nostdin -v error -i v.mp4 -vf mpdecimate -f null -progress pipe:1 - \
+  | grep -o '^frame=[0-9]*' | tail -1 | cut -d= -f2) || { echo "probe FAILED"; exit 1; }
+nominal=$(ffprobe -v error -count_frames -select_streams v:0 \
+  -show_entries stream=nb_read_frames -of csv=p=0 v.mp4) || { echo "ffprobe FAILED"; exit 1; }
+[ -n "$kept" ] && [ -n "$nominal" ] || { echo "count unavailable: FAILED"; exit 1; }
+echo "kept=$kept nominal=$nominal"
 ```
 
-A clip that is mostly a few stills (a slideshow of screenshots, or a frozen
-frame padded to length) is **INSUFFICIENT**, not just one with a blank first
-frame.
+A clip is **INSUFFICIENT** (slideshow or frozen frame padded to length) when
+`kept < 10` **or** `kept/nominal < 5%`, unless the caption names the specific
+timestamps of the frames carrying the claim (the action frame and the DONE or
+after-state frame) and a reviewer confirms those frames show it. Mostly static
+app screens legitimately sit around 5-10%; a blinking caret or spinner can
+inflate `kept`, so the named action/state-change frame must be present in
+every case.
 
 ## Action must be in the window (MANDATORY)
 
 Each clip must include the user action under test (for example the Send tap)
 and the before state that precedes it. A capture window anchored only to
 completion (e.g. trimmed to the DONE state) that omits the action fails.
+
+When the change's observable has no user action (first paint, an error state
+rendered on load, a theme token applied at mount), record this rule as N/A with
+the reason and instead provide a state-transition clip showing the before-state
+frame and the after-state frame.
 
 ## Provenance of before/after clips (MANDATORY)
 
@@ -513,6 +530,6 @@ When distributing video or visual evidence to Slack (channels, incident threads,
 - **NEVER** use text-only Slack MCP tools (`conversations_add_message`) to send bare paths or GitHub URLs. Text-only message tools do not render media inline.
 - **ALWAYS** use the dedicated uploader script:
   ```text
-  python3 ~/.claude/skills/slack-media-upload/scripts/slack_upload.py [--dm | --channel <id>] --file <path> [--title <title>...] [--thread-ts <ts>] [--comment <text>]
+  python3 ../slack-media-upload/scripts/slack_upload.py [--dm | --channel <id>] --file <path> [--title <title>...] [--thread-ts <ts>] [--comment <text>]
   ```
 - This wraps Slack's two-step `files.getUploadURLExternal` → `files.completeUploadExternal` API so videos and GIFs render directly inline in Slack.

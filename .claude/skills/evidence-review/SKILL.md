@@ -152,10 +152,10 @@ For each applicable video requirement, verify:
 - The caption identifies the test/action, observed result, and tested SHA.
 - UI footage visibly shows the relevant element and before/action/after behavior.
 - Terminal footage, when required, shows the command and relevant result.
-- The unique-frame count (`ffmpeg -i v.mp4 -vf mpdecimate -f null -`) is reported; a clip that is mostly a few stills is **INSUFFICIENT**.
-- Each clip includes the user action (e.g. the Send tap) plus the before state; a window anchored only to completion that omits the action fails.
+- The mpdecimate retained-frame count and nominal count are reported with the fail-closed probe in `../ui-video-evidence/SKILL.md`; `kept < 10` or `kept/nominal < 5%` is **INSUFFICIENT** unless the caption names the action and after-state frame timestamps and they show the claim.
+- Each clip includes the user action (e.g. the Send tap) plus the before state; a window anchored only to completion that omits the action fails. If the observable has no user action, record N/A with the reason and require a before-state → after-state transition clip.
 - Before/after clips come from fresh runs of each build; any re-cut or reused baseline is labeled `derived` with its source.
-- This `/er` verdict (and any `/advice` on the evidence) comes from an agent other than the one that produced the evidence.
+- This `/er` verdict (and any `/advice` on the evidence) comes from a different agent/lane than the one that produced the evidence, and the verdict names that lane (lanes may share one GitHub account).
 
 A missing applicable artifact yields **PARTIAL**. Record inapplicable formats as
 N/A with a reason; do not impose terminal and browser video on every PR.
