@@ -80,13 +80,13 @@ def terminate_test_process(pid: int, expected_identity: str) -> None:
         return
     try:
         pidfd = pidfd_open(pid, 0)
-    except ProcessLookupError:
+    except OSError:
         return
     try:
         if test_process_start_identity(pid) == expected_identity:
             try:
                 pidfd_send_signal(pidfd, signal.SIGKILL)
-            except ProcessLookupError:
+            except OSError:
                 pass
     finally:
         os.close(pidfd)
@@ -99,6 +99,16 @@ def wait_for_test_process_exit(pid: int, expected_identity: str, timeout: float)
             return True
         time.sleep(0.02)
     return not test_process_is_running(pid, expected_identity)
+
+
+def cleanup_test_process_file(path: Path, timeout: float) -> None:
+    if not path.exists():
+        return
+    pid_text, expected_identity = path.read_text().splitlines()
+    pid = int(pid_text)
+    terminate_test_process(pid, expected_identity)
+    if not wait_for_test_process_exit(pid, expected_identity, timeout):
+        raise AssertionError(f"fixture process {pid} did not exit after safe cleanup")
 
 
 class ReviewerProcessTest(unittest.TestCase):
@@ -397,25 +407,29 @@ class PrimaryPairTest(unittest.TestCase):
             " identity = f'linux-start-ticks:{fields[19]}'\n"
             "else:\n"
             " identity = subprocess.run(['ps', '-o', 'lstart=', '-p', str(child.pid)], capture_output=True, text=True, check=True).stdout.strip()\n"
-            f"pathlib.Path({str(child_pid_file)!r}).write_text(f'{{child.pid}}\\n{{identity}}')\n"
+            f"try:\n"
+            f" pathlib.Path({str(child_pid_file)!r}).write_text(f'{{child.pid}}\\n{{identity}}')\n"
+            "except BaseException:\n"
+            " child.kill()\n"
+            " child.wait()\n"
+            " raise\n"
             "print('VERDICT: APPROVED')\n"
             "print('COVERAGE: all')\n"
         )
 
-
-        with mock.patch.object(runner.ProcessTreeSupervisor, "start"), \
-                mock.patch.object(runner.ProcessTreeSupervisor, "stop"), \
-                mock.patch.object(runner.ProcessTreeSupervisor, "active_discovered", return_value=[]), \
-                mock.patch.object(runner.ProcessTreeSupervisor, "signal_active", return_value=[]), \
-                mock.patch.object(runner.ProcessTreeSupervisor, "verify_gone", return_value=[]), \
-                mock.patch.object(runner.os, "killpg") as killpg:
-            result = runner.execute(
-                [sys.executable, "-c", child_program], self.root, "prompt", 0.1, 0.05
-            )
-
-        child_pid_text, child_identity = child_pid_file.read_text().splitlines()
-        child_pid = int(child_pid_text)
         try:
+            with mock.patch.object(runner.ProcessTreeSupervisor, "start"), \
+                    mock.patch.object(runner.ProcessTreeSupervisor, "stop"), \
+                    mock.patch.object(runner.ProcessTreeSupervisor, "active_discovered", return_value=[]), \
+                    mock.patch.object(runner.ProcessTreeSupervisor, "signal_active", return_value=[]), \
+                    mock.patch.object(runner.ProcessTreeSupervisor, "verify_gone", return_value=[]), \
+                    mock.patch.object(runner.os, "killpg") as killpg:
+                result = runner.execute(
+                    [sys.executable, "-c", child_program], self.root, "prompt", 0.1, 0.05
+                )
+
+            child_pid_text, child_identity = child_pid_file.read_text().splitlines()
+            child_pid = int(child_pid_text)
             self.assertTrue(result[3], "pipe-holding descendant did not trigger timeout")
             killpg.assert_not_called()
             self.assertFalse(result[5]["descendant_termination_verified"])
@@ -430,8 +444,7 @@ class PrimaryPairTest(unittest.TestCase):
                 "fixture child should require its own cleanup",
             )
         finally:
-            terminate_test_process(child_pid, child_identity)
-            self.assertTrue(wait_for_test_process_exit(child_pid, child_identity, 3.0))
+            cleanup_test_process_file(child_pid_file, 3.0)
 
     def test_reviewers_accepts_codex_opus_subset_and_rejects_unknown_or_duplicates(self) -> None:
         self.executable("codex", "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
@@ -865,33 +878,39 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
             " identity = f'linux-start-ticks:{fields[19]}'\n"
             "else:\n"
             " identity = subprocess.run(['ps', '-o', 'lstart=', '-p', str(child.pid)], capture_output=True, text=True, check=True).stdout.strip()\n"
-            "pathlib.Path(sys.argv[1]).write_text(f'{child.pid}\\n{identity}')\n"
+            "try:\n"
+            " pathlib.Path(sys.argv[1]).write_text(f'{child.pid}\\n{identity}')\n"
+            "except BaseException:\n"
+            " child.kill()\n"
+            " child.wait()\n"
+            " raise\n"
             "time.sleep(1)\n"
             "PY\n"
             "exec sleep 8\n",
         )
         self.executable("claude", "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
 
-        started = time.monotonic()
-        result = self.invoke(
-            "--timeout-seconds", "1.5", "--timeout-grace-seconds", "0.2"
-        )
-        elapsed = time.monotonic() - started
-
-        self.assertLess(elapsed, 6.0)
-        receipt = json.loads((self.output / "receipt.json").read_text())
-        codex_result = receipt["reviewers"]["codex"]
-        attempt = codex_result["attempts"][0]
-        attempt_duration = (
-            codex_result["ended_monotonic_ns"]
-            - codex_result["started_monotonic_ns"]
-        ) / 1_000_000_000
-        self.assertLess(attempt_duration, 6.0)
-        self.assertEqual(attempt["failure"], "timeout")
-        self.assertIsInstance(attempt["forced_pipe_close"], bool)
-        detached_pid_text, detached_identity = (self.sync / "detached.pid").read_text().splitlines()
-        detached_pid = int(detached_pid_text)
+        detached_pid_file = self.sync / "detached.pid"
         try:
+            started = time.monotonic()
+            result = self.invoke(
+                "--timeout-seconds", "1.5", "--timeout-grace-seconds", "0.8"
+            )
+            elapsed = time.monotonic() - started
+
+            detached_pid_text, detached_identity = detached_pid_file.read_text().splitlines()
+            detached_pid = int(detached_pid_text)
+            self.assertLess(elapsed, 6.0)
+            receipt = json.loads((self.output / "receipt.json").read_text())
+            codex_result = receipt["reviewers"]["codex"]
+            attempt = codex_result["attempts"][0]
+            attempt_duration = (
+                codex_result["ended_monotonic_ns"]
+                - codex_result["started_monotonic_ns"]
+            ) / 1_000_000_000
+            self.assertLess(attempt_duration, 6.0)
+            self.assertEqual(attempt["failure"], "timeout")
+            self.assertIsInstance(attempt["forced_pipe_close"], bool)
             pidfd_supported = callable(getattr(os, "pidfd_open", None)) and callable(
                 getattr(signal, "pidfd_send_signal", None)
             )
@@ -908,8 +927,7 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
                 self.assertIn(detached_pid, attempt["descendants_surviving"])
             self.assertTrue(receipt["cleanup"]["success"])
         finally:
-            terminate_test_process(detached_pid, detached_identity)
-            self.assertTrue(wait_for_test_process_exit(detached_pid, detached_identity, 4.0))
+            cleanup_test_process_file(detached_pid_file, 4.0)
 
     def test_timeout_grace_must_be_positive(self) -> None:
         result = self.invoke("--timeout-grace-seconds", "0")
