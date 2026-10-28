@@ -13,7 +13,7 @@ The /slack dispatcher reads the canonical identity policy first. The assignment 
 An operator delegates through their dots without losing the intended human-account delivery route or hiding that the message was AI-sent.
 
 ## Proof plan
-Focused documentation-contract tests first fail against the previous policy, then pass after the change. Existing thin-dispatcher and installer tests remain passing. An isolated installer must copy the changed documents byte-for-byte. These checks do not prove a live external send or installed behavior on other hosts.
+Existing thin-dispatcher and installer tests remain passing. No new test file ships with this change (artifact scope: documentation only). An isolated installer must copy the changed documents byte-for-byte. These checks do not prove a live external send or installed behavior on other hosts.
 
 ## Mock exemption
 No application UI changes. Source and isolated installation evidence are sufficient for this instruction-routing claim; no synthetic Slack messages are sent as tests.
