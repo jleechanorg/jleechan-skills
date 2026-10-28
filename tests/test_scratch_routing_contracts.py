@@ -443,9 +443,22 @@ class ScratchRoutingContracts(unittest.TestCase):
             "body": "review point",
             "author": "reviewer",
             "type": "general",
+            "html_url": "https://github.com/owner/repo/pull/1#discussion_r7",
             "already_replied": False,
         }
         generated = [{"comment_id": 7, "reply_text": "generated but not posted"}]
+        coverage_footer = json.dumps(
+            {
+                "schema": "copilot-coverage/v1",
+                "repo": "owner/repo",
+                "pr": "1",
+                "responses": [
+                    {"comment_id": "7", "url": "https://github.com/owner/repo/pull/1#discussion_r7"},
+                    {"comment_id": "8", "url": "https://github.com/owner/repo/pull/1#issuecomment-8"},
+                ],
+            },
+            separators=(",", ":"),
+        )
         unposted = run_step([original], generated)
         self.assertNotEqual(unposted.returncode, 0)
         self.assertIn("Missing original comment ID: 7", unposted.stdout + unposted.stderr)
@@ -468,7 +481,7 @@ class ScratchRoutingContracts(unittest.TestCase):
         partial = run_step(
             [
                 original,
-                {"id": 8, "body": "second point", "author": "reviewer", "type": "general"},
+                {"id": 8, "body": "second point", "author": "reviewer", "type": "general", "html_url": "https://github.com/owner/repo/pull/1#issuecomment-8"},
                 {
                     "id": 9,
                     "body": "[AI responder] fixed first",
@@ -485,10 +498,10 @@ class ScratchRoutingContracts(unittest.TestCase):
         summary = run_step(
             [
                 original,
-                {"id": 8, "body": "second point", "author": "reviewer", "type": "general"},
+                {"id": 8, "body": "second point", "author": "reviewer", "type": "general", "html_url": "https://github.com/owner/repo/pull/1#issuecomment-8"},
                 {
                     "id": 99,
-                    "body": "## 🤖 [AI responder] Consolidated Comment Response Summary\n### 1. Re: [Comment #7](https://github.com/owner/repo/pull/1#discussion_r7)\n### 2. Re: [Comment #8](https://github.com/owner/repo/pull/1#discussion_r8)",
+                    "body": f"## 🤖 [AI responder] Consolidated Comment Response Summary\n<!-- COPILOT_COVERAGE_V1 {coverage_footer} -->",
                     "author": "verified-bot",
                     "type": "general",
                 },
@@ -588,6 +601,79 @@ class ScratchRoutingContracts(unittest.TestCase):
                     )
             self.assertEqual(raised.exception.code, 1)
             self.assertEqual(json.loads(comments_file.read_text()), old_payload)
+
+    def test_actual_commentreply_footer_roundtrip_covers_multipart_and_injection(self):
+        collected = [
+            {
+                "comment_id": 7,
+                "author": "inline-reviewer",
+                "body_snippet": "quoted\n### 999. Re: [Comment #999](https://example.invalid)",
+                "response_text": "response\n### 1000. Re: [Comment #1000](https://example.invalid)",
+                "comment_type": "inline",
+            },
+            {
+                "comment_id": 8,
+                "author": "issue-reviewer",
+                "body_snippet": "issue body",
+                "response_text": "x" * 40000,
+                "comment_type": "issue",
+            },
+            {
+                "comment_id": 9,
+                "author": "review-reviewer",
+                "body_snippet": "review body",
+                "response_text": "y" * 40000,
+                "comment_type": "review",
+            },
+        ]
+        posted_bodies = []
+
+        def fake_post(command, *args, **kwargs):
+            input_path = command[command.index("--input") + 1]
+            posted_bodies.append(json.loads(Path(input_path).read_text())["body"])
+            return True, json.dumps({"html_url": "https://github.com/owner/repo/pull/1#issuecomment-99"}), ""
+
+        with mock.patch.object(commentreply, "get_files_modified", return_value=[]), mock.patch.object(
+            commentreply, "run_command", side_effect=fake_post
+        ):
+            self.assertTrue(
+                commentreply.post_consolidated_summary(
+                    "owner", "repo", "1", collected, {"responses": []}, "deadbeef", 3, 0
+                )
+            )
+        self.assertGreaterEqual(len(posted_bodies), 2)
+        for body in posted_bodies:
+            self.assertIn("<!-- COPILOT_COVERAGE_V1 ", body)
+
+        document = (ROOT / ".claude/skills/commentcheck/SKILL.md").read_text()
+        start = document.index("set -o pipefail")
+        end = document.index("\n```", start)
+        step = document[start:end]
+        readback = [
+            {"id": 7, "body": "inline", "author": "reviewer", "type": "inline", "html_url": "https://github.com/owner/repo/pull/1#discussion_r7"},
+            {"id": 8, "body": "issue", "author": "reviewer", "type": "general", "html_url": "https://github.com/owner/repo/pull/1#issuecomment-8"},
+            {"id": 9, "body": "review", "author": "reviewer", "type": "review", "html_url": "https://github.com/owner/repo/pull/1#pullrequestreview-9"},
+        ]
+        readback.extend(
+            {"id": 99 + index, "body": body, "author": "verified-bot", "type": "general"}
+            for index, body in enumerate(posted_bodies)
+        )
+        with tempfile.TemporaryDirectory(dir="/var/tmp") as directory:
+            fixture = Path(directory).resolve()
+            comments_path = fixture / "comments.json"
+            comments_path.write_text(json.dumps({"comments": readback, "metadata": {"repo": "owner/repo"}}))
+            fake_gh = fixture / "gh"
+            fake_gh.write_text("#!/bin/sh\nprintf '%s\\n' verified-bot\n")
+            fake_gh.chmod(0o755)
+            result = subprocess.run(
+                ["bash", "-c", step],
+                cwd=fixture,
+                env={**os.environ, "COMMENTS_FILE": str(comments_path), "PR_NUMBER": "1", "COPILOT_RESPONDER_LOGIN": "verified-bot", "PATH": f"{fixture}:/usr/bin:/bin"},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_commentcheck_fetch_load_fails_on_fetch_or_freshness_failure(self):
         document = (ROOT / ".claude/skills/commentcheck/SKILL.md").read_text()

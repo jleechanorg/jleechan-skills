@@ -337,18 +337,31 @@ if ! POSTED_REPLY_IDS=$(echo "$ALL_COMMENTS" | jq -r --arg responder "$RESPONDER
 fi
 if ! POSTED_SUMMARY_IDS=$(
   echo "$ALL_COMMENTS" | jq -r --arg responder "$RESPONDER_LOGIN" --arg repo "$EXPECTED_REPO" --arg pr "$PR_NUMBER" '
-    .[]
-    | select(.author == $responder)
-    | (.body // "") as $body
-    | select(($body | split("\n")[0]) == "## 🤖 [AI responder] Consolidated Comment Response Summary")
-    | $body
-    | split("\n")[]
-    | try capture("^### [0-9]+\\. Re: \\[Comment #(?<id>[1-9][0-9]*)\\]\\(https://github\\.com/" + $repo + "/pull/" + $pr + "#(?:discussion_r|issuecomment-|pullrequestreview-)(?<anchor_id>[1-9][0-9]*)\\)$") catch empty
-    | select(.id == .anchor_id)
+    . as $all
+    | [ $all[]
+        | select((.author != $responder) or ((((.body // "") | startswith("[AI responder]")) or ((.body // "") | startswith("## 🤖 [AI responder] Consolidated Comment Response Summary"))) | not))
+        | {id: (.id | tostring), url: (.html_url // "")}
+      ] as $originals
+    | [ $all[]
+        | select(.author == $responder)
+        | (.body // "")
+        | split("\n")[]
+        | select(startswith("<!-- COPILOT_COVERAGE_V1 "))
+        | sub("^<!-- COPILOT_COVERAGE_V1 "; "")
+        | sub(" -->$"; "")
+        | fromjson
+      ] as $footers
+    | $footers[]
+    | select(.schema == "copilot-coverage/v1" and .repo == $repo and (.pr | tostring) == $pr and (.responses | type) == "array")
+    | .responses[]
+    | select((.comment_id | tostring | test("^[1-9][0-9]*$")) and (.url | type) == "string")
+    | . as $response
+    | $originals[]
+    | select(.id == ($response.comment_id | tostring) and .url == $response.url)
     | .id
   ' | sort -u
 ); then
-  coverage_fail "failed to extract verified responder summary references"
+  coverage_fail "failed to parse or verify structured responder coverage footer"
 fi
 ATTRIBUTED_IDS=$(printf '%s\n%s\n' "$POSTED_REPLY_IDS" "$POSTED_SUMMARY_IDS" | sed '/^$/d' | sort -u)
 MISSING_IDS=$(comm -23 <(printf '%s\n' "$ORIGINAL_IDS") <(printf '%s\n' "$ATTRIBUTED_IDS"))
