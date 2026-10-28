@@ -11,7 +11,11 @@ For claim-proportionate proof, follow [pr-lifecycle](../pr-lifecycle/SKILL.md#pr
 
 ## Retained review integrations
 
-The shared catalog preserves host-installed `/advice` and `/web-advice` integrations instead of installing them. Before invoking either, resolve its `../advice/SKILL.md` or `../web-advice/SKILL.md` relative to this package and read the existing skill. For a remote invocation, check the corresponding skill on the target host. If absent, report that integration as `UNAVAILABLE` and identify the missing package; do not invent a replacement runner, claim an approval, or treat a required gate as passed. Continue independent authorized work, but leave any dependent readiness or plan-approval gate unmet. Existing review quorum, external-disclosure authorization, and optional-review rules still apply.
+Follow [pr-lifecycle's retained review integrations](../pr-lifecycle/SKILL.md#retained-review-integrations)
+for skill discovery, target-host checks, quorum and disclosure boundaries. If a required
+integration is missing, report `UNAVAILABLE` with its package name; do not invent a runner
+or approval. Continue independent authorized work, leaving dependent readiness or
+plan-approval gates unmet.
 
 
 **Purpose**: Review evidence for a claim, a path, or a PR. Produce a PASS / PARTIAL / FAIL verdict with specific artifact-level citations. This skill is the enforcement layer for the `evidence-standards` skill (the "what to produce") — this file is the "how to judge it".
@@ -273,12 +277,14 @@ a video bundle pass without an independent AI review of the frames.
 
 ### Phase 0 — Staleness gate (run before anything else)
 
-Resolve the SHA of the last posted `ER-VERDICT:` comment's `HEAD=` value and
-compare to the subject's current HEAD. If they match, skip to the verdict phase
-and re-emit the prior verdict. If they differ, read `git diff
-<prior-verdict-sha> <current-sha>` against the verdict's claims per the
-staleness-tolerance test in `evidence-standards`: a delta that leaves every
-claim intact lets you record the prior verdict's applicability to the new SHA without rerunning the later phases or pretending it was a new review. A delta that changes production behavior or any assertion, driver, or executable instruction a claim depends on requires fresh affected proof and independent review of the affected coverage. Use a full rerun only when the impact cannot be safely bounded; preserve unaffected claims. Never rerun once per finding —
+Resolve the last posted `ER-VERDICT:` and its original HEAD, base, evidence,
+claims and review phase. Apply [pr-lifecycle's SHA-binding rule](../pr-lifecycle/SKILL.md#sha-binding-rule-critical--applies-to-every-gate-in-this-chain)
+before reusing it: matching HEAD alone does not establish unchanged evidence,
+base, scope or final-phase coverage. Record applicability without restamping the
+original verdict. A delta that changes production behavior or any
+assertion, driver, or executable instruction a claim depends on requires fresh
+affected proof and independent review. Uncertain coverage also requires review;
+preserve unaffected claims and use a full rerun only when impact cannot be bounded. Never rerun once per finding —
 if fixes are still landing, wait until they are batched into one new SHA
 (`evidence-standards` § "Evidence Sequencing") before spending a full pass.
 Continue necessary review and already-authorized fixes within the applicable task
