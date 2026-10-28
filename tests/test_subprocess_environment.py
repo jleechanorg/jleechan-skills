@@ -35,6 +35,18 @@ class IsolatedHomeEnvironmentTests(unittest.TestCase):
             environment["PATH"].split(os.pathsep), ["/usr/bin", relative_user_bin]
         )
 
+    def test_absolute_user_bin_entry_is_fallback(self):
+        user_bin_with_trailing_separator = str(self.user_bin) + os.sep
+        path = os.pathsep.join((user_bin_with_trailing_separator, "/usr/bin"))
+
+        with patch.dict(os.environ, {"HOME": str(self.host_home), "PATH": path}):
+            environment = isolated_home_environment(self.fake_home)
+
+        self.assertEqual(
+            environment["PATH"].split(os.pathsep),
+            ["/usr/bin", user_bin_with_trailing_separator],
+        )
+
     def test_empty_entry_is_classified_against_child_cwd(self):
         path = os.pathsep.join(("", "/usr/bin"))
 

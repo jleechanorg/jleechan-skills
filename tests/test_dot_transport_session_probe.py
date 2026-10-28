@@ -9,17 +9,23 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from tests.subprocess_environment import isolated_home_environment
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DOT_SH = REPO_ROOT / ".claude" / "skills" / "dot" / "scripts" / "dot.sh"
 NVM_NODE22 = Path.home() / ".nvm" / "versions" / "node" / "v22.22.0" / "bin" / "node"
-NODE22 = Path(
-    os.environ.get("DOT_NODE")
-    or (str(NVM_NODE22) if NVM_NODE22.is_file() else shutil.which("node") or "node")
-)
 SESSION_EMAIL = "dot-session-user@example.invalid"
+
+
+def _node22_for_environment(environment):
+    configured_node = os.environ.get("DOT_NODE")
+    if configured_node:
+        return Path(configured_node)
+    if NVM_NODE22.is_file():
+        return NVM_NODE22
+    return Path(shutil.which("node", path=environment.get("PATH", os.defpath)) or "node")
 
 
 class DotSessionProbeTest(unittest.TestCase):
@@ -62,6 +68,7 @@ class DotSessionProbeTest(unittest.TestCase):
             ).items()
             if key in {"HOME", "PATH", "TMPDIR", "LANG", "LC_ALL"}
         }
+        self.env["DOT_NODE"] = str(_node22_for_environment(self.env))
         self.env.update(
             {
                 "DOT_ACCOUNT": "fixture",
@@ -69,11 +76,39 @@ class DotSessionProbeTest(unittest.TestCase):
                 "DOT_CHROME_USER_DATA": str(self.profile),
                 "DOT_CHROME_BIN": str(self.chrome),
                 "DOT_PW_MODULES": str(self.require_anchor),
-                "DOT_NODE": str(NODE22),
                 "DOT_NO_REMOTE": "1",
             }
         )
         self._install_fake_playwright()
+
+    def test_node_fallback_uses_isolated_path_order(self):
+        host_home = self.root / "host"
+        user_bin = host_home / ".local" / "bin"
+        system_bin = self.root / "system-bin"
+        user_bin.mkdir(parents=True)
+        system_bin.mkdir()
+        wrapper_node = user_bin / "node"
+        wrapper_node.write_text("#!/bin/sh\nexit 99\n", encoding="utf-8")
+        wrapper_node.chmod(0o755)
+        system_node = system_bin / "node"
+        system_node.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        system_node.chmod(0o755)
+        path = os.pathsep.join((str(user_bin), str(system_bin)))
+
+        with patch.dict(
+            os.environ, {"HOME": str(host_home), "PATH": path, "DOT_NODE": ""}
+        ), patch(
+            "tests.test_dot_transport_session_probe.NVM_NODE22",
+            self.root / "missing-nvm-node",
+        ):
+            self.assertEqual(Path(shutil.which("node")), wrapper_node)
+            environment = isolated_home_environment(self.home, cwd=self.root)
+            self.assertEqual(
+                environment["PATH"].split(os.pathsep), [str(system_bin), str(user_bin)]
+            )
+            selected_node = _node22_for_environment(environment)
+
+        self.assertEqual(selected_node, system_node)
 
     def tearDown(self):
         self.temp.cleanup()

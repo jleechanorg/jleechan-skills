@@ -5,6 +5,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from tests.subprocess_environment import isolated_home_environment
 
@@ -48,8 +49,8 @@ class IntegrateCleanupTests(unittest.TestCase):
         fake_gh.chmod(0o755)
 
         env = isolated_home_environment(fake_home)
-        path_val = env.get("PATH", "")
-        env["PATH"] = f"{fake_bin}:{path_val}"
+        path_val = env.get("PATH", os.defpath)
+        env["PATH"] = os.pathsep.join((str(fake_bin), path_val))
         env["CI"] = "1"
         env["NONINTERACTIVE"] = "1"
         env["GIT_CONFIG_NOSYSTEM"] = "1"
@@ -94,6 +95,16 @@ class IntegrateCleanupTests(unittest.TestCase):
             ).stdout.strip()
             self.assertNotEqual(current_branch, "feature/cleanup-target")
             self.assertTrue(current_branch.startswith("dev"))
+
+    def test_absent_manager_skips_when_parent_path_is_absent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            with patch.dict(os.environ):
+                os.environ.pop("PATH", None)
+                _, work, env = self.create_isolated_repo(Path(tmp_dir))
+
+            res = self.run_integrate_script(INTEGRATE_SCRIPT, work, env)
+            self.assertEqual(res.returncode, 0, f"integrate.sh failed: {res.stdout}\n{res.stderr}")
+            self.assertIn("SKIPPED", res.stdout + "\n" + res.stderr)
 
     def test_successful_manager_reports_success_and_continues(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
