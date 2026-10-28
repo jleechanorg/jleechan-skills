@@ -57,7 +57,9 @@ class DotSessionProbeTest(unittest.TestCase):
         self.audit_path = self.root / "profile-access-audit.json"
         self.env = {
             key: value
-            for key, value in isolated_home_environment(self.home).items()
+            for key, value in isolated_home_environment(
+                self.home, cwd=Path.cwd()
+            ).items()
             if key in {"HOME", "PATH", "TMPDIR", "LANG", "LC_ALL"}
         }
         self.env.update(

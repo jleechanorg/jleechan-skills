@@ -20,6 +20,21 @@ class IntegrateCleanupTests(unittest.TestCase):
         installed.chmod(0o755)
         return installed
 
+    def run_integrate_script(
+        self, script: Path, cwd: Path, env: dict[str, str], *args: str
+    ) -> subprocess.CompletedProcess[str]:
+        child_env = isolated_home_environment(
+            env["HOME"], cwd=cwd, base_environment=env
+        )
+        return subprocess.run(
+            ["bash", str(script), *args],
+            cwd=str(cwd),
+            env=child_env,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
     def create_isolated_repo(self, base_dir: Path) -> tuple[Path, Path, dict[str, str]]:
         origin = base_dir / "origin.git"
         work = base_dir / "work"
@@ -64,14 +79,7 @@ class IntegrateCleanupTests(unittest.TestCase):
             _, work, env = self.create_isolated_repo(base)
             self.assertFalse((work / "test_server_manager.sh").exists())
 
-            res = subprocess.run(
-                ["bash", str(INTEGRATE_SCRIPT)],
-                cwd=str(work),
-                env=env,
-                capture_output=True,
-                text=True,
-                timeout=60,
-            )
+            res = self.run_integrate_script(INTEGRATE_SCRIPT, work, env)
             self.assertEqual(res.returncode, 0, f"integrate.sh failed: {res.stdout}\n{res.stderr}")
             combined = res.stdout + "\n" + res.stderr
             self.assertIn("SKIPPED", combined)
@@ -106,14 +114,7 @@ class IntegrateCleanupTests(unittest.TestCase):
             )
             mgr.chmod(0o755)
 
-            res = subprocess.run(
-                ["bash", str(INTEGRATE_SCRIPT)],
-                cwd=str(work),
-                env=env,
-                capture_output=True,
-                text=True,
-                timeout=60,
-            )
+            res = self.run_integrate_script(INTEGRATE_SCRIPT, work, env)
             self.assertEqual(res.returncode, 0, f"integrate.sh failed: {res.stdout}\n{res.stderr}")
             combined = res.stdout + "\n" + res.stderr
             self.assertIn("Test server manager returned success", combined)
@@ -142,13 +143,8 @@ class IntegrateCleanupTests(unittest.TestCase):
             self.assertTrue(installed.is_file())
             self.assertFalse((work / "integrate.sh").exists())
 
-            result = subprocess.run(
-                ["bash", str(installed), "feature/from-home", "--new-branch"],
-                cwd=str(work),
-                env=env,
-                capture_output=True,
-                text=True,
-                timeout=60,
+            result = self.run_integrate_script(
+                installed, work, env, "feature/from-home", "--new-branch"
             )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn("Using custom branch name: feature/from-home", result.stdout)
@@ -177,13 +173,8 @@ class IntegrateCleanupTests(unittest.TestCase):
             )
             fake_git.chmod(0o755)
 
-            result = subprocess.run(
-                ["bash", str(INTEGRATE_SCRIPT), "feature/many-worktrees", "--new-branch"],
-                cwd=str(work),
-                env=env,
-                capture_output=True,
-                text=True,
-                timeout=60,
+            result = self.run_integrate_script(
+                INTEGRATE_SCRIPT, work, env, "feature/many-worktrees", "--new-branch"
             )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn("'main' is checked out in worktree: /tmp/main-worktree", result.stdout)
@@ -207,14 +198,7 @@ class IntegrateCleanupTests(unittest.TestCase):
                 timeout=30,
             ).stdout.strip()
 
-            res = subprocess.run(
-                ["bash", str(INTEGRATE_SCRIPT)],
-                cwd=str(work),
-                env=env,
-                capture_output=True,
-                text=True,
-                timeout=60,
-            )
+            res = self.run_integrate_script(INTEGRATE_SCRIPT, work, env)
             self.assertNotEqual(res.returncode, 0, "integrate.sh should fail when manager fails")
             combined = res.stdout + "\n" + res.stderr
             self.assertIn(mgr_stderr_marker, combined, "Expected manager stderr in output")
@@ -256,14 +240,7 @@ class IntegrateCleanupTests(unittest.TestCase):
                 timeout=30,
             ).stdout.strip()
 
-            res = subprocess.run(
-                ["bash", str(INTEGRATE_SCRIPT)],
-                cwd=str(work),
-                env=env,
-                capture_output=True,
-                text=True,
-                timeout=60,
-            )
+            res = self.run_integrate_script(INTEGRATE_SCRIPT, work, env)
             self.assertNotEqual(res.returncode, 0, "integrate.sh should fail on nonexecutable manager")
             combined = res.stdout + "\n" + res.stderr
             self.assertTrue(
@@ -311,14 +288,7 @@ class IntegrateCleanupTests(unittest.TestCase):
             )
             mgr.chmod(0o755)
 
-            res = subprocess.run(
-                ["bash", str(INTEGRATE_SCRIPT)],
-                cwd=str(sub),
-                env=env,
-                capture_output=True,
-                text=True,
-                timeout=60,
-            )
+            res = self.run_integrate_script(INTEGRATE_SCRIPT, sub, env)
             self.assertEqual(res.returncode, 0, f"integrate.sh failed from subdir: {res.stdout}\n{res.stderr}")
             combined = res.stdout + "\n" + res.stderr
             self.assertIn("Test server manager returned success", combined)

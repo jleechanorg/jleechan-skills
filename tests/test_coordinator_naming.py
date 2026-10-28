@@ -54,7 +54,7 @@ class CoordinatorNaming(unittest.TestCase):
             pending = state / 'send-fixture.pending'; pending.write_text('uncertain fixture')
             before = [(p.stat().st_ino, p.read_bytes()) for p in (stop, pending)]
             target = root / 'installed'
-            environment = isolated_home_environment(home)
+            environment = isolated_home_environment(home, cwd=fixture)
             result = helper.run_installer(
                 fixture,
                 target,
