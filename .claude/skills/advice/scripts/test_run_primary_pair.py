@@ -23,6 +23,33 @@ SPEC.loader.exec_module(runner)
 
 
 class InstalledRunnerTest(unittest.TestCase):
+    def test_review_scratch_root_uses_canonical_resolver(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            scratch = Path(temporary) / "scratch"
+            scratch.mkdir()
+            completed = subprocess.CompletedProcess(
+                [str(runner.SCRATCH_RESOLVER)], 0, stdout=f"{scratch}\n", stderr=""
+            )
+            with mock.patch.object(runner.subprocess, "run", return_value=completed) as resolve:
+                self.assertEqual(runner.resolve_review_scratch_root(), scratch.resolve())
+        self.assertEqual(resolve.call_args.args[0], [str(runner.SCRATCH_RESOLVER)])
+
+    def test_review_scratch_root_refuses_unavailable_resolver(self) -> None:
+        completed = subprocess.CompletedProcess(
+            [str(runner.SCRATCH_RESOLVER)], 1, stdout="", stderr="Scratch volume unavailable\n"
+        )
+        with mock.patch.object(runner.subprocess, "run", return_value=completed):
+            with self.assertRaisesRegex(RuntimeError, "canonical Scratch resolver failed"):
+                runner.resolve_review_scratch_root()
+
+    def test_review_scratch_root_refuses_system_temp_fallback(self) -> None:
+        completed = subprocess.CompletedProcess(
+            [str(runner.SCRATCH_RESOLVER)], 0, stdout="/tmp\n", stderr=""
+        )
+        with mock.patch.object(runner.subprocess, "run", return_value=completed):
+            with self.assertRaisesRegex(RuntimeError, "refusing system temporary-directory fallback"):
+                runner.resolve_review_scratch_root()
+
     def test_reviewer_gets_eof_with_parent_stdin_open(self) -> None:
         child = (
             "import importlib.util, sys\n"

@@ -27,6 +27,50 @@ from pathlib import Path
 from typing import Any
 
 
+SCRATCH_RESOLVER = (
+    Path(__file__).resolve().parents[2] / "scratch-space" / "scripts" / "scratch-dir.sh"
+)
+
+
+def resolve_review_scratch_root() -> Path:
+    """Resolve a writable, provisioned Scratch root for disposable review clones."""
+    try:
+        result = subprocess.run(
+            [str(SCRATCH_RESOLVER)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except OSError as error:
+        raise RuntimeError(f"cannot run canonical Scratch resolver: {error}") from error
+    except subprocess.TimeoutExpired as error:
+        raise RuntimeError("canonical Scratch resolver timed out") from error
+
+    if result.returncode != 0:
+        message = result.stderr.strip() or f"exit {result.returncode}"
+        raise RuntimeError(f"canonical Scratch resolver failed: {message}")
+
+    candidate = result.stdout.strip()
+    if not candidate:
+        raise RuntimeError("canonical Scratch resolver returned no path")
+    root = Path(candidate).expanduser()
+    if not root.is_absolute():
+        raise RuntimeError("canonical Scratch resolver returned a relative path")
+    try:
+        root = root.resolve(strict=True)
+    except OSError as error:
+        raise RuntimeError(f"resolved Scratch path is unavailable: {candidate}") from error
+
+    system_temp_roots = (Path("/tmp").resolve(), Path("/private/tmp").resolve())
+    if any(root == temp_root or root.is_relative_to(temp_root) for temp_root in system_temp_roots):
+        raise RuntimeError("Scratch is unavailable; refusing system temporary-directory fallback")
+    if not root.is_dir() or not os.access(root, os.W_OK | os.X_OK):
+        raise RuntimeError(f"resolved Scratch path is not writable: {root}")
+    return root
+
+
 def git(repo: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[bytes]:
     return subprocess.run(
         ["git", "-C", str(repo), *args],
@@ -636,6 +680,11 @@ def main(
             + "\n\n" + packet
         )
     try:
+        scratch_root = resolve_review_scratch_root()
+    except RuntimeError as error:
+        print(f"review scratch unavailable: {error}", file=sys.stderr)
+        return 2
+    try:
         # Reserve the result path before dispatch. Reusing a directory could
         # leave an unselected review artifact beside a fresh receipt.
         output_dir.mkdir(parents=True, exist_ok=False)
@@ -646,7 +695,11 @@ def main(
             file=sys.stderr,
         )
         return 2
-    temp_root = Path(tempfile.mkdtemp(prefix="advice-primary-pair-"))
+    try:
+        temp_root = Path(tempfile.mkdtemp(prefix="advice-primary-pair-", dir=scratch_root))
+    except OSError as error:
+        print(f"review scratch unavailable: {error}", file=sys.stderr)
+        return 2
     receipt: dict[str, Any] = {
         "sha": sha,
         "review_kind": "documents" if documents else "revision",
@@ -654,6 +707,7 @@ def main(
         "document_bundle_sha256": document_bundle_sha256,
         "parallel_dispatch": len(args.reviewers) > 1,
         "checkout_kind": "independent_clone_no_local",
+        "scratch_root": str(scratch_root),
         "timeout_seconds": args.timeout_seconds,
         "timeout_grace_seconds": args.timeout_grace_seconds,
         "codex_model": args.codex_model,
