@@ -256,11 +256,10 @@ acceptance and the UI's own disclosure text.
 - [ ] Reviewer prompts must not carry the author's classification of the
   observation; the reviewer judges it from the raw artifact.
 
-Observed 2026-10-26/27 (worldai_frontend consent cycles, bead `jleechan-imr3`):
-`POST /api/portrait/warm` fired while consent was off under a dialog saying
-"Nothing is sent until you allow it"; it was filed as nonblocking P1
-`jleechan-1fx2`, the reviewer was handed a "transport-only" assessment, and the
-bundle reached DELIVERY_COMPLETE with no AI review of video content.
+Example: if a warm-up request fires while consent is off under a dialog saying
+"Nothing is sent until you allow it", filing it as a nonblocking follow-up or
+handing the reviewer a "transport-only" assessment does not allow PASS, nor can
+a video bundle pass without an independent AI review of the frames.
 
 ---
 
