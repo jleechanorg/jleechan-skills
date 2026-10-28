@@ -282,13 +282,17 @@ class ApprovalContractsTest(unittest.TestCase):
         self.assertIn("never by directory or", advice)
         self.assertIn("Codex + Opus CLI", command)
         self.assertIn("/research", command)
-        self.assertIn("/extended-library:secondo", command)
+        self.assertNotIn("secondo", command)
+        self.assertNotIn("Reviewer C", command)
+        self.assertNotIn("secondo", advice)
+        self.assertNotIn("Reviewer C", advice)
         self.assertNotIn("/web-advice", command)
         self.assertNotIn("/web-advice", advice)
         self.assertNotIn("Reviewer D", advice)
-        self.assertIn("up to four reviewers concurrently", readme)
-        self.assertIn("`/extended-library:secondo`", readme)
-        self.assertNotIn("up to four reviewers concurrently: an Opus subagent", readme)
+        advice_readme = readme[readme.index("Use this when you need independent reasoning"):][:1500]
+        self.assertIn("up to three reviewers concurrently", advice_readme)
+        self.assertNotIn("secondo", advice_readme)
+        self.assertNotIn("Reviewer C", advice_readme)
 
     def test_ready_requires_advice_without_web_advice_fanout(self) -> None:
         ready = skill("ready")
