@@ -1791,7 +1791,7 @@ COMMAND_TARGET = re.compile(r"skills/([A-Za-z0-9_.-]+)/SKILL\.md")
 DOT_FAMILY = {"dot", "dot-coordinator", "agy-dot-coordinator"}
 CLOSURE_DENYLIST = DOT_FAMILY | {
     "web-advice", "browser-control", "slack-media-upload", "github-cli-reference",
-    "claw-dispatch", "ao-operator-discipline",
+    "claw-dispatch", "ao-operator-discipline", "aside-browser-default", "browser-testing",
 }
 COMMAND_COMPANION = re.compile(r"commands/([A-Za-z0-9_./-]+)")
 RELATIVE_SKILL_LINK = re.compile(r"(?<![\w.])((?:\.\./)+[A-Za-z0-9_.-]+/SKILL\.md)")
