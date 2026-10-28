@@ -168,6 +168,8 @@ visible. Privacy masking, decode/playback, upload read-back, captions, and
 turn-record or coverage-judge JSON are separate checks and never substitute.
 No content review → **PARTIAL**; a step the frames contradict → **FAIL**.
 
+**Mandatory AI Visual Inspection (`VISUAL APPROVED at <40-char-sha>`):** For any user-visible change (anything not covered by the narrow documentation-only / zero-UI-impact non-visual exemption), `/er` (or an independent `/advice` visual lane / `/dot`) MUST download and visually inspect the actual rendered image or extracted video frames—never just URL status or checksums—and record `VISUAL APPROVED at <40-char-sha>` (or `VISUAL REJECTED at <40-char-sha>`). A link-existence check or pending request (e.g., `/dot: REQUESTED, pending`) is NEVER a visual approval PASS, caps `/er` at **PARTIAL**, and blocks `stage:5-final-approval` and merge readiness.
+
 ### 5. Public-URL hosting check
 
 Apply this check when public or inline video rendering is claimed or required.
