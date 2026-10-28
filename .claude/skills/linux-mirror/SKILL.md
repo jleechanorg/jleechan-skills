@@ -94,23 +94,11 @@ case "$AGENT_CLI" in
   pi)     LAUNCH=(pi -- "$CONTEXT") ;;
   claude) LAUNCH=(claude --dangerously-skip-permissions -- "$CONTEXT") ;;
   codex)  LAUNCH=(codex exec --dangerously-bypass-approvals-and-sandbox -C "$TARGET" -- "$CONTEXT") ;;
-  agy)    LAUNCH=(agy -- "$CONTEXT") ;;
+  agy)    LAUNCH=(agy --prompt-interactive="$CONTEXT") ;;
   *) echo "FAILED:$TARGET - unsupported AGENT_CLI '$AGENT_CLI' (pi|claude|codex|agy)" >&2; exit 1 ;;
 
 esac
 
-# The first-run workspace-trust dialog is Claude-Code-specific. For every other
-# CLI these markers are impossible strings, so the dialog blocks below become
-# no-ops instead of matching someone else's banner text.
-if [ "$AGENT_CLI" = "claude" ]; then
-  TRUST_MARKER="Yes, I trust this folder"
-  TRUST_PROMPT_RE='❯[[:space:]]*Yes, I trust this folder'
-  READY_MARKER="bypass permissions on"
-else
-  TRUST_MARKER="__no_such_dialog_text__"
-  TRUST_PROMPT_RE='__no_such_prompt__'
-  READY_MARKER="__no_such_ready_marker__"
-fi
 
 # $CONTEXT is a required briefing for the coding agent step 4 launches, not
 # optional bookkeeping (see step 1) — an empty value falling through to a
@@ -201,8 +189,13 @@ else
   # only fires the first time a given target directory is mirrored (the
   # dialog only appears once claude.json records the directory as
   # trusted); a no-op loop on an already-trusted directory is safe.
+  # Claude Code only: the first-run workspace-trust dialog. Other CLIs get no polling at all.
+  if [ "$AGENT_CLI" = "claude" ]; then
   for _ in $(seq 1 40); do
-    PANE_PROBE=$(tmux capture-pane -p -t "$SESSION" 2>/dev/null || true)
+    if ! PANE_PROBE=$(tmux capture-pane -p -t "$SESSION" 2>/dev/null); then
+      echo "FAILED:$SESSION - cannot capture the pane; refusing to infer a ready state" >&2
+      exit 1
+    fi
     if echo "$PANE_PROBE" | grep -qF "$TRUST_MARKER"; then
       # The dialog's text can be captured before its keyboard handler is
       # actually wired up — confirmed live under real load (this box
@@ -258,6 +251,7 @@ else
   # exhausted its window before the dialog rendered (a real risk on a
   # loaded box — /advice round 3 caught this) — re-check for it explicitly
   # rather than trusting silence from the poll loop as acceptance.
+  fi
   if tmux has-session -t "=$SESSION" 2>/dev/null \
      && [ "$(tmux display-message -p -t "$SESSION" '#{pane_dead}')" = "0" ] \
      && ! tmux capture-pane -p -t "$SESSION" 2>/dev/null | grep -qF "$TRUST_MARKER"; then
