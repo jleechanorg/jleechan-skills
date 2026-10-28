@@ -345,7 +345,9 @@ if ! POSTED_SUMMARY_IDS=$(
     | [ $all[]
         | select(.author == $responder)
         | (.body // "")
-        | split("\n")[]
+        | split("\n")
+        | map(select(length > 0))
+        | last
         | select(startswith("<!-- COPILOT_COVERAGE_V1 "))
         | sub("^<!-- COPILOT_COVERAGE_V1 "; "")
         | sub(" -->$"; "")

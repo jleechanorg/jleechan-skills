@@ -215,7 +215,10 @@ import _copilot_modules.commentfetch as cf
 import sys
 fetch = cf.CommentFetch(sys.argv[1])
 fetch.execute()
-" "$PR_NUMBER"
+" "$PR_NUMBER" || {
+    echo "❌ ERROR: Canonical commentfetch failed; refusing to display or consume cached comments" >&2
+    exit 2
+}
 
 # If user requested inline display, show the results
 
