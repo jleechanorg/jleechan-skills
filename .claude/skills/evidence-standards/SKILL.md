@@ -51,7 +51,7 @@ Hard rules:
   just written down that you aimed at the wrong target. Re-aim before
   continuing; do not ship the caveat as a substitute for hitting the target.
 - For a model-behavior bug, prefer replaying **real captured production input
-  through the real path** (`~/.claude/skills/ablation/SKILL.md`) over
+  through the real path** (`../ablation/SKILL.md`) over
   synthesizing new prompts. Synthetic prompts test the schema; captured
   payloads test the bug.
 - Forensics on already-captured data (logs, BigQuery, Firestore) is usually
@@ -112,7 +112,7 @@ Hard rules:
   just written down that you aimed at the wrong target. Re-aim before
   continuing; do not ship the caveat as a substitute for hitting the target.
 - For a model-behavior bug, prefer replaying **real captured production input
-  through the real path** (`~/.claude/skills/ablation/SKILL.md`) over
+  through the real path** (`../ablation/SKILL.md`) over
   synthesizing new prompts. Synthetic prompts test the schema; captured
   payloads test the bug.
 - Forensics on already-captured data (logs, BigQuery, Firestore) is usually
@@ -229,7 +229,8 @@ stack against it. Running expensive evidence mid-iteration guarantees it is
 voided by the next fix (PR #9604/#9640, 2026-09-01: ~40 of 50 commits were
 evidence churn; the RED/GREEN pair and bundle had to be scheduled for a full
 rerun anyway). The final comparison may replay the preserved baseline alongside
-the completed candidate; scheduling that package last does not defer the initial
+the completed candidate only if that baseline is labeled `derived` with its
+source (artifact, build SHA, run); scheduling that package last does not defer the initial
 failure reproduction until after the behavior fix.
 
 Rerun expensive evidence ONLY on a material change per the Staleness Tolerance
