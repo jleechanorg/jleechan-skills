@@ -81,6 +81,27 @@ class ReviewerProcessTest(unittest.TestCase):
             self.assertEqual(runner.process_snapshot(), {123: (1, "Mon Oct 25 00:00:00 2026")})
         self.assertEqual(ps.call_args.kwargs["timeout"], 10.0)
 
+    def test_supervisor_startup_consumes_reviewer_timeout(self) -> None:
+        runner = load_runner_module()
+
+        def delayed_start(supervisor) -> None:
+            time.sleep(0.1)
+
+        with mock.patch.object(runner.ProcessTreeSupervisor, "start", delayed_start), \
+                mock.patch.object(runner.ProcessTreeSupervisor, "stop"), \
+                mock.patch.object(runner.ProcessTreeSupervisor, "active_discovered", return_value=[]), \
+                mock.patch.object(runner.ProcessTreeSupervisor, "signal_active", return_value=[]), \
+                mock.patch.object(runner.ProcessTreeSupervisor, "verify_gone", return_value=[]):
+            result = runner.execute(
+                [sys.executable, "-c", "print('VERDICT: APPROVED')"],
+                Path(__file__).resolve().parent,
+                "review",
+                0.02,
+                0.02,
+            )
+
+        self.assertTrue(result[3], "supervisor startup exceeded the reviewer deadline")
+
 
 class PrimaryPairTest(unittest.TestCase):
     def setUp(self) -> None:
@@ -357,10 +378,13 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         (self.repo / "secret.md").write_text("not for review")
         (self.repo / ".gitignore").write_text("secret.md\n")
         (self.repo / "alias.md").symlink_to(self.repo / "tracked.txt")
-        for name in ("../packet.md", "alias.md", "secret.md"):
+        for index, name in enumerate(("../packet.md", "alias.md", "secret.md")):
+            self.output = self.root / f"invalid-document-{index}"
             result = self.invoke("--document", name)
             self.assertEqual(2, result.returncode, result.stderr)
-            self.assertFalse(self.output.exists())
+            receipt = json.loads((self.output / "receipt.json").read_text())
+            self.assertFalse(receipt["operation"]["success"])
+            self.assertNotIn("reviewers", receipt)
 
     def test_modified_reviewer_document_invalidates_review(self) -> None:
         (self.repo / "plan.md").write_text("original document")
@@ -532,11 +556,11 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         argv = self.with_queued_timestamps([
             "--repo", str(self.repo), "--ref", self.sha,
             "--packet-file", str(self.packet), "--output-dir", str(self.output),
-            "--attempt-timeout-seconds", "2", "--cleanup-budget-seconds", "0.2",
+            "--attempt-timeout-seconds", "10", "--cleanup-budget-seconds", "0.2",
             "--timeout-grace-seconds", "0.1", "--timeout-seconds", "10",
         ])
 
-        def deterministic_execute(command, cwd, prompt, timeout_seconds, timeout_grace_seconds):
+        def deterministic_execute(command, cwd, prompt, timeout_seconds, timeout_grace_seconds, *, deadline=None):
             supervision = {
                 "descendant_termination_verified": True,
                 "descendants_surviving": [],
@@ -748,7 +772,7 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         argv = self.with_queued_timestamps([
             "--repo", str(self.repo), "--ref", self.sha,
             "--packet-file", str(self.packet), "--output-dir", str(self.output),
-            "--reviewers", "codex,opus", "--attempt-timeout-seconds", "2",
+            "--reviewers", "codex,opus", "--attempt-timeout-seconds", "5",
             "--cleanup-budget-seconds", "0.5",
             "--timeout-grace-seconds", "0.05", "--timeout-seconds", "10",
             "--queued-at-epoch-ns", "1000100000",
@@ -790,7 +814,43 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
 
         self.assertEqual(result.returncode, 4, result.stderr)
         self.assertLess(time.monotonic() - started, 0.5)
-        self.assertFalse(self.output.exists())
+        self.assertTrue(self.output.is_dir())
+        receipt = json.loads((self.output / "receipt.json").read_text())
+        self.assertEqual(receipt["timeout_stage"], "preflight")
+        self.assertTrue(receipt["attempt_deadline_exceeded"])
+        self.assertFalse(receipt["operation"]["success"])
+
+    def test_successful_lane_with_unverified_supervision_is_not_countable(self) -> None:
+        runner = load_runner_module()
+        argv = self.with_queued_timestamps([
+            "--repo", str(self.repo), "--ref", self.sha,
+            "--packet-file", str(self.packet), "--output-dir", str(self.output),
+            "--reviewers", "codex",
+        ])
+        now = time.monotonic_ns()
+        review = {
+            "status": "success",
+            "transport": "test",
+            "stdout": "VERDICT: APPROVED\nCOVERAGE: all\n",
+            "attempts": [{
+                "exit_code": 0,
+                "failure": None,
+                "descendant_termination_verified": False,
+                "descendant_supervision_errors": ["ps timed out"],
+            }],
+            "started_ns": time.time_ns(),
+            "ended_ns": time.time_ns(),
+            "started_monotonic_ns": now,
+            "ended_monotonic_ns": now,
+        }
+        with mock.patch.object(
+            runner, "resolve_review_scratch_root", return_value=self.scratch
+        ), mock.patch.object(runner, "codex_lane", return_value=review):
+            code = runner.main(argv)
+
+        receipt = json.loads((self.output / "receipt.json").read_text())
+        self.assertEqual(receipt["descendant_termination_failures"], ["codex"])
+        self.assertEqual(code, 7)
 
     def test_clone_timeout_is_recorded_as_attempt_timeout_stage(self) -> None:
         runner = load_runner_module()
@@ -804,7 +864,9 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         def timed_out_clone(source, destination, sha, *, deadline):
             raise subprocess.TimeoutExpired(["git", "clone"], 0.1)
 
-        with redirect_stderr(io.StringIO()):
+        with mock.patch.object(
+            runner, "resolve_review_scratch_root", return_value=self.scratch
+        ), redirect_stderr(io.StringIO()):
             code = runner.main(self.with_queued_timestamps(argv), create_clone_fn=timed_out_clone)
 
         self.assertEqual(code, 4)
@@ -844,9 +906,12 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
                     return function(*call_args, **call_kwargs)
                 return super().submit(gated_call, *args, **kwargs)
 
-        def instant_execute(command, cwd, prompt, timeout_seconds, timeout_grace_seconds):
+        def instant_execute(command, cwd, prompt, timeout_seconds, timeout_grace_seconds, *, deadline=None):
             recorded_timeouts.append((time.monotonic_ns(), timeout_seconds))
-            return 0, "VERDICT: APPROVED\nCOVERAGE: all\n", "", False, False, {}
+            return 0, "VERDICT: APPROVED\nCOVERAGE: all\n", "", False, False, {
+                "descendant_termination_verified": True,
+                "descendants_surviving": [],
+            }
 
         def run_main():
             codes.append(runner.main(argv))
@@ -928,6 +993,8 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
 
         worker = threading.Thread(target=run_main)
         with mock.patch.object(
+            runner, "resolve_review_scratch_root", return_value=self.scratch
+        ), mock.patch.object(
             runner.concurrent.futures, "ThreadPoolExecutor", FailSecondSubmit
         ), mock.patch.object(runner.threading, "Barrier", side_effect=capture_barrier):
             worker.start()
@@ -955,7 +1022,7 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         self.executable("codex", "exit 0\n")
         self.executable("claude", "exit 0\n")
         queued_at_ns = time.time_ns()
-        attempt_timeout = 1.8
+        attempt_timeout = 5.0
         cleanup_budget = 0.6
         argv = self.with_queued_timestamps([
             "--repo", str(self.repo), "--ref", self.sha,
@@ -970,7 +1037,7 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
             "descendants_surviving": [],
         }
 
-        def boundary_execute(command, cwd, prompt, timeout_seconds, timeout_grace_seconds):
+        def boundary_execute(command, cwd, prompt, timeout_seconds, timeout_grace_seconds, *, deadline=None):
             if Path(command[0]).name == "codex":
                 work_deadline_ns = queued_at_ns + int(
                     (attempt_timeout - cleanup_budget) * 1_000_000_000
@@ -1023,7 +1090,7 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
                 return wall_after_step_ns
             return wall_before_step_ns
 
-        def delayed_success(command, cwd, prompt, timeout_seconds, timeout_grace_seconds):
+        def delayed_success(command, cwd, prompt, timeout_seconds, timeout_grace_seconds, *, deadline=None):
             if Path(command[0]).name == "codex":
                 delay = (wall_step_at_ns - time.monotonic_ns()) / 1_000_000_000
                 time.sleep(max(0, delay))
@@ -1085,7 +1152,7 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         argv = self.with_queued_timestamps([
             "--repo", str(self.repo), "--ref", self.sha,
             "--packet-file", str(self.packet), "--output-dir", str(self.output),
-            "--reviewers", "codex", "--attempt-timeout-seconds", "1.0",
+            "--reviewers", "codex", "--attempt-timeout-seconds", "5.0",
             "--cleanup-budget-seconds", "0.1", "--timeout-grace-seconds", "0.05",
         ])
         original_write_text = Path.write_text
@@ -1096,8 +1163,10 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
             if path.name == "receipt.json":
                 receipt_writes += 1
                 if receipt_writes == 1:
+                    return original_write_text(path, data, *args, **kwargs)
+                if receipt_writes == 2:
                     result = original_write_text(path, data, *args, **kwargs)
-                    time.sleep(1.05)
+                    time.sleep(5.05)
                     return result
                 raise OSError("simulated late receipt rewrite failure")
             return original_write_text(path, data, *args, **kwargs)
@@ -1112,8 +1181,8 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
 
         stored_receipt = json.loads((self.output / "receipt.json").read_text())
         self.assertEqual(code, 4)
-        self.assertEqual(receipt_writes, 2)
-        self.assertEqual(stored_receipt["reviewers"]["codex"]["status"], "success")
+        self.assertEqual(receipt_writes, 3)
+        self.assertEqual(stored_receipt.get("reviewers", {}).get("codex", {}).get("status"), "success", repr(stored_receipt))
         self.assertIn("receipt write failed", stderr.getvalue())
         self.assertIn("do not use any reviewer vote", stderr.getvalue())
 

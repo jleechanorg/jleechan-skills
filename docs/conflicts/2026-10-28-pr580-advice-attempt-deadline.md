@@ -11,4 +11,4 @@ Merged origin/main `20a45ad5378dc880b9f79d9ba629784876596899` into the PR branch
 
 ## Tests
 - Before: `python3 -m unittest tests.test_advice_primary_pair` at PR head `220f003e332dba27bcaa902995d72a20a7a3c3a2` → 49 tests; 1 failure and 1 error from short wall-clock assertions (barrier completion within 0.5s and receipt expectation with a 0.2s attempt budget).
-- After: `python3 -m unittest tests.test_advice_primary_pair` → PASS, 51 tests; `python3 .claude/skills/advice/scripts/test_run_primary_pair.py` → PASS, 12 tests; `python3 -m py_compile .claude/skills/advice/scripts/run_primary_pair.py .claude/skills/advice/scripts/test_run_primary_pair.py tests/test_advice_primary_pair.py` and `git diff --check` → PASS.
+- After: `python3 -m unittest tests.test_advice_primary_pair` → PASS, 53 tests; `python3 .claude/skills/advice/scripts/test_run_primary_pair.py` → PASS, 12 tests; `python3 -m py_compile .claude/skills/advice/scripts/run_primary_pair.py .claude/skills/advice/scripts/test_run_primary_pair.py tests/test_advice_primary_pair.py` and `git diff --check` → PASS.

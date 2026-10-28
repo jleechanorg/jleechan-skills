@@ -212,7 +212,7 @@ def command_path(name: str) -> str | None:
     return shutil.which(name)
 
 
-def process_snapshot() -> dict[int, tuple[int, str]]:
+def process_snapshot(timeout_seconds: float = 10.0) -> dict[int, tuple[int, str]]:
     """Return PID -> (PPID, start identity) using portable macOS/Linux ps fields."""
     completed = subprocess.run(
         ["ps", "-axo", "pid=,ppid=,lstart="],
@@ -220,7 +220,7 @@ def process_snapshot() -> dict[int, tuple[int, str]]:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         check=True,
-        timeout=10.0,
+        timeout=timeout_seconds,
     )
     snapshot: dict[int, tuple[int, str]] = {}
     for line in completed.stdout.splitlines():
@@ -236,24 +236,41 @@ def process_snapshot() -> dict[int, tuple[int, str]]:
 
 
 class ProcessTreeSupervisor:
-    """Best-effort descendant tracker that retains identities after reparenting."""
+    """Track reviewer descendants only while the attempt has a cleanup budget."""
 
-    def __init__(self, root_pid: int, interval_seconds: float = 0.25) -> None:
+    def __init__(
+        self,
+        root_pid: int,
+        interval_seconds: float = 0.25,
+        deadline: float | None = None,
+    ) -> None:
         self.root_pid = root_pid
         self.interval_seconds = interval_seconds
+        self.deadline = deadline
         self.discovered: dict[int, str] = {}
         self.errors: list[str] = []
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread_started = False
+
+    def _snapshot(self) -> dict[int, tuple[int, str]]:
+        if self.deadline is None:
+            return process_snapshot()
+        remaining = self.deadline - time.monotonic()
+        if remaining <= 0:
+            raise subprocess.TimeoutExpired(["ps"], 0)
+        return process_snapshot(timeout_seconds=min(10.0, remaining))
 
     def start(self) -> None:
         self._sample()
-        self._thread.start()
+        if self.deadline is None or time.monotonic() < self.deadline:
+            self._thread.start()
+            self._thread_started = True
 
     def _sample(self) -> None:
         try:
-            snapshot = process_snapshot()
+            snapshot = self._snapshot()
         except (OSError, subprocess.SubprocessError) as error:
             with self._lock:
                 self.errors.append(f"{type(error).__name__}: {error}")
@@ -271,16 +288,22 @@ class ProcessTreeSupervisor:
 
     def _run(self) -> None:
         while not self._stop.wait(self.interval_seconds):
+            if self.deadline is not None and time.monotonic() >= self.deadline:
+                return
             self._sample()
 
     def stop(self) -> None:
         self._sample()
         self._stop.set()
-        self._thread.join(timeout=max(0.1, self.interval_seconds * 5))
+        if self._thread_started:
+            join_timeout = max(0.1, self.interval_seconds * 5)
+            if self.deadline is not None:
+                join_timeout = min(join_timeout, max(0.0, self.deadline - time.monotonic()))
+            self._thread.join(timeout=join_timeout)
 
     def active_discovered(self) -> list[int]:
         try:
-            snapshot = process_snapshot()
+            snapshot = self._snapshot()
         except (OSError, subprocess.SubprocessError) as error:
             with self._lock:
                 self.errors.append(f"{type(error).__name__}: {error}")
@@ -308,6 +331,8 @@ class ProcessTreeSupervisor:
 
     def verify_gone(self, grace_seconds: float) -> list[int]:
         deadline = time.monotonic() + grace_seconds
+        if self.deadline is not None:
+            deadline = min(deadline, self.deadline)
         survivors = self.active_discovered()
         while survivors and time.monotonic() < deadline:
             time.sleep(min(0.02, max(0.0, deadline - time.monotonic())))
@@ -331,7 +356,13 @@ def execute(
     prompt: str,
     timeout_seconds: float,
     timeout_grace_seconds: float,
+    *,
+    deadline: float | None = None,
 ) -> tuple[int, str, str, bool, bool, dict[str, Any]]:
+    execution_deadline = (
+        deadline if deadline is not None else time.monotonic() + timeout_seconds
+    )
+    supervision_deadline = execution_deadline + timeout_grace_seconds
     process = subprocess.Popen(
         [*command, prompt],
         cwd=cwd,
@@ -341,33 +372,37 @@ def execute(
         stderr=subprocess.PIPE,
         start_new_session=True,
     )
-    supervisor = ProcessTreeSupervisor(process.pid)
+    supervisor = ProcessTreeSupervisor(process.pid, deadline=supervision_deadline)
     supervisor.start()
     try:
-        stdout, stderr = process.communicate(timeout=timeout_seconds)
+        remaining = execution_deadline - time.monotonic()
+        if remaining <= 0:
+            raise subprocess.TimeoutExpired(command, timeout_seconds)
+        stdout, stderr = process.communicate(timeout=remaining)
+        if time.monotonic() > execution_deadline:
+            raise subprocess.TimeoutExpired(command, timeout_seconds)
         supervisor.stop()
-        return (
-            process.returncode,
-            stdout,
-            stderr,
-            False,
-            False,
-            supervisor.evidence(set(), supervisor.active_discovered()),
-        )
+        supervision = supervisor.evidence(set(), supervisor.active_discovered())
+        timed_out = time.monotonic() > execution_deadline
+        return process.returncode, stdout, stderr, timed_out, False, supervision
     except subprocess.TimeoutExpired:
         supervisor.stop()
         terminated = set(supervisor.signal_active(signal.SIGTERM))
-        try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except (ProcessLookupError, PermissionError):
-            pass
-        try:
-            process.kill()
-        except ProcessLookupError:
-            pass
+        if process.poll() is None:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+            try:
+                process.kill()
+            except ProcessLookupError:
+                pass
         forced_pipe_close = False
         try:
-            stdout, stderr = process.communicate(timeout=timeout_grace_seconds)
+            remaining_grace = max(
+                0.0, min(timeout_grace_seconds, supervision_deadline - time.monotonic())
+            )
+            stdout, stderr = process.communicate(timeout=remaining_grace)
         except subprocess.TimeoutExpired as drain_timeout:
             forced_pipe_close = True
 
@@ -384,17 +419,17 @@ def execute(
                 if pipe is not None:
                     pipe.close()
         try:
-            process.wait(timeout=timeout_grace_seconds)
+            process.wait(timeout=max(0.0, min(timeout_grace_seconds, supervision_deadline - time.monotonic())))
         except subprocess.TimeoutExpired:
             process.kill()
             try:
-                process.wait(timeout=timeout_grace_seconds)
+                process.wait(timeout=max(0.0, min(timeout_grace_seconds, supervision_deadline - time.monotonic())))
             except subprocess.TimeoutExpired:
                 pass
         terminated.update(supervisor.signal_active(signal.SIGKILL))
         survivors = supervisor.verify_gone(timeout_grace_seconds)
         return (
-            process.returncode or -signal.SIGKILL,
+            process.returncode if process.returncode is not None else -signal.SIGKILL,
             stdout,
             stderr,
             True,
@@ -480,6 +515,8 @@ def dispatch_failure_result(
                 "exit_code": None,
                 "stderr": str(error),
                 "failure": failure,
+                "descendant_termination_verified": True,
+                "descendant_supervision_errors": [],
             }
         ],
         "started_ns": started_ns,
@@ -526,6 +563,7 @@ def codex_lane(
             prompt,
             timeout_seconds,
             timeout_grace_seconds,
+            deadline=deadline,
         )
         failure = (
             ("attempt_timeout" if attempt_limited else "timeout")
@@ -601,7 +639,7 @@ def opus_lane(
         }
     command = [claude, "-p", "--model", "opus", "--dangerously-skip-permissions"]
     code, stdout, stderr, timed_out, forced_pipe_close, supervision = execute(
-        command, cwd, prompt, timeout_seconds, timeout_grace_seconds
+        command, cwd, prompt, timeout_seconds, timeout_grace_seconds, deadline=deadline
     )
     failure = (
         ("attempt_timeout" if attempt_limited else "timeout")
@@ -764,12 +802,11 @@ def invalidate_reviewer_votes(reviewers: dict[str, Any], failure: str) -> None:
 def descendant_termination_failures(reviewers: dict[str, Any]) -> list[str]:
     failures: list[str] = []
     for reviewer, result in reviewers.items():
-        for attempt in result.get("attempts", []):
-            if attempt.get("failure") in {"timeout", "attempt_timeout"} and not attempt.get(
-                "descendant_termination_verified", False
-            ):
-                failures.append(reviewer)
-                break
+        if any(
+            attempt.get("descendant_termination_verified") is not True
+            for attempt in result.get("attempts", [])
+        ):
+            failures.append(reviewer)
     return sorted(failures)
 
 
@@ -794,6 +831,18 @@ def read_review_documents(
             raise ValueError("ignored documents must not be submitted implicitly")
         documents[relative.as_posix()] = path.read_bytes()
     return documents
+
+
+def find_git_worktree_root(path: Path) -> Path:
+    """Find the checkout root without invoking Git or assuming path is its root."""
+    candidate = path.resolve()
+    if candidate.is_file():
+        candidate = candidate.parent
+    for parent in (candidate, *candidate.parents):
+        marker = parent / ".git"
+        if marker.is_file() or marker.is_dir():
+            return parent
+    raise ValueError("input path is not inside a Git working tree")
 
 
 def main(
@@ -838,6 +887,76 @@ def main(
         (args.attempt_timeout_seconds - args.cleanup_budget_seconds) * 1_000_000_000
     )
     try:
+        repo_root_hint = find_git_worktree_root(args.repo)
+    except (OSError, ValueError) as error:
+        print(f"document review refused: {error}", file=sys.stderr)
+        return 2
+    output_dir = args.output_dir.resolve()
+    if output_dir == repo_root_hint or repo_root_hint in output_dir.parents:
+        print("output directory must be outside the original checkout", file=sys.stderr)
+        return 2
+    try:
+        output_dir.mkdir(parents=True, exist_ok=False)
+    except FileExistsError:
+        print(
+            "output directory must be a fresh path per invocation; "
+            "refusing to reuse existing reviewer artifacts",
+            file=sys.stderr,
+        )
+        return 2
+    except OSError as error:
+        print(f"could not reserve review output directory: {error}", file=sys.stderr)
+        return 2
+
+    receipt_path = output_dir / "receipt.json"
+    receipt: dict[str, Any] = {
+        "sha": None,
+        "review_kind": "documents" if args.document else "revision",
+        "document_hashes": {},
+        "document_bundle_sha256": None,
+        "parallel_dispatch": len(args.reviewers) > 1,
+        "checkout_kind": "independent_clone_no_local",
+        "timeout_seconds": args.timeout_seconds,
+        "attempt_started_ns": attempt_started_ns,
+        "attempt_started_monotonic_ns": queued_at_monotonic_ns,
+        "attempt_timeout_seconds": args.attempt_timeout_seconds,
+        "cleanup_budget_seconds": args.cleanup_budget_seconds,
+        "work_deadline_monotonic_ns": work_deadline_monotonic_ns,
+        "timeout_grace_seconds": args.timeout_grace_seconds,
+        "codex_model": args.codex_model,
+        "operation": {"success": False, "error": "preflight not completed"},
+        "cleanup": {
+            "success": True,
+            "error": None,
+            "path": None,
+            "not_required": True,
+        },
+    }
+
+    def write_early_receipt() -> None:
+        receipt["elapsed_seconds"] = time.monotonic() - attempt_started
+        receipt["attempt_deadline_exceeded"] = time.monotonic() > attempt_deadline
+        receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+
+    def record_early_failure(error: Exception, timeout_stage: str | None = None) -> None:
+        receipt["operation"] = {
+            "success": False,
+            "error": f"{type(error).__name__}: {error}",
+        }
+        if timeout_stage is not None:
+            receipt["timeout_stage"] = timeout_stage
+        try:
+            write_early_receipt()
+        except OSError as write_error:
+            print(f"attempt receipt write failed: {write_error}", file=sys.stderr)
+
+    try:
+        write_early_receipt()
+    except OSError as error:
+        print(f"could not write initial attempt receipt: {error}", file=sys.stderr)
+        return 2
+
+    try:
         repo = Path(
             git(
                 args.repo.resolve(),
@@ -845,11 +964,9 @@ def main(
                 "--show-toplevel",
                 deadline=attempt_deadline,
             ).stdout.decode().strip()
-        )
-        output_dir = args.output_dir.resolve()
-        if output_dir == repo or repo in output_dir.parents:
-            print("output directory must be outside the original checkout", file=sys.stderr)
-            return 2
+        ).resolve()
+        if repo != repo_root_hint:
+            raise ValueError("Git reported a different checkout root than the path check")
         if not args.document and git(
             repo,
             "status",
@@ -857,27 +974,33 @@ def main(
             "--untracked-files=all",
             deadline=attempt_deadline,
         ).stdout:
-            print(
-                "input checkout must be clean; dirty state is not represented by an exact SHA",
-                file=sys.stderr,
+            raise ValueError(
+                "input checkout must be clean; dirty state is not represented by an exact SHA"
             )
-            return 2
         sha = git(
             repo, "rev-parse", f"{args.ref}^{{commit}}", deadline=attempt_deadline
         ).stdout.decode().strip()
+        receipt["sha"] = sha
         before = repository_snapshot(repo, attempt_deadline)
         documents = read_review_documents(repo, args.document, attempt_deadline)
+        packet = args.packet_file.read_text()
     except subprocess.TimeoutExpired as error:
+        record_early_failure(error, "preflight")
         print(f"attempt_timeout during preflight: {error}", file=sys.stderr)
         return 4
-    except (ValueError, OSError) as error:
+    except (ValueError, OSError, subprocess.CalledProcessError) as error:
+        record_early_failure(error, "preflight")
         print(f"document review refused: {error}", file=sys.stderr)
         return 2
     document_hashes = {name: hashlib.sha256(data).hexdigest() for name, data in documents.items()}
     document_bundle_sha256 = hashlib.sha256(
         json.dumps(document_hashes, sort_keys=True).encode()
     ).hexdigest() if documents else None
-    packet = args.packet_file.read_text()
+    receipt.update({
+        "sha": sha,
+        "document_hashes": document_hashes,
+        "document_bundle_sha256": document_bundle_sha256,
+    })
     prompt = (
         f"EXACT REVIEW SHA: {sha}\n"
         "The current directory is an independent detached clone at that SHA. Review only this checkout.\n\n"
@@ -897,59 +1020,24 @@ def main(
     try:
         scratch_root = resolve_review_scratch_root(deadline=work_deadline)
     except TimeoutError as error:
+        record_early_failure(error, "scratch_resolution")
         print(f"attempt_timeout during Scratch resolution: {error}", file=sys.stderr)
         return 4
     except RuntimeError as error:
+        record_early_failure(error, "scratch_resolution")
         print(f"review scratch unavailable: {error}", file=sys.stderr)
         return 2
-    if output_dir.exists():
-        print(
-            "output directory must be a fresh path per invocation; "
-            "refusing to reuse existing reviewer artifacts",
-            file=sys.stderr,
-        )
-        return 2
+    receipt["scratch_root"] = str(scratch_root)
     try:
         temp_root = Path(
             tempfile.mkdtemp(prefix="advice-primary-pair-", dir=scratch_root)
         )
     except OSError as error:
+        record_early_failure(error, "scratch_allocation")
         print(f"review scratch unavailable: {error}", file=sys.stderr)
         return 2
-    try:
-        # Reserve the result path before dispatch. Reusing a directory could
-        # leave an unselected review artifact beside a fresh receipt.
-        output_dir.mkdir(parents=True, exist_ok=False)
-    except FileExistsError:
-        cleanup_fn(temp_root)
-        print(
-            "output directory must be a fresh path per invocation; "
-            "refusing to reuse existing reviewer artifacts",
-            file=sys.stderr,
-        )
-        return 2
-    except OSError as error:
-        cleanup_fn(temp_root)
-        print(f"could not reserve review output directory: {error}", file=sys.stderr)
-        return 2
-    receipt: dict[str, Any] = {
-        "sha": sha,
-        "review_kind": "documents" if documents else "revision",
-        "document_hashes": document_hashes,
-        "document_bundle_sha256": document_bundle_sha256,
-        "parallel_dispatch": len(args.reviewers) > 1,
-        "checkout_kind": "independent_clone_no_local",
-        "scratch_root": str(scratch_root),
-        "timeout_seconds": args.timeout_seconds,
-        "attempt_started_ns": attempt_started_ns,
-        "attempt_started_monotonic_ns": queued_at_monotonic_ns,
-        "attempt_timeout_seconds": args.attempt_timeout_seconds,
-        "cleanup_budget_seconds": args.cleanup_budget_seconds,
-        "work_deadline_monotonic_ns": work_deadline_monotonic_ns,
-        "timeout_grace_seconds": args.timeout_grace_seconds,
-        "codex_model": args.codex_model,
-        "operation": {"success": False, "error": "operation did not complete"},
-    }
+    receipt["cleanup"] = {"success": False, "error": "reviewers not started", "path": str(temp_root)}
+    receipt["operation"] = {"success": False, "error": "operation did not complete"}
     operational_error: str | None = None
     receipt_write_error: str | None = None
     timeout_stage: str | None = None
@@ -1032,6 +1120,11 @@ def main(
         receipt["descendant_termination_failures"] = descendant_termination_failures(
             results
         )
+        for name in receipt["descendant_termination_failures"]:
+            if results[name].get("status") == "success":
+                invalidate_reviewer_votes(
+                    {name: results[name]}, "descendant_supervision_unverified"
+                )
         receipt["overlap_proven"] = len(results) > 1 and max(
             r["started_monotonic_ns"] for r in results.values()
         ) <= min(r["ended_monotonic_ns"] for r in results.values())
@@ -1079,7 +1172,6 @@ def main(
         if receipt["attempt_deadline_exceeded"]:
             invalidate_reviewer_votes(receipt.get("reviewers", {}), "attempt_timeout")
         try:
-            receipt_path = output_dir / "receipt.json"
             receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
             receipt["elapsed_seconds"] = time.monotonic() - attempt_started
             receipt["attempt_deadline_exceeded"] = time.monotonic() > attempt_deadline
