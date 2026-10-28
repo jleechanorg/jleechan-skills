@@ -97,7 +97,7 @@ case "$AGENT_CLI" in
   claude) LAUNCH=(claude --dangerously-skip-permissions -- "$CONTEXT") ;;
   pi)     LAUNCH=(pi -- "$CONTEXT") ;;
   codex)  LAUNCH=(codex --dangerously-bypass-approvals-and-sandbox -C "$TARGET" -- "$CONTEXT") ;;
-  agy)    LAUNCH=(agy --prompt-interactive="$CONTEXT") ;;
+  agy)    LAUNCH=(agy --dangerously-skip-permissions --model gemini-3.8-flash-high --prompt-interactive="$CONTEXT") ;;
   *) echo "FAILED:$TARGET - unsupported AGENT_CLI '$AGENT_CLI' (claude|pi|codex|agy)" >&2; exit 1 ;;
 
 esac
