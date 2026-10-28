@@ -76,11 +76,10 @@ for existing cmux Cloud capacity, follow
      items get a machine where they will not contend with another self-saturating
      workload.
    - **Shard across hosts when needed.** Split independent items across other
-     suitable, already available and authorized hosts when current-host CPU is
-     highly used for the workload under the host-specific thresholds in
-     `references/host-load-balancing.md`, or another measured constraint makes
-     the current host ineligible. A comparative idle-CPU ranking alone is not
-     a reason to transfer.
+     suitable, already available and authorized hosts only when the current
+     host's measured workload-specific admission rule refuses the next lane,
+     or another measured constraint makes the current host ineligible. A
+     comparative idle-CPU ranking alone is not a reason to transfer.
 4. **Scale across eligible capacity.** Use current-host headroom first, then
    eligible remote capacity when the current host cannot safely admit the work.
    If the ideal needs more capacity than is available, report that gap; do not
