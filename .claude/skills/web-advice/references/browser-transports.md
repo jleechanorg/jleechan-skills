@@ -4,8 +4,8 @@ Choose the runtime before choosing a browser transport.
 
 | Runtime | Preferred transport order |
 | --- | --- |
-| Interactive chat app | App browser only in a separate task-owned context; existing Aside only when verified agent-owned and background-safe |
-| Coding CLI or Bash | Isolated headless Chromium/Playwright by default; existing Aside only when verified agent-owned and background-safe |
+| Interactive chat app | App browser only in a separate task-owned context; Aside in background mode on an agent-owned profile (aside-browser-default § Background mode) |
+| Coding CLI or Bash | Aside in background mode on an agent-owned profile for logged-in reviewer sites; isolated headless Chromium/Playwright otherwise |
 
 An app run must create a new vendor chat. A CLI/Bash run must not attach to an
 existing GUI tab: unrelated conversation state invalidates review provenance.

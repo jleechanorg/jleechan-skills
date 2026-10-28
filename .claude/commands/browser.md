@@ -1,5 +1,5 @@
 ---
-description: Control real websites and authenticated browser sessions, inspect pages, complete approved UI flows, or troubleshoot browser automation. Defaults to isolated headless Chromium; uses Aside only for a verified agent-owned background context and routes deterministic app testing to playwright-ui-testing.
+description: Control real websites and authenticated browser sessions, inspect pages, complete approved UI flows, or troubleshoot browser automation. Uses Aside in background (no-focus-steal) mode on an agent-owned profile for live and authenticated sites, isolated headless Chromium otherwise, and routes deterministic app testing to playwright-ui-testing.
 type: skill
 execution_mode: immediate
 ---

@@ -14,12 +14,12 @@ Apply the personal browser isolation contract in `~/.claude/skills/browser-contr
 
 **Headless by default.** Do not open a desktop browser window for routine work or as spontaneous recovery.
 
-**Browser default:** isolated headless Chromium through Playwright MCP or another task-owned isolated runtime. Aside is an optional existing background context only when its agent ownership is verified; do not launch or activate the Aside app to make it available.
+**Browser default:** isolated headless Chromium through Playwright MCP or another task-owned isolated runtime. Live and authenticated sites use Aside in background mode on an agent-owned profile (aside-browser-default § Background mode); never activate the Aside app or use a personal profile.
 
 | Tool | Default | Visible-mode boundary |
 |------|---------|--------------------------------------|
 | **Playwright MCP** | **DEFAULT**, isolated headless | headed unless explicitly requested in the current thread and isolated in a separate task-owned profile/context |
-| **Aside CLI / `aside-mcp`** | optional only when verified agent-owned and background | launching/activating app; using personal browser state |
+| **Aside CLI / `aside-mcp`** | background mode on an agent-owned profile (aside-browser-default § Background mode) | activating/foregrounding the app; personal profile or browser state |
 | **superpowers-chrome** (`chrome_use_browser`) | fallback in isolated headless mode | headed unless explicitly requested in the current thread and isolated in a separate task-owned profile/context |
 | **claude-in-chrome / GUI Chrome** | do not use for localhost | driving a visible desktop browser for automation |
 
@@ -50,7 +50,7 @@ Only an explicit current-thread request authorizes visible mode, and only in a s
 - Using a personal/default visible Chrome for scraping or cookie injection.
 - `mcp__claude-in-chrome__*` for localhost testing (use Playwright MCP)
 - **Using AppleScript or another desktop automation API to create tabs in the user's personal Chrome** — this can touch the user's window, tabs, or session. Use the browser-control contract and an agent-owned browser/profile for every executable recipe.
-- **Driving a personal/default visible desktop browser via CDP** — use isolated headless Chromium by default; when visible mode is explicitly requested in the current thread, use only a separate, verified task-owned browser/profile. Aside CLI / Aside MCP remain limited to an already-running, verified agent-owned background context.
+- **Driving a personal/default visible desktop browser via CDP** — use isolated headless Chromium by default; when visible mode is explicitly requested in the current thread, use only a separate, verified task-owned browser/profile. Aside CLI / Aside MCP run only in background mode on an agent-owned profile (aside-browser-default § Background mode).
 - **Treating authentication as a reason to use a headed or personal browser.** Continue only via a provider-supported flow in an already authorized isolated context. A separately explicit one-agent-owned-source cookie transfer is governed by browser-control and cannot bypass login, consent, MFA, or device confirmation.
 
 ## Automatic-auth default (added 2026-07-30, browserclaw v2 design review)

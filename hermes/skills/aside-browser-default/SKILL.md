@@ -1,6 +1,6 @@
 ---
 name: aside-browser-default
-description: Isolated headless Chromium is the default for browser work. Use Aside only when an already-running agent-owned background context is verified; never launch or activate it for a task. See browser-control for the personal-browser isolation contract.
+description: Run Aside in background (no-focus-steal) mode on an agent-owned profile by default for live and authenticated sites; use isolated headless Chromium for CI, Linux, deterministic tests, or when background mode cannot be verified. See browser-control for the personal-browser isolation contract.
 when_to_use: Browser automation, scraping, screenshots, localhost UI checks, cookie injection flows, /browser command, public-data lookups
 allowed-tools: mcp__aside-mcp, aside, mcp__playwright-mcp (fallback), mcp__plugin-superpowers-chrome__chrome_use_browser (fallback)
 context: hermes
@@ -10,19 +10,27 @@ context: hermes
 
 ## Contract
 
-Aside is a real GUI browser, not headless. Its background behavior must be verified for the current operation.
+Aside is a real GUI browser, not headless (it has no headless flag). Run it in background mode by default (§ Background mode): agent-owned profile, started and driven without taking focus, frontmost app verified unchanged. If background mode cannot be verified, use isolated headless Chromium.
 
-Apply `~/.claude/skills/browser-control/SKILL.md` § Personal browser isolation first. Aside is primary only when it can operate in the background in an agent-owned tab; otherwise use isolated headless Playwright Chromium. Never attach to, focus, or import cookies from the personal Chrome browser.
+Apply `~/.claude/skills/browser-control/SKILL.md` § Personal browser isolation first. Aside runs in background mode on an agent-owned profile; otherwise use isolated headless Playwright Chromium. Never attach to, focus, or import cookies from the personal Chrome browser.
 
-**Default: isolated headless Chromium.** Aside is permitted only when an already-running browser context is verified as agent-owned and navigation stays in the background. Never launch or activate Aside to make it available. When ownership or background behavior is not proven, use isolated headless Playwright.
+**Default: Aside in background mode** for live websites and authenticated sessions on an agent-owned profile. Isolated headless Chromium is the default for CI, Linux, deterministic local-app tests, and whenever background mode is unavailable or unverified. No user request to show or use a browser authorizes use of a personal window/profile.
 
 | Tool | Role | When to use |
 |------|------|-------------|
-| **`aside` CLI / `aside-mcp`** | Conditional | Already-running verified agent-owned background context only; no personal tabs/profile and no app launch/activation |
-| `mcp__playwright-mcp` | Default | Isolated headless browser for public pages and deterministic tests when Aside ownership/background behavior is unproven |
+| **`aside` CLI / `aside-mcp`** | Default (background mode) | Agent-owned profile in background mode per § Background mode; never foreground it or use personal tabs/profile |
+| `mcp__playwright-mcp` | Default (headless) | Headless isolated browser for CI, Linux, deterministic tests, and when Aside background mode is not verified |
 | `mcp__plugin-superpowers-chrome__chrome_use_browser` | Fallback | Only when Chrome-specific behavior is required (e.g., you need Chrome's exact `--user-data-dir` semantics for a particular test) |
 
-Keep Chromium headless by default. A current-thread explicit request for visible automation permits a headed window only in a separate, verified task-owned browser process/profile/context. Never use a personal or default profile, or launch/activate a desktop app as spontaneous recovery. Do not assume Aside navigation is background-safe; verify ownership and background operation for the current task, or use isolated headless Chromium.
+Keep Chromium headless by default. A current-thread explicit request for visible automation permits a headed window only in a separate, verified task-owned browser process/profile/context. Never use a personal or default profile, or bring a desktop app to the foreground. Verify background operation (frontmost app unchanged) for the current task, or use isolated headless Chromium.
+
+## Background mode
+
+Aside has no headless flag; background mode is the supported no-focus-steal equivalent (macOS only).
+
+1. **Start only the agent profile,** whether the app is stopped or the profile shows `disconnected` in `aside host profiles --account <agent-account>` (or `aside repl` reports it is not connected). Never use `open -a`, `open -g -a`, or `open <url>`: a plain launch takes focus and a cold app start can restore personal profile windows. Run `/Applications/Aside.app/Contents/MacOS/Aside --profile-directory="<agent profile dir>" --no-startup-window &`. `aside host profiles` lists only one account, so before and after the start run `aside host profiles --account <id>` for every id in `aside account list`; if any non-agent profile changed from `disconnected` to `connected`, stop using Aside for the task and report it. A personal profile the user already had connected is theirs: never read or drive it. Find the directory in `~/Library/Application Support/Aside/Local State` (`profile.info_cache`, matching the agent account email). Never start a personal profile.
+2. **Drive tabs only through** `aside repl --account <agent-account>` or `aside-mcp` (`openTab`, `snapshot`, `closeTab`).
+3. **Verify:** record the frontmost app (`osascript -e 'tell application "System Events" to get name of first process whose frontmost is true'`) before starting Aside and again after the first action. If it changed, stop using Aside for the task and switch to isolated headless Chromium.
 
 ## Why Aside
 
@@ -37,7 +45,7 @@ Aside is a Y Combinator–backed AI-native Chromium browser launched June 2026. 
 
 ### Phase 1 — Before any browser action
 
-1. **Use Aside only if it is already running in an agent-owned context.** Confirm process/context ownership and background navigation; metadata or account-list output alone is insufficient.
+1. **Start or reuse Aside in background mode** (§ Background mode) on an agent-owned profile. Metadata or account-list output alone does not prove a connected profile; check `aside host profiles --account <id>`.
 2. **For complex multi-step work** (scraping, public-data lookups, forms), prefer `aside "..."` NL agent with `--effort ultrabrowse`.
 3. **For deterministic scripted work** (screenshot a URL, click a button, fill a form), prefer `aside repl "..."` with the Playwright-shaped API (`openTab`, `snapshot`, `listBrowserTabs`).
 4. **For agent-runtime MCP tool exposure** (Claude Code/Codex tool calls), use `mcp__aside-mcp__*` if the runtime exposes it; otherwise drop to `aside repl` from a terminal tool call.
@@ -62,17 +70,17 @@ Aside is a Y Combinator–backed AI-native Chromium browser launched June 2026. 
 - **Multi-line REPL scripts MUST go through `$(cat file)` or heredoc, NOT inline string args** — verified 2026-07-13. When JS contains parentheses inside template literals or string-concatenation (e.g. `String(s.tree).split('\n').filter(l => /ref=e\d+/.test(l))`), bash will mangle the parens before Aside ever sees them, returning `bash: eval: line 16: syntax error near unexpected token '('` instead of the Aside "ReferenceError" you'd expect. The fix:
   ```bash
   # ❌ Breaks on shell tokenization — bash reads `(` as a syntax error
-  aside repl "const x = String(s.tree).split('\n').filter(l => /ref=e\d+/.test(l));"
+  aside repl --account <agent-account> "const x = String(s.tree).split('\n').filter(l => /ref=e\d+/.test(l));"
 
   # ✅ Pattern A — write JS to a file, cat into the arg
   cat > /tmp/script.js <<'JS'
   const x = String(s.tree).split('\n').filter(l => /ref=e\d+\]/.test(l));
   console.log('hits:', x.length);
   JS
-  aside repl "$(cat /tmp/script.js)"
+  aside repl --account <agent-account> "$(cat /tmp/script.js)"
 
   # ✅ Pattern B — heredoc the file CONTENTS as the inline code
-  aside repl "$(cat <<'JS'
+  aside repl --account <agent-account> "$(cat <<'JS'
     const x = ...;
     console.log(x);
   JS
@@ -81,7 +89,7 @@ Aside is a Y Combinator–backed AI-native Chromium browser launched June 2026. 
   Use `<<'JS'` (quoted heredoc) to prevent bash from expanding `${var}` / `$(cmd)` inside your JS.
 - **NL agent pattern** (best for "find X on this site" tasks):
   ```bash
-  aside --effort ultrabrowse "Find the next available AirBnB near 1127 Riverside Drive that sleeps 4 and has AC, return the listing URL + price + availability dates"
+  aside --account <agent-account> --effort ultrabrowse "Find the next available AirBnB near 1127 Riverside Drive that sleeps 4 and has AC, return the listing URL + price + availability dates"
   ```
 - **Live tab list pattern** (when an Aside tab is already open):
   ```js
@@ -96,7 +104,7 @@ Aside is a Y Combinator–backed AI-native Chromium browser launched June 2026. 
   const shot = await annotatedScreenshot(p);   // NOT screenshot() — that doesn't exist
   console.log('B64:' + shot.base64Image);
   ```
-- **OAuth:** use the provider-supported flow in an isolated, agent-owned browser context. Do not intercept system URL openers, log authorization URLs, clear cached grants, or launch/drive a desktop browser. The old capture-and-drive reference is retired and non-executable.
+- **OAuth:** use the provider-supported flow in an isolated, agent-owned browser context. Do not intercept system URL openers, log authorization URLs, clear cached grants, or launch/drive a personal desktop browser (Aside in background mode on an agent-owned profile is allowed). The old capture-and-drive reference is retired and non-executable.
 - **Slack operations:** use the approved Slack connector/API with its existing authorized scopes. If a method is unavailable or returns `missing_scope`, do not use `slack.getClient()` or browser cookies to bypass that limit; use an authorized Slack UI action in an already verified, isolated agent-owned browser context when appropriate, or report the missing authorization. See `references/aside-repl-api-gotchas.md` for this boundary and safe membership checks.
 
 - **Session continuity** (continue a prior NL session):
@@ -105,7 +113,7 @@ Aside is a Y Combinator–backed AI-native Chromium browser launched June 2026. 
   ```
 - **Account switching** (rare; for multi-account flows):
   ```bash
-  aside --account u1 "open https://example.com"
+  aside --account <agent-owned-account-id> "open https://example.com"
   ```
 
 ### Phase 3 — After session
@@ -115,7 +123,7 @@ Aside is a Y Combinator–backed AI-native Chromium browser launched June 2026. 
 
 ## Aside is not running
 
-If Aside is unavailable or background ownership is not verified, use isolated headless Chromium. Never open, launch, restart, or activate the Aside GUI app as recovery.
+Start it in background mode (§ Background mode). If the app is not installed, background start fails, or the frontmost app changes, use isolated headless Chromium. Never use plain `open -a Aside`, `open <url>`, or anything that activates the app.
 
 If the Aside CLI or app is unavailable, use isolated headless Chromium. Installation and app recovery are outside this browser-task route.
 
@@ -158,13 +166,14 @@ Aside and Chrome use separate macOS Keychain entries. This is portability backgr
 # 1. CLI alive
 aside --version       # 1.26.626.1517
 aside account list    # * u0  '<account-email>'  signed in
+aside host profiles --account <agent-account>   # agent profile must show connected
 
 # 2. REPL alive
-aside repl "console.log('ok')"        # [ok | <Nms>]
-  aside repl "(async () => console.log((await listBrowserTabs()).length))()" # number of open tabs
+aside repl --account <agent-account> "console.log('ok')"        # [ok | <Nms>]
+  aside repl --account <agent-account> "(async () => console.log((await listBrowserTabs()).length))()" # number of open tabs
 
 # 3. NL agent alive
-aside "Open https://example.com and report the title"  # returns "Example Domain"
+aside --account <agent-account> "Open https://example.com and report the title"  # returns "Example Domain"
 
 # 4. MCP server reachable
 curl -fsS http://127.0.0.1:8013/mcp -X POST -H 'Content-Type: application/json' \

@@ -165,12 +165,12 @@ Every `aside repl "..."` CLI call is a fresh browser connection. State that you 
 
 ```bash
 # ❌ Will fail: t is undefined in the second call.
-aside repl "const t = await openTab('https://example.com');"
-aside repl "await t.evaluate(() => location.href)"  # ReferenceError
+aside repl --account <agent-account> "const t = await openTab('https://example.com');"
+aside repl --account <agent-account> "await t.evaluate(() => location.href)"  # ReferenceError
 
 # ✅ Pattern: bundle the entire script into ONE repl call as a heredoc or
 # JS string. Use await sleep() inside the same script for any pauses.
-aside repl "$(cat <<'JS'
+aside repl --account <agent-account> "$(cat <<'JS'
   const t = await openTab('https://example.com');
   await sleep(5000);
   const dump = await t.evaluate(() => ({ url: location.href, title: document.title }));
@@ -180,7 +180,7 @@ JS
 
 # ✅ Or: write the script to a file and pipe it via stdin / cat.
 cat /tmp/script.mjs | tr '\n' ' ' | tr -s ' ' > /tmp/cmd.txt
-aside repl "$(cat /tmp/cmd.txt)"
+aside repl --account <agent-account> "$(cat /tmp/cmd.txt)"
 ```
 
 For multi-step stateful flows (login → click → type → submit), keep the **entire** sequence inside a single `repl` invocation.
@@ -215,11 +215,11 @@ A common 60-second trap:
 
 ```bash
 # ❌ Looks like the call hung — no output ever appears
-aside repl "Object.keys(globalThis).slice(0, 30).join(',')"
+aside repl --account <agent-account> "Object.keys(globalThis).slice(0, 30).join(',')"
 # (returns silently with [ok | 6ms] only)
 
 # ✅ console.log echoes to stdout and is what the caller sees
-aside repl "console.log('GLOBAL:', Object.keys(globalThis).slice(0, 30).join(','))"
+aside repl --account <agent-account> "console.log('GLOBAL:', Object.keys(globalThis).slice(0, 30).join(','))"
 ```
 
 **Reason:** `aside repl` runs the JS via a Node REPL whose final expression value is normally echoed (`[ok | Nms]` only confirms the call returned; the actual value is dropped unless you `console.log` it). For multi-step scripts, always `console.log` what you want captured.
@@ -250,7 +250,7 @@ Inline `aside repl "... JS ..."` with parens, template literals, or object-liter
 
 ```bash
 # ❌ Bash tokenizes the JS, errors on the `(` inside `.filter(l => ...)`, never reaches Aside
-aside repl "const lines = String(s.tree).split('\n').filter(l => /ref=e\d+/.test(l)).slice(0, 60); console.log(lines.length)"
+aside repl --account <agent-account> "const lines = String(s.tree).split('\n').filter(l => /ref=e\d+/.test(l)).slice(0, 60); console.log(lines.length)"
 # bash: eval: line 16: syntax error near unexpected token `('
 # [error | <Nms>]
 
@@ -259,10 +259,10 @@ cat > /tmp/script.js <<'JS'
 const lines = String(s.tree).split('\n').filter(l => /ref=e\d+\]/.test(l));
 console.log('hits:', lines.length);
 JS
-aside repl "$(cat /tmp/script.js)"
+aside repl --account <agent-account> "$(cat /tmp/script.js)"
 
 # ✅ Pattern B — heredoc the file CONTENTS as the inline code
-aside repl "$(cat <<'JS'
+aside repl --account <agent-account> "$(cat <<'JS'
   const lines = ...;
   console.log(lines);
 JS
@@ -281,9 +281,9 @@ Slack does not automatically rejoin a bot to channels after app reinstall or tok
 
 Symptom: every `aside account list`, `aside repl`, and `aside mcp` returns `fetch failed` immediately. Diagnostic reports (`~/Library/Logs/DiagnosticReports/AsideUpdater-*.ips`) accumulate because the bundled updater can't reach the GUI.
 
-Do not launch, restart, activate, or repair the desktop app as part of browser
-automation. First verify whether the existing Aside session is already an
-agent-owned background context. If ownership is not established or the CLI is
+Do not activate, restart, or repair the desktop app as part of browser
+automation. Start or reconnect only an agent-owned profile in background mode
+(aside-browser-default § Background mode). If that fails or the CLI is
 unavailable, use isolated headless Chromium and report the layer that failed.
 Do not use this diagnosis as authority to inspect or change the user's desktop.
 
@@ -347,17 +347,17 @@ const shot2 = await annotatedScreenshot(p2);
 Original investigation: aside repl live probe during social-poster skill build (2026-07-05). Captured by running each candidate API call individually:
 
 ```text
-aside repl "console.log(typeof listBrowserTabs)"        → "function"
-aside repl "const t = listBrowserTabs(); t.length"      → undefined (it's a Promise)
-aside repl "const t = await listBrowserTabs(); t.length" → number ✓
-aside repl "const t = await listBrowserTabs(); t[0].url" → URL string ✓
-aside repl "const t = await listBrowserTabs(); t[0].url()" → TypeError: t.url is not a function
-aside repl "console.log(typeof require)"               → "undefined"
-aside repl "console.log(typeof process)"               → "undefined"
-aside repl "console.log(typeof Buffer)"                → "function"
-aside repl "const s = await screenshot(p); s.length"   → "screenshot is not defined"
-aside repl "const s = await annotatedScreenshot(p); Object.keys(s)"   → "[ 'base64Image' ]"
-aside repl "const s = await annotatedScreenshot(p); s.base64Image.slice(0,30)"
+aside repl --account <agent-account> "console.log(typeof listBrowserTabs)"        → "function"
+aside repl --account <agent-account> "const t = listBrowserTabs(); t.length"      → undefined (it's a Promise)
+aside repl --account <agent-account> "const t = await listBrowserTabs(); t.length" → number ✓
+aside repl --account <agent-account> "const t = await listBrowserTabs(); t[0].url" → URL string ✓
+aside repl --account <agent-account> "const t = await listBrowserTabs(); t[0].url()" → TypeError: t.url is not a function
+aside repl --account <agent-account> "console.log(typeof require)"               → "undefined"
+aside repl --account <agent-account> "console.log(typeof process)"               → "undefined"
+aside repl --account <agent-account> "console.log(typeof Buffer)"                → "function"
+aside repl --account <agent-account> "const s = await screenshot(p); s.length"   → "screenshot is not defined"
+aside repl --account <agent-account> "const s = await annotatedScreenshot(p); Object.keys(s)"   → "[ 'base64Image' ]"
+aside repl --account <agent-account> "const s = await annotatedScreenshot(p); s.base64Image.slice(0,30)"
                                                       → "iVBORw0KGgoAAAANSUhEUgAAC0AAAAc"  (PNG base64 ✓)
 ```
 
@@ -367,14 +367,14 @@ Heavy-SPA CDP-disconnect verification (2026-07-15, PR #7953 evidence):
 
 ```text
 # Heavy SPA landing page — 5 disconnects
-aside repl "const p = await openTab('https://mvp-site-app-s3-...run.app/'); await sleep(8000); const s = await annotatedScreenshot(p); console.log('B64=' + s.base64Image)"
+aside repl --account <agent-account> "const p = await openTab('https://mvp-site-app-s3-...run.app/'); await sleep(8000); const s = await annotatedScreenshot(p); console.log('B64=' + s.base64Image)"
 → ✔︎ Opened a new tab and set it active: tabs[0], page → WorldAI (https://mvp-site-app-s3-...)
 → landed at: https://your-project.com/ | title: WorldAI
 → Error: CDP websocket disconnected
     at #y (file:///.../Aside Daemon.app/Contents/MacOS/aside-daemon:1267:490740)
 
 # Lightweight /health endpoint — works first try
-aside repl "const p = await openTab('https://mvp-site-app-s3-...run.app/health'); await sleep(4000); const s = await annotatedScreenshot(p); console.log('B64=' + s.base64Image)"
+aside repl --account <agent-account> "const p = await openTab('https://mvp-site-app-s3-...run.app/health'); await sleep(4000); const s = await annotatedScreenshot(p); console.log('B64=' + s.base64Image)"
 → ✔︎ Opened a new tab and set it active: tabs[0], page →  (https://mvp-site-app-s3-.../health)
 → health page url: https://your-project.com/ | title: WorldAI
 → SHOT_BASE64_LEN: 68516

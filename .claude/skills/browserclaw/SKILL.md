@@ -33,8 +33,9 @@ browser context and does not permit direct API probing or HAR capture.
 For OAuth or provider authentication, use the provider-supported flow in an
 isolated agent-owned context. Never intercept or invoke `/usr/bin/open`, `open`,
 `xdg-open`, or another system URL handler; never launch, activate, restart, or
-kill a desktop browser or app to recover automation. If Aside's existing
-background ownership cannot be proven, use isolated headless Chromium.
+kill a desktop browser or app to recover automation. The only exception is
+starting Aside in background mode on an agent-owned profile (aside-browser-default § Background mode); if that
+cannot be verified, use isolated headless Chromium.
 
 ## Public-page capture
 

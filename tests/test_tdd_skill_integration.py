@@ -63,9 +63,11 @@ class TddSkillIntegrationTest(unittest.TestCase):
             command = fixture / '.claude/commands/tdd.md'
             command.parent.mkdir(parents=True)
             shutil.copy2(ROOT / '.claude/commands/tdd.md', command)
-            installed = root / 'installed'
+            installed = (root / 'installed').resolve()
             result = subprocess.run(
-                ['bash', str(fixture / installer.name)], cwd=root,
+                # --all keeps this minimal distribution working: the curated
+                # profile expects the full library and its resolver.
+                ['bash', str(fixture / installer.name), '--all'], cwd=root,
                 env={**os.environ, 'CLAUDE_HOME': str(installed)},
                 capture_output=True, text=True, timeout=30,
             )

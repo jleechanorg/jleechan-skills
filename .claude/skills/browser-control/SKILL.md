@@ -21,16 +21,16 @@ explicitly authorized transfer from exactly one named agent-owned profile below.
 - Never select, copy, decrypt, or import the personal Chrome profile or its cookies,
   including agent-browser `--profile Default`. Cookie-transfer recipes below apply
   only to an explicitly authorized agent-owned source profile.
-- Aside may be used only when an already-running process and task-owned context
-  are proven to operate in the background. Do not launch or activate it. Metadata
-  probes do not prove navigation is background-safe. Otherwise use isolated
-  headless Chromium.
+- Aside runs in background mode by default on an agent-owned profile: start it only
+  without activation per [aside-browser-default § Background mode](../aside-browser-default/SKILL.md#background-mode)
+  and verify the frontmost app is unchanged. Metadata probes do not prove navigation
+  is background-safe. Otherwise use isolated headless Chromium.
 - Keep Chromium headless by default. A current-thread explicit request for visible
   automation permits a headed window only in a separate, verified task-owned
   browser process/profile/context. Never use a personal or default profile, a bare
   system/default-browser launch, `open -a "Google Chrome"`, or AppleScript
-  activation/quit. Do not launch or activate a desktop browser as spontaneous
-  recovery, change default-browser registration, or enable a continuous relaunch
+  activation/quit. Do not bring a desktop browser to the foreground as
+  recovery (Aside background mode is the only launch exception), change default-browser registration, or enable a continuous relaunch
   service.
 - Close only exact tabs/contexts/processes created by the current task. Never use
   `closeAllTabs()`, `killall`, or broad `pkill` against shared browsers. Never remove
@@ -73,19 +73,19 @@ Use a supported runtime API only for an isolated task-owned context. Otherwise
 follow the numbered **Routing order** below. A personal signed-in tab is never a
 route or fallback.
 
-- **Live websites, authenticated sessions, account settings, OAuth:** use an already-running, verified agent-owned Aside background context when available; otherwise use isolated headless Chromium and the provider-supported authentication flow.
+- **Live websites, authenticated sessions, account settings, OAuth:** use Aside in background mode on an agent-owned profile (default); otherwise use isolated headless Chromium and the provider-supported authentication flow.
 - **Authenticated fallback on fingerprint-TOLERANT sites:** use the guarded browserclaw decrypt → headless inject lifecycle only after both Aside paths fail to complete the authenticated task, AND only when the user has explicitly authorized local cookie transfer for the requested authenticated-content task. **Fingerprint-sensitive sites (LinkedIn, banks/brokerages, Cloudflare/Akamai-protected, user-declared no-headless) NEVER advance past Aside.** When Aside is unavailable on a fingerprint-sensitive target, post a ONE-LINE display/input blocker; do not fall through to cookie injection, capture, learn, reverse, or Playwright.
 - **Deterministic local-app testing, CI, isolated profiles, traces, video, multi-browser:** use Playwright headless / `playwright-ui-testing` after the authenticated routes are inapplicable.
 - **Visible/headed browser:** not a default fallback. Use headless by default; if the current thread explicitly requests visible automation, use only a separate verified task-owned browser/profile. Never access the personal desktop browser.
 
 ## Routing order (operational, in priority order)
 
-Apply these in order. Aside is allowed only when its already-running context is
-verified agent-owned and background-safe. No route may use personal desktop
+Apply these in order. Aside runs in background mode on a verified agent-owned
+profile (aside-browser-default § Background mode). No route may use personal desktop
 browser state.
 
-1. **Aside-MCP only if already connected to a verified agent-owned background context.** Tool availability or account-list output is not proof of context ownership.
-2. **Aside CLI only for a verified agent-owned background context already running.** Do not launch/activate Aside or use a desktop/personal profile. If ownership/background behavior is not established, skip to isolated headless Chromium.
+1. **Aside-MCP in background mode on an agent-owned profile.** Tool availability or account-list output is not proof of a connected agent profile; check `aside host profiles`.
+2. **Aside CLI in background mode** (start or reconnect per aside-browser-default § Background mode; never activate it or use a personal profile). If background mode cannot be verified, skip to isolated headless Chromium.
 3. **browserclaw cookies decrypt → inject** — for fingerprint-tolerant sites where Aside is unavailable, not signed-in, or on a headless host, and the user has explicitly authorized local cookie transfer from exactly one named agent-owned source for the task. The fingerprint-sensitive Aside-only exception below overrides this fallback. Never sweep personal browser profiles or enumerate source candidates; use only that authorized source, its matching Safe Storage service/account, and the guarded lifecycle below.
 4. **Playwright headless in an isolated context** — for unauthenticated/deterministic flows, public pages, scripted checks, and authorized agent-owned cookie transfer. Use `playwright-ui-testing` for real tests.
 5. **Visible/headed mode is exceptional.** Keep Chromium headless by default. If the current thread explicitly requests visible automation, use only a separate verified task-owned browser/profile; report a blocker if that isolation cannot be established.
@@ -378,7 +378,7 @@ Report the precise layer that failed: browser transport, current tab/profile acc
 
 - **Aside CLI in a sandboxed Bash tool call fails closed, not soft.** `aside account list` / `aside repl` / `aside "<prompt>"` return `fetch failed` immediately — before the Aside daemon writes any log line — when the Bash tool's default sandbox blocks the CLI's local IPC to the already-running `Aside.app` (a real launchd-managed process; verify with `ps -p <pid>` or `launchctl list | grep -i aside`, not `ps aux | grep aside`, since sandboxed `ps aux` may not enumerate it even though the process is alive). This is NOT an Aside outage. Fix: pass `dangerouslyDisableSandbox: true` on every Bash call that invokes `aside`. Confirmed 2026-07-16: identical command failed sandboxed, succeeded immediately unsandboxed against the same running daemon.
 - **Aside additionally requires a real, rendered display — not just an unsandboxed process.** On a headless host (`ioreg -c IODisplayConnect | grep -c IODisplayConnect` returns `0`), the Aside daemon answers metadata-only calls (`account list`) fine but navigation fails with `This task is not bound to a browser profile. Open it in Aside browser and try again.` For ordinary **fingerprint-tolerant** sites, proceed to the guarded browserclaw `cookies decrypt` + `cookies inject` headless fallback (route 3 in the numbered order) if explicitly authorized. **The fingerprint-sensitive Aside-only exception overrides this rule with NO fall-through:** for LinkedIn, banks/brokerages, Cloudflare/Akamai-protected, and user-declared no-headless sites, post the ONE-LINE display blocker and never attempt cookie injection, `browserclaw capture`, `learn`, `reverse`, or Playwright. The escape hatch (`browserclaw capture --headless --url ...` below) is a NARROW no-credentials discovery tool only and is NOT a substitute for the numbered routes.
-- **Aside has no headless mode** (`aside --help` lists no such flag) — it drives real browser profiles of the running macOS app, so it is not CI-safe. With a connected agent-owned profile, `aside repl --account <id>` tabs run without changing the frontmost app (measured 2026-10-27, CLI 1.26.1023.1115). After an app restart, profiles show `disconnected` in `aside host profiles` and `aside repl` fails with `profile ... is not connected to the daemon`; treat that as Aside unavailable and use isolated headless Chromium, except for the fingerprint-sensitive Aside-only sites above, which stop at the one-line display blocker.
+- **Aside has no headless mode** (`aside --help` lists no such flag) — it drives real browser profiles of the running macOS app, so it is not CI-safe. With a connected agent-owned profile, `aside repl --account <id>` tabs run without changing the frontmost app (measured 2026-10-27, CLI 1.26.1023.1115). After an app restart, profiles show `disconnected` in `aside host profiles` and `aside repl` fails with `profile ... is not connected to the daemon`; reconnect the agent profile per aside-browser-default § Background mode, and if that fails treat Aside as unavailable and use isolated headless Chromium, except for the fingerprint-sensitive Aside-only sites above, which stop at the one-line display blocker.
 - **`browserclaw` as a headless-Chromium fallback** (route 3 in the numbered order): when explicitly authorized for the task, use `browserclaw cookies decrypt` + `cookies inject` to carry over an authenticated session from one specifically authorized agent-owned source profile, using the matching Safe Storage entry and the same browser/session family per the "Authorized credential reuse" contract above. **`browserclaw capture --headless --url <url> [--goal "<task>" --provider <p> --model <m>]` is a separate, narrow discovery tool** (Playwright-backed, no display or GUI session required, confirmed working on the same headless host where Aside failed) — it is NOT the headless fallback for authenticated flows and is NOT permitted for credential-bearing targets. **Do not route credential-bearing flows (API key creation/rotation, token/secret pages, password/banking/recovery-code pages) through `capture`/`learn`/`reverse`** — those commands persist full HTTP request/response traffic to a `capture.har` file on disk, which will contain the new secret in plaintext (the exact leak class this skill's credential rule already bans). For those flows, use `cookies inject` (navigation only, no HAR) or a bare Playwright script that reads only minimum non-secret DOM state, emit only a boolean/status result, and persist neither DOM text nor images (see the secret-bearing page branch below).
 
 ## Completion

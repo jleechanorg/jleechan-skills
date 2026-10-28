@@ -24,6 +24,7 @@ DRAFT
   → /es PASS @ SHA
   → /er PASS @ SHA (unless the narrow /er documentation allowlist, explicit trivial-change exception or a repo-exempted class applies)
   → /advice APPROVED @ SHA when required by Advice applicability below
+  → /visual-verification PASS @ SHA when gate 4 applies (media published, or a rendered/displayed-data claim)
   → mark ready-for-review (gh pr ready <N>)
   → /ready work: /green, comments, conflicts, and regression checks
   → final /er PASS applicable to the candidate when required
@@ -213,7 +214,7 @@ Always attach evidence to the PR description using retrievable artifact URLs and
 
 The description's evidence index records stage, disposition (`COMPLETE`, `NOT REQUIRED`, `REUSED` or `BLOCKED`), candidate head/base, full diff classification, original tested/reviewed SHAs and execution timestamps, applicable commands/environment/results, artifact hashes, reviewer and coverage, limitations, and exemption or reuse rationale. Preserve original receipts and append superseding events instead of restamping evidence.
 
-Embed applicable screenshots and playable video inline in the PR description alongside direct original-media URLs. Verify URLs resolve and intended reviewers can view the media. A gist link alone does not satisfy applicable visual proof. Docs, logs and source-only trivial-copy claims may record a specific media `N/A` reason; never manufacture media to fill a field. Apply all applicable `/es` integrity, provenance, sanitization and claim-sufficiency requirements before declaring the stage passed.
+Embed applicable screenshots and playable video inline in the PR description alongside direct original-media URLs. Verify URLs resolve and intended reviewers can view the media. A gist link alone does not satisfy applicable visual proof, and inline embedding is not visual *review*: the `/visual-verification` gate above is a separate, independent reading of the frames. Docs, logs and source-only trivial-copy claims may record a specific media `N/A` reason; never manufacture media to fill a field. Apply all applicable `/es` integrity, provenance, sanitization and claim-sufficiency requirements before declaring the stage passed.
 
 Missing, inaccessible or unauthorized publication is `PUBLICATION BLOCKED`: continue independent work, but do not claim that stage exit complete. Missing or failed required checks are not exemptions. Read back the description; preserve evidence history and title/stage-label consistency.
 
@@ -222,11 +223,12 @@ Missing, inaccessible or unauthorized publication is `PUBLICATION BLOCKED`: cont
 Drive every PR through `/prw` (`/pr-workflow`) by default, using this generic lifecycle unless the repository opted into the visible six-stage workflow. UI changes and any user-facing change always use `/prw` unless a human explicitly overrides it for that PR. A lighter path is allowed only for:
 
 - documentation-only changes;
+- non-production changes (subject to the repository's non-production classifier and the high-risk exclusions below);
 - backup or mirror repositories;
 - an explicit human instruction to skip `/prw` for that PR;
-- a very small change that needs no evidence or `/es`, such as a fix to a helper script with no user-visible effect. This bullet never covers any class excluded in § Proportional exceptions and fast paths or listed as high-risk in § Coding lifecycle — scale layers to risk; those always use `/prw`.
+- a very small change that needs no evidence or `/es`, such as a fix to a helper script with no user-visible effect.
 
-The lighter path drops only the `/prw` driver; in opted-in repositories the stage title, labels and specification still apply. Every gate that applies to the change still applies: applicable CI or its documented exception, `/green`, the `/advice` threshold, any repository-required review or evidence, and merge authorization. When unsure, use `/prw`.
+Neither the non-production nor the small-change bullet covers any class excluded in § Proportional exceptions and fast paths or listed as high-risk in § Coding lifecycle — scale layers to risk; those always use `/prw`. The lighter path drops only the `/prw` driver; in opted-in repositories the stage title, labels and specification still apply. Every gate that applies to the change still applies: applicable CI or its documented exception, `/green`, the `/advice` threshold, any repository-required review or evidence, and merge authorization. When unsure, use `/prw`.
 
 ## Proportional exceptions and fast paths
 
@@ -319,6 +321,27 @@ credential, or merge-path code.
 1. **`/es`** — evidence bundle passes (real evidence per `~/.claude/skills/evidence-standards/SKILL.md` + repo-specific extensions), bound to its original tested SHA and supported as applicable to the candidate by the delta assessment below.
 2. **`/er`** — for every PR except the documentation-only class below or a repo-exempted class, and except the explicit trivial-change class above, evidence review verdict is PASS (not PARTIAL/FAIL/INCONCLUSIVE), with its original reviewed/tested SHAs and a reasoned applicability assessment for the candidate; an older `/es` SHA alone does not require a rerun.
 3. **`/advice`** — second-opinion approval on the change itself (`APPROVED at <SHA>` / `NOT APPROVED at <SHA>` / `WITHHELD at <SHA>` — see `~/.claude/skills/advice/SKILL.md`), bound to its actual reviewed SHA and applicable to the candidate by the delta assessment, when required by Advice applicability. `WITHHELD` does not satisfy the draft gate.
+4. **`/visual-verification`** — applies when the PR **publishes** any screenshot, GIF or video, or when the PR
+   **claims** a rendered, interaction or displayed-data effect that media would evidence. It does **not** apply to a
+   source-literal-only claim (copy, log or alert text inspected in source) that publishes no media: those keep the
+   bounded `N/A` allowance they already have. A qualifying seat is independent of the author **and** of the `/er` seat
+   that judged the bundle: it downloads each media artifact itself, verifies its hash, decodes the file, extracts the
+   before and after frames, and returns `VISUAL-VERDICT: PASS|FAIL` mapping what it observed to the claim, plus what
+   the media does **not** prove. The Review Gate Ledger carries its own `/visual-verification` row, and media that
+   exists with no such row blocks undraft. Author-side frame reading, a difference score (PSNR or similar),
+   "captions present", a published hash, and an `/er` line item saying media "VERIFIED" are **never** a substitute;
+   that is the same recording read by the same side. Every applicable seat must PASS, and required media that is
+   missing, inaccessible or insufficient leaves the gate open. When the PR's headline claim is user-visible, require
+   **two** independent visual seats before undraft; where a repository's review route genuinely cannot supply two,
+   require a recorded `SINGLE-SEAT` limitation naming the missing seat rather than a silent waiver. When the consuming
+   surface lives in another repository, this PR either cites a capture of that surface, which the visual seat then
+   reviews, or it records the visual proof as deferred debt naming the owning repository. Deferred debt does **not**
+   discharge this gate and never authorises undraft: it may be recorded only when this PR publishes no media and makes
+   no rendered or displayed-data claim for that surface. A PR whose headline claim *is* another repository's rendered
+   output keeps the gate open, and therefore stays draft, until that capture exists and an independent seat has
+   PASSed it. A change whose prose is byte-identical is still
+   user-visible when a client renders the new data or a value that surface displays changes, so "no web-visible
+   change" may not be used to mark video `N/A` in that case; `N/A` otherwise needs the specific bounded reason.
 
 Only after every applicable gate is satisfied **for the candidate**, with original SHAs and explicit applicability where they differ: flip the PR from draft to ready-for-review (`gh pr ready <N>`).
 
@@ -429,7 +452,7 @@ does not by itself require a paid model call or browser run.
 | Small single-file deterministic fix | Fresh causal unit RED/GREEN plus affected regressions can prove the deterministic claim when no external boundary is implicated; focused delta review may suffice. |
 | A service boundary, auth, or persistence race | Integration proof crossing the implicated boundary; isolated unit mocks cannot establish the claim. |
 | A prompt/schema or model-behavior change | Check assembled inputs deterministically first; run real LLM evidence when lower layers cannot prove the claim or an applicable risk-specific rule requires it. |
-| New browser/UI behavior | Real browser proof for browser/UI claims, with required visual evidence. |
+| New browser/UI behavior | Real browser proof for browser/UI claims, with required visual evidence, plus the `/visual-verification` gate: an independent seat must decode the media and read the frames. |
 | CI config, agent policy, security, shared fixture, or weakened assertion | Review actual effects and rerun dependent proof; non-production labels and small file counts do not establish safety. |
 
 Unit proof does not prove model compliance, auth, persistence races, or browser
