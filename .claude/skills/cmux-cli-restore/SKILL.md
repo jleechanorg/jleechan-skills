@@ -100,7 +100,7 @@ Other Codex traps seen in the same run: a `Hooks need review` menu (`1. Review h
 
 When Claude is walled (`You've hit your session limit · resets <time>`) the lane is stuck until the reset, and
 a restart re-hits the same account-level wall. Gemini is a different provider and keeps working — `agy models`
-currently offers `gemini-4-argon-{high,medium,low}` and `gemini-3.8-flash-*`; never fall back to Gemini 3.1 Pro
+currently offers `gemini-4-argon-*` and `gemini-3.8-flash-*`; use only `gemini-3.8-flash-high` (or `-medium`) per the Gemini model invariant, and never fall back to Gemini 3.1 Pro
 or older Pro models. Per surface:
 
 1. **`escape` first — always.** A walled lane re-arms itself (`Continuing automatically at 4:20pm · esc to
@@ -111,13 +111,13 @@ or older Pro models. Per surface:
    live subagents are worth keeping — on a dead provider quota they are normally already dead.
 3. Require a real shell prompt. The pane prints `Resume this session with: claude --resume <uuid>` just above it;
    keep that uuid — it is the only route back to Claude after the reset.
-4. `cmux send --force … "agy --model gemini-4-argon-high"` then `send-key --force … enter`.
-5. Wait for a frame containing `Gemini 4 Argon` **and** the composer `>` (≈3 s, poll ≤36 s). Do not type into the
-   "Meet Gemini 4 Argon" splash — see trap 9.
+4. `cmux send --force … "agy --model gemini-3.8-flash-high"` then `send-key --force … enter`.
+5. Wait for a frame containing `Gemini 3.8 Flash` **and** the composer `>` (≈3 s, poll ≤36 s). Do not type into the
+   model splash — see trap 9.
 6. Send the resume brief in ONE line: cwd, branch, PR number, why the previous session died, and the literal words
    `Run the /hr history-resume workflow`. `agy` has no session-resume alias, so `/hr` (or the worktree's own
    `nextsteps`/bead state) *is* the recovery mechanism.
-7. Verify the model AND a turn: `Gemini 4 Argon · high` in the footer, plus `● Ran …` / `● Explored …` /
+7. Verify the model AND a turn: `Gemini 3.8 Flash · high` in the footer, plus `● Ran …` / `● Explored …` /
    `Thought for …`, plus a second capture that shows the screen changed.
 
 ### What this actually buys you (measured across 20 lanes)
