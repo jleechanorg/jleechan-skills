@@ -10,8 +10,9 @@ dispatches work and never replaces the designated-writer queue guard. Exit codes
 
 Only entries with non-empty owner, current action and receipt strings are
 counted. The caller must independently validate freshness, ownership and UNKNOWN
-occupancy; this predicate cannot establish global admission. Queued, assigned, "busy",
-messaged, awaiting-review or completed entries never consume capacity.
+occupancy; this predicate cannot establish global admission. When present, state
+must be one of the exact known values below; omitted state relies on the caller's
+active list. Unknown values are input errors.
 """
 
 from __future__ import annotations
@@ -23,8 +24,13 @@ from pathlib import Path
 
 CAPS = {"complex": 2, "short": 2}
 EVIDENCE_FIELDS = ("owner", "action", "receipt")
+EXECUTING_STATES = frozenset({"active", "running", "executing"})
 NON_EXECUTING_STATES = frozenset(
-    {"queued", "assigned", "busy", "messaged", "awaiting-review", "completed"}
+    {
+        "queued", "ready", "admitted", "assigned", "messaged", "busy", "polling",
+        "awaiting-review", "blocked", "remote-peer-waiting", "authorization-waiting",
+        "parked", "completed",
+    }
 )
 
 
@@ -55,6 +61,8 @@ def is_executing(item: object) -> bool:
         raise InputError("UNKNOWN occupancy must be reconciled before this check")
     if state in NON_EXECUTING_STATES:
         return False
+    if state is not None and state not in EXECUTING_STATES:
+        raise InputError(f"unknown state: {state!r}")
     if item.get("parked") is True:
         return False
     evidence = item.get("evidence")
