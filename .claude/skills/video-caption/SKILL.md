@@ -35,7 +35,19 @@ Note: track whether audio exists — it affects the final ffmpeg command.
 ### 2. Extract frames for analysis
 
 ```bash
-frames_dir=$(mktemp -d /tmp/video-frames.XXXXXX)
+# Resolve scratch directory via ~/.claude/skills/scratch-space/SKILL.md
+scratch_tmp="$("${CLAUDE_HOME:-$HOME/.claude}/skills/scratch-space/scripts/scratch-dir.sh" tmp)" || {
+    echo "Scratch resolver unavailable; refusing frame allocation" >&2
+    exit 75
+}
+if [ -z "$scratch_tmp" ]; then
+    echo "Scratch resolver returned an empty path; refusing frame allocation" >&2
+    exit 75
+fi
+frames_dir="$(mktemp -d "$scratch_tmp/video-frames.XXXXXX")" || {
+    echo "Scratch frame allocation failed" >&2
+    exit 75
+}
 ffmpeg -i "video.mov" -vf "fps=1/10,scale=1280:-1" -q:v 3 "$frames_dir/frame_%03d.jpg"
 ```
 
@@ -56,6 +68,8 @@ Use the `Read` tool on each frame image — Claude can view them directly. Read 
 
 ```python
 from pathlib import Path
+import os
+import subprocess
 import tempfile
 import textwrap
 
@@ -73,7 +87,18 @@ captions = [
 ]
 
 font = ImageFont.truetype(FONT, FONT_SIZE)
-caption_dir = Path(tempfile.mkdtemp(prefix="video-captions-", dir="/tmp"))
+# Resolve scratch directory via ~/.claude/skills/scratch-space/SKILL.md.
+try:
+    scratch_tmp = subprocess.check_output(
+        [os.path.expanduser("~/.claude/skills/scratch-space/scripts/scratch-dir.sh"), "tmp"],
+        text=True,
+        stderr=subprocess.PIPE,
+    ).strip()
+except (OSError, subprocess.CalledProcessError) as exc:
+    raise SystemExit(f"Scratch resolver unavailable; refusing caption allocation: {exc}")
+if not scratch_tmp:
+    raise SystemExit("Scratch resolver returned an empty path; refusing caption allocation")
+caption_dir = Path(tempfile.mkdtemp(prefix="video-captions-", dir=scratch_tmp))
 
 for i, (start, end, text) in enumerate(captions):
     avg_char_w = FONT_SIZE * 0.55

@@ -199,11 +199,12 @@ class ApprovalContractsTest(unittest.TestCase):
         self.assertIn("## Coding lifecycle — scale layers to risk", skill("pr-lifecycle"))
         self.assertIn("## Evidence Sequencing — expensive evidence runs LAST, once", skill("evidence-standards"))
         for safeguard in (
-            "most recent live user message",
-            "Delegated worker sessions may never execute `gh pr merge`",
-            "more than 150 production lines changed **including deletions**",
-            "required `/cs` and `/advice` gates",
-            "Neither metric broadens merge permission",
+            "Authorization persists for the same action, target, and requested outcome",
+            "User merge approval",
+            "MERGE APPROVED",
+            "150 or fewer production delta lines",
+            "More than 150 production delta lines",
+            "wait for human review or the user's `MERGE APPROVED`",
             "merge with `--match-head-commit`",
         ):
             with self.subTest(safeguard=safeguard):

@@ -113,21 +113,25 @@ When the initial state must remain pristine for comparative verification or mult
 
 ## 6. Save evidence after repro
 
-Export the post-replay state and execution artifacts to a discoverable local directory using a standardized path convention:
+Export the post-replay state and execution artifacts to a discoverable local directory on the dedicated Scratch volume resolved dynamically via the canonical scratch skill [`~/.claude/skills/scratch-space/SKILL.md`](../scratch-space/SKILL.md):
 
 ```bash
 # Recommended evidence directory convention:
-# /tmp/<project-name>/repro-exports/<slug-or-timestamp>/
+# Resolve dynamically via ~/.claude/skills/scratch-space/SKILL.md:
+# Option A (managed lease via diskm):
+#   EVIDENCE_DIR="$(diskm scratch-new <repo-path> repro-export --kind evidence)"
+# Option B (canonical scratch resolver script):
+#   EVIDENCE_DIR="$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh "<project>/repro-exports/<slug>")"
 
-mkdir -p /tmp/<project>/repro-exports/<slug>
+EVIDENCE_DIR="$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh "<project>/repro-exports/<slug>")"
 
 # Example export commands depending on the stack:
 # 1. Database dump / query output:
-# pg_dump -d <test_db> -t <table_name> > /tmp/<project>/repro-exports/<slug>/post_state.sql
+# pg_dump -d <test_db> -t <table_name> > "$EVIDENCE_DIR/post_state.sql"
 # 2. Raw API / HTTP responses:
-# curl -s -D /tmp/<project>/repro-exports/<slug>/headers.txt -o /tmp/<project>/repro-exports/<slug>/response.json ...
+# curl -s -D "$EVIDENCE_DIR/headers.txt" -o "$EVIDENCE_DIR/response.json" ...
 # 3. Log captures:
-# cp /path/to/test-service.log /tmp/<project>/repro-exports/<slug>/execution.log
+# cp /path/to/test-service.log "$EVIDENCE_DIR/execution.log"
 ```
 
 Ensure all relevant evidence files (raw request/response payloads, logs, state diffs, error traces) are saved and referenced in the final verdict table.

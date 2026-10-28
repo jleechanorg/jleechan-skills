@@ -7,6 +7,7 @@ The source checkout has deeper integration tests in tests/test_advice_primary_pa
 from __future__ import annotations
 
 import importlib.util
+import os
 import subprocess
 import sys
 import tempfile
@@ -23,6 +24,120 @@ SPEC.loader.exec_module(runner)
 
 
 class InstalledRunnerTest(unittest.TestCase):
+    def test_review_scratch_root_uses_canonical_resolver(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            scratch = Path(temporary) / "scratch"
+            scratch.mkdir()
+            completed = subprocess.CompletedProcess(
+                [str(runner.SCRATCH_RESOLVER)], 0, stdout=f"{scratch}\n", stderr=""
+            )
+            with mock.patch.object(runner.subprocess, "run", return_value=completed) as resolve:
+                self.assertEqual(runner.resolve_review_scratch_root(), scratch)
+        self.assertEqual(resolve.call_args.args[0], [str(runner.SCRATCH_RESOLVER)])
+
+    def test_review_scratch_root_refuses_unavailable_resolver(self) -> None:
+        completed = subprocess.CompletedProcess(
+            [str(runner.SCRATCH_RESOLVER)], 1, stdout="", stderr="Scratch volume unavailable\n"
+        )
+        with mock.patch.object(runner.subprocess, "run", return_value=completed):
+            with self.assertRaisesRegex(RuntimeError, "canonical Scratch resolver failed"):
+                runner.resolve_review_scratch_root()
+
+    def test_review_scratch_root_accepts_canonical_no_scratch_fallback(self) -> None:
+        completed = subprocess.CompletedProcess(
+            [str(runner.SCRATCH_RESOLVER)], 0, stdout="/tmp\n", stderr=""
+        )
+        with mock.patch.object(runner.subprocess, "run", return_value=completed):
+            self.assertEqual(runner.resolve_review_scratch_root(), Path("/tmp"))
+
+    def test_scratch_dir_thin_dispatches_to_explicit_disk_magician_cli(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            diskm = root / "diskm"
+            diskm.write_text("#!/bin/sh\nprintf '/canonical-scratch\\n'\n")
+            diskm.chmod(0o755)
+            result = subprocess.run(
+                [str(runner.SCRATCH_RESOLVER), "tmp"],
+                capture_output=True,
+                text=True,
+                env={**os.environ, "DISK_MAGICIAN_DISKM_BIN": str(diskm)},
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "/canonical-scratch\n")
+
+    def test_scratch_dir_preserves_disk_magician_error(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            diskm = root / "diskm"
+            diskm.write_text("#!/bin/sh\necho unavailable >&2\nexit 75\n")
+            diskm.chmod(0o755)
+            result = subprocess.run(
+                [str(runner.SCRATCH_RESOLVER)],
+                capture_output=True,
+                text=True,
+                env={**os.environ, "DISK_MAGICIAN_DISKM_BIN": str(diskm)},
+            )
+        self.assertEqual(result.returncode, 75)
+        self.assertEqual(result.stderr, "unavailable\n")
+
+    def test_scratch_dir_uses_user_local_cli_outside_login_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary) / "home"
+            diskm = home / ".local" / "bin" / "diskm"
+            diskm.parent.mkdir(parents=True)
+            diskm.write_text("#!/bin/sh\nprintf '/user-local-scratch\\n'\n")
+            diskm.chmod(0o755)
+            env = {
+                **os.environ,
+                "HOME": str(home),
+                "PATH": "/usr/bin:/bin",
+                "BASH_ENV": "/dev/null",
+            }
+            env.pop("DISK_MAGICIAN_DISKM_BIN", None)
+            result = subprocess.run(
+                [str(runner.SCRATCH_RESOLVER)], capture_output=True, text=True, env=env
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "/user-local-scratch\n")
+
+    def test_scratch_allocation_failure_does_not_reserve_output_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repo = root / "repo"
+            scratch = root / "scratch"
+            repo.mkdir()
+            scratch.mkdir()
+            for args in (
+                ("init", "-q"),
+                ("config", "user.email", "test@example.invalid"),
+                ("config", "user.name", "Test"),
+            ):
+                subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
+            (repo / "tracked.txt").write_text("base\n")
+            subprocess.run(["git", "-C", str(repo), "add", "tracked.txt"], check=True)
+            subprocess.run(["git", "-C", str(repo), "commit", "-qm", "base"], check=True)
+            packet = root / "packet.txt"
+            packet.write_text("Review this revision.\n")
+            output = root / "output"
+            args = [
+                "--repo", str(repo), "--ref", "HEAD", "--packet-file", str(packet),
+                "--output-dir", str(output), "--reviewers", "codex",
+            ]
+            with mock.patch.object(runner, "resolve_review_scratch_root", return_value=scratch), \
+                    mock.patch.object(runner.tempfile, "mkdtemp", side_effect=OSError("full")):
+                self.assertEqual(runner.main(args), 2)
+            self.assertFalse(output.exists())
+
+            review = {
+                "status": "success", "transport": "test",
+                "stdout": "VERDICT: APPROVED\nCOVERAGE: all\n", "attempts": [],
+                "started_ns": 1, "ended_ns": 2,
+            }
+            with mock.patch.object(runner, "resolve_review_scratch_root", return_value=scratch), \
+                    mock.patch.object(runner, "codex_lane", return_value=review):
+                self.assertEqual(runner.main(args), 0)
+            self.assertTrue((output / "receipt.json").is_file())
+
     def test_reviewer_gets_eof_with_parent_stdin_open(self) -> None:
         child = (
             "import importlib.util, sys\n"

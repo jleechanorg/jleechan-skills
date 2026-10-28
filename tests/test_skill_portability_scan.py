@@ -917,6 +917,12 @@ print("NOT_VALID_JSON")
         gh_config.mkdir(parents=True, exist_ok=True)
         stub_dir = test_dir / "bin"
         stub_dir.mkdir(parents=True, exist_ok=True)
+        scratch_root = test_dir / "scratch"
+        scratch_root.mkdir(parents=True, exist_ok=True)
+        resolver = disposable_home / ".claude/skills/scratch-space/scripts/scratch-dir.sh"
+        resolver.parent.mkdir(parents=True, exist_ok=True)
+        resolver.write_text("#!/bin/sh\nprintf '%s\\n' " + repr(str(scratch_root)) + "\n")
+        resolver.chmod(0o755)
 
         fake_ffprobe = stub_dir / "ffprobe"
         fake_ffprobe.write_text(f"""#!{sys.executable}
@@ -1168,7 +1174,7 @@ else:
         clean_env["GH_PROMPT_DISABLED"] = "1"
         clean_env["BASH_ENV"] = os.devnull
         clean_env["ENV"] = os.devnull
-        clean_env["PATH"] = f"{stub_dir}:{clean_env.get('PATH', '/usr/bin:/bin')}"
+        clean_env["PATH"] = f"{stub_dir}:/usr/bin:/bin"
         return clean_env
 
     def test_video_evidence_publication_snippets_guard_unset_pr_and_contained(self):

@@ -176,13 +176,13 @@ Before spawning any new lane, subprocess fleet, or CLI delegation:
 
 ## Isolation invariants (always, when parallelizing)
 
-- Disjoint per-worker workspaces / output files.
+- Disjoint per-worker workspaces / output files: resolve disposable build output, test scratch, and evidence bundles dynamically via canonical [`${CLAUDE_HOME:-$HOME/.claude}/skills/scratch-space/SKILL.md`](../scratch-space/SKILL.md) using `diskm scratch-new <repo-path> <purpose> --kind build|evidence` or `${CLAUDE_HOME:-$HOME/.claude}/skills/scratch-space/scripts/scratch-dir.sh [subpath]`; allocate git worktrees under `~/.worktrees/<repo>/<name>` via `diskm worktree-new <repo-path> <branch>`.
 - Single-writer for any shared ledger/manifest.
 - Order-deterministic merged results (sort by id, never completion order).
 - Instance-scoped container/process names so concurrent workers can't collide.
 - Lanes clean up their own `mktemp` scratch without a permission prompt: delete
   it inside the script that created it (`trap`/`finally`), or `mv` it under
-  `/tmp`. Never `rm -rf "$(...)"` or `rm -rf "$VAR"`; the harness cannot resolve
+  the active Scratch volume resolved via `${CLAUDE_HOME:-$HOME/.claude}/skills/scratch-space/scripts/scratch-dir.sh` (or `/tmp`). Never `rm -rf "$(...)"` or `rm -rf "$VAR"`; the harness cannot resolve
   those targets and stops the lane to ask.
 - Never relax a correctness/validation contract for speed — if a result's
   determinism can't be preserved, THAT is the written justification for serial.

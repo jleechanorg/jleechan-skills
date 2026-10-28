@@ -88,9 +88,11 @@ class PrimaryPairTest(unittest.TestCase):
         self.repo = self.root / "repo"
         self.bin = self.root / "bin"
         self.sync = self.root / "sync"
+        self.scratch = self.root / "scratch"
         self.output = self.root / "out"
         self.bin.mkdir()
         self.sync.mkdir()
+        self.scratch.mkdir()
         run("git", "init", "-q", str(self.repo))
         run("git", "config", "user.email", "jleechan2015@users.noreply.github.com", cwd=self.repo)
         run("git", "config", "user.name", "Test", cwd=self.repo)
@@ -104,6 +106,12 @@ class PrimaryPairTest(unittest.TestCase):
         self.env.pop("ADVICE_CODEX_MODEL", None)
         self.env["PATH"] = f"{self.bin}:{self.env['PATH']}"
         self.env["ADVICE_TEST_SYNC_DIR"] = str(self.sync)
+        self.env["ADVICE_TEST_SCRATCH"] = str(self.scratch)
+        self.executable(
+            "diskm",
+            'if [ "$1" = "scratch-dir" ]; then printf "%s\\n" "$ADVICE_TEST_SCRATCH"; else exit 2; fi\n',
+        )
+        self.env["DISK_MAGICIAN_DISKM_BIN"] = str(self.bin / "diskm")
 
     def tearDown(self) -> None:
         self.temp.cleanup()
@@ -595,7 +603,10 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
             return cleanup
         stderr = io.StringIO()
 
-        with redirect_stderr(stderr):
+        with mock.patch.dict(runner.os.environ, {
+            "DISK_MAGICIAN_DISKM_BIN": str(self.bin / "diskm"),
+            "ADVICE_TEST_SCRATCH": str(self.scratch),
+        }), redirect_stderr(stderr):
             code = runner.main(
                 argv,
                 create_clone_fn=mock.Mock(side_effect=RuntimeError("clone setup failed")),
@@ -621,7 +632,10 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
             return cleanup
         stderr = io.StringIO()
 
-        with redirect_stderr(stderr):
+        with mock.patch.dict(runner.os.environ, {
+            "DISK_MAGICIAN_DISKM_BIN": str(self.bin / "diskm"),
+            "ADVICE_TEST_SCRATCH": str(self.scratch),
+        }), redirect_stderr(stderr):
             code = runner.main(
                 argv,
                 create_clone_fn=mock.Mock(side_effect=RuntimeError("clone setup failed")),

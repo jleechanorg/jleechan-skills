@@ -9,6 +9,7 @@ Review game/demo video evidence against Ragnarok Online quality standards.
 
 ## Wiki Reference
 See [[Ragnarok Quality Game Demo Criteria|sources/ragnarok-quality-game-demo-criteria]] for full criteria.
+Scratch space resolution follows [`scratch-space`](~/.claude/skills/scratch-space/SKILL.md).
 
 ## Activation
 ```
@@ -22,7 +23,19 @@ This skill is WORTHLESS without real analysis. You **MUST** execute the followin
 
 ### Step 1: Extract frames with ffmpeg
 ```bash
-evidence_dir="$(mktemp -d /tmp/game-er.XXXXXXXX)"
+# Allocate temporary directory on Scratch volume (see ~/.claude/skills/scratch-space/SKILL.md)
+scratch_root="$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh)" || {
+  echo "Scratch resolver unavailable; refusing evidence allocation" >&2
+  exit 75
+}
+if [ -z "$scratch_root" ]; then
+  echo "Scratch resolver unavailable; refusing evidence allocation" >&2
+  exit 75
+fi
+evidence_dir="$(mktemp -d "$scratch_root/game-er.XXXXXXXX")" || {
+  echo "Scratch evidence allocation failed" >&2
+  exit 75
+}
 ffmpeg -y -i "[video.gif]" -vf "select=eq(n\\,0)" -frames:v 1 "$evidence_dir/frame0.png" 2>/dev/null
 ffmpeg -y -i "[video.gif]" -vf "select=eq(n\\,15)" -frames:v 1 "$evidence_dir/frame15.png" 2>/dev/null
 ffmpeg -y -i "[video.gif]" -vf "select=eq(n\\,29)" -frames:v 1 "$evidence_dir/frame29.png" 2>/dev/null
@@ -164,8 +177,11 @@ python3 "$evidence_dir/compare_frames.py" "$evidence_dir/frame0.png" "$evidence_
 ## Example Usage
 
 ```
+# Scratch volume paths (Mac / Linux):
+/game-er /Volumes/diskm-scratch/game_demo_evidence/animated_demo.gif
+/game-er ~/Scratch/game_demo_evidence/animated_demo.gif
+# Fallback path:
 /game-er /tmp/game_demo_evidence/animated_demo.gif
-/game-er /tmp/game_demo_evidence/level_demo.gif
 ```
 
 ## Critical Rules
