@@ -12,7 +12,10 @@ The launched CLI receives those Scratch variables explicitly in its own
 process environment, including a scoped `TMPDIR`; existing tmux servers do not
 control the canary's Scratch environment. Session names include the repository
 identity, existing sessions are verified before any checkout mutation, and all
-derived paths pass canonical containment checks.
+derived paths pass canonical containment checks. Cooperative bootstraps hold a
+kernel advisory `flock -n 9` on the existing Scratch output directory from
+preflight through Git and tmux creation, and close that descriptor on the tmux
+launch command so the agent/server cannot retain it.
 
 ## Non-goals
 
@@ -65,6 +68,10 @@ fresh mirror clone.
   local branch that is ahead of or diverged from `origin/$BRANCH` fails closed;
   a behind target may fast-forward only when the final HEAD exactly equals the
   fetched remote branch.
+- The existing Scratch output directory is opened read-only as fd 9 and locked
+  with `flock -n 9` before session preflight. The lock remains held through
+  target allocation, Git mutation, and tmux creation; lock contention fails
+  closed without Git mutation, and the tmux launch closes fd 9.
 
 ## User story
 
@@ -87,8 +94,9 @@ two stable path namespaces, and the exported Scratch variables. Review the
 result against the four reported failure cases and the Scratch routing
 contract. Exercise controlled existing-session, cross-repository same-branch,
 dirty/ahead target, untracked target, tmux-server environment,
-unconfigured/unavailable Scratch, and symlink-escape cases. No provider call or
-product-runtime test is needed.
+unconfigured/unavailable Scratch, symlink-escape, and forced two-bootstrap
+flock interleaving cases. Verify directory-lock support on both host binaries.
+No provider call or product-runtime test is needed.
 
 ## Mock
 
@@ -112,8 +120,9 @@ Scratch root to a cleanup scope. A future cleanup policy that recursively
 targets `Scratch/mirrors` without those checks would be a merge-blocking P0;
 this specification does not authorize such a policy change. The explicit
 process environment and pre-mutation session checks close the three source
-review blockers; live acceptance must still observe the pane environment and
-prove the target/output paths on both hosts.
+review blockers; the advisory lock closes the remaining bootstrap race without
+introducing a new lock-file or owner-PID protocol. Live acceptance must still
+observe the pane environment and prove the target/output paths on both hosts.
 
 ## File justification
 

@@ -122,13 +122,27 @@ SCRATCH_ROOT="$(diskm scratch-dir 2>/dev/null)" || {
 }
 MIRROR_KEY=$(printf '%s' "$REL_PATH" | cksum | cut -d' ' -f1)
 BRANCH_KEY=$(printf '%s' "$BRANCH" | cksum | cut -d' ' -f1)
+OUTPUT_SUBPATH="mirror-output/$MIRROR_KEY/$BRANCH_KEY"
+OUTPUT_ROOT="$(diskm scratch-dir "$OUTPUT_SUBPATH" 2>/dev/null)" || {
+  echo "FAILED:$REL_PATH — canonical Scratch output allocation failed" >&2
+  exit 75
+}
+# Serialize cooperative bootstraps for this repository/branch without a new
+# lock file. The existing Scratch output directory is the lock inode; fd 9 is
+# held through session preflight, Git mutation, and tmux creation.
+exec 9<"$OUTPUT_ROOT" || {
+  echo "FAILED:$REL_PATH — cannot open Scratch coordination directory" >&2
+  exit 75
+}
+flock -n 9 || {
+  echo "FAILED:$REL_PATH — another mirror bootstrap holds the Scratch lock" >&2
+  exit 75
+}
 TARGET_SUBPATH="mirrors/$MIRROR_KEY/$BRANCH_KEY/$REL_PATH"
 TARGET="$(diskm scratch-dir "$TARGET_SUBPATH" 2>/dev/null)" || {
   echo "FAILED:$REL_PATH — canonical Scratch target allocation failed" >&2
   exit 75
 }
-OUTPUT_SUBPATH="mirror-output/$MIRROR_KEY/$BRANCH_KEY"
-OUTPUT_ROOT="$SCRATCH_ROOT/$OUTPUT_SUBPATH"
 
 BRANCH_SAFE=$(printf '%s' "$BRANCH" | tr -c 'a-zA-Z0-9_-' '-')
 BRANCH_HASH=$(printf '%s' "$BRANCH" | cksum | cut -d' ' -f1)
@@ -164,11 +178,6 @@ if tmux has-session -t "=$SESSION" 2>/dev/null; then
   echo "RESUMED:$SESSION:$TARGET:$OUTPUT_ROOT:$(git -C "$TARGET" rev-parse HEAD)"
   exit 0
 fi
-
-OUTPUT_ROOT="$(diskm scratch-dir "$OUTPUT_SUBPATH" 2>/dev/null)" || {
-  echo "FAILED:$REL_PATH — canonical Scratch output allocation failed" >&2
-  exit 75
-}
 
 # Launch command for the caller's own CLI (see step 1: no hardcoded default).
 LAUNCH_ENV=(env "DISKM_SCRATCH=$SCRATCH_ROOT" "CLAUDE_CODE_TMPDIR=$OUTPUT_ROOT" "PYTEST_DEBUG_TEMPROOT=$OUTPUT_ROOT" "TMPDIR=$OUTPUT_ROOT")
@@ -259,7 +268,7 @@ else
   # call) so a session that dies immediately — missing `claude` binary,
   # PATH not resolving it under a non-login tmux shell, a crash — leaves a
   # dead-but-inspectable pane instead of vanishing outright.
-  tmux new-session -d -s "$SESSION" -c "$TARGET" "${LAUNCH[@]}" \; set-option -t "$SESSION" remain-on-exit on
+tmux new-session -d -s "$SESSION" -c "$TARGET" "${LAUNCH[@]}" \; set-option -t "$SESSION" remain-on-exit on 9>&-
   # Poll for the trust dialog and accept it with fixed navigation keys
   # (Down, Enter) — never $CONTEXT — so this carries none of the
   # injection risk the original send-keys-typed-$CONTEXT bug had. This
