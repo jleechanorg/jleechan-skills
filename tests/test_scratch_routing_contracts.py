@@ -345,9 +345,67 @@ class ScratchRoutingContracts(unittest.TestCase):
             self.assertEqual(game.returncode, 75)
             self.assertFalse(mktemp_marker.exists())
 
+    def test_canonical_and_standalone_scratch_recipes_fail_before_allocation(self):
+        with tempfile.TemporaryDirectory(dir="/var/tmp") as directory:
+            root = Path(directory).resolve()
+            home = root / "home"
+            resolver = home / ".claude/skills/scratch-space/scripts/scratch-dir.sh"
+            resolver.parent.mkdir(parents=True)
+            resolver.write_text("#!/bin/sh\nexit 75\n")
+            resolver.chmod(0o755)
+            marker = root / "mktemp-invoked"
+            fake_mktemp = root / "mktemp"
+            fake_mktemp.write_text(f"#!/bin/sh\nprintf invoked > {marker}\nexit 77\n")
+            fake_mktemp.chmod(0o755)
+            env = {
+                **os.environ,
+                "HOME": str(home),
+                "CLAUDE_HOME": str(home / ".claude"),
+                "PATH": f"{root}:/usr/bin:/bin",
+            }
+
+            scratch_skill = (ROOT / ".claude/skills/scratch-space/SKILL.md").read_text()
+            first = scratch_skill.index('SCRATCH_TMP="$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh tmp)"')
+            start = scratch_skill.index('SCRATCH_TMP="$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh tmp)"', first + 1)
+            end = scratch_skill.index("```", start)
+            canonical = subprocess.run(
+                ["bash", "-c", scratch_skill[start:end]],
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(canonical.returncode, 75, canonical.stderr)
+            self.assertFalse(marker.exists())
+
+            tmux = (ROOT / ".claude/skills/tmux-video-evidence/SKILL.md").read_text()
+            start = tmux.index('  archive_scratch=')
+            end = tmux.index('  zip_file=', start)
+            archive = subprocess.run(
+                ["bash", "-c", tmux[start:end]],
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(archive.returncode, 75, archive.stderr)
+            self.assertFalse(marker.exists())
+
+            start = tmux.index('SCRATCH_TMP="$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh tmp)"', tmux.index("## Compression Guidance"))
+            end = tmux.index("\n", tmux.index("ffmpeg -y", start))
+            compression = subprocess.run(
+                ["bash", "-c", tmux[start:end]],
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(compression.returncode, 75, compression.stderr)
+            self.assertFalse(marker.exists())
+
     def test_commentcheck_coverage_requires_posted_readback(self):
         document = (ROOT / ".claude/skills/commentcheck/SKILL.md").read_text()
-        start = document.index("# Step 2C: Mechanical original-ID coverage")
+        start = document.index("set -o pipefail")
         end = document.index("\n```", start)
         step = document[start:end]
 
@@ -355,34 +413,65 @@ class ScratchRoutingContracts(unittest.TestCase):
             with tempfile.TemporaryDirectory(dir="/var/tmp") as directory:
                 responses_path = Path(directory) / "responses.json"
                 responses_path.write_text(json.dumps({"responses": responses}))
+                comments_path = Path(directory) / "comments.json"
+                comments_path.write_text(json.dumps({"comments": comments}))
+                fake_bin = Path(directory) / "bin"
+                fake_bin.mkdir()
+                fake_gh = fake_bin / "gh"
+                fake_gh.write_text("#!/bin/sh\nprintf '%s\\n' verified-bot\n")
+                fake_gh.chmod(0o755)
                 return subprocess.run(
                     ["bash", "-c", step],
                     env={
                         **os.environ,
-                        "ALL_COMMENTS": json.dumps(comments),
+                        "COMMENTS_FILE": str(comments_path),
                         "RESPONSES_FILE": str(responses_path),
+                        "COPILOT_RESPONDER_LOGIN": "verified-bot",
+                        "PATH": f"{fake_bin}:/usr/bin:/bin",
                     },
                     capture_output=True,
                     text=True,
                     check=False,
                 )
 
-        original = {"id": 7, "body": "review point", "already_replied": False}
+        original = {
+            "id": 7,
+            "body": "review point",
+            "author": "reviewer",
+            "type": "general",
+            "already_replied": False,
+        }
         generated = [{"comment_id": 7, "reply_text": "generated but not posted"}]
         unposted = run_step([original], generated)
         self.assertNotEqual(unposted.returncode, 0)
-        self.assertIn("Missing original comment ID: 7", unposted.stdout)
+        self.assertIn("Missing original comment ID: 7", unposted.stdout + unposted.stderr)
 
         posted = run_step(
-            [{"id": 7, "body": "review point", "already_replied": True}],
+            [
+                original,
+                {
+                    "id": 8,
+                    "body": "[AI responder] fixed",
+                    "author": "verified-bot",
+                    "type": "general",
+                    "in_reply_to_id": 7,
+                },
+            ],
             generated,
         )
         self.assertEqual(posted.returncode, 0, posted.stdout + posted.stderr)
 
         partial = run_step(
             [
-                {"id": 7, "body": "review point", "already_replied": True},
-                {"id": 8, "body": "second point", "already_replied": False},
+                original,
+                {"id": 8, "body": "second point", "author": "reviewer", "type": "general"},
+                {
+                    "id": 9,
+                    "body": "[AI responder] fixed first",
+                    "author": "verified-bot",
+                    "type": "general",
+                    "in_reply_to_id": 7,
+                },
             ],
             generated,
         )
@@ -391,17 +480,60 @@ class ScratchRoutingContracts(unittest.TestCase):
 
         summary = run_step(
             [
-                {"id": 7, "body": "review point", "already_replied": False},
-                {"id": 8, "body": "second point", "already_replied": False},
+                original,
+                {"id": 8, "body": "second point", "author": "reviewer", "type": "general"},
                 {
                     "id": 99,
                     "body": "[AI responder] Summary [Comment #7] [Comment #8]",
-                    "already_replied": False,
+                    "author": "verified-bot",
+                    "type": "general",
                 },
             ],
             generated,
         )
         self.assertEqual(summary.returncode, 0, summary.stdout + summary.stderr)
+
+        malformed = run_step(["not-a-comment"], generated)
+        self.assertEqual(malformed.returncode, 2)
+        self.assertIn("commentfetch records are malformed", malformed.stderr)
+
+        unrelated = run_step(
+            [
+                original,
+                {
+                    "id": 8,
+                    "body": "unrelated reviewer reply",
+                    "author": "other-reviewer",
+                    "type": "general",
+                    "in_reply_to_id": 7,
+                },
+            ],
+            generated,
+        )
+        self.assertNotEqual(unrelated.returncode, 0)
+        self.assertIn("Missing original comment ID: 7", unrelated.stdout)
+
+        prefix_collision = run_step(
+            [
+                original,
+                {
+                    "id": 70,
+                    "body": "[AI responder] Comment #70",
+                    "author": "verified-bot",
+                    "type": "general",
+                },
+            ],
+            generated,
+        )
+        self.assertNotEqual(prefix_collision.returncode, 0)
+        self.assertIn("Missing original comment ID: 7", prefix_collision.stdout)
+
+    def test_commentfetch_reference_matching_rejects_numeric_prefixes(self):
+        fetcher = object.__new__(commentfetch.CommentFetch)
+        self.assertTrue(fetcher._has_exact_comment_reference("Re: Comment #7", "7"))
+        self.assertTrue(fetcher._has_exact_comment_reference("discussion_r7", "7"))
+        self.assertFalse(fetcher._has_exact_comment_reference("Re: Comment #70", "7"))
+        self.assertFalse(fetcher._has_exact_comment_reference("discussion_r70", "7"))
 
     def test_commentcheck_fetch_load_fails_on_fetch_or_freshness_failure(self):
         document = (ROOT / ".claude/skills/commentcheck/SKILL.md").read_text()
@@ -531,6 +663,22 @@ class ScratchRoutingContracts(unittest.TestCase):
             self.assertEqual(json.loads(empty.output_file.read_text())["comments"], [])
             self.assertEqual(empty.fetch_errors, [])
 
+            for name, stdout in (("mixed", '{"id": 1}\nNOT_JSON\n'), ("malformed", "NOT_JSON\n")):
+                malformed = make_fetcher(name)
+                malformed.cache_dir.mkdir(parents=True)
+                malformed.output_file.write_text(old_payload)
+                with mock.patch.object(
+                    commentfetch.subprocess,
+                    "run",
+                    return_value=subprocess.CompletedProcess(
+                        ["gh", "api"], 0, stdout=stdout, stderr=""
+                    ),
+                ):
+                    with self.assertRaisesRegex(RuntimeError, "preserving existing cache"):
+                        malformed.execute()
+                self.assertEqual(malformed.output_file.read_text(), old_payload)
+                self.assertTrue(malformed.fetch_errors)
+
     def test_web_advice_smoke_stops_on_configured_resolver_failure(self):
         script = ROOT / ".claude/skills/web-advice/scripts/e2e_smoke.sh"
         with tempfile.TemporaryDirectory(dir="/var/tmp") as directory:
@@ -549,7 +697,7 @@ class ScratchRoutingContracts(unittest.TestCase):
                 ["bash", str(script)],
                 env={
                     **__import__("os").environ,
-                    "PATH": f"{fake_bin}:/usr/bin:/bin",
+                        "PATH": f"{fake_bin}:/usr/bin:/bin",
                     "CLAUDE_HOME": str(claude_home),
                     "DISKM_SCRATCH": str(root / "missing"),
                 },

@@ -38,7 +38,18 @@ All temporary, disposable build, test scratch, and evidence paths resolve dynami
      ```
    - Example (ephemeral `mktemp` directory for video frames, clones, or probes):
      ```bash
-     WORK_DIR="$(mktemp -d "$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh tmp)/work.XXXXXX")"
+     SCRATCH_TMP="$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh tmp)" || {
+       echo "Scratch resolver unavailable; refusing allocation" >&2
+       exit 75
+     }
+     [ -n "$SCRATCH_TMP" ] || {
+       echo "Scratch resolver returned an empty path; refusing allocation" >&2
+       exit 75
+     }
+     WORK_DIR="$(mktemp -d "$SCRATCH_TMP/work.XXXXXX")" || {
+       echo "Scratch allocation failed" >&2
+       exit 75
+     }
      ```
    - Example (dev/test server logs):
      ```bash

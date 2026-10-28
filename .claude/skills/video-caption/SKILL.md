@@ -83,11 +83,17 @@ captions = [
 ]
 
 font = ImageFont.truetype(FONT, FONT_SIZE)
-# Resolve scratch directory via ~/.claude/skills/scratch-space/SKILL.md
-scratch_tmp = subprocess.check_output(
-    [os.path.expanduser("~/.claude/skills/scratch-space/scripts/scratch-dir.sh"), "tmp"],
-    text=True
-).strip()
+# Resolve scratch directory via ~/.claude/skills/scratch-space/SKILL.md.
+try:
+    scratch_tmp = subprocess.check_output(
+        [os.path.expanduser("~/.claude/skills/scratch-space/scripts/scratch-dir.sh"), "tmp"],
+        text=True,
+        stderr=subprocess.PIPE,
+    ).strip()
+except (OSError, subprocess.CalledProcessError) as exc:
+    raise SystemExit(f"Scratch resolver unavailable; refusing caption allocation: {exc}")
+if not scratch_tmp:
+    raise SystemExit("Scratch resolver returned an empty path; refusing caption allocation")
 caption_dir = Path(tempfile.mkdtemp(prefix="video-captions-", dir=scratch_tmp))
 
 for i, (start, end, text) in enumerate(captions):

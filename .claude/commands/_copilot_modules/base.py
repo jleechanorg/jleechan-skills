@@ -136,7 +136,9 @@ class CopilotCommandBase(ABC):
                         try:
                             items.append(json.loads(line))
                         except json.JSONDecodeError:
-                            continue
+                            message = f"JSON parsing error in paginated response: {line[:120]}"
+                            self.log_error(message)
+                            self.fetch_errors.append(message)
                 return items
 
             # Single JSON object/array OR user-provided --jq output
@@ -151,7 +153,9 @@ class CopilotCommandBase(ABC):
                             try:
                                 items.append(json.loads(line))
                             except json.JSONDecodeError:
-                                continue
+                                message = f"JSON parsing error in paginated response: {line[:120]}"
+                                self.log_error(message)
+                                self.fetch_errors.append(message)
                     return items
                 raise
 

@@ -239,7 +239,32 @@ echo "=== THREADING VERIFICATION ANALYSIS (JSON-BASED) ==="
 
 # Use commentfetch JSON output instead of making new API calls
 
-ALL_COMMENTS=$(jq '.comments' "$COMMENTS_FILE" 2>/dev/null || echo '[]')
+set -o pipefail
+coverage_fail() {
+  echo "🚨 CRITICAL: COPILOT EXECUTION HALTED" >&2
+  echo "🚨 REASON: $1" >&2
+  echo "EXIT CODE: 2 (COVERAGE_INPUT_FAILURE - Copilot execution must halt)" >&2
+  exit 2
+}
+
+if ! ALL_COMMENTS=$(jq -e '.comments' "$COMMENTS_FILE" 2>/dev/null); then
+  coverage_fail "commentfetch JSON is missing or malformed"
+fi
+if ! jq -e '
+  type == "array" and length > 0 and
+  all(.[];
+    type == "object" and
+    ((.id | type) == "number" or (.id | type) == "string") and
+    ((.id | tostring) | test("^[1-9][0-9]*$")) and
+    (.body | type) == "string" and
+    (.author | type) == "string" and
+    (.type | type) == "string" and
+    ((.in_reply_to_id == null) or
+      (((.in_reply_to_id | type) == "number" or (.in_reply_to_id | type) == "string") and
+       ((.in_reply_to_id | tostring) | test("^[1-9][0-9]*$"))))
+  )' <<<"$ALL_COMMENTS" >/dev/null; then
+  coverage_fail "commentfetch records are malformed"
+fi
 if [ "$(echo "$ALL_COMMENTS" | jq length)" -eq 0 ]; then
   echo "🚨 CRITICAL: COPILOT EXECUTION HALTED" >&2
   echo "🚨 REASON: No comment data available from commentfetch JSON" >&2
@@ -278,12 +303,34 @@ echo "🔍 ORIGINAL COMMENT ID COVERAGE (MECHANICAL ONLY):"
 
 # Coverage is bound to original comment IDs read back from GitHub.  The cached
 # response file is generated intent only; it cannot prove that a reply was
-# posted.  Existing commentfetch metadata (`already_replied`) or a refreshed
-# consolidated-summary comment body may prove posted attribution; the model,
-# not shell text matching, judges whether the response is technically good.
-ORIGINAL_IDS=$(echo "$ALL_COMMENTS" | jq -r '.[] | select((.body // "") | startswith("[AI responder]") | not) | .id | tostring' | sort -u)
-POSTED_REPLY_IDS=$(echo "$ALL_COMMENTS" | jq -r '.[] | select((.body // "") | startswith("[AI responder]") | not) | select(.already_replied == true) | .id | tostring' | sort -u)
-POSTED_SUMMARY_IDS=$(echo "$ALL_COMMENTS" | jq -r '.[] | select((.body // "") | startswith("[AI responder]")) | .body' | grep -oE 'Comment #[0-9]+' | sed 's/[^0-9]//g' | sort -u || true)
+# posted.  `already_replied` is deliberately ignored because it is derived by
+# heuristic code.  Direct replies require an exact GitHub in_reply_to_id and
+# the verified current responder login.  Consolidated summaries are accepted
+# only when the same verified responder authored them and their references are
+# exact numeric tokens; semantic response quality remains model-owned.
+if [ -n "${COPILOT_RESPONDER_LOGIN:-}" ]; then
+  # The caller must source this value from the verified GitHub actor; tests use
+  # the same explicit binding without making a network call.
+  RESPONDER_LOGIN="$COPILOT_RESPONDER_LOGIN"
+elif ! RESPONDER_LOGIN=$(gh api user --jq '.login' 2>/dev/null); then
+  coverage_fail "unable to verify the current GitHub responder identity"
+fi
+[ -n "$RESPONDER_LOGIN" ] || coverage_fail "verified responder identity is empty"
+
+if ! ORIGINAL_IDS=$(echo "$ALL_COMMENTS" | jq -r --arg responder "$RESPONDER_LOGIN" '.[] | select((.author != $responder) or (((.body // "") | startswith("[AI responder]")) | not)) | .id | tostring' | sort -u); then
+  coverage_fail "failed to extract original comment IDs"
+fi
+if ! POSTED_REPLY_IDS=$(echo "$ALL_COMMENTS" | jq -r --arg responder "$RESPONDER_LOGIN" '.[] | select(.author == $responder) | select(.in_reply_to_id != null) | .in_reply_to_id | tostring' | sort -u); then
+  coverage_fail "failed to extract posted reply relationships"
+fi
+if ! POSTED_SUMMARY_IDS=$(
+  {
+    echo "$ALL_COMMENTS" | jq -r --arg responder "$RESPONDER_LOGIN" '[.[] | select(.author == $responder) | (.body // "") | [scan("(?i)Comment[[:space:]]+#([0-9]+)")[]] | .[]] | .[]'
+    echo "$ALL_COMMENTS" | jq -r --arg responder "$RESPONDER_LOGIN" '[.[] | select(.author == $responder) | (.body // "") | [scan("(?i)discussion_r([0-9]+)")[]] | .[]] | .[]'
+  } | sort -u
+); then
+  coverage_fail "failed to extract verified responder summary references"
+fi
 ATTRIBUTED_IDS=$(printf '%s\n%s\n' "$POSTED_REPLY_IDS" "$POSTED_SUMMARY_IDS" | sed '/^$/d' | sort -u)
 MISSING_IDS=$(comm -23 <(printf '%s\n' "$ORIGINAL_IDS") <(printf '%s\n' "$ATTRIBUTED_IDS"))
 
@@ -298,7 +345,7 @@ if [ -n "$MISSING_IDS" ]; then
   exit 1
 fi
 
-echo "✅ Every original comment ID has an attributable response or posted summary receipt"
+echo "✅ Every original comment ID has an attributable posted relationship or verified responder summary receipt"
 echo "ℹ️ Semantic response quality is an LLM judgment; this gate performs no keyword or length scoring"
 ```
 

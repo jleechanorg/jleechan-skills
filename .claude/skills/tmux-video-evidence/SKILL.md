@@ -257,8 +257,18 @@ The following GitHub release example applies only when that destination is autho
   sha_short="${CAPTURED_SHA:0:12}"
   tag="evidence-pr-${PR_NUMBER}-${sha_short}-${RUN_ID}"
 
-  archive_scratch="$("${CLAUDE_HOME:-$HOME/.claude}/skills/scratch-space/scripts/scratch-dir.sh" tmp)"
-  archive_dir="$(mktemp -d "$archive_scratch/evidence_archive.XXXXXX")"
+  archive_scratch="$("${CLAUDE_HOME:-$HOME/.claude}/skills/scratch-space/scripts/scratch-dir.sh" tmp)" || {
+    echo "Scratch resolver unavailable; refusing archive allocation" >&2
+    exit 75
+  }
+  [[ -n "$archive_scratch" ]] || {
+    echo "Scratch resolver returned an empty path; refusing archive allocation" >&2
+    exit 75
+  }
+  archive_dir="$(mktemp -d "$archive_scratch/evidence_archive.XXXXXX")" || {
+    echo "Scratch archive allocation failed" >&2
+    exit 75
+  }
   zip_file="$archive_dir/$(basename "$video_file").zip"
   trap 'rm -f -- "$zip_file"; rmdir -- "$archive_dir"' EXIT
   zip -j "$zip_file" "$video_file"
@@ -417,7 +427,14 @@ Optional path:
 GitHub free plans often cap video uploads at 10 MB. Compress when needed:
 
 ```bash
-SCRATCH_TMP="$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh tmp)"
+SCRATCH_TMP="$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh tmp)" || {
+  echo "Scratch resolver unavailable; refusing compression" >&2
+  exit 75
+}
+[[ -n "$SCRATCH_TMP" ]] || {
+  echo "Scratch resolver returned an empty path; refusing compression" >&2
+  exit 75
+}
 ffmpeg -y -i "${SCRATCH_TMP}/${WORK_NAME:-work}.mp4" -vcodec h264 -crf 23 -preset medium "${SCRATCH_TMP}/${WORK_NAME:-work}.compressed.mp4"
 ```
 

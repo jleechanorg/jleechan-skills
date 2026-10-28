@@ -454,8 +454,7 @@ class CommentFetch(CopilotCommandBase):
                 and other_comment.get("created_at", "") > created_at
             ):
                 # Check for comment ID references (case-insensitive)
-                other_body_lower = other_body.lower()
-                if f"comment #{comment_id}" in other_body_lower or f"#{comment_id}" in other_body_lower or f"discussion_r{comment_id}" in other_body_lower:
+                if self._has_exact_comment_reference(other_body, comment_id):
                     return True
                 # Check for content similarity or reply patterns (consistent with general/review)
                 if self._appears_to_be_reply_to(other_comment, comment):
@@ -496,7 +495,7 @@ class CommentFetch(CopilotCommandBase):
 
                 # Check if other comment references this comment ID
                 other_body = str(other_comment.get("body", ""))
-                if f"#{comment_id}" in other_body or f"comment #{comment_id}" in other_body:
+                if self._has_exact_comment_reference(other_body, comment_id):
                     return True
 
                 # Check if it's an AI responder reply to this comment's content
@@ -580,6 +579,14 @@ class CommentFetch(CopilotCommandBase):
 
         return False
 
+    def _has_exact_comment_reference(self, body: str, comment_id: str) -> bool:
+        """Match a complete comment reference, never a numeric prefix."""
+        escaped_id = re.escape(str(comment_id))
+        return bool(
+            re.search(rf"(?<!\d)(?:comment\s+)?#{escaped_id}(?!\d)", body, re.IGNORECASE)
+            or re.search(rf"(?<!\d)discussion_r{escaped_id}(?!\d)", body, re.IGNORECASE)
+        )
+
     def _appears_to_be_reply_to(self, potential_reply: Dict[str, Any], original_comment: Dict[str, Any]) -> bool:
         """Check if a comment appears to be a reply to another comment.
 
@@ -595,7 +602,7 @@ class CommentFetch(CopilotCommandBase):
 
         # Check for direct references to original comment
         original_id = str(original_comment.get("id", ""))
-        if f"#{original_id}" in reply_body or f"comment #{original_id}" in reply_body:
+        if self._has_exact_comment_reference(reply_body, original_id):
             return True
 
         # Check for quoted content from original comment
