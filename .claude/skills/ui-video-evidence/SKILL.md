@@ -243,7 +243,8 @@ The following GitHub release example applies only when that destination is autho
   sha_short="${CAPTURED_SHA:0:12}"
   tag="evidence-pr-${PR_NUMBER}-${sha_short}-${RUN_ID}"
 
-  archive_dir="$(mktemp -d /tmp/evidence_archive.XXXXXX)"
+  archive_scratch="$("${CLAUDE_HOME:-$HOME/.claude}/skills/scratch-space/scripts/scratch-dir.sh" tmp)"
+  archive_dir="$(mktemp -d "$archive_scratch/evidence_archive.XXXXXX")"
   zip_file="$archive_dir/$(basename "$video_file").zip"
   trap 'rm -f -- "$zip_file"; rmdir -- "$archive_dir"' EXIT
   zip -j "$zip_file" "$video_file"
@@ -295,9 +296,9 @@ The following GitHub release example applies only when that destination is autho
 )
 ```
 
-From the JSON output returned by `gh release view`, extract the uploaded asset URLs and construct `/tmp/evidence_comment.md`. Do not guess draft asset download URLs or invent placeholder URLs.
+From the JSON output returned by `gh release view`, extract the uploaded asset URLs and construct `the canonical Scratch comment body`. Do not guess draft asset download URLs or invent placeholder URLs.
 
-Once `/tmp/evidence_comment.md` is constructed, post the comment to the authorized PR:
+Once `the canonical Scratch comment body` is constructed, post the comment to the authorized PR:
 
 ```bash
 (
@@ -359,7 +360,8 @@ Once `/tmp/evidence_comment.md` is constructed, post the comment to the authoriz
     exit 1
   fi
 
-  comment_file="${COMMENT_FILE:-/tmp/evidence_comment.md}"
+  comment_scratch="$("${CLAUDE_HOME:-$HOME/.claude}/skills/scratch-space/scripts/scratch-dir.sh" tmp)"
+  comment_file="${COMMENT_FILE:-$comment_scratch/evidence_comment.md}"
   if [ ! -s "$comment_file" ]; then
     echo "Error: Comment body file '$comment_file' does not exist or is empty" >&2
     exit 1
