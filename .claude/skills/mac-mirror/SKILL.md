@@ -44,6 +44,7 @@ Only **committed and pushed** state — the current branch's HEAD. Uncommitted/s
 REPO_ROOT=$(git rev-parse --show-toplevel)
 BRANCH=$(git -C "$REPO_ROOT" branch --show-current)
 REMOTE_URL=$(git -C "$REPO_ROOT" remote get-url origin)
+INTENDED_SHA=$(git -C "$REPO_ROOT" rev-parse HEAD)
 DIRTY=$(git -C "$REPO_ROOT" status --porcelain)
 
 case "$REPO_ROOT" in
@@ -88,8 +89,9 @@ BRANCH_B64=$(printf '%s' "$BRANCH" | base64 | tr -d '\n')
 REMOTE_URL_B64=$(printf '%s' "$REMOTE_URL" | base64 | tr -d '\n')
 CONTEXT_B64=$(printf 'x%s' "$CONTEXT" | base64 | tr -d '\n')
 AGENT_CLI_B64=$(printf '%s' "$AGENT_CLI" | base64 | tr -d '\n')
+INTENDED_SHA_B64=$(printf '%s' "$INTENDED_SHA" | base64 | tr -d '\n')
 
-ssh "${SSH_ARGS[@]}" "$SSH_TARGET" bash -s -- "$REL_PATH_B64" "$BRANCH_B64" "$REMOTE_URL_B64" "$CONTEXT_B64" "$AGENT_CLI_B64" << 'EOF'
+ssh "${SSH_ARGS[@]}" "$SSH_TARGET" bash -s -- "$REL_PATH_B64" "$BRANCH_B64" "$REMOTE_URL_B64" "$CONTEXT_B64" "$AGENT_CLI_B64" "$INTENDED_SHA_B64" << 'EOF'
 set -e
 REL_PATH=$(printf '%s' "$1" | base64 -d)
 BRANCH=$(printf '%s' "$2" | base64 -d)
@@ -101,6 +103,11 @@ case "$CONTEXT_PAYLOAD" in
   *) echo "FAILED:$TARGET — invalid CONTEXT payload" >&2; exit 1 ;;
 esac
 AGENT_CLI=$(printf '%s' "$5" | base64 -d)
+INTENDED_SHA=$(printf '%s' "$6" | base64 -d)
+if [[ ! "$INTENDED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "FAILED:$REL_PATH — invalid intended source SHA" >&2
+  exit 75
+fi
 
 if [ -z "$CONTEXT" ]; then
   echo "FAILED:$TARGET — CONTEXT is empty; refusing to start a bare shell" >&2
@@ -178,7 +185,12 @@ if tmux has-session -t "=$SESSION" 2>/dev/null; then
     echo "FAILED:$SESSION — existing session branch mismatch" >&2
     exit 75
   }
-  echo "RESUMED:$SESSION:$TARGET:$OUTPUT_ROOT:$(git -C "$TARGET" rev-parse HEAD)"
+  SESSION_HEAD=$(git -C "$TARGET" rev-parse HEAD 2>/dev/null || true)
+  [ "$SESSION_HEAD" = "$INTENDED_SHA" ] || {
+    echo "FAILED:$SESSION — active checkout SHA $SESSION_HEAD differs from intended source $INTENDED_SHA; preserving it" >&2
+    exit 75
+  }
+  echo "RESUMED:$SESSION:$TARGET:$OUTPUT_ROOT:$SESSION_HEAD"
   exit 0
 fi
 
@@ -213,6 +225,11 @@ if [ -n "$(git status --porcelain --untracked-files=all --ignore-submodules=none
 fi
 
 git fetch origin "$BRANCH"
+REMOTE_BRANCH_SHA=$(git rev-parse "origin/$BRANCH")
+if [ "$REMOTE_BRANCH_SHA" != "$INTENDED_SHA" ]; then
+  echo "ERROR:$TARGET origin/$BRANCH moved to $REMOTE_BRANCH_SHA; intended source is $INTENDED_SHA — refusing checkout/launch" >&2
+  exit 75
+fi
 if git show-ref --verify --quiet "refs/heads/$BRANCH"; then
   LOCAL_BRANCH_SHA=$(git rev-parse "$BRANCH")
   REMOTE_BRANCH_SHA=$(git rev-parse "origin/$BRANCH")
@@ -229,7 +246,7 @@ if ! git pull --ff-only origin "$BRANCH"; then
   echo "DIVERGED:$TARGET — local $BRANCH has diverged from origin/$BRANCH, resolve manually before continuing" >&2
   exit 1
 fi
-if [ "$(git rev-parse HEAD)" != "$(git rev-parse "origin/$BRANCH")" ]; then
+if [ "$(git rev-parse HEAD)" != "$INTENDED_SHA" ] || [ "$(git rev-parse "origin/$BRANCH")" != "$INTENDED_SHA" ]; then
   echo "ERROR:$TARGET did not converge exactly to origin/$BRANCH — refusing READY" >&2
   exit 75
 fi

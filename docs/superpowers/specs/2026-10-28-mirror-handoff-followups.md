@@ -55,11 +55,15 @@ fresh mirror clone.
 - The launched CLI receives `DISKM_SCRATCH`, `CLAUDE_CODE_TMPDIR`,
   `PYTEST_DEBUG_TEMPROOT`, and `TMPDIR` through a scoped `env` prefix on the
   process command; no global environment or unrelated tmux session is changed.
-- Before any clone, fetch, checkout, pull, or output-directory creation, an
-  existing exact tmux session is checked for its target path, origin, and
-  branch. Its session key includes both the repository key and branch key; a
-  mismatch or a session that appears during the check fails closed without
-  touching the live checkout.
+- The exact source HEAD is transported as a sixth encoded argument. After
+  fetch, the target refuses a moved branch unless `origin/$BRANCH` equals that
+  intended SHA; it launches only when the final checkout HEAD equals it.
+- The output directory is allocated first solely to provide the existing lock
+  inode. Under that lock, before clone, fetch, checkout, or pull, an existing
+  exact tmux session is checked for target path, origin, branch, and intended
+  HEAD. Its session key includes both repository and branch keys; a mismatch or
+  a session appearing during the check fails closed without touching the live
+  checkout.
 - `diskm scratch-dir <subpath>` is used for target and output allocation; its
   existing realpath/commonpath containment check runs before and after mkdir.
   An existing symlink escape fails closed before clone or write, without a
@@ -93,7 +97,8 @@ configured, registered-unavailable, and unconfigured-fallback outcomes, the
 two stable path namespaces, and the exported Scratch variables. Review the
 result against the four reported failure cases and the Scratch routing
 contract. Exercise controlled existing-session, cross-repository same-branch,
-dirty/ahead target, untracked target, tmux-server environment,
+dirty/ahead target, untracked target, tmux-server environment, source-branch
+movement between push and fetch,
 unconfigured/unavailable Scratch, symlink-escape, and forced two-bootstrap
 flock interleaving cases. Verify directory-lock support on both host binaries.
 No provider call or product-runtime test is needed.
