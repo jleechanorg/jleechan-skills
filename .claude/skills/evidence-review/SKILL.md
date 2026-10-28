@@ -12,10 +12,10 @@ For claim-proportionate proof, follow [pr-lifecycle](../pr-lifecycle/SKILL.md#pr
 ## Retained review integrations
 
 Follow [pr-lifecycle's retained review integrations](../pr-lifecycle/SKILL.md#retained-review-integrations)
-for skill discovery, target-host checks, quorum and disclosure boundaries. If a required
-integration is missing, report `UNAVAILABLE` with its package name; do not invent a runner
-or approval. Continue independent authorized work, leaving dependent readiness or
-plan-approval gates unmet.
+for skill discovery, quorum and disclosure boundaries. For a remote invocation, check
+the target host's actual review skill. If a required integration is missing, report
+`UNAVAILABLE` with its package name; do not invent a runner or approval. Continue
+independent authorized work, but leave any dependent readiness or plan-approval gate unmet.
 
 
 **Purpose**: Review evidence for a claim, a path, or a PR. Produce a PASS / PARTIAL / FAIL verdict with specific artifact-level citations. This skill is the enforcement layer for the `evidence-standards` skill (the "what to produce") — this file is the "how to judge it".

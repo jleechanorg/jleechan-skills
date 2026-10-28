@@ -23,10 +23,10 @@ Merge authorization is separate from `/green`: follow `~/.codex/AGENTS.md` § Me
 ## Retained review integrations
 
 Follow [pr-lifecycle's retained review integrations](../pr-lifecycle/SKILL.md#retained-review-integrations)
-for skill discovery, target-host checks, quorum and disclosure boundaries. If a required
-integration is missing, report `UNAVAILABLE` with its package name; do not invent a runner
-or approval. Continue independent authorized work, leaving dependent readiness or
-plan-approval gates unmet.
+for skill discovery, quorum and disclosure boundaries. For a remote invocation, check
+the target host's actual review skill. If a required integration is missing, report
+`UNAVAILABLE` with its package name; do not invent a runner or approval. Continue
+independent authorized work, but leave any dependent readiness or plan-approval gate unmet.
 
 ## Documentation-only CI exception
 

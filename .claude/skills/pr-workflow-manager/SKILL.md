@@ -54,6 +54,14 @@ to invent an alias or claim one exists.
 Use for opening or driving PRs, post-push follow-through, branch/upstream problems, stage changes,
 CI/conflict diagnosis, and review/readiness coordination.
 
+## Retained review integrations
+
+Follow [pr-lifecycle's retained review integrations](../pr-lifecycle/SKILL.md#retained-review-integrations)
+for skill discovery, quorum and disclosure boundaries. For a remote invocation, check
+the target host's actual review skill. If a required integration is missing, report
+`UNAVAILABLE` with its package name; do not invent a runner or approval. Continue
+independent authorized work, but leave any dependent readiness or plan-approval gate unmet.
+
 ## Useful highlighted skills
 
 Choose a helper for the actual question, not an extra mandatory checklist.

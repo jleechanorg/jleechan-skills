@@ -410,7 +410,7 @@ class CodingLifecycleContract(unittest.TestCase):
         self.assertIn("../pr-lifecycle/SKILL.md#draft-phase-final-acceptance-gates-in-order", manager)
         for name in ("evidence-review", "pr-green-definition"):
             self.assertIn("../pr-lifecycle/SKILL.md#retained-review-integrations", read(name))
-            self.assertIn("dependent readiness or plan-approval gates unmet", read(name))
+            self.assertIn("leave any dependent readiness or plan-approval gate unmet", read(name))
         er = read("evidence-review")
         self.assertIn("matching HEAD alone does not establish unchanged evidence", er)
         self.assertIn("base, scope or final-phase coverage", er)
