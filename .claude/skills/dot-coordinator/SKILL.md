@@ -67,6 +67,11 @@ queue owner, not the reminder sender. The numeric predicate does not validate
 receipt age, reserve capacity atomically or observe remote execution. Never
 treat its BELOW_CAP output alone as global dispatch authorization.
 
+**Incident claim boundary:** This package does not include the original live
+trace or a same-path dispatch receipt for the reported third-short admission.
+Its cause and any remediation are therefore unverified. This helper is an
+advisory numeric predicate, not a demonstrated fix for that incident.
+
 One single global budget covers this Dot, this coordinator and every worker it starts: at most **2 complex plus 2 short active outcomes** in total, including across overlapping runs. A second run, account or worker never gets its own two-plus-two.
 
 Caps are exactly: complex ≤ 2, short ≤ 2. Those are the only two lanes and the only two bounds; never invent, widen or convert between them (no 4–6 light lane, no borrowing an idle complex slot for a short item or the reverse).
