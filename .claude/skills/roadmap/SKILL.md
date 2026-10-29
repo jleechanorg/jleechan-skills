@@ -101,6 +101,14 @@ status; a prose-only status is incomplete.
 
 - Every row comes from a live `gh pr view` at write time. Never carry a state, head, or
   delta forward from prose, a prior board, or another agent's report.
+- For PR file counts or changed-file claims, resolve the actual current base-branch
+  tip SHA and PR head SHA, then compute additions, deletions, and changed paths from
+  `git diff <base-tip>...<head>` or a paginated REST compare bound to those SHAs. Do
+  not use a stale PR `baseRefOid`, cached `gh pr view` totals, or cached
+  `pulls/{number}/files` results as the source of truth.
+- If today's board/report already exists on the current owner branch or main, reconcile
+  it with live sources and the current base-branch tip, preserving other owners' rows
+  and holds instead of appending duplicates or overwriting from a stale snapshot.
 - Say the measurement time in one line at the bottom, and state that deltas are total
   additions/deletions (not prod-only) unless you computed the split.
 - If a PR is stale, say how stale (last-updated date). If an item has no owner, write
