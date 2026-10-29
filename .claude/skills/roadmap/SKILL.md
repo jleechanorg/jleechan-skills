@@ -75,6 +75,18 @@ stage table. A compact reply may shorten the surrounding prose, but it must reta
 one row per in-scope PR with the `Stage`, `State`, `Head`, `Next`, and exact marker
 status; a prose-only status is incomplete.
 
+## Open the published board in cmux
+
+After publishing the board, when `/roadmap` is invoked from a verified cmux
+context—or the caller explicitly requests the current cmux workspace—resolve the
+current workspace at action time. Reuse the board's existing browser tab there,
+update it to the current published URL if needed, and reload it; otherwise create
+a browser tab in that same workspace. Do not create or select a workspace/window,
+change focus, or open a duplicate board tab. Outside cmux, do not launch cmux or a
+browser; return the published links. Verify the tab URL, rendered board, and
+workspace before reporting success. Follow the browser-control and cmux-steer
+skills for isolation, authentication, and no-focus-steal behavior.
+
 ## Evidence rules
 
 - Every row comes from a live `gh pr view` at write time. Never carry a state, head, or
