@@ -91,17 +91,16 @@ succeeded without receipt evidence.
 
 ## 4. Isolate review copies
 
-Before taking review snapshots, materialize the pinned review commit in a
-standalone donor repository with independent Git metadata; do not use a linked
-worktree as the donor. In document-only mode, place the selected saved Markdown
-files in the donor before snapshotting and preserve their existing per-file and
-bundle hash checks. Verify the donor's Git directory is a real directory,
+Before taking snapshots for a revision review, materialize the requested commit
+in a standalone donor repository with independent Git metadata; do not use a
+linked worktree. Verify the donor's Git directory is a real directory,
 `git rev-parse --git-common-dir` resolves to the same directory as
-`git rev-parse --git-dir`, and its `HEAD` equals the requested review SHA (or
-context SHA for document-only review). Resolve and record the required base
-there, then take the pre-attempt snapshot and run the review workflow from that
-donor. This keeps unrelated ref movement in the source repository outside the
-donor's metadata without weakening any mutation check.
+`git rev-parse --git-dir`, its `HEAD` equals the requested review SHA, and the
+required base resolves to its recorded SHA. Run the existing revision-review
+workflow from that donor so its original-checkout, ref, config, and hook
+mutation checks continue to apply to the donor. Document-only reviews retain
+the existing named saved-Markdown-byte overlay and per-file/bundle hash checks;
+they require no donor, commit, or Git context SHA.
 
 Use independent temporary clones without an `origin` remote. For revision
 reviews, pin each clone to the same exact SHA. For document-only reviews,
@@ -111,9 +110,9 @@ metadata and review state, not the host: it is not an OS sandbox and does not
 restrict network, environment, or process creation. Full-permission execution
 preserves the requested reviewer transport; it does not authorize unrelated
 destructive actions, credential changes, or publication. Before and after each
-attempt, use the available receipt or read-only checks to verify the donor,
-refs, local config, and hooks are unchanged; any detected mutation invalidates
-that vote.
+attempt, use the available receipt or read-only checks to verify the original
+checkout, refs, local config, and hooks are unchanged; any detected mutation
+invalidates that vote.
 
 ## 5. Reconcile and report
 
