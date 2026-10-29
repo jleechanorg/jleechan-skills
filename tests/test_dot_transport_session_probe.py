@@ -30,7 +30,7 @@ def _node22_for_environment(environment):
 
 class DotSessionProbeTest(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix="dot-session-probe-", dir="/tmp")
+        self.temp = tempfile.TemporaryDirectory(prefix="dot-session-probe-")
         self.root = Path(self.temp.name)
         self.home = self.root / "home"
         self.home.mkdir()

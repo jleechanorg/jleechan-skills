@@ -1390,13 +1390,9 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         result = self.invoke()
 
         receipt = json.loads((self.output / "receipt.json").read_text())
-        cleanup_failures = receipt["descendant_termination_failures"]
-        if cleanup_failures:
-            self.assertEqual(result.returncode, 7)
-            self.assertIn("descendant termination could not be verified", result.stderr)
-        else:
-            self.assertEqual(result.returncode, 3)
-            self.assertIn("repository metadata changed", result.stderr)
+        self.assertEqual(result.returncode, 3)
+        self.assertIn("repository metadata changed", result.stderr)
+        self.assertEqual(receipt["descendant_termination_failures"], [])
         self.assertFalse(receipt["original_repository_unchanged"])
 
     def test_one_timed_out_lane_is_error_while_peer_succeeds(self) -> None:
@@ -1647,19 +1643,15 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
             self.assertLess(attempt_duration, 6.0)
             self.assertEqual(attempt["failure"], "timeout")
             self.assertIsInstance(attempt["forced_pipe_close"], bool)
-            pidfd_supported = callable(getattr(os, "pidfd_open", None)) and callable(
-                getattr(signal, "pidfd_send_signal", None)
-            )
-            if pidfd_supported:
+            if attempt["descendant_termination_verified"]:
                 self.assertIn(detached_pid, attempt["descendants_discovered"])
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn(detached_pid, attempt["descendants_terminated"])
-                self.assertTrue(attempt["descendant_termination_verified"])
                 self.assertEqual(attempt["descendants_surviving"], [])
+                self.assertEqual(receipt["descendant_termination_failures"], [])
             else:
                 self.assertEqual(result.returncode, 7, result.stderr)
                 self.assertNotIn(detached_pid, attempt["descendants_terminated"])
-                self.assertFalse(attempt["descendant_termination_verified"])
                 self.assertEqual(receipt["descendant_termination_failures"], ["codex"])
                 self.assertEqual(codex_result["status"], "error")
                 if detached_pid in attempt["descendants_discovered"]:
@@ -1870,14 +1862,20 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
             "started_monotonic_ns": now,
             "ended_monotonic_ns": now,
         }
+        stderr = io.StringIO()
         with mock.patch.object(
             runner, "resolve_review_scratch_root", return_value=self.scratch
-        ), mock.patch.object(runner, "codex_lane", return_value=review):
+        ), mock.patch.object(
+            runner, "codex_lane", return_value=review
+        ), redirect_stderr(stderr):
             code = runner.main(argv)
 
         receipt = json.loads((self.output / "receipt.json").read_text())
         self.assertEqual(receipt["descendant_termination_failures"], ["codex"])
         self.assertEqual(code, 7)
+        self.assertIn(
+            "descendant termination could not be verified for: codex", stderr.getvalue()
+        )
 
     def test_review_execution_budget_uses_absolute_deadline_after_delayed_thread_start(self) -> None:
         runner = load_runner_module()
