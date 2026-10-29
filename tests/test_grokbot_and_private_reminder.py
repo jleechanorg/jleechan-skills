@@ -27,7 +27,7 @@ class NewSkillContracts(unittest.TestCase):
   alias=(ROOT/'.claude/skills/grokb/SKILL.md').read_text(encoding="utf-8")
   self.assertIn('../grokbot/SKILL.md',alias)
   for name in ['grokbot','grokb']:
-   self.assertIn('grokbot/SKILL.md',(ROOT/f'.claude/commands/{name}.md').read_text(encoding="utf-8"))
+   self.assertIn(f'skills/{name}/SKILL.md',(ROOT/f'.claude/commands/{name}.md').read_text(encoding="utf-8"))
  def test_new_exports_have_no_private_config(self):
   texts=[(ROOT/f'.claude/skills/{n}/SKILL.md').read_text(encoding="utf-8") for n in ['grokbot','grokb']]
   for text in texts:
