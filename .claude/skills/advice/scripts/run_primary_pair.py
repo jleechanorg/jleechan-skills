@@ -259,7 +259,7 @@ class ProcessTreeSupervisor:
 
     def __init__(
         self,
-        root_pid: int,
+        root_pid: int | None,
         interval_seconds: float = 0.25,
         deadline: float | None = None,
     ) -> None:
@@ -275,6 +275,13 @@ class ProcessTreeSupervisor:
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread_started = False
 
+    def bind_root(self, root_pid: int) -> None:
+        if self.root_pid is not None:
+            raise RuntimeError("reviewer process root is already bound")
+        if root_pid <= 0:
+            raise ValueError("reviewer process root PID must be positive")
+        self.root_pid = root_pid
+
     def _snapshot(self) -> dict[int, tuple[int, str]]:
         if self.deadline is None:
             return process_snapshot()
@@ -284,6 +291,8 @@ class ProcessTreeSupervisor:
         return process_snapshot(timeout_seconds=min(10.0, remaining))
 
     def start(self) -> None:
+        if self.root_pid is None:
+            raise RuntimeError("reviewer process root is not bound")
         self._sample()
         if self.deadline is None or time.monotonic() < self.deadline:
             self._thread.start()
@@ -311,6 +320,9 @@ class ProcessTreeSupervisor:
                     self.errors.append(f"PID {pid}: parent pidfd close failed: {error}")
 
     def _sample(self) -> None:
+        root_pid = self.root_pid
+        if root_pid is None:
+            raise RuntimeError("reviewer process root is not bound")
         try:
             snapshot = self._snapshot()
         except (OSError, subprocess.SubprocessError) as error:
@@ -321,9 +333,9 @@ class ProcessTreeSupervisor:
                     self.errors.append("reviewer root identity unavailable during initial process snapshot")
             return
         with self._lock:
-            root_entry = snapshot.get(self.root_pid)
+            root_entry = snapshot.get(root_pid)
             current_root_identity = (
-                process_start_identity(self.root_pid, root_entry[1])
+                process_start_identity(root_pid, root_entry[1])
                 if root_entry is not None
                 else None
             )
@@ -350,7 +362,7 @@ class ProcessTreeSupervisor:
                 and root_entry is not None
                 and current_root_identity == self.root_identity
             ):
-                roots.add(self.root_pid)
+                roots.add(root_pid)
             changed = True
             while changed:
                 changed = False
@@ -363,7 +375,7 @@ class ProcessTreeSupervisor:
                             continue
                         parent_identity = (
                             self.root_identity
-                            if ppid == self.root_pid
+                            if ppid == root_pid
                             else self.discovered.get(ppid)
                         )
                         if parent_identity is None or not self._pidfd_matches_identity(
@@ -421,8 +433,17 @@ class ProcessTreeSupervisor:
         if not callable(pidfd_open) or not callable(pidfd_send_signal):
             return []
 
+        if self.deadline is not None and time.monotonic() >= self.deadline:
+            with self._lock:
+                candidates = dict(self.discovered)
+        else:
+            candidates = self.active_discovered_identities()
+            if self.deadline is not None and time.monotonic() >= self.deadline:
+                with self._lock:
+                    candidates = dict(self.discovered)
+
         signaled: list[int] = []
-        for pid, expected_identity in self.active_discovered_identities().items():
+        for pid, expected_identity in candidates.items():
             pidfd: int | None = None
             try:
                 pidfd = pidfd_open(pid, 0)
@@ -495,6 +516,7 @@ def cleanup_reviewer_process(
     stdout = ""
     stderr = ""
     forced_pipe_close = False
+    process_group_signal_skipped_after_leader_exit = False
 
     try:
         supervisor.stop()
@@ -528,11 +550,7 @@ def cleanup_reviewer_process(
         except OSError as error:
             record_error("reviewer leader KILL failed", error)
     else:
-        record_error(
-            "reviewer leader exited before process-group signaling; skipped signal "
-            "because group identity could no longer be proven atomically",
-            RuntimeError("process-group identity unavailable"),
-        )
+        process_group_signal_skipped_after_leader_exit = True
 
     def partial_text(value: str | bytes | None) -> str:
         if value is None:
@@ -593,6 +611,9 @@ def cleanup_reviewer_process(
     supervision = supervisor.evidence(terminated, survivors)
     leader_reaped = process.returncode is not None
     supervision["reviewer_leader_reaped"] = leader_reaped
+    supervision["process_group_signal_skipped_after_leader_exit"] = (
+        process_group_signal_skipped_after_leader_exit
+    )
     cleanup_verified = (
         leader_reaped
         and thread_stopped
@@ -614,6 +635,7 @@ def execute(
         deadline if deadline is not None else time.monotonic() + timeout_seconds
     )
     supervision_deadline = execution_deadline + timeout_grace_seconds
+    supervisor = ProcessTreeSupervisor(None, deadline=supervision_deadline)
     process = subprocess.Popen(
         [*command, prompt],
         cwd=cwd,
@@ -623,8 +645,8 @@ def execute(
         stderr=subprocess.PIPE,
         start_new_session=True,
     )
-    supervisor = ProcessTreeSupervisor(process.pid, deadline=supervision_deadline)
     try:
+        supervisor.bind_root(process.pid)
         supervisor.start()
         remaining = execution_deadline - time.monotonic()
         if remaining <= 0:

@@ -335,6 +335,122 @@ class ReviewerProcessTest(unittest.TestCase):
                 "reviewer survived supervision startup failure",
             )
 
+    @unittest.skipUnless(
+        sys.platform.startswith("linux")
+        and callable(getattr(os, "pidfd_open", None))
+        and callable(getattr(signal, "pidfd_send_signal", None)),
+        "requires Linux pidfd signaling",
+    )
+    def test_supervisor_signals_recorded_pidfd_targets_after_deadline_and_rejects_reuse(self) -> None:
+        runner = load_runner_module()
+        safe_child = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(30)"],
+            start_new_session=True,
+        )
+        reused_child = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(30)"],
+            start_new_session=True,
+        )
+        try:
+            safe_identity = test_process_start_identity(safe_child.pid)
+            reused_identity = test_process_start_identity(reused_child.pid)
+            if safe_identity is None or reused_identity is None:
+                self.fail("fixture process identity was unavailable")
+            supervisor = runner.ProcessTreeSupervisor(
+                os.getpid(), deadline=time.monotonic() + 0.02
+            )
+            supervisor.discovered = {
+                safe_child.pid: safe_identity,
+                reused_child.pid: f"stale-{reused_identity}",
+            }
+            time.sleep(0.05)
+
+            signaled = supervisor.signal_active(signal.SIGKILL)
+
+            self.assertEqual(signaled, [safe_child.pid])
+            self.assertTrue(
+                wait_for_test_process_exit(safe_child.pid, safe_identity, 2)
+            )
+            self.assertTrue(
+                test_process_is_running(reused_child.pid, reused_identity),
+                "a stale identity must not signal the unrelated current process",
+            )
+            self.assertTrue(
+                any("identity changed before pidfd signal" in error for error in supervisor.errors)
+            )
+        finally:
+            for child in (safe_child, reused_child):
+                if child.poll() is None:
+                    child.kill()
+                child.wait(timeout=2)
+
+    def test_supervisor_constructor_failure_precedes_reviewer_launch(self) -> None:
+        runner = load_runner_module()
+        with mock.patch.object(
+            runner,
+            "ProcessTreeSupervisor",
+            side_effect=MemoryError("injected supervisor allocation failure"),
+        ), mock.patch.object(runner.subprocess, "Popen") as popen:
+            with self.assertRaisesRegex(
+                MemoryError, "injected supervisor allocation failure"
+            ):
+                runner.execute(
+                    [sys.executable, "-c", "import time; time.sleep(30)"],
+                    Path(__file__).resolve().parent,
+                    "prompt",
+                    5,
+                    0.2,
+                )
+
+        popen.assert_not_called()
+
+    def test_reaped_leader_with_verified_children_does_not_fail_group_skip(self) -> None:
+        runner = load_runner_module()
+
+        class ReapedReviewer:
+            pid = 123
+            returncode = 0
+            stdout = None
+            stderr = None
+
+            def poll(self):
+                return 0
+
+            def communicate(self, timeout=None):
+                return "", ""
+
+            def wait(self, timeout=None):
+                return 0
+
+            def kill(self):
+                pass
+
+        supervisor = runner.ProcessTreeSupervisor(
+            os.getpid(), deadline=time.monotonic() + 5
+        )
+        with mock.patch.object(supervisor, "stop"), mock.patch.object(
+            supervisor, "signal_active", side_effect=[[200], []]
+        ), mock.patch.object(
+            supervisor, "verify_gone", return_value=[]
+        ), mock.patch.object(runner.os, "killpg") as killpg:
+            result = runner.cleanup_reviewer_process(
+                ReapedReviewer(), supervisor, 0.1
+            )
+
+        killpg.assert_not_called()
+        self.assertTrue(result[4]["reviewer_leader_reaped"])
+        self.assertTrue(result[4]["process_group_signal_skipped_after_leader_exit"])
+        self.assertTrue(result[4]["descendant_termination_verified"])
+        self.assertTrue(
+            result[5], "verified descendants and a reaped leader should permit the peer vote"
+        )
+        self.assertEqual(
+            runner.descendant_termination_failures(
+                {"codex": {"attempts": [result[4]]}}
+            ),
+            [],
+        )
+
     def test_supervisor_start_failure_cleans_detached_reviewer_descendant(self) -> None:
         runner = load_runner_module()
         with tempfile.TemporaryDirectory() as directory:
@@ -581,11 +697,19 @@ class PrimaryPairTest(unittest.TestCase):
         )
 
         try:
+            def track_pipe_holder(supervisor) -> None:
+                child_text, identity = child_pid_file.read_text().splitlines()
+                supervisor.discovered[int(child_text)] = identity
+
+            def report_survivor(grace_seconds: float) -> list[int]:
+                child_text, identity = child_pid_file.read_text().splitlines()
+                child_pid = int(child_text)
+                return [child_pid] if test_process_is_running(child_pid, identity) else []
+
             with mock.patch.object(runner.ProcessTreeSupervisor, "start"), \
-                    mock.patch.object(runner.ProcessTreeSupervisor, "stop"), \
-                    mock.patch.object(runner.ProcessTreeSupervisor, "active_discovered", return_value=[]), \
+                    mock.patch.object(runner.ProcessTreeSupervisor, "stop", track_pipe_holder), \
                     mock.patch.object(runner.ProcessTreeSupervisor, "signal_active", return_value=[]), \
-                    mock.patch.object(runner.ProcessTreeSupervisor, "verify_gone", return_value=[]), \
+                    mock.patch.object(runner.ProcessTreeSupervisor, "verify_gone", side_effect=report_survivor), \
                     mock.patch.object(runner.os, "killpg") as killpg:
                 result = runner.execute(
                     [sys.executable, "-c", child_program], self.root, "prompt", 0.1, 0.05
@@ -595,13 +719,11 @@ class PrimaryPairTest(unittest.TestCase):
             child_pid = int(child_pid_text)
             self.assertTrue(result[3], "pipe-holding descendant did not trigger timeout")
             killpg.assert_not_called()
-            self.assertFalse(result[5]["descendant_termination_verified"])
             self.assertTrue(
-                any(
-                    "group identity could no longer be proven" in error
-                    for error in result[5]["descendant_supervision_errors"]
-                )
+                result[5]["process_group_signal_skipped_after_leader_exit"]
             )
+            self.assertFalse(result[5]["descendant_termination_verified"])
+            self.assertEqual(result[5]["descendants_surviving"], [child_pid])
             self.assertTrue(
                 test_process_is_running(child_pid, child_identity),
                 "fixture child should require its own cleanup",
@@ -981,6 +1103,71 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         self.assertEqual(receipt["reviewers"]["codex"]["attempts"][0]["failure"], "timeout")
         self.assertEqual(receipt["reviewers"]["opus"]["status"], "success")
         self.assertTrue(receipt["cleanup"]["success"])
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "requires Linux pidfd supervision")
+    def test_reaped_timed_out_lane_with_verified_descendant_keeps_peer_vote(self) -> None:
+        runner = load_runner_module()
+        child_file = self.sync / "late-child.pid"
+        sample_marker = self.sync / "supervisor-observed-child"
+        reviewer_code = (
+            "python3 - <<'PY'\n"
+            "import os, pathlib, subprocess, sys, time\n"
+            "sync = pathlib.Path(os.environ['ADVICE_TEST_SYNC_DIR'])\n"
+            "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'], start_new_session=True)\n"
+            "proc = pathlib.Path(f'/proc/{child.pid}/stat')\n"
+            "fields = proc.read_text().rsplit(')', 1)[1].split()\n"
+            "identity = f'linux-start-ticks:{fields[19]}'\n"
+            "(sync / 'late-child.pid').write_text(f'{child.pid}\\n{identity}')\n"
+            "deadline = time.monotonic() + 2\n"
+            "while not (sync / 'supervisor-observed-child').exists() and time.monotonic() < deadline:\n"
+            " time.sleep(0.01)\n"
+            "if not (sync / 'supervisor-observed-child').exists():\n"
+            " raise SystemExit(9)\n"
+            "print('VERDICT: APPROVED', flush=True)\n"
+            "print('COVERAGE: all', flush=True)\n"
+            "PY\n"
+        )
+        self.executable("codex", reviewer_code)
+        self.executable("claude", "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n")
+        argv = self.with_queued_timestamps([
+            "--repo", str(self.repo), "--ref", self.sha,
+            "--packet-file", str(self.packet), "--output-dir", str(self.output),
+            "--timeout-seconds", "1.5", "--attempt-timeout-seconds", "10",
+            "--cleanup-budget-seconds", "1", "--timeout-grace-seconds", "0.5",
+        ])
+        original_sample = runner.ProcessTreeSupervisor._sample
+
+        def sample_and_mark_child(supervisor) -> None:
+            original_sample(supervisor)
+            if child_file.exists():
+                child_text, child_identity = child_file.read_text().splitlines()
+                child_pid = int(child_text)
+                if supervisor.discovered.get(child_pid) == child_identity:
+                    sample_marker.touch(exist_ok=True)
+
+        try:
+            with mock.patch.dict(os.environ, self.env), mock.patch.object(
+                runner.ProcessTreeSupervisor, "_sample", sample_and_mark_child
+            ), mock.patch.object(runner.os, "killpg") as killpg:
+                code = runner.main(argv)
+                killpg.assert_not_called()
+
+            receipt = json.loads((self.output / "receipt.json").read_text())
+            self.assertEqual(code, 0, repr(receipt))
+            self.assertTrue(sample_marker.exists(), "supervisor never observed the detached child")
+            child_text, child_identity = child_file.read_text().splitlines()
+            child_pid = int(child_text)
+            codex = receipt["reviewers"]["codex"]
+            attempt = codex["attempts"][0]
+            self.assertEqual(attempt["failure"], "timeout")
+            self.assertTrue(attempt["reviewer_leader_reaped"])
+            self.assertTrue(attempt["process_group_signal_skipped_after_leader_exit"])
+            self.assertTrue(attempt["descendant_termination_verified"])
+            self.assertEqual(receipt["descendant_termination_failures"], [])
+            self.assertEqual(receipt["reviewers"]["opus"]["status"], "success")
+            self.assertTrue(wait_for_test_process_exit(child_pid, child_identity, 2))
+        finally:
+            cleanup_test_process_file(child_file, 3.0)
 
     def test_attempt_budget_labels_limited_lane_and_keeps_timely_peer_vote(self) -> None:
         runner = load_runner_module()
