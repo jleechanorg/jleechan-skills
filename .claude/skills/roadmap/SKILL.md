@@ -15,6 +15,24 @@ Phase 0 survey (optional context gathering) lives in
 `references/legacy-command.md`; use it when the board needs history, but the output
 format below is mandatory.
 
+When running in cmux, open the pushed GitHub board in a browser tab in the
+caller's current workspace. Resolve that workspace from caller context; if it is
+unavailable, query and verify cmux's current workspace. An installed CLI or reachable
+socket alone does not establish that this task is using cmux.
+
+Use the published branch's board URL so refresh loads the latest commit, while
+retaining the commit-pinned proof URL in the report. Inspect only that workspace's
+browser surfaces and their actual URLs. If this board is already open, refresh
+that surface with `cmux browser --surface <surface> reload`; navigate the same tab
+to the current branch URL if it holds the task's older pinned version. Otherwise,
+use `cmux browser open <url> --workspace <workspace> --window <window> --focus false`,
+preserving the workspace's existing task-owned browser session/profile.
+
+Do not create a window, workspace or profile, change unrelated surfaces, or launch
+cmux outside a cmux session. Verify workspace membership, URL, title and rendered
+board content; report a 404 or other rendering failure explicitly. Outside cmux,
+skip this UI step and return the GitHub link normally.
+
 ## Output document
 
 Path convention: `~/roadmap/pr-inflight-YYYY-MM-DD.md` (update the same day's file
@@ -22,10 +40,14 @@ instead of creating a second one). Repo: `jleechanorg/roadmap`.
 
 Required structure, in this order:
 
-1. **TLDR at the very top.** 3–6 sentences a reader can act on without scrolling:
-   how many PRs are in flight and how many sit in each stage, how many are blocked only on a human action, which
-   carry the user-visible P−1 fixes, which are stale or have no owner, and the total
-   line delta. Name the biggest deltas explicitly.
+1. **TLDR at the very top.** Open with a short overview of stage counts, human-only
+   blockers, stale/unowned work and total line delta; name the biggest deltas.
+   Then give **every in-scope PR 1–2 plain-language sentences**, with its linked PR
+   number visible: what changes for the user, which requested fix it addresses,
+   and what is done versus still unproven. Put requested feature/fix PRs first and
+   supporting tests, tooling and docs afterward. Include already-merged fixes when
+   they answer a current request; distinguish implemented, merged, deployed and
+   accepted. A stage number or generic label such as “sharing” is not a description.
 2. **PR ledger table**, one row per PR:
    `| PR | Repo | Stage | State | Head | Δ (lines) | Next | Brief |`
    - `PR` links to the full GitHub URL (number visible in the link text).
