@@ -174,17 +174,15 @@ If `.beads/issues.jsonl` exists:
 
 If beads are unavailable, write `none` and report why.
 
-### 6. Always wiki-ingest (call the skill, do not write files manually)
+### 6. Always wiki-ingest using the calling CLI
 
 Wiki ingest is mandatory for `/learn`. Use the Claude memory file (preferred)
-or the roadmap entry as the source document. **Invoke the `wiki-ingest`
-skill via the Skill tool — do not write files into `~/llm_wiki/wiki/`
-directly.** The `wiki-ingest` skill handles raw copy, source page, index
-entry, log entry, and entity/concept extraction in one call.
-
-```
-Skill("wiki-ingest", args="<absolute path to memory file or roadmap entry>")
-```
+or the roadmap entry as the source document. Read the canonical `wiki-ingest`
+skill and execute its full procedure with the calling CLI's own inference and
+tools. If the runtime provides a native skill invocation, it may use that; a
+Claude-specific Skill tool or a second CLI is never a prerequisite. Writes
+performed as part of the complete wiki-ingest procedure are authorized; do
+not substitute a partial copy that skips entity/concept extraction or validation.
 
 After invoking, verify all four side effects landed:
 
@@ -194,22 +192,16 @@ After invoking, verify all four side effects landed:
 - `~/llm_wiki/wiki/index.md` was updated under `## Sources`
 - `~/llm_wiki/wiki/log.md` was appended with `## [YYYY-MM-DD] ingest | <title>`
 
-**Do NOT fall back to direct `Write` / `Edit` / `cp` / `python3 <<EOF`**
-when the skill fails. The global wiki integrity rule forbids direct
-writes to `wiki/sources/`, `wiki/entities/`, and `wiki/concepts/`, and
-direct writes skip the entity/concept extraction that the skill performs.
-If the skill errors, surface the error to the user and stop — never
-silently substitute a partial manual write.
+If the full procedure cannot be completed, report the exact missing step and
+continue independent persistence; never present a partial ingest as complete.
 
 **No exceptions for "the learning seems not wiki-bearing."** The learning
 itself is the source. The skill's classifier decides what is wiki-bearing.
 
 **Working-directory caveat**: if the current session cwd is not
 `~/llm_wiki` (e.g. an `/integrate` flow running in a feature worktree),
-`Skill("wiki-ingest", args="<abs path to memory file>")` still works
-because it accepts an absolute path and resolves `WIKI_ROOT` from
-`$HOME/llm_wiki` by default. Do not `cd ~/llm_wiki` first; pass the
-absolute path in `args`.
+resolve the source by its absolute path and use the wiki-ingest skill's wiki
+root resolution. Do not depend on the current working directory.
 
 ### 7. Validate and report
 
