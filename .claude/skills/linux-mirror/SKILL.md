@@ -191,12 +191,33 @@ if tmux has-session -t "=$SESSION" 2>/dev/null; then
   exit 0
 fi
 
+# A child Bash reads BASH_ENV before its command. The host's BASH_ENV normally
+# sources ~/.bashrc, which resets the two output variables to Scratch/tmp.
+# Preserve that startup (including credentials), then restore this mirror's
+# values. Re-export BASH_ENV so nested non-login Bash shells do the same.
+SCOPED_BASH_ENV=$(mktemp "$OUTPUT_ROOT/.mirror-bash-env.XXXXXX") || {
+  echo "FAILED:$OUTPUT_ROOT — cannot allocate scoped Bash startup" >&2
+  exit 75
+}
+HOST_BASH_ENV=${BASH_ENV:-}
+{
+  if [ -n "$HOST_BASH_ENV" ]; then
+    printf 'if [ -f %q ]; then . %q; fi\n' "$HOST_BASH_ENV" "$HOST_BASH_ENV"
+  fi
+  printf 'export CLAUDE_CODE_TMPDIR=%q\n' "$OUTPUT_ROOT"
+  printf 'export PYTEST_DEBUG_TEMPROOT=%q\n' "$OUTPUT_ROOT"
+  printf 'export BASH_ENV=%q\n' "$SCOPED_BASH_ENV"
+} > "$SCOPED_BASH_ENV"
 # Launch command for the caller's own CLI (see step 1: no hardcoded default).
-LAUNCH_ENV=(env "DISKM_SCRATCH=$SCRATCH_ROOT" "CLAUDE_CODE_TMPDIR=$OUTPUT_ROOT" "PYTEST_DEBUG_TEMPROOT=$OUTPUT_ROOT" "TMPDIR=$OUTPUT_ROOT")
+# Keep the host's TMPDIR unchanged. Codex shell calls must use login:false:
+# login Bash reads ~/.bash_profile after/instead of BASH_ENV and resets output.
+LAUNCH_ENV=(env "DISKM_SCRATCH=$SCRATCH_ROOT" "CLAUDE_CODE_TMPDIR=$OUTPUT_ROOT" "PYTEST_DEBUG_TEMPROOT=$OUTPUT_ROOT" "BASH_ENV=$SCOPED_BASH_ENV")
 case "$AGENT_CLI" in
   pi)     LAUNCH=("${LAUNCH_ENV[@]}" pi -- "Caller handoff context: $CONTEXT") ;;
   claude) LAUNCH=("${LAUNCH_ENV[@]}" claude --dangerously-skip-permissions -- "$CONTEXT") ;;
-  codex)  LAUNCH=("${LAUNCH_ENV[@]}" codex --dangerously-bypass-approvals-and-sandbox -C "$TARGET" -- "$CONTEXT") ;;
+  codex)  LAUNCH=("${LAUNCH_ENV[@]}" codex --dangerously-bypass-approvals-and-sandbox -C "$TARGET" -- "$CONTEXT
+
+Mirror shell contract: set login:false on every exec_command Bash call so BASH_ENV restores CLAUDE_CODE_TMPDIR and PYTEST_DEBUG_TEMPROOT to $OUTPUT_ROOT after host startup. Keep TMPDIR unchanged.") ;;
   agy)    LAUNCH=("${LAUNCH_ENV[@]}" agy --dangerously-skip-permissions --model gemini-3.8-flash-high --prompt-interactive="$CONTEXT") ;;
   *) echo "FAILED:$TARGET - unsupported AGENT_CLI '$AGENT_CLI' (pi|claude|codex|agy)" >&2; exit 1 ;;
 
