@@ -215,7 +215,12 @@ LAUNCH_ENV=(env "DISKM_SCRATCH=$SCRATCH_ROOT" "CLAUDE_CODE_TMPDIR=$OUTPUT_ROOT" 
 case "$AGENT_CLI" in
   pi)     LAUNCH=("${LAUNCH_ENV[@]}" pi -- "Caller handoff context: $CONTEXT") ;;
   claude) LAUNCH=("${LAUNCH_ENV[@]}" claude --dangerously-skip-permissions -- "$CONTEXT") ;;
-  codex)  LAUNCH=("${LAUNCH_ENV[@]}" codex --dangerously-bypass-approvals-and-sandbox -C "$TARGET" -- "$CONTEXT
+  codex)  LAUNCH=("${LAUNCH_ENV[@]}" codex
+            -c "shell_environment_policy.set.DISKM_SCRATCH=$SCRATCH_ROOT"
+            -c "shell_environment_policy.set.CLAUDE_CODE_TMPDIR=$OUTPUT_ROOT"
+            -c "shell_environment_policy.set.PYTEST_DEBUG_TEMPROOT=$OUTPUT_ROOT"
+            -c "shell_environment_policy.set.BASH_ENV=$SCOPED_BASH_ENV"
+            --dangerously-bypass-approvals-and-sandbox -C "$TARGET" -- "$CONTEXT
 
 Mirror shell contract: set login:false on every exec_command Bash call so BASH_ENV restores CLAUDE_CODE_TMPDIR and PYTEST_DEBUG_TEMPROOT to $OUTPUT_ROOT after host startup. Keep TMPDIR unchanged.") ;;
   agy)    LAUNCH=("${LAUNCH_ENV[@]}" agy --dangerously-skip-permissions --model gemini-3.8-flash-high --prompt-interactive="$CONTEXT") ;;
