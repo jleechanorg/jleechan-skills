@@ -1,8 +1,12 @@
 """Portable reminder selection and Grok browser workflow contracts."""
 from pathlib import Path
+import sys
 import unittest
 
-ROOT=Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from scripts.skill_portability_scan import find_personal_identifiers
 class NewSkillContracts(unittest.TestCase):
  def test_private_reminder_override_preserves_fixed_default(self):
   text=(ROOT/'.claude/skills/dot-coordinator/SKILL.md').read_text(encoding="utf-8")
@@ -27,7 +31,6 @@ class NewSkillContracts(unittest.TestCase):
  def test_new_exports_have_no_private_config(self):
   texts=[(ROOT/f'.claude/skills/{n}/SKILL.md').read_text(encoding="utf-8") for n in ['grokbot','grokb']]
   for text in texts:
-   from scripts.skill_portability_scan import find_personal_identifiers
    self.assertEqual(find_personal_identifiers(text),[])
    import re
    self.assertIsNone(re.search(r'https://grok\.com/bot/[a-f0-9]{8}-',text))
