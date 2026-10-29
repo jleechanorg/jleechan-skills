@@ -60,7 +60,9 @@ default 1800-second (30-minute) end-to-end reviewer-attempt limit in
 `pr-lifecycle` § Reviewer timeout and completion takes precedence over this
 section's generic four-hour wait and polling schedule. An explicit
 user-specified limit governs that requested attempt, whether shorter or longer;
-absent one, do not extend or reset the 30-minute default. Preserve the reviewer quorum and eligibility rules in
+otherwise the 30-minute default applies. A later specific user instruction to
+await a named reviewer overrides this deadline for that requested attempt, even
+without a numeric duration. Preserve the reviewer quorum and eligibility rules in
 `pr-lifecycle`. Start the clock when the request is queued or sent;
 queueing/delivery, setup, transport calls, polling/waits, review, result capture,
 receipt recording, and cleanup all consume the same budget. Bound each transport
