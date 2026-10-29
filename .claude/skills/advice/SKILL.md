@@ -75,8 +75,8 @@ mechanism.
 
 Each reviewer attempt has one default 1800-second (30-minute) end-to-end budget
 beginning when that request is queued or sent. Record the start time. An
-explicit user limit shorter than 30 minutes governs that requested attempt;
-absent such a limit, do not extend the default. Shared immutable packet
+explicit user-specified limit governs that requested attempt, whether shorter or
+longer; absent one, do not extend or reset the 30-minute default. Shared immutable packet
 preparation may precede the clock; all review-specific setup, queueing,
 delivery, dispatch, review, output capture, receipt writing, and cleanup consume
 the same budget. Do not pause, reset, or extend it; bound every call and wait by

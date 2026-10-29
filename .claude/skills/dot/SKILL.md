@@ -56,11 +56,11 @@ For a user-requested coordinator recovery cycle, this contract overrides the gen
 ### Other delegated work
 
 For PR/lifecycle review requests, including a requested `/dot` review, the
-The default 1800-second (30-minute) end-to-end reviewer-attempt limit in
+default 1800-second (30-minute) end-to-end reviewer-attempt limit in
 `pr-lifecycle` § Reviewer timeout and completion takes precedence over this
-section's generic four-hour wait and polling schedule. An explicit user limit
-shorter than 30 minutes governs that requested attempt; absent such a limit, do
-not extend the default. Preserve the reviewer quorum and eligibility rules in
+section's generic four-hour wait and polling schedule. An explicit
+user-specified limit governs that requested attempt, whether shorter or longer;
+absent one, do not extend or reset the 30-minute default. Preserve the reviewer quorum and eligibility rules in
 `pr-lifecycle`. Start the clock when the request is queued or sent;
 queueing/delivery, setup, transport calls, polling/waits, review, result capture,
 receipt recording, and cleanup all consume the same budget. Bound each transport
