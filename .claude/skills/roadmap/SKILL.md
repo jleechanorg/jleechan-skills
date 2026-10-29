@@ -40,10 +40,14 @@ instead of creating a second one). Repo: `jleechanorg/roadmap`.
 
 Required structure, in this order:
 
-1. **TLDR at the very top.** 3–6 sentences a reader can act on without scrolling:
-   how many PRs are in flight and how many sit in each stage, how many are blocked only on a human action, which
-   carry the user-visible P−1 fixes, which are stale or have no owner, and the total
-   line delta. Name the biggest deltas explicitly.
+1. **TLDR at the very top.** Open with a short overview of stage counts, human-only
+   blockers, stale/unowned work and total line delta; name the biggest deltas.
+   Then give **every in-scope PR 1–2 plain-language sentences**, with its linked PR
+   number visible: what changes for the user, which requested fix it addresses,
+   and what is done versus still unproven. Put requested feature/fix PRs first and
+   supporting tests, tooling and docs afterward. Include already-merged fixes when
+   they answer a current request; distinguish implemented, merged, deployed and
+   accepted. A stage number or generic label such as “sharing” is not a description.
 2. **PR ledger table**, one row per PR:
    `| PR | Repo | Stage | State | Head | Δ (lines) | Next | Brief |`
    - `PR` links to the full GitHub URL (number visible in the link text).
