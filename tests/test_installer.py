@@ -2238,6 +2238,13 @@ class InstallerRealProfileTest(unittest.TestCase):
             self.assertTrue((target / "commands/extended-library/rg.md").is_file())
             self.assertTrue((target / "commands/extended-library/redgreen.md").is_file())
 
+    def test_with_alias_skill_installs_its_dispatcher(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "home"
+            self.install(target, "--with", "grokb")
+            self.assertTrue((target / "skills/grokb/SKILL.md").is_file())
+            self.assertTrue((target / "commands/grokb.md").is_file())
+
     def test_installed_skill_links_resolve_except_closure_excluded(self):
         excluded = set(self.data.get("closure_excluded", []))
         for profile in self.data["profiles"]:
