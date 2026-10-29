@@ -1681,6 +1681,8 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
 
         self.assertTrue(runner.has_verdict("VERDICT:APPROVED\n"))
         self.assertFalse(runner.has_verdict("VERDICT:   \n"))
+        self.assertFalse(runner.has_verdict("VERDICT:\nAPPROVED elsewhere\n"))
+        self.assertFalse(runner.has_verdict("**VERDICT:**\n"))
 
     def test_cleanup_helper_reports_failure_instead_of_ignoring_it(self) -> None:
         runner = load_runner_module()

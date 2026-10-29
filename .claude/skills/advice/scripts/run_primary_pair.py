@@ -788,18 +788,18 @@ def execute(
 
 
 def has_verdict(output: str) -> bool:
-    # Reviewers routinely wrap the VERDICT line in markdown (**VERDICT:**,
-    # ## VERDICT, an em/en dash instead of a colon) — a literal `^VERDICT:`
-    # anchor misclassifies those as missing_verdict even though the verdict is
-    # present and readable. Accept an optional leading **/*/# marker and any
-    # of the common separators between the word VERDICT and its content.
-    return (
-        re.search(
-            r"(?mi)^\s*(?:\*{1,2}|#{1,6}\s*)?VERDICT(?:\s*[:—–-]\s*|\s+)\S.*$",
-            output,
-        )
-        is not None
+    # Reviewers may wrap the VERDICT label in markdown or use a dash separator.
+    # Keep whitespace line-local so an empty label cannot borrow the next line.
+    pattern = re.compile(
+        r"^[ \t]*(?:\*{1,2}|#{1,6}[ \t]*)?VERDICT"
+        r"(?:[ \t]*[:—–-][ \t]*|[ \t]+)(.*)$",
+        re.IGNORECASE,
     )
+    for line in output.splitlines():
+        match = pattern.match(line)
+        if match and match.group(1).strip().strip("*").strip():
+            return True
+    return False
 
 
 DEFAULT_CODEX_MODEL = "gpt-6-sol"

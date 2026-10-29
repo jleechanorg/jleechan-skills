@@ -224,6 +224,8 @@ class InstalledRunnerTest(unittest.TestCase):
     def test_verdict_requires_a_recognizable_line(self) -> None:
         self.assertTrue(runner.has_verdict("VERDICT: APPROVED\n"))
         self.assertTrue(runner.has_verdict("**VERDICT:** APPROVED\n"))
+        self.assertFalse(runner.has_verdict("VERDICT:\nAPPROVED elsewhere\n"))
+        self.assertFalse(runner.has_verdict("**VERDICT:**\n"))
         self.assertFalse(runner.has_verdict("I reviewed it; the verdict is unclear.\n"))
 
     def test_reviewer_selection_remains_codex_and_opus(self) -> None:
