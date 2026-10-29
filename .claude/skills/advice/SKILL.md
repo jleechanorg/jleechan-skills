@@ -98,12 +98,14 @@ The later named-review instruction remains controlling. The current
 `run_primary_pair.py` route computes `attempt_deadline` and `work_deadline` once
 from the queued monotonic timestamp and timeout flags; it then fixes each
 reviewer's deadline and passes it to the subprocess wait. There is no existing
-interface to extend an active attempt. If that user instruction applies after a
-primary-pair attempt starts, this route cannot honor it: keep the attempt
-`TIMED_OUT` and non-approving, wait for and record verified cleanup, mark this
-route `UNAVAILABLE` for the requested wait, and leave the applicable review gate
-open unless another already-supported route can honor it. Do not reinterpret
-the instruction as a shorter limit, count late output, claim the primary pair
+interface to extend an active attempt. A result completed with verified cleanup
+before that fixed deadline remains eligible. If fulfilling the later user
+instruction would require waiting beyond the deadline, this route cannot extend
+it: only on actual expiry record the attempt `TIMED_OUT` and non-approving, wait
+for and record cleanup, mark the requested wait route `UNAVAILABLE`, and leave
+the applicable review gate open unless another already-supported route can
+honor it. Do not preempt a valid within-deadline result, reinterpret the
+instruction as a shorter limit, count late output, claim the primary pair
 waited for the requested interval, or issue a duplicate review. This records a
 runner capability boundary; it does not cancel or shorten the user's
 instruction.
