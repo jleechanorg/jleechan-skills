@@ -56,16 +56,19 @@ For a user-requested coordinator recovery cycle, this contract overrides the gen
 ### Other delegated work
 
 For PR/lifecycle review requests, including a requested `/dot` review, the
-600-second end-to-end reviewer-attempt limit in `pr-lifecycle` § Reviewer timeout
-and completion takes precedence over this section's generic four-hour wait and
-polling schedule. Preserve the reviewer quorum and eligibility rules in
-`pr-lifecycle`. Start the clock when the request is queued or sent; queueing/delivery,
-setup, transport calls, polling/waits, review, result capture, receipt recording,
-and cleanup all consume the same budget. Bound each transport timeout and wait
-to the remaining time; a 150-second minimum transport setting never extends the
-reviewer deadline. On timeout, record the attempt as non-approving and continue
-to the next eligible independent reviewer, subject to verified cleanup of any
-shared execution resource. Ordinary delegated work keeps its existing schedule.
+The default 1800-second (30-minute) end-to-end reviewer-attempt limit in
+`pr-lifecycle` § Reviewer timeout and completion takes precedence over this
+section's generic four-hour wait and polling schedule. An explicit user limit
+shorter than 30 minutes governs that requested attempt; absent such a limit, do
+not extend the default. Preserve the reviewer quorum and eligibility rules in
+`pr-lifecycle`. Start the clock when the request is queued or sent;
+queueing/delivery, setup, transport calls, polling/waits, review, result capture,
+receipt recording, and cleanup all consume the same budget. Bound each transport
+timeout and wait to the remaining time; a 150-second minimum transport setting
+never extends the reviewer deadline. On timeout, record the attempt as
+non-approving and continue to the next eligible independent reviewer, subject
+to verified cleanup of any shared execution resource. Ordinary delegated work
+keeps its existing schedule.
 
 - For other delegated work only, poll the dot with exponential backoff while it has work in flight: first poll 1 minute after the send, then 2 minutes later, then 5 minutes later, then every 10 minutes. Give up 4 hours after the first send if the dot has not started or done the work, and report that to the user with the last reply seen. Each poll runs `dot.sh read 3000`, then double-checks the claimed status at the source (`gh pr view`/`gh pr checks`, branch head SHA). Reply only when the dot asks something, stalls, or a check contradicts its claim. Any reply from the dot that shows real progress (a claimed lane, branch or PR) restarts the backoff at 1 minute and the 4-hour clock.
   - **Set a `/goal` for the wait** (via `/cmux-goal`): condition "the dot's deliverable exists and is verified at the source (PR open, RED then GREEN re-run by me, CI green), or 4 hours have passed since the first send". The goal keeps the session polling; do not rely on remembering to poll.

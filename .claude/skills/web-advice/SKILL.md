@@ -280,9 +280,9 @@ For Gemini, select Gemini 3.8 Flash or later; never select a Gemini Pro model.
 
 Response waits: Gemini 3.8 Flash and ChatGPT/Perplexity reasoning modes
 routinely take 3–10 minutes on a full packet. Poll until the stop/streaming
-control disappears, bounded by the 600-second per-attempt limit in
+control disappears, bounded by the default 1800-second (30-minute) per-attempt limit in
 `~/.claude/skills/pr-lifecycle/SKILL.md` § Reviewer timeout and completion
-(a later user instruction to await a named reviewer overrides it); on timeout
+(an explicit shorter user limit governs when one is provided); on timeout
 record `TIMED_OUT` and continue the lifecycle fallback. A single
 `aside repl` script that exits after ~60 s loses the answer and the chat URL.
 Record the conversation URL immediately after submission.
