@@ -184,13 +184,14 @@ Claude-specific Skill tool or a second CLI is never a prerequisite. Writes
 performed as part of the complete wiki-ingest procedure are authorized; do
 not substitute a partial copy that skips entity/concept extraction or validation.
 
-After invoking, verify all four side effects landed:
+After execution, verify the required side effects:
 
 - `~/llm_wiki/raw/<basename>` exists
 - `~/llm_wiki/wiki/sources/<slug>.md` exists with the canonical frontmatter
   (`title`, `type`, `tags`, `sources`, `last_updated`) and `[[wikilinks]]`
 - `~/llm_wiki/wiki/index.md` was updated under `## Sources`
 - `~/llm_wiki/wiki/log.md` was appended with `## [YYYY-MM-DD] ingest | <title>`
+- Relevant entity/concept updates exist and the wiki's link lint passes.
 
 If the full procedure cannot be completed, report the exact missing step and
 continue independent persistence; never present a partial ingest as complete.
@@ -200,8 +201,8 @@ itself is the source. The skill's classifier decides what is wiki-bearing.
 
 **Working-directory caveat**: if the current session cwd is not
 `~/llm_wiki` (e.g. an `/integrate` flow running in a feature worktree),
-resolve the source by its absolute path and use the wiki-ingest skill's wiki
-root resolution. Do not depend on the current working directory.
+resolve the source by its absolute path and pass an explicit `--wiki` path
+when the destination must not depend on a current-directory override.
 
 ### 7. Validate and report
 
