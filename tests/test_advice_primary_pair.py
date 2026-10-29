@@ -41,7 +41,7 @@ def run(*args: str, cwd: Path | None = None, env: dict[str, str] | None = None) 
     return subprocess.run(args, cwd=cwd, env=env, text=True, capture_output=True, check=False)
 
 
-def test_process_start_identity(pid: int) -> str | None:
+def process_start_identity(pid: int) -> str | None:
     proc_stat = Path("/proc") / str(pid) / "stat"
     if Path("/proc").is_dir():
         try:
@@ -59,8 +59,8 @@ def test_process_start_identity(pid: int) -> str | None:
     return result.stdout.strip() or None
 
 
-def test_process_is_running(pid: int, expected_identity: str) -> bool:
-    if test_process_start_identity(pid) != expected_identity:
+def process_is_running(pid: int, expected_identity: str) -> bool:
+    if process_start_identity(pid) != expected_identity:
         return False
     result = subprocess.run(
         ["ps", "-o", "stat=", "-p", str(pid)],
@@ -83,7 +83,7 @@ def terminate_test_process(pid: int, expected_identity: str) -> None:
     except OSError:
         return
     try:
-        if test_process_start_identity(pid) == expected_identity:
+        if process_start_identity(pid) == expected_identity:
             try:
                 pidfd_send_signal(pidfd, signal.SIGKILL)
             except OSError:
@@ -95,10 +95,10 @@ def terminate_test_process(pid: int, expected_identity: str) -> None:
 def wait_for_test_process_exit(pid: int, expected_identity: str, timeout: float) -> bool:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        if not test_process_is_running(pid, expected_identity):
+        if not process_is_running(pid, expected_identity):
             return True
         time.sleep(0.02)
-    return not test_process_is_running(pid, expected_identity)
+    return not process_is_running(pid, expected_identity)
 
 
 def cleanup_test_process_file(path: Path, timeout: float) -> None:
@@ -342,7 +342,7 @@ class ReviewerProcessTest(unittest.TestCase):
             start_new_session=True,
         )
         try:
-            identity = test_process_start_identity(child.pid)
+            identity = process_start_identity(child.pid)
             if identity is None:
                 self.fail("fixture process identity was unavailable")
             root_pid = os.getpid()
@@ -365,7 +365,7 @@ class ReviewerProcessTest(unittest.TestCase):
                 supervisor._sample()
                 evidence = supervisor.evidence(set(), [])
 
-            self.assertTrue(test_process_is_running(child.pid, identity))
+            self.assertTrue(process_is_running(child.pid, identity))
             self.assertFalse(
                 evidence["descendant_termination_verified"],
                 "an observed live descendant with unreadable identity is unverified",
@@ -383,7 +383,7 @@ class ReviewerProcessTest(unittest.TestCase):
             start_new_session=True,
         )
         try:
-            identity = test_process_start_identity(child.pid)
+            identity = process_start_identity(child.pid)
             if identity is None:
                 self.fail("fixture process identity was unavailable")
             supervisor = runner.ProcessTreeSupervisor(os.getpid())
@@ -400,7 +400,7 @@ class ReviewerProcessTest(unittest.TestCase):
                 evidence["descendant_termination_verified"],
                 "a live discovered descendant omitted from a snapshot is unverified",
             )
-            self.assertTrue(test_process_is_running(child.pid, identity))
+            self.assertTrue(process_is_running(child.pid, identity))
         finally:
             if child.poll() is None:
                 child.kill()
@@ -413,7 +413,7 @@ class ReviewerProcessTest(unittest.TestCase):
             start_new_session=True,
         )
         try:
-            identity = test_process_start_identity(child.pid)
+            identity = process_start_identity(child.pid)
             if identity is None:
                 self.fail("fixture process identity was unavailable")
             supervisor = runner.ProcessTreeSupervisor(100)
@@ -434,7 +434,7 @@ class ReviewerProcessTest(unittest.TestCase):
                 "an unobservable but previously discovered live process is not proof of exit",
             )
             self.assertTrue(evidence["descendant_supervision_errors"])
-            self.assertTrue(test_process_is_running(child.pid, identity))
+            self.assertTrue(process_is_running(child.pid, identity))
         finally:
             if child.poll() is None:
                 child.kill()
@@ -519,7 +519,7 @@ class ReviewerProcessTest(unittest.TestCase):
             start_new_session=True,
         )
         try:
-            identity = test_process_start_identity(child.pid)
+            identity = process_start_identity(child.pid)
             if identity is None:
                 self.fail("fixture process identity was unavailable")
             supervisor = runner.ProcessTreeSupervisor(os.getpid())
@@ -564,7 +564,7 @@ class ReviewerProcessTest(unittest.TestCase):
             start_new_session=True,
         )
         try:
-            identity = test_process_start_identity(child.pid)
+            identity = process_start_identity(child.pid)
             if identity is None:
                 self.fail("fixture process identity was unavailable")
             supervisor = runner.ProcessTreeSupervisor(
@@ -606,7 +606,7 @@ class ReviewerProcessTest(unittest.TestCase):
             start_new_session=True,
         )
         try:
-            identity = test_process_start_identity(child.pid)
+            identity = process_start_identity(child.pid)
             if identity is None:
                 self.fail("fixture process identity was unavailable")
             supervisor = runner.ProcessTreeSupervisor(
@@ -649,8 +649,8 @@ class ReviewerProcessTest(unittest.TestCase):
             start_new_session=True,
         )
         try:
-            safe_identity = test_process_start_identity(safe_child.pid)
-            reused_identity = test_process_start_identity(reused_child.pid)
+            safe_identity = process_start_identity(safe_child.pid)
+            reused_identity = process_start_identity(reused_child.pid)
             if safe_identity is None or reused_identity is None:
                 self.fail("fixture process identity was unavailable")
             supervisor = runner.ProcessTreeSupervisor(
@@ -669,7 +669,7 @@ class ReviewerProcessTest(unittest.TestCase):
                 wait_for_test_process_exit(safe_child.pid, safe_identity, 2)
             )
             self.assertTrue(
-                test_process_is_running(reused_child.pid, reused_identity),
+                process_is_running(reused_child.pid, reused_identity),
                 "a stale identity must not signal the unrelated current process",
             )
             self.assertTrue(
@@ -806,11 +806,11 @@ class ReviewerProcessTest(unittest.TestCase):
                 supervisor = observed["supervisor"]
                 self.assertIn(child_pid, supervisor.discovered)
                 self.assertFalse(
-                    test_process_is_running(child_pid, child_identity),
+                    process_is_running(child_pid, child_identity),
                     "detached reviewer descendant survived supervisor startup failure",
                 )
                 self.assertFalse(
-                    test_process_is_running(
+                    process_is_running(
                         observed["leader_pid"], observed["leader_identity"]
                     ),
                     "reviewer leader survived supervisor startup failure",
@@ -1007,7 +1007,7 @@ class PrimaryPairTest(unittest.TestCase):
             def report_survivor(grace_seconds: float) -> list[int]:
                 child_text, identity = child_pid_file.read_text().splitlines()
                 child_pid = int(child_text)
-                return [child_pid] if test_process_is_running(child_pid, identity) else []
+                return [child_pid] if process_is_running(child_pid, identity) else []
 
             with mock.patch.object(runner.ProcessTreeSupervisor, "start"), \
                     mock.patch.object(runner.ProcessTreeSupervisor, "stop", track_pipe_holder), \
@@ -1028,7 +1028,7 @@ class PrimaryPairTest(unittest.TestCase):
             self.assertFalse(result[5]["descendant_termination_verified"])
             self.assertEqual(result[5]["descendants_surviving"], [child_pid])
             self.assertTrue(
-                test_process_is_running(child_pid, child_identity),
+                process_is_running(child_pid, child_identity),
                 "fixture child should require its own cleanup",
             )
         finally:
