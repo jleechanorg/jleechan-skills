@@ -215,6 +215,8 @@ class ReviewerProcessTest(unittest.TestCase):
             runner, "process_start_identity", side_effect=["root-start", "reused-root-start"]
         ), mock.patch.object(
             runner, "process_info", return_value=(100, "child-start")
+        ), mock.patch.object(
+            runner, "pidfd_has_exited", return_value=False
         ), mock.patch.object(runner.os, "pidfd_open", return_value=77), mock.patch.object(
             runner.os, "close"
         ):
@@ -243,6 +245,8 @@ class ReviewerProcessTest(unittest.TestCase):
         supervisor.discovered = {200: "expected-start"}
         with mock.patch.object(
             supervisor, "_snapshot", return_value={200: (1, "expected-start")}
+        ), mock.patch.object(
+            runner, "pidfd_has_exited", return_value=False
         ), mock.patch.object(runner.os, "pidfd_open", return_value=77), mock.patch.object(
             runner, "process_start_identity", side_effect=["expected-start", "reused-start"]
         ), mock.patch.object(runner.signal, "pidfd_send_signal") as pidfd_signal, mock.patch.object(
@@ -259,6 +263,8 @@ class ReviewerProcessTest(unittest.TestCase):
         supervisor.discovered = {200: "expected-start"}
         with mock.patch.object(
             supervisor, "_snapshot", return_value={200: (1, "expected-start")}
+        ), mock.patch.object(
+            runner, "pidfd_has_exited", return_value=False
         ), mock.patch.object(runner.os, "pidfd_open", return_value=77), mock.patch.object(
             runner, "process_start_identity", return_value="expected-start"
         ), mock.patch.object(runner.signal, "pidfd_send_signal") as pidfd_signal, mock.patch.object(
@@ -267,7 +273,42 @@ class ReviewerProcessTest(unittest.TestCase):
             self.assertEqual(supervisor.signal_active(signal.SIGTERM), [200])
 
         pidfd_signal.assert_called_once_with(77, signal.SIGTERM)
-        close.assert_called_once_with(77)
+        close.assert_has_calls([mock.call(77), mock.call(77)])
+        self.assertEqual(close.call_count, 2)
+
+    def test_unobservable_live_descendant_marks_cleanup_unverified(self) -> None:
+        runner = load_runner_module()
+        child = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(30)"],
+            start_new_session=True,
+        )
+        try:
+            identity = test_process_start_identity(child.pid)
+            if identity is None:
+                self.fail("fixture process identity was unavailable")
+            supervisor = runner.ProcessTreeSupervisor(100)
+            supervisor.discovered = {child.pid: identity}
+            with mock.patch.object(
+                supervisor,
+                "_snapshot",
+                return_value={child.pid: (os.getpid(), "observed-start")},
+            ), mock.patch.object(
+                runner, "process_start_identity", return_value=None
+            ):
+                active = supervisor.active_discovered()
+                evidence = supervisor.evidence(set(), active)
+
+            self.assertEqual(active, [])
+            self.assertFalse(
+                evidence["descendant_termination_verified"],
+                "an unobservable but previously discovered live process is not proof of exit",
+            )
+            self.assertTrue(evidence["descendant_supervision_errors"])
+            self.assertTrue(test_process_is_running(child.pid, identity))
+        finally:
+            if child.poll() is None:
+                child.kill()
+            child.wait(timeout=2)
 
     def test_supervisor_startup_consumes_reviewer_timeout(self) -> None:
         runner = load_runner_module()
@@ -334,6 +375,45 @@ class ReviewerProcessTest(unittest.TestCase):
                 wait_for_test_process_exit(int(pid_text), identity, 2),
                 "reviewer survived supervision startup failure",
             )
+
+    @unittest.skipUnless(
+        sys.platform.startswith("linux")
+        and callable(getattr(os, "pidfd_open", None))
+        and callable(getattr(signal, "pidfd_send_signal", None)),
+        "requires Linux pidfd signaling",
+    )
+    def test_post_deadline_pidfd_cleanup_can_verify_exited_descendant(self) -> None:
+        runner = load_runner_module()
+        child = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(30)"],
+            start_new_session=True,
+        )
+        try:
+            identity = test_process_start_identity(child.pid)
+            if identity is None:
+                self.fail("fixture process identity was unavailable")
+            supervisor = runner.ProcessTreeSupervisor(
+                os.getpid(), deadline=time.monotonic() + 0.02
+            )
+            supervisor.discovered = {child.pid: identity}
+            time.sleep(0.05)
+            supervisor.stop()
+
+            signaled = supervisor.signal_active(signal.SIGKILL)
+            self.assertEqual(signaled, [child.pid])
+            self.assertTrue(wait_for_test_process_exit(child.pid, identity, 2))
+            survivors = supervisor.verify_gone(0.5)
+            evidence = supervisor.evidence(set(signaled), survivors)
+
+            self.assertEqual(survivors, [])
+            self.assertTrue(
+                evidence["descendant_termination_verified"],
+                evidence["descendant_supervision_errors"],
+            )
+        finally:
+            if child.poll() is None:
+                child.kill()
+            child.wait(timeout=2)
 
     @unittest.skipUnless(
         sys.platform.startswith("linux")
@@ -1216,6 +1296,66 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         self.assertEqual(receipt["reviewers"]["codex"]["attempts"][0]["failure"], "timeout")
         self.assertEqual(receipt["reviewers"]["opus"]["attempts"][0]["failure"], "timeout")
         self.assertTrue(receipt["cleanup"]["success"])
+
+    @unittest.skipUnless(
+        sys.platform.startswith("linux"), "requires Linux pidfd supervision"
+    )
+    def test_normal_exit_terminates_discovered_detached_descendant(self) -> None:
+        runner = load_runner_module()
+        child_file = self.sync / "normal-exit-child.pid"
+        sample_marker = self.sync / "normal-exit-child-observed"
+        reviewer_code = (
+            "python3 - <<'PY'\n"
+            "import os, pathlib, subprocess, sys, time\n"
+            "sync = pathlib.Path(os.environ['ADVICE_TEST_SYNC_DIR'])\n"
+            "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'], "
+            "start_new_session=True, stdin=subprocess.DEVNULL, "
+            "stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"
+            "proc = pathlib.Path(f'/proc/{child.pid}/stat')\n"
+            "fields = proc.read_text().rsplit(')', 1)[1].split()\n"
+            "identity = f'linux-start-ticks:{fields[19]}'\n"
+            "(sync / 'normal-exit-child.pid').write_text(f'{child.pid}\\n{identity}')\n"
+            "deadline = time.monotonic() + 2\n"
+            "while not (sync / 'normal-exit-child-observed').exists() and time.monotonic() < deadline:\n"
+            " time.sleep(0.01)\n"
+            "if not (sync / 'normal-exit-child-observed').exists():\n"
+            " raise SystemExit(9)\n"
+            "print('VERDICT: APPROVED', flush=True)\n"
+            "print('COVERAGE: all', flush=True)\n"
+            "PY\n"
+        )
+        self.executable("codex", reviewer_code)
+        self.executable("claude", "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\\n")
+        original_sample = runner.ProcessTreeSupervisor._sample
+
+        def sample_and_mark_child(supervisor) -> None:
+            original_sample(supervisor)
+            if child_file.exists():
+                child_text, child_identity = child_file.read_text().splitlines()
+                if supervisor.discovered.get(int(child_text)) == child_identity:
+                    sample_marker.touch(exist_ok=True)
+
+        try:
+            with mock.patch.dict(os.environ, self.env), mock.patch.object(
+                runner.ProcessTreeSupervisor, "_sample", sample_and_mark_child
+            ):
+                code = runner.main(self.with_queued_timestamps([
+                    "--repo", str(self.repo), "--ref", self.sha,
+                    "--packet-file", str(self.packet), "--output-dir", str(self.output),
+                    "--timeout-seconds", "5",
+                ]))
+
+            child_text, child_identity = child_file.read_text().splitlines()
+            child_pid = int(child_text)
+            receipt = json.loads((self.output / "receipt.json").read_text())
+            attempt = receipt["reviewers"]["codex"]["attempts"][0]
+            self.assertEqual(code, 0, repr(receipt))
+            self.assertTrue(sample_marker.exists())
+            self.assertIn(child_pid, attempt["descendants_terminated"])
+            self.assertTrue(attempt["descendant_termination_verified"])
+            self.assertTrue(wait_for_test_process_exit(child_pid, child_identity, 2))
+        finally:
+            cleanup_test_process_file(child_file, 3.0)
 
     def test_detached_descendant_pipe_cannot_extend_timeout_beyond_bounded_grace(self) -> None:
         self.executable(

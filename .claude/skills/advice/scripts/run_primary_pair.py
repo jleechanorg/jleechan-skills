@@ -15,6 +15,7 @@ import hashlib
 import json
 import os
 import re
+import select
 import signal
 import shutil
 import stat
@@ -254,6 +255,13 @@ def process_snapshot(timeout_seconds: float = 10.0) -> dict[int, tuple[int, str]
     return snapshot
 
 
+def pidfd_has_exited(pidfd: int) -> bool:
+    """Report whether the pinned process has exited, including an unreaped zombie."""
+    poller = select.poll()
+    poller.register(pidfd, select.POLLIN)
+    return bool(poller.poll(0))
+
+
 class ProcessTreeSupervisor:
     """Track reviewer descendants only while the attempt has a cleanup budget."""
 
@@ -399,7 +407,8 @@ class ProcessTreeSupervisor:
             self._sample()
 
     def stop(self) -> None:
-        self._sample()
+        if self.deadline is None or time.monotonic() < self.deadline:
+            self._sample()
         self._stop.set()
         if self._thread_started:
             join_timeout = max(0.1, self.interval_seconds * 5)
@@ -408,22 +417,79 @@ class ProcessTreeSupervisor:
             self._thread.join(timeout=join_timeout)
 
     def active_discovered_identities(self) -> dict[int, str]:
-        try:
-            snapshot = self._snapshot()
-        except (OSError, subprocess.SubprocessError) as error:
-            with self._lock:
-                self.errors.append(f"{type(error).__name__}: {error}")
-            return {}
+        snapshot: dict[int, tuple[int, str]] = {}
+        if self.deadline is None or time.monotonic() < self.deadline:
+            try:
+                snapshot = self._snapshot()
+            except (OSError, subprocess.SubprocessError) as error:
+                with self._lock:
+                    self.errors.append(f"{type(error).__name__}: {error}")
+                return {}
+
+        active: dict[int, str] = {}
         with self._lock:
-            active = {}
-            for pid, started in self.discovered.items():
-                if pid not in snapshot:
+            discovered = dict(self.discovered)
+        pidfd_open = getattr(os, "pidfd_open", None)
+        for pid, started in discovered.items():
+            if callable(pidfd_open):
+                pidfd: int | None = None
+                try:
+                    pidfd = pidfd_open(pid, 0)
+                    if pidfd_has_exited(pidfd):
+                        continue
+                    current_identity = process_start_identity(pid)
+                    if current_identity == started:
+                        active[pid] = started
+                    elif current_identity is None:
+                        with self._lock:
+                            self.errors.append(
+                                f"PID {pid}: identity unavailable for pidfd-pinned descendant"
+                            )
+                except ProcessLookupError:
                     continue
-                current_identity = process_start_identity(pid, snapshot[pid][1])
+                except OSError as error:
+                    with self._lock:
+                        self.errors.append(
+                            f"PID {pid}: descendant identity verification failed: {error}"
+                        )
+                finally:
+                    if pidfd is not None:
+                        try:
+                            os.close(pidfd)
+                        except OSError as error:
+                            with self._lock:
+                                self.errors.append(
+                                    f"PID {pid}: descendant pidfd close failed: {error}"
+                                )
+                continue
+
+            entry = snapshot.get(pid)
+            if entry is not None:
+                current_identity = process_start_identity(pid, entry[1])
                 if current_identity == started:
                     active[pid] = started
-            return active
+                elif current_identity is None:
+                    with self._lock:
+                        self.errors.append(
+                            f"PID {pid}: discovered descendant identity became unavailable"
+                        )
+                continue
 
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                continue
+            except OSError as error:
+                with self._lock:
+                    self.errors.append(
+                        f"PID {pid}: descendant liveness verification failed: {error}"
+                    )
+            else:
+                with self._lock:
+                    self.errors.append(
+                        f"PID {pid}: absent from process snapshot but still alive; identity unverified"
+                    )
+        return active
     def active_discovered(self) -> list[int]:
         return sorted(self.active_discovered_identities())
 
@@ -654,11 +720,17 @@ def execute(
         stdout, stderr = process.communicate(timeout=remaining)
         if time.monotonic() > execution_deadline:
             raise subprocess.TimeoutExpired(command, timeout_seconds)
-        supervisor.stop()
-        supervision = supervisor.evidence(set(), supervisor.active_discovered())
-        supervision["reviewer_leader_reaped"] = process.returncode is not None
-        timed_out = time.monotonic() > execution_deadline
-        return process.returncode, stdout, stderr, timed_out, False, supervision
+        code, cleaned_stdout, cleaned_stderr, forced_pipe_close, supervision, _ = (
+            cleanup_reviewer_process(process, supervisor, timeout_grace_seconds)
+        )
+        return (
+            code,
+            cleaned_stdout or stdout,
+            cleaned_stderr or stderr,
+            False,
+            forced_pipe_close,
+            supervision,
+        )
     except subprocess.TimeoutExpired:
         code, stdout, stderr, forced_pipe_close, supervision, _ = cleanup_reviewer_process(
             process, supervisor, timeout_grace_seconds
