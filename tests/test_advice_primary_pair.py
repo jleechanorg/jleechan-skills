@@ -317,8 +317,20 @@ class ReviewerProcessTest(unittest.TestCase):
             supervisor._sample()
             evidence = supervisor.evidence(set(), [])
 
-        self.assertEqual(evidence["descendant_supervision_errors"], [])
-        self.assertTrue(evidence["descendant_termination_verified"])
+        pidfd_supported = callable(getattr(os, "pidfd_open", None)) and callable(
+            getattr(signal, "pidfd_send_signal", None)
+        )
+        if pidfd_supported:
+            self.assertEqual(evidence["descendant_supervision_errors"], [])
+            self.assertTrue(evidence["descendant_termination_verified"])
+        else:
+            self.assertTrue(
+                any(
+                    "observed descendant identity unavailable before admission" in error
+                    for error in evidence["descendant_supervision_errors"]
+                )
+            )
+            self.assertFalse(evidence["descendant_termination_verified"])
 
     @unittest.skipUnless(
         sys.platform.startswith("linux"), "requires Linux process snapshot semantics"
@@ -1080,7 +1092,18 @@ class PrimaryPairTest(unittest.TestCase):
 
         first = self.invoke("--reviewers", "codex,opus")
 
-        self.assertEqual(first.returncode, 0, first.stderr)
+        pidfd_supported = callable(getattr(os, "pidfd_open", None)) and callable(
+            getattr(signal, "pidfd_send_signal", None)
+        )
+        if pidfd_supported:
+            self.assertEqual(first.returncode, 0, first.stderr)
+        else:
+            self.assertIn(first.returncode, (0, 7), first.stderr)
+            first_receipt = json.loads((self.output / "receipt.json").read_text())
+            if first.returncode == 7:
+                self.assertTrue(first_receipt["descendant_termination_failures"])
+            else:
+                self.assertEqual(first_receipt["descendant_termination_failures"], [])
         original_files = {
             path.name: path.read_bytes() for path in self.output.iterdir()
         }
@@ -1183,7 +1206,17 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
 
         result = self.invoke()
 
-        self.assertEqual(result.returncode, 0, result.stderr)
+        pidfd_supported = callable(getattr(os, "pidfd_open", None)) and callable(
+            getattr(signal, "pidfd_send_signal", None)
+        )
+        if pidfd_supported:
+            self.assertEqual(result.returncode, 0, result.stderr)
+        else:
+            self.assertEqual(result.returncode, 7, result.stderr)
+            receipt = json.loads((self.output / "receipt.json").read_text())
+            self.assertEqual(
+                receipt["descendant_termination_failures"], ["codex", "opus"]
+            )
         self.assertNotEqual(
             run("git", "config", "--get", "reviewer.evil", cwd=self.repo).returncode,
             0,
@@ -1372,8 +1405,17 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
 
         result = self.invoke()
 
-        self.assertEqual(result.returncode, 3)
-        self.assertIn("repository metadata changed", result.stderr)
+        pidfd_supported = callable(getattr(os, "pidfd_open", None)) and callable(
+            getattr(signal, "pidfd_send_signal", None)
+        )
+        if pidfd_supported:
+            self.assertEqual(result.returncode, 3)
+            self.assertIn("repository metadata changed", result.stderr)
+        else:
+            self.assertEqual(result.returncode, 7)
+            self.assertIn("descendant termination could not be verified", result.stderr)
+        receipt = json.loads((self.output / "receipt.json").read_text())
+        self.assertFalse(receipt["original_repository_unchanged"])
 
     def test_one_timed_out_lane_is_error_while_peer_succeeds(self) -> None:
         self.executable("codex", "exec sleep 2\n")
@@ -1626,8 +1668,8 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
             pidfd_supported = callable(getattr(os, "pidfd_open", None)) and callable(
                 getattr(signal, "pidfd_send_signal", None)
             )
-            self.assertIn(detached_pid, attempt["descendants_discovered"])
             if pidfd_supported:
+                self.assertIn(detached_pid, attempt["descendants_discovered"])
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn(detached_pid, attempt["descendants_terminated"])
                 self.assertTrue(attempt["descendant_termination_verified"])
@@ -1636,7 +1678,12 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
                 self.assertEqual(result.returncode, 7, result.stderr)
                 self.assertNotIn(detached_pid, attempt["descendants_terminated"])
                 self.assertFalse(attempt["descendant_termination_verified"])
-                self.assertIn(detached_pid, attempt["descendants_surviving"])
+                self.assertEqual(receipt["descendant_termination_failures"], ["codex"])
+                self.assertEqual(codex_result["status"], "error")
+                if detached_pid in attempt["descendants_discovered"]:
+                    self.assertIn(detached_pid, attempt["descendants_surviving"])
+                else:
+                    self.assertTrue(attempt["descendant_supervision_errors"])
             self.assertTrue(receipt["cleanup"]["success"])
         finally:
             cleanup_test_process_file(detached_pid_file, 4.0)
