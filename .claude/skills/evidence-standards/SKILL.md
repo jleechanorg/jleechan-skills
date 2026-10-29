@@ -263,7 +263,8 @@ mocks or retry loops. If a harness fails after controlled state was persisted,
 resume it through the real SDK only when readback proves its preconditions, and
 record the resume source and limits. Complete published PR-body media (including
 the GIF derivative manifest) and direct raw RED/GREEN delivery before starting
-independent review.
+the final `/er` evidence review. This sequencing does not delay cheap code or
+advice review, which may run earlier or concurrently.
 
 ## Evidence class table
 
