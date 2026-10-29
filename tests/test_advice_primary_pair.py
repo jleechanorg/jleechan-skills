@@ -217,7 +217,9 @@ class ReviewerProcessTest(unittest.TestCase):
             runner, "process_info", return_value=(100, "child-start")
         ), mock.patch.object(
             runner, "pidfd_has_exited", return_value=False
-        ), mock.patch.object(runner.os, "pidfd_open", return_value=77), mock.patch.object(
+        ), mock.patch.object(
+            runner.os, "pidfd_open", return_value=77, create=True
+        ), mock.patch.object(
             runner.os, "close"
         ):
             supervisor._sample()
@@ -247,9 +249,13 @@ class ReviewerProcessTest(unittest.TestCase):
             supervisor, "_snapshot", return_value={200: (1, "expected-start")}
         ), mock.patch.object(
             runner, "pidfd_has_exited", return_value=False
-        ), mock.patch.object(runner.os, "pidfd_open", return_value=77), mock.patch.object(
+        ), mock.patch.object(
+            runner.os, "pidfd_open", return_value=77, create=True
+        ), mock.patch.object(
             runner, "process_start_identity", side_effect=["expected-start", "reused-start"]
-        ), mock.patch.object(runner.signal, "pidfd_send_signal") as pidfd_signal, mock.patch.object(
+        ), mock.patch.object(
+            runner.signal, "pidfd_send_signal", create=True
+        ) as pidfd_signal, mock.patch.object(
             runner.os, "close"
         ):
             self.assertEqual(supervisor.signal_active(signal.SIGTERM), [])
@@ -265,9 +271,13 @@ class ReviewerProcessTest(unittest.TestCase):
             supervisor, "_snapshot", return_value={200: (1, "expected-start")}
         ), mock.patch.object(
             runner, "pidfd_has_exited", return_value=False
-        ), mock.patch.object(runner.os, "pidfd_open", return_value=77), mock.patch.object(
+        ), mock.patch.object(
+            runner.os, "pidfd_open", return_value=77, create=True
+        ), mock.patch.object(
             runner, "process_start_identity", return_value="expected-start"
-        ), mock.patch.object(runner.signal, "pidfd_send_signal") as pidfd_signal, mock.patch.object(
+        ), mock.patch.object(
+            runner.signal, "pidfd_send_signal", create=True
+        ) as pidfd_signal, mock.patch.object(
             runner.os, "close"
         ) as close:
             self.assertEqual(supervisor.signal_active(signal.SIGTERM), [200])
@@ -490,6 +500,93 @@ class ReviewerProcessTest(unittest.TestCase):
         and callable(getattr(signal, "pidfd_send_signal", None)),
         "requires Linux pidfd signaling",
     )
+    def test_pidfd_cleanup_recognizes_exit_between_ready_poll_and_identity_read(self) -> None:
+        runner = load_runner_module()
+        child = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(30)"],
+            start_new_session=True,
+        )
+        try:
+            identity = test_process_start_identity(child.pid)
+            if identity is None:
+                self.fail("fixture process identity was unavailable")
+            supervisor = runner.ProcessTreeSupervisor(os.getpid())
+            supervisor.discovered = {child.pid: identity}
+            original_identity = runner.process_start_identity
+
+            def exit_before_identity_read(pid: int):
+                if pid == child.pid:
+                    child.kill()
+                    child.wait(timeout=2)
+                    return None
+                return original_identity(pid)
+
+            with mock.patch.object(
+                supervisor,
+                "_snapshot",
+                return_value={child.pid: (os.getpid(), "snapshot-start")},
+            ), mock.patch.object(
+                runner, "process_start_identity", side_effect=exit_before_identity_read
+            ):
+                active = supervisor.active_discovered()
+                evidence = supervisor.evidence(set(), active)
+
+            self.assertEqual(active, [])
+            self.assertTrue(evidence["descendant_termination_verified"])
+            self.assertEqual(evidence["descendant_supervision_errors"], [])
+        finally:
+            if child.poll() is None:
+                child.kill()
+            child.wait(timeout=2)
+
+    @unittest.skipUnless(
+        sys.platform.startswith("linux")
+        and callable(getattr(os, "pidfd_open", None))
+        and callable(getattr(signal, "pidfd_send_signal", None)),
+        "requires Linux pidfd signaling",
+    )
+    def test_pidfd_signal_recognizes_exit_before_identity_recheck(self) -> None:
+        runner = load_runner_module()
+        child = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(30)"],
+            start_new_session=True,
+        )
+        try:
+            identity = test_process_start_identity(child.pid)
+            if identity is None:
+                self.fail("fixture process identity was unavailable")
+            supervisor = runner.ProcessTreeSupervisor(
+                os.getpid(), deadline=time.monotonic() - 0.01
+            )
+            supervisor.discovered = {child.pid: identity}
+            original_identity = runner.process_start_identity
+
+            def exit_before_identity_read(pid: int):
+                if pid == child.pid:
+                    child.kill()
+                    child.wait(timeout=2)
+                    return None
+                return original_identity(pid)
+
+            with mock.patch.object(
+                runner, "process_start_identity", side_effect=exit_before_identity_read
+            ), mock.patch.object(runner.signal, "pidfd_send_signal") as send_signal:
+                signaled = supervisor.signal_active(signal.SIGKILL)
+
+            self.assertEqual(signaled, [])
+            self.assertEqual(supervisor.errors, [])
+            send_signal.assert_not_called()
+        finally:
+            if child.poll() is None:
+                child.kill()
+            child.wait(timeout=2)
+
+    @unittest.skipUnless(
+        sys.platform.startswith("linux")
+        and callable(getattr(os, "pidfd_open", None))
+        and callable(getattr(signal, "pidfd_send_signal", None)),
+        "requires Linux pidfd signaling",
+    )
     def test_post_deadline_pidfd_cleanup_can_verify_exited_descendant(self) -> None:
         runner = load_runner_module()
         child = subprocess.Popen(
@@ -639,6 +736,12 @@ class ReviewerProcessTest(unittest.TestCase):
             [],
         )
 
+    @unittest.skipUnless(
+        sys.platform.startswith("linux")
+        and callable(getattr(os, "pidfd_open", None))
+        and callable(getattr(signal, "pidfd_send_signal", None)),
+        "requires Linux pidfd descendant signaling",
+    )
     def test_supervisor_start_failure_cleans_detached_reviewer_descendant(self) -> None:
         runner = load_runner_module()
         with tempfile.TemporaryDirectory() as directory:

@@ -478,7 +478,7 @@ class ProcessTreeSupervisor:
                     current_identity = process_start_identity(pid)
                     if current_identity == started:
                         active[pid] = started
-                    elif current_identity is None:
+                    elif current_identity is None and not pidfd_has_exited(pidfd):
                         with self._lock:
                             self.errors.append(
                                 f"PID {pid}: identity unavailable for pidfd-pinned descendant"
@@ -556,6 +556,8 @@ class ProcessTreeSupervisor:
                 # the ps snapshot and pidfd_open; signaling the fd cannot hit a
                 # later process that reuses the numeric PID.
                 current_identity = process_start_identity(pid)
+                if current_identity is None and pidfd_has_exited(pidfd):
+                    continue
                 if current_identity != expected_identity:
                     with self._lock:
                         self.errors.append(f"PID {pid}: identity changed before pidfd signal")
