@@ -255,6 +255,16 @@ same invocation before provider calls; confirm behavior work is settled for
 FINAL. Reviewers must reuse the exact capsule. Setup failures remain setup
 failures until raw provider proof supports a product or auth diagnosis.
 
+Before expensive capture, verify the actual producer identity and provider,
+downstream logging target, and readiness in the child that will run it. Confirm
+canonical control IDs and the observed terminal envelope; an absent optional
+success field does not mean `false`. Reuse the existing pipeline; do not add
+mocks or retry loops. If a harness fails after controlled state was persisted,
+resume it through the real SDK only when readback proves its preconditions, and
+record the resume source and limits. Complete published PR-body media (including
+the GIF derivative manifest) and direct raw RED/GREEN delivery before starting
+independent review.
+
 ## Evidence class table
 
 | Class | Description | Layer | Acceptable for production claim? |
