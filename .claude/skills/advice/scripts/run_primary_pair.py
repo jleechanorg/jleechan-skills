@@ -379,7 +379,45 @@ class ProcessTreeSupervisor:
                         continue
                     info = process_info(pid)
                     if Path("/proc").is_dir():
-                        if info is None or info[0] != ppid:
+                        if info is None:
+                            pidfd_open = getattr(os, "pidfd_open", None)
+                            if not callable(pidfd_open):
+                                self.errors.append(
+                                    f"PID {pid}: observed descendant identity unavailable before admission"
+                                )
+                                continue
+                            pidfd: int | None = None
+                            try:
+                                pidfd = pidfd_open(pid, 0)
+                                if pidfd_has_exited(pidfd):
+                                    continue
+                                info = process_info(pid)
+                                if info is None and pidfd_has_exited(pidfd):
+                                    continue
+                            except ProcessLookupError:
+                                continue
+                            except OSError as error:
+                                self.errors.append(
+                                    f"PID {pid}: observed descendant identity check failed: {error}"
+                                )
+                                continue
+                            finally:
+                                if pidfd is not None:
+                                    try:
+                                        os.close(pidfd)
+                                    except OSError as error:
+                                        self.errors.append(
+                                            f"PID {pid}: descendant observation pidfd close failed: {error}"
+                                        )
+                            if info is None:
+                                self.errors.append(
+                                    f"PID {pid}: observed descendant identity unavailable before admission"
+                                )
+                                continue
+                        if info[0] != ppid:
+                            self.errors.append(
+                                f"PID {pid}: observed descendant parent changed before admission"
+                            )
                             continue
                         parent_identity = (
                             self.root_identity

@@ -276,6 +276,84 @@ class ReviewerProcessTest(unittest.TestCase):
         close.assert_has_calls([mock.call(77), mock.call(77)])
         self.assertEqual(close.call_count, 2)
 
+    @unittest.skipUnless(
+        sys.platform.startswith("linux"), "requires Linux process snapshot semantics"
+    )
+    def test_child_exiting_before_identity_read_is_not_cleanup_error(self) -> None:
+        runner = load_runner_module()
+        child = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(30)"],
+            start_new_session=True,
+        )
+        child.kill()
+        child.wait(timeout=2)
+        root_pid = os.getpid()
+        supervisor = runner.ProcessTreeSupervisor(root_pid)
+        snapshot = {
+            root_pid: (1, "root-snapshot-identity"),
+            child.pid: (root_pid, "child-snapshot-identity"),
+        }
+
+        def read_process_info(pid: int):
+            if pid == root_pid:
+                return (1, "root-start-identity")
+            if pid == child.pid:
+                return None
+            return None
+
+        with mock.patch.object(runner, "process_snapshot", return_value=snapshot), mock.patch.object(
+            runner, "process_info", side_effect=read_process_info
+        ):
+            supervisor._sample()
+            evidence = supervisor.evidence(set(), [])
+
+        self.assertEqual(evidence["descendant_supervision_errors"], [])
+        self.assertTrue(evidence["descendant_termination_verified"])
+
+    @unittest.skipUnless(
+        sys.platform.startswith("linux"), "requires Linux process snapshot semantics"
+    )
+    def test_child_identity_read_failure_before_admission_invalidates_cleanup(self) -> None:
+        runner = load_runner_module()
+        child = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(30)"],
+            start_new_session=True,
+        )
+        try:
+            identity = test_process_start_identity(child.pid)
+            if identity is None:
+                self.fail("fixture process identity was unavailable")
+            root_pid = os.getpid()
+            supervisor = runner.ProcessTreeSupervisor(root_pid)
+            snapshot = {
+                root_pid: (1, "root-snapshot-identity"),
+                child.pid: (root_pid, "child-snapshot-identity"),
+            }
+
+            def read_process_info(pid: int):
+                if pid == root_pid:
+                    return (1, "root-start-identity")
+                if pid == child.pid:
+                    return None
+                return None
+
+            with mock.patch.object(runner, "process_snapshot", return_value=snapshot), mock.patch.object(
+                runner, "process_info", side_effect=read_process_info
+            ):
+                supervisor._sample()
+                evidence = supervisor.evidence(set(), [])
+
+            self.assertTrue(test_process_is_running(child.pid, identity))
+            self.assertFalse(
+                evidence["descendant_termination_verified"],
+                "an observed live descendant with unreadable identity is unverified",
+            )
+            self.assertTrue(evidence["descendant_supervision_errors"])
+        finally:
+            if child.poll() is None:
+                child.kill()
+            child.wait(timeout=2)
+
     def test_live_descendant_absent_from_snapshot_is_not_verified_gone(self) -> None:
         runner = load_runner_module()
         child = subprocess.Popen(
