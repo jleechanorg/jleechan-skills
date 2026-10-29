@@ -276,6 +276,36 @@ class ReviewerProcessTest(unittest.TestCase):
         close.assert_has_calls([mock.call(77), mock.call(77)])
         self.assertEqual(close.call_count, 2)
 
+    def test_live_descendant_absent_from_snapshot_is_not_verified_gone(self) -> None:
+        runner = load_runner_module()
+        child = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(30)"],
+            start_new_session=True,
+        )
+        try:
+            identity = test_process_start_identity(child.pid)
+            if identity is None:
+                self.fail("fixture process identity was unavailable")
+            supervisor = runner.ProcessTreeSupervisor(os.getpid())
+            supervisor.discovered = {child.pid: identity}
+            with mock.patch.object(supervisor, "_snapshot", return_value={}):
+                active = supervisor.active_discovered()
+                evidence = supervisor.evidence(set(), active)
+
+            if callable(getattr(os, "pidfd_open", None)):
+                self.assertEqual(active, [child.pid])
+            else:
+                self.assertEqual(active, [])
+            self.assertFalse(
+                evidence["descendant_termination_verified"],
+                "a live discovered descendant omitted from a snapshot is unverified",
+            )
+            self.assertTrue(test_process_is_running(child.pid, identity))
+        finally:
+            if child.poll() is None:
+                child.kill()
+            child.wait(timeout=2)
+
     def test_unobservable_live_descendant_marks_cleanup_unverified(self) -> None:
         runner = load_runner_module()
         child = subprocess.Popen(
