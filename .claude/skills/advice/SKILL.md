@@ -91,6 +91,17 @@ succeeded without receipt evidence.
 
 ## 4. Isolate review copies
 
+Before taking snapshots for a revision review, materialize the requested commit
+in a standalone donor repository with independent Git metadata; do not use a
+linked worktree. Verify the donor's Git directory is a real directory,
+`git rev-parse --git-common-dir` resolves to the same directory as
+`git rev-parse --git-dir`, its `HEAD` equals the requested review SHA, and the
+required base resolves to its recorded SHA. Run the existing revision-review
+workflow from that donor so its original-checkout, ref, config, and hook
+mutation checks continue to apply to the donor. Document-only reviews retain
+the existing named saved-Markdown-byte overlay and per-file/bundle hash checks;
+they require no donor, commit, or Git context SHA.
+
 Use independent temporary clones without an `origin` remote. For revision
 reviews, pin each clone to the same exact SHA. For document-only reviews,
 overlay only the explicitly named Markdown files as saved bytes in those copies;

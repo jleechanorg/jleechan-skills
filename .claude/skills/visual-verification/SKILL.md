@@ -27,10 +27,11 @@ specific provider/tool is installed; verify availability before invoking it.
 
 ### For Browser Screenshots
 Use the repository's supported browser automation route and save captures to a
-unique `/tmp` run directory:
+directory allocated through the canonical [Scratch Space skill](../scratch-space/SKILL.md).
 
 ### For Video Frames
-1. Extract frames with ffmpeg into a unique `/tmp` run directory.
+1. Extract frames with ffmpeg into a directory allocated through the canonical
+   [Scratch Space skill](../scratch-space/SKILL.md).
 2. Inspect the frames with an available image-capable tool.
 
 ## Verification Rule — FAIL LOUDLY
