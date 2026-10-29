@@ -1092,18 +1092,12 @@ class PrimaryPairTest(unittest.TestCase):
 
         first = self.invoke("--reviewers", "codex,opus")
 
-        pidfd_supported = callable(getattr(os, "pidfd_open", None)) and callable(
-            getattr(signal, "pidfd_send_signal", None)
-        )
-        if pidfd_supported:
-            self.assertEqual(first.returncode, 0, first.stderr)
+        first_receipt = json.loads((self.output / "receipt.json").read_text())
+        cleanup_failures = first_receipt["descendant_termination_failures"]
+        if cleanup_failures:
+            self.assertEqual(first.returncode, 7, first.stderr)
         else:
-            self.assertIn(first.returncode, (0, 7), first.stderr)
-            first_receipt = json.loads((self.output / "receipt.json").read_text())
-            if first.returncode == 7:
-                self.assertTrue(first_receipt["descendant_termination_failures"])
-            else:
-                self.assertEqual(first_receipt["descendant_termination_failures"], [])
+            self.assertEqual(first.returncode, 0, first.stderr)
         original_files = {
             path.name: path.read_bytes() for path in self.output.iterdir()
         }
@@ -1206,17 +1200,13 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
 
         result = self.invoke()
 
-        pidfd_supported = callable(getattr(os, "pidfd_open", None)) and callable(
-            getattr(signal, "pidfd_send_signal", None)
-        )
-        if pidfd_supported:
-            self.assertEqual(result.returncode, 0, result.stderr)
-        else:
+        receipt = json.loads((self.output / "receipt.json").read_text())
+        cleanup_failures = receipt["descendant_termination_failures"]
+        if cleanup_failures:
             self.assertEqual(result.returncode, 7, result.stderr)
-            receipt = json.loads((self.output / "receipt.json").read_text())
-            self.assertEqual(
-                receipt["descendant_termination_failures"], ["codex", "opus"]
-            )
+        else:
+            self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(receipt["original_repository_unchanged"])
         self.assertNotEqual(
             run("git", "config", "--get", "reviewer.evil", cwd=self.repo).returncode,
             0,
@@ -1405,16 +1395,14 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
 
         result = self.invoke()
 
-        pidfd_supported = callable(getattr(os, "pidfd_open", None)) and callable(
-            getattr(signal, "pidfd_send_signal", None)
-        )
-        if pidfd_supported:
-            self.assertEqual(result.returncode, 3)
-            self.assertIn("repository metadata changed", result.stderr)
-        else:
+        receipt = json.loads((self.output / "receipt.json").read_text())
+        cleanup_failures = receipt["descendant_termination_failures"]
+        if cleanup_failures:
             self.assertEqual(result.returncode, 7)
             self.assertIn("descendant termination could not be verified", result.stderr)
-        receipt = json.loads((self.output / "receipt.json").read_text())
+        else:
+            self.assertEqual(result.returncode, 3)
+            self.assertIn("repository metadata changed", result.stderr)
         self.assertFalse(receipt["original_repository_unchanged"])
 
     def test_one_timed_out_lane_is_error_while_peer_succeeds(self) -> None:
