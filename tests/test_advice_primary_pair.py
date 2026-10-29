@@ -1395,7 +1395,12 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         self.assertEqual(receipt["reviewers"]["opus"]["status"], "success")
         self.assertTrue(receipt["cleanup"]["success"])
 
-    @unittest.skipUnless(sys.platform.startswith("linux"), "requires Linux pidfd supervision")
+    @unittest.skipUnless(
+        sys.platform.startswith("linux")
+        and callable(getattr(os, "pidfd_open", None))
+        and callable(getattr(signal, "pidfd_send_signal", None)),
+        "requires Linux pidfd supervision",
+    )
     def test_reaped_timed_out_lane_with_verified_descendant_keeps_peer_vote(self) -> None:
         runner = load_runner_module()
         child_file = self.sync / "late-child.pid"
@@ -1509,7 +1514,10 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         self.assertTrue(receipt["cleanup"]["success"])
 
     @unittest.skipUnless(
-        sys.platform.startswith("linux"), "requires Linux pidfd supervision"
+        sys.platform.startswith("linux")
+        and callable(getattr(os, "pidfd_open", None))
+        and callable(getattr(signal, "pidfd_send_signal", None)),
+        "requires Linux pidfd supervision",
     )
     def test_normal_exit_terminates_discovered_detached_descendant(self) -> None:
         runner = load_runner_module()
