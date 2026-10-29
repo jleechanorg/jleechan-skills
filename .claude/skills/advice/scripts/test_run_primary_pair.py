@@ -7,10 +7,12 @@ The source checkout has deeper integration tests in tests/test_advice_primary_pa
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -21,6 +23,15 @@ SPEC = importlib.util.spec_from_file_location("advice_primary_pair", RUNNER_PATH
 assert SPEC is not None and SPEC.loader is not None
 runner = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(runner)
+
+
+def queued_timestamp_args() -> list[str]:
+    epoch_ns = time.time_ns()
+    monotonic_ns = time.monotonic_ns()
+    return [
+        "--queued-at-epoch-ns", str(epoch_ns),
+        "--queued-at-monotonic-ns", str(monotonic_ns),
+    ]
 
 
 class InstalledRunnerTest(unittest.TestCase):
@@ -100,7 +111,7 @@ class InstalledRunnerTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, "/user-local-scratch\n")
 
-    def test_scratch_allocation_failure_does_not_reserve_output_path(self) -> None:
+    def test_scratch_allocation_failure_records_receipt(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             repo = root / "repo"
@@ -122,21 +133,31 @@ class InstalledRunnerTest(unittest.TestCase):
             args = [
                 "--repo", str(repo), "--ref", "HEAD", "--packet-file", str(packet),
                 "--output-dir", str(output), "--reviewers", "codex",
+                *queued_timestamp_args(),
             ]
             with mock.patch.object(runner, "resolve_review_scratch_root", return_value=scratch), \
                     mock.patch.object(runner.tempfile, "mkdtemp", side_effect=OSError("full")):
                 self.assertEqual(runner.main(args), 2)
-            self.assertFalse(output.exists())
+            self.assertTrue(output.is_dir())
+            failed_receipt = json.loads((output / "receipt.json").read_text())
+            self.assertFalse(failed_receipt["operation"]["success"])
+            self.assertNotIn("reviewers", failed_receipt)
 
+            retry_output = root / "retry-output"
+            retry_args = list(args)
+            retry_args[retry_args.index("--output-dir") + 1] = str(retry_output)
+            review_completed_monotonic_ns = time.monotonic_ns()
             review = {
                 "status": "success", "transport": "test",
                 "stdout": "VERDICT: APPROVED\nCOVERAGE: all\n", "attempts": [],
+                "started_monotonic_ns": review_completed_monotonic_ns,
+                "ended_monotonic_ns": review_completed_monotonic_ns,
                 "started_ns": 1, "ended_ns": 2,
             }
             with mock.patch.object(runner, "resolve_review_scratch_root", return_value=scratch), \
                     mock.patch.object(runner, "codex_lane", return_value=review):
-                self.assertEqual(runner.main(args), 0)
-            self.assertTrue((output / "receipt.json").is_file())
+                self.assertEqual(runner.main(retry_args), 0)
+            self.assertTrue((retry_output / "receipt.json").is_file())
 
     def test_reviewer_gets_eof_with_parent_stdin_open(self) -> None:
         child = (
@@ -192,20 +213,26 @@ class InstalledRunnerTest(unittest.TestCase):
                 result = runner.main([
                     "--repo", str(repo), "--ref", "HEAD", "--packet-file", str(packet),
                     "--output-dir", str(root / "output"), "--reviewers", "codex",
+                    *queued_timestamp_args(),
                 ])
             self.assertEqual(result, 2)
             clone.assert_not_called()
-            self.assertFalse((root / "output").exists())
+            receipt = json.loads((root / "output" / "receipt.json").read_text())
+            self.assertFalse(receipt["operation"]["success"])
+            self.assertNotIn("reviewers", receipt)
 
     def test_verdict_requires_a_recognizable_line(self) -> None:
         self.assertTrue(runner.has_verdict("VERDICT: APPROVED\n"))
         self.assertTrue(runner.has_verdict("**VERDICT:** APPROVED\n"))
+        self.assertFalse(runner.has_verdict("VERDICT:\nAPPROVED elsewhere\n"))
+        self.assertFalse(runner.has_verdict("**VERDICT:**\n"))
         self.assertFalse(runner.has_verdict("I reviewed it; the verdict is unclear.\n"))
 
     def test_reviewer_selection_remains_codex_and_opus(self) -> None:
         required = [
             "--repo", ".", "--ref", "HEAD", "--packet-file", "packet.txt",
             "--output-dir", "/tmp/advice-test-output",
+            *queued_timestamp_args(),
         ]
         with mock.patch.dict(runner.os.environ, {"ADVICE_CODEX_MODEL": "gpt-6-sol"}):
             self.assertEqual(runner.parse_args(required).reviewers, ["codex", "opus"])

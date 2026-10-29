@@ -73,14 +73,40 @@ mechanism.
 
 ## 3. Enforce the attempt deadline
 
-Each reviewer attempt has one 600-second end-to-end budget beginning when that
-request is queued or sent. Record the start time. Shared immutable packet
-preparation may precede the clock; all review-specific setup, queueing,
-delivery, dispatch, review, output capture, receipt writing, and cleanup consume
-the same budget. Do not pause, reset, or extend it; bound every call and wait by
-the remaining time. Use existing CLI timeouts with native tool deadlines and
-cancellation. If the supported route cannot enforce the complete attempt and
-produce its receipt, mark it `UNAVAILABLE`; do not build timer machinery.
+Each reviewer attempt has one 600-second end-to-end acceptance deadline
+beginning when the request is queued or sent. Record the start time. Shared
+immutable packet preparation may precede the clock; review-specific setup,
+queueing, delivery, dispatch, review, output capture, receipt writing, and
+cleanup all consume the same budget. The deadline decides vote eligibility; it
+is not a hard real-time guarantee that the process returns within 600 seconds.
+Bound supported subprocesses and waits by the remaining time. Filesystem cleanup
+and receipt writes may overrun if the operating system blocks; when they return,
+the runner must record the overrun, exit nonzero, and invalidate every vote. A
+missing or unparseable receipt, or any nonzero runner exit, makes the attempt
+unavailable. Do not pause, reset, or extend the deadline, or add timer machinery.
+
+Immediately before dispatch, after the shared review packet is ready, capture
+the queue boundary and pass both timestamps to the primary-pair runner. If the
+timestamp cannot be captured, mark that attempt unavailable instead of invoking
+the runner:
+
+```bash
+read -r QUEUED_AT_EPOCH_NS QUEUED_AT_MONOTONIC_NS <<< "$(
+  python3 -c 'import time; print(time.time_ns(), time.monotonic_ns())'
+)"
+```
+
+Capture both values together on the caller host. The runner must execute on
+that same host and boot because monotonic timestamps are host-local. Retain the
+UTC epoch only for audit; cross-host orchestration must account for its outer
+budget separately and never compare monotonic values across hosts.
+
+Pass both required runner options:
+
+```bash
+--queued-at-epoch-ns "$QUEUED_AT_EPOCH_NS" \
+--queued-at-monotonic-ns "$QUEUED_AT_MONOTONIC_NS" \
+```
 
 A late, incomplete, failed, or timed-out result is not an approval. Preserve
 partial output and findings, record cleanup status, and use another independent
@@ -123,7 +149,7 @@ means `NOT APPROVED`, including a competent objection from a reviewer with
 partial coverage; partial coverage never supplies an approval. Use `WITHHELD`
 when two independent full-coverage approvals are unavailable. A vote also
 requires receipt evidence of zero exit, no original checkout mutation, no
-surviving reviewer process, and no cleanup failure.
+surviving reviewer process, and no cleanup failure. For the primary-pair runner, also require its zero exit, a present and parseable receipt, and a nonempty VERDICT line. Ignore the entire receipt when the runner exits nonzero; a failed late-receipt rewrite can leave an older success-looking receipt. If clone setup times out, directory-removal evidence does not prove setup descendants exited; record that uncertainty and do not count the attempt.
 
 Report the exact reviewed SHA or `DOCUMENTS sha256:<bundle hash>` for
 document-only review, with verdict, coverage, concise reasoning, risk, and
