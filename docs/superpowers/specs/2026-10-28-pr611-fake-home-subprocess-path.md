@@ -18,7 +18,7 @@ Subprocess tests that replace `HOME` can keep system tools reachable while placi
 - The shared helper reorders host `.local/bin` entries correctly for absolute, relative, empty, and symlinked entries resolved from the child cwd.
 - The helper preserves an absent PATH; the coordinator installer caller omits missing variables, and the integration fixture adds `os.defpath` when its Git operations require a command path.
 - The Dot probe's default Node fallback is selected from the sanitized child PATH when neither an explicit `DOT_NODE` nor the host's pinned Node 22 executable is available.
-- The four focused unittest modules pass on jeff-ubuntu, and GitHub `contract-tests` passes at the PR head.
+- The four focused unittest modules pass in a Linux environment, and GitHub `contract-tests` passes at the PR head.
 
 ## User story
 
@@ -26,7 +26,7 @@ No user-facing change — this PR changes only subprocess test setup and its reg
 
 ## Proof plan
 
-Run `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v tests.test_subprocess_environment tests.test_coordinator_naming tests.test_dot_transport_session_probe tests.test_integrate_cleanup` on jeff-ubuntu. Record the exact head and base, runtime versions, test names and result, ordered PATH with home prefixes redacted, and `command -v rm` with its home prefix redacted. Verify the published bundle's raw downloadable bytes against its manifest and record the GitHub `contract-tests` run at the same head.
+Run `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v tests.test_subprocess_environment tests.test_coordinator_naming tests.test_dot_transport_session_probe tests.test_integrate_cleanup` in a Linux environment. Record the exact head and base, runtime versions, test names and result, ordered PATH with home prefixes redacted, and `command -v rm` with its home prefix redacted. Verify the published bundle's raw downloadable bytes against its manifest and record the GitHub `contract-tests` run at the same head.
 
 ## Test doubles and exemption
 
