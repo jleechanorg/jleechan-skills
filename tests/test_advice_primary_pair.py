@@ -1093,11 +1093,8 @@ class PrimaryPairTest(unittest.TestCase):
         first = self.invoke("--reviewers", "codex,opus")
 
         first_receipt = json.loads((self.output / "receipt.json").read_text())
-        cleanup_failures = first_receipt["descendant_termination_failures"]
-        if cleanup_failures:
-            self.assertEqual(first.returncode, 7, first.stderr)
-        else:
-            self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertEqual(first_receipt["descendant_termination_failures"], [])
         original_files = {
             path.name: path.read_bytes() for path in self.output.iterdir()
         }
@@ -1201,11 +1198,8 @@ printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'
         result = self.invoke()
 
         receipt = json.loads((self.output / "receipt.json").read_text())
-        cleanup_failures = receipt["descendant_termination_failures"]
-        if cleanup_failures:
-            self.assertEqual(result.returncode, 7, result.stderr)
-        else:
-            self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(receipt["descendant_termination_failures"], [])
         self.assertTrue(receipt["original_repository_unchanged"])
         self.assertNotEqual(
             run("git", "config", "--get", "reviewer.evil", cwd=self.repo).returncode,
