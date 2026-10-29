@@ -219,7 +219,7 @@ The snapshot listed these planned checks; verify current code and workflow owner
 | `custom_campaign_state.level_up_complete` | Server-owned level-up flow state | Bool: level-up flow finished (suppresses `is_level_up_active()`) |
 | `custom_campaign_state.level_up_cancelled` | Server-owned level-up flow state | Bool: level-up deferred (suppresses `is_level_up_active()`) |
 
-For the full field registry, see `.claude/skills/field-ownership-contracts.md`.
+For the full field registry, see `.claude/skills/field-ownership-contracts/SKILL.md`.
 
 ---
 
@@ -242,6 +242,6 @@ For any WorldArchitect backend or progression change, read the local overlay `.c
 
 ## Related Skills
 
-- `.claude/skills/field-ownership-contracts.md` — full field writer/reader registry
-- `~/.claude/skills/evidence-standards.md` — evidence requirements for production PRs
-- `~/.claude/skills/pr-green-definition.md` — canonical `/green` (CI green + no merge conflicts) definition; quality gates live in the draft phase
+- `.claude/skills/field-ownership-contracts/SKILL.md` — full field writer/reader registry
+- `~/.claude/skills/evidence-standards/SKILL.md` — evidence requirements for production PRs
+- `~/.claude/skills/pr-green-definition/SKILL.md` — canonical `/green` (CI green + no merge conflicts) definition; quality gates live in the draft phase

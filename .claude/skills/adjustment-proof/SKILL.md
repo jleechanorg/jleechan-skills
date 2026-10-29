@@ -15,7 +15,7 @@ each adjustment.
 This skill extends:
 
 - `.claude/skills/zfc-adjuster/SKILL.md`
-- `.claude/skills/evidence-standards.md`
+- `.claude/skills/evidence-standards/SKILL.md`
 - `.claude/skills/zfc-leveling-roadmap/SKILL.md` for level-up/rewards changes
 
 ## Verdicts

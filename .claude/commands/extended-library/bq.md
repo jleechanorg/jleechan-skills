@@ -11,7 +11,7 @@ logging, token-count reduction, or RAG/shadow BigQuery provenance.
 
 ## Execute immediately
 
-1. Read `.claude/skills/bq-evidence-reading.md`.
+1. Read `.claude/skills/bq-evidence-reading/SKILL.md`.
 2. Extract campaign IDs from artifacts, not PR prose alone.
 3. Query `worldarchitecture-ai.llm_forensics.llm_payloads` for raw LLM request/response
    proof.
@@ -27,4 +27,4 @@ Do not treat `log_events` as the raw LLM request/response table. Do not treat
 
 ## Reference
 
-Authoritative workflow: `.claude/skills/bq-evidence-reading.md`
+Authoritative workflow: `.claude/skills/bq-evidence-reading/SKILL.md`

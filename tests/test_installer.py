@@ -883,6 +883,31 @@ class InstallerIntegrationTest(unittest.TestCase):
                 self.assertEqual(path.read_text(encoding="utf-8"), f"custom {path.name}\n")
             self.assertIn("requires --migrate-archives", result.stderr + result.stdout)
 
+    def test_install_prints_the_current_repository_url(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            result = self.run_installer(fixture, temp_dir / "claude-home")
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertIn("https://github.com/jleechanorg/jleechan-skills", result.stdout)
+            self.assertNotIn("jleechanorg/claude-commands", result.stdout)
+
+    def test_merge_and_backup_are_mutually_exclusive(self):
+        for flags in (("--merge", "--backup"), ("--backup", "--merge")):
+            with self.subTest(flags), tempfile.TemporaryDirectory() as directory:
+                temp_dir = Path(directory)
+                fixture = self.make_fixture(temp_dir)
+                target = temp_dir / "claude-home"
+                target.mkdir()
+                (target / "mine.txt").write_text("keep\n", encoding="utf-8")
+
+                result = self.run_installer(fixture, target, *flags)
+
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn("mutually exclusive", result.stderr + result.stdout)
+                self.assertTrue((target / "mine.txt").is_file())
+                self.assertEqual(list(temp_dir.glob("claude-home.backup-*")), [])
+
     def test_archive_migration_requires_merge_mode(self):
         with tempfile.TemporaryDirectory() as directory:
             temp_dir = Path(directory)
@@ -935,6 +960,44 @@ class InstallerIntegrationTest(unittest.TestCase):
             self.assertEqual(
                 archived.read_text(encoding="utf-8"), "active legacy skill\n"
             )
+
+    def test_merge_migrate_archives_without_collisions_installs_under_bash32(self):
+        bash32 = Path("/bin/bash")
+        version = subprocess.run([str(bash32), "--version"], capture_output=True, text=True).stdout.split() \
+            if bash32.exists() else []
+        if len(version) < 4 or not version[3].startswith("3."):
+            self.skipTest("/bin/bash is not 3.x")
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            target = temp_dir / "claude-home"
+            result = subprocess.run(
+                [str(bash32), str(fixture / INSTALLER.name), "--merge", "--migrate-archives", "--all"],
+                cwd=fixture, env=os.environ | {"CLAUDE_HOME": str(target)},
+                text=True, capture_output=True, check=False,
+            )
+            output = result.stderr + result.stdout
+            self.assertNotIn("unbound variable", output)
+            self.assertEqual(result.returncode, 0, output)
+            self.assertTrue((target / "skills/example/SKILL.md").is_file(), output)
+            self.assertIn("Installation complete", output)
+
+    def test_migrate_archives_keeps_skills_the_source_still_ships_active(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            fixture = self.make_fixture(temp_dir)
+            stale = fixture / ".claude/skills_archive/legacy-pre/packages/example/SKILL.md"
+            stale.parent.mkdir(parents=True)
+            stale.write_text("# stale copy\n", encoding="utf-8")
+            target = temp_dir / "claude-home"
+            first = self.run_installer(fixture, target)
+            self.assertEqual(first.returncode, 0, first.stderr + first.stdout)
+
+            result = self.run_installer(fixture, target, "--merge", "--migrate-archives")
+
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertEqual((target / "skills/example/SKILL.md").read_text(encoding="utf-8"), "# Skill\n")
+            self.assertFalse((target / "skills_archive/legacy-pre/packages/example").exists())
 
     def test_merge_rejects_duplicate_archive_mappings_before_copy(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -1728,7 +1791,7 @@ COMMAND_TARGET = re.compile(r"skills/([A-Za-z0-9_.-]+)/SKILL\.md")
 DOT_FAMILY = {"dot", "dot-coordinator", "agy-dot-coordinator"}
 CLOSURE_DENYLIST = DOT_FAMILY | {
     "web-advice", "browser-control", "slack-media-upload", "github-cli-reference",
-    "claw-dispatch", "ao-operator-discipline",
+    "claw-dispatch", "ao-operator-discipline", "aside-browser-default", "browser-testing",
 }
 COMMAND_COMPANION = re.compile(r"commands/([A-Za-z0-9_./-]+)")
 RELATIVE_SKILL_LINK = re.compile(r"(?<![\w.])((?:\.\./)+[A-Za-z0-9_.-]+/SKILL\.md)")
@@ -2047,9 +2110,15 @@ class InstallerRealProfileTest(unittest.TestCase):
         targets = {}
         commands = REPO_ROOT / ".claude/commands"
         for path in [*commands.glob("*.md"), *(commands / "extended-library").glob("*.md")]:
-            match = COMMAND_TARGET.search(path.read_text(encoding="utf-8"))
+            text = path.read_text(encoding="utf-8")
+            match = COMMAND_TARGET.search(text)
             if match:
                 targets[path.relative_to(commands).as_posix()] = match.group(1)
+            elif re.search(r"^description:.*alias", text, re.I | re.M):
+                # A described alias runs its skill as `/skill` instead of naming the skill path.
+                named = [m for m in re.findall(r"`/([A-Za-z0-9_.-]+)`", text) if m in self.skill_names]
+                if named:
+                    targets[path.relative_to(commands).as_posix()] = named[0]
         return targets
 
     def test_default_profile_is_the_six_highlights_and_no_catalog_profile_exists(self):
@@ -2162,6 +2231,41 @@ class InstallerRealProfileTest(unittest.TestCase):
                 missing[f"{path.relative_to(skills_root)} -> {link}"] = name
         return missing
 
+    def test_default_profile_installs_the_rg_alias_of_redgreen(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "home"
+            self.install(target)
+            self.assertTrue((target / "commands/extended-library/rg.md").is_file())
+            self.assertTrue((target / "commands/extended-library/redgreen.md").is_file())
+
+    def test_installed_skill_links_resolve_except_closure_excluded(self):
+        excluded = set(self.data.get("closure_excluded", []))
+        for profile in self.data["profiles"]:
+            with self.subTest(profile), tempfile.TemporaryDirectory() as directory:
+                target = Path(directory) / "home"
+                args = () if profile == self.data["default_profile"] else ("--profile", profile)
+                self.install(target, *args)
+                skills_root = (target / "skills").resolve()
+                unresolved = {}
+                for skill_md in skills_root.glob("*/SKILL.md"):
+                    for link in RELATIVE_SKILL_LINK.findall(skill_md.read_text(encoding="utf-8")):
+                        resolved = Path(os.path.normpath(skill_md.parent / link))
+                        if resolved.is_file():
+                            continue
+                        try:
+                            name = resolved.relative_to(skills_root).parts[0]
+                        except ValueError:
+                            name = "<outside skills>"
+                        if name not in excluded:
+                            unresolved[f"{skill_md.parent.name} -> {link}"] = name
+                self.assertEqual(unresolved, {})
+
+    def test_usage_says_linked_dependencies_join_the_default_profile(self):
+        result = subprocess.run(["bash", str(INSTALLER), "--help"], text=True, capture_output=True, check=False)
+        default_line = next(line for line in result.stdout.splitlines() if "highlights profile" in line)
+        self.assertIn("linked", default_line)
+        self.assertNotIn("(six skills)", default_line)
+
     def test_web_profile_and_with_opt_in_to_browser_review_without_dot(self):
         for args in (("--profile", "web"), ("--profile", "prw", "--with", "web-advice", "--with", "browser-control")):
             with self.subTest(args), tempfile.TemporaryDirectory() as directory:
@@ -2195,3 +2299,12 @@ class InstallerRealProfileTest(unittest.TestCase):
             self.assertEqual(installed, self.skill_names)
             self.assertTrue(DOT_FAMILY <= installed)
             self.assertIn(f"Installed --all (full library): {len(self.skill_names)} skills,", result.stdout)
+            commands = len([c for c in installed_tree(target, "commands") if c.endswith(".md")])
+            agents = len(installed_tree(target, "agents"))
+            for doc in ("README.md", "INSTALL.md"):
+                rows = [line for line in (REPO_ROOT / doc).read_text().splitlines() if line.startswith("| `--all`")]
+                self.assertEqual(len(rows), 1, f"{doc} needs one --all row")
+                self.assertTrue(
+                    rows[0].endswith(f"| {len(self.skill_names)} / {commands} / {agents} |"),
+                    f"{doc} --all row must state the measured counts: {rows[0]}",
+                )

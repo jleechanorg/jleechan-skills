@@ -280,7 +280,7 @@ Execute the concurrency check defined in [Rule 1: File-exclusive ownership](#rul
 
 ## See Also
 - `.claude/skills/zfc-leveling-roadmap/SKILL.md` — domain-specific instance
-- `.claude/skills/deletion-milestone.md` — net-LOC discipline for deletion PRs
+- `.claude/skills/deletion-milestone/SKILL.md` — net-LOC discipline for deletion PRs
 - `.claude/skills/repro-twin-clone-evidence/SKILL.md` — evidence capture
 - `.claude/commands/4layer.md` — minimal-repro ladder
 - `.claude/commands/tdd.md` — red/green/refactor with matrix testing

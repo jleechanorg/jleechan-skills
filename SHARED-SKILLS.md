@@ -104,8 +104,8 @@ must pass before each retirement. Plan: `docs/superpowers/plans/2026-10-13-skill
 | Live discovery tree | `~/.claude/skills` (canonical) | other runtime trees become generated links |
 
 **Critical constraint - the portable tree is NOT a duplicate.** Verified by
-`scripts/report_skill_inventory_divergence.py` (pinned by
-`tests/test_skill_inventory_divergence_contract.py`): of the 29 portable skills, **7 exist only
-there**, **19 have divergent bodies**, and only **3 are byte-identical** to `.claude/skills/**`.
-Deleting `portable/**` as "duplicates" would destroy 7 unique skills and choose 19 bodies
+`scripts/report_skill_inventory_divergence.py` (dispositions pinned by
+`tests/test_skill_inventory_dispositions_contract.py`): of the 29 portable skills, **7 exist only
+there**, **20 have divergent bodies**, and only **2 are byte-identical** to `.claude/skills/**`.
+Deleting `portable/**` as "duplicates" would destroy 7 unique skills and choose 20 bodies
 arbitrarily. Per-skill reconciliation must land first.
