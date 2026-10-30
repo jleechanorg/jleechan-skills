@@ -15,7 +15,7 @@ description: "Hermes wrapper for the `/advice` token-efficient second-opinion sl
 
 ## Static review (synced 2026-10-29)
 
-The canonical `/advice` now delegates reviewer input to `~/.claude/skills/static-review/SKILL.md`: every reviewer (CLI, coordinator ask, static-review subagent) gets the cold, verbatim template with only the PR URL and SHA filled, plus the fixed per-channel preamble. The receipt records the exact prompt; any deviation voids the vote. Static-review subagents fill the quorum only after the coordinator ask and every CLI attempt end without votes; one outside vote pairs with one static reviewer (no double substitution). Record unavailable seats as `<host> — <CLI or static reviewer> — attempted|skipped — <attempt time> — <reason>` and tell the user. A cloud-only failure does not make Mac or Ubuntu CLIs unavailable.
+The canonical `/advice` now delegates reviewer input to `~/.claude/skills/static-review/SKILL.md`: every reviewer (CLI, coordinator ask, static-review subagent) gets the cold, verbatim template with only the PR URL and SHA filled, plus the fixed per-channel preamble. The receipt records the exact prompt; any deviation voids the vote. Static-review subagents launch in parallel with the coordinator ask (or, with no coordinator, with the CLI attempts) and fill only slots still unfilled after every CLI attempt and coordinator account ends; one outside vote pairs with one static reviewer (no double substitution). Record unavailable seats as `<host> — <CLI or static reviewer> — attempted|skipped — <attempt time> — <reason>` and tell the user. A cloud-only failure does not make Mac or Ubuntu CLIs unavailable.
 
 ## When to use
 

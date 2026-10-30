@@ -277,7 +277,7 @@ class ApprovalContractsTest(unittest.TestCase):
             "the exact prompt sent",
             "no reviewer process survives",
             "replaces only the runner exit field",
-            "differ by both subagent type and harness",
+            "whose models are both unreported",
             "Any deviation, including added context, summary or framing, voids that vote",
         ):
             self.assertIn(phrase, static)

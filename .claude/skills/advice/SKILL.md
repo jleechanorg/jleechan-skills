@@ -21,7 +21,10 @@ Give every reviewer (CLI primary and alternates, the coordinator ask, and
 static reviewers) only the cold, verbatim input owned by
 [static-review](../static-review/SKILL.md): its channel preamble plus its
 template, with no question, summary or framing. Its receipt and deviation rules
-apply to every vote. The pointer must reach the complete change; a summary or
+apply to every vote. The user's `[question]` is never sent to reviewers: the
+orchestrator records it in the §5 report and answers it in its own synthesis
+from the reviewers' findings; if the template cannot surface what the question
+needs, report that gap rather than adding framing. The pointer must reach the complete change; a summary or
 excerpt never replaces the source.
 
 For revision review, pin the requested commit and use an eligible clean
@@ -55,7 +58,9 @@ only for material unanswered questions. One competent objection may block.
 Static-review fallback. This is an owner-authorized exception, chosen by the
 repository owner on 2026-10-29. When the orchestrator also has an external
 review coordinator (for example a Dot reviewer), it sends the static-review
-coordinator ask and, in parallel, launches static reviewers. A static reviewer
+coordinator ask and, in parallel, launches static reviewers. With no
+coordinator configured, it launches static reviewers in parallel with the CLI
+attempts, and the trigger below counts only those CLI attempts. A static reviewer
 fills only a vote slot still unfilled after the primary and every alternate CLI
 attempt in the table below, and every configured coordinator account, have
 ended under their §3 attempt deadlines. Any outside full-coverage vote fills a

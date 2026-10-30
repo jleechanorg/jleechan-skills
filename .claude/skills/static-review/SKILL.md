@@ -74,8 +74,11 @@ config or hooks. Do not post anything; return your review as your final output.
 ## 4. Identity
 
 Each static reviewer is a distinct reviewer identity and reports its actual
-model; if a model cannot be reported, the reviewers must differ by both
-subagent type and harness. Same-identity reviewers are one vote. Static
+model. Two reviewers whose models are both unreported, or where either model is
+unreported and type or harness match, are not distinct and count as one vote;
+at most one counted static reviewer may have an unreported model, and it must
+differ from the other by subagent type and harness. Same-identity reviewers are
+one vote. Static
 reviewers run in separate contexts and do not read each other's output first.
 Each has one 600-second end-to-end acceptance deadline from launch; the
 orchestrator, not the reviewer, timestamps launch and return. Reviewers do not
@@ -90,7 +93,10 @@ for document-only review), and a read-only check that the original checkout,
 refs, local config and hooks are unchanged. The orchestrator also verifies and
 records that no reviewer process survives and that clone cleanup succeeded. For
 a static-review subagent this receipt replaces only the runner exit field of
-the runner receipt.
+the runner receipt. When publishing a receipt outside the authorized
+workspace, redact the recorded prompt to its template name plus filled
+fields, or publish only its SHA256, if it could carry private paths, hosts or
+tokens.
 
 ## 6. Deviation voids the vote
 
