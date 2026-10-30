@@ -19,7 +19,7 @@ A verdict built on a truncated inline artifact may not be `APPROVED`.
 
 Give every reviewer (CLI primary and alternates, the coordinator ask, and
 static reviewers) only the cold, verbatim input owned by
-[static-reviewer](../static-reviewer/SKILL.md): its channel preamble plus its
+[static-review](../static-review/SKILL.md): its channel preamble plus its
 template, with no question, summary or framing. Its receipt and deviation rules
 apply to every vote. The pointer must reach the complete change; a summary or
 excerpt never replaces the source.
@@ -43,7 +43,7 @@ across reviewers to approve.
 ## 2. Select independent reviewers
 
 Approval requires two independent votes, each covering the whole scope, from
-two eligible CLI reviewers or per the static-reviewer fallback
+two eligible CLI reviewers or per the static-review fallback
 below. Use Codex
 and Opus concurrently when both are viable; pair a healthy CLI vote with a
 distinct eligible alternate when needed. If Opus is known unavailable, launch
@@ -52,15 +52,15 @@ The orchestrator's synthesis and
 research-only output are not approval reviewers. `/research` is nonvoting and
 only for material unanswered questions. One competent objection may block.
 
-Static-reviewer fallback. This is an owner-authorized exception, chosen by the
+Static-review fallback. This is an owner-authorized exception, chosen by the
 repository owner on 2026-10-29. When the orchestrator also has an external
-review coordinator (for example a Dot reviewer), it sends the static-reviewer
+review coordinator (for example a Dot reviewer), it sends the static-review
 coordinator ask and, in parallel, launches static reviewers. A static reviewer
 fills only a vote slot still unfilled after the primary and every alternate CLI
 attempt in the table below, and every configured coordinator account, have
 ended under their §3 attempt deadlines. Any outside full-coverage vote fills a
 slot first; one outside vote pairs with one static reviewer. Identity, cold
-start and receipts follow [static-reviewer](../static-reviewer/SKILL.md); the
+start and receipts follow [static-review](../static-review/SKILL.md); the
 deadline, isolation, full coverage, SHA binding and §5 rules still apply. A
 late objection blocks until resolved and reopens the affected stage per
 pr-lifecycle.
@@ -91,7 +91,7 @@ model, account or reviewer identity, and transport for every attempt:
 | AGY alternate | `agy --print="<review request>" --model gemini-3.8-flash-high --dangerously-skip-permissions --new-project` |
 
 Each `<review request>`, and the stdin of forms without one, follows
-[static-reviewer](../static-reviewer/SKILL.md).
+[static-review](../static-review/SKILL.md).
 A wrapper, alias, retry, or duplicate reviewer identity is not another vote.
 Codex models may be only `gpt-6-astra`, `gpt-6-luna`, `gpt-6-sol`, or
 `gpt-6.1-sol`; 5.6 and unknown IDs are not eligible. Count `claudewa` only when
@@ -179,9 +179,9 @@ not ask the user to choose between reviewer axes. One competent blocking
 objection means `NOT APPROVED`, including a competent objection from a reviewer
 with partial coverage; partial coverage never supplies an approval. Use
 `WITHHELD` when two independent full-coverage approvals, from eligible CLI
-reviewers or per the static-reviewer fallback, are unavailable. A vote also
+reviewers or per the static-review fallback, are unavailable. A vote also
 requires receipt evidence of zero exit, no original checkout mutation, no
-surviving reviewer process, and no cleanup failure; a static-reviewer receipt
+surviving reviewer process, and no cleanup failure; a static-review receipt
 replaces only the runner exit field. For the primary-pair runner, also require
 its zero exit, a present and parseable receipt, and a nonempty VERDICT line.
 Ignore the entire receipt when the runner exits nonzero; a failed late-receipt
@@ -197,7 +197,7 @@ exactly one SHA-bound line: `VERDICT: APPROVED at <SHA>`,
 For document-only review, use `DOCUMENTS sha256:<bundle hash>` in place of
 `<SHA>`; never use `HEAD`. Preserve a receipt for every attempt: reviewer
 identity, actual CLI, account and model, start/completion times, exit or timeout
-status, exact prompt sent (any deviation voids the vote, per static-reviewer),
+status, exact prompt sent (any deviation voids the vote, per static-review),
 complete output, coverage, and cleanup result.
 Preserve the original reviewers and reviewed SHAs.
 Before applicability, inspect the complete actual delta, claims, evidence and phase.

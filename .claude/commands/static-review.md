@@ -4,4 +4,4 @@ type: skill
 execution_mode: immediate
 ---
 
-Read `${CLAUDE_HOME:-$HOME/.claude}/skills/static-reviewer/SKILL.md` completely, then execute it with `$ARGUMENTS`.
+Read `${CLAUDE_HOME:-$HOME/.claude}/skills/static-review/SKILL.md` completely, then execute it with `$ARGUMENTS`.

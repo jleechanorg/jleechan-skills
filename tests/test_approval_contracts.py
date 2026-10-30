@@ -264,7 +264,7 @@ class ApprovalContractsTest(unittest.TestCase):
                 )
 
     def test_static_reviewer_owns_cold_verbatim_input(self) -> None:
-        static = " ".join(skill("static-reviewer").split())
+        static = " ".join(skill("static-review").split())
         for phrase in (
             "starts cold and blank",
             "Static review prompt (skill-owned, verbatim):",
@@ -281,13 +281,13 @@ class ApprovalContractsTest(unittest.TestCase):
             "Any deviation, including added context, summary or framing, voids that vote",
         ):
             self.assertIn(phrase, static)
-        command = (COMMANDS / "static-reviewer.md").read_text()
-        self.assertIn("skills/static-reviewer/SKILL.md", command)
+        command = (COMMANDS / "static-review.md").read_text()
+        self.assertIn("skills/static-review/SKILL.md", command)
 
     def test_advice_static_reviewer_fallback_contract(self) -> None:
         advice = " ".join(skill("advice").split())
         for phrase in (
-            "[static-reviewer](../static-reviewer/SKILL.md)",
+            "[static-review](../static-review/SKILL.md)",
             "owner-authorized exception",
             "every alternate CLI attempt",
             "one outside vote pairs with one static reviewer",

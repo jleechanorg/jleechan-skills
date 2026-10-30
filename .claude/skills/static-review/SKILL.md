@@ -1,9 +1,9 @@
 ---
-name: static-reviewer
-description: Use when dispatching any independent reviewer (CLI, coordinator ask or static-reviewer subagent); owns the cold start, the verbatim prompt templates, per-channel preambles, receipts and identity rules.
+name: static-review
+description: Use when dispatching any independent reviewer (CLI, coordinator ask or static-review subagent); owns the cold start, the verbatim prompt templates, per-channel preambles, receipts and identity rules.
 ---
 
-# /static-reviewer — cold, verbatim reviewer input
+# /static-review — cold, verbatim reviewer input
 
 This skill owns what every reviewer receives and what its receipt proves.
 The `advice` skill owns when reviewers run, the quorum and the
@@ -13,7 +13,7 @@ substitution rules; pr-lifecycle owns publication.
 
 A static reviewer starts cold and blank, like a fresh terminal: no parent
 context, summary or framing of the change. Every reviewer's entire input,
-whether a CLI reviewer, the coordinator ask or a static-reviewer subagent, is
+whether a CLI reviewer, the coordinator ask or a static-review subagent, is
 one fixed channel preamble below followed by one template below. Fill only `<PR
 URL>` and `<SHA>`, or for document-only review `<PACKET PATH>` and `<BUNDLE
 HASH>`. The orchestrator writes nothing else.
@@ -89,7 +89,7 @@ prompt sent, a `COVERAGE:` statement, the `VERDICT:` line, the clone path (none
 for document-only review), and a read-only check that the original checkout,
 refs, local config and hooks are unchanged. The orchestrator also verifies and
 records that no reviewer process survives and that clone cleanup succeeded. For
-a static-reviewer subagent this receipt replaces only the runner exit field of
+a static-review subagent this receipt replaces only the runner exit field of
 the runner receipt.
 
 ## 6. Deviation voids the vote
