@@ -263,26 +263,42 @@ class ApprovalContractsTest(unittest.TestCase):
                     package_texts["superpowers-quick"],
                 )
 
-    def test_advice_static_prompt_and_subagent_seat_contract(self) -> None:
-        advice = " ".join(skill("advice").split())
+    def test_static_reviewer_owns_cold_verbatim_input(self) -> None:
+        static = " ".join(skill("static-reviewer").split())
         for phrase in (
+            "starts cold and blank",
             "Static review prompt (skill-owned, verbatim):",
             "Document-only review prompt (skill-owned, verbatim):",
-            "Document-only preamble (skill-owned, verbatim):",
+            "Document-only preamble for CLI alternates and static reviewers",
             "COVERAGE: line",
             "VERDICT: APPROVED|NOT APPROVED|WITHHELD at <SHA>",
-            "any deviation from preamble plus template voids that vote",
             "`prompt` and `prompt_sha256`",
-            "owner-authorized exception",
-            "that case requires a real outside vote",
+            "/advice vote requested.",
+            "the exact prompt sent",
+            "no reviewer process survives",
             "replaces only the runner exit field",
-            "no seat process survives",
+            "differ by both subagent type and harness",
+            "Any deviation, including added context, summary or framing, voids that vote",
+        ):
+            self.assertIn(phrase, static)
+        command = (COMMANDS / "static-reviewer.md").read_text()
+        self.assertIn("skills/static-reviewer/SKILL.md", command)
+
+    def test_advice_static_reviewer_fallback_contract(self) -> None:
+        advice = " ".join(skill("advice").split())
+        for phrase in (
+            "[static-reviewer](../static-reviewer/SKILL.md)",
+            "owner-authorized exception",
+            "every alternate CLI attempt",
+            "one outside vote pairs with one static reviewer",
+            "that case requires a real outside vote",
             "attempted|skipped",
-            "tell the user which seats were unavailable",
+            "tell the user which reviewers were unavailable",
             "does not make the same CLI unavailable on another host",
         ):
             self.assertIn(phrase, advice)
-        self.assertNotIn("third distinct subagent seat", advice)
+        for gone in ("third distinct", "subagent seat", "Reviewer preamble (skill-owned"):
+            self.assertNotIn(gone, advice)
 
     def test_advice_reviews_repository_before_approving(self) -> None:
         advice = skill("advice")

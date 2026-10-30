@@ -18,60 +18,11 @@ duplicate those procedures here.
 A verdict built on a truncated inline artifact may not be `APPROVED`.
 
 Give every reviewer (CLI primary and alternates, the coordinator ask, and
-subagent seats) the static review prompt below verbatim, filling only `<PR
-URL>` and `<SHA>`. For document-only review, use the document-only variant,
-filling only `<PACKET PATH>` and `<BUNDLE HASH>`. The orchestrator adds nothing
-else: no question, summary or framing. The pointer must reach the complete
-change; a summary or excerpt never replaces the source.
-
-Static review prompt (skill-owned, verbatim):
-
-```text
-Review <PR URL> at head <SHA>. Ensure it follows the /prw stages and focus on
-evidence review before approval. Report P0/P1/P2 with file:line and a
-COVERAGE: line naming the files and diff you read; approve only with no P0/P1
-and full coverage; end with exactly one line:
-VERDICT: APPROVED|NOT APPROVED|WITHHELD at <SHA> (WITHHELD with a reason).
-```
-
-Document-only review prompt (skill-owned, verbatim):
-
-```text
-Review the saved documents in <PACKET PATH>, bundle
-DOCUMENTS sha256:<BUNDLE HASH>. This is document-only review: do not approve
-code, a PR or HEAD. Report P0/P1/P2 with file:line and a COVERAGE: line naming
-the files you read; approve only with no P0/P1 and full coverage; end with
-exactly one line: VERDICT: APPROVED|NOT APPROVED|WITHHELD at
-DOCUMENTS sha256:<BUNDLE HASH> (WITHHELD with a reason).
-```
-
-Each channel may prepend only its fixed, skill-owned preamble for mechanics.
-CLI alternates and subagent seats use the reviewer preamble below (the
-document-only preamble for document-only review). The coordinator preamble is
-the configured account mentions followed by `/advice vote requested.` on its
-own line. For the primary-pair runner, its built-in header (the exact-SHA or
-document-only lines in `run_primary_pair.py`) is that channel's preamble, and
-`--packet-file` must contain exactly the filled template; the runner records
-the exact prompt in `receipt.json` as `prompt` and `prompt_sha256`. Every
-receipt records the exact prompt sent; any deviation from preamble plus
-template voids that vote.
-
-Reviewer preamble (skill-owned, verbatim):
-
-```text
-Work in a fresh clone of the PR repository without an `origin` remote, pinned
-to the given SHA. Use the GitHub token already present in your environment and
-never print it. Do not modify the original checkout, refs, config or hooks. Do
-not post anything; return your review as your final output.
-```
-
-Document-only preamble (skill-owned, verbatim):
-
-```text
-Read only the named saved files in the given packet, checking each against its
-recorded SHA256. Do not clone or review code. Do not modify any checkout, refs,
-config or hooks. Do not post anything; return your review as your final output.
-```
+static reviewers) only the cold, verbatim input owned by
+[static-reviewer](../static-reviewer/SKILL.md): its channel preamble plus its
+template, with no question, summary or framing. Its receipt and deviation rules
+apply to every vote. The pointer must reach the complete change; a summary or
+excerpt never replaces the source.
 
 For revision review, pin the requested commit and use an eligible clean
 checkout. For saved specifications, plans, or other document-only reviews, use
@@ -92,7 +43,8 @@ across reviewers to approve.
 ## 2. Select independent reviewers
 
 Approval requires two independent votes, each covering the whole scope, from
-two eligible CLI reviewers or per the subagent-seat fallback below. Use Codex
+two eligible CLI reviewers or per the static-reviewer fallback
+below. Use Codex
 and Opus concurrently when both are viable; pair a healthy CLI vote with a
 distinct eligible alternate when needed. If Opus is known unavailable, launch
 Codex and an eligible alternate concurrently; do not serialize healthy seats.
@@ -100,49 +52,31 @@ The orchestrator's synthesis and
 research-only output are not approval reviewers. `/research` is nonvoting and
 only for material unanswered questions. One competent objection may block.
 
-Subagent-seat fallback. This is an owner-authorized exception, chosen by the
+Static-reviewer fallback. This is an owner-authorized exception, chosen by the
 repository owner on 2026-10-29. When the orchestrator also has an external
-review coordinator (for example a Dot reviewer), it sends the coordinator
-preamble plus the §1 static review prompt to each configured
-coordinator account in rotation and, in parallel, launches adversarial review
-subagent seats. A subagent seat fills only a vote slot still unfilled after the
-primary and every alternate CLI attempt in the table below, and every
-configured coordinator account, have ended under their §3 attempt deadlines.
-Any outside full-coverage vote fills a slot first; one outside vote pairs with
-one subagent seat.
-
-No double substitution: when a coordinator verdict is itself being substituted
-by `/er` plus two `/advice` votes under pr-lifecycle, subagent seats cannot
-also be that whole quorum; that case requires a real outside vote. Consistent
-with pr-lifecycle, the orchestrator never self-awards a vote, and one seat's
-verdict is never counted twice.
-
-Seats must be distinct reviewer identities. Each seat reports its actual model;
-if a model cannot be reported, the seats must differ by both subagent type and
-harness. Each seat starts cold and blank, like a fresh terminal: no parent
-context, summary or framing of the change. Its entire input is the reviewer
-preamble plus the §1 static review prompt; the orchestrator writes nothing
-else. The orchestrator, not the seat, timestamps launch and return; each seat
-has one 600-second end-to-end acceptance deadline from launch, as in §3. Seats
-run in separate contexts and do not read other seats' output first.
-
-A subagent-seat receipt replaces only the runner exit field of the runner
-receipt. It records the seat identity (type, harness and model), the exact SHA
-or bundle hash, orchestrator launch and return times, the exact input sent
-(checked byte for byte against §1), a `COVERAGE:` statement, the `VERDICT:`
-line, the clone path, and a read-only check that the original checkout, refs,
-local config and hooks are unchanged. The orchestrator also verifies and
-records that no seat process survives and that seat clone cleanup succeeded;
-the deadline, isolation, full coverage, SHA binding and §5 rules still apply.
-The orchestrator publishes verdicts through pr-lifecycle; seats do not. A late
-objection blocks until resolved and reopens the affected stage per
+review coordinator (for example a Dot reviewer), it sends the static-reviewer
+coordinator ask and, in parallel, launches static reviewers. A static reviewer
+fills only a vote slot still unfilled after the primary and every alternate CLI
+attempt in the table below, and every configured coordinator account, have
+ended under their §3 attempt deadlines. Any outside full-coverage vote fills a
+slot first; one outside vote pairs with one static reviewer. Identity, cold
+start and receipts follow [static-reviewer](../static-reviewer/SKILL.md); the
+deadline, isolation, full coverage, SHA binding and §5 rules still apply. A
+late objection blocks until resolved and reopens the affected stage per
 pr-lifecycle.
 
+No double substitution: when a coordinator verdict is itself being substituted
+by `/er` plus two `/advice` votes under pr-lifecycle, static reviewers cannot
+also be that whole quorum; that case requires a real outside vote. Consistent
+with pr-lifecycle, the orchestrator never self-awards a vote, and one
+reviewer's verdict is never counted twice.
+
 Record every unavailable or skipped reviewer in the §5 report as `UNAVAILABLE:
-<host> — <CLI or seat> — attempted|skipped — <attempt time> — <reason>`, and
-tell the user which seats were unavailable. A failure on one host (for example
-a cloud box) does not make the same CLI unavailable on another host (for
-example a Mac or Ubuntu machine); try or record each host separately.
+<host> — <CLI or static reviewer> — attempted|skipped — <attempt time> —
+<reason>`, and tell the user which reviewers were unavailable. A failure on one
+host (for example a cloud box) does not make the same CLI unavailable on
+another host (for example a Mac or Ubuntu machine); try or record each host
+separately.
 
 Preserve full-permission reviewer execution and declare the actual command,
 model, account or reviewer identity, and transport for every attempt:
@@ -156,8 +90,8 @@ model, account or reviewer identity, and transport for every attempt:
 | Cursor alternate | `cursor agent -p --force` |
 | AGY alternate | `agy --print="<review request>" --model gemini-3.8-flash-high --dangerously-skip-permissions --new-project` |
 
-Each `<review request>`, and the stdin of forms without one, is exactly the
-reviewer preamble plus the §1 static review prompt.
+Each `<review request>`, and the stdin of forms without one, follows
+[static-reviewer](../static-reviewer/SKILL.md).
 A wrapper, alias, retry, or duplicate reviewer identity is not another vote.
 Codex models may be only `gpt-6-astra`, `gpt-6-luna`, `gpt-6-sol`, or
 `gpt-6.1-sol`; 5.6 and unknown IDs are not eligible. Count `claudewa` only when
@@ -245,15 +179,15 @@ not ask the user to choose between reviewer axes. One competent blocking
 objection means `NOT APPROVED`, including a competent objection from a reviewer
 with partial coverage; partial coverage never supplies an approval. Use
 `WITHHELD` when two independent full-coverage approvals, from eligible CLI
-reviewers or per the subagent-seat fallback, are unavailable. A vote also
+reviewers or per the static-reviewer fallback, are unavailable. A vote also
 requires receipt evidence of zero exit, no original checkout mutation, no
-surviving reviewer process, and no cleanup failure; a subagent-seat receipt
-replaces only the runner exit field, as defined in §2. For the primary-pair
-runner, also require its zero exit, a present and parseable receipt, and a
-nonempty VERDICT line. Ignore the entire receipt when the runner exits nonzero;
-a failed late-receipt rewrite can leave an older success-looking receipt. If
-clone setup times out, directory-removal evidence does not prove setup
-descendants exited; record that uncertainty and do not count the attempt.
+surviving reviewer process, and no cleanup failure; a static-reviewer receipt
+replaces only the runner exit field. For the primary-pair runner, also require
+its zero exit, a present and parseable receipt, and a nonempty VERDICT line.
+Ignore the entire receipt when the runner exits nonzero; a failed late-receipt
+rewrite can leave an older success-looking receipt. If clone setup times out,
+directory-removal evidence does not prove setup descendants exited; record that
+uncertainty and do not count the attempt.
 
 Report the exact reviewed SHA or `DOCUMENTS sha256:<bundle hash>` for
 document-only review, with verdict, coverage, concise reasoning, risk, and
@@ -263,8 +197,8 @@ exactly one SHA-bound line: `VERDICT: APPROVED at <SHA>`,
 For document-only review, use `DOCUMENTS sha256:<bundle hash>` in place of
 `<SHA>`; never use `HEAD`. Preserve a receipt for every attempt: reviewer
 identity, actual CLI, account and model, start/completion times, exit or timeout
-status, exact prompt sent (any deviation from §1 voids the vote), complete
-output, coverage, and cleanup result.
+status, exact prompt sent (any deviation voids the vote, per static-reviewer),
+complete output, coverage, and cleanup result.
 Preserve the original reviewers and reviewed SHAs.
 Before applicability, inspect the complete actual delta, claims, evidence and phase.
 Applicability is not a new independent vote.
