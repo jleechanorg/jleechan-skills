@@ -13,6 +13,10 @@ description: "Hermes wrapper for the `/advice` token-efficient second-opinion sl
 1. `skill_view(name='advice')` works from the Hermes session (the canonical Claude skill is not registered in the Hermes skill registry).
 2. Future agents learn to **search both `~/.hermes/skills/` AND `~/.claude/skills/`** when a user invokes a `/slash` command — slash commands are not Hermes-native; they are Claude Code constructs.
 
+## Static review (synced 2026-10-29)
+
+The canonical `/advice` now delegates reviewer input to `~/.claude/skills/static-review/SKILL.md`: every reviewer (CLI, coordinator ask, static-review subagent) gets the cold, verbatim template with only the PR URL and SHA filled (for document-only review, only the packet path and bundle hash), plus the fixed per-channel preamble. The receipt records the exact prompt; any deviation voids the vote. Static-review subagents launch in parallel with the coordinator ask (or, with no coordinator, with the CLI attempts) and fill only slots still unfilled after every CLI attempt and coordinator account ends; one outside vote pairs with one static reviewer (no double substitution). Record unavailable seats as `<host> — <CLI or static reviewer> — attempted|skipped — <attempt time> — <reason>` and tell the user. A cloud-only failure does not make Mac or Ubuntu CLIs unavailable.
+
 ## When to use
 
 User says `/advice [optional question]`, or you reach a decision point that needs a second opinion without shipping the full conversation uncached.

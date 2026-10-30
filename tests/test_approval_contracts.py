@@ -263,6 +263,45 @@ class ApprovalContractsTest(unittest.TestCase):
                     package_texts["superpowers-quick"],
                 )
 
+    def test_static_reviewer_owns_cold_verbatim_input(self) -> None:
+        static = " ".join(skill("static-review").split())
+        for phrase in (
+            "starts cold and blank",
+            "Static review prompt (skill-owned, verbatim):",
+            "Document-only review prompt (skill-owned, verbatim):",
+            "Document-only preamble for CLI alternates and static reviewers",
+            "COVERAGE: line",
+            "VERDICT: APPROVED|NOT APPROVED|WITHHELD at <SHA>",
+            "`prompt` and `prompt_sha256`",
+            "Advice vote requested.",
+            "the exact prompt sent",
+            "no reviewer process survives",
+            "replaces only the runner exit field",
+            "whose models are both unreported",
+            "the actual clone path whenever one exists",
+            "Keeping the template name plus filled fields is not redaction",
+            "Any deviation, including added context, summary or framing, voids that vote",
+        ):
+            self.assertIn(phrase, static)
+        command = (COMMANDS / "static-review.md").read_text()
+        self.assertIn("skills/static-review/SKILL.md", command)
+
+    def test_advice_static_reviewer_fallback_contract(self) -> None:
+        advice = " ".join(skill("advice").split())
+        for phrase in (
+            "[static-review](../static-review/SKILL.md)",
+            "owner-authorized exception",
+            "every alternate CLI attempt",
+            "one outside vote pairs with one static reviewer",
+            "that case requires a real outside vote",
+            "attempted|skipped",
+            "tell the user which reviewers were unavailable",
+            "does not make the same CLI unavailable on another host",
+        ):
+            self.assertIn(phrase, advice)
+        for gone in ("third distinct", "subagent seat", "Reviewer preamble (skill-owned"):
+            self.assertNotIn(gone, advice)
+
     def test_advice_reviews_repository_before_approving(self) -> None:
         advice = skill("advice")
         command = (COMMANDS / "advice.md").read_text()
