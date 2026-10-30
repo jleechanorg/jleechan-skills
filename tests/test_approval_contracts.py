@@ -273,7 +273,7 @@ class ApprovalContractsTest(unittest.TestCase):
             "COVERAGE: line",
             "VERDICT: APPROVED|NOT APPROVED|WITHHELD at <SHA>",
             "`prompt` and `prompt_sha256`",
-            "/advice vote requested.",
+            "Advice vote requested.",
             "the exact prompt sent",
             "no reviewer process survives",
             "replaces only the runner exit field",

@@ -23,12 +23,12 @@ linked dependencies; counts below are measured from a scratch install.
 
 | Option | Named set (plus linked dependencies) | Skills / commands / agents |
 | --- | --- | --- |
-| *(none)* or `--profile highlights` | the six highlighted skills | 20 / 11 / 1 |
-| `--profile highlights-prw` | `highlights` plus `prw` | 30 / 18 / 1 |
-| `--profile prw` | 12 PR workflow skills plus `/es`, `/er`, `/green`, `/cs` | 24 / 11 / 1 |
-| `--profile web` | `advice`, `web-advice`, `browser-control`, `aside-browser-default`, `browser-testing` | 19 / 5 / 1 |
+| *(none)* or `--profile highlights` | the six highlighted skills | 21 / 11 / 1 |
+| `--profile highlights-prw` | `highlights` plus `prw` | 31 / 18 / 1 |
+| `--profile prw` | 12 PR workflow skills plus `/es`, `/er`, `/green`, `/cs` | 25 / 11 / 1 |
+| `--profile web` | `advice`, `web-advice`, `browser-control`, `aside-browser-default`, `browser-testing` | 20 / 5 / 1 |
 | `--with SKILL` | add a named skill to the profile; repeatable | varies |
-| `--all` | every package, as before | 276 / 245 / 45 |
+| `--all` | every package, as before | 277 / 246 / 45 |
 
 Profiles live in `shared/install-profiles.json`; `--help` lists them. Closure
 never adds a skill on that file's `closure_excluded` list (`dot`,

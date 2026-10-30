@@ -6,7 +6,7 @@ description: Use when dispatching any independent reviewer (CLI, coordinator ask
 # /static-reviewer — cold, verbatim reviewer input
 
 This skill owns what every reviewer receives and what its receipt proves.
-[advice](../advice/SKILL.md) owns when reviewers run, the quorum and the
+The `advice` skill owns when reviewers run, the quorum and the
 substitution rules; pr-lifecycle owns publication.
 
 ## 1. Cold start
@@ -51,7 +51,7 @@ alternates, each `<review request>`, and the stdin of forms without one, is
 exactly the preamble plus the template.
 
 Coordinator ask (for example a Dot reviewer channel): the configured account
-mentions, then `/advice vote requested.` on its own line, then the template.
+mentions, then `Advice vote requested.` on its own line, then the template.
 Send it to each configured coordinator account in rotation.
 
 Revision preamble for CLI alternates and static reviewers (verbatim):
