@@ -53,7 +53,8 @@ When `/advice` runs from Grok Bot alongside the ChatGPT `dot` coordinator, ask
 `#dot-coordination` for reviewer votes and, in parallel, launch two independent
 adversarial review subagents. If other reviewer bots or CLIs (for example
 hermes, hermes_pc, codex) are unreachable or do not respond within the attempt
-deadline, those two subagent reviews count as the two votes. Each subagent runs
+deadline, those two subagent reviews count as the two votes; this is the only exception
+to the CLI-reviewer requirement, and the orchestrator still does not vote. Each subagent runs
 in its own context without first reading the other's output, names the PR's
 exact head SHA, reads the full scope, reports P0/P1/P2 findings with
 `file:line`, approves only with no P0 or P1 finding, and posts its verdict as a
