@@ -49,7 +49,10 @@ class CoordinatorWorkflowTests(unittest.TestCase):
         self.assertIn('`main`', modes)
         self.assertIn('`proceed`', modes)
         self.assertIn('Never infer the mode from the clock, conversation content, a prior run', modes)
-        self.assertIn('its own last 20\n  messages', modes)
+        self.assertIn('read its own last 20 messages', modes)
+        self.assertIn('its first sentence is', modes)
+        self.assertIn('the only mode source', modes)
+        self.assertIn('no run needs to read it', modes)
         nudge = text.split('## Proceed nudge outbound message', 1)[1].split('## Private periodic payload', 1)[0]
         expected = ('Read the last 20 messages of this conversation. If you are waiting on an obvious question you can settle '
                     'from what you already know or can verify, answer it and continue. If you are idle with no real blocker, '
@@ -73,7 +76,7 @@ class CoordinatorWorkflowTests(unittest.TestCase):
         self.assertIn('a `main` run never sends the nudge', nudge)
         for clause in ("never answers the Dot's questions", 'never\nchooses or assigns its work',
                        'Reading\nmessages is verification only',
-                       'inspect read-only and send\nnothing in this invocation'):
+                       'inspect read-only and send nothing in this'):
             self.assertIn(clause, text)
         step = text.split('6. **Submit at most once', 1)[1].split('7. **Report uncertainty', 1)[0]
         self.assertIn('exact message this mode selects', step)

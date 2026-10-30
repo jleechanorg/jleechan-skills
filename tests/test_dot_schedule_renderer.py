@@ -146,7 +146,27 @@ class ScheduleRendererTests(unittest.TestCase):
         for name, plist in plists.items():
             if not name.endswith("-proceed"):
                 self.assertEqual(plist["EnvironmentVariables"]["COORDINATOR_MODE"], "main")
-                self.assertEqual(plist["EnvironmentVariables"]["COORDINATOR_TASK"], "Read-only check")
+                self.assertEqual(plist["EnvironmentVariables"]["COORDINATOR_TASK"],
+                                 "Coordination mode: main. Use the periodic reminder for this mode. Read-only check")
+
+    def test_operator_three_nudge_cadence_renders_twelve_disjoint_runs(self):
+        self.write_config("macos", proceed={"account-a": [15, 30, 45], "account-b": [5, 35, 50],
+                                            "account-c": [10, 25, 55]})
+        with patch.object(renderer, "node22_bins", return_value=[self.root / "node-bin"]):
+            out = renderer.render(self.config, self.root / "three-nudge-stage", "macos")
+        plists = {path.stem: renderer.plistlib.loads(path.read_bytes()) for path in out.glob("*.plist")}
+        self.assertEqual(len(plists), 12)
+        self.assertEqual(sorted(p["StartCalendarInterval"]["Minute"] for p in plists.values()),
+                         [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55])
+        self.assertEqual(len({p["Label"] for p in plists.values()}), 12)
+        self.assertEqual(len({p["StandardOutPath"] for p in plists.values()}), 12)
+        self.assertEqual(sum(1 for name in plists if name.endswith("-proceed")), 9)
+        for account in ("account-a", "account-b", "account-c"):
+            own = sorted(p["StartCalendarInterval"]["Minute"] for p in plists.values()
+                         if p["ProgramArguments"][-1] == account)
+            gaps = [b - a for a, b in zip(own, own[1:])] + [own[0] + 60 - own[-1]]
+            self.assertEqual(len(own), 4, account)
+            self.assertGreaterEqual(min(gaps), 15, (account, own))
 
     def test_linux_proceed_runs_use_their_own_unit_and_mode(self):
         self.write_config("linux", proceed={"account-a": [51]})
@@ -157,11 +177,13 @@ class ScheduleRendererTests(unittest.TestCase):
         self.assertIn("OnCalendar=*-*-* *:51:00", (out / "ai.dot-coordinator-51-proceed.timer").read_text())
         self.assertIn("COORDINATOR_MODE=\"proceed\"", (out / "ai.dot-coordinator-51-proceed.env").read_text())
 
-    def test_proceed_directive_matches_the_skill_mode_contract(self):
-        self.assertTrue(renderer.PROCEED_DIRECTIVE.startswith("Coordination mode: proceed."))
-        self.assertIn("SKILL.md", renderer.PROCEED_DIRECTIVE)
-        self.assertIn("last 20 rendered messages", renderer.PROCEED_DIRECTIVE)
-        self.assertNotIn("\n", renderer.PROCEED_DIRECTIVE)
+    def test_every_run_declares_its_mode_in_the_first_task_sentence(self):
+        self.assertEqual(set(renderer.DIRECTIVES), {"main", "proceed"})
+        for mode, directive in renderer.DIRECTIVES.items():
+            self.assertTrue(directive.startswith(f"Coordination mode: {mode}."), mode)
+            self.assertNotIn("\n", directive)
+        self.assertIn("SKILL.md", renderer.DIRECTIVES["proceed"])
+        self.assertIn("last 20 rendered messages", renderer.DIRECTIVES["proceed"])
 
     def test_rejects_wrong_cadence_or_host_before_output(self):
         self.write_config("macos", (10, 20, 40))

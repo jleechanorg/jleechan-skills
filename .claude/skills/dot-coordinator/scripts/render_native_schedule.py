@@ -13,8 +13,11 @@ from pathlib import Path
 MAC_MINUTES = (0, 20, 40)
 LINUX_MINUTES = (30, 50, 10)
 MODES = ("main", "proceed")
-PROCEED_DIRECTIVE = ("Coordination mode: proceed. Use the proceed nudge outbound text from SKILL.md "
-                     "and read the last 20 rendered messages for destination and duplicate checks. ")
+DIRECTIVES = {
+    "main": "Coordination mode: main. Use the periodic reminder for this mode. ",
+    "proceed": ("Coordination mode: proceed. Use the proceed nudge outbound text from SKILL.md "
+                "and read the last 20 rendered messages for destination and duplicate checks. "),
+}
 IDENTITY = re.compile(r"[0-9a-fA-F]{64}\Z")
 ACCOUNT = re.compile(r"[A-Za-z0-9._@+-]{1,160}\Z")
 TEMPLATES = Path(__file__).resolve().parents[1] / "templates"
@@ -38,19 +41,19 @@ def systemd_value(value):
 
 
 def scheduled_runs(rows):
-    """Expand each account into its main run plus any proceed runs, on disjoint minutes."""
+    """Expand each account into its declared main run plus its proceed runs, on disjoint minutes."""
     runs, taken = [], set()
     for row in rows:
         extra = row.get("proceed_minutes", [])
-        if (not isinstance(extra, list) or len(set(extra)) != len(extra)
-                or any(type(minute) is not int or not 0 <= minute <= 59 for minute in extra)):
+        if (not isinstance(extra, list)
+                or any(type(minute) is not int or not 0 <= minute <= 59 for minute in extra)
+                or len(set(extra)) != len(extra)):
             fail("proceed_minutes must be a list of unique whole minutes from 0 to 59")
         for minute, mode in [(row["minute"], "main")] + [(minute, "proceed") for minute in extra]:
             if minute in taken:
                 fail("scheduled runs must use distinct minutes within the hour")
             taken.add(minute)
-            task = PROCEED_DIRECTIVE + row["task"] if mode == "proceed" else row["task"]
-            runs.append((row, minute, mode, task))
+            runs.append((row, minute, mode, DIRECTIVES[mode] + row["task"]))
     return runs
 
 

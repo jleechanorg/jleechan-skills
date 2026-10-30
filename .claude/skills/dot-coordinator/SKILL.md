@@ -25,18 +25,20 @@ Machine-local schedule configuration selects `cli.executable` plus a JSON `cli.a
 
 ## Run modes
 
-Each scheduled run declares exactly one mode in launch context. The leading `Coordination mode:`
-line of the task text is authoritative; `COORDINATOR_MODE` in the environment is a corroborating
-copy for readback only. A run whose task text carries no mode line is `main`. If a declared mode is
-unrecognized, or the task line and the environment value disagree, inspect read-only and send
-nothing in this invocation. Never infer the mode from the clock, conversation content, a prior run,
-a failed run or a model's own judgment.
+Exactly one mode is declared per run, in the task text: its first sentence is
+`Coordination mode: main.` or `Coordination mode: proceed.`. That sentence is the only mode source.
+`COORDINATOR_MODE` in the environment is a record for host inspection: it never overrides, arbitrates
+or vetoes the task text, and no run needs to read it. If those two ever disagree, the task sentence
+still decides, and the disagreement belongs in the run report. If the first sentence declares any
+other mode, or the task text declares conflicting modes, inspect read-only and send nothing in this
+invocation. Never infer the mode from the clock, conversation content, a prior run, a failed run or
+your own judgment.
 
-- `main` (the default when no mode is declared) - the hourly periodic reminder below. Its message
-  asks the receiving Dot to review its own last four hours, recover stalled commitments through
-  their existing owners and report precise blockers.
-- `proceed` - the 20-minute nudge below. Its message asks the receiving Dot to read its own last 20
-  messages, settle an obvious pending question itself and continue its next authorized step.
+- `main` - the hourly periodic reminder below. Its message asks the receiving Dot to review its own
+  last four hours, recover stalled commitments through their existing owners and report precise
+  blockers.
+- `proceed` - the nudge below. Its message asks the receiving Dot to read its own last 20 messages,
+  settle an obvious pending question itself and continue its next authorized step.
 
 Both modes are the same transport with the same budget: one account, one conversation, at most one
 submit, every identity/destination/peer-draft/uncertainty check, and no new authority. A mode
