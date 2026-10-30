@@ -278,6 +278,8 @@ class ApprovalContractsTest(unittest.TestCase):
             "no reviewer process survives",
             "replaces only the runner exit field",
             "whose models are both unreported",
+            "the actual clone path whenever one exists",
+            "Keeping the template name plus filled fields is not redaction",
             "Any deviation, including added context, summary or framing, voids that vote",
         ):
             self.assertIn(phrase, static)

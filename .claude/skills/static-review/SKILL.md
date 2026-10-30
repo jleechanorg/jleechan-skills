@@ -88,15 +88,17 @@ post; the orchestrator publishes verdicts through pr-lifecycle.
 
 Every reviewer receipt records the reviewer identity (type, harness and model),
 the exact SHA or bundle hash, orchestrator launch and return times, the exact
-prompt sent, a `COVERAGE:` statement, the `VERDICT:` line, the clone path (none
-for document-only review), and a read-only check that the original checkout,
+prompt sent, a `COVERAGE:` statement, the `VERDICT:` line, the actual clone path
+whenever one exists (the primary-pair runner clones for document-only review
+too; record `none` only when no clone was made), and a read-only check that the original checkout,
 refs, local config and hooks are unchanged. The orchestrator also verifies and
 records that no reviewer process survives and that clone cleanup succeeded. For
 a static-review subagent this receipt replaces only the runner exit field of
 the runner receipt. When publishing a receipt outside the authorized
-workspace, redact the recorded prompt to its template name plus filled
-fields, or publish only its SHA256, if it could carry private paths, hosts or
-tokens.
+workspace, publish only the prompt's SHA256 and template name if any filled
+field (PR URL, packet path) or other content could carry private paths, hosts,
+repository names or tokens; otherwise remove those values before publishing.
+Keeping the template name plus filled fields is not redaction.
 
 ## 6. Deviation voids the vote
 

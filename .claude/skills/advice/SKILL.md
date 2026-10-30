@@ -63,7 +63,9 @@ coordinator configured, it launches static reviewers in parallel with the CLI
 attempts, and the trigger below counts only those CLI attempts. A static reviewer
 fills only a vote slot still unfilled after the primary and every alternate CLI
 attempt in the table below, and every configured coordinator account, have
-ended under their §3 attempt deadlines. Any outside full-coverage vote fills a
+ended under their §3 attempt deadlines and each attempt or skip, including
+unsupported or unconfigured routes, is recorded in the `UNAVAILABLE` format
+below with the user told. Any outside full-coverage vote fills a
 slot first; one outside vote pairs with one static reviewer. Identity, cold
 start and receipts follow [static-review](../static-review/SKILL.md); the
 deadline, isolation, full coverage, SHA binding and §5 rules still apply. A
