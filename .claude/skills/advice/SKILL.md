@@ -49,6 +49,16 @@ synthesis and research-only output are not approval reviewers. `/research` is
 nonvoting and only for material unanswered questions. One competent objection
 may block.
 
+When `/advice` runs from Grok Bot alongside the ChatGPT `dot` coordinator, ask
+`#dot-coordination` for reviewer votes and, in parallel, launch two independent
+adversarial review subagents. If other reviewer bots or CLIs (for example
+hermes, hermes_pc, codex) are unreachable or do not respond within the attempt
+deadline, those two subagent reviews count as the two votes. Each subagent runs
+in its own context without first reading the other's output, names the PR's
+exact head SHA, reads the full scope, reports P0/P1/P2 findings with
+`file:line`, approves only with no P0 or P1 finding, and posts its verdict as a
+PR comment. Record each unavailable seat and why.
+
 Preserve full-permission reviewer execution and declare the actual command,
 model, account or reviewer identity, and transport for every attempt:
 
