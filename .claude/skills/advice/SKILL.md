@@ -17,10 +17,35 @@ duplicate those procedures here.
 **Pointer**: Send the pointer, not a transcription.
 A verdict built on a truncated inline artifact may not be `APPROVED`.
 
-Write a focused decision question and give every reviewer the same exact
-pointer: repository plus `base...head` and current head SHA, or an explicit
-file list. Include `git diff --stat` and make the pointer reach the complete
-change. A summary or excerpt never replaces the source.
+Give every reviewer (CLI primary and alternates, the coordinator ask, and
+subagent seats) the static review prompt below verbatim, filling only
+`<PR URL>` and `<SHA>`; for document-only review, use the packet path and
+`DOCUMENTS sha256:<bundle hash>`. The orchestrator adds nothing else: no question, summary
+or framing. The pointer must reach the complete change; a summary or excerpt
+never replaces the source.
+
+Static review prompt (skill-owned, verbatim):
+
+```text
+Review <PR URL> at head <SHA>. Ensure it follows the /prw stages and focus on
+evidence review before approval. Report P0/P1/P2 with file:line; approve only
+with no P0/P1; end with VERDICT: APPROVED|NOT APPROVED at <SHA>.
+```
+
+Each channel may prepend only its fixed, skill-owned preamble for mechanics.
+The reviewer preamble below is used for CLI reviewers and subagent seats; the
+coordinator preamble is the configured account mentions followed by `/advice
+vote requested.` on its own line. Every receipt records the exact prompt sent;
+any deviation from preamble plus template voids that vote.
+
+Reviewer preamble (skill-owned, verbatim):
+
+```text
+Work in a fresh clone of the PR repository without an `origin` remote, pinned
+to the given SHA. Use the GitHub token already present in your environment and
+never print it. Do not modify the original checkout, refs, config or hooks. Do
+not post anything; return your review as your final output.
+```
 
 For revision review, pin the requested commit and use an eligible clean
 checkout. For saved specifications, plans, or other document-only reviews, use
@@ -44,15 +69,15 @@ Approval requires two independent votes, each covering the whole scope, from
 two eligible CLI reviewers or per the subagent-seat fallback below. Use Codex
 and Opus concurrently when both are viable; pair a healthy CLI vote with a
 distinct eligible alternate when needed. If Opus is known unavailable, launch
-Codex and an eligible alternate concurrently; do not serialize healthy seats. The orchestrator's
-synthesis and research-only output are not approval reviewers. `/research` is
-nonvoting and only for material unanswered questions. One competent objection
-may block.
+Codex and an eligible alternate concurrently; do not serialize healthy seats.
+The orchestrator's synthesis and research-only output are not approval
+reviewers. `/research` is nonvoting and only for material unanswered questions.
+One competent objection may block.
 
 Subagent-seat fallback. This is an owner-authorized exception, chosen by the
 repository owner on 2026-10-29. When the orchestrator also has an external
-review coordinator (for example a Dot reviewer), it sends the same §1 pinned
-pointer (exact SHA or document hash, scope and question) to each configured
+review coordinator (for example a Dot reviewer), it sends the coordinator
+preamble plus the §1 static review prompt to each configured
 coordinator account in rotation and, in parallel, launches adversarial review
 subagent seats. A subagent seat fills only a vote slot still unfilled after the
 primary and every alternate CLI attempt in the table below, and every
@@ -68,22 +93,21 @@ self-awards a vote, and one seat's verdict is never counted twice.
 
 Seats must be distinct reviewer identities. Each seat reports its actual model;
 if a model cannot be reported, the seats must differ by both subagent type and
-harness. The orchestrator gives every seat the identical pinned pointer and
-question. Operational instructions (auth, clone path, receipt format) are
-allowed, but no summary or framing of the change. The orchestrator, not the
-seat, timestamps launch and return; each seat has one 600-second end-to-end
-acceptance deadline from launch, as in §3. Each seat runs in its own context,
-uses its own clone without an `origin` remote pinned to the SHA, does not read
-other seats' output first, reports P0/P1/P2 findings with `file:line`, and
-approves only with no P0 or P1 finding.
+harness. Each seat starts cold and blank, like a fresh terminal: no parent
+context, summary or framing of the change. Its entire input is the reviewer
+preamble plus the §1 static review prompt; the orchestrator writes nothing
+else. The orchestrator, not the seat, timestamps launch and return; each seat
+has one 600-second end-to-end acceptance deadline from launch, as in §3. Seats
+run in separate contexts and do not read other seats' output first.
 
 A subagent-seat receipt replaces the runner receipt. It records the seat
 identity (type, harness and model), the exact SHA, orchestrator launch and
-return times, a `COVERAGE:` statement, the `VERDICT:` line, the clone path, and
-a read-only check that the original checkout, refs, local config and hooks are
-unchanged. It replaces the runner exit, surviving-process and cleanup fields;
-the deadline, isolation, full coverage, SHA binding and §5 rules still apply.
-The orchestrator publishes verdicts through pr-lifecycle; seats do not. A late
+return times, the exact input sent (checked byte for byte against §1), a
+`COVERAGE:` statement, the `VERDICT:` line, the clone path, and a read-only
+check that the original checkout, refs, local config and hooks are unchanged.
+It replaces the runner exit, surviving-process and cleanup fields; the
+deadline, isolation, full coverage, SHA binding and §5 rules still apply. The
+orchestrator publishes verdicts through pr-lifecycle; seats do not. A late
 objection blocks until resolved and reopens the affected stage per
 pr-lifecycle. Record each unavailable seat in the §5 report as `UNAVAILABLE:
 <seat> — <attempt time> — <reason>`.
@@ -100,6 +124,8 @@ model, account or reviewer identity, and transport for every attempt:
 | Cursor alternate | `cursor agent -p --force` |
 | AGY alternate | `agy --print="<review request>" --model gemini-3.8-flash-high --dangerously-skip-permissions --new-project` |
 
+Each `<review request>`, and the stdin of forms without one, is exactly the
+reviewer preamble plus the §1 static review prompt.
 A wrapper, alias, retry, or duplicate reviewer identity is not another vote.
 Codex models may be only `gpt-6-astra`, `gpt-6-luna`, `gpt-6-sol`, or
 `gpt-6.1-sol`; 5.6 and unknown IDs are not eligible. Count `claudewa` only when
@@ -200,7 +226,8 @@ exactly one SHA-bound line: `VERDICT: APPROVED at <SHA>`,
 For document-only review, use `DOCUMENTS sha256:<bundle hash>` in place of
 `<SHA>`; never use `HEAD`. Preserve a receipt for every attempt: reviewer
 identity, actual CLI, account and model, start/completion times, exit or timeout
-status, complete output, coverage, and cleanup result.
+status, exact prompt sent (any deviation from §1 voids the vote), complete
+output, coverage, and cleanup result.
 Preserve the original reviewers and reviewed SHAs.
 Before applicability, inspect the complete actual delta, claims, evidence and phase.
 Applicability is not a new independent vote.
