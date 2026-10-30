@@ -1,5 +1,5 @@
 [Unit]
-Description=Dot coordinator account @ACCOUNT@
+Description=Dot coordinator account @ACCOUNT@ (@MODE@ run)
 
 [Service]
 Type=oneshot

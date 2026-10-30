@@ -42,6 +42,26 @@ class CoordinatorWorkflowTests(unittest.TestCase):
         self.assertNotIn('set the coordinator STOP marker', dot)
         self.assertNotIn('dot.sh login` owns its own STOP lifecycle', dot)
 
+    def test_proceed_mode_declares_its_nudge_text_and_private_override(self):
+        text = SKILL.read_text()
+        modes = text.split('## Run modes', 1)[1].split('## Proceed nudge outbound message', 1)[0]
+        self.assertIn('COORDINATOR_MODE', modes)
+        self.assertIn('`main`', modes)
+        self.assertIn('`proceed`', modes)
+        self.assertIn('Never infer the\nmode', modes)
+        self.assertIn('the last 20 rendered messages', modes)
+        nudge = text.split('## Proceed nudge outbound message', 1)[1].split('## Private periodic payload', 1)[0]
+        expected = ('Read the last 20 messages of this conversation. If you are waiting on an obvious question you can settle '
+                    'from what you already know or can verify, answer it and continue. If you are idle with no real blocker, '
+                    'take the next authorized step and report its evidence. Skip unchanged status, do not repeat an answer '
+                    'you already gave, and do not start new scope. If the blocker needs the owner\'s decision, state the '
+                    'single decision you need. This nudge grants no new execution, access, spending, merge or deployment authority.')
+        self.assertEqual([line[2:] for line in nudge.splitlines() if line.startswith('> ')], [expected])
+        self.assertIn('~/.config/dot/proceed-reminder.txt', nudge)
+        self.assertIn('never fall back\nsilently', nudge)
+        self.assertIn('do-not-send runs still send nothing', nudge)
+        self.assertIn('fallback message for the declared mode', text)
+
     def test_coordinator_has_no_classifier_or_fallback(self):
         text = SKILL.read_text().lower()
         self.assertIn('without code-based routing', text)

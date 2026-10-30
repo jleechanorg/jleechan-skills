@@ -5,8 +5,8 @@
   "cli": {"executable": "~/.claude/skills/dot-coordinator/scripts/pi-lunaroute-adapter.sh", "args": ["--thinking", "medium"]},
   "chrome_devtools_mcp_js": "~/.nvm/versions/node/v22.22.0/lib/node_modules/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js",
   "accounts": [
-    {"key": "account-a", "minute": 0, "identity_sha256": "0000000000000000000000000000000000000000000000000000000000000000", "task": "Read-only validation context for account A"},
-    {"key": "account-b", "minute": 20, "identity_sha256": "0000000000000000000000000000000000000000000000000000000000000000", "task": "Read-only validation context for account B"},
-    {"key": "account-c", "minute": 40, "identity_sha256": "0000000000000000000000000000000000000000000000000000000000000000", "task": "Read-only validation context for account C"}
+    {"key": "account-a", "minute": 0, "proceed_minutes": [21, 41], "identity_sha256": "0000000000000000000000000000000000000000000000000000000000000000", "task": "Read-only validation context for account A"},
+    {"key": "account-b", "minute": 20, "proceed_minutes": [1, 42], "identity_sha256": "0000000000000000000000000000000000000000000000000000000000000000", "task": "Read-only validation context for account B"},
+    {"key": "account-c", "minute": 40, "proceed_minutes": [2, 22], "identity_sha256": "0000000000000000000000000000000000000000000000000000000000000000", "task": "Read-only validation context for account C"}
   ]
 }

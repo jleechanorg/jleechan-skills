@@ -37,12 +37,14 @@ class ScheduleRendererTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
-    def write_config(self, host, minutes=None):
+    def write_config(self, host, minutes=None, proceed=None):
         minutes = minutes or (renderer.MAC_MINUTES if host == "macos" else renderer.LINUX_MINUTES)
+        proceed = proceed or {}
         self.config.write_text(json.dumps({
             "version": 1, "host_role": host, "dot_config_file": str(self.dot),
             "pi_bin": str(self.pi), "chrome_devtools_mcp_js": str(self.mcp),
-            "accounts": [{"key": f"account-{x}", "minute": minutes[i], "identity_sha256": f"{i:064x}", "task": "Read-only check"} for i, x in enumerate("abc")],
+            "accounts": [{"key": f"account-{x}", "minute": minutes[i], "identity_sha256": f"{i:064x}", "task": "Read-only check",
+                          **(({"proceed_minutes": proceed[f"account-{x}"]}) if f"account-{x}" in proceed else {})} for i, x in enumerate("abc")],
         }))
         self.config.chmod(0o600)
 
@@ -112,6 +114,54 @@ class ScheduleRendererTests(unittest.TestCase):
         self.assertIn('XDG_RUNTIME_DIR="/run/user/1000"', (out / "ai.dot-coordinator-30.env").read_text())
         path = next(line.removeprefix("PATH=") for line in (out / "ai.dot-coordinator-30.env").read_text().splitlines() if line.startswith("PATH="))
         self.assertTrue(path.startswith(f'"{preferred}:{other}:'))
+
+    def test_rejects_overlapping_or_malformed_proceed_minutes_before_writing(self):
+        for proceed in ({"account-a": [20]}, {"account-a": [21, 21]}, {"account-a": [60]},
+                        {"account-a": ["21"]}, {"account-a": 21}):
+            self.write_config("macos", proceed=proceed)
+            with self.assertRaisesRegex(ValueError, "minute"):
+                renderer.render(self.config, self.root / "bad-proceed-stage", "macos")
+            self.assertFalse((self.root / "bad-proceed-stage").exists())
+
+    def test_proceed_minutes_render_hourly_main_plus_twenty_minute_nudges(self):
+        proceed = {"account-a": [21, 41], "account-b": [1, 42], "account-c": [2, 22]}
+        self.write_config("macos", proceed=proceed)
+        with patch.object(renderer, "node22_bins", return_value=[self.root / "node-bin"]):
+            out = renderer.render(self.config, self.root / "proceed-stage", "macos")
+        plists = {path.stem: renderer.plistlib.loads(path.read_bytes()) for path in out.glob("*.plist")}
+        self.assertEqual(len(plists), 9)
+        self.assertEqual(sorted(plist["StartCalendarInterval"]["Minute"] for plist in plists.values()),
+                         [0, 1, 2, 20, 21, 22, 40, 41, 42])
+        nudges = {name: plist for name, plist in plists.items() if name.endswith("-proceed")}
+        self.assertEqual(len(nudges), 6)
+        for name, plist in nudges.items():
+            minute = plist["StartCalendarInterval"]["Minute"]
+            env = plist["EnvironmentVariables"]
+            self.assertEqual(name, f"ai.dot-coordinator.{minute:02d}-proceed")
+            self.assertEqual(plist["Label"], name)
+            self.assertEqual(env["COORDINATOR_MODE"], "proceed")
+            self.assertTrue(env["COORDINATOR_TASK"].startswith("Coordination mode: proceed."))
+            self.assertTrue(env["COORDINATOR_TASK"].endswith("Read-only check"))
+            self.assertTrue(plist["StandardOutPath"].endswith(f"/{minute:02d}-proceed.out.log"))
+        for name, plist in plists.items():
+            if not name.endswith("-proceed"):
+                self.assertEqual(plist["EnvironmentVariables"]["COORDINATOR_MODE"], "main")
+                self.assertEqual(plist["EnvironmentVariables"]["COORDINATOR_TASK"], "Read-only check")
+
+    def test_linux_proceed_runs_use_their_own_unit_and_mode(self):
+        self.write_config("linux", proceed={"account-a": [51]})
+        with patch.object(renderer, "node22_bins", return_value=[self.root / "node-bin"]):
+            out = renderer.render(self.config, self.root / "linux-proceed-stage", "linux")
+        self.assertIn("Description=Dot coordinator account account-a (proceed run)",
+                      (out / "ai.dot-coordinator-51-proceed.service").read_text())
+        self.assertIn("OnCalendar=*-*-* *:51:00", (out / "ai.dot-coordinator-51-proceed.timer").read_text())
+        self.assertIn("COORDINATOR_MODE=\"proceed\"", (out / "ai.dot-coordinator-51-proceed.env").read_text())
+
+    def test_proceed_directive_matches_the_skill_mode_contract(self):
+        self.assertTrue(renderer.PROCEED_DIRECTIVE.startswith("Coordination mode: proceed."))
+        self.assertIn("SKILL.md", renderer.PROCEED_DIRECTIVE)
+        self.assertIn("last 20 rendered messages", renderer.PROCEED_DIRECTIVE)
+        self.assertNotIn("\n", renderer.PROCEED_DIRECTIVE)
 
     def test_rejects_wrong_cadence_or_host_before_output(self):
         self.write_config("macos", (10, 20, 40))
