@@ -37,9 +37,9 @@ never has to infer its mode.
    outbound text plus its private override file `~/.config/dot/proceed-reminder.txt`.
 4. Existing contracts still pass: exact main fallback text, one blockquote per mode section,
    launcher glue LOC budget (150), `dot-coordinator/SKILL.md` budget (400).
-5. On the host, activation retires the old `ai.gemini.agy-dot-coordinator.*` labels, loads nine
-   `ai.dot-coordinator.*` labels (3 hourly main + 6 proceed), and a real scheduled proceed run
-   completes with its declared mode.
+5. On the host, activation retires the old `ai.gemini.agy-dot-coordinator.*` labels, loads twelve
+   `ai.dot-coordinator.*` labels (3 hourly main + 9 proceed, three nudges per account per hour), and
+   a real scheduled proceed run completes with its declared mode.
 
 ## User story
 
@@ -67,10 +67,12 @@ terminal/plist inspection, covered by the runtime logs above.
 ## Risk
 
 - **Cost/frequency.** Each proceed run is a full Chrome profile launch plus one cheap-model turn.
-  Nine runs per hour across three accounts is three times the previous launch rate. Mitigation:
-  cadence is data (`proceed_minutes`), staggered so one account's own runs stay at least 19 minutes
-  apart and never collide on one profile, and documented in RENDERING.md. Different accounts can
-  still overlap, so the real bound is up to three concurrent launches on three separate profiles.
+  The operator-selected cadence is three nudges per account per hour, so twelve runs per hour across
+  three accounts (four times the earlier one-message-per-hour rate). Mitigation: cadence is data
+  (`proceed_minutes`), staggered so one account's own runs stay 15 minutes apart - longer than the
+  720-second default deadline, so a slow run cannot collide with its own next launch - and documented
+  in RENDERING.md. Different accounts still overlap, so the real bound is up to three concurrent
+  launches on three separate profiles.
 - **Sender free text.** "Settle the obvious question" is an instruction to the *receiving Dot*; the
   sender stays transport-only and never answers, chooses work or writes status. The sender reads
   messages for destination, duplicate and peer-draft verification only.
