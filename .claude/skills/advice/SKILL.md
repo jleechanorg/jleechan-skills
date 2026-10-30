@@ -20,8 +20,8 @@ A verdict built on a truncated inline artifact may not be `APPROVED`.
 Give every reviewer (CLI primary and alternates, the coordinator ask, and
 subagent seats) the static review prompt below verbatim, filling only
 `<PR URL>` and `<SHA>`; for document-only review, use the packet path and
-`DOCUMENTS sha256:<bundle hash>`. The orchestrator adds nothing else: no question, summary
-or framing. The pointer must reach the complete change; a summary or excerpt
+`DOCUMENTS sha256:<bundle hash>`. The orchestrator adds nothing else: no
+question, summary or framing. The pointer must reach the complete change; a summary or excerpt
 never replaces the source.
 
 Static review prompt (skill-owned, verbatim):
@@ -34,8 +34,8 @@ with no P0/P1; end with VERDICT: APPROVED|NOT APPROVED at <SHA>.
 
 Each channel may prepend only its fixed, skill-owned preamble for mechanics.
 The reviewer preamble below is used for CLI reviewers and subagent seats; the
-coordinator preamble is the configured account mentions followed by `/advice
-vote requested.` on its own line. Every receipt records the exact prompt sent;
+coordinator preamble is the configured account mentions followed by
+`/advice vote requested.` on its own line. Every receipt records the exact prompt sent;
 any deviation from preamble plus template voids that vote.
 
 Reviewer preamble (skill-owned, verbatim):
@@ -70,9 +70,9 @@ two eligible CLI reviewers or per the subagent-seat fallback below. Use Codex
 and Opus concurrently when both are viable; pair a healthy CLI vote with a
 distinct eligible alternate when needed. If Opus is known unavailable, launch
 Codex and an eligible alternate concurrently; do not serialize healthy seats.
-The orchestrator's synthesis and research-only output are not approval
-reviewers. `/research` is nonvoting and only for material unanswered questions.
-One competent objection may block.
+The orchestrator's synthesis and
+research-only output are not approval reviewers. `/research` is nonvoting and
+only for material unanswered questions. One competent objection may block.
 
 Subagent-seat fallback. This is an owner-authorized exception, chosen by the
 repository owner on 2026-10-29. When the orchestrator also has an external
