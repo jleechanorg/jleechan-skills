@@ -49,16 +49,35 @@ synthesis and research-only output are not approval reviewers. `/research` is
 nonvoting and only for material unanswered questions. One competent objection
 may block.
 
-When `/advice` runs from Grok Bot alongside the ChatGPT `dot` coordinator, ask
-`#dot-coordination` for reviewer votes and, in parallel, launch two independent
-adversarial review subagents. If other reviewer bots or CLIs (for example
-hermes, hermes_pc, codex) are unreachable or do not respond within the attempt
-deadline, those two subagent reviews count as the two votes; this is the only exception
-to the CLI-reviewer requirement, and the orchestrator still does not vote. Each subagent runs
-in its own context without first reading the other's output, names the PR's
-exact head SHA, reads the full scope, reports P0/P1/P2 findings with
-`file:line`, approves only with no P0 or P1 finding, and posts its verdict as a
-PR comment. Record each unavailable seat and why.
+Subagent-seat fallback. When the orchestrator also has an external review
+coordinator (for example Grok Bot with a ChatGPT `dot` coordinator), it may
+send the coordinator channel the same §1 pinned pointer (exact SHA or document
+hash, scope and question) and, in parallel, launch two adversarial review
+subagent seats. Subagent seats count only after the primary and alternate CLI
+attempts above, and the coordinator ask, have each failed, timed out or gone
+unanswered within its own 600-second deadline. If exactly one outside full-
+coverage vote arrives, it pairs with one subagent seat. An objection that
+arrives late still blocks until it is resolved.
+
+The two seats must be distinct reviewer identities, with a different subagent
+type and/or model recorded for each seat; same-identity seats are one vote
+under the duplicate-identity rule below. The orchestrator gives both seats only
+the identical pinned pointer and question, with no added summary or framing,
+and does not vote. Each seat runs in its own context, reads its own isolated
+read-only clone pinned to the SHA, does not read the other seat's output first,
+reports P0/P1/P2 findings with `file:line`, and approves only when there is no
+P0 or P1 finding. Each seat has its own 600-second deadline that starts at
+launch.
+
+A subagent-seat receipt replaces the runner receipt. It records the seat
+identity (type and model), the exact SHA, start and finish times, a `COVERAGE:`
+statement, the `VERDICT:` line, the clone path, and a read-only check that the
+original checkout is unchanged. The runner-only fields (runner exit code,
+process survival and cleanup) are replaced by that receipt; the deadline,
+isolation, full coverage, SHA binding and §5 reporting rules still apply.
+Verdicts are published through pr-lifecycle by the orchestrator, not by the
+seats. Record each unavailable seat in the §5 report as `UNAVAILABLE: <seat> —
+<attempt time> — <reason>`.
 
 Preserve full-permission reviewer execution and declare the actual command,
 model, account or reviewer identity, and transport for every attempt:
