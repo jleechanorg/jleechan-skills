@@ -41,43 +41,52 @@ across reviewers to approve.
 ## 2. Select independent reviewers
 
 Approval requires two independent votes, each covering the whole scope, from
-two eligible CLI reviewers. Use Codex and Opus concurrently when both are
-viable; pair a healthy CLI vote with a distinct eligible alternate when needed.
+two eligible CLI reviewers or per the subagent-seat fallback below. Use Codex
+and Opus concurrently when both are viable; pair a healthy CLI vote with a distinct eligible alternate when needed.
 If Opus is known unavailable, launch Codex and an eligible alternate
 concurrently; do not serialize healthy seats. The orchestrator's
 synthesis and research-only output are not approval reviewers. `/research` is
 nonvoting and only for material unanswered questions. One competent objection
 may block.
 
-Subagent-seat fallback. When the orchestrator also has an external review
-coordinator (for example Grok Bot with a ChatGPT `dot` coordinator), it may
-send the coordinator channel the same §1 pinned pointer (exact SHA or document
-hash, scope and question) and, in parallel, launch two adversarial review
-subagent seats. Subagent seats count only after the primary and alternate CLI
-attempts above, and the coordinator ask, have each failed, timed out or gone
-unanswered within its own 600-second deadline. If exactly one outside full-
-coverage vote arrives, it pairs with one subagent seat. An objection that
-arrives late still blocks until it is resolved.
+Subagent-seat fallback. This is an owner-authorized exception, chosen by the
+repository owner on 2026-10-29. When the orchestrator also has an external
+review coordinator (for example a Dot reviewer), it sends the same §1 pinned
+pointer (exact SHA or document hash, scope and question) to each configured
+coordinator account in rotation and, in parallel, launches adversarial review
+subagent seats. A subagent seat fills only a vote slot still unfilled after the
+primary and every alternate CLI attempt in the table below, and every
+configured coordinator account, have ended under their §3 attempt deadlines.
+Any outside full-coverage vote fills a slot first; one outside vote pairs with
+one subagent seat.
 
-The two seats must be distinct reviewer identities, with a different subagent
-type and/or model recorded for each seat; same-identity seats are one vote
-under the duplicate-identity rule below. The orchestrator gives both seats only
-the identical pinned pointer and question, with no added summary or framing,
-and does not vote. Each seat runs in its own context, reads its own isolated
-read-only clone pinned to the SHA, does not read the other seat's output first,
-reports P0/P1/P2 findings with `file:line`, and approves only when there is no
-P0 or P1 finding. Each seat has its own 600-second deadline that starts at
-launch.
+No double substitution: when a coordinator verdict is itself being substituted
+by `/er` plus two `/advice` votes under pr-lifecycle, subagent seats cannot
+also be that whole quorum. That case needs a real outside vote or a third
+distinct subagent seat. Consistent with pr-lifecycle, the orchestrator never
+self-awards a vote, and one seat's verdict is never counted twice.
+
+Seats must be distinct reviewer identities. Each seat reports its actual model;
+if a model cannot be reported, the seats must differ by both subagent type and
+harness. The orchestrator gives every seat the identical pinned pointer and
+question. Operational instructions (auth, clone path, receipt format) are
+allowed, but no summary or framing of the change. The orchestrator, not the
+seat, timestamps launch and return; each seat has one 600-second end-to-end
+acceptance deadline from launch, as in §3. Each seat runs in its own context,
+uses its own clone without an `origin` remote pinned to the SHA, does not read
+other seats' output first, reports P0/P1/P2 findings with `file:line`, and
+approves only with no P0 or P1 finding.
 
 A subagent-seat receipt replaces the runner receipt. It records the seat
-identity (type and model), the exact SHA, start and finish times, a `COVERAGE:`
-statement, the `VERDICT:` line, the clone path, and a read-only check that the
-original checkout is unchanged. The runner-only fields (runner exit code,
-process survival and cleanup) are replaced by that receipt; the deadline,
-isolation, full coverage, SHA binding and §5 reporting rules still apply.
-Verdicts are published through pr-lifecycle by the orchestrator, not by the
-seats. Record each unavailable seat in the §5 report as `UNAVAILABLE: <seat> —
-<attempt time> — <reason>`.
+identity (type, harness and model), the exact SHA, orchestrator launch and
+return times, a `COVERAGE:` statement, the `VERDICT:` line, the clone path, and
+a read-only check that the original checkout, refs, local config and hooks are
+unchanged. It replaces the runner exit, surviving-process and cleanup fields;
+the deadline, isolation, full coverage, SHA binding and §5 rules still apply.
+The orchestrator publishes verdicts through pr-lifecycle; seats do not. A late
+objection blocks until resolved and reopens the affected stage per
+pr-lifecycle. Record each unavailable seat in the §5 report as `UNAVAILABLE:
+<seat> — <attempt time> — <reason>`.
 
 Preserve full-permission reviewer execution and declare the actual command,
 model, account or reviewer identity, and transport for every attempt:
@@ -177,9 +186,11 @@ full-scope `COVERAGE`. Reconcile disagreements within the declared scope; do not
 ask the user to choose between reviewer axes. One competent blocking objection
 means `NOT APPROVED`, including a competent objection from a reviewer with
 partial coverage; partial coverage never supplies an approval. Use `WITHHELD`
-when two independent full-coverage approvals are unavailable. A vote also
+when two independent full-coverage approvals, from eligible CLI reviewers or
+per the subagent-seat fallback, are unavailable. A vote also
 requires receipt evidence of zero exit, no original checkout mutation, no
-surviving reviewer process, and no cleanup failure. For the primary-pair runner, also require its zero exit, a present and parseable receipt, and a nonempty VERDICT line. Ignore the entire receipt when the runner exits nonzero; a failed late-receipt rewrite can leave an older success-looking receipt. If clone setup times out, directory-removal evidence does not prove setup descendants exited; record that uncertainty and do not count the attempt.
+surviving reviewer process, and no cleanup failure; a subagent-seat receipt
+replaces the exit, process and cleanup fields as defined in §2. For the primary-pair runner, also require its zero exit, a present and parseable receipt, and a nonempty VERDICT line. Ignore the entire receipt when the runner exits nonzero; a failed late-receipt rewrite can leave an older success-looking receipt. If clone setup times out, directory-removal evidence does not prove setup descendants exited; record that uncertainty and do not count the attempt.
 
 Report the exact reviewed SHA or `DOCUMENTS sha256:<bundle hash>` for
 document-only review, with verdict, coverage, concise reasoning, risk, and
