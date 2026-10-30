@@ -164,6 +164,7 @@ pointers and are intentionally not the documentation target.
 | `/superpowers-quick` | [`superpowers-quick`](.claude/skills/superpowers-quick/SKILL.md) | Use when you want the normal Superpowers design process to select its recommended defaults autonomously. Give it the idea or requested change; it writes a self-reviewed design specification and implementation plan without pausing for preference or approval questions. |
 | `/history` | [`conversation-history-sparse`](.claude/skills/conversation-history-sparse/SKILL.md) | Use for fast orientation on what the current repo or branch has been doing. Ask a focused question; it samples high-signal Claude, Codex, Hermes, agy, Cursor, and Pi history without loading full transcripts; add `--deep` only when the sparse pass is insufficient. |
 | `/sidekick` | [`sidekick`](.claude/skills/sidekick/SKILL.md) | Use for one long-running mission that must survive a session crash. Give a named outcome and success criteria; it assigns a persistent teammate and checkpoints durable state plus a resumption Bead. |
+| `/prw` (`/pr-workflow`) | [`pr-workflow-manager`](.claude/skills/pr-workflow-manager/SKILL.md) → [`pr-lifecycle`](.claude/skills/pr-lifecycle/SKILL.md) | Use to open and drive a PR. It finds the canonical skills, publishes a draft, and moves the PR through Draft → evidence → review → CI → ready with SHA-bound gates; human merge approval stays separate. |
 | `/swarm` | [`swarm`](.claude/skills/swarm/SKILL.md) | Use when a goal decomposes into independent, adversarially reviewable lanes. State the goal and optional shape/engine; it sizes the fan-out, assigns explicit models and disjoint outputs, and requires multi-lens verification before synthesis. |
 
 ---
@@ -328,6 +329,14 @@ Orchestrates a multi-agent swarm — either a deterministic Workflow-tool fan-ou
 
 ```bash
 /swarm "audit code quality across the whole payments module" --shape review
+```
+
+### [`pr-workflow-manager`](.claude/skills/pr-workflow-manager/SKILL.md) — `/prw`, alias `/pr-workflow`
+
+The PR workflow from the [Develop with idea velocity](https://docs.google.com/presentation/d/1qLdMzZaIuP9IdpTBomuOGJTAspCEJo6Esu10zWFrhm4/edit?slide=id.iosNov2026#slide=id.iosNov2026) talk: Draft → evidence → review → CI → ready, with human merge approval kept separate. The entry point reads the target repository's own PR contract first, verifies the canonical skill source, publishes a draft PR, and drives it through the visible stages owned by [`pr-lifecycle`](.claude/skills/pr-lifecycle/SKILL.md): stage labels, title prefixes and suffixes, evidence, independent review routes, `/green`, and SHA-bound approvals. Gates never merge on their own.
+
+```bash
+/prw "drive PR #123 to final approval"
 ```
 
 ---
