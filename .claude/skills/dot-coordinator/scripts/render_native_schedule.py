@@ -12,6 +12,13 @@ from pathlib import Path
 
 MAC_MINUTES = (0, 20, 40)
 LINUX_MINUTES = (30, 50, 10)
+MODES = ("main", "proceed")
+DIRECTIVES = {
+    "main": "Coordination mode: main. Use the periodic reminder for this mode. ",
+    "proceed": ("Coordination mode: proceed. Use the proceed nudge outbound text from SKILL.md "
+                "and read the last 20 rendered messages for destination and duplicate checks. "),
+}
+MODE_DECLARATION = re.compile(r"coordination\s+mode\s*:", re.IGNORECASE)
 IDENTITY = re.compile(r"[0-9a-fA-F]{64}\Z")
 ACCOUNT = re.compile(r"[A-Za-z0-9._@+-]{1,160}\Z")
 TEMPLATES = Path(__file__).resolve().parents[1] / "templates"
@@ -32,6 +39,25 @@ def systemd_value(value):
     if any(ord(c) < 32 or ord(c) == 127 for c in value):
         fail("configuration values cannot contain control characters")
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$").replace("`", "\\`") + '"'
+
+
+def scheduled_runs(rows):
+    """Expand each account into its declared main run plus its proceed runs, on disjoint minutes."""
+    runs, taken = [], set()
+    for row in rows:
+        if MODE_DECLARATION.search(row["task"]):
+            fail("account task must not declare its own coordination mode")
+        extra = row.get("proceed_minutes", [])
+        if (not isinstance(extra, list)
+                or any(type(minute) is not int or not 0 <= minute <= 59 for minute in extra)
+                or len(set(extra)) != len(extra)):
+            fail("proceed_minutes must be a list of unique whole minutes from 0 to 59")
+        for minute, mode in [(row["minute"], "main")] + [(minute, "proceed") for minute in extra]:
+            if minute in taken:
+                fail("scheduled runs must use distinct minutes within the hour")
+            taken.add(minute)
+            runs.append((row, minute, mode, DIRECTIVES[mode] + row["task"]))
+    return runs
 
 
 def configured_cli(config):
@@ -81,6 +107,7 @@ def render(config_path, output, host):
         details = dot_accounts.get(row["key"])
         if not isinstance(details, dict) or not details.get("user_data_dir"):
             fail("a scheduled account is missing from Dot configuration")
+    runs = scheduled_runs(rows)
     pi, cli_args = configured_cli(config)
     mcp = Path(config.get("chrome_devtools_mcp_js", "")).expanduser()
     if not pi.is_absolute() or not pi.is_file() or not os.access(pi, os.X_OK):
@@ -103,22 +130,23 @@ def render(config_path, output, host):
     path = f"{os.pathsep.join(map(str, node_bins))}{os.pathsep}{home / '.local/bin'}:/usr/local/bin:/usr/bin:/bin"
     if host == "macos":
         path += ":/opt/homebrew/bin"
-    for row in rows:
-        key, minute = row["key"], row["minute"]
+    for row, minute, mode, task in runs:
+        key, suffix = row["key"], "" if mode == "main" else "-proceed"
         env = {
             "DOT_CONFIG_FILE": str(dot_path),
             "DOT_EXPECTED_IDENTITY_SHA256": row["identity_sha256"],
-            "COORDINATOR_TASK": row["task"],
+            "COORDINATOR_MODE": mode,
+            "COORDINATOR_TASK": task,
             "PI_BIN": str(pi),
             "COORDINATOR_CLI_ARGS": json.dumps(cli_args),
             "CHROME_DEVTOOLS_MCP_JS": str(mcp),
             "PATH": path,
         }
         if host == "macos":
-            label = f"ai.dot-coordinator.{minute:02d}"
+            label = f"ai.dot-coordinator.{minute:02d}{suffix}"
             substitutions = {"@HOME@": str(home), "@MINUTE@": f"{minute:02d}", "@ACCOUNT@": key,
                              "@DOT_CONFIG_FILE@": str(dot_path), "@IDENTITY_SHA256@": row["identity_sha256"],
-                             "@TASK@": row["task"], "@PI_BIN@": str(pi), "@MCP_JS@": str(mcp), "@PATH@": path}
+                             "@TASK@": task, "@MODE@": mode, "@PI_BIN@": str(pi), "@MCP_JS@": str(mcp), "@PATH@": path}
             source = (TEMPLATES / "launchd-agent.plist.in").read_text()
             for token, value in substitutions.items():
                 source = source.replace(token, html.escape(value, quote=False))
@@ -127,16 +155,16 @@ def render(config_path, output, host):
             plist["ProgramArguments"] = ["/bin/bash", str(home / ".claude/skills/dot-coordinator/scripts/dot-coordinator-wrapper.sh"), "--account", key]
             plist["EnvironmentVariables"] = env
             plist["StartCalendarInterval"] = {"Minute": minute}
-            plist["StandardOutPath"] = str(home / f".local/state/ai.gemini.agy-dot-coordinator/{minute:02d}.out.log")
-            plist["StandardErrorPath"] = str(home / f".local/state/ai.gemini.agy-dot-coordinator/{minute:02d}.err.log")
+            plist["StandardOutPath"] = str(home / f".local/state/ai.gemini.agy-dot-coordinator/{minute:02d}{suffix}.out.log")
+            plist["StandardErrorPath"] = str(home / f".local/state/ai.gemini.agy-dot-coordinator/{minute:02d}{suffix}.err.log")
             write_private(output / f"{label}.plist", plistlib.dumps(plist))
         else:
-            unit = f"ai.dot-coordinator-{minute:02d}"
+            unit = f"ai.dot-coordinator-{minute:02d}{suffix}"
             for name in ("DISPLAY", "DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR"):
                 if os.environ.get(name):
                     env[name] = os.environ[name]
             write_private(output / f"{unit}.env", "\n".join(f"{k}={systemd_value(v)}" for k, v in env.items()) + "\n")
-            service = (TEMPLATES / "systemd-coordinator.service.in").read_text().replace("@ACCOUNT@", key).replace("@UNIT@", unit)
+            service = (TEMPLATES / "systemd-coordinator.service.in").read_text().replace("@ACCOUNT@", key).replace("@UNIT@", unit).replace("@MODE@", mode)
             timer = (TEMPLATES / "systemd-coordinator.timer.in").read_text().replace("@ACCOUNT@", key).replace("@UNIT@", unit).replace("@MINUTE@", f"{minute:02d}")
             write_private(output / f"{unit}.service", service)
             write_private(output / f"{unit}.timer", timer)
