@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import importlib.util
 import io
@@ -1056,6 +1057,23 @@ class PrimaryPairTest(unittest.TestCase):
         self.assertFalse(receipt["parallel_dispatch"])
         self.assertFalse(receipt["overlap_proven"])
         self.assertFalse((self.sync / "unexpected-opus.ran").exists())
+
+    def test_receipt_records_exact_prompt_sent(self) -> None:
+        self.executable(
+            "codex",
+            "for last; do :; done; printf '%s' \"$last\" > \"$ADVICE_TEST_SYNC_DIR/codex.prompt\"\n"
+            "printf 'VERDICT: APPROVED\\nCOVERAGE: all\\n'\n",
+        )
+
+        result = self.invoke("--reviewers", "codex")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        receipt = json.loads((self.output / "receipt.json").read_text())
+        sent = (self.sync / "codex.prompt").read_text()
+        self.assertEqual(receipt["prompt"], sent)
+        self.assertEqual(
+            receipt["prompt_sha256"], hashlib.sha256(sent.encode()).hexdigest()
+        )
 
     def test_opus_only_runs_only_opus_and_records_non_parallel_dispatch(self) -> None:
         self.executable("codex", "touch \"$ADVICE_TEST_SYNC_DIR/unexpected-codex.ran\"\n")

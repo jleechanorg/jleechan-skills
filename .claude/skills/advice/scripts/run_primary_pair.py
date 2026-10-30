@@ -1368,6 +1368,8 @@ def main(
                           for i, name in enumerate(documents)}, sort_keys=True)
             + "\n\n" + packet
         )
+    receipt["prompt"] = prompt
+    receipt["prompt_sha256"] = hashlib.sha256(prompt.encode()).hexdigest()
     try:
         scratch_root = resolve_review_scratch_root(deadline=work_deadline)
     except TimeoutError as error:

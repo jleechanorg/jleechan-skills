@@ -263,6 +263,27 @@ class ApprovalContractsTest(unittest.TestCase):
                     package_texts["superpowers-quick"],
                 )
 
+    def test_advice_static_prompt_and_subagent_seat_contract(self) -> None:
+        advice = " ".join(skill("advice").split())
+        for phrase in (
+            "Static review prompt (skill-owned, verbatim):",
+            "Document-only review prompt (skill-owned, verbatim):",
+            "Document-only preamble (skill-owned, verbatim):",
+            "COVERAGE: line",
+            "VERDICT: APPROVED|NOT APPROVED|WITHHELD at <SHA>",
+            "any deviation from preamble plus template voids that vote",
+            "`prompt` and `prompt_sha256`",
+            "owner-authorized exception",
+            "that case requires a real outside vote",
+            "replaces only the runner exit field",
+            "no seat process survives",
+            "attempted|skipped",
+            "tell the user which seats were unavailable",
+            "does not make the same CLI unavailable on another host",
+        ):
+            self.assertIn(phrase, advice)
+        self.assertNotIn("third distinct subagent seat", advice)
+
     def test_advice_reviews_repository_before_approving(self) -> None:
         advice = skill("advice")
         command = (COMMANDS / "advice.md").read_text()
