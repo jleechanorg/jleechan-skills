@@ -52,7 +52,10 @@ class CoordinatorWorkflowTests(unittest.TestCase):
         self.assertIn('read its own last 20 messages', modes)
         self.assertIn('its first sentence is', modes)
         self.assertIn('the only mode source', modes)
-        self.assertIn('no run needs to read it', modes)
+        self.assertIn('A task text with no such declaration is `main`', modes)
+        self.assertIn('advisory record for host inspection', modes)
+        self.assertIn('the sentence decides and the run report records the drift', modes)
+        self.assertIn('Do not add a second, unobservable veto', modes)
         nudge = text.split('## Proceed nudge outbound message', 1)[1].split('## Private periodic payload', 1)[0]
         expected = ('Read the last 20 messages of this conversation. If you are waiting on an obvious question you can settle '
                     'from what you already know or can verify, answer it and continue. If you are idle with no real blocker, '

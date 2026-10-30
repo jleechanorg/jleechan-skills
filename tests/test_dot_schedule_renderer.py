@@ -192,6 +192,16 @@ class ScheduleRendererTests(unittest.TestCase):
             renderer.render(self.config, output, "macos")
         self.assertFalse(output.exists())
 
+    def test_rejects_a_task_that_declares_its_own_mode(self):
+        for task in ("Coordination mode: proceed. Do the thing", "coordination  MODE :main. x"):
+            data = json.loads(self.config.read_text())
+            data["accounts"][0]["task"] = task
+            self.config.write_text(json.dumps(data))
+            with self.assertRaisesRegex(ValueError, "must not declare its own coordination mode"):
+                renderer.render(self.config, self.root / "conflict-stage", "macos")
+            self.assertFalse((self.root / "conflict-stage").exists())
+            self.write_config("macos")
+
     def test_rejects_missing_dot_account_and_unpinned_mcp(self):
         config = json.loads(self.config.read_text())
         config["accounts"][0]["key"] = "not-configured"

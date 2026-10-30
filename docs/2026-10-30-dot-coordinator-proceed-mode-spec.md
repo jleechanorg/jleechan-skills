@@ -37,10 +37,12 @@ source, so the agent never has to infer it and never has to read `COORDINATOR_MO
    unit names/labels/log paths, `COORDINATOR_MODE` set, and a first task sentence declaring the run's
    mode for every run.
 2. Overlapping, duplicated, out-of-range or non-integer `proceed_minutes` are refused with a
-   configuration error before any output directory is created.
-3. `SKILL.md` declares both modes, makes the task sentence the only mode source, stops without
-   sending on an unrecognized or conflicting mode, and fixes the exact proceed outbound text plus
-   its private override file `~/.config/dot/proceed-reminder.txt`.
+   configuration error before any output directory is created, and an account task that declares its
+   own coordination mode is refused rather than nested under the renderer's declaration.
+3. `SKILL.md` declares both modes, makes the task sentence the only mode source, keeps undeclared
+   legacy task text on `main`, stops without sending on an unrecognized or conflicting mode, states
+   the accepted mismatch tradeoff (the environment value never vetoes the sentence), and fixes the
+   exact proceed outbound text plus its private override file `~/.config/dot/proceed-reminder.txt`.
 4. Existing contracts still pass: exact main fallback text, one blockquote per mode section,
    launcher glue LOC budget (150), `dot-coordinator/SKILL.md` budget (400).
 5. On the host, activation retires the old `ai.gemini.agy-dot-coordinator.*` labels, loads twelve

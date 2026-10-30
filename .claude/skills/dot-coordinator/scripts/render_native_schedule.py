@@ -18,6 +18,7 @@ DIRECTIVES = {
     "proceed": ("Coordination mode: proceed. Use the proceed nudge outbound text from SKILL.md "
                 "and read the last 20 rendered messages for destination and duplicate checks. "),
 }
+MODE_DECLARATION = re.compile(r"coordination\s+mode\s*:", re.IGNORECASE)
 IDENTITY = re.compile(r"[0-9a-fA-F]{64}\Z")
 ACCOUNT = re.compile(r"[A-Za-z0-9._@+-]{1,160}\Z")
 TEMPLATES = Path(__file__).resolve().parents[1] / "templates"
@@ -44,6 +45,8 @@ def scheduled_runs(rows):
     """Expand each account into its declared main run plus its proceed runs, on disjoint minutes."""
     runs, taken = [], set()
     for row in rows:
+        if MODE_DECLARATION.search(row["task"]):
+            fail("account task must not declare its own coordination mode")
         extra = row.get("proceed_minutes", [])
         if (not isinstance(extra, list)
                 or any(type(minute) is not int or not 0 <= minute <= 59 for minute in extra)

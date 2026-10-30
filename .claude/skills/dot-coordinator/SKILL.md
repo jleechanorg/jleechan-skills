@@ -27,12 +27,18 @@ Machine-local schedule configuration selects `cli.executable` plus a JSON `cli.a
 
 Exactly one mode is declared per run, in the task text: its first sentence is
 `Coordination mode: main.` or `Coordination mode: proceed.`. That sentence is the only mode source.
-`COORDINATOR_MODE` in the environment is a record for host inspection: it never overrides, arbitrates
-or vetoes the task text, and no run needs to read it. If those two ever disagree, the task sentence
-still decides, and the disagreement belongs in the run report. If the first sentence declares any
-other mode, or the task text declares conflicting modes, inspect read-only and send nothing in this
+A task text with no such declaration is `main`, which keeps older installed schedules and direct
+`--instruction` callers on the reminder they already sent. If the first sentence declares any other
+mode, or the task text declares conflicting modes, inspect read-only and send nothing in this
 invocation. Never infer the mode from the clock, conversation content, a prior run, a failed run or
 your own judgment.
+
+`COORDINATOR_MODE` in the environment is an advisory record for host inspection: it never overrides
+or vetoes the task sentence, and no run has to read it. The renderer derives both values from one
+configuration field, so a disagreement means that host's schedule drifted rather than that the run
+should guess. This sender reads the task text, not the environment, so it cannot detect that drift
+reliably; the accepted resolution is that the sentence decides and the run report records the drift
+it can see. Do not add a second, unobservable veto on top of the sentence.
 
 - `main` - the hourly periodic reminder below. Its message asks the receiving Dot to review its own
   last four hours, recover stalled commitments through their existing owners and report precise
