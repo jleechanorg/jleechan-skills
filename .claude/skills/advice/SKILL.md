@@ -73,17 +73,42 @@ mechanism.
 
 ## 3. Enforce the attempt deadline
 
-Each reviewer attempt has one 600-second end-to-end acceptance deadline
-beginning when the request is queued or sent. Record the start time. Shared
-immutable packet preparation may precede the clock; review-specific setup,
-queueing, delivery, dispatch, review, output capture, receipt writing, and
-cleanup all consume the same budget. The deadline decides vote eligibility; it
-is not a hard real-time guarantee that the process returns within 600 seconds.
-Bound supported subprocesses and waits by the remaining time. Filesystem cleanup
-and receipt writes may overrun if the operating system blocks; when they return,
-the runner must record the overrun, exit nonzero, and invalidate every vote. A
-missing or unparseable receipt, or any nonzero runner exit, makes the attempt
-unavailable. Do not pause, reset, or extend the deadline, or add timer machinery.
+Each reviewer attempt has one default 1800-second (30-minute) end-to-end budget
+beginning when that request is queued or sent. Record the start time. An
+explicit user-specified limit governs that requested attempt, whether shorter or
+longer; otherwise the 30-minute default applies. A later specific user
+instruction to await a named reviewer overrides this deadline for that
+requested attempt, even without a numeric duration. Shared immutable packet
+preparation may precede the clock; review-specific setup, queueing, delivery,
+dispatch, review, output capture, receipt writing, and cleanup all consume the
+same budget. The deadline decides vote eligibility; it is not a hard real-time
+guarantee that the process returns within the budget. Bound supported
+subprocesses and waits by the remaining time. Filesystem cleanup and receipt
+writes may overrun if the operating system blocks; when they return, the runner
+must record the overrun, exit nonzero, and invalidate every vote. A missing or
+unparseable receipt, or any nonzero runner exit, makes the attempt unavailable.
+Routine status updates do not pause or reset the deadline. Apart from an
+explicit user-specified limit or the named-review wait instruction above, do
+not pause, reset, or extend it. Use existing CLI timeouts with native tool
+deadlines and cancellation. If the supported route cannot enforce the complete
+attempt and produce its receipt, mark it `UNAVAILABLE`; do not build timer
+machinery.
+
+The later named-review instruction remains controlling. The current
+`run_primary_pair.py` route computes `attempt_deadline` and `work_deadline` once
+from the queued monotonic timestamp and timeout flags; it then fixes each
+reviewer's deadline and passes it to the subprocess wait. There is no existing
+interface to extend an active attempt. A result completed with verified cleanup
+before that fixed deadline remains eligible. If fulfilling the later user
+instruction would require waiting beyond the deadline, this route cannot extend
+it: only on actual expiry record the attempt `TIMED_OUT` and non-approving, wait
+for and record cleanup, mark the requested wait route `UNAVAILABLE`, and leave
+the applicable review gate open unless another already-supported route can
+honor it. Do not preempt a valid within-deadline result, reinterpret the
+instruction as a shorter limit, count late output, claim the primary pair
+waited for the requested interval, or issue a duplicate review. This records a
+runner capability boundary; it does not cancel or shorten the user's
+instruction.
 
 Immediately before dispatch, after the shared review packet is ready, capture
 the queue boundary and pass both timestamps to the primary-pair runner. If the
@@ -107,6 +132,25 @@ Pass both required runner options:
 --queued-at-epoch-ns "$QUEUED_AT_EPOCH_NS" \
 --queued-at-monotonic-ns "$QUEUED_AT_MONOTONIC_NS" \
 ```
+
+For `run_primary_pair.py`, also pass both timeout limits explicitly on every
+invocation. Let `B` be the effective reviewer-attempt budget: the user's
+explicit limit when supplied, otherwise 1800 seconds. Let `C` be a positive
+cleanup reserve smaller than `B`, and let `G` be the positive timeout-grace
+period. Set `--attempt-timeout-seconds` to `B`, `--timeout-seconds` to `B - C`,
+`--cleanup-budget-seconds` to `C`, and `--timeout-grace-seconds` to `G`. The
+runner starts the attempt clock at the queued timestamps, reserves `C` for
+cleanup and receipt work, then bounds each reviewer by the remaining work
+deadline and `G`. Its built-in 600-second attempt and 1200-second reviewer
+defaults do not implement this policy; do not omit either timeout flag. If the
+requested budget cannot leave room for both cleanup reserve and grace, report
+the route `UNAVAILABLE` instead of silently changing the user's limit.
+
+| Effective budget `B` | Cleanup reserve `C` | `--attempt-timeout-seconds` | `--timeout-seconds` |
+|---:|---:|---:|---:|
+| 300 seconds (explicit) | 10 seconds | 300 | 290 |
+| 1800 seconds (default) | 10 seconds | 1800 | 1790 |
+| 2700 seconds (explicit) | 10 seconds | 2700 | 2690 |
 
 A late, incomplete, failed, or timed-out result is not an approval. Preserve
 partial output and findings, record cleanup status, and use another independent
