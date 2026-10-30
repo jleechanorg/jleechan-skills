@@ -45,9 +45,10 @@ never has to infer its mode.
 
 Today the Dot can sit on a question only the coordinator can prompt it past, or idle after a
 finished step, until the next hourly reminder. After this change, at :01/:02/:20/:21/:22/:40/:41/:42
-the owning account's coordinator turn reads the last 20 messages and either answers what is
-obvious, names the single owner decision required, or tells the Dot to proceed. Before: up to 60
-minutes of avoidable idle. After: at most ~20 minutes, with no extra authority.
+the owning account's coordinator turn reads the last 20 messages to verify the destination and check
+for a duplicate or peer draft, then sends the fixed nudge asking the Dot to settle what is obvious,
+name the single owner decision it needs, or proceed. Before: up to 60 minutes of avoidable idle.
+After: at most ~20 minutes, with no extra authority and no free text from the sender.
 
 ## Proof plan
 
@@ -67,12 +68,17 @@ terminal/plist inspection, covered by the runtime logs above.
 
 - **Cost/frequency.** Each proceed run is a full Chrome profile launch plus one cheap-model turn.
   Nine runs per hour across three accounts is three times the previous launch rate. Mitigation:
-  cadence is data (`proceed_minutes`), staggered to keep one launch at a time, and documented in
-  RENDERING.md.
+  cadence is data (`proceed_minutes`), staggered so one account's own runs stay at least 19 minutes
+  apart and never collide on one profile, and documented in RENDERING.md. Different accounts can
+  still overlap, so the real bound is up to three concurrent launches on three separate profiles.
+- **Sender free text.** "Settle the obvious question" is an instruction to the *receiving Dot*; the
+  sender stays transport-only and never answers, chooses work or writes status. The sender reads
+  messages for destination, duplicate and peer-draft verification only.
 - **Duplication.** More frequent turns mean more chances to repeat an answer; the fixed text
   forbids repeating an answer already given and unchanged status.
-- **Authority creep.** A nudge that "answers questions" could drift into answering owner-only
-  decisions; the text requires naming the single owner decision instead, and keeps the no-new-
-  authority sentence.
+- **Authority creep.** A nudge that asks the Dot to "settle an obvious question" could tempt the
+  sender to answer on the owner's behalf; SKILL.md states the message asks the receiving Dot, the
+  sender writes no analysis, and the text keeps the no-new-authority sentence plus an explicit
+  "name the single owner decision you need" branch.
 - **Silent config drift.** Rendered minutes must stay disjoint because label/log names derive from
   the minute; the renderer now refuses overlap instead of merging two runs.

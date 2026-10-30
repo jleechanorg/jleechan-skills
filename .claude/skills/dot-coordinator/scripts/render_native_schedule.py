@@ -13,8 +13,8 @@ from pathlib import Path
 MAC_MINUTES = (0, 20, 40)
 LINUX_MINUTES = (30, 50, 10)
 MODES = ("main", "proceed")
-PROCEED_DIRECTIVE = ("Coordination mode: proceed. Select the proceed nudge outbound text from SKILL.md "
-                     "and read the last 20 rendered messages before deciding. ")
+PROCEED_DIRECTIVE = ("Coordination mode: proceed. Use the proceed nudge outbound text from SKILL.md "
+                     "and read the last 20 rendered messages for destination and duplicate checks. ")
 IDENTITY = re.compile(r"[0-9a-fA-F]{64}\Z")
 ACCOUNT = re.compile(r"[A-Za-z0-9._@+-]{1,160}\Z")
 TEMPLATES = Path(__file__).resolve().parents[1] / "templates"
