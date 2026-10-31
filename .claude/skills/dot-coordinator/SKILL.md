@@ -191,57 +191,43 @@ keeps its exact bytes below the line.
 
 ## One active sender (host standdown)
 
-Several machines may schedule runs for the same accounts, but only one of them should send at a time.
-Before sending, collect the coordinator messages in the rendered thread and read their sender lines.
+Several machines may schedule runs for the same accounts, but only one of them sends at a time. Ownership is
+**fixed priority**, not recency: `COORDINATOR_HOST_PRIORITY` (config `host_priority`, 1 is primary) ranks the
+hosts, and `COORDINATOR_TAKEOVER_HOURS` (config `takeover_hours`, default 2) is how long a higher-priority
+host must be silent before a lower-priority one may speak. Never hardcode, guess or reorder either value.
 
-**What counts as a coordinator message.** Only a user-role message from the bound identity whose *first*
-line is a well-formed stamp line may arbitrate the floor. A Dot reply, an assistant turn, quoted text or a
-line that merely mentions `Sent:` never counts, whatever it claims.
+**What counts as evidence.** Only a user-role message from the bound identity whose *first* line is a
+well-formed stamp line. A Dot reply, an assistant turn, quoted text or a line that merely mentions `Sent:`
+never counts, whatever it claims.
 
-**The takeover window is configuration.** `COORDINATOR_TAKEOVER_HOURS` (config `takeover_hours`, default 2)
-is how long a peer must be silent before this host may speak. A host with a long window is a read-only
-standby: it still inspects, still reports, and still refreshes its own view of the conversation, but it sends
-nothing until the peer has been silent for that whole window. A host with a short window owns the floor while
-the standby peers are silent. Never hardcode a window, and never infer one from the clock.
+**Deciding.** Read the sender label of every coordinator message in the last 20 rendered messages, then:
 
-**Who owns the floor.** Order wins, not clocks: the machine that owns the **newest coordinator message in
-the thread** owns the floor. If that message is this machine's, send normally and report `floor: own,
-<age of own newest>`. Otherwise the peer owns the floor - see the stand-down rule.
+- **A higher-priority host spoke within the window - wait.** If any message from a host with a *lower*
+  priority number than this host is younger than the takeover window, send nothing, leave the thread alone,
+  and report `standdown: <machine>, <age> (priority <n> active)`. This is a read-only standby run: it still
+  verifies identity and destination and still reports, but it never sends. Try again at the next slot; do not
+  shorten the window or treat a reply, an acknowledgment or changed wording as permission.
+- **No higher-priority host within the window - send.** Same-or-lower-priority messages never block, and this
+  host owns the conversation. Report `floor: own, priority <n>` with the age of the newest higher-priority
+  message seen (or `none visible`).
+- **Takeover.** When the newest higher-priority message is at least `COORDINATOR_TAKEOVER_HOURS` old, or none
+  is visible, send and report `takeover: <machine> silent <age>`. That is how a standby activates when the
+  primary machine died, was retired, or keeps failing, without any shared lock or lease.
+- **Own machine.** Messages carrying this machine's own label never block it and never count as peer activity.
+- **Unknown evidence never decides.** An unparseable stamp, a future stamp or a message without a label is
+  unknown: it never triggers a standdown, never blocks a takeover, and must be reported.
+- **Re-check immediately before submitting.** A rendered thread can lag or withhold a peer's newest message.
+  After typing, reload the conversation, re-read the newest messages, and check again: if a qualifying
+  higher-priority message appeared, stop without sending and report `standdown-late: <machine>, <age>`. On any
+  abort, clear only the text this invocation typed; never clear or submit another writer's draft.
+- **Disjoint per-account slots are required.** Hosts must place an account's runs 3 to 12 minutes after the
+  primary host's runs for that same account (the renderer's `minutes` field sets them; +7 minutes is the
+  shipped example).
 
-**Age is measured, not compared.** Use each stamp only to measure how long ago that message was sent.
-- Another machine's newest message **newer in the thread than this machine's newest** and **younger than the configured takeover window** -> stand down for this invocation: send nothing, leave the thread alone, report
-  `standdown: <machine>, <age>`, and try again at the next scheduled slot. Do not shorten the window,
-  retry early, or treat a reply, an acknowledgment or changed wording as permission.
-- Another machine's newest message **at least as old as the configured window**, or no peer message at all ->
-  this machine may send and report `takeover: <machine> silent <age>` (or `takeover: none visible`). That is
-  how a machine whose peer died, was retired, or is running read-only resumes without any shared lock; a
-  read-only standby reports `readonly standby, peer active <age>` instead of sending.
-- A stamp that cannot be parsed, reads in the future, or otherwise cannot be trusted is **unknown**, not
-  ownership: it never triggers a standdown, never blocks a takeover, and must be reported. Clock skew must
-  never decide who speaks.
-- Messages carrying this machine's own label never block it and never count as peer activity.
-
-**Re-check immediately before submitting.** A rendered thread can lag a message another machine just sent,
-and an open page may not repaint a message sent from another device. After typing, reload the conversation,
-re-read the newest messages, and compare again: if a peer message newer than this machine's newest appeared,
-or this machine's own newest message is gone, stop without sending and report `standdown-late: <machine>,
-<age>`. On any abort, clear only the text this invocation typed; never clear or submit another writer's
-draft.
-
-**Disjoint per-account slots are required.** Hosts must place an account's runs 3 to 12 minutes after the
-other host's runs for that same account (the renderer's `minutes` field sets them; +7 minutes is the shipped
-example), so a standby starts after the active machine's slot and has time to see its message both ways
-round the hour. Hosts on the same or adjacent minutes can both send before either message renders; that is a
-configuration error, not a judgment call.
-
-**Best effort, not atomic.** This rule is visibility-based: it needs the peer's message to be rendered and
-inside the read window. It is not a lock or a lease, so a busy conversation that pushes peer messages out of
-the window, a slow first run, or a render lag wider than the slot offset can still let both hosts send once.
-The slot offset and the pre-submit re-check are the mitigations, and an operator enabling a second host
-accepts that residual risk instead of assuming exactly-once cross-host delivery.
-
-A takeover relaxes nothing: identity binding, destination verification, one submit per invocation and the
-duplicate window still apply.
+Priority arbitration is a visibility rule, not an atomic reservation: if a standby cannot see the primary's
+newest message at all it may still send. The long takeover window and the pre-submit re-check are the
+mitigations - a standby needs the primary to look silent for hours, not for one missed read - and an operator
+who enables a second host accepts that residual risk instead of assuming exactly-once cross-host delivery.
 
 ## Exact-duplicate window
 
