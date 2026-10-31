@@ -234,6 +234,21 @@ class ScheduleRendererTests(unittest.TestCase):
             renderer.render(self.config, output, "macos")
         self.assertFalse(output.exists())
 
+    def test_takeover_window_is_rendered_and_validated(self):
+        data = json.loads(self.config.read_text())
+        data["takeover_hours"] = 4
+        self.config.write_text(json.dumps(data))
+        with patch.object(renderer, "node22_bins", return_value=[self.root / "node-bin"]):
+            out = renderer.render(self.config, self.root / "window-stage", "macos")
+        env = renderer.plistlib.loads(next(out.glob("*.plist")).read_bytes())["EnvironmentVariables"]
+        self.assertEqual(env["COORDINATOR_TAKEOVER_HOURS"], "4")
+        for bad in (0, 49, "4", 4.5, True):
+            data["takeover_hours"] = bad
+            self.config.write_text(json.dumps(data))
+            with self.assertRaisesRegex(ValueError, "takeover_hours"):
+                renderer.render(self.config, self.root / "bad-window-stage", "macos")
+            self.assertFalse((self.root / "bad-window-stage").exists())
+
     def test_rejects_a_task_that_declares_its_own_mode(self):
         for task in ("Coordination mode: proceed. Do the thing", "coordination  MODE :main. x"):
             data = json.loads(self.config.read_text())

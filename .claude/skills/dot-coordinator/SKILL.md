@@ -198,18 +198,24 @@ Before sending, collect the coordinator messages in the rendered thread and read
 line is a well-formed stamp line may arbitrate the floor. A Dot reply, an assistant turn, quoted text or a
 line that merely mentions `Sent:` never counts, whatever it claims.
 
+**The takeover window is configuration.** `COORDINATOR_TAKEOVER_HOURS` (config `takeover_hours`, default 2)
+is how long a peer must be silent before this host may speak. A host with a long window is a read-only
+standby: it still inspects, still reports, and still refreshes its own view of the conversation, but it sends
+nothing until the peer has been silent for that whole window. A host with a short window owns the floor while
+the standby peers are silent. Never hardcode a window, and never infer one from the clock.
+
 **Who owns the floor.** Order wins, not clocks: the machine that owns the **newest coordinator message in
 the thread** owns the floor. If that message is this machine's, send normally and report `floor: own,
 <age of own newest>`. Otherwise the peer owns the floor - see the stand-down rule.
 
 **Age is measured, not compared.** Use each stamp only to measure how long ago that message was sent.
-- Another machine's newest message **newer in the thread than this machine's newest** and **less than 2
-  hours old** -> stand down for this invocation: send nothing, leave the thread alone, report
+- Another machine's newest message **newer in the thread than this machine's newest** and **younger than the configured takeover window** -> stand down for this invocation: send nothing, leave the thread alone, report
   `standdown: <machine>, <age>`, and try again at the next scheduled slot. Do not shorten the window,
   retry early, or treat a reply, an acknowledgment or changed wording as permission.
-- Another machine's newest message **2 hours old or older**, or no peer message at all -> this machine may
-  send and report `takeover: <machine> silent <age>` (or `takeover: none visible`). That is how a machine
-  whose peer died resumes without any shared lock.
+- Another machine's newest message **at least as old as the configured window**, or no peer message at all ->
+  this machine may send and report `takeover: <machine> silent <age>` (or `takeover: none visible`). That is
+  how a machine whose peer died, was retired, or is running read-only resumes without any shared lock; a
+  read-only standby reports `readonly standby, peer active <age>` instead of sending.
 - A stamp that cannot be parsed, reads in the future, or otherwise cannot be trusted is **unknown**, not
   ownership: it never triggers a standdown, never blocks a takeover, and must be reported. Clock skew must
   never decide who speaks.
