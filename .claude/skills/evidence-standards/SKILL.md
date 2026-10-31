@@ -1,6 +1,6 @@
 ---
 name: evidence-standards
-description: General cross-project evidence standards (user scope). Use for the /es skill. Repo-level .claude/skills/evidence-standards/SKILL.md files add project-specific extensions — always consult both.
+description: General cross-project evidence standards (user scope). Use for the /es skill. Repo-level .claude/skills/evidence-standards.md files add project-specific extensions — always consult both.
 when-to-use: Before /er, /green, gate fixes, or AO worker dispatch on a PR that touches production code paths. Also when claiming a behavior is "fixed" or "working" and you need to prove it.
 ---
 
@@ -207,7 +207,7 @@ behavior or claim-dependent changes; a path alone does not invalidate every capt
 hours of LLM time for zero added confidence. The evidence proves a *behavior*; if the behavior's
 code is byte-identical at HEAD and no assertion or driver backing it changed, the proof is
 byte-valid at HEAD. Repo-level files may add
-project-specific context (e.g. `<repo>/.claude/skills/evidence-standards/SKILL.md` §
+project-specific context (e.g. `<repo>/.claude/skills/evidence-standards.md` §
 "Claim-scoped evidence revalidation"). Shared [pr-lifecycle precedence](../pr-lifecycle/SKILL.md#precedence-and-scope) governs conflicting lifecycle copies; domain-specific proof and separate safety/merge restrictions remain. Repo overlays cannot waive the delta-and-claim test above.
 
 ## Evidence Sequencing — expensive evidence runs LAST, once
@@ -498,7 +498,7 @@ standards, always read both this skill and the relevant repo-level file:
    rule rather than obsolete blanket production/size-only exceptions. Preserve
    UI-video and risk-specific requirements; the repo overlay names its triggers.
 2. **Repo-level /es** — most repos mirror this skill at
-   `<repo>/.claude/skills/evidence-standards/SKILL.md` with project-specific
+   `<repo>/.claude/skills/evidence-standards.md` with project-specific
    extensions (e.g. `your-project.com` has dice-claim, campaign-isolation,
    BigQuery, and Gemini specifics). **Always read both** and apply the
    [scoped precedence rule](../pr-lifecycle/SKILL.md#precedence-and-scope);
