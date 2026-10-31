@@ -197,7 +197,8 @@ hosts, and `COORDINATOR_TAKEOVER_HOURS` (config `takeover_hours`, default 2) is 
 host must be silent before a lower-priority one may speak. Never hardcode, guess or reorder either value.
 
 **What counts as evidence.** Only a user-role message from the bound identity whose *first* line is a
-well-formed stamp line. A Dot reply, an assistant turn, quoted text or a line that merely mentions `Sent:`
+well-formed stamp line. Compare host labels case-insensitively: `Jeff-Ubuntu` and `jeff-ubuntu` are the same
+machine, and a label that differs only in case must never be read as a peer. A Dot reply, an assistant turn, quoted text or a line that merely mentions `Sent:`
 never counts, whatever it claims.
 
 **Deciding.** Read the sender label of every coordinator message in the last 20 rendered messages, then:
@@ -231,9 +232,10 @@ who enables a second host accepts that residual risk instead of assuming exactly
 
 ## Exact-duplicate window
 
-For this check the **payload body** is everything below the `Sent:` line. A duplicate is an earlier
-message among the last 20 rendered messages whose body matches the selected body exactly, whatever its
-stamp; the stamp is what makes that copy's age readable, not what makes a retry byte-identical.
+For this check the **payload body** is everything below the `Sent:` line. A duplicate is an earlier message **from this same machine** among the last 20 rendered messages whose body
+matches the selected body exactly, whatever its stamp. Another host's copy of the same body is not this
+machine's duplicate - it is that host's traffic, and the priority rule above already decides who speaks;
+counting it here would let a standby silent the primary; the stamp is what makes that copy's age readable, not what makes a retry byte-identical.
 
 A duplicate blocks the send only while it is **less than 10 minutes old**, measured from that copy's
 `Sent:` minute to this run's captured minute; record that age in the run report. Otherwise send: an
