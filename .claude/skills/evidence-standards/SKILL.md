@@ -21,6 +21,7 @@ every claim with its evidence layer, and never substitute a green test suite
 for proof of integration correctness. The companion files in this directory
 (`bundle-anatomy.md`, `tmux-video-evidence.md`, `ui-video-evidence.md`) cover
 the structural and recording details; this file is the policy.
+- **Diff-Derived Claim Coverage (Including Platform-Divergent Paths)**: Evidence must cover every user-visible behavior the diff adds or changes, not only the PR's stated claims; build the claim list from the diff itself (see `evidence-coverage`). Any diff that adds or changes code that runs on only one platform (`Platform.OS` branches, `*.web.*`/`*.native.*` files, `window`/`document`/`history` listeners, native-only modules) must list each such path and prove its user-visible behavior on the platform where it executes.
 
 **After running any evidence-gathering pass, you MUST always reconfirm** by
 explicitly stating what the evidence proves vs what it does NOT prove — this
