@@ -17,10 +17,15 @@ duplicate those procedures here.
 **Pointer**: Send the pointer, not a transcription.
 A verdict built on a truncated inline artifact may not be `APPROVED`.
 
-Write a focused decision question and give every reviewer the same exact
-pointer: repository plus `base...head` and current head SHA, or an explicit
-file list. Include `git diff --stat` and make the pointer reach the complete
-change. A summary or excerpt never replaces the source.
+Give every reviewer (CLI primary and alternates, the coordinator ask, and
+static reviewers) only the cold, verbatim input owned by
+[static-review](../static-review/SKILL.md): its channel preamble plus its
+template, with no question, summary or framing. Its receipt and deviation rules
+apply to every vote. The user's `[question]` is never sent to reviewers: the
+orchestrator records it in the §5 report and answers it in its own synthesis
+from the reviewers' findings; if the template cannot surface what the question
+needs, report that gap rather than adding framing. The pointer must reach the complete change; a summary or
+excerpt never replaces the source.
 
 For revision review, pin the requested commit and use an eligible clean
 checkout. For saved specifications, plans, or other document-only reviews, use
@@ -41,13 +46,44 @@ across reviewers to approve.
 ## 2. Select independent reviewers
 
 Approval requires two independent votes, each covering the whole scope, from
-two eligible CLI reviewers. Use Codex and Opus concurrently when both are
-viable; pair a healthy CLI vote with a distinct eligible alternate when needed.
-If Opus is known unavailable, launch Codex and an eligible alternate
-concurrently; do not serialize healthy seats. The orchestrator's
-synthesis and research-only output are not approval reviewers. `/research` is
-nonvoting and only for material unanswered questions. One competent objection
-may block.
+two eligible CLI reviewers or per the static-review fallback
+below. Use Codex
+and Opus concurrently when both are viable; pair a healthy CLI vote with a
+distinct eligible alternate when needed. If Opus is known unavailable, launch
+Codex and an eligible alternate concurrently; do not serialize healthy seats.
+The orchestrator's synthesis and
+research-only output are not approval reviewers. `/research` is nonvoting and
+only for material unanswered questions. One competent objection may block.
+
+Static-review fallback. This is an owner-authorized exception, chosen by the
+repository owner on 2026-10-29. When the orchestrator also has an external
+review coordinator (for example a Dot reviewer), it sends the static-review
+coordinator ask and, in parallel, launches static reviewers. With no
+coordinator configured, it launches static reviewers in parallel with the CLI
+attempts, and the trigger below counts only those CLI attempts. A static reviewer
+fills only a vote slot still unfilled after the primary and every alternate CLI
+attempt in the table below, and every configured coordinator account, have
+ended under their §3 attempt deadlines and each attempt or skip, including
+unsupported or unconfigured routes, is recorded in the `UNAVAILABLE` format
+below with the user told. Any outside full-coverage vote fills a
+slot first; one outside vote pairs with one static reviewer. Identity, cold
+start and receipts follow [static-review](../static-review/SKILL.md); the
+deadline, isolation, full coverage, SHA binding and §5 rules still apply. A
+late objection blocks until resolved and reopens the affected stage per
+pr-lifecycle.
+
+No double substitution: when a coordinator verdict is itself being substituted
+by `/er` plus two `/advice` votes under pr-lifecycle, static reviewers cannot
+also be that whole quorum; that case requires a real outside vote. Consistent
+with pr-lifecycle, the orchestrator never self-awards a vote, and one
+reviewer's verdict is never counted twice.
+
+Record every unavailable or skipped reviewer in the §5 report as `UNAVAILABLE:
+<host> — <CLI or static reviewer> — attempted|skipped — <attempt time> —
+<reason>`, and tell the user which reviewers were unavailable. A failure on one
+host (for example a cloud box) does not make the same CLI unavailable on
+another host (for example a Mac or Ubuntu machine); try or record each host
+separately.
 
 Preserve full-permission reviewer execution and declare the actual command,
 model, account or reviewer identity, and transport for every attempt:
@@ -61,6 +97,8 @@ model, account or reviewer identity, and transport for every attempt:
 | Cursor alternate | `cursor agent -p --force` |
 | AGY alternate | `agy --print="<review request>" --model gemini-3.8-flash-high --dangerously-skip-permissions --new-project` |
 
+Each `<review request>`, and the stdin of forms without one, follows
+[static-review](../static-review/SKILL.md).
 A wrapper, alias, retry, or duplicate reviewer identity is not another vote.
 Codex models may be only `gpt-6-astra`, `gpt-6-luna`, `gpt-6-sol`, or
 `gpt-6.1-sol`; 5.6 and unknown IDs are not eligible. Count `claudewa` only when
@@ -187,13 +225,20 @@ invalidates that vote.
 ## 5. Reconcile and report
 
 Require each counted reviewer to return a nonempty `VERDICT:` and explicit
-full-scope `COVERAGE`. Reconcile disagreements within the declared scope; do not
-ask the user to choose between reviewer axes. One competent blocking objection
-means `NOT APPROVED`, including a competent objection from a reviewer with
-partial coverage; partial coverage never supplies an approval. Use `WITHHELD`
-when two independent full-coverage approvals are unavailable. A vote also
+full-scope `COVERAGE`. Reconcile disagreements within the declared scope; do
+not ask the user to choose between reviewer axes. One competent blocking
+objection means `NOT APPROVED`, including a competent objection from a reviewer
+with partial coverage; partial coverage never supplies an approval. Use
+`WITHHELD` when two independent full-coverage approvals, from eligible CLI
+reviewers or per the static-review fallback, are unavailable. A vote also
 requires receipt evidence of zero exit, no original checkout mutation, no
-surviving reviewer process, and no cleanup failure. For the primary-pair runner, also require its zero exit, a present and parseable receipt, and a nonempty VERDICT line. Ignore the entire receipt when the runner exits nonzero; a failed late-receipt rewrite can leave an older success-looking receipt. If clone setup times out, directory-removal evidence does not prove setup descendants exited; record that uncertainty and do not count the attempt.
+surviving reviewer process, and no cleanup failure; a static-review receipt
+replaces only the runner exit field. For the primary-pair runner, also require
+its zero exit, a present and parseable receipt, and a nonempty VERDICT line.
+Ignore the entire receipt when the runner exits nonzero; a failed late-receipt
+rewrite can leave an older success-looking receipt. If clone setup times out,
+directory-removal evidence does not prove setup descendants exited; record that
+uncertainty and do not count the attempt.
 
 Report the exact reviewed SHA or `DOCUMENTS sha256:<bundle hash>` for
 document-only review, with verdict, coverage, concise reasoning, risk, and
@@ -203,7 +248,8 @@ exactly one SHA-bound line: `VERDICT: APPROVED at <SHA>`,
 For document-only review, use `DOCUMENTS sha256:<bundle hash>` in place of
 `<SHA>`; never use `HEAD`. Preserve a receipt for every attempt: reviewer
 identity, actual CLI, account and model, start/completion times, exit or timeout
-status, complete output, coverage, and cleanup result.
+status, exact prompt sent (any deviation voids the vote, per static-review),
+complete output, coverage, and cleanup result.
 Preserve the original reviewers and reviewed SHAs.
 Before applicability, inspect the complete actual delta, claims, evidence and phase.
 Applicability is not a new independent vote.
