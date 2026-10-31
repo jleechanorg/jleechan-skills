@@ -21,6 +21,7 @@ DIRECTIVES = {
 MODE_DECLARATION = re.compile(r"coordination\s+mode\s*:", re.IGNORECASE)
 IDENTITY = re.compile(r"[0-9a-fA-F]{64}\Z")
 ACCOUNT = re.compile(r"[A-Za-z0-9._@+-]{1,160}\Z")
+HOST_LABEL = re.compile(r"[A-Za-z0-9._-]{1,64}\Z")
 TEMPLATES = Path(__file__).resolve().parents[1] / "templates"
 
 
@@ -119,6 +120,9 @@ def render(config_path, output, host):
         if not isinstance(details, dict) or not details.get("user_data_dir"):
             fail("a scheduled account is missing from Dot configuration")
     runs = scheduled_runs(rows)
+    host_label = config.get("host_label")
+    if host_label is not None and (not isinstance(host_label, str) or not HOST_LABEL.fullmatch(host_label)):
+        fail("host_label must match [A-Za-z0-9._-]{1,64}")
     pi, cli_args = configured_cli(config)
     mcp = Path(config.get("chrome_devtools_mcp_js", "")).expanduser()
     if not pi.is_absolute() or not pi.is_file() or not os.access(pi, os.X_OK):
@@ -147,6 +151,7 @@ def render(config_path, output, host):
             "DOT_CONFIG_FILE": str(dot_path),
             "DOT_EXPECTED_IDENTITY_SHA256": row["identity_sha256"],
             "COORDINATOR_MODE": mode,
+            **({"COORDINATOR_HOST_LABEL": host_label} if host_label else {}),
             "COORDINATOR_TASK": task,
             "PI_BIN": str(pi),
             "COORDINATOR_CLI_ARGS": json.dumps(cli_args),
@@ -157,7 +162,7 @@ def render(config_path, output, host):
             label = f"ai.dot-coordinator.{minute:02d}{suffix}"
             substitutions = {"@HOME@": str(home), "@MINUTE@": f"{minute:02d}", "@ACCOUNT@": key,
                              "@DOT_CONFIG_FILE@": str(dot_path), "@IDENTITY_SHA256@": row["identity_sha256"],
-                             "@TASK@": task, "@MODE@": mode, "@PI_BIN@": str(pi), "@MCP_JS@": str(mcp), "@PATH@": path}
+                             "@TASK@": task, "@MODE@": mode, "@HOST_LABEL@": host_label or "", "@PI_BIN@": str(pi), "@MCP_JS@": str(mcp), "@PATH@": path}
             source = (TEMPLATES / "launchd-agent.plist.in").read_text()
             for token, value in substitutions.items():
                 source = source.replace(token, html.escape(value, quote=False))

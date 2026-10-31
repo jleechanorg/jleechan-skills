@@ -3,7 +3,9 @@
 `scripts/render_native_schedule.py` validates a private machine-local JSON file and writes inactive service definitions into a new staging directory. The compatibility installer entrypoints require `--render-only` and call this renderer; they never install, enable, start, stop, or remove a service. Review and activation are separate operator actions.
 
 Copy `schedule.example.json` to a mode-0600 file under `~/.config/dot-coordinator/`. Replace the example account keys, identity SHA-256 bindings, tasks, and executable paths with the machine's reviewed local values. The three entries are ordered: macOS minutes are `00, 20, 40`; Linux minutes are `30, 50, 10`. An optional top-level `"minutes": [m1, m2, m3]` list replaces that host default, which is how two machines
-schedule the same accounts on disjoint slots (`0/5/.../55` on one host and `1/6/.../56` on the other). The
+schedule the same accounts on disjoint slots: the secondary host offsets each account by +7 minutes
+(`0/15/30/45` on the primary becomes `7/22/37/52`, `5/20/35/50` becomes `12/27/42/57`, `10/25/40/55` becomes
+`17/32/47/2`). The offset must stay between 3 and 12 minutes so it works in both directions around the hour. The
 three values must be distinct whole minutes; the renderer refuses anything else. Those `minute` values are
 each account's hourly `main` run. An optional `proceed_minutes` array on the same entry adds `proceed` nudge runs; the shipped example uses three per account (`[15, 30, 45]`, `[5, 35, 50]`, `[10, 25, 55]`) so an account's own runs stay 15 minutes apart. Every scheduled minute - main or proceed - must be distinct across the whole file, because the renderer derives the unit name, label and log filename from the minute alone; overlapping minutes are refused instead of silently merged. The renderer verifies those keys exist in the configured Dot account map and requires Chrome DevTools MCP 1.6.0. Do not put credentials or API keys in this file.
 

@@ -185,19 +185,37 @@ class ScheduleRendererTests(unittest.TestCase):
         self.assertIn("SKILL.md", renderer.DIRECTIVES["proceed"])
         self.assertIn("last 20 rendered messages", renderer.DIRECTIVES["proceed"])
 
-    def test_explicit_minutes_override_lets_two_hosts_own_disjoint_slots(self):
+    def test_explicit_minutes_override_offsets_a_second_host_by_seven_minutes(self):
         data = json.loads(self.config.read_text())
-        data["minutes"] = [1, 21, 41]
+        data["minutes"] = [7, 12, 2]
+        layout = {0: ([7], [22, 37, 52]), 1: ([12], [27, 42, 57]), 2: ([2], [17, 32, 47])}
         for index, row in enumerate(data["accounts"]):
-            row["minute"] = [1, 21, 41][index]
-            row["proceed_minutes"] = [[16, 31, 46], [36, 51, 6], [56, 11, 26]][index]
+            row["minute"] = layout[index][0][0]
+            row["proceed_minutes"] = layout[index][1]
         self.config.write_text(json.dumps(data))
         with patch.object(renderer, "node22_bins", return_value=[self.root / "node-bin"]):
             out = renderer.render(self.config, self.root / "offset-stage", "macos")
-        minutes = sorted(renderer.plistlib.loads(path.read_bytes())["StartCalendarInterval"]["Minute"]
-                         for path in out.glob("*.plist"))
-        self.assertEqual(minutes, [1, 6, 11, 16, 21, 26, 31, 36, 41, 46, 51, 56])
-        self.assertTrue(all(minute % 5 == 1 for minute in minutes))
+        plists = [renderer.plistlib.loads(path.read_bytes()) for path in out.glob("*.plist")]
+        minutes = sorted(plist["StartCalendarInterval"]["Minute"] for plist in plists)
+        self.assertEqual(len(minutes), 12)
+        self.assertTrue(all(minute % 5 == 2 for minute in minutes), minutes)
+        for plist in plists:
+            self.assertRegex(plist["EnvironmentVariables"]["COORDINATOR_TASK"], "^Coordination mode: ")
+
+    def test_host_label_is_rendered_and_validated(self):
+        data = json.loads(self.config.read_text())
+        data["host_label"] = "jeff-ubuntu"
+        self.config.write_text(json.dumps(data))
+        with patch.object(renderer, "node22_bins", return_value=[self.root / "node-bin"]):
+            out = renderer.render(self.config, self.root / "label-stage", "macos")
+        env = renderer.plistlib.loads(next(out.glob("*.plist")).read_bytes())["EnvironmentVariables"]
+        self.assertEqual(env["COORDINATOR_HOST_LABEL"], "jeff-ubuntu")
+        for bad in ("bad label", "x" * 65, "", 7):
+            data["host_label"] = bad
+            self.config.write_text(json.dumps(data))
+            with self.assertRaisesRegex(ValueError, "host_label"):
+                renderer.render(self.config, self.root / "bad-label-stage", "macos")
+            self.assertFalse((self.root / "bad-label-stage").exists())
 
     def test_rejects_malformed_minutes_override(self):
         for minutes in ([1, 21], [1, 21, 21], [1, 21, 60], ["1", 21, 41], 5):
