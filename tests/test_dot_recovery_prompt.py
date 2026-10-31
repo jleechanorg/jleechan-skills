@@ -86,6 +86,19 @@ class CoordinatorWorkflowTests(unittest.TestCase):
         self.assertIn('declared mode', step)
         self.assertIn('the `main` periodic payload or fallback', step)
 
+    def test_exact_duplicate_window_is_bounded_and_time_based(self):
+        text = SKILL.read_text()
+        rule = text.split('### Exact-duplicate window', 1)[1].split('##', 1)[0]
+        self.assertIn('less than 10 minutes old', rule)
+        self.assertIn('An identical copy older than 10 minutes does **not** block the send', rule)
+        self.assertIn('a reply is not a reason to withhold the next scheduled nudge', rule)
+        self.assertIn('Different wording is never a duplicate', rule)
+        self.assertIn('smaller than the shortest configured gap between one account\'s runs', rule)
+        self.assertIn('send nothing instead of assuming a duplicate is old', rule)
+        step5 = text.split('5. **Inspect the shared composer and the recent payloads.**', 1)[1].split('6. **Submit', 1)[0]
+        self.assertIn('read the timestamp of the newest copy', step5)
+        self.assertIn('inspect read-only and report the uncertainty rather than guessing', step5)
+
     def test_coordinator_has_no_classifier_or_fallback(self):
         text = SKILL.read_text().lower()
         self.assertIn('without code-based routing', text)
