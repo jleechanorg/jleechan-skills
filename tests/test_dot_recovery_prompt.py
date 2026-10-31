@@ -104,6 +104,8 @@ class CoordinatorWorkflowTests(unittest.TestCase):
         rule = " ".join(text.split('## One active sender (host standdown)', 1)[1].split('## Exact-duplicate window', 1)[0].split())
         self.assertIn('Ownership is **fixed priority**, not recency', rule)
         self.assertIn('COORDINATOR_HOST_PRIORITY', rule)
+        self.assertIn('COORDINATOR_HOST_PRIORITIES', rule)
+        self.assertIn('unknown-peer: <label>', rule)
         self.assertIn('COORDINATOR_TAKEOVER_HOURS', rule)
         self.assertIn('1 is primary', rule)
         self.assertIn('If any message from a host with a *lower* priority number than this host is younger than the takeover window', rule)

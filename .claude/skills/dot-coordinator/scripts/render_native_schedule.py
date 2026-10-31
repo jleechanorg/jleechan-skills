@@ -72,6 +72,35 @@ def configured_minutes(config, host):
     return tuple(minutes)
 
 
+def configured_hosts(config, host_label, host_priority):
+    """Optional host map: label -> priority, so a run can rank peers it can only see by label."""
+    hosts = config.get("hosts")
+    if hosts is None:
+        if host_priority > 1 and not host_label:
+            fail("a host with host_priority above 1 requires host_label")
+        return host_priority, None
+    if not isinstance(hosts, list) or len(hosts) < 2:
+        fail("hosts must list at least two {label, priority} entries")
+    labels, priorities = set(), set()
+    for entry in hosts:
+        if not isinstance(entry, dict):
+            fail("hosts entries must be objects with label and priority")
+        label, priority = entry.get("label"), entry.get("priority")
+        if not isinstance(label, str) or not HOST_LABEL.fullmatch(label):
+            fail("hosts labels must match [A-Za-z0-9._-]{1,64}")
+        if type(priority) is not int or not 1 <= priority <= 9:
+            fail("hosts priorities must be whole numbers from 1 to 9")
+        if label in labels or priority in priorities:
+            fail("hosts must have unique labels and unique priorities")
+        labels.add(label)
+        priorities.add(priority)
+    if host_label not in labels:
+        fail("host_label must appear in hosts")
+    own = next(entry["priority"] for entry in hosts if entry["label"] == host_label)
+    ordered = sorted(hosts, key=lambda entry: entry["priority"])
+    return own, ",".join(f"{entry['label']}={entry['priority']}" for entry in ordered)
+
+
 def configured_cli(config):
     if "cli" in config and "pi_bin" in config:
         fail("configure either cli or pi_bin, not both")
@@ -129,6 +158,7 @@ def render(config_path, output, host):
     host_label = config.get("host_label")
     if host_label is not None and (not isinstance(host_label, str) or not HOST_LABEL.fullmatch(host_label)):
         fail("host_label must match [A-Za-z0-9._-]{1,64}")
+    host_priority, host_map = configured_hosts(config, host_label, host_priority)
     pi, cli_args = configured_cli(config)
     mcp = Path(config.get("chrome_devtools_mcp_js", "")).expanduser()
     if not pi.is_absolute() or not pi.is_file() or not os.access(pi, os.X_OK):
@@ -160,6 +190,7 @@ def render(config_path, output, host):
             **({"COORDINATOR_HOST_LABEL": host_label} if host_label else {}),
             "COORDINATOR_TAKEOVER_HOURS": str(takeover_hours),
             "COORDINATOR_HOST_PRIORITY": str(host_priority),
+            **({"COORDINATOR_HOST_PRIORITIES": host_map} if host_map else {}),
             "COORDINATOR_TASK": task,
             "PI_BIN": str(pi),
             "COORDINATOR_CLI_ARGS": json.dumps(cli_args),

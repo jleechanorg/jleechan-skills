@@ -234,6 +234,26 @@ class ScheduleRendererTests(unittest.TestCase):
             renderer.render(self.config, output, "macos")
         self.assertFalse(output.exists())
 
+    def test_host_map_ranks_peers_and_validates_uniqueness(self):
+        data = json.loads(self.config.read_text())
+        data["hosts"] = [{"label": "primary-host", "priority": 1}, {"label": "standby-host", "priority": 2}]
+        data["host_label"] = "standby-host"
+        self.config.write_text(json.dumps(data))
+        with patch.object(renderer, "node22_bins", return_value=[self.root / "node-bin"]):
+            out = renderer.render(self.config, self.root / "map-stage", "macos")
+        env = renderer.plistlib.loads(next(out.glob("*.plist")).read_bytes())["EnvironmentVariables"]
+        self.assertEqual(env["COORDINATOR_HOST_PRIORITIES"], "primary-host=1,standby-host=2")
+        self.assertEqual(env["COORDINATOR_HOST_PRIORITY"], "2")
+        for bad in ([{"label": "primary-host", "priority": 1}],
+                    [{"label": "a", "priority": 1}, {"label": "a", "priority": 2}],
+                    [{"label": "a", "priority": 1}, {"label": "b", "priority": 1}],
+                    [{"label": "a", "priority": 1}, {"label": "b", "priority": 2}]):
+            data["hosts"] = bad
+            self.config.write_text(json.dumps(data))
+            with self.assertRaisesRegex(ValueError, "hosts"):
+                renderer.render(self.config, self.root / "bad-map-stage", "macos")
+            self.assertFalse((self.root / "bad-map-stage").exists())
+
     def test_takeover_window_is_rendered_and_validated(self):
         data = json.loads(self.config.read_text())
         data["takeover_hours"] = 4
@@ -253,12 +273,18 @@ class ScheduleRendererTests(unittest.TestCase):
         data = json.loads(self.config.read_text())
         data["host_priority"] = 2
         data["takeover_hours"] = 4
+        data["host_label"] = "standby-host"
         self.config.write_text(json.dumps(data))
         with patch.object(renderer, "node22_bins", return_value=[self.root / "node-bin"]):
             out = renderer.render(self.config, self.root / "priority-stage", "macos")
         env = renderer.plistlib.loads(next(out.glob("*.plist")).read_bytes())["EnvironmentVariables"]
         self.assertEqual(env["COORDINATOR_HOST_PRIORITY"], "2")
         self.assertEqual(env["COORDINATOR_TAKEOVER_HOURS"], "4")
+        data.pop("host_label", None)
+        self.config.write_text(json.dumps(data))
+        with self.assertRaisesRegex(ValueError, "requires host_label"):
+            renderer.render(self.config, self.root / "no-label-stage", "macos")
+        self.assertFalse((self.root / "no-label-stage").exists())
         for bad in (0, 10, "1", 1.5, True):
             data["host_priority"] = bad
             self.config.write_text(json.dumps(data))

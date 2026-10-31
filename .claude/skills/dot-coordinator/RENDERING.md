@@ -23,9 +23,12 @@ The old single-service templates have been retired; the renderer uses the accoun
 
 The portable `cli` object selects an executable plus a literal argument array. The example uses `pi-lunaroute-adapter.sh` and configurable `--thinking medium`; it selects Pi's lunaroute provider with the alias-compatible `deepseek-4.1-flash` default and optional `PIL_MODEL`. An operator whose cheap lane is already wrapped locally may instead point `cli.executable` at that reviewed wrapper (for example a `pil` script that runs `pi --provider lunaroute --model deepseek-4.1-flash`) and keep `args` empty. `PI_EXECUTABLE` can select the real Pi executable. Legacy `pi_bin` remains supported with an empty prefix; specifying both is rejected. Both forms render `PI_BIN`, and the new form renders JSON in `COORDINATOR_CLI_ARGS`. A shell alias is not an executable: translate its existing executable/arguments to this configuration without sourcing shell startup files. Arguments containing spaces or shell metacharacters stay single literal arguments. The executable must accept the coordinator's existing Pi/MCP flags; this is not automatic translation for arbitrary CLIs. Do not put keys in argv/config or copy embedded secret fallbacks; retain the existing environment/credential helper. Check noninteractive PATH and provider readiness separately on each host before activation; no new credentials or global defaults are implied. Existing schedules stay unchanged until separately reviewed activation.
 
-Several hosts may schedule the same accounts. Sending authority is arbitrated inside the run, not by
-configuration: SKILL.md's one-active-sender rule makes a host stand down while another machine's stamped
-message is less than two hours old, and that rule depends on the disjoint per-host minutes above.
+Several hosts may schedule the same accounts. Sending authority is configured, not inferred: `host_label`
+(required once `host_priority` is above 1) is the stable name every message carries, `host_priority` ranks
+this host (1 = primary), `takeover_hours` (default 2) is how long a higher-ranked host must be silent before
+this one may speak, and the optional `hosts` list (`[{"label": ..., "priority": ...}]`, unique labels and
+priorities, this host included) renders `COORDINATOR_HOST_PRIORITIES` so a run can rank peers it sees only
+as labels. Hosts must also use disjoint per-host minutes (above) so a standby starts after the primary's slot.
 
 No new attempt receipts or task state are written. Old unresolved-send records and holds are preserved archival evidence; the coordinator no longer reads them or uses them to block a send. Reconcile them before separately approved cutover, not as an ongoing coordinator safeguard. Do not delete them automatically. There is no exactly-once guarantee.
 

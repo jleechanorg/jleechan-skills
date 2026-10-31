@@ -207,7 +207,15 @@ well-formed stamp line. Compare host labels case-insensitively: `Primary-Host` a
 machine, and a label that differs only in case must never be read as a peer. A Dot reply, an assistant turn, quoted text or a line that merely mentions `Sent:`
 never counts, whatever it claims.
 
-**Deciding.** Read the sender label of every coordinator message in the last 20 rendered messages, then:
+**Ranking peers.** `COORDINATOR_HOST_PRIORITIES` (config `hosts`) is the rendered map `label=priority,...`
+covering every host that runs this skill for these accounts, this host included. Read a peer's rank from that
+map, never from its name, and never guess: the stamp line carries a label only. A peer whose label is missing
+from the map has an unknown rank - it never blocks a takeover, and the run reports `unknown-peer: <label>` so
+the operator fixes the map instead of relying on luck. A map with duplicate labels or duplicate priorities is
+a configuration error the renderer refuses.
+
+**Deciding.** Read the sender label of every coordinator message in the last 20 rendered messages, look each
+peer up in `COORDINATOR_HOST_PRIORITIES`, then:
 
 - **A higher-priority host spoke within the window - wait.** If any message from a host with a *lower*
   priority number than this host is younger than the takeover window, send nothing, leave the thread alone,
