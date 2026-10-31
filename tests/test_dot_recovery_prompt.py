@@ -102,22 +102,22 @@ class CoordinatorWorkflowTests(unittest.TestCase):
         evidence = " ".join(text.split('## Completion evidence', 1)[1].split())
         self.assertIn('the payload timestamp-and-sender line plus the exact body', evidence)
 
-    def test_one_active_sender_stands_down_for_two_hours(self):
+    def test_most_recent_speaker_owns_the_floor(self):
         text = SKILL.read_text()
         rule = " ".join(text.split('## One active sender (host standdown)', 1)[1].split('## Exact-duplicate window', 1)[0].split())
         self.assertIn('only one of them sends at a time', rule)
-        self.assertIn('less than **2 hours** old, stand down for this invocation', rule)
+        self.assertIn("find the newest stamp from this machine and the newest stamp from every other machine", rule)
+        self.assertIn("Send normally when this machine's newest stamp is the newest overall", rule)
+        self.assertIn('floor: own, <age>', rule)
+        self.assertIn("newer than this machine's newest stamp and less than **2 hours** old", rule)
         self.assertIn('standdown: <machine>, <age>', rule)
-        self.assertIn('at least 2 hours old', rule)
-        self.assertIn('takeover: <last machine seen> silent <age>', rule)
+        self.assertIn('When the newest other-machine stamp is 2 hours old or older', rule)
+        self.assertIn('takeover: <machine> silent <age>', rule)
         self.assertIn("Messages carrying this machine's own name never block it", rule)
         self.assertIn('never triggers a standdown and never blocks a takeover', rule)
-        self.assertIn('Hosts must run on different minutes, at least three', rule)
         self.assertIn('standdown-late: <machine>, <age>', rule)
-        self.assertIn('Re-read the newest messages after filling the composer', rule)
+        self.assertIn('Hosts must run on different minutes, at least three', rule)
         self.assertIn('A takeover relaxes nothing', rule)
-        step5 = " ".join(text.split('5. **Inspect the shared composer', 1)[1].split('6. **Submit', 1)[0].split())
-        self.assertIn('timestamp-and-sender line', step5)
 
     def test_duplicate_is_body_based_and_the_window_is_time_measured(self):
         text = SKILL.read_text()

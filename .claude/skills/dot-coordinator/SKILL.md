@@ -189,31 +189,35 @@ keeps its exact bytes below the line.
 ## One active sender (host standdown)
 
 Several machines may schedule runs for the same accounts, but only one of them sends at a time. Before
-sending, read the sender line of every coordinator message among the last 20 rendered messages and
-compare it with this run's machine name.
+sending, read the sender line of every coordinator message among the last 20 rendered messages and find
+the newest stamp from this machine and the newest stamp from every other machine.
 
-- **Another machine is active - wait.** If any message from a different machine is less than **2
-  hours** old, stand down for this invocation: send nothing, leave the thread alone, and report
-  `standdown: <machine>, <age>`. The run retries at its own next scheduled slot; it does not shorten
-  the window, retry early, or treat a reply, an acknowledgment or changed wording as permission.
-- **Takeover.** When the newest message from every other machine is at least 2 hours old - or no
-  other-machine message is visible - this run owns the floor and may send normally. Report
-  `takeover: <last machine seen> silent <age>`.
-- **Own machine.** Messages carrying this machine's own name never block it.
+- **This machine owns the floor - send.** Send normally when this machine's newest stamp is the newest
+  overall, or when no other-machine stamp is visible. Report `floor: own, <age>`. A machine that keeps
+  speaking keeps the floor; that is what stops two hosts from trading the conversation.
+- **Another machine owns the floor - wait.** If another machine's newest stamp is newer than this
+  machine's newest stamp and less than **2 hours** old, stand down for this invocation: send nothing,
+  leave the thread alone, report `standdown: <machine>, <age>`, and try again at the next scheduled slot.
+  Do not shorten the window, retry early, or treat a reply, an acknowledgment or changed wording as
+  permission.
+- **Takeover after silence.** When the newest other-machine stamp is 2 hours old or older, this machine
+  may send even if that stamp was the newest overall. Report `takeover: <machine> silent <age>`. This is
+  how a machine whose peer died resumes sending without any shared lock.
+- **Own machine.** Messages carrying this machine's own name never block it and never count as the other
+  machine's activity.
 - **Unreadable or legacy copies.** A coordinator message with no sender line, or one this run cannot
-  parse, is not evidence of another machine: it never triggers a standdown and never blocks a takeover.
-- **Re-check immediately before submitting.** The rendered thread can lag a message that another machine
-  just sent. Re-read the newest messages after filling the composer and before the submit: if a stamped
-  message from another machine appeared since the first read, stop without sending and report
-  `standdown-late: <machine>, <age>`. A one-minute separation is not enough for that lag, which is why the
-  offset below is larger.
+  parse, is not evidence about any machine: it never triggers a standdown and never blocks a takeover.
+- **Re-check immediately before submitting.** The rendered thread can lag a message another machine just
+  sent. Re-read the newest messages after filling the composer and before the submit: if another
+  machine's newer stamped message appeared since the first read, or its own newer message vanished, stop
+  without sending and report `standdown-late: <machine>, <age>`.
 - **Disjoint slots with a real offset are required.** Hosts must run on different minutes, at least three
   minutes apart (the renderer's `minutes` field sets them), so a standby starts after the active machine's
   slot and has time to see its message. Two hosts on the same or adjacent minutes can both send before
   either message renders; that is a configuration error, not a judgment call.
 
-A takeover relaxes nothing: identity binding, destination verification, one submit per invocation and
-the duplicate window still apply.
+A takeover relaxes nothing: identity binding, destination verification, one submit per invocation and the
+duplicate window still apply.
 
 ## Exact-duplicate window
 
