@@ -168,7 +168,7 @@ Every outbound message begins with one timestamp-and-sender line, a blank line, 
 payload body:
 
 ```
-Sent: 2026-10-30T21:40Z UTC from jeffreys-macbook-pro
+Sent: 2026-10-30T21:40Z UTC from primary-host
 
 <the selected payload body, unchanged>
 ```
@@ -197,7 +197,7 @@ hosts, and `COORDINATOR_TAKEOVER_HOURS` (config `takeover_hours`, default 2) is 
 host must be silent before a lower-priority one may speak. Never hardcode, guess or reorder either value.
 
 **What counts as evidence.** Only a user-role message from the bound identity whose *first* line is a
-well-formed stamp line. Compare host labels case-insensitively: `Jeff-Ubuntu` and `jeff-ubuntu` are the same
+well-formed stamp line. Compare host labels case-insensitively: `Primary-Host` and `primary-host` are the same
 machine, and a label that differs only in case must never be read as a peer. A Dot reply, an assistant turn, quoted text or a line that merely mentions `Sent:`
 never counts, whatever it claims.
 

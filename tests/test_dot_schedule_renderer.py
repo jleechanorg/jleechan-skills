@@ -204,12 +204,12 @@ class ScheduleRendererTests(unittest.TestCase):
 
     def test_host_label_is_rendered_and_validated(self):
         data = json.loads(self.config.read_text())
-        data["host_label"] = "jeff-ubuntu"
+        data["host_label"] = "host-b"
         self.config.write_text(json.dumps(data))
         with patch.object(renderer, "node22_bins", return_value=[self.root / "node-bin"]):
             out = renderer.render(self.config, self.root / "label-stage", "macos")
         env = renderer.plistlib.loads(next(out.glob("*.plist")).read_bytes())["EnvironmentVariables"]
-        self.assertEqual(env["COORDINATOR_HOST_LABEL"], "jeff-ubuntu")
+        self.assertEqual(env["COORDINATOR_HOST_LABEL"], "host-b")
         for bad in ("bad label", "x" * 65, "", 7):
             data["host_label"] = bad
             self.config.write_text(json.dumps(data))

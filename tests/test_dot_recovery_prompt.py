@@ -92,7 +92,7 @@ class CoordinatorWorkflowTests(unittest.TestCase):
         self.assertIn('date -u +%Y-%m-%dT%H:%MZ', rule)
         self.assertIn('COORDINATOR_HOST_LABEL', rule)
         self.assertIn('otherwise `hostname -s`', rule)
-        self.assertIn('Sent: 2026-10-30T21:40Z UTC from jeffreys-macbook-pro', rule)
+        self.assertIn('Sent: 2026-10-30T21:40Z UTC from primary-host', rule)
         self.assertIn('^Sent: [0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}Z UTC from [A-Za-z0-9._-]{1,64}$', rule)
         self.assertIn('that regex matches the complete line', rule)
         self.assertIn('send nothing and report that blocker', rule)
