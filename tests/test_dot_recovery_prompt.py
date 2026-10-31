@@ -86,21 +86,35 @@ class CoordinatorWorkflowTests(unittest.TestCase):
         self.assertIn('declared mode', step)
         self.assertIn('the `main` periodic payload or fallback', step)
 
-    def test_payload_timestamp_is_captured_once_and_required(self):
+    def test_payload_line_carries_captured_minute_and_machine(self):
         text = SKILL.read_text()
-        rule = text.split('## Payload timestamp', 1)[1].split('## Exact-duplicate window', 1)[0]
-        flat = " ".join(rule.split())
-        self.assertIn('date -u +%Y-%m-%dT%H:%MZ', flat)
-        self.assertIn('Sent: 2026-10-30T21:40Z UTC', flat)
-        self.assertIn('^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}Z$', flat)
-        self.assertIn('Produce that line once per invocation', flat)
-        self.assertIn('send nothing and report that blocker', flat)
-        self.assertIn("It is the only permitted addition", flat)
-        self.assertIn('a private payload keeps its exact bytes below the line', flat)
+        rule = " ".join(text.split('## Payload timestamp and sender', 1)[1].split('## One active sender', 1)[0].split())
+        self.assertIn('date -u +%Y-%m-%dT%H:%MZ', rule)
+        self.assertIn('hostname -s', rule)
+        self.assertIn('Sent: 2026-10-30T21:40Z UTC from jeffreys-macbook-pro', rule)
+        self.assertIn('^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}Z from [A-Za-z0-9._-]{1,64}$', rule)
+        self.assertIn('Produce the line once per invocation', rule)
+        self.assertIn('send nothing and report that blocker', rule)
+        self.assertIn('It is the only permitted addition', rule)
         step6 = " ".join(text.split('6. **Submit at most once', 1)[1].split('7. **Report', 1)[0].split())
-        self.assertIn('prefixed by exactly one payload timestamp line', step6)
+        self.assertIn('prefixed by exactly one payload timestamp-and-sender line', step6)
         evidence = " ".join(text.split('## Completion evidence', 1)[1].split())
-        self.assertIn('the payload timestamp line plus the exact body', evidence)
+        self.assertIn('the payload timestamp-and-sender line plus the exact body', evidence)
+
+    def test_one_active_sender_stands_down_for_two_hours(self):
+        text = SKILL.read_text()
+        rule = " ".join(text.split('## One active sender (host standdown)', 1)[1].split('## Exact-duplicate window', 1)[0].split())
+        self.assertIn('only one of them sends at a time', rule)
+        self.assertIn('less than **2 hours** old, stand down for this invocation', rule)
+        self.assertIn('standdown: <machine>, <age>', rule)
+        self.assertIn('at least 2 hours old', rule)
+        self.assertIn('takeover: <last machine seen> silent <age>', rule)
+        self.assertIn("Messages carrying this machine's own name never block it", rule)
+        self.assertIn('never triggers a standdown and never blocks a takeover', rule)
+        self.assertIn("Hosts must run on different minutes", rule)
+        self.assertIn('A takeover relaxes nothing', rule)
+        step5 = " ".join(text.split('5. **Inspect the shared composer', 1)[1].split('6. **Submit', 1)[0].split())
+        self.assertIn('timestamp-and-sender line', step5)
 
     def test_duplicate_is_body_based_and_the_window_is_time_measured(self):
         text = SKILL.read_text()
@@ -116,8 +130,6 @@ class CoordinatorWorkflowTests(unittest.TestCase):
         self.assertIn('smaller than the shortest configured gap between one account\'s runs', rule)
         step4 = " ".join(text.split('4. **Stay a reminder.**', 1)[1].split('5. **Inspect', 1)[0].split())
         self.assertIn('the last 20 rendered messages in either mode', step4)
-        step5 = " ".join(text.split('5. **Inspect the shared composer', 1)[1].split('6. **Submit', 1)[0].split())
-        self.assertIn('the timestamp of the newest copy', step5)
 
     def test_coordinator_has_no_classifier_or_fallback(self):
         text = SKILL.read_text().lower()

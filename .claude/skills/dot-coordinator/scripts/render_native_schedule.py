@@ -60,6 +60,17 @@ def scheduled_runs(rows):
     return runs
 
 
+def configured_minutes(config, host):
+    """Host cadence: an explicit `minutes` list wins over the platform default."""
+    default = MAC_MINUTES if host == "macos" else LINUX_MINUTES
+    minutes = config.get("minutes", list(default))
+    if (not isinstance(minutes, list) or len(minutes) != 3
+            or any(type(minute) is not int or not 0 <= minute <= 59 for minute in minutes)
+            or len(set(minutes)) != 3):
+        fail("minutes must be three distinct whole minutes from 0 to 59")
+    return tuple(minutes)
+
+
 def configured_cli(config):
     if "cli" in config and "pi_bin" in config:
         fail("configure either cli or pi_bin, not both")
@@ -87,7 +98,7 @@ def render(config_path, output, host):
     config = private_json(config_path)
     if config.get("version") != 1 or config.get("host_role") != host:
         fail("configuration version or host role does not match")
-    minutes = MAC_MINUTES if host == "macos" else LINUX_MINUTES
+    minutes = configured_minutes(config, host)
     rows = config.get("accounts")
     if not isinstance(rows, list) or len(rows) != 3:
         fail("exactly three ordered account bindings are required")

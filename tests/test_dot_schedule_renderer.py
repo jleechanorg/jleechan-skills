@@ -185,6 +185,30 @@ class ScheduleRendererTests(unittest.TestCase):
         self.assertIn("SKILL.md", renderer.DIRECTIVES["proceed"])
         self.assertIn("last 20 rendered messages", renderer.DIRECTIVES["proceed"])
 
+    def test_explicit_minutes_override_lets_two_hosts_own_disjoint_slots(self):
+        data = json.loads(self.config.read_text())
+        data["minutes"] = [1, 21, 41]
+        for index, row in enumerate(data["accounts"]):
+            row["minute"] = [1, 21, 41][index]
+            row["proceed_minutes"] = [[16, 31, 46], [36, 51, 6], [56, 11, 26]][index]
+        self.config.write_text(json.dumps(data))
+        with patch.object(renderer, "node22_bins", return_value=[self.root / "node-bin"]):
+            out = renderer.render(self.config, self.root / "offset-stage", "macos")
+        minutes = sorted(renderer.plistlib.loads(path.read_bytes())["StartCalendarInterval"]["Minute"]
+                         for path in out.glob("*.plist"))
+        self.assertEqual(minutes, [1, 6, 11, 16, 21, 26, 31, 36, 41, 46, 51, 56])
+        self.assertTrue(all(minute % 5 == 1 for minute in minutes))
+
+    def test_rejects_malformed_minutes_override(self):
+        for minutes in ([1, 21], [1, 21, 21], [1, 21, 60], ["1", 21, 41], 5):
+            data = json.loads(self.config.read_text())
+            data["minutes"] = minutes
+            self.config.write_text(json.dumps(data))
+            with self.assertRaisesRegex(ValueError, "three distinct whole minutes"):
+                renderer.render(self.config, self.root / "bad-minutes-stage", "macos")
+            self.assertFalse((self.root / "bad-minutes-stage").exists())
+            self.write_config("macos")
+
     def test_rejects_wrong_cadence_or_host_before_output(self):
         self.write_config("macos", (10, 20, 40))
         output = self.root / "bad-stage"
