@@ -99,6 +99,19 @@ class CoordinatorWorkflowTests(unittest.TestCase):
         self.assertIn('read the timestamp of the newest copy', step5)
         self.assertIn('inspect read-only and report the uncertainty rather than guessing', step5)
 
+    def test_every_payload_carries_one_captured_utc_timestamp(self):
+        text = SKILL.read_text()
+        rule = text.split('### Payload timestamp', 1)[1].split('### Exact-duplicate window', 1)[0]
+        self.assertIn('date -u +%Y-%m-%dT%H:%MZ', rule)
+        self.assertIn('Sent: 2026-10-30T21:40Z UTC', rule)
+        self.assertIn('^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}Z$', rule)
+        self.assertIn('Produce that line once per invocation', rule)
+        self.assertIn('send nothing and report that blocker', rule)
+        self.assertIn('The\ntimestamp is the only permitted addition', rule)
+        self.assertIn('a private\npayload keeps its exact bytes below the timestamp line', rule)
+        window = text.split('### Exact-duplicate window', 1)[1].split('##', 1)[0]
+        self.assertIn('same timestamp line and same body', window)
+
     def test_coordinator_has_no_classifier_or_fallback(self):
         text = SKILL.read_text().lower()
         self.assertIn('without code-based routing', text)
