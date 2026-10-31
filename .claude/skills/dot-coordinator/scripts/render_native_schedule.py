@@ -76,8 +76,8 @@ def configured_hosts(config, host_label, host_priority):
     """Optional host map: label -> priority, so a run can rank peers it can only see by label."""
     hosts = config.get("hosts")
     if hosts is None:
-        if host_priority > 1 and not host_label:
-            fail("a host with host_priority above 1 requires host_label")
+        if host_priority > 1:
+            fail("a host with host_priority above 1 requires host_label and a complete hosts map")
         return host_priority, None
     if not isinstance(hosts, list) or len(hosts) < 2:
         fail("hosts must list at least two {label, priority} entries")
@@ -90,13 +90,13 @@ def configured_hosts(config, host_label, host_priority):
             fail("hosts labels must match [A-Za-z0-9._-]{1,64}")
         if type(priority) is not int or not 1 <= priority <= 9:
             fail("hosts priorities must be whole numbers from 1 to 9")
-        if label in labels or priority in priorities:
-            fail("hosts must have unique labels and unique priorities")
-        labels.add(label)
+        if label.lower() in labels or priority in priorities:
+            fail("hosts must have unique labels (case-insensitive) and unique priorities")
+        labels.add(label.lower())
         priorities.add(priority)
-    if host_label not in labels:
+    if host_label.lower() not in labels:
         fail("host_label must appear in hosts")
-    own = next(entry["priority"] for entry in hosts if entry["label"] == host_label)
+    own = next(entry["priority"] for entry in hosts if entry["label"].lower() == host_label.lower())
     ordered = sorted(hosts, key=lambda entry: entry["priority"])
     return own, ",".join(f"{entry['label']}={entry['priority']}" for entry in ordered)
 

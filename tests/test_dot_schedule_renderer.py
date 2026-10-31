@@ -247,7 +247,8 @@ class ScheduleRendererTests(unittest.TestCase):
         for bad in ([{"label": "primary-host", "priority": 1}],
                     [{"label": "a", "priority": 1}, {"label": "a", "priority": 2}],
                     [{"label": "a", "priority": 1}, {"label": "b", "priority": 1}],
-                    [{"label": "a", "priority": 1}, {"label": "b", "priority": 2}]):
+                    [{"label": "a", "priority": 1}, {"label": "b", "priority": 2}],
+                    [{"label": "a", "priority": 1}, {"label": "A", "priority": 2}]):
             data["hosts"] = bad
             self.config.write_text(json.dumps(data))
             with self.assertRaisesRegex(ValueError, "hosts"):
@@ -274,15 +275,16 @@ class ScheduleRendererTests(unittest.TestCase):
         data["host_priority"] = 2
         data["takeover_hours"] = 4
         data["host_label"] = "standby-host"
+        data["hosts"] = [{"label": "primary-host", "priority": 1}, {"label": "standby-host", "priority": 2}]
         self.config.write_text(json.dumps(data))
         with patch.object(renderer, "node22_bins", return_value=[self.root / "node-bin"]):
             out = renderer.render(self.config, self.root / "priority-stage", "macos")
         env = renderer.plistlib.loads(next(out.glob("*.plist")).read_bytes())["EnvironmentVariables"]
         self.assertEqual(env["COORDINATOR_HOST_PRIORITY"], "2")
         self.assertEqual(env["COORDINATOR_TAKEOVER_HOURS"], "4")
-        data.pop("host_label", None)
+        data.pop("hosts", None)
         self.config.write_text(json.dumps(data))
-        with self.assertRaisesRegex(ValueError, "requires host_label"):
+        with self.assertRaisesRegex(ValueError, "requires host_label and a complete hosts map"):
             renderer.render(self.config, self.root / "no-label-stage", "macos")
         self.assertFalse((self.root / "no-label-stage").exists())
         for bad in (0, 10, "1", 1.5, True):

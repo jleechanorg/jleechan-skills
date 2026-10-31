@@ -225,9 +225,13 @@ peer up in `COORDINATOR_HOST_PRIORITIES`, then:
 - **No higher-priority host within the window - send.** Same-or-lower-priority messages never block, and this
   host owns the conversation. Report `floor: own, priority <n>` with the age of the newest higher-priority
   message seen (or `none visible`).
-- **Takeover.** When the newest higher-priority message is at least `COORDINATOR_TAKEOVER_HOURS` old, or none
-  is visible, send and report `takeover: <machine> silent <age>`. That is how a standby activates when the
-  primary machine died, was retired, or keeps failing, without any shared lock or lease.
+- **Takeover.** When the newest higher-priority message is at least `COORDINATOR_TAKEOVER_HOURS` old, this host
+  may send and report `takeover: <machine> silent <age>` - that is how it activates when the primary died, was
+  retired, or keeps failing, without any shared lock or lease. **Coverage must span the window.** A busy thread
+  can push the primary's message past the last 20 turns, so scan back until a higher-priority message appears or
+  the oldest rendered message is itself at least `COORDINATOR_TAKEOVER_HOURS` old. If neither holds, the scan
+  cannot establish silence: send nothing and report `coverage-incomplete`. A short window never authorizes a
+  takeover, and its absence never counts as silence.
 - **Own machine.** Messages carrying this machine's own label never block it and never count as peer activity.
 - **Unknown evidence never decides.** An unparseable stamp, a future stamp or a message without a label is
   unknown: it never triggers a standdown, never blocks a takeover, and must be reported.

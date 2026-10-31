@@ -106,6 +106,7 @@ class CoordinatorWorkflowTests(unittest.TestCase):
         self.assertIn('COORDINATOR_HOST_PRIORITY', rule)
         self.assertIn('COORDINATOR_HOST_PRIORITIES', rule)
         self.assertIn('unknown-peer: <label>', rule)
+        self.assertIn('coverage-incomplete', rule)
         self.assertIn('COORDINATOR_TAKEOVER_HOURS', rule)
         self.assertIn('1 is primary', rule)
         self.assertIn('If any message from a host with a *lower* priority number than this host is younger than the takeover window', rule)
