@@ -179,8 +179,10 @@ pre-submit re-check and the readback, and report it. If either command fails, or
 match `^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}Z from [A-Za-z0-9._-]{1,64}$`, send nothing and
 report that blocker. Never guess, round or edit either field by hand.
 
-Both fields describe when and where the message was captured, so the line can precede delivery by the
-run's own duration. It is the only permitted addition: payload wording, private overrides, the capacity
+A blank line separates the stamp from the body when the composer keeps it; a rich-text composer may collapse
+it to a single line break. That collapse is not a reason to retry or to rewrite the message - report it and
+verify the body bytes instead. Both fields describe when and where the message was captured, so the line can
+precede delivery by the run's own duration. It is the only permitted addition: payload wording, private overrides, the capacity
 block, authority sentences and every identity/destination check stay unchanged, and a private payload
 keeps its exact bytes below the line.
 
@@ -200,10 +202,15 @@ compare it with this run's machine name.
 - **Own machine.** Messages carrying this machine's own name never block it.
 - **Unreadable or legacy copies.** A coordinator message with no sender line, or one this run cannot
   parse, is not evidence of another machine: it never triggers a standdown and never blocks a takeover.
-- **Disjoint slots are required.** Hosts must run on different minutes (the renderer's `minutes` field
-  sets them), so a standby always starts after the active machine's slot and can see its message. Two
-  hosts on the same minute can both send before either message exists; that is a configuration error,
-  not a judgment call.
+- **Re-check immediately before submitting.** The rendered thread can lag a message that another machine
+  just sent. Re-read the newest messages after filling the composer and before the submit: if a stamped
+  message from another machine appeared since the first read, stop without sending and report
+  `standdown-late: <machine>, <age>`. A one-minute separation is not enough for that lag, which is why the
+  offset below is larger.
+- **Disjoint slots with a real offset are required.** Hosts must run on different minutes, at least three
+  minutes apart (the renderer's `minutes` field sets them), so a standby starts after the active machine's
+  slot and has time to see its message. Two hosts on the same or adjacent minutes can both send before
+  either message renders; that is a configuration error, not a judgment call.
 
 A takeover relaxes nothing: identity binding, destination verification, one submit per invocation and
 the duplicate window still apply.
