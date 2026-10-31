@@ -16,8 +16,8 @@ thin dispatchers, not protocol dependencies; an absent global
 Before executing, read both mandatory companions completely, resolving these paths
 relative to this skill (on catalog-only runtimes, resolve each exact companion name
 and read its returned definition):
-- `../pr-blocker-min-repro/SKILL.md`
-- `../integration-verification/SKILL.md`
+- `../pr-blocker-min-repro/SKILL.md`: BYOK-specific starter commands and bead note patterns.
+- `../integration-verification/SKILL.md`: minimum evidence completeness.
 
 If either companion is missing, report the missing dependency and do not claim the
 workflow is complete. Discover actual project runners before using companion examples;
@@ -58,7 +58,6 @@ python3 -m pytest $PROJECT_ROOT/tests/test_end2end/test_[feature]_end2end.py -q
 2. Start at Layer 1. Move upward only if the current layer passes.
 3. Keep provider/user isolation so parallel runs do not collide.
 4. Record absolute evidence paths after each executed layer.
-5. Report the first layer that reproduces the issue; do not run unnecessary upper layers.
 
 ## Evidence Requirements
 
@@ -73,11 +72,6 @@ After each test run, capture:
   - End2end fail → integration/API
   - MCP fail → server protocol
   - Browser fail → UI/frontend
-
-## References
-
-- `.claude/skills/pr-blocker-min-repro/SKILL.md` for BYOK-specific starter commands and bead note patterns.
-- `.claude/skills/integration-verification/SKILL.md` for minimum evidence completeness.
 
 ## Integration claim gate
 

@@ -41,6 +41,19 @@ installs only with `--profile web` or `--with web-advice`.
 
 Strategy source: [“Shift left, shift right — a portable skill system”](https://docs.google.com/presentation/d/1rGk2ZUIlJw3AkVJmJbdVB5OqAixR6M_xp7lc6lP2awA/edit?slide=id.gogSlide1787597443235634000#slide=id.gogSlide1787597443235634000).
 
+### PR workflow entry point
+
+Start with [PR Workflow Manager](.claude/skills/pr-workflow-manager/SKILL.md)
+when opening or driving a PR. It discovers repository-specific instructions,
+verifies source ownership and the branch, and uses
+[PR Lifecycle](.claude/skills/pr-lifecycle/SKILL.md) as the shared contract rather
+than duplicating its rules. The existing
+[`pr-workflow` alias](.claude/skills/pr-workflow/SKILL.md) points to this entry point.
+
+The manager links useful highlighted skills to the problems they help solve;
+they are not an extra mandatory checklist. Install the PR workflow together
+with the six highlights using `--profile highlights-prw` (see [installation](INSTALL.md)).
+
 ---
 
 ## Intelligent self-setup (any platform)
