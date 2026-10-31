@@ -185,12 +185,86 @@ class ScheduleRendererTests(unittest.TestCase):
         self.assertIn("SKILL.md", renderer.DIRECTIVES["proceed"])
         self.assertIn("last 20 rendered messages", renderer.DIRECTIVES["proceed"])
 
+    def test_explicit_minutes_override_offsets_a_second_host_by_seven_minutes(self):
+        data = json.loads(self.config.read_text())
+        data["minutes"] = [7, 12, 2]
+        layout = {0: ([7], [22, 37, 52]), 1: ([12], [27, 42, 57]), 2: ([2], [17, 32, 47])}
+        for index, row in enumerate(data["accounts"]):
+            row["minute"] = layout[index][0][0]
+            row["proceed_minutes"] = layout[index][1]
+        self.config.write_text(json.dumps(data))
+        with patch.object(renderer, "node22_bins", return_value=[self.root / "node-bin"]):
+            out = renderer.render(self.config, self.root / "offset-stage", "macos")
+        plists = [renderer.plistlib.loads(path.read_bytes()) for path in out.glob("*.plist")]
+        minutes = sorted(plist["StartCalendarInterval"]["Minute"] for plist in plists)
+        self.assertEqual(len(minutes), 12)
+        self.assertTrue(all(minute % 5 == 2 for minute in minutes), minutes)
+        for plist in plists:
+            self.assertRegex(plist["EnvironmentVariables"]["COORDINATOR_TASK"], "^Coordination mode: ")
+
+    def test_host_label_is_rendered_and_validated(self):
+        data = json.loads(self.config.read_text())
+        data["host_label"] = "host-b"
+        self.config.write_text(json.dumps(data))
+        with patch.object(renderer, "node22_bins", return_value=[self.root / "node-bin"]):
+            out = renderer.render(self.config, self.root / "label-stage", "macos")
+        env = renderer.plistlib.loads(next(out.glob("*.plist")).read_bytes())["EnvironmentVariables"]
+        self.assertEqual(env["COORDINATOR_HOST_LABEL"], "host-b")
+        for bad in ("bad label", "x" * 65, "", 7):
+            data["host_label"] = bad
+            self.config.write_text(json.dumps(data))
+            with self.assertRaisesRegex(ValueError, "host_label"):
+                renderer.render(self.config, self.root / "bad-label-stage", "macos")
+            self.assertFalse((self.root / "bad-label-stage").exists())
+
+    def test_rejects_malformed_minutes_override(self):
+        for minutes in ([1, 21], [1, 21, 21], [1, 21, 60], ["1", 21, 41], 5):
+            data = json.loads(self.config.read_text())
+            data["minutes"] = minutes
+            self.config.write_text(json.dumps(data))
+            with self.assertRaisesRegex(ValueError, "three distinct whole minutes"):
+                renderer.render(self.config, self.root / "bad-minutes-stage", "macos")
+            self.assertFalse((self.root / "bad-minutes-stage").exists())
+            self.write_config("macos")
+
     def test_rejects_wrong_cadence_or_host_before_output(self):
         self.write_config("macos", (10, 20, 40))
         output = self.root / "bad-stage"
         with self.assertRaisesRegex(ValueError, "ordered host cadence"):
             renderer.render(self.config, output, "macos")
         self.assertFalse(output.exists())
+
+    def test_takeover_window_is_rendered_and_validated(self):
+        data = json.loads(self.config.read_text())
+        data["takeover_hours"] = 4
+        self.config.write_text(json.dumps(data))
+        with patch.object(renderer, "node22_bins", return_value=[self.root / "node-bin"]):
+            out = renderer.render(self.config, self.root / "window-stage", "macos")
+        env = renderer.plistlib.loads(next(out.glob("*.plist")).read_bytes())["EnvironmentVariables"]
+        self.assertEqual(env["COORDINATOR_TAKEOVER_HOURS"], "4")
+        for bad in (0, 49, "4", 4.5, True):
+            data["takeover_hours"] = bad
+            self.config.write_text(json.dumps(data))
+            with self.assertRaisesRegex(ValueError, "takeover_hours"):
+                renderer.render(self.config, self.root / "bad-window-stage", "macos")
+            self.assertFalse((self.root / "bad-window-stage").exists())
+
+    def test_host_priority_is_rendered_and_validated(self):
+        data = json.loads(self.config.read_text())
+        data["host_priority"] = 2
+        data["takeover_hours"] = 4
+        self.config.write_text(json.dumps(data))
+        with patch.object(renderer, "node22_bins", return_value=[self.root / "node-bin"]):
+            out = renderer.render(self.config, self.root / "priority-stage", "macos")
+        env = renderer.plistlib.loads(next(out.glob("*.plist")).read_bytes())["EnvironmentVariables"]
+        self.assertEqual(env["COORDINATOR_HOST_PRIORITY"], "2")
+        self.assertEqual(env["COORDINATOR_TAKEOVER_HOURS"], "4")
+        for bad in (0, 10, "1", 1.5, True):
+            data["host_priority"] = bad
+            self.config.write_text(json.dumps(data))
+            with self.assertRaisesRegex(ValueError, "host_priority"):
+                renderer.render(self.config, self.root / "bad-priority-stage", "macos")
+            self.assertFalse((self.root / "bad-priority-stage").exists())
 
     def test_rejects_a_task_that_declares_its_own_mode(self):
         for task in ("Coordination mode: proceed. Do the thing", "coordination  MODE :main. x"):

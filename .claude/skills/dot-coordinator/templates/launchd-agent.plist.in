@@ -13,6 +13,9 @@
     <key>DOT_EXPECTED_IDENTITY_SHA256</key><string>@IDENTITY_SHA256@</string>
     <key>COORDINATOR_TASK</key><string>@TASK@</string>
     <key>COORDINATOR_MODE</key><string>@MODE@</string>
+    <key>COORDINATOR_HOST_LABEL</key><string>@HOST_LABEL@</string>
+    <key>COORDINATOR_TAKEOVER_HOURS</key><string>@TAKEOVER_HOURS@</string>
+    <key>COORDINATOR_HOST_PRIORITY</key><string>@HOST_PRIORITY@</string>
     <key>PI_BIN</key><string>@PI_BIN@</string>
     <key>CHROME_DEVTOOLS_MCP_JS</key><string>@MCP_JS@</string>
     <key>PATH</key><string>@PATH@</string>
