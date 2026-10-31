@@ -86,31 +86,38 @@ class CoordinatorWorkflowTests(unittest.TestCase):
         self.assertIn('declared mode', step)
         self.assertIn('the `main` periodic payload or fallback', step)
 
-    def test_exact_duplicate_window_is_bounded_and_time_based(self):
+    def test_payload_timestamp_is_captured_once_and_required(self):
         text = SKILL.read_text()
-        rule = text.split('### Exact-duplicate window', 1)[1].split('##', 1)[0]
-        self.assertIn('less than 10 minutes old', rule)
-        self.assertIn('An identical copy older than 10 minutes does **not** block the send', rule)
-        self.assertIn('a reply is not a reason to withhold the next scheduled nudge', rule)
-        self.assertIn('Different wording is never a duplicate', rule)
-        self.assertIn('smaller than the shortest configured gap between one account\'s runs', rule)
-        self.assertIn('send nothing instead of assuming a duplicate is old', rule)
-        step5 = text.split('5. **Inspect the shared composer and the recent payloads.**', 1)[1].split('6. **Submit', 1)[0]
-        self.assertIn('read the timestamp of the newest copy', step5)
-        self.assertIn('inspect read-only and report the uncertainty rather than guessing', step5)
+        rule = text.split('## Payload timestamp', 1)[1].split('## Exact-duplicate window', 1)[0]
+        flat = " ".join(rule.split())
+        self.assertIn('date -u +%Y-%m-%dT%H:%MZ', flat)
+        self.assertIn('Sent: 2026-10-30T21:40Z UTC', flat)
+        self.assertIn('^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}Z$', flat)
+        self.assertIn('Produce that line once per invocation', flat)
+        self.assertIn('send nothing and report that blocker', flat)
+        self.assertIn("It is the only permitted addition", flat)
+        self.assertIn('a private payload keeps its exact bytes below the line', flat)
+        step6 = " ".join(text.split('6. **Submit at most once', 1)[1].split('7. **Report', 1)[0].split())
+        self.assertIn('prefixed by exactly one payload timestamp line', step6)
+        evidence = " ".join(text.split('## Completion evidence', 1)[1].split())
+        self.assertIn('the payload timestamp line plus the exact body', evidence)
 
-    def test_every_payload_carries_one_captured_utc_timestamp(self):
+    def test_duplicate_is_body_based_and_the_window_is_time_measured(self):
         text = SKILL.read_text()
-        rule = text.split('### Payload timestamp', 1)[1].split('### Exact-duplicate window', 1)[0]
-        self.assertIn('date -u +%Y-%m-%dT%H:%MZ', rule)
-        self.assertIn('Sent: 2026-10-30T21:40Z UTC', rule)
-        self.assertIn('^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}Z$', rule)
-        self.assertIn('Produce that line once per invocation', rule)
-        self.assertIn('send nothing and report that blocker', rule)
-        self.assertIn('The\ntimestamp is the only permitted addition', rule)
-        self.assertIn('a private\npayload keeps its exact bytes below the timestamp line', rule)
-        window = text.split('### Exact-duplicate window', 1)[1].split('##', 1)[0]
-        self.assertIn('same timestamp line and same body', window)
+        rule = " ".join(text.split('## Exact-duplicate window', 1)[1].split('## Reviews and migration', 1)[0].split())
+        self.assertIn('the **payload body** is everything below the `Sent:` line', rule)
+        self.assertIn('whose body matches the selected body exactly, whatever its stamp', rule)
+        self.assertIn('the stamp is what makes that copy\'s age readable', rule)
+        self.assertNotIn('same timestamp line and same body', rule)
+        self.assertIn('only while it is **less than 10 minutes old**', rule)
+        self.assertIn('A copy with no `Sent:` line, an unparseable stamp or a stamp in the future counts as older than the window and does not block', rule)
+        self.assertIn('a reply to it, an acknowledgment or newer Dot activity never withholds the next scheduled nudge', rule)
+        self.assertIn('Different body wording is never a duplicate', rule)
+        self.assertIn('smaller than the shortest configured gap between one account\'s runs', rule)
+        step4 = " ".join(text.split('4. **Stay a reminder.**', 1)[1].split('5. **Inspect', 1)[0].split())
+        self.assertIn('the last 20 rendered messages in either mode', step4)
+        step5 = " ".join(text.split('5. **Inspect the shared composer', 1)[1].split('6. **Submit', 1)[0].split())
+        self.assertIn('the timestamp of the newest copy', step5)
 
     def test_coordinator_has_no_classifier_or_fallback(self):
         text = SKILL.read_text().lower()
