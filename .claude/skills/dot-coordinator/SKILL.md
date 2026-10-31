@@ -7,6 +7,12 @@ description: Send a scheduled reminder to an account-bound Dot; each Dot owns it
 
 This file is the executable workflow for one scheduler-bound Pi agent turn. The Python launcher supplies one explicit configured account and starts pinned Chrome DevTools MCP 1.6 in owned-browser mode with that account's existing system Chrome profile. MCP owns browser shutdown; Pi's graceful shutdown closes MCP stdin, and the MCP closes the browser. The agent owns context recovery, judgment, message content, and browser actions. The configured CLI/adapter selects its provider and model without an automatic fallback, account rotation, time-slot calculation, or escalation ladder.
 
+Every run is **headless on every host, always**. The launcher passes `--headless` on macOS and on Linux; a
+display variable being present never authorizes a visible window, because a coordinator turn runs on a
+scheduled host that nobody is sitting in front of. If a run ever finds the browser opening visibly, or the
+launcher's arguments lack `--headless`, stop without sending and report the transport defect instead of
+working around it - a visible Chrome on a shared desktop steals focus and exposes the profile.
+
 Use only the directly exposed `mcp__dot_browser__*` tools for browser transport. Do not invoke nested Pi/runtime sessions, Codemode, or shell-based browser automation, and do not try another transport if these tools are unavailable. Report missing direct browser tools as a blocker. Shell access is not a browser transport.
 
 Each Dot owns its task state. This process is only a scheduled reminder. Do not inspect, assign, implement or track tasks; send only the selected exact reminder and let the Dot act on it. Keep no task-progress ledger or retained attempt receipts.
