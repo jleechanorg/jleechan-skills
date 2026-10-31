@@ -346,6 +346,8 @@ Orchestrates a multi-agent swarm — either a deterministic Workflow-tool fan-ou
 
 ### [`pr-workflow-manager`](.claude/skills/pr-workflow-manager/SKILL.md) — `/prw`, alias `/pr-workflow`
 
+See [Building WorldAI for iOS with /prw](docs/prw-worldai-ios-workflow.md) for a captioned before/after video, native simulator stills, and a practical evidence guide.
+
 The PR workflow from the [Develop with idea velocity](https://docs.google.com/presentation/d/1qLdMzZaIuP9IdpTBomuOGJTAspCEJo6Esu10zWFrhm4/edit?slide=id.iosNov2026#slide=id.iosNov2026) talk: Draft → evidence → review → CI → ready, with human merge approval kept separate. The entry point reads the target repository's own PR contract first, verifies the canonical skill source, publishes a draft PR, and drives it through the visible stages owned by [`pr-lifecycle`](.claude/skills/pr-lifecycle/SKILL.md): stage labels, title prefixes and suffixes, evidence, independent review routes, `/green`, and SHA-bound approvals. Gates never merge on their own.
 
 ```bash
