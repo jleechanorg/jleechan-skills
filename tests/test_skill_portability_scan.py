@@ -230,7 +230,11 @@ class PolicyFilesContractTest(unittest.TestCase):
                 encoding="utf-8",
             )
             fake_gh.chmod(0o755)
-            env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"}
+            # Hermetic fake-gh injection: a developer shell with BASH_ENV=~/.bashrc
+            # re-sources the profile inside every `bash -c`, which restores PATH and
+            # defeats the stub. Neutralize BASH_ENV/ENV so the fixture PATH wins.
+            env = {**os.environ, "BASH_ENV": os.devnull, "ENV": os.devnull,
+                   "PATH": f"{bin_dir}:{os.environ['PATH']}"}
             result = subprocess.run(
                 ["bash", "-c", script, "base-resolution", "42"],
                 cwd=repo,
@@ -299,7 +303,11 @@ class PolicyFilesContractTest(unittest.TestCase):
                 encoding="utf-8",
             )
             fake_gh.chmod(0o755)
-            env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"}
+            # Hermetic stub injection: with BASH_ENV=~/.bashrc a developer shell
+            # re-sources the profile inside `bash -c` and restores PATH, defeating
+            # the stub. Neutralize BASH_ENV/ENV so the fixture PATH always wins.
+            env = {**os.environ, "BASH_ENV": os.devnull, "ENV": os.devnull,
+                   "PATH": f"{bin_dir}:{os.environ['PATH']}"}
             result = subprocess.run(
                 ["bash", "-c", script, "base-resolution", "42"],
                 cwd=repo,

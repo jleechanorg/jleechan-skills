@@ -387,6 +387,10 @@ class WorkflowCommandPairTest(unittest.TestCase):
             fake_git.write_text("#!/bin/sh\nexit 17\n", encoding="utf-8")
             fake_git.chmod(0o755)
             env = os.environ.copy()
+            # BASH_ENV=~/.bashrc would re-source the developer profile inside
+            # `bash -c` and restore the real git, defeating this fixture.
+            env["BASH_ENV"] = os.devnull
+            env["ENV"] = os.devnull
             env["PATH"] = f"{temp_dir}:/usr/bin:/bin"
             env["LOG_DIR"] = temp_dir
             result = subprocess.run(
