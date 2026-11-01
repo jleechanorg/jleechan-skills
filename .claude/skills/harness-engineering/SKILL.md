@@ -70,6 +70,21 @@ ownership of a branch/PR/worktree, and the user's shared execution budget (quota
 gate after showing it was derived from coordinator scheduling language, and only change a regression test
 that encoded that invented gate.
 
+### Resource-exclusion regression
+
+When a launcher uses an advisory scheduler or scene ledger, exercise the actual
+launcher entry point with the portable regression in tests/resource-regression.py.
+Pass the exact launcher under test explicitly:
+
+    RESOURCE_TEST_RUNNER=/path/to/launcher python3 tests/resource-regression.py
+
+The same command accepts the launcher as its first positional argument. The
+regression must prove that released, prior-owner, unknown, pending, and absent
+ledger states reach the authentication boundary; a verified live resource
+conflict and a current human hold are rejected; and an injected authentication
+error is propagated unchanged. Synthetic authentication is only a control-flow
+test, not genuine auth or runtime acceptance.
+
 ### Step 2: 5 Whys — the technical problem
 
 Ask "Why?" five times about the technical failure, drilling into root cause:
