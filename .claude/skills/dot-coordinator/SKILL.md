@@ -233,8 +233,11 @@ peer up in `COORDINATOR_HOST_PRIORITIES`, then:
   cannot establish silence: send nothing and report `coverage-incomplete`. A short window never authorizes a
   takeover, and its absence never counts as silence.
 - **Own machine.** Messages carrying this machine's own label never block it and never count as peer activity.
-- **Unknown evidence never decides.** An unparseable stamp, a future stamp or a message without a label is
-  unknown: it never triggers a standdown, never blocks a takeover, and must be reported.
+- **Unknown evidence.** An unparseable stamp, a future stamp, a message without a label, or a label missing
+  from `COORDINATOR_HOST_PRIORITIES` is unknown evidence. The primary (priority 1) reports it and keeps sending,
+  because nothing outranks it. A **standby stays read-only** on unknown evidence: it sends nothing and reports
+  `unknown-evidence: <what>`, because a message it cannot rank or date could be the primary's. Guessing in the
+  dangerous direction is never allowed; an operator who wants the standby to proceed fixes the stamp or the map.
 - **Re-check immediately before submitting.** A rendered thread can lag or withhold a peer's newest message.
   After typing, reload the conversation, re-read the newest messages, and check again: if a qualifying
   higher-priority message appeared, stop without sending and report `standdown-late: <machine>, <age>`. On any

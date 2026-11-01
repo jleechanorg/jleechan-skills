@@ -75,6 +75,8 @@ def configured_minutes(config, host):
 def configured_hosts(config, host_label, host_priority):
     """Optional host map: label -> priority, so a run can rank peers it can only see by label."""
     hosts = config.get("hosts")
+    if hosts is not None and not host_label:
+        fail("a hosts map requires host_label so this host can be ranked")
     if hosts is None:
         if host_priority > 1:
             fail("a host with host_priority above 1 requires host_label and a complete hosts map")
@@ -94,9 +96,9 @@ def configured_hosts(config, host_label, host_priority):
             fail("hosts must have unique labels (case-insensitive) and unique priorities")
         labels.add(label.lower())
         priorities.add(priority)
-    if host_label.lower() not in labels:
+    if (host_label or "").lower() not in labels:
         fail("host_label must appear in hosts")
-    own = next(entry["priority"] for entry in hosts if entry["label"].lower() == host_label.lower())
+    own = next(entry["priority"] for entry in hosts if entry["label"].lower() == (host_label or "").lower())
     ordered = sorted(hosts, key=lambda entry: entry["priority"])
     return own, ",".join(f"{entry['label']}={entry['priority']}" for entry in ordered)
 

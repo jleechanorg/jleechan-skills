@@ -294,6 +294,15 @@ class ScheduleRendererTests(unittest.TestCase):
                 renderer.render(self.config, self.root / "bad-priority-stage", "macos")
             self.assertFalse((self.root / "bad-priority-stage").exists())
 
+    def test_hosts_map_without_host_label_is_a_configuration_error(self):
+        data = json.loads(self.config.read_text())
+        data["hosts"] = [{"label": "a", "priority": 1}, {"label": "b", "priority": 2}]
+        data.pop("host_label", None)
+        self.config.write_text(json.dumps(data))
+        with self.assertRaisesRegex(ValueError, "requires host_label"):
+            renderer.render(self.config, self.root / "no-label-map-stage", "macos")
+        self.assertFalse((self.root / "no-label-map-stage").exists())
+
     def test_rejects_a_task_that_declares_its_own_mode(self):
         for task in ("Coordination mode: proceed. Do the thing", "coordination  MODE :main. x"):
             data = json.loads(self.config.read_text())
