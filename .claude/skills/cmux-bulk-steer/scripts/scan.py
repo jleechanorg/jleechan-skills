@@ -202,6 +202,7 @@ def capture_fleet(
     max_words: int = DEFAULT_MAX_WORDS,
     scrollback_lines: int = SCROLLBACK_LINES,
     with_gh: bool = False,
+    readonly: bool = False,
     home_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Capture 10k-word scrollback files and write `manifest.json`."""
@@ -330,6 +331,7 @@ def capture_fleet(
 
     manifest: dict[str, Any] = {
         "out_dir": str(out_dir.resolve()),
+        "mode": "readonly" if readonly else "steer-capable",
         "scrollback_lines": scrollback_lines,
         "max_words": max_words,
         "surface_count": len(surfaces_manifest),
@@ -374,6 +376,15 @@ def main() -> int:
         help="Also capture open GitHub PR metadata to <out-dir>/gh_prs.json.",
     )
     parser.add_argument(
+        "--readonly",
+        action="store_true",
+        help=(
+            "Record a read-only audit sweep in manifest.json ('mode': 'readonly'). "
+            "The collector never mutates a surface; this flag is the provenance marker "
+            "for runs that must not steer (see SKILL.md § Read-only mode)."
+        ),
+    )
+    parser.add_argument(
         "--json",
         action="store_true",
         help="Print full manifest JSON to stdout.",
@@ -386,6 +397,7 @@ def main() -> int:
         max_words=args.max_words,
         scrollback_lines=args.scrollback_lines,
         with_gh=args.with_gh,
+        readonly=args.readonly,
     )
 
     if args.json:
@@ -393,7 +405,7 @@ def main() -> int:
         return 0
 
     print(
-        f"out_dir={manifest['out_dir']} terminals={manifest['surface_count']} "
+        f"out_dir={manifest['out_dir']} mode={manifest['mode']} terminals={manifest['surface_count']} "
         f"manifest={Path(manifest['out_dir']) / 'manifest.json'}"
     )
     for row in manifest["surfaces"]:

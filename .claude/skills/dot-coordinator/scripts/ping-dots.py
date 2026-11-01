@@ -72,7 +72,8 @@ def main():
     chrome_root = (Path.home() / ('Library/Application Support/Google/Chrome' if sys.platform == 'darwin' else '.config/google-chrome')).resolve()
     if canonical == chrome_root or canonical in chrome_root.parents or chrome_root in canonical.parents:
         raise Blocked('Dot profile overlaps system Chrome profile')
-    if os.path.lexists(profile / 'SingletonLock'): raise Blocked('Chrome or a stale SingletonLock already owns this Dot profile')
+    if os.path.lexists(profile / 'SingletonLock'):
+        raise Blocked(f'SingletonLock present: close Chrome for this profile. Remove {profile}/SingletonLock, {profile}/SingletonCookie and {profile}/SingletonSocket only after verifying this host owns the profile and no Chrome or starting launch uses it; if any of that is uncertain, stop')
     if any(str(profile) in row and 'Chrome' in row for row in subprocess.check_output(['ps', '-Ao', 'args'], text=True).splitlines()):
         raise Blocked('a Chrome process already uses this Dot profile')
     chrome_bin = os.environ.get('DOT_CHROME_BIN') or ('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' if sys.platform == 'darwin' else '/usr/bin/google-chrome')
@@ -87,8 +88,7 @@ def main():
     if sys.platform == 'darwin': mcp_args += ['--headless', '--chromeArg=--password-store=keychain']
     else:
         if not (os.environ.get('DISPLAY') or os.environ.get('DBUS_SESSION_BUS_ADDRESS')): raise Blocked('Linux keychain session is unavailable')
-        mcp_args.append('--chromeArg=--password-store=gnome-libsecret')
-        if not os.environ.get('DISPLAY'): mcp_args.append('--headless')
+        mcp_args += ['--headless', '--chromeArg=--password-store=gnome-libsecret']
     with tempfile.TemporaryDirectory(prefix='dot-agent-', dir='/tmp') as run_dir:
         project = Path(run_dir) / '.pi'
         project.mkdir(mode=0o700)

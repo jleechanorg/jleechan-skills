@@ -16,14 +16,14 @@ execution_mode: immediate
 1. **PR Change Analysis**:
    - Get current branch: `git branch --show-current`
    - Find changed files: `git diff --name-only origin/main...HEAD`
-   - Map changed files to relevant test files using intelligent heuristics
-   - Select subset of tests that should run based on changes
+   - Determine relevant focused coverage from the changed behavior, owning test-layer guidance, and repository test instructions
+   - Do not use keyword rules or fixed file-count thresholds to select test scope
 
 2. **Test Mapping Logic**:
    - Python file changes → corresponding test files
    - Frontend changes → frontend/UI test files  
    - Config changes → integration test files
-   - If >20 files changed → fall back to full suite
+   - Use focused local checks for the changed area; CI owns the unfiltered full suite
 
 ### Phase 2: Test Execution with Modifiers
 
@@ -35,7 +35,7 @@ execution_mode: immediate
 
 2. **Execute Tests with Output Logging**:
    - Run `./run_tests.sh` with appropriate flags
-   - Output automatically saved to `/tmp/{branch_name}/run_tests_{timestamp}.txt`
+   - Save bulky output in a unique directory under `/tmp` (create it with `mktemp -d`)
    - Show real-time output to user
    - Parse results for pass/fail analysis
 

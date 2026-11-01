@@ -1,12 +1,14 @@
 ---
 name: cmux-bulk-steer
-description: "Pure Subagent-Native Zero-Framework Cognition (/zfc) fleet review, deduplication, and steering. Always `/parallel` — every phase fans out across disjoint subagents because independent work must never be serialized. Captures ~10,000 words per cmux terminal surface mechanically without regex classifiers, fans out /parallel subagents to classify and dedupe overlapping PR/worktree lanes, then steers sole owners. Use when asked to review/audit cmux surfaces, 'see what's off track', 'nudge/steer the terminals', or orchestrate across the fleet. NOT for single-surface work (see cmux-steer)."
+description: "Pure Subagent-Native Zero-Framework Cognition (/zfc) fleet review, deduplication, and steering, with a read-only audit mode. Always `/parallel` — every phase fans out across disjoint subagents because independent work must never be serialized. Captures ~10,000 words per cmux terminal surface mechanically without regex classifiers, fans out /parallel subagents to classify and dedupe overlapping PR/worktree lanes, then steers sole owners — or, in read-only mode, stops after assessment and reports proposed steers instead of sending them. Use when asked to review/audit cmux surfaces, 'see what's off track', 'nudge/steer the terminals', or orchestrate across the fleet. NOT for single-surface work (see cmux-steer)."
 ---
 
 # cmux-bulk-steer — Subagent-Native `/zfc` Fleet Review, Dedupe, and Steer
 
 Three phases, strictly in order:
 **Phase 1: CAPTURE ALL (Mechanical 10,000-Word Dump) → Phase 2: PARALLEL SUBAGENT `/zfc` ASSESSMENT + STRICT DEDUPE → Phase 3: STEER DEDUPED SOLE OWNERS**.
+In **read-only mode** the run stops after Phase 2 and reports proposed steers instead of sending them (see
+§ Read-only mode).
 
 Never steer from a short tail, never use regex/keyword classifiers to guess terminal state, and never skip cross-surface deduplication.
 
@@ -25,6 +27,50 @@ Apply this at every phase boundary:
 - **Steer (Phase 3)**: send to all deduped owners concurrently, then verify all of them in one parallel read pass. Do not steer+wait per surface.
 
 If you catch yourself in a sequential per-item loop, stop and convert it to a `/parallel` fan-out.
+
+---
+
+## Read-only mode — capture, assess, report; never steer
+
+For a full read-only **audit** — mechanical scope resolution ("/cmux-bulk-read" above pinned P1"), shard partitioning by
+line count, the findings-report contract, and the escalation gate back into this skill — use
+`~/.claude/skills/cmux-bulk-read/SKILL.md`. The mode below remains the minimum any read-only pass of this skill
+must honor.
+
+Trigger it when the operator asks for an audit, "does anything look off track", a review pass, or says read-only /
+don't steer / don't touch the terminals. Read-only mode runs **Phase 1 (capture)** and **Phase 2 (parallel `/zfc`
+assessment + dedupe)** at full depth and **skips Phase 3 entirely**. It is a mode of this skill, not a lighter
+version of it: the 10,000-word full-buffer rule, the sequential-slice rule, the two-sample `working_surfaces.txt`
+gate, the stale-footer rule, and cross-surface dedupe all still apply at 100%. Read-only mode reduces *authority to
+act*, never *depth of review*.
+
+**Allowed commands (the complete list).** `cmux tree --all --json`, `cmux list-workspaces`, `cmux top --all
+[--flat]`, `cmux top --workspace <ws> --processes`, `cmux capture-pane --workspace <ws> --surface <sf>
+--scrollback --lines <n>` (the only read path), read-only `gh pr view|list --json`, read-only `ps` / `lsof -p
+<pid>`, and reads of the `/tmp` capture files. Nothing else.
+
+**Forbidden in read-only mode** — every operation that changes a surface or the operator's desktop: `cmux send`,
+`cmux send-key` (including `--force`), the socket `surface.send_text` call, `cmux new-workspace` / `new-surface` /
+`close-workspace` / `close-surface`, `select-workspace` / `focus` / `workspace-action` / `focus-window`, any `kill`
+of a surface's child process, and any edit, commit, or push inside a surface's worktree.
+
+**Verdicts become findings, not actions.** `IDLE_NEEDS_STEER`, `DIALOG_BLOCKED`, `MALFORMED_TOOL_CALL`, and a
+stalled Codex `/goal` are still classified — but the action is *reported as a proposed steer* (exact surface, exact
+command, exact key sequence), never executed. `/goal resume`, dialog unblocks, and `STOOD_DOWN_DUPLICATE`
+stand-downs are Phase 3 actions and are out of scope here. That also makes this the correct mode for any sweep where
+the operator has not authorized touching running lanes.
+
+**Provenance.** Pass `--readonly` to `scripts/scan.py` (both sweeps of the two-sample pair). It records `"mode":
+"readonly"` in `manifest.json` and prints `mode=readonly`, so a report can cite the manifest as proof the sweep
+issued no mutating `cmux` verb. Cite that field together with `working_surfaces.txt` and `closed_surfaces.txt`.
+
+**Converting to a steering pass later** needs a fresh live instruction *and* a fresh two-sample sweep: a read-only
+sweep is a snapshot, and a surface can start, finish, or be taken over between the sweep and a later steer. Re-capture,
+re-apply the stale-footer rule, then run Phase 3 against the new evidence.
+
+**Report shape.** The Narrow-Screen Vertical Cards contract below still applies, grouped by finding (`OFF_TRACK`,
+`WORKING`, `PARKED_OPERATOR`, `QUOTA_BLOCKED`, `IDLE_COMPLETE`, …), with an actionable card carrying a `Proposed
+steer:` line. State the review scale (`N surfaces, M shards, K subagents`) and end with the LLM provenance footer.
 
 ---
 
@@ -73,6 +119,8 @@ This augments the `DIALOG_BLOCKED` semantic category below (a stopped coding-age
 
 A Codex lane whose goal is paused reads as idle but is recoverable without any human decision. Look for a goal-status line near the tail: `Goal stalled (/goal resume)`, `Goal paused`, or a `Goal hit usage limits (/goal resume)` line that has no activity after it.
 
+0. Run the two-sample check first: a growing timer or a changing screen means the lane is working, and a stalled
+   footer over a changing screen is stale text that must not trigger `/goal resume`.
 1. First confirm the pause was not deliberate: if the operator (or the lane's own thread) paused the goal on purpose, or a hold/stop instruction is visible in the buffer, report it and do not resume. Otherwise send `/goal resume` through the same headless steer path (it resumes the *existing* goal — it authorizes no merge, spend, or scope change).
 2. Verify the status line becomes `Pursuing goal (Ns)` / `Pursuing goal (Xh Ym)` with a growing timer before reporting it as WORKING.
 3. If it stays stalled, or immediately re-prints the quota wall, classify from the fresh evidence (see next section) — do not retry in a loop.
@@ -85,7 +133,11 @@ Live evidence (2026-10-19): a single sweep resumed 8 such lanes (`iOS`, `lvl up`
 
 **Footers are history, not state.** A CLI writes `Goal hit usage limits (/goal resume)` (or `Goal stalled (/goal resume)`, `Working (…)`, a spinner line) once, at the moment it happened, and it survives in the scrollback window long after the condition cleared — including after a quota reset. Reading that line out of a 10,000-word buffer and classifying `QUOTA_BLOCKED` is the single most common misclassification in this skill.
 
-Before writing `QUOTA_BLOCKED` for a surface, confirm all of:
+**Gating.** These verdicts require `screen_changed == false` (surface absent from `working_surfaces.txt`) **plus**
+the absence of post-footer output, live timer growth, and CPU: `IDLE_NEEDS_STEER`, `IDLE_COMPLETE`,
+`PARKED_OPERATOR`, `DIALOG_BLOCKED`, `MALFORMED_TOOL_CALL`, `QUOTA_BLOCKED`. `STOOD_DOWN_DUPLICATE` (a duplicate
+writer can be actively churning) and `WEDGED_PROCESS` (proved from the process tree, not the screen) are
+**independent of this gate**. For the gated verdicts, confirm all of:
 1. **No activity after the footer.** Look for tool-call lines, assistant text, or user input lines that appear *below* the quota footer in the buffer. Any post-footer activity means the wall is not current.
 2. **No live progress label.** A `Working (1h33m)` / `Pursuing goal (…)` label with a timer longer than the footer's age is proof the lane is running.
 3. **Not just a scrolled artifact.** The quota line must be the last substantive line, not one of several historical occurrences deeper in the buffer.
@@ -114,19 +166,36 @@ Per `~/.claude/skills/zero-framework-cognition/SKILL.md` (`/zfc`), `scripts/scan
 Capture every terminal surface's deep scrollback (`~10,000` trailing words, preserving line breaks) to `/tmp` alongside `cmux top --all --flat`:
 
 ```bash
-OUT_DIR="/tmp/cmux_fleet_$(date +%H%M%S)"
+# Two-sample sweep: ONE fleet-wide 20 s wait (never a per-verdict sleep).
+# Add --readonly to BOTH calls for a read-only audit (recorded in manifest.json as "mode": "readonly").
+OUT_DIR="$(mktemp -d /tmp/cmux_fleet.XXXXXX)"
+FIRST="$OUT_DIR/first"
+python3 ~/.claude/skills/cmux-bulk-steer/scripts/scan.py --out-dir "$FIRST"   # no --with-gh: one GitHub query per sweep
+sleep 20
 python3 ~/.claude/skills/cmux-bulk-steer/scripts/scan.py --out-dir "$OUT_DIR" --with-gh
+: > "$OUT_DIR/working_surfaces.txt"; : > "$OUT_DIR/closed_surfaces.txt"
+for f in "$FIRST"/ws_*_sf_*.txt; do
+  b=$(basename "$f")
+  if [ ! -f "$OUT_DIR/$b" ]; then echo "$b" >> "$OUT_DIR/closed_surfaces.txt"; continue; fi
+  cmp -s "$f" "$OUT_DIR/$b" || echo "$b" >> "$OUT_DIR/working_surfaces.txt"
+done
 ```
+
+**Phase 2 must read `$OUT_DIR/working_surfaces.txt` and `closed_surfaces.txt` before classifying any surface.** A
+surface in `working_surfaces.txt` is `WORKING` unless it is `STOOD_DOWN_DUPLICATE` or `WEDGED_PROCESS`, and may
+otherwise receive no other label. A surface in `closed_surfaces.txt` was captured once, not twice, and is not
+classifiable from this sweep.
 
 What `scripts/scan.py` writes to `$OUT_DIR`:
 - `manifest.json`: deterministic inventory of all terminal surfaces (`workspace`, `workspace_ref`, `surface`, `surface_ref`, `surface_title`, `cpu_percent`, `file_10k`, `pi_session_jsonl`, `total_words`, `captured_words`, `lines_read`, `tail_lines`). Non-terminal browser surfaces (`Surface is not a terminal`) are skipped automatically.
 - `ws_<ws_id>_sf_<sf_id>.txt`: up to `10,000` trailing words of scrollback per terminal surface. For alternate-screen `pi` (`π`) TUI panes (where `cmux capture-pane` only sees the `35`-row TUI screen), `scan.py` automatically matches the pane's `cwd` footer to the newest session file in `~/.pi/agent/sessions/*/*.jsonl` and prepends `=== PI SESSION TRANSCRIPT (<jsonl_path>) ===` ahead of `=== LIVE TERMINAL PANE ===` so every `pi` surface also receives a full `10,000`-word capture.
+- The 10,000-word cap is only a collector limit. If `total_words > captured_words`, capture the full available history for both time-separated samples with `cmux capture-pane --workspace <ws> --surface <sf> --scrollback --lines 1500` (or the deepest supported scrollback) into unique `/tmp` paths and read all of it. If that cannot be done, mark the surface UNVERIFIED and do not classify or steer it.
 - `top_flat.tsv`: raw `cmux top --all --flat` output (`CPU%`, memory, process count per workspace/pane/surface).
 - `gh_prs.json` (when `--with-gh` is passed): live open PR metadata.
 
 Rules:
 - **The full-read rule binds every substantive surface.** A surface whose whole capture is under ~`100` words has nothing to slice (a shell, or a session that just started); classify it from its complete capture and record it as `SHELL`/`IDLE_*` rather than forcing the four-slice ritual — but never use "short capture" as a reason to skip a surface that does have content.
-- **Read 100% of the 10,000-word buffer before any decision (Sequential Slice Rule)** — canonical rule in `~/.codex/AGENTS.md` § "Reading a cmux terminal before deciding (full-buffer rule)": because `view_file` / `Read` tools cap at `800` lines per call while a `10,000`-word `ws_<ws_id>_sf_<sf_id>.txt` file spans `1,000–3,500` lines, each subagent MUST read sequential line slices (`1..800`, `801..1600`, `1601..2400`, `2401..end`) until `lines_read` is 100% covered. Never rely on a single `view_file` call or a short tail!
+- **Read 100% of the available buffer before any decision (Sequential Slice Rule)** — canonical rule in `~/.codex/AGENTS.md` § "Reading a cmux terminal before deciding (full-buffer rule)": because `view_file` / `Read` tools cap at `800` lines per call, read sequential line slices (`1..800`, `801..1600`, and onward) until every line of the complete captured file is covered. If the collector truncated it, use the full-capture procedure above. Never rely on a single `view_file` call or a short tail!
 - Use `capture-pane` for every read.
 
 ---
@@ -164,6 +233,20 @@ The same line means different things per CLI, so each subagent names the surface
 ---
 
 ## Phase 3 — STEER DEDUPED SOLE OWNERS (3-Step Ritual + Narrow-Screen Cards)
+
+**Skipped entirely in read-only mode** (argv `--readonly` / operator says don't steer): report proposed steers here
+instead of executing them — see § Read-only mode.
+
+### Blocker-authority check (before any steer that names a blocker)
+
+Apply the canonical rule and its loophole closers in `harness-engineering` § "Coordinator-gate variant"
+(do not restate it). Operationally: cite the governing instruction by `file:line`; a shared account has no
+cross-lane limit and only same-mutable-target mutation is a conflict; unknown occupancy proceeds to
+preflight; never relay a peer's blocker as your own conclusion.
+
+This check creates no exemptions: credential/identity bans, environment and deploy gates, active quota
+walls, explicit operator holds, `PARKED_OPERATOR`, and `STOOD_DOWN_DUPLICATE` one-writer ownership of a
+branch/PR all still block.
 
 For every surface that needs action after deduplication, execute the mandatory 3-step ritual (the socket `text` must end in the literal `\n`, or the CLI form follows with an explicit `send-key enter`). The heading said "4-Step" until 2026-10-20, when step 1 was rewritten to issue type and Enter together (chained or socket); it is the same keystroke contract, with one fewer decision point — canonical owner: `~/.claude/skills/cmux-steer/SKILL.md` § "Submit Discipline". **Dispatch every surface's ritual concurrently** (`/parallel`): send to all owners in one fan-out, then do a single parallel verify pass — never send→sleep→verify one surface at a time.
 
@@ -209,17 +292,26 @@ End reports quoting agent output with the LLM-provenance footer:
 Published source of truth: `jleechanorg/jleechan-skills` → `.claude/skills/cmux-bulk-steer/`.
 Live working copies: `~/.claude/skills/cmux-bulk-steer/` on Mac and on `jeff-ubuntu`.
 
-Keep all three byte-identical. Verify with:
+**Sync direction is one-way: repo -> live.** Edit the repo worktree first; a live copy is never a source.
+
+**Baseline before editing** - confirm both live copies already match the committed file, so foreign drift is caught
+before your edit can hide it:
 
 ```bash
-# Repo vs Mac live
-shasum -a 256 .claude/skills/cmux-bulk-steer/SKILL.md \
-  .claude/skills/cmux-bulk-steer/scripts/scan.py \
-  ~/.claude/skills/cmux-bulk-steer/SKILL.md \
-  ~/.claude/skills/cmux-bulk-steer/scripts/scan.py
-# Linux live
-ssh jeff-ubuntu 'sha256sum ~/.claude/skills/cmux-bulk-steer/SKILL.md \
-  ~/.claude/skills/cmux-bulk-steer/scripts/scan.py'
+git -C <repo> show HEAD:.claude/skills/cmux-bulk-steer/SKILL.md > /tmp/baseline.skill.md
+diff -u /tmp/baseline.skill.md ~/.claude/skills/cmux-bulk-steer/SKILL.md
+ssh jeff-ubuntu cat ~/.claude/skills/cmux-bulk-steer/SKILL.md | diff -u /tmp/baseline.skill.md -
 ```
 
-After editing ANY copy, propagate to the other two in the same session and confirm all six SHA-256 digests match (3 copies × 2 files).
+Any non-empty baseline diff is foreign drift: stop and report it. Then edit and propagate:
+
+```bash
+git -C <repo> status --porcelain     # repo-wide: is anything else dirty?
+git -C <repo> diff -- <path>         # the intended change only?
+diff -u <repo-file> ~/.claude/skills/cmux-bulk-steer/SKILL.md
+ssh jeff-ubuntu cat <remote-live-file> | diff -u <repo-file> -
+```
+
+Stage by explicit path (`git add <path>`), never a directory or wildcard glob. After propagating, confirm all six
+SHA-256 digests match, covering exactly these two files in each of the three copies:
+`.claude/skills/cmux-bulk-steer/SKILL.md` and `.claude/skills/cmux-bulk-steer/scripts/scan.py`.

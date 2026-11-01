@@ -59,14 +59,17 @@ http://localhost:<PORT>/?test_mode=true&test_user_id=test-user-123&test_theme=fa
 ## Log Files
 
 ```bash
+# Resolve canonical log directory via ~/.claude/skills/scratch-space/SKILL.md
+LOG_DIR="$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh "<repo-name>/<branch-name>")"
+
 # Flask logs
-cat /tmp/<repo-name>/<branch-name>/flask_backend.log
+cat "${LOG_DIR}/flask_backend.log"
 
 # Tail live
-tail -f /tmp/<repo-name>/<branch-name>/flask_backend.log
+tail -f "${LOG_DIR}/flask_backend.log"
 
 # Find errors
-grep -i "error\|500\|traceback" /tmp/<repo-name>/<branch-name>/flask_backend.log | tail -20
+grep -i "error\|500\|traceback" "${LOG_DIR}/flask_backend.log" | tail -20
 ```
 
 ## Hot-swapping CSS for Testing
@@ -93,14 +96,21 @@ only after inspecting its affected processes; preserve other tasks' servers.
 Use Playwright to capture themed screenshots:
 
 ```python
+import os
+import subprocess
 from playwright.sync_api import sync_playwright
+
+scratch_dir = subprocess.check_output(
+    [os.path.expanduser("~/.claude/skills/scratch-space/scripts/scratch-dir.sh"), "tmp"],
+    text=True,
+).strip()
 
 with sync_playwright() as p:
     browser = p.chromium.launch(headless=True)
     page = browser.new_page(viewport={"width": 1280, "height": 720})
     page.goto("http://localhost:8054/?test_theme=fantasy&test_mode=true&test_user_id=screenshot-user")
     page.wait_for_timeout(2000)
-    page.screenshot(path="/tmp/screenshot.png")
+    page.screenshot(path=os.path.join(scratch_dir, "screenshot.png"))
     browser.close()
 ```
 

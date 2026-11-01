@@ -11,16 +11,22 @@ Keep the user informed while doing the work. Report observable progress rather t
 
 Reuse the current task's scope and source of truth. Track only what is useful: task/outcome, acceptance criteria, owner, state, latest evidence and observation time, next action, and any dependency, next check, or resumption trigger. Keep this lightweight; do not create a new tracker or duplicate an existing one merely to report status.
 
-For prior work, use available `/history` and `/ms` workflows or their supported equivalents: narrow the topic, date range, and sources; retrieve bounded relevant excerpts; retain provenance; verify mutable status against a current source. Distinguish no matches, unavailable sources, and unsearched sources. Treat historical permission as context, never current authorization. Do not probe denied locations or expose private records.
+For prior work, use available `/history` and `/ms` workflows or their supported equivalents: narrow the topic, date range, and sources; retrieve bounded relevant excerpts; retain provenance; verify mutable status against a current source. Distinguish no matches, unavailable sources, and unsearched sources. Historical permission alone is not current authorization, but authorization for the same action, target, and outcome persists across checkpoints and status questions unless the user withdraws or changes it. Do not probe denied locations or expose private records.
+
+Before sending a status or handoff, re-evaluate the live request and continue
+the next safe, reversible, authorized action. Status reporting does not replace
+execution. Start available required reviews and checks rather than listing them
+as future work; preserve explicit planning-only requests, user stops, genuine
+approval boundaries, and the autonomy deadline.
 
 ## Choose one state per task
 
 - **Not started:** Accepted or queued, with no execution evidence. Name the owner or prerequisite and what starts the work. Delegation admitted is still queued until execution is observed.
 - **Planning:** Actively resolving approach, scope, or dependencies. State the decision being settled and the next concrete action; do not remain here after execution starts.
 - **Working:** Executing or verifying with current evidence. Mention the useful phase, such as implementation or testing. Evidence of a running process supports “running,” not “passed.”
-- **Waiting on X:** Progress depends on an identified person, process, result, or event that has a credible path forward. Name X, the owner when known, and the next check or resumption trigger. Never promise monitoring that has not actually been established.
-- **Blocked:** A specific obstacle prevents the next necessary step, and waiting alone has no established path to resolve it. Explain the effect and the smallest decision or action needed. Continue independent authorized work and give it its own state.
-- **Ready for review:** The reviewable deliverable exists and the checks available within scope are complete or explicitly qualified, but requested human review or a decision remains. Provide the artifact, exact review request, and outstanding caveats. Do not use this state to shift ordinary verification to the user.
+- **Waiting on X:** Progress depends on an identified person, process, result, or event that has a credible path forward. Name X, the owner when known, and the next check or resumption trigger. Confirm the dependency is real and the next available check is started or scheduled; never promise monitoring that has not actually been established.
+- **Blocked:** A specific obstacle prevents the next necessary step, and waiting alone has no established path to resolve it. Name the exact next action, why this runtime cannot execute it now, the controlling policy or capability, alternatives attempted and results, and the smallest decision or action needed to resume. Continue independent authorized work and give it its own state.
+- **Ready for review:** The reviewable deliverable exists and checks available within scope are complete or explicitly qualified, and a requested human decision remains. Provide the artifact, exact decision, what current evidence does not prove, and `Why the LLM cannot execute this next step now:` with the specific authority, physical-capability, or irreducible-decision boundary. Do not use this state for reviews or verification the agent can perform.
 - **Finished:** The requested acceptance scope is met and verified, including delivery when required. State the result and decisive evidence. Finishing a draft is enough only when the user requested a draft; a PR being created is not a completed merge request.
 
 Use **Paused** only for an explicit pause or a real execution suspension: say why, who or what can resume, and the trigger. Honor user pauses; do not silently restart them. Use **Canceled** for an explicitly canceled or superseded task. Failure is evidence to diagnose and recover from where authorized, not automatic cancellation. If execution is stale or unknown, say “last confirmed … at …; current state unverified” and obtain fresh evidence rather than inventing a transition.

@@ -45,20 +45,30 @@ Classify what went wrong:
 - **LLM path error** — the agent reasoned toward a wrong solution despite having sufficient context
 - **Refuse-by-confabulation** — agent cites a fabricated "policy" or "constraint" to justify refusing a task instead of attempting and reporting; usually triggered by misreading a skill clause (e.g. "no login bypass" → "this site only"). Example: on 2026-06-21, refused to use browserclaw to add OAuth redirect URIs to GCP Console, citing a non-existent policy that "it can only navigate the app and its auth handshake, not external GCP Console." The actual skill supports any-website capture via `--storage-state` and the "no login bypass" clause is about authentication, not site scope. The fix is to read the actual skill/help file before refusing, and quote the exact line if a constraint is real.
 
-**Coordinator-gate variant:** Before requiring extra coordinator permission, cite
-the exact governing instruction or current human hold and its scope. For a claimed
-resource collision or execution failure, identify the concrete resource, conflicting
-operation/owner, and current evidence; a shared account alone is not a collision.
-Distinguish campaign state, global settings, browser profile, device, and evidence
-baseline overlaps. Unknown occupancy is not an authentication failure; unknown
-coordinator state alone must not block otherwise authorized work. Report uncertainty
-and inspect actual overlaps within scope, without inventing approval requirements
-or treating uncertainty as proof that the resource is free. Authorized work
-without verified live competing use proceeds to real auth preflight; reservation,
-admission, and handback labels are never prerequisites. Preserve injected
-authentication-error propagation, verified conflicting
-operators, explicit current human holds, and listener/bundle/source identity checks;
-never bypass an actual denial or infer release from silence.
+**Coordinator-gate variant:** Before requiring extra coordinator permission, cite the exact governing
+instruction or current human hold and its scope. For a claimed resource collision or execution failure,
+identify the concrete resource, conflicting operation/owner, and current evidence; a shared account alone is
+not a collision. Distinguish campaign state, global settings, browser profile, device, and evidence baseline
+overlaps. Unknown occupancy is not an authentication failure; unknown coordinator state alone must not block
+otherwise authorized work. Authorized work without verified live competing use proceeds to real auth
+preflight; reservation, admission, and handback labels are never prerequisites. Preserve injected
+authentication-error propagation, verified conflicting operators, explicit current human holds, and
+listener/bundle/source identity checks; never bypass an actual denial or infer release from silence.
+
+**Observed case (2026-10-24, `creation ui`) and its loophole closers.** A lane waited 22 h because its
+launcher required a Scene ledger state of exactly `admitted` before authentication, and its regression tested
+enforcement of that invented gate instead of its authority. Close the two loopholes when applying this rule:
+another lane merely being **alive** on a shared account is not a conflict — only mutation of the *same
+mutable target* (same campaign/document id, same account-wide setting, same browser profile dir, same
+simulator UDID) is; and **unknown occupancy must proceed to preflight**, not pause. When unblocking such a
+lane, require a **case-by-case audit**: `git diff` its launcher/preflight/tests, list every scheduling-state
+predicate (`admitted`/`reserved`/`handback`/`held`), and for each one decide with evidence whether it is an
+*invented* gate (remove it) or a real safeguard (keep it). **A missing policy `file:line` is a signal to
+investigate, never proof that a safeguard lacks authority** — do not delete on absence of a citation.
+Preserve explicitly: a current human STOP referenced by message, real access/auth denials, one-writer
+ownership of a branch/PR/worktree, and the user's shared execution budget (quota/time-box). Only remove a
+gate after showing it was derived from coordinator scheduling language, and only change a regression test
+that encoded that invented gate.
 
 ### Resource-exclusion regression
 
