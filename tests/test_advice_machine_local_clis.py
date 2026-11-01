@@ -20,7 +20,7 @@ class AdviceMachineLocalCliTest(unittest.TestCase):
         self.assertIn("so a bare machine still works", self.text)
 
     def test_extra_cli_registration_is_documented_with_safe_parsing(self):
-        section = self.text.split("### `ADVICE_EXTRA_CLIS`", 1)[1].split("## 3.", 1)[0]
+        section = " ".join(self.text.split("### `ADVICE_EXTRA_CLIS`", 1)[1].split("## 3.", 1)[0].split())
         self.assertIn("seats separated by `|`", section)
         self.assertIn("Split on `|`, then on the **first** `=`", section)
         self.assertIn("{prompt}", section)

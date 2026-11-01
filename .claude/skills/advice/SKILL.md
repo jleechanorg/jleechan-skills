@@ -96,14 +96,18 @@ falls back to the default below when the variable is unset, so a bare machine st
 | Reviewer | Resolution |
 |---|---|
 | Codex | `ADVICE_CODEX_CMD` → `codex exec --yolo -m gpt-6-sol --config model_reasoning_effort=high` |
-| Opus | `ADVICE_CLAUDE_CMD --model opus` → `claude -p --dangerously-skip-permissions` |
-| Claude alternate | `ADVICE_CLAUDE_ALT_CMD` → `ADVICE_CLAUDE_CMD --model <actual-model>` |
+| Opus | `ADVICE_CLAUDE_CMD` → `claude -p --model opus --dangerously-skip-permissions` |
+| Claude alternate | `ADVICE_CLAUDE_ALT_CMD` → the same default argv as Opus, with `--model <actual-model>` |
 | Extra CLIs | `ADVICE_EXTRA_CLIS` (unset by default) |
 | Cursor alternate | `cursor agent -p --force` |
 | AGY alternate | `agy --print="<review request>" --model gemini-3.8-flash-high --dangerously-skip-permissions --new-project` |
 
 The Codex and Opus lanes of `scripts/run_primary_pair.py` honour `ADVICE_CODEX_CMD` and `ADVICE_CLAUDE_CMD`
-directly: the value is split with `shlex` (never shell-evaluated) and replaces the whole default argv, so a
+directly: the value is split with `shlex` (never shell-evaluated) and **replaces the whole default argv** - it is
+a complete command line, never a prefix that the runner extends, so a value that omits `--model` runs the CLI's
+own default. The receipt records the resolved argv (not the canonical label) and the model read from `-m`/`--model`
+in that argv, so an override that names an ineligible Codex model or hides its model makes the seat
+`UNAVAILABLE` instead of silently voting. A
 wrapper that selects another credential store runs as that seat and its resolved command is what the receipt
 records. A variable that is set but empty, unparseable, or names a missing or non-executable program makes that
 seat `UNAVAILABLE`; it never falls back to the default, because falling back would let one account cast two
@@ -137,8 +141,9 @@ ADVICE_EXTRA_CLIS='gemini-cli=gemini --approval-mode yolo -p|local-qwen=qwen -p'
 
 Rules:
 - Split on `|`, then on the **first** `=`; the label is the seat name used in the receipt, the right side is
-  an executable plus literal arguments. No shell evaluation, glob expansion, command substitution, quoting
-  tricks or `~` expansion beyond what the process environment already provides.
+  an executable plus literal arguments tokenized with `shlex`, exactly like the built-in seats. No shell
+  evaluation, glob expansion, command substitution or `~` expansion beyond what the process environment
+  already provides; quotes group one literal argument.
 - The review request is appended as one final argument. If the right side contains `{prompt}`, that token is
   replaced by the request text instead and nothing is appended.
 - An unparseable entry, an empty label, or an executable that is not found makes that seat `UNAVAILABLE`; it

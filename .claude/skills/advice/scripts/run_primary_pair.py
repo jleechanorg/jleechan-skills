@@ -214,6 +214,18 @@ def command_path(name: str) -> str | None:
     return shutil.which(name)
 
 
+def codex_model_from_argv(argv: list[str] | None) -> str | None:
+    """Return the model named by -m/--model inside a resolved seat argv, if any."""
+    if not argv:
+        return None
+    for index, token in enumerate(argv):
+        if token in ("-m", "--model") and index + 1 < len(argv):
+            return argv[index + 1]
+        if token.startswith("--model="):
+            return token.split("=", 1)[1]
+    return None
+
+
 def seat_command(env_var: str, default: list[str]) -> list[str] | None:
     """Resolve one reviewer seat's argv from a machine-local env value.
 
@@ -912,22 +924,25 @@ def codex_lane(
     model: str | None = None,
     attempt_limited: bool = False,
 ) -> dict[str, Any]:
-    resolved_model = validate_codex_model(
-        model or os.environ.get("ADVICE_CODEX_MODEL") or DEFAULT_CODEX_MODEL
+    codex = seat_command(
+        "ADVICE_CODEX_CMD",
+        ["codex", "exec", "--yolo", "-m", os.environ.get("ADVICE_CODEX_MODEL") or DEFAULT_CODEX_MODEL,
+         "--config", "model_reasoning_effort=high"],
     )
+    argv_model = codex_model_from_argv(codex) if codex else None
+    resolved_model = validate_codex_model(
+        argv_model or model or os.environ.get("ADVICE_CODEX_MODEL") or DEFAULT_CODEX_MODEL
+    )
+    codex_transport = " ".join(codex) if codex else "codex exec --yolo"
     started_monotonic_ns = time.monotonic_ns()
     started = time.time_ns()
     try:
         timeout_seconds = wait_for_dispatch_barrier(barrier, deadline)
     except (TimeoutError, threading.BrokenBarrierError) as error:
         return dispatch_failure_result(
-            "codex exec --yolo", started, started_monotonic_ns, error, attempt_limited
+            codex_transport, started, started_monotonic_ns, error, attempt_limited
         )
     attempts: list[dict[str, Any]] = []
-    codex = seat_command(
-        "ADVICE_CODEX_CMD",
-        ["codex", "exec", "--yolo", "-m", resolved_model, "--config", "model_reasoning_effort=high"],
-    )
     if codex:
         code, stdout, stderr, timed_out, forced_pipe_close, supervision = execute(
             codex,
@@ -946,7 +961,7 @@ def codex_lane(
             failure = "missing_verdict"
         attempts.append(
             {
-                "transport": "codex exec --yolo",
+                "transport": codex_transport,
                 "exit_code": code,
                 "stderr": stderr,
                 "failure": failure,
@@ -957,7 +972,7 @@ def codex_lane(
         if code == 0 and not timed_out and has_verdict(stdout):
             return {
                 "status": "success",
-                "transport": "codex exec --yolo",
+                "transport": codex_transport,
                 "stdout": stdout,
                 "attempts": attempts,
                 "started_ns": started,
@@ -1025,11 +1040,11 @@ def opus_lane(
         failure = "missing_verdict"
     return {
         "status": "success" if code == 0 and not timed_out and has_verdict(stdout) else "error",
-        "transport": "claude -p --model opus --dangerously-skip-permissions",
+        "transport": " ".join(claude),
         "stdout": stdout,
         "attempts": [
             {
-                "transport": "claude -p",
+                "transport": " ".join(claude),
                 "exit_code": code,
                 "stderr": stderr,
                 "failure": failure,
