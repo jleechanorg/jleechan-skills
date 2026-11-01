@@ -62,10 +62,13 @@ Revision preamble for every CLI seat and for static reviewers (verbatim):
 
 ```text
 Work only in the isolated copy for this review. If the orchestrator set your
-working directory to a clone, use that; a static-review subagent instead clones
-the given SHA for itself with no `origin` remote, records the path, and deletes
-it before returning. Never work in the original checkout or in a donor
-repository. Use the GitHub token already present in your environment and
+working directory to a clone, use that and create no other. A static-review
+subagent instead clones the given SHA into the scratch directory the orchestrator
+allocated, fetches that SHA and the recorded base SHA (never the remote's current
+default branch), proves `HEAD` equals the review SHA and the base commit exists
+with the expected merge-base, records `git remote -v`, then removes `origin`,
+records the clone path, and deletes the clone by its literal absolute path before
+returning. Never work in the original checkout or in a donor repository. Use the GitHub token already present in your environment and
 never print it. Do not modify the original checkout, refs, config or hooks. Do
 not post anything; return your review as your final output.
 ```

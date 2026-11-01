@@ -54,6 +54,26 @@ class MarkdownOnlyDecisionTest(unittest.TestCase):
         self.assertIn("A late, incomplete, failed, or timed-out result is not an approval.", text)
         self.assertNotIn("A late, e, incomplete", text)
 
+    def test_revision_isolation_records_are_explicit(self):
+        text = (ROOT / ".claude/skills/advice/SKILL.md").read_text(encoding="utf-8")
+        section = text.split("## 4. Isolate review copies", 1)[1].split("## 5.", 1)[0]
+        flat = " ".join(section.split())
+        for record in ("isolation: orchestrator-clone", "isolation: self-clone", "isolation: none"):
+            self.assertIn(record, flat)
+        self.assertIn("Revision mode is available to the first two records only", flat)
+        self.assertIn("The donor is internal staging", flat)
+        self.assertIn("never a seat's working directory, never inside a clone, never shared", flat)
+        self.assertIn("Clones live only in an allocated scratch directory, never `/tmp`", flat)
+        self.assertIn("deletion always names the literal absolute path", flat)
+        self.assertIn("passes the remote URL, the review SHA **and** the recorded base SHA", flat)
+        self.assertIn("`git remote -v`", flat)
+        self.assertIn("that path is absent from its own filesystem afterwards", flat)
+        self.assertIn("A failed or unverified removal voids the vote", flat)
+        for retired in ("taking snapshots", "existing revision-review workflow", "saved-Markdown-byte overlay"):
+            self.assertNotIn(retired, flat)
+        scripts = ROOT / ".claude/skills/advice/scripts"
+        self.assertEqual(sorted(p.name for p in scripts.glob("*") if p.is_file()), [])
+
     def test_no_active_skill_invokes_the_deleted_runner(self):
         offenders = []
         for path in sorted((ROOT / ".claude/skills").rglob("*.md")):

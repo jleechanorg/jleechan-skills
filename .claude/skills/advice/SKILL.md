@@ -227,22 +227,41 @@ succeeded without receipt evidence.
 
 ## 4. Isolate review copies
 
-Revision mode has one rule per transport, and no seat is ever handed the donor.
+Every revision-mode receipt records exactly one `isolation:` value.
 
-- **CLI seats (a working directory can be set):** the orchestrator creates one clone per seat from the donor, with no
-  `origin` remote and pinned to the review SHA, sets it as that seat's working directory, records the path in the
-  receipt, and removes every clone after the attempt, verifying the removal.
-- **Static-review subagents (no working-directory parameter):** the seat clones the review SHA from the remote for
-  itself, never from the donor and never inside the original checkout; it records the path, deletes that clone before
-  returning, and reports the deletion. The orchestrator checks the recorded path is outside the original checkout and
-  the donor and that the clone is gone by the time the result is counted.
-- **Coordinator asks and anything else that can neither take a working directory nor clone locally:** `UNAVAILABLE`
-  for revision mode, because a remote seat's clone path cannot be verified. They remain eligible for document-only
-  slots, where no clone exists.
+- **`isolation: orchestrator-clone` — local CLI seats whose working directory can be set.** The orchestrator builds one
+  donor at the review SHA with standalone git metadata (never a linked worktree), verifies `--git-common-dir` equals
+  `--git-dir`, `HEAD` equals the review SHA, the base resolves to its recorded SHA and that base commit object is
+  present, then creates one clone per seat in that seat's allocated scratch directory (never `/tmp`, never inside a
+  repository tree), with no `origin` remote. It re-runs those three checks on **each seat clone**, sets the clone as
+  that seat's working directory, records the path, and afterwards deletes every clone by its literal absolute path and
+  verifies the removal. A failed or unverified removal voids the vote.
+- **`isolation: self-clone` — seats on this host with no working-directory parameter (a static-review subagent).** The
+  orchestrator allocates one empty scratch directory per seat and passes the remote URL, the review SHA **and** the
+  recorded base SHA in the launch context. The seat clones into exactly that directory, fetches **both** commits, and
+  proves `rev-parse HEAD` equals the review SHA and `cat-file -e <base>^{commit}` succeeds with the merge-base equal to
+  the recorded base - never the remote's current default branch. It records `git remote -v` before removing `origin`,
+  records the absolute path, deletes the clone by that literal path before returning, and states `clone_removed: true`.
+  The orchestrator counts the vote only when the path, the `remote -v` record, both SHA attestations and the removal
+  statement are present **and** that path is absent from its own filesystem afterwards. The copy's provenance stays
+  self-attested, exactly like the seat's VERDICT, and the receipt says so.
+- **`isolation: none` — document-only mode.** No donor and no clone: the orchestrator supplies the named Markdown files
+  as saved bytes with per-file and bundle SHA256 hashes, each seat reads only those, and the receipt records
+  `clone_path: none`, `clone_removed: n/a`.
 
-A donor is an internal staging object: it is never a seat's working directory, never inside a clone, and never shared
-between seats. The base-SHA checks on the donor therefore cover the CLI route; the static route records the same SHA
-it cloned, and its receipt is what the orchestrator verifies.
+**Eligibility.** Revision mode is available to the first two records only. A route that can neither take a working
+directory nor clone on this host - a remote coordinator ask - is `UNAVAILABLE` for revision mode with the failing
+condition named, and remains eligible for document-only mode. An unpushed SHA cannot use `self-clone`, because the
+remote cannot serve it.
+
+**The donor is internal staging.** It is never a seat's working directory, never inside a clone, never shared between
+seats, and it is removed after the attempt. Only `orchestrator-clone` consumes it; `self-clone` binds to the same
+recorded SHAs by attestation, so both routes review the identical base.
+
+**Host guards are part of the contract.** Clones live only in an allocated scratch directory, never `/tmp`, because
+the scratch-routing guard refuses `/tmp` workspaces; deletion always names the literal absolute path, never a computed
+`rm -rf "$VAR"`, because the destructive-path guard refuses that form. A seat that cannot delete cleanly records
+`clone_removed: false` and its vote does not count.
 
 **Document-only mode.** No donor and no clone: the orchestrator supplies the named Markdown files as saved bytes
 with per-file and bundle SHA256 hashes, and each seat reads only those. Record `none` for the clone path, and never
