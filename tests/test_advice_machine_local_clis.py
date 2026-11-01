@@ -48,19 +48,18 @@ class MarkdownOnlyDecisionTest(unittest.TestCase):
     def setUp(self):
         self.text = (ROOT / ".claude/skills/advice/SKILL.md").read_text(encoding="utf-8")
 
-    def test_bundled_runner_is_documented_as_not_honouring_overrides(self):
+    def test_skill_declares_it_ships_no_runner(self):
         flat = " ".join(self.text.split())
-        self.assertIn("optional legacy helper", flat)
-        self.assertIn("does **not** read any of these variables", flat)
-        self.assertIn("markdown first, no new runner code", flat)
+        self.assertIn("There is **no bundled runner**", flat)
+        self.assertIn("markdown only, zero runner code", flat)
+        self.assertNotIn("run_primary_pair", flat)
 
-    def test_no_new_runner_code_is_shipped_by_this_decision(self):
-        import subprocess
-        diff = subprocess.run(
-            ["git", "diff", "--numstat", "origin/main...HEAD", "--", ".claude/skills/advice/scripts/"],
-            cwd=ROOT, capture_output=True, text=True,
-        )
-        self.assertEqual(diff.stdout.strip(), "", "the slimming decision forbids new runner code")
+    def test_the_skill_ships_no_runner_code(self):
+        scripts = ROOT / ".claude/skills/advice/scripts"
+        self.assertFalse((scripts / "run_primary_pair.py").exists(),
+                         "the slimming decision removed the bundled runner")
+        remaining = sorted(p.name for p in scripts.glob("*.py")) if scripts.is_dir() else []
+        self.assertEqual(remaining, [], f"no runner code may return: {remaining}")
 
 
 if __name__ == "__main__":

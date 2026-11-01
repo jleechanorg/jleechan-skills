@@ -105,17 +105,12 @@ default identity and let one account vote twice.
 | Cursor alternate | `cursor agent -p --force` |
 | AGY alternate | `agy --print="<review request>" --model gemini-3.8-flash-high --dangerously-skip-permissions --new-project` |
 
-The bundled `scripts/run_primary_pair.py` is an **optional legacy helper**: it runs `codex` and `claude`
-resolved from `PATH` with its own fixed arguments and does **not** read any of these variables. Setting one of them for a seat therefore **rules that helper out for
-that seat**: run the seat directly instead, under the bounded-attempt and receipt rules below, and never let the
-helper run it with the `PATH` default while the receipt or the report claims the override. Do not describe,
-promise or record an override as if that helper honoured it. A machine that overrides a primary seat and has no
-route producing a full receipt for it records that seat as `UNAVAILABLE` rather than as a vote. When a seat needs an alternate CLI, an
-alternate credential store or a different model than the helper's fixed pair, the orchestrator launches that
-seat itself - directly, under the same bounded-attempt, independence and receipt rules below - and records the
-resolved command and model in the attempt. Keeping the alternative paths in this instruction file is
-deliberate: the slimming decision for this skill is *markdown first, no new runner code*, so a machine-local
-capability must never require a Python change to this repository.
+There is **no bundled runner**. This skill ships instructions only: the orchestrator launches each seat
+itself - directly, in parallel - under the bounded-attempt, independence and receipt rules below, and records the
+resolved command, model and credential-store label in that attempt's receipt. A seat whose command cannot be
+resolved that way, or whose route cannot produce a full receipt, is `UNAVAILABLE` rather than a vote. Keeping
+every alternative path in this instruction file is deliberate: the slimming decision for this skill is *markdown
+only, zero runner code*, so a machine-local capability must never require a Python change to this repository.
 
 **Machine-specific configuration never lives in this repository.****Machine-specific configuration never lives in this repository.** A credential store directory, a
 profile directory, a per-host wrapper path, a host-specific model alias or an account identifier belongs in
@@ -178,21 +173,14 @@ deadlines and cancellation. If the supported route cannot enforce the complete
 attempt and produce its receipt, mark it `UNAVAILABLE`; do not build timer
 machinery.
 
-The later named-review instruction remains controlling. The current
-`run_primary_pair.py` route computes `attempt_deadline` and `work_deadline` once
-from the queued monotonic timestamp and timeout flags; it then fixes each
-reviewer's deadline and passes it to the subprocess wait. There is no existing
-interface to extend an active attempt. A result completed with verified cleanup
-before that fixed deadline remains eligible. If fulfilling the later user
-instruction would require waiting beyond the deadline, this route cannot extend
-it: only on actual expiry record the attempt `TIMED_OUT` and non-approving, wait
-for and record cleanup, mark the requested wait route `UNAVAILABLE`, and leave
-the applicable review gate open unless another already-supported route can
-honor it. Do not preempt a valid within-deadline result, reinterpret the
-instruction as a shorter limit, count late output, claim the primary pair
-waited for the requested interval, or issue a duplicate review. This records a
-runner capability boundary; it does not cancel or shorten the user's
-instruction.
+The later named-review instruction remains controlling. The orchestrator computes one absolute deadline per
+attempt from its own queued monotonic timestamp and publishes that deadline to the seat it launches; there is no
+interface for extending an already-running attempt. A result completed with verified cleanup before that deadline
+remains eligible. If a later user instruction would require waiting beyond it, the orchestrator cannot extend
+that attempt: on actual expiry record it `TIMED_OUT` and non-approving, record cleanup, mark the requested wait
+route `UNAVAILABLE`, and leave the applicable review gate open unless another already-supported route honours it.
+Do not preempt a valid within-deadline result, reinterpret the instruction as a shorter limit, count late output,
+claim a wait that did not happen, or issue a duplicate review.
 
 Immediately before dispatch, after the shared review packet is ready, capture
 the queue boundary and pass both timestamps to the primary-pair runner. If the
@@ -217,26 +205,13 @@ Pass both required runner options:
 --queued-at-monotonic-ns "$QUEUED_AT_MONOTONIC_NS" \
 ```
 
-For `run_primary_pair.py`, also pass both timeout limits explicitly on every
-invocation. Let `B` be the effective reviewer-attempt budget: the user's
-explicit limit when supplied, otherwise 1800 seconds. Let `C` be a positive
-cleanup reserve smaller than `B`, and let `G` be the positive timeout-grace
-period. Set `--attempt-timeout-seconds` to `B`, `--timeout-seconds` to `B - C`,
-`--cleanup-budget-seconds` to `C`, and `--timeout-grace-seconds` to `G`. The
-runner starts the attempt clock at the queued timestamps, reserves `C` for
-cleanup and receipt work, then bounds each reviewer by the remaining work
-deadline and `G`. Its built-in 600-second attempt and 1200-second reviewer
-defaults do not implement this policy; do not omit either timeout flag. If the
-requested budget cannot leave room for both cleanup reserve and grace, report
-the route `UNAVAILABLE` instead of silently changing the user's limit.
+For every seat, derive the effective reviewer-attempt budget `B` (the user's explicit limit when supplied,
+otherwise 1800 seconds), a positive cleanup reserve `C` smaller than `B`, and a positive timeout-grace `G`. Launch
+the seat with its own native timeout set to `B - C`, reclaim cleanup within `C`, and pass `G` to the subprocess
+wait. Record the queued timestamps, the absolute deadline and the actual exit in the receipt. No timer machinery
+is added to this repository; the orchestrator's own bounded tool call is the mechanism.
 
-| Effective budget `B` | Cleanup reserve `C` | `--attempt-timeout-seconds` | `--timeout-seconds` |
-|---:|---:|---:|---:|
-| 300 seconds (explicit) | 10 seconds | 300 | 290 |
-| 1800 seconds (default) | 10 seconds | 1800 | 1790 |
-| 2700 seconds (explicit) | 10 seconds | 2700 | 2690 |
-
-A late, incomplete, failed, or timed-out result is not an approval. Preserve
+e, incomplete, failed, or timed-out result is not an approval. Preserve
 partial output and findings, record cleanup status, and use another independent
 eligible reviewer when needed. Do not keep waiting for unresolved cleanup or
 reuse a resource whose prior process or cleanup state is unresolved; continue

@@ -43,10 +43,9 @@ DOCUMENTS sha256:<BUNDLE HASH> (WITHHELD with a reason).
 
 ## 3. Channel preambles
 
-For the primary-pair runner, its built-in header (the exact-SHA or
-document-only lines in `run_primary_pair.py`) is that channel's preamble, and
-`--packet-file` must contain exactly the filled template. The runner records
-the exact prompt in `receipt.json` as `prompt` and `prompt_sha256`. For CLI
+Each channel's preamble is the exact-SHA or document-only header the orchestrator adds when it launches that
+seat, and the packet must contain exactly the filled template. The orchestrator records the exact prompt in
+`receipt.json` as `prompt` and `prompt_sha256`. For CLI
 alternates, each `<review request>`, and the stdin of forms without one, is
 exactly the preamble plus the template.
 
