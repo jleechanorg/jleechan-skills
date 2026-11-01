@@ -3,6 +3,12 @@ name: sidekick
 description: Spawn or respawn a persistent, crash-recoverable Sonnet sidekick for ANY long-running mission — PR/CI fleets, research sweeps, migrations, monitoring, ops runbooks, data pipelines, multi-day projects in any repo or no repo at all. The sidekick is ALWAYS a named in-session Claude Agent-Team teammate (model sonnet, SendMessage-addressable, visible in the user's panel) durable via STATE.md + a P1 resumption bead + commit-often. There is NO tmux mode and NO codex engine — external tmux sidekicks and -p print-mode sidekicks are banned. Use when the user says /sidekick, "respawn the sidekick", or wants long work to survive conversation crashes.
 ---
 
+> **Terminal-reading rule (canonical):** before any classification, assessment, or steer of a
+> cmux surface, read the surface's FULL available history (~10k words when possible;
+> `cmux capture-pane --scrollback --lines 1500`), then the last ~15 lines for current state.
+> Never decide from a short tail. Canonical: `~/.codex/AGENTS.md` section
+> "Reading a cmux terminal before deciding (full-buffer rule)".
+
 # Sidekick — persistent restartable Sonnet teammate (claude team ONLY)
 
 One named Sonnet teammate owns long-running orchestration. The main session

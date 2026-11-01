@@ -30,6 +30,8 @@ The six highlighted workflow entries are the `jleechanorg` `/superpowers-quick`
 wrapper, `/advice` + `/web-advice`, `/redgreen`, `/4layer`, `/evidence-review`,
 and `/harness`. These prompts and packages are portable and do not depend on
 WorldAI or private infrastructure.
+A plain install gets all six except `/web-advice`, a browser-review skill that
+installs only with `--profile web` or `--with web-advice`.
 
 > **Third-party attribution:** [`/superpowers-quick`](.claude/skills/superpowers-quick/SKILL.md)
 > is a `jleechanorg`-authored autonomous wrapper around
@@ -38,6 +40,19 @@ WorldAI or private infrastructure.
 > authored, owned, or maintained by Jeffrey Lee or jleechanorg**.
 
 Strategy source: [“Shift left, shift right — a portable skill system”](https://docs.google.com/presentation/d/1rGk2ZUIlJw3AkVJmJbdVB5OqAixR6M_xp7lc6lP2awA/edit?slide=id.gogSlide1787597443235634000#slide=id.gogSlide1787597443235634000).
+
+### PR workflow entry point
+
+Start with [PR Workflow Manager](.claude/skills/pr-workflow-manager/SKILL.md)
+when opening or driving a PR. It discovers repository-specific instructions,
+verifies source ownership and the branch, and uses
+[PR Lifecycle](.claude/skills/pr-lifecycle/SKILL.md) as the shared contract rather
+than duplicating its rules. The existing
+[`pr-workflow` alias](.claude/skills/pr-workflow/SKILL.md) points to this entry point.
+
+The manager links useful highlighted skills to the problems they help solve;
+they are not an extra mandatory checklist. Install the PR workflow together
+with the six highlights using `--profile highlights-prw` (see [installation](INSTALL.md)).
 
 ---
 
@@ -49,13 +64,40 @@ Ask your coding agent to inspect the repository and install only what it needs:
 "Inspect https://github.com/jleechanorg/jleechan-skills and set up the skills most useful for my tech stack."
 ```
 
-For a deterministic install, use the bundled installer. It installs complete
-skill packages (including their helper files), commands, agents, and scripts
-under `CLAUDE_HOME` (default: `~/.claude`). It refuses a nonempty target by
+For a deterministic install, use the bundled installer. **By default it now
+installs a curated set, not the whole library**: the six highlighted skills
+(`superpowers-quick`, `advice`, `redgreen`, `4layer`, `evidence-review`,
+`harness-engineering`), plus every in-repo skill they link to, the
+command aliases for the named skills (with any helper file they run; an alias
+is a command named after the skill, described as an alias, or at most 15
+lines long), and the
+agents and scripts those files use. Every profile installs its named set plus
+linked dependencies; the counts below were measured from a scratch install.
+Named profiles select other sets:
+
+| Flag | Named set (plus linked dependencies) | Measured skills / commands / agents |
+|---|---|---|
+| *(none)* or `--profile highlights` | `highlights`: the six highlighted skills above (6 named) | 21 / 11 / 1 |
+| `--profile highlights-prw` | `highlights` plus `prw` | 31 / 18 / 1 |
+| `--profile prw` | the PR workflow set: `prw`, `pr-workflow`, `pr-workflow-manager`, `draft-first-pr`, `pr-lifecycle`, `pr-green-definition`, `ready`, `advice`, `evidence-standards`, `evidence-review`, `testing-layers`, `code-standards` (12 named), and `/es`, `/er`, `/green`, `/cs` | 25 / 11 / 1 |
+| `--profile web` | opt-in browser review: `advice`, `web-advice`, `browser-control`, `aside-browser-default`, `browser-testing` (5 named) | 20 / 5 / 1 |
+| `--with SKILL` | adds one named skill, its dependencies and aliases to the chosen profile (repeatable) | varies |
+| `--all` | the full library, which was the installer's previous default | 277 / 246 / 45 |
+
+Dependency closure never adds browser, cookie or personal-infrastructure
+skills (`dot`, `web-advice`, `browser-control`, `browser-testing`, `slack-media-upload`, and the
+others listed in [`shared/install-profiles.json`](shared/install-profiles.json));
+those install only under `--all`, `--profile web`, or `--with`. `--with` adds
+only the excluded skill it names, so `--with browser-control` also needs
+`--with aside-browser-default --with browser-testing` (or use `--profile web`). Packages are
+copied complete, with their helper files, under `CLAUDE_HOME` (default:
+`~/.claude`). It refuses a nonempty target by
 default; `--backup` preserves that target before installing and `--merge`
 updates it in place. A routine merge preserves active files whose names collide
 with archived packages; after reviewing those warnings, opt into their
-migration with `--merge --migrate-archives`.
+migration with `--merge --migrate-archives`. `--merge` backs up every existing
+path it would change before writing and skips locally protected skills and
+commands (see [INSTALL.md](INSTALL.md)) unless `--include-protected` is given.
 
 ```bash
 INSTALL_ROOT=$(mktemp -d /tmp/jleechan-skills.XXXXXX)
@@ -135,6 +177,7 @@ pointers and are intentionally not the documentation target.
 | `/superpowers-quick` | [`superpowers-quick`](.claude/skills/superpowers-quick/SKILL.md) | Use when you want the normal Superpowers design process to select its recommended defaults autonomously. Give it the idea or requested change; it writes a self-reviewed design specification and implementation plan without pausing for preference or approval questions. |
 | `/history` | [`conversation-history-sparse`](.claude/skills/conversation-history-sparse/SKILL.md) | Use for fast orientation on what the current repo or branch has been doing. Ask a focused question; it samples high-signal Claude, Codex, Hermes, agy, Cursor, and Pi history without loading full transcripts; add `--deep` only when the sparse pass is insufficient. |
 | `/sidekick` | [`sidekick`](.claude/skills/sidekick/SKILL.md) | Use for one long-running mission that must survive a session crash. Give a named outcome and success criteria; it assigns a persistent teammate and checkpoints durable state plus a resumption Bead. |
+| `/prw` (`/pr-workflow`) | [`pr-workflow-manager`](.claude/skills/pr-workflow-manager/SKILL.md) → [`pr-lifecycle`](.claude/skills/pr-lifecycle/SKILL.md) | Use to open and drive a PR. It finds the canonical skills, publishes a draft, and moves the PR through Draft → evidence → review → CI → ready with SHA-bound gates; human merge approval stays separate. |
 | `/swarm` | [`swarm`](.claude/skills/swarm/SKILL.md) | Use when a goal decomposes into independent, adversarially reviewable lanes. State the goal and optional shape/engine; it sizes the fan-out, assigns explicit models and disjoint outputs, and requires multi-lens verification before synthesis. |
 
 ---
@@ -143,7 +186,7 @@ pointers and are intentionally not the documentation target.
 
 ### [`advice`](.claude/skills/advice/SKILL.md) — `/advice`, alias `/smart-advisor`
 
-Use this when you need independent reasoning at a real decision point. Give it a concise question and a pointer to the actual subject—a PR number, `base...head` ref, or file list—rather than pasting a preselected diff. It fans out to up to four reviewers concurrently: a Codex + Opus CLI primary pair, `/research`, and `/extended-library:secondo`, then returns a comparison table and recommendation. The primary pair runs with explicit full-permission flags in separate disposable exact-SHA clones; `claude -p` → Cursor → AGY remains the fallback chain when neither primary returns a verdict. In `draft-first-pr`, an `APPROVED at <SHA>` verdict requires two independent reviewers whose declared coverage together spans the whole change; fewer than two such reviewers, partial coverage, or a truncated inline fallback produces `WITHHELD`, not approval. `/web-advice` remains a separate manual command for web-grounded review.
+Use this when you need independent reasoning at a real decision point. Give it a concise question and a pointer to the actual subject—a PR number, `base...head` ref, or file list—rather than pasting a preselected diff. It runs a Codex + Opus CLI pair concurrently, each reading the whole declared scope, and ends with one SHA-bound `VERDICT` line; `/research` is nonvoting and runs only for material unanswered questions. The reviewers run with explicit full-permission flags in separate disposable exact-SHA clones, each attempt has a 600-second budget, and when one primary is unavailable it is paired with a distinct eligible alternate (a Claude alternate, `claudewa`, Cursor, or AGY). In `draft-first-pr`, an `APPROVED at <SHA>` verdict requires two independent reviewers, each of whom reads the whole declared scope; fewer than two such reviewers, partial coverage, or a truncated inline fallback produces `WITHHELD`, not approval. `/web-advice` remains a separate manual command for web-grounded review.
 
 ```bash
 /advice "Should we switch this cache from LRU to LFU eviction?"
@@ -207,7 +250,7 @@ Cross-project evidence-strength policy: a raw request/response capture from the 
 
 ### [`web-advice`](.claude/skills/web-advice/SKILL.md) — `/web-advice`, alias `/webadvice`
 
-Use this when an external, web-grounded, multi-model perspective will improve a code review, design, document, plan, research question, or operational decision. Provide the subject, scope, and any relevant links or artifacts; it uses real authenticated browser sessions on ChatGPT, Gemini, Grok, and Perplexity Web—never a provider API or CLI substitute—and records each available model’s verdict and coverage. Run `/er` separately only when the subject includes an evidence bundle or production claim.
+Use this when an external, web-grounded, multi-model perspective will improve a code review, design, document, plan, research question, or operational decision. Provide the subject, scope, and any relevant links or artifacts; it uses real authenticated browser sessions on ChatGPT, Gemini, and Perplexity Web—never a provider API or CLI substitute—and records each available model’s verdict and coverage. Run `/er` separately only when the subject includes an evidence bundle or production claim.
 
 ```bash
 /web-advice "Should we migrate auth session storage from Redis to DynamoDB with TTL?"
@@ -299,6 +342,16 @@ Orchestrates a multi-agent swarm — either a deterministic Workflow-tool fan-ou
 
 ```bash
 /swarm "audit code quality across the whole payments module" --shape review
+```
+
+### [`pr-workflow-manager`](.claude/skills/pr-workflow-manager/SKILL.md) — `/prw`, alias `/pr-workflow`
+
+See [Building WorldAI for iOS with /prw](docs/prw-worldai-ios-workflow.md) for a captioned before/after video, native simulator stills, and a practical evidence guide.
+
+The PR workflow from the [Develop with idea velocity](https://docs.google.com/presentation/d/1qLdMzZaIuP9IdpTBomuOGJTAspCEJo6Esu10zWFrhm4/edit?slide=id.iosNov2026#slide=id.iosNov2026) talk: Draft → evidence → review → CI → ready, with human merge approval kept separate. The entry point reads the target repository's own PR contract first, verifies the canonical skill source, publishes a draft PR, and drives it through the visible stages owned by [`pr-lifecycle`](.claude/skills/pr-lifecycle/SKILL.md): stage labels, title prefixes and suffixes, evidence, independent review routes, `/green`, and SHA-bound approvals. Gates never merge on their own.
+
+```bash
+/prw "drive PR #123 to final approval"
 ```
 
 ---

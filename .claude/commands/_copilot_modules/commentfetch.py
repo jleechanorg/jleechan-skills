@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 from .base import CopilotCommandBase
 from .per_comment_cache import PerCommentCache
+from .scratch_paths import copilot_cache_dir, copilot_cache_file
 
 
 class CommentFetch(CopilotCommandBase):
@@ -67,8 +68,10 @@ class CommentFetch(CopilotCommandBase):
         self.repo_name = sanitized_repo or "unknown-repo"
 
         # Set cache directory and initialize per-comment cache
-        self.cache_dir = Path(f"/tmp/{self.repo_name}/{self.branch_name}/copilot")
-        self.output_file = self.cache_dir / "comments.json"  # Keep for backward compatibility
+        self.cache_dir = copilot_cache_dir(self.repo_name, self.branch_name)
+        self.output_file = copilot_cache_file(
+            self.repo_name, self.branch_name, "comments.json"
+        )
         self.cache_metadata_file = self.cache_dir / "cache_metadata.json"
         self.per_comment_cache = PerCommentCache(self.cache_dir)
 
@@ -451,8 +454,7 @@ class CommentFetch(CopilotCommandBase):
                 and other_comment.get("created_at", "") > created_at
             ):
                 # Check for comment ID references (case-insensitive)
-                other_body_lower = other_body.lower()
-                if f"comment #{comment_id}" in other_body_lower or f"#{comment_id}" in other_body_lower or f"discussion_r{comment_id}" in other_body_lower:
+                if self._has_exact_comment_reference(other_body, comment_id):
                     return True
                 # Check for content similarity or reply patterns (consistent with general/review)
                 if self._appears_to_be_reply_to(other_comment, comment):
@@ -493,7 +495,7 @@ class CommentFetch(CopilotCommandBase):
 
                 # Check if other comment references this comment ID
                 other_body = str(other_comment.get("body", ""))
-                if f"#{comment_id}" in other_body or f"comment #{comment_id}" in other_body:
+                if self._has_exact_comment_reference(other_body, comment_id):
                     return True
 
                 # Check if it's an AI responder reply to this comment's content
@@ -577,6 +579,14 @@ class CommentFetch(CopilotCommandBase):
 
         return False
 
+    def _has_exact_comment_reference(self, body: str, comment_id: str) -> bool:
+        """Match a complete comment reference, never a numeric prefix."""
+        escaped_id = re.escape(str(comment_id))
+        return bool(
+            re.search(rf"(?<!\d)(?:comment\s+)?#{escaped_id}(?!\d)", body, re.IGNORECASE)
+            or re.search(rf"(?<!\d)discussion_r{escaped_id}(?!\d)", body, re.IGNORECASE)
+        )
+
     def _appears_to_be_reply_to(self, potential_reply: Dict[str, Any], original_comment: Dict[str, Any]) -> bool:
         """Check if a comment appears to be a reply to another comment.
 
@@ -592,7 +602,7 @@ class CommentFetch(CopilotCommandBase):
 
         # Check for direct references to original comment
         original_id = str(original_comment.get("id", ""))
-        if f"#{original_id}" in reply_body or f"comment #{original_id}" in reply_body:
+        if self._has_exact_comment_reference(reply_body, original_id):
             return True
 
         # Check for quoted content from original comment
@@ -789,6 +799,7 @@ class CommentFetch(CopilotCommandBase):
 
     def execute(self) -> Dict[str, Any]:
         """Execute comment fetching from all sources."""
+        self.fetch_errors.clear()
         self.log(f"🔄 FETCHING FRESH COMMENTS for PR #{self.pr_number} from GitHub API")
         self.log("⚠️ NEVER reading from cache - always fresh API calls")
         self.log(f"📁 Will save to: {self.output_file}")
@@ -805,6 +816,7 @@ class CommentFetch(CopilotCommandBase):
 
             ci_status = None
 
+            failed_sources = []
             for future in as_completed(futures):
                 data_type = futures[future]
                 try:
@@ -822,6 +834,13 @@ class CommentFetch(CopilotCommandBase):
                         ci_status = {'overall_state': 'ERROR', 'error': str(e)}
                     else:
                         self.log_error(f"Failed to fetch {data_type} comments: {e}")
+                        failed_sources.append(f"{data_type}: {e}")
+
+        if failed_sources or self.fetch_errors:
+            details = "; ".join(failed_sources + self.fetch_errors)
+            raise RuntimeError(
+                f"Fresh GitHub comment fetch failed; preserving existing cache: {details}"
+            )
 
         # Sort by created_at (most recent first)
         self.comments.sort(key=lambda c: c.get("created_at", ""), reverse=True)

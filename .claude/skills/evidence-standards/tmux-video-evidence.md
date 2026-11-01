@@ -34,7 +34,7 @@ Record these sections in order:
 
 ## Evidence Script Template
 
-This template contains placeholders. Do not execute it directly or invent fallback defaults. Before creating `/tmp/${WORK_NAME:-work}_evidence.sh`, complete all placeholder fields with the user's actual PR number, scoped test command, and relevant modified files:
+This template contains placeholders. Do not execute it directly or invent fallback defaults. Before creating `/tmp/${WORK_NAME:-work}_evidence.sh` (or resolving in scratch directory via `~/.claude/skills/scratch-space/SKILL.md`: `SCRATCH_TMP="$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh tmp)"`), complete all placeholder fields with the user's actual PR number, scoped test command, and relevant modified files:
 
 ```text
 #!/usr/bin/env bash
@@ -62,8 +62,8 @@ gh pr view "<PR_NUMBER>" --json number,title,url,state,headRefName
 echo "=== 5. LIVE TEST EXECUTION (SANITIZED) ==="
 <SCOPED_TEST_COMMAND> 2>&1 \
   | sed -E \
-      -e 's#/Users/[^/]+/#/Users/REDACTED/#g' \
-      -e 's#/home/[^/]+/#/home/REDACTED/#g' \
+      -e 's#/Users/[^/]+/#/<redacted-home>/#g' \
+      -e 's#/home/[^/]+/#/<redacted-home>/#g' \
       -e 's#/private/var/folders/[^[:space:]]+#/private/var/folders/REDACTED#g' \
       -e 's#/workspace/[^[:space:]]+#/workspace/REDACTED#g' \
       -e 's#/tmp/[^[:space:]]+#/tmp/REDACTED#g'
@@ -79,22 +79,32 @@ echo "POST=$POST_SHA"
 ## Recording
 
 ```bash
-chmod +x "/tmp/${WORK_NAME:-work}_evidence.sh"
+# Resolve scratch directory via ~/.claude/skills/scratch-space/SKILL.md
+SCRATCH_TMP="$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh tmp)"
+if [ "$?" -ne 0 ]; then
+  echo "Scratch resolver unavailable; refusing recording" >&2
+  exit 75
+fi
+if [ -z "$SCRATCH_TMP" ]; then
+  echo "Scratch resolver returned an empty path; refusing recording" >&2
+  exit 75
+fi
+chmod +x "${SCRATCH_TMP}/${WORK_NAME:-work}_evidence.sh"
 
 # Option A: direct screen recording (mp4)
-# (Use Kap or equivalent and run "/tmp/${WORK_NAME:-work}_evidence.sh" in the visible terminal)
+# (Use Kap or equivalent and run "${SCRATCH_TMP}/${WORK_NAME:-work}_evidence.sh" in the visible terminal)
 
 # Option B: asciinema capture, then convert to mp4
-timeout 120 asciinema rec "/tmp/${WORK_NAME:-work}.cast" --command "/tmp/${WORK_NAME:-work}_evidence.sh" --idle-time-limit 5 --overwrite
-agg --cols 120 --rows 50 "/tmp/${WORK_NAME:-work}.cast" "/tmp/${WORK_NAME:-work}.gif"
-ffmpeg -y -i "/tmp/${WORK_NAME:-work}.gif" -movflags +faststart -pix_fmt yuv420p "/tmp/${WORK_NAME:-work}.mp4"
+timeout 120 asciinema rec "${SCRATCH_TMP}/${WORK_NAME:-work}.cast" --command "${SCRATCH_TMP}/${WORK_NAME:-work}_evidence.sh" --idle-time-limit 5 --overwrite
+agg --cols 120 --rows 50 "${SCRATCH_TMP}/${WORK_NAME:-work}.cast" "${SCRATCH_TMP}/${WORK_NAME:-work}.gif"
+ffmpeg -y -i "${SCRATCH_TMP}/${WORK_NAME:-work}.gif" -movflags +faststart -pix_fmt yuv420p "${SCRATCH_TMP}/${WORK_NAME:-work}.mp4"
 ```
 
 ## Captions (MANDATORY)
 
 For every tmux video, provide captions by either:
 1. Burning captions into the video (preferred), or
-2. Producing `/tmp/<work_name>.vtt` or `.srt` and linking that actual file alongside the reviewed media artifacts.
+2. Producing `${SCRATCH_TMP}/<work_name>.vtt` or `.srt` (resolved via `~/.claude/skills/scratch-space/scripts/scratch-dir.sh tmp`) and linking that actual file alongside the reviewed media artifacts.
 
 Use `~/.claude/skills/video-caption/SKILL.md` when you need to generate burned-in captions reliably.
 
@@ -255,9 +265,20 @@ The following GitHub release example applies only when that destination is autho
   sha_short="${CAPTURED_SHA:0:12}"
   tag="evidence-pr-${PR_NUMBER}-${sha_short}-${RUN_ID}"
 
-  archive_dir="$(mktemp -d "${TMPDIR:-/tmp}/evidence_archive.XXXXXX")"
-  trap 'rm -rf "$archive_dir"' EXIT
+  archive_scratch="$("${CLAUDE_HOME:-$HOME/.claude}/skills/scratch-space/scripts/scratch-dir.sh" tmp)" || {
+    echo "Scratch resolver unavailable; refusing archive allocation" >&2
+    exit 75
+  }
+  [[ -n "$archive_scratch" ]] || {
+    echo "Scratch resolver returned an empty path; refusing archive allocation" >&2
+    exit 75
+  }
+  archive_dir="$(mktemp -d "$archive_scratch/evidence_archive.XXXXXX")" || {
+    echo "Scratch archive allocation failed" >&2
+    exit 75
+  }
   zip_file="$archive_dir/$(basename "$video_file").zip"
+  trap 'rm -f -- "$zip_file"; rmdir -- "$archive_dir"' EXIT
   zip -j "$zip_file" "$video_file"
 
   assets=("$zip_file" "$preview_file")
@@ -308,9 +329,9 @@ The following GitHub release example applies only when that destination is autho
 ```
 
 
-From the JSON output returned by `gh release view`, extract the uploaded asset URLs and construct `/tmp/evidence_comment.md`. Do not guess draft asset download URLs or invent placeholder URLs.
+From the JSON output returned by `gh release view`, extract the uploaded asset URLs and construct the comment body file (e.g. `${COMMENT_FILE:-$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh tmp)/evidence_comment.md}`). Do not guess draft asset download URLs or invent placeholder URLs.
 
-Once `/tmp/evidence_comment.md` is constructed, post the comment to the authorized PR:
+Once the comment file is constructed, post the comment to the authorized PR:
 
 ```bash
 (
@@ -372,7 +393,8 @@ Once `/tmp/evidence_comment.md` is constructed, post the comment to the authoriz
     exit 1
   fi
 
-  comment_file="${COMMENT_FILE:-/tmp/evidence_comment.md}"
+  comment_scratch="$("${CLAUDE_HOME:-$HOME/.claude}/skills/scratch-space/scripts/scratch-dir.sh" tmp)"
+  comment_file="${COMMENT_FILE:-$comment_scratch/evidence_comment.md}"
   if [ ! -s "$comment_file" ]; then
     echo "Error: Comment body file '$comment_file' does not exist or is empty" >&2
     exit 1
@@ -413,7 +435,15 @@ Optional path:
 GitHub free plans often cap video uploads at 10 MB. Compress when needed:
 
 ```bash
-ffmpeg -y -i "/tmp/${WORK_NAME:-work}.mp4" -vcodec h264 -crf 23 -preset medium "/tmp/${WORK_NAME:-work}.compressed.mp4"
+SCRATCH_TMP="$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh tmp)" || {
+  echo "Scratch resolver unavailable; refusing compression" >&2
+  exit 75
+}
+[[ -n "$SCRATCH_TMP" ]] || {
+  echo "Scratch resolver returned an empty path; refusing compression" >&2
+  exit 75
+}
+ffmpeg -y -i "${SCRATCH_TMP}/${WORK_NAME:-work}.mp4" -vcodec h264 -crf 23 -preset medium "${SCRATCH_TMP}/${WORK_NAME:-work}.compressed.mp4"
 ```
 
 ## Reviewer Checklist

@@ -87,7 +87,7 @@ Print the full absolute evidence path and record the actual command and target.
 - UI/interactive behavior also requires a **captioned video** (`.mp4`/`.gif`/`.cast`) tied to the
   PR HEAD SHA.
 - Provenance: input captured from the real client, never reconstructed from backend reference
-  files (no circular provenance). See `.claude/skills/bypass-claims.md`.
+  files (no circular provenance). See `.claude/skills/bypass-claims/SKILL.md`.
 - Apply evidence-standards' staleness-tolerance diff test and final evidence
   sequencing. Re-run affected evidence for a material behavior change; re-affirm
   qualifying nonbehavioral changes while preserving the original tested SHA,

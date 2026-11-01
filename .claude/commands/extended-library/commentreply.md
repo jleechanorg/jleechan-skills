@@ -225,7 +225,9 @@ rg "problematic_pattern" . --type py -A 2 -B 2
 
 # Prove ALL instances addressed before declaring complete
 
-git add -A && git diff --cached | grep -E "(\+|\-)" | grep "problematic_pattern"
+git diff -- target_file.py
+git add -- target_file.py
+git diff --cached -- target_file.py
 git show HEAD | grep -A 3 -B 3 "problematic_pattern"
 ```
 

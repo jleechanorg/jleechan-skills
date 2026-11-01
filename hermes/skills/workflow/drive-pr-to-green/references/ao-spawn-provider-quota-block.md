@@ -65,7 +65,7 @@ Two paths. **Pick the inline path only when the diff qualifies for the `pr-green
 3. Apply the diff inline (sed / patch / write_file as appropriate).
 4. Verify locally (yaml.safe_load, lint, actionlint).
 5. Commit + push (`git push -u origin fix/<descriptive-name>`).
-6. Open NORMAL PRs with 6-section body + Evidence section + `Beads: <bd-id>` line.
+6. Open normal PRs with a body following `~/.codex/AGENTS.md` § PR descriptions (canonical owner) and the target repository's `AGENTS.md`/`CLAUDE.md` and PR template; retain any repo-required Evidence section and `Beads: <bd-id>` line.
 7. Arm a babysit cron for the post-create /green cycle.
 
 **Wait path (when the diff is larger or requires architectural judgment)**:

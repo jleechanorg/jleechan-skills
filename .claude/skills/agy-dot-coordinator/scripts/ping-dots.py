@@ -1,15 +1,13 @@
 #!/usr/bin/env python3
-"""One scheduled model-written ping through the existing Dot tool; prompts live in SKILL.md."""
-import argparse, fcntl, json, os, platform, shutil, signal, subprocess, sys, tempfile, time, urllib.request
 from pathlib import Path
+import runpy
+runpy.run_path(str(Path(__file__).resolve().parents[2] / "dot-coordinator/scripts/ping-dots.py"), run_name="__main__")
 
 SKILL_MD = Path(__file__).resolve().parents[1] / 'SKILL.md'
-
 def _md_block(tag):
     text = SKILL_MD.read_text()
     start = text.index('```text\n', text.index(f'<!-- PROMPT:{tag} -->')) + len('```text\n')
     return text[start:text.index('\n```', start)]
-
 REMINDER_BODY = _md_block('REMINDER_BODY')
 REMINDER_OPENING, MAX_RESPONSE_CHARS = REMINDER_BODY.splitlines()[0], 2600
 PROMPT = _md_block('WRITER_PREFIX').format(limit=MAX_RESPONSE_CHARS) + '\n\n' + REMINDER_BODY
@@ -22,7 +20,6 @@ IDENTITIES = {'agy': 'AGY', 'luna': 'LunaRoute', 'minimax': 'MiniMax Claude',
               'gemini': 'Gemini direct', 'codex': 'Codex', 'haiku': 'Claude Haiku'}
 ATTRIBUTION_SUFFIX, MAX_CLASSIFY_REPLY_CHARS = 'coordinator: automated reminder; no new authority.', 6000
 VALID_VERDICTS = ('compliant', 'working', 'reaction_only', 'unstructured_text', 'idle_refusal')
-
 def bounded_run(command, stdin_text=None, timeout=180, cwd=None, env=None, check=True):
     stdin_file = tempfile.TemporaryFile(mode='w+') if stdin_text is not None else None
     try:
@@ -43,26 +40,21 @@ def bounded_run(command, stdin_text=None, timeout=180, cwd=None, env=None, check
     if check and proc.returncode != 0:
         raise subprocess.CalledProcessError(proc.returncode, command, stderr=stderr)
     return subprocess.CompletedProcess(command, proc.returncode, stdout, stderr)
-
 def run_with_stdin(command, stdin_text, timeout=180, **kwargs):
     return bounded_run(command, stdin_text=stdin_text, timeout=timeout, **kwargs)
-
 def claude_json(model, env=None, prompt=PROMPT):
     command = [shutil.which('claude') or 'claude', '--strict-mcp-config', '--print', '--model', model, '--output-format', 'json', '--no-session-persistence', '--tools', '', '--disable-slash-commands', prompt]
     response = json.loads(bounded_run(command, timeout=180, cwd='/tmp', env=env).stdout)
     if not isinstance(response, dict) or response.get('is_error') is not False or not isinstance(response.get('result'), str):
         raise ValueError('Claude returned no successful result')
     return response['result']
-
 def gemini_payload(prompt):
     return {'contents': [{'parts': [{'text': prompt}]}]}
-
 def gemini_extract(body):
     try: text = body['candidates'][0]['content']['parts'][0]['text']
     except (KeyError, IndexError, TypeError): raise ValueError('Gemini returned no text candidate')
     if not isinstance(text, str) or not text.strip(): raise ValueError('Gemini returned empty text')
     return text
-
 def generate_gemini(prompt=PROMPT):
     key = os.environ.get('GEMINI_API_KEY') or os.environ.get('WORLDAI_DEV_GEMINI_API_KEY')
     if not key: raise ValueError('GEMINI_API_KEY unavailable')
@@ -71,7 +63,6 @@ def generate_gemini(prompt=PROMPT):
                                  headers={'Content-Type': 'application/json', 'x-goog-api-key': key})
     with urllib.request.urlopen(req, timeout=180) as response:
         return gemini_extract(json.loads(response.read().decode()))
-
 def generate(provider, prompt=PROMPT):
     if provider == 'gemini': return generate_gemini(prompt=prompt)
     if provider == 'agy':
@@ -111,7 +102,6 @@ def generate(provider, prompt=PROMPT):
                 return output.read()
     if provider == 'haiku': return claude_json(HAIKU_MODEL, prompt=prompt)
     raise ValueError('Unknown generator: ' + provider)
-
 def generate_message(providers):
     for provider in providers:
         try:
@@ -133,13 +123,11 @@ def generate_message(providers):
             if isinstance(error, subprocess.CalledProcessError) and error.stderr:
                 print(error.stderr[:4000], file=sys.stderr)
     raise ValueError('All generation providers failed; no Dot send')
-
 def extract_reply_after_reminder(page_text):
     if not isinstance(page_text, str) or not page_text.strip(): return ''
     cut = page_text.rfind(ATTRIBUTION_SUFFIX)
     if cut == -1 or page_text.find(REMINDER_OPENING, 0, cut) == -1: return ''
     return page_text[cut + len(ATTRIBUTION_SUFFIX):].strip()
-
 def parse_verdict(raw_text):
     if not isinstance(raw_text, str) or not raw_text.strip(): raise ValueError('Empty classifier output')
     cleaned = raw_text.strip()
@@ -151,7 +139,6 @@ def parse_verdict(raw_text):
     if not isinstance(obj, dict) or obj.get('verdict') not in VALID_VERDICTS:
         raise ValueError('Invalid classifier verdict: ' + repr(obj))
     return obj['verdict']
-
 def classify_response(page_text, providers=CLASSIFY_PROVIDERS):
     reply = extract_reply_after_reminder(page_text)
     if not reply: return 'no_response'
@@ -162,10 +149,8 @@ def classify_response(page_text, providers=CLASSIFY_PROVIDERS):
             except (OSError, ValueError, subprocess.SubprocessError) as error:
                 print(provider + ' classification failed: ' + str(error), file=sys.stderr)
     return 'classification_unavailable'
-
 def read_tail(dot, account, env, chars=12000, timeout=180):
     return bounded_run([dot, '--account', account, 'read', str(chars)], timeout=timeout, env=env, check=False).stdout
-
 def read_and_classify(dot, account, env, windows=None, providers=CLASSIFY_PROVIDERS):
     windows = windows or tuple(int(n) for n in os.environ.get('COORDINATOR_READ_WINDOWS', '12000,40000').split(','))
     verdict = 'no_response'
@@ -173,7 +158,6 @@ def read_and_classify(dot, account, env, windows=None, providers=CLASSIFY_PROVID
         verdict = classify_response(read_tail(dot, account, env, chars=chars), providers=providers)
         if verdict != 'no_response': return verdict
     return verdict
-
 def verify_and_escalate(dot, account, env, provider, state_file, wait_secs=180, recheck_secs=120, providers=None):
     c_provs = tuple(providers) if providers is not None else (
         (provider,) + tuple(p for p in CLASSIFY_PROVIDERS if p != provider) if provider in CLASSIFY_PROVIDERS else CLASSIFY_PROVIDERS)
@@ -212,7 +196,6 @@ def verify_and_escalate(dot, account, env, provider, state_file, wait_secs=180, 
 def delivery_message(provider, message):
     if message != REMINDER_BODY: raise ValueError('The complete required recovery instructions must be delivered')
     return message + '\nFrom ' + IDENTITIES[provider] + ' coordinator: automated reminder; no new authority.'
-
 def delivery_state(path, **fields):
     marker = path.with_name(path.name + '.hold') if fields.get('last_status') in ('SUCCESS', 'SKIPPED_COMPOSER_BUSY') and not path.name.endswith('.hold') else None
     if marker: delivery_state(marker, delivery_unverified=True)
@@ -223,12 +206,10 @@ def delivery_state(path, **fields):
     try: os.fsync(directory)
     finally: os.close(directory)
     if marker: marker.unlink(missing_ok=True)
-
 def due_account(accounts, role, now):
     offsets = (0, 20, 40) if role == 'mac' else (30, 50, 10)
     sec = time.localtime(now).tm_min * 60 + time.localtime(now).tm_sec
     return next((a for a, m in zip(accounts, offsets) if 0 <= (sec - m * 60) % 3600 <= 120), None)
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--account', help='One configured account; otherwise use this host’s due slot')
@@ -282,7 +263,6 @@ def main():
         if os.environ.get('COORDINATOR_VERIFY_RESPONSE', '1') == '1':
             verify_and_escalate(dot, account, env, provider, state / ('state_' + account + '.json'), wait_secs=int(os.environ.get('COORDINATOR_RESPONSE_WAIT_SECS', '180')), recheck_secs=int(os.environ.get('COORDINATOR_RESPONSE_RECHECK_SECS', '120')))
         return 0
-
 if __name__ == '__main__':
     try: raise SystemExit(main())
     except (OSError, ValueError, subprocess.SubprocessError) as error:

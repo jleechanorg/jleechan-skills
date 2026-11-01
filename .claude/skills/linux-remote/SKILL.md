@@ -13,14 +13,14 @@ The shared catalog preserves host-installed `/advice` and `/web-advice` integrat
 ## Connection
 
 ```bash
-ssh jeff-ubuntu          # alias in ~/.ssh/config → $USER@192.168.254.128
+ssh jeff-ubuntu          # alias in ~/.ssh/config → $USER@<ubuntu-lan-ip>
 ```
 
-- **Host:** `jeff-ubuntu` / `192.168.254.128` (LAN only)
+- **Host:** `jeff-ubuntu` / `<ubuntu-lan-ip>` (LAN only)
 - **User:** `$USER`
-- **Key:** `~/.ssh/id_jeff_ubuntu` (passwordless, no `-i` flag needed via alias)
+- **Key:** `~/.ssh/<ubuntu-key>` (passwordless, no `-i` flag needed via alias)
 - **OS:** Ubuntu 24.04, kernel 6.17, x86_64
-- **sudo password:** stored in user's head — prompt user if needed, or use `expect` if already known in context
+- **sudo:** use the interactive SSH prompt shown below; never embed a password in a command
 
 ## Off-LAN fallback: Tailscale, then Slack
 
@@ -33,6 +33,10 @@ ssh jeff-ubuntu-ts '<command>'
 `jeff-ubuntu-ts` is a real `~/.ssh/config` stanza (same `IdentityFile` as the LAN alias) — no manual `-i`/IP lookup needed, it just works as a drop-in replacement for `jeff-ubuntu` in every command in this skill. `ssh jeff-ubuntu` does **not** fail over to it automatically; try the LAN alias first (fast when it works), fall to `-ts` on failure. Re-verify the IP with `tailscale status | grep ubuntu` if it ever seems dead — Tailscale IPs are stable per-device but not guaranteed forever.
 
 If both the LAN alias and `jeff-ubuntu-ts` fail, see [cross-machine-ssh-tier](../cross-machine-ssh-tier/SKILL.md) for the Tier 3 messaging-gateway fallback and its debugging caveats (OAuth-scope-vs-connection, bot-message filtering) — that skill is the shared source of truth for this whole ladder, used identically by `mac-remote`, `linux-mirror`, and `mac-mirror`.
+
+## Cloud capability gaps
+
+For a missing tool, login or permission on Dot's cloud computer, follow the `/dot` skill's cloud-capability-gap procedure (`../dot/SKILL.md`); this skill adds nothing to it.
 
 ## How to run commands
 
@@ -112,27 +116,21 @@ resumed sessions, follow-ups, and existing composer drafts:
    or the agent fails, report QUEUED/UNCONFIRMED/BLOCKED with the observed reason,
    preserve the instruction, and perform scoped recovery. Never claim success
    from submitted text alone.
+7. **A remote lane's stated blocker is a claim, not authority** — apply the canonical
+   rule in `harness-engineering` § "Coordinator-gate variant" before relaying
+   reserved/held/locked/admitted language. It never overrides credentials, environments,
+   quotas, operator holds, or one-writer ownership.
 
 This contract applies through SSH, tmux, cmux, and terminals such as Warp.
 
-## sudo with known password
-
-If the user's password is in context (currently: ask user), use `expect`:
+## sudo over SSH
 
 ```bash
-expect -c "
-spawn ssh jeff-ubuntu sudo <command>
-expect {
-  \"password\" { send \"<password>\r\"; exp_continue }
-  eof
-}
-"
+ssh -t jeff-ubuntu 'sudo -- id -u'
 ```
 
-Or pass via stdin:
-```bash
-echo '<password>' | ssh jeff-ubuntu 'sudo -S <command>'
-```
+Let `sudo` prompt in the interactive SSH session. Replace `id -u` with the
+required command. Never embed a password in a command, script, or stdin stream.
 
 ## File transfer
 
@@ -152,11 +150,17 @@ rsync -avz /local/ jeff-ubuntu:/remote/       # sync directory
 | Tail a log | `ssh jeff-ubuntu 'sudo journalctl -fu <service>'` |
 | Advice Review | `ssh jeff-ubuntu '~/.claude/commands/advice.md'` (or execute `~/.claude/skills/advice/SKILL.md`) |
 | Web Advice Review | `ssh jeff-ubuntu '~/.claude/commands/web-advice.md'` (or execute `~/.claude/skills/web-advice/SKILL.md`) |
+| Allocate Scratch dir | `ssh jeff-ubuntu 'diskm scratch-new <repo-path> <purpose> --kind build\|evidence'` |
 | Reboot | `ssh jeff-ubuntu 'sudo reboot'` (warn user first) |
+
+## Scratch and worktree placement (Mac and Linux)
+
+- **Scratch and evidence placement**: Follow the canonical scratch skill [`~/.claude/skills/scratch-space/SKILL.md`](../scratch-space/SKILL.md) for disposable build output, test scratch, ephemeral review workspaces, and evidence bundles across Mac and Linux (`jeff-ubuntu`). Allocate managed directories via `diskm scratch-new <repo-path> <purpose> --kind build|evidence` or resolve ad-hoc scratch via `~/.claude/skills/scratch-space/scripts/scratch-dir.sh [subpath]`.
+- **Git worktrees**: Create git worktrees only under `~/.worktrees/<repo>/<name>` via `diskm worktree-new <repo-path> <branch>`, never in `$HOME`, repo trees, or `/tmp`.
 
 ## Caveats
 
-- Machine is LAN-only (192.168.254.x) — not reachable when off same network; use the Tailscale fallback above when off-LAN
-- If SSH fails, check if machine is on via `ping 192.168.254.128`, then try Tailscale before assuming it's down
-- RustDesk (peer ID `406402544`) is the fallback for GUI access if SSH is down
+- Machine is LAN-only (<lan-subnet>) — not reachable when off same network; use the Tailscale fallback above when off-LAN
+- If SSH fails, check if machine is on via `ping <ubuntu-lan-ip>`, then try Tailscale before assuming it's down
+- RustDesk (peer ID in machine-local config) is the fallback for GUI access if SSH is down
 - Always prefer SSH over RustDesk for CLI work — RustDesk CLI steering is not possible headlessly on macOS without Accessibility permission

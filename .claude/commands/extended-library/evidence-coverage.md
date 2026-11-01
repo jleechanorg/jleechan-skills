@@ -5,7 +5,7 @@ to its required testing layer, existing evidence, and coverage gaps.
 
 ## Skill
 
-See `.claude/skills/evidence-coverage.md` for the full procedure.
+See `.claude/skills/evidence-coverage/SKILL.md` for the full procedure.
 
 ## Quick start
 

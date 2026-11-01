@@ -13,6 +13,8 @@ For Dot operations on the target Mac, use that machine's `DOT_ACCOUNT`
 environment variable for account selection; it overrides the default in
 `~/.config/dot/config.json`. Pass `--account` only when intentionally
 overriding the machine preference for one invocation. Keep account values in
+machine configuration rather than this portable alias.
+
 machine configuration rather than this portable alias. A standard noninteractive
 `ssh macbook '<command>'` does not load the target shell's `.zshrc`; run Dot
 commands through `ssh macbook 'zsh -ic "<dot command>"'` so the target Mac's

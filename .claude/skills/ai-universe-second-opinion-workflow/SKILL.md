@@ -18,20 +18,36 @@ scope: project
 - Questions about cost, rate limits, or interpreting multi-model output.
 
 ## Prerequisites & authentication
+Before any authentication command, use the host's already loaded nvm setup to
+resolve its installed Node 22. If nvm or Node 22 is unavailable, report that
+prerequisite; do not use a different major version or change persistent defaults.
+
+```bash
+AUTH_NODE="$(nvm which 22)" || exit 1
+[ -x "$AUTH_NODE" ] || exit 1
+case "$("$AUTH_NODE" --version)" in v22.*) ;; *) exit 1 ;; esac
+```
+
+Use this same verified `AUTH_NODE` executable for every command below.
+
 1. **Verify auth-cli.mjs installation**:
    ```bash
    test -f ~/.claude/scripts/auth-cli.mjs && echo "✅ Installed" || echo "❌ Not found - run /localexportcommands"
    ```
 2. **Check authentication status**:
    ```bash
-   node ~/.claude/scripts/auth-cli.mjs status
+   "$AUTH_NODE" ~/.claude/scripts/auth-cli.mjs status
    ```
-3. **If not authenticated or token expired**, run login (opens browser for OAuth):
-   ```bash
-   # Run this outside Claude Code in a regular terminal
-   node ~/.claude/scripts/auth-cli.mjs login
-   ```
-4. Ensure `http` (HTTPie), `jq`, `python3`, and `node` (>=20.0.0) are installed in the environment.
+3. Follow `../ai-universe-auth/SKILL.md` for current authentication state and
+   refresh handling. If the existing token is expired, call the existing
+   `auth-cli.mjs token` command to refresh from the authorized credential store
+   without printing the token. Retry the requested non-UI MCP call once after a
+   successful refresh. Do not start a browser login from a 401 or stale token
+   status. If refresh fails, use the canonical credential owner's Keychain
+   presence probe (without displaying a value) and a cheap non-UI authenticated
+   call. Only after both fail may you report the physical authentication
+   dependency; do not ask for login from status output alone.
+4. Ensure `http` (HTTPie), `jq`, and `python3` are installed.
 
 > ℹ️ **Seamless Auto-Refresh**: The `/secondo` command uses the exact same auth-cli.mjs from AI Universe repo. If your token is valid, it does nothing. If expired, it auto-refreshes using your refresh token (silent, no browser popup). Only prompts for login if refresh token expires (30+ days).
 
@@ -39,64 +55,57 @@ scope: project
 > - ID token: 1-hour expiration
 > - Refresh token: enables 30+ day sessions
 
-> ℹ️ For a dedicated authentication walkthrough see [ai-universe-auth.md](ai-universe-auth.md). Dependency notes live in [secondo-dependencies.md](secondo-dependencies.md).
+> ℹ️ For a dedicated authentication walkthrough see [ai-universe-auth.md](../ai-universe-auth/SKILL.md). Dependency notes live in [secondo-dependencies.md](../secondo-dependencies/SKILL.md).
 
 ## Primary commands
 | Scenario | Command |
 | --- | --- |
 | Quick question (when SlashCommand is working) | `/secondo "Should I use Redis or in-memory caching?"` |
-| Build MCP request with PR context | `python3 skills/second_opinion_workflow/scripts/build_second_opinion_request.py /tmp/mcp_request.json "QUESTION" 3 origin/main` |
-| Call MCP via HTTPie | `http POST https://ai-universe-backend-dev-114133832173.us-central1.run.app/mcp "Authorization:Bearer $TOKEN" < /tmp/mcp_request.json --timeout=180 --print=b` |
-| Parse embedded JSON response | `jq -r '.result.content[0].text' /tmp/mcp_response.json > /tmp/mcp_parsed.json` |
-| Summarize models/costs | `python3 skills/second_opinion_workflow/scripts/parse_second_opinion.py /tmp/mcp_parsed.json` |
+| Build MCP request with PR context | `python3 skills/second_opinion_workflow/scripts/build_second_opinion_request.py "$REQUEST_FILE" "QUESTION" 3 origin/main` |
+| Call MCP via HTTPie | `http POST https://ai-universe-backend-dev-114133832173.us-central1.run.app/mcp "Authorization:Bearer $TOKEN" < "$REQUEST_FILE" --timeout=180 --print=b` |
+| Parse embedded JSON response | `jq -r '.result.content[0].text' "$RESPONSE_FILE" > "$PARSED_FILE"` |
+| Summarize models/costs | `python3 skills/second_opinion_workflow/scripts/parse_second_opinion.py "$PARSED_FILE"` |
 | End-to-end helper | `skills/second_opinion_workflow/scripts/request_second_opinion.sh "QUESTION" [MAX_OPINIONS]` |
 
 ## Recommended workflow (HTTPie)
 1. **Generate the request payload** (captures diff + per-file patches automatically):
    ```bash
+   RUN_DIR="$(mktemp -d /tmp/second-opinion.XXXXXX)"
+   REQUEST_FILE="$RUN_DIR/mcp_request.json"
+   RESPONSE_FILE="$RUN_DIR/mcp_response.json"
+   PARSED_FILE="$RUN_DIR/mcp_parsed.json"
    python3 skills/second_opinion_workflow/scripts/build_second_opinion_request.py \
-     /tmp/mcp_request.json \
+     "$REQUEST_FILE" \
      "YOUR QUESTION HERE" \
      3 \
      origin/main
    ```
    Adjust `SECOND_OPINION_MAX_FILES`, `SECOND_OPINION_MAX_DIFF_CHARS`, or `SECOND_OPINION_MAX_PATCH_CHARS` if you need more/less context.
-2. **(Optional) Inspect/tweak** `/tmp/mcp_request.json` to refine the natural-language question while keeping the attached git context intact.
-3. **Get authentication token** (auto-refresh from AI Universe repo):
+2. **(Optional) Inspect/tweak** `"$REQUEST_FILE"` to refine the natural-language question while keeping the attached git context intact.
+3. **Get authentication token** through the existing auth CLI (auto-refresh only from its designated credential store):
    ```bash
    # Get token (auto-refreshes if expired, does nothing if valid)
-   TOKEN=$(node ~/.claude/scripts/auth-cli.mjs token)
+   TOKEN=$("$AUTH_NODE" ~/.claude/scripts/auth-cli.mjs token)
    ```
 4. **Send request** (allowing up to 180s for cold starts):
    ```bash
    http POST https://ai-universe-backend-dev-114133832173.us-central1.run.app/mcp \
      "Accept:application/json, text/event-stream" \
      "Authorization:Bearer $TOKEN" \
-     < /tmp/mcp_request.json \
+     < "$REQUEST_FILE" \
      --timeout=180 \
-     --print=b > /tmp/mcp_response.json
+     --print=b > "$RESPONSE_FILE"
    ```
-5. **Parse embedded JSON** and display summary (or use the helper script):
+5. **Parse embedded JSON** and display the summary with the parser tracked in
+   the `worldarchitect.ai` repository. Run this workflow from that repository's
+   root so the relative path resolves:
    ```bash
-   jq -r '.result.content[0].text' /tmp/mcp_response.json > /tmp/mcp_parsed.json
-   python3 <<'PYEOF'
-   import json
-   with open('/tmp/mcp_parsed.json', 'r') as f:
-       data = json.load(f)
-   print(f"✅ Received responses from {data['summary']['totalModels']} models")
-   print(f"💰 Total cost: ${data['summary']['totalCost']:.4f}")
-   print(f"📊 Total tokens: {data['summary']['totalTokens']:,}")
-   print("\nPrimary response:\n")
-   print(data['primary']['response'])
-   PYEOF
-   ```
-   Or run:
-   ```bash
-   python3 skills/second_opinion_workflow/scripts/parse_second_opinion.py /tmp/mcp_parsed.json
+   jq -r '.result.content[0].text' "$RESPONSE_FILE" > "$PARSED_FILE"
+   python3 skills/second_opinion_workflow/scripts/parse_second_opinion.py "$PARSED_FILE"
    ```
 6. **Review synthesis** to confirm consensus and recommended actions.
 
-> 📌 Need more HTTPie patterns? Use [ai-universe-httpie.md](ai-universe-httpie.md) as a companion reference.
+> 📌 Need more HTTPie patterns? Use [ai-universe-httpie.md](../ai-universe-httpie/SKILL.md) as a companion reference.
 
 ## SlashCommand fallback (Option A)
 Use `/secondo "QUESTION"` for quick prompts **only when the command file is healthy**. If it fails or hangs, switch to the HTTPie workflow.
@@ -117,7 +126,7 @@ For advanced prompting templates and interactive options, see the existing `~/.c
 
 ## Troubleshooting
 - **502 Bad Gateway / cold start** → Retry after 30–60 seconds. Send a lightweight `"What is 2+2?"` request first to warm the backend.
-- **401 Unauthorized / invalid token** → Token expired (30-day TTL). Re-run `node scripts/auth-cli.mjs login` outside Claude Code.
+- **401 Unauthorized / invalid token** → Follow the authentication recovery sequence above: inspect the response, refresh using the existing credential store, and perform the required credential-presence and non-UI probes. A 401 alone does not authorize or require interactive login.
 - **"command -c invalid" errors** → Avoid nested command substitutions. Use heredocs + two-step token capture as shown above.
 - **Parsing failures** → Always extract `.result.content[0].text` before loading JSON. Use the helper Python snippet or script for safe parsing.
 
@@ -134,6 +143,6 @@ For advanced prompting templates and interactive options, see the existing `~/.c
 
 ## Related references
 - `skills/second_opinion_workflow/scripts/` for helper tooling.
-- [ai-universe-auth.md](ai-universe-auth.md) for login instructions.
-- [secondo-dependencies.md](secondo-dependencies.md) for HTTPie/JQ requirements.
-- [ai-universe-httpie.md](ai-universe-httpie.md) for advanced HTTPie patterns.
+- [ai-universe-auth.md](../ai-universe-auth/SKILL.md) for login instructions.
+- [secondo-dependencies.md](../secondo-dependencies/SKILL.md) for HTTPie/JQ requirements.
+- [ai-universe-httpie.md](../ai-universe-httpie/SKILL.md) for advanced HTTPie patterns.
