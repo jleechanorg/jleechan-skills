@@ -27,6 +27,32 @@ For each failure class, answer BEFORE proposing a fix:
 5. **Is Green Gate stuck?**
    Check the run step "Check smoke gate (gate 8)" — if IN_PROGRESS >30min with no smoke runs on the branch, see Class C re-dispatch.
 
+## Installed CLI capability boundary
+
+Before a workflow relies on a CLI, verify the installed executable selected by
+the actual job environment: resolved path, version or executable hash, exact
+subcommand and required flags, with original command/exit evidence. A supported
+source checkout or capable stub is not installed capability proof. Reuse an
+applicable existing receipt rather than launching a duplicate job.
+
+Inspect probe side effects first: even a lookup can create state directories.
+Use a verified non-mutating capability query or existing receipt where possible;
+if no permitted probe establishes support, report the capability as unverified.
+Do not change HOME/config/state to hide a registered volume, bypass the canonical
+resolver, hard-code a temporary fallback, or install a replacement to clear a
+failed probe. In particular, do not install a replacement under this preflight.
+
+In the workflow owner's existing offline tests, include an
+unsupported-command negative case that fails closed and an
+uninitialized cleanup path. The negative case must stop before checkout/build/upload,
+preserve the original exit status and avoid cleanup against an unset or unowned
+path. A successful stub-only test qualifies the harness, not the installed CLI.
+
+If upload already succeeded but reconciliation failed, preserve the release
+receipts and reconcile the original upload receipt before any retry. Capability
+qualification grants no cleanup, restart, credential, installation or release
+authority. Existing task-specific holds override any legacy recipe below.
+
 ## Failure-class fixes
 
 ### Class A: low_disk_space (>=1 runner has <1GB free inside container)
@@ -135,3 +161,4 @@ positive when the operator is on a different network than jeff-ubuntu:
 - Declaring "host dark" (Class E) from a single SSH/ping timeout — always confirm with the GitHub API signal too; SSH-only failure is frequently a wifi/subnet false positive.
 - Retrying SSH to a confirmed-dark host in a tight loop — there is no remote-power path, so it will not come back on its own; spend the time on capacity triage and the `rev-runn001` bead comment instead.
 - Opening a new bead for each jeff-ubuntu-dark recurrence — this incident class is tracked on `rev-runn001` (open since 2026-04-28); add a comment with the new date + two-signal evidence instead.
+
