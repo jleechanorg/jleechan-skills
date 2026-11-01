@@ -14,8 +14,8 @@ substitution rules; pr-lifecycle owns publication.
 A static reviewer starts cold and blank, like a fresh terminal: no parent
 context, summary or framing of the change. Every reviewer's entire input,
 whether a CLI reviewer, the coordinator ask or a static-review subagent, is
-one fixed channel preamble below followed by one template below. Fill exactly the fields that `/advice` §4's table
-lists for the seat's `isolation:` record - `<PR URL>` `<SHA>` `<BASE SHA>` `<SCRATCH PATH>` for
+one fixed channel preamble below followed by one template below. Fill exactly the fields that the `advice` skill's §4
+table lists for the seat's `isolation:` record - `<PR URL>` `<SHA>` `<BASE SHA>` `<SCRATCH PATH>` for
 `isolation: orchestrator-clone`, `<PACKET PATH>` `<BUNDLE HASH>` for `isolation: none` - and use that record's
 preamble and template. The orchestrator writes nothing else.
 
@@ -66,9 +66,9 @@ Work only in the isolated clone at the scratch path given below; if your working
 directory was set to it, stay there. Do not clone, fetch, check out another
 commit, add a remote, or create any other copy - these are instructions, and the
 orchestrator's post-return checks are what detect a clone whose HEAD or remote
-changed. Never work in the original
-checkout or in a donor repository. Leave the clone in place - the orchestrator
-verifies it and removes it after your process exits. Use the GitHub token already present in your environment and
+changed. Never work in the original checkout or in a donor repository. Leave the
+clone in place - the orchestrator verifies it and removes it after your process
+exits. Use the GitHub token already present in your environment and
 never print it. Do not modify the original checkout, refs, config or hooks. Do
 not post anything; return your review as your final output.
 ```
