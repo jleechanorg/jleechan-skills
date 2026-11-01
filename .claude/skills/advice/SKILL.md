@@ -175,7 +175,8 @@ attempt and produce its receipt, mark it `UNAVAILABLE`; do not build timer
 machinery.
 
 The later named-review instruction remains controlling. The orchestrator computes one absolute deadline per
-attempt from its own queued monotonic timestamp and publishes that deadline to the seat it launches; there is no
+attempt from its own queued monotonic timestamp and records that deadline in the seat's receipt (never in the prompt, which must
+stay byte-identical to preamble plus template); there is no
 interface for extending an already-running attempt. A result completed with verified cleanup before that deadline
 remains eligible. If a later user instruction would require waiting beyond it, the orchestrator cannot extend
 that attempt: on actual expiry record it `TIMED_OUT` and non-approving, record cleanup, mark the requested wait
@@ -205,7 +206,7 @@ so setup time is already spent; reclaim cleanup inside `C`; and bound the wait b
 in the receipt. No timer machinery
 is added to this repository; the orchestrator's own bounded tool call is the mechanism.
 
-e, incomplete, failed, or timed-out result is not an approval. Preserve
+A late, e, incomplete, failed, or timed-out result is not an approval. Preserve
 partial output and findings, record cleanup status, and use another independent
 eligible reviewer when needed. Do not keep waiting for unresolved cleanup or
 reuse a resource whose prior process or cleanup state is unresolved; continue
@@ -225,10 +226,11 @@ mutation checks continue to apply to the donor. Document-only reviews retain
 the existing named saved-Markdown-byte overlay and per-file/bundle hash checks;
 they require no donor, commit, or Git context SHA.
 
-Use independent temporary clones without an `origin` remote. For revision
-reviews, pin each clone to the same exact SHA. For document-only reviews,
-read only the explicitly named Markdown files (no clone, per the document-only preamble) as saved bytes in those copies;
-unrelated code stays outside the review scope. Copy isolation protects Git
+Revision mode uses independent temporary clones without an `origin` remote, each pinned to the same exact SHA,
+and the orchestrator owns their creation and cleanup. Document-only mode makes **no clone at all**: the
+orchestrator supplies the named Markdown files as saved bytes (packet plus hashes) and each seat reads only those,
+so no clone path is recorded and nothing needs cleaning up. Unrelated code stays outside the review scope in both
+modes. Copy isolation protects Git
 metadata and review state, not the host: it is not an OS sandbox and does not
 restrict network, environment, or process creation. Full-permission execution
 preserves the requested reviewer transport; it does not authorize unrelated
