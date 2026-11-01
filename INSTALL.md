@@ -28,7 +28,7 @@ linked dependencies; counts below are measured from a scratch install.
 | `--profile prw` | 12 PR workflow skills plus `/es`, `/er`, `/green`, `/cs` | 25 / 11 / 1 |
 | `--profile web` | `advice`, `web-advice`, `browser-control`, `aside-browser-default`, `browser-testing` | 20 / 5 / 1 |
 | `--with SKILL` | add a named skill to the profile; repeatable | varies |
-| `--all` | every package, as before | 277 / 247 / 45 |
+| `--all` | every package, as before | 277 / 248 / 45 |
 
 Profiles live in `shared/install-profiles.json`; `--help` lists them. Closure
 never adds a skill on that file's `closure_excluded` list (`dot`,
