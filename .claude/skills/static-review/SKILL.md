@@ -15,7 +15,7 @@ A static reviewer starts cold and blank, like a fresh terminal: no parent
 context, summary or framing of the change. Every reviewer's entire input,
 whether a CLI reviewer, the coordinator ask or a static-review subagent, is
 one fixed channel preamble below followed by one template below. Fill only `<PR
-URL>` and `<SHA>`, or for document-only review `<PACKET PATH>` and `<BUNDLE
+URL>`, `<SHA>`, and for revision mode `<BASE SHA>` and `<SCRATCH PATH>`, or for document-only review `<PACKET PATH>` and `<BUNDLE
 HASH>`. The orchestrator writes nothing else.
 
 ## 2. Templates
@@ -23,7 +23,7 @@ HASH>`. The orchestrator writes nothing else.
 Static review prompt (skill-owned, verbatim):
 
 ```text
-Review <PR URL> at head <SHA>. Ensure it follows the /prw stages and focus on
+Review <PR URL> at head <SHA> (base <BASE SHA>, work only in <SCRATCH PATH>). Ensure it follows the /prw stages and focus on
 evidence review before approval. Report P0/P1/P2 with file:line and a
 COVERAGE: line naming the files and diff you read; approve only with no P0/P1
 and full coverage; end with exactly one line:
