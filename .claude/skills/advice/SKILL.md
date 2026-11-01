@@ -163,9 +163,9 @@ dispatch, review, output capture, receipt writing, and cleanup all consume the
 same budget. The deadline decides vote eligibility; it is not a hard real-time
 guarantee that the process returns within the budget. Bound supported
 subprocesses and waits by the remaining time. Filesystem cleanup and receipt
-writes may overrun if the operating system blocks; when they return, the runner
-must record the overrun, exit nonzero, and invalidate every vote. A missing or
-unparseable receipt, or any nonzero runner exit, makes the attempt unavailable.
+writes may overrun if the operating system blocks; when they return, the orchestrator
+must record the overrun, report a nonzero attempt result, and invalidate every vote. A missing or
+unparseable receipt, or any nonzero seat result, makes the attempt unavailable.
 Routine status updates do not pause or reset the deadline. Apart from an
 explicit user-specified limit or the named-review wait instruction above, do
 not pause, reset, or extend it. Use existing CLI timeouts with native tool
@@ -182,10 +182,8 @@ route `UNAVAILABLE`, and leave the applicable review gate open unless another al
 Do not preempt a valid within-deadline result, reinterpret the instruction as a shorter limit, count late output,
 claim a wait that did not happen, or issue a duplicate review.
 
-Immediately before dispatch, after the shared review packet is ready, capture
-the queue boundary and pass both timestamps to the primary-pair runner. If the
-timestamp cannot be captured, mark that attempt unavailable instead of invoking
-the runner:
+Immediately before dispatch, once the shared review packet is ready, capture the queue boundary on the host that
+will launch the seat, and record both timestamps in that seat's receipt:
 
 ```bash
 read -r QUEUED_AT_EPOCH_NS QUEUED_AT_MONOTONIC_NS <<< "$(
@@ -193,17 +191,9 @@ read -r QUEUED_AT_EPOCH_NS QUEUED_AT_MONOTONIC_NS <<< "$(
 )"
 ```
 
-Capture both values together on the caller host. The runner must execute on
-that same host and boot because monotonic timestamps are host-local. Retain the
-UTC epoch only for audit; cross-host orchestration must account for its outer
-budget separately and never compare monotonic values across hosts.
-
-Pass both required runner options:
-
-```bash
---queued-at-epoch-ns "$QUEUED_AT_EPOCH_NS" \
---queued-at-monotonic-ns "$QUEUED_AT_MONOTONIC_NS" \
-```
+Capture both values together on the caller host. The seat must run on that same host and boot, because monotonic
+timestamps are host-local; retain the UTC epoch only for audit, and never compare monotonic values across hosts. If
+the boundary cannot be captured, mark that attempt `UNAVAILABLE` instead of launching it.
 
 For every seat, derive the effective reviewer-attempt budget `B` (the user's explicit limit when supplied,
 otherwise 1800 seconds), a positive cleanup reserve `C` smaller than `B`, and a positive timeout-grace `G`. Launch
@@ -254,10 +244,9 @@ with partial coverage; partial coverage never supplies an approval. Use
 reviewers or per the static-review fallback, are unavailable. A vote also
 requires receipt evidence of zero exit, no original checkout mutation, no
 surviving reviewer process, and no cleanup failure; a static-review receipt
-replaces only the runner exit field. For the primary-pair runner, also require
-its zero exit, a present and parseable receipt, and a nonempty VERDICT line.
-Ignore the entire receipt when the runner exits nonzero; a failed late-receipt
-rewrite can leave an older success-looking receipt. If clone setup times out,
+replaces only the seat-exit field. For every launched seat, also require a zero
+result, a present and parseable receipt, and a nonempty VERDICT line. Ignore the entire receipt when the seat
+returns nonzero; a failed late-receipt rewrite can leave an older success-looking receipt. If clone setup times out,
 directory-removal evidence does not prove setup descendants exited; record that
 uncertainty and do not count the attempt.
 

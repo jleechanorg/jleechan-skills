@@ -53,6 +53,11 @@ Coordinator ask (for example a Dot reviewer channel): the configured account
 mentions, then `Advice vote requested.` on its own line, then the template.
 Send it to each configured coordinator account in rotation.
 
+The revision and document-only preambles below apply to **every** CLI reviewer seat - Codex, Opus, the Claude
+alternates, Cursor, AGY and any `ADVICE_EXTRA_CLIS` seat - and to static reviewers. They replace the header the
+deleted primary-pair runner used to inject; there is no other header to match, so a seat launched without one
+cannot produce a byte-identical prompt and its vote is void.
+
 Revision preamble for CLI alternates and static reviewers (verbatim):
 
 ```text
