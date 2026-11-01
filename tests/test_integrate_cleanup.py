@@ -173,6 +173,10 @@ class IntegrateCleanupTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             base = Path(tmp_dir)
             _, work, env = self.create_isolated_repo(base)
+            # A host BASH_ENV=~/.bashrc re-sources the profile inside the fake
+            # git wrapper and restores the real PATH/hooks, defeating the stub.
+            env["BASH_ENV"] = os.devnull
+            env["ENV"] = os.devnull
             fake_git = Path(env["HOME"]) / "bin" / "git"
             fake_git.write_text(
                 "#!/bin/sh\n"
