@@ -227,24 +227,22 @@ succeeded without receipt evidence.
 
 ## 4. Isolate review copies
 
-The orchestrator performs the setup; the seats only review.
+Revision mode has one rule per transport, and no seat is ever handed the donor.
 
-**Revision mode.** Build one standalone donor repository for the requested commit with independent Git metadata -
-never a linked worktree. Verify the donor's Git directory is a real directory, `git rev-parse --git-common-dir`
-resolves to the same directory as `git rev-parse --git-dir`, its `HEAD` equals the requested review SHA, and the
-required base resolves to its recorded SHA. Then give every revision seat its own isolated copy of that donor, pinned to the same exact SHA, in one of two
-supported ways:
+- **CLI seats (a working directory can be set):** the orchestrator creates one clone per seat from the donor, with no
+  `origin` remote and pinned to the review SHA, sets it as that seat's working directory, records the path in the
+  receipt, and removes every clone after the attempt, verifying the removal.
+- **Static-review subagents (no working-directory parameter):** the seat clones the review SHA from the remote for
+  itself, never from the donor and never inside the original checkout; it records the path, deletes that clone before
+  returning, and reports the deletion. The orchestrator checks the recorded path is outside the original checkout and
+  the donor and that the clone is gone by the time the result is counted.
+- **Coordinator asks and anything else that can neither take a working directory nor clone locally:** `UNAVAILABLE`
+  for revision mode, because a remote seat's clone path cannot be verified. They remain eligible for document-only
+  slots, where no clone exists.
 
-- **Transports that accept a working directory** (CLI seats): the orchestrator creates the clone with no `origin`
-  remote, sets it as the seat's working directory, and records that path in the receipt.
-- **Transports with no working-directory parameter** (a static-review subagent, a coordinator ask): the seat creates
-  its own clone of the review SHA without an `origin` remote, as its preamble already instructs, and records that
-  path in its receipt. The orchestrator verifies the recorded path exists, lies outside the original checkout, and was
-  removed afterwards.
-
-Neither route may point a seat at the donor, the original checkout, or another seat's copy. A seat that can do
-neither - no working directory and no ability to clone - is `UNAVAILABLE` for revision mode and eligible only for
-document-only slots, where no clone exists at all.
+A donor is an internal staging object: it is never a seat's working directory, never inside a clone, and never shared
+between seats. The base-SHA checks on the donor therefore cover the CLI route; the static route records the same SHA
+it cloned, and its receipt is what the orchestrator verifies.
 
 **Document-only mode.** No donor and no clone: the orchestrator supplies the named Markdown files as saved bytes
 with per-file and bundle SHA256 hashes, and each seat reads only those. Record `none` for the clone path, and never
