@@ -157,3 +157,29 @@ status; a prose-only status is incomplete.
 is the published source. Diff both copies and repository status first, reconcile
 only authorized changes, then verify exact hashes after synchronization. Do not
 absorb another lane's unpublished edit merely to make copies match.
+
+**Direction is one-way: repo -> live.** A live copy is never a source. A live-only
+edit found during a board run is drift to report, not a change to copy back into the
+repository.
+
+Before editing, prove the baseline so foreign drift surfaces before your own edit can
+hide it:
+
+```bash
+git -C <jleechan-skills-worktree> show origin/main:.claude/skills/roadmap/SKILL.md > /tmp/rm-base.md
+diff -u /tmp/rm-base.md ~/.claude/skills/roadmap/SKILL.md
+```
+
+An empty diff means the two copies agree and the edit may proceed. Any non-empty
+diff is foreign drift: report it, and reconcile it deliberately (naming those lines
+as not yours in the commit or PR body) instead of folding it in silently.
+
+After editing the repository copy, propagate and verify exact hashes:
+
+```bash
+cp <repo>/.claude/skills/roadmap/SKILL.md ~/.claude/skills/roadmap/SKILL.md
+shasum -a 256 <repo>/.claude/skills/roadmap/SKILL.md ~/.claude/skills/roadmap/SKILL.md
+```
+
+The two digests must match before the change is called synchronized. `~/.agents/skills/roadmap`
+is a symlink into `~/.claude/skills/roadmap`, so it needs no separate copy.
