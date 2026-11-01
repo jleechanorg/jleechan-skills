@@ -54,6 +54,31 @@ class MarkdownOnlyDecisionTest(unittest.TestCase):
         self.assertIn("A late, incomplete, failed, or timed-out result is not an approval.", text)
         self.assertNotIn("A late, e, incomplete", text)
 
+    def test_revision_isolation_is_one_table_contract(self):
+        text = (ROOT / ".claude/skills/advice/SKILL.md").read_text(encoding="utf-8")
+        section = " ".join(text.split("## 4. Isolate review copies", 1)[1].split("## 5.", 1)[0].split())
+        self.assertIn("The contract is one table", section)
+        for row in ("`pin` (internal", "`isolation: orchestrator-clone`", "`isolation: none`"):
+            self.assertIn(row, section)
+        for header in ("who clones", "what the receipt must prove", "who verifies", "who deletes", "template fields"):
+            self.assertIn(header, section)
+        self.assertIn("Seats never clone, never delete and never attest", section)
+        self.assertIn("git merge-base --is-ancestor <BASE SHA> HEAD", section)
+        self.assertIn("No seat receives a remote URL", section)
+        self.assertIn("Unpushed SHAs work", section)
+        self.assertIn("document-only only", section)
+        self.assertIn("Clones live only in an allocated scratch directory, never `/tmp`", section)
+        self.assertIn("deletion always names the literal absolute path", section)
+        self.assertNotIn("isolation: self-clone", section)
+        # the template fields must be exactly the table's, and no seat gets a remote URL
+        static = (ROOT / ".claude/skills/static-review/SKILL.md").read_text(encoding="utf-8")
+        flat = " ".join(static.split())
+        self.assertIn("`<PR URL>` `<SHA>` `<BASE SHA>` `<SCRATCH PATH>`", flat)
+        self.assertIn("Leave the clone in place - the orchestrator verifies it and removes it", flat)
+        self.assertNotIn("<REMOTE URL>", flat)
+        scripts = ROOT / ".claude/skills/advice/scripts"
+        self.assertEqual(sorted(p.name for p in scripts.glob("*") if p.is_file()), [])
+
     def test_no_active_skill_invokes_the_deleted_runner(self):
         offenders = []
         for path in sorted((ROOT / ".claude/skills").rglob("*.md")):
