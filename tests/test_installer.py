@@ -2313,5 +2313,5 @@ class InstallerRealProfileTest(unittest.TestCase):
                 self.assertEqual(len(rows), 1, f"{doc} needs one --all row")
                 self.assertTrue(
                     rows[0].endswith(f"| {len(self.skill_names)} / {commands} / {agents} |"),
-                    f"{doc} --all row must state the measured counts: {rows[0]}",
+                    f"{doc} --all row must state the measured counts: {rows[0]} || MEASURED {len(self.skill_names)} / {commands} / {agents}",
                 )
