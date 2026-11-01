@@ -149,6 +149,8 @@ class CoordinatorWorkflowTests(unittest.TestCase):
         self.assertIn("blank-body-blocked", flat)
         self.assertIn("blank-body-delivered", flat)
         self.assertIn("never send a second message to explain, apologise for or replace a blank one", flat)
+        self.assertIn("clear **only the text this invocation inserted** - never another writer's draft", flat)
+        self.assertIn("equal text, not merely equal length", flat)
         self.assertIn("a rich-text composer treats that Enter as a message break and will happily send a stamp-only message", flat)
 
     def test_coordinator_has_no_classifier_or_fallback(self):

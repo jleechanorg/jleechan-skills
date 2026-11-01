@@ -195,9 +195,10 @@ can only insert line by line, use a soft break (Shift+Enter) after the stamp and
 result before submitting.
 
 **Never submit a stamp-only message.** Immediately before submitting, read the composer's own text and require both of
-these: the stamp line is present exactly once, and the body below it is non-empty and its length matches the selected
-payload's body within the transport's own whitespace normalisation. If the composer holds only the stamp line, or the
-body is truncated, clear the composer and report `blank-body-blocked` - do not submit, do not retry in this invocation.
+these: the stamp line is present exactly once, and the body below it equals the selected payload's body after the transport's own whitespace normalisation -
+equal text, not merely equal length, compared before submitting. If the composer holds only the stamp line, or the body differs from the selected
+payload, clear **only the text this invocation inserted** - never another writer's draft - and report
+`blank-body-blocked`; do not submit and do not retry in this invocation.
 After submitting, if the rendered message shows the stamp line with an empty body, report `blank-body-delivered` and
 stop: the recipient already saw it, so never send a second message to explain, apologise for or replace a blank one.
 
