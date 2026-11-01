@@ -76,7 +76,7 @@ Track these states separately:
 For a requested monitor, record MONITORING only after its first evidenced check
 and a supported continuation are established, including the next check or wake.
 An acknowledgment or promise to watch is not a running monitor. For a Dot nudge,
-record DELIVERED only with evidence that the exact message reached the bound
+record delivered only with evidence that the exact message reached the bound
 conversation; track its attributable reply separately from delivery. A transport
 receipt alone does not prove either monitoring coverage or nudge delivery.
 A reaction, echoed input, queue entry, process age, spinner, assignment, or
@@ -104,7 +104,7 @@ reset the inactivity clock. A long-running operation with fresh advancing
 output remains active even without a commit. An unchanged remote head alone
 cannot establish inactivity: inspect the owner's actual task activity, local
 worktree when available, and command/test/build output. If that activity cannot
-be verified, record UNVERIFIED and request evidence rather than starting a
+be verified, record unverified and request evidence rather than starting a
 second writer.
 Use the current runtime's supported waits or existing authorized monitoring.
 Do not install daemons, create competing monitors, or change schedules merely
@@ -116,7 +116,7 @@ Review ownership does not itself transfer the writer role or grant merges.
 At 20 minutes without meaningful progress, investigate rather than
 automatically stealing the branch:
 1. Re-read the original task, latest owner messages, PR/worktree changes, and
-   actual run status. Missing or failed reads mean UNVERIFIED, not inactive.
+   actual run status. Missing or failed reads mean unverified, not inactive.
 2. Nudge the current owner with the last artifact and ask for its present
    action, blocker, or explicit handoff. Inspect delivery and response before
    retrying. Preserve peer drafts and any uncertain in-flight operation.
@@ -135,7 +135,7 @@ automatically stealing the branch:
    restart a service, or incur new provider usage merely to clear inactivity.
 For a newly dispatched task with no progress yet, start the clock at its first
 verified dispatch timestamp. Missing send confirmation leaves the task
-UNVERIFIED rather than inventing a start time. The 20-minute threshold is then
+unverified rather than inventing a start time. The 20-minute threshold is then
 measured from the last verified progress, not from the latest reminder. A resumed task resets it only after new meaningful
 progress. Keep one writer and one monitoring record per task.
 ## Dot nudges
