@@ -158,9 +158,10 @@ an eligible verdict: **Codex → Opus → Claude alternate → Cursor → AGY �
 order.** An extra seat is reached only when every earlier candidate for that slot is `UNAVAILABLE` or its verdict is
 void; it never displaces a successful seat and never supplies the second vote for an identity another seat used.
 
-These seats obey the same independence, deadline, evidence and receipt rules as the built-in ones. Extra
-  seats never replace the required Claude or Codex vote: they fill an unfilled slot only when the built-in
-  seat is genuinely unavailable.
+The extra seats obey the same independence, deadline, evidence and receipt rules as the built-in ones, and the
+ordering above governs them. No seat is "the required Codex vote" or "the required Opus vote" by label: what a vote
+slot requires is one independent, eligible identity that covers the whole scope, so a quorum reached without a Claude
+or Codex seat is valid when the ordering genuinely exhausted those candidates.
 
 ## 3. Enforce the attempt deadline
 
@@ -231,13 +232,19 @@ The orchestrator performs the setup; the seats only review.
 **Revision mode.** Build one standalone donor repository for the requested commit with independent Git metadata -
 never a linked worktree. Verify the donor's Git directory is a real directory, `git rev-parse --git-common-dir`
 resolves to the same directory as `git rev-parse --git-dir`, its `HEAD` equals the requested review SHA, and the
-required base resolves to its recorded SHA. Then create one temporary clone per seat from that donor, with no
-`origin` remote, pinned to the same exact SHA, and **give each seat that clone as the directory it works in** - by setting the working directory, which every revision
-seat must support - so it never touches the donor, the original checkout, or another seat's copy. A transport that
-cannot be given a working directory is **not eligible for revision mode** (the clone path cannot be injected into the
-prompt without breaking the byte-identical prompt rule); record that seat `UNAVAILABLE` for revision reviews and use
-it only for document-only slots, where no clone exists at all. Record that clone path in
-the seat's receipt as the actual clone path, and clean up every clone afterwards, verifying the cleanup.
+required base resolves to its recorded SHA. Then give every revision seat its own isolated copy of that donor, pinned to the same exact SHA, in one of two
+supported ways:
+
+- **Transports that accept a working directory** (CLI seats): the orchestrator creates the clone with no `origin`
+  remote, sets it as the seat's working directory, and records that path in the receipt.
+- **Transports with no working-directory parameter** (a static-review subagent, a coordinator ask): the seat creates
+  its own clone of the review SHA without an `origin` remote, as its preamble already instructs, and records that
+  path in its receipt. The orchestrator verifies the recorded path exists, lies outside the original checkout, and was
+  removed afterwards.
+
+Neither route may point a seat at the donor, the original checkout, or another seat's copy. A seat that can do
+neither - no working directory and no ability to clone - is `UNAVAILABLE` for revision mode and eligible only for
+document-only slots, where no clone exists at all.
 
 **Document-only mode.** No donor and no clone: the orchestrator supplies the named Markdown files as saved bytes
 with per-file and bundle SHA256 hashes, and each seat reads only those. Record `none` for the clone path, and never
