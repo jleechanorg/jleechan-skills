@@ -27,11 +27,18 @@ that surface with `cmux browser --surface <surface> reload`; navigate the same t
 to the current branch URL if it holds the task's older pinned version. Otherwise,
 use `cmux browser open <url> --workspace <workspace> --window <window> --focus false`,
 preserving the workspace's existing task-owned browser session/profile.
+For a private repository, use an existing task-owned profile that can read it;
+an unsigned profile's 404 does not prove the file is missing. Verify the file
+through the authenticated GitHub API and check the relevant existing task-owned
+profile before reporting browser access blocked. Never use a personal profile
+or copy cookies to repair access.
 
 Do not create a window, workspace or profile, change unrelated surfaces, or launch
 cmux outside a cmux session. Verify workspace membership, URL, title and rendered
-board content; report a 404 or other rendering failure explicitly. Outside cmux,
-skip this UI step and return the GitHub link normally.
+board content; report a 404 or other rendering failure explicitly. Keep the tab
+on the GitHub URL even if authentication blocks rendering; never substitute a
+local file, rendered copy, localhost page or other non-GitHub destination.
+Outside cmux, skip this UI step and return the GitHub link normally.
 
 ## Output document
 
@@ -40,7 +47,10 @@ instead of creating a second one). Repo: `jleechanorg/roadmap`.
 
 Required structure, in this order:
 
-1. **TLDR at the very top.** Open with a short overview of stage counts, human-only
+1. **TLDR at the very top.** Directly under the `## TLDR` heading, put one line
+   `_Measured <Weekday> <Mon> <D>, <YYYY>, <h:mm AM/PM> PT_` in 12-hour Pacific
+   time (e.g. `_Measured Thu Oct 29, 2026, 9:49 PM PDT_`); never a 24-hour clock or
+   a UTC timestamp in that line. Then open with a short overview of stage counts, human-only
    blockers, stale/unowned work and total line delta; name the biggest deltas.
    Then give **every in-scope PR 1–2 plain-language sentences**, with its linked PR
    number visible: what changes for the user, which requested fix it addresses,
@@ -49,7 +59,7 @@ Required structure, in this order:
    they answer a current request; distinguish implemented, merged, deployed and
    accepted. A stage number or generic label such as “sharing” is not a description.
 2. **PR ledger table**, one row per PR:
-   `| PR | Repo | Stage | State | Head | Δ (lines) | Next | Brief |`
+   `| PR | Title | Repo | Stage | State | Head | Δ (lines) | Next | Brief |`
    - `PR` links to the full GitHub URL (number visible in the link text).
    - `Stage` = the explicit pr-lifecycle stage. Follow the manager's [Find the skills before inventing
      a workflow step](../pr-workflow-manager/SKILL.md#find-the-skills-before-inventing-a-workflow) to
@@ -79,8 +89,24 @@ Required structure, in this order:
    - `Head` = first 8 chars of the head SHA.
    - `Δ (lines)` = `+additions/−deletions` for the whole PR.
    - `Next` = the next action or exact blocker that exits the current stage.
+   - `Title` = the PR's own title, verbatim and visible — trimmed with an ellipsis
+     if longer than fits, never replaced by a label or a stage name. A reader must be
+     able to recognise which PR this row is without opening GitHub.
    - `Brief` = ONE sentence stating what the PR changes and whether it is prod or
      test-only. No changelog.
+2b. **Group the ledger by merge-readiness, not just by stage.** Use these headings in
+   this order, omitting any that is empty:
+   - `### Merge-safe now` — every gate receipt binds to the current head, or its
+     intervening delta has been read and recorded as applicable under
+     `~/.claude/skills/pr-lifecycle/SKILL.md` § SHA-binding rule. For each, the
+     `Brief` must say what a user gains and name the requested fix it closes.
+   - `### Close to merge` — green but missing one named thing (a stale receipt to
+     re-run, one failing check, one `hold:` release). For each, the `Brief` must say
+     what the PR does **and** the single thing standing between it and merge.
+   - `### Not mergeable` — failing checks, conflicting, or unapproved work.
+   A stage label alone never earns a place in `Merge-safe now`; a green check alone
+   never does either. Explain what each listed PR does in plain language — a stage
+   number, a label, or the PR title repeated is not an explanation.
 3. **Not yet a PR** — items with an owner but no branch/PR yet.
 4. **Human actions outstanding** — only actions that meet the shared human-only
    boundary. For each, state `Why the LLM cannot execute this next step now:`
@@ -109,7 +135,8 @@ status; a prose-only status is incomplete.
 - If today's board/report already exists on the current owner branch or main, reconcile
   it with live sources and the current base-branch tip, preserving other owners' rows
   and holds instead of appending duplicates or overwriting from a stale snapshot.
-- Say the measurement time in one line at the bottom, and state that deltas are total
+- Repeat the same 12-hour Pacific measurement time (`9:49 PM PDT`, not `21:49`) in one
+  line at the bottom, and state that deltas are total
   additions/deletions (not prod-only) unless you computed the split.
 - If a PR is stale, say how stale (last-updated date). If an item has no owner, write
   `no owner` rather than listing a retained name.
