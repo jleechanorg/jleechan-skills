@@ -49,7 +49,7 @@ class CoordinatorWorkflowTests(unittest.TestCase):
         self.assertIn('`main`', modes)
         self.assertIn('`proceed`', modes)
         self.assertIn('Never infer the mode from the clock, conversation content, a prior run', modes)
-        self.assertIn('read its own last 20 messages', modes)
+        self.assertIn('read its own last four hours', modes)
         self.assertIn('its first sentence is', modes)
         self.assertIn('the only mode source', modes)
         self.assertIn('A task text with no such declaration is `main`', modes)
@@ -57,11 +57,12 @@ class CoordinatorWorkflowTests(unittest.TestCase):
         self.assertIn('the sentence decides and the run report records the drift', modes)
         self.assertIn('Do not add a second, unobservable veto', modes)
         nudge = text.split('## Proceed nudge outbound message', 1)[1].split('## Private periodic payload', 1)[0]
-        expected = ('Read the last 20 messages of this conversation. If you are waiting on an obvious question you can settle '
-                    'from what you already know or can verify, answer it and continue. If you are idle with no real blocker, '
-                    'take the next authorized step and report its evidence. Skip unchanged status, do not repeat an answer '
-                    'you already gave, and do not start new scope. If the blocker needs the owner\'s decision, state the '
-                    'single decision you need. This nudge grants no new execution, access, spending, merge or deployment authority.')
+        expected = ('Review the last four hours of this conversation. If you are waiting on an obvious question you can settle '
+                    'from what you already know or can verify, answer it and continue. If you have produced no new work in '
+                    'that window and have no real blocker, take the next authorized step and report its evidence. Skip '
+                    'unchanged status, do not repeat an answer you already gave, and do not start new scope. If the blocker '
+                    'needs the owner\'s decision, state the single decision you need. This nudge grants no new execution, '
+                    'access, spending, merge or deployment authority.')
         self.assertEqual([line[2:] for line in nudge.splitlines() if line.startswith('> ')], [expected])
         self.assertIn('~/.config/dot/proceed-reminder.txt', nudge)
         self.assertIn('never fall back silently', nudge)
@@ -139,7 +140,23 @@ class CoordinatorWorkflowTests(unittest.TestCase):
         self.assertIn('Different body wording is never a duplicate', rule)
         self.assertIn('smaller than the shortest configured gap between one account\'s runs', rule)
         step4 = " ".join(text.split('4. **Stay a reminder.**', 1)[1].split('5. **Inspect', 1)[0].split())
-        self.assertIn('the last 20 rendered messages in either mode', step4)
+        self.assertIn('until four hours or 200 messages is reached', step4)
+
+    def test_proceed_window_is_time_measured_and_idle_gated(self):
+        text = SKILL.read_text()
+        nudge = text.split('## Proceed nudge outbound message', 1)[1].split('## Private periodic payload', 1)[0]
+        payload = [line[2:] for line in nudge.splitlines() if line.startswith('> ')]
+        self.assertEqual(len(payload), 1)
+        self.assertTrue(payload[0].startswith('Review the last four hours of this conversation'), payload[0])
+        self.assertNotIn('last 20 rendered messages', text)
+        self.assertNotIn('last 20 messages', text)
+        flat = " ".join(nudge.split())
+        self.assertIn('idle-gate: dot active since', flat)
+        self.assertIn('idle-gate: recent nudge', flat)
+        self.assertIn('is **not** idle-gated', flat)
+        self.assertIn('The Dot has not spoken since our last message', flat)
+        self.assertIn('No coordinator message in the last 30 minutes', flat)
+        self.assertIn('The strictest gate wins', flat)
 
     def test_stamp_only_messages_are_blocked(self):
         text = SKILL.read_text()
