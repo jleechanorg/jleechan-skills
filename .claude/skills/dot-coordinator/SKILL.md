@@ -188,6 +188,19 @@ Build the whole line, then verify it against `^Sent: [0-9]{4}-[0-9]{2}-[0-9]{2}T
 available, or the assembled line does not match, send nothing and report that blocker. Never guess, round
 or edit either field by hand.
 
+**Insert the whole message in one operation.** Compose the stamp line, the blank line and the body as a single
+insertion (one paste/one fill call), then submit. Never type the stamp line, press Enter, and then add the body: a
+rich-text composer treats that Enter as a message break and will happily send a stamp-only message. If the transport
+can only insert line by line, use a soft break (Shift+Enter) after the stamp and never the message break, and check the
+result before submitting.
+
+**Never submit a stamp-only message.** Immediately before submitting, read the composer's own text and require both of
+these: the stamp line is present exactly once, and the body below it is non-empty and its length matches the selected
+payload's body within the transport's own whitespace normalisation. If the composer holds only the stamp line, or the
+body is truncated, clear the composer and report `blank-body-blocked` - do not submit, do not retry in this invocation.
+After submitting, if the rendered message shows the stamp line with an empty body, report `blank-body-delivered` and
+stop: the recipient already saw it, so never send a second message to explain, apologise for or replace a blank one.
+
 A blank line separates the stamp from the body when the composer keeps it; a rich-text composer may collapse
 it to a single line break. That collapse is not a reason to retry or to rewrite the message - report it and
 verify the body bytes instead. Both fields describe when and where the message was captured, so the line can
