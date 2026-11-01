@@ -84,6 +84,33 @@ Also record:
 A deployment identifier is not a source commit unless that mapping was
 verified separately.
 
+## Qualify the incident's behavior boundary
+
+Fixture provenance is not SDK/transport behavior proof. Record the sanitized
+fixture SHA-256, original capture timestamp, source identity/revision mapping,
+and scrub manifest separately from the test execution receipt. Preserve failed
+responses and omissions; never relabel a synthetic adapter as a real capture.
+
+For an SDK or platform regression, trace the actual response ownership boundary:
+body getter side effects, shared buffer ownership, single-consumption behavior,
+stream chunk ordering, cancellation, and error paths where relevant. Prefer the
+pinned SDK implementation. If unavailable, label a behavioral substitute as a
+synthetic adapter, not a real SDK execution, and cite the inspected SDK version
+and source contract it models. A passive object with matching JSON is insufficient
+when the failure depends on reads consuming or changing the response.
+
+Use the same fixture through the real application entry point on the failing
+revision and candidate; require RED at the failing revision and GREEN at the
+candidate for the user-visible assertion. Name any changed harness separately.
+Retain a negative control for the precise behavior that escaped, not just schema
+presence. Bind runtime claims to the actual platform, SDK, transport, build/source
+and backend target; Release versus Debug and native versus web are separate
+coverage dimensions. Missing combinations remain unverified, not implied green.
+
+Keep deterministic replay in the project's existing relevant CI test selection.
+No new live capture or provider call is implied by a missing fixture or platform
+receipt; use existing authorized evidence or report the exact gap and owner.
+
 ## Claim boundaries
 
 | Fixture | What it can prove | What it cannot prove |
@@ -111,3 +138,4 @@ Live provider compliance: NOT TESTED / PROVEN SEPARATELY
 
 Do not report completion by running unchanged tests alone. Name the test and the
 observable assertion added or changed.
+
