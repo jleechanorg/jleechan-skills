@@ -91,7 +91,10 @@ model, account or reviewer identity, and transport for every attempt.
 ### Portable defaults, machine-local overrides
 
 This repository ships **defaults only**. Every seat resolves its command from an environment variable and
-falls back to the default below when the variable is unset, so a bare machine still works:
+falls back to the default below when the variable is unset, so a bare machine still works. For any of these
+variables, a value that is set but empty, unparseable, or names a program that is missing or not executable
+makes **that seat `UNAVAILABLE`**; it never falls back to the default, because the fallback would run as the
+default identity and let one account vote twice.
 
 | Reviewer | Resolution |
 |---|---|
@@ -103,8 +106,11 @@ falls back to the default below when the variable is unset, so a bare machine st
 | AGY alternate | `agy --print="<review request>" --model gemini-3.8-flash-high --dangerously-skip-permissions --new-project` |
 
 The bundled `scripts/run_primary_pair.py` is an **optional legacy helper**: it runs `codex` and `claude`
-resolved from `PATH` with its own fixed arguments and does **not** read any of these variables. Do not
-describe, promise or record an override as if that helper honoured it. When a seat needs an alternate CLI, an
+resolved from `PATH` with its own fixed arguments and does **not** read any of these variables. Setting one of them for a seat therefore **rules that helper out for
+that seat**: run the seat directly instead, under the bounded-attempt and receipt rules below, and never let the
+helper run it with the `PATH` default while the receipt or the report claims the override. Do not describe,
+promise or record an override as if that helper honoured it. A machine that overrides a primary seat and has no
+route producing a full receipt for it records that seat as `UNAVAILABLE` rather than as a vote. When a seat needs an alternate CLI, an
 alternate credential store or a different model than the helper's fixed pair, the orchestrator launches that
 seat itself - directly, under the same bounded-attempt, independence and receipt rules below - and records the
 resolved command and model in the attempt. Keeping the alternative paths in this instruction file is
