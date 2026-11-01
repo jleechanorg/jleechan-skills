@@ -86,28 +86,56 @@ another host (for example a Mac or Ubuntu machine); try or record each host
 separately.
 
 Preserve full-permission reviewer execution and declare the actual command,
-model, account or reviewer identity, and transport for every attempt:
+model, account or reviewer identity, and transport for every attempt.
 
-| Reviewer | Invocation form |
+### Portable defaults, machine-local overrides
+
+This repository ships **defaults only**. Every seat resolves its command from an environment variable and
+falls back to the default below when the variable is unset, so a bare machine still works:
+
+| Reviewer | Resolution |
 |---|---|
-| Codex | `codex exec --yolo -m gpt-6-sol --config model_reasoning_effort=high` |
-| Opus | `claude -p --model opus --dangerously-skip-permissions` |
-| Claude alternate | `claude -p --model <actual-model> --dangerously-skip-permissions` |
-| Claude wrapper alternate | `claudewa -p "<review request>" --dangerously-skip-permissions` |
+| Codex | `ADVICE_CODEX_CMD` → `codex exec --yolo -m gpt-6-sol --config model_reasoning_effort=high` |
+| Opus | `ADVICE_CLAUDE_CMD --model opus` → `claude -p --dangerously-skip-permissions` |
+| Claude alternate | `ADVICE_CLAUDE_ALT_CMD` → `ADVICE_CLAUDE_CMD --model <actual-model>` |
+| Extra CLIs | `ADVICE_EXTRA_CLIS` (unset by default) |
 | Cursor alternate | `cursor agent -p --force` |
 | AGY alternate | `agy --print="<review request>" --model gemini-3.8-flash-high --dangerously-skip-permissions --new-project` |
 
-Each `<review request>`, and the stdin of forms without one, follows
-[static-review](../static-review/SKILL.md).
-A wrapper, alias, retry, or duplicate reviewer identity is not another vote.
-Codex models may be only `gpt-6-astra`, `gpt-6-luna`, `gpt-6-sol`, or
-`gpt-6.1-sol`; 5.6 and unknown IDs are not eligible. Count `claudewa` only when
-it resolves to a distinct reviewer identity and records the actual model. Each
-alternate needs an existing supported invocation that bounds its complete
-attempt and produces its own receipt; a per-process timeout alone is
-insufficient. If no eligible path can meet the full bound, record it as
-`UNAVAILABLE`. Do not add a particular runner, wrapper, watchdog, or runtime
+**Machine-specific configuration never lives in this repository.** A credential store directory, a
+profile directory, a per-host wrapper path, a host-specific model alias or an account identifier belongs in
+that machine's `~/.bashrc` as an exported `ADVICE_*` value, never in a skill file, a PR or a document. This
+file may name the shape of a runner (for example `claudewa`-style wrapper that selects another credential
+store and records its model) but never a concrete path, digest or profile of any machine.
+
+A wrapper, alias, retry, or duplicate reviewer identity is not another vote. Codex models may be only
+`gpt-6-astra`, `gpt-6-luna`, `gpt-6-sol`, or `gpt-6.1-sol`; 5.6 and unknown IDs are not eligible. A wrapper
+such as `claudewa` counts only when it resolves to a distinct reviewer identity and the attempt records the
+actual model it ran. Each alternate needs an existing supported invocation that bounds its complete attempt
+and produces its own receipt; a per-process timeout alone is insufficient. If no eligible path can meet the
+full bound, record it as `UNAVAILABLE`. Do not add a particular runner, wrapper, watchdog, or runtime
 mechanism.
+
+### `ADVICE_EXTRA_CLIS`
+
+Registers additional reviewer CLIs without editing this file. Format: seats separated by `|`, each
+`<label>=<executable and literal arguments>`.
+
+```
+ADVICE_EXTRA_CLIS='gemini-cli=gemini --approval-mode yolo -p|local-qwen=qwen -p'
+```
+
+Rules:
+- Split on `|`, then on the **first** `=`; the label is the seat name used in the receipt, the right side is
+  an executable plus literal arguments. No shell evaluation, glob expansion, command substitution, quoting
+  tricks or `~` expansion beyond what the process environment already provides.
+- The review request is appended as one final argument. If the right side contains `{prompt}`, that token is
+  replaced by the request text instead and nothing is appended.
+- An unparseable entry, an empty label, or an executable that is not found makes that seat `UNAVAILABLE`; it
+  never silently falls back to another seat and never becomes a second vote from the same identity.
+- These seats obey the same independence, deadline, evidence and receipt rules as the built-in ones. Extra
+  seats never replace the required Claude or Codex vote: they fill an unfilled slot only when the built-in
+  seat is genuinely unavailable.
 
 ## 3. Enforce the attempt deadline
 
