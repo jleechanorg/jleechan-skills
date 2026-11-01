@@ -15,7 +15,7 @@ each adjustment.
 This skill extends:
 
 - `.claude/skills/zfc-adjuster/SKILL.md`
-- `.claude/skills/evidence-standards.md`
+- `.claude/skills/evidence-standards/SKILL.md`
 - `.claude/skills/zfc-leveling-roadmap/SKILL.md` for level-up/rewards changes
 
 ## Verdicts
@@ -82,11 +82,14 @@ Create a deterministic proof plan for one adjustment:
 ```bash
 ./scripts/adjustment_proof_matrix.py plan \
   --adjustment-id level_up_atomicity.suppress_unpaired_rewards_box \
-  --test-command 'MCP_TEST_MODE=real MOCK_SERVICES_MODE=false ./venv/bin/python testing_mcp/core/test_level_up_organic.py --level-up-scenario single-organic'
+  --test-command '<real testing_mcp invocation from the target repository owner>'
 ```
 
-Follow the generated commands to create independent worktrees. In the red
-worktree, disable only the named adjustment. Prefer the narrowest possible edit:
+Create both independent worktrees with `diskm worktree-new` under
+`~/.worktrees/<repo>/<name>`; the generated proof plan must point to those
+approved Git worktree paths, never to `/tmp`. Keep evidence and captures in a
+unique `/tmp/<repo>/evidence/<run-dir>/` directory. In the red worktree, disable
+only the named adjustment. Prefer the narrowest possible edit:
 remove or bypass the exact correction/suppression branch that implements the
 registry entry. Do not change prompts, test harnesses, unrelated adjusters, or
 scenario inputs in the red worktree.
@@ -96,14 +99,14 @@ After both runs finish, collect and validate:
 ```bash
 ./scripts/adjustment_proof_matrix.py collect \
   --adjustment-id level_up_atomicity.suppress_unpaired_rewards_box \
-  --green-worktree /tmp/your-project.com/adjustment-proof/<sha>/<slug>/green \
-  --red-worktree /tmp/your-project.com/adjustment-proof/<sha>/<slug>/red-disabled \
-  --green-evidence /tmp/your-project.com/<branch>/<green-run>/iteration_001 \
-  --red-evidence /tmp/your-project.com/<branch>/<red-run>/iteration_001 \
-  --test-command 'MCP_TEST_MODE=real MOCK_SERVICES_MODE=false ./venv/bin/python testing_mcp/core/test_level_up_organic.py --level-up-scenario single-organic'
+  --green-worktree ~/.worktrees/<repo>/<green-worktree> \
+  --red-worktree ~/.worktrees/<repo>/<red-worktree> \
+  --green-evidence /tmp/<repo>/evidence/<unique-run-dir>/green \
+  --red-evidence /tmp/<repo>/evidence/<unique-run-dir>/red \
+  --test-command '<real testing_mcp invocation from the target repository owner>'
 
 ./scripts/adjustment_proof_matrix.py validate \
-  /tmp/your-project.com/adjustment-proof/<sha>/<slug>/proof_manifest.json
+  /tmp/<repo>/evidence/<unique-run-dir>/proof_manifest.json
 ```
 
 The validator emits one of the allowed verdicts. Use that verdict in the PR body

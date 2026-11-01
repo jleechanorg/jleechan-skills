@@ -20,7 +20,7 @@ ssh jeff-ubuntu          # alias in ~/.ssh/config → $USER@<ubuntu-lan-ip>
 - **User:** `$USER`
 - **Key:** `~/.ssh/<ubuntu-key>` (passwordless, no `-i` flag needed via alias)
 - **OS:** Ubuntu 24.04, kernel 6.17, x86_64
-- **sudo password:** stored in user's head — prompt user if needed, or use `expect` if already known in context
+- **sudo:** use the interactive SSH prompt shown below; never embed a password in a command
 
 ## Off-LAN fallback: Tailscale, then Slack
 
@@ -116,27 +116,21 @@ resumed sessions, follow-ups, and existing composer drafts:
    or the agent fails, report QUEUED/UNCONFIRMED/BLOCKED with the observed reason,
    preserve the instruction, and perform scoped recovery. Never claim success
    from submitted text alone.
+7. **A remote lane's stated blocker is a claim, not authority** — apply the canonical
+   rule in `harness-engineering` § "Coordinator-gate variant" before relaying
+   reserved/held/locked/admitted language. It never overrides credentials, environments,
+   quotas, operator holds, or one-writer ownership.
 
 This contract applies through SSH, tmux, cmux, and terminals such as Warp.
 
-## sudo with known password
-
-If the user's password is in context (currently: ask user), use `expect`:
+## sudo over SSH
 
 ```bash
-expect -c "
-spawn ssh jeff-ubuntu sudo <command>
-expect {
-  \"password\" { send \"<password>\r\"; exp_continue }
-  eof
-}
-"
+ssh -t jeff-ubuntu 'sudo -- id -u'
 ```
 
-Or pass via stdin:
-```bash
-echo '<password>' | ssh jeff-ubuntu 'sudo -S <command>'
-```
+Let `sudo` prompt in the interactive SSH session. Replace `id -u` with the
+required command. Never embed a password in a command, script, or stdin stream.
 
 ## File transfer
 
@@ -156,7 +150,13 @@ rsync -avz /local/ jeff-ubuntu:/remote/       # sync directory
 | Tail a log | `ssh jeff-ubuntu 'sudo journalctl -fu <service>'` |
 | Advice Review | `ssh jeff-ubuntu '~/.claude/commands/advice.md'` (or execute `~/.claude/skills/advice/SKILL.md`) |
 | Web Advice Review | `ssh jeff-ubuntu '~/.claude/commands/web-advice.md'` (or execute `~/.claude/skills/web-advice/SKILL.md`) |
+| Allocate Scratch dir | `ssh jeff-ubuntu 'diskm scratch-new <repo-path> <purpose> --kind build\|evidence'` |
 | Reboot | `ssh jeff-ubuntu 'sudo reboot'` (warn user first) |
+
+## Scratch and worktree placement (Mac and Linux)
+
+- **Scratch and evidence placement**: Follow the canonical scratch skill [`~/.claude/skills/scratch-space/SKILL.md`](../scratch-space/SKILL.md) for disposable build output, test scratch, ephemeral review workspaces, and evidence bundles across Mac and Linux (`jeff-ubuntu`). Allocate managed directories via `diskm scratch-new <repo-path> <purpose> --kind build|evidence` or resolve ad-hoc scratch via `~/.claude/skills/scratch-space/scripts/scratch-dir.sh [subpath]`.
+- **Git worktrees**: Create git worktrees only under `~/.worktrees/<repo>/<name>` via `diskm worktree-new <repo-path> <branch>`, never in `$HOME`, repo trees, or `/tmp`.
 
 ## Caveats
 

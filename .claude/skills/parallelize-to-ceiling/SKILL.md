@@ -13,8 +13,20 @@ For ANY work with independent items, the speed ceiling is the workload's
 **real resource bound** — per-item CPU / IO / network, or per-machine
 capacity — NOT an arbitrary worker count and NOT "one at a time."
 
-When a full set of N items can run concurrently, run **all N at once**;
-**scale to more machines/containers rather than serialize onto fewer.**
+When N independent items fit within the current host's measured task-specific
+capacity, run **all N at once on that host**. Prefer the current host when it is
+eligible and has headroom. Add another eligible machine/container only when the
+current host cannot safely admit the work under the host-specific rules in
+`references/host-load-balancing.md`, or another measured constraint makes it
+ineligible; a remote host having more idle CPU by itself is not a reason to
+transfer. Use already available, authorized capacity by default; greater demand
+does not authorize provisioning or additional spend.
+
+Apply higher-priority shared routing gates before choosing a host. In
+particular, below 25% Mac CPU idle, a well-scoped coding task follows the
+`~/.codex/AGENTS.md` `/dot` cloud-computer instruction; current-host-first
+placement applies to work that remains eligible for local execution, such as
+review lanes.
 
 Serialize only with a named determinism/corruption constraint. A driver that
 only supports serial for parallelizable work is **fixable tooling debt**, not
@@ -23,16 +35,17 @@ the answer.
 This applies to local CLI work and to remote/distributed compute equally, to
 one-off scripts and to production pipelines alike.
 
-`/parallel` means **maximum parallelism**: when invoked, schedule every step
-from its true dependencies, not from list order, and overlap everything that
-can overlap. A step waits only on outputs it actually consumes. Read-only
-verification (reviews, audits, evidence checks) never blocks a reversible
-action (push, CI start, preview deploy); run them side by side and handle a
-finding with a follow-up commit. Start the longest pole (CI, real-LLM runs,
-slow builds) as early as its inputs allow. Hand idle-capable work to every
-available lane (subagents, CLI delegates, the dot) instead of queueing it
-behind your own turn. Merges, force-pushes, and destructive actions keep
-their own gates and are never "overlapped" past them.
+`/parallel` means **maximum parallelism within measured eligible capacity**:
+when invoked, schedule every step from its true dependencies, not from list
+order, and overlap everything that fits the current host's safe resource bound.
+A step waits only on outputs it actually consumes. Read-only verification
+(reviews, audits, evidence checks) never blocks a reversible action (push, CI
+start, preview deploy); run them side by side and handle a finding with a
+follow-up commit. Start the longest pole (CI, real-LLM runs, slow builds) as
+early as its inputs allow. Hand idle-capable work to available lanes up to that
+bound; use another host only under the selection rules above. Merges,
+force-pushes, and destructive actions keep their own gates and are never
+"overlapped" past them.
 
 Every subagent or lane launched under `/parallel` drives its unit to done:
 implement, verify, and push or produce the artifact. It does not return a
@@ -49,6 +62,13 @@ planning, handoff, and execution authorization boundaries.
 
 ## The decision procedure
 
+For cross-host CPU, RAM, disk, and I/O measurements and safe routing, follow
+[`references/host-load-balancing.md`](references/host-load-balancing.md).
+For Linux transfer, follow
+`${CLAUDE_HOME:-$HOME/.claude}/skills/lm/SKILL.md`;
+for existing cmux Cloud capacity, follow
+`${CLAUDE_HOME:-$HOME/.claude}/skills/cc/SKILL.md`.
+
 1. **Enumerate the independent items.** Rows, files, tests, migrations, doc
    sections, instances, jobs, agent lanes. If items share mutable state, they
    are NOT independent — partition or serialize only those.
@@ -56,18 +76,24 @@ planning, handoff, and execution authorization boundaries.
    heavy (self-saturates a machine: many cores, large memory, or long
    runtime). Measure with a quick probe; don't guess.
 3. **Pick the parallelism unit.**
-   - **Machine-level sharding is primary** — split the item set into disjoint
-     shards across every available machine/container. This is the biggest,
-     safest win.
-   - **Within a machine, run light items to machine concurrency** (cores /
-     per-item cores). Heavy items get their own machine — a high
-     `--max-workers` can't make a CPU-saturated item faster and just thrashes.
-4. **Scale the fleet to the workload.** If N items are independent and you
-   have fewer machines than the ideal, **provision more** so all N run at
-   once. Don't serialize a parallelizable set onto the machines you happen
-   to have.
-5. **Prove the concurrency** by sampling live (process/container counts, load
-   average), not by trusting the flag. A passed `--max-workers N` that yields
+   - **Current-host-first for host selection.** Keep work on the current host
+     when it is eligible and has task-specific headroom. Do not move work just
+     because another host has more idle CPU. Within the current host, run light
+     items to measured machine concurrency (cores / per-item cores); heavy
+     items get a machine where they will not contend with another self-saturating
+     workload.
+   - **Shard across hosts when needed.** Split independent items across other
+     suitable, already available and authorized hosts only when the current
+     host's measured workload-specific admission rule refuses the next lane,
+     or another measured constraint makes the current host ineligible. A
+     comparative idle-CPU ranking alone is not a reason to transfer.
+4. **Scale across eligible capacity.** Use current-host headroom first, then
+   eligible remote capacity when the current host cannot safely admit the work.
+   If the ideal needs more capacity than is available, report that gap; do not
+   provision machines or incur new spend without separate authorization.
+5. **Prove the concurrency** by sampling live CPU idle and process/container
+   counts, not by trusting the flag or load average. A passed `--max-workers N`
+   that yields
    1 running worker is a red flag — find the serializer (a lock, a saturated
    resource, or a serial driver).
 
@@ -75,22 +101,25 @@ planning, handoff, and execution authorization boundaries.
 
 | Item profile | Per-machine concurrency | Parallelism unit | Why |
 |---|---|---|---|
-| Light (small tests, quick scripts, transforms) | ~4–6 on an 8-core machine | shard across machines + workers/machine | each uses ~1–2 cores |
+| Light (small tests, quick scripts, transforms) | ~4–6 on an 8-core machine | workers on current host first; add hosts only when its safe capacity is full | each uses ~1–2 cores |
 | Heavy CPU (big builds, ML training, large test suites) | 1 (self-saturates the cores) | **its own machine** | self-parallelizes; a worker flag can't help |
 | IO/network-bound (API sweeps, fetches, downloads) | high (10s) | workers, not machines | CPU idle; bound is latency/rate-limit |
-| Memory-bound | until RAM pressure | fewer per machine | watch RSS, not just CPU |
+| Memory-bound | per host's RAM admission tier | fewer per machine | measure available RAM and current RSS |
 
 ## Worked example (a gold-test preflight across 4 machines)
 
+- **Capacity boundary:** This example assumes a measured safe per-host capacity
+  of 6 light rows; other machines take the remaining independent rows only
+  after the current host reaches that bound, not just because they are quieter.
 - **Bug:** a sharded preflight passed `--max-workers 1` → each of 4 machines
   ran its ~8 rows **serially** → 4 concurrent total, ~7 min wall-time.
 - **Token fix:** `--max-workers 3` → 6 concurrent.
 - **Right fix:** `--max-workers 6` + the heavy/light split → **14 concurrent**.
   Light rows filled to machine concurrency; the few heavy rows still dominated
   one machine each (the real long pole).
-- **To go to true all-34-at-once:** needs **more machines** (heavy rows each
-  want one), which the shard driver consumes drop-in. The worker count was
-  never the real ceiling — per-item CPU and machine count were.
+- **To go to true all-34-at-once:** heavy rows each want a machine, so this
+  needs more eligible capacity than the four already available. The worker
+  count was never the real ceiling — per-item CPU and machine count were.
 
 ## Failure modes this kills
 
@@ -98,8 +127,10 @@ planning, handoff, and execution authorization boundaries.
   measured per-item bound. Ask: what does one item actually use?
 - **The passed-flag mirage.** `--max-workers 4` passed but 1 worker running
   (a hidden lock / saturated resource / serial driver). Measure live.
-- **Serializing onto the machines you have.** "I have 4 machines so I'll run
-  4 at a time" when the set could use 12 — provision more.
+- **Ignoring eligible capacity.** Underfilling the current host when independent
+  work fits more workers there — measure the bound and use its safe capacity
+  first; add remote capacity only when that bound is full or another measured
+  constraint excludes the current host.
 - **Broad-parallel without isolation.** Parallel writers sharing a mutable
   file/db → the real failure is the shared state, not the parallelism. Give
   each worker a disjoint workspace/output; single-writer for any merged
@@ -118,8 +149,8 @@ a serial run as if the ceiling were zero.
 **Do not gate on swap used/total ratio.** macOS sizes the swapfile
 dynamically, so `vm.swapusage` used-vs-current-size can read >80% "full" on
 a perfectly healthy machine indefinitely — used/total is not a saturation
-metric. `kern.memorystatus_vm_pressure_level = 2` is Urgent, not
-critical (critical is 3, jetsam is 4); treating 2 as a hard stop over-triggers
+metric. Under the current shared action policy, pressure 2 is informational
+and not the defer tier; treating it as a hard stop over-triggers
 when available memory is ample. (Observed 2026-09-02: 8.9GB/10.24GB swap +
 pressure=2 read as "stop" under the old wording, while real available memory
 was 12.9GB and the pressure source was a steady-state 11GB Virtualization.framework
@@ -134,8 +165,10 @@ Before spawning any new lane, subprocess fleet, or CLI delegation:
      printf "%.1f GB available\n",(f+i+p+s)*ps/1073741824}'` — available =
      free + inactive + purgeable + speculative, not free alone.
    - Read `sysctl kern.memorystatus_vm_pressure_level` as a secondary signal
-     (0=normal, 1=warning, 2=urgent, 3=critical, 4=jetsam).
-   - Linux: `free -g` available column.
+     use the current shared numeric action policy: pressure 3 reduces
+     concurrency; pressure 4 is a defer condition by itself.
+   - Linux: `free -g` available column; do not map macOS pressure numbers
+     onto Linux.
    - Takes one second.
 2. **Attribute the pressure before reacting.** `ps -Ao rss,comm -m | head`
    to find the top-RSS consumer. If it's a steady-state VM/daemon
@@ -144,38 +177,37 @@ Before spawning any new lane, subprocess fleet, or CLI delegation:
    whether you spawn 0 or a few lanes.
 3. **Apply graduated thresholds, not a binary stop** (heuristics, not
    physics — recalibrate per host):
-   - Available <4GB **or** pressure ≥3 (Critical/Jetsam) → **defer**. Finish or
-     kill existing heavy children first; spawning into genuine starvation risks killing
-     the *parent* session, losing all lanes at once. This defer condition takes
-     precedence below 4GB or under critical pressure and cannot be overridden by
-     the reduce-lane rule.
-   - Available 4–8GB (with pressure ≤2) **or** pressure = 2 (Urgent with available ≥4GB) →
-     **reduce lane count** / prefer cheaper models, rather than deferring entirely.
-   - Available >8GB **and** pressure ≤1 (Normal/Warning) → **spawn normally**.
-4. **Swap is a stop signal only when it's actively growing**, not from a
-   static used/total ratio. Sample twice, seconds apart
+   - Available <4GB **or** macOS pressure =4 → **defer new heavy
+     work**. Inspect active children and stop only task-owned work under its
+     existing authorization; do not kill unrelated processes.
+   - Available 4–8GB **or** macOS pressure =3 (with at least 4GB available) →
+     **reduce lane count**, rather than deferring entirely.
+   - Available >8GB **and** macOS pressure ≤2 → **spawn normally**.
+4. **Swap is evidence, not a separate defer tier.** Never defer from a static
+   used/total ratio. If available memory is low, sample twice, seconds apart
    (`sysctl vm.swapusage; sleep 5; sysctl vm.swapusage`), and compare
-   `used`. Flat-but-high used/total is not evidence of saturation; `used`
-   climbing between samples while available memory is also low is.
+   `used`. Flat-but-high used/total is not evidence of saturation; actively
+   growing swap plus low available memory informs the measured tier above.
 5. **Never fork a multi-minute CLI delegation (agy, codex, claude -p) as a
    foreground Bash call.** Always `run_in_background` + explicit timeout —
    a foreground fork pins the parent at the worst possible moment.
 6. **Cap concurrent pytest lanes** in gRPC-loaded repos (macOS
    fork-unsafety: "multi-threaded process forked" SIGTRAP storms). 2-3
-   lanes max per host unless measured safe; prefer sharding across
-   machines.
+   lanes max per host unless measured safe; fill the current host's safe
+   capacity first, then shard across machines only when that bound is full or
+   another measured constraint makes the current host ineligible.
 7. **Watch delegate RSS.** A CLI delegate above ~2-3GB RSS is itself a
    heavy item — one per machine, per the resource-bound table.
 
 ## Isolation invariants (always, when parallelizing)
 
-- Disjoint per-worker workspaces / output files.
+- Disjoint per-worker workspaces / output files: resolve disposable build output, test scratch, and evidence bundles dynamically via canonical [`${CLAUDE_HOME:-$HOME/.claude}/skills/scratch-space/SKILL.md`](../scratch-space/SKILL.md) using `diskm scratch-new <repo-path> <purpose> --kind build|evidence` or `${CLAUDE_HOME:-$HOME/.claude}/skills/scratch-space/scripts/scratch-dir.sh [subpath]`; allocate git worktrees under `~/.worktrees/<repo>/<name>` via `diskm worktree-new <repo-path> <branch>`.
 - Single-writer for any shared ledger/manifest.
 - Order-deterministic merged results (sort by id, never completion order).
 - Instance-scoped container/process names so concurrent workers can't collide.
 - Lanes clean up their own `mktemp` scratch without a permission prompt: delete
   it inside the script that created it (`trap`/`finally`), or `mv` it under
-  `/tmp`. Never `rm -rf "$(...)"` or `rm -rf "$VAR"`; the harness cannot resolve
+  the active Scratch volume resolved via `${CLAUDE_HOME:-$HOME/.claude}/skills/scratch-space/scripts/scratch-dir.sh` (or `/tmp`). Never `rm -rf "$(...)"` or `rm -rf "$VAR"`; the harness cannot resolve
   those targets and stops the lane to ask.
 - Never relax a correctness/validation contract for speed — if a result's
   determinism can't be preserved, THAT is the written justification for serial.
@@ -255,16 +287,18 @@ The `FALLBACK` template above is governed by this order:
 ## Isolation contract
 
 Coder and verifier remain distinct lanes and contexts. The orchestrating caller
-decides whether each lane and retry operates in an allocated detached worktree
-or directly within the caller's workspace. Every attempt, including initial
-execution and each retry, uses a fresh workspace (either an allocated detached
-worktree or caller-provided clean workspace) and unique output/log paths disjoint
-from both coder and verifier lanes and from all previous attempts.
+decides whether each lane and retry operates in an allocated worktree on a fresh
+branch or directly within the caller's workspace. Every attempt, including
+initial execution and each retry, uses a fresh workspace (either an allocated
+worktree on a fresh branch or caller-provided clean workspace) and unique
+output/log paths disjoint from both coder and verifier lanes and from all
+previous attempts.
 Attempts must not read or reuse partial files, logs, or outputs from another
 attempt, and the verifier must independently rerun focused checks before signaling completion.
-When worktree isolation is used, every retry uses a fresh detached worktree and
-unique output/log paths. Start a fresh `agy --new-project` invocation for every
-attempt; never pass a conversation-resume option or use an equivalent conversation-reuse mechanism.
+When worktree isolation is used, every retry uses a fresh worktree on its own
+branch and unique output/log paths. Start a fresh `agy --new-project` invocation
+for every attempt; never pass a conversation-resume option or use an equivalent
+conversation-reuse mechanism.
 Each coder retry must carry the exact prior `Revision`, pin its workspace to
 that revision before making changes, rerun focused checks, and finish with an
 explicit scoped commit plus an empty status before sending the next handoff.
@@ -291,10 +325,7 @@ If `gpt-6-luna` is unavailable or fails, use the active GPT 6 / 6.1 tier
 
 ## One-line form (for config files)
 
-> Parallelize any task to its real ceiling — any independent-item work runs to
-> its real resource bound, not an arbitrary worker count or one-at-a-time;
-> shard across ALL available capacity and scale to more machines rather than
-> serialize.
+> Parallelize independent work up to the current host's measured safe resource bound first; add suitable, already available and authorized hosts only when that bound is full or another measured constraint excludes the current host; do not transfer solely for comparative idle CPU. Provisioning or new spend requires separate authorization.
 
 ## Quick diagnostic — "why is it slow?"
 
@@ -304,14 +335,19 @@ Run this in order; stop at the first that explains it:
 2. **Is the driver even using more than one worker?** `ps` / `docker ps` /
    `kubectl get pods`. A passed `--max-workers N` is not proof — find the
    serializer.
-3. **Is the machine saturated?** Load average > cores, or RSS climbing —
-   each item is heavy; shard across machines, not workers.
+3. **Is the machine CPU- or memory-bound?** Measure CPU idle using the
+   platform commands in [`references/host-load-balancing.md`](references/host-load-balancing.md)
+   and inspect live RSS. Load average alone is not a saturation verdict.
 4. **Is the per-item bound actually IO/network?** Workers/machine can go high
    (10s); the ceiling is rate limits, not cores.
-5. **Are you on the right number of machines?** If N items want N machines
-   and you have 4, add machines — don't serialize.
+5. **Are you using eligible capacity?** Fill the current host's safe measured
+   capacity first. Route remaining independent work to another suitable,
+   already available and authorized host only when that bound is full or
+   another measured constraint excludes the current host; do not transfer just
+   because another host has more idle CPU. Additional provisioning or spend
+   needs separate authorization.
 
-## Resource admission gate (macOS) — source of truth
+## Resource admission gate (macOS) — command source of truth
 
 Origin: session crash 2026-08-30 (a foreground multi-minute CLI fork under
 apparent swap starvation killed the parent session and every lane); thresholds
@@ -323,18 +359,18 @@ time diagnosing whether this Mac is under memory pressure:
 1. **Available RAM** from `vm_stat`:
    `(free + inactive + purgeable + speculative) × page_size`.
 2. **Top RSS consumer**: `ps -Ao rss,comm -m | head`.
-3. **Pressure**: `sysctl kern.memorystatus_vm_pressure_level` — 2 is
-   Urgent, not a stop condition when available memory is ample; 3 (critical)
-   and 4 (jetsam) are stop conditions.
+3. **Pressure**: `sysctl kern.memorystatus_vm_pressure_level` — apply the
+   current shared numeric action tiers above: pressure 3 reduces concurrency; pressure 4
+   defers new heavy work.
 
 **Never gate on `vm.swapusage` used/total.** macOS sizes the swapfile
 dynamically, so an "89% full" swapfile can coexist with 12+ GB available.
 
 | Available RAM | Pressure | Action |
 |---|---|---|
-| < 4 GB | ≥ 3 (Critical/Jetsam) | defer spawns (precedence) |
-| 4–8 GB (and pressure ≤ 2) | 2 (Urgent, available ≥ 4 GB) | reduce lane count |
-| > 8 GB | ≤ 1 (Normal/Warning) | spawn normally |
+| < 4 GB or pressure 4 | any | defer new heavy work |
+| 4–8 GB or pressure 3 (with at least 4 GB available) | pressure ≤ 3 | reduce lane count |
+| > 8 GB | pressure ≤ 2 | spawn normally |
 
 Even when deferring, attribute the pressure to its real top-RSS source first —
 it is often a steady-state VM or daemon, not the agent fleet.

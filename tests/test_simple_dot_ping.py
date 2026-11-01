@@ -1,6 +1,7 @@
 """Fail-closed contract tests for the scheduler-bound Pi coordinator launcher."""
 import importlib.util
 import os
+import socket
 from pathlib import Path
 import subprocess
 import sys
@@ -35,6 +36,13 @@ class LauncherContractTests(unittest.TestCase):
             with patch.object(sys, 'argv', ['ping-dots.py', '--account', 'alpha']):
                 with self.assertRaisesRegex(PING.Blocked, 'identity binding'):
                     PING.main()
+
+    def test_chrome_is_headless_on_every_platform(self):
+        src = SCRIPT.read_text()
+        self.assertNotIn("if not os.environ.get('DISPLAY'): mcp_args.append('--headless')", src)
+        self.assertIn("mcp_args += ['--headless', '--chromeArg=--password-store=gnome-libsecret']", src)
+        self.assertIn("mcp_args += ['--headless', '--chromeArg=--password-store=keychain']", src)
+        self.assertIn('headless on every host', (ROOT / '.claude/skills/dot-coordinator/SKILL.md').read_text())
 
     def test_dangling_singleton_lock_is_detected(self):
         import tempfile
@@ -160,7 +168,9 @@ class LauncherExecutionTests(unittest.TestCase):
     def test_timeout_terminates_pi_and_preserves_agent_owned_marker(self):
         class TimedOut(FakePiProcess):
             def __init__(self): self.returncode, self.pid = None, 2_000_000_000
-            def communicate(self, timeout): raise subprocess.TimeoutExpired('pi', timeout)
+            # The launcher streams Pi to a log file and waits on the process, so the
+            # timeout contract lives on wait() rather than communicate().
+            def wait(self, timeout=None): raise subprocess.TimeoutExpired('pi', timeout)
             def terminate(self): self.returncode = -15
         old_timeout = PING.TIMEOUT
         self.addCleanup(setattr, PING, 'TIMEOUT', old_timeout)
@@ -230,6 +240,152 @@ module.main()
         with self.assertRaisesRegex(PING.Blocked, 'verify delivery before any retry'):
             self.invoke(FakePiProcess(returncode=7))
         self.assertEqual(pending.read_text(), 'private send intent')
+
+
+
+
+    def _plant_singleton(self, pid):
+        lock = self.profile / 'SingletonLock'
+        lock.symlink_to(f'{socket.gethostname()}-{pid}')
+        (self.profile / 'SingletonCookie').symlink_to('cookie-value')
+        (self.profile / 'SingletonSocket').symlink_to(str(self.home / 'sock'))
+        return lock
+
+    def test_dead_singleton_blocks_names_the_files_and_is_never_deleted(self):
+        self._plant_singleton(9_000_000_001)  # never a live pid
+        with self.assertRaises(PING.Blocked) as caught:
+            self.invoke()
+        message = str(caught.exception)
+        for name in ('SingletonLock', 'SingletonCookie', 'SingletonSocket'):
+            self.assertIn(str(self.profile / name), message)
+            self.assertTrue(os.path.lexists(self.profile / name), f'{name} must survive')
+        # A dead PID alone is never sufficient reason to remove the singletons.
+        self.assertIn('verify', message)
+        self.assertIn('uncertain', message)
+        self.assertNotIn('if its process is dead', message)
+
+    def test_live_singleton_blocks_without_deleting(self):
+        lock = self._plant_singleton(os.getpid())
+        with self.assertRaisesRegex(PING.Blocked, 'SingletonLock'):
+            self.invoke()
+        self.assertTrue(os.path.lexists(lock))
+
+class PiLogRetentionTests(unittest.TestCase):
+    """The retained Pi transcript must be private and redacted end-to-end."""
+
+    def _run(self, fake_factory):
+        case = LauncherExecutionTests('run')
+        case.setUp()
+        self.addCleanup(case.doCleanups)
+        case.invoke(on_spawn=fake_factory)
+        logs = sorted(Path(tempfile.gettempdir()).glob('dot-coordinator-pi-alpha-*.log'),
+                      key=lambda item: item.stat().st_mtime)
+        self.assertTrue(logs, 'the launcher must retain a Pi log')
+        return logs[-1]
+
+    def test_completed_run_keeps_a_private_redacted_log(self):
+        expected = 'a' * 64  # matches DOT_EXPECTED_IDENTITY_SHA256 in the harness env
+
+        def spawn(command, **options):
+            out = options['stdout']
+            child_fd = os.dup(out if isinstance(out, int) else out.fileno())
+            os.write(child_fd, f'prompt {expected}\nagent step 1\n'.encode())
+            os.close(child_fd)
+
+            class Done(FakePiProcess):
+                def __init__(self):
+                    super().__init__(returncode=0)
+
+                def wait(self, timeout=None):
+                    return 0
+
+            return Done()
+
+        log = self._run(spawn)
+        self.assertEqual(log.stat().st_mode & 0o777, 0o600)
+        text = log.read_text()
+        self.assertNotIn(expected, text)
+        self.assertIn('[identity redacted]', text)
+        self.assertIn('agent step 1', text)
+
+class PiLogInterruptTests(unittest.TestCase):
+    """An interrupt must still stop the group and redact the retained log."""
+
+    def test_keyboard_interrupt_finalizes_after_stopping_the_child(self):
+        expected = 'a' * 64  # matches DOT_EXPECTED_IDENTITY_SHA256 in the harness env
+        written = {}
+
+        class Interrupted(FakePiProcess):
+            def __init__(self): self.returncode, self.pid = None, 2_000_000_002
+            def wait(self, timeout=None):
+                if written.get('fd') is not None:
+                    os.write(written['fd'], (f'prompt {expected}\n').encode())
+                    os.close(written['fd'])
+                    written['fd'] = None
+                raise KeyboardInterrupt()
+            def terminate(self): self.returncode = -15
+            def poll(self): return self.returncode
+
+        def spawn(command, **options):
+            # The launcher closes its own descriptor right after spawn, so the child
+            # emulation holds its own duplicate, exactly as a real child would.
+            out = options['stdout']
+            written['fd'] = os.dup(out if isinstance(out, int) else out.fileno())
+            return Interrupted()
+
+        case = LauncherExecutionTests('run')
+        case.setUp()
+        self.addCleanup(case.doCleanups)
+        with self.assertRaises(KeyboardInterrupt):
+            case.invoke(on_spawn=spawn)
+        logs = sorted(Path(tempfile.gettempdir()).glob('dot-coordinator-pi-alpha-*.log'),
+                      key=lambda item: item.stat().st_mtime)
+        self.assertTrue(logs, 'the retained log must exist after an interrupt')
+        self.assertNotIn(expected, logs[-1].read_text())
+
+
+
+
+
+
+
+class PinnedMcpSelectionTests(unittest.TestCase):
+    """The launcher must pick the Node 22 tree that actually carries the pinned MCP."""
+
+    def _node_tree(self, root, version, mcp_version=None):
+        bin_dir = root / f'node-{version}' / 'bin'
+        bin_dir.mkdir(parents=True)
+        if mcp_version is None:
+            return bin_dir
+        mcp_js = bin_dir.parent / 'lib/node_modules/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js'
+        mcp_js.parent.mkdir(parents=True)
+        mcp_js.write_text('#!/usr/bin/env node\n', encoding='utf-8')
+        pkg = bin_dir.parent / 'lib/node_modules/chrome-devtools-mcp/package.json'
+        pkg.write_text(json.dumps({'version': mcp_version}), encoding='utf-8')
+        return bin_dir
+
+    def test_later_node_tree_with_the_pinned_mcp_wins(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bare = self._node_tree(root, 'v22.22.0')
+            with_mcp = self._node_tree(root, 'v22.23.1', '1.6.0')
+            bin_dir, mcp_js = PING.pinned_mcp([bare, with_mcp])
+            self.assertEqual(bin_dir, with_mcp)
+            self.assertTrue(str(mcp_js).endswith('chrome-devtools-mcp.js'))
+
+    def test_wrong_version_is_not_accepted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            stale = self._node_tree(root, 'v22.22.0', '1.5.0')
+            good = self._node_tree(root, 'v22.23.1', '1.6.0')
+            self.assertEqual(PING.pinned_mcp([stale, good])[0], good)
+
+    def test_no_qualifying_tree_fails_closed_with_the_searched_paths(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bare = self._node_tree(root, 'v22.22.0')
+            with self.assertRaisesRegex(PING.Blocked, 'searched'):
+                PING.pinned_mcp([bare])
 
 
 if __name__ == '__main__':

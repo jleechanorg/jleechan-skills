@@ -34,6 +34,16 @@ def _active_caller_text() -> str:
 
 
 class ArchiveDependencyContractTest(unittest.TestCase):
+    def test_active_files_never_cite_retired_flat_skill_paths(self) -> None:
+        flat = re.compile(r"\.claude/skills/([A-Za-z0-9_-]+)\.md\b")
+        stale = []
+        roots = [ACTIVE_SKILLS, ACTIVE_COMMANDS, REPO_ROOT / ".claude" / "agents"]
+        for path in (p for root in roots for p in root.rglob("*.md")):
+            for name in flat.findall(path.read_text(encoding="utf-8", errors="ignore")):
+                if not (ACTIVE_SKILLS / f"{name}.md").exists() and (ACTIVE_SKILLS / name / "SKILL.md").exists():
+                    stale.append(f"{path.relative_to(REPO_ROOT)} -> {name}.md")
+        self.assertEqual(stale, [])
+
     def test_active_skills_have_discovery_frontmatter(self) -> None:
         invalid = []
         for skill_file in ACTIVE_SKILLS.glob("*/SKILL.md"):

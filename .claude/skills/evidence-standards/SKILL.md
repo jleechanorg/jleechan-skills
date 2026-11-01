@@ -1,10 +1,16 @@
 ---
 name: evidence-standards
-description: General cross-project evidence standards (user scope). Use for the /es skill. Repo-level .claude/skills/evidence-standards.md files add project-specific extensions — always consult both.
+description: General cross-project evidence standards (user scope). Use for the /es skill. Repo-level .claude/skills/evidence-standards/SKILL.md files add project-specific extensions — always consult both.
 when-to-use: Before /er, /green, gate fixes, or AO worker dispatch on a PR that touches production code paths. Also when claiming a behavior is "fixed" or "working" and you need to prove it.
 ---
 
 # /es — Evidence Standards (user scope)
+
+## Claim-proportionate evidence and publication
+
+For proportional evidence classes, follow [pr-lifecycle](../pr-lifecycle/SKILL.md#proportional-exceptions-and-fast-paths). For PR-description publication, follow its [stage-exit receipt contract](../pr-lifecycle/SKILL.md#evidence-attached-to-every-stage-exit). This skill owns the evidence-content and integrity checks below, not a second lifecycle policy.
+
+Compact proof retains primary artifacts, source provenance and hashes; mark irrelevant server/PID/provider fields N/A with reasons instead of inventing runtime metadata. Source hashes alone do not prove execution.
 
 ## Summary
 
@@ -15,11 +21,15 @@ every claim with its evidence layer, and never substitute a green test suite
 for proof of integration correctness. The companion files in this directory
 (`bundle-anatomy.md`, `tmux-video-evidence.md`, `ui-video-evidence.md`) cover
 the structural and recording details; this file is the policy.
+- **Diff-Derived Claim Coverage (Including Platform-Divergent Paths)**: Evidence must cover every user-visible behavior the diff adds or changes, not only the PR's stated claims; build the claim list from the diff itself (see `evidence-coverage`). Any diff that adds or changes code that runs on only one platform (`Platform.OS` branches, `*.web.*`/`*.native.*` files, `window`/`document`/`history` listeners, native-only modules) must list each such path and prove its user-visible behavior on the platform where it executes.
 
 **After running any evidence-gathering pass, you MUST always reconfirm** by
 explicitly stating what the evidence proves vs what it does NOT prove — this
 applies to the response you give the user, not just the bundle's own
-"What This Evidence Does NOT Prove" section (below).
+"What This Evidence Does NOT Prove" section (below). That section lists untested
+scope only: behavior you observed that the user's acceptance or the UI's own
+disclosure forbids is a FAIL, never a limit or follow-up
+(`evidence-review` check 9).
 
 ## Aiming gate — run BEFORE spending on an evidence campaign
 
@@ -227,9 +237,9 @@ behavior or claim-dependent changes; a path alone does not invalidate every capt
 hours of LLM time for zero added confidence. The evidence proves a *behavior*; if the behavior's
 code is byte-identical at HEAD and no assertion or driver backing it changed, the proof is
 byte-valid at HEAD. Repo-level files may add
-project-specific context (e.g. `<repo>/.claude/skills/evidence-standards.md` §
-"Claim-scoped evidence revalidation") and take precedence on conflict, but cannot waive the
-delta-and-claim test above.
+project-specific context (e.g. the worldarchitect.ai overlay: `evidence-standards.md` under
+`<repo>/.claude/skills/` §
+"Claim-scoped evidence revalidation"). Shared [pr-lifecycle precedence](../pr-lifecycle/SKILL.md#precedence-and-scope) governs conflicting lifecycle copies; domain-specific proof and separate safety/merge restrictions remain. Repo overlays cannot waive the delta-and-claim test above.
 
 ## Evidence Sequencing — expensive evidence runs LAST, once
 
@@ -241,7 +251,7 @@ not continued diagnosis. Real-service failures still require the real boundary;
 a fast unit test cannot substitute for a cross-service reproduction.
 
 Cheap gates (unit/focused tests, lint, compile) iterate freely per commit.
-Review scheduling follows `draft-first-pr/SKILL.md`'s canonical lifecycle and
+Review scheduling follows `pr-lifecycle/SKILL.md`'s canonical lifecycle and
 composition contract; continue to enforce the required correctness and
 evidence checks. Final expensive evidence (real-server + real-LLM runs, packaged RED/GREEN comparisons,
 browser/video capture, bundle assembly) runs ONCE, at the END: only after code is
@@ -277,6 +287,17 @@ same invocation before provider calls; confirm behavior work is settled for
 FINAL. Reviewers must reuse the exact capsule. Setup failures remain setup
 failures until raw provider proof supports a product or auth diagnosis.
 
+Before expensive capture, verify the actual producer identity and provider,
+downstream logging target, and readiness in the child that will run it. Confirm
+canonical control IDs and the observed terminal envelope; an absent optional
+success field does not mean `false`. Reuse the existing pipeline; do not add
+mocks or retry loops. If a harness fails after controlled state was persisted,
+resume it through the real SDK only when readback proves its preconditions, and
+record the resume source and limits. Complete published PR-body media (including
+the GIF derivative manifest) and direct raw RED/GREEN delivery before starting
+the final `/er` evidence review. This sequencing does not delay cheap code or
+advice review, which may run earlier or concurrently.
+
 ## Evidence class table
 
 | Class | Description | Layer | Acceptable for production claim? |
@@ -290,7 +311,7 @@ failures until raw provider proof supports a product or auth diagnosis.
 
 ## Unit proof and claim boundaries
 
-Use `draft-first-pr` § Change-impact review and test depth, `/4layer`, and
+Use `pr-lifecycle` § Change-impact review and test depth, `/4layer`, and
 `testing-layers` to choose sufficient evidence, not selected by line count alone.
 `/es` remains the evidence-classification gate; it does not force every production
 edit through live LLM or browser capture.
@@ -347,7 +368,7 @@ a checked-in document, an access-controlled receipt/store, or an authorized gist
 Include the reviewed/tested SHA, dependencies, exact commands and expected results
 required for the applicable evidence class. These underlying evidence artifacts
 may remain in authorized private hosting. The separate sanitized review receipt
-must follow `draft-first-pr` § Review records in the PR description, including
+must follow `pr-lifecycle` § Review records in the PR description, including
 its gist URL, exact reviewed SHA, and `PUBLICATION BLOCKED` state when publication
 cannot complete. Do not confuse artifact hosting with review-record completion.
 
@@ -360,7 +381,8 @@ Follow any actual repository gate requiring particular in-tree evidence paths.
 ## Bundle anatomy (minimal)
 
 The canonical bundle shape is the iteration directory produced by the
-project's evidence harness. For the WorldArchitect MCP harness, see
+project's evidence harness on the dedicated Scratch volume resolved dynamically via
+`~/.claude/skills/scratch-space/SKILL.md` (`diskm scratch-new <repo-path> <purpose> --kind evidence`, or `$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh "<repo>/evidence/<date>-<slug>")`). For the WorldArchitect MCP harness, see
 `bundle-anatomy.md` in this directory. At minimum, a bundle contains:
 
 - `metadata.json` — git provenance (`git_head`, `merge_base`, `commits_ahead_of_main`, `diff_stat_vs_main`), server runtime (PID, port, cmdline, env vars), `bundle_version`, `run_id`, `iteration`, `bundle_timestamp`
@@ -410,9 +432,10 @@ a synthetic-LLM claim.
 
 ```text
 # PR description includes:
-- Evidence bundle: /tmp/your-project.com/fix-attack-roll/iteration_001/
-- Video: https://<project-host>/releases/download/evidence-2026-06-16/attack-roll.mp4
-  (NOT github.com/.../releases/download/untagged-* — that is a red flag)
+- Evidence bundle: <scratch-root>/your-project.com/fix-attack-roll/iteration_001/ (resolved dynamically via `~/.claude/skills/scratch-space/SKILL.md`: `diskm scratch-new <repo-path> <purpose> --kind evidence` or `$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh "<repo>/evidence/<date>-<slug>")`)
+- Video: https://storage.googleapis.com/<bucket>/agent-evidence/<repo>/<pr>-<topic>/attack-roll.mp4
+  (or another host the current task authorizes; NOT github.com/.../releases/download/untagged-* — that is a red flag)
+- Paired inline GIF of the same run, embedded in the PR body (see § Visual Evidence)
 - metadata.json contains browser_origin, gateway_url, server.pid, artifact_manifest
 - Video is pipeline output (asciinema .cast in bundle, converted to mp4
   for hosting), not a manual screen recording
@@ -433,6 +456,9 @@ frames. When reviewing UI video (`/er`), **extract frames and look**
 (`ffmpeg -i <video> -vf fps=1 /tmp/frames/f_%02d.png`); if the element is never
 in-frame, or the only on-screen evidence is a caption overlay, the UI evidence is
 INSUFFICIENT even if the video exists, is captioned, and the test passed.
+Acceptance by video also requires an independent AI content review (other than
+the author or orchestrator) of the published video's frames per acceptance step
+(`evidence-review` check 4); privacy, playback, and turn-record reviews do not count.
 
 ## Visual Evidence & Mandatory Inline Rendering in PRs
 
@@ -465,14 +491,33 @@ Visual comparisons under `## Visual Evidence` in PR descriptions must render ima
    | <img src="<before_mobile_url>" width="360" alt="Before Mobile"> | <img src="<after_mobile_url>" width="360" alt="After Mobile"> |
 
    ### Walkthrough Video
-   - [walkthrough.mp4](<video_url>) (SHA256: `<sha256>`)
+
+   | Before | After |
+   | :---: | :---: |
+   | <img src="https://storage.googleapis.com/<bucket>/<path>/before.gif" width="300" alt="Before walkthrough"> | <img src="https://storage.googleapis.com/<bucket>/<path>/after.gif" width="300" alt="After walkthrough"> |
+   | [▶ before.mp4](https://storage.googleapis.com/<bucket>/<path>/before.mp4) (SHA256: `<sha256>`) | [▶ after.mp4](https://storage.googleapis.com/<bucket>/<path>/after.mp4) (SHA256: `<sha256>`) |
    ```
 
-4. **Anti-Patterns (Reject in Review)**:
+4. **Google Cloud Storage media (default host)**:
+   - **Default host.** Upload media to the authorized evidence bucket (for example `gs://<evidence-bucket>/agent-evidence/<repo>/<pr>-<topic>-<date>/`) and link it as `https://storage.googleapis.com/<evidence-bucket>/<object>`. That URL syntax grants no access by itself: a direct browser playback works only for objects already authorized for the intended reviewers (public-read, for example). Media that must stay private uses the private-host exception below rather than being made public.
+   - A GitHub attachment is also acceptable — for video it is the only form GitHub plays inline — as is any other host the current task authorizes. Media that must stay private stays in authorized private hosting; never make evidence public merely to satisfy a link check. What is never acceptable is a URL the intended reviewer cannot open and play.
+   - Never link `gs://…` (not clickable) or `https://storage.cloud.google.com/…`, which redirects reviewers to a Google login.
+   - GitHub plays inline only videos uploaded as GitHub attachments, so an external mp4 renders as a link. Every video therefore gets an **inline GIF** of the same run (`ffmpeg -i in.webm -vf "fps=6,scale=300:-1:flags=lanczos" out.gif`) next to a **playable mp4 link** (prefer MP4/H.264 — `-c:v libx264 -pix_fmt yuv420p` — for the broadest player compatibility; WebM may be supplied additionally, but does not replace the required MP4/H.264 variant).
+   - Screenshots are inline `<img>` from an authorized host that renders for the intended reviewer, showing the real captured pixels of the claimed state, not placeholders, crops that hide the changed element, or icons.
+   - Verify before claiming the stage exit:
+     - Every URL resolves with the expected `content-type` (`video/mp4`, `image/gif`, `image/png`) **for the intended reviewer**: `curl -sI <url>` for a public object, or the reviewer's own authorized access when the task keeps the media private. Record which access mode applies instead of forcing public access to prove reachability.
+     - Every inline GIF and screenshot appears in the **rendered** PR body *and is the right image*. GitHub exposes each rendered image's original URL, so compare them with the media this receipt declares: `gh api repos/<owner>/<repo>/pulls/<n> -H "Accept: application/vnd.github.html+json" --jq .body_html | grep -o 'data-canonical-src="[^"]*"'`. Do not accept a bare image count: `grep -c` counts matching *lines* (one line holding two images reports `1`), and an aggregate number can be matched by unrelated images.
+     - The sanitized gist receipt lists the same media with their sha256 hashes and access mode. Redact bearer, signed-query and other credential-bearing URL components — record the protected location plus hash instead of the token, since a gist is link-accessible.
+
+5. **Anti-Patterns (Reject in Review)**:
    - ❌ `| [screenshot](url) | [screenshot](url) |` (text link only — fails inline rendering)
    - ❌ Raw uncaptioned image dumps with no Before/After comparison table
    - ❌ Testing only desktop and skipping mobile (375×812)
    - ❌ Committing heavy image binaries directly into the git repository (use authorized storage or unlisted gists)
+   - ❌ A video only as a text link, with no inline GIF of the same run
+   - ❌ `gs://` or `storage.cloud.google.com` media links, or webm as the only playable form with no MP4/H.264 variant
+   - ❌ Making private evidence public, or changing bucket access, only to satisfy a reachability check
+   - ❌ Media only in a gist, a comment or a bundle README instead of inline in the PR description
 
 ## Cross-references
 
@@ -484,10 +529,12 @@ standards, always read both this skill and the relevant repo-level file:
    rule rather than obsolete blanket production/size-only exceptions. Preserve
    UI-video and risk-specific requirements; the repo overlay names its triggers.
 2. **Repo-level /es** — most repos mirror this skill at
-   `<repo>/.claude/skills/evidence-standards.md` with project-specific
+   `<repo>/.claude/skills/evidence-standards/SKILL.md` - or, in repos that keep it flat, the
+   `evidence-standards.md` file under `<repo>/.claude/skills/` - with project-specific
    extensions (e.g. `your-project.com` has dice-claim, campaign-isolation,
-   BigQuery, and Gemini specifics). **Always read both** — the global file
-   is the floor; the repo-level file is the ceiling.
+   BigQuery, and Gemini specifics). **Always read both** and apply the
+   [scoped precedence rule](../pr-lifecycle/SKILL.md#precedence-and-scope);
+   repository domain proof does not override the shared lifecycle.
 3. **Companion files in this directory** — `bundle-anatomy.md` (bundle
    structure, JSONL shapes, integrity rules), `tmux-video-evidence.md`
    (tmux/asciinema recording), `ui-video-evidence.md` (browser/UI video).

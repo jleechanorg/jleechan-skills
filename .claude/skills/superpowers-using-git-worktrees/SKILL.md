@@ -9,100 +9,35 @@ description: Use when starting feature work that needs isolation from current wo
 
 Git worktrees create isolated workspaces sharing the same repository, allowing work on multiple branches simultaneously without switching.
 
-**Core principle:** Systematic directory selection + safety verification = reliable isolation.
+**Core principle:** Use the shared worktree creator and its canonical isolated location.
 
 **Announce at start:** "I'm using the using-git-worktrees skill to set up an isolated workspace."
 
-## Directory Selection Process
+## Location and safety
 
-Follow this priority order:
+Create worktrees with `diskm worktree-new` under the shared canonical root
+`~/.worktrees/<repo>/<name>`, as required by
+[worktree-protection](../worktree-protection/SKILL.md). The shared creator owns
+path selection and worktree registration. Do not select project-local paths,
+create a temporary worktree directory, edit `info/exclude`, or call raw
+`git worktree add`.
 
-### 1. Honor the user and repository preference
-
-Use the location specified by the user or applicable repository instructions
-without asking again. If neither specifies a location, continue below.
-
-### 2. Check Existing Directories
-
-```bash
-# Check in priority order
-ls -d .worktrees 2>/dev/null     # Preferred (hidden)
-ls -d worktrees 2>/dev/null      # Alternative
-```
-
-**If found:** Use that directory. If both exist, `.worktrees` wins.
-
-### 3. Choose an isolated default
-
-If the user or repository specifies no location, choose a unique directory
-outside the active checkout using `mktemp -d`, and report the absolute path.
-Routine worktree placement does not need a new approval. Ask only if a real
-storage/access constraint prevents an appropriate isolated location.
-
-## Safety Verification
-
-### For Project-Local Directories (.worktrees or worktrees)
-
-**MUST verify directory is ignored before creating worktree:**
-
-```bash
-# Check if a project-local directory is ignored (respects local, global, and system gitignore)
-# External paths (outside repo root) are already isolated and must not be checked or added to info/exclude.
-(
-  set -euo pipefail
-  if ! repo_root=$(git rev-parse --show-toplevel 2>/dev/null); then
-    echo "Error: Must be run inside a git repository" >&2
-    exit 1
-  fi
-  abs_location=$(python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$LOCATION")
-  abs_repo=$(python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$repo_root")
-  if [[ "$abs_location" == "$abs_repo" ]]; then
-    echo "Error: LOCATION cannot be the repository root" >&2
-    exit 1
-  fi
-  if [[ -n "$abs_repo" && -n "$abs_location" && "$abs_location" == "$abs_repo"/* ]]; then
-    rc=0
-    git check-ignore -q "$abs_location" 2>/dev/null || rc=$?
-    if [ "$rc" -eq 1 ]; then
-      exclude_file=$(git rev-parse --git-path info/exclude)
-      rel_entry="${abs_location#$abs_repo/}"
-      mkdir -p "$(dirname "$exclude_file")"
-      echo "$rel_entry" >> "$exclude_file"
-    elif [ "$rc" -gt 1 ]; then
-      echo "Error: git check-ignore failed with status $rc" >&2
-      exit "$rc"
-    fi
-  fi
-)
-```
-
-**If NOT ignored (for a project-local directory):**
-
-For a user- or repository-selected project-local location inside the repository (where `git check-ignore` exited 1), authorized worktree setup includes adding its exact ignore entry to the repository-local `info/exclude` file (`git rev-parse --git-path info/exclude`), unless an explicit policy prohibits that change. Preserve unrelated entries and verify the selected path is ignored.
-
-Never add external directories (such as paths outside the repository created by `mktemp -d`) to `info/exclude`. An external path causes `git check-ignore` to exit with status 128 rather than 1, and external paths are already outside the project tree.
-
-Use an external location only when no location was specified, or when the user or repository permits that fallback. Ask only if an explicit constraint makes the selected location unusable; continue independent authorized work meanwhile. No unrelated tracked configuration commit is needed.
-
-**Why critical:** Prevents accidentally committing worktree contents to repository.
-
-### For directories outside the repository
-
-No .gitignore verification needed - outside project entirely.
+Before creation, inspect the source checkout's branch and status. Preserve
+unrelated dirty files and uncommitted work; do not reset, stash, or clean them
+to make worktree creation succeed. After creation, verify the reported path,
+branch, base commit, and clean status of the new checkout.
 
 ## Creation Steps
 
 ### 1. Create Worktree
 
 ```bash
-worktree_path="$LOCATION/$BRANCH_NAME"
-
-# Select the base ref from repository policy or the user's explicit instruction.
-# Use HEAD only when neither provides a base.
-BASE_REF="${BASE_REF:-HEAD}"
-git worktree add "$worktree_path" -b "$BRANCH_NAME" "$BASE_REF"
-cd "$worktree_path"
+diskm worktree-new <repo-path> <branch> --base <base-ref> --name <name>
 ```
+
+The command prints the canonical worktree path. Change into that returned
+directory before continuing. Select the base ref from repository policy or the
+user's explicit instruction.
 
 ### 2. Run Project Setup
 
@@ -135,25 +70,17 @@ Proceeding with <next authorized task action>
 
 | Situation | Action |
 |-----------|--------|
-| `.worktrees/` exists | Use it (verify ignored) |
-| `worktrees/` exists | Use it (verify ignored) |
-| Both exist | Use `.worktrees/` |
-| Neither exists | Check repository policy, then choose an external unique directory |
-| Selected project-local directory not ignored | Add its exact local exclude entry unless prohibited; never add external paths |
+| Need a worktree | Use `diskm worktree-new` under `~/.worktrees/<repo>/<name>` |
+| Source checkout has unrelated dirty work | Preserve it and continue without resetting or cleaning |
 | Tests fail during baseline | Capture, classify, and investigate within scope |
 | Setup is needed | Follow the repository bootstrap and shared environment |
 
 ## Common Mistakes
 
-### Skipping ignore verification
+### Bypassing the shared worktree creator
 
-- **Problem:** Worktree contents get tracked, pollute git status
-- **Fix:** Always use `git check-ignore` before creating project-local worktree
-
-### Assuming directory location
-
-- **Problem:** Creates inconsistency, violates project conventions
-- **Fix:** Follow priority: user/repository preference > existing isolated directory > external unique directory
+- **Problem:** A hand-selected path or raw Git command can violate shared placement and registration rules.
+- **Fix:** Use `diskm worktree-new` and verify its returned path and branch.
 
 ### Proceeding with failing tests
 
@@ -170,13 +97,13 @@ Proceeding with <next authorized task action>
 ```
 You: I'm using the using-git-worktrees skill to set up an isolated workspace.
 
-[Check .worktrees/ - exists]
-[Verify ignored - git check-ignore confirms .worktrees/ is ignored]
-[Create worktree from the repository's configured base ref]
+[Inspect the source checkout's branch and dirty status; preserve unrelated work]
+[Create with diskm worktree-new from the repository's configured base ref]
+[Verify the returned canonical path, branch, base commit, and clean new checkout]
 [Run the repository bootstrap if needed]
 [Run scoped baseline checks - 47 passing]
 
-Worktree ready at /Users/jesse/myproject/.worktrees/auth
+Worktree ready at ~/.worktrees/myproject/auth
 Tests passing (47 tests, 0 failures)
 Proceeding with the authorized auth implementation
 ```
@@ -184,15 +111,15 @@ Proceeding with the authorized auth implementation
 ## Red Flags
 
 **Never:**
-- Create worktree without verifying it's ignored (project-local)
+- Bypass `diskm worktree-new` with a project-local path or raw `git worktree add`
 - Skip baseline test verification
 - Hide failing baseline checks or claim a clean baseline without evidence
-- Override the user's or repository's worktree location
+- Discard source-checkout work to make worktree creation succeed
 - Skip applicable repository worktree instructions
 
 **Always:**
-- Follow the user's and repository's directory preference, then choose a safe default
-- Verify directory is ignored for project-local
+- Use the canonical shared worktree root and creator
+- Inspect and preserve source-checkout changes
 - Use the repository setup and shared environment
 - Verify clean test baseline
 

@@ -37,12 +37,14 @@ class ScheduleRendererTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
-    def write_config(self, host, minutes=None):
+    def write_config(self, host, minutes=None, proceed=None):
         minutes = minutes or (renderer.MAC_MINUTES if host == "macos" else renderer.LINUX_MINUTES)
+        proceed = proceed or {}
         self.config.write_text(json.dumps({
             "version": 1, "host_role": host, "dot_config_file": str(self.dot),
             "pi_bin": str(self.pi), "chrome_devtools_mcp_js": str(self.mcp),
-            "accounts": [{"key": f"account-{x}", "minute": minutes[i], "identity_sha256": f"{i:064x}", "task": "Read-only check"} for i, x in enumerate("abc")],
+            "accounts": [{"key": f"account-{x}", "minute": minutes[i], "identity_sha256": f"{i:064x}", "task": "Read-only check",
+                          **(({"proceed_minutes": proceed[f"account-{x}"]}) if f"account-{x}" in proceed else {})} for i, x in enumerate("abc")],
         }))
         self.config.chmod(0o600)
 
@@ -113,12 +115,203 @@ class ScheduleRendererTests(unittest.TestCase):
         path = next(line.removeprefix("PATH=") for line in (out / "ai.dot-coordinator-30.env").read_text().splitlines() if line.startswith("PATH="))
         self.assertTrue(path.startswith(f'"{preferred}:{other}:'))
 
+    def test_rejects_overlapping_or_malformed_proceed_minutes_before_writing(self):
+        for proceed in ({"account-a": [20]}, {"account-a": [21, 21]}, {"account-a": [60]},
+                        {"account-a": ["21"]}, {"account-a": 21}):
+            self.write_config("macos", proceed=proceed)
+            with self.assertRaisesRegex(ValueError, "minute"):
+                renderer.render(self.config, self.root / "bad-proceed-stage", "macos")
+            self.assertFalse((self.root / "bad-proceed-stage").exists())
+
+    def test_proceed_minutes_render_hourly_main_plus_twenty_minute_nudges(self):
+        proceed = {"account-a": [21, 41], "account-b": [1, 42], "account-c": [2, 22]}
+        self.write_config("macos", proceed=proceed)
+        with patch.object(renderer, "node22_bins", return_value=[self.root / "node-bin"]):
+            out = renderer.render(self.config, self.root / "proceed-stage", "macos")
+        plists = {path.stem: renderer.plistlib.loads(path.read_bytes()) for path in out.glob("*.plist")}
+        self.assertEqual(len(plists), 9)
+        self.assertEqual(sorted(plist["StartCalendarInterval"]["Minute"] for plist in plists.values()),
+                         [0, 1, 2, 20, 21, 22, 40, 41, 42])
+        nudges = {name: plist for name, plist in plists.items() if name.endswith("-proceed")}
+        self.assertEqual(len(nudges), 6)
+        for name, plist in nudges.items():
+            minute = plist["StartCalendarInterval"]["Minute"]
+            env = plist["EnvironmentVariables"]
+            self.assertEqual(name, f"ai.dot-coordinator.{minute:02d}-proceed")
+            self.assertEqual(plist["Label"], name)
+            self.assertEqual(env["COORDINATOR_MODE"], "proceed")
+            self.assertTrue(env["COORDINATOR_TASK"].startswith("Coordination mode: proceed."))
+            self.assertTrue(env["COORDINATOR_TASK"].endswith("Read-only check"))
+            self.assertTrue(plist["StandardOutPath"].endswith(f"/{minute:02d}-proceed.out.log"))
+        for name, plist in plists.items():
+            if not name.endswith("-proceed"):
+                self.assertEqual(plist["EnvironmentVariables"]["COORDINATOR_MODE"], "main")
+                self.assertEqual(plist["EnvironmentVariables"]["COORDINATOR_TASK"],
+                                 "Coordination mode: main. Use the periodic reminder for this mode. Read-only check")
+
+    def test_operator_three_nudge_cadence_renders_twelve_disjoint_runs(self):
+        self.write_config("macos", proceed={"account-a": [15, 30, 45], "account-b": [5, 35, 50],
+                                            "account-c": [10, 25, 55]})
+        with patch.object(renderer, "node22_bins", return_value=[self.root / "node-bin"]):
+            out = renderer.render(self.config, self.root / "three-nudge-stage", "macos")
+        plists = {path.stem: renderer.plistlib.loads(path.read_bytes()) for path in out.glob("*.plist")}
+        self.assertEqual(len(plists), 12)
+        self.assertEqual(sorted(p["StartCalendarInterval"]["Minute"] for p in plists.values()),
+                         [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55])
+        self.assertEqual(len({p["Label"] for p in plists.values()}), 12)
+        self.assertEqual(len({p["StandardOutPath"] for p in plists.values()}), 12)
+        self.assertEqual(sum(1 for name in plists if name.endswith("-proceed")), 9)
+        for account in ("account-a", "account-b", "account-c"):
+            own = sorted(p["StartCalendarInterval"]["Minute"] for p in plists.values()
+                         if p["ProgramArguments"][-1] == account)
+            gaps = [b - a for a, b in zip(own, own[1:])] + [own[0] + 60 - own[-1]]
+            self.assertEqual(len(own), 4, account)
+            self.assertGreaterEqual(min(gaps), 15, (account, own))
+
+    def test_linux_proceed_runs_use_their_own_unit_and_mode(self):
+        self.write_config("linux", proceed={"account-a": [51]})
+        with patch.object(renderer, "node22_bins", return_value=[self.root / "node-bin"]):
+            out = renderer.render(self.config, self.root / "linux-proceed-stage", "linux")
+        self.assertIn("Description=Dot coordinator account account-a (proceed run)",
+                      (out / "ai.dot-coordinator-51-proceed.service").read_text())
+        self.assertIn("OnCalendar=*-*-* *:51:00", (out / "ai.dot-coordinator-51-proceed.timer").read_text())
+        self.assertIn("COORDINATOR_MODE=\"proceed\"", (out / "ai.dot-coordinator-51-proceed.env").read_text())
+
+    def test_every_run_declares_its_mode_in_the_first_task_sentence(self):
+        self.assertEqual(set(renderer.DIRECTIVES), {"main", "proceed"})
+        for mode, directive in renderer.DIRECTIVES.items():
+            self.assertTrue(directive.startswith(f"Coordination mode: {mode}."), mode)
+            self.assertNotIn("\n", directive)
+        self.assertIn("SKILL.md", renderer.DIRECTIVES["proceed"])
+        self.assertIn("last 20 rendered messages", renderer.DIRECTIVES["proceed"])
+
+    def test_explicit_minutes_override_offsets_a_second_host_by_seven_minutes(self):
+        data = json.loads(self.config.read_text())
+        data["minutes"] = [7, 12, 2]
+        layout = {0: ([7], [22, 37, 52]), 1: ([12], [27, 42, 57]), 2: ([2], [17, 32, 47])}
+        for index, row in enumerate(data["accounts"]):
+            row["minute"] = layout[index][0][0]
+            row["proceed_minutes"] = layout[index][1]
+        self.config.write_text(json.dumps(data))
+        with patch.object(renderer, "node22_bins", return_value=[self.root / "node-bin"]):
+            out = renderer.render(self.config, self.root / "offset-stage", "macos")
+        plists = [renderer.plistlib.loads(path.read_bytes()) for path in out.glob("*.plist")]
+        minutes = sorted(plist["StartCalendarInterval"]["Minute"] for plist in plists)
+        self.assertEqual(len(minutes), 12)
+        self.assertTrue(all(minute % 5 == 2 for minute in minutes), minutes)
+        for plist in plists:
+            self.assertRegex(plist["EnvironmentVariables"]["COORDINATOR_TASK"], "^Coordination mode: ")
+
+    def test_host_label_is_rendered_and_validated(self):
+        data = json.loads(self.config.read_text())
+        data["host_label"] = "host-b"
+        self.config.write_text(json.dumps(data))
+        with patch.object(renderer, "node22_bins", return_value=[self.root / "node-bin"]):
+            out = renderer.render(self.config, self.root / "label-stage", "macos")
+        env = renderer.plistlib.loads(next(out.glob("*.plist")).read_bytes())["EnvironmentVariables"]
+        self.assertEqual(env["COORDINATOR_HOST_LABEL"], "host-b")
+        for bad in ("bad label", "x" * 65, "", 7):
+            data["host_label"] = bad
+            self.config.write_text(json.dumps(data))
+            with self.assertRaisesRegex(ValueError, "host_label"):
+                renderer.render(self.config, self.root / "bad-label-stage", "macos")
+            self.assertFalse((self.root / "bad-label-stage").exists())
+
+    def test_rejects_malformed_minutes_override(self):
+        for minutes in ([1, 21], [1, 21, 21], [1, 21, 60], ["1", 21, 41], 5):
+            data = json.loads(self.config.read_text())
+            data["minutes"] = minutes
+            self.config.write_text(json.dumps(data))
+            with self.assertRaisesRegex(ValueError, "three distinct whole minutes"):
+                renderer.render(self.config, self.root / "bad-minutes-stage", "macos")
+            self.assertFalse((self.root / "bad-minutes-stage").exists())
+            self.write_config("macos")
+
     def test_rejects_wrong_cadence_or_host_before_output(self):
         self.write_config("macos", (10, 20, 40))
         output = self.root / "bad-stage"
         with self.assertRaisesRegex(ValueError, "ordered host cadence"):
             renderer.render(self.config, output, "macos")
         self.assertFalse(output.exists())
+
+    def test_host_map_ranks_peers_and_validates_uniqueness(self):
+        data = json.loads(self.config.read_text())
+        data["hosts"] = [{"label": "primary-host", "priority": 1}, {"label": "standby-host", "priority": 2}]
+        data["host_label"] = "standby-host"
+        self.config.write_text(json.dumps(data))
+        with patch.object(renderer, "node22_bins", return_value=[self.root / "node-bin"]):
+            out = renderer.render(self.config, self.root / "map-stage", "macos")
+        env = renderer.plistlib.loads(next(out.glob("*.plist")).read_bytes())["EnvironmentVariables"]
+        self.assertEqual(env["COORDINATOR_HOST_PRIORITIES"], "primary-host=1,standby-host=2")
+        self.assertEqual(env["COORDINATOR_HOST_PRIORITY"], "2")
+        for bad in ([{"label": "primary-host", "priority": 1}],
+                    [{"label": "a", "priority": 1}, {"label": "a", "priority": 2}],
+                    [{"label": "a", "priority": 1}, {"label": "b", "priority": 1}],
+                    [{"label": "a", "priority": 1}, {"label": "b", "priority": 2}],
+                    [{"label": "a", "priority": 1}, {"label": "A", "priority": 2}]):
+            data["hosts"] = bad
+            self.config.write_text(json.dumps(data))
+            with self.assertRaisesRegex(ValueError, "hosts"):
+                renderer.render(self.config, self.root / "bad-map-stage", "macos")
+            self.assertFalse((self.root / "bad-map-stage").exists())
+
+    def test_takeover_window_is_rendered_and_validated(self):
+        data = json.loads(self.config.read_text())
+        data["takeover_hours"] = 4
+        self.config.write_text(json.dumps(data))
+        with patch.object(renderer, "node22_bins", return_value=[self.root / "node-bin"]):
+            out = renderer.render(self.config, self.root / "window-stage", "macos")
+        env = renderer.plistlib.loads(next(out.glob("*.plist")).read_bytes())["EnvironmentVariables"]
+        self.assertEqual(env["COORDINATOR_TAKEOVER_HOURS"], "4")
+        for bad in (0, 49, "4", 4.5, True):
+            data["takeover_hours"] = bad
+            self.config.write_text(json.dumps(data))
+            with self.assertRaisesRegex(ValueError, "takeover_hours"):
+                renderer.render(self.config, self.root / "bad-window-stage", "macos")
+            self.assertFalse((self.root / "bad-window-stage").exists())
+
+    def test_host_priority_is_rendered_and_validated(self):
+        data = json.loads(self.config.read_text())
+        data["host_priority"] = 2
+        data["takeover_hours"] = 4
+        data["host_label"] = "standby-host"
+        data["hosts"] = [{"label": "primary-host", "priority": 1}, {"label": "standby-host", "priority": 2}]
+        self.config.write_text(json.dumps(data))
+        with patch.object(renderer, "node22_bins", return_value=[self.root / "node-bin"]):
+            out = renderer.render(self.config, self.root / "priority-stage", "macos")
+        env = renderer.plistlib.loads(next(out.glob("*.plist")).read_bytes())["EnvironmentVariables"]
+        self.assertEqual(env["COORDINATOR_HOST_PRIORITY"], "2")
+        self.assertEqual(env["COORDINATOR_TAKEOVER_HOURS"], "4")
+        data.pop("hosts", None)
+        self.config.write_text(json.dumps(data))
+        with self.assertRaisesRegex(ValueError, "requires host_label and a complete hosts map"):
+            renderer.render(self.config, self.root / "no-label-stage", "macos")
+        self.assertFalse((self.root / "no-label-stage").exists())
+        for bad in (0, 10, "1", 1.5, True):
+            data["host_priority"] = bad
+            self.config.write_text(json.dumps(data))
+            with self.assertRaisesRegex(ValueError, "host_priority"):
+                renderer.render(self.config, self.root / "bad-priority-stage", "macos")
+            self.assertFalse((self.root / "bad-priority-stage").exists())
+
+    def test_hosts_map_without_host_label_is_a_configuration_error(self):
+        data = json.loads(self.config.read_text())
+        data["hosts"] = [{"label": "a", "priority": 1}, {"label": "b", "priority": 2}]
+        data.pop("host_label", None)
+        self.config.write_text(json.dumps(data))
+        with self.assertRaisesRegex(ValueError, "requires host_label"):
+            renderer.render(self.config, self.root / "no-label-map-stage", "macos")
+        self.assertFalse((self.root / "no-label-map-stage").exists())
+
+    def test_rejects_a_task_that_declares_its_own_mode(self):
+        for task in ("Coordination mode: proceed. Do the thing", "coordination  MODE :main. x"):
+            data = json.loads(self.config.read_text())
+            data["accounts"][0]["task"] = task
+            self.config.write_text(json.dumps(data))
+            with self.assertRaisesRegex(ValueError, "must not declare its own coordination mode"):
+                renderer.render(self.config, self.root / "conflict-stage", "macos")
+            self.assertFalse((self.root / "conflict-stage").exists())
+            self.write_config("macos")
 
     def test_rejects_missing_dot_account_and_unpinned_mcp(self):
         config = json.loads(self.config.read_text())

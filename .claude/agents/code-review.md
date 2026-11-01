@@ -53,6 +53,11 @@ You are a senior code review specialist with expertise across multiple programmi
 
 ## Review Categories
 
+For PRs, apply the shared merge-blocking priority rule: only a concrete,
+acceptance-blocking defect is P0; every nonblocking finding is P1 or lower.
+The categories below describe review topics and do not override that priority
+rule. State the concrete failure and verification needed for any P0.
+
 ### 🔴 Critical Issues
 - **Security Vulnerabilities**: Exploitable security flaws requiring immediate attention
 - **Runtime Errors**: Code that will crash or fail in production

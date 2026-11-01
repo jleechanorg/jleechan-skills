@@ -35,6 +35,8 @@ class TestBasePagination(unittest.TestCase):
         # Create a test instance with mocked initialization
         with patch.object(TestCopilotCommand, "__init__", lambda x, **kwargs: None):
             self.base = TestCopilotCommand()
+        # Keep the fixture contract aligned with CopilotCommandBase.__init__.
+        self.base.fetch_errors = []
 
     def test_non_paginated_command_returns_dict(self):
         """Test that non-paginated commands return dict as before"""
@@ -116,8 +118,8 @@ class TestBasePagination(unittest.TestCase):
             self.assertIsInstance(result, list)
             self.assertEqual(len(result), 0)
 
-    def test_paginated_command_skips_invalid_json_lines(self):
-        """Test that invalid JSON lines are skipped gracefully"""
+    def test_paginated_command_records_invalid_json_lines(self):
+        """Test that invalid JSON lines are recorded for fail-closed producers"""
         # Mix valid and invalid JSON lines
         jsonl_output = (
             '{"id": 1, "body": "Valid 1"}\n'
@@ -141,6 +143,7 @@ class TestBasePagination(unittest.TestCase):
             self.assertEqual(len(result), 3)
             self.assertEqual(result[0]["id"], 1)
             self.assertEqual(result[2]["id"], 3)
+            self.assertEqual(len(self.base.fetch_errors), 2)
 
     def test_paginated_with_existing_jq_not_duplicated(self):
         """Test that existing --jq flag is not duplicated"""

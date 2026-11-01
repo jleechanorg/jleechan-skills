@@ -29,8 +29,11 @@ class PersonalIdentifierTest(unittest.TestCase):
         import os, tempfile
         with tempfile.TemporaryDirectory() as td:
             def git(*a):
+                # Isolate git config: a host core.hooksPath (or other global config)
+                # otherwise runs hooks inside this throwaway repo and fails setup.
+                env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
                 subprocess.run(["git", "-C", td, "-c", "user.name=t", "-c", "user.email=t@example.com", *a],
-                               check=True, capture_output=True)
+                               check=True, capture_output=True, env=env)
             git("init", "-q", "-b", "main")
             (Path(td) / "skills").mkdir()
             (Path(td) / "skills" / "a.md").write_text("ok\n")

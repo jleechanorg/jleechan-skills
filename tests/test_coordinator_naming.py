@@ -7,6 +7,14 @@ import tempfile
 from pathlib import Path
 import subprocess
 import unittest
+from tests.subprocess_environment import isolated_home_environment
+from unittest.mock import patch
+
+
+def _installer_environment_overrides(environment):
+    return {key: environment[key] for key in ("HOME", "PATH") if key in environment}
+
+
 ROOT = Path(__file__).resolve().parents[1]
 NEW = ROOT / '.claude/skills/dot-coordinator'
 OLD = ROOT / '.claude/skills/agy-dot-coordinator'
@@ -53,7 +61,12 @@ class CoordinatorNaming(unittest.TestCase):
             pending = state / 'send-fixture.pending'; pending.write_text('uncertain fixture')
             before = [(p.stat().st_ino, p.read_bytes()) for p in (stop, pending)]
             target = root / 'installed'
-            result = helper.run_installer(fixture, target, extra_environment={'HOME': str(home)})
+            environment = isolated_home_environment(home, cwd=fixture)
+            result = helper.run_installer(
+                fixture,
+                target,
+                extra_environment=_installer_environment_overrides(environment),
+            )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             alias = target / 'skills/agy-dot-coordinator/scripts/ping-dots.py'
             self.assertFalse(alias.is_symlink())
@@ -61,6 +74,24 @@ class CoordinatorNaming(unittest.TestCase):
             check = subprocess.run(['python3', str(alias), '--help'], capture_output=True, text=True)
             self.assertEqual(check.returncode, 0, check.stderr)
             self.assertEqual(before, [(p.stat().st_ino, p.read_bytes()) for p in (stop, pending)])
+
+    def test_installer_runs_when_parent_path_is_absent(self):
+        from tests.test_installer import InstallerIntegrationTest
+
+        helper = InstallerIntegrationTest()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fixture = helper.make_fixture(root)
+            with patch.dict(os.environ):
+                os.environ.pop("PATH", None)
+                environment = isolated_home_environment(root / "home", cwd=fixture)
+                result = helper.run_installer(
+                    fixture,
+                    root / "installed",
+                    extra_environment=_installer_environment_overrides(environment),
+                )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_shared_helpers_keep_guards_but_coordinator_does_not_consume_them(self):
         launcher = (NEW / 'scripts/ping-dots.py').read_text()
