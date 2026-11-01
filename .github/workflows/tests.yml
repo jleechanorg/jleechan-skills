@@ -2,6 +2,13 @@ name: tests
 
 on:
   pull_request:
+    # Draft-first is this repo's default flow, so a PR can sit as a draft and
+    # then be undrafted. Without ready_for_review here, GitHub's default set
+    # (opened, synchronize, reopened) means undrafting fires NO run at all, and
+    # a draft that is only ever promoted silently reaches "mergeable" with no
+    # contract-test result. Observed 2026-11-01 on 14 draft PRs, none of which
+    # triggered a run when undrafted.
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - ".github/workflows/tests.yml"
       - "tests/**"
