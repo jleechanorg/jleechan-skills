@@ -17,7 +17,6 @@ import os
 import re
 import select
 import signal
-import shlex
 import shutil
 import stat
 import subprocess
@@ -212,44 +211,6 @@ def repository_snapshot(repo: Path, deadline: float | None = None) -> dict[str, 
 
 def command_path(name: str) -> str | None:
     return shutil.which(name)
-
-
-def codex_model_from_argv(argv: list[str] | None) -> str | None:
-    """Return the model named by -m/--model inside a resolved seat argv, if any."""
-    if not argv:
-        return None
-    for index, token in enumerate(argv):
-        if token in ("-m", "--model") and index + 1 < len(argv):
-            return argv[index + 1]
-        if token.startswith("--model="):
-            return token.split("=", 1)[1]
-    return None
-
-
-def seat_command(env_var: str, default: list[str]) -> list[str] | None:
-    """Resolve one reviewer seat's argv from a machine-local env value.
-
-    Unset names the portable default. Set but empty, unparseable, or naming an
-    executable that is missing or not executable yields None, which makes that
-    seat UNAVAILABLE: a configured seat never silently falls back to another
-    identity, because that would let one account vote twice. Values are split
-    with shlex and never shell-evaluated.
-    """
-    raw = os.environ.get(env_var)
-    if raw is None:
-        argv = list(default)
-    else:
-        try:
-            argv = shlex.split(raw)
-        except ValueError:
-            return None
-        if not argv:
-            return None
-    executable = argv[0]
-    resolved = executable if os.path.isabs(executable) else command_path(executable)
-    if not resolved or not os.path.exists(resolved) or not os.access(resolved, os.X_OK):
-        return None
-    return [resolved, *argv[1:]]
 
 
 def process_start_identity(pid: int, fallback: str | None = None) -> str | None:
@@ -924,28 +885,30 @@ def codex_lane(
     model: str | None = None,
     attempt_limited: bool = False,
 ) -> dict[str, Any]:
-    requested_model = model or os.environ.get("ADVICE_CODEX_MODEL") or DEFAULT_CODEX_MODEL
-    codex = seat_command(
-        "ADVICE_CODEX_CMD",
-        ["codex", "exec", "--yolo", "-m", requested_model, "--config", "model_reasoning_effort=high"],
+    resolved_model = validate_codex_model(
+        model or os.environ.get("ADVICE_CODEX_MODEL") or DEFAULT_CODEX_MODEL
     )
-    argv_model = None
-    if os.environ.get("ADVICE_CODEX_CMD") is not None and codex:
-        argv_model = codex_model_from_argv(codex)
-    resolved_model = validate_codex_model(argv_model if argv_model is not None else requested_model)
-    codex_transport = " ".join(codex) if codex else "codex exec --yolo"
     started_monotonic_ns = time.monotonic_ns()
     started = time.time_ns()
     try:
         timeout_seconds = wait_for_dispatch_barrier(barrier, deadline)
     except (TimeoutError, threading.BrokenBarrierError) as error:
         return dispatch_failure_result(
-            codex_transport, started, started_monotonic_ns, error, attempt_limited
+            "codex exec --yolo", started, started_monotonic_ns, error, attempt_limited
         )
     attempts: list[dict[str, Any]] = []
+    codex = command_path("codex")
     if codex:
         code, stdout, stderr, timed_out, forced_pipe_close, supervision = execute(
-            codex,
+            [
+                codex,
+                "exec",
+                "--yolo",
+                "-m",
+                resolved_model,
+                "--config",
+                "model_reasoning_effort=high",
+            ],
             cwd,
             prompt,
             timeout_seconds,
@@ -961,7 +924,7 @@ def codex_lane(
             failure = "missing_verdict"
         attempts.append(
             {
-                "transport": codex_transport,
+                "transport": "codex exec --yolo",
                 "exit_code": code,
                 "stderr": stderr,
                 "failure": failure,
@@ -972,7 +935,7 @@ def codex_lane(
         if code == 0 and not timed_out and has_verdict(stdout):
             return {
                 "status": "success",
-                "transport": codex_transport,
+                "transport": "codex exec --yolo",
                 "stdout": stdout,
                 "attempts": attempts,
                 "started_ns": started,
@@ -1012,10 +975,7 @@ def opus_lane(
             error,
             attempt_limited,
         )
-    claude = seat_command(
-        "ADVICE_CLAUDE_CMD",
-        ["claude", "-p", "--model", "opus", "--dangerously-skip-permissions"],
-    )
+    claude = command_path("claude")
     if not claude:
         return {
             "status": "unavailable",
@@ -1027,7 +987,7 @@ def opus_lane(
             "started_monotonic_ns": started_monotonic_ns,
             "ended_monotonic_ns": time.monotonic_ns(),
         }
-    command = claude
+    command = [claude, "-p", "--model", "opus", "--dangerously-skip-permissions"]
     code, stdout, stderr, timed_out, forced_pipe_close, supervision = execute(
         command, cwd, prompt, timeout_seconds, timeout_grace_seconds, deadline=deadline
     )
@@ -1040,11 +1000,11 @@ def opus_lane(
         failure = "missing_verdict"
     return {
         "status": "success" if code == 0 and not timed_out and has_verdict(stdout) else "error",
-        "transport": " ".join(claude),
+        "transport": "claude -p --model opus --dangerously-skip-permissions",
         "stdout": stdout,
         "attempts": [
             {
-                "transport": " ".join(claude),
+                "transport": "claude -p",
                 "exit_code": code,
                 "stderr": stderr,
                 "failure": failure,

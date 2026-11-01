@@ -102,19 +102,16 @@ falls back to the default below when the variable is unset, so a bare machine st
 | Cursor alternate | `cursor agent -p --force` |
 | AGY alternate | `agy --print="<review request>" --model gemini-3.8-flash-high --dangerously-skip-permissions --new-project` |
 
-The Codex and Opus lanes of `scripts/run_primary_pair.py` honour `ADVICE_CODEX_CMD` and `ADVICE_CLAUDE_CMD`
-directly: the value is split with `shlex` (never shell-evaluated) and **replaces the whole default argv** - it is
-a complete command line, never a prefix that the runner extends, so a value that omits `--model` runs the CLI's
-own default. The receipt records the resolved argv (not the canonical label) and the model read from `-m`/`--model`
-in that argv, so an override that names an ineligible Codex model or hides its model makes the seat
-`UNAVAILABLE` instead of silently voting. A
-wrapper that selects another credential store runs as that seat and its resolved command is what the receipt
-records. A variable that is set but empty, unparseable, or names a missing or non-executable program makes that
-seat `UNAVAILABLE`; it never falls back to the default, because falling back would let one account cast two
-votes. The pair runner accepts the Codex and Opus lanes only, so `ADVICE_CLAUDE_ALT_CMD` and `ADVICE_EXTRA_CLIS`
-seats are launched directly by the orchestrator under the same bounded-attempt and receipt rules.
+The bundled `scripts/run_primary_pair.py` is an **optional legacy helper**: it runs `codex` and `claude`
+resolved from `PATH` with its own fixed arguments and does **not** read any of these variables. Do not
+describe, promise or record an override as if that helper honoured it. When a seat needs an alternate CLI, an
+alternate credential store or a different model than the helper's fixed pair, the orchestrator launches that
+seat itself - directly, under the same bounded-attempt, independence and receipt rules below - and records the
+resolved command and model in the attempt. Keeping the alternative paths in this instruction file is
+deliberate: the slimming decision for this skill is *markdown first, no new runner code*, so a machine-local
+capability must never require a Python change to this repository.
 
-**Machine-specific configuration never lives in this repository.** A credential store directory, a
+**Machine-specific configuration never lives in this repository.****Machine-specific configuration never lives in this repository.** A credential store directory, a
 profile directory, a per-host wrapper path, a host-specific model alias or an account identifier belongs in
 that machine's `~/.bashrc` as an exported `ADVICE_*` value, never in a skill file, a PR or a document. This
 file may name the shape of a runner (for example `claudewa`-style wrapper that selects another credential

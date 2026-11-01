@@ -42,40 +42,25 @@ class AdviceMachineLocalCliTest(unittest.TestCase):
         self.assertIn("the attempt records the\nactual model it ran", self.text)
 
 
-class SeatCommandResolutionTest(unittest.TestCase):
-    """The pair runner must honour the machine-local seat variables."""
+class MarkdownOnlyDecisionTest(unittest.TestCase):
+    """The slimming decision: this skill stays markdown-first with no new runner code."""
 
     def setUp(self):
-        import importlib.util
-        script = ROOT / ".claude/skills/advice/scripts/run_primary_pair.py"
-        spec = importlib.util.spec_from_file_location("run_primary_pair_seats", script)
-        self.runner = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(self.runner)
+        self.text = (ROOT / ".claude/skills/advice/SKILL.md").read_text(encoding="utf-8")
 
-    def test_unset_variable_uses_the_portable_default(self):
-        with tempfile.TemporaryDirectory() as directory:
-            executable = Path(directory) / "default-reviewer"
-            executable.write_text("#!/bin/sh\nexit 0\n")
-            executable.chmod(0o700)
-            with unittest.mock.patch.dict("os.environ", {}, clear=True):
-                argv = self.runner.seat_command("ADVICE_TEST_CMD", [str(executable), "-p"])
-        self.assertEqual(argv, [str(executable), "-p"])
+    def test_bundled_runner_is_documented_as_not_honouring_overrides(self):
+        flat = " ".join(self.text.split())
+        self.assertIn("optional legacy helper", flat)
+        self.assertIn("does **not** read any of these variables", flat)
+        self.assertIn("markdown first, no new runner code", flat)
 
-    def test_configured_seat_never_falls_back(self):
-        for value in ("", "   ", "/nonexistent/adif-reviewer --flag"):
-            with unittest.mock.patch.dict("os.environ", {"ADVICE_TEST_CMD": value}, clear=True):
-                self.assertIsNone(self.runner.seat_command("ADVICE_TEST_CMD", ["claude", "-p"]), value)
-
-    def test_value_is_shlex_split_without_shell_evaluation(self):
-        with tempfile.TemporaryDirectory() as directory:
-            executable = Path(directory) / "reviewer wrapper"
-            executable.write_text("#!/bin/sh\nexit 0\n")
-            executable.chmod(0o700)
-            import shlex as _shlex
-            value = f"{_shlex.quote(str(executable))} --model $HOME/x 'literal arg'"
-            with unittest.mock.patch.dict("os.environ", {"ADVICE_TEST_CMD": value}, clear=True):
-                argv = self.runner.seat_command("ADVICE_TEST_CMD", ["claude"])
-            self.assertEqual(argv, [str(executable), "--model", "$HOME/x", "literal arg"])
+    def test_no_new_runner_code_is_shipped_by_this_decision(self):
+        import subprocess
+        diff = subprocess.run(
+            ["git", "diff", "--numstat", "origin/main...HEAD", "--", ".claude/skills/advice/scripts/"],
+            cwd=ROOT, capture_output=True, text=True,
+        )
+        self.assertEqual(diff.stdout.strip(), "", "the slimming decision forbids new runner code")
 
 
 if __name__ == "__main__":
