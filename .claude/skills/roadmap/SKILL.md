@@ -167,7 +167,8 @@ hide it:
 
 ```bash
 RM_BASE="$(mktemp "${TMPDIR:-/tmp}/rm-base.XXXXXX")" || exit 1
-git -C <jleechan-skills-worktree> show origin/main:.claude/skills/roadmap/SKILL.md > "$RM_BASE"
+git -C <jleechan-skills-worktree> show origin/main:.claude/skills/roadmap/SKILL.md > "$RM_BASE" || {
+  echo "Cannot read the published baseline; nothing was compared." >&2; exit 1; }
 diff -u "$RM_BASE" ~/.claude/skills/roadmap/SKILL.md
 ```
 
