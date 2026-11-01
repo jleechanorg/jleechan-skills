@@ -48,6 +48,15 @@ class MarkdownOnlyDecisionTest(unittest.TestCase):
     def setUp(self):
         self.text = (ROOT / ".claude/skills/advice/SKILL.md").read_text(encoding="utf-8")
 
+    def test_no_active_skill_invokes_the_deleted_runner(self):
+        offenders = []
+        for path in sorted((ROOT / ".claude/skills").rglob("*.md")):
+            text = path.read_text(encoding="utf-8", errors="ignore")
+            if "run_primary_pair" in text or "primary-pair runner" in text:
+                offenders.append(str(path.relative_to(ROOT)))
+        self.assertEqual(offenders, [],
+                         "no active skill may invoke or describe the deleted runner")
+
     def test_skill_declares_it_ships_no_runner(self):
         flat = " ".join(self.text.split())
         self.assertIn("There is **no bundled runner**", flat)

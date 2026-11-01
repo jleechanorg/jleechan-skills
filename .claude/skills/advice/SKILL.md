@@ -123,9 +123,10 @@ whose model the CLI does not report is `UNAVAILABLE` rather than an unlabelled v
 duplicate reviewer identity is not another vote. Codex models may be only
 `gpt-6-astra`, `gpt-6-luna`, `gpt-6-sol`, or `gpt-6.1-sol`; 5.6 and unknown IDs are not eligible. A wrapper
 such as `claudewa` counts only when it resolves to a distinct reviewer identity and the attempt records the
-actual model it ran. Each alternate needs an existing supported invocation that bounds its complete attempt
-and produces its own receipt; a per-process timeout alone is insufficient. If no eligible path can meet the
-full bound, record it as `UNAVAILABLE`. Do not add a particular runner, wrapper, watchdog, or runtime
+actual model it ran. Each alternate needs a supported invocation the orchestrator can bound end to end - the orchestrator's own
+bounded tool call, which records the queue boundary, the absolute deadline, the exit and the cleanup, is that
+mechanism; a bare per-process timeout with no receipt is insufficient. If no eligible path can meet the full
+bound, record it as `UNAVAILABLE`. Do not add a particular runner, wrapper, watchdog, or runtime
 mechanism.
 
 ### `ADVICE_EXTRA_CLIS`
