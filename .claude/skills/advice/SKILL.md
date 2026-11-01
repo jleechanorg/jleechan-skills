@@ -197,9 +197,12 @@ timestamps are host-local; retain the UTC epoch only for audit, and never compar
 the boundary cannot be captured, mark that attempt `UNAVAILABLE` instead of launching it.
 
 For every seat, derive the effective reviewer-attempt budget `B` (the user's explicit limit when supplied,
-otherwise 1800 seconds), a positive cleanup reserve `C` smaller than `B`, and a positive timeout-grace `G`. Launch
-the seat with its own native timeout set to `B - C`, reclaim cleanup within `C`, and pass `G` to the subprocess
-wait. Record the queued timestamps, the absolute deadline and the actual exit in the receipt. No timer machinery
+otherwise 1800 seconds), a positive cleanup reserve `C`, and a positive timeout-grace `G`. **`C` and `G` must both
+fit inside `B`, otherwise the seat is `UNAVAILABLE`** - never launch an attempt whose setup and cleanup cannot fit
+its own budget. Launch the seat with a native timeout of `B - C` measured from the queue boundary, not from launch,
+so setup time is already spent; reclaim cleanup inside `C`; and bound the wait by the same absolute deadline, so
+`G` is the grace the wait itself may consume. Record the queue boundary, the absolute deadline and the actual exit
+in the receipt. No timer machinery
 is added to this repository; the orchestrator's own bounded tool call is the mechanism.
 
 e, incomplete, failed, or timed-out result is not an approval. Preserve
@@ -224,7 +227,7 @@ they require no donor, commit, or Git context SHA.
 
 Use independent temporary clones without an `origin` remote. For revision
 reviews, pin each clone to the same exact SHA. For document-only reviews,
-overlay only the explicitly named Markdown files as saved bytes in those copies;
+read only the explicitly named Markdown files (no clone, per the document-only preamble) as saved bytes in those copies;
 unrelated code stays outside the review scope. Copy isolation protects Git
 metadata and review state, not the host: it is not an OS sandbox and does not
 restrict network, environment, or process creation. Full-permission execution

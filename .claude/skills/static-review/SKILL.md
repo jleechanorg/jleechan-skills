@@ -58,7 +58,7 @@ alternates, Cursor, AGY and any `ADVICE_EXTRA_CLIS` seat - and to static reviewe
 deleted helper used to inject; there is no other header to match, so a seat launched without one
 cannot produce a byte-identical prompt and its vote is void.
 
-Revision preamble for CLI alternates and static reviewers (verbatim):
+Revision preamble for every CLI seat and for static reviewers (verbatim):
 
 ```text
 Work in a fresh clone of the PR repository without an `origin` remote, pinned
@@ -67,7 +67,7 @@ never print it. Do not modify the original checkout, refs, config or hooks. Do
 not post anything; return your review as your final output.
 ```
 
-Document-only preamble for CLI alternates and static reviewers (verbatim):
+Document-only preamble for every CLI seat and for static reviewers (verbatim):
 
 ```text
 Read only the named saved files in the given packet, checking each against its

@@ -55,7 +55,7 @@ Complete the required architectural design, specification self-review, implement
        *) echo "Plan is outside the roadmap repository" >&2; exit 1 ;;
      esac
      ```
-          Use `/advice` document-review mode (its §1) on `$SPEC_DOCUMENT` and `$PLAN_DOCUMENT` inside
+     Use `/advice` document-review mode (its §1) on `$SPEC_DOCUMENT` and `$PLAN_DOCUMENT` inside
      `ROADMAP_REPO`, with the normal reviewer selection and parent authorization constraints. The two paths must
      already exist as non-ignored, non-symlink Markdown files relative to that repository; pass those relative
      paths, not the absolute `SPEC_PATH`/`PLAN_PATH`. Record each file's SHA256 and the bundle hash, and review the
