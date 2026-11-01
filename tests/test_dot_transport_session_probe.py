@@ -6,6 +6,7 @@ import os
 import shutil
 import stat
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -97,8 +98,13 @@ class DotSessionProbeTest(unittest.TestCase):
 
         with patch.dict(
             os.environ, {"HOME": str(host_home), "PATH": path, "DOT_NODE": ""}
-        ), patch(
-            "tests.test_dot_transport_session_probe.NVM_NODE22",
+        ), patch.object(
+            # patch the module object pytest actually imported: a string target of
+            # "tests.test_dot_transport_session_probe" resolves to a different module
+            # instance than the one under test, so the real NVM path leaked through
+            # and the fallback assertion below never exercised the isolated PATH.
+            sys.modules[__name__],
+            "NVM_NODE22",
             self.root / "missing-nvm-node",
         ):
             self.assertEqual(Path(shutil.which("node")), wrapper_node)
