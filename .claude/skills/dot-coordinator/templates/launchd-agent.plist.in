@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>ai.dot-coordinator.@MINUTE@</string>
+  <key>ProgramArguments</key><array>
+    <string>/bin/bash</string>
+    <string>@HOME@/.claude/skills/dot-coordinator/scripts/dot-coordinator-wrapper.sh</string>
+    <string>--account</string><string>@ACCOUNT@</string>
+  </array>
+  <key>WorkingDirectory</key><string>@HOME@</string>
+  <key>EnvironmentVariables</key><dict>
+    <key>DOT_CONFIG_FILE</key><string>@DOT_CONFIG_FILE@</string>
+    <key>DOT_EXPECTED_IDENTITY_SHA256</key><string>@IDENTITY_SHA256@</string>
+    <key>COORDINATOR_TASK</key><string>@TASK@</string>
+    <key>COORDINATOR_MODE</key><string>@MODE@</string>
+    <key>COORDINATOR_HOST_LABEL</key><string>@HOST_LABEL@</string>
+    <key>COORDINATOR_TAKEOVER_HOURS</key><string>@TAKEOVER_HOURS@</string>
+    <key>COORDINATOR_HOST_PRIORITY</key><string>@HOST_PRIORITY@</string>
+    <key>PI_BIN</key><string>@PI_BIN@</string>
+    <key>CHROME_DEVTOOLS_MCP_JS</key><string>@MCP_JS@</string>
+    <key>PATH</key><string>@PATH@</string>
+  </dict>
+  <key>StartCalendarInterval</key><dict><key>Minute</key><integer>@MINUTE@</integer></dict>
+  <key>StandardOutPath</key><string>@HOME@/.local/state/ai.gemini.agy-dot-coordinator/@MINUTE@.out.log</string>
+  <key>StandardErrorPath</key><string>@HOME@/.local/state/ai.gemini.agy-dot-coordinator/@MINUTE@.err.log</string>
+</dict></plist>

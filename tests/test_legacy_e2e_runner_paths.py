@@ -34,6 +34,10 @@ class LegacyE2ERunnerPathTests(unittest.TestCase):
             with self.subTest(command=command):
                 environment = os.environ.copy()
                 environment.pop(required_key, None)
+                # BASH_ENV=~/.bashrc re-sources the profile inside the wrapper and
+                # would restore the very key this test removed.
+                environment["BASH_ENV"] = os.devnull
+                environment["ENV"] = os.devnull
                 with tempfile.TemporaryDirectory() as temporary_directory:
                     result = subprocess.run(
                         [str(SCRIPTS_DIR / f"{command}.sh")],

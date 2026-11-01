@@ -1,0 +1,11 @@
+[Unit]
+Description=Dot coordinator account @ACCOUNT@ (@MODE@ run)
+
+[Service]
+Type=oneshot
+TimeoutStartSec=800
+WorkingDirectory=%h
+EnvironmentFile=%h/.config/dot-coordinator/@UNIT@.env
+ExecStart=/bin/bash %h/.claude/skills/dot-coordinator/scripts/dot-coordinator-wrapper.sh --account @ACCOUNT@
+StandardOutput=journal
+StandardError=journal

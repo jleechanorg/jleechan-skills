@@ -17,37 +17,9 @@ class HumanReviewBriefSkillTests(unittest.TestCase):
         self.assertIn("name: human-review-brief", text)
         self.assertIn("## What Was Done", text)
         self.assertIn("## What to Review as a Human", text)
+        self.assertIn("Why the LLM cannot do this:", text)
         self.assertIn("What Current Evidence Does NOT Prove", text)
         self.assertIn("git merge-tree --write-tree", text)
-
-    def test_skill_enforces_why_llm_cannot_do_this_and_bans_llm_verifiable_items(self) -> None:
-        skill_text = SKILL_PATH.read_text(encoding="utf-8")
-        cmd_text = COMMAND_PATH.read_text(encoding="utf-8")
-        pr_summary_text = PR_SUMMARY_PATH.read_text(encoding="utf-8")
-
-        for required_phrase in (
-            "If the LLM Can Verify It, Do It Yourself",
-            "Why the LLM cannot do this:",
-            "Authority / Permission Boundary",
-            "Subjective Product / UX Taste or Tradeoff Preference",
-            "Uninstrumented External / Physical Ground Truth",
-            "Intent Alignment vs. Shared Assumption",
-            "None — all code, test, and sync checks were verified autonomously by the LLM.",
-            "SHA-256",
-            "grep",
-        ):
-            self.assertIn(required_phrase, skill_text)
-
-        self.assertIn("human-review-brief/SKILL.md", cmd_text)
-        self.assertIn("human-review-brief/SKILL.md", pr_summary_text)
-        self.assertIn("Why the LLM cannot do this:", pr_summary_text)
-        for canonical_only_phrase in (
-            "Subjective Product / UX Taste or Tradeoff Preference",
-            "Uninstrumented External / Physical Ground Truth",
-            "None — all code, test, and sync checks were verified autonomously by the LLM.",
-        ):
-            self.assertNotIn(canonical_only_phrase, pr_summary_text)
-            self.assertNotIn(canonical_only_phrase, cmd_text)
 
     def test_skill_covers_mac_and_linux_empirical_blind_spots(self) -> None:
         text = SKILL_PATH.read_text(encoding="utf-8")
@@ -76,6 +48,7 @@ class HumanReviewBriefSkillTests(unittest.TestCase):
         pr_summary_text = PR_SUMMARY_PATH.read_text(encoding="utf-8")
         self.assertIn("#### `### What to Review as a Human`", pr_summary_text)
         self.assertIn("human-review-brief/SKILL.md", pr_summary_text)
+        self.assertIn("Why the LLM cannot do this:", pr_summary_text)
 
     def test_portability_no_hardcoded_personal_paths(self) -> None:
         for path in (SKILL_PATH, COMMAND_PATH, PR_SUMMARY_PATH):

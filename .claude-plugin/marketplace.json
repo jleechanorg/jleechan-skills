@@ -1,6 +1,6 @@
 {
   "name": "jleechan-skills",
-  "description": "Official marketplace for jleechan-skills - 239 production-tested slash commands and portable SKILL.md packages",
+  "description": "Official marketplace for jleechan-skills - 243 production-tested slash commands and portable SKILL.md packages",
   "owner": {
     "name": "jleechan",
     "email": "team@worldarchitect.ai"
@@ -8,7 +8,7 @@
   "plugins": [
     {
       "name": "jleechan-skills",
-      "description": "Modular Agent Skills library: 239 slash commands (30 Active Core + 209 Extended Library) and portable SKILL.md packages for autonomous development workflows, PR automation, and multi-agent orchestration",
+      "description": "Modular Agent Skills library: 243 slash commands and portable SKILL.md packages for autonomous development workflows, PR automation, and multi-agent orchestration",
       "version": "1.0.1",
       "source": "./",
       "author": {

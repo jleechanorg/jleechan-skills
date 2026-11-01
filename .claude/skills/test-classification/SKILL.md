@@ -8,23 +8,24 @@ type: policy
 
 **These rules are enforced. Violations are trust violations.**
 
-## File naming determines test tier
+## File naming is a cue, not evidence of a test tier
 
 | File pattern | Tier | Requirements |
 |---|---|---|
-| `*_e2e_*` or `*_e2e.py` or `*e2e*` | **E2E** | Must meet ALL criteria below |
+| `*_e2e_*` or `*_e2e.py` or `*e2e*` | Candidate **E2E** | Classify by the executed path and claim criteria below |
 | `*_integration_*` | **Integration** | Real I/O, real APIs, but may skip full pipeline |
 | `*_test_*` or `test_*` (default) | **Unit** | May use mocks, stubs, fakes |
 
-## E2E test mandatory criteria
+## E2E test criteria
 
-A test file named with "e2e" MUST satisfy ALL of these. If ANY is false, rename to `*_integration_*` or `*_smoke_*`:
+A test named "E2E" must exercise the complete application path relevant to its
+stated claim, reach the claimed terminal outcome, and verify observable results.
+The claim and executed path determine the tier; elapsed time does not. Use the
+repository's current test-layer owner for runner and service requirements.
 
-1. **Spawns real external work** — e.g., `ao spawn` a session that actually runs, `gh pr create`, etc.
-2. **Waits for that work to complete** — not spawned and immediately killed. The external process must do real work.
-3. **Verifies an outcome that only exists if the full pipeline ran** — e.g., a PR was created, CI passed, a merge happened.
-4. **Creates its own test data** — does not rely on pre-existing PRs, sessions, or resources.
-5. **Takes >60 seconds** — if it completes in under a minute, it's not E2E.
+For tests that claim external workflow completion, wait for that external work
+and verify its final outcome. Use isolated test data when the flow mutates state;
+non-mutating checks may use a known resource when that matches the claim.
 
 ## What is NOT an E2E test
 
@@ -48,7 +49,7 @@ When reviewing or producing evidence, identify the **claim class** before issuin
 | **Integration test** | Test log with real I/O, API calls shown, timing | "Real GitHub API call to PR #300" |
 | **Pipeline E2E** | Session spawn proof, event routing proof, outcome recording proof | "AO session jc-421 routed RetryAction" |
 | **PR-lifecycle E2E** | PR creation (URL+timestamp+actor), transition proof (CI/review timeline), merge outcome, cleanup proof | "PR created → CI green → CR approved → merged → branch deleted" |
-| **`/green`** | Current-head CI passes and PR is mergeable | "CI SUCCESS at HEAD; mergeable=MERGEABLE" |
+| **`/green`** | Required current-head checks pass through CI or an applicable documented local exception, and the PR is mergeable | Follow the current `/green` owner for backlog and documentation-only exceptions |
 
 ### Fail-closed verdict rules
 

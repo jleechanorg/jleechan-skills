@@ -22,7 +22,7 @@ portable skills against `.claude/skills/**`:
 A SKILL.md-only comparison had reported 19/3; widening to the whole package moved `llm-first`
 into the divergent set (a non-SKILL.md file differs) - the understated divergence a reviewer flagged.
 
-Therefore any plan that deletes `portable/**` as "duplicates" would **destroy 7 unique skills and choose 19 bodies arbitrarily**. Deletion is blocked until per-skill reconciliation decides which body wins.
+Therefore any plan that deletes `portable/**` as "duplicates" would **destroy 7 unique skills and choose 20 bodies arbitrarily**. Deletion is blocked until per-skill reconciliation decides which body wins.
 
 ### Corrected finding 2 - the marketplace manifests are not interchangeable
 They differ materially: `.agents/plugins/marketplace.json` uses name `jleechan-skills-marketplace` and source `{"source":"github","repo":"jleechanorg/jleechan-skills"}`; `.claude-plugin/marketplace.json` uses name `jleechan-skills`, source `"./"`, version `1.0.1`, plus a description/author. A symlink is a **semantic change** for whichever consumer reads the `.agents` file, so single-sourcing requires consumer validation and a format mapping, not a blind symlink.
@@ -33,7 +33,7 @@ Five distribution channels, two bundle formats/verifiers, two marketplaces with 
 ## Assumptions and Recommended Defaults (auto-picked; /sq invocation authorizes)
 | Question | Auto-picked answer | Rationale |
 |---|---|---|
-| Is `portable/**` duplicate content? | **No** - divergent variant set (7 unique, 19 differing, 3 identical) | measured; `scripts/report_skill_inventory_divergence.py` |
+| Is `portable/**` duplicate content? | **No** - divergent variant set (7 unique, 20 differing, 2 identical) | measured; `scripts/report_skill_inventory_divergence.py` |
 | Which manifest should survive? | `shared-skills.json` **for the reconciled bundle**, with `.claude/skills/**` remaining the content source; the portable set must be reconciled INTO it, never deleted wholesale | SHARED-SKILLS.md names it current; the portable set holds unreconciled variants |
 | Delete or regenerate portable now? | **Neither yet** - ship the whole-package divergence tool + a **per-skill disposition ledger**; reconcile per skill; then collapse | deletion is irreversibly destructive of unique bodies |
 | What guard replaces count-pinning? | A fail-closed **disposition ledger** (`docs/superpowers/skill-inventory-dispositions.json`): every portable skill needs a `keep-claude / keep-portable / merge / drop` disposition, and `portable/**` may only be deleted when every row is resolved | pinning 7/19/3 freezes a snapshot every reconciliation PR must edit; it does not stop a bad collapse (both reviewers) |
@@ -42,7 +42,7 @@ Five distribution channels, two bundle formats/verifiers, two marketplaces with 
 | Sequencing | S1 inventory+contract+decision (this PR, non-destructive) → S2 per-skill reconciliation → S3 collapse bundle/verifier → S4 marketplace single-source after validation → S5 retire dead installer | each stage independently testable and reversible |
 
 ## Alternatives rejected
-1. **Delete `portable/**` as duplicates** - rejected: destroys 7 unique skills, picks 19 bodies arbitrarily (verified numbers above).
+1. **Delete `portable/**` as duplicates** - rejected: destroys 7 unique skills, picks 20 bodies arbitrarily (verified numbers above).
 2. **Symlink the marketplace manifests** - rejected: different name/source schema; silent semantic change for the `.agents` consumer.
 3. **Adopt the 29-skill portable set as the single bundle** - rejected: `shared-skills.json` is the flow the repo's docs/installer designate current, and the portable bodies are stale variants of most overlaps.
 
@@ -53,7 +53,7 @@ Five distribution channels, two bundle formats/verifiers, two marketplaces with 
 - **Codex**: *"Proceed with reconciliation-first S1 and zero deletions, after strengthening its guard and mapping installer consumers."* - pinning counts is the wrong lasting contract; the report must cover whole packages, not SKILL.md alone; map installers first.
 - **Opus**: *"Keep reconciliation-first with zero deletions, but change the S1 guard from pinned counts to a per-skill disposition ledger, and widen the tool before S2 starts."* - even the byte-identical skills carry no deletion benefit until S3, since other scripts still reference `portable/`.
 Both are incorporated in this revision.
-- **S2**: per-skill reconciliation of the 7 portable-only and 19 divergent entries with an explicit decision record (which body wins and why); add reconciled skills to `shared-skills.json`.
+- **S2**: per-skill reconciliation of the 7 portable-only and 20 divergent entries with an explicit decision record (which body wins and why); add reconciled skills to `shared-skills.json`.
 - **S3**: after S2, collapse to the single manifest + one verifier; delete `portable/**` only when its content is fully represented.
 - **S4**: validate each marketplace consumer, then single-source with a mapping that preserves both schemas.
 - **S5**: retire `install-claude-commands.sh` (precondition: no launchd/cron invocation).

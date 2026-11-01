@@ -1,8 +1,12 @@
 ---
+description: Coordinate with Hermes through the authorized Slack identity or existing gateway and verify receipt
+
 description: Coordinate with Hermes through verified Slack, with evidence-based monitoring and safe inactive-task recovery.
 ---
 
 # /extended-library:hermes
+
+Read `${CLAUDE_HOME:-$HOME/.claude}/skills/hermes/SKILL.md` completely, then execute it with `$ARGUMENTS`.
 
 Read and follow [the canonical Hermes skill](../../skills/hermes/SKILL.md)
 completely, applying `$ARGUMENTS` as the user's scoped request.

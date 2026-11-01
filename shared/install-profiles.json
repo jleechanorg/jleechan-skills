@@ -1,0 +1,69 @@
+{
+  "default_profile": "highlights",
+  "closure_excluded": [
+    "dot",
+    "dot-coordinator",
+    "agy-dot-coordinator",
+    "web-advice",
+    "browser-control",
+    "slack-media-upload",
+    "github-cli-reference",
+    "claw-dispatch",
+    "ao-operator-discipline",
+    "aside-browser-default",
+    "browser-testing"
+  ],
+  "profiles": {
+    "highlights": {
+      "description": "The six highlighted skills: superpowers-quick, advice, redgreen, 4layer, evidence-review, harness-engineering",
+      "skills": [
+        "superpowers-quick",
+        "advice",
+        "redgreen",
+        "4layer",
+        "evidence-review",
+        "harness-engineering"
+      ]
+    },
+    "highlights-prw": {
+      "description": "The six highlighted skills plus the PR workflow set",
+      "include": [
+        "highlights",
+        "prw"
+      ]
+    },
+    "prw": {
+      "description": "The PR workflow set only",
+      "skills": [
+        "prw",
+        "pr-workflow",
+        "pr-workflow-manager",
+        "draft-first-pr",
+        "pr-lifecycle",
+        "pr-green-definition",
+        "ready",
+        "advice",
+        "evidence-standards",
+        "evidence-review",
+        "testing-layers",
+        "code-standards"
+      ],
+      "commands": [
+        "es",
+        "er",
+        "green",
+        "cs"
+      ]
+    },
+    "web": {
+      "description": "Opt-in browser review: advice, web-advice, browser-control and its browser skills",
+      "skills": [
+        "advice",
+        "web-advice",
+        "browser-control",
+        "aside-browser-default",
+        "browser-testing"
+      ]
+    }
+  }
+}

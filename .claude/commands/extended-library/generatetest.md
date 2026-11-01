@@ -10,7 +10,7 @@ Generates a self-contained `testing_mcp/` E2E test (MCPTestBase, real server,
 real database, real Gemini LLM — no mocks) with a built-in evidence bundle.
 
 Read `~/.claude/skills/generatetest/SKILL.md` and execute the full workflow
-with the provided context. Also read `.claude/skills/evidence-standards.md`
+with the provided context. Also read `.claude/skills/evidence-standards/SKILL.md`
 (repo-level) and `~/.claude/skills/evidence-standards/SKILL.md` (user-scope)
 before generating any test code.
 

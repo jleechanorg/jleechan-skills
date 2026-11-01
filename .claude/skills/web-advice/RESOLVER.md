@@ -26,7 +26,7 @@ when Aside is unavailable or unsupported, use the approved Playwright/Chrome
 browser fallbacks after proving vendor auth and a writable composer. Provider
 APIs, CLI models, Aside inference (`aside exec`, `aside "..."` NL agent),
 subagents, and WebSearch/WebFetch synthesis are BANNED substitutes — see the HARD-FAIL CONTRACT in SKILL.md.
-**Distinct from:** `/advice` (in-session subagent + `/secondo` + `/research`
+**Distinct from:** `/advice` (in-session Codex + Opus CLI votes, `/research` nonvoting
 — see `~/.claude/skills/advice/SKILL.md`) and `/er` (evidence-standards
 4-gate check — see `~/.claude/skills/evidence-review/SKILL.md`). `/web-advice`
 is for an independent multi-model *browser* adversarial pass, not in-session

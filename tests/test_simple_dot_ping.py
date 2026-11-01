@@ -1,218 +1,392 @@
-"""Scheduled ping tests use fake generation providers and Dot executables."""
+"""Fail-closed contract tests for the scheduler-bound Pi coordinator launcher."""
 import importlib.util
-import json
 import os
+import socket
 from pathlib import Path
 import subprocess
-import tempfile
+import sys
 import unittest
+from unittest.mock import patch
+from contextlib import ExitStack, redirect_stderr, redirect_stdout
+import fcntl
+import hashlib
+import io
+import json
+import tempfile
+import time
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT/'.claude/skills/agy-dot-coordinator/scripts/ping-dots.py'
-SPEC = importlib.util.spec_from_file_location('ping_test_source', SCRIPT)
+SCRIPT = ROOT / '.claude/skills/dot-coordinator/scripts/ping-dots.py'
+SPEC = importlib.util.spec_from_file_location('dot_coordinator_launcher', SCRIPT)
 PING = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(PING)
-MESSAGE = PING.REMINDER_BODY
 
 
-class SimplePingTests(unittest.TestCase):
+class LauncherContractTests(unittest.TestCase):
+    def test_account_is_mandatory_and_rejects_injection(self):
+        with patch.object(sys, 'argv', ['ping-dots.py']):
+            with self.assertRaises(SystemExit):
+                PING.main()
+        with patch.object(sys, 'argv', ['ping-dots.py', '--account', '../other']):
+            with self.assertRaises(PING.Blocked):
+                PING.main()
+
+    def test_missing_identity_binding_fails_before_config_or_process_launch(self):
+        with patch.dict(os.environ, {'DOT_EXPECTED_IDENTITY_SHA256': ''}):
+            with patch.object(sys, 'argv', ['ping-dots.py', '--account', 'alpha']):
+                with self.assertRaisesRegex(PING.Blocked, 'identity binding'):
+                    PING.main()
+
+    def test_chrome_is_headless_on_every_platform(self):
+        src = SCRIPT.read_text()
+        self.assertNotIn("if not os.environ.get('DISPLAY'): mcp_args.append('--headless')", src)
+        self.assertIn("mcp_args += ['--headless', '--chromeArg=--password-store=gnome-libsecret']", src)
+        self.assertIn("mcp_args += ['--headless', '--chromeArg=--password-store=keychain']", src)
+        self.assertIn('headless on every host', (ROOT / '.claude/skills/dot-coordinator/SKILL.md').read_text())
+
+    def test_dangling_singleton_lock_is_detected(self):
+        import tempfile
+        with tempfile.TemporaryDirectory(dir='/tmp') as temp:
+            profile = Path(temp)
+            (profile / 'SingletonLock').symlink_to(profile / 'missing-target')
+            self.assertFalse((profile / 'SingletonLock').exists())
+            self.assertTrue(os.path.lexists(profile / 'SingletonLock'))
+            self.assertIn("os.path.lexists(profile / 'SingletonLock')", SCRIPT.read_text())
+
+
+
+    def test_scheduler_wrapper_is_thin_and_does_not_choose_account(self):
+        wrapper = (SCRIPT.parent / 'dot-coordinator-wrapper.sh').read_text()
+        self.assertIn('exec python3', wrapper)
+        self.assertNotIn('--account', wrapper)
+        self.assertNotIn('rotation', wrapper)
+
+
+class FakePiProcess:
+    def __init__(self, returncode=0):
+        self.returncode = returncode
+        self.pid = 2_000_000_000
+    def poll(self): return self.returncode
+    def communicate(self, timeout): return ('agent result', '')
+    def terminate(self): self.returncode = -15
+    def wait(self, timeout=None): return self.returncode
+
+
+class LauncherExecutionTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(dir="/tmp")
+        self.temp = tempfile.TemporaryDirectory(dir='/tmp')
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
-        self.bindir = self.root/'bin'
-        self.bindir.mkdir()
-        self.config = self.root/'config.json'
-        self.config.write_text(json.dumps({'rotation': ['alpha', 'beta', 'gamma'], 'accounts': {a: {} for a in ['alpha','beta','gamma']}}))
-        self.calls = self.root/'calls'
-        self.message = self.root/'message'
-        self.agy = self.bindir/'agy'
-        self.agy.write_text('#!/usr/bin/env python3\nimport json,os,sys\nopen(os.environ["CALLS"],"a").write("agy\\n")\nopen(os.environ["WORKDIR_CAPTURE"],"a").write("agy:"+os.getcwd()+"\\n")\nmode=os.environ.get("AGY_MODE","success")\nif mode=="error": print("agy diagnostic",file=sys.stderr);sys.exit(7)\nif mode=="malformed": print("not-json");sys.exit(0)\nresponse="" if mode=="empty" else ("x"*2601 if mode=="long" else os.environ.get("GENERATED",'+repr(MESSAGE)+'))\nprint(json.dumps({"event":"result","result":{"status":"SUCCESS","response":response}}))\n')
-        self.codex = self.bindir/'codex'
-        self.codex.write_text('#!/usr/bin/env python3\nimport os,sys\nargs=sys.argv\nassert args[1:5]==["exec","--yolo","-m","gpt-6-luna"]\nassert "--ephemeral" in args and "--skip-git-repo-check" in args\nassert args[args.index("--config")+1]=="project_doc_max_bytes=0"\nopen(os.environ["CALLS"],"a").write("codex\\n")\nopen(os.environ["WORKDIR_CAPTURE"],"a").write("codex:"+os.getcwd()+"\\n")\nopen(os.environ["WORKDIR_CAPTURE"],"a").write("codex-output:"+args[args.index("--output-last-message")+1]+"\\n")\nmode=os.environ.get("CODEX_MODE","success")\nif mode=="error": print("codex diagnostic",file=sys.stderr);sys.exit(8)\ncontent="" if mode=="empty" else ("x"*2601 if mode=="long" else os.environ.get("GENERATED",'+repr(MESSAGE)+'))\nopen(args[args.index("--output-last-message")+1],"w").write(content)\n')
-        self.haiku = self.bindir/'claude'
-        self.haiku.write_text('#!/usr/bin/env python3\nimport json,os,sys\nargs=sys.argv\nassert "--model" in args and args[args.index("--model")+1]=="claude-haiku-5-5"\nassert args[args.index("--tools")+1]=="" and "--no-session-persistence" in args\nopen(os.environ["CALLS"],"a").write("haiku\\n")\nopen(os.environ["WORKDIR_CAPTURE"],"a").write("haiku:"+os.getcwd()+"\\n")\nmode=os.environ.get("HAIKU_MODE","success")\nif mode=="error": print("haiku diagnostic",file=sys.stderr);sys.exit(9)\nprint(json.dumps({"is_error":False,"result":os.environ.get("GENERATED",'+repr(MESSAGE)+')}))\n')
-        self.dot = self.root/'dot'
-        self.dot.write_text('#!/usr/bin/env python3\nimport os,sys\nfrom pathlib import Path\nassert sys.argv[1:4]==["--account","alpha","send-once"]\nassert os.environ["DOT_ROTATE_ON_LIMIT"]=="0"\nopen(os.environ["CALLS"],"a").write("dot\\n")\nopen(os.environ["WORKDIR_CAPTURE"],"a").write("dot-message:"+sys.argv[4]+"\\n")\nPath(os.environ["MESSAGE"]).write_text(Path(sys.argv[4]).read_text())\nprint(os.environ.get("RECEIPT","DOT_SENT_VERIFIED"))\nprint("dot diagnostic",file=sys.stderr)\nsys.exit(int(os.environ.get("SEND_RC","0")))\n')
-        self.lunaroute = self.bindir/'lunaroute'
-        self.lunaroute.write_text('#!/usr/bin/env python3\nimport sys\nsys.exit(1)\n')
-        for executable in (self.agy, self.codex, self.haiku, self.dot, self.lunaroute):
-            executable.chmod(0o700)
-        self.env = dict(os.environ, PATH=str(self.bindir)+os.pathsep+os.environ['PATH'],
-                        DOT_CONFIG_FILE=str(self.config), COORDINATOR_STATE_DIR=str(self.root/'state'),
-                        COORDINATOR_LOCK_FILE=str(self.root/'state/ping.lock'),
-                        COORDINATOR_AGY=str(self.agy), COORDINATOR_GENERATOR=str(self.codex),
-                        LUNAROUTE_API_KEY='', MINIMAX_API_KEY='', GEMINI_API_KEY='',
-                        WORLDAI_DEV_GEMINI_API_KEY='',
-                        COORDINATOR_VERIFY_RESPONSE='0',
-                        COORDINATOR_DOT_SCRIPT=str(self.dot), CALLS=str(self.calls), MESSAGE=str(self.message),
-                        WORKDIR_CAPTURE=str(self.root/'workdirs'))
+        self.home = Path(self.temp.name)
+        self.profile = self.home / 'profile'
+        (self.profile / 'Default').mkdir(parents=True)
+        self.state = self.home / 'state'
+        self.lock = self.home / 'coordinator.lock'
+        self.lock_base = self.home / 'locks'
+        self.config = self.home / 'dot.json'
+        self.config.write_text(json.dumps({'accounts': {'alpha': {
+            'user_data_dir': str(self.profile), 'profile_directory': 'Default',
+            'url': 'https://example.invalid/chat'}}}))
+        self.chrome = self.home / 'chrome'
+        self.chrome.touch()
+        self.pi = self.home / 'pi'
+        self.pi.touch()
+        self.node_home = self.home / '.nvm/versions/node/v22.22.0'
+        (self.node_home / 'bin').mkdir(parents=True)
+        (self.node_home / 'bin/node').touch()
+        self.mcp = self.node_home / 'lib/node_modules/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js'
+        self.mcp.parent.mkdir(parents=True)
+        self.mcp.touch()
+        (self.node_home / 'lib/node_modules/chrome-devtools-mcp/package.json').write_text(json.dumps({'version': '1.6.0'}))
+        self.pi_config = self.home / '.pi/agent'
+        self.pi_config.mkdir(parents=True)
+        (self.pi_config / 'mcp.json').write_text(json.dumps({'mcpServers': {'unrelated': {'command': 'no-start'}}}))
+        self.env = {
+            'HOME': str(self.home), 'DOT_EXPECTED_IDENTITY_SHA256': 'a' * 64,
+            'DOT_CONFIG_FILE': str(self.config), 'DOT_CHROME_BIN': str(self.chrome),
+            'CHROME_DEVTOOLS_MCP_JS': str(self.mcp), 'PI_BIN': str(self.pi),
+            'PI_CODING_AGENT_DIR': str(self.pi_config), 'COORDINATOR_STATE_DIR': str(self.state),
+            'COORDINATOR_LOCK_FILE': str(self.lock), 'DOT_LOCK_BASE': str(self.lock_base),
+            'DISPLAY': ':9', 'PATH': str(self.node_home / 'bin') + os.pathsep + os.environ.get('PATH', ''),
+        }
 
-    def run_ping(self, *args):
-        return subprocess.run(['python3', str(SCRIPT), '--account', 'alpha', *args], env=self.env,
-                              text=True, capture_output=True, timeout=8)
+    def invoke(self, fake_proc=None, on_spawn=None):
+        spawned = {}
+        def spawn(command, **options):
+            spawned['command'] = command
+            spawned['mcp'] = json.loads((Path(options['cwd']) / '.pi/mcp.json').read_text())
+            if on_spawn: return on_spawn(command, **options)
+            return fake_proc or FakePiProcess()
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(PING.Path, 'home', return_value=self.home))
+            stack.enter_context(patch.object(PING, 'STATE', self.state, create=True))
+            stack.enter_context(patch.object(PING, 'STOP', self.state / 'STOP', create=True))
+            stack.enter_context(patch.dict(os.environ, self.env, clear=False))
+            stack.enter_context(patch.object(PING.subprocess, 'check_output', return_value=''))
+            stack.enter_context(patch.object(PING.subprocess, 'Popen', side_effect=spawn))
+            stack.enter_context(patch.object(sys, 'argv', ['ping-dots.py', '--account', 'alpha']))
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                result = PING.main()
+        return result, spawned
 
-    def calls_made(self):
-        return self.calls.read_text().splitlines() if self.calls.exists() else []
+    def test_launcher_uses_owned_mcp_with_isolated_global_config(self):
+        result, spawned = self.invoke()
+        self.assertEqual(result, 0)
+        servers = spawned['mcp']['mcpServers']
+        self.assertFalse(servers['unrelated']['enabled'])
+        browser = servers['dot_browser']
+        self.assertEqual(browser['exposure'], 'direct')
+        self.assertEqual(browser['command'], str(self.node_home / 'bin/node'))
+        self.assertIn(str(self.mcp), browser['args'])
+        self.assertIn('--userDataDir=' + str(self.profile.absolute()), browser['args'])
+        self.assertFalse({'--provider', '--model'} & set(spawned['command']))
 
-    def test_prompt_recovers_outcomes_and_executes_before_capacity_audits(self):
-        spec = importlib.util.spec_from_file_location('ping', SCRIPT)
-        ping = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(ping)
-        self.assertTrue(ping.REMINDER_BODY.startswith(ping.REMINDER_OPENING))
-        self.assertLessEqual(len(ping.REMINDER_BODY), ping.MAX_RESPONSE_CHARS)
-        self.assertIn('durable checkpoint', ping.REMINDER_BODY)
-        self.assertIn('acceptance gap', ping.REMINDER_BODY)
-        self.assertIn('target, not permission', ping.REMINDER_BODY)
-        self.assertIn('Owner-approved scope', ping.REMINDER_BODY)
-        self.assertIn('commit URLs, PR URLs or artifacts as proof', ping.REMINDER_BODY)
-        self.assertIn('recipient executes', ping.PROMPT)
-        self.assertNotIn('Fewer than six proven', ping.PROMPT)
+    def test_no_attempt_ledger_or_global_review_lock_is_created(self):
+        def agent(command, **options):
+            self.assertNotIn('COORDINATOR_ATTEMPT_FILE', options['env'])
+            self.assertNotIn('COORDINATOR_PENDING_FILE', options['env'])
+            return FakePiProcess()
+        self.invoke(on_spawn=agent)
+        self.assertFalse(self.lock.exists())
+        self.assertEqual(list(self.state.glob('attempt-*')), [])
 
-    def test_empty_and_oversized_provider_results_report_actual_lengths(self):
-        self.env.update(CODEX_MODE='long', GENERATED='')
-        result = self.run_ping()
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn('codex generation failed: response exceeds 2,600 characters '
-                      '(2,601 stripped; 2,601 raw)', result.stderr)
-        self.assertEqual(self.calls_made(), ['codex'])
-        self.assertFalse(self.message.exists())
+    def test_configured_cli_prefix_is_literal_argv(self):
+        prefix = ['--thinking', 'medium', 'literal spaces; $HOME $(never-run)']
+        self.env['COORDINATOR_CLI_ARGS'] = json.dumps(prefix)
+        _, spawned = self.invoke()
+        self.assertEqual(spawned['command'][:1 + len(prefix)], [str(self.pi), *prefix])
 
-    def test_primary_provider_success_uses_one_send(self):
-        result = self.run_ping()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.calls_made(), ['codex', 'dot'])
-        self.assertTrue(self.message.read_text().startswith(MESSAGE))
-        self.assertIn('From Codex coordinator', self.message.read_text())
-        self.assertIn('Generation succeeded with codex', result.stdout)
-        self.assertIn('DOT_SENT_VERIFIED', result.stdout)
-        self.assertIn('dot diagnostic', result.stderr)
+    def test_invalid_cli_prefix_is_rejected_before_spawn(self):
+        for value in ('"--thinking medium"', '{}', '[4]', '["bad\\u0000arg"]'):
+            with self.subTest(value=value):
+                self.env['COORDINATOR_CLI_ARGS'] = value
+                with self.assertRaisesRegex(PING.Blocked, 'CLI arguments'):
+                    self.invoke()
 
-    def test_codex_failure_does_not_send(self):
-        self.env['CODEX_MODE'] = 'error'
-        result = self.run_ping()
-        self.assertNotEqual(result.returncode, 0)
-        self.assertEqual(self.calls_made(), ['codex'])
-        self.assertIn('codex generation failed', result.stderr)
-        self.assertFalse(self.message.exists())
 
-    def test_quarantined_agy_is_reachable_only_by_explicit_generator(self):
-        result = self.run_ping('--generator', 'agy')
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.calls_made(), ['agy', 'dot'])
-        self.assertIn('From AGY coordinator', self.message.read_text())
 
-    def test_all_provider_failures_do_not_send(self):
-        self.env.update(CODEX_MODE='error')
-        result = self.run_ping()
-        self.assertNotEqual(result.returncode, 0)
-        self.assertEqual(self.calls_made(), ['codex'])
-        self.assertFalse(self.message.exists())
 
-    def test_generator_and_send_scratch_paths_stay_under_tmp(self):
-        result = self.run_ping()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        paths = [line.split(':', 1)[1] for line in self.calls.parent.joinpath('workdirs').read_text().splitlines()]
-        self.assertEqual({line.split(':', 1)[0] for line in self.calls.parent.joinpath('workdirs').read_text().splitlines()},
-                         {'codex', 'codex-output', 'dot-message'})
-        tmp_root = Path('/tmp').resolve()
-        for path in paths:
-            self.assertTrue(Path(path).resolve().is_relative_to(tmp_root), path)
+    def test_timeout_terminates_pi_and_preserves_agent_owned_marker(self):
+        class TimedOut(FakePiProcess):
+            def __init__(self): self.returncode, self.pid = None, 2_000_000_000
+            # The launcher streams Pi to a log file and waits on the process, so the
+            # timeout contract lives on wait() rather than communicate().
+            def wait(self, timeout=None): raise subprocess.TimeoutExpired('pi', timeout)
+            def terminate(self): self.returncode = -15
+        old_timeout = PING.TIMEOUT
+        self.addCleanup(setattr, PING, 'TIMEOUT', old_timeout)
+        PING.TIMEOUT = 1
+        self.state.mkdir()
+        pending = self.state / ('send-' + hashlib.sha256(b'alpha').hexdigest()[:16] + '.pending')
+        pending.write_text('private send intent')
+        process = TimedOut()
+        with self.assertRaisesRegex(PING.Blocked, 'deadline'):
+            self.invoke(process)
+        self.assertEqual(process.returncode, -15)
+        self.assertEqual(pending.read_text(), 'private send intent')
 
-    def test_malformed_structured_results_fall_through_without_send(self):
-        self.codex.write_text('#!/usr/bin/env python3\nimport os,sys\nopen(os.environ["CALLS"],"a").write("codex\\n")\nprint("codex diagnostic",file=sys.stderr)\nsys.exit(8)\n')
-        result = self.run_ping()
-        self.assertNotEqual(result.returncode, 0)
-        self.assertEqual(self.calls_made(), ['codex'])
-        self.assertIn('codex generation failed', result.stderr)
-        self.assertFalse(self.message.exists())
+    def test_sigterm_cleans_owned_pi_process_group_without_state_lock(self):
+        ready, cleaned = self.home / 'child.ready', self.home / 'child.cleaned'
+        child = self.home / 'child.py'
+        child.write_text('''import fcntl, os, signal, time
+from pathlib import Path
+def cleanup(*_):
+    Path(os.environ["DOT_CHILD_CLEANED_FILE"]).write_text("cleaned")
+    raise SystemExit
+signal.signal(signal.SIGTERM, cleanup)
+Path(os.environ["DOT_CHILD_READY_FILE"]).write_text("ready")
+time.sleep(60)
+''')
+        self.pi.write_text(f'''#!{sys.executable}
+import os, subprocess, sys, time
+from pathlib import Path
+child = subprocess.Popen([sys.executable, {str(child)!r}])
+Path(os.environ["DOT_CHILD_PID_FILE"]).write_text(str(child.pid))
+time.sleep(60)
+''')
+        self.pi.chmod(0o755)
+        profile_lock = self.lock_base / 'dot-profile-locks' / (hashlib.sha256(str(self.profile.absolute()).encode()).hexdigest()[:16] + '.lock')
+        env = dict(os.environ, **self.env, DOT_TEST_LOCK_FILE=str(profile_lock), DOT_CHILD_SCRIPT=str(child),
+                   DOT_CHILD_PID_FILE=str(self.home / 'child.pid'),
+                   DOT_CHILD_READY_FILE=str(ready), DOT_CHILD_CLEANED_FILE=str(cleaned))
+        harness = f'''import importlib.util, sys
+spec = importlib.util.spec_from_file_location("dot_launcher", {str(SCRIPT)!r})
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+module.GRACE = 0.4
+sys.argv = [{str(SCRIPT)!r}, "--account", "alpha"]
+module.main()
+'''
+        launcher = subprocess.Popen([sys.executable, '-c', harness], env=env,
+                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        try:
+            deadline = time.monotonic() + 5
+            while not ready.exists() and time.monotonic() < deadline:
+                time.sleep(.02)
+            self.assertTrue(ready.exists(), 'dummy owned child did not start')
+            launcher.terminate()
+            launcher.communicate(timeout=5)
+            self.assertEqual(launcher.returncode, 128 + PING.signal.SIGTERM)
+            self.assertEqual(cleaned.read_text(), 'cleaned')
+        finally:
+            if launcher.poll() is None: launcher.kill()
+            launcher.wait()
+            launcher.stdout.close()
+            launcher.stderr.close()
 
-    def test_generator_flag_forces_provider(self):
-        result = self.run_ping()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.calls_made(), ['codex', 'dot'])
-        self.calls.unlink()
-        self.message.unlink()
-        result = self.run_ping('--generator', 'haiku')
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.calls_made(), ['haiku', 'dot'])
+    def test_nonzero_exit_preserves_agent_owned_marker(self):
+        self.state.mkdir()
+        pending = self.state / ('send-' + hashlib.sha256(b'alpha').hexdigest()[:16] + '.pending')
+        pending.write_text('private send intent')
+        with self.assertRaisesRegex(PING.Blocked, 'verify delivery before any retry'):
+            self.invoke(FakePiProcess(returncode=7))
+        self.assertEqual(pending.read_text(), 'private send intent')
 
-    def test_generate_only_exercises_provider_without_dot(self):
-        result = self.run_ping('--generator', 'haiku', '--generate-only')
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.calls_made(), ['haiku'])
-        self.assertIn(MESSAGE, result.stdout)
-        self.assertFalse(self.message.exists())
 
-    def test_unverified_send_is_reported_once_without_retry(self):
-        self.env['RECEIPT'] = 'DOT_SEND_UNVERIFIED'
-        result = self.run_ping()
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn('DOT_SEND_UNVERIFIED', result.stdout)
-        self.assertIn('dot diagnostic', result.stderr)
-        self.assertEqual(self.calls_made(), ['codex', 'dot'])
 
-    def test_stop_and_existing_hold_prevent_generation(self):
-        state = self.root/'state'
-        state.mkdir()
-        (state/'STOP').touch()
-        self.assertEqual(self.run_ping().returncode, 0)
-        self.assertFalse(self.calls.exists())
-        (state/'STOP').unlink()
-        (state/'state_alpha.json').write_text(json.dumps({'delivery_unverified': True}))
-        self.assertEqual(self.run_ping().returncode, 0)
-        self.assertFalse(self.calls.exists())
 
-    def test_response_verification_is_enabled_by_default(self):
-        # The compliance loop must run unless explicitly disabled; its own
-        # behaviour is covered by the skill-level tests with fake transports.
-        import importlib.util
-        spec = importlib.util.spec_from_file_location('ping_defaults', SCRIPT)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        self.assertTrue(hasattr(module, 'verify_and_escalate'))
-        self.assertTrue(hasattr(module, 'read_and_classify'))
-        self.assertEqual(module.classify_response(''), 'no_response')
+    def _plant_singleton(self, pid):
+        lock = self.profile / 'SingletonLock'
+        lock.symlink_to(f'{socket.gethostname()}-{pid}')
+        (self.profile / 'SingletonCookie').symlink_to('cookie-value')
+        (self.profile / 'SingletonSocket').symlink_to(str(self.home / 'sock'))
+        return lock
 
-    def test_native_offsets_cover_all_six_pairs(self):
-        spec = importlib.util.spec_from_file_location('simple_ping', SCRIPT)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        accounts = ['alpha','beta','gamma']
-        for role, offsets in [('mac',(0,20,40)),('linux',(30,50,10))]:
-            for account, minute in zip(accounts, offsets):
-                self.assertEqual(module.due_account(accounts, role, minute*60+15), account)
-        self.assertIsNone(module.due_account(accounts, 'mac', 7*60))
+    def test_dead_singleton_blocks_names_the_files_and_is_never_deleted(self):
+        self._plant_singleton(9_000_000_001)  # never a live pid
+        with self.assertRaises(PING.Blocked) as caught:
+            self.invoke()
+        message = str(caught.exception)
+        for name in ('SingletonLock', 'SingletonCookie', 'SingletonSocket'):
+            self.assertIn(str(self.profile / name), message)
+            self.assertTrue(os.path.lexists(self.profile / name), f'{name} must survive')
+        # A dead PID alone is never sufficient reason to remove the singletons.
+        self.assertIn('verify', message)
+        self.assertIn('uncertain', message)
+        self.assertNotIn('if its process is dead', message)
 
-    def test_unknown_account_rejected_before_generation(self):
-        self.config.write_text(json.dumps({'rotation':['beta','gamma','delta']}))
-        self.assertNotEqual(self.run_ping().returncode, 0)
-        self.assertFalse(self.calls.exists())
+    def test_live_singleton_blocks_without_deleting(self):
+        lock = self._plant_singleton(os.getpid())
+        with self.assertRaisesRegex(PING.Blocked, 'SingletonLock'):
+            self.invoke()
+        self.assertTrue(os.path.lexists(lock))
 
-    def test_lock_contention_does_not_generate_or_send(self):
-        import fcntl
-        state = self.root/'state'
-        state.mkdir()
-        with (state/'ping.lock').open('a') as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            self.assertEqual(self.run_ping().returncode, 0)
-        self.assertFalse(self.calls.exists())
+class PiLogRetentionTests(unittest.TestCase):
+    """The retained Pi transcript must be private and redacted end-to-end."""
 
-    def test_existing_native_wrapper_uses_small_script_without_token_lookup(self):
-        wrapper = (SCRIPT.parent/'agy-dot-coordinator-wrapper.sh').read_text()
-        self.assertIn('WORKER="$SCRIPT_DIR/ping-dots.py"', wrapper)
-        self.assertIn('exec python3 "$WORKER" "$@"', wrapper)
-        self.assertNotIn('gh auth token', wrapper)
-        timer = (SCRIPT.parents[1]/'systemd/ai.gemini.agy-dot-coordinator.timer').read_text()
-        self.assertIn('OnCalendar=*:10,30,50:00', timer)
-        self.assertIn('Persistent=false', timer)
+    def _run(self, fake_factory):
+        case = LauncherExecutionTests('run')
+        case.setUp()
+        self.addCleanup(case.doCleanups)
+        case.invoke(on_spawn=fake_factory)
+        logs = sorted(Path(tempfile.gettempdir()).glob('dot-coordinator-pi-alpha-*.log'),
+                      key=lambda item: item.stat().st_mtime)
+        self.assertTrue(logs, 'the launcher must retain a Pi log')
+        return logs[-1]
 
-    def test_thin_coordinator_loc_guardrail(self):
-        lines = SCRIPT.read_text().splitlines()
-        code_lines = [line for line in lines if line.strip() and not line.strip().startswith('#')]
-        self.assertLessEqual(len(lines), 300, f"ping-dots.py total lines ({len(lines)}) exceeds 300-line thin-coordinator cap")
-        self.assertLessEqual(len(code_lines), 270, f"ping-dots.py non-comment LOC ({len(code_lines)}) exceeds 270-line thin-coordinator cap")
-        self.assertTrue(PING.SKILL_MD.is_file())
-        for tag in ('REMINDER_BODY', 'WRITER_PREFIX', 'CLASSIFY_PROMPT_TEMPLATE', 'ESCALATION_BODY'):
-            self.assertIn(f'<!-- PROMPT:{tag} -->', PING.SKILL_MD.read_text())
+    def test_completed_run_keeps_a_private_redacted_log(self):
+        expected = 'a' * 64  # matches DOT_EXPECTED_IDENTITY_SHA256 in the harness env
 
+        def spawn(command, **options):
+            out = options['stdout']
+            child_fd = os.dup(out if isinstance(out, int) else out.fileno())
+            os.write(child_fd, f'prompt {expected}\nagent step 1\n'.encode())
+            os.close(child_fd)
+
+            class Done(FakePiProcess):
+                def __init__(self):
+                    super().__init__(returncode=0)
+
+                def wait(self, timeout=None):
+                    return 0
+
+            return Done()
+
+        log = self._run(spawn)
+        self.assertEqual(log.stat().st_mode & 0o777, 0o600)
+        text = log.read_text()
+        self.assertNotIn(expected, text)
+        self.assertIn('[identity redacted]', text)
+        self.assertIn('agent step 1', text)
+
+class PiLogInterruptTests(unittest.TestCase):
+    """An interrupt must still stop the group and redact the retained log."""
+
+    def test_keyboard_interrupt_finalizes_after_stopping_the_child(self):
+        expected = 'a' * 64  # matches DOT_EXPECTED_IDENTITY_SHA256 in the harness env
+        written = {}
+
+        class Interrupted(FakePiProcess):
+            def __init__(self): self.returncode, self.pid = None, 2_000_000_002
+            def wait(self, timeout=None):
+                if written.get('fd') is not None:
+                    os.write(written['fd'], (f'prompt {expected}\n').encode())
+                    os.close(written['fd'])
+                    written['fd'] = None
+                raise KeyboardInterrupt()
+            def terminate(self): self.returncode = -15
+            def poll(self): return self.returncode
+
+        def spawn(command, **options):
+            # The launcher closes its own descriptor right after spawn, so the child
+            # emulation holds its own duplicate, exactly as a real child would.
+            out = options['stdout']
+            written['fd'] = os.dup(out if isinstance(out, int) else out.fileno())
+            return Interrupted()
+
+        case = LauncherExecutionTests('run')
+        case.setUp()
+        self.addCleanup(case.doCleanups)
+        with self.assertRaises(KeyboardInterrupt):
+            case.invoke(on_spawn=spawn)
+        logs = sorted(Path(tempfile.gettempdir()).glob('dot-coordinator-pi-alpha-*.log'),
+                      key=lambda item: item.stat().st_mtime)
+        self.assertTrue(logs, 'the retained log must exist after an interrupt')
+        self.assertNotIn(expected, logs[-1].read_text())
+
+
+
+
+
+
+
+class PinnedMcpSelectionTests(unittest.TestCase):
+    """The launcher must pick the Node 22 tree that actually carries the pinned MCP."""
+
+    def _node_tree(self, root, version, mcp_version=None):
+        bin_dir = root / f'node-{version}' / 'bin'
+        bin_dir.mkdir(parents=True)
+        if mcp_version is None:
+            return bin_dir
+        mcp_js = bin_dir.parent / 'lib/node_modules/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js'
+        mcp_js.parent.mkdir(parents=True)
+        mcp_js.write_text('#!/usr/bin/env node\n', encoding='utf-8')
+        pkg = bin_dir.parent / 'lib/node_modules/chrome-devtools-mcp/package.json'
+        pkg.write_text(json.dumps({'version': mcp_version}), encoding='utf-8')
+        return bin_dir
+
+    def test_later_node_tree_with_the_pinned_mcp_wins(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bare = self._node_tree(root, 'v22.22.0')
+            with_mcp = self._node_tree(root, 'v22.23.1', '1.6.0')
+            bin_dir, mcp_js = PING.pinned_mcp([bare, with_mcp])
+            self.assertEqual(bin_dir, with_mcp)
+            self.assertTrue(str(mcp_js).endswith('chrome-devtools-mcp.js'))
+
+    def test_wrong_version_is_not_accepted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            stale = self._node_tree(root, 'v22.22.0', '1.5.0')
+            good = self._node_tree(root, 'v22.23.1', '1.6.0')
+            self.assertEqual(PING.pinned_mcp([stale, good])[0], good)
+
+    def test_no_qualifying_tree_fails_closed_with_the_searched_paths(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bare = self._node_tree(root, 'v22.22.0')
+            with self.assertRaisesRegex(PING.Blocked, 'searched'):
+                PING.pinned_mcp([bare])
+
+
+if __name__ == '__main__':
+    unittest.main()
