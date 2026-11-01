@@ -81,8 +81,11 @@ A `proceed` run sends only when both hold:
 
 - **(a) The Dot has not spoken since our last message.** Take the newest well-formed coordinator message in the rendered
   thread; the turn(s) after it are the Dot's. If any of those turns is Dot-authored - a message that is *not* a
-  well-formed stamped coordinator message - the Dot is still working on our last nudge and the gate fails. When the
-  thread holds no coordinator message from any host, there is no baseline: treat (a) as passed and rely on (b).
+  well-formed stamped coordinator message - the Dot is still working on our last nudge and the gate fails. When the scan
+  covered the whole window and the thread holds no coordinator message from any host, there is no baseline: treat (a)
+  as passed and rely on (b). If the scan stopped at the 200-message cap before covering the window, the baseline is
+  unknown - (a) fails closed and the run reports `idle-gate: coverage-incomplete` instead of assuming that no recent
+  send exists.
 - **(b) No coordinator message in the last 30 minutes.** Measured from the newest well-formed `Sent:` minute in that
   conversation, whichever host sent it.
 
