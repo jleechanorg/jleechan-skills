@@ -141,6 +141,18 @@ class CoordinatorWorkflowTests(unittest.TestCase):
         step4 = " ".join(text.split('4. **Stay a reminder.**', 1)[1].split('5. **Inspect', 1)[0].split())
         self.assertIn('the last 20 rendered messages in either mode', step4)
 
+    def test_stamp_only_messages_are_blocked(self):
+        text = SKILL.read_text()
+        flat = " ".join(text.split())
+        self.assertIn("Insert the whole message in one operation", flat)
+        self.assertIn("Never submit a stamp-only message", flat)
+        self.assertIn("blank-body-blocked", flat)
+        self.assertIn("blank-body-delivered", flat)
+        self.assertIn("never send a second message to explain, apologise for or replace a blank one", flat)
+        self.assertIn("clear **only the text this invocation inserted** - never another writer's draft", flat)
+        self.assertIn("equal text, not merely equal length", flat)
+        self.assertIn("a rich-text composer treats that Enter as a message break and will happily send a stamp-only message", flat)
+
     def test_coordinator_has_no_classifier_or_fallback(self):
         text = SKILL.read_text().lower()
         self.assertIn('without code-based routing', text)
