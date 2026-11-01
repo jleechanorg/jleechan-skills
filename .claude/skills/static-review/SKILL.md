@@ -61,8 +61,8 @@ cannot produce a byte-identical prompt and its vote is void.
 Revision preamble for every CLI seat and for static reviewers (verbatim):
 
 ```text
-Work in a fresh clone of the PR repository without an `origin` remote, pinned
-to the given SHA. Use the GitHub token already present in your environment and
+Work in the clone the orchestrator gives you for this review (no `origin`
+remote, pinned to the given SHA). Use the GitHub token already present in your environment and
 never print it. Do not modify the original checkout, refs, config or hooks. Do
 not post anything; return your review as your final output.
 ```

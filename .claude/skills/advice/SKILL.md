@@ -150,6 +150,11 @@ Rules:
 - An entry with an empty label, an empty right-hand side, a duplicate label, an unparseable remainder, or a missing
   or non-executable program makes **that seat `UNAVAILABLE`**. It never silently falls back to another seat and never
   becomes a second vote from the same identity another seat already used.
+**Ordered preference per vote slot.** Fill each required slot from this order and stop at the first seat that
+produces an eligible verdict: **Codex → Opus → Claude alternate → Cursor → AGY → `ADVICE_EXTRA_CLIS` in listed
+order.** An extra seat is reached only when every earlier candidate for that slot is `UNAVAILABLE` or its verdict is
+void; it never displaces a successful seat and never supplies the second vote for an identity another seat used.
+
 These seats obey the same independence, deadline, evidence and receipt rules as the built-in ones. Extra
   seats never replace the required Claude or Codex vote: they fill an unfilled slot only when the built-in
   seat is genuinely unavailable.
@@ -224,8 +229,9 @@ The orchestrator performs the setup; the seats only review.
 never a linked worktree. Verify the donor's Git directory is a real directory, `git rev-parse --git-common-dir`
 resolves to the same directory as `git rev-parse --git-dir`, its `HEAD` equals the requested review SHA, and the
 required base resolves to its recorded SHA. Then create one temporary clone per seat from that donor, with no
-`origin` remote, pinned to the same exact SHA, and **launch each seat with its working directory set to that seat's
-own clone** so it never touches the donor, the original checkout, or another seat's copy. Record that clone path in
+`origin` remote, pinned to the same exact SHA, and **give each seat that clone as the directory it works in** - set the working directory when the transport supports
+one, otherwise state the clone path in the request and require the seat to work only there - so it never touches the
+donor, the original checkout, or another seat's copy. Record that clone path in
 the seat's receipt as the actual clone path, and clean up every clone afterwards, verifying the cleanup.
 
 **Document-only mode.** No donor and no clone: the orchestrator supplies the named Markdown files as saved bytes
