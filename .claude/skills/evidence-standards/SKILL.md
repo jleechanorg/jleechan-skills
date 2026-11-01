@@ -161,6 +161,36 @@ Only UI driven by a **real running server** (local development server or live de
 rendering real backend responses counts as valid Layer 2 UI evidence. Unit and mocked-fixture
 captures are supporting evidence only and do NOT prove UI integration correctness.
 
+### UI changes require a genuine implementation BEFORE/AFTER comparison
+
+Every UI change requires paired screenshots or video of the **pre-change
+implementation (BEFORE)** and **candidate implementation (AFTER)**. Prefer
+captioned video; video is required for interaction, navigation, streaming,
+animation, timing, or multi-step claims. Paired screenshots are sufficient only
+for a simple static visual change whose claim does not depend on motion or
+sequence; state why that exception fits. Keep required desktop/mobile coverage.
+
+- Use comparable route, scenario, account/role, starting data/state, viewport,
+  and theme on both revisions; disclose unavoidable differences. For a new
+  feature, BEFORE shows its actual prior absence or previous experience.
+- Bind each capture to the actual served app/build SHA and capture-driver
+  revision (plus any dirty diff/hash), exact launch/capture commands, original
+  UTC capture time, environment, and raw artifact paths/hashes. A checkout SHA
+  alone does not establish which code the browser received.
+- A candidate-only journey's pre-click and post-click states are **not** a
+  pre-change-code baseline. Do not fabricate BEFORE with DOM edits, fixtures,
+  relabelled AFTER media, or an unverified claim in a PR body.
+- Preserve original raw media, timestamps, and provenance. Map captioned,
+  trimmed, or redacted derivatives to their raw source hashes and transformation
+  commands; never overwrite or retimestamp originals. Open both images or play
+  both videos/extract relevant frames to verify the claimed difference.
+- Reuse already verified captures only after the existing delta-and-claim
+  applicability check; do not rerun them merely because HEAD moved. If no
+  applicable baseline can safely be captured or recovered, record
+  `BEFORE: WITHHELD — <reason>` and withhold the comparison claim. Never
+  reproduce unsafe behavior just to obtain media. This does not waive separate
+  bug-reproduction, real-server, review, or publication requirements.
+
 ## Evidence Envelope Declaration (breadth claims: "all / per / each / every / across N")
 
 Before producing evidence for a claim that covers a **set** (all 14 agents, every mode, each class), FIRST declare the **envelope** and get acceptance:
@@ -450,13 +480,13 @@ Visual comparisons under `## Visual Evidence` in PR descriptions must render ima
 
    ### Desktop (1440×900) Comparison
 
-   | Before (`origin/main`) | After (PR head `<sha>`) |
+   | Before (baseline `<before_sha>`) | After (candidate `<after_sha>`) |
    | :---: | :---: |
    | <img src="<before_desktop_url>" width="450" alt="Before Desktop"> | <img src="<after_desktop_url>" width="450" alt="After Desktop"> |
 
    ### Mobile (375×812) Comparison
 
-   | Before (`origin/main`) | After (PR head `<sha>`) |
+   | Before (baseline `<before_sha>`) | After (candidate `<after_sha>`) |
    | :---: | :---: |
    | <img src="<before_mobile_url>" width="360" alt="Before Mobile"> | <img src="<after_mobile_url>" width="360" alt="After Mobile"> |
 
