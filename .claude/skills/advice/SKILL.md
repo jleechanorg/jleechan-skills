@@ -206,7 +206,7 @@ so setup time is already spent; reclaim cleanup inside `C`; and bound the wait b
 in the receipt. No timer machinery
 is added to this repository; the orchestrator's own bounded tool call is the mechanism.
 
-A late, e, incomplete, failed, or timed-out result is not an approval. Preserve
+A late, incomplete, failed, or timed-out result is not an approval. Preserve
 partial output and findings, record cleanup status, and use another independent
 eligible reviewer when needed. Do not keep waiting for unresolved cleanup or
 reuse a resource whose prior process or cleanup state is unresolved; continue

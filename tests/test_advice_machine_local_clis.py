@@ -48,6 +48,11 @@ class MarkdownOnlyDecisionTest(unittest.TestCase):
     def setUp(self):
         self.text = (ROOT / ".claude/skills/advice/SKILL.md").read_text(encoding="utf-8")
 
+    def test_late_result_gating_sentence_is_intact(self):
+        text = (ROOT / ".claude/skills/advice/SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("A late, incomplete, failed, or timed-out result is not an approval.", text)
+        self.assertNotIn("A late, e, incomplete", text)
+
     def test_no_active_skill_invokes_the_deleted_runner(self):
         offenders = []
         for path in sorted((ROOT / ".claude/skills").rglob("*.md")):
