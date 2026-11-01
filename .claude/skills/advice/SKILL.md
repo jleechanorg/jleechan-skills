@@ -102,13 +102,23 @@ falls back to the default below when the variable is unset, so a bare machine st
 | Cursor alternate | `cursor agent -p --force` |
 | AGY alternate | `agy --print="<review request>" --model gemini-3.8-flash-high --dangerously-skip-permissions --new-project` |
 
+The Codex and Opus lanes of `scripts/run_primary_pair.py` honour `ADVICE_CODEX_CMD` and `ADVICE_CLAUDE_CMD`
+directly: the value is split with `shlex` (never shell-evaluated) and replaces the whole default argv, so a
+wrapper that selects another credential store runs as that seat and its resolved command is what the receipt
+records. A variable that is set but empty, unparseable, or names a missing or non-executable program makes that
+seat `UNAVAILABLE`; it never falls back to the default, because falling back would let one account cast two
+votes. The pair runner accepts the Codex and Opus lanes only, so `ADVICE_CLAUDE_ALT_CMD` and `ADVICE_EXTRA_CLIS`
+seats are launched directly by the orchestrator under the same bounded-attempt and receipt rules.
+
 **Machine-specific configuration never lives in this repository.** A credential store directory, a
 profile directory, a per-host wrapper path, a host-specific model alias or an account identifier belongs in
 that machine's `~/.bashrc` as an exported `ADVICE_*` value, never in a skill file, a PR or a document. This
 file may name the shape of a runner (for example `claudewa`-style wrapper that selects another credential
 store and records its model) but never a concrete path, digest or profile of any machine.
 
-A wrapper, alias, retry, or duplicate reviewer identity is not another vote. Codex models may be only
+A label is not an identity: two seats whose resolved command reaches the same account are one vote, and a seat
+whose model the CLI does not report is `UNAVAILABLE` rather than an unlabelled vote. A wrapper, alias, retry, or
+duplicate reviewer identity is not another vote. Codex models may be only
 `gpt-6-astra`, `gpt-6-luna`, `gpt-6-sol`, or `gpt-6.1-sol`; 5.6 and unknown IDs are not eligible. A wrapper
 such as `claudewa` counts only when it resolves to a distinct reviewer identity and the attempt records the
 actual model it ran. Each alternate needs an existing supported invocation that bounds its complete attempt

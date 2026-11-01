@@ -17,6 +17,7 @@ import os
 import re
 import select
 import signal
+import shlex
 import shutil
 import stat
 import subprocess
@@ -211,6 +212,32 @@ def repository_snapshot(repo: Path, deadline: float | None = None) -> dict[str, 
 
 def command_path(name: str) -> str | None:
     return shutil.which(name)
+
+
+def seat_command(env_var: str, default: list[str]) -> list[str] | None:
+    """Resolve one reviewer seat's argv from a machine-local env value.
+
+    Unset names the portable default. Set but empty, unparseable, or naming an
+    executable that is missing or not executable yields None, which makes that
+    seat UNAVAILABLE: a configured seat never silently falls back to another
+    identity, because that would let one account vote twice. Values are split
+    with shlex and never shell-evaluated.
+    """
+    raw = os.environ.get(env_var)
+    if raw is None:
+        argv = list(default)
+    else:
+        try:
+            argv = shlex.split(raw)
+        except ValueError:
+            return None
+        if not argv:
+            return None
+    executable = argv[0]
+    resolved = executable if os.path.isabs(executable) else command_path(executable)
+    if not resolved or not os.path.exists(resolved) or not os.access(resolved, os.X_OK):
+        return None
+    return [resolved, *argv[1:]]
 
 
 def process_start_identity(pid: int, fallback: str | None = None) -> str | None:
@@ -897,18 +924,13 @@ def codex_lane(
             "codex exec --yolo", started, started_monotonic_ns, error, attempt_limited
         )
     attempts: list[dict[str, Any]] = []
-    codex = command_path("codex")
+    codex = seat_command(
+        "ADVICE_CODEX_CMD",
+        ["codex", "exec", "--yolo", "-m", resolved_model, "--config", "model_reasoning_effort=high"],
+    )
     if codex:
         code, stdout, stderr, timed_out, forced_pipe_close, supervision = execute(
-            [
-                codex,
-                "exec",
-                "--yolo",
-                "-m",
-                resolved_model,
-                "--config",
-                "model_reasoning_effort=high",
-            ],
+            codex,
             cwd,
             prompt,
             timeout_seconds,
@@ -975,7 +997,10 @@ def opus_lane(
             error,
             attempt_limited,
         )
-    claude = command_path("claude")
+    claude = seat_command(
+        "ADVICE_CLAUDE_CMD",
+        ["claude", "-p", "--model", "opus", "--dangerously-skip-permissions"],
+    )
     if not claude:
         return {
             "status": "unavailable",
@@ -987,7 +1012,7 @@ def opus_lane(
             "started_monotonic_ns": started_monotonic_ns,
             "ended_monotonic_ns": time.monotonic_ns(),
         }
-    command = [claude, "-p", "--model", "opus", "--dangerously-skip-permissions"]
+    command = claude
     code, stdout, stderr, timed_out, forced_pipe_close, supervision = execute(
         command, cwd, prompt, timeout_seconds, timeout_grace_seconds, deadline=deadline
     )
