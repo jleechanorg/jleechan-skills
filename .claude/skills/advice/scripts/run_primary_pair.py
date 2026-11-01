@@ -924,15 +924,15 @@ def codex_lane(
     model: str | None = None,
     attempt_limited: bool = False,
 ) -> dict[str, Any]:
+    requested_model = model or os.environ.get("ADVICE_CODEX_MODEL") or DEFAULT_CODEX_MODEL
     codex = seat_command(
         "ADVICE_CODEX_CMD",
-        ["codex", "exec", "--yolo", "-m", os.environ.get("ADVICE_CODEX_MODEL") or DEFAULT_CODEX_MODEL,
-         "--config", "model_reasoning_effort=high"],
+        ["codex", "exec", "--yolo", "-m", requested_model, "--config", "model_reasoning_effort=high"],
     )
-    argv_model = codex_model_from_argv(codex) if codex else None
-    resolved_model = validate_codex_model(
-        argv_model or model or os.environ.get("ADVICE_CODEX_MODEL") or DEFAULT_CODEX_MODEL
-    )
+    argv_model = None
+    if os.environ.get("ADVICE_CODEX_CMD") is not None and codex:
+        argv_model = codex_model_from_argv(codex)
+    resolved_model = validate_codex_model(argv_model if argv_model is not None else requested_model)
     codex_transport = " ".join(codex) if codex else "codex exec --yolo"
     started_monotonic_ns = time.monotonic_ns()
     started = time.time_ns()
