@@ -94,7 +94,7 @@ Required structure, in this order:
      able to recognise which PR this row is without opening GitHub.
    - `Brief` = ONE sentence stating what the PR changes and whether it is prod or
      test-only. No changelog.
-2b. **Group the ledger by merge-readiness, not just by stage.** Use these headings in
+3. **Group the ledger by merge-readiness, not just by stage.** Use these headings in
    this order, omitting any that is empty:
    - `### Merge-safe now` — every gate receipt binds to the current head, or its
      intervening delta has been read and recorded as applicable under
@@ -107,15 +107,15 @@ Required structure, in this order:
    A stage label alone never earns a place in `Merge-safe now`; a green check alone
    never does either. Explain what each listed PR does in plain language — a stage
    number, a label, or the PR title repeated is not an explanation.
-3. **Not yet a PR** — items with an owner but no branch/PR yet.
-4. **Human actions outstanding** — only actions that meet the shared human-only
+4. **Not yet a PR** — items with an owner but no branch/PR yet.
+5. **Human actions outstanding** — only actions that meet the shared human-only
    boundary. For each, state `Why the LLM cannot execute this next step now:`
    with the exact authority, physical dependency or essential unresolved decision.
    Undrafting, evidence review, checks and authorized deployments are not human
    actions merely because they remain undone. Execute available authorized work
    in the caller's scope before ending; preserve a planning/status-only scope.
-5. **Owners (cmux surfaces)** — lane → workspace › surface title → PRs covered.
-6. **Later** — which PRs will need a `/pr-summary` (architecture diagram, Why It Is
+6. **Owners (cmux surfaces)** — lane → workspace › surface title → PRs covered.
+7. **Later** — which PRs will need a `/pr-summary` (architecture diagram, Why It Is
    Needed, How It Works, prod vs non-prod deltas) and the condition for writing it.
 
 Every `/roadmap` report, including a concise chat or status reply, must include a
@@ -166,8 +166,10 @@ Before editing, prove the baseline so foreign drift surfaces before your own edi
 hide it:
 
 ```bash
-git -C <jleechan-skills-worktree> show origin/main:.claude/skills/roadmap/SKILL.md > /tmp/rm-base.md
-diff -u /tmp/rm-base.md ~/.claude/skills/roadmap/SKILL.md
+RM_BASE="$(mktemp "${TMPDIR:-/tmp}/rm-base.XXXXXX")" || exit 1
+git -C <jleechan-skills-worktree> show origin/main:.claude/skills/roadmap/SKILL.md > "$RM_BASE" || {
+  echo "Cannot read the published baseline; nothing was compared." >&2; exit 1; }
+diff -u "$RM_BASE" ~/.claude/skills/roadmap/SKILL.md
 ```
 
 An empty diff means the two copies agree and the edit may proceed. Any non-empty
@@ -178,7 +180,11 @@ After editing the repository copy, propagate and verify exact hashes:
 
 ```bash
 cp <repo>/.claude/skills/roadmap/SKILL.md ~/.claude/skills/roadmap/SKILL.md
-shasum -a 256 <repo>/.claude/skills/roadmap/SKILL.md ~/.claude/skills/roadmap/SKILL.md
+if command -v sha256sum >/dev/null 2>&1; then
+  sha256sum <repo>/.claude/skills/roadmap/SKILL.md ~/.claude/skills/roadmap/SKILL.md
+else
+  shasum -a 256 <repo>/.claude/skills/roadmap/SKILL.md ~/.claude/skills/roadmap/SKILL.md
+fi
 ```
 
 The two digests must match before the change is called synchronized. `~/.agents/skills/roadmap`
