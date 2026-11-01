@@ -139,15 +139,18 @@ ADVICE_EXTRA_CLIS='gemini-cli=gemini --approval-mode yolo -p|local-qwen=qwen -p'
 ```
 
 Rules:
-- Split on `|`, then on the **first** `=`; the label is the seat name used in the receipt, the right side is
-  an executable plus literal arguments tokenized with `shlex`, exactly like the built-in seats. No shell
-  evaluation, glob expansion, command substitution or `~` expansion beyond what the process environment
-  already provides; quotes group one literal argument.
-- The review request is appended as one final argument. If the right side contains `{prompt}`, that token is
-  replaced by the request text instead and nothing is appended.
-- An unparseable entry, an empty label, or an executable that is not found makes that seat `UNAVAILABLE`; it
-  never silently falls back to another seat and never becomes a second vote from the same identity.
-- These seats obey the same independence, deadline, evidence and receipt rules as the built-in ones. Extra
+- Seat separation is honoured **outside quotes**: scan the value with shell-style quoting, treat `|` as a separator
+  only when it is not inside quotes, then for each seat take everything before the first unquoted `=` as the label
+  and `shlex` the remainder as the executable plus literal arguments. A quoted argument may therefore contain `|` or
+  `=` without breaking the parse.
+- No shell evaluation, glob expansion, command substitution or `~` expansion beyond what the process
+  environment already provides; quotes group one literal argument.
+- `{prompt}` may appear as a whole token or inside a token (for example `--print={prompt}`); each occurrence is
+  replaced by the request text, and only when no occurrence exists is the request appended as one final argument.
+- An entry with an empty label, an empty right-hand side, a duplicate label, an unparseable remainder, or a missing
+  or non-executable program makes **that seat `UNAVAILABLE`**. It never silently falls back to another seat and never
+  becomes a second vote from the same identity another seat already used.
+These seats obey the same independence, deadline, evidence and receipt rules as the built-in ones. Extra
   seats never replace the required Claude or Codex vote: they fill an unfilled slot only when the built-in
   seat is genuinely unavailable.
 
@@ -215,22 +218,21 @@ succeeded without receipt evidence.
 
 ## 4. Isolate review copies
 
-Before taking snapshots for a revision review, materialize the requested commit
-in a standalone donor repository with independent Git metadata; do not use a
-linked worktree. Verify the donor's Git directory is a real directory,
-`git rev-parse --git-common-dir` resolves to the same directory as
-`git rev-parse --git-dir`, its `HEAD` equals the requested review SHA, and the
-required base resolves to its recorded SHA. Run the existing revision-review
-workflow from that donor so its original-checkout, ref, config, and hook
-mutation checks continue to apply to the donor. Document-only reviews retain
-the existing named saved-Markdown-byte overlay and per-file/bundle hash checks;
-they require no donor, commit, or Git context SHA.
+The orchestrator performs the setup; the seats only review.
 
-Revision mode uses independent temporary clones without an `origin` remote, each pinned to the same exact SHA,
-and the orchestrator owns their creation and cleanup. Document-only mode makes **no clone at all**: the
-orchestrator supplies the named Markdown files as saved bytes (packet plus hashes) and each seat reads only those,
-so no clone path is recorded and nothing needs cleaning up. Unrelated code stays outside the review scope in both
-modes. Copy isolation protects Git
+**Revision mode.** Build one standalone donor repository for the requested commit with independent Git metadata -
+never a linked worktree. Verify the donor's Git directory is a real directory, `git rev-parse --git-common-dir`
+resolves to the same directory as `git rev-parse --git-dir`, its `HEAD` equals the requested review SHA, and the
+required base resolves to its recorded SHA. Then create one temporary clone per seat from that donor, with no
+`origin` remote, pinned to the same exact SHA, and **launch each seat with its working directory set to that seat's
+own clone** so it never touches the donor, the original checkout, or another seat's copy. Record that clone path in
+the seat's receipt as the actual clone path, and clean up every clone afterwards, verifying the cleanup.
+
+**Document-only mode.** No donor and no clone: the orchestrator supplies the named Markdown files as saved bytes
+with per-file and bundle SHA256 hashes, and each seat reads only those. Record `none` for the clone path, and never
+claim a clone was made or cleaned up. Unrelated code stays outside the review scope in both modes.
+
+Copy isolation protects Git
 metadata and review state, not the host: it is not an OS sandbox and does not
 restrict network, environment, or process creation. Full-permission execution
 preserves the requested reviewer transport; it does not authorize unrelated

@@ -22,10 +22,11 @@ class AdviceMachineLocalCliTest(unittest.TestCase):
     def test_extra_cli_registration_is_documented_with_safe_parsing(self):
         section = " ".join(self.text.split("### `ADVICE_EXTRA_CLIS`", 1)[1].split("## 3.", 1)[0].split())
         self.assertIn("seats separated by `|`", section)
-        self.assertIn("Split on `|`, then on the **first** `=`", section)
+        self.assertIn('Seat separation is honoured **outside quotes**', section)
+        self.assertIn('duplicate label', section)
         self.assertIn("{prompt}", section)
         self.assertIn("No shell evaluation", section)
-        self.assertIn("makes that seat `UNAVAILABLE`", section)
+        self.assertIn("makes **that seat `UNAVAILABLE`**", section)
         self.assertIn("never becomes a second vote from the same identity", section)
 
     def test_no_machine_specific_configuration_is_committed(self):
