@@ -140,7 +140,7 @@ class CoordinatorWorkflowTests(unittest.TestCase):
         self.assertIn('Different body wording is never a duplicate', rule)
         self.assertIn('smaller than the shortest configured gap between one account\'s runs', rule)
         step4 = " ".join(text.split('4. **Stay a reminder.**', 1)[1].split('5. **Inspect', 1)[0].split())
-        self.assertIn('the last four hours of rendered messages (read back as far as needed to cover them; if the thread is shorter, read all of it) in either mode', step4)
+        self.assertIn('until four hours or 200 messages is reached', step4)
 
     def test_proceed_window_is_time_measured_and_idle_gated(self):
         text = SKILL.read_text()
@@ -153,10 +153,10 @@ class CoordinatorWorkflowTests(unittest.TestCase):
         flat = " ".join(nudge.split())
         self.assertIn('idle-gate: dot active since', flat)
         self.assertIn('idle-gate: recent nudge', flat)
-        self.assertIn('not idle-gated', flat)
-        self.assertIn('no new Dot-authored turn has appeared since this host\'s previous coordinator message', flat)
-        self.assertIn('in the last 30 minutes', flat)
-        self.assertIn('send nothing and report the gate result', flat)
+        self.assertIn('is **not** idle-gated', flat)
+        self.assertIn('The Dot has not spoken since our last message', flat)
+        self.assertIn('No coordinator message in the last 30 minutes', flat)
+        self.assertIn('The strictest gate wins', flat)
 
     def test_stamp_only_messages_are_blocked(self):
         text = SKILL.read_text()
