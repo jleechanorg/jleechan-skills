@@ -43,10 +43,9 @@ DOCUMENTS sha256:<BUNDLE HASH> (WITHHELD with a reason).
 
 ## 3. Channel preambles
 
-For the primary-pair runner, its built-in header (the exact-SHA or
-document-only lines in `run_primary_pair.py`) is that channel's preamble, and
-`--packet-file` must contain exactly the filled template. The runner records
-the exact prompt in `receipt.json` as `prompt` and `prompt_sha256`. For CLI
+Each channel's preamble is the exact-SHA or document-only header the orchestrator adds when it launches that
+seat, and the packet must contain exactly the filled template. The orchestrator records the exact prompt in
+`receipt.json` as `prompt` and `prompt_sha256`. For CLI
 alternates, each `<review request>`, and the stdin of forms without one, is
 exactly the preamble plus the template.
 
@@ -54,7 +53,12 @@ Coordinator ask (for example a Dot reviewer channel): the configured account
 mentions, then `Advice vote requested.` on its own line, then the template.
 Send it to each configured coordinator account in rotation.
 
-Revision preamble for CLI alternates and static reviewers (verbatim):
+The revision and document-only preambles below apply to **every** CLI reviewer seat - Codex, Opus, the Claude
+alternates, Cursor, AGY and any `ADVICE_EXTRA_CLIS` seat - and to static reviewers. They replace the header the
+deleted helper used to inject; there is no other header to match, so a seat launched without one
+cannot produce a byte-identical prompt and its vote is void.
+
+Revision preamble for every CLI seat and for static reviewers (verbatim):
 
 ```text
 Work in a fresh clone of the PR repository without an `origin` remote, pinned
@@ -63,7 +67,7 @@ never print it. Do not modify the original checkout, refs, config or hooks. Do
 not post anything; return your review as your final output.
 ```
 
-Document-only preamble for CLI alternates and static reviewers (verbatim):
+Document-only preamble for every CLI seat and for static reviewers (verbatim):
 
 ```text
 Read only the named saved files in the given packet, checking each against its
@@ -89,12 +93,12 @@ post; the orchestrator publishes verdicts through pr-lifecycle.
 Every reviewer receipt records the reviewer identity (type, harness and model),
 the exact SHA or bundle hash, orchestrator launch and return times, the exact
 prompt sent, a `COVERAGE:` statement, the `VERDICT:` line, the actual clone path
-whenever one exists (the primary-pair runner clones for document-only review
-too; record `none` only when no clone was made), and a read-only check that the original checkout,
+whenever one exists (document-only review launches no clone, so record `none`
+there), and a read-only check that the original checkout,
 refs, local config and hooks are unchanged. The orchestrator also verifies and
 records that no reviewer process survives and that clone cleanup succeeded. For
-a static-review subagent this receipt replaces only the runner exit field of
-the runner receipt. When publishing a receipt outside the authorized
+a static-review subagent this receipt replaces only the seat-exit field of the
+seat receipt. When publishing a receipt outside the authorized
 workspace, publish only the prompt's SHA256 and template name if any filled
 field (PR URL, packet path) or other content could carry private paths, hosts,
 repository names or tokens; otherwise remove those values before publishing.

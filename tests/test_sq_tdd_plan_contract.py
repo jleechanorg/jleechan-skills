@@ -76,8 +76,7 @@ class SqTddPlanContractTest(unittest.TestCase):
         self.assertIn('case "$PLAN_PATH" in', text)
         self.assertIn('PLAN_DOCUMENT="${PLAN_PATH#"$ROADMAP_REPO"/}"', text)
         self.assertIn(
-            '--repo "$ROADMAP_REPO" --document "$SPEC_DOCUMENT" '
-            '--document "$PLAN_DOCUMENT"',
+            'document-review mode (its \u00a71) on `$SPEC_DOCUMENT` and `$PLAN_DOCUMENT`',
             text,
         )
         self.assertNotIn('--document "$SPEC_PATH"', text)
