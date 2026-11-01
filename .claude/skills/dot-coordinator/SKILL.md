@@ -229,11 +229,13 @@ peer up in `COORDINATOR_HOST_PRIORITIES`, then:
   so it is valid only after the scan proved the window itself was covered.
 - **Takeover.** When the newest higher-priority message is at least `COORDINATOR_TAKEOVER_HOURS` old, this host
   may send and report `takeover: <machine> silent <age>` - that is how it activates when the primary died, was
-  retired, or keeps failing, without any shared lock or lease. **Coverage must span the window, and that rule gates every send** - this
-  bullet and the "no higher-priority host" case above. A busy thread can push the primary's message past the last
+  retired, or keeps failing, without any shared lock or lease. **Coverage must span the window, and that rule gates every standby send** - this
+  bullet and the "no higher-priority host" case above, for any host whose priority is above 1. The primary
+  (priority 1) is never gated by coverage, because nothing outranks it; it still reports how far it scanned. A busy thread can push the primary's message past the last
   20 turns, so scan back until a higher-priority message appears or the oldest rendered message is itself at least
   `COORDINATOR_TAKEOVER_HOURS` old. If neither holds, the scan cannot establish silence: send nothing and report
-  `coverage-incomplete`. A short window never authorizes a send, and an unproven absence never counts as silence.
+  `coverage-incomplete`. A conversation younger than the window is covered when its oldest message is older than
+  its own start - that is, the scan reached the beginning of the thread - so a young thread is not stuck. A short window never authorizes a send, and an unproven absence never counts as silence.
 - **Own machine.** Messages carrying this machine's own label never count as peer activity and never trigger a
   standdown; the same-machine duplicate window below still suppresses this machine's own recent identical copy.
 - **Unknown evidence.** An unparseable stamp, a future stamp, a message without a label, or a label missing
