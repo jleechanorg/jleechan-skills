@@ -88,8 +88,7 @@ def main():
     if sys.platform == 'darwin': mcp_args += ['--headless', '--chromeArg=--password-store=keychain']
     else:
         if not (os.environ.get('DISPLAY') or os.environ.get('DBUS_SESSION_BUS_ADDRESS')): raise Blocked('Linux keychain session is unavailable')
-        mcp_args.append('--chromeArg=--password-store=gnome-libsecret')
-        if not os.environ.get('DISPLAY'): mcp_args.append('--headless')
+        mcp_args += ['--headless', '--chromeArg=--password-store=gnome-libsecret']
     with tempfile.TemporaryDirectory(prefix='dot-agent-', dir='/tmp') as run_dir:
         project = Path(run_dir) / '.pi'
         project.mkdir(mode=0o700)

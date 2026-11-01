@@ -21,6 +21,7 @@ DIRECTIVES = {
 MODE_DECLARATION = re.compile(r"coordination\s+mode\s*:", re.IGNORECASE)
 IDENTITY = re.compile(r"[0-9a-fA-F]{64}\Z")
 ACCOUNT = re.compile(r"[A-Za-z0-9._@+-]{1,160}\Z")
+HOST_LABEL = re.compile(r"[A-Za-z0-9._-]{1,64}\Z")
 TEMPLATES = Path(__file__).resolve().parents[1] / "templates"
 
 
@@ -60,6 +61,48 @@ def scheduled_runs(rows):
     return runs
 
 
+def configured_minutes(config, host):
+    """Host cadence: an explicit `minutes` list wins over the platform default."""
+    default = MAC_MINUTES if host == "macos" else LINUX_MINUTES
+    minutes = config.get("minutes", list(default))
+    if (not isinstance(minutes, list) or len(minutes) != 3
+            or any(type(minute) is not int or not 0 <= minute <= 59 for minute in minutes)
+            or len(set(minutes)) != 3):
+        fail("minutes must be three distinct whole minutes from 0 to 59")
+    return tuple(minutes)
+
+
+def configured_hosts(config, host_label, host_priority):
+    """Optional host map: label -> priority, so a run can rank peers it can only see by label."""
+    hosts = config.get("hosts")
+    if hosts is not None and not host_label:
+        fail("a hosts map requires host_label so this host can be ranked")
+    if hosts is None:
+        if host_priority > 1:
+            fail("a host with host_priority above 1 requires host_label and a complete hosts map")
+        return host_priority, None
+    if not isinstance(hosts, list) or len(hosts) < 2:
+        fail("hosts must list at least two {label, priority} entries")
+    labels, priorities = set(), set()
+    for entry in hosts:
+        if not isinstance(entry, dict):
+            fail("hosts entries must be objects with label and priority")
+        label, priority = entry.get("label"), entry.get("priority")
+        if not isinstance(label, str) or not HOST_LABEL.fullmatch(label):
+            fail("hosts labels must match [A-Za-z0-9._-]{1,64}")
+        if type(priority) is not int or not 1 <= priority <= 9:
+            fail("hosts priorities must be whole numbers from 1 to 9")
+        if label.lower() in labels or priority in priorities:
+            fail("hosts must have unique labels (case-insensitive) and unique priorities")
+        labels.add(label.lower())
+        priorities.add(priority)
+    if (host_label or "").lower() not in labels:
+        fail("host_label must appear in hosts")
+    own = next(entry["priority"] for entry in hosts if entry["label"].lower() == (host_label or "").lower())
+    ordered = sorted(hosts, key=lambda entry: entry["priority"])
+    return own, ",".join(f"{entry['label']}={entry['priority']}" for entry in ordered)
+
+
 def configured_cli(config):
     if "cli" in config and "pi_bin" in config:
         fail("configure either cli or pi_bin, not both")
@@ -87,7 +130,7 @@ def render(config_path, output, host):
     config = private_json(config_path)
     if config.get("version") != 1 or config.get("host_role") != host:
         fail("configuration version or host role does not match")
-    minutes = MAC_MINUTES if host == "macos" else LINUX_MINUTES
+    minutes = configured_minutes(config, host)
     rows = config.get("accounts")
     if not isinstance(rows, list) or len(rows) != 3:
         fail("exactly three ordered account bindings are required")
@@ -108,6 +151,16 @@ def render(config_path, output, host):
         if not isinstance(details, dict) or not details.get("user_data_dir"):
             fail("a scheduled account is missing from Dot configuration")
     runs = scheduled_runs(rows)
+    takeover_hours = config.get("takeover_hours", 2)
+    if type(takeover_hours) is not int or not 1 <= takeover_hours <= 48:
+        fail("takeover_hours must be a whole number of hours from 1 to 48")
+    host_priority = config.get("host_priority", 1)
+    if type(host_priority) is not int or not 1 <= host_priority <= 9:
+        fail("host_priority must be a whole number from 1 to 9")
+    host_label = config.get("host_label")
+    if host_label is not None and (not isinstance(host_label, str) or not HOST_LABEL.fullmatch(host_label)):
+        fail("host_label must match [A-Za-z0-9._-]{1,64}")
+    host_priority, host_map = configured_hosts(config, host_label, host_priority)
     pi, cli_args = configured_cli(config)
     mcp = Path(config.get("chrome_devtools_mcp_js", "")).expanduser()
     if not pi.is_absolute() or not pi.is_file() or not os.access(pi, os.X_OK):
@@ -136,6 +189,10 @@ def render(config_path, output, host):
             "DOT_CONFIG_FILE": str(dot_path),
             "DOT_EXPECTED_IDENTITY_SHA256": row["identity_sha256"],
             "COORDINATOR_MODE": mode,
+            **({"COORDINATOR_HOST_LABEL": host_label} if host_label else {}),
+            "COORDINATOR_TAKEOVER_HOURS": str(takeover_hours),
+            "COORDINATOR_HOST_PRIORITY": str(host_priority),
+            **({"COORDINATOR_HOST_PRIORITIES": host_map} if host_map else {}),
             "COORDINATOR_TASK": task,
             "PI_BIN": str(pi),
             "COORDINATOR_CLI_ARGS": json.dumps(cli_args),
@@ -146,7 +203,7 @@ def render(config_path, output, host):
             label = f"ai.dot-coordinator.{minute:02d}{suffix}"
             substitutions = {"@HOME@": str(home), "@MINUTE@": f"{minute:02d}", "@ACCOUNT@": key,
                              "@DOT_CONFIG_FILE@": str(dot_path), "@IDENTITY_SHA256@": row["identity_sha256"],
-                             "@TASK@": task, "@MODE@": mode, "@PI_BIN@": str(pi), "@MCP_JS@": str(mcp), "@PATH@": path}
+                             "@TASK@": task, "@MODE@": mode, "@HOST_LABEL@": host_label or "", "@TAKEOVER_HOURS@": str(takeover_hours), "@HOST_PRIORITY@": str(host_priority), "@PI_BIN@": str(pi), "@MCP_JS@": str(mcp), "@PATH@": path}
             source = (TEMPLATES / "launchd-agent.plist.in").read_text()
             for token, value in substitutions.items():
                 source = source.replace(token, html.escape(value, quote=False))

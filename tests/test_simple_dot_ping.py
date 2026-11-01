@@ -37,6 +37,13 @@ class LauncherContractTests(unittest.TestCase):
                 with self.assertRaisesRegex(PING.Blocked, 'identity binding'):
                     PING.main()
 
+    def test_chrome_is_headless_on_every_platform(self):
+        src = SCRIPT.read_text()
+        self.assertNotIn("if not os.environ.get('DISPLAY'): mcp_args.append('--headless')", src)
+        self.assertIn("mcp_args += ['--headless', '--chromeArg=--password-store=gnome-libsecret']", src)
+        self.assertIn("mcp_args += ['--headless', '--chromeArg=--password-store=keychain']", src)
+        self.assertIn('headless on every host', (ROOT / '.claude/skills/dot-coordinator/SKILL.md').read_text())
+
     def test_dangling_singleton_lock_is_detected(self):
         import tempfile
         with tempfile.TemporaryDirectory(dir='/tmp') as temp:
