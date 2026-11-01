@@ -1,0 +1,11 @@
+[Unit]
+Description=Dot coordinator cadence for account @ACCOUNT@
+
+[Timer]
+OnCalendar=*-*-* *:@MINUTE@:00
+AccuracySec=1min
+Persistent=false
+Unit=@UNIT@.service
+
+[Install]
+WantedBy=timers.target

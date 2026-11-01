@@ -226,32 +226,7 @@ function assertExistingProfileAvailable(dir) {
   } catch {
     existingProfileUnavailable('profile_owner_unknown');
   }
-  const processes = processTable.split('\n').flatMap((line) => {
-    const match = line.match(/^\s*(\d+)\s+(\d+)\s+(.*)$/);
-    return match ? [{ pid: Number(match[1]), ppid: Number(match[2]), command: match[3] }] : [];
-  });
-  const processByPid = new Map(processes.map((entry) => [entry.pid, entry]));
-  const ancestorPids = new Set();
-  for (let p = process.ppid; p > 1 && !ancestorPids.has(p); p = processByPid.get(p)?.ppid || 0) {
-    ancestorPids.add(p);
-  }
-  const profileLockPath = path.join(dir, '.dot-profile.lock');
-  const ownLockHolder = (entry) => {
-    if (!ancestorPids.has(entry.ppid)) return false;
-    const argvSuffix = ` - ${profileLockPath} ${profileLockPath}.ready.`;
-    const suffixIndex = entry.command.lastIndexOf(argvSuffix);
-    if (suffixIndex < 0) return false;
-    const executablePrefix = entry.command.slice(0, suffixIndex);
-    if (/\s/.test(executablePrefix)) return false;
-    const readyToken = entry.command.slice(suffixIndex + argvSuffix.length);
-    return /^(?:python(?:\d+(?:\.\d+)*)?|Python)$/.test(path.basename(executablePrefix)) &&
-      /^[A-Za-z0-9]{6}$/.test(readyToken);
-  };
-  if (processTable.split('\n').some((line) => {
-    if (!line.includes(dir)) return false;
-    const match = line.match(/^\s*(\d+)\s+(\d+)\s+(.*)$/);
-    return !match || !ownLockHolder({ ppid: Number(match[2]), command: match[3] });
-  })) {
+  if (processTable.split('\n').some((line) => line.includes(dir))) {
     existingProfileUnavailable('profile_owner_present');
   }
 }

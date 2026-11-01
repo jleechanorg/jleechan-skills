@@ -92,16 +92,16 @@ tools:
       "raw_data": "Complete neutral description of what was observed"
     }
   ],
-  "artifacts_directory": "docs/test_evidence_2025-01-06/",
+  "artifacts_directory": "/tmp/<repo>/evidence/<unique-run-dir>/",
   "execution_notes": "Neutral observations about execution environment, issues encountered, etc."
 }
 ```
 
 ## File Organization
-- **Screenshots**: `docs/test_evidence_{timestamp}/screenshots/`
-- **Logs**: `docs/test_evidence_{timestamp}/logs/`
-- **Evidence Package**: `docs/test_evidence_{timestamp}/evidence_package.json`
-- **Console Output**: `docs/test_evidence_{timestamp}/console/`
+- **Screenshots**: `/tmp/<repo>/evidence/<unique-run-dir>/screenshots/`
+- **Logs**: `/tmp/<repo>/evidence/<unique-run-dir>/logs/`
+- **Evidence Package**: `/tmp/<repo>/evidence/<unique-run-dir>/evidence_package.json`
+- **Console Output**: `/tmp/<repo>/evidence/<unique-run-dir>/console/`
 
 ## Key Success Metrics
 1. **Complete Evidence Collection**: Every requirement has corresponding evidence

@@ -34,6 +34,9 @@ class CopilotCommandBase(ABC):
         self.start_time = datetime.now()
         self.repo = self._get_repo_info()
         self.current_branch = self._get_current_branch()
+        # Producers that persist fetched data can fail closed on any API error;
+        # a valid empty response remains distinguishable from a failed command.
+        self.fetch_errors: List[str] = []
 
         # No caching - always fetch fresh data from GitHub API
 
@@ -133,7 +136,9 @@ class CopilotCommandBase(ABC):
                         try:
                             items.append(json.loads(line))
                         except json.JSONDecodeError:
-                            continue
+                            message = f"JSON parsing error in paginated response: {line[:120]}"
+                            self.log_error(message)
+                            self.fetch_errors.append(message)
                 return items
 
             # Single JSON object/array OR user-provided --jq output
@@ -148,15 +153,21 @@ class CopilotCommandBase(ABC):
                             try:
                                 items.append(json.loads(line))
                             except json.JSONDecodeError:
-                                continue
+                                message = f"JSON parsing error in paginated response: {line[:120]}"
+                                self.log_error(message)
+                                self.fetch_errors.append(message)
                     return items
                 raise
 
         except subprocess.CalledProcessError as e:
-            self.log_error(f"GitHub CLI error: {e.stderr}")
+            message = f"GitHub CLI error: {e.stderr or e}"
+            self.log_error(message)
+            self.fetch_errors.append(message)
             return [] if is_paginated else {}
         except json.JSONDecodeError as e:
-            self.log_error(f"JSON parsing error: {e}")
+            message = f"JSON parsing error: {e}"
+            self.log_error(message)
+            self.fetch_errors.append(message)
             return [] if is_paginated else {}
 
     # JSON file operations removed - using stateless approach

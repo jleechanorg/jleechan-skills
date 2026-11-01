@@ -31,6 +31,20 @@ def read_frontmatter(text: str) -> dict:
 
 
 class LLMBackendIsolationContractsTest(unittest.TestCase):
+    def test_portable_skills_defer_request_policy_to_active_repository(self):
+        zfc_text = read_skill("zero-framework-cognition")
+        legacy_text = read_skill("no-second-llm-calls")
+
+        self.assertIn("active repository owns", zfc_text.lower())
+        self.assertIn("request accounting", zfc_text.lower())
+        self.assertIn("local coding", zfc_text.lower())
+        self.assertIn("subagent", zfc_text.lower())
+        self.assertNotIn("per logical player", zfc_text.lower())
+        self.assertNotIn("one external application", zfc_text.lower())
+        self.assertNotIn("One LLM call per user action", legacy_text)
+        self.assertNotIn("world_logic.py", legacy_text)
+        self.assertIn("active repository", legacy_text.lower())
+
     def test_all_affected_skills_have_portable_frontmatter(self):
         allowed_keys = {
             "name",
@@ -61,7 +75,10 @@ class LLMBackendIsolationContractsTest(unittest.TestCase):
         self.assertIn("ROOT CAUSE ROUTE: BACKEND", skill_text)
         self.assertIn("ROOT CAUSE ROUTE: UNDER-INSTRUMENTED", skill_text)
 
-        self.assertNotIn("`.claude/skills/", skill_text)
+        for discovery_root in (".claude", ".agents", ".codex"):
+            self.assertIn(
+                f"`{discovery_root}/skills/root-cause-first/SKILL.md`", skill_text
+            )
         self.assertIn("/llm-first", skill_text)
         self.assertIn("/backend-first", skill_text)
 
@@ -96,6 +113,33 @@ class LLMBackendIsolationContractsTest(unittest.TestCase):
             with self.subTest(consumer=consumer_path.relative_to(REPO_ROOT)):
                 consumer_text = consumer_path.read_text(encoding="utf-8")
                 self.assertIn("review-only mode", consumer_text)
+
+
+    def test_root_cause_first_repository_precedence_and_mode_boundaries(self):
+        skill = " ".join(read_skill("root-cause-first").split())
+        command = " ".join(read_command("root-cause-first").split())
+
+        for contract in (
+            "On every invocation",
+            "Repository policy is PRIMARY",
+            "higher-priority instructions",
+            "follow its required companion discovery",
+            "Load that local policy once",
+            "without rediscovering or reinvoking the local entrypoint",
+            "explicitly report that none was found",
+            "An unreadable policy is not an absent policy",
+            "continue independent authorized work",
+            "fresh causal failing test before changing behavior",
+            "tested process's true exit status",
+            "execute only already-authorized steps",
+            "Investigation alone does not authorize repairs",
+        ):
+            with self.subTest(contract=contract):
+                self.assertIn(contract, skill)
+        self.assertIn("from repository instructions first", skill)
+        self.assertIn("Resolve review-only versus diagnostic/fix mode", command)
+        self.assertIn("active request", command)
+        self.assertNotIn("execute it in direct diagnostic mode", command)
 
     def test_all_isolation_skills_exclude_project_specific_contracts(self):
         for name in (

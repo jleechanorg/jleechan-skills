@@ -11,13 +11,13 @@ Prove user-visible behavior in a way reviewers and agents can verify quickly fro
 
 ## When UI Video Is Mandatory
 
-UI/browser video is mandatory whenever work is user-facing, including:
+Apply the narrow proportional exceptions in [pr-lifecycle](../pr-lifecycle/SKILL.md) first. Source-only harmless display-copy may justify media N/A; a bounded static-copy rendering claim may use an actual screenshot. Other UI/browser video is mandatory for user-facing behavior, including:
 - Visual/UI layout or styling changes
 - Click flows, form submit flows, navigation, or modal behavior
 - New/changed browser interactions
 - Any claim of visual correctness or lack of visual regression
 
-If a PR touches user-facing behavior, missing UI video is an evidence failure.
+Outside those explicit exceptions, missing applicable UI video is an evidence failure. Never waive requested interaction, streaming or native proof by calling it a string change.
 
 ## Required Outputs
 
@@ -35,7 +35,7 @@ Each UI evidence run must provide:
 
 Before choosing how to capture evidence, check whether the target repo has its
 own browser-execution owner (e.g. `testing_ui/CLAUDE.md`,
-`~/.claude/skills/browser-testing/SKILL.md`). If a scoped owner exists and
+`../browser-testing/SKILL.md`). If a scoped owner exists and
 forbids headed/manual capture or Claude-in-Chrome, its policy wins — use its
 designated headless tool (Aside CLI/`aside-mcp`, or headless Playwright). Do
 not escalate to a native-chrome/manual-capture requirement, and do not ask for
@@ -54,16 +54,18 @@ documented as blocked.
 
 ## Recording Options
 
-### Option 1: Scoped headless driver (Aside / Playwright) — DEFAULT when a repo forbids headed capture
-Follow `~/.claude/skills/browser-testing/SKILL.md`: drive the browser headlessly
+### Option 1: Scoped headless driver (Aside / Playwright) — DEFAULT
+Follow `../browser-testing/SKILL.md`: drive the browser headlessly
 via Aside CLI/`aside-mcp` or headless Playwright, log the navigated URL/route to
 the terminal or an overlay, and record with the scoped repo's own recorder
 (e.g. `testing_ui/streaming/base.py` `UIVideoRecorder`) or `ffmpeg` (Option 3).
 Never use `mcp__claude-in-chrome__*` or any headed browser for this path.
 
 ### Option 2: Manual desktop capture (Kap) — LAST RESORT ONLY
-Only when no repo-scoped headless policy exists AND native browser chrome is
-required. Do not use this when the repo forbids headed/manual capture.
+Only when the current thread explicitly requests visible capture, the browser
+is independently verified as task-owned, and the repo permits it. Absence of a
+repo prohibition is not authorization. Follow the shared browser-control owner;
+never use personal/default Chrome, its profiles or its cookies.
 ```bash
 brew install --cask kap
 ```
@@ -82,11 +84,11 @@ Accepted forms:
 1. Burned-in captions in the video (preferred)
 2. Sidecar caption file (`.vtt`/`.srt`) linked alongside the reviewed media artifacts
 
-Use `~/.claude/skills/video-caption/SKILL.md` for reliable burned-in captions.
+Use `../video-caption/SKILL.md` for reliable burned-in captions.
 
 ## Evidence access and authorized publication
 
-Follow `~/.claude/skills/evidence-standards/SKILL.md` for publication authority, audience, and destination. A PR, checked-in document, access-controlled receipt/store, or authorized gist may link the evidence. A gist or GitHub upload is not an independent acceptance requirement. Preserve real media, captions, exact source provenance, and reviewer access; publish only within the current authorization.
+Follow `../evidence-standards/SKILL.md` for publication authority, audience, and destination. A PR, checked-in document, access-controlled receipt/store, or authorized gist may link the evidence. For PRs governed by pr-lifecycle, its review receipts belong in the PR description; opted-in repositories also link every stage-exit receipt through its required sanitized gist URL. Applicable inline viewable media and original media URLs are required there. Other authorized artifact storage does not remove that description/publication requirement. Preserve real media, captions, exact source provenance, and reviewer access; publish only within the current authorization.
 
 The following GitHub release example applies only when that destination is authorized. Verify the intended PR exists via `gh pr view` before creating any release or upload. Caller must provide non-empty `VIDEO_FILE` and `PREVIEW_FILE` artifacts, an explicit non-empty `RUN_ID`, an explicit non-empty `CAPTURED_SHA` matching the PR head SHA, and declare an explicit caption choice: set `CAPTION_FILE` to the actual .vtt or .srt sidecar path, or set `CAPTION_MODE=burned` when captions are burned into the video. All media and subtitle formats are verified with ffprobe prior to archive creation and publication. Packaging creates a new archive in a private temporary directory so existing user archives are never overwritten or updated with stale entries. Each run publishes to an immutable unique release tag combining the PR number, commit SHA, and run identifier without overwriting or clobbering existing releases.
 
@@ -241,9 +243,14 @@ The following GitHub release example applies only when that destination is autho
   sha_short="${CAPTURED_SHA:0:12}"
   tag="evidence-pr-${PR_NUMBER}-${sha_short}-${RUN_ID}"
 
-  archive_dir="$(mktemp -d "${TMPDIR:-/tmp}/evidence_archive.XXXXXX")"
-  trap 'rm -rf "$archive_dir"' EXIT
+  archive_scratch="$("${CLAUDE_HOME:-$HOME/.claude}/skills/scratch-space/scripts/scratch-dir.sh" tmp)"
+  if [ -z "$archive_scratch" ]; then
+    echo "Scratch resolver returned an empty path; refusing archive allocation" >&2
+    exit 75
+  fi
+  archive_dir="$(mktemp -d "$archive_scratch/evidence_archive.XXXXXX")"
   zip_file="$archive_dir/$(basename "$video_file").zip"
+  trap 'rm -f -- "$zip_file"; rmdir -- "$archive_dir"' EXIT
   zip -j "$zip_file" "$video_file"
 
   assets=("$zip_file" "$preview_file")
@@ -293,9 +300,9 @@ The following GitHub release example applies only when that destination is autho
 )
 ```
 
-From the JSON output returned by `gh release view`, extract the uploaded asset URLs and construct `/tmp/evidence_comment.md`. Do not guess draft asset download URLs or invent placeholder URLs.
+From the JSON output returned by `gh release view`, extract the uploaded asset URLs and construct `the canonical Scratch comment body`. Do not guess draft asset download URLs or invent placeholder URLs.
 
-Once `/tmp/evidence_comment.md` is constructed, post the comment to the authorized PR:
+Once `the canonical Scratch comment body` is constructed, post the comment to the authorized PR:
 
 ```bash
 (
@@ -357,7 +364,8 @@ Once `/tmp/evidence_comment.md` is constructed, post the comment to the authoriz
     exit 1
   fi
 
-  comment_file="${COMMENT_FILE:-/tmp/evidence_comment.md}"
+  comment_scratch="$("${CLAUDE_HOME:-$HOME/.claude}/skills/scratch-space/scripts/scratch-dir.sh" tmp)"
+  comment_file="${COMMENT_FILE:-$comment_scratch/evidence_comment.md}"
   if [ ! -s "$comment_file" ]; then
     echo "Error: Comment body file '$comment_file' does not exist or is empty" >&2
     exit 1
@@ -451,6 +459,62 @@ Rules:
 5. URL and route match claim
 6. Git SHA linkage is visible
 7. The reviewed evidence receipt includes matching metadata/caption artifacts
+8. mpdecimate retained-frame count reported as kept/nominal (see Frozen-frame detection); clips under the threshold are INSUFFICIENT
+9. Each clip contains the user action itself plus the before state
+10. Before/after provenance is fresh runs of each build, or labeled `derived` with source
+11. `/er` and second-opinion (`advice` skill) verdicts come from a different agent/lane than the evidence producer, and name that lane
+12. An independent AI reviewer (not the author or orchestrator) judged frames extracted from the
+    published video against each acceptance step, with PASS/FAIL and timestamps;
+    privacy, playback, and upload checks are separate and do not substitute
+    (`evidence-review` check 4)
+
+## Frozen-frame and slideshow detection (MANDATORY)
+
+Report the mpdecimate **retained-frame count** (kept) and the nominal frame
+count for every clip. The probe must fail closed: a failed decode or empty count
+is an error, never "zero frames".
+
+```bash
+set -o pipefail
+kept=$(ffmpeg -nostdin -v error -i v.mp4 -vf mpdecimate -f null -progress pipe:1 - \
+  | grep -o '^frame=[0-9]*' | tail -1 | cut -d= -f2) || { echo "probe FAILED"; exit 1; }
+nominal=$(ffprobe -v error -count_frames -select_streams v:0 \
+  -show_entries stream=nb_read_frames -of csv=p=0 v.mp4) || { echo "ffprobe FAILED"; exit 1; }
+[ -n "$kept" ] && [ -n "$nominal" ] || { echo "count unavailable: FAILED"; exit 1; }
+echo "kept=$kept nominal=$nominal"
+```
+
+A clip is **INSUFFICIENT** (slideshow or frozen frame padded to length) when
+`kept < 10` **or** `kept/nominal < 5%`, unless the caption names the specific
+timestamps of the frames carrying the claim (the action frame and the DONE or
+after-state frame) and a reviewer confirms those frames show it. Mostly static
+app screens legitimately sit around 5-10%; a blinking caret or spinner can
+inflate `kept`, so the named action/state-change frame must be present in
+every case.
+
+## Action must be in the window (MANDATORY)
+
+Each clip must include the user action under test (for example the Send tap)
+and the before state that precedes it. A capture window anchored only to
+completion (e.g. trimmed to the DONE state) that omits the action fails.
+
+When the change's observable has no user action (first paint, an error state
+rendered on load, a theme token applied at mount), record this rule as N/A with
+the reason and instead provide a state-transition clip showing the before-state
+frame and the after-state frame.
+
+## Provenance of before/after clips (MANDATORY)
+
+Before and after clips must come from fresh runs of each build (baseline and
+candidate). Any re-cut, trimmed, or reused baseline clip must be labeled
+`derived` in its caption and receipt, with its source (original artifact URL,
+build SHA, and run). Unlabeled derived clips are INSUFFICIENT.
+
+## Reviewer independence
+
+`/er` and second-opinion (`advice` skill) verdicts on UI video evidence must come from an agent other
+than the one that produced the evidence. Self-review does not satisfy either
+gate.
 
 ## First-frame verification (MANDATORY)
 
@@ -476,6 +540,6 @@ When distributing video or visual evidence to Slack (channels, incident threads,
 - **NEVER** use text-only Slack MCP tools (`conversations_add_message`) to send bare paths or GitHub URLs. Text-only message tools do not render media inline.
 - **ALWAYS** use the dedicated uploader script:
   ```text
-  python3 ~/.claude/skills/slack-media-upload/scripts/slack_upload.py [--dm | --channel <id>] --file <path> [--title <title>...] [--thread-ts <ts>] [--comment <text>]
+  python3 ../slack-media-upload/scripts/slack_upload.py [--dm | --channel <id>] --file <path> [--title <title>...] [--thread-ts <ts>] [--comment <text>]
   ```
 - This wraps Slack's two-step `files.getUploadURLExternal` → `files.completeUploadExternal` API so videos and GIFs render directly inline in Slack.

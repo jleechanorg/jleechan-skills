@@ -261,7 +261,8 @@ class ReviewRegressionTests(unittest.TestCase):
      self.assertIn('UNAVAILABLE',text,p.parent.name)
      self.assertIn('leave any dependent readiness or plan-approval gate unmet',text,p.parent.name)
     self.assertIn('pr-green-definition',checked)
-    self.assertEqual(len(checked),16)
+    self.assertIn('pr-workflow-manager',checked)
+    self.assertEqual(len(checked),17)
     for n in ['advice','web-advice']:
      p=h/'.claude/skills'/n/'SKILL.md'
      if existing:

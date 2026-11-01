@@ -45,6 +45,7 @@ import re
 import subprocess
 import time
 from pathlib import Path
+from platform_policy import parse_platforms, selected
 
 MCP_URL = "http://127.0.0.1:8013/mcp"
 
@@ -313,18 +314,21 @@ def main():
     shot_dir = drafts_dir / "screenshots"
     shot_dir.mkdir(parents=True, exist_ok=True)
 
+    allow = parse_platforms(args.only)
+
     print("→ Init MCP session...", flush=True)
     session = mcp_init()
     print(f"   session-id: {session[:8]}\n", flush=True)
 
     targets = []
     for name, recipe in PLATFORMS.items():
-        if args.only and name not in args.only.split(","):
+        if not selected(name, allow):
             continue
         targets.append(("platform", name, recipe))
-    for sub in ["LocalLLaMA", "ClaudeAI", "singularity"]:
-        key = f"reddit_{sub.lower()}"
-        if args.only and key not in args.only.split(","):
+    for md in sorted(drafts_dir.glob("reddit_*.md")):
+        key = md.stem
+        sub = key.removeprefix("reddit_")
+        if not selected(key, allow):
             continue
         targets.append(("reddit", sub, {"sub": sub}))
 
