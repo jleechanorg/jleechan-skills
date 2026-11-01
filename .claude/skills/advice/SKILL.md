@@ -233,14 +233,17 @@ Every revision-mode receipt records exactly one `isolation:` value.
   donor at the review SHA with standalone git metadata (never a linked worktree), verifies `--git-common-dir` equals
   `--git-dir`, `HEAD` equals the review SHA, the base resolves to its recorded SHA and that base commit object is
   present, then creates one clone per seat in that seat's allocated scratch directory (never `/tmp`, never inside a
-  repository tree), with no `origin` remote. It re-runs those three checks on **each seat clone**, sets the clone as
-  that seat's working directory, records the path, and afterwards deletes every clone by its literal absolute path and
-  verifies the removal. A failed or unverified removal voids the vote.
+  repository tree), with no `origin` remote. It re-runs three of those checks on **each seat clone** - `--git-common-dir` equals
+  `--git-dir`, `HEAD` equals the review SHA, and the recorded base commit exists with the merge-base equal to that base -
+  sets the clone as that seat's working directory, records the path, and afterwards deletes every clone by its literal
+  absolute path and verifies the removal. A failed or unverified removal voids the vote, and a clone the seat failed to
+  delete is removed by the orchestrator by its literal path with the result recorded.
 - **`isolation: self-clone` — seats on this host with no working-directory parameter (a static-review subagent).** The
   orchestrator allocates one empty scratch directory per seat and passes the remote URL, the review SHA **and** the
-  recorded base SHA in the launch context. The seat clones into exactly that directory, fetches **both** commits, and
-  proves `rev-parse HEAD` equals the review SHA and `cat-file -e <base>^{commit}` succeeds with the merge-base equal to
-  the recorded base - never the remote's current default branch. It records `git remote -v` before removing `origin`,
+  recorded base SHA and the remote URL in the launch context (all four are defined template fields). The seat clones
+  into exactly that directory, fetches **both** commits, and proves `rev-parse HEAD` equals the review SHA and that the
+  recorded base commit exists with the merge-base between it and `HEAD` equal to the recorded base - never the remote's
+  current default branch. It records `git remote -v` before removing `origin`,
   records the absolute path, deletes the clone by that literal path before returning, and states `clone_removed: true`.
   The orchestrator counts the vote only when the path, the `remote -v` record, both SHA attestations and the removal
   statement are present **and** that path is absent from its own filesystem afterwards. The copy's provenance stays
@@ -249,13 +252,20 @@ Every revision-mode receipt records exactly one `isolation:` value.
   as saved bytes with per-file and bundle SHA256 hashes, each seat reads only those, and the receipt records
   `clone_path: none`, `clone_removed: n/a`.
 
+**What `<SCRATCH PATH>` means per record:** for `orchestrator-clone` it is the clone the orchestrator created and set as
+the seat's working directory; for `self-clone` it is the empty directory the orchestrator allocated and the seat must
+clone into. The template field carries the value that applies to that seat's record.
+
 **Eligibility.** Revision mode is available to the first two records only. A route that can neither take a working
 directory nor clone on this host - a remote coordinator ask - is `UNAVAILABLE` for revision mode with the failing
 condition named, and remains eligible for document-only mode. An unpushed SHA cannot use `self-clone`, because the
 remote cannot serve it.
 
+**The recorded base is the merge-base at pinning time**, so a PR that is behind its base still resolves, and both
+records apply the same check rather than one comparing tips and the other comparing merge-bases.
+
 **The donor is internal staging.** It is never a seat's working directory, never inside a clone, never shared between
-seats, and it is removed after the attempt. Only `orchestrator-clone` consumes it; `self-clone` binds to the same
+seats; the orchestrator removes it after the attempt and verifies that removal. Only `orchestrator-clone` consumes it; `self-clone` binds to the same
 recorded SHAs by attestation, so both routes review the identical base.
 
 **Host guards are part of the contract.** Clones live only in an allocated scratch directory, never `/tmp`, because

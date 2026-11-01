@@ -15,7 +15,7 @@ A static reviewer starts cold and blank, like a fresh terminal: no parent
 context, summary or framing of the change. Every reviewer's entire input,
 whether a CLI reviewer, the coordinator ask or a static-review subagent, is
 one fixed channel preamble below followed by one template below. Fill only `<PR
-URL>`, `<SHA>`, and for revision mode `<BASE SHA>` and `<SCRATCH PATH>`, or for document-only review `<PACKET PATH>` and `<BUNDLE
+URL>`, `<SHA>`, and for revision mode `<BASE SHA>`, `<REMOTE URL>` and `<SCRATCH PATH>`, or for document-only review `<PACKET PATH>` and `<BUNDLE
 HASH>`. The orchestrator writes nothing else.
 
 ## 2. Templates
@@ -23,7 +23,7 @@ HASH>`. The orchestrator writes nothing else.
 Static review prompt (skill-owned, verbatim):
 
 ```text
-Review <PR URL> at head <SHA> (base <BASE SHA>, work only in <SCRATCH PATH>). Ensure it follows the /prw stages and focus on
+Review <PR URL> at head <SHA> (remote <REMOTE URL>, base <BASE SHA>, work only in <SCRATCH PATH>). Ensure it follows the /prw stages and focus on
 evidence review before approval. Report P0/P1/P2 with file:line and a
 COVERAGE: line naming the files and diff you read; approve only with no P0/P1
 and full coverage; end with exactly one line:
@@ -63,10 +63,10 @@ Revision preamble for every CLI seat and for static reviewers (verbatim):
 ```text
 Work only in the isolated copy for this review. If the orchestrator set your
 working directory to a clone, use that and create no other. A static-review
-subagent instead clones the given SHA into the scratch directory the orchestrator
-allocated, fetches that SHA and the recorded base SHA (never the remote's current
-default branch), proves `HEAD` equals the review SHA and the base commit exists
-with the expected merge-base, records `git remote -v`, then removes `origin`,
+subagent instead clones the given SHA from `<REMOTE URL>` into the scratch
+directory the orchestrator allocated, fetches that SHA and the recorded base SHA
+(never the remote's current default branch), proves `HEAD` equals the review SHA
+and the base commit exists with the merge-base equal to that base, records `git remote -v`, then removes `origin`,
 records the clone path, and deletes the clone by its literal absolute path before
 returning. Never work in the original checkout or in a donor repository. Use the GitHub token already present in your environment and
 never print it. Do not modify the original checkout, refs, config or hooks. Do
