@@ -242,7 +242,9 @@ derived from the same row, so the two skills cannot drift apart.
 - **Base.** `<BASE SHA>` is computed once, in the `pin` row. Every later check is `git merge-base --is-ancestor
   <BASE SHA> HEAD`; nothing recomputes it and nothing compares branch tips.
 - **No seat receives a remote URL.** The PR remote is used only by the orchestrator, in the `pin` row, to fetch the base
-  tip. A seat never gets a remote, so it cannot fetch, check out another commit or create another copy.
+  tip. A seat is told to stay in `<SCRATCH PATH>`, add no remote and create no other copy; that is an instruction, not a
+  sandbox (see the copy-isolation caveat below), so the orchestrator's post-return checks are what actually detect a
+  clone whose `HEAD` or remote changed, and a mismatch voids the vote.
 - **Self-attested evidence.** Any receipt key the orchestrator did not measure is written `attested.<key>`, and an
   `attested.` key never satisfies a cell whose verifier is the orchestrator.
 - **Unpushed SHAs work**, because seat clones come from the local donor. If `<SHA>` is absent from the original

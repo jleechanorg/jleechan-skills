@@ -64,7 +64,9 @@ Revision preamble for every CLI seat and for static reviewers (verbatim):
 ```text
 Work only in the isolated clone at the scratch path given below; if your working
 directory was set to it, stay there. Do not clone, fetch, check out another
-commit, add a remote, or create any other copy. Never work in the original
+commit, add a remote, or create any other copy - these are instructions, and the
+orchestrator's post-return checks are what detect a clone whose HEAD or remote
+changed. Never work in the original
 checkout or in a donor repository. Leave the clone in place - the orchestrator
 verifies it and removes it after your process exits. Use the GitHub token already present in your environment and
 never print it. Do not modify the original checkout, refs, config or hooks. Do
