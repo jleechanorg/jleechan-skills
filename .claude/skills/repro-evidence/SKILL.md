@@ -24,6 +24,7 @@ Unless the repository skill or the user says otherwise, report every repro as th
 - Original proves the bug was real; control proves the replay reproduces it today; candidate proves the fix. Control alone is not the original: an earlier fix already on the branch can make control look better than what users saw.
 - Use the same starting state, input, provider and model for control and candidate, run them interleaved, with enough trials per input to beat noise (n>=5 per arm for stochastic systems).
 - Report one plain table per input: the user-visible outcome for each arm, then counts across trials. Lead with the outcome the user cares about most, in their words.
+- **Reproducing before a fix exists is normal.** Report original and control, and record the candidate arm as `not yet available`; filing the issue first is the point of `/repro`. Fill the candidate column once there is a fix to replay, and never invent one.
 
 ## 0. Routing & When to Use
 

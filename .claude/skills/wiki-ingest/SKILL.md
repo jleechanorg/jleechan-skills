@@ -91,23 +91,33 @@ Create concept pages for key ideas, frameworks, methods.
 ### Phase 8: Log
 Append to `wiki/log.md`: `## [YYYY-MM-DD] ingest | <Title>`
 
-### Phase 9: Commit and Push to origin/main
+### Phase 9: Commit and Push
 
-Stage all ingested and updated files in `$WIKI_ROOT` (`raw/`, `wiki/`), commit with
-`<cli>/<model>: docs(wiki): ingest <slug>`, push to `origin/main`, and verify
-`HEAD == origin/main`:
+Stage only the files this ingest touched, commit with
+`<cli>/<model>: docs(wiki): ingest <slug>`, and publish through the wiki repository's
+own delivery contract — a content branch plus PR where one is required, and never
+straight to `main`:
 
 ```bash
-git -C "$WIKI_ROOT" add raw/ wiki/
+git -C "$WIKI_ROOT" add -- raw/ wiki/
 git -C "$WIKI_ROOT" diff --cached --quiet || git -C "$WIKI_ROOT" commit -m "<cli>/<model>: docs(wiki): ingest $SLUG"
+```
+
+Then follow that repository's `AGENTS.md`/`CLAUDE.md`: if it requires content PRs, push a
+branch (`git -C "$WIKI_ROOT" push -u origin HEAD`) and open a PR, then verify the PR
+head matches your commit. Only when the repository explicitly permits direct-to-main
+writes for wiki content do you fast-forward and publish there:
+
+```bash
 git -C "$WIKI_ROOT" pull --rebase origin main
 git -C "$WIKI_ROOT" push origin HEAD:main
 test "$(git -C "$WIKI_ROOT" rev-parse HEAD)" = "$(git -C "$WIKI_ROOT" ls-remote origin refs/heads/main | awk '{print $1}')"
 ```
 
-If `$WIKI_ROOT` is on a dirty non-`main` branch owned by another session, do not switch
-branches: commit and push onto `origin/main` through an isolated temporary
-`GIT_INDEX_FILE`, then verify `refs/heads/main` matches the new commit SHA.
+Do not `git add` the whole tree. If `$WIKI_ROOT` sits on a dirty non-`main` branch owned
+by another session, do not switch branches and do not carry that branch's commits into
+the publish: commit through an isolated temporary `GIT_INDEX_FILE` containing only this
+ingest's paths.
 
 ## GitHub-Readable Output — TOC + Standard Markdown Links (default for ported-source branch)
 

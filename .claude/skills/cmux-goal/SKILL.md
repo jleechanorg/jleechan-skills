@@ -64,8 +64,8 @@ newline rule". This skill adds only the `/goal`-specific rules below.
    on a roadmap PR whose repo has no CI). For each gate, run its check on each
    target it names and scope the clause to the targets where it exists; write the
    rest as `N/A - <probe output>` in the bead, not in the condition. CI probe
-   (verified 2026-10-30: roadmap PR #182 -> `NEUTRAL=2 SKIPPED=4`,
-   worldai_frontend PR #367 -> `... SUCCESS=17`):
+   (measured on two repos: one with no CI at all returned `NEUTRAL=2 SKIPPED=4`,
+   one with real CI returned `... SUCCESS=17`):
    `gh pr view <N> --repo <owner/repo> --json statusCheckRollup --jq '[.statusCheckRollup[]|select(.__typename=="CheckRun")|(.conclusion // .state)]|group_by(.)|map("\(.[0])=\(length)")|join(" ")'`
    -- only advisory bots and skipped runs means that PR has no CI to turn green.
    Count check runs only: a commit status an agent posts itself is not CI. Keep
