@@ -16,8 +16,14 @@ context, summary or framing of the change. Every reviewer's entire input,
 whether a CLI reviewer, the coordinator ask or a static-review subagent, is
 one fixed channel preamble below followed by one template below. Fill exactly the fields that the `advice` skill's §4
 table lists for the seat's `isolation:` record - `<PR URL>` `<SHA>` `<BASE SHA>` `<SCRATCH PATH>` for
-`isolation: orchestrator-clone`, `<SCRATCH PATH>` `<SHA>` `<BASE SHA>` for `isolation: orchestrator-export`, `<PACKET PATH>` `<BUNDLE HASH>` for `isolation: none` - and use that record's
-preamble and template. The orchestrator writes nothing else.
+`isolation: orchestrator-clone`, `<PR URL>` `<SHA>` `<BASE SHA>` `<SCRATCH PATH>` for
+`isolation: orchestrator-export`, `<PACKET PATH>` `<BUNDLE HASH>` for `isolation: none` - and use that record's
+preamble **and** template. The orchestrator writes nothing else.
+
+The export record uses the **shared revision template** above unchanged (it names `<PR URL>`, `<SHA>` and
+`<BASE SHA>`, all of which the export supplies); only the preamble differs. Choose exactly one preamble per
+seat - the revision preamble for `orchestrator-clone`, the export preamble for `orchestrator-export`,
+the document-only preamble for `none`. Preambles are alternatives, never concatenated.
 
 ## 2. Templates
 
