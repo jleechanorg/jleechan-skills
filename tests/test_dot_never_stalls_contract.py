@@ -48,21 +48,17 @@ class NeverStallContractTest(unittest.TestCase):
         self.assertIn("A failing test is **not** a hold ground by itself", self.dot)
         self.assertIn("Pausing on a red test is the exact preventable idle time", self.dot)
 
-    def test_coordinator_detects_stalls_by_reporting_only(self):
-        self.assertIn("Stall detection and the one-line relay", self.coord)
-        self.assertIn("Mechanical stall check (report only, never a second message)", self.coord)
-        self.assertIn("`stalled: <what was missing>`", self.coord)
-        self.assertIn("`hold: <ground>`", self.coord)
-        self.assertIn("Relay a blocker once", self.coord)
-        self.assertIn("an unchanged repeat is noise", self.coord)
-        self.assertIn("`awaiting-dot-decision: <question>`", self.coord)
-        self.assertIn("creates no slots, grants no capacity and adjudicates no ownership", self.coord)
-        # the coordinator must not invent a second message body
-        self.assertNotIn("Unverified pause rejected. Execute the next diagnostic probe", self.coord)
-        self.assertNotIn("Proceed on your branch.", self.coord)
+    def test_lawful_holds_may_have_no_artifact(self):
+        self.assertIn('Artifact: <SHA, exit code, trace excerpt, or "none (ground N)">', self.dot)
+        self.assertIn("legitimately has no artifact", self.dot)
 
-    def test_lawful_hold_is_not_a_stall(self):
-        self.assertIn("is a lawful hold, not a stall", self.dot)
+    def test_the_coordinator_stays_transport_only(self):
+        """The coordinator reads only for transport verification; it never triages Dot work."""
+        self.assertNotIn("Turn Receipt", self.coord)
+        self.assertNotIn("stalled:", self.coord)
+        self.assertNotIn("awaiting-dot-decision", self.coord)
+        self.assertIn("Do not answer the Dot's questions, pick its work or write analysis of your own", self.coord)
+        self.assertIn("The coordinator does no implementation, task triage, escalation or task persistence", self.coord)
 
     def test_no_rule_permits_pausing_on_a_scheduling_state(self):
         for text, name in ((self.dot, "dot"), (self.coord, "coordinator")):

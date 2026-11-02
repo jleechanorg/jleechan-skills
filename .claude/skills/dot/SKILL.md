@@ -73,9 +73,13 @@ A hold applies to that one action; the rest of the lane keeps moving.
 ### Turn Receipt
 - Mode: MUTATION | PROBE | BLOCKED
 - Target: <path, PR, or URL>
-- Artifact: <SHA, exit code, or trace excerpt>
-- Blocker: NONE | <exact error text>
+- Artifact: <SHA, exit code, trace excerpt, or "none (ground N)">
+- Blocker: NONE | <exact error text, or the ground and the exact approval/limit being waited for>
 ```
+
+A `BLOCKED` receipt for grounds 1, 5 or 6 legitimately has no artifact: write `Artifact: none (ground N)` and put the
+exact `HOLD`/approval/scope in `Blocker`. Grounds 2 and 3 must carry the failing command or probe output; ground 4
+must name the target and the other writer.
 
 Work still in flight is not `BLOCKED`: report the live job handle or session, its target, start time, and the next
 checkpoint. A `BLOCKED` receipt that cites one of grounds 1-6 above is a lawful hold, not a stall - state which ground

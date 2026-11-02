@@ -96,24 +96,6 @@ heartbeat for a silent Dot, so only `proceed` applies this gate.
 **A silent Dot is not automatically idle.** If it has produced no turn and reported no blocker, the gate passes and the
 run sends normally; the gate suppresses repeats, not first contact.
 
-### Stall detection and the one-line relay
-
-The `main` reminder carries two extra duties; `proceed` never does (it is idle-gated).
-
-- **Mechanical stall check (report only, never a second message).** Read the Dot's last turn for a Turn Receipt
-  (`Mode` / `Target` / `Artifact` / `Blocker`, defined in the Dot skill). A missing `Mode`, an empty `Artifact`, or
-  text that is only a promise ("I'll check…", "I'll reconcile…") marks the lane **stalled**, and the run report says
-  `stalled: <what was missing>`. A receipt that cites a hold ground with its exact unblock is a lawful hold and is
-  reported as `hold: <ground>`. This is a reporting duty only: the coordinator still sends exactly the selected mode
-  payload and nothing else, so it does not invent a second message body.
-- **Relay a blocker once.** If the Dot reports a blocker, repeat its `UNBLOCK: <capability> - <exact request> -
-  <owner>` line in the run report so the operator sees it. Relay it again only when its evidence or its unblock
-  condition changed; an unchanged repeat is noise, not progress.
-- **Never answer scheduling or permission questions.** Slot, admission, reservation, ownership and "may I" requests
-  are recorded in the report as `awaiting-dot-decision: <question>` and get no reply at all: the coordinator sends
-  nothing outside its selected payload, creates no slots, grants no capacity and adjudicates no ownership. The Dot's
-  own skill already forbids it from pausing on those grounds, so the correct sender behaviour is silence.
-
 ## Private periodic payload
 
 The sender remains transport only; the receiving Dot owns queue interpretation,
