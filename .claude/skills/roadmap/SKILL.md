@@ -12,7 +12,7 @@ roadmap repo, committing it, pushing it, and showing the URL. Anything else — 
 memory reads, nextsteps rotas — is supporting material, not the deliverable.
 
 Phase 0 survey (optional context gathering) lives in
-`references/legacy-command.md`; use it when the board needs history, but the output
+`references/phase0-survey.md`; use it when the board needs history, but the output
 format below is mandatory.
 
 When running in cmux, open the pushed GitHub board in a browser tab in the
