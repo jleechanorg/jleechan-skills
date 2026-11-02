@@ -172,7 +172,7 @@ Difference: 40 points favoring treatment
 4. **Post-Hoc Scoring**: Define rubric before seeing results
 5. **Cherry-Picking**: Report all results, including negative
 6. **Unretained Scores**: Never cite a score whose rubric, subject outputs, and scored JSON were not
-   committed. See the artifact retention rule above.
+   retained in an authorized location. See the artifact retention rule above.
 
 ## Implementation Commands
 
@@ -199,9 +199,10 @@ This protocol eliminates evaluator bias while maintaining scientific rigor for t
 **Hypothesis**: Specification-based output constraints reduce hallucination vs behavioral warnings
 **Recorded outcome**: Behavioral warnings scored higher in the recorded comparison
 
-**Evidence strength — read before citing any number.** The only surviving artifact is the narrative
-write-up at `experiments/TRIPLE_BLIND_EXPERIMENT_RESULTS.md` in `jleechanorg/worldarchitect.ai`. The
-scores it reports (Subject A control 92.0%, Subject B treatment 85.5%) have no retained denominator: the
+**Evidence strength — read before citing any number.** The surviving narrative write-up is
+`experiments/TRIPLE_BLIND_EXPERIMENT_RESULTS.md` in `jleechanorg/worldarchitect.ai`, which now carries a
+dated correction note. The scores it reports (Subject A control 92.0%, Subject B treatment 85.5%) have no
+retained denominator: the
 report describes one subject per arm and does not establish the number of runs behind each score, and no
 N is stated anywhere. A 2026-11-02 audit (`rev-experiment-skill-unsourced-delta-3su73l`) searched for the
 rubric, both anonymized subject outputs, and the evaluator's scored JSON and did not locate them, so the
@@ -214,12 +215,14 @@ The date is commonly given as "Jan 2025". The earliest provenance this repositor
 experiment, and the run date is unestablished.
 
 The design also recorded `"randomization_seed": "0"` with a fixed A=control mapping. A constant does not
-document a draw, so the assignment-blinding claim is unestablished rather than validated.
+document a draw, so the *random assignment* claim is unestablished. This is separate from evaluator
+blinding: the record does not show the evaluator saw the mapping, but it also cannot demonstrate the
+blinding that the protocol describes.
 
-**Qualitative findings** (independent of the exact delta):
-- Behavioral standards outperformed complex output templates on the tested task list
-- Specification constraints appeared to add cognitive load and reduce flexibility
-- Behavioral awareness appeared more effective than procedural requirements
+**Qualitative findings** (attributed to the original narrative, not independently established here):
+- Behavioral standards were reported to outperform complex output templates on that task list
+- Specification constraints were reported to add cognitive load and reduce flexibility
+- Behavioral awareness was reported as more effective than procedural requirements
 - Over-engineering can backfire even with good theoretical backing
 
 **Lessons**:
@@ -232,17 +235,22 @@ document a draw, so the assignment-blinding claim is unestablished rather than v
 
 ### Artifact retention rule (mandatory)
 
-Before any experiment score is cited outside its own `experiment/[name]/RESULTS/` directory, commit the
-rubric, both anonymized subject outputs, and the evaluator's scored JSON, and record N per arm. A score
-that exists only as prose written after the fact cannot be cited as evidence. This is exactly how the
-2025 anti-hallucination delta lost its provenance.
+Before any experiment score is cited outside its own `experiment/[name]/RESULTS/` directory, retain the
+rubric, both anonymized subject outputs, the evaluator's scored JSON, and N per arm, in an authorized
+location that the citing audience can reach. A Git commit is one such location but not the only one: if
+repository policy forbids the material — this repository's Zero-PII invariant, confidentiality, or
+redaction requirements — retain it in an approved evidence store instead (a scratch/evidence volume, an
+unlisted gist, or the repository's evidence service) with secrets and personal data removed. What the
+rule forbids is a score that exists only as prose written after the fact with no retained artifact behind
+it, in any location. This is exactly how the 2025 anti-hallucination delta lost its provenance.
 
 Note: this rule lives here because a skill may instruct. The repository's own record of that experiment
 deliberately stays descriptive — it documents what its artifacts do and do not support rather than
 prescribing practice.
 
-### Best Practices from Actual Results
+### Reported preferences from that run
 
+Read as hypotheses this experiment raised, not as validated guidance:
 - **Behavioral standards** > specification-based templates
 - **Principle-focused guidance** > rigid procedural requirements
 - **Natural problem-solving flow** > forced artificial structure
