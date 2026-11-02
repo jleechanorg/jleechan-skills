@@ -15,7 +15,7 @@ Before anything else, look in the active repository for its own repro workflow: 
 
 ## 0.1 Default comparison: original / control / candidate
 
-Report every repro as original (what the real system actually did) / control (replay without the fix) / candidate (replay with the fix) on the same inputs, as defined in `../repro-evidence/SKILL.md` § Default comparison, unless the repository skill says otherwise.
+Report every repro as original (what the real system actually did) / control (replay without the fix) / candidate (replay with the fix) on the same inputs, as defined in `../repro-evidence/SKILL.md` § Default comparison, unless the repository skill says otherwise. Reproducing before any fix exists is normal: report original and control, mark the candidate arm `not yet available`, and never invent one.
 
 ## Usage
 
