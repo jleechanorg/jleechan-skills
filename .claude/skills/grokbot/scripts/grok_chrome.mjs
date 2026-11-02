@@ -45,8 +45,23 @@ try {
     const seen = new Map(links.map((l) => [l.href, l]));
     console.log(JSON.stringify({ url: page.url(), title: await page.title(), bots: [...seen.values()] }, null, 1));
   } else if (mode === 'read') {
-    if (!/^https:\/\/grok\.com\/bot\/[\w-]+/.test(arg || '')) throw new Error('read needs https://grok.com/bot/<id>');
-    await goto(arg);
+    // Validate the NORMALIZED url, not the string prefix. A path like /bot/a/../../settings
+    // passes a prefix test but resolves to /settings, and an auth redirect lands anywhere;
+    // either way the script would then print that page as if it were the conversation.
+    let target;
+    try {
+      target = new URL(arg || '');
+    } catch {
+      throw new Error('read needs a valid URL, e.g. https://grok.com/bot/<id>');
+    }
+    if (target.origin !== 'https://grok.com' || !/^\/bot\/[\w-]+$/.test(target.pathname)) {
+      throw new Error(`read needs https://grok.com/bot/<id> (got ${target.href})`);
+    }
+    await goto(target.href);
+    const landed = new URL(page.url());
+    if (landed.origin !== 'https://grok.com' || !/^\/bot\/[\w-]+/.test(landed.pathname)) {
+      throw new Error(`GROKBOT_UNEXPECTED_NAVIGATION: ended on ${landed.href}, not the requested bot page`);
+    }
     console.log(((await page.innerText('body')).slice(-5000)));
   } else throw new Error('usage: login | list [url] | read <bot-url>');
 } finally { await ctx.close().catch(() => {}); }
