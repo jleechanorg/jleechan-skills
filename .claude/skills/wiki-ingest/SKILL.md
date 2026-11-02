@@ -93,33 +93,60 @@ Append to `wiki/log.md`: `## [YYYY-MM-DD] ingest | <Title>`
 
 ### Phase 9: Commit and Push
 
-Publish through the wiki repository's own delivery contract — a content branch plus PR —
-and never straight to `main`.
+Publish through a content branch and PR. Never push `main`, and never publish another
+session's work that happens to sit in the same checkout.
 
-Name the exact paths this ingest wrote; never stage the whole tree, because `raw/` and
-`wiki/` may hold another session's in-progress work:
+First build the exact file list from values Phase 1 already set — `SOURCE` keeps the
+source's extension while `SLUG` strips it, so use `SOURCE` for the raw copy, not
+`raw/$SLUG` — and append every entity or concept page this run created or edited:
 
 ```bash
-PATHS=("raw/$SLUG" "wiki/sources/$SLUG.md" "wiki/index.md" "wiki/log.md")
+PATHS=("$SOURCE" "$WIKI_ROOT/wiki/sources/$SLUG.md" "$WIKI_ROOT/wiki/index.md" "$WIKI_ROOT/wiki/log.md")
+# add each entity/concept page written this run, e.g.
+#   PATHS+=("$WIKI_ROOT/wiki/concepts/<concept>.md")
+```
+
+`wiki/index.md` and `wiki/log.md` are shared across ingests, so a partial commit of those
+two files can carry a concurrent editor's lines. Commit them only if this run was the one
+that wrote them, and say so in the PR body when it was not.
+
+Create a dedicated branch starting at the remote main tip so the result contains this
+ingest and nothing else. Build the commit from a scratch index read from that base, then
+point the new branch at it — this never touches your working tree, the shared index, or
+`HEAD`:
+
+```bash
+git -C "$WIKI_ROOT" fetch origin main
+BASE="$(git -C "$WIKI_ROOT" rev-parse origin/main)"
+BRANCH="wiki-ingest/$SLUG"
+
+IDX_DIR="$(mktemp -d "${TMPDIR:-/tmp}/wiki-index.XXXXXX")"
+export GIT_INDEX_FILE="$IDX_DIR/index"
+git -C "$WIKI_ROOT" read-tree "$BASE"
 git -C "$WIKI_ROOT" add -- "${PATHS[@]}"
-git -C "$WIKI_ROOT" diff --cached --quiet || git -C "$WIKI_ROOT" commit -m "<cli>/<model>: docs(wiki): ingest $SLUG"
+TREE="$(git -C "$WIKI_ROOT" write-tree)"
+COMMIT="$(git -C "$WIKI_ROOT" commit-tree "$TREE" -p "$BASE" -m "<cli>/<model>: docs(wiki): ingest $SLUG")"
+unset GIT_INDEX_FILE
+
+ git -C "$WIKI_ROOT" branch "$BRANCH" "$COMMIT"
 ```
 
-Extend that list with any entity or concept page you created or edited. Then push a
-branch and open a PR per that repository's `AGENTS.md`/`CLAUDE.md`, and verify the PR
-head matches your commit:
+An alternate `GIT_INDEX_FILE` controls what gets committed; it does not remove commits
+already on a branch. Starting the branch at `$BASE` and building the commit from
+`read-tree "$BASE"` is what guarantees the result holds this ingest and nothing else.
+
+Push the branch by name and open the PR, then verify against that branch's own ref, not
+`origin/HEAD` (which is the remote default branch):
 
 ```bash
-git -C "$WIKI_ROOT" push -u origin HEAD
-gh -C "$WIKI_ROOT" pr create --fill   # or the repository's required PR command
-test "$(git -C "$WIKI_ROOT" rev-parse HEAD)" = "$(git -C "$WIKI_ROOT" rev-parse origin/HEAD)" 2>/dev/null || git -C "$WIKI_ROOT" log --oneline -1
+git -C "$WIKI_ROOT" push origin "$BRANCH"
+gh -C "$WIKI_ROOT" pr create --base main --head "$BRANCH" --fill
+REMOTE="$(git -C "$WIKI_ROOT" ls-remote origin "refs/heads/$BRANCH" | awk '{print $1}')"
+test "$REMOTE" = "$COMMIT" || { echo "push did not land $COMMIT on $BRANCH (remote=$REMOTE)" >&2; exit 1; }
 ```
 
-If `$WIKI_ROOT` sits on a dirty non-`main` branch owned by another session, do not switch
-branches and do not publish that branch: create a fresh branch at the remote main tip and
-commit only this ingest's paths onto it, so the pushed branch contains this ingest and
-nothing else. An alternate `GIT_INDEX_FILE` controls what gets committed, not which
-commits are already on the branch you push.
+If that check fails, the push did not land what you committed: report it, do not retry
+blindly.
 
 ## GitHub-Readable Output — TOC + Standard Markdown Links (default for ported-source branch)
 
