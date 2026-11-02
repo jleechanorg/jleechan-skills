@@ -46,10 +46,11 @@ class CoordinatorWorkflowTests(unittest.TestCase):
         text = SKILL.read_text()
         payload = (SKILL.parent / "reminders/proceed.md").read_text()
         flat_payload = " ".join(payload.split())
-        self.assertTrue(flat_payload.startswith("## Hold grounds"), flat_payload[:80])
-        self.assertIn("Review the last four hours of this conversation", flat_payload)
-        self.assertIn("IDLE: queue empty", flat_payload)
+        # the editable body is task content only; the invariants live in the reviewed footer
+        self.assertTrue(flat_payload.startswith("Review the last four hours of this conversation"), flat_payload[:80])
+        self.assertNotIn("HOLD", flat_payload)
         self.assertIn("`proceed` has no built-in fallback", " ".join(text.split()))
+        self.assertIn("## Proceed invariant footer (`footer-v1`)", text)
         self.assertNotIn("last 20 messages", flat_payload)
 
     def test_idle_gate_clauses_survive_the_move(self):

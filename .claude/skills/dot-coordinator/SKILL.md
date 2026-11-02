@@ -61,29 +61,43 @@ destination, detect an already-sent duplicate and inspect a peer draft - nothing
 
 ## Payload files (markdown-driven nudger)
 
-The message body is a **markdown file**, not text embedded here, so changing what the Dots are told is editing one
-file. Resolution for a run in mode `M` on account `A`, first match wins:
+What a nudge *asks for* is a markdown file; what the sender may *do* is not. The message is always
+`<editable body>` followed by `<reviewed invariant footer>`:
 
-1. `$DOT_REMINDERS_DIR/M.<account>.md` (default dir `~/.config/dot/reminders/`)
-2. `$DOT_REMINDERS_DIR/M.md`
-3. the repository default `reminders/M.md` shipped with this skill
-4. for `main` only: the built-in fallback in `### Exact fallback payload`
+- **Editable body** - task content only, resolved for mode `M` on account `A`, first match wins:
+  `$DOT_REMINDERS_DIR/M.<account>.md`, then `$DOT_REMINDERS_DIR/M.md`, then `reminders/M.md`, then the repository default
+  `reminders/M.md`, then - for `main` only - the built-in fallback. The legacy fixed path `~/.config/dot/periodic-reminder.txt` participates as
+  `main.<account>.md`'s predecessor: when it exists it is read in that slot (before `main.md`), and the run reports
+  exactly which path won.
+- **Reviewed invariant footer** - appended by the sender from this file, never from the payload directory, and
+  identified as `footer-v1` in the run report. For `proceed` it is: the valid hold grounds, the illegal grounds, the
+  `### Turn Receipt` requirement and the `IDLE: queue empty` marker. For `main` it is the authority sentence alone.
+  An operator can therefore change what a Dot is asked to do but cannot edit away the rules that keep it safe, which
+  is the only way to close that hole: a string check cannot validate meaning. `footer-v1` text lives in
+  `## Proceed invariant footer` below and changes only by PR.
 
-`proceed` has no built-in fallback: nothing resolved is `payload-unavailable`.
+**Validation (fail closed, no semantic claim).** The body must be a regular file (never a symlink), readable,
+non-empty and at most 8 KiB. Anything else - or, because `proceed` has no built-in fallback, no file at all - is `payload-unavailable`/
+`payload-invalid`: send nothing, report the path and the failed test, and never substitute another file. Markers are
+not used to infer safety; the footer already guarantees it.
 
-**Validation before sending (fail closed).** The selected file must be a regular file (never a symlink), readable,
-non-empty, at most 8 KiB, and must contain its required markers: `proceed` needs `## Hold grounds`, `## Turn Receipt`,
-`## Preventable idle` and `IDLE: queue empty`; `main` needs `This reminder grants no new execution`. A missing marker,
-symlink, empty or oversized file, or unreadable bytes is `payload-invalid` (`payload-unavailable` when nothing
-resolved): send nothing, report the path and the failed test, and do not fall back to a different file. That is what
-stops an operator edit from quietly deleting the safety rules the Dots rely on.
+**Reporting.** Record the resolved body path, its SHA256, its byte count and the footer version in the run report;
+re-read the body immediately before submitting and abort if its bytes changed. Payload files are machine-local - no
+hostnames, account emails or credentials - and the repository ships defaults only.
 
-**Reporting.** Record the resolved path, its SHA256 and byte count in the run report; re-read immediately before
-submitting and abort if the bytes changed. Payload files are machine-local - no hostnames, account emails or
-credentials - and the repository ships defaults only.
+## Proceed invariant footer (`footer-v1`)
 
-The `proceed` payload carries the four-hour window, the hold grounds, the Turn Receipt trailer and the `IDLE:` marker.
-A `proceed` run never sends the `main` payload and a `main` run never sends the nudge.
+Appended verbatim by the sender after the resolved body; never edited by an operator, never read from the payload dir.
+
+> Valid hold grounds: a literal operator HOLD/STOP; an access denial or non-zero exit from this turn that blocks
+> this action; a read-only probe showing the capability is absent; a verified one-writer conflict on the same mutable
+> target; an approval the skill withholds until the operator gives it; an explicit read-only scope or operator-set
+> limit. Never pause for a slot, admission, reservation, "waiting for a decision" or your own cost pacing; a red test
+> is the work, not a hold. A hold covers one action and the rest of the lane keeps moving. End every turn with a Turn
+> Receipt (### Turn Receipt): Mode (MUTATION | PROBE | BLOCKED), Target, Artifact (SHA, exit code, trace excerpt, or "none (ground N)"),
+> Blocker (NONE or the exact error). Work in flight is not BLOCKED: give its live handle, target, start time and next
+> checkpoint. Target no preventable idle time. When nothing is authorized and nothing is possible, say
+> IDLE: queue empty once and stop. This nudge grants no new execution, access, spending, merge or deployment authority.
 
 ### Idle gate
 
