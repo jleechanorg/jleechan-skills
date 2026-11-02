@@ -7,7 +7,7 @@ import os from 'os';
 
 const require = createRequire(process.env.DOT_PW_MODULES || path.join(path.dirname(process.execPath), '../lib/node_modules/'));
 const { chromium } = require('playwright');
-import { isBotUrl, isAllowedListUrl, landedOnRequested } from './url-guard.mjs';
+import { isBotUrl, isAllowedListUrl, landedOnRequested, BOT_NAV_SELECTORS } from './url-guard.mjs';
 // Profile isolation: always a dedicated grokbot directory. No env override, so this
 // can never be pointed at a Dot or personal Chrome profile.
 const DIR = path.join(os.homedir(), '.config/grokbot-chrome');
@@ -51,11 +51,28 @@ try {
     if (new URL(page.url()).origin !== 'https://grok.com') {
       throw new Error(`GROKBOT_UNEXPECTED_NAVIGATION: list left grok.com (ended on ${page.url()})`);
     }
-    // Filter every returned link through the same guard, so a foreign or malformed href
-    // cannot masquerade as a bot route.
-    const links = await page.$$eval('a[href*="/bot/"]', (as) => as.map((a) => ({ href: a.href, title: a.innerText.trim().slice(0, 120) })));
+    // Extract ONLY from the account's bot navigation. Scanning the whole page would sweep
+    // in links rendered inside a conversation, and a message linking to another bot would
+    // be reported as this account's inventory. URL filtering proves a destination, not
+    // ownership, so if no nav container matches we report nothing rather than guessing.
+    let links = [];
+    for (const sel of BOT_NAV_SELECTORS) {
+      links = await page.$$eval(sel, (as) => as.map((a) => ({ href: a.href, title: a.innerText.trim().slice(0, 120) })));
+      if (links.length) break;
+    }
+    const scoped = links.length > 0;
     const seen = new Map(links.filter((l) => isBotUrl(l.href)).map((l) => [l.href, l]));
-    console.log(JSON.stringify({ url: page.url(), title: await page.title(), bots: [...seen.values()] }, null, 1));
+    // Candidates, not a resolved inventory: the caller must confirm each route.
+    console.log(JSON.stringify({
+      url: page.url(),
+      title: await page.title(),
+      scope: scoped ? 'bot-navigation' : 'none-matched',
+      verified: false,
+      candidates: [...seen.values()],
+    }, null, 1));
+    if (!scoped) {
+      console.error('GROKBOT_NO_NAV_SCOPE: no bot-navigation container matched; no routes reported. Set the route explicitly or inspect via browser-control.');
+    }
   } else if (mode === 'read') {
     // Validate the NORMALIZED url, not the string prefix. A path like /bot/a/../../settings
     // passes a prefix test but resolves to /settings, and an auth redirect lands anywhere;

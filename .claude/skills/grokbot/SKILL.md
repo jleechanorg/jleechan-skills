@@ -22,9 +22,13 @@ blocker; continue unrelated authorized work.
 
 Transport: `scripts/grok_chrome.mjs` (nvm Node 22) drives a dedicated Chrome
 profile at `~/.config/grokbot-chrome`, never a Dot or personal profile. `login`
-opens a visible window once for the user to sign in; `list` prints the signed-in
-account's `/bot/<id>` links and titles (use it to resolve routes when no config
-mapping exists); `read <bot-url>` prints the conversation tail. All are read-only.
+opens a visible window once for the user to sign in; `list` extracts `/bot/<id>`
+links and titles from the account's **bot navigation** and reports them as unverified
+candidates (`verified: false`), not as a resolved inventory — URL filtering proves a
+destination, not ownership, and a message inside a conversation can link to another bot.
+If no navigation container matches, it reports `scope: none-matched` and no routes rather
+than scraping the whole page. Confirm each candidate before using it as a route.
+`read <bot-url>` prints the conversation tail. All are read-only.
 This transport does **not** verify which account is signed in, and does not claim to. No
 selector it could ship proves the node it read is the account control — a unique match can
 still be the page body, and a bot message containing the expected handle would pass any

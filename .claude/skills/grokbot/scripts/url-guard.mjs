@@ -31,3 +31,9 @@ export const isAllowedListUrl = (u) => {
     return false;
   }
 };
+
+// A link found anywhere on an allowed page is NOT proof of account ownership: a bot
+// message can render a link to another bot. `list` therefore extracts only from the
+// account's bot navigation, and reports results as candidates rather than as a resolved
+// inventory. These are the selectors it scopes to.
+export const BOT_NAV_SELECTORS = ['nav a[href*="/bot/"]', '[role="navigation"] a[href*="/bot/"]'];

@@ -111,6 +111,25 @@ class GrokTransportUrlGuardTest(unittest.TestCase):
         r = self._run(js, 'isAllowedListUrl, isBotUrl')
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 
+    def test_list_scopes_to_bot_navigation_not_whole_page(self):
+        # A whole-page scan would sweep in a link rendered inside a conversation and report
+        # another bot as this account's inventory. Assert the extraction iterates the
+        # nav-scoped selector list, not a bare whole-page selector - this is a structural
+        # property of the code, so it is checked against the source rather than by regex
+        # presence alone.
+        text = (ROOT / '.claude/skills/grokbot/scripts/grok_chrome.mjs').read_text(encoding='utf-8')
+        self.assertIn('for (const sel of BOT_NAV_SELECTORS)', text,
+                      'list must iterate the nav-scoped selector list')
+        self.assertNotIn('for (const sel of [', text,
+                         'list must not substitute an inline whole-page selector')
+        self.assertIn('verified: false', text)
+        self.assertIn('none-matched', text)
+        guard = (ROOT / '.claude/skills/grokbot/scripts/url-guard.mjs').read_text(encoding='utf-8')
+        self.assertIn('export const BOT_NAV_SELECTORS', guard)
+        # every nav selector must itself be scoped to nav/role=navigation
+        for sel in ("nav a[href*=\"/bot/\"]", '[role=\"navigation\"] a[href*=\"/bot/\"]'):
+            self.assertIn(sel, guard)
+
     def test_transport_filters_listed_links_through_the_guard(self):
         text = (ROOT / '.claude/skills/grokbot/scripts/grok_chrome.mjs').read_text(encoding='utf-8')
         self.assertIn('isAllowedListUrl(', text)
