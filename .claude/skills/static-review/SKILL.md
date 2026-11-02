@@ -120,7 +120,7 @@ post; the orchestrator publishes verdicts through pr-lifecycle.
 
 Every reviewer receipt records the reviewer identity (type, harness and model),
 the exact SHA or bundle hash, orchestrator launch and return times, the exact
-prompt sent, a `COVERAGE:` statement, the `VERDICT:` line, the actual copy path
+prompt sent, a `COVERAGE:` statement, the `VERDICT:` line, the actual clone path whenever one exists, or the export path for orchestrator-export
 whenever one exists (document-only review launches no copy, so record `none`
 there), and a read-only check that the original checkout,
 refs, local config and hooks are unchanged. The orchestrator also verifies and
