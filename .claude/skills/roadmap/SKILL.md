@@ -11,9 +11,16 @@ Run `/roadmap` by producing (or updating) ONE in-flight PR board document in the
 roadmap repo, committing it, pushing it, and showing the URL. Anything else — surveys,
 memory reads, nextsteps rotas — is supporting material, not the deliverable.
 
-Phase 0 survey (optional context gathering) lives in
-`references/phase0-survey.md`; use it when the board needs history, but the output
-format below is mandatory.
+Survey (optional context gathering). When the board needs history, consult
+whichever of these are available before writing: authorized project memory for prior
+decisions, existing documents in the roadmap repository, and related open beads. Use
+them so the board references earlier work instead of duplicating it. None of this is a
+prerequisite — skipping it is valid, especially for a status-only board — and it never
+changes the mandatory output format below.
+
+Resolve those sources against the roadmap repository, not the code repository:
+`git -C "${ROADMAP_DIR:-$HOME/roadmap}" rev-parse --show-toplevel`, with `br list
+--status open` for tracked items. If a source is unavailable, say so and continue.
 
 When running in cmux, open the pushed GitHub board in a browser tab in the
 caller's current workspace. Resolve that workspace from caller context; if it is
