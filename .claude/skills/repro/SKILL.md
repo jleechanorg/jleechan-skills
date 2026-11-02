@@ -9,6 +9,14 @@ metadata:
 
 Reproduce a bug end-to-end, classify the root cause, file a REPRO issue, then propose (or drive) the minimal fix. Always root-cause-first; never ship a patch on top of an unverified hypothesis.
 
+## 0. Repo-level skill first — always
+
+Before anything else, look in the active repository for its own repro workflow: `.claude/commands/repro.md`, `.claude/skills/repro*/SKILL.md`, `.claude/skills/repro*.md`, and any repro entry in its `AGENTS.md`/`CLAUDE.md`. If one exists, read it and follow it; it wins on every difference. This skill applies only where the repository is silent. A repository that routes `/repro` to its own twin-clone or provider-specific evidence workflow owns that workflow.
+
+## 0.1 Default comparison: original / control / candidate
+
+Report every repro as original (what the real system actually did) / control (replay without the fix) / candidate (replay with the fix) on the same inputs, as defined in `../repro-evidence/SKILL.md` § Default comparison, unless the repository skill says otherwise. Reproducing before any fix exists is normal: report original and control, mark the candidate arm `not yet available`, and never invent one.
+
 ## Usage
 
 ```

@@ -91,6 +91,36 @@ Create concept pages for key ideas, frameworks, methods.
 ### Phase 8: Log
 Append to `wiki/log.md`: `## [YYYY-MM-DD] ingest | <Title>`
 
+### Phase 9: Commit and Push
+
+Publish through the wiki repository's own delivery contract — a content branch plus PR —
+and never straight to `main`.
+
+Name the exact paths this ingest wrote; never stage the whole tree, because `raw/` and
+`wiki/` may hold another session's in-progress work:
+
+```bash
+PATHS=("raw/$SLUG" "wiki/sources/$SLUG.md" "wiki/index.md" "wiki/log.md")
+git -C "$WIKI_ROOT" add -- "${PATHS[@]}"
+git -C "$WIKI_ROOT" diff --cached --quiet || git -C "$WIKI_ROOT" commit -m "<cli>/<model>: docs(wiki): ingest $SLUG"
+```
+
+Extend that list with any entity or concept page you created or edited. Then push a
+branch and open a PR per that repository's `AGENTS.md`/`CLAUDE.md`, and verify the PR
+head matches your commit:
+
+```bash
+git -C "$WIKI_ROOT" push -u origin HEAD
+gh -C "$WIKI_ROOT" pr create --fill   # or the repository's required PR command
+test "$(git -C "$WIKI_ROOT" rev-parse HEAD)" = "$(git -C "$WIKI_ROOT" rev-parse origin/HEAD)" 2>/dev/null || git -C "$WIKI_ROOT" log --oneline -1
+```
+
+If `$WIKI_ROOT` sits on a dirty non-`main` branch owned by another session, do not switch
+branches and do not publish that branch: create a fresh branch at the remote main tip and
+commit only this ingest's paths onto it, so the pushed branch contains this ingest and
+nothing else. An alternate `GIT_INDEX_FILE` controls what gets committed, not which
+commits are already on the branch you push.
+
 ## GitHub-Readable Output — TOC + Standard Markdown Links (default for ported-source branch)
 
 When a ported-source page will be published to GitHub (gist, repo, or any non-Obsidian viewer), GitHub does **not** render `[[WikiLinks]]` as clickable — they show up as literal `[[brackets]]`. Default behavior for any ported-source ingest that touches a GitHub-rendered surface:

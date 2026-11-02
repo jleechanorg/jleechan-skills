@@ -7,6 +7,25 @@ description: Generic, domain-agnostic /repro workflow for isolated state reprodu
 
 This `.claude` skill is the canonical source of truth for reproduction workflows across projects in this repository. It defines the discipline for reproducing bugs against isolated, real environments with verifiable evidence before attempting any fix.
 
+## Repo-level skill first — always
+
+Before anything else, look in the active repository for its own repro workflow: `.claude/commands/repro.md`, `.claude/skills/repro*/SKILL.md`, `.claude/skills/repro*.md`, and any repro entry in its `AGENTS.md`/`CLAUDE.md`. If one exists, read it and follow it; it wins on every difference. This skill applies only where the repository is silent. A repository that routes `/repro` to its own twin-clone or provider-specific evidence workflow owns that workflow.
+
+## Default comparison: original / control / candidate
+
+Unless the repository skill or the user says otherwise, report every repro as three arms on the **same inputs**:
+
+| Arm | What it is | Source |
+|---|---|---|
+| **Original** | What the real system actually did when the bug happened | Read-only lookup of the real record (production data, logs, saved state); never re-run |
+| **Control** | A fresh replay on the code without the fix (base / pre-fix SHA) | Same isolated starting state and input as the candidate |
+| **Candidate** | The same replay on the fix | Same isolated starting state and input as the control |
+
+- Original proves the bug was real; control proves the replay reproduces it today; candidate proves the fix. Control alone is not the original: an earlier fix already on the branch can make control look better than what users saw.
+- Use the same starting state, input, provider and model for control and candidate, run them interleaved, with enough trials per input to beat noise (n>=5 per arm for stochastic systems).
+- Report one plain table per input: the user-visible outcome for each arm, then counts across trials. Lead with the outcome the user cares about most, in their words.
+- **Reproducing before a fix exists is normal.** Report original and control, and record the candidate arm as `not yet available`; filing the issue first is the point of `/repro`. Fill the candidate column once there is a fix to replay, and never invent one.
+
 ## 0. Routing & When to Use
 
 | User intent | Run |
