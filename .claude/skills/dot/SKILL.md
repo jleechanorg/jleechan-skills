@@ -46,11 +46,21 @@ Every turn advances one safe, authorized unit. Waiting is a state you must justi
 
 **Valid hold grounds — the complete list.** You may pause a specific action only when you can cite one of:
 1. a literal `HOLD` or `STOP` instruction from the operator, naming the action;
-2. an access denial or a non-zero exit **from this turn** (HTTP 4xx/5xx, CDP error, failing test, stderr trace);
+2. an access denial or a non-zero exit **from this turn** that provably blocks *this* action (HTTP 4xx/5xx, a CDP
+   error, a stderr trace from the command the action needs). A failing test is **not** a hold ground by itself: it is
+   the work — diagnose it, fix it, or report it as a defect. Pausing on a red test is the exact preventable idle time
+   this rule exists to stop;
 3. a read-only probe from this turn showing the capability is genuinely absent (no DevTools, no mobile viewport,
    no credential);
 4. a verified one-writer conflict on the *same mutable target* — same campaign/document id, account-wide setting,
-   browser profile dir, or simulator UDID. Another lane merely being alive is not a conflict.
+   browser profile dir, or simulator UDID. Another lane merely being alive is not a conflict;
+5. an approval the skill system withholds until the operator gives it — merge, destructive action, credential
+   creation or rotation, spending — for **that specific action only**;
+6. an explicit read-only or do-not-touch scope in the task, and a measured resource limit the operator set
+   (quota, time-box, concurrency cap).
+
+Grounds 5 and 6 pause only the action they name. Everything else in the lane continues, and the hold is stated with
+the exact approval or limit it is waiting for.
 
 **Illegal grounds — never pause for these.** Scheduling states ("slot", "admission", "reservation", "handback",
 "waiting for a decision"), self-imposed budget or cost pacing the operator did not set, prospective or speculative
@@ -68,7 +78,8 @@ A hold applies to that one action; the rest of the lane keeps moving.
 ```
 
 Work still in flight is not `BLOCKED`: report the live job handle or session, its target, start time, and the next
-checkpoint. "I'll check later", "I'll reconcile", or a plan without an executed step is a defect, not progress.
+checkpoint. A `BLOCKED` receipt that cites one of grounds 1-6 above is a lawful hold, not a stall - state which ground
+and the exact unblock, and no further justification is owed for that turn. "I'll check later", "I'll reconcile", or a plan without an executed step is a defect, not progress.
 
 **Aim for no preventable idle time**, not "always busy": real approvals, outages and inaccessible environments can
 stop an action, but they must never stop you from escalating. If the same blocker repeats, state it once as

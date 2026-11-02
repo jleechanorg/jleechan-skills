@@ -22,7 +22,9 @@ class NeverStallContractTest(unittest.TestCase):
         for ground in ("a literal `HOLD` or `STOP` instruction",
                        "an access denial or a non-zero exit **from this turn**",
                        "a read-only probe from this turn",
-                       "a verified one-writer conflict on the *same mutable target*"):
+                       "a verified one-writer conflict on the *same mutable target*",
+                       "an approval the skill system withholds until the operator gives it",
+                       "an explicit read-only or do-not-touch scope"):
             self.assertIn(ground, self.dot, ground)
         self.assertIn("Illegal grounds", self.dot)
         for illegal in ('"slot"', '"admission"', '"reservation"', "self-imposed budget or cost pacing",
@@ -42,13 +44,25 @@ class NeverStallContractTest(unittest.TestCase):
         self.assertIn("UNBLOCK: <capability> - <exact request> - <owner>", self.dot)
         self.assertIn("IDLE: queue empty", self.dot)
 
-    def test_coordinator_detects_stalls_and_relays_once(self):
+    def test_failing_test_is_not_a_hold_ground(self):
+        self.assertIn("A failing test is **not** a hold ground by itself", self.dot)
+        self.assertIn("Pausing on a red test is the exact preventable idle time", self.dot)
+
+    def test_coordinator_detects_stalls_by_reporting_only(self):
         self.assertIn("Stall detection and the one-line relay", self.coord)
-        self.assertIn("Unverified pause rejected. Execute the next diagnostic probe or produce a failing execution trace, then proceed on your branch.", self.coord)
+        self.assertIn("Mechanical stall check (report only, never a second message)", self.coord)
+        self.assertIn("`stalled: <what was missing>`", self.coord)
+        self.assertIn("`hold: <ground>`", self.coord)
         self.assertIn("Relay a blocker once", self.coord)
         self.assertIn("an unchanged repeat is noise", self.coord)
-        self.assertIn("Proceed on your branch.", self.coord)
-        self.assertIn("creates no slots, grants no capacity, and adjudicates no ownership", self.coord)
+        self.assertIn("`awaiting-dot-decision: <question>`", self.coord)
+        self.assertIn("creates no slots, grants no capacity and adjudicates no ownership", self.coord)
+        # the coordinator must not invent a second message body
+        self.assertNotIn("Unverified pause rejected. Execute the next diagnostic probe", self.coord)
+        self.assertNotIn("Proceed on your branch.", self.coord)
+
+    def test_lawful_hold_is_not_a_stall(self):
+        self.assertIn("is a lawful hold, not a stall", self.dot)
 
     def test_no_rule_permits_pausing_on_a_scheduling_state(self):
         for text, name in ((self.dot, "dot"), (self.coord, "coordinator")):

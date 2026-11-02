@@ -100,18 +100,19 @@ run sends normally; the gate suppresses repeats, not first contact.
 
 The `main` reminder carries two extra duties; `proceed` never does (it is idle-gated).
 
-- **Mechanical stall check.** Read the Dot's last turn for a Turn Receipt (`Mode` / `Target` / `Artifact` /
-  `Blocker`, defined in the Dot skill). A missing `Mode`, an empty `Artifact`, or text that is only a promise
-  ("I'll check…", "I'll reconcile…", "waiting for…") means the lane is stalled: send **one** nudge whose body says
-  `Unverified pause rejected. Execute the next diagnostic probe or produce a failing execution trace, then proceed
-  on your branch.` Do not send it twice for the same stalled turn, and do not add it to an otherwise-idle lane
-  (the idle gate already covers that).
+- **Mechanical stall check (report only, never a second message).** Read the Dot's last turn for a Turn Receipt
+  (`Mode` / `Target` / `Artifact` / `Blocker`, defined in the Dot skill). A missing `Mode`, an empty `Artifact`, or
+  text that is only a promise ("I'll check…", "I'll reconcile…") marks the lane **stalled**, and the run report says
+  `stalled: <what was missing>`. A receipt that cites a hold ground with its exact unblock is a lawful hold and is
+  reported as `hold: <ground>`. This is a reporting duty only: the coordinator still sends exactly the selected mode
+  payload and nothing else, so it does not invent a second message body.
 - **Relay a blocker once.** If the Dot reports a blocker, repeat its `UNBLOCK: <capability> - <exact request> -
   <owner>` line in the run report so the operator sees it. Relay it again only when its evidence or its unblock
   condition changed; an unchanged repeat is noise, not progress.
 - **Never answer scheduling or permission questions.** Slot, admission, reservation, ownership and "may I" requests
-  get exactly one reply: `Proceed on your branch.` The coordinator creates no slots, grants no capacity, and
-  adjudicates no ownership.
+  are recorded in the report as `awaiting-dot-decision: <question>` and get no reply at all: the coordinator sends
+  nothing outside its selected payload, creates no slots, grants no capacity and adjudicates no ownership. The Dot's
+  own skill already forbids it from pausing on those grounds, so the correct sender behaviour is silence.
 
 ## Private periodic payload
 
