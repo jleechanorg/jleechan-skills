@@ -58,6 +58,20 @@ newline rule". This skill adds only the `/goal`-specific rules below.
    text: on builds where the composer already holds a draft `cmux send` refuses
    the send, and on builds where it does not the second send appends a duplicate
    `/goal` line.
+4. **Probe every clause against every target before setting the goal.** The Stop
+   hook reads the condition literally, so a clause no agent action can satisfy
+   loops until the deadline (2026-05-15 merge-approval loop; 2026-10-30 "CI green"
+   on a roadmap PR whose repo has no CI). For each gate, run its check on each
+   target it names and scope the clause to the targets where it exists; write the
+   rest as `N/A - <probe output>` in the bead, not in the condition. CI probe
+   (verified 2026-10-30: roadmap PR #182 -> `NEUTRAL=2 SKIPPED=4`,
+   worldai_frontend PR #367 -> `... SUCCESS=17`):
+   `gh pr view <N> --repo <owner/repo> --json statusCheckRollup --jq '[.statusCheckRollup[]|select(.__typename=="CheckRun")|(.conclusion // .state)]|group_by(.)|map("\(.[0])=\(length)")|join(" ")'`
+   -- only advisory bots and skipped runs means that PR has no CI to turn green.
+   Count check runs only: a commit status an agent posts itself is not CI. Keep
+   human-only items (merge approval, credential changes) out of the condition;
+   write "no merge without MERGE APPROVED" as a guard, never as something to
+   achieve.
 
 ### Success criterion (measured 2026-10-20, Claude Code)
 

@@ -91,6 +91,24 @@ Create concept pages for key ideas, frameworks, methods.
 ### Phase 8: Log
 Append to `wiki/log.md`: `## [YYYY-MM-DD] ingest | <Title>`
 
+### Phase 9: Commit and Push to origin/main
+
+Stage all ingested and updated files in `$WIKI_ROOT` (`raw/`, `wiki/`), commit with
+`<cli>/<model>: docs(wiki): ingest <slug>`, push to `origin/main`, and verify
+`HEAD == origin/main`:
+
+```bash
+git -C "$WIKI_ROOT" add raw/ wiki/
+git -C "$WIKI_ROOT" diff --cached --quiet || git -C "$WIKI_ROOT" commit -m "<cli>/<model>: docs(wiki): ingest $SLUG"
+git -C "$WIKI_ROOT" pull --rebase origin main
+git -C "$WIKI_ROOT" push origin HEAD:main
+test "$(git -C "$WIKI_ROOT" rev-parse HEAD)" = "$(git -C "$WIKI_ROOT" ls-remote origin refs/heads/main | awk '{print $1}')"
+```
+
+If `$WIKI_ROOT` is on a dirty non-`main` branch owned by another session, do not switch
+branches: commit and push onto `origin/main` through an isolated temporary
+`GIT_INDEX_FILE`, then verify `refs/heads/main` matches the new commit SHA.
+
 ## GitHub-Readable Output — TOC + Standard Markdown Links (default for ported-source branch)
 
 When a ported-source page will be published to GitHub (gist, repo, or any non-Obsidian viewer), GitHub does **not** render `[[WikiLinks]]` as clickable — they show up as literal `[[brackets]]`. Default behavior for any ported-source ingest that touches a GitHub-rendered surface:
