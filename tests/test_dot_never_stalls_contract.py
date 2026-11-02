@@ -58,8 +58,6 @@ class NeverStallContractTest(unittest.TestCase):
         # interpret a receipt, classify a stall or answer a Dot question.
         self.assertNotIn("stalled:", self.coord)
         self.assertNotIn("awaiting-dot-decision", self.coord)
-        self.assertNotIn("stalled:", self.coord)
-        self.assertNotIn("awaiting-dot-decision", self.coord)
         self.assertIn("Do not answer the Dot's questions, pick its work or write analysis of your own", self.coord)
         self.assertIn("The coordinator does no implementation, task triage, escalation or task persistence", self.coord)
 

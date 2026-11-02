@@ -58,7 +58,9 @@ class CoordinatorWorkflowTests(unittest.TestCase):
         for clause in ('COORDINATOR_MODE', '`main`', '`proceed`', 'its first sentence is', 'the only mode source',
                        'A task text with no such declaration is `main`', 'advisory record for host inspection',
                        'the sentence decides and the run report records the drift',
-                       'Do not add a second, unobservable veto'):
+                       'Do not add a second, unobservable veto',
+                       'Never infer the mode from the clock, conversation content, a prior run',
+                       'read its own last four hours'):
             self.assertIn(clause, modes, clause)
 
     def test_payload_selection_is_scoped_per_mode(self):
@@ -72,7 +74,9 @@ class CoordinatorWorkflowTests(unittest.TestCase):
         for clause in ("The Dot has not spoken since our last message",
                        "No coordinator message in the last 30 minutes",
                        "The strictest gate wins",
-                       "is **not** idle-gated"):
+                       "is **not** idle-gated",
+                       "idle-gate: dot active since",
+                       "idle-gate: recent nudge"):
             self.assertIn(clause, text, clause)
 
     def test_stamp_only_messages_are_blocked(self):
