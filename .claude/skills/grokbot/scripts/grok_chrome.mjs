@@ -39,21 +39,27 @@ try {
     if (!expected) {
       throw new Error('GROKBOT_IDENTITY_UNKNOWN: set GROKBOT_EXPECTED_IDENTITY to the expected handle before listing or reading');
     }
-    // Read the rendered ACCOUNT UI specifically, never the whole page: a bot title or a
-    // message body containing the expected handle would satisfy a body-wide substring
-    // match while a different account is signed in. If the account element cannot be
-    // located, fail closed rather than falling back to broader text.
-    const handle = await page.evaluate(() => {
-      const el = document.querySelector('[data-testid="account-menu"], [aria-label*="Account"], a[href^="/@"], [data-testid*="account"]');
-      if (!el) return null;
-      const t = (el.innerText || el.getAttribute('aria-label') || '').trim();
-      return t ? t.toLowerCase() : null;
-    });
-    if (handle === null) {
-      throw new Error('GROKBOT_IDENTITY_UI_NOT_FOUND: could not identify the account UI; refusing to report content');
+    // The account element is caller-supplied, never guessed. Any selector this script
+    // supplied itself could resolve to the wrong node - a profile link earlier in
+    // document order would pass a token match for a different account. GROKBOT_ACCOUNT_SELECTOR
+    // must match EXACTLY ONE element; zero or several is a hard failure.
+    const selector = (process.env.GROKBOT_ACCOUNT_SELECTOR || '').trim();
+    if (!selector) {
+      throw new Error('GROKBOT_IDENTITY_NOT_CONFIGURED: set GROKBOT_ACCOUNT_SELECTOR to the single element that shows the signed-in handle');
     }
-    if (!handle.split(/\s+/).includes(expected) && handle !== expected) {
-      throw new Error(`GROKBOT_IDENTITY_MISMATCH: account UI reads "${handle}", expected ${expected}`);
+    const found = await page.evaluate((sel) => {
+      const els = Array.from(document.querySelectorAll(sel));
+      return els.map((el) => (el.innerText || el.getAttribute('aria-label') || '').trim().toLowerCase());
+    }, selector);
+    if (found.length === 0) {
+      throw new Error('GROKBOT_IDENTITY_UI_NOT_FOUND: account selector matched nothing; refusing to report content');
+    }
+    if (found.length > 1) {
+      throw new Error(`GROKBOT_IDENTITY_AMBIGUOUS: account selector matched ${found.length} elements; narrow it to one`);
+    }
+    const handle = found[0];
+    if (handle.split(/\s+/).indexOf(expected) === -1 && handle !== expected) {
+      throw new Error(`GROKBOT_IDENTITY_MISMATCH: account element reads "${handle}", expected ${expected}`);
     }
   };
   if (mode === 'login') {
