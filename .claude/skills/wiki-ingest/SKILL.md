@@ -96,10 +96,9 @@ Append to `wiki/log.md`: `## [YYYY-MM-DD] ingest | <Title>`
 Publish through a content branch and PR. Never push `main`, and never publish another
 session's work that happens to sit in the same checkout.
 
-Build the exact file list from values Phase 1 already set — `SOURCE` keeps the source's
-extension while `SLUG` strips it, so the raw copy is `$SOURCE`, not `raw/$SLUG`. Start
-with only the pages this run created, then add the shared files only if this run wrote
-them:
+Build the file list from values Phase 1 already set — `SOURCE` keeps the source's
+extension while `SLUG` strips it, so the raw copy is `$SOURCE`, not `raw/$SLUG`. List
+only files this run created:
 
 ```bash
 PATHS=("$SOURCE" "$WIKI_ROOT/wiki/sources/$SLUG.md")
@@ -107,15 +106,27 @@ PATHS=("$SOURCE" "$WIKI_ROOT/wiki/sources/$SLUG.md")
 #   PATHS+=("$WIKI_ROOT/wiki/concepts/<concept>.md")
 ```
 
-`wiki/index.md` and `wiki/log.md` are shared across ingests. `git add` stages a file's
-entire current contents, so adding them commits a concurrent editor's lines too. Include
-them only when this run wrote them, and state in the PR body when you left them out:
+**Do not put the shared files in `PATHS`.** `wiki/index.md` and `wiki/log.md` are edited
+by every ingest in the same working tree, and `git diff` cannot tell your edits from a
+concurrent session's — it reports that the file differs, not who changed it. Taking those
+files from the working tree is therefore unsafe no matter how they are added. Apply this
+run's edits to the shared files *inside the scratch index*, starting from the committed
+base, so only your lines can be committed:
+
+Patch the two files in the base tree, stage the patched result, and record what you
+applied in the PR body. One worked shape, using `git show` + a patch file rather than the
+working copy — build the patch after `IDX_DIR` exists (the scratch-index block below
+creates it):
 
 ```bash
-for f in "$WIKI_ROOT/wiki/index.md" "$WIKI_ROOT/wiki/log.md"; do
-  git -C "$WIKI_ROOT" diff --quiet -- "$f" && continue   # unchanged by this run
-  PATHS+=("$f")
-done
+# --- after IDX_DIR is set, before write-tree ---
+SHARED_PATCH="$IDX_DIR/shared.patch"
+: > "$SHARED_PATCH"
+# Build each hunk from the committed base blob, never from the working tree:
+#   git show "$BASE:wiki/index.md" > "$IDX_DIR/index.base"
+#   { our edit applied to index.base } > "$IDX_DIR/index.new"
+#   diff -u "$IDX_DIR/index.base" "$IDX_DIR/index.new" \
+#     | sed 's|^--- .*|--- a/wiki/index.md|;s|^+++ .*|+++ b/wiki/index.md|' >> "$SHARED_PATCH"
 ```
 
 Create a fresh branch at the remote main tip and build the commit from a scratch index
@@ -124,26 +135,41 @@ your working tree, the shared index, or `HEAD`:
 
 ```bash
 set -e   # every step below must be able to stop the run
-git -C "$WIKI_ROOT" fetch origin main
-BASE="$(git -C "$WIKI_ROOT" rev-parse origin/main)"
+WIKI_GIT="git -C $WIKI_ROOT"
+$WIKI_GIT fetch origin main
+BASE="$($WIKI_GIT rev-parse origin/main)"
 BRANCH="wiki-ingest/$SLUG"
 
-# a pre-existing branch means a previous run already used this slug
-if git -C "$WIKI_ROOT" show-ref --verify --quiet "refs/heads/$BRANCH"; then
-  echo "branch $BRANCH already exists; choose a new slug instead of reusing it" >&2
+# refuse a slug whose branch already exists locally or on the remote
+for ref in "refs/heads/$BRANCH" "refs/remotes/origin/$BRANCH"; do
+  if $WIKI_GIT show-ref --verify --quiet "$ref"; then
+    echo "branch $BRANCH already exists ($ref); choose a new slug rather than reusing it" >&2
+    exit 1
+  fi
+done
+if $WIKI_GIT ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+  echo "remote branch origin/$BRANCH already exists; choose a new slug" >&2
   exit 1
 fi
 
 IDX_DIR="$(mktemp -d "${TMPDIR:-/tmp}/wiki-index.XXXXXX")"
 export GIT_INDEX_FILE="$IDX_DIR/index"
-git -C "$WIKI_ROOT" read-tree "$BASE"
-git -C "$WIKI_ROOT" add -- "${PATHS[@]}"
-TREE="$(git -C "$WIKI_ROOT" write-tree)"
-COMMIT="$(git -C "$WIKI_ROOT" commit-tree "$TREE" -p "$BASE" -m "<cli>/<model>: docs(wiki): ingest $SLUG")"
+$WIKI_GIT read-tree "$BASE"
+
+# new files: add from the working tree (safe, another session does not own these paths)
+$WIKI_GIT add -- "${PATHS[@]}"
+
+# shared files: apply only this run's edit onto the committed base copy
+if [ -s "$SHARED_PATCH" ]; then
+  $WIKI_GIT apply --cached "$SHARED_PATCH"
+fi
+
+TREE="$($WIKI_GIT write-tree)"
+COMMIT="$($WIKI_GIT commit-tree "$TREE" -p "$BASE" -m "<cli>/<model>: docs(wiki): ingest $SLUG")"
 unset GIT_INDEX_FILE
 
 [ -n "$COMMIT" ] || { echo "commit-tree produced no commit" >&2; exit 1; }
-git -C "$WIKI_ROOT" branch "$BRANCH" "$COMMIT"
+$WIKI_GIT branch "$BRANCH" "$COMMIT"
 ```
 
 An alternate `GIT_INDEX_FILE` controls what gets committed; it does not remove commits
