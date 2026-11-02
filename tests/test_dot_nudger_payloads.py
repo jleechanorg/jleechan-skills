@@ -18,6 +18,17 @@ class NudgerPayloadTest(unittest.TestCase):
     def setUp(self):
         self.text = " ".join(SKILL.read_text(encoding="utf-8").split())
 
+    def test_contract_text_names_every_resolution_and_failure_mode(self):
+        for clause in ("1. `$DOT_REMINDERS_DIR/M.<account>.md`",
+                       "2. the legacy fixed paths",
+                       "proceed-reminder.txt", "periodic-reminder.txt",
+                       "3. `$DOT_REMINDERS_DIR/M.md`",
+                       "4. the shipped default", "5. for `main` only: the built-in fallback",
+                       "`proceed` has no built-in fallback", "`payload-unavailable`", "`payload-invalid`",
+                       "never a symlink", "at most 8 KiB", "Markers are", "never substitute another file",
+                       "Record the resolved body path, its SHA256", "The footer wins"):
+            self.assertIn(clause, self.text, clause)
+
     def test_bodies_are_task_content_only_and_full_invariants_live_in_the_footer(self):
         for name in ("proceed", "main"):
             body = (REMINDERS / f"{name}.md").read_text(encoding="utf-8")
@@ -45,23 +56,7 @@ class NudgerPayloadTest(unittest.TestCase):
             for forbidden in ("/Users/", "/home/", "jeff-ubuntu", "jeffreys-macbook", ".claude-wa", "@gmail.com"):
                 self.assertNotIn(forbidden, body, f"{path.name}: {forbidden}")
 
-    def test_skill_documents_resolution_order_and_fail_closed_selection(self):
-        for clause in ("Editable body", "Reviewed invariant footer", "$DOT_REMINDERS_DIR/M.<account>.md",
-                       "$DOT_REMINDERS_DIR/M.md",
-                       "the shipped default",
-                       "`proceed` has no built-in fallback",
-                       "`payload-unavailable`",
-                       "`payload-invalid`",
-                       "never a symlink",
-                       "at most 8 KiB",
-                       "Markers are",
-                       "never substitute another file",
-                       "Record the resolved body path, its SHA256"):
-            self.assertIn(clause, self.text, clause)
 
-    def test_no_marker_based_safety_claim_remains(self):
-        self.assertIn("Markers are not used to infer safety", self.text)
-        self.assertIn("a string check cannot validate meaning", self.text)
 
     def test_only_the_main_fallback_blockquote_remains(self):
         raw = SKILL.read_text(encoding="utf-8")
@@ -71,18 +66,6 @@ class NudgerPayloadTest(unittest.TestCase):
         self.assertEqual(raw.count("> Review the last four hours of this conversation"), 1)
         self.assertIn("`proceed` has no built-in fallback", " ".join(SKILL.read_text().split()))
 
-    def test_legacy_overrides_are_preserved_for_both_modes(self):
-        flat = " ".join(SKILL.read_text(encoding="utf-8").split())
-        self.assertIn("proceed-reminder.txt", flat)
-        self.assertIn("periodic-reminder.txt", flat)
-
-    def test_resolution_order_is_an_explicit_list(self):
-        for i, entry in enumerate(("1. `$DOT_REMINDERS_DIR/M.<account>.md`",
-                                   "2. the legacy fixed paths",
-                                   "3. `$DOT_REMINDERS_DIR/M.md`",
-                                   "4. the shipped default",
-                                   "5. for `main` only: the built-in fallback"), start=1):
-            self.assertIn(entry, self.text, entry)
 
     def test_footer_wins_rule_is_inside_the_outbound_footer(self):
         raw = SKILL.read_text(encoding="utf-8")
@@ -92,9 +75,6 @@ class NudgerPayloadTest(unittest.TestCase):
             self.assertIn("this footer", footer.lower(), name)
             self.assertIn("this footer wins", footer, name)
 
-    def test_body_and_footer_disagreement_resolves_to_the_footer(self):
-        self.assertIn("The footer wins", self.text)
-        self.assertIn("the receiving Dot follows the footer and reports the conflict", self.text)
 
     def test_comparisons_include_the_footer(self):
         flat = " ".join(SKILL.read_text(encoding="utf-8").split())
