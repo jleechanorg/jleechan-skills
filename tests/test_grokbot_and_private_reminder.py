@@ -38,40 +38,64 @@ class NewSkillContracts(unittest.TestCase):
    self.assertIsNone(re.search(r'https://grok\.com/bot/[a-f0-9]{8}-',text))
 
 class GrokTransportUrlGuardTest(unittest.TestCase):
-    """The read mode must accept only a bot URL and must land back on that exact path."""
+    """read must accept only a bot URL and must land back on that exact path.
 
-    def _guard(self):
-        script = (ROOT / '.claude/skills/grokbot/scripts/grok_chrome.mjs').read_text(encoding='utf-8')
-        # The script validates with these two expressions; assert them directly so the
-        # cases below describe the shipped logic rather than a copy of it.
-        import re as _re
-        accept = _re.search(r'if \(target\.origin !== .https://grok\.com. \|\| !(/\^\\/bot\\/\[\\w-\]\+\$/)\.test\(target\.pathname\)\)', script)
-        arrived = _re.search(r'landed\.pathname !== target\.pathname', script)
-        self.assertIsNotNone(accept, 'read must require origin grok.com and an anchored /bot/<id> pathname')
-        self.assertIsNotNone(arrived, 'read must compare the landing pathname to the requested one')
-        return script
+    These import the SHIPPED predicates from scripts/url-guard.mjs, so a change to the
+    guard is caught here rather than shadowed by a re-implementation in the test.
+    """
 
-    def test_guard_present(self):
-        self._guard()
+    GUARD = ROOT / '.claude/skills/grokbot/scripts/url-guard.mjs'
 
-    def test_script_rejects_traversal_and_redirect_cases(self):
-        # Node is the script's own runtime; skip cleanly where it is absent.
+    def _run(self, js):
         node = shutil.which('node')
         if not node:
             self.skipTest('node not available')
+        mod = self.GUARD.as_uri()
+        script = f'import {{isBotUrl, landedOnRequested}} from "{mod}";\n{js}'
+        return subprocess.run([node, '--input-type=module', '-e', script],
+                              capture_output=True, text=True)
+
+    def test_guard_module_exists_and_exports_both_predicates(self):
+        text = self.GUARD.read_text(encoding='utf-8')
+        self.assertIn('export const isBotUrl', text)
+        self.assertIn('export const landedOnRequested', text)
+
+    def test_requested_url_matrix(self):
         js = (
-            'const ok=(u)=>{try{const t=new URL(u);return t.origin==="https://grok.com"'
-            ' && /^\\/bot\\/[\\w-]+$/.test(t.pathname);}catch{return false;}};'
             'const cases={"https://grok.com/bot/abc":true,'
             '"https://grok.com/bot/a/../../settings":false,'
             '"https://grok.com/settings":false,'
             '"https://evil.com/bot/x":false,'
             '"not-a-url":false,'
             '"https://grok.com/bot/abc/extra":false};'
-            'let bad=0;for(const[u,want]of Object.entries(cases)){if(ok(u)!==want){'
+            'let bad=0;for(const[u,w]of Object.entries(cases)){if(isBotUrl(u)!==w){'
             'console.log("MISMATCH",u);bad=1;}}process.exit(bad);'
         )
-        result = subprocess.run([node, '-e', js], capture_output=True, text=True)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        r = self._run(js)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_redirect_landing_matrix(self):
+        # The cases the review asked for: a redirect must never be reported as the
+        # requested conversation.
+        js = (
+            'const cases=['
+            '["https://grok.com/bot/a","https://grok.com/bot/a",true],'
+            '["https://grok.com/bot/a","https://grok.com/bot/other",false],'
+            '["https://grok.com/bot/a","https://grok.com/bot/a/settings",false],'
+            '["https://grok.com/bot/a","https://grok.com/settings",false],'
+            '["https://grok.com/bot/a","https://evil.com/bot/a",false],'
+            '["https://grok.com/bot/a","https://grok.com/bot/a?x=1",true]'
+            '];let bad=0;for(const[q,l,w]of cases){if(landedOnRequested(q,l)!==w){'
+            'console.log("MISMATCH",q,l);bad=1;}}process.exit(bad);'
+        )
+        r = self._run(js)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_transport_uses_the_shared_guard(self):
+        # A transport that inlined its own regex would drift from the tested predicate.
+        text = (ROOT / '.claude/skills/grokbot/scripts/grok_chrome.mjs').read_text(encoding='utf-8')
+        self.assertIn("from './url-guard.mjs'", text)
+        self.assertIn('isBotUrl(', text)
+        self.assertIn('landedOnRequested(', text)
 
 if __name__=='__main__':unittest.main()

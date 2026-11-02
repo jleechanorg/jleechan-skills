@@ -7,6 +7,7 @@ import os from 'os';
 
 const require = createRequire(process.env.DOT_PW_MODULES || path.join(path.dirname(process.execPath), '../lib/node_modules/'));
 const { chromium } = require('playwright');
+import { isBotUrl, landedOnRequested } from './url-guard.mjs';
 // Profile isolation: always a dedicated grokbot directory. No env override, so this
 // can never be pointed at a Dot or personal Chrome profile.
 const DIR = path.join(os.homedir(), '.config/grokbot-chrome');
@@ -54,16 +55,16 @@ try {
     } catch {
       throw new Error('read needs a valid URL, e.g. https://grok.com/bot/<id>');
     }
-    if (target.origin !== 'https://grok.com' || !/^\/bot\/[\w-]+$/.test(target.pathname)) {
+    if (!isBotUrl(target.href)) {
       throw new Error(`read needs https://grok.com/bot/<id> (got ${target.href})`);
     }
     await goto(target.href);
     // Compare the landing pathname to the REQUESTED one exactly. An unanchored pattern
     // accepts a redirect to /bot/other or /bot/<id>/settings and would print that page as
     // the conversation.
-    const landed = new URL(page.url());
-    if (landed.origin !== 'https://grok.com' || landed.pathname !== target.pathname) {
-      throw new Error(`GROKBOT_UNEXPECTED_NAVIGATION: requested ${target.pathname}, ended on ${landed.href}`);
+    const landedHref = page.url();
+    if (!landedOnRequested(target.href, landedHref)) {
+      throw new Error(`GROKBOT_UNEXPECTED_NAVIGATION: requested ${target.pathname}, ended on ${landedHref}`);
     }
     console.log(((await page.innerText('body')).slice(-5000)));
   } else throw new Error('usage: login | list [url] | read <bot-url>');
