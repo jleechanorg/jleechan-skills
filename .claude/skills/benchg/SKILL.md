@@ -68,7 +68,8 @@ echo ""
 ### 2. Setup Isolated Working Directories
 ```bash
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-BENCHMARK_DIR="/tmp/benchmark_$TIMESTAMP"
+SCRATCH_ROOT="${DISKM_SCRATCH:-$([ -d /Volumes/diskm-scratch ] && echo /Volumes/diskm-scratch || ([ -d $HOME/Scratch ] && echo $HOME/Scratch || echo /tmp))}"
+BENCHMARK_DIR="$SCRATCH_ROOT/benchmark_$TIMESTAMP"
 GENESIS_DIR="$BENCHMARK_DIR/genesis_project${PROJECT_NUM}"
 RALPH_DIR="$BENCHMARK_DIR/ralph_project${PROJECT_NUM}"
 
