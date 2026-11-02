@@ -45,6 +45,13 @@ SLUG=$(basename "$FILE_ARG" | sed 's/\.md$//' | sed 's/[^a-zA-Z0-9]/-/g' | tr '[
 # on local changes or carry them across.
 set -e
 BRANCH="wiki-ingest/$SLUG"
+
+# Refuse a dirty checkout. The precondition above covers concurrent ingests; this covers
+# edits that were already sitting here, which would otherwise ride through the switch and be
+# committed with this ingest's files.
+[ -z "$(git -C "$WIKI_ROOT" status --porcelain)" ] \
+  || { echo "$WIKI_ROOT has uncommitted changes; use a clean checkout for the ingest" >&2; exit 1; }
+
 git -C "$WIKI_ROOT" fetch origin main
 git -C "$WIKI_ROOT" ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1 \
   && { echo "origin/$BRANCH already exists; pick a new slug" >&2; exit 1; }
