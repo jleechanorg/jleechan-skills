@@ -69,3 +69,27 @@ Operators provision or inspect the quota-bounded Scratch volume via `diskm`:
 - Provision (optional, recommended 200 GiB): `diskm setup --scratch [--quota-gb 200]`
 - Query active mountpoint: `diskm volume path scratch`
 - Check volume status: `diskm volume status scratch`
+
+## Enforcement — /tmp workspace creation is blocked, not just discouraged
+
+A `PreToolUse` hook blocks tool calls that would create a **workspace** under `/tmp`
+(`~/.claude/hooks/scratch-routing-guard.py`, wired into the active runtime's settings,
+exit 2 = blocked). It fires for `git clone`/`git worktree add`/`mkdir`/`mktemp -d`/`cp`/
+`rsync`/`tar -C`/`unzip -d`/`pip --target` destinations and for document writes under
+`/tmp`.
+
+Why blocking rather than advice (incidents jleechan-zsq5 / jleechan-bu9r, 2026-10-28):
+`/tmp` is on the root filesystem whose free space gates self-hosted runner admission,
+and lane clones there drained the CI fleet twice (20 -> 0 and 20 -> 7 containers).
+Relocating existing directories did not stop new ones appearing, so the gate is
+enforced now.
+
+`/tmp` remains correct — and is allowed — for: logs (`.log`), sockets, pid/lock/marker
+files, single temp files, `.json`/`.jsonl` state, scripts (`.sh`/`.py`), pip unpack
+dirs, X11/ssh-agent/chromium profile dirs. Durable documents belong in the reports
+repository, never `/tmp`.
+
+Where the runtime's own temp already points at the scratch volume, the guard covers the
+Bash commands an agent types, which is where the drift was. A human operator can bypass
+one call with `SCRATCH_GUARD_ALLOW_TMP=1`. Global `TMPDIR` is still never remapped and
+`/tmp` is never replaced.
