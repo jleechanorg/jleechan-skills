@@ -68,7 +68,9 @@ echo ""
 ### 2. Setup Isolated Working Directories
 ```bash
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-SCRATCH_ROOT="${DISKM_SCRATCH:-$([ -d /Volumes/diskm-scratch ] && echo /Volumes/diskm-scratch || ([ -d $HOME/Scratch ] && echo $HOME/Scratch || echo /tmp))}"
+# Use the scratch allocator; it fails closed rather than falling back to /tmp, where
+# workspaces are prohibited (see ../scratch-space/SKILL.md).
+SCRATCH_ROOT="$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh benchmark)" || exit 1
 BENCHMARK_DIR="$SCRATCH_ROOT/benchmark_$TIMESTAMP"
 GENESIS_DIR="$BENCHMARK_DIR/genesis_project${PROJECT_NUM}"
 RALPH_DIR="$BENCHMARK_DIR/ralph_project${PROJECT_NUM}"

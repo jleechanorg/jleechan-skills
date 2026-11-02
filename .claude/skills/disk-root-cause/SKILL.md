@@ -7,18 +7,9 @@ description: Use when a user asks why a disk is filling, what uses its capacity,
 
 When a user asks **why the disk filled up**, **what grew over a window**, or **where a specific bucket came from**, this skill is the entry point. It never assumes an answer; it pulls facts from this machine's snapshot history (`~/.disk_magician_backup`), never deletes anything without an explicit human OK, and prefers parallel-subagent fan-out to keep wall-clock bounded.
 
-## Default first-use workflow (`<10s` zero-`du` ledger & history first)
+## Default first-use workflow
 
-Run the instant pre-computed ledger and 7d snapshot delta **before** launching a 15-minute `disk-magician audit` whole-disk `du` walk:
-
-```bash
-df -h / 2>/dev/null; diskm volume status scratch 2>/dev/null | head -5
-diskm check-launchd-fleet
-diskm reclaim-ledger --read-existing
-diskm history growth-top10 --days 7
-```
-
-Only run the full `disk-magician audit` when the pre-computed ledger/snapshots are missing, stale (`>48h`), or when residual unaccounted space requires a fresh top-down scan:
+Run this before chasing individual directories:
 
 ```bash
 disk-magician audit
@@ -62,19 +53,18 @@ Do **not** use this skill for one-off size queries — `du -sh <path>` answers t
 6. **Scope expansions are user-OK gates.** Tools like `bobthecow` style auto-remediators are NOT enabled. The skill recommends; the human runs.
 7. **Honest attribution in final report.** If disk improved mid-analysis for reasons outside this session (concurrent sweepers, OS reclaims), say so explicitly. Never claim a delta whose source you didn't observe.
 
-## Phase 0 — environment ground truth (always run `<10s` zero-`du` check first)
+## Phase 0 — environment ground truth (always run)
 
 ```bash
-# 1. Instant (<10s) zero-du ground truth: df + fleet + existing ledger + 7d floor/top10
-df -h / 2>/dev/null; diskm volume status scratch 2>/dev/null | head -5
-diskm check-launchd-fleet
-diskm reclaim-ledger --read-existing
-diskm history growth-top10 --days 7
+# Produce the default concurrent top-down + delta + quick-win report first.
+disk-magician audit
 
-# 2. Authenticate the live snapshot source (backup/<host>/ is frozen legacy; use snapshots/)
-SNAP=~/.disk_magician_backup/snapshots/disk_snapshot.json
+# Authenticate the data source
+df -h /System/Volumes/Data
+hostname -s                                                    # = directory key in ~/.disk_magician_backup
+SNAP=~/.disk_magician_backup/backup/$(hostname -s)/disk_snapshot.json
 git -C ~/.disk_magician_backup log --oneline -1 -- "$SNAP" 2>/dev/null
-python3 -c "import json; d=json.load(open('$SNAP')); print('schema_version:', d.get('schema_version'), 'coverage:', d.get('snapshot_coverage_pct'))"
+python3 -c "import json,sys; d=json.load(open('$SNAP')); print('schema_version:', d.get('schema_version'), 'coverage:', d.get('snapshot_coverage_pct'))"
 ```
 
 If `schema_version != 2`, the snapshot is pre-v2 (coverage inflates by parent/child double-count). Use `coverage_pct_raw_v1` from `snapshot_metadata` for trend continuity and note the inflation.

@@ -1,94 +1,51 @@
 ---
 name: design-an-interface
-description: "Compare alternative interface designs."
+description: Compare alternative module or API interface designs before implementation, especially when the first proposed shape may hide complexity or make misuse easy.
 ---
 
-# Design an Interface
+# Design an interface
 
-Based on "Design It Twice" from "A Philosophy of Software Design": your first idea is unlikely to be the best. Generate multiple radically different designs, then compare.
+Use this skill to explore interface shape before implementation. The aim is to
+find an interface that is simple to use correctly, hides meaningful complexity,
+and fits the actual callers and constraints.
 
-## Workflow
+## Gather the constraints
 
-### 1. Gather Requirements
+Identify the problem the module solves, its callers, key operations, compatibility
+requirements, performance constraints, and what should remain internal. Inspect
+nearby interfaces so the alternatives fit the existing system.
 
-Before designing, understand:
+## Develop alternatives
 
-- [ ] What problem does this module solve?
-- [ ] Who are the callers? (other modules, external users, tests)
-- [ ] What are the key operations?
-- [ ] Any constraints? (performance, compatibility, existing patterns)
-- [ ] What should be hidden inside vs exposed?
+Generate at least two meaningfully different interface shapes. Vary the tradeoff:
+for example, minimize operations, optimize the common case, or provide broader
+flexibility. Use bounded independent reviewers or subagents only when available,
+authorized, and useful for genuinely independent alternatives; concurrency is
+optional. If delegation is unavailable or wasteful, draft the alternatives
+directly and state the assumptions behind them.
 
-Ask: "What does this module need to do? Who will use it?"
+For each design, show its signature, a short usage example, the complexity it
+hides, and its main tradeoff. Do not implement the design unless implementation
+is part of the user's request.
 
-### 2. Generate Designs (Parallel Sub-Agents)
+## Compare and recommend
 
-Spawn 3+ sub-agents simultaneously using Task tool. Each must produce a **radically different** approach.
+Compare the alternatives on:
 
-```
-Prompt template for each sub-agent:
+- Simplicity of the public surface and ease of correct use
+- Whether it is focused or over-generalized for the known use cases
+- Whether it permits efficient, understandable implementation
+- How much complexity it hides behind the interface
+- Compatibility with existing callers and conventions
 
-Design an interface for: [module description]
+Recommend the best fit and explain the key tradeoff and any unresolved
+assumption. Ask the user only when an essential product choice cannot be
+resolved from the request or available context; otherwise make a reversible
+recommendation and continue.
 
-Requirements: [gathered requirements]
+## Avoid
 
-Constraints for this design: [assign a different constraint to each agent]
-- Agent 1: "Minimize method count - aim for 1-3 methods max"
-- Agent 2: "Maximize flexibility - support many use cases"
-- Agent 3: "Optimize for the most common case"
-- Agent 4: "Take inspiration from [specific paradigm/library]"
-
-Output format:
-1. Interface signature (types/methods)
-2. Usage example (how caller uses it)
-3. What this design hides internally
-4. Trade-offs of this approach
-```
-
-### 3. Present Designs
-
-Show each design with:
-
-1. **Interface signature** - types, methods, params
-2. **Usage examples** - how callers actually use it in practice
-3. **What it hides** - complexity kept internal
-
-Present designs sequentially so user can absorb each approach before comparison.
-
-### 4. Compare Designs
-
-After showing all designs, compare them on:
-
-- **Interface simplicity**: fewer methods, simpler params
-- **General-purpose vs specialized**: flexibility vs focus
-- **Implementation efficiency**: does shape allow efficient internals?
-- **Depth**: small interface hiding significant complexity (good) vs large interface with thin implementation (bad)
-- **Ease of correct use** vs **ease of misuse**
-
-Discuss trade-offs in prose, not tables. Highlight where designs diverge most.
-
-### 5. Synthesize
-
-Often the best design combines insights from multiple options. Ask:
-
-- "Which design best fits your primary use case?"
-- "Any elements from other designs worth incorporating?"
-
-## Evaluation Criteria
-
-From "A Philosophy of Software Design":
-
-**Interface simplicity**: Fewer methods, simpler params = easier to learn and use correctly.
-
-**General-purpose**: Can handle future use cases without changes. But beware over-generalization.
-
-**Implementation efficiency**: Does interface shape allow efficient implementation? Or force awkward internals?
-
-**Depth**: Small interface hiding significant complexity = deep module (good). Large interface with thin implementation = shallow module (avoid).
-
-## Anti-Patterns
-
-- Don't let sub-agents produce similar designs - enforce radical difference
-- Don't skip comparison - the value is in contrast
-- Don't implement - this is purely about interface shape
-- Don't evaluate based on implementation effort
+- Alternatives that differ only in naming or minor syntax
+- A broad interface whose implementation is still shallow or awkward
+- Presenting an unranked list without a recommendation
+- Treating this exploration as approval to implement or change unrelated code

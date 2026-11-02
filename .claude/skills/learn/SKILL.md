@@ -15,9 +15,9 @@ Every confirmed learning must produce or update all of these:
 
 1. Claude auto-memory under `~/.claude/projects/<project-key>/memory/`.
 2. Optional mem0 save when the configured helper and mem0 package are available (see step 3 gates).
-3. Monthly roadmap log at `~/roadmap/learnings-YYYY-MM.md` (plus any standalone `~/roadmap/*.md` or `.html` report), **committed and pushed to `origin/main`** via isolated `GIT_INDEX_FILE` + `commit-tree`.
+3. Monthly roadmap log at `~/roadmap/learnings-YYYY-MM.md`.
 4. A closed or referenced bead in `.beads/issues.jsonl` when the current repo has beads.
-5. LLM wiki ingest under `~/llm_wiki`: raw source copy, source page, index entry, log entry, relevant concept/entity updates, **committed and pushed to `origin/main`** (`HEAD == origin/main`).
+5. LLM wiki ingest under `~/llm_wiki`: raw source copy, source page, index entry, log entry, and relevant concept/entity updates.
 
 If a persistence target is unavailable, report the exact blocker and continue
 with the remaining targets. Do not silently skip wiki ingest.
@@ -160,32 +160,6 @@ Append to `~/roadmap/learnings-YYYY-MM.md`:
 - **References**: <PRs, commits, artifact links, commands>
 ```
 
-**Publishing the `~/roadmap` learning**: `~/roadmap` runs the ordinary PR workflow, so
-publish on a branch and open a PR — never write straight to `main`, by any route. The
-checkout is often dirty on another session's audit branch, so build the commit from a
-scratch index read from `origin/main` rather than switching branches:
-
-```bash
-ROADMAP_ROOT="${ROADMAP_ROOT:-$HOME/roadmap}"
-git -C "$ROADMAP_ROOT" fetch origin main
-BASE="$(git -C "$ROADMAP_ROOT" rev-parse origin/main)"
-BRANCH="learnings/<slug>"
-
-TMP_RM_IDX="$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh tmp)/roadmap-$$.index"
-GIT_INDEX_FILE="$TMP_RM_IDX" git -C "$ROADMAP_ROOT" read-tree "$BASE"
-GIT_INDEX_FILE="$TMP_RM_IDX" git -C "$ROADMAP_ROOT" add -- learnings-YYYY-MM.md  # plus any report .md/.html
-RM_TREE="$(GIT_INDEX_FILE="$TMP_RM_IDX" git -C "$ROADMAP_ROOT" write-tree)"
-RM_COMMIT="$(GIT_INDEX_FILE="$TMP_RM_IDX" git -C "$ROADMAP_ROOT" commit-tree "$RM_TREE" -p "$BASE" \
-  -m "<cli>/<model>: docs(roadmap): add <slug> learning")"
-rm -f "$TMP_RM_IDX"
-
-git -C "$ROADMAP_ROOT" branch "$BRANCH" "$RM_COMMIT"
-git -C "$ROADMAP_ROOT" push origin "$BRANCH"
-# then open the PR from "$BRANCH" per that repository's workflow
-```
-
-Publishing the learning does not merge it; merge authority stays separate.
-
 ### 5. Create or reference a bead
 
 If `.beads/issues.jsonl` exists:
@@ -230,35 +204,14 @@ itself is the source. The skill's classifier decides what is wiki-bearing.
 resolve the source by its absolute path and pass an explicit `--wiki` path
 when the destination must not depend on a current-directory override.
 
-**Mandatory `origin/main` push (hard requirement)**: After `wiki-ingest` writes `~/llm_wiki/raw/<basename>`, `~/llm_wiki/wiki/sources/<slug>.md`, `~/llm_wiki/wiki/index.md`, `~/llm_wiki/wiki/log.md`, and any entity/concept pages, `/learn` MUST ensure all `~/llm_wiki` changes are committed and pushed to `origin/main`:
-
-```bash
-WIKI_ROOT="${WIKI_ROOT:-$HOME/llm_wiki}"
-# Stage only the paths this run wrote; `add raw/ wiki/` would sweep in a concurrent
-# session's work.
-PATHS=("$WIKI_ROOT/raw/$(basename "$SOURCE_FILE")" \
-       "$WIKI_ROOT/wiki/sources/$SLUG.md" \
-       "$WIKI_ROOT/wiki/index.md" "$WIKI_ROOT/wiki/log.md")
-git -C "$WIKI_ROOT" add -- "${PATHS[@]}"
-git -C "$WIKI_ROOT" diff --cached --quiet -- "${PATHS[@]}" \
-  || git -C "$WIKI_ROOT" commit -m "<cli>/<model>: docs(wiki): ingest $SLUG" -- "${PATHS[@]}"
-```
-
-Then publish through the wiki repository's delivery contract (see `../wiki-ingest/SKILL.md`
-§ Phase 9): a content branch plus PR, never a direct push to `main`. `/learn` is **NOT
-complete** until the wiki changes are committed and reachable on the remote; verify the
-PR head matches your commit rather than assuming a push succeeded.
-
 ### 7. Validate and report
 
 Before reporting complete:
 
 - Verify files exist for each persistence target that was available.
-- Verify `git -C ~/roadmap ls-remote origin refs/heads/main | awk '{print $1}'` matches the pushed `~/roadmap` commit SHA.
-- Verify `git -C ~/llm_wiki rev-parse HEAD` (or the isolated commit SHA) matches `git -C ~/llm_wiki ls-remote origin refs/heads/main | awk '{print $1}'`.
 - Validate `.beads/issues.jsonl` parses when modified.
 - Check duplicate bead ids when a bead was created manually.
 - Run a whitespace check for repo changes when applicable.
 
-Final report must name the created/updated paths, the `~/roadmap` and `~/llm_wiki` `origin/main` commit SHAs, and any skipped persistence
+Final report must name the created/updated paths and any skipped persistence
 target with its reason.

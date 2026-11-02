@@ -64,8 +64,11 @@ python3 -m pytest $PROJECT_ROOT/tests/test_end2end/test_[feature]_end2end.py -q
 
 After each test run, capture:
 
-- Full absolute evidence directory path under a unique run directory created
-  with `mktemp -d` (preferring the Scratch volume, e.g. `${DISKM_SCRATCH:-/Volumes/diskm-scratch}/<repo>/evidence/<unique-run-dir>/` on Mac, `$HOME/Scratch/<repo>/evidence/<unique-run-dir>/` on Linux, or `/tmp/<repo>/evidence/<unique-run-dir>/`).
+- Full absolute evidence directory path under a unique run directory. Resolve it
+  through the scratch allocator rather than bare `mktemp -d`, which does not
+  select the scratch volume:
+  `EVIDENCE_DIR="$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh evidence)"`.
+  `/tmp` workspaces are prohibited there; see `../scratch-space/SKILL.md`.
 - Signature failure lines with context (`rg`/`grep` output).
 - Screenshot + server log consistency checks where applicable.
 - Final decision notes mapping blocker layer to component class:
