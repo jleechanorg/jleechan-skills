@@ -225,13 +225,15 @@ blinding that the protocol describes.
 - Behavioral awareness was reported as more effective than procedural requirements
 - Over-engineering can backfire even with good theoretical backing
 
-**Lessons**:
+**Lessons** (process lessons: each holds whatever the delta turns out to be):
 1. **Test assumptions empirically** - theories can be completely wrong
-2. **Simplicity often beats sophistication** - cognitive load matters
-3. **Work with AI nature, not against it** - LLMs respond to behavioral guidance
+2. **Simplicity often beats sophistication** - the recorded run raised this as a hypothesis about cognitive
+   load; it was not measured independently
+3. **Work with AI nature, not against it** - likewise a hypothesis this run raised about behavioral
+   guidance, not an established property of LLMs
 4. **Measure real performance, not theoretical elegance**
-5. **Keep the receipts** - a finding you cannot re-derive from committed artifacts is a hypothesis,
-   not a result
+5. **Keep the receipts** - a finding you cannot re-derive from retained artifacts is a hypothesis, not a
+   result
 
 ### Artifact retention rule (mandatory)
 
