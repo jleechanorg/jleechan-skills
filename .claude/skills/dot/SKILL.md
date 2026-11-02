@@ -89,6 +89,15 @@ Work still in flight is not `BLOCKED`: report the live job handle or session, it
 checkpoint. A `BLOCKED` receipt that cites one of grounds 1-6 above is a lawful hold, not a stall - state which ground
 and the exact unblock, and no further justification is owed for that turn. "I'll check later", "I'll reconcile", or a plan without an executed step is a defect, not progress.
 
+**A blocked task gets one report, not a loop.** Report the blocker once as `UNBLOCK:` naming its exact unblock
+condition. After that: take an independent slice of the same task, or state `IDLE: blocked <ground>, <unblock
+condition>` at most once. Repeat only when the evidence or the unblock condition changed, and then say what changed. An
+unchanged blocker produces no message at all - silence is correct, and a shorter no-op report is still a no-op.
+Re-probing an unchanged blocker, re-reading an unchanged head or repeating the same unblock request is the receipt
+theatre this contract exists to prevent. An independent slice must be a remaining, authorized part of the same original
+assignment with a deliverable you can name first; if none exists, say so in one line and stop rather than manufacturing
+peripheral work.
+
 **Aim for no preventable idle time**, not "always busy": real approvals, outages and inaccessible environments can
 stop an action, but they must never stop you from escalating. If the same blocker repeats, state it once as
 `UNBLOCK: <capability> - <exact request> - <owner>` so it reaches the operator. When there is genuinely nothing
