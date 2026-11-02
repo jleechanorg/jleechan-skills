@@ -93,105 +93,52 @@ Append to `wiki/log.md`: `## [YYYY-MM-DD] ingest | <Title>`
 
 ### Phase 9: Commit and Push
 
-Publish through a content branch and PR. Never push `main`, and never publish another
-session's work that happens to sit in the same checkout.
+Publish on a content branch. Never push `main`, and never publish another session's work
+from the same checkout.
 
-Build the file list from values Phase 1 already set — `SOURCE` keeps the source's
-extension while `SLUG` strips it, so the raw copy is `$SOURCE`, not `raw/$SLUG`. List
-only files this run created:
+**Precondition:** run the ingest in a checkout that no other ingest is writing. `raw/` and
+`wiki/index.md`/`wiki/log.md` are shared paths, and `git add` takes a file's whole current
+contents — no index trick lets you separate your lines from a concurrent session's once
+they are mixed in the worktree. If the checkout is shared, use a separate clone.
+
+Stage the paths this run created. `SOURCE` keeps the source file's extension while `SLUG`
+strips it, so the raw copy is `$SOURCE`, not `raw/$SLUG`:
 
 ```bash
-PATHS=("$SOURCE" "$WIKI_ROOT/wiki/sources/$SLUG.md")
-# add each entity/concept page this run created, e.g.
-#   PATHS+=("$WIKI_ROOT/wiki/concepts/<concept>.md")
+PATHS=("$SOURCE" "$WIKI_ROOT/wiki/sources/$SLUG.md" \
+       "$WIKI_ROOT/wiki/index.md" "$WIKI_ROOT/wiki/log.md")
+# add each entity/concept page this run wrote
 ```
 
-**Do not put the shared files in `PATHS`.** `wiki/index.md` and `wiki/log.md` are edited
-by every ingest in the same working tree, and `git diff` cannot tell your edits from a
-concurrent session's — it reports that the file differs, not who changed it. Taking those
-files from the working tree is therefore unsafe no matter how they are added. Apply this
-run's edits to the shared files *inside the scratch index*, starting from the committed
-base, so only your lines can be committed:
-
-Patch the two files in the base tree, stage the patched result, and record what you
-applied in the PR body. One worked shape, using `git show` + a patch file rather than the
-working copy — build the patch after `IDX_DIR` exists (the scratch-index block below
-creates it):
+Commit on a branch cut from the remote main tip, so the branch holds this ingest and not
+whatever the checkout happened to be on, and never reuse a slug:
 
 ```bash
-# --- after IDX_DIR is set, before write-tree ---
-SHARED_PATCH="$IDX_DIR/shared.patch"
-: > "$SHARED_PATCH"
-# Build each hunk from the committed base blob, never from the working tree:
-#   git show "$BASE:wiki/index.md" > "$IDX_DIR/index.base"
-#   { our edit applied to index.base } > "$IDX_DIR/index.new"
-#   diff -u "$IDX_DIR/index.base" "$IDX_DIR/index.new" \
-#     | sed 's|^--- .*|--- a/wiki/index.md|;s|^+++ .*|+++ b/wiki/index.md|' >> "$SHARED_PATCH"
-```
-
-Create a fresh branch at the remote main tip and build the commit from a scratch index
-read from that base, so the result holds this ingest and nothing else. This never touches
-your working tree, the shared index, or `HEAD`:
-
-```bash
-set -e   # every step below must be able to stop the run
-WIKI_GIT="git -C $WIKI_ROOT"
-$WIKI_GIT fetch origin main
-BASE="$($WIKI_GIT rev-parse origin/main)"
+set -e
 BRANCH="wiki-ingest/$SLUG"
-
-# refuse a slug whose branch already exists locally or on the remote
-for ref in "refs/heads/$BRANCH" "refs/remotes/origin/$BRANCH"; do
-  if $WIKI_GIT show-ref --verify --quiet "$ref"; then
-    echo "branch $BRANCH already exists ($ref); choose a new slug rather than reusing it" >&2
-    exit 1
-  fi
-done
-if $WIKI_GIT ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
-  echo "remote branch origin/$BRANCH already exists; choose a new slug" >&2
-  exit 1
-fi
-
-IDX_DIR="$(mktemp -d "${TMPDIR:-/tmp}/wiki-index.XXXXXX")"
-export GIT_INDEX_FILE="$IDX_DIR/index"
-$WIKI_GIT read-tree "$BASE"
-
-# new files: add from the working tree (safe, another session does not own these paths)
-$WIKI_GIT add -- "${PATHS[@]}"
-
-# shared files: apply only this run's edit onto the committed base copy
-if [ -s "$SHARED_PATCH" ]; then
-  $WIKI_GIT apply --cached "$SHARED_PATCH"
-fi
-
-TREE="$($WIKI_GIT write-tree)"
-COMMIT="$($WIKI_GIT commit-tree "$TREE" -p "$BASE" -m "<cli>/<model>: docs(wiki): ingest $SLUG")"
-unset GIT_INDEX_FILE
-
-[ -n "$COMMIT" ] || { echo "commit-tree produced no commit" >&2; exit 1; }
-$WIKI_GIT branch "$BRANCH" "$COMMIT"
+git -C "$WIKI_ROOT" fetch origin main
+git -C "$WIKI_ROOT" ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1 \
+  && { echo "origin/$BRANCH already exists; pick a new slug" >&2; exit 1; }
+git -C "$WIKI_ROOT" switch -c "$BRANCH" origin/main
+git -C "$WIKI_ROOT" add -- "${PATHS[@]}"
+git -C "$WIKI_ROOT" diff --cached --quiet && { echo "nothing to commit" >&2; exit 1; }
+git -C "$WIKI_ROOT" commit -m "<cli>/<model>: docs(wiki): ingest $SLUG"
 ```
 
-An alternate `GIT_INDEX_FILE` controls what gets committed; it does not remove commits
-already on a branch. Starting the branch at `$BASE` and building the commit from
-`read-tree "$BASE"` is what guarantees the result holds this ingest and nothing else.
-
-Push the branch by name, verify the remote ref landed that exact commit, and only then
-open the PR. `gh` has no `-C` flag (unlike `git`), so run it inside the wiki checkout:
+Push, verify that exact commit landed, and only then open the PR. Verify before creating
+the PR, and require nonempty values — `test "$A" = "$B"` is true when both are empty,
+which is what a failed push plus a failed lookup produces. `gh` has no `-C` flag:
 
 ```bash
+COMMIT="$(git -C "$WIKI_ROOT" rev-parse HEAD)"
 git -C "$WIKI_ROOT" push origin "$BRANCH"
-
 REMOTE="$(git -C "$WIKI_ROOT" ls-remote origin "refs/heads/$BRANCH" | awk '{print $1}')"
-[ -n "$REMOTE" ] && [ "$REMOTE" = "$COMMIT" ] || {
-  echo "push did not land $COMMIT on $BRANCH (remote='${REMOTE:-none}')" >&2; exit 1; }
-
+[ -n "$REMOTE" ] && [ "$REMOTE" = "$COMMIT" ] \
+  || { echo "push did not land $COMMIT (remote='${REMOTE:-none}')" >&2; exit 1; }
 (cd "$WIKI_ROOT" && gh pr create --base main --head "$BRANCH" --fill)
 ```
 
-Verifying before opening the PR matters: an empty `REMOTE` from a failed `ls-remote`
-would otherwise compare equal to an empty `COMMIT` and report success. If any step fails,
-report what failed; do not retry blindly.
+Note in the PR body when this run did not update the shared index or log.
 
 ## GitHub-Readable Output — TOC + Standard Markdown Links (default for ported-source branch)
 
