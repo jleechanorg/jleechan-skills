@@ -113,10 +113,15 @@ Append to `wiki/log.md`: `## [YYYY-MM-DD] ingest | <Title>`
 The publish branch already exists and is checked out (Phase 1), so this phase only
 commits, pushes and opens the PR. Never push `main`.
 
-**Precondition:** this checkout is not being written by another ingest. `raw/` and
-`wiki/index.md`/`wiki/log.md` are shared paths, and `git add` takes a file's whole current
-contents, so two concurrent ingests cannot be separated once their edits are mixed. If
-the checkout is shared, use a separate clone.
+**Preconditions** — both mechanically checked in Phase 1, which refuses a dirty checkout
+and refuses a slug whose branch already exists:
+
+- This checkout is not being written by another ingest. `raw/` and
+  `wiki/index.md`/`wiki/log.md` are shared paths, and `git add` takes a file's whole
+  current contents, so two concurrent ingests cannot be separated once their edits are
+  mixed. If the checkout is shared, use a separate clone; the dirty-check is a snapshot,
+  not a lock.
+- No pre-existing uncommitted edits are sitting in the checkout.
 
 Stage exactly the paths this run wrote. `SOURCE` keeps the source file's extension while
 `SLUG` strips it, so the raw copy is `$SOURCE`, not `raw/$SLUG`:
