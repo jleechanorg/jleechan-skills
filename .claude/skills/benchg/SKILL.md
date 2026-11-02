@@ -68,9 +68,12 @@ echo ""
 ### 2. Setup Isolated Working Directories
 ```bash
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-# Use the scratch allocator; it fails closed rather than falling back to /tmp, where
-# workspaces are prohibited (see ../scratch-space/SKILL.md).
+# Resolve the scratch root, but do NOT trust it alone: scratch-dir.sh exits 0 with
+# /tmp when no scratch volume is configured, and workspaces there are prohibited.
 SCRATCH_ROOT="$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh benchmark)" || exit 1
+case "$SCRATCH_ROOT" in
+  /tmp|/tmp/*) echo "scratch volume not configured; refusing to build under /tmp" >&2; exit 1 ;;
+esac
 BENCHMARK_DIR="$SCRATCH_ROOT/benchmark_$TIMESTAMP"
 GENESIS_DIR="$BENCHMARK_DIR/genesis_project${PROJECT_NUM}"
 RALPH_DIR="$BENCHMARK_DIR/ralph_project${PROJECT_NUM}"

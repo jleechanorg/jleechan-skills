@@ -64,11 +64,18 @@ python3 -m pytest $PROJECT_ROOT/tests/test_end2end/test_[feature]_end2end.py -q
 
 After each test run, capture:
 
-- Full absolute evidence directory path under a unique run directory. Resolve it
-  through the scratch allocator rather than bare `mktemp -d`, which does not
-  select the scratch volume:
-  `EVIDENCE_DIR="$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh evidence)"`.
-  `/tmp` workspaces are prohibited there; see `../scratch-space/SKILL.md`.
+- Full absolute evidence directory path under a unique run directory. Resolve the
+  scratch root, refuse a `/tmp` result, then create a fresh directory beneath it —
+  `scratch-dir.sh` returns a stable root, not a per-run path, and it exits 0 even
+  when it falls back to `/tmp`:
+  ```bash
+  SCRATCH_ROOT="$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh evidence)" || exit 1
+  case "$SCRATCH_ROOT" in
+    /tmp|/tmp/*) echo "scratch volume not configured; refusing /tmp workspace" >&2; exit 1 ;;
+  esac
+  EVIDENCE_DIR="$(mktemp -d "$SCRATCH_ROOT/evidence-run.XXXXXX")" || exit 1
+  ```
+  See `../scratch-space/SKILL.md` for why `/tmp` workspaces are prohibited.
 - Signature failure lines with context (`rg`/`grep` output).
 - Screenshot + server log consistency checks where applicable.
 - Final decision notes mapping blocker layer to component class:
