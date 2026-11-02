@@ -27,12 +27,23 @@ const ctx = await chromium.launchPersistentContext(DIR, {
 try {
   const page = ctx.pages()[0] || await ctx.newPage();
   const goto = (u) => page.goto(u, { waitUntil: 'domcontentloaded', timeout: 30000 }).then(() => page.waitForTimeout(4000));
-  // Before printing anything from a read mode, confirm a session is present. Without
-  // this, `list` on a signed-out profile emits unauth page text as if it were the
-  // account's data, and `read` can emit a login wall as if it were the conversation.
+  // Before printing anything from a read mode, positively verify identity. Checking only
+  // for the absence of a sign-in control is not enough: a session belonging to a
+  // DIFFERENT account also passes, and would then be reported as this bot's data.
+  // GROKBOT_EXPECTED_IDENTITY must be set to the handle this account should be signed in
+  // as; the rendered account UI has to contain it before any content is printed.
   const assertSignedIn = async () => {
     const signedOut = await page.$('a[href*="/sign-in"], button[data-testid*="sign-in"]');
     if (signedOut) throw new Error('GROKBOT_SIGNED_OUT: profile has no session; run `login` first');
+    const expected = (process.env.GROKBOT_EXPECTED_IDENTITY || '').trim().toLowerCase();
+    if (!expected) {
+      throw new Error('GROKBOT_IDENTITY_UNKNOWN: set GROKBOT_EXPECTED_IDENTITY to the expected handle before listing or reading');
+    }
+    // Read the rendered account surface; not cookies, not the session endpoint.
+    const surface = await page.evaluate(() => document.body.innerText.toLowerCase());
+    if (!surface.includes(expected)) {
+      throw new Error(`GROKBOT_IDENTITY_MISMATCH: signed-in account does not match ${expected}`);
+    }
   };
   if (mode === 'login') {
     await goto('https://grok.com/');

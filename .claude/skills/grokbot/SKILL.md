@@ -25,7 +25,11 @@ profile at `~/.config/grokbot-chrome`, never a Dot or personal profile. `login`
 opens a visible window once for the user to sign in; `list` prints the signed-in
 account's `/bot/<id>` links and titles (use it to resolve routes when no config
 mapping exists); `read <bot-url>` prints the conversation tail. All are read-only.
-An empty `list` means the profile is signed out: report that as the blocker and offer `login`; do not invent a route from a title or switch accounts.
+Before `list` or `read` prints anything, the script verifies the signed-in account against
+`GROKBOT_EXPECTED_IDENTITY`; if it is unset the script refuses, and if the rendered account
+does not match it fails with `GROKBOT_IDENTITY_MISMATCH`. An empty `list` means the profile
+is signed out: report that as the blocker and offer `login`; do not invent a route from a
+title or switch accounts.
 
 The transport script is optional. Use the runtime's directly supported browser-control interface as the default. Honor its
 instructions and the user's browser preference. On a host with an installed

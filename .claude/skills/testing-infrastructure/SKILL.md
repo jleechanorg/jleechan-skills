@@ -149,12 +149,11 @@ documentation-only exception.
 MCP_SERVER_URL="https://..." MCP_TEST_MODE=real node scripts/mcp-smoke-tests.mjs
 ```
 - Hard-fails on any non-200 response
-- Results are saved to `<branch>/smoke_tests/`. Point your run there by resolving the
-  scratch root first — `SCRATCH_ROOT="$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh)"`
-  — and refusing a `/tmp` result before creating anything beneath it, since workspaces
-  there are prohibited (see `../scratch-space/SKILL.md`). Confirm where the runner
-  actually writes rather than assuming: the allocator names a root, it does not redirect
-  a program's own output path.
+- The runner writes its log to `/tmp/<repo>/<branch>/smoke_tests/` by its own
+  hardcoded path; no scratch setting redirects it. That is acceptable here: the policy
+  prohibits /tmp *workspaces* (clones, worktrees, build dirs) and explicitly permits
+  logs and single temp files. Do not claim these results live on the Scratch volume, and
+  do not add a `SCRATCH_ROOT` wrapper that implies otherwise.
 
 ## Local test selection and runner
 
