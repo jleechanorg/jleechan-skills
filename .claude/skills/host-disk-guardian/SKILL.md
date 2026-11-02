@@ -21,9 +21,15 @@ context:
 
 ## Current owner
 
-For disk measurements, status, cleanup decisions, and scheduled maintenance,
-follow `~/.claude/skills/disk-root-cause/SKILL.md` and
-`~/projects_other/disk_magician/CLAUDE.md`.
+Route by what was asked, so one request never selects two procedures:
+
+- **Quick capacity or plain reclaim** ("check host free space", "how much can I free") ->
+the zero-`du` triage in `~/.claude/skills/disk-audit/SKILL.md`. Do not start a full audit
+walk for these.
+- **Root-cause investigation, cleanup decisions, and scheduled maintenance** ("why is the
+host full", "what grew", "what should I clean up") -> follow
+`~/.claude/skills/disk-root-cause/SKILL.md` and `~/projects_other/disk_magician/CLAUDE.md`.
+
 Use the current CLI entry point named there; Disk Magician scripts are internal
 helpers, not additional operator interfaces.
 
