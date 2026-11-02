@@ -12,7 +12,7 @@ Full version history for [jleechan-skills](https://github.com/jleechanorg/jleech
 ## v1.7.0 (2026-07-07)
 - New commands: bashrc.md, callpath.md, crash.md, mac.md, meta.md, repro_developer.md, soak.md, social.md
 - New hooks: warn-default-branch-bypass.sh
-- New scripts: check_autonomy_time_box.sh
+- New scripts: check_autonomy_time_box.sh (removed 2026-11-02; the time-box is agent-honored AGENTS.md guidance, not a scripted gate)
 - New skills: agent-orchestrator/, aside-browser-default/, auto-factory/, bashrc.md, browserclaw/, callpath/, codex-evolve-loop/, crash.md, fetch-x-tweet.md
 - Updated: automation-publish.md, automation.md, browser.md, exportcommands.md, f.md, playwright.md, automation-audit skill, self-hosted-runner-preflight skill, test-tui-claude-feature-via-cmux skill, test_install_native_scheduler.sh
 - Removed: exportcommands.py (2361 lines, legacy export script superseded by exportcommands.md/.sh)
