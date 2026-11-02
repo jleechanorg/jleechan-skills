@@ -34,7 +34,10 @@ class NudgerPayloadTest(unittest.TestCase):
         flat = " ".join(SKILL.read_text(encoding="utf-8").split())
         self.assertIn("Every message is labelled `[Agent ask]`", flat)
         self.assertIn("Automation never posts as the human", flat)
-        self.assertIn("If a payload file's first line is not `[Agent ask]`, the sender prepends it", flat)
+        self.assertIn("must begin with the exact token `[Agent ask]`", flat)
+        self.assertIn("never double the label", flat)
+        self.assertIn("This is checked, not assumed", flat)
+        self.assertIn("begins with that token exactly once immediately before submitting", flat)
         for mode in ("main", "proceed"):
             body = (REMINDERS / f"{mode}.md").read_text(encoding="utf-8")
             self.assertTrue(body.lower().startswith("[agent ask]"), mode)
