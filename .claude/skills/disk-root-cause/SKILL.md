@@ -39,7 +39,7 @@ Trigger when the user asks any of:
 - "Find the minimum disk used in the last month" (floor)
 - "Root cause the disk growth"
 - "Show me the delta between then and now"
-- "Reclaim X GB / how do I reclaim more" (skill is read-only forensics; safe-cleanup commands below)
+- "Which bucket is worth reclaiming, and why" — an attribution question. This skill is read-only forensics; safe-cleanup commands are below. A plain "how much can I free" with no attribution need goes to the zero-`du` triage in `../disk-audit/SKILL.md`.
 
 Do **not** use this skill for one-off size queries — `du -sh <path>` answers those directly.
 

@@ -30,9 +30,10 @@ selector it could ship proves the node it read is the account control — a uniq
 still be the page body, and a bot message containing the expected handle would pass any
 token comparison. Establish the account first through the supported browser-control
 interface or your own probe; `list` and `read` refuse to run until you acknowledge that with
-`GROKBOT_IDENTITY_CONFIRMED=1`. An empty `list` means the profile
-is signed out: report that as the blocker and offer `login`; do not invent a route from a
-title or switch accounts.
+`GROKBOT_IDENTITY_CONFIRMED=1`. An empty `list` has two causes and does not distinguish them: the profile is signed out, or
+it is signed in to an account with no `/bot/` links. Check which before concluding
+anything; if it is a session problem, report that as the blocker and offer `login`. Do not
+invent a route from a title or switch accounts.
 
 The transport script is optional. Use the runtime's directly supported browser-control interface as the default. Honor its
 instructions and the user's browser preference. On a host with an installed
