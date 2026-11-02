@@ -66,10 +66,13 @@ newline rule". This skill adds only the `/goal`-specific rules below.
    rest as `N/A - <probe output>` in the bead, not in the condition. CI probe
    (measured on two repos: one with no CI at all returned `NEUTRAL=2 SKIPPED=4`,
    one with real CI returned `... SUCCESS=17`):
-   `gh pr view <N> --repo <owner/repo> --json statusCheckRollup --jq '[.statusCheckRollup[]|select(.__typename=="CheckRun")|(.conclusion // .state)]|group_by(.)|map("\(.[0])=\(length)")|join(" ")'`
-   -- only advisory bots and skipped runs means that PR has no CI to turn green.
-   Count check runs only: a commit status an agent posts itself is not CI. Keep
-   human-only items (merge approval, credential changes) out of the condition;
+   `gh pr view <N> --repo <owner/repo> --json statusCheckRollup --jq '[.statusCheckRollup[]|(.conclusion // .state // .context)]|group_by(.)|map("\(.[0])=\(length)")|join(" ")'`
+   -- do not filter to check runs: CI can also arrive as legacy commit statuses,
+   so read both. Skipped, neutral or empty results do not prove the repo has no
+   required CI; treat that as unknown and probe the repo's workflow config before
+   declaring `N/A`. A commit status the reviewing agent posted itself is not CI.
+   Keep human-only items (merge approval, credential changes) out of the
+   condition;
    write "no merge without MERGE APPROVED" as a guard, never as something to
    achieve.
 

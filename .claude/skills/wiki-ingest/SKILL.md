@@ -53,8 +53,20 @@ BRANCH="wiki-ingest/$SLUG"
   || { echo "$WIKI_ROOT has uncommitted changes; use a clean checkout for the ingest" >&2; exit 1; }
 
 git -C "$WIKI_ROOT" fetch origin main
-git -C "$WIKI_ROOT" ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1 \
-  && { echo "origin/$BRANCH already exists; pick a new slug" >&2; exit 1; }
+
+# WITH --exit-code, ls-remote returns 2 for "no matching ref" and a different code
+# (128 here) for auth or transport failure. Without the flag a no-match returns 0, so
+# the flag is required for this distinction. Only a genuine 2 means "safe to create".
+set +e
+git -C "$WIKI_ROOT" ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1
+LS_RC=$?
+set -e
+case "$LS_RC" in
+  0) echo "origin/$BRANCH already exists; pick a new slug" >&2; exit 1 ;;
+  2) : ;;  # documented no-match: safe to create
+  *) echo "cannot determine whether origin/$BRANCH exists (ls-remote rc=$LS_RC); aborting" >&2; exit 1 ;;
+esac
+
 git -C "$WIKI_ROOT" switch -c "$BRANCH" origin/main
 
 # Only now copy the source into raw/, on the new branch.
@@ -155,7 +167,9 @@ git -C "$WIKI_ROOT" push origin "$BRANCH"
 REMOTE="$(git -C "$WIKI_ROOT" ls-remote origin "refs/heads/$BRANCH" | awk '{print $1}')"
 [ -n "$REMOTE" ] && [ "$REMOTE" = "$COMMIT" ] \
   || { echo "push did not land $COMMIT (remote='${REMOTE:-none}')" >&2; exit 1; }
-(cd "$WIKI_ROOT" && gh pr create --base main --head "$BRANCH" --fill)
+# Open as a DRAFT unless the target repository documents an exception; draft-first is
+# the shared default. Use --web or the repository PR template if one is required.
+(cd "$WIKI_ROOT" && gh pr create --draft --base main --head "$BRANCH" --fill)
 ```
 
 Note in the PR body when this run did not update the shared index or log. Leaving the

@@ -19,7 +19,9 @@ All temporary, disposable build, test scratch, and evidence paths resolve dynami
 
 1. **Repo-Scoped Build, Test & Evidence Directories (Managed Lease + Admission)**
    ```bash
-   # Allocate a managed build or evidence directory (auto-falls back to /tmp/<repo>/<kind>/... only if no Scratch volume is configured)
+   # Allocate a managed build or evidence directory. If no Scratch volume is configured,
+   # stop and report it: /tmp workspaces are prohibited (see the section below), so the
+   # helper must not be used as a /tmp fallback.
    OUT_DIR="$(diskm scratch-new <repo-path> <purpose> --kind build)"
    EVIDENCE_DIR="$(diskm scratch-new <repo-path> <purpose> --kind evidence)"
    ```

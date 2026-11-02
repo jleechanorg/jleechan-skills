@@ -11,7 +11,7 @@ Reproduce a bug end-to-end, classify the root cause, file a REPRO issue, then pr
 
 ## 0. Repo-level skill first — always
 
-Before anything else, look in the active repository for its own repro workflow: `.claude/commands/repro.md`, `.claude/skills/repro*/SKILL.md`, `.claude/skills/repro*.md`, and any repro entry in its `AGENTS.md`/`CLAUDE.md`. If one exists, read it and follow it; it wins on every difference. This skill applies only where the repository is silent. A repository that routes `/repro` to its own twin-clone or provider-specific evidence workflow owns that workflow.
+Before anything else, look in the active repository for its own repro workflow: `.claude/commands/repro.md`, `.claude/skills/repro*/SKILL.md`, `.claude/skills/repro*.md`, and any repro entry in its `AGENTS.md`/`CLAUDE.md`. If one exists, read it and follow it; it wins on every difference within the repository's own scope, subject to the user's explicit instructions and the active permission boundaries, which take precedence over both. This skill applies only where the repository is silent. A repository that routes `/repro` to its own twin-clone or provider-specific evidence workflow owns that workflow.
 
 ## 0.1 Default comparison: original / control / candidate
 
