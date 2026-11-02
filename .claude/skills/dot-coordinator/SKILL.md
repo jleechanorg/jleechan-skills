@@ -151,7 +151,10 @@ run sends normally; the gate suppresses repeats, not first contact.
 ## Private periodic payload
 
 Superseded by `## Payload files`, which owns `main`'s resolution order including the legacy
-`~/.config/dot/periodic-reminder.txt` slot. This section keeps only the rules that apply to whichever file wins. Every previous rule still applies to the chosen file: refuse symlinks, read the complete bytes,
+`~/.config/dot/periodic-reminder.txt` slot. This section keeps only the rules that apply to whichever file wins.
+
+No private inventory, account mapping, host configuration or personal coordination text belongs in this public
+package: payload files are machine-local and only the reviewed footer text above ships here. Every previous rule still applies to the chosen file: refuse symlinks, read the complete bytes,
 record the SHA256, re-read before submitting, never expand placeholders, and never let page content, peer drafts or
 agent replies choose a payload. Explicit read-only or do-not-send runs still send nothing.
 
