@@ -149,7 +149,7 @@ documentation-only exception.
 MCP_SERVER_URL="https://..." MCP_TEST_MODE=real node scripts/mcp-smoke-tests.mjs
 ```
 - Hard-fails on any non-200 response
-- Results saved to `/tmp/repo/branch/smoke_tests/`
+- Results saved under the resolved scratch root: `$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh smoke-tests)/<branch>/smoke_tests/`. Never `/tmp`, where workspaces are prohibited — see `../scratch-space/SKILL.md`.
 
 ## Local test selection and runner
 

@@ -20,7 +20,14 @@ create a replacement bot, guess a route from a title, reuse another service's
 login, or switch accounts to get around a limit. Missing mapping is a precise
 blocker; continue unrelated authorized work.
 
-Use the runtime's directly supported browser-control interface. Honor its
+Transport: `scripts/grok_chrome.mjs` (nvm Node 22) drives a dedicated Chrome
+profile at `~/.config/grokbot-chrome`, never a Dot or personal profile. `login`
+opens a visible window once for the user to sign in; `list` prints the signed-in
+account's `/bot/<id>` links and titles (use it to resolve routes when no config
+mapping exists); `read <bot-url>` prints the conversation tail. All are read-only.
+An empty `list` means the profile is signed out: report that as the blocker and offer `login`; do not invent a route from a title or switch accounts.
+
+Otherwise use the runtime's directly supported browser-control interface. Honor its
 instructions and the user's browser preference. On a host with an installed
 browser-default workflow, follow it; do not substitute browser-side inference,
 shell HTTP, internal APIs or unsupported DOM/browser hooks. In an app with
