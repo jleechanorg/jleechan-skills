@@ -13,7 +13,7 @@ allowed-tools:
   - Bash
   - Read
 context:
-  - "Disk Magician is the operational owner for measurements, status, cleanup, and scheduling. Follow ~/.claude/skills/disk-root-cause/SKILL.md and ~/projects_other/disk_magician/CLAUDE.md; use the CLI named there."
+  - "Disk Magician is the operational owner. Route by request: quick capacity or plain reclaim (including 'check host free space') -> the zero-du triage in ~/.claude/skills/disk-audit/SKILL.md; root-cause investigation, cleanup decisions, and scheduled maintenance -> ~/.claude/skills/disk-root-cause/SKILL.md and ~/projects_other/disk_magician/CLAUDE.md. Use the CLI named there."
   - "Scripts are implementation helpers, not separate operator entry points. This skill does not authorize direct cleanup or launchd installation."
 ---
 
