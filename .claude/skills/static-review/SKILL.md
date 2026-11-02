@@ -126,7 +126,8 @@ prompt sent, a `COVERAGE:` statement, the `VERDICT:` line, the actual clone path
 whenever one exists (document-only review launches no copy, so record `none`
 there), and a read-only check that the original checkout,
 refs, local config and hooks are unchanged. The orchestrator also verifies and
-records that no reviewer process survives and that clone cleanup succeeded. For
+records that no reviewer process survives and that copy cleanup succeeded (clone or
+export removal, per the seat's `isolation:` record). For
 a static-review subagent this receipt replaces only the seat-exit field of the
 seat receipt. When publishing a receipt outside the authorized
 workspace, publish only the prompt's SHA256 and template name if any filled
