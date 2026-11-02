@@ -11,9 +11,30 @@ Run `/roadmap` by producing (or updating) ONE in-flight PR board document in the
 roadmap repo, committing it, pushing it, and showing the URL. Anything else — surveys,
 memory reads, nextsteps rotas — is supporting material, not the deliverable.
 
-Phase 0 survey (optional context gathering) lives in
-`references/legacy-command.md`; use it when the board needs history, but the output
-format below is mandatory.
+Survey (optional context gathering). When the board needs history, consult
+whichever of these are available before writing: authorized project memory for prior
+decisions, existing documents in the roadmap repository, and related open beads. Use
+them so the board references earlier work instead of duplicating it. None of this is a
+prerequisite — skipping it is valid, especially for a status-only board — and it never
+changes the mandatory output format below.
+
+Each source resolves from its own root, so scope the lookups deliberately:
+
+- **Project memory** belongs to the project the board is about. Resolve it from that
+  project's root, not from the roadmap repository.
+- **Roadmap documents and beads** belong to the roadmap repository. `br` reads the
+  beads store of the directory it runs in, so a board built from a code checkout would
+  otherwise survey the wrong items:
+
+```bash
+ROADMAP_REPO="$(git -C "${ROADMAP_DIR:-$HOME/roadmap}" rev-parse --show-toplevel)" || exit 1
+(cd "$ROADMAP_REPO" && br list --status open)
+```
+
+
+If a source is unavailable, say so and continue. Durable decisions from the run belong
+in the board itself; write them to project memory only when the user asks or the owning
+project already requires it.
 
 When running in cmux, open the pushed GitHub board in a browser tab in the
 caller's current workspace. Resolve that workspace from caller context; if it is
