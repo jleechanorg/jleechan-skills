@@ -53,6 +53,20 @@ class CoordinatorWorkflowTests(unittest.TestCase):
         self.assertIn("## Proceed invariant footer (`footer-v1`)", text)
         self.assertNotIn("last 20 messages", flat_payload)
 
+    def test_mode_source_contract_survives(self):
+        modes = " ".join(SKILL.read_text().split("## Run modes", 1)[1].split("## ", 1)[0].split())
+        for clause in ('COORDINATOR_MODE', '`main`', '`proceed`', 'its first sentence is', 'the only mode source',
+                       'A task text with no such declaration is `main`', 'advisory record for host inspection',
+                       'the sentence decides and the run report records the drift',
+                       'Do not add a second, unobservable veto'):
+            self.assertIn(clause, modes, clause)
+
+    def test_payload_selection_is_scoped_per_mode(self):
+        flat = " ".join(SKILL.read_text().split())
+        self.assertIn("`proceed` run never sends the `main` payload", flat)
+        self.assertIn("a `main` run never sends the nudge", flat)
+        self.assertIn("never substitute another file", flat)
+
     def test_idle_gate_clauses_survive_the_move(self):
         text = " ".join(SKILL.read_text().split())
         for clause in ("The Dot has not spoken since our last message",

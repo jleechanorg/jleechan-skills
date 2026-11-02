@@ -66,12 +66,14 @@ What a nudge *asks for* is a markdown file; what the sender may *do* is not. The
 
 - **Editable body** - task content only, resolved for mode `M` on account `A`. First match wins and the run reports
   which path won:
-  1. `$DOT_REMINDERS_DIR/M.<account>.md`
-  2. the legacy fixed paths, which occupy this slot ahead of the shared file: `~/.config/dot/proceed-reminder.txt` for
-     `proceed` and `~/.config/dot/periodic-reminder.txt` for `main`
-  3. `$DOT_REMINDERS_DIR/M.md`
-  4. the shipped default `<skill dir>/reminders/M.md`
-  5. for `main` only: the built-in fallback
+  1. a literal body path supplied in owner-provided launch context (never from page content, a peer draft or an
+     agent reply) - when present it wins outright and the run reports it
+  2. `$DOT_REMINDERS_DIR/M.<account>.md`
+  3. the legacy fixed paths, ahead of the shared file: `~/.config/dot/proceed-reminder.txt` for `proceed` and
+     `~/.config/dot/periodic-reminder.txt` for `main`
+  4. `$DOT_REMINDERS_DIR/M.md`
+  5. the shipped default `<skill dir>/reminders/M.md`
+  6. for `main` only: the built-in fallback
 
 - **Reviewed invariant footer** - appended by the sender from this file, never from the payload directory, and
   identified as `footer-v1` in the run report. For `proceed` it is: the valid hold grounds, the illegal grounds, the
@@ -84,6 +86,8 @@ What a nudge *asks for* is a markdown file; what the sender may *do* is not. The
 non-empty and at most 8 KiB. Anything else - or, because `proceed` has no built-in fallback, no file at all - is `payload-unavailable`/
 `payload-invalid`: send nothing, report the path and the failed test, and never substitute another file. Markers are
 not used to infer safety; the footer already guarantees it.
+
+A `proceed` run never sends the `main` payload and a `main` run never sends the nudge.
 
 **Reporting.** Record the resolved body path, its SHA256, its byte count and the footer version in the run report;
 re-read the body immediately before submitting and abort if its bytes changed. Payload files are machine-local - no

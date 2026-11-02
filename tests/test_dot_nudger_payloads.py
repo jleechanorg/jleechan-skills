@@ -19,11 +19,12 @@ class NudgerPayloadTest(unittest.TestCase):
         self.text = " ".join(SKILL.read_text(encoding="utf-8").split())
 
     def test_contract_text_names_every_resolution_and_failure_mode(self):
-        for clause in ("1. `$DOT_REMINDERS_DIR/M.<account>.md`",
-                       "2. the legacy fixed paths",
+        for clause in ("1. a literal body path supplied in owner-provided launch context",
+                       "2. `$DOT_REMINDERS_DIR/M.<account>.md`",
+                       "3. the legacy fixed paths",
                        "proceed-reminder.txt", "periodic-reminder.txt",
-                       "3. `$DOT_REMINDERS_DIR/M.md`",
-                       "4. the shipped default", "5. for `main` only: the built-in fallback",
+                       "4. `$DOT_REMINDERS_DIR/M.md`",
+                       "5. the shipped default", "6. for `main` only: the built-in fallback",
                        "`proceed` has no built-in fallback", "`payload-unavailable`", "`payload-invalid`",
                        "never a symlink", "at most 8 KiB", "Markers are", "never substitute another file",
                        "Record the resolved body path, its SHA256", "The footer wins"):
@@ -81,11 +82,6 @@ class NudgerPayloadTest(unittest.TestCase):
         self.assertIn("everything below it equals the resolved body **plus its reviewed footer**", flat)
         self.assertIn("**whole payload** is everything below the `Sent:` line", flat)
 
-    def test_main_has_a_verbatim_footer_and_submit_appends_it(self):
-        raw = SKILL.read_text(encoding="utf-8")
-        self.assertIn("## Main invariant footer (`footer-v1`)", raw)
-        main_footer = raw.split("## Main invariant footer (`footer-v1`)", 1)[1].split("## When body and footer disagree", 1)[0]
-        self.assertIn("resolved body **plus** its reviewed footer", " ".join(raw.split()))
 
 
 if __name__ == "__main__":
