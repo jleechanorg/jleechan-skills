@@ -18,9 +18,18 @@ them so the board references earlier work instead of duplicating it. None of thi
 prerequisite — skipping it is valid, especially for a status-only board — and it never
 changes the mandatory output format below.
 
-Resolve those sources against the roadmap repository, not the code repository:
-`git -C "${ROADMAP_DIR:-$HOME/roadmap}" rev-parse --show-toplevel`, with `br list
---status open` for tracked items. If a source is unavailable, say so and continue.
+Resolve the roadmap repository first and run each lookup from it, never from the code
+repository — `br` reads the beads store of the directory it runs in, so a board built
+from a code checkout would survey the wrong items:
+
+```bash
+ROADMAP_REPO="$(git -C "${ROADMAP_DIR:-$HOME/roadmap}" rev-parse --show-toplevel)" || exit 1
+(cd "$ROADMAP_REPO" && br list --status open)
+```
+
+If a source is unavailable, say so and continue. Durable decisions from the run belong
+in the board itself; write them to project memory only when the user asks or the owning
+project already requires it.
 
 When running in cmux, open the pushed GitHub board in a browser tab in the
 caller's current workspace. Resolve that workspace from caller context; if it is
