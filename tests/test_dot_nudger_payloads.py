@@ -39,6 +39,8 @@ class NudgerPayloadTest(unittest.TestCase):
         self.assertIn("check the\n**final outbound message**".replace("\n", " "), flat)
         self.assertIn("label-check-failed", flat)
         self.assertIn("including the built-in fallback and any private payload", flat)
+        self.assertIn("so the label appears exactly once in the whole message", flat)
+        self.assertIn("already present removed", flat)
         self.assertIn("begins with that token exactly once immediately before submitting", flat)
         for mode in ("main", "proceed"):
             body = (REMINDERS / f"{mode}.md").read_text(encoding="utf-8")
