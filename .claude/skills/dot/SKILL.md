@@ -40,6 +40,56 @@ normal implementation policy for work that is not assigned to Dot.
 
 - **Active work check first (mandatory):** before declining an authorized task, ask the Dot to inventory current work in progress and count only distinct tasks demonstrably executing now. Require a receipt for each claimed active task: item/goal, owner, live run/session or worktree/PR, the exact action happening now, and a fresh artifact or command result. Assignment, rank, "busy", or start time alone is not proof. Idle, stalled, finished, queued, and waiting-for-review tasks are not active. Capacity is a valid refusal only with evidence for at least six distinct active tasks, each showing its exact present action and fresh receipt; include those receipts in the reply. Do not gate acceptance on rank or ask the user to prioritize the task. If fewer than six active tasks are proven, take the authorized task and fill open capacity with safe work. Keep genuine permission/approval holds and measured resource limits separate from a full-capacity refusal: state the evidence and exact blocked action, preserve the approval boundary, and continue work that remains feasible. If the composer stays blocked or the account is limited, send the same request to the next account in `rotation` with `--account <next>`.
 
+### Never stall (mandatory)
+
+Every turn advances one safe, authorized unit. Waiting is a state you must justify with evidence, never a default.
+
+**Valid hold grounds — the complete list.** You may pause a specific action only when you can cite one of:
+1. a literal `HOLD` or `STOP` instruction from the operator, naming the action;
+2. an access denial or a non-zero exit **from this turn** that provably blocks *this* action (HTTP 4xx/5xx, a CDP
+   error, a stderr trace from the command the action needs). A failing test is **not** a hold ground by itself: it is
+   the work — diagnose it, fix it, or report it as a defect. Pausing on a red test is the exact preventable idle time
+   this rule exists to stop;
+3. a read-only probe from this turn showing the capability is genuinely absent (no DevTools, no mobile viewport,
+   no credential);
+4. a verified one-writer conflict on the *same mutable target* — same campaign/document id, account-wide setting,
+   browser profile dir, or simulator UDID. Another lane merely being alive is not a conflict;
+5. an approval the skill system withholds until the operator gives it — merge, destructive action, credential
+   creation or rotation, spending — for **that specific action only**;
+6. an explicit read-only or do-not-touch scope in the task, and a measured resource limit the operator set
+   (quota, time-box, concurrency cap).
+
+Grounds 5 and 6 pause only the action they name. Everything else in the lane continues, and the hold is stated with
+the exact approval or limit it is waiting for.
+
+**Illegal grounds — never pause for these.** Scheduling states ("slot", "admission", "reservation", "handback",
+"waiting for a decision"), self-imposed budget or cost pacing the operator did not set, prospective or speculative
+conflict fears, and "another agent might be working on it". Unknown occupancy is not a blocker: run a preflight.
+A hold applies to that one action; the rest of the lane keeps moving.
+
+**Turn Receipt — end every turn with one.** No status table or intention substitutes for it.
+
+```
+### Turn Receipt
+- Mode: MUTATION | PROBE | BLOCKED
+- Target: <path, PR, or URL>
+- Artifact: <SHA, exit code, trace excerpt, or "none (ground N)">
+- Blocker: NONE | <exact error text, or the ground and the exact approval/limit being waited for>
+```
+
+A `BLOCKED` receipt for grounds 1, 5 or 6 legitimately has no artifact: write `Artifact: none (ground N)` and put the
+exact `HOLD`/approval/scope in `Blocker`. Grounds 2 and 3 must carry the failing command or probe output; ground 4
+must name the target and the other writer.
+
+Work still in flight is not `BLOCKED`: report the live job handle or session, its target, start time, and the next
+checkpoint. A `BLOCKED` receipt that cites one of grounds 1-6 above is a lawful hold, not a stall - state which ground
+and the exact unblock, and no further justification is owed for that turn. "I'll check later", "I'll reconcile", or a plan without an executed step is a defect, not progress.
+
+**Aim for no preventable idle time**, not "always busy": real approvals, outages and inaccessible environments can
+stop an action, but they must never stop you from escalating. If the same blocker repeats, state it once as
+`UNBLOCK: <capability> - <exact request> - <owner>` so it reaches the operator. When there is genuinely nothing
+authorized and nothing possible, say `IDLE: queue empty` once and stop.
+
 ### Coordinator recovery checkbacks
 
 For a user-requested coordinator recovery cycle, this contract overrides the generic polling and /goal defaults below. It is owner guidance, not a new scheduler or a change to the fixed reminder transport body.
