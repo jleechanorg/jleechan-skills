@@ -93,31 +93,33 @@ Append to `wiki/log.md`: `## [YYYY-MM-DD] ingest | <Title>`
 
 ### Phase 9: Commit and Push
 
-Stage only the files this ingest touched, commit with
-`<cli>/<model>: docs(wiki): ingest <slug>`, and publish through the wiki repository's
-own delivery contract — a content branch plus PR where one is required, and never
-straight to `main`:
+Publish through the wiki repository's own delivery contract — a content branch plus PR —
+and never straight to `main`.
+
+Name the exact paths this ingest wrote; never stage the whole tree, because `raw/` and
+`wiki/` may hold another session's in-progress work:
 
 ```bash
-git -C "$WIKI_ROOT" add -- raw/ wiki/
+PATHS=("raw/$SLUG" "wiki/sources/$SLUG.md" "wiki/index.md" "wiki/log.md")
+git -C "$WIKI_ROOT" add -- "${PATHS[@]}"
 git -C "$WIKI_ROOT" diff --cached --quiet || git -C "$WIKI_ROOT" commit -m "<cli>/<model>: docs(wiki): ingest $SLUG"
 ```
 
-Then follow that repository's `AGENTS.md`/`CLAUDE.md`: if it requires content PRs, push a
-branch (`git -C "$WIKI_ROOT" push -u origin HEAD`) and open a PR, then verify the PR
-head matches your commit. Only when the repository explicitly permits direct-to-main
-writes for wiki content do you fast-forward and publish there:
+Extend that list with any entity or concept page you created or edited. Then push a
+branch and open a PR per that repository's `AGENTS.md`/`CLAUDE.md`, and verify the PR
+head matches your commit:
 
 ```bash
-git -C "$WIKI_ROOT" pull --rebase origin main
-git -C "$WIKI_ROOT" push origin HEAD:main
-test "$(git -C "$WIKI_ROOT" rev-parse HEAD)" = "$(git -C "$WIKI_ROOT" ls-remote origin refs/heads/main | awk '{print $1}')"
+git -C "$WIKI_ROOT" push -u origin HEAD
+gh -C "$WIKI_ROOT" pr create --fill   # or the repository's required PR command
+test "$(git -C "$WIKI_ROOT" rev-parse HEAD)" = "$(git -C "$WIKI_ROOT" rev-parse origin/HEAD)" 2>/dev/null || git -C "$WIKI_ROOT" log --oneline -1
 ```
 
-Do not `git add` the whole tree. If `$WIKI_ROOT` sits on a dirty non-`main` branch owned
-by another session, do not switch branches and do not carry that branch's commits into
-the publish: commit through an isolated temporary `GIT_INDEX_FILE` containing only this
-ingest's paths.
+If `$WIKI_ROOT` sits on a dirty non-`main` branch owned by another session, do not switch
+branches and do not publish that branch: create a fresh branch at the remote main tip and
+commit only this ingest's paths onto it, so the pushed branch contains this ingest and
+nothing else. An alternate `GIT_INDEX_FILE` controls what gets committed, not which
+commits are already on the branch you push.
 
 ## GitHub-Readable Output — TOC + Standard Markdown Links (default for ported-source branch)
 
