@@ -71,9 +71,22 @@ class NudgerPayloadTest(unittest.TestCase):
         self.assertEqual(raw.count("> Review the last four hours of this conversation"), 1)
         self.assertIn("`proceed` has no built-in fallback", " ".join(SKILL.read_text().split()))
 
-    def test_legacy_path_participates_in_main_resolution(self):
-        self.assertIn("periodic-reminder.txt", self.text)
-        self.assertIn("before `main.md`", self.text)
+    def test_legacy_path_has_one_authoritative_rule(self):
+        raw = SKILL.read_text(encoding="utf-8")
+        self.assertIn("periodic-reminder.txt", raw)
+        # exactly one section owns the ordering claim
+        self.assertEqual(raw.count("predecessor"), 1, raw.count("predecessor"))
+
+    def test_body_and_footer_disagreement_resolves_to_the_footer(self):
+        self.assertIn("The footer wins", self.text)
+        self.assertIn("the receiving Dot follows the footer and reports the conflict", self.text)
+
+    def test_main_has_a_verbatim_footer_and_submit_appends_it(self):
+        raw = SKILL.read_text(encoding="utf-8")
+        self.assertIn("## Main invariant footer (`footer-v1`)", raw)
+        main_footer = raw.split("## Main invariant footer (`footer-v1`)", 1)[1].split("## When body and footer disagree", 1)[0]
+        self.assertIn("grants\n> no new execution", main_footer.replace("\n", "\n"))
+        self.assertIn("resolved body **plus** its reviewed footer", " ".join(raw.split()))
 
 
 if __name__ == "__main__":
