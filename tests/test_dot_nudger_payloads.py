@@ -52,13 +52,18 @@ class NudgerPayloadTest(unittest.TestCase):
     def test_blocked_tasks_do_not_loop_on_re_probes(self):
         main_body = " ".join((REMINDERS / "main.md").read_text(encoding="utf-8").split())
         self.assertIn("If your task is blocked, do not loop on it", main_body)
-        self.assertIn("IDLE: blocked <ground>, awaiting owner decision", main_body)
-        self.assertIn("must not appear twice", main_body)
+        self.assertIn("IDLE: blocked <ground>, <unblock condition>", main_body)
+        self.assertIn("An unchanged blocker produces no message at", main_body)
+        self.assertIn("silence is the correct output for a blocked task", main_body)
+        self.assertIn("a remaining, authorized part of the same original assignment", main_body)
+        self.assertIn("do not manufacture peripheral work", main_body)
         proceed_body = " ".join((REMINDERS / "proceed.md").read_text(encoding="utf-8").split())
         self.assertIn("do not re-ask it", proceed_body)
+        self.assertIn("silence is the correct answer for an unchanged blocker", proceed_body)
         dot = " ".join((ROOT / ".claude/skills/dot/SKILL.md").read_text(encoding="utf-8").split())
         self.assertIn("A blocked task gets one report, not a loop", dot)
         self.assertIn("receipt theatre", dot)
+        self.assertIn("Repeat only when the evidence or the unblock condition changed", dot)
 
     def test_bodies_never_displace_the_original_assignment(self):
         flat = " ".join(SKILL.read_text(encoding="utf-8").split())
