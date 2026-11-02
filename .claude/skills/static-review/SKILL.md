@@ -20,7 +20,7 @@ table lists for the seat's `isolation:` record - `<PR URL>` `<SHA>` `<BASE SHA>`
 `isolation: orchestrator-export`, `<PACKET PATH>` `<BUNDLE HASH>` for `isolation: none` - and use that record's
 preamble **and** template. The orchestrator writes nothing else.
 
-The export record uses the **shared revision template** above unchanged (it names `<PR URL>`, `<SHA>` and
+The export record uses the **shared revision template** in §2 unchanged (it names `<PR URL>`, `<SHA>` and
 `<BASE SHA>`, all of which the export supplies); only the preamble differs. Choose exactly one preamble per
 seat - the revision preamble for `orchestrator-clone`, the export preamble for `orchestrator-export`,
 the document-only preamble for `none`. Preambles are alternatives, never concatenated.
@@ -120,8 +120,8 @@ post; the orchestrator publishes verdicts through pr-lifecycle.
 
 Every reviewer receipt records the reviewer identity (type, harness and model),
 the exact SHA or bundle hash, orchestrator launch and return times, the exact
-prompt sent, a `COVERAGE:` statement, the `VERDICT:` line, the actual clone path
-whenever one exists (document-only review launches no clone, so record `none`
+prompt sent, a `COVERAGE:` statement, the `VERDICT:` line, the actual copy path
+whenever one exists (document-only review launches no copy, so record `none`
 there), and a read-only check that the original checkout,
 refs, local config and hooks are unchanged. The orchestrator also verifies and
 records that no reviewer process survives and that clone cleanup succeeded. For
