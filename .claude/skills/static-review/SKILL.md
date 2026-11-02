@@ -16,7 +16,7 @@ context, summary or framing of the change. Every reviewer's entire input,
 whether a CLI reviewer, the coordinator ask or a static-review subagent, is
 one fixed channel preamble below followed by one template below. Fill exactly the fields that the `advice` skill's §4
 table lists for the seat's `isolation:` record - `<PR URL>` `<SHA>` `<BASE SHA>` `<SCRATCH PATH>` for
-`isolation: orchestrator-clone`, `<PACKET PATH>` `<BUNDLE HASH>` for `isolation: none` - and use that record's
+`isolation: orchestrator-clone`, `<SCRATCH PATH>` `<SHA>` `<BASE SHA>` for `isolation: orchestrator-export`, `<PACKET PATH>` `<BUNDLE HASH>` for `isolation: none` - and use that record's
 preamble and template. The orchestrator writes nothing else.
 
 ## 2. Templates
@@ -71,6 +71,22 @@ clone in place - the orchestrator verifies it and removes it after your process
 exits. Use the GitHub token already present in your environment and
 never print it. Do not modify the original checkout, refs, config or hooks. Do
 not post anything; return your review as your final output.
+```
+
+Export preamble for every CLI seat and for static reviewers (verbatim):
+
+```text
+Work only in the exported tree at the scratch path given below; if your working
+directory was set to it, stay there. The export contains no .git: it is a
+snapshot of <SHA>, not a repository, so there is no history, no remote and
+nothing to commit. Do not clone, fetch, add a remote, or create any other copy,
+and do not run git commands that expect a repository - a diff against
+<BASE SHA> is supplied as base.diff and the pinned file list as
+manifest.expected. Never work in the original checkout or in a donor repository.
+Leave the export in place - the orchestrator verifies it against the pinned tree
+after your process exits and removes it afterwards. Use the GitHub token already
+present in your environment and never print it. Do not modify any checkout, refs,
+config or hooks. Do not post anything; return your review as your final output.
 ```
 
 Document-only preamble for every CLI seat and for static reviewers (verbatim):

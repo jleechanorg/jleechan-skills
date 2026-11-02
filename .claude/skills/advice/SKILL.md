@@ -233,7 +233,7 @@ derived from the same row, so the two skills cannot drift apart.
 | record | who clones | what the receipt must prove | who verifies | who deletes | template fields |
 |---|---|---|---|---|---|
 | `pin` (internal; never sent to a seat, never a seat's working directory) | orchestrator: clone the original checkout into allocated scratch with `--no-local`, check out `<SHA>`, fetch the base-branch tip from the PR remote | `donor_path`; `review_sha` = donor `HEAD`; `base_sha` = `git merge-base <SHA> <fetched base tip>`; `--git-common-dir` = `--git-dir`; `donor_removed` = `test ! -e <donor path>` | orchestrator | orchestrator, after the last seat clone is gone | none |
-| `isolation: orchestrator-export` (DEFAULT) | orchestrator: `git -C <donor> archive --format=tar <SHA> \| tar -x -C <SCRATCH PATH>/tree` (with `set -o pipefail`), plus `base.diff` and `manifest.expected` written from the donor | `copy_mode` = `export`; `has_dot_git` = `false`; `manifest_match` per path against `ls-tree -r <SHA>`; `cwd: set`; then `copy_removed` = `test ! -e <SCRATCH PATH>` | orchestrator, every key except any `attested.` one | orchestrator, whatever the seat's outcome | `<PR URL>` `<SHA>` `<BASE SHA>` `<SCRATCH PATH>` |
+| `isolation: orchestrator-export` (DEFAULT) | orchestrator: `git -C <donor> archive --format=tar <SHA> \| tar -x -C <SCRATCH PATH>/tree` (with `set -o pipefail`), plus `base.diff` and `manifest.expected` written from the donor | `copy_mode` = `export`; `has_dot_git` = `false`; `manifest_match` per path against `ls-tree -r <SHA>` **at launch AND again after the seat process is gone**; `cwd: set`; then `copy_removed` = `test ! -e <SCRATCH PATH>` | orchestrator, every key except any `attested.` one | orchestrator, whatever the seat's outcome | `<PR URL>` `<SHA>` `<BASE SHA>` `<SCRATCH PATH>` |
 | `isolation: orchestrator-clone` (ESCALATION only) | orchestrator: shallow-clone the donor **at `<SHA>`** (`git clone --no-local --depth 1 --single-branch --no-checkout`, `fetch --depth 1 origin <SHA>`, `checkout --detach <SHA>`, bounded `fetch --deepen 2`), then `git remote remove origin` | `copy_mode` = `shallow-clone`; `has_dot_git` = `true`; `--git-common-dir` = `--git-dir`; `HEAD` = `review_sha`; `git merge-base --is-ancestor <BASE SHA> HEAD` exits 0 **after** deepening; `git remote` empty; no `objects/info/alternates`; then `clone_removed` = `test ! -e <SCRATCH PATH>` | orchestrator, every key except any `attested.` one | orchestrator, whatever the seat's outcome | `<PR URL>` `<SHA>` `<BASE SHA>` `<SCRATCH PATH>` |
 | `isolation: none` | nobody | `packet_path`; per-file SHA-256; `bundle_sha256`; `clone_path: none`; `clone_removed: n/a` | orchestrator | nobody; the packet is kept as evidence | `<PACKET PATH>` `<BUNDLE HASH>` |
 
@@ -241,8 +241,8 @@ derived from the same row, so the two skills cannot drift apart.
   read one SHA - measured on `worldarchitect.ai`: **6,214 MB** of `.git` for 14,241 commits, versus **209 MB** for
   `--depth 1` and **324 MB** for a `git archive` export at the same SHA. Two seats therefore burned ~12 GB per
   review, and concurrent reviews filled a 200 GiB Scratch volume to 100% (`advice-*` workspaces held 48.7 GB; one
-  held 13 reviewer clones at 22.0 GB for **18 MB** of review output). Depth is irrelevant to review quality: a seat
-  pins one SHA and reads the whole tree there.
+  held 13 reviewer clones at 22.0 GB for **18 MB** of review output). Depth is irrelevant to *content* coverage - a seat pins one SHA and reads the whole tree there - though not to
+  history-dependent questions such as blame, rename detection or base context, which is exactly why Tier 1 exists.
   - **Tier 0 (default) - archive export.** No `.git` at all, so a seat cannot write to the donor's git state because
     there is no git metadata to write to. `git archive` honours `export-ignore` and `export-subst`, so fidelity is
     **asserted, not assumed**: compare the export against the `ls-tree -r <SHA>` manifest *per path* - entry type,
@@ -256,12 +256,20 @@ derived from the same row, so the two skills cannot drift apart.
     measured fix but a floor, not a proof, so deepen under a bounded policy and **withhold the vote** if ancestry or
     required objects cannot be proven. A missing object or shallow-boundary error must never become "not ancestor",
     `N/A`, or a pass.
-  - **Forbidden:** a full clone (no review benefit) and `git worktree add`. A worktree's `.git` is a pointer into the
+  - **Forbidden per seat:** a full-history clone of the donor for a seat's own copy (no review benefit; the
+  orchestrator's internal donor copy in the `pin` row is separate and unaffected by this ban) and
+  `git worktree add`. A worktree's `.git` is a pointer into the
     donor, so `objects` **and** `config` are shared: a seat running `git config` inside a worktree writes straight
     into the real repository's `.git/config` (verified by injection). A worktree is a convenience, not an isolation
     boundary.
-  - **Diff plus a file list is not full coverage by itself.** Account for deleted and base-only files, renames,
+  - **`base.diff` must be bound, not merely present.** Write it for the exact pinned range
+  `git diff <BASE SHA>..<SHA>`, record that range and a SHA256 of the diff in the receipt, and validate it before
+  the vote counts; a wrong-range, truncated or regenerated diff cannot support full coverage.
+- **Diff plus a file list is not full coverage by itself.** Account for deleted and base-only files, renames,
     binary content, modes, symlinks, submodules and LFS; escalate to Tier 1 where a review needs more.
+- **Manifest and diff evidence live outside the seat's writable area.** A seat can edit its own export, so the
+  launch manifest, the post-exit revalidation and `base.diff` digests are written to the orchestrator's receipt,
+  not inside `<SCRATCH PATH>`. A seat that alters its export, or a missing post-exit revalidation, voids the vote.
 - **Every seat must have seen the actual code.** A seat that could not fetch the change - including a
   browser/ChatGPT seat handed a summary instead of a fetchable pointer - has not reviewed it. Give every seat
   something it can open: a PR URL, a `base...head` ref, or the complete bytes at full length. When a seat reports it
