@@ -25,6 +25,14 @@ If no specific question was passed, infer from most recent context.
 
 Inline an artifact only when the reviewer genuinely cannot fetch: no repo access, no PR, or the subject is not in version control (a plan, a pasted stack trace, an architecture sketch). Then keep it under ~150 lines.
 
+**Everyone must have seen the actual code.** A reviewer that could not fetch the change - including a
+browser/ChatGPT seat given a summary instead of a fetchable pointer - has not reviewed it. Give every seat
+something it can actually open: a PR URL, a `base...head` ref, or the complete bytes pasted at full length.
+When a seat reports that it could not read the documents (NOT_FOUND, BLOCKED, "reviewed your summary"),
+record `REVIEWED: none` and `WITHHELD` for that seat; it does not count toward the ≥2-reviewer quorum, and
+its substantive comments become advisory notes only. Never let a seat that did not see the code be the
+reason a gate closed.
+
 **A verdict built on a truncated inline artifact may not be `APPROVED`.** Record `REVIEWED: <n> of <total> lines (<what was omitted>)`, carry it into the synthesis, and emit `WITHHELD` — see Quorum. This is not a formality: across the last 300 merged PRs in `jleechanorg/worldarchitect.ai`, **65% exceed 150 changed lines** (median 349), and for those, a 150-line cap shows a reviewer a median **22.5%** of the diff. A gate that says `APPROVED at <SHA>` after seeing a fifth of the change is asserting something it did not check.
 
 ## Document-only review (including /sq plans)
@@ -116,16 +124,74 @@ For document-only review, use `--document` as described above; that mode accepts
 documents regardless of their commit status. The runner refuses a
 dirty checkout because those changes are not represented by the requested SHA.
 
-The runner creates two independent disposable clones with `git clone --no-local`,
-removes their `origin` remotes, and detaches both at the exact same SHA. It then
+The runner creates two independent disposable checkouts of exactly the requested SHA. Prefer
+the cheapest copy that is still structurally isolated, in this order:
+
+**Tier 0 — archive export (DEFAULT).** No `.git` at all, so a seat cannot write to the donor's
+git state because there is no git metadata to write to:
+
+```bash
+git -C <donor> archive --format=tar <SHA> | tar -x -C <SCRATCH>/<seat>/tree
+git -C <donor> diff <BASE SHA>..<SHA>          > <SCRATCH>/<seat>/base.diff
+git -C <donor> ls-tree -r <SHA>                > <SCRATCH>/<seat>/manifest.expected
+```
+
+Use `set -o pipefail`: a successful `tar` must never mask a failed `git archive`.
+
+**Tier 1 — shallow clone (ESCALATION only,** when a seat declares it needs live `git` for
+blame, rename detection, or history):
+
+```bash
+git clone --no-local --depth 1 --single-branch --no-checkout <donor> <clone>
+git -C <clone> fetch --depth 1 origin <SHA>
+git -C <clone> checkout --detach <SHA>
+git -C <clone> fetch --deepen 2 origin        # then VERIFY ancestry, see below
+git -C <clone> remote remove origin
+```
+
+It then removes each `origin` remote and detaches both at the exact same SHA. It
 starts A1 and A2 behind one concurrency barrier, gives them disjoint output
-files, and removes the clones afterward. It preserves the requested
+files, and removes the copies afterward. It preserves the requested
 full-permission transports explicitly: `codex exec --yolo` for A1 and
-`claude -p --model opus --dangerously-skip-permissions` for A2. Independent
-clones prevent reviewer writes to refs, config, or hooks from sharing the
-original repository's `.git` state; they are deliberately **not** an OS security
-sandbox. If the original checkout, refs, local config, or hooks change, the
-runner fails closed and its verdicts may not be used.
+`claude -p --model opus --dangerously-skip-permissions` for A2.
+
+**Why the copy must be cheap.** A full `git clone --no-local` of a large repository costs
+gigabytes *per reviewer seat* — measured on `worldarchitect.ai` at 6,214 MB of `.git` for
+14,241 commits, versus **209 MB** for `--depth 1` and **324 MB** for a `git archive` export of
+the same SHA. A two-seat review therefore burned ~12 GB to read one commit, and concurrent
+reviews filled a 200 GiB Scratch volume to 100% (`advice-*` workspaces held 48.7 GB, one of
+them 13 reviewer clones at 22.0 GB for 18 MB of actual review output). Depth is irrelevant to
+review quality: a reviewer pins one SHA and reads the whole tree there.
+
+**What must be preserved, and what must be verified.**
+
+- *Isolation* means each reviewer has its own copy. An export has no `.git`; a Tier 1 clone has
+  its own `.git` and must contain **no `objects/info/alternates`** (an alternates-backed clone
+  reintroduces shared object state, and a `--reference` clone of a shallow donor fails outright:
+  `fatal: reference repository ... is shallow`).
+- *Fidelity* is asserted, never assumed. `git archive` honours `export-ignore` and `export-subst`,
+  so an export can legitimately differ from the pinned tree. Compare the export against the
+  `ls-tree -r <SHA>` manifest **per path — entry type, executable bit, and content hash** — not by
+  file count. A count cannot detect one omitted file plus one added file, changed bytes, or a lost
+  `100755` bit. Verified: exec mode is preserved, `export-subst` rewrites content, and an escaping
+  symlink (`ln -s ../escape`) survives into the export — reject absolute targets and any target
+  escaping the export root before dispatch.
+- *Ancestry* for Tier 1 is verified after deepening: `git merge-base --is-ancestor <BASE SHA> HEAD`
+  must exit 0. `--depth 1` alone **fails** this, which is why the deepen step exists; `--deepen 2`
+  is the measured fix, not a proof for arbitrary bases, so deepen under a bounded policy and
+  **withhold the vote** if ancestry or required objects cannot be proven. A missing object or
+  shallow-boundary error must never become "not ancestor", `N/A`, or a pass.
+- *Coverage* from `base.diff` plus a manifest is not full coverage by itself: account for deleted
+  and base-only files, renames, binary content, file modes, symlinks, submodules and LFS. Where a
+  review needs more, that seat escalates to Tier 1.
+
+**Forbidden.** A full clone (6,214 MB for no review benefit) and `git worktree add`. A worktree's
+`.git` is a pointer into the donor, so `objects` **and** `config` are shared: a seat running
+`git config` inside a worktree writes straight into the real repository's `.git/config` (verified by
+injection). A worktree is a convenience, not an isolation boundary.
+
+If the original checkout, refs, local config, or hooks change, the runner fails closed and its
+verdicts may not be used.
 
 While each reviewer root is alive, the runner samples the macOS/Linux process
 tree, retains PID plus process-start identity for discovered descendants even
