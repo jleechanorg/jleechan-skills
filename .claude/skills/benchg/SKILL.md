@@ -68,11 +68,12 @@ echo ""
 ### 2. Setup Isolated Working Directories
 ```bash
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-# Resolve the scratch root, but do NOT trust it alone: scratch-dir.sh exits 0 with
-# /tmp when no scratch volume is configured, and workspaces there are prohibited.
-SCRATCH_ROOT="$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh benchmark)" || exit 1
+# Resolve the scratch root with NO subpath: given one, scratch-dir.sh runs mkdir -p on
+# the target before returning, so a tmp fallback would be created before any check. It
+# also exits 0 on that fallback, so inspect the result rather than trusting the status.
+SCRATCH_ROOT="$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh)" || exit 1
 case "$SCRATCH_ROOT" in
-  /tmp|/tmp/*) echo "scratch volume not configured; refusing to build under /tmp" >&2; exit 1 ;;
+  /tmp|/tmp/*) echo "scratch volume not configured; refusing to build there" >&2; exit 1 ;;
 esac
 BENCHMARK_DIR="$SCRATCH_ROOT/benchmark_$TIMESTAMP"
 GENESIS_DIR="$BENCHMARK_DIR/genesis_project${PROJECT_NUM}"

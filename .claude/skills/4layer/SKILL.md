@@ -69,9 +69,11 @@ After each test run, capture:
   `scratch-dir.sh` returns a stable root, not a per-run path, and it exits 0 even
   when it falls back to `/tmp`:
   ```bash
-  SCRATCH_ROOT="$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh evidence)" || exit 1
+  # Call the resolver with NO subpath: given one, it runs mkdir -p on the target
+  # before returning, so a tmp fallback would already be created before any check.
+  SCRATCH_ROOT="$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh)" || exit 1
   case "$SCRATCH_ROOT" in
-    /tmp|/tmp/*) echo "scratch volume not configured; refusing /tmp workspace" >&2; exit 1 ;;
+    /tmp|/tmp/*) echo "scratch volume not configured; refusing a tmp workspace" >&2; exit 1 ;;
   esac
   EVIDENCE_DIR="$(mktemp -d "$SCRATCH_ROOT/evidence-run.XXXXXX")" || exit 1
   ```
