@@ -39,10 +39,21 @@ try {
     if (!expected) {
       throw new Error('GROKBOT_IDENTITY_UNKNOWN: set GROKBOT_EXPECTED_IDENTITY to the expected handle before listing or reading');
     }
-    // Read the rendered account surface; not cookies, not the session endpoint.
-    const surface = await page.evaluate(() => document.body.innerText.toLowerCase());
-    if (!surface.includes(expected)) {
-      throw new Error(`GROKBOT_IDENTITY_MISMATCH: signed-in account does not match ${expected}`);
+    // Read the rendered ACCOUNT UI specifically, never the whole page: a bot title or a
+    // message body containing the expected handle would satisfy a body-wide substring
+    // match while a different account is signed in. If the account element cannot be
+    // located, fail closed rather than falling back to broader text.
+    const handle = await page.evaluate(() => {
+      const el = document.querySelector('[data-testid="account-menu"], [aria-label*="Account"], a[href^="/@"], [data-testid*="account"]');
+      if (!el) return null;
+      const t = (el.innerText || el.getAttribute('aria-label') || '').trim();
+      return t ? t.toLowerCase() : null;
+    });
+    if (handle === null) {
+      throw new Error('GROKBOT_IDENTITY_UI_NOT_FOUND: could not identify the account UI; refusing to report content');
+    }
+    if (!handle.split(/\s+/).includes(expected) && handle !== expected) {
+      throw new Error(`GROKBOT_IDENTITY_MISMATCH: account UI reads "${handle}", expected ${expected}`);
     }
   };
   if (mode === 'login') {
