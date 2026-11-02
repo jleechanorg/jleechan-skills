@@ -86,9 +86,11 @@ Work only in the exported tree at the scratch path given below; if your working
 directory was set to it, stay there. The export contains no .git: it is a
 snapshot of <SHA>, not a repository, so there is no history, no remote and
 nothing to commit. Do not clone, fetch, add a remote, or create any other copy,
-and do not run git commands that expect a repository - a diff against
-<BASE SHA> is supplied as base.diff and the pinned file list as
-manifest.expected. Never work in the original checkout or in a donor repository.
+and do not run git commands that expect a repository. Your coverage depends on
+reading both the tree and the change: read <SCRATCH PATH>/base.diff, the complete
+`git diff <BASE SHA>..<SHA>` of the pinned change, and state in your COVERAGE line
+that you read it. A review that covers only the head snapshot is not full coverage
+and will be withheld. Never work in the original checkout or in a donor repository.
 Leave the export in place - the orchestrator verifies it against the pinned tree
 after your process exits and removes it afterwards. Use the GitHub token already
 present in your environment and never print it. Do not modify any checkout, refs,

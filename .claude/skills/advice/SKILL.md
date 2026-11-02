@@ -266,7 +266,11 @@ derived from the same row, so the two skills cannot drift apart.
   `git diff <BASE SHA>..<SHA>`, record that range and a SHA256 of the diff in the receipt, and validate it before
   the vote counts; a wrong-range, truncated or regenerated diff cannot support full coverage.
 - **Diff plus a file list is not full coverage by itself.** Account for deleted and base-only files, renames,
-    binary content, modes, symlinks, submodules and LFS; escalate to Tier 1 where a review needs more.
+  binary content, modes, symlinks, submodules and LFS; escalate to Tier 1 where a review needs more.
+- **LFS and submodules must be detected and verified, or the vote is withheld.** A per-path blob hash matches an
+  LFS *pointer* file, so hash equality can pass while the reviewer never sees the asset it stands for. Detect LFS
+  pointers and submodule gitlinks in the pinned tree, supply and verify their real content, and withhold that
+  seat's vote if the content cannot be provided - identical bytes are not the same as a reviewed artifact.
 - **Manifest and diff evidence live outside the seat's writable area.** A seat can edit its own export, so the
   launch manifest, the post-exit revalidation and `base.diff` digests are written to the orchestrator's receipt,
   not inside `<SCRATCH PATH>`. A seat that alters its export, or a missing post-exit revalidation, voids the vote.
