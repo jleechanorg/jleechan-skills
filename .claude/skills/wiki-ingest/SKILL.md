@@ -37,21 +37,22 @@ WIKI_ROOT=$(dirname "$WIKI")
 RAW_DIR="$WIKI_ROOT/raw"
 SOURCE="$RAW_DIR/$(basename "$FILE_ARG")"
 
-# Copy source to raw/ if not already there
-mkdir -p "$RAW_DIR"
-cp "$FILE_ARG" "$SOURCE" 2>/dev/null || cp "$(pwd)/$FILE_ARG" "$SOURCE"
-
 # Determine slug from filename
 SLUG=$(basename "$FILE_ARG" | sed 's/\.md$//' | sed 's/[^a-zA-Z0-9]/-/g' | tr '[:upper:]' '[:lower:]')
 
-# Create the publish branch NOW, while the tree is still clean. Phases 2-8 edit files, so a
-# branch cut later would either abort on local changes or carry them across.
+# Create the publish branch FIRST, before anything writes to the worktree. The `cp` below and
+# the Phases 2-8 edits all happen on this branch; a branch cut after them would either abort
+# on local changes or carry them across.
 set -e
 BRANCH="wiki-ingest/$SLUG"
 git -C "$WIKI_ROOT" fetch origin main
 git -C "$WIKI_ROOT" ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1 \
   && { echo "origin/$BRANCH already exists; pick a new slug" >&2; exit 1; }
 git -C "$WIKI_ROOT" switch -c "$BRANCH" origin/main
+
+# Only now copy the source into raw/, on the new branch.
+mkdir -p "$RAW_DIR"
+cp "$FILE_ARG" "$SOURCE" 2>/dev/null || cp "$(pwd)/$FILE_ARG" "$SOURCE"
 ```
 
 ### Phase 2: Read source document
