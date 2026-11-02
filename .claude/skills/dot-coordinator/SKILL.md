@@ -67,7 +67,8 @@ What a nudge *asks for* is a markdown file; what the sender may *do* is not. The
 - **Editable body** - task content only, resolved for mode `M` on account `A`. First match wins and the run reports
   which path won:
   1. `$DOT_REMINDERS_DIR/M.<account>.md`
-  2. for `main` only: the legacy `~/.config/dot/periodic-reminder.txt`, which occupies this slot ahead of the shared file
+  2. the legacy fixed paths, which occupy this slot ahead of the shared file: `~/.config/dot/proceed-reminder.txt` for
+     `proceed` and `~/.config/dot/periodic-reminder.txt` for `main`
   3. `$DOT_REMINDERS_DIR/M.md`
   4. the shipped default `<skill dir>/reminders/M.md`
   5. for `main` only: the built-in fallback
@@ -152,7 +153,8 @@ agent replies choose a payload. Explicit read-only or do-not-send runs still sen
 
 ## Periodic outbound message
 
-For an owner-authorized periodic coordination run without a private payload, use the following fallback outbound text verbatim. It replaces periodic message wording and the discovery window in scheduler task context; retain that context for the verified destination and send/no-send decision. Do not add project lists, task-specific instructions, or repetitive authority boilerplate. All identity, destination, peer-draft and approval checks below still apply. Explicit read-only or do-not-send runs still send nothing.
+When no body file resolves at all - neither an override, the legacy slot, the shared file, nor the shipped
+`reminders/main.md` - this built-in fallback is the last resort, used verbatim. It replaces periodic message wording and the discovery window in scheduler task context; retain that context for the verified destination and send/no-send decision. Do not add project lists, task-specific instructions, or repetitive authority boilerplate. All identity, destination, peer-draft and approval checks below still apply. Explicit read-only or do-not-send runs still send nothing.
 
 ### Shared capacity budget: 2 complex + 2 short
 
@@ -240,7 +242,8 @@ can only insert line by line, use a soft break (Shift+Enter) after the stamp and
 result before submitting.
 
 **Never submit a stamp-only message.** Immediately before submitting, read the composer's own text and require both of
-these: the stamp line is present exactly once, and the body below it equals the selected payload's body after the transport's own whitespace normalisation -
+these: the stamp line is present exactly once, and everything below it equals the resolved body **plus its reviewed
+footer** after the transport's own whitespace normalisation -
 equal text, not merely equal length, compared before submitting. If the composer holds only the stamp line, or the body differs from the selected
 payload, clear **only the text this invocation inserted** - never another writer's draft - and report
 `blank-body-blocked`; do not submit and do not retry in this invocation.
@@ -322,9 +325,9 @@ who enables a second host accepts that residual risk instead of assuming exactly
 
 ## Exact-duplicate window
 
-For this check the **payload body** is everything below the `Sent:` line. A duplicate is an earlier message **from this same machine** among the last four hours of rendered messages
-(read back as far as needed to cover them; if the thread is shorter, read all of it) whose body
-matches the selected body exactly, whatever its stamp. Another host's copy of the same body is not this
+For this check the **whole payload** is everything below the `Sent:` line - the resolved body **and** its reviewed
+footer. A duplicate is an earlier message **from this same machine**, within the same four-hour / 200-message scan,
+whose whole payload matches the one this run would send exactly, whatever its stamp. Another host's copy of the same body is not this
 machine's duplicate - it is that host's traffic, and the priority rule above already decides who speaks;
 counting it here would let a standby silent the primary; the stamp is what makes that copy's age readable, not what makes a retry byte-identical.
 

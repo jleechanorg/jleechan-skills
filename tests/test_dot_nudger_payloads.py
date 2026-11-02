@@ -71,9 +71,14 @@ class NudgerPayloadTest(unittest.TestCase):
         self.assertEqual(raw.count("> Review the last four hours of this conversation"), 1)
         self.assertIn("`proceed` has no built-in fallback", " ".join(SKILL.read_text().split()))
 
+    def test_legacy_overrides_are_preserved_for_both_modes(self):
+        flat = " ".join(SKILL.read_text(encoding="utf-8").split())
+        self.assertIn("proceed-reminder.txt", flat)
+        self.assertIn("periodic-reminder.txt", flat)
+
     def test_resolution_order_is_an_explicit_list(self):
         for i, entry in enumerate(("1. `$DOT_REMINDERS_DIR/M.<account>.md`",
-                                   "2. for `main` only: the legacy",
+                                   "2. the legacy fixed paths",
                                    "3. `$DOT_REMINDERS_DIR/M.md`",
                                    "4. the shipped default",
                                    "5. for `main` only: the built-in fallback"), start=1):
@@ -90,6 +95,11 @@ class NudgerPayloadTest(unittest.TestCase):
     def test_body_and_footer_disagreement_resolves_to_the_footer(self):
         self.assertIn("The footer wins", self.text)
         self.assertIn("the receiving Dot follows the footer and reports the conflict", self.text)
+
+    def test_comparisons_include_the_footer(self):
+        flat = " ".join(SKILL.read_text(encoding="utf-8").split())
+        self.assertIn("everything below it equals the resolved body **plus its reviewed footer**", flat)
+        self.assertIn("**whole payload** is everything below the `Sent:` line", flat)
 
     def test_main_has_a_verbatim_footer_and_submit_appends_it(self):
         raw = SKILL.read_text(encoding="utf-8")
