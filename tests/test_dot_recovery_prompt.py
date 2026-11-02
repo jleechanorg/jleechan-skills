@@ -48,7 +48,7 @@ class CoordinatorWorkflowTests(unittest.TestCase):
         flat_payload = " ".join(payload.split())
         # the editable body is task content only; the invariants live in the reviewed footer
         self.assertIn("Continue the work you were already assigned", flat_payload[:120])
-        self.assertTrue(flat_payload.lower().startswith("[agent ask]"), flat_payload[:60])
+        self.assertTrue(flat_payload.startswith("[Agent ask] "), flat_payload[:60])
         self.assertNotIn("HOLD", flat_payload)
         self.assertIn("`proceed` has no built-in fallback", " ".join(text.split()))
         self.assertIn("## Proceed invariant footer (`footer-v1`)", text)
