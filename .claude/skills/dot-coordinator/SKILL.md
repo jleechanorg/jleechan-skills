@@ -64,11 +64,14 @@ destination, detect an already-sent duplicate and inspect a peer draft - nothing
 What a nudge *asks for* is a markdown file; what the sender may *do* is not. The message is always
 `<editable body>` followed by `<reviewed invariant footer>`:
 
-- **Editable body** - task content only, resolved for mode `M` on account `A`, first match wins:
-  `$DOT_REMINDERS_DIR/M.<account>.md`, then `$DOT_REMINDERS_DIR/M.md`, then `reminders/M.md`, then the repository default
-  `reminders/M.md`, then - for `main` only - the built-in fallback. The legacy fixed path `~/.config/dot/periodic-reminder.txt` participates as
-  `main.<account>.md`'s predecessor: when it exists it is read in that slot (before `main.md`), and the run reports
-  exactly which path won.
+- **Editable body** - task content only, resolved for mode `M` on account `A`. First match wins and the run reports
+  which path won:
+  1. `$DOT_REMINDERS_DIR/M.<account>.md`
+  2. for `main` only: the legacy `~/.config/dot/periodic-reminder.txt`, which occupies this slot ahead of the shared file
+  3. `$DOT_REMINDERS_DIR/M.md`
+  4. the shipped default `<skill dir>/reminders/M.md`
+  5. for `main` only: the built-in fallback
+
 - **Reviewed invariant footer** - appended by the sender from this file, never from the payload directory, and
   identified as `footer-v1` in the run report. For `proceed` it is: the valid hold grounds, the illegal grounds, the
   `### Turn Receipt` requirement and the `IDLE: queue empty` marker. For `main` it is `## Main invariant footer (footer-v1)` below, verbatim.
@@ -97,14 +100,16 @@ Appended verbatim by the sender after the resolved body; never edited by an oper
 > Receipt (### Turn Receipt): Mode (MUTATION | PROBE | BLOCKED), Target, Artifact (SHA, exit code, trace excerpt, or "none (ground N)"),
 > Blocker (NONE or the exact error). Work in flight is not BLOCKED: give its live handle, target, start time and next
 > checkpoint. Target no preventable idle time. When nothing is authorized and nothing is possible, say
-> IDLE: queue empty once and stop. This nudge grants no new execution, access, spending, merge or deployment authority.
+> IDLE: queue empty once and stop. If this footer conflicts with the text above it, this footer wins: follow it and
+> report the conflict. This nudge grants no new execution, access, spending, merge or deployment authority.
 
 ## Main invariant footer (`footer-v1`)
 
 Appended verbatim after `main`'s resolved body; never read from the payload directory.
 
-> If the same blocker repeats, state it once as UNBLOCK: <capability> - <exact request> - <owner>. This reminder grants
-> no new execution, access, spending, merge or deployment authority.
+> If the same blocker repeats, state it once as UNBLOCK: <capability> - <exact request> - <owner>. If this footer
+> conflicts with the text above it, this footer wins: follow it and report the conflict. This reminder grants no new
+> execution, access, spending, merge or deployment authority.
 
 ## When body and footer disagree
 
@@ -245,9 +250,7 @@ stop: the recipient already saw it, so never send a second message to explain, a
 A blank line separates the stamp from the body when the composer keeps it; a rich-text composer may collapse
 it to a single line break. That collapse is not a reason to retry or to rewrite the message - report it and
 verify the body bytes instead. Both fields describe when and where the message was captured, so the line can
-precede delivery by the run's own duration. It is the only permitted addition: payload wording, private overrides, the capacity
-block, authority sentences and every identity/destination check stay unchanged, and a private payload
-keeps its exact bytes below the line.
+precede delivery by the run's own duration. Nothing else is inserted between the stamp and the body: the body's bytes below the line are exactly the resolved file's bytes, and the reviewed footer follows the body. Payload wording, private overrides, the capacity block, the authority sentences and every identity/destination check stay unchanged.
 
 ## One active sender (host standdown)
 

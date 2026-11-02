@@ -48,7 +48,7 @@ class NudgerPayloadTest(unittest.TestCase):
     def test_skill_documents_resolution_order_and_fail_closed_selection(self):
         for clause in ("Editable body", "Reviewed invariant footer", "$DOT_REMINDERS_DIR/M.<account>.md",
                        "$DOT_REMINDERS_DIR/M.md",
-                       "repository default `reminders/M.md`",
+                       "the shipped default",
                        "`proceed` has no built-in fallback",
                        "`payload-unavailable`",
                        "`payload-invalid`",
@@ -71,11 +71,21 @@ class NudgerPayloadTest(unittest.TestCase):
         self.assertEqual(raw.count("> Review the last four hours of this conversation"), 1)
         self.assertIn("`proceed` has no built-in fallback", " ".join(SKILL.read_text().split()))
 
-    def test_legacy_path_has_one_authoritative_rule(self):
+    def test_resolution_order_is_an_explicit_list(self):
+        for i, entry in enumerate(("1. `$DOT_REMINDERS_DIR/M.<account>.md`",
+                                   "2. for `main` only: the legacy",
+                                   "3. `$DOT_REMINDERS_DIR/M.md`",
+                                   "4. the shipped default",
+                                   "5. for `main` only: the built-in fallback"), start=1):
+            self.assertIn(entry, self.text, entry)
+
+    def test_footer_wins_rule_is_inside_the_outbound_footer(self):
         raw = SKILL.read_text(encoding="utf-8")
-        self.assertIn("periodic-reminder.txt", raw)
-        # exactly one section owns the ordering claim
-        self.assertEqual(raw.count("predecessor"), 1, raw.count("predecessor"))
+        proceed_footer = raw.split("## Proceed invariant footer (`footer-v1`)", 1)[1].split("## Main invariant footer", 1)[0]
+        main_footer = raw.split("## Main invariant footer (`footer-v1`)", 1)[1].split("## When body and footer disagree", 1)[0]
+        for footer, name in ((proceed_footer, "proceed"), (main_footer, "main")):
+            self.assertIn("this footer", footer.lower(), name)
+            self.assertIn("this footer wins", footer, name)
 
     def test_body_and_footer_disagreement_resolves_to_the_footer(self):
         self.assertIn("The footer wins", self.text)
@@ -85,7 +95,6 @@ class NudgerPayloadTest(unittest.TestCase):
         raw = SKILL.read_text(encoding="utf-8")
         self.assertIn("## Main invariant footer (`footer-v1`)", raw)
         main_footer = raw.split("## Main invariant footer (`footer-v1`)", 1)[1].split("## When body and footer disagree", 1)[0]
-        self.assertIn("grants\n> no new execution", main_footer.replace("\n", "\n"))
         self.assertIn("resolved body **plus** its reviewed footer", " ".join(raw.split()))
 
 
