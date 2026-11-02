@@ -30,6 +30,44 @@ class NudgerPayloadTest(unittest.TestCase):
                        "Record the resolved body path, its SHA256", "The footer wins"):
             self.assertIn(clause, self.text, clause)
 
+    def test_every_outbound_message_is_labelled_as_an_agent_ask(self):
+        flat = " ".join(SKILL.read_text(encoding="utf-8").split())
+        self.assertIn("Every message is labelled `[Agent ask]`", flat)
+        self.assertIn("Automation never posts as the human", flat)
+        self.assertIn("must begin with the exact token `[Agent ask]`", flat)
+        self.assertIn("never double the label", flat)
+        self.assertIn("check the\n**final outbound message**".replace("\n", " "), flat)
+        self.assertIn("label-check-failed", flat)
+        self.assertIn("including the built-in fallback and any private payload", flat)
+        self.assertIn("so the label appears exactly once in the whole message", flat)
+        self.assertIn("already present removed", flat)
+        self.assertIn("begins with that token exactly once immediately before submitting", flat)
+        for mode in ("main", "proceed"):
+            body = (REMINDERS / f"{mode}.md").read_text(encoding="utf-8")
+            self.assertTrue(body.startswith("[Agent ask] "), (mode, body[:40]))
+        dot = " ".join((ROOT / ".claude/skills/dot/SKILL.md").read_text(encoding="utf-8").split())
+        self.assertIn("Automated coordinator reminders arrive labelled `[Agent ask]`", dot)
+        self.assertIn("they never outrank a live operator instruction", dot)
+
+    def test_bodies_never_displace_the_original_assignment(self):
+        flat = " ".join(SKILL.read_text(encoding="utf-8").split())
+        self.assertIn("A nudge is additive, never a task replacement", flat)
+        for mode in ("main", "proceed"):
+            body = (REMINDERS / f"{mode}.md").read_text(encoding="utf-8")
+            first = body.split("\n")[0].lower()
+            self.assertIn("continue the work you were already assigned", first, (mode, first))
+            self.assertIn("does not replace", body, mode)
+
+    def test_reconciliation_pass_is_bounded_and_returns_to_the_assignment(self):
+        main_body = " ".join((REMINDERS / "main.md").read_text(encoding="utf-8").split())
+        # the pass must be time/scope-bounded, must say when it ends, and must return to the task
+        self.assertIn("as a bounded check", main_body)
+        self.assertIn("it ends when you have confirmed whether any newer operator request", main_body)
+        self.assertIn("return to the assignment\nin this same turn".replace("\n", " "), main_body)
+        self.assertIn("Only when a newer request genuinely supersedes the assignment", main_body)
+        proceed_body = " ".join((REMINDERS / "proceed.md").read_text(encoding="utf-8").split())
+        self.assertIn("If you are mid-task, keep going and report the step you executed", proceed_body)
+
     def test_bodies_are_task_content_only_and_full_invariants_live_in_the_footer(self):
         for name in ("proceed", "main"):
             body = (REMINDERS / f"{name}.md").read_text(encoding="utf-8")
@@ -40,7 +78,7 @@ class NudgerPayloadTest(unittest.TestCase):
             self.assertNotIn("HOLD", body, name)
             self.assertNotIn("Turn Receipt", body, name)
         proceed_body = (REMINDERS / "proceed.md").read_text(encoding="utf-8")
-        self.assertIn("Review the last four hours of this conversation", proceed_body)
+        self.assertIn("last four hours", proceed_body)
 
     def test_footer_is_immutable_and_versioned(self):
         raw = SKILL.read_text(encoding="utf-8")
@@ -67,6 +105,13 @@ class NudgerPayloadTest(unittest.TestCase):
         self.assertEqual(raw.count("> Review the last four hours of this conversation"), 1)
         self.assertIn("`proceed` has no built-in fallback", " ".join(SKILL.read_text().split()))
 
+
+    def test_every_outbound_footer_carries_the_never_stall_contract(self):
+        """A main run must receive the hold grounds and receipt requirement too, not only proceed."""
+        raw = SKILL.read_text(encoding="utf-8")
+        main_footer = raw.split("## Main invariant footer (`footer-v1`)", 1)[1].split("## When body and footer disagree", 1)[0]
+        for clause in ("Valid hold grounds", "Turn", "IDLE: queue empty", "no preventable idle time"):
+            self.assertIn(clause, main_footer, clause)
 
     def test_footer_wins_rule_is_inside_the_outbound_footer(self):
         raw = SKILL.read_text(encoding="utf-8")
