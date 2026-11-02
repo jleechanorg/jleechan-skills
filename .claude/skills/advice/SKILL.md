@@ -267,13 +267,19 @@ derived from the same row, so the two skills cannot drift apart.
   the vote counts; a wrong-range, truncated or regenerated diff cannot support full coverage.
 - **Diff plus a file list is not full coverage by itself.** Account for deleted and base-only files, renames,
   binary content, modes, symlinks, submodules and LFS; escalate to Tier 1 where a review needs more.
-- **LFS and submodules must be detected and verified, or the vote is withheld.** A per-path blob hash matches an
-  LFS *pointer* file, so hash equality can pass while the reviewer never sees the asset it stands for. Detect LFS
-  pointers and submodule gitlinks in the pinned tree, supply and verify their real content, and withhold that
-  seat's vote if the content cannot be provided - identical bytes are not the same as a reviewed artifact.
-- **Manifest and diff evidence live outside the seat's writable area.** A seat can edit its own export, so the
-  launch manifest, the post-exit revalidation and `base.diff` digests are written to the orchestrator's receipt,
-  not inside `<SCRATCH PATH>`. A seat that alters its export, or a missing post-exit revalidation, voids the vote.
+- **LFS and submodules must be detected and verified on BOTH sides of the diff, or the vote is withheld.** A
+  per-path blob hash matches an LFS *pointer* file, so hash equality can pass while the reviewer never sees the
+  asset it stands for. Detect LFS pointers and submodule gitlinks in the pinned **head tree *and* the base tree**:
+  an asset changed or deleted between base and head leaves only its pointer or gitlink in `base.diff`, so checking
+  the head alone lets a seat review a pointer and still be counted. Supply and verify the real content for every
+  such path on either side, and withhold that seat's vote if any required content cannot be provided - identical
+  pointer bytes are not a reviewed artifact.
+- **The receipt digest is what lives outside the seat's writable area; `base.diff` itself is readable by the seat.**
+  A seat can edit its own export and can read - but must not trust - `<SCRATCH PATH>/base.diff`. The launch
+  manifest, the post-exit revalidation and the `base.diff` digest are written to the orchestrator's receipt, which
+  the seat cannot write. Post-exit revalidation detects a *lasting* alteration of the export; it does not detect an
+  edit the seat restores before exiting. A seat that alters its export, or a missing post-exit revalidation, voids
+  the vote; a verdict that depends on bytes the seat itself modified is not evidence.
 - **Every seat must have seen the actual code.** A seat that could not fetch the change - including a
   browser/ChatGPT seat handed a summary instead of a fetchable pointer - has not reviewed it. Give every seat
   something it can open: a PR URL, a `base...head` ref, or the complete bytes at full length. When a seat reports it
