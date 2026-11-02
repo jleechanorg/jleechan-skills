@@ -20,3 +20,14 @@ export const landedOnRequested = (requested, landedHref) => {
     return false;
   }
 };
+
+// The list mode may open the grok.com home page or a bot page, nothing else.
+export const isAllowedListUrl = (u) => {
+  if (isBotUrl(u)) return true;
+  try {
+    const t = new URL(u);
+    return t.origin === 'https://grok.com' && (t.pathname === '/' || t.pathname === '');
+  } catch {
+    return false;
+  }
+};

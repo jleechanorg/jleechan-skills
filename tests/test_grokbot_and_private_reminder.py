@@ -46,12 +46,12 @@ class GrokTransportUrlGuardTest(unittest.TestCase):
 
     GUARD = ROOT / '.claude/skills/grokbot/scripts/url-guard.mjs'
 
-    def _run(self, js):
+    def _run(self, js, names='isBotUrl, landedOnRequested'):
         node = shutil.which('node')
         if not node:
             self.skipTest('node not available')
         mod = self.GUARD.as_uri()
-        script = f'import {{isBotUrl, landedOnRequested}} from "{mod}";\n{js}'
+        script = f'import {{{names}}} from "{mod}";\n{js}'
         return subprocess.run([node, '--input-type=module', '-e', script],
                               capture_output=True, text=True)
 
@@ -90,6 +90,31 @@ class GrokTransportUrlGuardTest(unittest.TestCase):
         )
         r = self._run(js)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_list_url_and_returned_link_matrix(self):
+        # list must open only grok.com home or a bot page, and must filter returned links
+        # through the same guard so a foreign /bot/ href cannot pose as a route.
+        js = (
+            'const open={"https://grok.com/":true,"https://grok.com":true,'
+            '"https://grok.com/bot/abc":true,'
+            '"https://evil.com/":false,'
+            '"https://evil.com/bot/x":false,'
+            '"https://grok.com/settings":false,'
+            '"not-a-url":false};'
+            'const links={"/bot/abc":true,"/bot/a/../../settings":false,"/settings":false};'
+            'let bad=0;for(const[u,w]of Object.entries(open)){if(isAllowedListUrl(u)!==w){'
+            'console.log("OPEN-MISMATCH",u);bad=1;}}'
+            'for(const[u,w]of Object.entries(links)){const abs="https://grok.com"+u;'
+            'if(isBotUrl(abs)!==w){console.log("LINK-MISMATCH",abs);bad=1;}}'
+            'process.exit(bad);'
+        )
+        r = self._run(js, 'isAllowedListUrl, isBotUrl')
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_transport_filters_listed_links_through_the_guard(self):
+        text = (ROOT / '.claude/skills/grokbot/scripts/grok_chrome.mjs').read_text(encoding='utf-8')
+        self.assertIn('isAllowedListUrl(', text)
+        self.assertIn('links.filter((l) => isBotUrl(l.href))', text)
 
     def test_transport_uses_the_shared_guard(self):
         # A transport that inlined its own regex would drift from the tested predicate.

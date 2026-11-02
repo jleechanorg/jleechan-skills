@@ -7,7 +7,7 @@ import os from 'os';
 
 const require = createRequire(process.env.DOT_PW_MODULES || path.join(path.dirname(process.execPath), '../lib/node_modules/'));
 const { chromium } = require('playwright');
-import { isBotUrl, landedOnRequested } from './url-guard.mjs';
+import { isBotUrl, isAllowedListUrl, landedOnRequested } from './url-guard.mjs';
 // Profile isolation: always a dedicated grokbot directory. No env override, so this
 // can never be pointed at a Dot or personal Chrome profile.
 const DIR = path.join(os.homedir(), '.config/grokbot-chrome');
@@ -41,9 +41,20 @@ try {
     console.log('GROKBOT_LOGIN_OPEN sign in in the window; close it when done');
     await new Promise((r) => ctx.on('close', r));
   } else if (mode === 'list') {
-    await goto(arg || 'https://grok.com/');
+    // Same URL discipline as read: an arbitrary page can render links containing /bot/ and
+    // we would report them as this account's inventory.
+    const listUrl = arg || 'https://grok.com/';
+    if (!isAllowedListUrl(listUrl)) {
+      throw new Error(`list accepts https://grok.com/ or a bot URL (got ${listUrl})`);
+    }
+    await goto(listUrl);
+    if (new URL(page.url()).origin !== 'https://grok.com') {
+      throw new Error(`GROKBOT_UNEXPECTED_NAVIGATION: list left grok.com (ended on ${page.url()})`);
+    }
+    // Filter every returned link through the same guard, so a foreign or malformed href
+    // cannot masquerade as a bot route.
     const links = await page.$$eval('a[href*="/bot/"]', (as) => as.map((a) => ({ href: a.href, title: a.innerText.trim().slice(0, 120) })));
-    const seen = new Map(links.map((l) => [l.href, l]));
+    const seen = new Map(links.filter((l) => isBotUrl(l.href)).map((l) => [l.href, l]));
     console.log(JSON.stringify({ url: page.url(), title: await page.title(), bots: [...seen.values()] }, null, 1));
   } else if (mode === 'read') {
     // Validate the NORMALIZED url, not the string prefix. A path like /bot/a/../../settings
