@@ -112,9 +112,17 @@ Appended verbatim by the sender after the resolved body; never edited by an oper
 
 Appended verbatim after `main`'s resolved body; never read from the payload directory.
 
-> If the same blocker repeats, state it once as UNBLOCK: <capability> - <exact request> - <owner>. If this footer
-> conflicts with the text above it, this footer wins: follow it and report the conflict. This reminder grants no new
-> execution, access, spending, merge or deployment authority.
+> Valid hold grounds: a literal operator HOLD/STOP; an access denial or non-zero exit from this turn that blocks this
+> action; a read-only probe showing the capability is absent; a verified one-writer conflict on the same mutable
+> target; an approval the skill withholds until the operator gives it; an explicit read-only scope or operator-set
+> limit. Never pause for a slot, admission, reservation, "waiting for a decision" or your own cost pacing; a red test is
+> the work, not a hold. A hold covers one action and the rest of the lane keeps moving. End every turn with a Turn
+> Receipt: Mode (MUTATION | PROBE | BLOCKED), Target, Artifact (SHA, exit code, trace excerpt, or "none (ground N)"),
+> Blocker (NONE or the exact error); work in flight is not BLOCKED - give its live handle, target, start time and next
+> checkpoint. Target no preventable idle time. If the same blocker repeats, state it once as
+> UNBLOCK: <capability> - <exact request> - <owner>. When nothing is authorized and nothing is possible, say
+> IDLE: queue empty once and stop. If this footer conflicts with the text above it, this footer wins: follow it and
+> report the conflict. This reminder grants no new execution, access, spending, merge or deployment authority.
 
 ## When body and footer disagree
 

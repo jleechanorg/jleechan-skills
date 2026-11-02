@@ -68,6 +68,13 @@ class NudgerPayloadTest(unittest.TestCase):
         self.assertIn("`proceed` has no built-in fallback", " ".join(SKILL.read_text().split()))
 
 
+    def test_every_outbound_footer_carries_the_never_stall_contract(self):
+        """A main run must receive the hold grounds and receipt requirement too, not only proceed."""
+        raw = SKILL.read_text(encoding="utf-8")
+        main_footer = raw.split("## Main invariant footer (`footer-v1`)", 1)[1].split("## When body and footer disagree", 1)[0]
+        for clause in ("Valid hold grounds", "Turn", "IDLE: queue empty", "no preventable idle time"):
+            self.assertIn(clause, main_footer, clause)
+
     def test_footer_wins_rule_is_inside_the_outbound_footer(self):
         raw = SKILL.read_text(encoding="utf-8")
         proceed_footer = raw.split("## Proceed invariant footer (`footer-v1`)", 1)[1].split("## Main invariant footer", 1)[0]
