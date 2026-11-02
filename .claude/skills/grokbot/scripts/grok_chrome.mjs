@@ -58,9 +58,12 @@ try {
       throw new Error(`read needs https://grok.com/bot/<id> (got ${target.href})`);
     }
     await goto(target.href);
+    // Compare the landing pathname to the REQUESTED one exactly. An unanchored pattern
+    // accepts a redirect to /bot/other or /bot/<id>/settings and would print that page as
+    // the conversation.
     const landed = new URL(page.url());
-    if (landed.origin !== 'https://grok.com' || !/^\/bot\/[\w-]+/.test(landed.pathname)) {
-      throw new Error(`GROKBOT_UNEXPECTED_NAVIGATION: ended on ${landed.href}, not the requested bot page`);
+    if (landed.origin !== 'https://grok.com' || landed.pathname !== target.pathname) {
+      throw new Error(`GROKBOT_UNEXPECTED_NAVIGATION: requested ${target.pathname}, ended on ${landed.href}`);
     }
     console.log(((await page.innerText('body')).slice(-5000)));
   } else throw new Error('usage: login | list [url] | read <bot-url>');
