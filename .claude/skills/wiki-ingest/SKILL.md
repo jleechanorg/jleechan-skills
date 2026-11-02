@@ -96,29 +96,43 @@ Append to `wiki/log.md`: `## [YYYY-MM-DD] ingest | <Title>`
 Publish through a content branch and PR. Never push `main`, and never publish another
 session's work that happens to sit in the same checkout.
 
-First build the exact file list from values Phase 1 already set — `SOURCE` keeps the
-source's extension while `SLUG` strips it, so use `SOURCE` for the raw copy, not
-`raw/$SLUG` — and append every entity or concept page this run created or edited:
+Build the exact file list from values Phase 1 already set — `SOURCE` keeps the source's
+extension while `SLUG` strips it, so the raw copy is `$SOURCE`, not `raw/$SLUG`. Start
+with only the pages this run created, then add the shared files only if this run wrote
+them:
 
 ```bash
-PATHS=("$SOURCE" "$WIKI_ROOT/wiki/sources/$SLUG.md" "$WIKI_ROOT/wiki/index.md" "$WIKI_ROOT/wiki/log.md")
-# add each entity/concept page written this run, e.g.
+PATHS=("$SOURCE" "$WIKI_ROOT/wiki/sources/$SLUG.md")
+# add each entity/concept page this run created, e.g.
 #   PATHS+=("$WIKI_ROOT/wiki/concepts/<concept>.md")
 ```
 
-`wiki/index.md` and `wiki/log.md` are shared across ingests, so a partial commit of those
-two files can carry a concurrent editor's lines. Commit them only if this run was the one
-that wrote them, and say so in the PR body when it was not.
-
-Create a dedicated branch starting at the remote main tip so the result contains this
-ingest and nothing else. Build the commit from a scratch index read from that base, then
-point the new branch at it — this never touches your working tree, the shared index, or
-`HEAD`:
+`wiki/index.md` and `wiki/log.md` are shared across ingests. `git add` stages a file's
+entire current contents, so adding them commits a concurrent editor's lines too. Include
+them only when this run wrote them, and state in the PR body when you left them out:
 
 ```bash
+for f in "$WIKI_ROOT/wiki/index.md" "$WIKI_ROOT/wiki/log.md"; do
+  git -C "$WIKI_ROOT" diff --quiet -- "$f" && continue   # unchanged by this run
+  PATHS+=("$f")
+done
+```
+
+Create a fresh branch at the remote main tip and build the commit from a scratch index
+read from that base, so the result holds this ingest and nothing else. This never touches
+your working tree, the shared index, or `HEAD`:
+
+```bash
+set -e   # every step below must be able to stop the run
 git -C "$WIKI_ROOT" fetch origin main
 BASE="$(git -C "$WIKI_ROOT" rev-parse origin/main)"
 BRANCH="wiki-ingest/$SLUG"
+
+# a pre-existing branch means a previous run already used this slug
+if git -C "$WIKI_ROOT" show-ref --verify --quiet "refs/heads/$BRANCH"; then
+  echo "branch $BRANCH already exists; choose a new slug instead of reusing it" >&2
+  exit 1
+fi
 
 IDX_DIR="$(mktemp -d "${TMPDIR:-/tmp}/wiki-index.XXXXXX")"
 export GIT_INDEX_FILE="$IDX_DIR/index"
@@ -128,25 +142,30 @@ TREE="$(git -C "$WIKI_ROOT" write-tree)"
 COMMIT="$(git -C "$WIKI_ROOT" commit-tree "$TREE" -p "$BASE" -m "<cli>/<model>: docs(wiki): ingest $SLUG")"
 unset GIT_INDEX_FILE
 
- git -C "$WIKI_ROOT" branch "$BRANCH" "$COMMIT"
+[ -n "$COMMIT" ] || { echo "commit-tree produced no commit" >&2; exit 1; }
+git -C "$WIKI_ROOT" branch "$BRANCH" "$COMMIT"
 ```
 
 An alternate `GIT_INDEX_FILE` controls what gets committed; it does not remove commits
 already on a branch. Starting the branch at `$BASE` and building the commit from
 `read-tree "$BASE"` is what guarantees the result holds this ingest and nothing else.
 
-Push the branch by name and open the PR, then verify against that branch's own ref, not
-`origin/HEAD` (which is the remote default branch):
+Push the branch by name, verify the remote ref landed that exact commit, and only then
+open the PR. `gh` has no `-C` flag (unlike `git`), so run it inside the wiki checkout:
 
 ```bash
 git -C "$WIKI_ROOT" push origin "$BRANCH"
-gh -C "$WIKI_ROOT" pr create --base main --head "$BRANCH" --fill
+
 REMOTE="$(git -C "$WIKI_ROOT" ls-remote origin "refs/heads/$BRANCH" | awk '{print $1}')"
-test "$REMOTE" = "$COMMIT" || { echo "push did not land $COMMIT on $BRANCH (remote=$REMOTE)" >&2; exit 1; }
+[ -n "$REMOTE" ] && [ "$REMOTE" = "$COMMIT" ] || {
+  echo "push did not land $COMMIT on $BRANCH (remote='${REMOTE:-none}')" >&2; exit 1; }
+
+(cd "$WIKI_ROOT" && gh pr create --base main --head "$BRANCH" --fill)
 ```
 
-If that check fails, the push did not land what you committed: report it, do not retry
-blindly.
+Verifying before opening the PR matters: an empty `REMOTE` from a failed `ls-remote`
+would otherwise compare equal to an empty `COMMIT` and report success. If any step fails,
+report what failed; do not retry blindly.
 
 ## GitHub-Readable Output — TOC + Standard Markdown Links (default for ported-source branch)
 
