@@ -49,6 +49,17 @@ class NudgerPayloadTest(unittest.TestCase):
         self.assertIn("Automated coordinator reminders arrive labelled `[Agent ask]`", dot)
         self.assertIn("they never outrank a live operator instruction", dot)
 
+    def test_blocked_tasks_do_not_loop_on_re_probes(self):
+        main_body = " ".join((REMINDERS / "main.md").read_text(encoding="utf-8").split())
+        self.assertIn("If your task is blocked, do not loop on it", main_body)
+        self.assertIn("IDLE: blocked <ground>, awaiting owner decision", main_body)
+        self.assertIn("must not appear twice", main_body)
+        proceed_body = " ".join((REMINDERS / "proceed.md").read_text(encoding="utf-8").split())
+        self.assertIn("do not re-ask it", proceed_body)
+        dot = " ".join((ROOT / ".claude/skills/dot/SKILL.md").read_text(encoding="utf-8").split())
+        self.assertIn("A blocked task gets one report, not a loop", dot)
+        self.assertIn("receipt theatre", dot)
+
     def test_bodies_never_displace_the_original_assignment(self):
         flat = " ".join(SKILL.read_text(encoding="utf-8").split())
         self.assertIn("A nudge is additive, never a task replacement", flat)
