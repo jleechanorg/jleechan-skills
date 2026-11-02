@@ -43,6 +43,15 @@ cp "$FILE_ARG" "$SOURCE" 2>/dev/null || cp "$(pwd)/$FILE_ARG" "$SOURCE"
 
 # Determine slug from filename
 SLUG=$(basename "$FILE_ARG" | sed 's/\.md$//' | sed 's/[^a-zA-Z0-9]/-/g' | tr '[:upper:]' '[:lower:]')
+
+# Create the publish branch NOW, while the tree is still clean. Phases 2-8 edit files, so a
+# branch cut later would either abort on local changes or carry them across.
+set -e
+BRANCH="wiki-ingest/$SLUG"
+git -C "$WIKI_ROOT" fetch origin main
+git -C "$WIKI_ROOT" ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1 \
+  && { echo "origin/$BRANCH already exists; pick a new slug" >&2; exit 1; }
+git -C "$WIKI_ROOT" switch -c "$BRANCH" origin/main
 ```
 
 ### Phase 2: Read source document
@@ -93,16 +102,16 @@ Append to `wiki/log.md`: `## [YYYY-MM-DD] ingest | <Title>`
 
 ### Phase 9: Commit and Push
 
-Publish on a content branch. Never push `main`, and never publish another session's work
-from the same checkout.
+The publish branch already exists and is checked out (Phase 1), so this phase only
+commits, pushes and opens the PR. Never push `main`.
 
-**Precondition:** run the ingest in a checkout that no other ingest is writing. `raw/` and
+**Precondition:** this checkout is not being written by another ingest. `raw/` and
 `wiki/index.md`/`wiki/log.md` are shared paths, and `git add` takes a file's whole current
-contents — no index trick lets you separate your lines from a concurrent session's once
-they are mixed in the worktree. If the checkout is shared, use a separate clone.
+contents, so two concurrent ingests cannot be separated once their edits are mixed. If
+the checkout is shared, use a separate clone.
 
-Stage the paths this run created. `SOURCE` keeps the source file's extension while `SLUG`
-strips it, so the raw copy is `$SOURCE`, not `raw/$SLUG`:
+Stage exactly the paths this run wrote. `SOURCE` keeps the source file's extension while
+`SLUG` strips it, so the raw copy is `$SOURCE`, not `raw/$SLUG`:
 
 ```bash
 PATHS=("$SOURCE" "$WIKI_ROOT/wiki/sources/$SLUG.md" \
@@ -110,19 +119,15 @@ PATHS=("$SOURCE" "$WIKI_ROOT/wiki/sources/$SLUG.md" \
 # add each entity/concept page this run wrote
 ```
 
-Commit on a branch cut from the remote main tip, so the branch holds this ingest and not
-whatever the checkout happened to be on, and never reuse a slug:
+Commit those paths explicitly — `git commit` with no paths commits the *entire* index,
+including anything a previous run left staged:
 
 ```bash
 set -e
-BRANCH="wiki-ingest/$SLUG"
-git -C "$WIKI_ROOT" fetch origin main
-git -C "$WIKI_ROOT" ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1 \
-  && { echo "origin/$BRANCH already exists; pick a new slug" >&2; exit 1; }
-git -C "$WIKI_ROOT" switch -c "$BRANCH" origin/main
 git -C "$WIKI_ROOT" add -- "${PATHS[@]}"
-git -C "$WIKI_ROOT" diff --cached --quiet && { echo "nothing to commit" >&2; exit 1; }
-git -C "$WIKI_ROOT" commit -m "<cli>/<model>: docs(wiki): ingest $SLUG"
+git -C "$WIKI_ROOT" diff --cached --quiet -- "${PATHS[@]}" \
+  && { echo "nothing staged for this ingest" >&2; exit 1; }
+git -C "$WIKI_ROOT" commit -m "<cli>/<model>: docs(wiki): ingest $SLUG" -- "${PATHS[@]}"
 ```
 
 Push, verify that exact commit landed, and only then open the PR. Verify before creating
@@ -138,7 +143,8 @@ REMOTE="$(git -C "$WIKI_ROOT" ls-remote origin "refs/heads/$BRANCH" | awk '{prin
 (cd "$WIKI_ROOT" && gh pr create --base main --head "$BRANCH" --fill)
 ```
 
-Note in the PR body when this run did not update the shared index or log.
+Note in the PR body when this run did not update the shared index or log. Leaving the
+checkout on `$BRANCH` is fine; return to the previous branch only if the caller needs it.
 
 ## GitHub-Readable Output — TOC + Standard Markdown Links (default for ported-source branch)
 
