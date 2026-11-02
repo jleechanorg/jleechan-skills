@@ -70,10 +70,10 @@ Operators provision or inspect the quota-bounded Scratch volume via `diskm`:
 - Query active mountpoint: `diskm volume path scratch`
 - Check volume status: `diskm volume status scratch`
 
-## Enforcement — /tmp workspace creation is blocked, not just discouraged
+## `/tmp` workspaces are prohibited — enforcement depends on the host
 
-Where the host installs a `PreToolUse` scratch-routing guard (a hook wired into the
-active runtime's settings, exit 2 = blocked), it rejects tool calls that would create a
+A `PreToolUse` scratch-routing guard, where the host installs one (a hook wired into the
+active runtime's settings, exit 2 = blocked), rejects tool calls that would create a
 **workspace** under `/tmp`. It fires for `git clone`/`git worktree add`/`mkdir`/`mktemp
 -d`/`cp`/`rsync`/`tar -C`/`unzip -d`/`pip --target` destinations and for document
 writes under `/tmp`.
@@ -81,7 +81,7 @@ writes under `/tmp`.
 Why blocking rather than advice: `/tmp` is on the root filesystem whose free space gates
 self-hosted runner admission, and lane clones there have drained a CI fleet twice
 (20 -> 0 containers, then 20 -> 7). Relocating existing directories did not stop new ones
-appearing, so the gate is enforced on the host instead.
+appearing, so a host that installs the guard enforces the rule there.
 
 **This export does not ship that hook.** Enabling it is a host decision; where it is not
 installed, the rules below are still the required behavior for an agent, and nothing
