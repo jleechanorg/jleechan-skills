@@ -39,6 +39,16 @@ class NudgerPayloadTest(unittest.TestCase):
             self.assertTrue(first.startswith("continue the work you were already assigned"), (mode, first))
             self.assertIn("does not replace", body, mode)
 
+    def test_reconciliation_pass_is_bounded_and_returns_to_the_assignment(self):
+        main_body = " ".join((REMINDERS / "main.md").read_text(encoding="utf-8").split())
+        # the pass must be time/scope-bounded, must say when it ends, and must return to the task
+        self.assertIn("as a bounded check", main_body)
+        self.assertIn("it ends when you have confirmed whether any newer operator request", main_body)
+        self.assertIn("return to the assignment\nin this same turn".replace("\n", " "), main_body)
+        self.assertIn("Only when a newer request genuinely supersedes the assignment", main_body)
+        proceed_body = " ".join((REMINDERS / "proceed.md").read_text(encoding="utf-8").split())
+        self.assertIn("If you are mid-task, keep going and report the step you executed", proceed_body)
+
     def test_bodies_are_task_content_only_and_full_invariants_live_in_the_footer(self):
         for name in ("proceed", "main"):
             body = (REMINDERS / f"{name}.md").read_text(encoding="utf-8")
