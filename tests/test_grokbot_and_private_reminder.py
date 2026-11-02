@@ -11,8 +11,8 @@ class NewSkillContracts(unittest.TestCase):
  def test_private_reminder_override_preserves_fixed_default(self):
   text=(ROOT/'.claude/skills/dot-coordinator/SKILL.md').read_text(encoding="utf-8")
   self.assertIn('~/.config/dot/periodic-reminder.txt',text)
-  self.assertIn('missing or empty',text)
-  self.assertIn('do not silently fall back',text)
+  self.assertIn('payload-unavailable',text)
+  self.assertIn('never substitute another file',text)
   self.assertIn('recipient',text.lower())
   self.assertIn('No private inventory',text)
   import re
