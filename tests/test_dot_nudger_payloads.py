@@ -30,6 +30,15 @@ class NudgerPayloadTest(unittest.TestCase):
                        "Record the resolved body path, its SHA256", "The footer wins"):
             self.assertIn(clause, self.text, clause)
 
+    def test_bodies_never_displace_the_original_assignment(self):
+        flat = " ".join(SKILL.read_text(encoding="utf-8").split())
+        self.assertIn("A nudge is additive, never a task replacement", flat)
+        for mode in ("main", "proceed"):
+            body = (REMINDERS / f"{mode}.md").read_text(encoding="utf-8")
+            first = body.split("\n")[0].lower()
+            self.assertTrue(first.startswith("continue the work you were already assigned"), (mode, first))
+            self.assertIn("does not replace", body, mode)
+
     def test_bodies_are_task_content_only_and_full_invariants_live_in_the_footer(self):
         for name in ("proceed", "main"):
             body = (REMINDERS / f"{name}.md").read_text(encoding="utf-8")
@@ -40,7 +49,7 @@ class NudgerPayloadTest(unittest.TestCase):
             self.assertNotIn("HOLD", body, name)
             self.assertNotIn("Turn Receipt", body, name)
         proceed_body = (REMINDERS / "proceed.md").read_text(encoding="utf-8")
-        self.assertIn("Review the last four hours of this conversation", proceed_body)
+        self.assertIn("last four hours", proceed_body)
 
     def test_footer_is_immutable_and_versioned(self):
         raw = SKILL.read_text(encoding="utf-8")

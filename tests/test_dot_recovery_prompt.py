@@ -47,7 +47,7 @@ class CoordinatorWorkflowTests(unittest.TestCase):
         payload = (SKILL.parent / "reminders/proceed.md").read_text()
         flat_payload = " ".join(payload.split())
         # the editable body is task content only; the invariants live in the reviewed footer
-        self.assertTrue(flat_payload.startswith("Review the last four hours of this conversation"), flat_payload[:80])
+        self.assertTrue(flat_payload.startswith("Continue the work you were already assigned"), flat_payload[:80])
         self.assertNotIn("HOLD", flat_payload)
         self.assertIn("`proceed` has no built-in fallback", " ".join(text.split()))
         self.assertIn("## Proceed invariant footer (`footer-v1`)", text)

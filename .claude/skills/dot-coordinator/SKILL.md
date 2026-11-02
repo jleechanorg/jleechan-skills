@@ -62,7 +62,12 @@ destination, detect an already-sent duplicate and inspect a peer draft - nothing
 ## Payload files (markdown-driven nudger)
 
 What a nudge *asks for* is a markdown file; what the sender may *do* is not. The message is always
-`<editable body>` followed by `<reviewed invariant footer>`:
+`<editable body>` followed by `<reviewed invariant footer>`.
+
+**A nudge is additive, never a task replacement.** Both bodies begin by telling the recipient to keep its own standing
+work: the reminder adds a reconciliation pass; it never cancels, pauses, deprioritises or re-scopes what the operator
+already assigned. A Dot that abandons an original ask to answer a nudge has failed the nudge, not completed it. The
+operator's live requests always outrank any reminder text.
 
 - **Editable body** - task content only, resolved for mode `M` on account `A`. First match wins and the run reports
   which path won:
