@@ -96,6 +96,23 @@ heartbeat for a silent Dot, so only `proceed` applies this gate.
 **A silent Dot is not automatically idle.** If it has produced no turn and reported no blocker, the gate passes and the
 run sends normally; the gate suppresses repeats, not first contact.
 
+### Stall detection and the one-line relay
+
+The `main` reminder carries two extra duties; `proceed` never does (it is idle-gated).
+
+- **Mechanical stall check.** Read the Dot's last turn for a Turn Receipt (`Mode` / `Target` / `Artifact` /
+  `Blocker`, defined in the Dot skill). A missing `Mode`, an empty `Artifact`, or text that is only a promise
+  ("I'll check…", "I'll reconcile…", "waiting for…") means the lane is stalled: send **one** nudge whose body says
+  `Unverified pause rejected. Execute the next diagnostic probe or produce a failing execution trace, then proceed
+  on your branch.` Do not send it twice for the same stalled turn, and do not add it to an otherwise-idle lane
+  (the idle gate already covers that).
+- **Relay a blocker once.** If the Dot reports a blocker, repeat its `UNBLOCK: <capability> - <exact request> -
+  <owner>` line in the run report so the operator sees it. Relay it again only when its evidence or its unblock
+  condition changed; an unchanged repeat is noise, not progress.
+- **Never answer scheduling or permission questions.** Slot, admission, reservation, ownership and "may I" requests
+  get exactly one reply: `Proceed on your branch.` The coordinator creates no slots, grants no capacity, and
+  adjudicates no ownership.
+
 ## Private periodic payload
 
 The sender remains transport only; the receiving Dot owns queue interpretation,
