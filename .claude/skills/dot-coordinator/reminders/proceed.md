@@ -1,4 +1,4 @@
-Continue the work you were already assigned; this nudge does not replace, pause or deprioritise your original task, and
+[Agent ask] Continue the work you were already assigned; this nudge does not replace, pause or deprioritise your original task, and
 an operator request always outranks it. Do not start new scope. If you are mid-task, keep going and report the step you
 executed.
 

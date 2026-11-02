@@ -64,6 +64,11 @@ destination, detect an already-sent duplicate and inspect a peer draft - nothing
 What a nudge *asks for* is a markdown file; what the sender may *do* is not. The message is always
 `<editable body>` followed by `<reviewed invariant footer>`.
 
+**Every message is labelled `[Agent ask]`.** The first words of every outbound body are `[Agent ask]`, so the receiving
+Dot can tell an automated coordinator message apart from a live operator instruction. Automation never posts as the
+human: no outbound text may claim or imply the operator wrote it, and a recipient must be able to see at a glance that
+this is an agent requesting something. If a payload file's first line is not `[Agent ask]`, the sender prepends it.
+
 **A nudge is additive, never a task replacement.** Both bodies begin by telling the recipient to keep its own standing
 work: the reminder adds a reconciliation pass; it never cancels, pauses, deprioritises or re-scopes what the operator
 already assigned. A Dot that abandons an original ask to answer a nudge has failed the nudge, not completed it. The

@@ -1,4 +1,4 @@
-Continue the work you were already assigned; this reminder adds a reconciliation pass, it does not replace, pause or
+[Agent ask] Continue the work you were already assigned; this reminder adds a reconciliation pass, it does not replace, pause or
 deprioritise your original task. Your current assignment and any operator request still outrank this reminder.
 
 Do the reconciliation pass first, as a bounded check: it ends when you have confirmed whether any newer operator

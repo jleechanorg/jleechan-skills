@@ -30,13 +30,25 @@ class NudgerPayloadTest(unittest.TestCase):
                        "Record the resolved body path, its SHA256", "The footer wins"):
             self.assertIn(clause, self.text, clause)
 
+    def test_every_outbound_message_is_labelled_as_an_agent_ask(self):
+        flat = " ".join(SKILL.read_text(encoding="utf-8").split())
+        self.assertIn("Every message is labelled `[Agent ask]`", flat)
+        self.assertIn("Automation never posts as the human", flat)
+        self.assertIn("If a payload file's first line is not `[Agent ask]`, the sender prepends it", flat)
+        for mode in ("main", "proceed"):
+            body = (REMINDERS / f"{mode}.md").read_text(encoding="utf-8")
+            self.assertTrue(body.lower().startswith("[agent ask]"), mode)
+        dot = " ".join((ROOT / ".claude/skills/dot/SKILL.md").read_text(encoding="utf-8").split())
+        self.assertIn("Automated coordinator reminders arrive labelled `[Agent ask]`", dot)
+        self.assertIn("they never outrank a live operator instruction", dot)
+
     def test_bodies_never_displace_the_original_assignment(self):
         flat = " ".join(SKILL.read_text(encoding="utf-8").split())
         self.assertIn("A nudge is additive, never a task replacement", flat)
         for mode in ("main", "proceed"):
             body = (REMINDERS / f"{mode}.md").read_text(encoding="utf-8")
             first = body.split("\n")[0].lower()
-            self.assertTrue(first.startswith("continue the work you were already assigned"), (mode, first))
+            self.assertIn("continue the work you were already assigned", first, (mode, first))
             self.assertIn("does not replace", body, mode)
 
     def test_reconciliation_pass_is_bounded_and_returns_to_the_assignment(self):
