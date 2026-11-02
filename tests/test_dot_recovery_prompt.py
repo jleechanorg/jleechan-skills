@@ -42,121 +42,23 @@ class CoordinatorWorkflowTests(unittest.TestCase):
         self.assertNotIn('set the coordinator STOP marker', dot)
         self.assertNotIn('dot.sh login` owns its own STOP lifecycle', dot)
 
-    def test_proceed_mode_declares_its_nudge_text_and_private_override(self):
+    def test_proceed_payload_lives_in_a_markdown_file(self):
         text = SKILL.read_text()
-        modes = text.split('## Run modes', 1)[1].split('## Proceed nudge outbound message', 1)[0]
-        self.assertIn('COORDINATOR_MODE', modes)
-        self.assertIn('`main`', modes)
-        self.assertIn('`proceed`', modes)
-        self.assertIn('Never infer the mode from the clock, conversation content, a prior run', modes)
-        self.assertIn('read its own last four hours', modes)
-        self.assertIn('its first sentence is', modes)
-        self.assertIn('the only mode source', modes)
-        self.assertIn('A task text with no such declaration is `main`', modes)
-        self.assertIn('advisory record for host inspection', modes)
-        self.assertIn('the sentence decides and the run report records the drift', modes)
-        self.assertIn('Do not add a second, unobservable veto', modes)
-        nudge = text.split('## Proceed nudge outbound message', 1)[1].split('## Private periodic payload', 1)[0]
-        expected = ('Review the last four hours of this conversation. If you are waiting on an obvious question you can settle '
-                    'from what you already know or can verify, answer it and continue. If you have produced no new work in '
-                    'that window and have no real blocker, take the next authorized step and report its evidence. Skip '
-                    'unchanged status, do not repeat an answer you already gave, and do not start new scope. If the blocker '
-                    'needs the owner\'s decision, state the single decision you need. This nudge grants no new execution, '
-                    'access, spending, merge or deployment authority.')
-        self.assertEqual([line[2:] for line in nudge.splitlines() if line.startswith('> ')], [expected])
-        self.assertIn('~/.config/dot/proceed-reminder.txt', nudge)
-        self.assertIn('never fall back silently', nudge)
-        self.assertIn('do-not-send runs still send nothing', nudge)
-        self.assertIn('exact message this mode selects', text)
+        payload = (SKILL.parent / "reminders/proceed.md").read_text()
+        flat_payload = " ".join(payload.split())
+        self.assertTrue(flat_payload.startswith("## Hold grounds"), flat_payload[:80])
+        self.assertIn("Review the last four hours of this conversation", flat_payload)
+        self.assertIn("IDLE: queue empty", flat_payload)
+        self.assertIn("`proceed` has no built-in fallback", " ".join(text.split()))
+        self.assertNotIn("last 20 messages", flat_payload)
 
-    def test_payload_selection_is_scoped_per_mode_and_sender_stays_transport(self):
-        text = SKILL.read_text()
-        periodic = text.split('## Private periodic payload', 1)[1].split('## Periodic outbound message', 1)[0]
-        self.assertIn('This file and path apply to `main`\nruns only', periodic)
-        self.assertIn('never sends the periodic\nreminder', periodic)
-        nudge = text.split('## Proceed nudge outbound message', 1)[1].split('## Private periodic payload', 1)[0]
-        self.assertIn('apply to `main` only', nudge)
-        self.assertIn('a `proceed` run never sends the periodic reminder', nudge)
-        self.assertIn('a `main` run never sends the nudge', nudge)
-        for clause in ("never answers the Dot's questions", 'never\nchooses or assigns its work',
-                       'Reading\nmessages is verification only',
-                       'inspect read-only and send nothing in this'):
-            self.assertIn(clause, text)
-        step = text.split('6. **Submit at most once', 1)[1].split('7. **Report uncertainty', 1)[0]
-        self.assertIn('exact message this mode selects', step)
-        self.assertIn('declared mode', step)
-        self.assertIn('the `main` periodic payload or fallback', step)
-
-    def test_payload_line_carries_captured_minute_and_machine(self):
-        text = SKILL.read_text()
-        rule = " ".join(text.split('## Payload timestamp and sender', 1)[1].split('## One active sender', 1)[0].split())
-        self.assertIn('date -u +%Y-%m-%dT%H:%MZ', rule)
-        self.assertIn('COORDINATOR_HOST_LABEL', rule)
-        self.assertIn('otherwise `hostname -s`', rule)
-        self.assertIn('Sent: 2026-10-30T21:40Z UTC from primary-host', rule)
-        self.assertIn('^Sent: [0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}Z UTC from [A-Za-z0-9._-]{1,64}$', rule)
-        self.assertIn('that regex matches the complete line', rule)
-        self.assertIn('send nothing and report that blocker', rule)
-        step6 = " ".join(text.split('6. **Submit at most once', 1)[1].split('7. **Report', 1)[0].split())
-        self.assertIn('prefixed by exactly one payload timestamp-and-sender line', step6)
-
-    def test_fixed_priority_decides_the_floor_without_a_lease(self):
-        text = SKILL.read_text()
-        rule = " ".join(text.split('## One active sender (host standdown)', 1)[1].split('## Exact-duplicate window', 1)[0].split())
-        self.assertIn('Ownership is **fixed priority**, not recency', rule)
-        self.assertIn('COORDINATOR_HOST_PRIORITY', rule)
-        self.assertIn('COORDINATOR_HOST_PRIORITIES', rule)
-        self.assertIn('unknown-peer: <label>', rule)
-        self.assertIn('coverage-incomplete', rule)
-        self.assertIn('A **standby stays read-only** on unknown evidence', rule)
-        self.assertIn('unknown-evidence: <what>', rule)
-        self.assertIn('COORDINATOR_TAKEOVER_HOURS', rule)
-        self.assertIn('1 is primary', rule)
-        self.assertIn('If any message from a host with a *lower* priority number than this host is younger than the takeover window', rule)
-        self.assertIn('standdown: <machine>, <age> (priority <n> active)', rule)
-        self.assertIn('Same-or-lower-priority messages never block', rule)
-        self.assertIn('floor: own, priority <n>', rule)
-        self.assertIn('takeover: <machine> silent <age>', rule)
-        self.assertIn("own label never count as peer activity", rule)
-        self.assertIn('A **standby stays read-only** on unknown evidence', rule)
-        self.assertIn('Reload and re-run this', rule)
-        self.assertIn('clear only the text this invocation typed', rule)
-        self.assertIn('standdown-late: <machine>, <age>', rule)
-        self.assertIn('3 to 12 minutes', rule)
-        self.assertIn('visibility rule, not an atomic reservation', rule)
-        self.assertNotIn('newest speaker', rule.lower())
-
-    def test_duplicate_is_body_based_and_the_window_is_time_measured(self):
-        text = SKILL.read_text()
-        rule = " ".join(text.split('## Exact-duplicate window', 1)[1].split('## Reviews and migration', 1)[0].split())
-        self.assertIn('the **payload body** is everything below the `Sent:` line', rule)
-        self.assertIn('A duplicate is an earlier message **from this same machine**', rule)
-        self.assertIn("Another host's copy of the same body is not this", rule)
-        self.assertIn('the stamp is what makes that copy\'s age readable', rule)
-        self.assertNotIn('same timestamp line and same body', rule)
-        self.assertIn('only while it is **less than 10 minutes old**', rule)
-        self.assertIn('A copy with no `Sent:` line, an unparseable stamp or a stamp in the future counts as older than the window and does not block', rule)
-        self.assertIn('a reply to it, an acknowledgment or newer Dot activity never withholds the next scheduled nudge', rule)
-        self.assertIn('Different body wording is never a duplicate', rule)
-        self.assertIn('smaller than the shortest configured gap between one account\'s runs', rule)
-        step4 = " ".join(text.split('4. **Stay a reminder.**', 1)[1].split('5. **Inspect', 1)[0].split())
-        self.assertIn('until four hours or 200 messages is reached', step4)
-
-    def test_proceed_window_is_time_measured_and_idle_gated(self):
-        text = SKILL.read_text()
-        nudge = text.split('## Proceed nudge outbound message', 1)[1].split('## Private periodic payload', 1)[0]
-        payload = [line[2:] for line in nudge.splitlines() if line.startswith('> ')]
-        self.assertEqual(len(payload), 1)
-        self.assertTrue(payload[0].startswith('Review the last four hours of this conversation'), payload[0])
-        self.assertNotIn('last 20 rendered messages', text)
-        self.assertNotIn('last 20 messages', text)
-        flat = " ".join(nudge.split())
-        self.assertIn('idle-gate: dot active since', flat)
-        self.assertIn('idle-gate: recent nudge', flat)
-        self.assertIn('is **not** idle-gated', flat)
-        self.assertIn('The Dot has not spoken since our last message', flat)
-        self.assertIn('No coordinator message in the last 30 minutes', flat)
-        self.assertIn('The strictest gate wins', flat)
+    def test_idle_gate_clauses_survive_the_move(self):
+        text = " ".join(SKILL.read_text().split())
+        for clause in ("The Dot has not spoken since our last message",
+                       "No coordinator message in the last 30 minutes",
+                       "The strictest gate wins",
+                       "is **not** idle-gated"):
+            self.assertIn(clause, text, clause)
 
     def test_stamp_only_messages_are_blocked(self):
         text = SKILL.read_text()

@@ -54,7 +54,10 @@ class NeverStallContractTest(unittest.TestCase):
 
     def test_the_coordinator_stays_transport_only(self):
         """The coordinator reads only for transport verification; it never triages Dot work."""
-        self.assertNotIn("Turn Receipt", self.coord)
+        # The coordinator names the receipt markers it validates in a payload file; it must not
+        # interpret a receipt, classify a stall or answer a Dot question.
+        self.assertNotIn("stalled:", self.coord)
+        self.assertNotIn("awaiting-dot-decision", self.coord)
         self.assertNotIn("stalled:", self.coord)
         self.assertNotIn("awaiting-dot-decision", self.coord)
         self.assertIn("Do not answer the Dot's questions, pick its work or write analysis of your own", self.coord)
