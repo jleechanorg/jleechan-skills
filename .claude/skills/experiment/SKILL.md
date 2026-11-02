@@ -172,7 +172,7 @@ Difference: 40 points favoring treatment
 4. **Post-Hoc Scoring**: Define rubric before seeing results
 5. **Cherry-Picking**: Report all results, including negative
 6. **Unretained Scores**: Never cite a score whose rubric, subject outputs, and scored JSON were not
-   retained in an authorized location. See the artifact retention rule above.
+   retained in an authorized location. See the artifact retention rule below.
 
 ## Implementation Commands
 
