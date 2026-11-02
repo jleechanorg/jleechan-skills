@@ -18,14 +18,19 @@ them so the board references earlier work instead of duplicating it. None of thi
 prerequisite — skipping it is valid, especially for a status-only board — and it never
 changes the mandatory output format below.
 
-Resolve the roadmap repository first and run each lookup from it, never from the code
-repository — `br` reads the beads store of the directory it runs in, so a board built
-from a code checkout would survey the wrong items:
+Each source resolves from its own root, so scope the lookups deliberately:
+
+- **Project memory** belongs to the project the board is about. Resolve it from that
+  project's root, not from the roadmap repository.
+- **Roadmap documents and beads** belong to the roadmap repository. `br` reads the
+  beads store of the directory it runs in, so a board built from a code checkout would
+  otherwise survey the wrong items:
 
 ```bash
 ROADMAP_REPO="$(git -C "${ROADMAP_DIR:-$HOME/roadmap}" rev-parse --show-toplevel)" || exit 1
 (cd "$ROADMAP_REPO" && br list --status open)
 ```
+
 
 If a source is unavailable, say so and continue. Durable decisions from the run belong
 in the board itself; write them to project memory only when the user asks or the owning
