@@ -277,7 +277,7 @@ derived from the same row, so the two skills cannot drift apart.
 - **The receipt digest is what lives outside the seat's writable area; `base.diff` itself is readable by the seat.**
   A seat can edit its own export and can read - but must not trust - `<SCRATCH PATH>/base.diff`. The launch
   manifest, the post-exit revalidation and the `base.diff` digest are written to the orchestrator's receipt, which
-  the seat cannot write. Post-exit revalidation detects a *lasting* alteration of the export; it does not detect an
+  outside the seat's *instructed* workspace (an instruction, not an OS sandbox). Post-exit revalidation detects a *lasting* alteration of the export; it does not detect an
   edit the seat restores before exiting. A seat that alters its export, or a missing post-exit revalidation, voids
   the vote; a verdict that depends on bytes the seat itself modified is not evidence.
 - **Every seat must have seen the actual code.** A seat that could not fetch the change - including a
