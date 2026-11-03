@@ -25,7 +25,7 @@ Route by what was asked, so one request never selects two procedures:
 
 - **Quick capacity or a reclaimable amount** ("check host free space", "how much can I
 free") -> the zero-`du` triage in `~/.claude/skills/disk-audit/SKILL.md`. Do not start a
-full audit walk for these.
+full audit walk for these. If the precomputed ledger or snapshots are missing or stale, escalate to the full audit rather than trusting the quick numbers.
 - **Root-cause investigation, choosing a cleanup target, and scheduled maintenance**
 ("why is the host full", "what grew", "what should I clean up", "which of these should I
 delete") -> follow
