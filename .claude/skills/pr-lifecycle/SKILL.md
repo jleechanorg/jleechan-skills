@@ -293,6 +293,19 @@ resumption trigger, report `Blocked` or `Waiting` — a blocker never makes it
 `Working`. Creating a goal or checklist is not execution. Do not stop
 at a completed design when implementation was authorized.
 
+### Continuation through the requested endpoint
+
+During an authorized `/prw`, a status or progress response does not end the
+request: refresh live state, answer briefly, then resume the next authorized
+action through the requested endpoint. Keep each started job or delegated lane
+owned through its result; use the existing async-handle, handback and
+independent-work rules in `parallelize-to-ceiling`, then integrate and verify
+the returned artifact. Stop only at the requested endpoint, a user scope
+change/stop, or a genuine scoped blocker or required user-only decision under
+the applicable authority rules. Batch related review findings and fixes under
+the existing draft-phase and SHA-applicability contracts; assess the actual
+delta and rerun only affected proof and review.
+
 ## Draft-phase final acceptance gates (in order)
 
 Before this final sequence, run independent code-correctness reviews (including
