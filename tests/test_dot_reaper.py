@@ -123,13 +123,17 @@ class ReaperContractTest(unittest.TestCase):
         self.assertIn("would rename", result.stdout)
         self.assertTrue(os.path.lexists(profile / "SingletonLock"))
 
-    def test_destination_name_is_claimed_atomically(self):
-        path1, fd1 = reaper.claim_destination(self.profile, "SingletonLock", "20260101T000000Z")
-        os.close(fd1)
-        path2, fd2 = reaper.claim_destination(self.profile, "SingletonLock", "20260101T000000Z")
-        os.close(fd2)
-        self.assertNotEqual(path1, path2, "the second claim must take a different name")
-        self.assertTrue(path1.exists() and path2.exists())
+    def test_publish_is_atomic_and_never_replaces_an_existing_entry(self):
+        src = self.profile / "SingletonLock"
+        first = reaper.publish_stale(src, self.profile, "SingletonLock", "20260101T000000Z")
+        self.assertTrue(first.exists())
+        self.assertFalse(os.path.lexists(src), "the original name must be gone after publish")
+        # a second publish for the same stamp must take a new name, not replace the first
+        second_src = self.profile / "SingletonCookie"
+        second = reaper.publish_stale(second_src, self.profile, "SingletonLock", "20260101T000000Z")
+        self.assertNotEqual(first, second)
+        self.assertTrue(first.exists(), "prior evidence must survive")
+        self.assertTrue(second.exists())
 
     def test_dry_run_flag_is_supported(self):
         import subprocess

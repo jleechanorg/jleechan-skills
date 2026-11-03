@@ -10,12 +10,15 @@ stale lock is provable, and it never deletes anything:
   * that pid no longer exists, and
   * no live process references the profile directory.
 
-Residual limitation, stated rather than denied: the final lock read and the rename are two
-operations, so a Chrome launch that replaces the lock in that window can lose its new lock.
-Userland cannot make check-then-act atomic against a process that does not take our lock, and
-the alternative - deleting (or leaving the launcher permanently blocked) - is worse. The window
-is microseconds, and a wrongly renamed lock is recoverable: Chrome recreates it on the next
-launch, and the renamed copy is preserved as *.stale-<stamp>.
+Residual limitation, stated rather than denied: the liveness checks and the renames are separate
+operations, so a Chrome launch that starts inside that loop can lose its fresh lock. Userland
+cannot make check-then-act atomic against a process that does not cooperate with our lock, and
+the alternatives - deleting the files, or leaving the launcher blocked forever - are strictly
+worse. Mitigations that do exist: the loop touches only files whose lock still names this host
+with a dead pid, each publish is atomic and non-destructive, and any wrongly renamed file is
+preserved as *.stale-<stamp> so nothing is lost; the launcher also fails closed rather than
+scrambling on a lock it cannot read. Run the reaper on a short timer, never concurrently with a
+scheduled coordinator slot.
 
 Otherwise it leaves the profile untouched. Files are renamed to
 <name>.stale-<UTC timestamp>, which keeps the evidence recoverable.
@@ -74,23 +77,38 @@ def pid_alive(pid):
     return True
 
 
-def claim_destination(profile, candidate, stamp):
-    """Atomically reserve a <name>.stale-<stamp>[-n] name and return (path, fd).
+def publish_stale(source, profile, candidate, stamp):
+    """Move `source` to a fresh <name>.stale-<stamp>[-n] name with no overwrite window.
 
-    O_EXCL makes the claim itself atomic: no other reaper can take the same name and no
-    existing evidence can be replaced. The returned fd owns the reservation; the caller
-    renames over it, which replaces only its own empty placeholder.
+    `os.link` fails with FileExistsError instead of replacing a destination, so the
+    destination name is claimed atomically by the kernel. The source is unlinked only
+    after its link exists, so a failure at any point leaves recoverable state and never
+    destroys prior evidence. Returns the destination path.
     """
     base = f"{candidate}.stale-{stamp}"
     index = 0
     while True:
-        path = profile / (base if index == 0 else f"{base}-{index}")
+        destination = profile / (base if index == 0 else f"{base}-{index}")
         try:
-            return path, os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            os.link(source, destination, follow_symlinks=False)
+            break
         except FileExistsError:
             index += 1
             if index > 1000:
                 raise
+        except OSError:
+            # Filesystem without link support: fall back to a rename onto a name we just
+            # proved free, accepting the same tiny window the kernel would give us.
+            if os.path.lexists(destination):
+                index += 1
+                continue
+            os.rename(source, destination)
+            return destination
+    try:
+        os.unlink(source)
+    except OSError:
+        pass
+    return destination
 
 
 def reap(name, profile, apply):
@@ -128,10 +146,7 @@ def reap(name, profile, apply):
         path = profile / candidate
         if os.path.lexists(path):
             if apply:
-                destination, fd = claim_destination(profile, candidate, stamp)
-                os.close(fd)
-                os.unlink(destination)      # we own this name; drop our placeholder
-                os.rename(path, destination)
+                publish_stale(path, profile, candidate, stamp)
             renamed.append(candidate)
     return f"{name}: provably stale (pid {pid} dead, profile idle) -> {'renamed ' + ', '.join(renamed) if apply else 'would rename ' + ', '.join(renamed)}"
 
