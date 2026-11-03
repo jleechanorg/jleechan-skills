@@ -23,7 +23,7 @@ class CoordinatorWorkflowTests(unittest.TestCase):
     def test_periodic_message_is_exact_and_submission_is_terminal(self):
         text = SKILL.read_text()
         outbound = text.split('## Periodic outbound message', 1)[1].split('## Workflow', 1)[0]
-        expected = "Review the last four hours of this conversation for new requests, changes and cancellations. Check the owner's authorized private roadmap and canonical backlog at locations supplied through authorized private context for every older unfinished commitment. Preserve task IDs, priorities, owners, checkpoints, approvals, holds and STOPs. Through existing owners, take the next safe authorized step and recover stalled work without duplicate writers or exceeding the shared two-complex/two-short limit. Verify actual results and original execution timestamps; assignments and status claims are not progress. Keep unresolved work until verified completion or cancellation. Report meaningful progress, precise blockers and next actions concisely; skip unchanged status. This reminder grants no new execution, access, spending, merge or deployment authority."
+        expected = "Review the last 24 hours of this conversation and list every open human request - any message not labelled [Agent ask] and not written by you; human requests outrank scheduled and automated work, and one blocked request never ends the turn while another can move. Check the owner's authorized private roadmap and canonical backlog at locations supplied through authorized private context for every older unfinished commitment. Preserve task IDs, priorities, owners, checkpoints, approvals, holds and STOPs. Through existing owners, take the next safe authorized step and recover stalled work without duplicate writers or exceeding the shared two-complex/two-short limit. Verify actual results and original execution timestamps; assignments and status claims are not progress. Keep unresolved work until verified completion or cancellation. Report meaningful progress, precise blockers and next actions concisely; skip unchanged status. This reminder grants no new execution, access, spending, merge or deployment authority."
         self.assertEqual([line[2:] for line in outbound.splitlines() if line.startswith('> ')], [expected])
         self.assertIn('Explicit read-only or do-not-send runs still send nothing', outbound)
         self.assertIn('An acknowledgment or changed wording does not authorize another submit', text)
@@ -47,12 +47,17 @@ class CoordinatorWorkflowTests(unittest.TestCase):
         payload = (SKILL.parent / "reminders/proceed.md").read_text()
         flat_payload = " ".join(payload.split())
         # the editable body is task content only; the invariants live in the reviewed footer
-        self.assertIn("Continue the work you were already assigned", flat_payload[:120])
+        self.assertIn("open human requests from the last 24 hours", flat_payload[:120])
+        self.assertIn("take the next human request that can move", flat_payload)
         self.assertTrue(flat_payload.startswith("[Agent ask] "), flat_payload[:60])
         self.assertNotIn("HOLD", flat_payload)
         self.assertIn("`proceed` has no built-in fallback", " ".join(text.split()))
         self.assertIn("## Proceed invariant footer (`footer-v1`)", text)
         self.assertNotIn("last 20 messages", flat_payload)
+
+    def test_footers_let_idle_replace_the_receipt(self):
+        flat = " ".join(SKILL.read_text().replace("\n> ", "\n").split())
+        self.assertEqual(flat.count("an IDLE line is the whole reply and needs no receipt"), 2)
 
     def test_mode_source_contract_survives(self):
         modes = " ".join(SKILL.read_text().split("## Run modes", 1)[1].split("## ", 1)[0].split())
@@ -61,7 +66,7 @@ class CoordinatorWorkflowTests(unittest.TestCase):
                        'the sentence decides and the run report records the drift',
                        'Do not add a second, unobservable veto',
                        'Never infer the mode from the clock, conversation content, a prior run',
-                       'read its own last four hours'):
+                       'read its own last 24 hours'):
             self.assertIn(clause, modes, clause)
 
     def test_payload_selection_is_scoped_per_mode(self):

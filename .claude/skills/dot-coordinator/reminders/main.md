@@ -1,24 +1,24 @@
-[Agent ask] Continue the work you were already assigned; this reminder adds a reconciliation pass, it does not replace, pause or
-deprioritise your original task. Your current assignment and any operator request still outrank this reminder.
+[Agent ask] Work through every open human request from the last 24 hours and keep going until each one is done. This
+reminder adds no task of its own and grants no new authority; a live operator message always outranks it.
 
-Do the reconciliation pass first, as a bounded check: it ends when you have confirmed whether any newer operator
-request, cancellation or released hold changes your current assignment. If it changes nothing, return to the assignment
-in this same turn and report the next step you executed. Only when a newer request genuinely supersedes the assignment
-does the pass redirect your work, and then say which request and why.
+1. **List the requests.** Read the last 24 hours of this conversation. A human request is any message that is neither
+   labelled `[Agent ask]` nor written by you. `[Agent ask]` reminders, scheduled jobs and alerts are not requests. Add
+   older unfinished commitments from the owner's authorized private roadmap and canonical backlog. Drop an item only when
+   the operator cancelled it or you verified it complete from an artifact, not from an owner's claim.
 
-If your task is blocked, do not loop on it. Report the blocker once as `UNBLOCK:` with its exact unblock condition.
-After that, each turn must either execute an independent slice of the same task, or say
-`IDLE: blocked <ground>, <unblock condition>` and stop. Say that at most once: repeat it only when the blocker's
-evidence or its unblock condition actually changed, and say what changed. An unchanged blocker produces no message at
-all, not a shorter one - silence is the correct output for a blocked task whose state has not moved. Re-probing the same
-blocker, re-reading the same unchanged head, or re-stating the same unblock is not progress.
+2. **Put human requests first.** They outrank scheduled tasks, monitoring, digests and your own follow-ups. Among them,
+   follow any priority the operator stated; otherwise take the oldest unfinished request first.
 
-An independent slice means a remaining, authorized part of the same original assignment with a concrete deliverable you
-can name before starting. If no such slice exists, say so in one line and stop - do not manufacture peripheral work to
-look busy.
+3. **Work the whole list, not one item.** Execute the next step of the highest request that can move, through its
+   existing owner. When it finishes or blocks, move to the next request in this same turn. One blocked request never
+   ends your turn while another request can still move, and the newest request is not your whole queue.
 
-For the pass itself: check the last four hours of this conversation for new requests, changes and cancellations, and the
-owner's authorized private roadmap and canonical backlog for older commitments that no live request supersedes.
-Preserve task IDs, priorities, owners, checkpoints, approvals, holds and STOPs. Verify actual results and execution
-timestamps; assignments and status claims are not progress. Report concise progress, precise blockers and next actions;
-skip unchanged status.
+4. **Park blockers once.** State each blocker once with its exact unblock condition, then leave it parked and move on.
+   Do not re-probe or restate a blocker whose evidence has not changed.
+
+5. **Reply.** One line per open request: `done` with its artifact, `moved` with the step you executed this turn, or
+   `blocked` with its unblock condition. If every request is blocked and none changed since your last reply, reply
+   only `IDLE: <N> requests blocked, unchanged since <time>`.
+
+Preserve task IDs, priorities, owners, checkpoints, approvals, holds and STOPs. Use existing owners, start no duplicate
+writer and stay within the shared two-complex/two-short limit. Assignments and status claims are not progress.

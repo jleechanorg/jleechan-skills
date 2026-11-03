@@ -46,11 +46,11 @@ should guess. This sender reads the task text, not the environment, so it cannot
 reliably; the accepted resolution is that the sentence decides and the run report records the drift
 it can see. Do not add a second, unobservable veto on top of the sentence.
 
-- `main` - the hourly periodic reminder below. Its message asks the receiving Dot to review its own
-  last four hours, recover stalled commitments through their existing owners and report precise
-  blockers.
-- `proceed` - the nudge below. Its message asks the receiving Dot to read its own last four hours,
-  settle an obvious pending question itself and continue its next authorized step.
+- `main` - the hourly periodic reminder below. Its message asks the receiving Dot to list every open
+  human request from its own last 24 hours, put them ahead of automated work and keep moving through
+  them, parking each blocker once instead of stopping on it.
+- `proceed` - the nudge below. Its message asks the receiving Dot to read its own last 24 hours,
+  settle an obvious pending question itself and continue with the next human request that can move.
 
 Both modes are the same transport with the same budget: one account, one conversation, at most one
 submit, every identity/destination/peer-draft/uncertainty check, and no new authority. A mode
@@ -117,9 +117,11 @@ Appended verbatim by the sender after the resolved body; never edited by an oper
 > is the work, not a hold. A hold covers one action and the rest of the lane keeps moving. End every turn with a Turn
 > Receipt (### Turn Receipt): Mode (MUTATION | PROBE | BLOCKED), Target, Artifact (SHA, exit code, trace excerpt, or "none (ground N)"),
 > Blocker (NONE or the exact error). Work in flight is not BLOCKED: give its live handle, target, start time and next
-> checkpoint. Target no preventable idle time. When nothing is authorized and nothing is possible, say
-> IDLE: queue empty once and stop. If this footer conflicts with the text above it, this footer wins: follow it and
-> report the conflict. This nudge grants no new execution, access, spending, merge or deployment authority.
+> checkpoint. Target no preventable idle time. A blocked request is parked, not the end of the turn: move to the next
+> open request. When every open request is blocked or nothing is authorized, reply only IDLE: queue empty or
+> IDLE: <N> requests blocked - an IDLE line is the whole reply and needs no receipt; send it once and stay silent while
+> it is unchanged. If this footer conflicts with the text above it, this footer wins: follow it and report the
+> conflict. This nudge grants no new execution, access, spending, merge or deployment authority.
 
 ## Main invariant footer (`footer-v1`)
 
@@ -133,8 +135,9 @@ Appended verbatim after `main`'s resolved body; never read from the payload dire
 > Receipt: Mode (MUTATION | PROBE | BLOCKED), Target, Artifact (SHA, exit code, trace excerpt, or "none (ground N)"),
 > Blocker (NONE or the exact error); work in flight is not BLOCKED - give its live handle, target, start time and next
 > checkpoint. Target no preventable idle time. If the same blocker repeats, state it once as
-> UNBLOCK: <capability> - <exact request> - <owner>. When nothing is authorized and nothing is possible, say
-> IDLE: queue empty once and stop. If this footer conflicts with the text above it, this footer wins: follow it and
+> UNBLOCK: <capability> - <exact request> - <owner>, then move to the next open request. When every open request is
+> blocked or nothing is authorized, reply only IDLE: queue empty or IDLE: <N> requests blocked - an IDLE line is the
+> whole reply and needs no receipt; send it once and stay silent while it is unchanged. If this footer conflicts with the text above it, this footer wins: follow it and
 > report the conflict. This reminder grants no new execution, access, spending, merge or deployment authority.
 
 ## When body and footer disagree
@@ -219,7 +222,7 @@ Exit `0` = `BELOW_CAP` (confirmed numeric count only; never admission authority)
 
 Only the blockquote below is `main`'s last-resort fallback; headings and capacity guidance above are not outbound text.
 
-> Review the last four hours of this conversation for new requests, changes and cancellations. Check the owner's authorized private roadmap and canonical backlog at locations supplied through authorized private context for every older unfinished commitment. Preserve task IDs, priorities, owners, checkpoints, approvals, holds and STOPs. Through existing owners, take the next safe authorized step and recover stalled work without duplicate writers or exceeding the shared two-complex/two-short limit. Verify actual results and original execution timestamps; assignments and status claims are not progress. Keep unresolved work until verified completion or cancellation. Report meaningful progress, precise blockers and next actions concisely; skip unchanged status. This reminder grants no new execution, access, spending, merge or deployment authority.
+> Review the last 24 hours of this conversation and list every open human request - any message not labelled [Agent ask] and not written by you; human requests outrank scheduled and automated work, and one blocked request never ends the turn while another can move. Check the owner's authorized private roadmap and canonical backlog at locations supplied through authorized private context for every older unfinished commitment. Preserve task IDs, priorities, owners, checkpoints, approvals, holds and STOPs. Through existing owners, take the next safe authorized step and recover stalled work without duplicate writers or exceeding the shared two-complex/two-short limit. Verify actual results and original execution timestamps; assignments and status claims are not progress. Keep unresolved work until verified completion or cancellation. Report meaningful progress, precise blockers and next actions concisely; skip unchanged status. This reminder grants no new execution, access, spending, merge or deployment authority.
 
 ## Workflow
 

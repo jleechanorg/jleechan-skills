@@ -51,38 +51,37 @@ class NudgerPayloadTest(unittest.TestCase):
 
     def test_blocked_tasks_do_not_loop_on_re_probes(self):
         main_body = " ".join((REMINDERS / "main.md").read_text(encoding="utf-8").split())
-        self.assertIn("If your task is blocked, do not loop on it", main_body)
-        self.assertIn("IDLE: blocked <ground>, <unblock condition>", main_body)
-        self.assertIn("An unchanged blocker produces no message at", main_body)
-        self.assertIn("silence is the correct output for a blocked task", main_body)
-        self.assertIn("a remaining, authorized part of the same original assignment", main_body)
-        self.assertIn("do not manufacture peripheral work", main_body)
+        self.assertIn("State each blocker once with its exact unblock condition, then leave it parked", main_body)
+        self.assertIn("Do not re-probe or restate a blocker whose evidence has not changed", main_body)
+        self.assertIn("IDLE: <N> requests blocked, unchanged since <time>", main_body)
         proceed_body = " ".join((REMINDERS / "proceed.md").read_text(encoding="utf-8").split())
-        self.assertIn("do not re-ask it", proceed_body)
-        self.assertIn("silence is the correct answer for an unchanged blocker", proceed_body)
+        self.assertIn("say nothing new about an unchanged blocker", proceed_body)
         dot = " ".join((ROOT / ".claude/skills/dot/SKILL.md").read_text(encoding="utf-8").split())
         self.assertIn("A blocked task gets one report, not a loop", dot)
         self.assertIn("receipt theatre", dot)
         self.assertIn("Repeat only when the evidence or the unblock condition changed", dot)
 
-    def test_bodies_never_displace_the_original_assignment(self):
+    def test_bodies_work_every_human_request_not_one_assignment(self):
         flat = " ".join(SKILL.read_text(encoding="utf-8").split())
         self.assertIn("A nudge is additive, never a task replacement", flat)
         for mode in ("main", "proceed"):
-            body = (REMINDERS / f"{mode}.md").read_text(encoding="utf-8")
-            first = body.split("\n")[0].lower()
-            self.assertIn("continue the work you were already assigned", first, (mode, first))
-            self.assertIn("does not replace", body, mode)
+            body = " ".join((REMINDERS / f"{mode}.md").read_text(encoding="utf-8").split())
+            self.assertIn("open human request", body[:120], mode)
+            self.assertIn("last 24 hours", body, mode)
+            self.assertIn("adds no task of its own", body, mode)
+            self.assertIn("neither labelled `[Agent ask]` nor written by you", body, mode)
+            self.assertNotIn("same original assignment", body, mode)
+            self.assertNotIn("last four hours", body, mode)
 
-    def test_reconciliation_pass_is_bounded_and_returns_to_the_assignment(self):
+    def test_a_blocked_request_never_ends_the_turn(self):
         main_body = " ".join((REMINDERS / "main.md").read_text(encoding="utf-8").split())
-        # the pass must be time/scope-bounded, must say when it ends, and must return to the task
-        self.assertIn("as a bounded check", main_body)
-        self.assertIn("it ends when you have confirmed whether any newer operator request", main_body)
-        self.assertIn("return to the assignment\nin this same turn".replace("\n", " "), main_body)
-        self.assertIn("Only when a newer request genuinely supersedes the assignment", main_body)
+        for clause in ("Put human requests first", "move to the next request in this same turn",
+                       "One blocked request never ends your turn while another request can still move",
+                       "the newest request is not your whole queue"):
+            self.assertIn(clause, main_body, clause)
         proceed_body = " ".join((REMINDERS / "proceed.md").read_text(encoding="utf-8").split())
-        self.assertIn("If you are mid-task, keep going and report the step you executed", proceed_body)
+        self.assertIn("If you are mid-step, finish it and report what you executed", proceed_body)
+        self.assertIn("take the next human request that can move, in this same turn", proceed_body)
 
     def test_bodies_are_task_content_only_and_full_invariants_live_in_the_footer(self):
         for name in ("proceed", "main"):
@@ -93,8 +92,6 @@ class NudgerPayloadTest(unittest.TestCase):
             # the editable body must NOT be the place safety rules live
             self.assertNotIn("HOLD", body, name)
             self.assertNotIn("Turn Receipt", body, name)
-        proceed_body = (REMINDERS / "proceed.md").read_text(encoding="utf-8")
-        self.assertIn("last four hours", proceed_body)
 
     def test_footer_is_immutable_and_versioned(self):
         raw = SKILL.read_text(encoding="utf-8")
@@ -118,7 +115,7 @@ class NudgerPayloadTest(unittest.TestCase):
         self.assertNotIn("> Read the last 20 messages", raw)
         # the sole embedded payload is main's documented last-resort fallback
         self.assertIn("last-resort fallback", raw)
-        self.assertEqual(raw.count("> Review the last four hours of this conversation"), 1)
+        self.assertEqual(raw.count("> Review the last 24 hours of this conversation"), 1)
         self.assertIn("`proceed` has no built-in fallback", " ".join(SKILL.read_text().split()))
 
 
