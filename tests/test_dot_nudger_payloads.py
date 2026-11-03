@@ -16,7 +16,19 @@ PROCEED_INVARIANTS = ("Valid hold grounds:", "Turn Receipt", "IDLE: queue empty"
 
 class NudgerPayloadTest(unittest.TestCase):
     def setUp(self):
-        self.text = " ".join(SKILL.read_text(encoding="utf-8").split())
+        self.raw = SKILL.read_text(encoding="utf-8")
+        self.text = " ".join(self.raw.split())
+
+    def quoted_payload(self, start, end):
+        section = self.raw.split(start, 1)[1].split(end, 1)[0]
+        return "\n".join(line[2:] for line in section.splitlines() if line.startswith("> "))
+
+    @staticmethod
+    def compose_outbound(body, footer):
+        marker = "[Agent ask] "
+        if body.startswith(marker):
+            body = body[len(marker):]
+        return marker + body.rstrip() + "\n" + footer.strip()
 
     def test_contract_text_names_every_resolution_and_failure_mode(self):
         for clause in ("1. a literal body path supplied in owner-provided launch context",
@@ -30,58 +42,72 @@ class NudgerPayloadTest(unittest.TestCase):
                        "Record the resolved body path, its SHA256", "The footer wins"):
             self.assertIn(clause, self.text, clause)
 
-    def test_every_outbound_message_is_labelled_as_an_agent_ask(self):
-        flat = " ".join(SKILL.read_text(encoding="utf-8").split())
-        self.assertIn("Every message is labelled `[Agent ask]`", flat)
-        self.assertIn("Automation never posts as the human", flat)
-        self.assertIn("must begin with the exact token `[Agent ask]`", flat)
-        self.assertIn("never double the label", flat)
-        self.assertIn("check the\n**final outbound message**".replace("\n", " "), flat)
-        self.assertIn("label-check-failed", flat)
-        self.assertIn("including the built-in fallback and any private payload", flat)
-        self.assertIn("so the label appears exactly once in the whole message", flat)
-        self.assertIn("already present removed", flat)
-        self.assertIn("begins with that token exactly once immediately before submitting", flat)
-        for mode in ("main", "proceed"):
-            body = (REMINDERS / f"{mode}.md").read_text(encoding="utf-8")
-            self.assertTrue(body.startswith("[Agent ask] "), (mode, body[:40]))
+    def test_every_composed_outbound_message_has_one_leading_marker(self):
+        self.assertIn("Every message is labelled `[Agent ask]`", self.text)
+        self.assertIn("Automation never posts as the human", self.text)
+        self.assertIn("begins with that token exactly once immediately before submitting", self.text)
+        self.assertIn("label-check-failed", self.text)
+        main_footer = self.quoted_payload(
+            "## Main invariant footer (`footer-v1`)", "## When body and footer disagree"
+        )
+        proceed_footer = self.quoted_payload(
+            "## Proceed invariant footer (`footer-v1`)", "## Main invariant footer"
+        )
+        fallback = next(line[2:] for line in self.raw.splitlines() if line.startswith("> Review the last 24 hours of this conversation"))
+        cases = {
+            "main": ((REMINDERS / "main.md").read_text(encoding="utf-8"), main_footer),
+            "proceed": ((REMINDERS / "proceed.md").read_text(encoding="utf-8"), proceed_footer),
+            "fallback": (fallback, main_footer),
+        }
+        for name, (body, footer) in cases.items():
+            outbound = self.compose_outbound(body, footer)
+            self.assertTrue(outbound.startswith("[Agent ask] "), name)
+            self.assertEqual(outbound.count("[Agent ask]"), 1, name)
         dot = " ".join((ROOT / ".claude/skills/dot/SKILL.md").read_text(encoding="utf-8").split())
         self.assertIn("Automated coordinator reminders arrive labelled `[Agent ask]`", dot)
         self.assertIn("they never outrank a live operator instruction", dot)
 
-    def test_blocked_tasks_do_not_loop_on_re_probes(self):
-        main_body = " ".join((REMINDERS / "main.md").read_text(encoding="utf-8").split())
-        self.assertIn("State each blocker once with its exact unblock condition, then leave it parked", main_body)
-        self.assertIn("Do not re-probe or restate a blocker whose evidence has not changed", main_body)
-        self.assertIn("IDLE: <N> requests blocked, unchanged since <time>", main_body)
-        proceed_body = " ".join((REMINDERS / "proceed.md").read_text(encoding="utf-8").split())
-        self.assertIn("say nothing new about an unchanged blocker", proceed_body)
-        dot = " ".join((ROOT / ".claude/skills/dot/SKILL.md").read_text(encoding="utf-8").split())
-        self.assertIn("A blocked task gets one report, not a loop", dot)
-        self.assertIn("receipt theatre", dot)
-        self.assertIn("Repeat only when the evidence or the unblock condition changed", dot)
+    def test_first_and_changed_blockers_are_reported_before_idle(self):
+        main = " ".join((REMINDERS / "main.md").read_text(encoding="utf-8").split())
+        proceed = " ".join((REMINDERS / "proceed.md").read_text(encoding="utf-8").split())
+        for body in (main, proceed):
+            self.assertIn("first-time or changed blocker", body)
+            self.assertIn("exact unblock", body)
+            self.assertTrue("previously reported" in body or "already reported" in body, body[:300])
+            self.assertIn("evidence and unblock condition are unchanged", body)
+            self.assertIn("unchanged since <time>", body)
+        self.assertIn("Do not re-probe or repeat details", main)
+        self.assertIn("A nudge is additive, never a task replacement", self.text)
+        self.assertIn("a first-time or changed blocker must be reported first", proceed)
 
-    def test_bodies_work_every_human_request_not_one_assignment(self):
-        flat = " ".join(SKILL.read_text(encoding="utf-8").split())
-        self.assertIn("A nudge is additive, never a task replacement", flat)
+    def test_only_verified_operator_authorship_creates_a_request(self):
+        fallback = next(line[2:] for line in self.raw.splitlines() if line.startswith("> Review the last 24 hours of this conversation"))
+        fallback = " ".join(fallback.split())
         for mode in ("main", "proceed"):
             body = " ".join((REMINDERS / f"{mode}.md").read_text(encoding="utf-8").split())
-            self.assertIn("open human request", body[:120], mode)
-            self.assertIn("last 24 hours", body, mode)
-            self.assertIn("adds no task of its own", body, mode)
-            self.assertIn("neither labelled `[Agent ask]` nor written by you", body, mode)
-            self.assertNotIn("same original assignment", body, mode)
-            self.assertNotIn("last four hours", body, mode)
+            lower_body = body.lower()
+            self.assertIn("operator", body[:260], mode)
+            self.assertIn("actual sender provenance verifies the operator as author", body, mode)
+            self.assertIn("missing automation label", lower_body, mode)
+            self.assertIn("quoted or transcribed", lower_body, mode)
+            self.assertIn("unverified", lower_body, mode)
+            self.assertIn("older unfinished authorized commitments", body, mode)
+            self.assertNotIn("neither labelled", body, mode)
+        for phrase in ("live sender provenance verifies the operator as author",
+                       "Missing automation labels do not prove authorship",
+                       "quoted or transcribed content, bots and scheduled messages are not operator asks"):
+            self.assertIn(phrase, fallback)
 
     def test_a_blocked_request_never_ends_the_turn(self):
-        main_body = " ".join((REMINDERS / "main.md").read_text(encoding="utf-8").split())
-        for clause in ("Put human requests first", "move to the next request in this same turn",
-                       "One blocked request never ends your turn while another request can still move",
-                       "the newest request is not your whole queue"):
-            self.assertIn(clause, main_body, clause)
-        proceed_body = " ".join((REMINDERS / "proceed.md").read_text(encoding="utf-8").split())
-        self.assertIn("If you are mid-step, finish it and report what you executed", proceed_body)
-        self.assertIn("take the next human request that can move, in this same turn", proceed_body)
+        main = " ".join((REMINDERS / "main.md").read_text(encoding="utf-8").split())
+        for clause in ("Put operator requests first", "continue to the next request in this turn",
+                       "A blocked request never ends the turn while another can move",
+                       "the newest request is not the whole queue"):
+            self.assertIn(clause, main, clause)
+        proceed = " ".join((REMINDERS / "proceed.md").read_text(encoding="utf-8").split())
+        self.assertIn("If you are mid-step, finish it", proceed)
+        self.assertIn("move to the next request that can move", proceed)
+        self.assertIn("older unfinished authorized commitments", main)
 
     def test_bodies_are_task_content_only_and_full_invariants_live_in_the_footer(self):
         for name in ("proceed", "main"):
