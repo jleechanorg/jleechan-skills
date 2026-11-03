@@ -68,6 +68,14 @@ class WorktreeCleanupTests(unittest.TestCase):
             ["git", "-C", str(wt_path), "config", "user.email", "test@example.com"],
             check=True,
         )
+        # `git commit` otherwise spawns `git maintenance run --auto`, which git>=2.47
+        # detaches; it can create/remove .git/objects/maintenance.lock while the
+        # mtime walk below runs, raising FileNotFoundError, and can bump .git mtimes
+        # after the fixture has aged them.
+        subprocess.run(
+            ["git", "-C", str(wt_path), "config", "maintenance.auto", "false"],
+            check=True,
+        )
 
         test_file = wt_path / "README.md"
         test_file.write_text("# Project\n", encoding="utf-8")
