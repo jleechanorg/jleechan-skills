@@ -115,7 +115,8 @@ For opted-in repositories, apply [stage transitions](../pr-lifecycle/SKILL.md#st
 After each push, inspect applicable latest checks and review findings. Diagnose original logs before a
 targeted fix/retry, preserve assertions, and follow the canonical ready/final phases. Waiting/blocked is not
 Working. Do not call a PR ready from badges, skipped tests, an assignment or a pending review.
-Before promoting a user-visible change to `stage:5-final-approval`, apply the
+Before promoting a user-visible change (other than a one-liner fast-path change; see
+[proportional exceptions](../pr-lifecycle/SKILL.md#proportional-exceptions-and-fast-paths)) to `stage:5-final-approval`, apply the
 [canonical visual-approval contract](../pr-lifecycle/SKILL.md#review-routes-for-opted-in-repositories)
 and [draft-phase visual gate](../pr-lifecycle/SKILL.md#draft-phase-final-acceptance-gates-in-order),
 including independent reviewers, claim-by-claim before/after findings, artifact links,
