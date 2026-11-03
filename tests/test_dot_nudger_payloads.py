@@ -67,6 +67,34 @@ class NudgerPayloadTest(unittest.TestCase):
         self.assertIn("Automated coordinator reminders arrive labelled `[Agent ask]`", dot)
         self.assertIn("they never outrank a live operator instruction", dot)
 
+    def test_every_payload_shares_ordering_capacity_and_single_writer(self):
+        """Spec acceptance 3: main, proceed and the built-in fallback share one ordering and capacity contract."""
+        fallback = next(line[2:] for line in self.raw.splitlines()
+                        if line.startswith("> Review the last 24 hours of this conversation"))
+        payloads = {
+            "main": (REMINDERS / "main.md").read_text(encoding="utf-8"),
+            "proceed": (REMINDERS / "proceed.md").read_text(encoding="utf-8"),
+            "fallback": fallback,
+        }
+        for name, raw in payloads.items():
+            body = " ".join(raw.split()).lower()
+            with self.subTest(payload=name):
+                self.assertTrue("outrank scheduled" in body or "before scheduled and automated work" in body, name)
+                self.assertIn("oldest unfinished request first", body)
+                self.assertIn("two-complex/two-short limit", body)
+                self.assertIn("duplicate writer", body)
+
+    def test_label_and_blocker_loop_guards_remain_pinned(self):
+        """Clauses still in source whose earlier assertions were dropped during the body rewrite."""
+        for clause in ("must begin with the exact token `[Agent ask]`", "never double the label",
+                       "check the **final outbound message**", "including the built-in fallback and any private payload",
+                       "so the label appears exactly once in the whole message", "already present removed"):
+            self.assertIn(clause, self.text)
+        dot = " ".join((ROOT / ".claude/skills/dot/SKILL.md").read_text(encoding="utf-8").split())
+        for clause in ("A blocked task gets one report, not a loop", "receipt theatre",
+                       "Repeat only when the evidence or the unblock condition changed"):
+            self.assertIn(clause, dot)
+
     def test_first_and_changed_blockers_are_reported_before_idle(self):
         main = " ".join((REMINDERS / "main.md").read_text(encoding="utf-8").split())
         proceed = " ".join((REMINDERS / "proceed.md").read_text(encoding="utf-8").split())
