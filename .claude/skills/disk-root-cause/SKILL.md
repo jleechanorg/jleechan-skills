@@ -7,15 +7,20 @@ description: Use when a user asks why a disk is filling, what uses its capacity,
 
 When a user asks **why the disk filled up**, **what grew over a window**, or **where a specific bucket came from**, this skill is the entry point. A quick capacity check, or a reclaim question that needs no attribution, is not a root-cause investigation — route it to the zero-du triage in `../disk-audit/SKILL.md` so one request cannot select both procedures. It never assumes an answer; it pulls facts from this machine's snapshot history (`~/.disk_magician_backup`), never deletes anything without an explicit human OK, and prefers parallel-subagent fan-out to keep wall-clock bounded.
 
-## Default first-use workflow
+## Default first-use workflow (`<10s` triage first)
 
-Run this before chasing individual directories:
+Run the read-only ledger and growth checks concurrently before drilling down. A plain capacity or reclaim estimate routes to `../disk-audit/SKILL.md`; this skill owns forensic attribution.
 
 ```bash
-disk-magician audit
+df -h /System/Volumes/Data /Volumes/diskm-scratch /System/Volumes/VM 2>/dev/null || df -h / ~/Scratch
+diskm check-launchd-fleet
+diskm reclaim-ledger --read-existing
+diskm history growth-top10 --days 7
 ```
 
-This is the mandatory three-lane diagnostic. It launches in parallel:
+Only run the full `diskm audit` when the precomputed ledger or snapshot is missing or stale (`>48h`), or when unaccounted residual space requires a fresh top-down scan. Read the complete report before drilling down.
+
+When `diskm audit` runs, it launches the three lanes in parallel:
 
 1. top-down whole-disk accounting from physical/APFS capacity through the Data volume and non-overlapping path buckets at or below 5 GiB;
 2. coverage-validated snapshot deltas, so a coverage change cannot masquerade as physical growth; and
@@ -53,25 +58,20 @@ Do **not** use this skill for one-off size queries — `du -sh <path>` answers t
 6. **Scope expansions are user-OK gates.** Tools like `bobthecow` style auto-remediators are NOT enabled. The skill recommends; the human runs.
 7. **Honest attribution in final report.** If disk improved mid-analysis for reasons outside this session (concurrent sweepers, OS reclaims), say so explicitly. Never claim a delta whose source you didn't observe.
 
-## Phase 0 — environment ground truth (always run)
+## Phase 0 — ground truth and current snapshot
 
 ```bash
-# Produce the default concurrent top-down + delta + quick-win report first.
-disk-magician audit
-
-# Authenticate the data source
-df -h /System/Volumes/Data
-hostname -s                                                    # = directory key in ~/.disk_magician_backup
-SNAP=~/.disk_magician_backup/backup/$(hostname -s)/disk_snapshot.json
-git -C ~/.disk_magician_backup log --oneline -1 -- "$SNAP" 2>/dev/null
-python3 -c "import json,sys; d=json.load(open('$SNAP')); print('schema_version:', d.get('schema_version'), 'coverage:', d.get('snapshot_coverage_pct'))"
+# Inspect the current snapshot after the first-use triage above.
+SNAP=~/.disk_magician_backup/snapshots/disk_snapshot.json
+git -C ~/.disk_magician_backup log --oneline -1 -- snapshots/disk_snapshot.json 2>/dev/null
+python3 -c "import json; d=json.load(open('$SNAP')); print('schema_version:', d.get('schema_version'), 'coverage:', d.get('snapshot_coverage_pct'))"
 ```
 
-If `schema_version != 2`, the snapshot is pre-v2 (coverage inflates by parent/child double-count). Use `coverage_pct_raw_v1` from `snapshot_metadata` for trend continuity and note the inflation.
+Current snapshots live at `~/.disk_magician_backup/snapshots/disk_snapshot.json`. The frozen legacy `backup/<host>/` layout must not be treated as the current snapshot source. If `schema_version != 2`, the snapshot is pre-v2 (coverage inflates by parent/child double-count). Use `coverage_pct_raw_v1` from `snapshot_metadata` for trend continuity and note the inflation.
 
 ## Phase 1 — floor + deltas (snapshot history)
 
-`~/.disk_magician_backup` is a git repo. Every commit is a snapshot. The skill reads history with `git log --all` (+ reflog for orphaned commits per the 07-11 incident) and `git show <sha>:backup/<host>/disk_snapshot.json`.
+`~/.disk_magician_backup` is a git repo. Read snapshot history with `git log --all` (and the reflog for orphaned commits per the 07-11 incident) and `git show <sha>:snapshots/disk_snapshot.json`. The legacy `backup/<host>/` paths are frozen.
 
 Three deltas, always reported:
 
@@ -148,7 +148,7 @@ Fan-out rule: **single-writer per file**, `grep -n "agent(" <swarm-script>` cost
 3. **`cleanup_tmp.sh` defaults to DRY-RUN despite header claiming otherwise** — header was fixed in v0.2.0 (commit `5341a6f`); callers still must pass `--clean`.
 4. **Colima wedges with I/O errors when host disk hits 100%** — fstrim can't run; **must** `colima stop && colima start` first. 49.6→6.8 GB recovery verified live.
 5. **No `ez-mac-runner` launchd job exists** — confirms via `launchctl list | grep ez` before any VACATE-style directive. (bead `feedback_2026-07-12_no_ez_mac_runner_launchd_job`)
-6. **`backup/Mac/` was a stale host profile** — removed in v0.2.1 commit.
+6. **Legacy snapshot path:** `backup/<host>/` is frozen. Current local snapshots use `snapshots/disk_snapshot.json`.
 
 ## Anti-patterns to flag in code review
 
@@ -166,7 +166,7 @@ Fan-out rule: **single-writer per file**, `grep -n "agent(" <swarm-script>` cost
 ## Exit criteria for the skill
 
 A complete root-cause answer for this machine has:
-- [ ] Default `disk-magician audit` three-lane report completed or its named limits were reported
+- [ ] Fast triage completed; if ledger/snapshot freshness or the residual required a full `diskm audit`, its three-lane report or named limits are recorded
 - [ ] Every normal Data path bucket is at or below 5 GiB, without parent/child or symlink double counting
 - [ ] Every larger directory is recursively subdivided or named on the unfinished frontier; indivisible files above 5 GiB are labeled separately
 - [ ] Displayed Data equation reconciles bounded buckets + indivisible files + measured tail + purgeable estimate + residual = Data used from one accepted leaf ledger
