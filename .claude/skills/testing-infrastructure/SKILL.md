@@ -148,8 +148,12 @@ documentation-only exception.
 ```bash
 MCP_SERVER_URL="https://..." MCP_TEST_MODE=real node scripts/mcp-smoke-tests.mjs
 ```
-- Hard-fails on any non-200 response
-- Results saved to `/tmp/repo/branch/smoke_tests/`
+- Hard-fails on any non-2xx response
+- The runner writes its log to `/tmp/<repo>/<branch>/smoke_tests/` by its own
+  hardcoded path; no scratch setting redirects it. That is acceptable here: the policy
+  prohibits /tmp *workspaces* (clones, worktrees, build dirs) and explicitly permits
+  logs and single temp files. Do not claim these results live on the Scratch volume, and
+  do not add a `SCRATCH_ROOT` wrapper that implies otherwise.
 
 ## Local test selection and runner
 
