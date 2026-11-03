@@ -24,7 +24,7 @@ No user-facing application change. As an operator, I can get a quick capacity ch
 ## Proof plan
 
 - Review the owning Disk Magician policy and current disk-audit routing.
-- Use the captured Linux CLI help and dispatch receipts at `/home/jleechan/Scratch/skills-parity-fullreport/diskm-help-receipts.txt` (SHA-256 `4d6fcecd7940a79fe2ff7c896780adf6c63fa8214e1075feef798c62b088df32`) for `ledger-freshness`, `clean`, `clean-all`, and `worktree-hygiene`.
+- Use the captured CLI help/source receipt (SHA-256 `4d6fcecd7940a79fe2ff7c896780adf6c63fa8214e1075feef798c62b088df32`) for `ledger-freshness`, `clean`, `clean-all`, and `worktree-hygiene`; link the receipt in the PR body.
 - Run `git diff origin/main --check`; do not run tests or cleanup commands for this Markdown-only change.
 
 ## Mock or justified exemption
