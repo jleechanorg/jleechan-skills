@@ -228,7 +228,7 @@ Never launch a second Chrome against a Dot profile or resync cookies between pro
 
 ## Disk diagnosis
 
-Follow `~/.claude/skills/disk-root-cause/SKILL.md` and the owning `~/projects_other/disk_magician/CLAUDE.md` before any other measurement; full three-lane procedure in `~/.claude/CLAUDE-global-reference.md` § Disk diagnosis. Do not present quick cleanup as the full explanation.
+For a root-cause question (why the disk filled, what grew), follow `~/.claude/skills/disk-root-cause/SKILL.md` and the owning `~/projects_other/disk_magician/CLAUDE.md` before any other measurement; full three-lane procedure in `~/.claude/CLAUDE-global-reference.md` § Disk diagnosis. For a quick capacity check or a plain reclaimable-amount estimate, the zero-`du` triage in `disk-audit` is the entry point instead; if the precomputed ledger or snapshots are missing or stale, escalate to the full audit rather than trusting the quick numbers. Choosing or justifying a cleanup target is a root-cause question, not a quick check. Do not present quick cleanup as the full explanation.
 
 ## Beads and memory
 
@@ -240,7 +240,7 @@ Do the agreed work or say `blocked because X`; never silently drop or replace it
 
 ## Autonomy time-box
 
-Long-running autonomous flows stop at 8 hours (28,800 seconds) per session or worker unless the user explicitly authorizes more time. Each new live human user message automatically renews the active flow or session for eight hours from that message's receipt; record the receipt as the approval time and set `approved_until` to receipt + 28,800 seconds. Persist `approved_until` and `approved_for_started_at` bound to the original current flow start; preserve `original_started_at` on renewals and retries. A bot message, tool result, transcript, summary, or agent report does not renew a deadline. A live human stop instruction or an explicit shorter limit overrides this automatic renewal. This changes only time-extension authorization, not separate merge or destructive-action gates. Record and check the start time with `~/.claude/scripts/check_autonomy_time_box.sh --flow <current-flow-id>`.
+Long-running autonomous flows stop at 8 hours (28,800 seconds) per session or worker unless the user explicitly authorizes more time. Each new live human user message automatically renews the active flow or session for eight hours from that message's receipt; record the receipt as the approval time and set `approved_until` to receipt + 28,800 seconds. Persist `approved_until` and `approved_for_started_at` bound to the original current flow start; preserve `original_started_at` on renewals and retries. A bot message, tool result, transcript, summary, or agent report does not renew a deadline. A live human stop instruction or an explicit shorter limit overrides this automatic renewal. This changes only time-extension authorization, not separate merge or destructive-action gates. Track the start time and `approved_until` in the session's own state (a checkout note, a bead, or the flow's checkpoint); no scripted checker is required. This is best-effort guidance the agent follows, not a mechanically enforced gate.
 
 ## Proportionality, evidence, and autonomous execution
 

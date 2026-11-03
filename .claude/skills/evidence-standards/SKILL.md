@@ -21,7 +21,7 @@ every claim with its evidence layer, and never substitute a green test suite
 for proof of integration correctness. The companion files in this directory
 (`bundle-anatomy.md`, `tmux-video-evidence.md`, `ui-video-evidence.md`) cover
 the structural and recording details; this file is the policy.
-- **Diff-Derived Claim Coverage (Including Platform-Divergent Paths)**: Evidence must cover every user-visible behavior the diff adds or changes, not only the PR's stated claims; build the claim list from the diff itself (see `evidence-coverage`). Any diff that adds or changes code that runs on only one platform (`Platform.OS` branches, `*.web.*`/`*.native.*` files, `window`/`document`/`history` listeners, native-only modules) must list each such path and prove its user-visible behavior on the platform where it executes.
+- **Diff-Derived Claim Coverage (Including Platform-Divergent Paths)**: Evidence must cover every user-visible behavior the diff adds or changes, not only the PR's stated claims; build the claim list from the diff itself (see `evidence-coverage`). For a diff that qualifies for the pr-lifecycle one-liner fast path (literal-text-only change), that behavior is the literal text, and the PR-body before/after quote (plus its pinning assertion where a test already covers the text) is the evidence. Any diff that adds or changes code that runs on only one platform (`Platform.OS` branches, `*.web.*`/`*.native.*` files, `window`/`document`/`history` listeners, native-only modules) must list each such path and prove its user-visible behavior on the platform where it executes.
 
 **After running any evidence-gathering pass, you MUST always reconfirm** by
 explicitly stating what the evidence proves vs what it does NOT prove — this
@@ -163,7 +163,7 @@ captures are supporting evidence only and do NOT prove UI integration correctnes
 
 ### UI changes require a genuine implementation BEFORE/AFTER comparison
 
-Every UI change requires paired screenshots or video of the **pre-change
+Every UI change, except a diff on the pr-lifecycle one-liner fast path (literal-text-only), requires paired screenshots or video of the **pre-change
 implementation (BEFORE)** and **candidate implementation (AFTER)**. Prefer
 captioned video; video is required for interaction, navigation, streaming,
 animation, timing, or multi-step claims. Paired screenshots are sufficient only
@@ -369,7 +369,7 @@ Include the reviewed/tested SHA, dependencies, exact commands and expected resul
 required for the applicable evidence class. These underlying evidence artifacts
 may remain in authorized private hosting. The separate sanitized review receipt
 must follow `pr-lifecycle` § Review records in the PR description, including
-its gist URL, exact reviewed SHA, and `PUBLICATION BLOCKED` state when publication
+its gist URL (or, for a one-liner fast-path `/es` record, the PR-body section), exact reviewed SHA, and `PUBLICATION BLOCKED` state when publication
 cannot complete. Do not confuse artifact hosting with review-record completion.
 
 Publish or send artifacts only within the current task's authorized audience and
