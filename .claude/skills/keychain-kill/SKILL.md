@@ -1,27 +1,49 @@
 ---
 name: keychain-kill
-description: "Terminate macOS SecurityAgent and dismiss all stacked keychain modal prompts. Programmatically dismiss active macOS credential popups and debug headless/background keyring access issues (launchd, cron, isolated tmux test runners). Slash command: /keychain_kill."
+description: "Diagnose and clear macOS SecurityAgent keychain prompts caused by a headless/background process (launchd, cron, isolated tmux agents). Scoped: terminates only prompts whose parent chain descends from the current session, never a machine-wide pattern kill. Slash command: /keychain_kill."
 scope: user
 ---
 
 # macOS Keychain Kill & Headless Keyring Troubleshooting
 
-Immediately dismiss all stacked macOS `SecurityAgent` credential popups by hard-killing their processes, then diagnose and fix the underlying headless keyring access issue.
+Diagnose why macOS `SecurityAgent` prompts are appearing for a headless process, terminate only the prompts this session caused, and fix the underlying keyring-access cause with a credential the worker owns.
 
-## 1. Fast Dismissal (The Hard Kill)
+## 1. Scoped Dismissal (diagnose, then kill only your own)
 
 When a headless process triggers keychain lookups, macOS launches `SecurityAgent` to request password entry from the user. If the process is backgrounded, it hangs recursively.
 
-To immediately dismiss every active keychain popup across all displays and spaces, execute a hard kill on the on-demand system processes:
+### Scope the kill to the prompts THIS session caused
+
+`SecurityAgent` is a shared system agent. A blind `pkill -9 -f SecurityAgent` (the previous
+instruction here) kills **every** pending authentication request on the machine, including
+another agent's, another user process's, or the operator's own password prompt mid-typing.
+That is why this step is no longer "run it first".
+
+Diagnose before killing, then terminate only what this session caused:
 
 ```bash
-pkill -9 -f SecurityAgent || killall -9 SecurityAgent || true
-pkill -9 -f universalAccessAuthWarn || true
+# 1. Who is asking? List the agent plus its parent chain.
+ps -Ao pid,ppid,stat,etime,args | grep -i '[S]ecurityAgent'
+
+# 2. Only proceed if a SecurityAgent's parent chain descends from THIS session
+#    (the tmux/launchd/agent process you are working on). Replace <session-pid>.
+ps -Ao pid,ppid,args | awk -v root="<session-pid>" '
+  { ppid[$1]=$2; cmd[$1]=$3 }
+  END { for (p in ppid) { q=p; n=0
+          while (q!="" && q!=0 && n<40) { if (q==root) { print p, cmd[p]; break } q=ppid[q]; n++ } } }'
+
+# 3. Kill ONLY the confirmed PIDs, never a pattern.
+kill -TERM <pid>     # graceful first: the prompt usually clears
+kill -9 <pid>        # only if TERM was refused and you confirmed the parent chain
 ```
 
-*Note: Terminates the system agent. macOS automatically cancels all pending authentication requests, immediately restoring a clean display state.*
+`universalAccessAuthWarn` follows the same rule: identify, confirm, then kill the specific PIDs.
 
-Run this hard kill FIRST, before any diagnostics, then inform the user that the keychain prompts have been dismissed.
+If you cannot establish that the agent descends from this session, **do not kill it** — report
+the prompt and let the operator dismiss it. Killing an unrelated auth dialog loses whatever
+they were authenticating.
+
+Record in your response which PIDs you terminated and how you established the lineage.
 
 ## 2. Root Cause & Architectural Permanent Fix
 
@@ -31,17 +53,32 @@ Headless background agents (e.g. running under tmux or `ai.hermes.prod` launchd 
 
 The permanent solution requires isolating background SCM operations from the locked GUI login keychain:
 
-1. **Temporary Isolated Session Keychains**:
-   Detect when Darwin processes execute inside a headless background workspace. Instead of attempting to symlink the locked login keychain, create a password-less, isolated temporary keychain under the session's workspace directory:
-   ```bash
-   security create-keychain -p "" session.keychain
-   security unlock-keychain -p "" session.keychain
-   security default-keychain -s session.keychain
-   ```
+1. **Give the worker its own credentials instead of the operator's keychain.**
+   The durable fix is for the background process to authenticate with a credential it owns:
+   a service account, a token in the process environment, `gh auth login --with-token`, or
+   `git config credential.helper` pointing at a store that is not the GUI login keychain.
+   Then no `SecurityAgent` prompt is generated in the first place.
+
+   > **Do not** create a password-less keychain and make it the default
+   > (`security create-keychain -p ""` + `security default-keychain -s`). That recipe was
+   > previously recommended here and has been **removed**: a keychain with an empty
+   > password whose contents are unlocked on demand is not a credential boundary. It
+   > weakens every later lookup on the machine, persists after this task ends, and is
+   > invisible to the operator. A per-session keychain is only acceptable when it is
+   > created with a real secret supplied out-of-band and is scoped to the worker's own
+   > config, never set as the system default.
+
 2. **CLI Storage Bypasses (`--bare`)**:
-   Always pass the `--bare` option to processes (like `claude --bare`) that support bypassing secure local storage persistence.
-3. **Automate Workspace Trust**:
-   Pre-populate `trustedFolders.json` under both the session and global configuration namespaces (e.g., `~/.claude/settings.json`) to programmatically authorize newly cloned worktrees, preventing interactive trust prompts.
+   Pass `--bare` to processes that support it, so they do not write or read secure local
+   storage they do not need. This is a per-invocation choice; do not make it a global default
+   that hides a credential problem from the next run.
+
+3. **Workspace trust is a decision, not a config line.**
+   Do not pre-populate `trustedFolders.json` to silence trust prompts. That removes a
+   security confirmation the operator is meant to see, and it applies to every future
+   worktree — including untrusted ones. Report the prompt and let the operator trust the
+   folder. If a workflow clones many worktrees unattended, propose an explicit, reviewed
+   allowlist of paths instead of blanket trust.
 
 ## 3. Diagnostic Procedures
 
@@ -60,4 +97,4 @@ If keychain prompts continue to appear, perform the following checks:
 
 ## Output
 
-After running the hard kill, report to the user that keychain prompts have been dismissed. If prompts recur, walk through the diagnostic procedures above before proposing the isolated-session-keychain fix.
+Report which PIDs you terminated and the lineage evidence for each. If you could not establish lineage, say so and leave the prompt alone. If prompts recur, walk the diagnostics above, then propose a worker-owned credential — never a password-less keychain and never blanket workspace trust.
