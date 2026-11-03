@@ -83,7 +83,6 @@ class ReaperContractTest(unittest.TestCase):
         self.lock(socket.gethostname(), 999999)
         with patch.object(reaper, "pid_alive", return_value=False), \
              patch.object(reaper, "processes_on", return_value=[]), \
-             patch.object(reaper, "stale_destination", side_effect=None), \
              patch.object(reaper.os, "readlink", side_effect=[f"{socket.gethostname()}-999999", "this-host-111"]):
             message = reaper.reap("acct", self.profile, apply=True)
         self.assertIn("lock changed during inspection", message)
@@ -108,6 +107,29 @@ class ReaperContractTest(unittest.TestCase):
         with patch.object(reaper.Path, "is_dir", return_value=False), \
              patch.object(reaper.subprocess, "run", return_value=failed):
             self.assertNotEqual(reaper.processes_on(self.profile), [])
+
+    def test_dry_run_beats_apply(self):
+        """--dry-run must never mutate, even when --apply is also present."""
+        import json, subprocess
+        profile = self.profile
+        (profile / "SingletonLock").unlink()
+        (profile / "SingletonLock").symlink_to(f"{socket.gethostname()}-999999")
+        cfg = Path(self.tmp.name) / "dot.json"
+        cfg.write_text(json.dumps({"accounts": {"a": {"user_data_dir": str(profile)}}}))
+        import os as _os
+        env = {**_os.environ}
+        result = subprocess.run(["python3", str(SCRIPT), "--config", str(cfg), "--apply", "--dry-run"],
+                                capture_output=True, text=True, env=env)
+        self.assertIn("would rename", result.stdout)
+        self.assertTrue(os.path.lexists(profile / "SingletonLock"))
+
+    def test_destination_name_is_claimed_atomically(self):
+        path1, fd1 = reaper.claim_destination(self.profile, "SingletonLock", "20260101T000000Z")
+        os.close(fd1)
+        path2, fd2 = reaper.claim_destination(self.profile, "SingletonLock", "20260101T000000Z")
+        os.close(fd2)
+        self.assertNotEqual(path1, path2, "the second claim must take a different name")
+        self.assertTrue(path1.exists() and path2.exists())
 
     def test_dry_run_flag_is_supported(self):
         import subprocess

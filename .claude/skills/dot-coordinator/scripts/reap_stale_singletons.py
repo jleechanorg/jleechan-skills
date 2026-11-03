@@ -10,6 +10,13 @@ stale lock is provable, and it never deletes anything:
   * that pid no longer exists, and
   * no live process references the profile directory.
 
+Residual limitation, stated rather than denied: the final lock read and the rename are two
+operations, so a Chrome launch that replaces the lock in that window can lose its new lock.
+Userland cannot make check-then-act atomic against a process that does not take our lock, and
+the alternative - deleting (or leaving the launcher permanently blocked) - is worse. The window
+is microseconds, and a wrongly renamed lock is recoverable: Chrome recreates it on the next
+launch, and the renamed copy is preserved as *.stale-<stamp>.
+
 Otherwise it leaves the profile untouched. Files are renamed to
 <name>.stale-<UTC timestamp>, which keeps the evidence recoverable.
 """
@@ -67,15 +74,23 @@ def pid_alive(pid):
     return True
 
 
-def stale_destination(profile, candidate, stamp):
-    """A collision-free <name>.stale-<stamp>[-n] path; never overwrites an existing entry."""
+def claim_destination(profile, candidate, stamp):
+    """Atomically reserve a <name>.stale-<stamp>[-n] name and return (path, fd).
+
+    O_EXCL makes the claim itself atomic: no other reaper can take the same name and no
+    existing evidence can be replaced. The returned fd owns the reservation; the caller
+    renames over it, which replaces only its own empty placeholder.
+    """
     base = f"{candidate}.stale-{stamp}"
-    path = profile / base
-    index = 1
-    while os.path.lexists(path):
-        path = profile / f"{base}-{index}"
-        index += 1
-    return path
+    index = 0
+    while True:
+        path = profile / (base if index == 0 else f"{base}-{index}")
+        try:
+            return path, os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        except FileExistsError:
+            index += 1
+            if index > 1000:
+                raise
 
 
 def reap(name, profile, apply):
@@ -113,7 +128,10 @@ def reap(name, profile, apply):
         path = profile / candidate
         if os.path.lexists(path):
             if apply:
-                path.rename(stale_destination(profile, candidate, stamp))
+                destination, fd = claim_destination(profile, candidate, stamp)
+                os.close(fd)
+                os.unlink(destination)      # we own this name; drop our placeholder
+                os.rename(path, destination)
             renamed.append(candidate)
     return f"{name}: provably stale (pid {pid} dead, profile idle) -> {'renamed ' + ', '.join(renamed) if apply else 'would rename ' + ', '.join(renamed)}"
 
@@ -125,12 +143,13 @@ def main():
     parser.add_argument("--dry-run", action="store_true",
                         help="report what would be renamed without touching anything (the default)")
     args = parser.parse_args()
+    apply = args.apply and not args.dry_run
     status = 0
     for name, profile in profile_roots(args.config):
         if not profile.is_dir() or profile.is_symlink():
             print(f"{name}: profile unavailable; left untouched")
             continue
-        print(reap(name, profile, args.apply))
+        print(reap(name, profile, apply))
     return status
 
 
