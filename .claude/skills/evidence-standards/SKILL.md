@@ -163,7 +163,7 @@ captures are supporting evidence only and do NOT prove UI integration correctnes
 
 ### UI changes require a genuine implementation BEFORE/AFTER comparison
 
-Every UI change requires paired screenshots or video of the **pre-change
+Every UI change, except a diff on the pr-lifecycle one-liner fast path (literal-text-only), requires paired screenshots or video of the **pre-change
 implementation (BEFORE)** and **candidate implementation (AFTER)**. Prefer
 captioned video; video is required for interaction, navigation, streaming,
 animation, timing, or multi-step claims. Paired screenshots are sufficient only
@@ -369,7 +369,7 @@ Include the reviewed/tested SHA, dependencies, exact commands and expected resul
 required for the applicable evidence class. These underlying evidence artifacts
 may remain in authorized private hosting. The separate sanitized review receipt
 must follow `pr-lifecycle` § Review records in the PR description, including
-its gist URL, exact reviewed SHA, and `PUBLICATION BLOCKED` state when publication
+its gist URL (or, for a one-liner fast-path `/es` record, the PR-body section), exact reviewed SHA, and `PUBLICATION BLOCKED` state when publication
 cannot complete. Do not confuse artifact hosting with review-record completion.
 
 Publish or send artifacts only within the current task's authorized audience and
