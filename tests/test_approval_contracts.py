@@ -268,8 +268,12 @@ class ApprovalContractsTest(unittest.TestCase):
         for phrase in (
             "starts cold and blank",
             "Static review prompt (skill-owned, verbatim):",
-            "Document-only review prompt (skill-owned, verbatim):",
-            "Document-only preamble for every CLI seat and for static reviewers",
+            "Saved-content review prompt (skill-owned, verbatim):",
+            "Saved-content preamble for every CLI seat and for static reviewers",
+            "Read-only revision preamble for every CLI seat and for static reviewers",
+            "content of every changed path at both revisions (or verify its absence on one side)",
+            "for <REVIEW TARGET>. Read all complete declared files and evidence.",
+            "If any declared or required content is missing, report incomplete COVERAGE and withhold.",
             "COVERAGE: line",
             "VERDICT: APPROVED|NOT APPROVED|WITHHELD at <SHA>",
             "`prompt` and `prompt_sha256`",
@@ -319,6 +323,8 @@ class ApprovalContractsTest(unittest.TestCase):
         self.assertIn("not a new independent vote", advice)
         self.assertIn("require affected independent review", advice)
         self.assertIn("two independent full-coverage approvals", advice)
+        self.assertIn("`<REVIEW TARGET>` is exactly a full 40-hex head", advice)
+        self.assertIn("`DOCUMENTS sha256:<BUNDLE HASH>`", advice)
         self.assertIn("never by directory or", advice)
         self.assertIn("Codex + Opus CLI", command)
         self.assertIn("/research", command)

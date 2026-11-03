@@ -56,17 +56,37 @@ class MarkdownOnlyDecisionTest(unittest.TestCase):
 
     def test_revision_isolation_is_one_table_contract(self):
         text = (ROOT / ".claude/skills/advice/SKILL.md").read_text(encoding="utf-8")
-        section = " ".join(text.split("## 4. Isolate review copies", 1)[1].split("## 5.", 1)[0].split())
+        section = " ".join(text.split("## 4. Review access modes", 1)[1].split("## 5.", 1)[0].split())
         self.assertIn("The contract is one table", section)
-        for row in ("`pin` (internal", "`isolation: orchestrator-clone`", "`isolation: none`"):
+        for row in (
+            "`pin` (internal",
+            "`isolation: orchestrator-clone`",
+            "`isolation: read-only`",
+            "`isolation: none`",
+        ):
             self.assertIn(row, section)
-        for header in ("who clones", "what the receipt must prove", "who verifies", "who deletes", "template fields"):
+        for header in (
+            "who creates a copy",
+            "what the receipt must prove",
+            "who verifies",
+            "cleanup",
+            "template fields",
+        ):
             self.assertIn(header, section)
         self.assertIn("Seats never clone, never delete and never attest", section)
         self.assertIn("git merge-base --is-ancestor <BASE SHA> HEAD", section)
         self.assertIn("No seat receives a remote URL", section)
-        self.assertIn("Unpushed SHAs work", section)
-        self.assertIn("document-only only", section)
+        self.assertIn("Unpushed SHAs require a local access mode", section)
+        self.assertIn("`isolation: read-only` (DEFAULT)", section)
+        self.assertIn("complete pinned diff", section)
+        self.assertIn("Complete revision coverage applies to every revision-bound access mode.", section)
+        self.assertIn("full content of every changed path at both revisions", section)
+        self.assertIn("return `WITHHELD`", section)
+        self.assertIn("Bundle-only saved-content reviews cover every complete declared file and evidence item", section)
+        copy_rules = section.index("copy safeguards apply only to clone/export modes")
+        self.assertLess(section.index("Diff plus a file list is not full coverage"), copy_rules)
+        self.assertLess(section.index("LFS and submodules must be detected"), copy_rules)
+        self.assertNotIn("No matching row - document-only only", section)
         self.assertIn("Clones live only in an allocated scratch directory, never `/tmp`", section)
         self.assertIn("deletion always names the literal absolute path", section)
         self.assertNotIn("isolation: self-clone", section)

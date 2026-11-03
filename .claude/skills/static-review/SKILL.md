@@ -39,9 +39,13 @@ Static review prompt (skill-owned, verbatim):
 
 ```text
 Review <PR URL> at head <SHA> (base <BASE SHA>). Ensure it follows the /prw stages and focus on
-evidence review before approval. Report P0/P1/P2 with file:line and a
-COVERAGE: line naming the files and diff you read; approve only with no P0
-and full coverage; report P1/P2 as nonblocking findings; end with exactly one line:
+evidence review before approval. Read the complete base-to-head diff and full
+content of every changed path at both revisions (or verify its absence on one
+side), including binary, mode,
+symlink, submodule and LFS content. If any required object or payload cannot be
+retrieved, report incomplete COVERAGE and withhold. Report P0/P1/P2 with
+file:line and a COVERAGE: line naming the files and diff you read; approve only
+with no P0 and full coverage; report P1/P2 as nonblocking findings; end with exactly one line:
 VERDICT: APPROVED|NOT APPROVED|WITHHELD at <SHA> (WITHHELD with a reason).
 ```
 
@@ -49,12 +53,16 @@ Saved-content review prompt (skill-owned, verbatim):
 
 ```text
 Review the saved material in <PACKET PATH>, bundle sha256:<BUNDLE HASH>,
-for <REVIEW TARGET>. Read the complete declared files, diff and evidence.
+for <REVIEW TARGET>. Read all complete declared files and evidence. If the
+packet claims revision binding, also read its complete base-to-head diff and
+changed-path content at both revisions. If any declared or required content is
+missing, report incomplete COVERAGE and withhold.
 Report P0/P1/P2 with file:line and a COVERAGE: line naming the files and diff
 you read; approve only with no P0 and full coverage; report P1/P2 as nonblocking
 findings. Bind revision approval
 to the packet's verified PR URL, base and head; otherwise approve only the
-named bundle. End with exactly one line:
+named bundle. If any required file, object or payload is missing, report
+incomplete COVERAGE and withhold. End with exactly one line:
 VERDICT: APPROVED|NOT APPROVED|WITHHELD at <REVIEW TARGET> (WITHHELD with a reason).
 ```
 
@@ -99,8 +107,10 @@ nothing to commit. Do not clone, fetch, add a remote, or create any other copy,
 and do not run git commands that expect a repository. Your coverage depends on
 reading both the tree and the change: read <SCRATCH PATH>/base.diff, the complete
 `git diff <BASE SHA>..<SHA>` of the pinned change, and state in your COVERAGE line
-that you read it. A review that covers only the head snapshot is not full coverage
-and will be withheld. Never work in the original checkout or in a donor repository.
+that you read it. Retrieve any required base-side files, binary/LFS payloads or
+submodule content missing from the export through read-only GitHub/API access at
+the pinned revisions. A review that covers only the head snapshot is incomplete;
+withhold if any required content cannot be retrieved. Never work in the original checkout or in a donor repository.
 Leave the export in place - the orchestrator verifies it against the pinned tree
 after your process exits and removes it afterwards. Use the GitHub token already
 present in your environment and never print it. Do not modify any checkout, refs,

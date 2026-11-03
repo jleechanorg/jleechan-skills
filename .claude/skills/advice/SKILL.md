@@ -1,6 +1,6 @@
 ---
 name: advice
-description: Use when a focused second opinion is needed; collect two independent, full-coverage reviewer votes on an exact change or saved-document bundle.
+description: Use when a focused second opinion is needed; collect two independent, full-coverage reviewer votes on an exact change or saved-content packet.
 ---
 
 # /advice — independent second opinion
@@ -32,12 +32,17 @@ access, an existing checkout, a verified saved-content packet, or an isolated
 copy when execution requires one. A clone, export or Scratch allocation is not
 a prerequisite for read-only approval of code, a PR or an exact head.
 For saved material, use an existing CLI input path to give each reviewer
-identical complete bytes for explicitly named, non-ignored, non-symlink files,
-committed or not.
+identical complete bytes for explicitly named, non-ignored, non-symlink files
+and evidence, committed or not.
 Keep a temporary packet of the named files and record per-file and bundle
 SHA256 hashes. Byte checks verify integrity, not filesystem immutability. This
 Markdown skill does not require a particular runner; do not add a wrapper or
 runtime mechanism to deliver files.
+
+For a saved-content review, `<REVIEW TARGET>` is exactly a full 40-hex head
+SHA when the packet has a verified PR URL, base/head SHAs and complete
+revision-bound coverage. Otherwise use exactly `DOCUMENTS sha256:<BUNDLE HASH>`
+for a bundle-only review. Never use an abbreviated SHA or mutable `HEAD`.
 
 “Static review” means a fixed reviewer prompt, not limited approval authority.
 A review may approve code, a PR or an exact head when the complete scope and
@@ -231,7 +236,7 @@ reuse a resource whose prior process or cleanup state is unresolved; continue
 with another safe independent path when available. Never claim cleanup
 succeeded without receipt evidence.
 
-## 4. Isolate review copies
+## 4. Review access modes
 
 Choose the least costly sufficient access mode. Read-only revision review is
 the default when GitHub/API or an existing checkout supplies the complete pinned
@@ -243,15 +248,33 @@ when that mode is selected.
 The contract is one table. A receipt records exactly the row's `isolation:` value, and the review template's fields are
 derived from the same row, so the two skills cannot drift apart.
 
-| record | who clones | what the receipt must prove | who verifies | who deletes | template fields |
+| record | who creates a copy | what the receipt must prove | who verifies | cleanup | template fields |
 |---|---|---|---|---|---|
 | `pin` (internal; never sent to a seat, never a seat's working directory) | orchestrator: clone the original checkout into allocated scratch with `--no-local`, check out `<SHA>`, fetch the base-branch tip from the PR remote | `donor_path`; `review_sha` = donor `HEAD`; `base_sha` = `git merge-base <SHA> <fetched base tip>`; `--git-common-dir` = `--git-dir`; `donor_removed` = `test ! -e <donor path>` | orchestrator | orchestrator, after the last seat clone is gone | none |
 | `isolation: orchestrator-export` | orchestrator: `git -C <donor> archive --format=tar <SHA> \| tar -x -C <SCRATCH PATH>/tree` (with `set -o pipefail`), plus `base.diff` and `manifest.expected` written from the donor | `copy_mode` = `export`; `has_dot_git` = `false`; `manifest_match` per path against `ls-tree -r <SHA>` **at launch AND again after the seat process is gone**; `cwd: set`; then `copy_removed` = `test ! -e <SCRATCH PATH>` | orchestrator, every key except any `attested.` one | orchestrator, whatever the seat's outcome | `<PR URL>` `<SHA>` `<BASE SHA>` `<SCRATCH PATH>` |
 | `isolation: orchestrator-clone` (ESCALATION only) | orchestrator: shallow-clone the donor **at `<SHA>`** (`git clone --no-local --depth 1 --single-branch --no-checkout`, `fetch --depth 1 origin <SHA>`, `checkout --detach <SHA>`, bounded `fetch --deepen 2`), then `git remote remove origin` | `copy_mode` = `shallow-clone`; `has_dot_git` = `true`; `--git-common-dir` = `--git-dir`; `HEAD` = `review_sha`; `git merge-base --is-ancestor <BASE SHA> HEAD` exits 0 **after** deepening; `git remote` empty; no `objects/info/alternates`; then `clone_removed` = `test ! -e <SCRATCH PATH>` | orchestrator, every key except any `attested.` one | orchestrator, whatever the seat's outcome | `<PR URL>` `<SHA>` `<BASE SHA>` `<SCRATCH PATH>` |
-| `isolation: read-only` (DEFAULT) | nobody | pinned PR URL, base/head SHAs; complete diff and changed-file coverage; source URLs/paths and hashes; unchanged checkout state if used; `clone_path: none`; `copy_removed: n/a` | orchestrator | no copy exists | `<PR URL>` `<SHA>` `<BASE SHA>` |
+| `isolation: read-only` (DEFAULT) | nobody | pinned PR URL, base/head SHAs; complete diff and changed-file coverage; full content of changed paths at both revisions; source URLs/paths and hashes; unchanged checkout state if used; `clone_path: none`; `copy_removed: n/a` | orchestrator | no copy exists | `<PR URL>` `<SHA>` `<BASE SHA>` |
 | `isolation: none` | nobody | `packet_path`; per-file SHA-256; `bundle_sha256`; complete scope and revision binding when claimed; `clone_path: none`; `copy_removed: n/a` | orchestrator | nobody; packet retained as evidence | `<PACKET PATH>` `<BUNDLE HASH>` `<REVIEW TARGET>` |
 
-For clone/export modes, the following copy safeguards apply. Read-only and saved-content modes use their own rows above.
+**Complete revision coverage applies to every revision-bound access mode.** Each reviewer reads
+the complete exact base-to-head diff and the full content of every changed path
+at both revisions (or verifies its absence on one side). If any required
+base/head object or content cannot be retrieved, mark coverage incomplete and
+return `WITHHELD`; do not use `N/A` or infer missing content. Use another access
+mode if it can supply the missing object or payload. Bundle-only saved-content
+reviews cover every complete declared file and evidence item; they do not require
+unrepresented base/head revisions or a diff.
+
+- **Diff plus a file list is not full coverage by itself.** Account for deleted and base-only files, renames,
+  binary content, file modes, symlink targets, submodules and LFS in both revisions.
+- **LFS and submodules must be detected and verified on both sides of the diff, or the vote is withheld.** A
+  per-path blob hash matches an LFS pointer file, so hash equality can pass while the reviewer never sees the
+  asset it stands for. Detect LFS pointers and submodule gitlinks in the pinned head and base trees. An asset
+  changed or deleted between base and head may leave only its pointer or gitlink in a text diff. Supply and
+  verify the actual payload/target content for every affected path; withhold if any required content is missing.
+
+The following copy safeguards apply only to clone/export modes. Read-only and saved-content modes use their own
+receipt checks above.
 
 - **Prefer the cheapest copy that is still structurally isolated.** A full clone costs gigabytes *per seat* to
   read one SHA - measured on `worldarchitect.ai`: **6,214 MB** of `.git` for 14,241 commits, versus **209 MB** for
@@ -281,15 +304,6 @@ For clone/export modes, the following copy safeguards apply. Read-only and saved
   - **`base.diff` must be bound, not merely present.** Write it for the exact pinned range
   `git diff <BASE SHA>..<SHA>`, record that range and a SHA256 of the diff in the receipt, and validate it before
   the vote counts; a wrong-range, truncated or regenerated diff cannot support full coverage.
-- **Diff plus a file list is not full coverage by itself.** Account for deleted and base-only files, renames,
-  binary content, modes, symlinks, submodules and LFS; escalate to Tier 1 where a review needs more.
-- **LFS and submodules must be detected and verified on BOTH sides of the diff, or the vote is withheld.** A
-  per-path blob hash matches an LFS *pointer* file, so hash equality can pass while the reviewer never sees the
-  asset it stands for. Detect LFS pointers and submodule gitlinks in the pinned **head tree *and* the base tree**:
-  an asset changed or deleted between base and head leaves only its pointer or gitlink in `base.diff`, so checking
-  the head alone lets a seat review a pointer and still be counted. Supply and verify the real content for every
-  such path on either side, and withhold that seat's vote if any required content cannot be provided - identical
-  pointer bytes are not a reviewed artifact.
 - **The receipt digest is what lives outside the seat's writable area; `base.diff` itself is readable by the seat.**
   A seat can edit its own export and can read - but must not trust - `<SCRATCH PATH>/base.diff`. The launch
   manifest, the post-exit revalidation and the `base.diff` digest are written to the orchestrator's receipt, which lies
@@ -305,16 +319,18 @@ For clone/export modes, the following copy safeguards apply. Read-only and saved
 - **Seats never clone, never delete and never attest.** The orchestrator creates every copy, verifies every key it can
   measure, and removes every copy after the seat process is confirmed gone - approval, crash, timeout or missing
   receipt alike. A failed check or a failed removal voids that vote.
-- **Base.** `<BASE SHA>` is computed once, in the `pin` row. Every later check is `git merge-base --is-ancestor
-  <BASE SHA> HEAD`; nothing recomputes it and nothing compares branch tips.
+- **Clone ancestry.** `<BASE SHA>` is computed once, in the `pin` row. A clone must pass
+  `git merge-base --is-ancestor <BASE SHA> HEAD`; nothing recomputes it or compares branch tips. An export has no
+  Git metadata; its base range is verified by the pinned `base.diff` digest and export manifest above.
 - **No seat receives a remote URL.** The PR remote is used only by the orchestrator, in the `pin` row, to fetch the base
   tip. A seat is told to stay in `<SCRATCH PATH>`, add no remote and create no other copy; that is an instruction, not a
   sandbox (see the copy-isolation caveat below), so the orchestrator's post-return checks are what actually detect a
   clone whose `HEAD` or remote changed, and a mismatch voids the vote.
 - **Self-attested evidence.** Any receipt key the orchestrator did not measure is written `attested.<key>`, and an
   `attested.` key never satisfies a cell whose verifier is the orchestrator.
-- **Unpushed SHAs work**, because seat clones come from the local donor. If `<SHA>` is absent from the original
-  checkout, `pin` fails and revision mode is `UNAVAILABLE` with that condition named.
+- **Unpushed SHAs require a local access mode.** An existing checkout, a saved-content packet, or a
+  donor-backed copy can supply the unpushed commit's objects; read-only GitHub/API access requires remotely retrievable objects.
+  If the chosen route cannot retrieve a required base/head object, use another access mode or withhold the vote.
 - **Remote read-only access.** A route without a local path may use `read-only`
   if it can retrieve the complete pinned diff, files and evidence. If it cannot
   read that scope, withhold its vote; a summary alone is insufficient.
@@ -322,10 +338,14 @@ For clone/export modes, the following copy safeguards apply. Read-only and saved
   refuses `/tmp` workspaces; deletion always names the literal absolute path, never a computed `rm -rf "$VAR"`, because
   the destructive-path guard refuses that form.
 
-**Saved-content mode.** No donor and no clone: supply the named files and diff
-as saved bytes with per-file and bundle SHA256 hashes. A packet with verified
-PR URL, base/head SHAs and complete revision coverage can approve that head;
-an unbound packet approves only its bundle. Set `<REVIEW TARGET>` accordingly.
+**Saved-content mode.** No donor and no clone: supply the complete declared
+files and evidence as saved bytes with per-file and bundle SHA256 hashes. For a
+revision-bound packet, also supply the exact base-to-head diff and required
+content from both revisions. Set `<REVIEW TARGET>` per §1. A complete unbound
+packet can approve only its named bundle; it does not need a fictional
+base/head binding. An incomplete packet or one missing required declared
+content is `WITHHELD`, including for its bundle. Never use an abbreviated or
+mutable `HEAD` label.
 Record `none` for the clone path and `n/a` for copy cleanup. Never claim a copy
 was created or cleaned up. Unrelated code stays outside the declared scope.
 
@@ -358,9 +378,11 @@ returns nonzero; a failed late-receipt rewrite can leave an older success-lookin
 directory-removal evidence does not prove setup descendants exited; record that
 uncertainty and do not count the attempt.
 
-Report the exact reviewed SHA or `DOCUMENTS sha256:<bundle hash>` for
-unbound saved-content review, with verdict, coverage, concise reasoning, risk, and
-findings. Require `COVERAGE: <files/diff scope actually read>`. End with
+Report the exact reviewed SHA for revision-bound review or
+`DOCUMENTS sha256:<bundle hash>` for bundle-only review, with verdict, coverage,
+concise reasoning, risk, and findings. Incomplete or missing-content packets
+are `WITHHELD`. Require
+`COVERAGE: <files/diff scope actually read>`. End with
 exactly one SHA-bound line: `VERDICT: APPROVED at <SHA>`,
 `VERDICT: NOT APPROVED at <SHA>`, or `VERDICT: WITHHELD at <SHA> — <reason>`.
 For unbound saved material, use `DOCUMENTS sha256:<bundle hash>` in place of

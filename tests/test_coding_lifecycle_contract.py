@@ -312,7 +312,8 @@ class CodingLifecycleContract(unittest.TestCase):
                 self.assertIn(term, section)
         self.assertIn("never invent a gist URL or passing verdict", section)
         self.assertIn("not private storage", section)
-        self.assertIn("document hashes", section)
+        self.assertIn("file and diff hashes", section)
+        self.assertIn("verified PR/base/head binding", section)
 
     def test_review_ledger_append_is_duplicate_free_and_preserves_evidence(self):
         self.assertIn("review type + phase + reviewed SHA + receipt identity", self.owner)
