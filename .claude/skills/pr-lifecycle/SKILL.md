@@ -558,7 +558,8 @@ Underlying raw artifacts may remain private. Missing publication authority or
 an inaccessible receipt leaves this marker incomplete; never fabricate its URL.
 
 Publish each completed review's sanitized receipt as a gist only within the
-approved disclosure scope. A gist is link-accessible, not private storage; omit
+approved disclosure scope (a one-liner fast-path `/es` receipt lives in the PR body
+instead; see § Proportional exceptions and fast paths). A gist is link-accessible, not private storage; omit
 credentials, private source, personal communications, and sensitive artifacts
 unless separately authorized. Verify the gist URL and intended reviewer access
 before calling publication complete. If tools or permissions prevent publishing,
