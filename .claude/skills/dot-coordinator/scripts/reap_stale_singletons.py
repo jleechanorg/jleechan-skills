@@ -14,11 +14,14 @@ Residual limitation, stated rather than denied: the liveness checks and the rena
 operations, so a Chrome launch that starts inside that loop can lose its fresh lock. Userland
 cannot make check-then-act atomic against a process that does not cooperate with our lock, and
 the alternatives - deleting the files, or leaving the launcher blocked forever - are strictly
-worse. Mitigations that do exist: the loop touches only files whose lock still names this host
-with a dead pid, each publish is atomic and non-destructive, and any wrongly renamed file is
-preserved as *.stale-<stamp> so nothing is lost; the launcher also fails closed rather than
-scrambling on a lock it cannot read. Run the reaper on a short timer, never concurrently with a
-scheduled coordinator slot.
+worse. Mitigations that do exist, stated precisely: the loop touches only files whose lock still names
+this host with a dead pid; each publish claims its destination with a kernel-enforced no-replace
+link, so prior evidence is never overwritten; a filesystem without that primitive fails closed
+instead of falling back to a replace-capable rename; and the launcher fails closed rather than
+scrambling on an unreadable lock. One residual remains and is not claimed away: if Chrome replaces
+the source between the link and the unlink, the unlink can remove Chrome's fresh file, which was
+never preserved under a stale name. The only real mitigation is scheduling - run the reaper on a
+short timer and never concurrently with a coordinator slot, so nothing is launching.
 
 Otherwise it leaves the profile untouched. Files are renamed to
 <name>.stale-<UTC timestamp>, which keeps the evidence recoverable.
@@ -96,14 +99,13 @@ def publish_stale(source, profile, candidate, stamp):
             index += 1
             if index > 1000:
                 raise
-        except OSError:
-            # Filesystem without link support: fall back to a rename onto a name we just
-            # proved free, accepting the same tiny window the kernel would give us.
-            if os.path.lexists(destination):
-                index += 1
-                continue
-            os.rename(source, destination)
-            return destination
+        except OSError as error:
+            # No atomic no-replace primitive on this filesystem. Fail closed: a rename would
+            # reopen the overwrite window this function exists to eliminate.
+            raise OSError(
+                f"cannot publish {destination} atomically ({error}); "
+                "refusing to fall back to a replace-capable rename"
+            ) from error
     try:
         os.unlink(source)
     except OSError:

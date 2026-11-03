@@ -135,6 +135,14 @@ class ReaperContractTest(unittest.TestCase):
         self.assertTrue(first.exists(), "prior evidence must survive")
         self.assertTrue(second.exists())
 
+    def test_unpublishable_destination_fails_closed_instead_of_renaming(self):
+        """With no atomic no-replace primitive, refuse rather than risk replacing evidence."""
+        src = self.profile / "SingletonLock"
+        with patch.object(reaper.os, "link", side_effect=OSError("no link support")):
+            with self.assertRaisesRegex(OSError, "refusing to fall back"):
+                reaper.publish_stale(src, self.profile, "SingletonLock", "20260101T000000Z")
+        self.assertTrue(os.path.lexists(src), "the source must survive a failed publish")
+
     def test_dry_run_flag_is_supported(self):
         import subprocess
         result = subprocess.run(["python3", str(SCRIPT), "--dry-run", "--config", "/nonexistent"],
