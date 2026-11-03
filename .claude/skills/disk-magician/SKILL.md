@@ -1,67 +1,27 @@
 ---
 name: disk-magician
-description: Use when measuring disk capacity or growth and previewing repository-gated cleanup.
+description: Use when diagnosing disk capacity or growth and when previewing repository-gated cache, temp, or worktree cleanup.
 ---
 
-# Disk Magician
+# Disk Magician — Claude Skill
 
-Use `diskm` for disk measurements, growth ledgers, and repository-gated cleanup previews. Read the active command's `--help` for its current flags and approval gates; examples below are previews only.
+This skill teaches Claude how to use `disk_magician` to audit disk space, identify growth regressions, and perform cleanups.
 
-## Choose the procedure
+## Skill Integration & Commands
 
-- A quick free-space check or plain “how much can I reclaim?” estimate belongs to [`disk-audit`](../disk-audit/SKILL.md). It starts with zero-`du` triage.
-- A question about why space changed, what grew, or which bucket explains growth belongs to [`disk-root-cause`](../disk-root-cause/SKILL.md). That skill uses the existing ledger first and runs a full top-down audit only when its freshness or residual rules require one.
-- A request to preview or perform a cleanup uses this skill and the current `diskm` cleanup command. A preview does not authorize deletion.
-
-## Quick capacity triage
-
-For a quick check or cleanup request, do not launch a whole-disk `du` audit first. Run the four read-only checks concurrently:
-
-```bash
-df -h /System/Volumes/Data /Volumes/diskm-scratch /System/Volumes/VM 2>/dev/null || df -h / ~/Scratch
-diskm check-launchd-fleet
-diskm reclaim-ledger --read-existing
-diskm history growth-top10 --days 7
-```
-
-### Default forensic diagnosis (attribution only)
-
-For attribution questions, follow `disk-root-cause`. Its first-use path begins with the checks above. Run the slower `diskm audit` only when the precomputed ledger or snapshots are missing or stale (`>48h`), or when an unaccounted residual needs a fresh top-down scan. Read the whole report before drilling down. Residual is an attribution gap, not backup size or reclaimable space without evidence.
-
-## Preview cleanup lanes
-
-Use the narrowest preview that answers the request. The unified `diskm clean --dry-run` preview includes the routine cache, temporary-file, container, Xcode, and worktree lanes.
-
-- **Scratch volume:** `diskm scratch-prune --dry-run`. Inspect each candidate's C14 verdict, lease, live-process, open-file, and retention result.
-- **Worktrees and dependencies:**
+* **Which procedure**: a quick capacity check or plain reclaim question runs the zero-`du` triage in `../disk-audit/SKILL.md`. A root-cause investigation or cleanup-target decision runs the full forensic procedure in `../disk-root-cause/SKILL.md`. Do not start a full audit for a quick check. If a precomputed input is stale, use its owning freshness probe (including `diskm ledger-freshness` for the ledger); do not assume a fixed freshness interval.
+* **Default forensic diagnosis (attribution only)**: For a root-cause request, run the full three-lane `diskm audit` before drilling down. The residual is not backup size or reclaimable without evidence.
+* **Cleanup previews**: Use the canonical preview interfaces before choosing a cleanup target:
   ```bash
-  diskm slim-worktrees --dry-run --min-age 7
-  diskm cleanup-worktree-deps --dry-run --min-age 7
-  diskm cleanup-worktrees --dry-run --min-age 7
-  diskm cleanup-worktree-venvs --dry-run --min-age 7
+  diskm clean --dry-run
+  diskm clean-all --dry-run
+  diskm worktree-hygiene
   ```
-  Preserve the owning repository's seven-day worktree floor; do not lower it with a command flag.
-- **Containers, browser sessions, code-sign clones, and cloud files:**
-  ```bash
-  diskm cleanup-colima --dry-run
-  diskm prune-aside-sessions --dry-run
-  diskm cleanup-code-sign-clones --dry-run
-  diskm evict-fileprovider --dry-run
-  ```
-  FileProvider eviction leaves cloud content in place and may rematerialize it on access; it is not a permanent deletion.
-- **Agent state and temporary files:**
-  ```bash
-  diskm cleanup-codex-db --dry-run
-  diskm cleanup-antigravity-brain --dry-run
-  diskm cleanup-tmp --dry-run
-  diskm cleanup-dev-caches --dry-run
-  ```
-  `diskm vacuum-hermes-state` previews by default; its `--apply` action has a separate command gate.
+  `worktree-hygiene` is report-only by default. For a narrower preview, use the selected `diskm` cleanup command with its documented dry-run mode.
 
-If a cleanup run reports `0 B` reclaimed or a preview shows no eligible targets, inspect its per-target skip reasons before concluding that the cleanup options are exhausted. Distinguish lease-busy, recent-activity, and admin-unknown keeps when the command reports them; check the lease holder before treating a lock as wedged.
+  Never report the cleanup stack exhausted while free space remains below target. If a run reports `0 B` reclaimed, inspect the per-target skip reasons (such as `kept:lease-busy`, `kept:recent-activity`, or `kept:admin-unknown` when emitted) and the current lock holder before concluding there are no eligible targets.
 
-## Approval and preservation
-
-Every `--clean` or `--apply` action needs explicit user authorization for the exact target and must also satisfy the command's documented gate. An environment variable such as `WORKTREE_APPROVED=1` is not user approval; never include approval variables as inline command prefixes or runnable examples. Worktree deletion requires the explicit `WORKTREE APPROVED` confirmation, the `WORKTREE_APPROVED=1` gate, and the seven-day floor.
-
-Never delete `~/.codex/sessions*`, `~/.codex/state*.sqlite`, `~/.codex/log`, or `~/.claude/projects` directly. Route cleanup through the owning `diskm` command so its safety filters and receipts apply.
+## Safety Constraints & Guardrails
+- **Mtime Caution:** Worktrees and agent sessions with modification time < 14 days require explicit `WORKTREE APPROVED` confirmation from the user before deletion.
+- **Action gates:** `--clean` and `--execute` require explicit user authorization and each command's documented environment gate. A gate variable is not consent; never place approval variables in command examples.
+- **Never-delete list:** Do not delete `~/.codex/sessions`, `~/.codex/sessions_archive/`, `~/.codex/state*.sqlite`, `~/.codex/log`, or `~/.claude/projects` directly. Always route cleanup through the canonical `diskm` command so its safety filters are respected.

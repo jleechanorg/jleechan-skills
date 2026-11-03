@@ -7,20 +7,15 @@ description: Use when a user asks why a disk is filling, what uses its capacity,
 
 When a user asks **why the disk filled up**, **what grew over a window**, or **where a specific bucket came from**, this skill is the entry point. A quick capacity check, or a reclaim question that needs no attribution, is not a root-cause investigation — route it to the zero-du triage in `../disk-audit/SKILL.md` so one request cannot select both procedures. It never assumes an answer; it pulls facts from this machine's snapshot history (`~/.disk_magician_backup`), never deletes anything without an explicit human OK, and prefers parallel-subagent fan-out to keep wall-clock bounded.
 
-## Default first-use workflow (`<10s` triage first)
+## Default first-use workflow
 
-Run the read-only ledger and growth checks concurrently before drilling down. A plain capacity or reclaim estimate routes to `../disk-audit/SKILL.md`; this skill owns forensic attribution.
+Run this before chasing individual directories:
 
 ```bash
-df -h /System/Volumes/Data /Volumes/diskm-scratch /System/Volumes/VM 2>/dev/null || df -h / ~/Scratch
-diskm check-launchd-fleet
-diskm reclaim-ledger --read-existing
-diskm history growth-top10 --days 7
+diskm audit
 ```
 
-Only run the full `diskm audit` when the precomputed ledger or snapshot is missing or stale (`>48h`), or when unaccounted residual space requires a fresh top-down scan. Read the complete report before drilling down.
-
-When `diskm audit` runs, it launches the three lanes in parallel:
+This is the mandatory three-lane diagnostic. It launches in parallel:
 
 1. top-down whole-disk accounting from physical/APFS capacity through the Data volume and non-overlapping path buckets at or below 5 GiB;
 2. coverage-validated snapshot deltas, so a coverage change cannot masquerade as physical growth; and
@@ -54,24 +49,26 @@ Do **not** use this skill for one-off size queries — `du -sh <path>` answers t
 2. **Never-delete list** (hard-stop): `~/.codex/sessions*`, `~/.codex/state*.sqlite`, `~/.codex/log`, `~/.claude/projects`. Probe these paths only via `du -sh`, never with destructive verbs.
 3. **Symlink gotcha — always realpath-verify:** `~/.hermes_prod` and `~/.openclaw.bak` are symlinks to `~/.hermes`; `/tmp`, `/var`, `/etc` are volume-root symlinks to `/private/*`. Naive `du` over args triples-counts them. Use `du -P` (no-follow) and dedup by realpath when comparing totals.
 4. **No VACATE-without-name.** When a user says "vacate / pause / stop the CI runners", there is **no** `ez-mac-runner` launchd job on this host — `ez-mac-runner-b-{1,2,3}` are GitHub Actions runner **processes** under `~/actions-runner/`. Stopping the wrong thing (e.g. `com.jleechanorg.disk-root-cause`) is harmless but accomplishes nothing; stopping the GH Actions runners pauses live CI. Always `launchctl list | grep <hint>` and `ps aux | grep <hint>` before any destructive action, and report the candidate names back to the user verbatim.
-5. **Read-first, deduce-later.** Do not assert "X grew 5 GB" from one `du`; cross-check against snapshot history (a committed git repo on disk) and the live `df -k /System/Volumes/Data`. If two sources disagree, attribute honestly.
+5. **Read-first, deduce-later.** Do not assert "X grew 5 GB" from one `du`; cross-check against snapshot history (a committed git repo on disk) and the live `df -k` output. If two sources disagree, attribute honestly.
 6. **Scope expansions are user-OK gates.** Tools like `bobthecow` style auto-remediators are NOT enabled. The skill recommends; the human runs.
 7. **Honest attribution in final report.** If disk improved mid-analysis for reasons outside this session (concurrent sweepers, OS reclaims), say so explicitly. Never claim a delta whose source you didn't observe.
 
-## Phase 0 — ground truth and current snapshot
+## Phase 0 — environment ground truth (always run)
 
 ```bash
-# Inspect the current snapshot after the first-use triage above.
+# The full diskm audit runs in the default first-use workflow above.
+# Confirm host capacity and read the current snapshot source.
+df -h
 SNAP=~/.disk_magician_backup/snapshots/disk_snapshot.json
 git -C ~/.disk_magician_backup log --oneline -1 -- snapshots/disk_snapshot.json 2>/dev/null
-python3 -c "import json; d=json.load(open('$SNAP')); print('schema_version:', d.get('schema_version'), 'coverage:', d.get('snapshot_coverage_pct'))"
+python3 -c "import json,sys; d=json.load(open('$SNAP')); print('schema_version:', d.get('schema_version'), 'coverage:', d.get('snapshot_coverage_pct'))"
 ```
 
-Current snapshots live at `~/.disk_magician_backup/snapshots/disk_snapshot.json`. The frozen legacy `backup/<host>/` layout must not be treated as the current snapshot source. If `schema_version != 2`, the snapshot is pre-v2 (coverage inflates by parent/child double-count). Use `coverage_pct_raw_v1` from `snapshot_metadata` for trend continuity and note the inflation.
+If `schema_version != 2`, the snapshot is pre-v2 (coverage inflates by parent/child double-count). Use `coverage_pct_raw_v1` from `snapshot_metadata` for trend continuity and note the inflation.
 
 ## Phase 1 — floor + deltas (snapshot history)
 
-`~/.disk_magician_backup` is a git repo. Read snapshot history with `git log --all` (and the reflog for orphaned commits per the 07-11 incident) and `git show <sha>:snapshots/disk_snapshot.json`. The legacy `backup/<host>/` paths are frozen.
+`~/.disk_magician_backup` is a git repo. Every commit is a snapshot. The skill reads history with `git log --all` (+ reflog for orphaned commits per the 07-11 incident) and `git show <sha>:snapshots/disk_snapshot.json`.
 
 Three deltas, always reported:
 
@@ -148,7 +145,7 @@ Fan-out rule: **single-writer per file**, `grep -n "agent(" <swarm-script>` cost
 3. **`cleanup_tmp.sh` defaults to DRY-RUN despite header claiming otherwise** — header was fixed in v0.2.0 (commit `5341a6f`); callers still must pass `--clean`.
 4. **Colima wedges with I/O errors when host disk hits 100%** — fstrim can't run; **must** `colima stop && colima start` first. 49.6→6.8 GB recovery verified live.
 5. **No `ez-mac-runner` launchd job exists** — confirms via `launchctl list | grep ez` before any VACATE-style directive. (bead `feedback_2026-07-12_no_ez_mac_runner_launchd_job`)
-6. **Legacy snapshot path:** `backup/<host>/` is frozen. Current local snapshots use `snapshots/disk_snapshot.json`.
+6. **Legacy snapshot path:** `backup/<host>/` is frozen. Current snapshots use `snapshots/disk_snapshot.json`.
 
 ## Anti-patterns to flag in code review
 
@@ -166,7 +163,7 @@ Fan-out rule: **single-writer per file**, `grep -n "agent(" <swarm-script>` cost
 ## Exit criteria for the skill
 
 A complete root-cause answer for this machine has:
-- [ ] Fast triage completed; if ledger/snapshot freshness or the residual required a full `diskm audit`, its three-lane report or named limits are recorded
+- [ ] Default `diskm audit` three-lane report completed or its named limits were reported
 - [ ] Every normal Data path bucket is at or below 5 GiB, without parent/child or symlink double counting
 - [ ] Every larger directory is recursively subdivided or named on the unfinished frontier; indivisible files above 5 GiB are labeled separately
 - [ ] Displayed Data equation reconciles bounded buckets + indivisible files + measured tail + purgeable estimate + residual = Data used from one accepted leaf ledger
