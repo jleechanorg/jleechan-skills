@@ -8,6 +8,6 @@
 
 4. **Report blockers once.** A first-time or changed blocker needs its exact unblock condition in a report; then continue through the list. Do not re-probe or repeat details for a previously reported blocker whose evidence and unblock condition are unchanged.
 
-5. **Reply.** Give one line per request with its artifact, executed step or exact unblock. Reply only `IDLE: <N> requests blocked, unchanged since <time>` when every open request has a previously reported blocker and its evidence and unblock condition remain unchanged, or nothing is authorized.
+5. **Reply.** Report work completed or advanced this turn and any first-time or changed blocker with its exact unblock; omit unchanged blockers from replies but keep them in the queue. If all open requests are blocked and each blocker was already reported, send `IDLE: <N> requests blocked, unchanged since <time>` once. After that IDLE, stay silent while the evidence and unblock conditions remain unchanged. A new or changed blocker must be reported before any IDLE summary. For an empty or unauthorized queue, send `IDLE: queue empty` once, then stay silent until the queue changes.
 
 Preserve task IDs, priorities, owners, checkpoints, approvals, holds and STOPs. Use existing owners, start no duplicate writer and stay within the shared two-complex/two-short limit. Assignments and status claims are not progress.

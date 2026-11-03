@@ -33,9 +33,9 @@ class CoordinatorWorkflowTests(unittest.TestCase):
             "every older unfinished commitment",
             "Preserve task IDs, priorities, owners, checkpoints, approvals, holds, cancellations and STOPs",
             "a blocked request does not stop another request that can move",
-            "Report a new or changed blocker once with its exact unblock",
-            "Suppress only a previously reported blocker whose evidence and unblock condition are unchanged",
-            "Reply only IDLE: queue empty or IDLE: <N> requests blocked, unchanged since <time>",
+            "Report completed or advanced work and each new or changed blocker with its exact unblock",
+            "omit unchanged blocker details but keep them queued",
+            "emit the applicable IDLE line once, then stay silent while that queue and its evidence remain unchanged",
             "This reminder grants no new execution",
         ):
             self.assertIn(clause, payload, clause)

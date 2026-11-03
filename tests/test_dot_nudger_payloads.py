@@ -78,7 +78,34 @@ class NudgerPayloadTest(unittest.TestCase):
             self.assertIn("unchanged since <time>", body)
         self.assertIn("Do not re-probe or repeat details", main)
         self.assertIn("A nudge is additive, never a task replacement", self.text)
-        self.assertIn("a first-time or changed blocker must be reported first", proceed)
+        self.assertIn("first-time or changed blocker must be reported before any IDLE summary", proceed)
+
+    def test_idle_is_one_shot_and_non_idle_receipts_keep_evidence(self):
+        main = " ".join((REMINDERS / "main.md").read_text(encoding="utf-8").split())
+        proceed = " ".join((REMINDERS / "proceed.md").read_text(encoding="utf-8").split())
+        fallback = " ".join(next(
+            line[2:] for line in self.raw.splitlines()
+            if line.startswith("> Review the last 24 hours of this conversation")
+        ).split())
+        for text in (main, proceed, fallback):
+            self.assertIn("once", text)
+            self.assertIn("stay silent", text)
+            self.assertIn("evidence", text)
+        self.assertIn("stay silent while the same queue state and blocker evidence remain unchanged", self.text)
+        for heading in ("## Proceed invariant footer (`footer-v1`)", "## Main invariant footer (`footer-v1`)"):
+            footer = self.raw.split(heading, 1)[1]
+            if heading.startswith("## Proceed"):
+                footer = footer.split("## Main invariant footer", 1)[0]
+            else:
+                footer = footer.split("## When body and footer disagree", 1)[0]
+            for field in (
+                "Mode (MUTATION | PROBE | BLOCKED)", "Target",
+                "Artifact (SHA, exit code, trace excerpt, or \"none (ground N)\")",
+                "Blocker (NONE or exact error)",
+                "live handle, target, start time and next checkpoint",
+                "A new or changed blocker must first be reported",
+            ):
+                self.assertIn(field, footer, f"{heading}: {field}")
 
     def test_only_verified_operator_authorship_creates_a_request(self):
         fallback = next(line[2:] for line in self.raw.splitlines() if line.startswith("> Review the last 24 hours of this conversation"))
@@ -149,7 +176,9 @@ class NudgerPayloadTest(unittest.TestCase):
         """A main run must receive the hold grounds and receipt requirement too, not only proceed."""
         raw = SKILL.read_text(encoding="utf-8")
         main_footer = raw.split("## Main invariant footer (`footer-v1`)", 1)[1].split("## When body and footer disagree", 1)[0]
-        for clause in ("Valid hold grounds", "Turn", "IDLE: queue empty", "no preventable idle time"):
+        for clause in ("Valid hold grounds", "Turn", "IDLE: queue empty", "no preventable idle time",
+                       "Artifact (SHA, exit code, trace excerpt", "live handle, target, start time and next checkpoint",
+                       "stay silent while the same queue state and blocker evidence remain unchanged"):
             self.assertIn(clause, main_footer, clause)
 
     def test_footer_wins_rule_is_inside_the_outbound_footer(self):
