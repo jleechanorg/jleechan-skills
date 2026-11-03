@@ -9,7 +9,8 @@ This skill teaches Claude how to use `disk_magician` to audit disk space, identi
 
 ## Skill Integration & Commands
 
-* **Default diagnosis (Phase 0)**: Run the concurrent top-down 5 GiB accounting, coverage-validated snapshot deltas, and safe quick-win report before drilling down. Follow `../disk-magician/SKILL.md` for the full forensic procedure. Residual is not backup size or reclaimable without evidence.
+* **Which procedure**: a quick capacity check or plain reclaim question runs the zero-`du` triage in `../disk-audit/SKILL.md`. A root-cause investigation runs the full forensic procedure in `../disk-root-cause/SKILL.md`. Do not start a full audit walk for a quick check.
+* **Default diagnosis**: Run the concurrent top-down 5 GiB accounting, coverage-validated snapshot deltas, and safe quick-win report before drilling down. Residual is not backup size or reclaimable without evidence.
   ```bash
   disk-magician audit
   ```

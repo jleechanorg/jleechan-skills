@@ -228,7 +228,7 @@ Never launch a second Chrome against a Dot profile or resync cookies between pro
 
 ## Disk diagnosis
 
-Follow `~/.claude/skills/disk-root-cause/SKILL.md` and the owning `~/projects_other/disk_magician/CLAUDE.md` before any other measurement; full three-lane procedure in `~/.claude/CLAUDE-global-reference.md` § Disk diagnosis. Do not present quick cleanup as the full explanation.
+For a root-cause question (why the disk filled, what grew), follow `~/.claude/skills/disk-root-cause/SKILL.md` and the owning `~/projects_other/disk_magician/CLAUDE.md` before any other measurement; full three-lane procedure in `~/.claude/CLAUDE-global-reference.md` § Disk diagnosis. For a quick capacity check or a plain reclaim question, the zero-`du` triage in `disk-audit` is the entry point instead. Do not present quick cleanup as the full explanation.
 
 ## Beads and memory
 
