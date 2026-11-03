@@ -15,6 +15,10 @@ This is the self-contained generic operational lifecycle contract. [PR Workflow 
 
 This skill owns shared defaults for PR lifecycle stages, generic review routing, proportional evidence, SHA applicability and receipt publication. A target repository's explicit local contract takes precedence within its domain, including a declared workflow opt-out or adapter. Apply shared defaults only to details the local contract does not address; never use this contract to remove a local requirement or infer an exception. Preserve domain-specific proof for the actual claim and separate security, credential, source-ownership and merge-authority restrictions. Current explicit user instructions govern within those permissions.
 
+### Existing authorization and prepared plans
+
+An existing user or standing authorization continues to cover the same action, target, and outcome within its stated spending, request, and retry bounds. Re-pin and review each newly prepared plan or plan SHA before execution; that is an integrity check, not an automatic request for renewed human approval. A required validation or evidence step does not itself authorize additional paid work. For additional paid work, obtain new authority only when it is outside the authorized scope or exceeds its bounds. Other merge, security, retry, source-integrity, budget, and evidence gates may still block execution.
+
 ## Canonical lifecycle
 
 This is the full state machine — every other file (`pr-green-definition`, `/green`, `CLAUDE.md`, `AGENTS.md`) points here rather than restating it:
