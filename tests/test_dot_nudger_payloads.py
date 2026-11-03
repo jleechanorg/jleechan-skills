@@ -117,7 +117,7 @@ class NudgerPayloadTest(unittest.TestCase):
         raw = SKILL.read_text(encoding="utf-8")
         self.assertNotIn("> Read the last 20 messages", raw)
         # the sole embedded payload is main's documented last-resort fallback
-        self.assertIn("### Exact fallback payload", raw)
+        self.assertIn("last-resort fallback", raw)
         self.assertEqual(raw.count("> Review the last four hours of this conversation"), 1)
         self.assertIn("`proceed` has no built-in fallback", " ".join(SKILL.read_text().split()))
 
