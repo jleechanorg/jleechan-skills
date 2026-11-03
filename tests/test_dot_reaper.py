@@ -108,6 +108,20 @@ class ReaperContractTest(unittest.TestCase):
              patch.object(reaper.subprocess, "run", return_value=failed):
             self.assertNotEqual(reaper.processes_on(self.profile), [])
 
+    def test_process_disappearing_during_scan_is_not_treated_as_live(self):
+        vanished = Path("/proc/4242")
+        with patch.object(reaper.Path, "is_dir", return_value=True), \
+             patch.object(reaper.Path, "glob", return_value=[vanished]), \
+             patch.object(reaper.Path, "read_bytes", side_effect=FileNotFoundError):
+            self.assertEqual(reaper.processes_on(self.profile), [])
+
+    def test_unreadable_process_during_scan_still_fails_closed(self):
+        inaccessible = Path("/proc/4243")
+        with patch.object(reaper.Path, "is_dir", return_value=True), \
+             patch.object(reaper.Path, "glob", return_value=[inaccessible]), \
+             patch.object(reaper.Path, "read_bytes", side_effect=PermissionError):
+            self.assertEqual(reaper.processes_on(self.profile), [4243])
+
     def test_dry_run_beats_apply(self):
         """--dry-run must never mutate, even when --apply is also present."""
         import json, subprocess

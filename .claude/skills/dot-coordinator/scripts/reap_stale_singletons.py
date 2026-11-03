@@ -53,6 +53,9 @@ def processes_on(profile):
     for entry in Path("/proc").glob("[0-9]*") if Path("/proc").is_dir() else []:
         try:
             raw = (entry / "cmdline").read_bytes()
+        except FileNotFoundError:
+            # The process vanished after enumeration; it cannot still be using the profile.
+            continue
         except OSError:
             # An unreadable process's arguments cannot be cleared: treat the profile as in use so
             # the caller fails closed instead of reaping a lock a live process may need.
