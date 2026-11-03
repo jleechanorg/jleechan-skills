@@ -10,12 +10,12 @@ No scripts, runtime code, tests, installed-skill changes, service changes, clean
 
 ## Acceptance
 
-- `disk-magician` identifies the quick-check versus forensic route and labels its full audit as attribution-only.
-- Quick-path freshness is determined from the owning tool output (`diskm ledger-freshness`), without a hardcoded interval in the skill.
-- Root-cause work keeps the full three-lane audit; current and historical snapshot instructions use `snapshots/disk_snapshot.json`, with the frozen `backup/<host>/` layout identified as legacy.
-- The root-cause example uses generic `df -h`; no mount path is tied to one host.
-- The 14-day worktree caution, explicit `WORKTREE APPROVED` requirement, never-delete list, and command-specific approval gates remain. No approval token appears as a runnable command prefix.
-- Cleanup examples use only verified read-only preview interfaces; `clean-all --dry-run` and the default report-only worktree-hygiene path remain discoverable.
+- `disk-magician` states that missing or tool-reported-stale quick-path inputs escalate to the full audit; it uses the `diskm ledger-freshness` result rather than a fixed age.
+- Forensic root-cause work keeps the full three-lane `diskm audit` method.
+- `diskm state status` prints the active state repo root in human-readable output; use its `state repo:` value for the current snapshot and Git history, without assuming JSON or creating a resolver. The canonical reader/writer use `snapshots/disk_snapshot.json`; the resolver, not the skill, owns legacy fallback.
+- The root-cause example uses generic `df -h`; no mount path or state-repo default is hardcoded.
+- The 14-day worktree caution, explicit `WORKTREE APPROVED` requirement, never-delete list, and approval gates for every non-preview mode remain. Approval variables are not shown as runnable prefixes.
+- Cleanup examples use verified previews; `clean-all --dry-run` and default report-only `worktree-hygiene` remain discoverable.
 
 ## User stories
 
@@ -24,7 +24,8 @@ No user-facing application change. As an operator, I can get a quick capacity ch
 ## Proof plan
 
 - Review the owning Disk Magician policy and current disk-audit routing.
-- Use the captured CLI help/source receipt (SHA-256 `4d6fcecd7940a79fe2ff7c896780adf6c63fa8214e1075feef798c62b088df32`) for `ledger-freshness`, `clean`, `clean-all`, and `worktree-hygiene`; link the receipt in the PR body.
+- Use the corrected CLI help/source receipt (SHA-256 `142c9a7f6d10c174e1e19770bacbe26538324ec077a423f070df75588886747f`) for `ledger-freshness`, `clean`, `clean-all`, and `worktree-hygiene`; it records that `clean --help` fell through to the default dry-run preview and no cleanup was executed. Link the receipt in the PR body.
+- Use the source-bound state-root receipt (SHA-256 `a8ae07292f7c7dc894a484944a37d641f04cb63572e55b5e1e4fe55fb2fcedc2`) for source revision, resolver/config precedence, writer/reader paths, configured Mac root, XDG-default Linux root, current status, and snapshot hashes. The source revision is `ded05f64df9364503fde0bf0e043b446b4bbffff`; installed resolver/reader/writer hashes match it on both hosts.
 - Run `git diff origin/main --check`; do not run tests or cleanup commands for this Markdown-only change.
 
 ## Mock or justified exemption
