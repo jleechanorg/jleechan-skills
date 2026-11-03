@@ -217,10 +217,7 @@ python3 ~/.claude/skills/dot-coordinator/scripts/capacity_guard.py --state <stat
 
 Exit `0` = `BELOW_CAP` (confirmed numeric count only; never admission authority), exit `3` = `REJECT` (class already at its cap), exit `2` = malformed state or candidate ID already present in the active input. On `REJECT`, park the candidate at the head of the ready queue with its owner and resumption trigger and say so; do not admit it, do not widen the cap and do not preempt without the owner's decision. The guard is a predicate only: it writes no state and dispatches nothing. Mark unresolved occupancy `state: "UNKNOWN"`, which returns error until reconciled. `parked: true` excludes a known nonexecuting record even with a historical receipt; never mark an uncertain or advancing command parked. Receipt strings are not parsed for age: the designated receiving writer must validate freshness, owner, head and global occupancy before admission. Its independently installed owner instructions or exact private payload enforce the shared capacity policy; the fallback transports only the blockquote below.
 
-### Exact fallback payload
-
-Only the text in the following blockquote is the fallback outbound message.
-Headings, capacity guidance and command examples above are not outbound text.
+Only the blockquote below is `main`'s last-resort fallback; headings and capacity guidance above are not outbound text.
 
 > Review the last four hours of this conversation for new requests, changes and cancellations. Check the owner's authorized private roadmap and canonical backlog at locations supplied through authorized private context for every older unfinished commitment. Preserve task IDs, priorities, owners, checkpoints, approvals, holds and STOPs. Through existing owners, take the next safe authorized step and recover stalled work without duplicate writers or exceeding the shared two-complex/two-short limit. Verify actual results and original execution timestamps; assignments and status claims are not progress. Keep unresolved work until verified completion or cancellation. Report meaningful progress, precise blockers and next actions concisely; skip unchanged status. This reminder grants no new execution, access, spending, merge or deployment authority.
 
@@ -387,6 +384,12 @@ on the example schedule - so a scheduled nudge is only suppressed by a genuinely
 that configures a shorter gap lowers this window first; the sending agent cannot see the schedule, so
 the operator owns that invariant.
 
+
+## Stale-singleton reaper
+
+`scripts/reap_stale_singletons.py` renames leaked `Singleton*` files to `*.stale-<UTC>` (never deletes) and only when the
+lock names this host, its pid is dead and no live process uses the profile; anything else is reported untouched. Run
+`--apply` on a five-minute timer or `--dry-run` first. It is outside the send path.
 
 ## Reviews and migration
 

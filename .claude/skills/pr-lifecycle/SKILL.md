@@ -15,6 +15,10 @@ This is the self-contained generic operational lifecycle contract. [PR Workflow 
 
 This skill owns shared defaults for PR lifecycle stages, generic review routing, proportional evidence, SHA applicability and receipt publication. A target repository's explicit local contract takes precedence within its domain, including a declared workflow opt-out or adapter. Apply shared defaults only to details the local contract does not address; never use this contract to remove a local requirement or infer an exception. Preserve domain-specific proof for the actual claim and separate security, credential, source-ownership and merge-authority restrictions. Current explicit user instructions govern within those permissions.
 
+### Existing authorization and prepared plans
+
+An existing user or standing authorization continues to cover the same action, target, and outcome within its stated spending, request, and retry bounds. Re-pin and review each newly prepared plan or plan SHA before execution; that is an integrity check, not an automatic request for renewed human approval. A required validation or evidence step does not itself authorize additional paid work. For additional paid work, obtain new authority only when it is outside the authorized scope or exceeds its bounds. Other merge, security, retry, source-integrity, budget, and evidence gates may still block execution.
+
 ## Canonical lifecycle
 
 This is the full state machine — every other file (`pr-green-definition`, `/green`, `CLAUDE.md`, `AGENTS.md`) points here rather than restating it:
@@ -24,7 +28,7 @@ DRAFT
   → /es PASS @ SHA
   → /er PASS @ SHA (unless the narrow /er documentation allowlist, explicit trivial-change exception or a repo-exempted class applies)
   → /advice APPROVED @ SHA when required by Advice applicability below
-  → /visual-verification PASS @ SHA when gate 4 applies (media published, or a rendered/displayed-data claim)
+  → /visual-verification PASS @ SHA when gate 4 applies and the one-liner fast path does not (media published, or a rendered/displayed-data claim)
   → mark ready-for-review (gh pr ready <N>)
   → /ready work: /green, comments, conflicts, and regression checks
   → final /er PASS applicable to the candidate when required
@@ -160,7 +164,7 @@ or invent a tool/model identity. Existing suffix-only titles gain their matching
 | 2 Evidence generation | [ev] | [evidence generation] | stage:2-evidence | Applicable /es proof generated and delivered, original tested SHA and claim map recorded, or justified exemption. |
 | 3 Evidence review | [er] | [evidence review] | stage:3-evidence-review | Applicable /er and draft review route satisfied by independent verdicts whose coverage applies to the candidate. The review SHA need not equal HEAD when the delta assessment supports reuse. |
 | 4 CI and undraft | [ci] | [CI and undraft] | stage:4-ci-undraft | Undraft and complete /ready's CI, comments, conflicts and cross-thread regression work with current-candidate /green using only documented exceptions. Its closing reviews belong to Stage 5, not this exit. |
-| 5 Final approval | [fa] | [final approval] | stage:5-final-approval | Final-phase review obligations and (for user-visible changes) independent AI visual approval (`VISUAL APPROVED at <40-char-sha>`) satisfied by applicable independent approvals, with findings resolved or explicitly deferred as allowed. Earlier review SHAs may remain valid by reasoned assessment; merge authority is separate. |
+| 5 Final approval | [fa] | [final approval] | stage:5-final-approval | Final-phase review obligations and (for user-visible changes outside the one-liner fast path) independent AI visual approval (`VISUAL APPROVED at <40-char-sha>`) satisfied by applicable independent approvals, with findings resolved or explicitly deferred as allowed. Earlier review SHAs may remain valid by reasoned assessment; merge authority is separate. |
 
 A stage name describes work remaining. [final approval] does not mean approved or merged.
 Orthogonal hold labels are hold:reviewer, hold:operator, hold:conflict and hold:quota; they never replace the stage.
@@ -191,7 +195,7 @@ At Stage 3: small PRs need /advice OR independent /dot approval unless the narro
 At Stage 5: the same route applies to final obligations; large PRs attempt /wa best effort when authorized.
 Explicitly requested /wa remains an attempt in the route. Honor existing standing authorization without asking again; apply the 1800-second default timeout contract above (or an explicit user-specified limit, whether shorter or longer, or a later specific user instruction to await a named reviewer) and use its `/er` plus two-vote `/advice` substitution if it times out or is unavailable. Record the actual disposition. Do not claim browser-only validation occurred, and keep any required domain evidence gate open until that evidence is proved. Otherwise unavailable or timed-out best-effort /wa is disclosed, not invented approval.
 Resolve /dot through an existing authorized independent Dot reviewer, not the author/orchestrator. When /dot is necessary to satisfy the applicable route and the first Dot is busy, send the same request to the next configured Dot account in rotation. Apply the 1800-second default attempt limit above (or an explicit user-specified limit, whether shorter or longer, or a later specific user instruction to await a named reviewer) to each account, including queue and send wait. If Dot is busy, times out or is unavailable, the reviewer fallback above—a passing /er on the finished evidence plus two independent /advice votes at the same head—satisfies the /dot review leg; record `/dot busy: /er + /advice substituted` with the accounts tried, request/timeout times, and outcomes. A /dot verdict arriving after its attempt timed out does not count toward the completed review route or replace the fallback; retain any late substantive finding and assess whether it reopens the affected stage. Required substantive evidence gates remain open until proved. An independent /dot receipt names its reviewer, declared source/evidence scope, original tested/reviewed SHAs, actual inspection/actions, verdict, coverage, findings/limits and retrievable receipt. An acknowledgment, capability claim or another reviewer's verdict is not /dot approval. Its covered scope must satisfy the requested gate; narrow visual approval is not full source approval.
-**Mandatory AI Visual Approval Gate before Stage 5 (`stage:5-final-approval`) and Merge:** For any user-visible change (anything not covered by the narrow documentation-only / zero-UI-impact non-visual exemption), Stage 3 -> Stage 5 promotion and merge readiness MUST include an explicit `VISUAL APPROVED at <40-char-sha>` (or a reasoned delta assessment preserving an earlier evidenced SHA whose rendered UI did not change) from an independent AI reviewer (`/er` visual lane inspecting actual rendered image/video frames, `/advice` visual inspection, or `/dot`). A pending request (e.g., `/dot: REQUESTED, pending`), a code-only `/advice` substitution, or a link-existence check alone is NOT a visual approval PASS; if `/dot` is unavailable or pending, the driver MUST run an independent AI visual reviewer (`/advice` or `/er` visual lane that downloads and inspects the rendered stills/frames) and record `VISUAL APPROVED at <40-char-sha>` before labeling `stage:5-final-approval`. The approval record MUST include, per user-visible claim, the before (where a before state exists) and after artifact links, a concrete description of what the reviewer saw in each (the changed element, its state, and the viewport), and a matches-claim verdict, all bound to the evidenced SHA (the approved head, or the earlier SHA a reasoned delta assessment preserves); a bare stamp or approver name without those findings is not a visual approval PASS. Repositories may require the findings as a PR-body table and check its presence and SHA binding in CI.
+**Mandatory AI Visual Approval Gate before Stage 5 (`stage:5-final-approval`) and Merge:** For any user-visible change (anything not covered by the narrow documentation-only / zero-UI-impact non-visual exemption or the one-liner fast path in § Proportional exceptions and fast paths), Stage 3 -> Stage 5 promotion and merge readiness MUST include an explicit `VISUAL APPROVED at <40-char-sha>` (or a reasoned delta assessment preserving an earlier evidenced SHA whose rendered UI did not change) from an independent AI reviewer (`/er` visual lane inspecting actual rendered image/video frames, `/advice` visual inspection, or `/dot`). A pending request (e.g., `/dot: REQUESTED, pending`), a code-only `/advice` substitution, or a link-existence check alone is NOT a visual approval PASS; if `/dot` is unavailable or pending, the driver MUST run an independent AI visual reviewer (`/advice` or `/er` visual lane that downloads and inspects the rendered stills/frames) and record `VISUAL APPROVED at <40-char-sha>` before labeling `stage:5-final-approval`. The approval record MUST include, per user-visible claim, the before (where a before state exists) and after artifact links, a concrete description of what the reviewer saw in each (the changed element, its state, and the viewport), and a matches-claim verdict, all bound to the evidenced SHA (the approved head, or the earlier SHA a reasoned delta assessment preserves); a bare stamp or approver name without those findings is not a visual approval PASS. Repositories may require the findings as a PR-body table and check its presence and SHA binding in CI.
 Reviewer eligibility and quorum remain owned by their review skills; the author/orchestrator cannot self-award
 an independent vote, and reusing a verdict never creates an extra voter. A technical /dot verdict is evidence of review, never human permission to merge, change policy or operate another scope. A bot or orchestrator acknowledgment does not qualify as an independent review.
 Draft and final obligations are distinct: evaluate whether the existing verdict's scope and phase cover the
@@ -214,7 +218,7 @@ a source push does not install or synchronize another computer.
 
 ### Evidence attached to every stage exit
 
-Always attach evidence to the PR description using retrievable artifact URLs and a sanitized gist receipt URL. Proof only in a comment, local path, chat or promised upload is insufficient. Every completed stage 0–5 has an appropriate receipt; specification proof does not require future runtime evidence. Stage 2 produces the acceptance-evidence package, not the first evidence of any kind: earlier stages publish their own specification or focused-check receipts. One version-pinned gist may contain distinct stage/event anchors without ceremonial duplicate uploads.
+Always attach evidence to the PR description using retrievable artifact URLs and a sanitized gist receipt URL; under the one-liner fast path the PR-body before/after quote plus current-head CI is the receipt and no gist is required. Proof only in a comment, local path, chat or promised upload is insufficient. Every completed stage 0–5 has an appropriate receipt; specification proof does not require future runtime evidence. Stage 2 produces the acceptance-evidence package, not the first evidence of any kind: earlier stages publish their own specification or focused-check receipts. One version-pinned gist may contain distinct stage/event anchors without ceremonial duplicate uploads.
 
 The description's evidence index records stage, disposition (`COMPLETE`, `NOT REQUIRED`, `REUSED` or `BLOCKED`), candidate head/base, full diff classification, original tested/reviewed SHAs and execution timestamps, applicable commands/environment/results, artifact hashes, reviewer and coverage, limitations, and exemption or reuse rationale. Preserve original receipts and append superseding events instead of restamping evidence.
 
@@ -241,6 +245,14 @@ These claim/risk rules apply to the generic lifecycle as well as opted-in reposi
 Classify the complete diff by effects and claimed outcomes, not its extension, a non-production label, or the latest commit size. For an entirely harmless documentation/mechanical change or obvious display-copy-only change under 50 total additions+deletions, a compact `/es` receipt with source before/after inspection and proportionate checks can suffice. Record `/er` and the extra independent `/dot` lane as `NOT REQUIRED — trivial-change exception`, never a fabricated PASS or reviewer vote. This exception applies at both review phases; explicitly requested reviews remain required. In opted-in repositories, the seven-element specification may be concise but remains required in its prescribed location. The >=50 advice boundary is unchanged.
 
 This exception excludes application prompts, schemas, selectors, URLs, interpolation, format/control strings, authentication, permissions, consent, payments, legal meaning, and approval, merge, review, evidence or security policy. Agent instructions changing these rules are not harmless documentation: this workflow policy cannot exempt its own review. A one-line change can be high risk. Mixed diffs follow the requirements of their affected claims.
+
+**One-liner fast path.** A PR qualifies when the trivial-change exception above applies and its production change is at most 10 added+deleted lines of display copy, comments, or removal of unused or unreachable text. Eligibility is classified from the diff, not the PR's stated claim: the production diff may change only literal text, with no layout, style, component, condition, interpolation, data or control-flow change, so the only user-visible behavior it changes is that text; its only non-production changes are the pinning-assertion edits this path requires and literal-text updates in existing tests. The new or removed text itself necessarily renders differently and is the claim; a diff with any rendered, layout, interaction or displayed-data effect beyond that changed text is not on this path. It is complete when it has:
+- current-head CI green, or the documentation-only CI exception;
+- a clean merge-tree;
+- a PR body that quotes the before/after source lines;
+- where a test already covers the text, an assertion that pins the new literal (or, for a pure removal, asserts the removed text is absent) and that fails when run against the old text.
+
+Because its claim is source-literal and it publishes no media, draft gate 4 (`/visual-verification`) and visual review do not apply. It does not need a gist, inline media, committed capture drivers, `/er`, a visual-findings table or stamp, or `/dot`. A later delta that changes the quoted text, the pinning assertion, or anything that renders the text re-runs these checks; other deltas reuse them under § SHA-binding rule, except that current-head CI is never reused. Record each as `NOT REQUIRED — one-liner fast path`. For this path the compact `/es` receipt and the Stage 2–3 receipts are the PR-body before/after source quote, the pinning assertion's failing output when run against the old text (an excerpt in the PR body, where a test covers the text), and the current-head CI result, and the `**Evidence**:` marker may point to that PR-body section or the PR diff URL with the head SHA instead of a gist. In opted-in repositories the seven-element specification may be one line per element, and Stages 2–3 are satisfied by these checks; Stage 4 (undraft, comment resolution, conflicts and current-candidate `/green`) still applies before Stage 5. Precedence follows § Precedence and scope: this fast path also governs a repository's generic "user-visible changes need media, gists or visual approval" wording only where that repository delegates proportional exceptions to this contract (for example a "Shared proportional-evidence applicability" pointer); otherwise the repository's explicit requirement governs. Reviewers must not raise P0/P1 findings for proof this fast path waives; such notes are P2 at most. Merge authority and the separate merge gates are unchanged, and an explicit user request for proof still applies.
 
 For Markdown-only instruction changes, focused proof may use the complete base-to-head source diff, link/heading/structure checks, and scenarios against both text versions. Application runtime, browser/media, and real-provider proof are `N/A` only when no changed claim depends on them. Markdown containing automation, prompts, schemas, or machine-consumed contracts still requires its applicable proof. Changed agent instructions still require at least one independent adversarial full-scope LLM review, plus any applicable `/advice` quorum and repository-required `/dot` route. Reuse one version-pinned receipt across applicable stages, preserving original SHAs and recording candidate applicability; rerun only proof affected by the delta.
 
@@ -293,6 +305,19 @@ resumption trigger, report `Blocked` or `Waiting` — a blocker never makes it
 `Working`. Creating a goal or checklist is not execution. Do not stop
 at a completed design when implementation was authorized.
 
+### Continuation through the requested endpoint
+
+During an authorized `/prw`, a status or progress response does not end the
+request: refresh live state, answer briefly, then resume the next authorized
+action through the requested endpoint. Keep each started job or delegated lane
+owned through its result; use the existing async-handle, handback and
+independent-work rules in `parallelize-to-ceiling`, then integrate and verify
+the returned artifact. Stop only at the requested endpoint, a user scope
+change/stop, or a genuine scoped blocker or required user-only decision under
+the applicable authority rules. Batch related review findings and fixes under
+the existing draft-phase and SHA-applicability contracts; assess the actual
+delta and rerun only affected proof and review.
+
 ## Draft-phase final acceptance gates (in order)
 
 Before this final sequence, run independent code-correctness reviews (including
@@ -327,8 +352,8 @@ credential, or merge-path code.
 3. **`/advice`** — second-opinion approval on the change itself (`APPROVED at <SHA>` / `NOT APPROVED at <SHA>` / `WITHHELD at <SHA>` — see `../advice/SKILL.md`), bound to its actual reviewed SHA and applicable to the candidate by the delta assessment, when required by Advice applicability. `WITHHELD` does not satisfy the draft gate.
 4. **`/visual-verification`** — applies when the PR **publishes** any screenshot, GIF or video, or when the PR
    **claims** a rendered, interaction or displayed-data effect that media would evidence. It does **not** apply to a
-   source-literal-only claim (copy, log or alert text inspected in source) that publishes no media: those keep the
-   bounded `N/A` allowance they already have. A qualifying seat is independent of the author **and** of the `/er` seat
+   source-literal-only claim (copy, log or alert text inspected in source) that publishes no media, including a
+   one-liner fast-path PR: those keep the bounded `N/A` allowance they already have. A qualifying seat is independent of the author **and** of the `/er` seat
    that judged the bundle: it downloads each media artifact itself, verifies its hash, decodes the file, extracts the
    before and after frames, and returns `VISUAL-VERDICT: PASS|FAIL` mapping what it observed to the claim, plus what
    the media does **not** prove. The Review Gate Ledger carries its own `/visual-verification` row, and media that
@@ -523,19 +548,22 @@ leaves its gate open. READY never supplies merge authorization. Earlier-SHA revi
 
 For every review type that runs, including `/es`, `/er`, `/advice`, `/wa`, `/cs`,
 other named lanes and native reviews, update the PR description with the exact
-reviewed SHA, review type/phase, verdict or status, gist URL, timestamp, and
+reviewed SHA, review type/phase, verdict or status, gist URL (for a one-liner fast-path `/es` record, the PR-body
+before/after section instead), timestamp, and
 reviewer/coverage. Document reviews additionally retain document hashes; their
 context SHA does not turn document approval into code approval.
 
 For evidence-gate compatibility, keep one current marker in the PR body:
 `**Evidence**: <gist-url> (head <sha>)`, pointing to the authorized sanitized
-evidence-review receipt for current applicability. Update that index only;
+evidence-review receipt for current applicability (under the one-liner fast path it may
+point to the PR-body before/after section or diff URL instead). Update that index only;
 preserve the historical ledger, receipt URLs, and original capture SHAs.
 Underlying raw artifacts may remain private. Missing publication authority or
 an inaccessible receipt leaves this marker incomplete; never fabricate its URL.
 
 Publish each completed review's sanitized receipt as a gist only within the
-approved disclosure scope. A gist is link-accessible, not private storage; omit
+approved disclosure scope (a one-liner fast-path `/es` receipt lives in the PR body
+instead; see § Proportional exceptions and fast paths). A gist is link-accessible, not private storage; omit
 credentials, private source, personal communications, and sensitive artifacts
 unless separately authorized. Verify the gist URL and intended reviewer access
 before calling publication complete. If tools or permissions prevent publishing,
