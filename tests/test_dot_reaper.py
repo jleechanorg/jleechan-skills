@@ -79,6 +79,43 @@ class ReaperContractTest(unittest.TestCase):
         self.assertTrue(os.path.lexists(self.profile / "SingletonLock"))
         self.assertTrue(os.path.lexists(self.profile / "SingletonCookie"))
 
+    def test_a_lock_that_changes_during_inspection_is_left_untouched(self):
+        self.lock(socket.gethostname(), 999999)
+        with patch.object(reaper, "pid_alive", return_value=False), \
+             patch.object(reaper, "processes_on", return_value=[]), \
+             patch.object(reaper, "stale_destination", side_effect=None), \
+             patch.object(reaper.os, "readlink", side_effect=[f"{socket.gethostname()}-999999", "this-host-111"]):
+            message = reaper.reap("acct", self.profile, apply=True)
+        self.assertIn("lock changed during inspection", message)
+        self.assertTrue(os.path.lexists(self.profile / "SingletonLock"))
+
+    def test_rename_never_overwrites_an_existing_stale_entry(self):
+        self.lock(socket.gethostname(), 999999)
+        for name in reaper.NAMES:
+            (self.profile / f"{name}.stale-20200101T000000Z").write_text("older evidence")
+        with patch.object(reaper, "pid_alive", return_value=False), \
+             patch.object(reaper, "processes_on", return_value=[]):
+            reaper.reap("acct", self.profile, apply=True)
+        for name in reaper.NAMES:
+            self.assertTrue((self.profile / f"{name}.stale-20200101T000000Z").exists(),
+                            f"older {name} evidence must survive")
+            self.assertGreaterEqual(len(list(self.profile.glob(f"{name}.stale-*"))), 2, name)
+
+    def test_unknown_process_state_fails_closed(self):
+        """An unreadable process listing must never look like an idle profile."""
+        import subprocess
+        failed = subprocess.CompletedProcess(args=["ps"], returncode=1, stdout="", stderr="denied")
+        with patch.object(reaper.Path, "is_dir", return_value=False), \
+             patch.object(reaper.subprocess, "run", return_value=failed):
+            self.assertNotEqual(reaper.processes_on(self.profile), [])
+
+    def test_dry_run_flag_is_supported(self):
+        import subprocess
+        result = subprocess.run(["python3", str(SCRIPT), "--dry-run", "--config", "/nonexistent"],
+                                capture_output=True, text=True)
+        self.assertNotIn("unrecognized arguments", result.stderr)
+        self.assertNotIn("unrecognised arguments", result.stderr)
+
     def test_unrecognised_lock_target_is_left_untouched(self):
         target = self.profile / "SingletonLock"
         target.unlink()
