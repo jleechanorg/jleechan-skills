@@ -10,8 +10,7 @@ when-to-use: When the user invokes /generatetest, asks to generate an E2E test, 
 
 Generate self-contained tests with built-in evidence generation for
 your-project.com. All generated tests use real local servers, real
-databases, real Gemini LLM calls — nothing mocked. Tests generate evidence
-bundles directly to `/tmp/<repo>/<branch>/<work>/<timestamp>/`.
+databases, real Gemini LLM calls — nothing mocked. Tests generate evidence bundles through the target repository’s existing evidence helper and configured Scratch destination. Do not generate workspace-shaped bundles under `/tmp`; if the helper cannot use configured Scratch, stop and report the gap instead of inventing a flag or fallback.
 
 **Usage**: `/generatetest <free-form description>`
 
@@ -31,7 +30,7 @@ evidence standards.
 
 - **MANDATORY MCPTestBase**: For ALL E2E tests with MCP server, ALWAYS inherit from `MCPTestBase` class. NEVER generate standalone scripts.
 - **REAL MODE ONLY**: All generated tests use real local servers, real databases, nothing mocked.
-- **EVIDENCE-FIRST**: Tests generate evidence bundles directly to `/tmp/<repo>/<branch>/<work>/<timestamp>/`.
+- **EVIDENCE-FIRST**: Use the existing evidence helper and configured Scratch destination for evidence bundles; fail closed if Scratch is unavailable.
 - **USE SHARED LIBRARIES**: ALWAYS use `testing_mcp/lib/` utilities — NEVER reimplement test infrastructure.
 - **FREE-FORM INPUT**: Accept natural language like "for this PR make sure the equipment logic works".
 
@@ -174,7 +173,7 @@ The 41 existing test files in `testing_mcp/` all use MCPTestBase - this is the e
 
 | Module | Functions | Purpose |
 |--------|-----------|---------|
-| **`lib/evidence_utils.py`** | `get_evidence_dir(test_name)` | Get `/tmp/<repo>/<branch>/<test_name>` path |
+| **`lib/evidence_utils.py`** | `get_evidence_dir(test_name)` | Resolve the evidence path; verify configured Scratch support before relying on it |
 | | `capture_provenance(base_url, server_pid=None)` | Capture git + server provenance |
 | | `save_evidence(evidence_dir, data, filename)` | Save with SHA256 checksum |
 | | `write_with_checksum(path, content)` | Write file with checksum |
@@ -270,7 +269,7 @@ save_evidence(evidence_dir, test_results, "results.json")
 | Output Type | Default Location | Override Flag |
 |-------------|------------------|---------------|
 | **Test files** | `testing_mcp/` | `--test-dir <path>` |
-| **Evidence** | `/tmp/<repo>/<branch>/<work>/iteration_NNN/` | `--evidence-dir <path>` |
+| **Evidence** | Configured Scratch directory for the work and iteration | `--evidence-dir <path>` |
 
 **Versioning (v1.1.0+):** Evidence bundles now use iteration-based directories:
 - Each run creates `iteration_001/`, `iteration_002/`, etc.

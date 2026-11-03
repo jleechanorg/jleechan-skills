@@ -33,8 +33,8 @@ claim depends on its worker or deployment behavior.
 - When the claim includes a streamed interaction, verify the run reaches the completion event required by that harness; do not require unrelated trace files for claims that do not exercise those paths.
 
 ### 3. Evidence packaging and checksums
-- Use the helper and metadata required by the scoped test owner for the selected evidence class; keep scratch output in a unique `/tmp/<repo>/...` run directory.
+- Use the helper and metadata required by the scoped test owner for the selected evidence class; keep scratch output in a unique directory allocated through the canonical Scratch resolver; stop if Scratch is unavailable and never fall back to `/tmp` for workspace-shaped evidence.
 - Verify the checksum mode required by the current `/es` or `/er` contract for that claim. Do not assert a universal bundle schema beyond that contract.
 
 ### 4. Bundle Archival and Git Registration
-- Keep bulky and ephemeral evidence under a unique `/tmp/<repo>/...` run directory. When an evidence artifact must outlive the session or a gate requires publication, use an authorized hosted evidence route and link its receipt with the tested SHA in the PR description. Never copy evidence bundles into the repository tree.
+- Keep bulky and ephemeral evidence under a unique Scratch directory resolved through the canonical helper. If Scratch is unavailable, stop and report it rather than falling back to `/tmp`. When an evidence artifact must outlive the session or a gate requires publication, use an authorized hosted evidence route and link its receipt with the tested SHA in the PR description. Never copy evidence bundles into the repository tree.

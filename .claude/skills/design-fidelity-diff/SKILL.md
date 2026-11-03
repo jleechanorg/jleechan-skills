@@ -44,14 +44,20 @@ Get pixels, not source. Reading the mock's HTML/CSS and summarizing it is the
 failure mode this skill exists to prevent.
 
 Use the design tool's supported export or preview mechanism. Keep token-scoped
-preview URLs out of user-facing text and logs. Store temporary captures in a
-unique task-scoped directory under `/tmp`.
+preview URLs out of user-facing text and logs. Store temporary captures in a unique task-scoped directory under the canonical Scratch resolver. If Scratch is unavailable, stop and report it; do not fall back to `/tmp`.
 
 ```python
 from pathlib import Path
 from tempfile import mkdtemp
 from playwright.sync_api import sync_playwright
-scratch = Path(mkdtemp(prefix="design-fidelity-", dir="/tmp"))
+import subprocess
+
+scratch_root = subprocess.check_output([
+    str(Path.home() / ".claude/skills/scratch-space/scripts/scratch-dir.sh"), "tmp"
+], text=True).strip()
+if not scratch_root:
+    raise RuntimeError("Scratch resolver returned an empty path")
+scratch = Path(mkdtemp(prefix="design-fidelity-", dir=scratch_root))
 with sync_playwright() as p:
     b = p.chromium.launch(headless=True)
     pg = b.new_page(viewport={"width":1440,"height":900}, device_scale_factor=2)

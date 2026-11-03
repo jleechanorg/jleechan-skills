@@ -7,15 +7,9 @@ description: Single source of truth for agent scratch, temporary files, disposab
 
 ## Purpose (Ponytail / DRY / ZFC Invariant)
 
-Do **not** hardcode `/tmp/...`, `/private/tmp/...`, `/Volumes/diskm-scratch`, or `~/Scratch` across individual skills, prompts, or agent instruction files.
+Do **not** hardcode temporary workspace paths or a host-specific Scratch mountpoint across individual skills, prompts, or agent instruction files.
 
-All temporary, disposable build, test scratch, and evidence paths resolve dynamically through **one canonical interface** backed by `diskm` (`~/.config/disk-magician/config.json`) and exported by default in all shell/agent environments via `$DISKM_SCRATCH` and `$CLAUDE_CODE_TMPDIR`:
-
-0. **Default Environment Variables (Pre-exported in `~/.zshenv`, `~/.bashrc`, `~/.profile`, and `~/.claude/settings.json`)**
-   - `DISKM_SCRATCH`: Pre-set to the host's active Scratch volume (`/Volumes/diskm-scratch` on macOS, `~/Scratch` / `${HOME}/Scratch` on Linux).
-   - `CLAUDE_CODE_TMPDIR`: Pre-set to `${DISKM_SCRATCH}/tmp` so Claude Code task scratchpads (`claude-*`) use the Scratch volume automatically by default.
-   - `PYTEST_DEBUG_TEMPROOT`: Pre-set to `${DISKM_SCRATCH}/tmp` so pytest debug artifacts and test scratch stay off the host root filesystem.
-   - `BASH_ENV`: Pre-set to `$HOME/.bashrc` across shell configurations and `settings.json` so non-interactive agent bash subshells inherit the Scratch environment automatically before any interactive shell guards.
+All temporary, disposable build, test scratch, and evidence paths resolve dynamically through the canonical Scratch resolver backed by local disk-magician configuration. Hosts may export `$DISKM_SCRATCH` and runtime temp variables, but exported skills must not assume those values exist; use the resolver and fail closed when it cannot resolve Scratch:
 
 1. **Repo-Scoped Build, Test & Evidence Directories (Managed Lease + Admission)**
    ```bash
@@ -26,7 +20,7 @@ All temporary, disposable build, test scratch, and evidence paths resolve dynami
    EVIDENCE_DIR="$(diskm scratch-new <repo-path> <purpose> --kind evidence)"
    ```
    - Pass `--owner-pid <PID>` when allocating for a long-lived background process.
-   - `diskm scratch-new` enforces volume health, admission control, 48-hour recency, and active-lease protection.
+   - `diskm scratch-new` validates the request, applies admission checks, creates the directory, and records its lease. It does not enforce an age-based recency floor. `diskm scratch-prune` owns age-based cleanup; its current help reports a 24-hour default recency floor.
 
 2. **Ad-Hoc Helper Files, PR Bodies, Frame Dumps, Server Logs & Ephemeral Scripts**
    ```bash
@@ -38,6 +32,7 @@ All temporary, disposable build, test scratch, and evidence paths resolve dynami
      ```bash
      BODY_FILE="$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh gh)/pr_body_$$.md"
      ```
+   - Before using the helper for a workspace-shaped output, reject an empty result and any fallback to a system temporary directory. If Scratch is unconfigured, stop and report it.
    - Example (ephemeral `mktemp` directory for video frames, clones, or probes):
      ```bash
      SCRATCH_TMP="$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh tmp)" || {

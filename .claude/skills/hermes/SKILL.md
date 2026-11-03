@@ -2,7 +2,6 @@
 name: hermes
 description: Send authorized coordination to Hermes through the correct Slack identity or existing gateway, and distinguish message receipt from actual execution.
 
-description: Coordinate authorized engineering work with Hermes through Slack, verify acknowledgment and evidence, and recover genuinely inactive ownership after 20 minutes.
 ---
 
 # Hermes coordination

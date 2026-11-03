@@ -44,6 +44,8 @@ explicitly authorized transfer from exactly one named agent-owned profile below.
 
 ## Supported runtime browser API
 
+An agent-owned profile may already be signed into a task-appropriate service account. Verify the connected profile and account identity in provider UI before acting; this does not authorize use of a personal/default profile, cookie transfer, or access beyond the requested task.
+
 Use a connected browser API only when it connects to a separate, task-owned
 browser context. Do not use a Chrome extension bridge or existing-tab API to
 inspect personal desktop tabs or profiles. Verify ownership before navigation;

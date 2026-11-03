@@ -151,9 +151,13 @@ scp ~/.claude/skills/ezgha-watchdog/SKILL.md macbook:~/.claude/skills/ezgha-watc
 scp ~/.claude/skills/ezgha-watchdog/scripts/ezgha-fleet-watchdog.sh macbook:~/.claude/skills/ezgha-watchdog/scripts/
 
 # Option B: pull from GitHub
-ssh macbook 'git clone https://github.com/$GITHUB_REPOSITORY.git /tmp/your-project.com && \
+ssh macbook 'SCRATCH_TMP="$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh tmp)" || exit 75; \
+  test -n "$SCRATCH_TMP" || exit 75; \
+  case "$SCRATCH_TMP" in /tmp*|/private/tmp*) echo "Scratch resolver returned a system temp path; refusing clone" >&2; exit 75;; esac; \
+  CLONE_DIR="$(mktemp -d "$SCRATCH_TMP/your-project.XXXXXX")" || exit 75; \
+  git clone https://github.com/$GITHUB_REPOSITORY.git "$CLONE_DIR" && \
   mkdir -p ~/.claude/skills/ezgha-watchdog && \
-  cp -r /tmp/your-project.com/.claude/skills/ezgha-watchdog/* ~/.claude/skills/ezgha-watchdog/'
+  cp -r "$CLONE_DIR/.claude/skills/ezgha-watchdog/"* ~/.claude/skills/ezgha-watchdog/'
 ```
 
 ## Caveats
