@@ -9,7 +9,7 @@ This skill teaches Claude how to use `disk_magician` to audit disk space, identi
 
 ## Skill Integration & Commands
 
-* **Which procedure**: a quick capacity check or plain reclaim question runs the zero-`du` triage in `../disk-audit/SKILL.md`. A root-cause investigation or cleanup-target decision runs the full forensic procedure in `../disk-root-cause/SKILL.md`. Do not start a full audit for a quick check. If a precomputed input is stale, use its owning freshness probe (including `diskm ledger-freshness` for the ledger); do not assume a fixed freshness interval.
+* **Which procedure**: a quick capacity check or plain reclaim question runs the zero-`du` triage in `../disk-audit/SKILL.md`. A root-cause investigation or cleanup-target decision runs the full forensic procedure in `../disk-root-cause/SKILL.md`. Do not start a full audit for a quick check. On the quick path, escalate to the full audit when the precomputed ledger or snapshot is missing or its owning freshness probe reports stale; use `diskm ledger-freshness` for the ledger and do not assume a fixed interval.
 * **Default forensic diagnosis (attribution only)**: For a root-cause request, run the full three-lane `diskm audit` before drilling down. The residual is not backup size or reclaimable without evidence.
 * **Cleanup previews**: Use the canonical preview interfaces before choosing a cleanup target:
   ```bash
