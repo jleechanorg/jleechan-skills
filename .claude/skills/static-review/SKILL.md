@@ -6,6 +6,12 @@ description: Use when dispatching any independent reviewer (CLI, coordinator ask
 # /static-review — cold, verbatim reviewer input
 
 This skill owns what every reviewer receives and what its receipt proves.
+“Static” means the reviewer prompt is fixed, not that approval is restricted.
+Static reviewers may approve code, a PR, an exact head SHA, or saved material
+when they independently review the complete declared scope and required evidence.
+Read-only review through GitHub/API or an existing checkout needs no new clone,
+export, or Scratch workspace. Approval remains bound to the reviewed scope;
+reviewer approval is not permission to merge.
 The `advice` skill owns when reviewers run, the quorum and the
 substitution rules; pr-lifecycle owns publication.
 
@@ -17,40 +23,44 @@ whether a CLI reviewer, the coordinator ask or a static-review subagent, is
 one fixed channel preamble below followed by one template below. Fill exactly the fields that the `advice` skill's §4
 table lists for the seat's `isolation:` record - `<PR URL>` `<SHA>` `<BASE SHA>` `<SCRATCH PATH>` for
 `isolation: orchestrator-clone`, `<PR URL>` `<SHA>` `<BASE SHA>` `<SCRATCH PATH>` for
-`isolation: orchestrator-export`, `<PACKET PATH>` `<BUNDLE HASH>` for `isolation: none` - and use that record's
+`isolation: orchestrator-export`, `<PR URL>` `<SHA>` `<BASE SHA>` for `isolation: read-only`,
+`<PACKET PATH>` `<BUNDLE HASH>` `<REVIEW TARGET>` for `isolation: none` - and use that record's
 preamble **and** template. The orchestrator writes nothing else.
 
 The export record uses the **shared revision template** in §2 unchanged (it names `<PR URL>`, `<SHA>` and
 `<BASE SHA>`, all of which the export supplies); only the preamble differs. Choose exactly one preamble per
 seat - the revision preamble for `orchestrator-clone`, the export preamble for `orchestrator-export`,
-the document-only preamble for `none`. Preambles are alternatives, never concatenated.
+the read-only preamble for `read-only`, or the saved-content preamble for `none`.
+Preambles are alternatives, never concatenated.
 
 ## 2. Templates
 
 Static review prompt (skill-owned, verbatim):
 
 ```text
-Review <PR URL> at head <SHA> (base <BASE SHA>, work only in <SCRATCH PATH>). Ensure it follows the /prw stages and focus on
+Review <PR URL> at head <SHA> (base <BASE SHA>). Ensure it follows the /prw stages and focus on
 evidence review before approval. Report P0/P1/P2 with file:line and a
-COVERAGE: line naming the files and diff you read; approve only with no P0/P1
-and full coverage; end with exactly one line:
+COVERAGE: line naming the files and diff you read; approve only with no P0
+and full coverage; report P1/P2 as nonblocking findings; end with exactly one line:
 VERDICT: APPROVED|NOT APPROVED|WITHHELD at <SHA> (WITHHELD with a reason).
 ```
 
-Document-only review prompt (skill-owned, verbatim):
+Saved-content review prompt (skill-owned, verbatim):
 
 ```text
-Review the saved documents in <PACKET PATH>, bundle
-DOCUMENTS sha256:<BUNDLE HASH>. This is document-only review: do not approve
-code, a PR or HEAD. Report P0/P1/P2 with file:line and a COVERAGE: line naming
-the files you read; approve only with no P0/P1 and full coverage; end with
-exactly one line: VERDICT: APPROVED|NOT APPROVED|WITHHELD at
-DOCUMENTS sha256:<BUNDLE HASH> (WITHHELD with a reason).
+Review the saved material in <PACKET PATH>, bundle sha256:<BUNDLE HASH>,
+for <REVIEW TARGET>. Read the complete declared files, diff and evidence.
+Report P0/P1/P2 with file:line and a COVERAGE: line naming the files and diff
+you read; approve only with no P0 and full coverage; report P1/P2 as nonblocking
+findings. Bind revision approval
+to the packet's verified PR URL, base and head; otherwise approve only the
+named bundle. End with exactly one line:
+VERDICT: APPROVED|NOT APPROVED|WITHHELD at <REVIEW TARGET> (WITHHELD with a reason).
 ```
 
 ## 3. Channel preambles
 
-Each channel's preamble is the exact-SHA or document-only header the orchestrator adds when it launches that
+Each channel's preamble is the exact-SHA or saved-content header the orchestrator adds when it launches that
 seat, and the packet must contain exactly the filled template. The orchestrator records the exact prompt in
 `receipt.json` as `prompt` and `prompt_sha256`. For CLI
 alternates, each `<review request>`, and the stdin of forms without one, is
@@ -60,7 +70,7 @@ Coordinator ask (for example a Dot reviewer channel): the configured account
 mentions, then `Advice vote requested.` on its own line, then the template.
 Send it to each configured coordinator account in rotation.
 
-The revision and document-only preambles below apply to **every** CLI reviewer seat - Codex, Opus, the Claude
+The clone, export, read-only and saved-content preambles below apply to **every** CLI reviewer seat - Codex, Opus, the Claude
 alternates, Cursor, AGY and any `ADVICE_EXTRA_CLIS` seat - and to static reviewers. They replace the header the
 deleted helper used to inject; there is no other header to match, so a seat launched without one
 cannot produce a byte-identical prompt and its vote is void.
@@ -68,7 +78,7 @@ cannot produce a byte-identical prompt and its vote is void.
 Revision preamble for every CLI seat and for static reviewers (verbatim):
 
 ```text
-Work only in the isolated clone at the scratch path given below; if your working
+Work only in the isolated clone at <SCRATCH PATH>; if your working
 directory was set to it, stay there. Do not clone, fetch, check out another
 commit, add a remote, or create any other copy - these are instructions, and the
 orchestrator's post-return checks are what detect a clone whose HEAD or remote
@@ -82,7 +92,7 @@ not post anything; return your review as your final output.
 Export preamble for every CLI seat and for static reviewers (verbatim):
 
 ```text
-Work only in the exported tree at the scratch path given below; if your working
+Work only in the exported tree at <SCRATCH PATH>; if your working
 directory was set to it, stay there. The export contains no .git: it is a
 snapshot of <SHA>, not a repository, so there is no history, no remote and
 nothing to commit. Do not clone, fetch, add a remote, or create any other copy,
@@ -97,11 +107,22 @@ present in your environment and never print it. Do not modify any checkout, refs
 config or hooks. Do not post anything; return your review as your final output.
 ```
 
-Document-only preamble for every CLI seat and for static reviewers (verbatim):
+Read-only revision preamble for every CLI seat and for static reviewers (verbatim):
 
 ```text
-Read only the named saved files in the given packet, checking each against its
-recorded SHA256. Do not clone or review code. Do not modify any checkout, refs,
+Review read-only through GitHub/API or an existing checkout. Read the complete
+pinned base-to-head diff, changed files and relevant supporting evidence.
+Resolve mutable PR references to the requested SHA before reviewing; do not
+substitute a later head or a truncated diff. No clone or export is required.
+Do not modify any checkout, refs, config or hooks. Do not post anything;
+return your review as your final output. Never print credentials.
+```
+
+Saved-content preamble for every CLI seat and for static reviewers (verbatim):
+
+```text
+Read only the named saved files and evidence in the given packet, checking each
+against its recorded SHA256 and any declared revision binding. Do not modify any checkout, refs,
 config or hooks. Do not post anything; return your review as your final output.
 ```
 
@@ -123,11 +144,14 @@ post; the orchestrator publishes verdicts through pr-lifecycle.
 Every reviewer receipt records the reviewer identity (type, harness and model),
 the exact SHA or bundle hash, orchestrator launch and return times, the exact
 prompt sent, a `COVERAGE:` statement, the `VERDICT:` line, the actual clone path whenever one exists, or the export path for orchestrator-export
-whenever one exists (document-only review launches no copy, so record `none`
-there), and a read-only check that the original checkout,
-refs, local config and hooks are unchanged. The orchestrator also verifies and
+whenever one exists (read-only and saved-content review need no copy, so record `none`
+there). Record full diff/file coverage, source URLs or paths, hashes and any PR/base/head
+binding. Check checkout, refs, local config and hooks when a checkout was used;
+record `not used` for an API-only review instead of inventing a filesystem check.
+The orchestrator also verifies and
 records that no reviewer process survives and that copy cleanup succeeded (clone or
-export removal, per the seat's `isolation:` record). For
+export removal, per the seat's `isolation:` record); copy cleanup is `n/a` when
+no copy was created, never an allocation requirement. For
 a static-review subagent this receipt replaces only the seat-exit field of the
 seat receipt. When publishing a receipt outside the authorized
 workspace, publish only the prompt's SHA256 and template name if any filled

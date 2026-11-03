@@ -524,8 +524,10 @@ leaves its gate open. READY never supplies merge authorization. Earlier-SHA revi
 For every review type that runs, including `/es`, `/er`, `/advice`, `/wa`, `/cs`,
 other named lanes and native reviews, update the PR description with the exact
 reviewed SHA, review type/phase, verdict or status, gist URL, timestamp, and
-reviewer/coverage. Document reviews additionally retain document hashes; their
-context SHA does not turn document approval into code approval.
+reviewer/coverage. Saved-content reviews retain file and diff hashes plus any
+verified PR/base/head binding. A complete packet with that binding may approve
+the exact head it covers; without it, approval applies only to the named bundle.
+Review approval never grants merge authority.
 
 For evidence-gate compatibility, keep one current marker in the PR body:
 `**Evidence**: <gist-url> (head <sha>)`, pointing to the authorized sanitized
