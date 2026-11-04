@@ -101,8 +101,8 @@ plugins/
 **What moves.** A skill moves wholesale when its purpose is product-only, no generic
 skill depends on it, and no curated install profile in `shared/install-profiles.json`
 selects it. A generic-sounding name alone does not force a split. Other mentions of a
-moved skill (`closure_excluded`, `shared/retain-local.json`, references) are removed or
-reworded in the same change:
+moved skill (`closure_excluded`, `shared/retain-local.json`, non-curated profile entries,
+references) are removed or reworded in the same change:
 
 - **worldarchitect:** agents (renamed `worldai-agent-routing` so it no longer
   collides with `.claude/agents/`), bq-evidence-reading,
@@ -197,7 +197,7 @@ asserts every relative Markdown link inside `plugins/<name>/` resolves within it
 - **Product-token ratchet** (`tests/test_product_token_ratchet.py`). It scans
   `.claude/skills/**` and `.claude/commands/**`, case-insensitively, for the
   product tokens of all three plugins:
-  `worldarchitect|worldai|mvp_site|your-project\.com|testing_mcp|ai[-_]universe|ezgha`. Any file that
+  `world[-_ ]?architect|worldai|mvp_site|your-project\.com|testing_mcp|ai[-_ ]?universe|ezgha`. Any file that
   matches must appear in `tests/fixtures/product_token_allowlist.txt`, generated
   (overwrite, sorted, de-duplicated) from the post-move tree. Cleaned files may stay
   listed until a regeneration, because parallel PRs clean files independently; PR 5

@@ -43,7 +43,8 @@ TDD: N/A — documentation. Verification: `python3 -m pytest -q tests/test_skill
 passes; `grep -nE '/(Users|home)/[a-z]' docs/portability-env-vars.md` prints nothing; and grepping the
 three new documents with `grep -n -F -f "${XDG_CONFIG_HOME:-$HOME/.config}/jleechan-skills/personal-tokens.txt"`
 (the operator's machine-local list of personal host aliases, names and paths; never committed) exits 1
-(no match). Before running it, assert the list exists and is non-empty (`test -s <file>`); a missing or
+(no match). The list leaves out the identifiers the design allows: this repository's own
+`owner/name`, its config namespace, and the AO CLI's published package name. Before running it, assert the list exists and is non-empty (`test -s <file>`); a missing or
 empty list, or grep exit 2, is a failed check, not a pass. Where no such list exists (an ephemeral
 container), the orchestrator writes one from the session-local audit records first.
 
@@ -184,8 +185,10 @@ fake Slack-style ID built from `C0` plus nine made-up uppercase characters) in a
 ### Task 2.4: Repair references to moved skills
 
 **Files:** every hit of `grep -rlE '(\.\./|skills/)(<moved-names-regex>)/' .claude shared tests scripts .claude-plugin .agents docs install-claude-commands.sh *.md`
-and backticked names in generic skills. Because `agents` is renamed, exclude the legitimate
-`.claude/agents/` and `../agents/` subagent references from the hits. Replace relative links with product-neutral convention
+and backticked names in generic skills. Exclude `.claude/skills_archive/`, the history entries in
+`shared/comparison-decisions.json`, and the PR 1 design documents. Resolve every `agents` hit relative
+to the file that contains it: from `.claude/skills/<x>/`, `../agents/` is the moved skill and must be
+repaired; skip a hit only when it resolves into `.claude/agents/` (the subagent folder). Replace relative links with product-neutral convention
 wording ("if an installed product plugin provides a companion for this skill, read it"), so the
 new text passes the ratchet. Update
 `shared/install-profiles.json` / `shared/retain-local.json` entries naming moved skills.
@@ -209,7 +212,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 SCAN = (ROOT / ".claude" / "skills", ROOT / ".claude" / "commands")
 ALLOW = ROOT / "tests" / "fixtures" / "product_token_allowlist.txt"
-TOKENS = re.compile(r"worldarchitect|worldai|mvp_site|your-project\.com|testing_mcp|ai[-_]universe|ezgha", re.I)
+TOKENS = re.compile(r"world[-_ ]?architect|worldai|mvp_site|your-project\.com|testing_mcp|ai[-_ ]?universe|ezgha", re.I)
 
 def offenders():
     out = set()
@@ -257,12 +260,12 @@ default), write a failing test in `tests/test_<skill>_env_defaults.py` that runs
 with a temp `HOME` and the variable unset, and asserts the one behavior the registry documents for
 that variable, in rule order: the derived value where the registry lists a derivation, else the
 documented default (for example `PROJECTS_DIR` unset scans only `PROJECT_ROOT`), else a non-zero exit
-whose stderr names the variable. A git-derived case runs in a temporary `git init` directory; the
-failure case runs in a temporary non-git directory. A second case sets the variable and asserts it wins.
+whose stderr names the variable. Tests run in a temporary non-git directory with a controlled `PATH`
+(which keeps `git`), except a git-derived case, which runs in a temporary `git init` directory. A
+second case sets the variable and asserts it wins.
 Run: `python3 -m pytest -q tests/test_<skill>_env_defaults.py` → RED (old hardcoded default used).
 Implement the registry resolution. Run → GREEN, then `python3 -m pytest -q tests` → baseline.
-Each test runs in a temporary non-git working directory with a controlled `PATH`, so results do not
-depend on the surrounding checkout. Add any new variable to `docs/portability-env-vars.md`.
+Add any new variable to `docs/portability-env-vars.md`.
 
 ### Task 3.2: Prose and snippet edits
 
@@ -300,9 +303,10 @@ to the derived scratch folder.
 ### Task 4.2: Prose edits
 
 TDD: N/A — wording. Replace hardcoded `<owner>/<repo>` defaults with `$GITHUB_REPOSITORY`/`$GITHUB_ORG`,
-Slack IDs with registry vars, personal names with "the operator". Move real identifiers out of
-`credential-discipline` into the machine-local blocklist file description.
-Verification: `python3 scripts/skill_portability_scan.py --check-personal --base origin/main` exits 0;
+Slack IDs with registry vars, personal names with "the operator". Delete real identifiers from
+`credential-discipline`; its committed text only describes the machine-local blocklist file, and the
+real values live solely in that uncommitted file.
+Verification: `python3 scripts/skill_portability_scan.py --check-personal --base <this PR's base branch>` exits 0;
 `python3 -m pytest -q tests` → baseline.
 
 Commit, push, open draft PR 4.
