@@ -1,5 +1,6 @@
 """Contract tests: pr-lifecycle owns the coding lifecycle and sibling skills agree."""
 
+import re
 import unittest
 from pathlib import Path
 
@@ -441,6 +442,35 @@ class CodingLifecycleContract(unittest.TestCase):
         self.assertIn("any repository-required review, evidence, or `/dot` route", route)
         self.assertIn("merge authorization", route)
         self.assertIn("../pr-lifecycle/SKILL.md#default-pr-route--prw", read("pr-workflow-manager"))
+
+
+class PrLifecycleAnchorResolution(unittest.TestCase):
+    """Every `pr-lifecycle/SKILL.md#<slug>` link in the skill catalog resolves to a heading.
+
+    Compaction edits must not reword a heading that a sibling links to. Targets are
+    discovered by scanning, not hard-coded, so new links are covered automatically.
+    """
+
+    @staticmethod
+    def _github_slug(heading: str) -> str:
+        text = heading.strip().lstrip("#").strip().lower()
+        text = re.sub(r"[^\w\- ]", "", text)
+        return text.replace(" ", "-")
+
+    def test_every_linked_anchor_resolves_to_a_heading(self):
+        owner = (SKILLS / "pr-lifecycle" / "SKILL.md").read_text(encoding="utf-8")
+        headings = {
+            self._github_slug(line)
+            for line in owner.splitlines()
+            if line.startswith("#")
+        }
+        links = {}
+        for path in SKILLS.rglob("SKILL.md"):
+            for match in re.finditer(r"pr-lifecycle/SKILL\.md#([a-z0-9-]+)", path.read_text(encoding="utf-8")):
+                links.setdefault(match.group(1), set()).add(path.relative_to(SKILLS).as_posix())
+        self.assertGreater(len(links), 0)
+        missing = {slug: sorted(src) for slug, src in links.items() if slug not in headings}
+        self.assertEqual(missing, {}, f"unresolved pr-lifecycle anchors: {missing}")
 
 
 if __name__ == "__main__":
