@@ -5,20 +5,23 @@ description: Use when dispatching any independent reviewer (CLI, coordinator ask
 
 # /static-review — cold, verbatim reviewer input
 
-This skill owns what every reviewer receives and what its receipt proves.
-The `advice` skill owns when reviewers run, the quorum and the
-substitution rules; pr-lifecycle owns publication.
+This skill owns what every reviewer receives and what its receipt proves. The `advice` skill owns when reviewers
+run, the quorum and substitution; pr-lifecycle owns publication.
 
 ## 1. Cold start
 
-A static reviewer starts cold and blank, like a fresh terminal: no parent
-context, summary or framing of the change. Every reviewer's entire input,
-whether a CLI reviewer, the coordinator ask or a static-review subagent, is
-one fixed channel preamble below followed by one template below. Fill exactly the fields that the `advice` skill's §4
-table lists for the seat's `isolation:` record - `<PR URL>` `<SHA>` `<BASE SHA>` `<SCRATCH PATH>` for
-`isolation: orchestrator-clone`, `<PR URL>` `<SHA>` `<BASE SHA>` for `isolation: remote`, `<PR URL>` `<SHA>`
-`<BASE SHA>` `<PACKET PATH>` `<BUNDLE HASH>` for `isolation: packet`, `<PACKET PATH>` `<BUNDLE HASH>` for
-`isolation: none` - and use that record's preamble and template. The orchestrator writes nothing else.
+Every reviewer (CLI seat, coordinator ask, web-provider ask or static-review subagent) starts cold: no parent
+context, summary or framing. Its whole input is one channel preamble from §3 followed by one template from §2, with
+only the fields the `advice` skill's §4 table lists for the seat's `isolation:` row filled in:
+
+| `isolation:` | Template | Fields |
+|---|---|---|
+| `orchestrator-clone` | clone review | `<PR URL>` `<SHA>` `<BASE SHA>` `<SCRATCH PATH>` |
+| `remote` | remote review | `<PR URL>` `<SHA>` `<BASE SHA>` |
+| `packet` | revision packet | `<PR URL>` `<SHA>` `<BASE SHA>` `<PACKET PATH>` `<BUNDLE HASH>` |
+| `none` | document-only | `<PACKET PATH>` `<BUNDLE HASH>` |
+
+The orchestrator writes nothing else.
 
 ## 2. Templates
 
@@ -74,29 +77,22 @@ DOCUMENTS sha256:<BUNDLE HASH> (WITHHELD with a reason).
 
 ## 3. Channel preambles
 
-Each channel's preamble is the exact-SHA or document-only header the orchestrator adds when it launches that
-seat, and the packet must contain exactly the filled template. The orchestrator records the exact prompt in
-`receipt.json` as `prompt` and `prompt_sha256`. For CLI
-alternates, each `<review request>`, and the stdin of forms without one, is
-exactly the preamble plus the template.
+The orchestrator records the exact prompt sent as `prompt` and `prompt_sha256` in the seat's receipt. For a CLI
+seat, the `<review request>` argument (or stdin, for forms without one) is exactly preamble plus template.
 
-Coordinator ask (a Dot account or a Hermes instance): the transport's required
-sender line, if its owning skill mandates one (for example the Dot `From ...:`
-prefix), then the configured account mentions, then `Advice vote requested.` on
-its own line, then the remote preamble below, then the remote review prompt
-(revision) or the document-only review prompt (document-only). Send it to each configured Dot account in
-rotation and to each configured Hermes instance. The sender line and mentions
-are recorded in the receipt and are the only bytes allowed before the
-template.
+Coordinator ask (each Dot account in rotation and each configured Hermes instance): the sender line its owning
+skill requires, if any (for example the Dot `From ...:` prefix), then the configured mentions, then
+`Advice vote requested.` on its own line, then the remote preamble, then the remote review prompt (revision) or the
+document-only review prompt. The sender line and mentions are recorded in the receipt and are the only bytes
+allowed before the template.
 
-Web-provider ask (web-advice seats): `Advice vote requested.` on its own line, then
-either the revision packet prompt (revision) or the document-only preamble below
-followed by the document-only review prompt (document-only), with the packet
-files attached as uploads.
+Web-provider ask (web-advice seats): `Advice vote requested.` on its own line, then the revision packet prompt
+(revision) or the document-only preamble plus the document-only review prompt, with the packet files uploaded as
+attachments.
 
-The revision and document-only preambles below apply to **every** CLI reviewer seat - Codex, Opus, the Claude
-alternates, Cursor, AGY and any `ADVICE_EXTRA_CLIS` seat - and to static reviewers. There is no other header to
-match, so a seat launched without one cannot produce a byte-identical prompt and its vote is void.
+Every CLI seat (Codex, Opus, the Claude alternates, Cursor, AGY, any `ADVICE_EXTRA_CLIS` seat) and every static
+reviewer gets the revision or document-only preamble below. A seat launched without one cannot produce a
+byte-identical prompt, so its vote is void.
 
 Revision preamble for every CLI seat and for static reviewers (verbatim):
 
@@ -131,37 +127,29 @@ config or hooks. Do not post anything; return your review as your final output.
 
 ## 4. Identity
 
-Each static reviewer is a distinct reviewer identity and reports its actual
-model. Two reviewers whose models are both unreported, or where either model is
-unreported and type or harness match, are not distinct and count as one vote;
-at most one counted static reviewer may have an unreported model, and it must
-differ from the other by subagent type and harness. Same-identity reviewers are
-one vote. Static
-reviewers run in separate contexts and do not read each other's output first.
-Each static reviewer has one 600-second end-to-end acceptance deadline from launch, which replaces the
-`advice` skill's 1800-second default for static reviewers only (CLI seats and outside routes keep that default); the
-orchestrator, not the reviewer, timestamps launch and return. Reviewers do not
-post; the orchestrator publishes verdicts through pr-lifecycle.
+- A static reviewer reports its actual model. Same identity (type, harness and model) means one vote.
+- Two reviewers that both leave their model unreported count as one vote, and so do two where one is unreported
+  and their type or harness match. At most one counted static reviewer may leave its model unreported, and it must differ from the other by
+  subagent type and harness.
+- Static reviewers run in separate contexts and do not read each other's output first.
+- Each static reviewer has a 600-second end-to-end deadline from launch, replacing the `advice` skill's 1800-second
+  default for static reviewers only. The orchestrator, not the reviewer, timestamps launch and return.
+- Reviewers never post; the orchestrator publishes verdicts through pr-lifecycle.
 
 ## 5. Receipt
 
-Every reviewer receipt records the reviewer identity (type, harness and model),
-the exact SHA or bundle hash, orchestrator launch and return times, the exact
-prompt sent, a `COVERAGE:` statement, the `VERDICT:` line, the actual clone path
-whenever one exists (document-only review launches no clone, so record `none`
-there), and a read-only check that the original checkout,
-refs, local config and hooks are unchanged. The orchestrator also verifies and
-records that no reviewer process survives and that clone cleanup succeeded. For
-a static-review subagent this receipt replaces only the seat-exit field of the
-seat receipt. For an outside route (`isolation: remote` or `isolation: packet`)
-there is no local reviewer process or clone: record the route, the message
-reference or permalink read back at the source, the reviewer's `MODEL:` line as
-`attested.model`, and the row's evidence from the `advice` skill's §4 table in
-place of the process and clone-cleanup fields. When publishing a receipt outside the authorized
-workspace, publish only the prompt's SHA256 and template name if any filled
-field (PR URL, packet path) or other content could carry private paths, hosts,
-repository names or tokens; otherwise remove those values before publishing.
-Keeping the template name plus filled fields is not redaction.
+Every receipt records the reviewer identity (type, harness, model), the exact SHA or bundle hash, launch and return
+times taken by the orchestrator, the exact prompt, the `COVERAGE:` statement, the `VERDICT:` line, the clone path
+(`none` when there is none) and a read-only check that the original checkout, refs, local config and hooks are
+unchanged. The orchestrator also records that no reviewer process survives and that clone cleanup succeeded.
+
+- For a static-review subagent this receipt replaces only the seat-exit field.
+- For an outside route (`remote` or `packet`), record instead of the process and cleanup fields: the route, the
+  message reference or permalink read back at the source, the `MODEL:` line as `attested.model`, and the row's
+  evidence from the `advice` skill's §4 table.
+- Outside the authorized workspace, publish only the prompt's SHA256 and template name whenever a filled field (PR
+  URL, packet path) or other content could reveal private paths, hosts, repository names or tokens; otherwise strip
+  those values first. The template name plus filled fields is not redaction.
 
 ## 6. Deviation voids the vote
 
