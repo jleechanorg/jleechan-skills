@@ -12,8 +12,12 @@ The shared catalog preserves host-installed `/advice` and `/web-advice` integrat
 
 
 Produce a comprehensive status report for all PRs agento is handling in
-`jleechanorg/agent-orchestrator-ts`. Use the canonical draft-first, `/green`,
-and zero-touch skills; display inline and post the summary to Slack.
+`$AO_GITHUB_REPO` (the `owner/repo` that AO workers open PRs against). Use the
+canonical draft-first, `/green`, and zero-touch skills; display inline and post
+the summary to Slack.
+
+If `AO_GITHUB_REPO` is unset, stop with
+`AO_GITHUB_REPO not configured: GitHub owner/repo of Agent Orchestrator. Example: export AO_GITHUB_REPO=owner/agent-orchestrator`.
 
 ---
 
@@ -28,13 +32,13 @@ bounded equivalent read through both APIs where the operation permits; see
 block unrelated AO work.
 
 ```bash
-gh api "repos/jleechanorg/agent-orchestrator-ts/pulls?state=open&per_page=30&sort=updated" \
+gh api "repos/${AO_GITHUB_REPO}/pulls?state=open&per_page=30&sort=updated" \
   --jq '.[] | "\(.number)\t\(.head.ref)\t\(.title[:60])"'
 ```
 
 Also collect recently merged (last 24h):
 ```bash
-gh api "repos/jleechanorg/agent-orchestrator-ts/pulls?state=closed&per_page=30&sort=updated&direction=desc" \
+gh api "repos/${AO_GITHUB_REPO}/pulls?state=closed&per_page=30&sort=updated&direction=desc" \
   --jq '.[] | select(.merged_at != null) | "\(.number)\t\(.head.ref)\t\(.title[:70])\t\(.merged_at)"'
 ```
 Filter merged ones to last 24h by comparing `.merged_at` timestamp.
@@ -47,19 +51,19 @@ read-only GraphQL query before reporting the data unavailable:
 
 ```bash
 # Mergeability (REST returns boolean mergeable + string mergeable_state)
-gh api "repos/jleechanorg/agent-orchestrator-ts/pulls/NUM" \
+gh api "repos/${AO_GITHUB_REPO}/pulls/NUM" \
   --jq '{mergeable, mergeable_state}'
 
 # CI checks (canonical statusCheckRollup contract at current HEAD)
-gh pr view NUM --json statusCheckRollup \
+gh pr view NUM --repo "$AO_GITHUB_REPO" --json statusCheckRollup \
   --jq '[.statusCheckRollup[] | select(.name != "Green Gate" and .name != "Cursor Bugbot") | {name, status, conclusion, state, typename: .__typename}]'
 
 # Reviews
-gh api "repos/jleechanorg/agent-orchestrator-ts/pulls/NUM/reviews" \
+gh api "repos/${AO_GITHUB_REPO}/pulls/NUM/reviews" \
   --jq '.[] | {user: .user.login, state}'
 
 # Fetch comment text for model review; never infer severity from words.
-gh api "repos/jleechanorg/agent-orchestrator-ts/pulls/NUM/comments" \
+gh api "repos/${AO_GITHUB_REPO}/pulls/NUM/comments" \
   --jq '.[] | {id, user: .user.login, body, path, line, created_at}'
 ```
 
@@ -113,7 +117,7 @@ For each `NO`, cite the actual intervention; for each `UNKNOWN`, name the eviden
 ## Agento Status Report — YYYY-MM-DD HH:MM
 
 ### Summary
-- Repo: jleechanorg/agent-orchestrator-ts
+- Repo: $AO_GITHUB_REPO
 - Open PRs: N
 - GREEN (draft readiness + /green only): N
 - Not green: N
@@ -149,7 +153,7 @@ Post to the user-authorized Slack summary destination (verified channel ID: `<sl
 ```
 mcp__slack__conversations_add_message(
   channel_id="<slack-channel>",
-  text="*Agento Status Report — YYYY-MM-DD HH:MM*\n\nRepo: jleechanorg/agent-orchestrator-ts\nOpen: N PRs | GREEN: N | Not green: N\nMerged (24h): N | Zero-touch rate: X% / UNKNOWN / N/A (U unknown)\n\n<per-PR details>"
+  text="*Agento Status Report — YYYY-MM-DD HH:MM*\n\nRepo: <AO_GITHUB_REPO>\nOpen: N PRs | GREEN: N | Not green: N\nMerged (24h): N | Zero-touch rate: X% / UNKNOWN / N/A (U unknown)\n\n<per-PR details>"
 )
 ```
 
@@ -157,7 +161,7 @@ mcp__slack__conversations_add_message(
 
 ## Notes
 
-- Scope: `jleechanorg/agent-orchestrator-ts` (not jleechanclaw — that repo is deprecated for AO work).
+- Scope: `$AO_GITHUB_REPO` only.
 - REST is this report's primary API, not an exclusive fallback policy. Before declaring an API read blocked, follow `github-cli-reference/SKILL.md` and try the other read API where equivalent.
 - `mergeable_state` from REST: `clean`, `dirty`, `unstable`, `unknown`.
 - Zero-touch classification follows `~/.claude/skills/zero-touch/SKILL.md`; title tags are discovery hints, not execution evidence.
