@@ -68,7 +68,7 @@ backend must not inject or synthesize a finish choice. If a registered
 `AdjustmentSpec` applies, follow the repository's ZFC adjuster contract and
 provide its required provenance and evidence. Before changing level-up routing,
 read `.claude/skills/worldai-zfc/SKILL.md` and
-`.claude/skills/zfc-adjuster/SKILL.md`.
+the `zfc-adjuster` skill.
 
 ## Time Freezing During Modals
 
@@ -116,6 +116,6 @@ return is_char_creation or is_level_up_mode
 - Verify `character_creation_completed` not interfering with level-up
 
 **See also**:
-- `.claude/skills/character-creation-modal-exit/SKILL.md` - Character creation specific patterns
+- the `character-creation-modal-exit` skill - Character creation specific patterns
 - `$PROJECT_ROOT/agents.py` - Full implementation (lines 2739-3200)
 - `$PROJECT_ROOT/world_logic.py` - Modal injection and protection (lines 1800-1900, 5400-5500)

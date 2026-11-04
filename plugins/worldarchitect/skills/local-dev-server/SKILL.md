@@ -59,8 +59,8 @@ http://localhost:<PORT>/?test_mode=true&test_user_id=test-user-123&test_theme=fa
 ## Log Files
 
 ```bash
-# Resolve canonical log directory via ~/.claude/skills/scratch-space/SKILL.md
-LOG_DIR="$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh "<repo-name>/<branch-name>")"
+# Resolve canonical log directory via ${CLAUDE_HOME:-$HOME/.claude}/skills/scratch-space/SKILL.md
+LOG_DIR="$(${CLAUDE_HOME:-$HOME/.claude}/skills/scratch-space/scripts/scratch-dir.sh "<repo-name>/<branch-name>")"
 
 # Flask logs
 cat "${LOG_DIR}/flask_backend.log"
@@ -101,7 +101,7 @@ import subprocess
 from playwright.sync_api import sync_playwright
 
 scratch_dir = subprocess.check_output(
-    [os.path.expanduser("~/.claude/skills/scratch-space/scripts/scratch-dir.sh"), "tmp"],
+    [os.path.join(os.environ.get("CLAUDE_HOME", os.path.expanduser("~/.claude")), "skills/scratch-space/scripts/scratch-dir.sh"), "tmp"],
     text=True,
 ).strip()
 

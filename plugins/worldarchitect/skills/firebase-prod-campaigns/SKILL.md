@@ -33,7 +33,7 @@ doc = db.collection('users').document(uid).collection('campaigns').document('CAM
 ## Database Structure
 
 ```
-Firestore Database: worldarchitecture-ai
+Firestore Database: $FIREBASE_PROJECT_ID
 ├── campaigns/                    # ← WRONG: Only test data here (5 campaigns)
 │   └── {test_campaign_id}/
 │
@@ -94,7 +94,7 @@ for directive in god_mode_directives:
 ```bash
 # List all directives for a campaign
 WORLDAI_DEV_MODE=true \
-WORLDAI_GOOGLE_APPLICATION_CREDENTIALS=~/serviceAccountKey.json \
+WORLDAI_GOOGLE_APPLICATION_CREDENTIALS="$WORLDAI_GOOGLE_APPLICATION_CREDENTIALS" \
 python scripts/query_directives.py CAMPAIGN_ID
 
 # Debug why a directive wasn't saved
@@ -174,12 +174,13 @@ If the LLM writes to `dm_notes` instead of `directives`, the rule won't persist 
 ### Environment Variables
 ```bash
 export WORLDAI_DEV_MODE=true
-export WORLDAI_GOOGLE_APPLICATION_CREDENTIALS=~/serviceAccountKey.json
+export WORLDAI_GOOGLE_APPLICATION_CREDENTIALS="<path-to-service-account-key>"
 ```
 
 ### Service Account Key
-Location: `~/serviceAccountKey.json`
-Project: `worldarchitecture-ai`
+Location: a machine-local service account key file (never committed); point
+`WORLDAI_GOOGLE_APPLICATION_CREDENTIALS` at it.
+Project: `$FIREBASE_PROJECT_ID` (required)
 
 ## Using campaign_manager.py
 
@@ -188,7 +189,7 @@ The recommended tool for production queries is `scripts/campaign_manager.py`.
 ### Find User by Email
 ```bash
 WORLDAI_DEV_MODE=true \
-WORLDAI_GOOGLE_APPLICATION_CREDENTIALS=~/serviceAccountKey.json \
+WORLDAI_GOOGLE_APPLICATION_CREDENTIALS="$WORLDAI_GOOGLE_APPLICATION_CREDENTIALS" \
 python scripts/campaign_manager.py find-user user@example.com
 ```
 
@@ -196,19 +197,19 @@ python scripts/campaign_manager.py find-user user@example.com
 ```bash
 # Analyze last 3 months
 WORLDAI_DEV_MODE=true \
-WORLDAI_GOOGLE_APPLICATION_CREDENTIALS=~/serviceAccountKey.json \
+WORLDAI_GOOGLE_APPLICATION_CREDENTIALS="$WORLDAI_GOOGLE_APPLICATION_CREDENTIALS" \
 python scripts/campaign_manager.py analytics user@example.com
 
 # Specific month
 WORLDAI_DEV_MODE=true \
-WORLDAI_GOOGLE_APPLICATION_CREDENTIALS=~/serviceAccountKey.json \
+WORLDAI_GOOGLE_APPLICATION_CREDENTIALS="$WORLDAI_GOOGLE_APPLICATION_CREDENTIALS" \
 python scripts/campaign_manager.py analytics user@example.com --month YYYY-MM
 ```
 
 ### Query Campaigns by Name
 ```bash
 WORLDAI_DEV_MODE=true \
-WORLDAI_GOOGLE_APPLICATION_CREDENTIALS=~/serviceAccountKey.json \
+WORLDAI_GOOGLE_APPLICATION_CREDENTIALS="$WORLDAI_GOOGLE_APPLICATION_CREDENTIALS" \
 python scripts/campaign_manager.py query <UID> "Campaign Name"
 ```
 
@@ -232,7 +233,7 @@ import os
 if firebase_admin._apps:
     firebase_admin.delete_app(firebase_admin.get_app())
 
-cred = credentials.Certificate(os.path.expanduser('~/serviceAccountKey.json'))
+cred = credentials.Certificate(os.environ['WORLDAI_GOOGLE_APPLICATION_CREDENTIALS'])
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 

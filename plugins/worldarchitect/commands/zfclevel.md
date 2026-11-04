@@ -20,7 +20,7 @@ This is a **gate/check command** — run it before opening a PR, before merging,
 ## Step 1 — Load Required Skills and Roadmap Context
 
 Load and follow this skill **first**:
-- `.claude/skills/zfc-leveling-roadmap/SKILL.md`
+- the `zfc-leveling-roadmap` skill
 
 Canonical roadmap files (read in order):
 1. `~/roadmap/zfc-level-up-model-computes-2026-04-19.md`

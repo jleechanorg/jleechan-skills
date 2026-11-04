@@ -17,8 +17,8 @@ WORLDAI_DEV_MODE=true python scripts/audit_dice_rolls.py <campaign_id>
 
 ### Example
 ```bash
-# Audit campaign from URL: https://mvp-site-app-dev-i6xf2p72ka-uc.a.run.app/game/tAE30bFvyfO0rUd9cgyv
-WORLDAI_DEV_MODE=true python scripts/audit_dice_rolls.py tAE30bFvyfO0rUd9cgyv
+# Audit campaign from URL: https://<dev-service-url>/game/<campaign-id>
+WORLDAI_DEV_MODE=true python scripts/audit_dice_rolls.py <campaign-id>
 ```
 
 ## What It Analyzes
@@ -54,9 +54,9 @@ The script extracts dice from:
 ============================================================
 CAMPAIGN DICE ROLL AUDIT
 ============================================================
-Campaign ID: tAE30bFvyfO0rUd9cgyv
-Campaign Title: alexiel swtor
-User ID: vnLp2G3m21PJL6kxcuAqmWSOtm73
+Campaign ID: <campaign-id>
+Campaign Title: <campaign-title>
+User ID: <user-id>
 ============================================================
 
 Total story entries: 498
@@ -79,21 +79,21 @@ Distribution: {0: 2, 1: 2, 2: 10, 3: 9, ...}
 
 From a game URL like:
 ```
-https://mvp-site-app-dev-i6xf2p72ka-uc.a.run.app/game/tAE30bFvyfO0rUd9cgyv
+https://<dev-service-url>/game/<campaign-id>
 ```
-The campaign ID is the last segment: `tAE30bFvyfO0rUd9cgyv`
+The campaign ID is the last segment: `<campaign-id>`
 
 ## Prerequisites
 
 ### Environment Variables
 ```bash
 export WORLDAI_DEV_MODE=true
-export WORLDAI_GOOGLE_APPLICATION_CREDENTIALS=~/serviceAccountKey.json
+export WORLDAI_GOOGLE_APPLICATION_CREDENTIALS="<path-to-service-account-key>"
 ```
 
 ### Service Account Key
-Location: `~/serviceAccountKey.json`
-Project: `worldarchitecture-ai`
+Location: a machine-local service account key file (never committed)
+Project: `$GCP_PROJECT_ID`
 
 ## Understanding Results
 
@@ -170,14 +170,14 @@ DICE_TOOL_RESULT: tool=roll_attack | weapon=Longsword | rolls=[12] | total=17 | 
 ### Searching GCP Logs
 ```bash
 # Find all dice rolls in last hour
-gcloud logging read "textPayload:DICE_AUDIT" --limit=100 --freshness=1h
+gcloud logging read "textPayload:DICE_AUDIT" --project "$GCP_PROJECT_ID" --limit=100 --freshness=1h
 
 # Find all dice tool executions
-gcloud logging read "textPayload:DICE_TOOL_EXEC" --limit=50
+gcloud logging read "textPayload:DICE_TOOL_EXEC" --project "$GCP_PROJECT_ID" --limit=50
 ```
 
 ## Script Location
 `scripts/audit_dice_rolls.py`
 
 ## Related Skills
-- `firebase-prod-campaigns.md` - Querying campaign data
+- the `firebase-prod-campaigns` skill in this plugin - Querying campaign data

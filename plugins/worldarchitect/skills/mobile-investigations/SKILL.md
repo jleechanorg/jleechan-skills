@@ -54,20 +54,20 @@ Climb only as far as the claim requires:
 Use Node 22 for Node-based mobile harnesses:
 
 ```bash
-PATH=$HOME/.nvm/versions/node/v22.22.0/bin:$PATH node --version
+PATH="$(dirname "$(nvm which 22)")":$PATH node --version
 ```
 
 For the same-origin Firebase auth helper repro in this PR family:
 
 ```bash
 cd $PROJECT_ROOT/frontend_v1/tests/mobile_auth_emulator_repro
-PATH=$HOME/.nvm/versions/node/v22.22.0/bin:$PATH node run_repro.mjs
+PATH="$(dirname "$(nvm which 22)")":$PATH node run_repro.mjs
 ```
 
 For the third-party-storage/silent-null repro when available:
 
 ```bash
-PATH=$HOME/.nvm/versions/node/v22.22.0/bin:$PATH \
+PATH="$(dirname "$(nvm which 22)")":$PATH \
   node --test --test-timeout=90000 testing_ui/mobile_3pc_repro/repro_3pc_auth.spec.mjs
 ```
 
@@ -75,7 +75,7 @@ Run targeted unit/integration checks for any code you change. For the mobile aut
 same-origin fix, the minimum local regression checks are:
 
 ```bash
-PATH=$HOME/.nvm/versions/node/v22.22.0/bin:$PATH \
+PATH="$(dirname "$(nvm which 22)")":$PATH \
   node --test $PROJECT_ROOT/frontend_v1/tests/auth_domain_resolution.test.js
 
 TESTING=true ./vpython -m pytest $PROJECT_ROOT/tests/test_firebase_auth_helper_proxy.py -q

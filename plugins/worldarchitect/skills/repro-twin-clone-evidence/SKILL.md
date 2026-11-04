@@ -9,7 +9,7 @@ This `.claude` skill is the source of truth. Codex mirrors must point here rathe
 
 ## 0.5. Campaign ID extraction — do this first
 
-**If the user pastes any URL matching `*/game/<id>` (e.g. `https://mvp-site-*.run.app/game/uZvPZPnBCVw3WtSEBWab`), extract `<id>` as the campaign ID immediately.** Go directly to §2 twin copy. Do NOT:
+**If the user pastes any URL matching `*/game/<id>` (e.g. `https://mvp-site-*.run.app/game/<campaign-id>`), extract `<id>` as the campaign ID immediately.** Go directly to §2 twin copy. Do NOT:
 - Read the PR body or comments looking for a campaign ID
 - Query Firestore indexes or list campaigns
 - Use `get_campaign_state` before copying
@@ -38,8 +38,8 @@ export TESTING_AUTH_BYPASS=true
 export ALLOW_TEST_AUTH_BYPASS=true
 export MCP_TEST_MODE=real
 export MOCK_SERVICES_MODE=false
-export GOOGLE_APPLICATION_CREDENTIALS="$HOME/serviceAccountKey.json"
-export WORLDAI_GOOGLE_APPLICATION_CREDENTIALS="$HOME/serviceAccountKey.json"
+export GOOGLE_APPLICATION_CREDENTIALS="<path-to-service-account-key>"
+export WORLDAI_GOOGLE_APPLICATION_CREDENTIALS="$GOOGLE_APPLICATION_CREDENTIALS"
 ```
 
 For `<your-email@example.com>`, use `--dest-email <your-email@example.com>` — the UID is resolved automatically by `copy_campaign.py`.
@@ -126,13 +126,13 @@ When the first copy must stay read-only:
 
 ## 6. Save state after repro
 
-Export the post-replay state and execution artifacts to a discoverable directory on the dedicated Scratch volume resolved dynamically via the canonical scratch skill [`~/.claude/skills/scratch-space/SKILL.md`](../scratch-space/SKILL.md) (`diskm scratch-new <repo-path> <purpose> --kind evidence` or `~/.claude/skills/scratch-space/scripts/scratch-dir.sh`):
+Export the post-replay state and execution artifacts to a discoverable directory on the dedicated Scratch volume resolved dynamically via the canonical scratch skill the `scratch-space` skill (`diskm scratch-new <repo-path> <purpose> --kind evidence` or `${CLAUDE_HOME:-$HOME/.claude}/skills/scratch-space/scripts/scratch-dir.sh`):
 
 Note: The inline subcommand below uses `copy_campaign.py` with `--format json` to perform an early-exit email-to-UID lookup (it exits immediately and does not perform a copy).
 
 ```bash
-# Resolve canonical evidence directory via ~/.claude/skills/scratch-space/SKILL.md
-EVIDENCE_DIR="$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh "your-project.com/repro-exports/<slug>")"
+# Resolve canonical evidence directory via ${CLAUDE_HOME:-$HOME/.claude}/skills/scratch-space/SKILL.md
+EVIDENCE_DIR="$(${CLAUDE_HOME:-$HOME/.claude}/skills/scratch-space/scripts/scratch-dir.sh "<repo-name>/repro-exports/<slug>")"
 # Or allocate a managed lease:
 # EVIDENCE_DIR="$(diskm scratch-new <repo-path> repro-export --kind evidence)"
 

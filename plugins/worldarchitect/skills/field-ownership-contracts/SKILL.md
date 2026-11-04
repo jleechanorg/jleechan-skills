@@ -40,7 +40,7 @@ If you're about to write to a field, check who the current writer is. If it's no
 |-------|---------------------|----------|---------|
 | `current` | Active repository field contract | Int: cumulative accepted XP; the writer and any projection are defined by the repository's current field-specific ZFC contract | `_extract_xp_robust`, `level_from_xp` |
 
-**WorldArchitect note:** Do not use these generic rows as authority to rewrite model-owned progression values. Read the repository overlay `.claude/skills/worldai-zfc/SKILL.md` alongside `~/.claude/skills/zero-framework-cognition/SKILL.md` and follow the current field-specific prompt/schema contract. Schema validity and deterministic calculation alone do not authorize transformation.
+**WorldArchitect note:** Do not use these generic rows as authority to rewrite model-owned progression values. Read the repository overlay `.claude/skills/worldai-zfc/SKILL.md` alongside the `zero-framework-cognition` skill and follow the current field-specific prompt/schema contract. Schema validity and deterministic calculation alone do not authorize transformation.
 
 ## Contract Registry: custom_campaign_state level-up flags
 

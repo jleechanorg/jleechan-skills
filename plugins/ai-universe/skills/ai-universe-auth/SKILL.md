@@ -36,7 +36,7 @@ Use this same verified `AUTH_NODE` executable for every command below.
 | Location | Description | Has node_modules |
 |----------|-------------|------------------|
 | `scripts/auth-cli.mjs` | Project-local (recommended) | Needs parent project |
-| `~/.claude/scripts/auth-cli.mjs` | User-global fallback | Yes (if installed) |
+| `${CLAUDE_HOME:-$HOME/.claude}/scripts/auth-cli.mjs` | User-global fallback | Yes (if installed) |
 | `~/projects/ai_universe/scripts/auth-cli.mjs` | Source of truth | Yes |
 
 **To run the script**, use a directory that has `node_modules` with `express` installed:
@@ -46,7 +46,7 @@ Use this same verified `AUTH_NODE` executable for every command below.
 cd ~/projects/ai_universe && "$AUTH_NODE" scripts/auth-cli.mjs status
 
 # Or from ~/.claude if deps installed
-"$AUTH_NODE" ~/.claude/scripts/auth-cli.mjs status
+"$AUTH_NODE" ${CLAUDE_HOME:-$HOME/.claude}/scripts/auth-cli.mjs status
 ```
 
 ## Multi-Project Support
@@ -174,7 +174,7 @@ cd ~/projects/ai_universe && "$AUTH_NODE" scripts/auth-cli.mjs status
 cd ~/.claude && npm install express
 
 # Option 3: Copy working script
-cp ~/projects/ai_universe/scripts/auth-cli.mjs ~/.claude/scripts/
+cp ~/projects/ai_universe/scripts/auth-cli.mjs ${CLAUDE_HOME:-$HOME/.claude}/scripts/
 ```
 
 ### PROJECT_NUMBER_MISMATCH Error
@@ -244,8 +244,8 @@ To sync to other locations:
 # Sync to project .claude/scripts/
 cp ~/projects/ai_universe/scripts/auth-cli.mjs .claude/scripts/
 
-# Sync to user ~/.claude/scripts/
-cp ~/projects/ai_universe/scripts/auth-cli.mjs ~/.claude/scripts/
+# Sync to user ${CLAUDE_HOME:-$HOME/.claude}/scripts/
+cp ~/projects/ai_universe/scripts/auth-cli.mjs ${CLAUDE_HOME:-$HOME/.claude}/scripts/
 ```
 
 ## Related Skills

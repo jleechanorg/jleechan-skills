@@ -8,7 +8,7 @@ When this command is invoked, execute the repro-copy workflow immediately.
 
 ## Required workflow
 
-1. Read `.claude/skills/repro-copy/SKILL.md`. For shared env (WORLDAI_DEV_MODE, credentials) see **`.claude/skills/repro-twin-clone-evidence/SKILL.md`** §1; the optional five-class harness is §5 in that file only.
+1. Read the `repro-copy` skill. For shared env (WORLDAI_DEV_MODE, credentials) see **the `repro-twin-clone-evidence` skill** §1; the optional five-class harness is §5 in that file only.
 2. Resolve the source campaign ID and the issue description from `$ARGUMENTS`.
 3. Prefer:
 
@@ -25,9 +25,9 @@ When this command is invoked, execute the repro-copy workflow immediately.
    - replay input
    - evidence bundle path
 7. Enforce user-scope evidence standards:
-   - `~/.claude/skills/evidence-standards/SKILL.md`
-   - `~/.claude/skills/evidence-standards/tmux-video-evidence.md`
-   - `~/.claude/skills/evidence-standards/ui-video-evidence.md`
+   - the `evidence-standards` skill
+   - `tmux-video-evidence.md` in the `evidence-standards` skill
+   - `ui-video-evidence.md` in the `evidence-standards` skill
 
 ## Purpose
 
@@ -38,9 +38,9 @@ the real local server and real LLM path.
 ## Examples
 
 ```bash
-/repro_copy b9LPKcLHEwvG4FGsQDpu "planning block missing after level-up prompt"
+/repro_copy <campaign-id> "planning block missing after level-up prompt"
 ```
 
 ```bash
-/repro_copy b9LPKcLHEwvG4FGsQDpu "duplicate response on continue" --user-input "I continue through the gate."
+/repro_copy <campaign-id> "duplicate response on continue" --user-input "I continue through the gate."
 ```

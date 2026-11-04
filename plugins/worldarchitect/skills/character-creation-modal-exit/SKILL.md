@@ -131,13 +131,13 @@ Created test: `testing_mcp/creation/test_god_mode_skip_bug.py`
 **Before fix**: 0/1 passed (LLM reset to concept stage)
 **After fix**: 1/1 passed (LLM stays in review stage with correct choices)
 
-**Evidence**: `/tmp/your-project.com/worktree_creation/god_mode_character_skip_bug/iteration_002/`
+**Evidence**: `<evidence-root>/god_mode_character_skip_bug/iteration_002/`
 
 ## Testing Protocol
 
 ### Test Creation Review Flow
 ```bash
-cd ~/projects/worktree_creation
+cd "$(git rev-parse --show-toplevel)"
 python testing_mcp/creation/test_god_mode_skip_bug.py
 ```
 
@@ -262,20 +262,20 @@ Character creation is a MODAL DIALOG - user cannot exit until selecting specific
 - Manual Creation: "PlayCharacter" choice
 - Cancellation: "Cancel Character Creation" choice
 
-See `.claude/skills/character-creation-modal-exit/SKILL.md` for complete protocol.
+See this skill (above) for the complete protocol.
 ```
 
 ## Evidence Locations
 
 **Bug Reproduction Evidence**:
-- Before fix: `/tmp/your-project.com/worktree_creation/god_mode_character_skip_bug/iteration_001/`
+- Before fix: `<evidence-root>/god_mode_character_skip_bug/iteration_001/`
   - Pass rate: 0/1 (LLM reset to concept stage)
-- After fix: `/tmp/your-project.com/worktree_creation/god_mode_character_skip_bug/iteration_002/`
+- After fix: `<evidence-root>/god_mode_character_skip_bug/iteration_002/`
   - Pass rate: 1/1 (LLM stays in review stage)
 
 **Production Campaign with Bug**:
-- URL: `https://mvp-site-app-s7-i6xf2p72ka-uc.a.run.app/game/Wf1OZ1E6UYxP1kRFRpps`
-- Campaign ID: `Wf1OZ1E6UYxP1kRFRpps`
-- Owner: owner@example.com (UID: vnLp2G3m21PJL6kxcuAqmWSOtm73)
+- URL: `https://<preview-service-url-s7>/game/<campaign-id>`
+- Campaign ID: `<campaign-id>`
+- Owner: <redacted> (UID: <redacted>)
 - Issue: Character creation completed immediately without review
 - Root cause: Pre-PR #5225 code without explicit review stage protocol

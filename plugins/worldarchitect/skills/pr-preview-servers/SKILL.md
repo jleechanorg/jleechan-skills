@@ -71,7 +71,7 @@ python3 testing_mcp/test_openclaw_gateway_url_preview.py
 
 # Test a specific preview URL
 python3 testing_mcp/test_openclaw_gateway_url_preview.py \
-  --server-url https://mvp-site-app-s10-i6xf2p72ka-uc.a.run.app
+  --server-url https://<preview-service-url-s10>
 ```
 
 ### What You Can Test Without Auth
@@ -98,7 +98,7 @@ The evicted PR loses its preview URL. Check PR #N's comments for current status.
 
 | PR | Server | URL |
 |----|--------|-----|
-| #5662 | s10 | `https://mvp-site-app-s10-i6xf2p72ka-uc.a.run.app` |
-| #5857 | s2  | `https://mvp-site-app-s2-i6xf2p72ka-uc.a.run.app` |
+| #5662 | s10 | `https://<preview-service-url-s10>` |
+| #5857 | s2  | `https://<preview-service-url-s2>` |
 
 > Update this table as PRs are deployed. URL stays stable as long as the pool slot isn't evicted.

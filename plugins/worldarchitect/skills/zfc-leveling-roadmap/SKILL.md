@@ -10,12 +10,12 @@ scope: your-project.com/mvp_site
 
 This skill is the level-up/rewards specialization of the general ZFC contract.
 Before applying these file boundaries, read
-`.claude/skills/zero-framework-cognition/SKILL.md` for the repository-wide
+the `zero-framework-cognition` skill for the repository-wide
 rules: models make semantic decisions, new regex/keyword/heuristic semantic
 routing is banned, and model contracts should request minimal semantic fields
 instead of redundant aliases.
 Before accepting a backend correction guard, also apply
-`.claude/skills/root-cause-first/SKILL.md`: prove the selected model path
+the `root-cause-first` skill: prove the selected model path
 received the right prompt/schema, fix missing or ambiguous prompt/schema
 instructions first, and treat backend correction as a last resort.
 
@@ -23,8 +23,8 @@ instructions first, and treat backend correction as a last resort.
 
 For WorldArchitect-specific backend ownership, this summary defers to the
 repository overlay `.claude/skills/worldai-zfc/SKILL.md`, the portable
-`~/.claude/skills/zero-framework-cognition/SKILL.md`, and
-`.claude/skills/backend-justified/SKILL.md`. Do not infer permission to alter
+the `zero-framework-cognition` skill, and
+the `backend-justified` skill. Do not infer permission to alter
 model-owned domain state from schema validity, determinism, or this file alone.
 
 > **"LLM Owns Domain Decisions; Backend Preserves and Executes"** — the model owns gameplay interpretation, progression, rewards, and choices. The server owns authorization, storage, transport, concurrency, and modal/session control. A backend transformation of model-owned fields is an exception only when the active repository policy explicitly authorizes that named exception and its required evidence is recorded; preserving a valid player turn is the UX default.
@@ -219,7 +219,7 @@ The snapshot listed these planned checks; verify current code and workflow owner
 | `custom_campaign_state.level_up_complete` | Server-owned level-up flow state | Bool: level-up flow finished (suppresses `is_level_up_active()`) |
 | `custom_campaign_state.level_up_cancelled` | Server-owned level-up flow state | Bool: level-up deferred (suppresses `is_level_up_active()`) |
 
-For the full field registry, see `.claude/skills/field-ownership-contracts/SKILL.md`.
+For the full field registry, see the `field-ownership-contracts` skill.
 
 ---
 
@@ -238,10 +238,10 @@ For the full field registry, see `.claude/skills/field-ownership-contracts/SKILL
 ---
 
 ## Canonical References
-For any WorldArchitect backend or progression change, read the local overlay `.claude/skills/worldai-zfc/SKILL.md` together with `~/.claude/skills/zero-framework-cognition/SKILL.md`, `.claude/skills/backend-justified/SKILL.md`, and `.claude/skills/root-cause-first/SKILL.md`. Prompt/schema correction comes before backend protection. Preserve model-owned gameplay meaning and unknown fields; server-owned storage, authorization, transport, concurrency, and modal/session control remain server responsibilities. Any domain-field transformation must identify its exact active-policy exception, field and function, concrete necessity, and required evidence; where that policy requires registration, register it. This guide does not authorize finish-choice injection, paired payload dropping, gameplay defaults, clamps, semantic suppression, or rejection of a valid turn.
+For any WorldArchitect backend or progression change, read the local overlay `.claude/skills/worldai-zfc/SKILL.md` together with the `zero-framework-cognition` skill, the `backend-justified` skill, and the `root-cause-first` skill. Prompt/schema correction comes before backend protection. Preserve model-owned gameplay meaning and unknown fields; server-owned storage, authorization, transport, concurrency, and modal/session control remain server responsibilities. Any domain-field transformation must identify its exact active-policy exception, field and function, concrete necessity, and required evidence; where that policy requires registration, register it. This guide does not authorize finish-choice injection, paired payload dropping, gameplay defaults, clamps, semantic suppression, or rejection of a valid turn.
 
 ## Related Skills
 
-- `.claude/skills/field-ownership-contracts/SKILL.md` — full field writer/reader registry
-- `~/.claude/skills/evidence-standards/SKILL.md` — evidence requirements for production PRs
-- `~/.claude/skills/pr-green-definition/SKILL.md` — canonical `/green` (CI green + no merge conflicts) definition; quality gates live in the draft phase
+- the `field-ownership-contracts` skill — full field writer/reader registry
+- the `evidence-standards` skill — evidence requirements for production PRs
+- the `pr-green-definition` skill — canonical `/green` (CI green + no merge conflicts) definition; quality gates live in the draft phase

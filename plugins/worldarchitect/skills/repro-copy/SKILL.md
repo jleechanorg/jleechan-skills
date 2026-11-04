@@ -11,7 +11,7 @@ evidence that can survive review.
 
 ## Twin baseline + test subject (no contamination)
 
-If the user requires **two full copies** from production — **first copy never receives any turn** — and all replay on the **second** copy only (plus full `download_campaign` export to avoid drift), use **`.claude/skills/repro-twin-clone-evidence/SKILL.md`**. That is **not** the same as canonical+variant here (variant may delete the last scene).
+If the user requires **two full copies** from production — **first copy never receives any turn** — and all replay on the **second** copy only (plus full `download_campaign` export to avoid drift), use **the `repro-twin-clone-evidence` skill**. That is **not** the same as canonical+variant here (variant may delete the last scene).
 
 ## CRITICAL: Resolve Firebase UID first — always pass `--source-user-id`
 
@@ -24,7 +24,7 @@ already know the owner UID to skip the scan.
 # Step 0: resolve UID (required for any production campaign)
 UID=$(./vpython -c "
 import firebase_admin; from firebase_admin import auth, credentials; import os
-cred = credentials.Certificate(os.path.expanduser('~/serviceAccountKey.json'))
+cred = credentials.Certificate(os.environ['WORLDAI_GOOGLE_APPLICATION_CREDENTIALS'])
 try:
     firebase_admin.get_app()
 except ValueError:
@@ -76,9 +76,9 @@ Destructive variant mutation is opt-in:
 
 These are mandatory for evidence-bearing repro work:
 
-- Canonical evidence standards: `~/.claude/skills/evidence-standards/SKILL.md`
-- Tmux video template: `~/.claude/skills/evidence-standards/tmux-video-evidence.md`
-- UI video template: `~/.claude/skills/evidence-standards/ui-video-evidence.md`
+- Canonical evidence standards: the `evidence-standards` skill
+- Tmux video template: `tmux-video-evidence.md` in the `evidence-standards` skill
+- UI video template: `ui-video-evidence.md` in the `evidence-standards` skill
 
 The script writes:
 

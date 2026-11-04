@@ -32,11 +32,11 @@ Use this same verified `AUTH_NODE` executable for every command below.
 
 1. **Verify auth-cli.mjs installation**:
    ```bash
-   test -f ~/.claude/scripts/auth-cli.mjs && echo "✅ Installed" || echo "❌ Not found - run /localexportcommands"
+   test -f ${CLAUDE_HOME:-$HOME/.claude}/scripts/auth-cli.mjs && echo "✅ Installed" || echo "❌ Not found - run /localexportcommands"
    ```
 2. **Check authentication status**:
    ```bash
-   "$AUTH_NODE" ~/.claude/scripts/auth-cli.mjs status
+   "$AUTH_NODE" ${CLAUDE_HOME:-$HOME/.claude}/scripts/auth-cli.mjs status
    ```
 3. Follow `../ai-universe-auth/SKILL.md` for current authentication state and
    refresh handling. If the existing token is expired, call the existing
@@ -85,7 +85,7 @@ Use this same verified `AUTH_NODE` executable for every command below.
 3. **Get authentication token** through the existing auth CLI (auto-refresh only from its designated credential store):
    ```bash
    # Get token (auto-refreshes if expired, does nothing if valid)
-   TOKEN=$("$AUTH_NODE" ~/.claude/scripts/auth-cli.mjs token)
+   TOKEN=$("$AUTH_NODE" ${CLAUDE_HOME:-$HOME/.claude}/scripts/auth-cli.mjs token)
    ```
 4. **Send request** (allowing up to 180s for cold starts):
    ```bash
@@ -122,7 +122,7 @@ The script:
 4. Parses the embedded JSON and prints model count, token usage, cost, and the primary + synthesis responses.
 5. Writes raw artifacts to `/tmp`; set `KEEP_TEMP_FILES=1` when running the script to keep them after completion.
 
-For advanced prompting templates and interactive options, see the existing `~/.claude/scripts/secondo-cli.sh` utility.
+For advanced prompting templates and interactive options, see the existing `${CLAUDE_HOME:-$HOME/.claude}/scripts/secondo-cli.sh` utility.
 
 ## Troubleshooting
 - **502 Bad Gateway / cold start** → Retry after 30–60 seconds. Send a lightweight `"What is 2+2?"` request first to warm the backend.

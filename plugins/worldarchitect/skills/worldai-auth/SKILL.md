@@ -7,33 +7,46 @@ scope: project
 
 # WorldAI Authentication Setup
 
-Use this skill when you need an ID token for the **WorldAI** Firebase project (`worldarchitecture-ai`).
+Use this skill when you need an ID token for the **WorldAI** Firebase project
+(`$FIREBASE_PROJECT_ID`).
+
+## Prerequisites
+
+| Variable | Meaning |
+|---|---|
+| `FIREBASE_PROJECT_ID` | WorldAI Firebase project id (required; never derived) |
+| `FIREBASE_API_KEY` | Web API key of that project (`WORLDAI_FIREBASE_API_KEY` also accepted) |
+| `AUTH_CLI_PATH` | Optional path to the generic `auth-cli.mjs`; default is `${CLAUDE_HOME:-$HOME/.claude}/scripts/auth-cli.mjs` |
+
+If a required variable is unset, the wrapper prints `<VAR> not configured` and exits.
 
 ## Auth Scripts Location
 
-Auth scripts live in the repo under `.claude/scripts/`:
-- `.claude/scripts/auth-worldai.mjs` — WorldAI project auth (requires `FIREBASE_API_KEY` env var)
-- `.claude/scripts/auth-aiuniverse.mjs` — AI Universe project auth
-- `.claude/scripts/auth-cli.mjs` — Generic multi-project auth CLI
+- `scripts/auth-worldai.mjs` in this skill's directory — WorldAI project auth wrapper.
+- `auth-cli.mjs` — the generic multi-project auth CLI that the wrapper calls. The main
+  skills export installs it to `${CLAUDE_HOME:-$HOME/.claude}/scripts/`.
 
 ## Commands
 
+Run these with `<skill-dir>` set to this skill's base directory (Claude Code shows it
+when the skill loads):
+
 ```bash
 # Login for WorldAI (interactive browser OAuth)
-node .claude/scripts/auth-worldai.mjs login
+node <skill-dir>/scripts/auth-worldai.mjs login
 
 # Get a token (auto-refreshes expired tokens using refresh token)
-node .claude/scripts/auth-worldai.mjs token
+node <skill-dir>/scripts/auth-worldai.mjs token
 
 # Check status
-node .claude/scripts/auth-worldai.mjs status
+node <skill-dir>/scripts/auth-worldai.mjs status
 ```
 
 ## Token Locations
 
 Tokens are stored by `auth-cli.mjs` under `~/.ai-universe/`:
-- `~/.ai-universe/auth-token-worldarchitecture-ai.json` — WorldAI tokens
-- `~/.ai-universe/auth-token-ai-universe-b3551.json` — AI Universe tokens
+- `~/.ai-universe/auth-token-${FIREBASE_PROJECT_ID}.json` — WorldAI tokens
+- `~/.ai-universe/auth-token-<project-id>.json` — tokens for any other project
 
 Token file schema (camelCase keys):
 ```json
@@ -46,11 +59,12 @@ Token file schema (camelCase keys):
 
 ## Manual Token Refresh
 
-If the auth-worldai.mjs wrapper fails, refresh the worldarchitecture-ai token directly:
+If the auth-worldai.mjs wrapper fails, refresh the WorldAI token directly:
 ```python
 import urllib.request, urllib.parse, json, os, datetime
 
-token_path = os.path.expanduser('~/.ai-universe/auth-token-worldarchitecture-ai.json')
+project_id = os.environ['FIREBASE_PROJECT_ID']
+token_path = os.path.expanduser(f'~/.ai-universe/auth-token-{project_id}.json')
 with open(token_path) as f:
     token_data = json.load(f)
 
@@ -72,8 +86,11 @@ with open(token_path, 'w') as f:
     json.dump(token_data, f, indent=2)
 ```
 
-## Testing Against Production Server
+## Testing Against a Deployed Server
 
-When using `--server` flag with testing_mcp tests against production (`https://mvp-site-app-dev-i6xf2p72ka-uc.a.run.app`), the MCPClient auto-loads the auth token from `~/.ai-universe/auth-token-worldarchitecture-ai.json` and passes it as a `Bearer` token. Ensure the token is refreshed before running.
+When using the `--server` flag with testing_mcp tests against a deployed server
+(`--server "$MCP_SERVER_URL"`, for example `https://<dev-service-url>`), the MCPClient
+auto-loads the auth token from `~/.ai-universe/auth-token-${FIREBASE_PROJECT_ID}.json`
+and passes it as a `Bearer` token. Ensure the token is refreshed before running.
 
 If you see project mismatch errors, re-run login with the correct project-specific script.

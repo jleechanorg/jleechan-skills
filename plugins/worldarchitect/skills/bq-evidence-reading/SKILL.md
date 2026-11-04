@@ -8,16 +8,20 @@ description: Use this when reviewing WorldArchitect PR evidence that claims real
 Use this when reviewing WorldArchitect PR evidence that claims real LLM request/response
 logging, token counts, RAG/shadow comparison, or BigQuery provenance.
 
+Set `GCP_PROJECT_ID` (default: `gcloud config get-value project`) and
+`LLM_FORENSICS_DATASET` (required: the BigQuery dataset holding the LLM request logs)
+before running the queries below; substitute them into the SQL.
+
 ## Core rule
 
-Do not infer raw LLM request/response proof from `llm_forensics.log_events`.
+Do not infer raw LLM request/response proof from `${LLM_FORENSICS_DATASET}.log_events`.
 
 Use the tables by responsibility:
 
 | Claim type | BigQuery table | Required fields |
 | --- | --- | --- |
-| Raw LLM request/response corpus | `worldarchitecture-ai.llm_forensics.llm_payloads` | `request_json`, `model`, `campaign_id`, `user_id`, `event_type`, `prompt_tokens`, `output_tokens`, `is_test` and at least one of `response_text` or `response_parts_json` |
-| Structured events such as RAG shadow comparison | `worldarchitecture-ai.llm_forensics.log_events` | `event_type`, `campaign_id`, `fields_json`, `ingested_at` |
+| Raw LLM request/response corpus | `${GCP_PROJECT_ID}.${LLM_FORENSICS_DATASET}.llm_payloads` | `request_json`, `model`, `campaign_id`, `user_id`, `event_type`, `prompt_tokens`, `output_tokens`, `is_test` and at least one of `response_text` or `response_parts_json` |
+| Structured events such as RAG shadow comparison | `${GCP_PROJECT_ID}.${LLM_FORENSICS_DATASET}.log_events` | `event_type`, `campaign_id`, `fields_json`, `ingested_at` |
 
 `log_events` may prove that a `rag_shadow_comparison` event was emitted. It does not
 prove that per-turn raw Gemini/OpenAI requests and responses were captured. That proof
@@ -64,7 +68,7 @@ SELECT
   ) AS response_rows,
   COUNTIF(model = "gemini-3-flash-preview") AS gemini3_rows,
   COUNTIF(is_test) AS test_rows
-FROM `worldarchitecture-ai.llm_forensics.llm_payloads`
+FROM `${GCP_PROJECT_ID}.${LLM_FORENSICS_DATASET}.llm_payloads`
 WHERE campaign_id IN ("CAMPAIGN_ORIGINAL", "CAMPAIGN_RAG", "CAMPAIGN_SHADOW")
 GROUP BY campaign_id, event_type
 ORDER BY campaign_id, event_type
@@ -100,7 +104,7 @@ SELECT
   LENGTH(request_json) AS request_len,
   LENGTH(response_text) AS response_len,
   JSON_VALUE(extra_json, "$.stream") AS stream
-FROM `worldarchitecture-ai.llm_forensics.llm_payloads`
+FROM `${GCP_PROJECT_ID}.${LLM_FORENSICS_DATASET}.llm_payloads`
 WHERE campaign_id IN ("CAMPAIGN_ORIGINAL", "CAMPAIGN_RAG", "CAMPAIGN_SHADOW")
 ORDER BY ingested_at
 '
@@ -118,7 +122,7 @@ SELECT
   event_type,
   ingested_at,
   fields_json
-FROM `worldarchitecture-ai.llm_forensics.log_events`
+FROM `${GCP_PROJECT_ID}.${LLM_FORENSICS_DATASET}.log_events`
 WHERE campaign_id = "CAMPAIGN_SHADOW"
   AND event_type = "rag_shadow_comparison"
 ORDER BY ingested_at DESC

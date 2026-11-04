@@ -41,7 +41,7 @@ source /tmp/agy-clean-home-v1/worldai-agy.env
 # pass --server: an external local.sh server never receives the provider-capture
 # env, so no agy evidence trace is written and the run cannot pass (bead rev-siu48).
 TESTING_AUTH_BYPASS=true ALLOW_TEST_AUTH_BYPASS=true \
-  GOOGLE_APPLICATION_CREDENTIALS="$HOME/serviceAccountKey.json" \
+  GOOGLE_APPLICATION_CREDENTIALS="${GOOGLE_APPLICATION_CREDENTIALS:?GOOGLE_APPLICATION_CREDENTIALS not configured: path to the service account key}" \
   PYTHONPATH="$(pwd):$(pwd)/mvp_site" \
   python3 testing_mcp/core/test_smoke_local.py
 ```
@@ -71,4 +71,4 @@ whichever fires first — via a machine-local launchd job + wrapper
 That automation is built separately; this command is the manual/on-demand entry point.
 
 ### Full rules
-See the authoritative skill: `.claude/skills/smoke-local/SKILL.md`
+See the authoritative skill: the `smoke-local` skill

@@ -57,7 +57,7 @@ bash $PROJECT_ROOT/install.sh
 |-----|-------|---------|
 | `AGY_PROVIDER_ENABLED` | `1` | agy provider on |
 | `AGY_RUNTIME_HOME` | `/tmp/agy-clean-home-v1` | sanitized HOME (gates `is_agy_provider_mode()`) |
-| `AGY_BINARY` | `$HOME/.local/bin/agy` | the agy CLI |
+| `AGY_BINARY` | `$(command -v agy)` | the agy CLI |
 | `AGY_TIMEOUT_SECONDS` | `900` | per-call LLM timeout (agy is slower than SDK) |
 | `WORLDAI_FIRESTORE_TRANSPORT` | `rest` | Firestore over REST |
 | `WAITLIST_MODE_ENABLED` | `false` | no waitlist gate locally |
@@ -78,7 +78,7 @@ it auto-starts, so the entire game path routes LLM calls through agy.
 
 ```bash
 TESTING_AUTH_BYPASS=false ALLOW_TEST_AUTH_BYPASS=false \
-  GOOGLE_APPLICATION_CREDENTIALS="$HOME/serviceAccountKey.json" \
+  GOOGLE_APPLICATION_CREDENTIALS="${GOOGLE_APPLICATION_CREDENTIALS:?GOOGLE_APPLICATION_CREDENTIALS not configured: path to the service account key}" \
   PYTHONPATH="$(pwd):$(pwd)/mvp_site" \
   python3 testing_mcp/core/test_smoke_local.py
 ```
@@ -116,7 +116,7 @@ Only the level-4 transition is a mechanics assertion. The four follow-up scenari
 are provider-path liveness probes; the dedicated suites own their deeper mechanics.
 
 Evidence bundle is written to `/tmp/<repo>/<branch>/test_smoke_local/latest/`
-(e.g. `/tmp/your-project.com/smoke-local-command/test_smoke_local/latest/`).
+(e.g. `/tmp/<repo>/<branch>/test_smoke_local/latest/`).
 
 ### Step 5 — report PASS/FAIL
 
@@ -162,7 +162,7 @@ invoked by this command.
 
 ## Relevant files
 
-- `.claude/commands/smoke-local.md` — the `/smoke-local` command (this skill backs it).
+- `commands/smoke-local.md` in this plugin — the `/smoke-local` command (this skill backs it).
 - `$PROJECT_ROOT/install.sh` — builds `/tmp/agy-clean-home-v1` + `worldai-agy.env`.
 - `$PROJECT_ROOT/llm_providers/provider_gateway.py` — `is_agy_provider_mode()` (agy gate).
 - `testing_mcp/core/test_smoke_local.py` — the smoke driver (built in a sibling lane).

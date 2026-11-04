@@ -11,11 +11,11 @@ logging, token-count reduction, or RAG/shadow BigQuery provenance.
 
 ## Execute immediately
 
-1. Read `.claude/skills/bq-evidence-reading/SKILL.md`.
+1. Read the `bq-evidence-reading` skill.
 2. Extract campaign IDs from artifacts, not PR prose alone.
-3. Query `worldarchitecture-ai.llm_forensics.llm_payloads` for raw LLM request/response
+3. Query `${GCP_PROJECT_ID}.${LLM_FORENSICS_DATASET}.llm_payloads` for raw LLM request/response
    proof.
-4. Query `worldarchitecture-ai.llm_forensics.log_events` only for structured event
+4. Query `${GCP_PROJECT_ID}.${LLM_FORENSICS_DATASET}.log_events` only for structured event
    claims such as `rag_shadow_comparison`.
 5. Report three separate verdicts:
    - BQ raw corpus proof
@@ -27,4 +27,4 @@ Do not treat `log_events` as the raw LLM request/response table. Do not treat
 
 ## Reference
 
-Authoritative workflow: `.claude/skills/bq-evidence-reading/SKILL.md`
+Authoritative workflow: the `bq-evidence-reading` skill

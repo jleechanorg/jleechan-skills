@@ -22,22 +22,22 @@ level-up playthrough — either **locally** (default, via `local.sh`) or against
 For fast iteration on your own machine, run the organic playthrough against a freshly
 auto-started local gunicorn server with real Firebase + the AGY CLI provider by default
 (no mocks). Missing AGY setup fails closed with an `$PROJECT_ROOT/install.sh` instruction. The
-helper `.claude/skills/levelup/local.sh` sets the required env
+helper `local.sh` in this skill's directory (`<skill-dir>/local.sh`) sets the required env
 (`TESTING_AUTH_BYPASS=true`, `ALLOW_TEST_AUTH_BYPASS=true`, `PYTHONPATH`), scrubs leaked mock-enabling flags with a loud notice and continues, defaults to the full scenario sweep, and
 passes any extra args straight through to the test:
 
 ```bash
-# From repo root — all scenarios against an auto-started local server:
-.claude/skills/levelup/local.sh
+# From the product repository root — all scenarios against an auto-started local server:
+<skill-dir>/local.sh
 
 # A single scenario:
-.claude/skills/levelup/local.sh --level-up-scenario single-organic
+<skill-dir>/local.sh --level-up-scenario single-organic
 
 # Pick the character class / enable full evidence guards:
-.claude/skills/levelup/local.sh --class-name wizard --full
+<skill-dir>/local.sh --class-name wizard --full
 
 # Target an existing server OR a GCP preview URL instead of auto-starting:
-.claude/skills/levelup/local.sh --server https://mvp-site-app-s....run.app
+<skill-dir>/local.sh --server https://<preview-service-url>
 ```
 
 Scenario choices: `single-organic`, `multi-organic`, `projected-button`, `god-reward`,

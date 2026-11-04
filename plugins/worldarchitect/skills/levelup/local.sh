@@ -7,11 +7,11 @@
 # the local default; remote previews use their configured provider. No mocks
 # (the testing_mcp harness fails closed if any MOCK_*/TEST_MODE flag is set).
 #
-# Usage (run from repo root):
-#   .claude/skills/levelup/local.sh                       # all scenarios, local server
-#   .claude/skills/levelup/local.sh --level-up-scenario single-organic
-#   .claude/skills/levelup/local.sh --server https://mvp-site-app-s...run.app   # GCP preview
-#   .claude/skills/levelup/local.sh --class-name wizard --full
+# Usage (run from the product repository root; <skill-dir> is this skill's directory):
+#   <skill-dir>/local.sh                       # all scenarios, local server
+#   <skill-dir>/local.sh --level-up-scenario single-organic
+#   <skill-dir>/local.sh --server https://<preview-service-url>   # GCP preview
+#   <skill-dir>/local.sh --class-name wizard --full
 #
 # Any extra args are passed straight through to the test (e.g. --server,
 # --server-auth, --level-up-scenario, --class-name, --full, --model).
@@ -19,9 +19,13 @@
 # Evidence bundle is written to /tmp/<repo>/<branch>/test_level_up_organic/latest/.
 set -euo pipefail
 
-# Resolve repo root from this script's location (skill lives at .claude/skills/levelup/).
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
+# Resolve the product repository from REPO_ROOT or the current working tree; this
+# script may be installed outside the repository (for example as a plugin).
+REPO_ROOT="${REPO_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || true)}"
+if [ -z "${REPO_ROOT}" ] || [ ! -d "${REPO_ROOT}/testing_mcp" ]; then
+  echo "REPO_ROOT not configured: run from the product repository root or export REPO_ROOT=<product-repo-checkout>." >&2
+  exit 2
+fi
 cd "${REPO_ROOT}"
 
 # Real services only — auth bypass for local, never a mock LLM.

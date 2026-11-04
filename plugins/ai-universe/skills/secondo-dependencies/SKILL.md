@@ -123,7 +123,7 @@ export FIREBASE_PROJECT_ID="your-project"
 node scripts/auth-cli.mjs login
 
 # 5. Test secondo command
-~/.claude/scripts/secondo-cli.sh "test question"
+${CLAUDE_HOME:-$HOME/.claude}/scripts/secondo-cli.sh "test question"
 ```
 
 ## Troubleshooting
@@ -160,10 +160,10 @@ test -n "${FIREBASE_PROJECT_ID:-}" && echo "FIREBASE_PROJECT_ID is configured" |
 ```
 
 Keep existing authorized configuration in its designated secure store. Never
-print or paste the API key; see [cloud-ops-credential-guard](../cloud-ops-credential-guard/SKILL.md).
+print or paste the API key; see the `cloud-ops-credential-guard` skill.
 
 ## See Also
 
 - [ai-universe-auth](../ai-universe-auth/SKILL.md) - Authentication setup guide
 - [ai-universe-httpie](../ai-universe-httpie/SKILL.md) - HTTPie usage examples
-- [second_opinion.md](../../commands/extended-library/second_opinion.md) - Command documentation
+- the `/second_opinion` command - Command documentation
