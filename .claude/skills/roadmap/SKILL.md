@@ -72,7 +72,11 @@ Required structure, in this order:
    `_Measured <Weekday> <Mon> <D>, <YYYY>, <h:mm AM/PM> PT_` in 12-hour Pacific
    time (e.g. `_Measured Thu Oct 29, 2026, 9:49 PM PDT_`); never a 24-hour clock or
    a UTC timestamp in that line. Immediately after it, add a named
-   `### What changes for the player` section. Put requested user-facing features
+   `### What changes for the player` section with a table:
+   `| Work item | Before → after / player benefit | PR or bead | Status / stage | Done / remaining |`.
+   Repeat a PR’s actual stage when it covers several work items; keep summary
+   stages consistent with the detailed ledger, including marker mismatches.
+   Put requested user-facing features
    and fixes first, then assigned work items that do not yet have a PR; list
    supporting tests, tooling and docs afterward. For each item, use a visible PR
    number or bead link and state its actual status (`planned`, `implemented`,
