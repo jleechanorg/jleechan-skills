@@ -108,6 +108,8 @@ Do not execute a missing, unverified or incompatible helper just because old gui
 
 ## Stage changes and evidence
 
+Select class, risk, changed claims, proof and source-review count from [the lifecycle obligation table](../pr-lifecycle/SKILL.md#review-obligations-by-changed-claim-and-risk). Record the selected row and its positive eligibility evidence in the existing PR/task record. This entry point performs operational preflight; it does not add a second routing table, provider ladder or source-vote requirement.
+
 The [compact risk-based route](../pr-lifecycle/SKILL.md#compact-risk-based-route) skips intermediate stage-title/label ceremony only; do not skip its required checks or Stage 5 closure. For opted-in repositories, apply [stage transitions](../pr-lifecycle/SKILL.md#stage-title-and-labels), [default PR route and lighter non-production path](../pr-lifecycle/SKILL.md#default-pr-route--prw), and [evidence applicability](../pr-lifecycle/SKILL.md#sha-binding-rule-critical--applies-to-every-gate-in-this-chain). Title/label changes are not execution proof, review approval or merge authority.
 
 At start, after each push, and on a new failure, refresh the current head, latest failing checks and open
