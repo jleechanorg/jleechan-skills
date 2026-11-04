@@ -46,8 +46,10 @@ act*, never *depth of review*.
 
 **Allowed commands (the complete list).** `cmux tree --all --json`, `cmux list-workspaces`, `cmux top --all
 [--flat]`, `cmux top --workspace <ws> --processes`, `cmux capture-pane --workspace <ws> --surface <sf>
---scrollback --lines <n>` (the only read path), read-only `gh pr view|list --json`, read-only `ps` / `lsof -p
-<pid>`, and reads of the `/tmp` capture files. Nothing else.
+--scrollback --lines <n>` (the only read path), read-only `gh pr view|list --json`, read-only `gh api` GET on a
+pull's reviews/commits/checks, read-only `git log|status|rev-list|rev-parse` inside a surface's worktree, read-only
+`ps` / `lsof -p <pid>`, and reads of the `/tmp` capture files. The `git` and `gh api` reads exist so the
+`ENDLESS_REVIEW` measurements can be taken in the same pass; neither mutates a repo or a PR. Nothing else.
 
 **Forbidden in read-only mode** — every operation that changes a surface or the operator's desktop: `cmux send`,
 `cmux send-key` (including `--force`), the socket `surface.send_text` call, `cmux new-workspace` / `new-surface` /
@@ -158,17 +160,26 @@ git -C <worktree> log -1 --format='%ct %h %s'          # compare %ct to now
 git -C <worktree> status --porcelain | wc -l
 git -C <worktree> rev-list --count HEAD --not --remotes
 # 3. Is review churn repeating at ONE head? (the loop signature)
-gh api repos/<org>/<repo>/pulls/<N>/reviews --jq '.[] | .commit_id[0:8]' | sort | uniq -c | sort -rn
+#    Count DISTINCT review attempts, not raw records: some bots post one record per
+#    finding, so 24 records can be a single pass (see the warning after this list).
+gh api repos/<org>/<repo>/pulls/<N>/reviews \
+  --jq '[.[] | {head: .commit_id[0:8], who: .user.login}] | group_by(.head) | .[] | "\(.[0].head) \(length) records, \(map(.who)|unique|length) distinct reviewers"'
 ```
 
 **Flag `ENDLESS_REVIEW` when all three hold:**
 1. The lane's own timer is long (**>= 2 h**) while `git log -1` shows the last commit was **>= 2 h ago** and
    `status --porcelain` is empty with `rev-list --count HEAD --not --remotes` = 0 — nothing produced, nothing pending.
-2. Three or more review rounds converge on the **same head SHA** (step 3 shows one `commit_id` dominating), or the
-   same evidence bundle is re-published more than once at one head.
-3. The gate it waits on **structurally cannot close** — the reviewer route is dead by quota/capacity
-   (`usage limit`, `at capacity`, `RESOURCE_EXHAUSTED`, `429`), so more rounds cannot yield approval. Quota is a
-   scheduling fact: a dead seat never votes, no matter how many times it is retried.
+2. Three or more **distinct review attempts** converge on the **same head SHA**, or the same evidence bundle is
+   re-published more than once at one head. A "distinct attempt" is one reviewer pass, not one API record: some
+   bots post a separate review record per finding, so raw record count is not evidence of repeated rounds. If
+   every record at that head came from one reviewer within a few minutes, treat it as **one** attempt.
+3. The gate it waits on **structurally cannot close**, proven from **current** route evidence — the reviewer
+   route is dead by quota/capacity (`usage limit`, `at capacity`, `RESOURCE_EXHAUSTED`, `429`) *now*, not from an
+   old banner in scrollback. The stale-footer rule below applies in full: probe the route (one cheap call) or read
+   a live meter before declaring it dead, and check whether the wall's own reset time has already passed. A quota
+   line with no post-footer activity and an at-100% meter is current; the same text above a working lane, or
+   after the stated reset, is history. Quota is a scheduling fact: a dead seat never votes, no matter how many
+   times it is retried.
 
 **Do not flag it** when the head is moving (each round reviews a new SHA — that is normal gated work), when the lane
 produced a commit or push inside the window, or when the last round found and fixed a real defect.
@@ -255,7 +266,8 @@ done
 ```
 
 **Phase 2 must read `$OUT_DIR/working_surfaces.txt` and `closed_surfaces.txt` before classifying any surface.** A
-surface in `working_surfaces.txt` is `WORKING` unless it is `STOOD_DOWN_DUPLICATE` or `WEDGED_PROCESS`, and may
+surface in `working_surfaces.txt` is `WORKING` unless it is `STOOD_DOWN_DUPLICATE`, `WEDGED_PROCESS`, or
+`ENDLESS_REVIEW` (see § Endless-review loop — the one case where a changing screen is itself the symptom), and may
 otherwise receive no other label. A surface in `closed_surfaces.txt` was captured once, not twice, and is not
 classifiable from this sweep.
 
