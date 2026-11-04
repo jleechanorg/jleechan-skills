@@ -72,20 +72,26 @@ those seats are genuinely exhausted.
 ### Rung 2: outside routes
 
 As soon as the remaining CLI seats cannot fill every open slot (typically all are quota-walled, missing or void),
-dispatch every configured outside route at once (accounts within one route follow that route's order), without waiting for static reviewers or asking the user to choose.
-Two outside votes from distinct identities are a full quorum.
+dispatch every authorized outside route at once (accounts within one route follow that route's order), without
+waiting for static reviewers or asking the user to choose. Two outside votes from distinct identities are a full
+quorum.
 
-The repository owner authorized these routes as `/advice` fallbacks on 2026-11-04 ("when all cli reviewers out of
-quota ... it should try to use /wa and ask hermes hermes pc and the dots in dot coordination for a review"), including
-`/web-advice` uploads and the `#dot-coordination` channel. That is the standing authorization pr-lifecycle's optional-`/wa` rule and
-`/hermes`'s disclosure rule require. It does not override a narrower rule: when the user, task or repository
-restricts external disclosure of the reviewed content, or the content holds secrets, the affected route is
-`UNAVAILABLE — disclosure not authorized`.
+**Authorization is machine-local.** These routes send PR content off the machine, so this portable skill grants
+nothing by itself. A route is authorized only when the machine's `ADVICE_OUTSIDE_ROUTES` lists it (a
+comma-separated subset of `dot,hermes,web`, exported in that machine's `~/.bashrc`) or the current task explicitly
+authorizes it. That opt-in is the standing authorization pr-lifecycle's optional-`/wa` rule and `/hermes`'s
+disclosure rule require. Unlisted routes are `UNAVAILABLE — disclosure not authorized`, and so is any route when the
+user, task or repository restricts external disclosure of the reviewed content, or the content holds secrets. (The
+repository owner opted in on 2026-11-04: "when all cli reviewers out of quota ... it should try to use /wa and ask
+hermes hermes pc and the dots in dot coordination for a review".)
+
+The Dot route as a whole shares one §3 budget across its accounts, so trying accounts one at a time never delays the
+static-reviewer rung by more than one budget.
 
 | Route | Transport | Seats |
 |---|---|---|
 | Dot | the [`/dot` skill](../dot/SKILL.md), coordinator ask, `isolation: remote` | one Dot account at a time, in its configured `rotation` order (the Dots [dot-coordinator](../dot-coordinator/SKILL.md) is configured for), each addressed explicitly with `--account <name>`, never by automatic rotation; only when an account is busy, limited, blocked or timed out is it recorded `UNAVAILABLE` and the next account asked, matching pr-lifecycle's `/dot` rotation; the Dot route still runs concurrently with the other routes; revision review only |
-| Hermes | the `/hermes` skill's Slack-only transport (host-installed; absent means `UNAVAILABLE`), coordinator ask, `isolation: remote`. **If the `#dot-coordination` Slack channel is available to the sending identity, post there, one thread per Hermes instance;** otherwise use the conversation `/hermes` resolves | one per configured Hermes instance, for example the primary Hermes and `hermes-pc`, resolved from machine-local configuration; revision review only |
+| Hermes | the `/hermes` skill's Slack-only transport (host-installed; absent means `UNAVAILABLE`), coordinator ask, `isolation: remote`. **When the machine's `ADVICE_HERMES_CHANNEL` names a Slack channel (the owner's is `#dot-coordination`) and it is available to the sending identity, post there, one thread per Hermes instance;** otherwise use the conversation `/hermes` resolves | one per configured Hermes instance, for example the primary Hermes and `hermes-pc`, resolved from machine-local configuration; revision review only |
 | Web advice | [`/web-advice`](../web-advice/SKILL.md) (user shorthand `wa`), `isolation: packet` for revisions, `none` for documents | one per authenticated provider and account; the orchestrator records the signed-in account from the web session as `attested.account` |
 
 A reply is a vote only once it carries full-scope `COVERAGE:` and the SHA-bound `VERDICT:` line, read back at the

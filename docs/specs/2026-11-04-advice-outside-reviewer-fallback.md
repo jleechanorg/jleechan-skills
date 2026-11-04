@@ -18,7 +18,8 @@
   - Dot and Hermes review a pushed SHA from an existing checkout (`isolation: remote`). `/web-advice` reviews an
     uploaded packet of the pinned `BASE..SHA` diff and full changed files (`isolation: packet`). Both have matching
     `static-review` templates, preambles and receipt fields.
-  - A disclosure restriction or secret content makes the affected outside route `UNAVAILABLE`.
+  - An outside route runs only when the machine's `ADVICE_OUTSIDE_ROUTES` opts into it (or the task authorizes it);
+    a disclosure restriction or secret content still makes the affected route `UNAVAILABLE`.
   - Static reviewers fill only slots still open after every CLI seat and outside route has ended.
   - `test_installer`, `test_cross_host_catalog`, `test_command_closure`, `test_advice_machine_local_clis`,
     `test_portable_install`, `test_swarm_references`, `test_sync_live_config` and CI `contract-tests` pass.
