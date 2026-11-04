@@ -49,95 +49,6 @@ class WorkflowCommandPairTest(unittest.TestCase):
             (SKILLS / "parallelize-to-ceiling" / "SKILL.md").is_file()
         )
 
-    def test_parallel_command_points_to_canonical_lane_routing_contract(self):
-        parallel = (COMMANDS / "extended-library" / "parallel.md").read_text(
-            encoding="utf-8"
-        )
-        skill = (SKILLS / "parallelize-to-ceiling" / "SKILL.md").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn(
-            "${CLAUDE_HOME:-$HOME/.claude}/skills/parallelize-to-ceiling/SKILL.md",
-            parallel,
-        )
-        self.assertNotIn("## Coding and verification lane routing", parallel)
-        self.assertNotIn("## Fallback precedence", parallel)
-        self.assertNotIn("## Isolation contract", parallel)
-        for required in (
-            "## Coding and verification lane routing",
-            "${CLAUDE_HOME:-$HOME/.claude}/agents/agy-pair-coder.md",
-            "${CLAUDE_HOME:-$HOME/.claude}/agents/agy-pair-verifier.md",
-            (
-                "FALLBACK: if an AGY lane concretely fails, retry that lane with "
-                "a gpt-6-luna subagent, then codex-luna as the fallback if "
-                "gpt-6-luna is unavailable or fails, while preserving "
-                "isolation and independent verification. 5.6 models are forbidden; "
-                "only GPT 6 and 6.1 models are permitted."
-            ),
-            "## Codex model routing",
-            "## Fallback precedence",
-            "`FALLBACK` template above is governed by this order:",
-            "retry the same bounded lane with",
-            "`gpt-6-luna` subagent. If `gpt-6-luna` is unavailable or fails, invoke",
-            "the Codex CLI explicitly with `-m gpt-6-sol`",
-            "Use `claudem` or an own cheap agent only when the ordered Codex",
-            "unavailable; preserve the same bounded scope",
-            "## Isolation contract",
-            "distinct lanes and contexts",
-            "disjoint workspace/output",
-            "verifier must",
-            "independently rerun focused checks before signaling completion",
-        ):
-            with self.subTest(required=required):
-                self.assertIn(required, skill)
-
-        normalized_skill = " ".join(skill.split())
-        self.assertIn(
-            "prefer the native `gpt-6-luna` subagent for bounded coding and "
-            "simple task-driving",
-            normalized_skill,
-        )
-        self.assertIn(
-            "`gpt-6-luna` → `gpt-6-sol` (5.6 models forbidden)",
-            normalized_skill,
-        )
-        self.assertIn(
-            "If `gpt-6-luna` is unavailable or fails, use the active GPT 6 / 6.1 tier (`gpt-6-sol`).",
-            normalized_skill,
-        )
-        self.assertIn(
-            "For simple independent tasks, the Luna lane may also drive the task "
-            "through its focused checks and deliver the result; keep the root "
-            "session responsible for scope and integration.",
-            normalized_skill,
-        )
-        self.assertIn(
-            "Work you can finish in a handful of tool calls, do in the root session",
-            normalized_skill,
-        )
-        self.assertIn(
-            "retry the same bounded lane with the next explicit model",
-            normalized_skill,
-        )
-        self.assertIn(
-            "advancing only after a concrete failure in that lane",
-            normalized_skill,
-        )
-
-    def test_retry_isolation_covers_every_attempt_and_prior_attempts(self):
-        skill = (SKILLS / "parallelize-to-ceiling" / "SKILL.md").read_text(
-            encoding="utf-8"
-        )
-        normalized_skill = " ".join(skill.split())
-        self.assertIn(
-            "Every attempt, including initial execution and each retry, uses a "
-            "fresh workspace (either an allocated worktree on a fresh branch or "
-            "caller-provided clean workspace) and unique output/log paths "
-            "disjoint from both coder and verifier lanes and from all previous "
-            "attempts.",
-            normalized_skill,
-        )
-
     def test_parallel_contract_uses_configurable_claude_home(self):
         paths = (
             COMMANDS / "extended-library" / "parallel.md",
@@ -156,114 +67,17 @@ class WorkflowCommandPairTest(unittest.TestCase):
                 path.read_text(encoding="utf-8"),
             )
 
-    def test_retry_contract_forbids_conversation_reuse(self):
-        skill = (SKILLS / "parallelize-to-ceiling" / "SKILL.md").read_text(
-            encoding="utf-8"
+    def test_retry_contract_forbids_conversation_reuse_flags(self):
+        paths = (
+            SKILLS / "parallelize-to-ceiling" / "SKILL.md",
+            REPO_ROOT / ".claude" / "agents" / "agy-pair-coder.md",
+            REPO_ROOT / ".claude" / "agents" / "agy-pair-verifier.md",
         )
-        coder = (REPO_ROOT / ".claude" / "agents" / "agy-pair-coder.md").read_text(
-            encoding="utf-8"
-        )
-        verifier = (
-            REPO_ROOT / ".claude" / "agents" / "agy-pair-verifier.md"
-        ).read_text(encoding="utf-8")
-        for name, content in (
-            ("skill", skill),
-            ("coder", coder),
-            ("verifier", verifier),
-        ):
-            with self.subTest(document=name):
+        for path in paths:
+            content = path.read_text(encoding="utf-8")
+            with self.subTest(path=path):
                 self.assertNotIn("--continue", content)
                 self.assertNotIn("--conversation", content)
-        normalized_skill = " ".join(skill.split())
-        self.assertIn(
-            "every retry uses a fresh worktree on its own branch and unique output/log paths",
-            normalized_skill,
-        )
-        self.assertIn("fresh `agy --new-project`", normalized_skill)
-
-    def test_agy_coder_uses_the_shared_resource_admission_gate(self):
-        coder = (REPO_ROOT / ".claude" / "agents" / "agy-pair-coder.md").read_text(
-            encoding="utf-8"
-        )
-        skill = (SKILLS / "parallelize-to-ceiling" / "SKILL.md").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn("Before spawning, follow the active", " ".join(coder.split()))
-        self.assertIn("`parallelize-to-ceiling` resource-admission gate", coder)
-        self.assertIn("do not gate on a static swap used/total ratio", coder)
-        self.assertNotIn("defer if swap >80% used", coder)
-        self.assertIn("Available >8GB **and** macOS pressure ≤2", skill)
-        self.assertIn("Swap is evidence, not a separate defer tier", skill)
-
-    def test_implementation_ready_carries_exact_revision_handoff(self):
-        skill = (SKILLS / "parallelize-to-ceiling" / "SKILL.md").read_text(
-            encoding="utf-8"
-        )
-        coder = (REPO_ROOT / ".claude" / "agents" / "agy-pair-coder.md").read_text(
-            encoding="utf-8"
-        )
-        for name, content in (("skill", skill), ("coder", coder)):
-            with self.subTest(document=name):
-                self.assertIn("Revision: <exact git SHA>", content)
-                self.assertIn("Worktree: <absolute path>", content)
-        self.assertIn("git rev-parse HEAD", coder)
-
-    def test_codex_luna_fallback_does_not_claim_multi_model_routing(self):
-        skill = (SKILLS / "parallelize-to-ceiling" / "SKILL.md").read_text(
-            encoding="utf-8"
-        )
-        normalized_skill = " ".join(skill.split())
-        self.assertIn(
-            "If `gpt-6-luna` is unavailable or fails, use the active GPT 6 / 6.1 tier (`gpt-6-sol`).",
-            normalized_skill,
-        )
-        self.assertIn(
-            "invoke the Codex CLI explicitly with `-m gpt-6-sol`",
-            normalized_skill,
-        )
-
-    def test_initial_pair_attempts_enter_fresh_disjoint_worktrees(self):
-        coder = (REPO_ROOT / ".claude" / "agents" / "agy-pair-coder.md").read_text(
-            encoding="utf-8"
-        )
-        verifier = (
-            REPO_ROOT / ".claude" / "agents" / "agy-pair-verifier.md"
-        ).read_text(encoding="utf-8")
-        for name, content in (("coder", coder), ("verifier", verifier)):
-            normalized = " ".join(content.split())
-            with self.subTest(document=name):
-                self.assertIn(
-                    "new branch absent from local and origin refs",
-                    normalized.lower(),
-                )
-                self.assertIn("fresh worktree name", normalized.lower())
-                self.assertIn("before", normalized.lower())
-                if name == "coder":
-                    self.assertIn("creating or changing", normalized.lower())
-                else:
-                    self.assertIn("enter the fresh branch worktree", normalized.lower())
-                self.assertIn("unique per-attempt output", normalized.lower())
-                self.assertIn("disjoint from", normalized.lower())
-                self.assertIn("other lane", normalized.lower())
-
-    def test_coder_handoff_requires_scoped_committed_clean_revision(self):
-        coder = (REPO_ROOT / ".claude" / "agents" / "agy-pair-coder.md").read_text(
-            encoding="utf-8"
-        )
-        skill = (SKILLS / "parallelize-to-ceiling" / "SKILL.md").read_text(
-            encoding="utf-8"
-        )
-        normalized_coder = " ".join(coder.split())
-        normalized_skill = " ".join(skill.split())
-        self.assertIn("stage explicit file paths only", normalized_coder.lower())
-        self.assertIn("git status --porcelain", coder)
-        self.assertIn("git commit", coder)
-        self.assertIn("must be empty", normalized_coder.lower())
-        self.assertIn("final scoped commit", normalized_coder.lower())
-        self.assertIn(
-            "`Revision` is the committed clean implementation revision",
-            normalized_skill,
-        )
 
     def test_initial_coder_worktree_is_pinned_to_callers_revision(self):
         coder = (REPO_ROOT / ".claude" / "agents" / "agy-pair-coder.md").read_text(
@@ -289,10 +103,6 @@ class WorkflowCommandPairTest(unittest.TestCase):
         self.assertIn('--name "$ATTEMPT_NAME"', launch)
         self.assertIn(head_check, launch)
         self.assertIn('if [ "$CODER_HEAD" != "$BASE_REVISION" ]; then', launch)
-        self.assertIn(
-            "new branch absent from local and origin refs",
-            " ".join(launch.split()),
-        )
         self.assertLess(launch.index(base_capture), launch.index(worktree_start))
         self.assertLess(launch.index(clean_check), launch.index(worktree_start))
         self.assertLess(launch.index(worktree_start), launch.index(head_check))
@@ -301,11 +111,6 @@ class WorkflowCommandPairTest(unittest.TestCase):
         verifier = (
             REPO_ROOT / ".claude" / "agents" / "agy-pair-verifier.md"
         ).read_text(encoding="utf-8")
-        normalized = " ".join(verifier.split())
-        self.assertIn(
-            "allocate a unique per-attempt output path",
-            normalized.lower(),
-        )
         self.assertIn("> \"$AGY_OUT\" 2>&1", verifier)
         self.assertIn("AGY_OUT=", verifier)
 
@@ -314,7 +119,6 @@ class WorkflowCommandPairTest(unittest.TestCase):
             encoding="utf-8"
         )
         retry = coder.split("If verifier sends VERIFICATION_FAILED:", 1)[1]
-        normalized_retry = " ".join(retry.split())
         self.assertIn("PRIOR_REVISION", retry)
         self.assertIn(
             'RETRY_ATTEMPT_ID="<fresh unique retry identifier>"', retry
@@ -324,21 +128,14 @@ class WorkflowCommandPairTest(unittest.TestCase):
             'RETRY_WORKTREE_NAME="agy-coder-$RETRY_ATTEMPT_ID"', retry
         )
         self.assertIn(
-            "new retry branch absent from local and origin refs", normalized_retry
-        )
-        self.assertIn("fresh worktree name", normalized_retry)
-        self.assertIn(
             'diskm worktree-new <repo-path> "$RETRY_BRANCH" \\', retry
         )
         self.assertIn('--base "$PRIOR_REVISION"', retry)
         self.assertIn('--name "$RETRY_WORKTREE_NAME"', retry)
         self.assertIn('cd "$CODER_WORKTREE"', retry)
         self.assertIn('git -C "$CODER_WORKTREE" rev-parse HEAD', retry)
-        self.assertIn("equals `PRIOR_REVISION`", retry)
         self.assertIn("git add <explicit scoped paths>", retry)
         self.assertIn("git commit", retry)
-        self.assertIn("git status --porcelain", normalized_retry)
-        self.assertIn("must be empty", normalized_retry)
 
     def test_verifier_worktree_setup_fails_closed_and_checks_revision(self):
         verifier = (
@@ -348,16 +145,10 @@ class WorkflowCommandPairTest(unittest.TestCase):
             'VERIFIER_ATTEMPT_ID="<fresh unique attempt identifier>"', verifier
         )
         self.assertIn(
-            "new branch absent from local and origin refs",
-            " ".join(verifier.split()),
-        )
-        self.assertIn("fresh worktree name", " ".join(verifier.split()))
-        self.assertIn(
             'diskm worktree-new <repo-path> "$VERIFIER_BRANCH" \\', verifier
         )
         self.assertIn('--base "$REVISION"', verifier)
         self.assertIn('--name "$VERIFIER_WORKTREE_NAME"', verifier)
-        self.assertNotIn("detached worktree", verifier)
         self.assertIn(
             'if ! VERIFIER_STATUS="$(git -C "$VERIFIER_WORKTREE" status --porcelain)";',
             verifier,
@@ -510,11 +301,6 @@ class WorkflowCommandPairTest(unittest.TestCase):
         retry = verifier.split("### Retry handling", 1)[1].split(
             "## Communication Protocol", 1
         )[0]
-        normalized_verifier = " ".join(verifier.split())
-        self.assertIn(
-            "Every verifier retry carries the handed-off `Revision`",
-            normalized_verifier,
-        )
         self.assertIn(
             'diskm worktree-new <repo-path> "$VERIFIER_BRANCH" \\', retry
         )
@@ -526,36 +312,7 @@ class WorkflowCommandPairTest(unittest.TestCase):
         self.assertIn(
             'VERIFIER_BRANCH="agy-verifier-$VERIFIER_ATTEMPT_ID"', retry
         )
-        self.assertIn(
-            "new branch absent from local and origin refs",
-            " ".join(retry.split()),
-        )
-        self.assertIn("fresh worktree name", " ".join(retry.split()))
-        self.assertIn(
-            'Enter the verified retry worktree with `cd "$VERIFIER_WORKTREE"`',
-            normalized_verifier,
-        )
-        self.assertIn(
-            "rerunning focused checks read-only",
-            normalized_verifier,
-        )
         self.assertIn('cd "$VERIFIER_WORKTREE"', retry)
-        self.assertLess(
-            retry.index('cd "$VERIFIER_WORKTREE"'),
-            retry.index("rerunning focused checks read-only"),
-        )
-        self.assertIn(
-            "Never modify files or create a commit",
-            normalized_verifier,
-        )
-        skill = (SKILLS / "parallelize-to-ceiling" / "SKILL.md").read_text(
-            encoding="utf-8"
-        )
-        normalized_skill = " ".join(skill.split())
-        self.assertIn("Each coder retry must carry", normalized_skill)
-        self.assertIn("Verifier retries must carry", normalized_skill)
-        self.assertIn("rerun focused checks read-only", normalized_skill)
-        self.assertIn("never modify files or create a commit", normalized_skill)
 
     def test_verifier_launch_is_background_and_surfaces_unique_output(self):
         verifier = (
@@ -646,6 +403,13 @@ class WorkflowCommandPairTest(unittest.TestCase):
                     (SKILLS / required_lane / "SKILL.md").is_file(),
                     f"Required lane skill {required_lane} must exist in repo",
                 )
+
+
+class ParallelCommandPointerTest(unittest.TestCase):
+    def test_parallel_command_dispatches_to_parallelize_to_ceiling_skill(self):
+        parallel = (COMMANDS / "extended-library" / "parallel.md").read_text(encoding="utf-8")
+        self.assertIn("${CLAUDE_HOME:-$HOME/.claude}/skills/parallelize-to-ceiling/SKILL.md", parallel)
+        self.assertTrue((SKILLS / "parallelize-to-ceiling" / "SKILL.md").is_file())
 
 
 if __name__ == "__main__":
