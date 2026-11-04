@@ -1,5 +1,5 @@
 ---
-description: Token-efficient second opinion — runs the Codex + Opus CLI primary pair concurrently where available and requires two independent, full-coverage votes, using eligible alternate CLI reviewers when a primary vote is missing. Requires a complete default 1800-second (30-minute) end-to-end budget per reviewer attempt, including setup and cleanup; an explicit user-specified limit governs that attempt, whether shorter or longer; otherwise the 30-minute default applies. A later specific user instruction to await a named reviewer overrides this deadline for that requested attempt, even without a numeric duration; unsupported routes are unavailable. `/research` is nonvoting.
+description: Independent second opinion — two full-coverage reviewer votes bound to an exact SHA or document bundle. CLI seats first (Codex + Opus concurrently, quota walls fail fast), then the outside routes this machine opts into (Dot, Hermes including hermes-pc, /web-advice), then static reviewers. 30-minute default per attempt; /research is nonvoting.
 aliases: [smart-advisor]
 type: skill
 execution_mode: immediate
