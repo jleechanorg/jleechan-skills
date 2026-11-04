@@ -15,7 +15,10 @@ ratchet) prevent regressions. Spec:
 **Tech Stack:** Markdown skills, JSON manifests, Python `unittest`/pytest, bash.
 
 **Inputs:** per-skill leak records from the four audit passes (file, line, text, kind,
-replacement). Implementers re-grep each skill before editing; line numbers are hints.
+replacement). They hold personal values, so they are never committed: the orchestrator
+passes their session-local path to each implementation subagent. Implementers re-grep
+each skill before editing; line numbers are hints. Without the records, the
+machine-local `personal-tokens.txt` list in the registry is the verification oracle.
 
 **Baseline:** `python3 -m pytest -q tests` on `main` in this container has exactly 3
 pre-existing failures (`test_code_review_export.py` ×2 Hermes import, `test_md_files_bootstrap_regression.py`
@@ -143,8 +146,10 @@ First list every command whose only skill target moves: for each moved name,
 
 Move each skill directory listed in spec D1 "What moves" with `git mv .claude/skills/<s> plugins/<plugin>/skills/<s>`;
 rename `agents` → `plugins/worldarchitect/skills/worldai-agent-routing` and update its frontmatter
-`name`. Move `.claude/scripts/auth-worldai.mjs` to `plugins/worldarchitect/scripts/` and reference it
-as `node "${CLAUDE_PLUGIN_ROOT}/scripts/auth-worldai.mjs"`. In every moved file, grep for
+`name`. First run `grep -rn 'auth-worldai.mjs' . --exclude-dir=.git` and fix every caller. Then move
+`.claude/scripts/auth-worldai.mjs` into `plugins/worldarchitect/skills/worldai-auth/scripts/` and
+reference it relative to the skill's base directory (`<this skill's directory>/scripts/auth-worldai.mjs`),
+not through `${CLAUDE_PLUGIN_ROOT}`, which is not guaranteed to expand in SKILL.md text. In every moved file, grep for
 `\.\./`, `scripts/`, `shared/` and `\.claude/`: address plugin-local files via `${CLAUDE_PLUGIN_ROOT}`,
 name generic skills instead of linking them, and copy any needed repository script into the plugin. Move commands whose only target moved
 (`.claude/commands/levelup.md`, `extended-library/generatetest.md`, `extended-library/repro_copy.md`,
@@ -164,6 +169,9 @@ Run: `python3 -m pytest -q tests/test_plugin_folders.py` → all PASS, including
 Step 1: plant `/home/alice/x` in a moved plugin skill file; run
 `python3 -m pytest -q tests/test_skill_export_no_personal_paths.py` → FAIL naming that file.
 Step 2: revert the plant → PASS. If real leaks in moved files fail the scan, scrub them.
+Step 3: put a synthetic identifier that `find_personal_identifiers` detects (for example the
+fake Slack-style ID `C0ABCDEFGHJ`) in a plugin skill file, call `scan_personal([that file])`
+(or run `tests/test_skill_personal_identifiers.py`) → it reports the file; revert → clean.
 
 ### Task 2.4: Repair references to moved skills
 
@@ -237,8 +245,9 @@ auto-factory, repro-developer.
 For each script under these skills whose default changes (`host-disk-guardian` defaults,
 `repro-developer/collect_repro.py` `"/home/$USER"` literals, `history-search` `$HOME/projects`
 default), write a failing test in `tests/test_<skill>_env_defaults.py` that runs the script
-with a temp `HOME` and the variable unset, asserting either the documented derived value or a
-non-zero exit whose stderr names the variable.
+with a temp `HOME` and the variable unset, and asserts the one behavior the registry documents for
+that variable: the derived value where the registry lists a derivation, otherwise a non-zero exit
+whose stderr names the variable. A second case sets the variable and asserts it wins.
 Run: `python3 -m pytest -q tests/test_<skill>_env_defaults.py` → RED (old hardcoded default used).
 Implement the registry resolution. Run → GREEN, then `python3 -m pytest -q tests` → baseline.
 Each test runs in a temporary non-git working directory with a controlled `PATH`, so results do not
@@ -278,7 +287,7 @@ to the derived scratch folder.
 
 ### Task 4.2: Prose edits
 
-TDD: N/A — wording. Replace `jleechanorg/<repo>` defaults with `$GITHUB_REPOSITORY`/`$GITHUB_ORG`,
+TDD: N/A — wording. Replace hardcoded `<owner>/<repo>` defaults with `$GITHUB_REPOSITORY`/`$GITHUB_ORG`,
 Slack IDs with registry vars, personal names with "the operator". Move real identifiers out of
 `credential-discipline` into the machine-local blocklist file description.
 Verification: `python3 scripts/skill_portability_scan.py --check-personal --base origin/main` exits 0;
@@ -323,7 +332,7 @@ Commit, push, open draft PR 5.
 |---|---|---|
 | 1.1, 1.2 | No | TDD: N/A — prose/docs; verified by suite baseline + path grep |
 | 2.1–2.3 | Yes (repository structure consumed by Claude Code) | RED: 2.1 test fails on missing plugins → minimal scaffold 2.2 → moves 2.3 → GREEN (including link containment) → commit |
-| 2.3b | Yes (scan scope) | Plant fake path in plugin → FAIL → revert → PASS |
+| 2.3b | Yes (scan scope) | Each scan: plant fake path / synthetic ID in plugin → FAIL → revert → PASS |
 | 2.4 | Yes (references, profiles) | Existing suite is the RED/GREEN oracle; moved paths fail tests until repointed; run full suite → baseline |
 | 2.5 | Yes (new guard) | RED with empty allowlist → generate (overwrite) allowlist → GREEN → probe skill FAIL → delete probe → PASS |
 | 3.1 | Yes (script defaults) | Per-script failing env-default test → implement → GREEN → full suite |

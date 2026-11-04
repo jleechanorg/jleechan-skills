@@ -34,7 +34,7 @@ host aliases, names and paths at `${XDG_CONFIG_HOME:-$HOME/.config}/jleechan-ski
 
 | Variable | Meaning | Derived from | Default |
 |---|---|---|---|
-| `PROJECT_ROOT` / `REPO_ROOT` | Root of the repository the task targets | `git rev-parse --show-toplevel` | — |
+| `PROJECT_ROOT` | Root of the repository the task targets. `REPO_ROOT` is an accepted alias; when both are set, `PROJECT_ROOT` wins | `git rev-parse --show-toplevel` | — |
 | `GITHUB_REPOSITORY` | `owner/repo` the task targets | `gh repo view --json nameWithOwner -q .nameWithOwner` | — |
 | `GITHUB_ORG` | GitHub org/owner for org-wide queries | `${GITHUB_REPOSITORY%%/*}` | — |
 | `CLAUDE_HOME` | Claude Code home | — | `$HOME/.claude` |
@@ -81,7 +81,7 @@ host aliases, names and paths at `${XDG_CONFIG_HOME:-$HOME/.config}/jleechan-ski
 | `SLACK_WORKSPACE_DOMAIN` | Workspace domain for permalinks (prefer `chat.getPermalink`) | unset |
 | `CLAW_CHANNEL` / `CLAW_BOT_ID` | Channel and bot user for `/claw` dispatch | required |
 | `GMAIL_ACCOUNT` | Gmail address for the `gmail` skill | required |
-| `CREDENTIAL_BLOCKLIST_FILE` | Machine-local list of identifiers that must never be pasted | `${XDG_CONFIG_HOME:-$HOME/.config}/credential-discipline/blocklist.txt` |
+| `CREDENTIAL_BLOCKLIST_FILE` | Machine-local list of identifiers that must never be pasted | `${XDG_CONFIG_HOME:-$HOME/.config}/jleechan-skills/credential-blocklist.txt` |
 
 ## Cloud projects (plugin skills only)
 

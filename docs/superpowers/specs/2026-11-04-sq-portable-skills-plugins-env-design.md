@@ -14,6 +14,12 @@ that bar:
 |---|---|---|
 | Product-only | 29 | The skill only makes sense inside one product: WorldArchitect.AI, AI Universe, or the author's self-hosted runner fleet |
 | Parameterize | 81 | A generic skill that hardcodes a machine, checkout path, repository, Slack/GCP identifier, personal name, or product example |
+
+Mapping to PRs: 29 skills move (27 of the audit's product-only skills plus two
+siblings it named, `ai-universe-httpie` and `secondo-dependencies`). The other
+two product-only skills, `testing-layers` and `smoke`, are split in PR 5 instead.
+The 81 parameterize skills divide into PR 3 (33), PR 4 (25 plus `gmail`, which is
+shared with PR 3 by line) and PR 5 (5 splits plus 18 example edits): 33 + 25 + 5 + 18 = 81.
 | Clean | 6 | Matches were placeholders only |
 
 The per-leak audit records (file, line, text, kind, proposed replacement) are
@@ -71,7 +77,7 @@ plugins/
     README.md                         # purpose, install, required env vars
     skills/<skill>/SKILL.md (+ references/, scripts/)
     commands/<cmd>.md                 # only commands that point to moved skills
-    scripts/                          # e.g. auth-worldai.mjs moved with worldai-auth
+    (a skill's own scripts live in skills/<skill>/scripts/)
   ai-universe/                        # AI Universe MCP server skills
   self-hosted-runners/                # runner-fleet operations (parameterized)
 ```
@@ -90,8 +96,10 @@ plugins/
   variables (`FIREBASE_PROJECT_ID`, `GCP_PROJECT_ID`, `AI_UNIVERSE_MCP_URL`).
   Moving a skill to a plugin does not license keeping secrets or personal data.
 
-**What moves.** A skill moves wholesale when its name and purpose are
-product-only and it has no generic callers:
+**What moves.** A skill moves wholesale when its purpose is product-only and it has
+no generic callers and no install-profile entry. A generic-sounding name alone does
+not force a split; profile or retain-list entries that name a moved skill are
+removed in the same change:
 
 - **worldarchitect:** agents (renamed `worldai-agent-routing` so it no longer
   collides with `.claude/agents/`), bq-evidence-reading,
@@ -107,9 +115,9 @@ product-only and it has no generic callers:
   self-hosted-runner-preflight, repo-and-infra-locations (rewritten as a
   template that reads machine-local configuration).
 
-**What splits.** When a product-flavored skill has a generic name, generic
-callers, or a place in an install profile, a generic skill stays behind and the
-product content becomes a plugin companion named `worldai-<skill>`:
+**What splits.** When a product-flavored skill has generic callers or a place in
+an install profile, a generic skill stays behind and the product content becomes a
+plugin companion named `worldai-<skill>`:
 
 | Skill | Callers | Result |
 |---|---|---|
@@ -128,10 +136,12 @@ change.
 
 **Outbound references from plugins.** An installed plugin is copied out of this
 repository, so a plugin file must not point outside its own folder (`../<skill>/`,
-repository-root `scripts/` or `shared/`, `.claude/...`). Plugin-local files are
-addressed as `${CLAUDE_PLUGIN_ROOT}/...` (for example
-`node "${CLAUDE_PLUGIN_ROOT}/scripts/auth-worldai.mjs"`); generic skills are named,
-not linked; a needed repository script is copied into the plugin. A structure test
+repository-root `scripts/` or `shared/`, `.claude/...`). A script that a skill tells
+the agent to run lives inside that skill's folder and is referenced relative to the
+skill's base directory, which Claude Code reports when it loads the skill (for
+example `worldai-auth/scripts/auth-worldai.mjs`). `${CLAUDE_PLUGIN_ROOT}` is used
+only in hooks, MCP and plugin configuration, where Claude Code expands it. Generic
+skills are named, not linked; a needed repository script is copied into the plugin. A structure test
 asserts every relative Markdown link inside `plugins/<name>/` resolves within it.
 
 ### D2. Environment variable registry
@@ -177,8 +187,10 @@ asserts every relative Markdown link inside `plugins/<name>/` resolves within it
   are ignored, and a missing `plugins/` is a clean assertion failure.
 - **Privacy scans cover plugins.** `tests/test_skill_export_no_personal_paths.py`
   and `tests/test_skill_personal_identifiers.py` add `plugins/` to their scanned
-  roots, so moving a skill never removes it from zero-PII enforcement. A planted
-  fake identifier proves each scan fails, then passes after revert.
+  roots, so moving a skill never removes it from zero-PII enforcement. Each scan
+  gets its own planted fake value (a fake home path for the first, a synthetic
+  identifier from its pattern list for the second), which must fail, then pass
+  after revert.
 - **Product-token ratchet** (`tests/test_product_token_ratchet.py`). It scans
   `.claude/skills/**` and `.claude/commands/**`, case-insensitively, for the
   product tokens of all three plugins:
