@@ -16,7 +16,7 @@ small wishes stay small.
 | Mode | Questions | Judgement calls |
 |------|-----------|-----------------|
 | `/wish`, `/w` | At most one batched round, and only for a decision that is genuinely the user's (taste, scope, money, irreversible or outward-facing actions). Everything else is decided from evidence. | LLM, recorded as assumptions. |
-| `/wq` | None. Never pause for preference, approval, or clarification. | LLM makes all of them: pick the recommended option, or the safest reversible one when evidence is thin, and record it. |
+| `/wq` | No optional preference or clarification questions. Required authorization remains a blocker under the safety limits below. | LLM makes all of them: pick the recommended option, or the safest reversible one when evidence is thin, and record it. |
 
 Both modes keep normal safety limits: no credentials, no destructive or
 irreversible actions, no merging, and no scope expansion beyond the wish. A

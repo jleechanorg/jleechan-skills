@@ -7,6 +7,6 @@ metadata:
 
 # /pr-workflow — PR workflow alias
 
-Read and follow [pr-lifecycle](../pr-lifecycle/SKILL.md) for the complete canonical PR workflow, with [PR Workflow Manager](../pr-workflow-manager/SKILL.md) as the discovery and command entry point. This alias defines no independent rules and takes the user's arguments as data.
+Read and follow [PR Workflow Manager](../pr-workflow-manager/SKILL.md) first; it inspects repository rules and directs readers to [pr-lifecycle](../pr-lifecycle/SKILL.md) as the sole shared lifecycle contract. This alias adds no independent rules and takes the user's arguments as data.
 
 [draft-first-pr](../draft-first-pr/SKILL.md) is a legacy alias. If the manager or lifecycle is unavailable, report the missing dependency rather than reconstructing stale rules.
