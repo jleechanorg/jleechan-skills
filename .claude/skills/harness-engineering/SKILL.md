@@ -127,7 +127,7 @@ Key questions to drive this:
 For each failure class, check which harness layers are missing or insufficient:
 
 1. **Read existing instructions** — `~/.claude/CLAUDE.md`, repo `CLAUDE.md`, `~/.codex/AGENTS.md`
-   - Is the rule already documented? If yes → it's an adherence problem, add a stronger enforcement instruction
+   - Is the rule already documented? If yes → verify adherence and fix the violating caller or conflicting workflow; reuse the canonical owner before adding any instruction.
    - If no → add the rule
 2. **Check for existing skills** — `~/.claude/skills/`, `~/.claude/commands/`
    - Is there a skill that should have caught this? If yes → update it
