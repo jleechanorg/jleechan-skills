@@ -139,7 +139,9 @@ An idle-class label (`IDLE_NEEDS_STEER`, `IDLE_COMPLETE`, `PARKED_OPERATOR`, `DI
 
 1. **No post-footer activity** — no tool-call line, assistant text, or user input below the footer.
 2. **No live progress label** — no `Working (1h33m)` / `Pursuing goal (…)` timer still growing.
-3. **No CPU** — the surface's `top_flat.tsv` CPU row is idle.
+3. **No CPU** — the surface's `cpu_percent` is a measured `0.0`, with `cpu_source` not `unavailable`.
+   A `null` `cpu_percent` or `cpu_source: unavailable` is UNVERIFIED, not idle: the capture itself was
+   degraded, so this gate cannot fire on it.
 
 `STOOD_DOWN_DUPLICATE` (a duplicate writer may be churning) and `WEDGED_PROCESS` (proved from the process tree) are
 independent of this gate. If the checks disagree, prefer the fresher signal and say which check you could not
