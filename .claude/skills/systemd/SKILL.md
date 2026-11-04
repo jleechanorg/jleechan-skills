@@ -31,7 +31,7 @@ across logout/reboot when `loginctl enable-linger` is on.
 - **Instead**, the unit must invoke a wrapper script (`systemd-wrapper.sh`)
   using `/bin/bash`, and secrets come from `EnvironmentFile=` pointing at
   a config file with `0600` perms outside the repo (e.g.
-  `~/.config/systemd/user/jleechanbrain-deploy-tokens.conf`).
+  `${XDG_CONFIG_HOME:-$HOME/.config}/<service>/tokens.env`).
 - A unit may declare non-secret defaults inline (e.g. `HOME=%h`,
   `PATH=/usr/bin:/bin`) but anything credential-bearing goes through the
   wrapper + `EnvironmentFile=`.
@@ -166,27 +166,27 @@ directory, the wrapper script, and logging targets — never inline secrets:
 ```ini
 [Unit]
 Description=Dark Factory <job-name>
-Documentation=https://github.com/jleechanorg/dark-factory
+Documentation=<docs-url>
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=oneshot
 WorkingDirectory=@REPO@
-ExecStart=/bin/bash @HOME@/.hermes/scripts/systemd-wrapper.sh @REPO@/daemon/scripts/<job>.sh
+ExecStart=/bin/bash @HOME@/.local/libexec/systemd-wrapper.sh @REPO@/daemon/scripts/<job>.sh
 # Strip shell-exported GitHub tokens so keyring auth wins (PR #206).
 UnsetEnvironment=GITHUB_TOKEN GH_TOKEN
 # Pulls in HERMES_SLACK_BOT_TOKEN etc. from the file at 0600; the leading
 # `-` makes the file optional — unit starts even if it doesn't exist yet.
-EnvironmentFile=-@HOME@/.config/systemd/user/jleechanbrain-deploy-tokens.conf
+EnvironmentFile=-@HOME@/.config/<service>/tokens.env
 # Cap runtime so a stuck process can't pin the unit forever.
 TimeoutStartSec=600
 # Do NOT set Restart= for Type=oneshot timers — the timer fires it again
 # on its own cadence. Restart=on-failure would re-run inside the same
 # OnCalendar slot, violating the launchd ThrottleInterval contract that
 # the macOS twin plist already documents.
-StandardOutput=append:@HOME@/Library/Logs/dark-factory/<job>.log
-StandardError=append:@HOME@/Library/Logs/dark-factory/<job>.err.log
+StandardOutput=append:@HOME@/.local/state/<service>/logs/<job>.log
+StandardError=append:@HOME@/.local/state/<service>/logs/<job>.err.log
 
 [Install]
 WantedBy=default.target
@@ -208,8 +208,8 @@ KillSignal=SIGINT
 TimeoutStopSec=30s
 Environment=HOME=@HOME@
 Environment=PATH=@HOME@/.local/bin:@HOME@/.cargo/bin:/usr/bin:/bin
-StandardOutput=append:@HOME@/Library/Logs/dark-factory/rust-daemon.out.log
-StandardError=append:@HOME@/Library/Logs/dark-factory/rust-daemon.err.log
+StandardOutput=append:@HOME@/.local/state/<service>/logs/rust-daemon.out.log
+StandardError=append:@HOME@/.local/state/<service>/logs/rust-daemon.err.log
 ```
 
 ---
@@ -269,9 +269,9 @@ OnUnitActiveSec=60
 ## 6-Step Installation Checklist
 
 1. Write the target script (the worker) under `daemon/scripts/<job>.sh` and ensure it is executable (`chmod 0755 daemon/scripts/<job>.sh`).
-2. Write the sourced wrapper script (`systemd-wrapper.sh`) to
-   `~/.hermes/scripts/systemd-wrapper.sh` and `chmod 0755` it.
-3. Ensure the log directory exists: `mkdir -p "$HOME/Library/Logs/dark-factory"`.
+2. Write the sourced wrapper script (`systemd-wrapper.sh`) to a stable
+   per-user location such as `~/.local/libexec/systemd-wrapper.sh` and `chmod 0755` it.
+3. Ensure the log directory exists: `mkdir -p "${XDG_STATE_HOME:-$HOME/.local/state}/<service>/logs"`.
 4. Write the minimal unit template files using `@HOME@` / `@REPO@`
    placeholders (not hardcoded paths), commit them under
    `daemon/systemd/<unit>.service.template` and
@@ -298,11 +298,11 @@ OnUnitActiveSec=60
 
 | Pattern | Precedent | Notes |
 |---|---|---|
-| Daily 03:00 audit timer | `~/.config/systemd/user/jleechanclaw-slack-thread-auto-park.{timer,service}` | Best template for a G10–G13 audit timer |
-| Sub-minute polling | `~/.config/systemd/user/dark-factory-merge-guard.{timer,service}` | `OnUnitActiveSec=60s` for the 60s merge-guard sweep |
+| Daily 03:00 audit timer | `<repo>/daemon/systemd/<daily-audit>.{timer,service}.template` | Best template for a G10–G13 audit timer |
+| Sub-minute polling | `<repo>/daemon/systemd/<poller>.{timer,service}.template` | `OnUnitActiveSec=60s` for the 60s merge-guard sweep |
 | Long-running daemon | `daemon/systemd/ai.dark-factory.daemon.service.template` | `Type=notify` + `WatchdogSec=7200` — the right shape when the job isn't timer-fired |
 | Installer | `daemon/systemd/install-systemd-user.sh` | `--dry-run`, `--render-only`, `--uninstall` flags; expands `@HOME@`/`@REPO@`; verifies linger |
-| Wrapper | `daemon/launchd/launchd-wrapper.sh` | Linux twin lives at `~/.hermes/scripts/systemd-wrapper.sh` |
+| Wrapper | `daemon/launchd/launchd-wrapper.sh` | Linux twin lives at the wrapper path chosen in step 2 |
 
 ---
 
@@ -348,7 +348,7 @@ systemctl --user start <job>.service
 journalctl --user -u <job>.service -n 50
 
 # Wrapper is sourcing profile correctly? (avoid raw bash -x which could echo tokens)
-~/.hermes/scripts/systemd-wrapper.sh /usr/bin/printenv PATH
+~/.local/libexec/systemd-wrapper.sh /usr/bin/printenv PATH   # the wrapper path chosen in step 2
 ```
 
 ---

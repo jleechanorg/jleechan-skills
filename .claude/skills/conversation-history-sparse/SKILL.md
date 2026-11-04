@@ -356,7 +356,7 @@ con.close()
 
 ### 6) Sample agy CLI conversations (sparse SQLite)
 
-agy CLI (Antigravity CLI wrapper at `~/.local/bin/agy`) stores conversation
+agy CLI (Antigravity CLI wrapper; locate it with `command -v agy`) stores conversation
 metadata in a SQLite summaries DB. This read-only example samples five rows with
 200-character snippets; use the explicit audit budgets when expanding. Wrap every result line with `ansify("agy", ..., query)` so the
 label is yellow and matched substrings are yellow-highlighted.

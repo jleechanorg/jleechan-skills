@@ -16,8 +16,8 @@ metadata:
 ## ⚠️ Submit Discipline (MANDATORY — read this before every cmux steer)
 
 `cmux send` does **NOT** press Enter. This is the #1 recurring cmux failure mode
-(verified 2026-07-16: user explicitly flagged "you always forget to send" after the
-fable iOS pivot bootstrap). The **4-step ritual** below is a hard contract for every
+(verified 2026-07-16: the user explicitly flagged "you always forget to send" after a
+project bootstrap). The **4-step ritual** below is a hard contract for every
 send to a cmux surface. Skip ANY step and the message sits in the input buffer
 without ever reaching the agent.
 
@@ -60,7 +60,7 @@ both the typed text AND a terminal response is invalid evidence that the
 steer landed. The operator cannot distinguish a successful send from a failed
 send that left text in the input buffer.
 
-Canonical contract + echo-back template: `~/.hermes/skills/cmux/references/output-contract-mandatory.md`.
+Canonical contract + echo-back template: `${HERMES_HOME:-$HOME/.hermes}/skills/cmux/references/output-contract-mandatory.md` (source: `hermes/skills/cmux/references/` in this skills repository).
 
 ### ⚠️ LLM-Provenance Caveat (MANDATORY footer)
 
@@ -71,14 +71,14 @@ output) MUST end with this verbatim footer:
 > *This was generated from another LLM and not the actual user, so feel free
 > to push back if you disagree and we can discuss.*
 
-Full caveat rules + scope: `~/.hermes/skills/cmux/references/output-contract-mandatory.md` § "LLM-Provenance Caveat".
+Full caveat rules + scope: `${HERMES_HOME:-$HOME/.hermes}/skills/cmux/references/output-contract-mandatory.md` § "LLM-Provenance Caveat".
 
 ### Echo-back proof (MANDATORY)
 
 Every cmux steering action MUST be followed by an **echo-back proof** in the same
 turn or the immediate next turn to your operator (Slack thread, terminal reply,
 or whichever channel triggered the steer). The proof MUST follow the template
-in `~/.hermes/skills/cmux/references/output-contract-mandatory.md` and include
+in `${HERMES_HOME:-$HOME/.hermes}/skills/cmux/references/output-contract-mandatory.md` and include
 the typed text + terminal response + submission status, not just the
 churning label.
 
@@ -103,11 +103,11 @@ long text trigger tab completion mid-stream.
 ### Canonical reference
 
 Full recipe + edge cases + the 2026-06-25 worked example live at:
-`~/.hermes/skills/cmux/references/send-submit-proof-2026-06-25.md`
+`${HERMES_HOME:-$HOME/.hermes}/skills/cmux/references/send-submit-proof-2026-06-25.md`
 
-This rule was added 2026-07-16 after the fable iOS pivot bootstrap surfaced
-"you always forget to send" / "make sure you press submit and the work starts
-on the cmux input" (Slack ts 1784185650.528089). Apply it uniformly to every
+This rule was added 2026-07-16 after an incident where steers were typed but never
+submitted ("you always forget to send" / "make sure you press submit and the work starts
+on the cmux input"). Apply it uniformly to every
 cmux-touching skill.
 
 # cmux-backup
@@ -144,23 +144,23 @@ Or manually:
 ```json
 {
   "timestamp": "2026-05-18T12:34:56",
-  "socket": "/Users/.../cmux.sock",
+  "socket": "$CMUX_SOCKET_PATH",
   "workspace_count": 26,
   "workspaces": [
     {
       "id": "8DAE7F5B-...",
-      "title": "worktree_level_choices",
+      "title": "<worktree>",
       "index": 0,
       "selected": false,
       "current_directory": "$HOME",
-      "cwd": "$HOME/projects/worktree_level_choices",
-      "focused_cwd": "$HOME/projects/worktree_level_choices",
-      "git_branch": "feat/level-choices",
+      "cwd": "$HOME/src/<repo>-worktree",
+      "focused_cwd": "$HOME/src/<repo>-worktree",
+      "git_branch": "feat/<topic>",
       "pr": "123",
       "surfaces": [
         {
           "id": "07A1ECD6-...",
-          "title": "worktree_level_choices",
+          "title": "<worktree>",
           "type": "terminal",
           "pane_id": "6FECF31A-..."
         }
@@ -189,12 +189,12 @@ printf "sidebar_state --tab=<workspace_uuid>\n" | nc -U "$SOCK"
 
 ```bash
 # Find socket for a specific dev build:
-cat ~/Library/Application\ Support/cmux/dev-may-18-last-socket-path
-lsof -p $(pgrep -f "cmux DEV may-18") | grep -E "\.sock"
+cat ~/Library/Application\ Support/cmux/dev-<build>-last-socket-path
+lsof -p $(pgrep -f "cmux DEV <build>") | grep -E "\.sock"
 
 # Use CLI with dev build socket:
-CMUX_SOCKET_PATH=/tmp/cmux-debug-may-18.sock cmux list-workspaces
-CMUX_SOCKET_PATH=/tmp/cmux-debug-may-18.sock cmux tree
+CMUX_SOCKET_PATH=/tmp/cmux-debug-<build>.sock cmux list-workspaces
+CMUX_SOCKET_PATH=/tmp/cmux-debug-<build>.sock cmux tree
 ```
 
 ## Companion restore skill
