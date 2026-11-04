@@ -1,6 +1,7 @@
 """host-disk-guardian.sh resolves its cleanup roots without personal defaults."""
 
 import os
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -20,11 +21,27 @@ class HostDiskGuardianEnvDefaultsTests(unittest.TestCase):
         stub_bin = self.tmp / "bin"
         for directory in (self.home, self.cwd, stub_bin):
             directory.mkdir()
-        # 5 GB free on / forces the critical (auto-clean) path; --dry-run deletes nothing.
-        df = stub_bin / "df"
-        df.write_text("#!/bin/sh\necho 'Filesystem 1G-blocks Used Available'\necho '/dev/stub 100 95 5'\n")
-        df.chmod(0o755)
-        self.env = {"HOME": str(self.home), "PATH": f"{stub_bin}:/usr/bin:/bin", "LANG": "C"}
+        # PATH holds only the read-only tools the script needs. There is no rm,
+        # gh, git, curl, or jq, so nothing can be deleted or contacted even if
+        # the --dry-run guard regressed.
+        for tool in ("date", "tee", "dirname", "awk", "find", "du", "id", "sed", "head", "cat"):
+            found = shutil.which(tool, path="/usr/bin:/bin")
+            self.assertIsNotNone(found, tool)
+            (stub_bin / tool).symlink_to(found)
+        # 5 GB free on / reaches the critical tier; --dry-run only reports candidates.
+        stubs = {
+            "df": "echo 'Filesystem 1G-blocks Used Available'; echo '/dev/stub 100 95 5'",
+            "hostname": "echo stub-host",
+        }
+        for name, body in stubs.items():
+            (stub_bin / name).write_text(f"#!/bin/sh\n{body}\n")
+            (stub_bin / name).chmod(0o755)
+        self.env = {
+            "HOME": str(self.home),
+            "PATH": str(stub_bin),
+            "LANG": "C",
+            "HOST_DISK_GUARDIAN_LOG": str(self.tmp / "guardian.log"),
+        }
 
     def run_guardian(self, **extra):
         return subprocess.run(

@@ -28,7 +28,7 @@
 set -uo pipefail
 
 TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-LOG="/tmp/host-di[REDACTED_OPENAI_KEY]"
+LOG="${HOST_DISK_GUARDIAN_LOG:-/tmp/host-di[REDACTED_OPENAI_KEY]}"
 DRY_RUN=0
 
 # Bead rev-g5bwl's stated thresholds.

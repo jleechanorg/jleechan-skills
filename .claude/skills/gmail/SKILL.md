@@ -8,8 +8,8 @@ scope: global
 # Gmail Access via gog CLI
 
 **Tool**: `gog` — Google CLI with Gmail/Calendar/Drive/Sheets support  
-**Binary**: resolve with `command -v gog` (stop with "gog not installed" if absent)  
-**Auth**: gog's credential store (macOS keychain or the platform equivalent; persistent, no re-auth needed)  
+**Binary**: `/opt/homebrew/bin/gog`  
+**Auth**: macOS keychain (persistent, no re-auth needed)  
 **Account**: `$USER@gmail.com`
 
 ## Core Commands
