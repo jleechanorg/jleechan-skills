@@ -26,7 +26,17 @@ the complete change, never a transcription. A verdict built on truncated input i
 
 ## 2. Select independent reviewers
 
-Approval needs two independent votes, each covering the whole scope. Votes come from three rungs, tried in order:
+Approval needs two independent votes, each covering the whole scope — **except** a record-only
+documentation PR, where the one-vote quorum in
+[pr-lifecycle](pr-lifecycle/SKILL.md) § Advice applicability § Record-only documentation exemption
+applies and this section's two-vote default does not. That section owns the conditions and the count.
+
+**A CLI seat is not required for approval.** Votes come from three rungs — CLI seats, then **outside routes
+(Dot, Hermes, hermes-pc, `/web-advice`)**, then static reviewers — and a quorum built entirely from outside
+routes is a valid quorum. When the CLI seats are quota-walled, exhausted or missing, go straight to Rung 2 and
+collect the votes there; an approver does not have to be a CLI process on this machine. Do **not** report
+`/advice` blocked because Codex or Claude is out of quota while a reachable Dot, Hermes, hermes-pc or `/wa`
+account exists. Votes come from three rungs, tried in order:
 CLI seats, then outside routes, then static reviewers. Launch every candidate on a rung concurrently; never
 serialize healthy seats. The orchestrator's own synthesis and `/research` (nonvoting, only for material open
 questions) are never votes. One competent objection can block.
@@ -205,7 +215,9 @@ directory removal does not prove its descendants exited: record that and do not 
 
 **Verdict.** Reconcile disagreements within the declared scope yourself; do not ask the user to pick between
 reviewers. A competent blocking objection, even from a partial-coverage reviewer, means `NOT APPROVED`; partial
-coverage never supplies an approval. Without two independent full-coverage approvals from any rung, the result is
+coverage never supplies an approval. Without the required number of independent full-coverage approvals from any
+rung — two by default, **one** for a record-only documentation PR under
+[pr-lifecycle](pr-lifecycle/SKILL.md) § Advice applicability § Record-only documentation exemption — the result is
 `WITHHELD`.
 
 **Report.** Give the reviewed SHA (or `DOCUMENTS sha256:<bundle hash>`; never `HEAD`), each reviewer's verdict,
