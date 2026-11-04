@@ -114,6 +114,15 @@ class NudgerPayloadTest(unittest.TestCase):
         self.fail(f"no sentence states {context}")
 
 
+    def test_idle_is_never_sent_over_a_completion_from_this_turn(self):
+        """A request that finishes this turn satisfies "every open request is done", so a bare IDLE would swallow
+        the completion report the body requires. Both footers must gate IDLE on no fresh progress."""
+        for heading, stop in (("## Proceed invariant footer (`footer-v1`)", "## Main invariant footer"),
+                              ("## Main invariant footer (`footer-v1`)", "## When body and footer disagree")):
+            footer = self.raw.split(heading, 1)[1].split(stop, 1)[0]
+            self.assertIn("and nothing finished or advanced this turn", footer, heading)
+            self.assertNotIn("When every open request is done or has a previously reported blocker", footer, heading)
+
     def test_label_and_blocker_loop_guards_remain_pinned(self):
         """Clauses still in source whose earlier assertions were dropped during the body rewrite."""
         for clause in ("must begin with the exact token `[Agent ask]`", "never double the label",
