@@ -26,10 +26,12 @@ the complete change, never a transcription. A verdict built on truncated input i
 
 ## 2. Select independent reviewers
 
-Approval needs two independent votes, each covering the whole scope. Votes come from three rungs, tried in order:
-CLI seats, then outside routes, then static reviewers. Launch every candidate on a rung concurrently; never
-serialize healthy seats. The orchestrator's own synthesis and `/research` (nonvoting, only for material open
-questions) are never votes. One competent objection can block.
+Approval needs two independent votes, each covering the whole scope. A CLI vote is not required: try CLI seats,
+then authorized Dot accounts and web review, then eligible static reviewers, with Hermes instances last.
+Within each rung, run independent candidates concurrently except Dot's configured account rotation. Stop new
+dispatch once the eligible quorum is met unless a separate workflow obligation requires more; do not preempt
+valid in-flight attempts or discard their findings. The orchestrator's synthesis and `/research` never vote.
+One competent objection can block.
 
 ### Rung 1: CLI seats
 
@@ -69,12 +71,13 @@ those seats are genuinely exhausted.
   reset time when printed. Do not wait out its budget, retry the same account or switch models to get around it.
   Another account (a `claudewa`-style alternate) is a separate seat and is still tried.
 
-### Rung 2: outside routes
+### Rung 2: Dot accounts and web review
 
 As soon as the remaining CLI seats cannot fill every open slot (typically all are quota-walled, missing or void),
-dispatch every authorized outside route at once (accounts within one route follow that route's order), without
-waiting for static reviewers or asking the user to choose. Two outside votes from distinct identities are a full
-quorum.
+start authorized Dot rotation and web review concurrently, without asking the user to choose. Every eligible,
+distinct configured Dot account can supply one vote. After either success or failure, try the next account while
+quorum remains unmet; retain valid completed votes. Two distinct Dot accounts can satisfy the default quorum,
+but exhausting all configured accounts is not required. Hermes does not run on this rung.
 
 **Authorization is machine-local.** These routes send PR content off the machine, so this portable skill grants
 nothing by itself. A route is authorized only when the machine's `ADVICE_OUTSIDE_ROUTES` lists it (a
@@ -85,15 +88,15 @@ user, task or repository restricts external disclosure of the reviewed content, 
 repository owner opted in on 2026-11-04: "when all cli reviewers out of quota ... it should try to use /wa and ask
 hermes hermes pc and the dots in dot coordination for a review".)
 
-Each Dot account gets its own §3 attempt, but the Dot route stops asking new accounts once one budget `B` has
-passed since its first send, and every account's attempt is capped at the route's absolute deadline (first send
-plus `B`), so rotation never delays the static rung by more than one budget.
+Each Dot account gets its own §3 attempt, capped at the Dot route's absolute deadline: one budget `B` after its
+first send. No account is asked after that deadline and a running one is cut off at it and recorded `TIMED_OUT`
+(unless the user asked to await that account, per §3), so rotation never delays the static rung by more than one
+budget.
 
 | Route | Transport | Seats |
 |---|---|---|
-| Dot | the [`/dot` skill](../dot/SKILL.md) (host-installed; absent means `UNAVAILABLE`), coordinator ask, `isolation: remote` | one Dot account at a time, in its configured `rotation` order (the Dots [dot-coordinator](../dot-coordinator/SKILL.md) is configured for), each addressed explicitly with `--account <name>` and `DOT_ROTATE_ON_LIMIT=0` (otherwise `dot.sh` rotates on a usage limit by itself); only when an account is busy, limited, blocked or timed out is it recorded `UNAVAILABLE` and the next account asked, matching pr-lifecycle's `/dot` rotation; the Dot route still runs concurrently with the other routes; revision review only |
-| Hermes | the `/hermes` skill's Slack-only transport (host-installed; absent means `UNAVAILABLE`), coordinator ask, `isolation: remote`. **When the machine's `ADVICE_HERMES_CHANNEL` names a Slack channel (the owner's is `#dot-coordination`) and it is available to the sending identity, post there, one thread per Hermes instance (the opt-in makes that channel the authorized destination for vote requests and replies);** otherwise use the conversation `/hermes` resolves | one per configured Hermes instance, for example the primary Hermes and `hermes-pc`, resolved from machine-local configuration; revision review only |
-| Web advice | [`/web-advice`](../web-advice/SKILL.md) (user shorthand `wa`; host-installed; absent means `UNAVAILABLE`), `isolation: packet` for revisions, `none` for documents | one per authenticated provider and account; the orchestrator records the signed-in account from the web session as `attested.account` |
+| Dot | the [`/dot` skill](../dot/SKILL.md) (host-installed; absent means `UNAVAILABLE`), coordinator ask, `isolation: remote` | one account at a time in the [dot-coordinator](../dot-coordinator/SKILL.md)'s configured `rotation` order, explicitly targeted with `--account <name>` and `DOT_ROTATE_ON_LIMIT=0` to prevent hidden rotation; revision review only |
+| Web advice | [`/web-advice`](../web-advice/SKILL.md) (user shorthand `wa`; host-installed, absent means `UNAVAILABLE`), `isolation: packet` for revisions, `none` for documents | one per authenticated provider and account; the orchestrator records the signed-in account from the web session as `attested.account` |
 
 A reply is a vote only once it carries full-scope `COVERAGE:` and the SHA-bound `VERDICT:` line, read back at the
 source. An acknowledgement, "on it", a reaction or a delegated-coder promise is `SENT` (per `/hermes`), not a
@@ -105,11 +108,22 @@ its owning skill forbids.
 
 Static reviewers (an owner-authorized exception chosen on 2026-10-29) follow
 [static-review](../static-review/SKILL.md) for identity, cold start, deadline and receipts. Launch them alongside
-rung 2, or alongside rung 1 when no outside route is authorized. A static vote fills only a slot still open after
-every CLI seat and every outside route and account has ended under §3 (a quota wall ends a seat at once) and been
-recorded as below. One outside vote may pair with one static vote. When a coordinator verdict is itself being
-substituted by `/er` plus two `/advice` votes under pr-lifecycle, static reviewers cannot be that whole quorum; it
-needs a real outside vote. A late objection still blocks and reopens the affected stage per pr-lifecycle.
+rung 2, or alongside rung 1 when neither Dot nor web review is authorized. Count a static vote only for a slot
+still open after the CLI, Dot and web attempts have ended under §3 and their outcomes are recorded. Do not wait
+for Hermes to make a static vote eligible. One outside vote may pair with one static vote. When a coordinator
+verdict is substituted by `/er` plus two `/advice` votes under pr-lifecycle, static reviewers cannot be that whole
+quorum: it needs a real outside vote, supplied by rung 4 if necessary. A late objection still blocks and reopens
+the affected stage per pr-lifecycle.
+
+### Rung 4: Hermes last resort
+
+Only after earlier rungs cannot meet the required quorum or outside-vote requirement, request reviews from the
+configured Hermes instances, such as primary Hermes and `hermes-pc`. Each distinct eligible account can supply
+one vote. Use `/hermes`'s Slack-only transport, coordinator ask and `isolation: remote`; revision review only.
+When machine-local `ADVICE_HERMES_CHANNEL` names an available authorized Slack channel, use one thread per
+instance there; otherwise use the conversation `/hermes` resolves. The same route authorization, full-scope
+receipt, identity and deadline rules apply. Never dispatch Hermes concurrently with the initial Dot/web rung or
+solely because CLI quota is exhausted.
 
 ### Identity
 
@@ -117,7 +131,7 @@ needs a real outside vote. A late objection still blocks and reopens the affecte
   account count once; an outside reviewer whose coder ran the account that just hit its quota is that account.
 - A CLI seat must report the model it ran, or it is `UNAVAILABLE`. Outside routes report model and account as
   `attested.` values. Codex models may be only `gpt-6-astra`, `gpt-6-luna`, `gpt-6-sol` or `gpt-6.1-sol`.
-- The orchestrator never awards itself a vote, and no verdict counts twice: a Dot account whose verdict fills the
+- Neither the author nor the orchestrator awards itself a vote, and no verdict counts twice: a Dot account whose verdict fills the
   pr-lifecycle `/dot` leg at this head is not also an `/advice` vote.
 - Run every seat with full permissions and record its actual command, model, account and transport.
 
@@ -169,7 +183,7 @@ derived from the same row, so the two skills cannot drift apart.
 | `isolation: orchestrator-clone` | orchestrator: clone the donor into `<SCRATCH PATH>`, then `git remote remove origin` | `clone_path` = `<SCRATCH PATH>`; `cwd: set` or `attested.cwd: instructed`; at launch **and again after the seat process is gone**: `--git-common-dir` = `--git-dir`, `HEAD` = `review_sha`, `git merge-base --is-ancestor <BASE SHA> HEAD` exits 0, `git remote` is empty; then `clone_removed` = `test ! -e <SCRATCH PATH>` | orchestrator, every key except any `attested.` one | orchestrator, whatever the seat's outcome | `<PR URL>` `<SHA>` `<BASE SHA>` `<SCRATCH PATH>` |
 | `isolation: none` | nobody | `packet_path`; per-file SHA-256; `bundle_sha256`; `clone_path: none`; `clone_removed: n/a` | orchestrator | nobody; the packet is kept as evidence | `<PACKET PATH>` `<BUNDLE HASH>` |
 | `isolation: remote` (Dot, Hermes) | nobody: the outside reviewer reads `<SHA>` from a checkout it already has (fetching only the missing objects, no new clone, no branch switch); the orchestrator clones nothing for it | `<SHA>` is reachable on the PR remote (`git ls-remote` or the PR API) both at send and at reply readback; route and message reference/permalink; the returned `VERDICT:` line names `<SHA>`; `attested.model`; `attested.account`; `attested.clone_path`; `clone_path: remote`; `clone_removed: n/a` | orchestrator, every key except any `attested.` one | the outside reviewer; never claimed | `<PR URL>` `<SHA>` `<BASE SHA>` |
-| `isolation: packet` (`/web-advice` revision review) | nobody; the orchestrator writes a packet of the complete `git diff <BASE SHA>..<SHA>` plus the full post-change content of every changed file, from the `pin` donor, in place of `/web-advice`'s own `origin/main...HEAD` packet | `packet_path`; per-file SHA-256; `bundle_sha256`; every file delivered as an upload, not pasted inline; provider shows no truncation; `COVERAGE:` names every packet file; `clone_path: none`; `clone_removed: n/a` | orchestrator | nobody; the packet is kept as evidence | `<PR URL>` `<SHA>` `<BASE SHA>` `<BUNDLE HASH>` |
+| `isolation: packet` (`/web-advice` revision review) | nobody; the orchestrator writes a packet of the complete `git diff <BASE SHA>..<SHA>` plus the full post-change content of every changed file, from the `pin` donor, in place of `/web-advice`'s own `origin/main...HEAD` packet | `packet_path` (kept locally, never sent to the provider); per-file SHA-256; `bundle_sha256`; every file delivered as an upload, not pasted inline; provider shows no truncation; `COVERAGE:` names every packet file; `clone_path: none`; `clone_removed: n/a` | orchestrator | nobody; the packet is kept as evidence | `<PR URL>` `<SHA>` `<BASE SHA>` `<BUNDLE HASH>` |
 
 - **The orchestrator owns every copy.** Seats never clone, delete or attest. The orchestrator creates each copy,
   verifies every key it can measure, and removes the copy once the seat process is confirmed gone, whatever the
@@ -212,7 +226,7 @@ coverage, reasoning, risk and findings, the question's answer, and every `UNAVAI
 attempt: identity, actual CLI, account and model, start and completion times, exit or timeout, the exact prompt
 (any deviation voids the vote, per static-review), complete output, coverage and cleanup result. End with exactly
 one line: `VERDICT: APPROVED at <SHA>`, `VERDICT: NOT APPROVED at <SHA>`, or `VERDICT: WITHHELD at <SHA> — <reason>`;
-for document-only review, use `DOCUMENTS sha256:<bundle hash>` in place of `<SHA>`.
+for document-only review, `DOCUMENTS sha256:<bundle hash>` takes the place of `<SHA>`.
 
 **Applicability.** Keep the original reviewers and reviewed SHAs. Before relying on them at a later head, inspect
 the complete delta, claims, evidence and phase; applicability is not a new vote, and material uncovered changes

@@ -1,6 +1,6 @@
 ---
 name: static-review
-description: Use when dispatching any independent reviewer (CLI, coordinator ask, web-provider ask or static-review subagent); owns the cold start, the verbatim prompt templates, per-channel preambles, receipts and identity rules.
+description: Use when dispatching any independent reviewer (CLI seat, coordinator ask, web-provider ask or static-review subagent); owns the cold start, the verbatim prompt templates, per-channel preambles, receipts and identity rules.
 ---
 
 # /static-review — cold, verbatim reviewer input
@@ -88,10 +88,19 @@ the mentions, `Advice vote requested.` and the remote preamble; record the sende
 receipt. A vote request is not a `/hermes` task handoff: it carries no task marker, owner or acceptance fields,
 because the template's PR URL and SHA already bind it.
 
-Web-provider ask (web-advice seats): the web titling preamble below, which carries the `/web-advice` titling
-prefix and the instruction to title the conversation, followed by the revision packet prompt (revision), or by the
-document-only preamble plus the document-only review prompt, with the packet files uploaded as attachments. Nothing
-else is sent.
+Web-provider ask (web-advice seats): the web preamble below, with `<SUBJECT>` set to `<SHA>` for a revision or
+`DOCUMENTS sha256:<BUNDLE HASH>` for documents, then the revision packet prompt (revision), or the document-only
+preamble plus the document-only review prompt (documents). Upload the packet files as attachments. Never send a
+local path to a provider: for a web seat, `<PACKET PATH>` in the document-only prompt is filled with
+`the attached files`.
+
+Web preamble (verbatim; it satisfies `/web-advice`'s conversation-titling rule):
+
+```text
+[web advice] Advice vote at <SUBJECT>
+Title this conversation "[web advice] Advice vote at <SUBJECT>".
+Advice vote requested.
+```
 
 Every CLI seat (Codex, Opus, the Claude alternates, Cursor, AGY, any `ADVICE_EXTRA_CLIS` seat) and every static
 reviewer gets the revision or document-only preamble below. A seat launched without one cannot produce a
@@ -120,14 +129,6 @@ review to another account. Return your review in this conversation as your
 final reply.
 ```
 
-Web titling preamble for every web-provider ask (verbatim; for documents, replace both `<SHA>` with
-`DOCUMENTS sha256:<BUNDLE HASH>`):
-
-```text
-[web advice] Advice vote at <SHA>. Title this conversation starting with "[web advice] Advice vote at <SHA>".
-Advice vote requested.
-```
-
 Document-only preamble for every CLI seat and for static reviewers (verbatim):
 
 ```text
@@ -142,6 +143,9 @@ config or hooks. Do not post anything; return your review as your final output.
 - Two reviewers that both leave their model unreported count as one vote, and so do two where one is unreported
   and their type or harness match. At most one counted static reviewer may leave its model unreported, and it must differ from the other by
   subagent type and harness.
+- Two counted static reviewers must run on different models (for example Opus and Sonnet). Two on the same model,
+  differing only by sub-agent type, count as two votes only when the environment genuinely offers no second model,
+  such as a cloud coding session with a single model family; record that limitation in both receipts.
 - Static reviewers run in separate contexts and do not read each other's output first.
 - Each static reviewer has a 600-second end-to-end deadline from launch, replacing the `advice` skill's 1800-second
   default for static reviewers only. The orchestrator, not the reviewer, timestamps launch and return.

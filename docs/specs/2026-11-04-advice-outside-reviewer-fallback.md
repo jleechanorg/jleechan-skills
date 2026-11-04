@@ -1,36 +1,33 @@
 # Specification: /advice outside-reviewer fallback and cleanup
 
-- **Outcome:** when every CLI reviewer is quota-walled, missing or void, `/advice` still reaches a two-vote quorum
-  through outside reviewers before falling back to in-session static reviewers. The owner asked for this on
-  2026-11-04: "when all cli reviewers out of quota ... it should try to use /wa and ask hermes hermes pc and the dots
-  in dot coordination for a review and use /dot", and, in a PR review comment, to "explicitly say if available use
-  #dot-coordination slack to ask hermes for reviews". `advice` and `static-review` also lose duplicated text
-  (`advice/SKILL.md` stays below its 3,232-word base, about 3,000, even after adding the fallback ladder) without changing their other rules.
-- **Non-goals:** changing the quorum size, the CLI seat list or defaults, the Codex model allowlist, pr-lifecycle's
-  applicability thresholds, or the 2026-10-29 static-review exception (including whether two same-model sub-agents
-  are two votes); adding runner code, tests or new markdown links that change install-profile closures; editing the
-  `/prw` family (separate PR) or `portable/skills/advice`.
+- **Outcome:** CLI quota exhaustion or unavailability does not block `/advice` while eligible authorized
+  reviewers remain. Each distinct configured Dot account can supply one independent vote. Hermes and Hermes PC
+  are the final fallback. The canonical skill owns the order; command and overlays point to it.
+- **Non-goals:** changing the default two-vote quorum, CLI seats, model allowlist, lifecycle applicability,
+  conditional static-model independence, disclosure permissions, or mandatory separate review gates; adding
+  runner code, wording-pin tests or account configuration. The overlapping record-only exemption in PR #696
+  remains separate. PR #692's existing PR-body receipt proposal is preserved, not accepted or installed by this
+  routing change; its publication-policy reconciliation and independent review remain open.
 - **Acceptance:**
-  - A quota, usage-limit or exhausted-429 reply makes that CLI seat `UNAVAILABLE` at once, with no same-account retry.
-  - Once CLI seats cannot fill the open slots, the Dot, Hermes (including hermes-pc, through `#dot-coordination` when
-    available) and `/web-advice` routes are dispatched concurrently. Each Dot or Hermes reply counts only with full
-    `COVERAGE:` and a SHA-bound `VERDICT:`.
-  - Dot and Hermes review a pushed SHA from an existing checkout (`isolation: remote`). `/web-advice` reviews an
-    uploaded packet of the pinned `BASE..SHA` diff and full changed files (`isolation: packet`). Both have matching
-    `static-review` templates, preambles and receipt fields.
-  - An outside route runs only when the machine's `ADVICE_OUTSIDE_ROUTES` opts into it (or the task authorizes it);
-    a disclosure restriction or secret content still makes the affected route `UNAVAILABLE`.
-  - Static reviewers fill only slots still open after every CLI seat and outside route has ended.
-  - `test_installer`, `test_cross_host_catalog`, `test_command_closure`, `test_advice_machine_local_clis`,
-    `test_portable_install`, `test_swarm_references`, `test_sync_live_config` and CI `contract-tests` pass.
-- **User stories:** an operator whose Codex and Claude quotas are exhausted runs `/advice` and gets votes from their
-  Dots, Hermes instances or web chats instead of a `WITHHELD` that only says "CLIs unavailable". A reviewer reading
-  `advice` finds each rule stated once.
-- **Proof plan:** run the listed test modules locally and CI on the head; run two static reviewers (different
-  model and sub-agent type) with the new verbatim prompts at the head; resolve every P0/P1 and record each verdict,
-  coverage and receipt in the PR body.
-- **Mock:** exempt. There is no UI; the change is skill and command Markdown.
-- **Risk:** medium.
-  - Outside routes disclose PR content to Dot, Hermes and third-party web providers. Mitigation: the owner's quoted
-    authorization, the disclosure carve-out, and the remote no-mutation preamble.
-  - The cleanup could drop a rule. Mitigation: a section-by-section `/ds` pass and independent full-coverage review.
+  - Quota, usage-limit or exhausted-429 replies make a CLI seat unavailable immediately, with no same-account retry.
+  - When CLI seats cannot fill open slots, authorized Dot rotation and web review start together. Each distinct
+    eligible account can vote once. Advance after success or failure while quorum is unmet; preserve valid votes.
+  - Stop new dispatch at quorum unless a separate workflow obligation remains. Three configured Dot accounts are
+    candidates, not three mandatory requests. Valid in-flight reviews and blocking findings are not discarded.
+  - Static votes become eligible after CLI, Dot and web attempts end. Hermes instances are requested only if the
+    earlier rungs cannot meet quorum or a required outside vote. Static eligibility never waits for Hermes.
+  - Existing author/orchestrator exclusions, account deduplication, separate lifecycle `/dot` accounting,
+    route-wide deadlines, named-reviewer wait overrides, cold prompts, full-scope receipts and head binding remain.
+  - Dot and Hermes use authorized remote review; web seats use the complete uploaded revision/document packet.
+    Missing authorization, transport or coverage produces honest unavailable/withheld results, never approval.
+- **User stories:** an operator with exhausted CLI quotas receives independent reviews from their eligible Dot
+  accounts without unnecessary requests after quorum. If earlier routes cannot complete the review, Hermes is
+  tried last. A reviewer reading an overlay follows the same order as the canonical skill.
+- **Proof plan:** compare old/new instructions against scenarios for two Dot approvals, CLI plus Dot, success
+  then unavailable account, duplicate identities, wrong-head/partial replies, route timeout, static-only
+  coordinator substitution, final Hermes and separately required reviews. Run installer, catalog, closure,
+  machine-local CLI, portable install, swarm references, sync, Hermes routing and lifecycle tests plus exact-head
+  CI. Obtain independent semantic, `/cs` and Ponytail review; tests do not prove prose behavior or formal approval.
+- **Mock:** exempt; this Markdown-only instruction change has no UI.
+- **Risk:** medium. Wrong ordering can waste quota or manufacture approval. Keep authority, quorum, identity,
+  evidence and deadline contracts intact; review the complete diff and preserve unresolved publication gates.

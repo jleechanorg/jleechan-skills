@@ -7,7 +7,7 @@ description: "Hermes wrapper for the `/advice` token-efficient second-opinion sl
 # /advice — Token-Efficient Second Opinion (Hermes overlay)
 
 **This is the Hermes-side wrapper.** The canonical skill lives at:
-- `~/.claude/skills/advice/SKILL.md` — full pattern, all 3 reviewers, fallback chain
+- `~/.claude/skills/advice/SKILL.md` — quorum, dispatch order, fallback chain
 
 **Read the canonical file for the full procedure.** This overlay exists so that:
 1. `skill_view(name='advice')` works from the Hermes session (the canonical Claude skill is not registered in the Hermes skill registry).
@@ -15,7 +15,7 @@ description: "Hermes wrapper for the `/advice` token-efficient second-opinion sl
 
 ## Static review (synced 2026-10-29)
 
-The canonical `/advice` now delegates reviewer input to `~/.claude/skills/static-review/SKILL.md`: every reviewer (CLI, coordinator ask, static-review subagent) gets the cold, verbatim template with only the PR URL and SHA filled (for document-only review, only the packet path and bundle hash), plus the fixed per-channel preamble. The receipt records the exact prompt; any deviation voids the vote. Static-review subagents launch in parallel with the coordinator ask (or, with no coordinator, with the CLI attempts) and fill only slots still unfilled after every CLI attempt and coordinator account ends; one outside vote pairs with one static reviewer (no double substitution). Record unavailable seats as `<host> — <CLI or static reviewer> — attempted|skipped — <attempt time> — <reason>` and tell the user. A cloud-only failure does not make Mac or Ubuntu CLIs unavailable.
+The canonical `/advice` now delegates reviewer input to `~/.claude/skills/static-review/SKILL.md`: every reviewer (CLI, coordinator ask, static-review subagent) gets the cold, verbatim template with only the PR URL and SHA filled (for document-only review, only the packet path and bundle hash), plus the fixed per-channel preamble. The receipt records the exact prompt; any deviation voids the vote. Canonical `/advice` §2 owns dispatch order, Dot-account rotation, static eligibility and final Hermes fallback; this overlay never reorders them. One outside vote can pair with one eligible static vote under its substitution rules. Record unavailable seats as `<host> — <CLI or static reviewer> — attempted|skipped — <attempt time> — <reason>` and tell the user. A cloud-only failure does not make Mac or Ubuntu CLIs unavailable.
 
 ## When to use
 

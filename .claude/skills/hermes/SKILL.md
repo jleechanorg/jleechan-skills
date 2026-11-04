@@ -13,7 +13,6 @@ Retain the existing conversation and incumbent work owner. Do not start duplicat
 - Resolve Hermes from a verified conversation/profile and read the connected sender profile. Never guess accounts or hardcode personal names, emails, workspace IDs or channel IDs.
 - When the current task authorizes acting as the owner, use the connected owner-identity Slack connector for the existing Hermes DM. Do not ask again for clearly granted authorization covering that sender, recipient and bounded task.
 - This skill itself grants no standing permission or new access. Keep private source/review packets and campaign diagnostics in authorized private destinations. Finding another channel does not silently authorize wider disclosure.
-- Carve-out: when the advice Hermes route is authorized and the machine-local `ADVICE_HERMES_CHANNEL` opt-in names a Slack channel available to the sending identity, that channel is an authorized destination for advice vote requests and their replies, one thread per Hermes instance. It authorizes nothing else there.
 
 ## Send and verify
 
@@ -40,8 +39,9 @@ Existing interfaces: synchronous POST `/v1/chat/completions` with model `hermes-
 
 Serialize payloads with a JSON encoder; never interpolate arbitrary text into shell code or hand-built JSON. Bound timeouts and distinguish HTTP/transport failures from returned model responses. Retain asynchronous run IDs for readback: started does not mean completed and does not guarantee a Slack DM.
 
-Use the existing authorized private Slack conversation with Hermes (or, for advice
-vote requests only, the opted-in `ADVICE_HERMES_CHANNEL`). This skill
+Use the existing authorized private Slack conversation with Hermes. The one exception is an advice-skill vote
+request on a machine whose `ADVICE_OUTSIDE_ROUTES` includes `hermes`: a channel that machine names in
+`ADVICE_HERMES_CHANNEL` is an authorized destination for those requests and their replies. This skill
 does not grant communication, repository, publication, merge, credential, or
 machine access beyond the current user's authorization.
 ## Slack-only transport
