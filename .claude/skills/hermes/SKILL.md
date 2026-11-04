@@ -40,8 +40,8 @@ Existing interfaces: synchronous POST `/v1/chat/completions` with model `hermes-
 Serialize payloads with a JSON encoder; never interpolate arbitrary text into shell code or hand-built JSON. Bound timeouts and distinguish HTTP/transport failures from returned model responses. Retain asynchronous run IDs for readback: started does not mean completed and does not guarantee a Slack DM.
 
 Use the existing authorized private Slack conversation with Hermes. The one exception is an advice-skill vote
-request: a channel the machine names in `ADVICE_HERMES_CHANNEL` is an authorized destination for those requests
-and their replies. This skill
+request on a machine whose `ADVICE_OUTSIDE_ROUTES` includes `hermes`: a channel that machine names in
+`ADVICE_HERMES_CHANNEL` is an authorized destination for those requests and their replies. This skill
 does not grant communication, repository, publication, merge, credential, or
 machine access beyond the current user's authorization.
 ## Slack-only transport
