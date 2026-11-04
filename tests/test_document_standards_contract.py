@@ -1,4 +1,4 @@
-"""Focused contract tests for document-standards thin commands and canonical skill."""
+"""Portability scan: document-standards command, alias and skill contain no personal paths."""
 
 import unittest
 from pathlib import Path
@@ -14,7 +14,7 @@ class DocumentStandardsContractTest(unittest.TestCase):
         self.alias_path = COMMANDS / "ds.md"
         self.skill_path = SKILLS / "document-standards" / "SKILL.md"
 
-    def test_portability_and_claude_home_resolution(self) -> None:
+    def test_no_personal_or_home_paths(self) -> None:
         for path in (self.cmd_path, self.alias_path, self.skill_path):
             content = path.read_text(encoding="utf-8")
             with self.subTest(path=path):

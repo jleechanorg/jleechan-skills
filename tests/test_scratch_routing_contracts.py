@@ -173,6 +173,12 @@ class ScratchRoutingContracts(unittest.TestCase):
             self.assertTrue(str(fetcher.cache_dir).startswith(str(root)))
             self.assertFalse(str(fetcher.cache_dir).startswith("/tmp/"))
 
+    def test_comment_skill_shell_blocks_never_call_scratch_dir_tmp(self):
+        for name in ("commentcheck", "commentfetch"):
+            content = (ROOT / ".claude/skills" / name / "SKILL.md").read_text()
+            with self.subTest(skill=name):
+                self.assertNotIn("scratch-dir.sh tmp", content)
+
     def test_commentfetch_copilot_dir_resolves_from_scratch_producer(self):
         reply_doc = (ROOT / ".claude/skills/commentreply/SKILL.md").read_text()
         self.assertIn("responses.json", reply_doc)

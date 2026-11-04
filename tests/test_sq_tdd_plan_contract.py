@@ -15,6 +15,21 @@ QUICK_SKILLS = (
 
 
 class SqTddPlanContractTest(unittest.TestCase):
+    def test_sq_advice_uses_roadmap_repository_relative_documents(self):
+        text = QUICK_SKILLS[0].read_text()
+
+        self.assertIn(
+            'if ! ROADMAP_REPO="$(git -C "$HOME/roadmap" rev-parse --show-toplevel)" ||',
+            text,
+        )
+        self.assertIn('[ -z "$ROADMAP_REPO" ]', text)
+        self.assertIn('case "$SPEC_PATH" in', text)
+        self.assertIn('SPEC_DOCUMENT="${SPEC_PATH#"$ROADMAP_REPO"/}"', text)
+        self.assertIn('case "$PLAN_PATH" in', text)
+        self.assertIn('PLAN_DOCUMENT="${PLAN_PATH#"$ROADMAP_REPO"/}"', text)
+        self.assertNotIn('--document "$SPEC_PATH"', text)
+        self.assertNotIn('--document "$PLAN_PATH"', text)
+
     def test_sq_advice_setup_rejects_a_missing_git_roadmap(self):
         text = QUICK_SKILLS[0].read_text()
         marker = "Resolve and validate the roadmap repository"

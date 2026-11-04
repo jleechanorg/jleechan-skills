@@ -67,6 +67,18 @@ class WorkflowCommandPairTest(unittest.TestCase):
                 path.read_text(encoding="utf-8"),
             )
 
+    def test_retry_contract_forbids_conversation_reuse_flags(self):
+        paths = (
+            SKILLS / "parallelize-to-ceiling" / "SKILL.md",
+            REPO_ROOT / ".claude" / "agents" / "agy-pair-coder.md",
+            REPO_ROOT / ".claude" / "agents" / "agy-pair-verifier.md",
+        )
+        for path in paths:
+            content = path.read_text(encoding="utf-8")
+            with self.subTest(path=path):
+                self.assertNotIn("--continue", content)
+                self.assertNotIn("--conversation", content)
+
     def test_initial_coder_worktree_is_pinned_to_callers_revision(self):
         coder = (REPO_ROOT / ".claude" / "agents" / "agy-pair-coder.md").read_text(
             encoding="utf-8"
