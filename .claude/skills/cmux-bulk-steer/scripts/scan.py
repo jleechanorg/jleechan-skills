@@ -419,10 +419,15 @@ def main() -> int:
     )
     for row in manifest["surfaces"]:
         last_line = row["tail_lines"][-1][:90] if row["tail_lines"] else "<empty>"
+        # cpu_percent is None when the surface was absent from the capture;
+        # format that as n/a rather than crashing on a float format spec.
+        cpu_display = (
+            "n/a" if row["cpu_percent"] is None else f"{row['cpu_percent']:.1f}%"
+        )
         print(
             f"  [{row['workspace']} | {row['workspace_ref']} / {row['surface_ref']}] "
             f"words={row['captured_words']}/{row['total_words']} "
-            f"lines={row['lines_read']} cpu={row['cpu_percent']:.1f}% "
+            f"lines={row['lines_read']} cpu={cpu_display} "
             f"file={row['file_10k']} | tail={last_line}"
         )
     return 0
