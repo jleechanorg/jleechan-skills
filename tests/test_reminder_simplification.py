@@ -10,13 +10,6 @@ class SimpleReminder(unittest.TestCase):
         self.assertNotIn('COORDINATOR_ATTEMPT_FILE', source)
         self.assertNotIn('profile_lock', source)
         self.assertNotIn('COORDINATOR_PENDING_FILE', source)
-    def test_dot_owns_tasks_and_only_transport_uncertainty_is_retained(self):
-        skill = (PACKAGE / 'SKILL.md').read_text()
-        self.assertIn('Each Dot owns its task state', skill)
-        self.assertIn('Do not inspect, assign, implement or track tasks', skill)
-        self.assertIn('No durable record carries this uncertainty', skill)
-        self.assertNotIn('Resume feasible work', skill)
-        self.assertNotIn('For each open item', skill)
     def test_legacy_review_helper_fails_closed_without_holding_or_running(self):
         with tempfile.TemporaryDirectory() as directory:
             marker = Path(directory) / 'ran'

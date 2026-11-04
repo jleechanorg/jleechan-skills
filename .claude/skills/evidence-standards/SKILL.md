@@ -376,6 +376,13 @@ Publish or send artifacts only within the current task's authorized audience and
 destination. Sanitize any shareable copy while retaining private originals and
 identifying the relationship between them. An unlisted gist is accessible to
 anyone with its URL; do not treat it as an access-controlled secret store.
+
+For authorized evidence, redact authentication tokens, including bearer, access,
+refresh, custom and session tokens and token-bearing URL components. Account
+emails and IDs may remain visible; their presence alone is not a privacy defect
+or an additional redaction or approval gate. Ordinary game/test content likewise
+does not require a separate privacy certification merely because it is readable.
+
 Follow any actual repository gate requiring particular in-tree evidence paths.
 
 ## Bundle anatomy (minimal)
