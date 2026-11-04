@@ -1,0 +1,12 @@
+{
+  "name": "worldarchitect",
+  "description": "Opt-in WorldArchitect.AI product skills and commands: agent routing, campaign evidence, level-up validation, local and preview servers, and product test infrastructure",
+  "version": "0.1.0",
+  "author": {
+    "name": "WorldArchitect.AI Team",
+    "email": "team@worldarchitect.ai"
+  },
+  "homepage": "https://github.com/jleechanorg/jleechan-skills",
+  "repository": "https://github.com/jleechanorg/jleechan-skills",
+  "license": "MIT"
+}

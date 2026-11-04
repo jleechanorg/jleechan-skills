@@ -1,5 +1,5 @@
 ---
-name: agents
+name: worldai-agent-routing
 description: Apply WorldArchitect.AI agent-routing priority, modal-lock, and stale-state guard patterns.
 ---
 
