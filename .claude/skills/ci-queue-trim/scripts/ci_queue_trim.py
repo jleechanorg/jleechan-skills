@@ -35,6 +35,10 @@ tool does NOT guess deployment safety from conventional filenames.
 requires proven supersession. ``--max-age-hours`` labels age in the report;
 it never authorizes cancellation. ``--dry-run`` overrides ``--cancel``.
 
+The target repository is ``--repo``, else ``$GITHUB_REPOSITORY``, else the
+repository ``gh repo view`` resolves from the current directory; with none of
+these the tool exits non-zero instead of guessing.
+
 Usage:
     python3 ci_queue_trim.py [--repo OWNER/REPO] [--max-age-hours HOURS]
                              [--cancel | --superseded-only --cancel]
@@ -56,7 +60,6 @@ import sys
 from collections import namedtuple
 from typing import Any, Dict, List, Optional, Tuple
 
-DEFAULT_REPO = "jleechanorg/worldarchitect.ai"
 DEFAULT_MAX_AGE_HOURS = 2.0
 
 # Branches whose runs are never cancelled.
@@ -99,6 +102,21 @@ def run_cmd(cmd: List[str], timeout: int = 60) -> Tuple[int, str, str]:
         return 124, "", f"Command timed out after {timeout}s: {' '.join(cmd)}"
     except Exception as exc:
         return 1, "", str(exc)
+
+
+def resolve_repo(explicit: Optional[str] = None) -> Optional[str]:
+    """Return ``owner/repo`` from --repo, $GITHUB_REPOSITORY, or ``gh repo view``."""
+    if explicit:
+        return explicit
+    env_repo = os.environ.get("GITHUB_REPOSITORY", "").strip()
+    if env_repo:
+        return env_repo
+    rc, stdout, _ = run_cmd(
+        ["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"],
+        timeout=30,
+    )
+    derived = stdout.strip() if rc == 0 else ""
+    return derived or None
 
 
 def _gh_api(path: str, timeout: int = 15) -> Optional[Dict[str, Any]]:
@@ -865,7 +883,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Audit and trim queued GitHub Actions runs with proven obsolete heads."
     )
-    parser.add_argument("--repo", default=DEFAULT_REPO)
+    parser.add_argument(
+        "--repo", default=None,
+        help="owner/repo (default: $GITHUB_REPOSITORY, else `gh repo view`).",
+    )
     parser.add_argument("--max-age-hours", type=float, default=DEFAULT_MAX_AGE_HOURS,
                         help="Report age threshold only; never cancellation authority.")
     parser.add_argument("--limit", type=int, default=100)
@@ -898,6 +919,15 @@ def main() -> int:
     )
     args = parser.parse_args()
     report_stream = sys.stderr if args.json_output else sys.stdout
+
+    args.repo = resolve_repo(args.repo)
+    if not args.repo:
+        print(
+            "GITHUB_REPOSITORY not configured: owner/repo whose queued runs to audit. "
+            "Example: export GITHUB_REPOSITORY=owner/repo (or pass --repo)",
+            file=sys.stderr,
+        )
+        return 2
 
     if args.check_host:
         print("=== Host & Colima Preflight ===", file=report_stream)
