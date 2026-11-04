@@ -39,7 +39,7 @@ If omitted, infer from current branch / recent commits / open PR titles.
 ## See Also
 
 - `.claude/skills/engplan/SKILL.md` — full skill body
-- `.claude/skills/zfc-leveling-roadmap/SKILL.md` — domain-specific instance
+- a product plugin's `zfc-leveling-roadmap` skill, if installed — domain-specific instance
 - `.claude/skills/deletion-milestone/SKILL.md` — net-LOC discipline
 - `.claude/commands/4layer.md` — minimal-repro ladder
 - `.claude/commands/tdd.md` — red/green/refactor

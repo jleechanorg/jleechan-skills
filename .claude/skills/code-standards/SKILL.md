@@ -16,7 +16,7 @@ dispatcher that points here.
 |-------|------|
 | Ponytail — lazy senior dev mode | `${CLAUDE_HOME:-$HOME/.claude}/skills/ponytail/SKILL.md` |
 | Zero-Framework Cognition (ZFC) | `${CLAUDE_HOME:-$HOME/.claude}/skills/zero-framework-cognition/SKILL.md` |
-| ZFC Leveling Roadmap | `${CLAUDE_HOME:-$HOME/.claude}/skills/zfc-leveling-roadmap/SKILL.md` |
+| ZFC Leveling Roadmap | Optional: if an installed product plugin provides a companion `zfc-leveling-roadmap` skill, read it |
 | Root-cause-first engineering | `${CLAUDE_HOME:-$HOME/.claude}/skills/root-cause-first/SKILL.md` |
 
 `${CLAUDE_HOME:-$HOME/.claude}/skills/ponytail/SKILL.md` is the canonical mirror of
