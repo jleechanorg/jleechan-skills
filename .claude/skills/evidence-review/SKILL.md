@@ -307,8 +307,12 @@ a video bundle pass without an independent AI review of the frames.
 ### Phase 0 — Staleness gate (run before anything else)
 
 Resolve the SHA of the last posted `ER-VERDICT:` comment's `HEAD=` value and
-compare to the subject's current HEAD. If they match, skip to the verdict phase
-and re-emit the prior verdict. If they differ, read `git diff
+compare to the subject's current HEAD. **A matching head is necessary but NOT
+sufficient**: before reusing anything, also confirm the base ref, the evidence
+set, the claim map and the review phase are unchanged. If any of those moved, the
+prior verdict does not carry over even at an identical head. Only when all are
+unchanged may you skip to the verdict phase and re-emit it. If the head differs,
+read `git diff
 <prior-verdict-sha> <current-sha>` against the verdict's claims per the
 staleness-tolerance test in `evidence-standards`: a delta that leaves every
 claim intact lets you record the prior verdict's applicability to the new SHA without rerunning the later phases or pretending it was a new review. A delta that changes production behavior or any assertion, driver, or executable instruction a claim depends on requires fresh affected proof and independent review of the affected coverage. Use a full rerun only when the impact cannot be safely bounded; preserve unaffected claims. Never rerun once per finding —
@@ -390,7 +394,7 @@ Produce output in this format:
 - **Self-referencing claims**: `evidence.md` cites itself instead of raw artifacts → WEAK
 - **Circular provenance**: the bypass gate reads the reference file it's supposed to match against → artifact INVALID, overall FAIL
 - **Reproduction directions missing or inaccessible**: no accessible link or inline directions meeting section 6 → PARTIAL, even if evidence files were committed.
-- **Private repo release as inline image**: GitHub won't proxy it → broken GIF → PARTIAL
+- **Private release as inline image**: GitHub does not proxy it, so an anonymous viewer gets a broken image. This is a *rendering* failure, not proof of a bad claim — record the access mode and apply section 5 (authorized private hosting is acceptable when the intended reviewer can open the media).
 - **Required media inaccessible**: an attachment or hosted artifact cannot be accessed in the form required by section 4 → PARTIAL. Verify access rather than inferring failure from the attachment method.
 - **Static screenshot offered as required flow video**: it does not show before/action/after behavior → FAIL for that flow claim.
 - **`echo "PASS"` in terminal video instead of real test runner output**: hard block → FAIL
