@@ -69,8 +69,8 @@ Document-only review prompt (skill-owned, verbatim):
 ```text
 Review the saved documents in <PACKET PATH>, bundle
 DOCUMENTS sha256:<BUNDLE HASH>. This is document-only review: do not approve
-code, a PR or HEAD. Report P0/P1/P2 with file:line and a COVERAGE: line naming
-the files you read; approve only with no P0/P1 and full coverage; end with
+code, a PR or HEAD. Report P0/P1/P2 with file:line, a MODEL: line naming the
+model you are, and a COVERAGE: line naming the files you read; approve only with no P0/P1 and full coverage; end with
 exactly one line: VERDICT: APPROVED|NOT APPROVED|WITHHELD at
 DOCUMENTS sha256:<BUNDLE HASH> (WITHHELD with a reason).
 ```
@@ -82,8 +82,8 @@ seat, the `<review request>` argument (or stdin, for forms without one) is exact
 
 Coordinator ask (each Dot account in rotation and each configured Hermes instance): the sender line its owning
 skill requires, if any (for example the Dot `From ...:` prefix), then the configured mentions, then
-`Advice vote requested.` on its own line, then the remote preamble, then the remote review prompt (revision) or the
-document-only review prompt. The sender line and mentions are recorded in the receipt and are the only bytes
+`Advice vote requested.` on its own line, then the remote preamble, then the remote review prompt. Coordinator asks are revision-only: a remote reviewer
+cannot read a local packet. The sender line and mentions are recorded in the receipt and are the only bytes
 allowed before the template.
 
 Web-provider ask (web-advice seats): `Advice vote requested.` on its own line, then the revision packet prompt
@@ -144,7 +144,7 @@ times taken by the orchestrator, the exact prompt, the `COVERAGE:` statement, th
 unchanged. The orchestrator also records that no reviewer process survives and that clone cleanup succeeded.
 
 - For a static-review subagent this receipt replaces only the seat-exit field.
-- For an outside route (`remote` or `packet`), record instead of the process and cleanup fields: the route, the
+- For an outside route (`remote` or `packet`), record instead of the exit, process and cleanup fields: the route, the
   message reference or permalink read back at the source, the `MODEL:` line as `attested.model`, and the row's
   evidence from the `advice` skill's §4 table.
 - Outside the authorized workspace, publish only the prompt's SHA256 and template name whenever a filled field (PR
