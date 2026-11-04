@@ -67,10 +67,11 @@ jobs:
           # The Dot transport suites (~75s, real Node subprocesses) only exercise
           # .claude/skills/dot/. Skip them on PRs that do not touch Dot code; push
           # to main always runs everything.
+          # Fail closed: any doubt (non-PR event, missing base, git error) keeps run=true.
           run=true
-          if [ "$EVENT" = "pull_request" ]; then
-            if ! git diff --name-only "$BASE_SHA"...HEAD \
-              | grep -qE '^(\.claude/skills/dot/|tests/test_dot_transport_|\.github/workflows/tests\.yml$)'; then
+          if [ "$EVENT" = "pull_request" ] && [ -n "$BASE_SHA" ]; then
+            changed=$(git diff --name-only "$BASE_SHA"...HEAD)
+            if ! grep -qE '^(\.claude/skills/dot/|tests/test_dot_transport_|tests/subprocess_environment\.py$|\.github/workflows/tests\.yml$)' <<<"$changed"; then
               run=false
             fi
           fi
