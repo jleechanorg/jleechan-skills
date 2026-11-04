@@ -20,6 +20,8 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
+import sys
 from typing import Any
 
 SCROLLBACK_LINES = 4000
@@ -414,13 +416,35 @@ def capture_fleet(
 
 
 def _scratch_root() -> str:
+    """Resolve a writable scratch root portably. Never hardcode a personal home path.
+
+    Order: $DISKM_SCRATCH, then the repo's own resolver when present, then the
+    well-known volume mount-point, then the platform temp dir.
+    """
     env_root = os.environ.get("DISKM_SCRATCH")
     if env_root and os.path.isdir(env_root) and os.access(env_root, os.W_OK):
         return env_root
-    for candidate in ("/Volumes/diskm-scratch", "/home/jleechan/Scratch"):
-        if os.path.isdir(candidate) and os.access(candidate, os.W_OK):
-            return candidate
-    return "/tmp"
+    for base in (os.environ.get("CLAUDE_HOME"), os.path.expanduser("~/.claude")):
+        if not base:
+            continue
+        resolver = Path(base) / "skills" / "scratch-space" / "scripts" / "scratch-dir.sh"
+        if resolver.is_file():
+            try:
+                resolved = subprocess.run(
+                    ["bash", str(resolver), "cmux-bulk-steer"],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=10,
+                ).stdout.strip()
+            except (OSError, subprocess.SubprocessError):
+                resolved = ""
+            if resolved and os.path.isdir(resolved) and os.access(resolved, os.W_OK):
+                return resolved
+    volume_root = "/Volumes/diskm-scratch"
+    if os.path.isdir(volume_root) and os.access(volume_root, os.W_OK):
+        return volume_root
+    return tempfile.gettempdir()
 
 
 def main() -> int:

@@ -251,7 +251,10 @@ class ReviewRegressionTests(unittest.TestCase):
      self.assertEqual(sum(line.startswith('```') for line in before.splitlines())%2,0,p.parent.name)
     self.assertIn('pr-green-definition',checked)
     self.assertIn('pr-workflow-manager',checked)
-    self.assertEqual(len(checked),17)
+    # 18: the original 17 plus cmux-bulk-steer, which gained /advice mentions
+    # with the ENDLESS_REVIEW stop-the-loop guidance and must therefore declare
+    # its retained review integrations like every other reviewer skill.
+    self.assertEqual(len(checked),18)
     for n in ['advice','web-advice']:
      p=h/'.claude/skills'/n/'SKILL.md'
      if existing:

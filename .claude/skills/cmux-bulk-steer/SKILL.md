@@ -74,6 +74,17 @@ steer:` line. State the review scale (`N surfaces, M shards, K subagents`) and e
 
 ---
 
+## Retained review integrations
+
+Follow [pr-lifecycle's retained review integrations](../pr-lifecycle/SKILL.md#retained-review-integrations)
+for skill discovery, quorum and disclosure boundaries. This skill only *stops* review loops and names a dead
+route; it never substitutes for the review skill the lane actually needs. For a remote invocation, check the
+target host's actual review skill. If a required integration is missing, report `UNAVAILABLE` with its package
+name; do not invent a runner or approval. Continue independent authorized work, but leave any dependent
+readiness or plan-approval gate unmet.
+
+---
+
 ## Stalled-on-question unblock (Claude / Codex) — look for it explicitly
 
 A recurring failure pattern: a Claude Code or Codex surface has **finished its turn and is stopped on a question**, waiting for an answer — so it reads as "idle" but is NOT done. During every read (Phase 2), explicitly scan each surface's tail for this pattern and unblock it.

@@ -93,6 +93,8 @@ class CmuxBulkSteerZfcScanTests(unittest.TestCase):
             "12.5\t1000\t10\ttotal\ttotal\t\t\n"
             "4.2\t500\t3\tsurface\tsurface:21\tpane:1\tcodex-worker\n"
         )
+        # Per-workspace fallback shape: "  <CPU>%  <MEM>  <procs>  surface surface:<id> ..."
+        fake_procs_top = "  4.2%   500.0 MB   3   surface surface:21 [terminal] codex-worker\n"
         fake_pane_text = "\n".join(f"step {i}: working on PR #10379" for i in range(15))
 
         def fake_run(cmd, *args, **kwargs):
@@ -100,6 +102,9 @@ class CmuxBulkSteerZfcScanTests(unittest.TestCase):
                 return mock.Mock(returncode=0, stdout=json.dumps(fake_tree), stderr="")
             if cmd[:3] == ["cmux", "top", "--all"]:
                 return mock.Mock(returncode=0, stdout=fake_top, stderr="")
+            if cmd[:2] == ["cmux", "top"] and cmd[-1] == "--processes":
+                # Per-workspace CPU fallback, used when --flat reports 0.0 everywhere.
+                return mock.Mock(returncode=0, stdout=fake_procs_top, stderr="")
             if cmd[:2] == ["cmux", "capture-pane"]:
                 sf = cmd[cmd.index("--surface") + 1]
                 if sf == "surface:23":
@@ -219,6 +224,12 @@ class CmuxBulkSteerZfcScanTests(unittest.TestCase):
                     return mock.Mock(returncode=0, stdout=json.dumps(fake_tree), stderr="")
                 if cmd[:3] == ["cmux", "top", "--all"]:
                     return mock.Mock(returncode=0, stdout="", stderr="")
+                if cmd[:2] == ["cmux", "top"] and cmd[-1] == "--processes":
+                    return mock.Mock(
+                        returncode=0,
+                        stdout="  4.2%   500.0 MB   3   surface surface:44 [terminal] pi\n",
+                        stderr="",
+                    )
                 if cmd[:2] == ["cmux", "capture-pane"]:
                     return mock.Mock(returncode=0, stdout=fake_pane, stderr="")
                 raise AssertionError(f"Unexpected command: {cmd}")
