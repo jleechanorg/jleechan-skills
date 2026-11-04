@@ -74,6 +74,17 @@ steer:` line. State the review scale (`N surfaces, M shards, K subagents`) and e
 
 ---
 
+## Retained review integrations
+
+Follow [pr-lifecycle's retained review integrations](../pr-lifecycle/SKILL.md#retained-review-integrations)
+for skill discovery, quorum and disclosure boundaries. This skill only *stops* review loops and names a dead
+route; it never substitutes for the review skill the lane actually needs. For a remote invocation, check the
+target host's actual review skill. If a required integration is missing, report `UNAVAILABLE` with its package
+name; do not invent a runner or approval. Continue independent authorized work, but leave any dependent
+readiness or plan-approval gate unmet.
+
+---
+
 ## Stalled-on-question unblock (Claude / Codex) — look for it explicitly
 
 A recurring failure pattern: a Claude Code or Codex surface has **finished its turn and is stopped on a question**, waiting for an answer — so it reads as "idle" but is NOT done. During every read (Phase 2), explicitly scan each surface's tail for this pattern and unblock it.
@@ -127,6 +138,67 @@ A Codex lane whose goal is paused reads as idle but is recoverable without any h
 
 Live evidence (2026-10-19): a single sweep resumed 8 such lanes (`iOS`, `lvl up`, `auto creation`, `knowledge`, `zfc`, plus idle `strat`/`alerts`), all confirmed `Pursuing goal`/`Working` after the steer.
 
+### Endless-review loop — a live timer is not progress
+
+A lane can be genuinely `WORKING` by every existing gate — live timer, changing screen, real tool calls — and still be
+producing **zero** deliverable. Review work is the usual cause: `/er`, `/es`, `/advice`, re-reviews, dot sends, and
+evidence re-publishes are all *activity*, so they defeat the two-sample check that exists to catch idleness. The
+lane is not stalled; it is spinning.
+
+The distinguishing signal is **frozen artifacts against a moving clock**: the head SHA, the set of edited source
+files, and the commit list stop moving while review events pile up. Count deliverables, never minutes.
+
+**Measure it from outside the pane** (a full scrollback alone cannot show this, because every review round looks like
+progress in isolation). One read-only pass per candidate surface:
+
+```bash
+# 1. Is the clock real but the tree frozen? (age since the last commit in THIS worktree)
+git -C <worktree> log -1 --format='%ct %h %s'          # compare %ct to now
+# 2. Did any source actually change? (clean tree + 0 unpushed = nothing produced)
+git -C <worktree> status --porcelain | wc -l
+git -C <worktree> rev-list --count HEAD --not --remotes
+# 3. Is review churn repeating at ONE head? (the loop signature)
+gh api repos/<org>/<repo>/pulls/<N>/reviews --jq '.[] | .commit_id[0:8]' | sort | uniq -c | sort -rn
+```
+
+**Flag `ENDLESS_REVIEW` when all three hold:**
+1. The lane's own timer is long (**>= 2 h**) while `git log -1` shows the last commit was **>= 2 h ago** and
+   `status --porcelain` is empty with `rev-list --count HEAD --not --remotes` = 0 — nothing produced, nothing pending.
+2. Three or more review rounds converge on the **same head SHA** (step 3 shows one `commit_id` dominating), or the
+   same evidence bundle is re-published more than once at one head.
+3. The gate it waits on **structurally cannot close** — the reviewer route is dead by quota/capacity
+   (`usage limit`, `at capacity`, `RESOURCE_EXHAUSTED`, `429`), so more rounds cannot yield approval. Quota is a
+   scheduling fact: a dead seat never votes, no matter how many times it is retried.
+
+**Do not flag it** when the head is moving (each round reviews a new SHA — that is normal gated work), when the lane
+produced a commit or push inside the window, or when the last round found and fixed a real defect.
+
+**Steer — one message, naming the dead route, with two exit options:**
+
+```bash
+cmux send --force --workspace <ws> --surface <sf> "Stop reviewing. The approval quorum cannot clear: <dead route, e.g. Claude is walled until Nov 9 7pm / reviewer seat keeps dying on quota>, so further review rounds at the same head will never produce approval. You are at <timer> with ZERO commits and a clean tree; the last commit in this worktree was <age> ago, and you have already re-published the same bundle <n> times at <sha>; do not do that again. Do not run another /er, /es, /advice, dot send, or evidence re-capture at this head. Instead pick one: 1 write the code that is actually missing, or 2 post a single blocker report naming the exact PR, head SHA, which gate is stuck, and which reviewer route is dead, then stop." \
+  && cmux send-key --force --workspace <ws> --surface <sf> enter
+```
+
+Offering both exits is what makes this steer safe: a lane with real missing code writes it, and a lane whose work is
+complete posts one blocker report instead of manufacturing more evidence. Never let the steer imply a merge or an
+approval — it only stops wasted rounds.
+
+**Verify compliance, not just delivery.** Confirm the message is in scrollback and NOT parked in the composer (a
+garbled or absorbed send has silently delivered a different instruction). Then require an artifact: either new
+commits, or a blocker report whose text names a **freshly re-pinned** head SHA. A good lane re-reads the head itself —
+quote-check the SHA in its report rather than assuming it matches the one you sent, because it has probably moved.
+
+Live evidence (2026-11-04, two lanes steered): `email-link` at 5 h08 m and `scene` at 5 h05 m each had zero commits,
+zero source edits, clean trees, and last commits 69 h / 22 h old. Both had been cycling `/er` + `/advice` against one
+frozen head with the Claude reviewer walled until Nov 9. The `scene` lane had re-published one gist bundle three times
+at `0c1231f`. Both took exit 2 and published precise blocker reports naming the correct current heads
+(`54b9537` and `cb04166e`) and every dead reviewer route — the outcome a merge quorum could never have produced.
+
+**Related tooling defect:** a bot that posts each finding as its own review makes `reviews.length` useless as a churn
+metric — `worldai_frontend#494` carried **24 reviews at one head inside 74 s**. Group reviews by `commit_id` before
+judging churn, and treat a sub-minute burst at one SHA as posting granularity, not 24 review passes (bead `bd-rx7s`).
+
 ---
 
 ## Stale footer rule — verify before you classify
@@ -136,7 +208,8 @@ Live evidence (2026-10-19): a single sweep resumed 8 such lanes (`iOS`, `lvl up`
 **Gating.** These verdicts require `screen_changed == false` (surface absent from `working_surfaces.txt`) **plus**
 the absence of post-footer output, live timer growth, and CPU: `IDLE_NEEDS_STEER`, `IDLE_COMPLETE`,
 `PARKED_OPERATOR`, `DIALOG_BLOCKED`, `MALFORMED_TOOL_CALL`, `QUOTA_BLOCKED`. `STOOD_DOWN_DUPLICATE` (a duplicate
-writer can be actively churning) and `WEDGED_PROCESS` (proved from the process tree, not the screen) are
+writer can be actively churning), `WEDGED_PROCESS` (proved from the process tree, not the screen), and
+`ENDLESS_REVIEW` (which positively *requires* a changing screen — see § Endless-review loop) are
 **independent of this gate**. For the gated verdicts, confirm all of:
 1. **No activity after the footer.** Look for tool-call lines, assistant text, or user input lines that appear *below* the quota footer in the buffer. Any post-footer activity means the wall is not current.
 2. **No live progress label.** A `Working (1h33m)` / `Pursuing goal (…)` label with a timer longer than the footer's age is proof the lane is running.
@@ -217,6 +290,7 @@ The same line means different things per CLI, so each subagent names the surface
 - `MALFORMED_TOOL_CALL`: Agent emitted raw tool-call XML/JSON (e.g. `<parameter name="bash">`) as plain text and stalled at the prompt.
 - `QUOTA_BLOCKED`: Current turn is genuinely blocked by an active, unexpired quota/rate-limit wall at the bottom of the buffer. The wall must be the *current* state — a `Goal hit usage limits (/goal resume)` footer left in scrollback after a reset is stale; apply the Stale footer rule before using this category.
 - `STOOD_DOWN_DUPLICATE`: Another active surface is the canonical owner of the same PR/branch/worktree.
+- `ENDLESS_REVIEW`: The lane is objectively `WORKING` (live timer, real tool calls) but producing no deliverable: the head SHA and edited-source set are frozen while review events repeat, and the gate it waits on cannot close because the reviewer route is dead by quota/capacity. **Independent of the `screen_changed` gate** — this failure mode *requires* a changing screen, which is exactly why the two-sample check alone cannot see it. Requires all three measurements in § Endless-review loop (frozen artifacts vs moving clock, >=3 rounds at one head, unclosable gate); a moving head or a commit inside the window disqualifies it.
 - `WEDGED_PROCESS`: Process tree (`cmux top --workspace <ws> --processes` / `ps` / `lsof -p <pid>`) shows a hung child or busy-wait loop with a frozen screen.
 - `SHELL`: Session exited to a plain shell prompt (`zsh`/`bash`).
 
