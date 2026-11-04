@@ -2291,6 +2291,9 @@ class InstallerRealProfileTest(unittest.TestCase):
                           "pr-green-definition", "ready", "advice", "evidence-standards",
                           "evidence-review", "testing-layers", "code-standards"):
                 self.assertTrue((target / "skills" / skill / "SKILL.md").is_file(), skill)
+            helper = target / "skills" / "pr-lifecycle" / "scripts" / "pr-base-changed-paths.sh"
+            self.assertTrue(helper.is_file(), "pr-lifecycle helper script must ship with the prw profile")
+            self.assertTrue(os.access(helper, os.X_OK), "pr-lifecycle helper script must stay executable")
             for command in ("es", "er", "green", "cs", "r.md", "smart-advisor.md", "extended-library/testing-layers.md"):
                 name = command if command.endswith(".md") else f"{command}.md"
                 self.assertTrue((target / "commands" / name).is_file(), command)

@@ -7,9 +7,9 @@ metadata:
 
 # PR Lifecycle
 
-This is the self-contained generic operational lifecycle contract. [PR Workflow Manager](../pr-workflow-manager/SKILL.md) is the command/branch entry point; keep its draft, stage, evidence-applicability and safety guidance synchronized with this file. Before applying a generic rule, inspect the target repository's `AGENTS.md`, `CLAUDE.md`, and scoped instructions. Explicit repository requirements govern their domain; this contract supplies defaults only where local instructions are silent. Do not infer an opt-out from a repository's name or apparent purpose. Design documents explain rationale; they are not required to execute this workflow.
+This is the self-contained generic operational lifecycle contract. [PR Workflow Manager](../pr-workflow-manager/SKILL.md) is the command/branch entry point; keep its draft, stage, evidence-applicability and safety guidance synchronized with this file. Before applying a generic rule, inspect the target repository's `AGENTS.md`, `CLAUDE.md`, and scoped instructions. Do not infer an opt-out from a repository's name or apparent purpose. Design documents explain rationale; they are not required to execute this workflow.
 
-**Shared default:** For repositories that have not explicitly opted out or specified a different local flow, every new PR is opened as DRAFT (`gh pr create --draft`) and stays draft until quality is proven. Inspect the target repository's instructions first; an explicit local contract governs its workflow. Flipping to ready-for-review is a deliberate, gated action — not a side effect of pushing code.
+**Shared default:** For repositories that have not explicitly opted out or specified a different local flow, every new PR is opened as DRAFT (`gh pr create --draft`) and stays draft until quality is proven. Flipping to ready-for-review is a deliberate, gated action — not a side effect of pushing code.
 
 ## Precedence and scope
 
@@ -37,7 +37,7 @@ DRAFT
   → separate merge authorization: apply `~/.codex/AGENTS.md` § Merge safety and the target repository's explicit merge contract; readiness and review receipts do not themselves grant authority
 ```
 
-Each arrow is a gate, not a formality. Do not skip ahead. A changed SHA triggers the reasoned delta assessment below, not automatic invalidation or a mandatory repeat review. Preserve the original tested/reviewed SHA and record why its evidence and verdict still apply to the candidate.
+Each arrow is a gate. A changed SHA triggers the reasoned delta assessment below, not automatic invalidation or a mandatory repeat review. Preserve the original tested/reviewed SHA and record why its evidence and verdict still apply to the candidate.
 
 ## Retained review integrations
 
@@ -82,13 +82,12 @@ discharged at timeout so the workflow continues through the reviewer fallback:
 a passing `/er` on the finished evidence plus `/advice` approval from two
 independent reviewers at the same head. This makes the two-vote advice quorum
 mandatory for this substitution only; it does not change the general under-50
-advice threshold. The fallback advances reviewer coverage without claiming the
-timed-out review happened. In particular, a requested `/wa` timeout does not
-prove any browser-only validation it was meant to review. Required substantive
-safety, evidence and domain checks remain open until proved by applicable
-evidence or an eligible replacement review. A timeout does not grant readiness
-or merge authorization. Preserve and assess late substantive findings when
-they arrive; they can reopen the affected gate.
+advice threshold. A requested `/wa` timeout does not prove any browser-only
+validation it was meant to review. Required substantive safety, evidence and
+domain checks remain open until proved by applicable evidence or an eligible
+replacement review; a timeout does not grant readiness or merge authorization.
+Preserve and assess late substantive findings when they arrive; they can reopen
+the affected gate.
 
 If an `/er` reviewer times out, record `TIMED_OUT` and continue independent
 work, but leave the evidence-review gate open until an eligible replacement
@@ -190,11 +189,11 @@ Never claim synchronization from a successful title update alone. No bulk adopti
 
 ### Review routes for opted-in repositories
 
-Use the Advice applicability boundary and independent coverage rules in this skill. Here, small means under 50 complete-diff additions+deletions; large means at least 50 (or an incomplete/uncountable diff). Optional /advice does not mean all independent review is optional: the opted-in route below names its alternative, while the narrow trivial-change exception can waive that extra lane.
+Use the Advice applicability boundary and independent coverage rules in this skill; small and large follow that boundary (large includes an incomplete/uncountable diff). Optional /advice does not mean all independent review is optional: the opted-in route below names its alternative, while the narrow trivial-change exception can waive that extra lane.
 At Stage 3: small PRs need /advice OR independent /dot approval unless the narrow trivial-change exception below applies; large PRs need both.
 At Stage 5: the same route applies to final obligations; large PRs attempt /wa best effort when authorized.
-Explicitly requested /wa remains an attempt in the route. Honor existing standing authorization without asking again; apply the 1800-second default timeout contract above (or an explicit user-specified limit, whether shorter or longer, or a later specific user instruction to await a named reviewer) and use its `/er` plus two-vote `/advice` substitution if it times out or is unavailable. Record the actual disposition. Do not claim browser-only validation occurred, and keep any required domain evidence gate open until that evidence is proved. Otherwise unavailable or timed-out best-effort /wa is disclosed, not invented approval.
-Resolve /dot through an existing authorized independent Dot reviewer, not the author/orchestrator. When /dot is necessary to satisfy the applicable route and the first Dot is busy, send the same request to the next configured Dot account in rotation. Apply the 1800-second default attempt limit above (or an explicit user-specified limit, whether shorter or longer, or a later specific user instruction to await a named reviewer) to each account, including queue and send wait. If Dot is busy, times out or is unavailable, the reviewer fallback above—a passing /er on the finished evidence plus two independent /advice votes at the same head—satisfies the /dot review leg; record `/dot busy: /er + /advice substituted` with the accounts tried, request/timeout times, and outcomes. A /dot verdict arriving after its attempt timed out does not count toward the completed review route or replace the fallback; retain any late substantive finding and assess whether it reopens the affected stage. Required substantive evidence gates remain open until proved. An independent /dot receipt names its reviewer, declared source/evidence scope, original tested/reviewed SHAs, actual inspection/actions, verdict, coverage, findings/limits and retrievable receipt. An acknowledgment, capability claim or another reviewer's verdict is not /dot approval. Its covered scope must satisfy the requested gate; narrow visual approval is not full source approval.
+Explicitly requested /wa remains an attempt in the route. Honor existing standing authorization without asking again; apply § Reviewer timeout and completion (including its user-override clauses) and use its `/er` plus two-vote `/advice` substitution if it times out or is unavailable. Record the actual disposition. Do not claim browser-only validation occurred. Otherwise unavailable or timed-out best-effort /wa is disclosed, not invented approval.
+Resolve /dot through an existing authorized independent Dot reviewer, not the author/orchestrator. When /dot is necessary to satisfy the applicable route and the first Dot is busy, send the same request to the next configured Dot account in rotation. Apply the attempt limit in § Reviewer timeout and completion (including its user-override clauses) to each account, including queue and send wait. If Dot is busy, times out or is unavailable, the reviewer fallback above—a passing /er on the finished evidence plus two independent /advice votes at the same head—satisfies the /dot review leg; record `/dot busy: /er + /advice substituted` with the accounts tried, request/timeout times, and outcomes. A /dot verdict arriving after its attempt timed out does not count toward the completed review route or replace the fallback; retain any late substantive finding and assess whether it reopens the affected stage. Required substantive evidence gates remain open until proved. An independent /dot receipt names its reviewer, declared source/evidence scope, original tested/reviewed SHAs, actual inspection/actions, verdict, coverage, findings/limits and retrievable receipt. An acknowledgment, capability claim or another reviewer's verdict is not /dot approval. Its covered scope must satisfy the requested gate; narrow visual approval is not full source approval.
 **Mandatory AI Visual Approval Gate before Stage 5 (`stage:5-final-approval`) and Merge:** For any user-visible change (anything not covered by the narrow documentation-only / zero-UI-impact non-visual exemption or the one-liner fast path in § Proportional exceptions and fast paths), Stage 3 -> Stage 5 promotion and merge readiness MUST include an explicit `VISUAL APPROVED at <40-char-sha>` (or a reasoned delta assessment preserving an earlier evidenced SHA whose rendered UI did not change) from an independent AI reviewer (`/er` visual lane inspecting actual rendered image/video frames, `/advice` visual inspection, or `/dot`). A pending request (e.g., `/dot: REQUESTED, pending`), a code-only `/advice` substitution, or a link-existence check alone is NOT a visual approval PASS; if `/dot` is unavailable or pending, the driver MUST run an independent AI visual reviewer (`/advice` or `/er` visual lane that downloads and inspects the rendered stills/frames) and record `VISUAL APPROVED at <40-char-sha>` before labeling `stage:5-final-approval`. The approval record MUST include, per user-visible claim, the before (where a before state exists) and after artifact links, a concrete description of what the reviewer saw in each (the changed element, its state, and the viewport), and a matches-claim verdict, all bound to the evidenced SHA (the approved head, or the earlier SHA a reasoned delta assessment preserves); a bare stamp or approver name without those findings is not a visual approval PASS. Repositories may require the findings as a PR-body table and check its presence and SHA binding in CI.
 Reviewer eligibility and quorum remain owned by their review skills; the author/orchestrator cannot self-award
 an independent vote, and reusing a verdict never creates an extra voter. A technical /dot verdict is evidence of review, never human permission to merge, change policy or operate another scope. A bot or orchestrator acknowledgment does not qualify as an independent review.
@@ -291,8 +290,7 @@ applicability and review timing here; none may apply universally.
 
 Run a direct causal reproducer early; cheap real smoke may catch a wrong target.
 Collect expensive final evidence once relevant code and checks have stabilized.
-Do not wait for green to diagnose a failed test. Diagnose existing failures and
-batch fixes before paid capture; apply the documented local-equivalent exception
+Do not wait for green to diagnose a failed test. Diagnose existing failures first; apply the documented local-equivalent exception
 for backlogged checks, never label a failed or unproven check as passed.
 
 Freeze means a coordinated candidate SHA with the executing owners, not a branch
@@ -314,8 +312,7 @@ owned through its result; use the existing async-handle, handback and
 independent-work rules in `parallelize-to-ceiling`, then integrate and verify
 the returned artifact. Stop only at the requested endpoint, a user scope
 change/stop, or a genuine scoped blocker or required user-only decision under
-the applicable authority rules. Batch related review findings and fixes under
-the existing draft-phase and SHA-applicability contracts; assess the actual
+the applicable authority rules. Batch findings and fixes per § Draft-phase final acceptance gates; assess the actual
 delta and rerun only affected proof and review.
 
 ## Draft-phase final acceptance gates (in order)
@@ -380,72 +377,9 @@ Documentation-only changes, including instruction/skill documentation, do not re
 
 ### Documentation-only `/er` exception (narrow allowlist)
 
-After `/es`, resolve the PR number (safe fallback `PR_NUMBER=$(gh pr view --json number --jq '.number')` if `<N>` is not known), query the supported pull-request API for the base branch and canonical repository URLs, require exactly one matching Git remote, fetch it, and classify the complete changed-path set against that base. Match the full host and repository path; an owner/repository suffix alone is ambiguous across hosts.
+After `/es`, classify the complete changed-path set against the PR's true base. An owner/repository suffix alone is ambiguous across hosts, so the base must be resolved through the API, not guessed from a remote name.
 
-```bash
-PR_NUMBER=${1:-$(gh pr view --json number --jq '.number')}
-if ! BASE_DATA=$(gh api "repos/{owner}/{repo}/pulls/${PR_NUMBER}" \
-  --jq '[.base.ref, .base.repo.clone_url, .base.repo.ssh_url] | @tsv'); then
-  echo "Error: could not resolve PR base through the GitHub API" >&2
-  exit 1
-fi
-IFS=$'\t' read -r BASE_BRANCH BASE_CLONE_URL BASE_SSH_URL <<<"$BASE_DATA"
-EXPECTED_BASE_DATA="${BASE_BRANCH}"$'\t'"${BASE_CLONE_URL}"$'\t'"${BASE_SSH_URL}"
-if [[ "$BASE_DATA" != "$EXPECTED_BASE_DATA" ||
-      -z "$BASE_BRANCH" || -z "$BASE_CLONE_URL" || -z "$BASE_SSH_URL" ||
-      "$BASE_CLONE_URL" == "null" || "$BASE_SSH_URL" == "null" ]]; then
-  echo "Error: GitHub API returned an incomplete PR base" >&2
-  exit 1
-fi
-
-normalize_repo_url() {
-  python3 - "$1" <<'PY'
-import re
-import sys
-from urllib.parse import urlsplit
-
-raw = sys.argv[1].strip().rstrip("/")
-scp = re.fullmatch(r"(?:[^@/]+@)?([^:]+):(.+)", raw)
-if scp and "://" not in raw:
-    normalized = f"{scp.group(1).lower()}/{scp.group(2)}"
-elif "://" in raw:
-    parsed = urlsplit(raw)
-    if parsed.scheme == "file":
-        normalized = parsed.path
-    elif not parsed.hostname:
-        raise SystemExit(1)
-    else:
-        normalized = f"{parsed.hostname.lower()}/{parsed.path.lstrip('/')}"
-else:
-    normalized = raw
-print(re.sub(r"\.git$", "", normalized.rstrip("/")))
-PY
-}
-
-if ! BASE_CLONE_ID=$(normalize_repo_url "$BASE_CLONE_URL") ||
-   ! BASE_SSH_ID=$(normalize_repo_url "$BASE_SSH_URL"); then
-  echo "Error: could not normalize canonical base repository URLs" >&2
-  exit 1
-fi
-
-MATCHING_REMOTES=()
-while IFS= read -r remote; do
-  url=$(git config --get "remote.${remote}.url") || continue
-  remote_id=$(normalize_repo_url "$url") || continue
-  if [[ "$remote_id" == "$BASE_CLONE_ID" || "$remote_id" == "$BASE_SSH_ID" ]]; then
-    MATCHING_REMOTES+=("$remote")
-  fi
-done < <(git remote)
-
-if [[ ${#MATCHING_REMOTES[@]} -ne 1 ]]; then
-  echo "Error: expected exactly one remote for '$BASE_CLONE_URL'; found ${#MATCHING_REMOTES[@]}" >&2
-  exit 1
-fi
-BASE_REMOTE=${MATCHING_REMOTES[0]}
-
-git fetch "$BASE_REMOTE" "$BASE_BRANCH"
-git diff --name-only "${BASE_REMOTE}/${BASE_BRANCH}...HEAD"
-```
+From the PR checkout, run this skill's `scripts/pr-base-changed-paths.sh <N>` by its path in the loaded skill directory, keeping the PR checkout as the working directory. For an installed skill that is `"${CLAUDE_HOME:-$HOME/.claude}/skills/pr-lifecycle/scripts/pr-base-changed-paths.sh"`; when the skill is loaded from a repository checkout, use `.claude/skills/pr-lifecycle/scripts/pr-base-changed-paths.sh` under that checkout. It resolves the base through `gh api` on the pulls endpoint (`clone_url` and `ssh_url`), requires exactly one local remote matching the full host and repository path, and prints `git diff --name-only ${BASE_REMOTE}/${BASE_BRANCH}...HEAD`. Inspect its output; a resolution error leaves the exemption unproven.
 
 For this `/er` exemption, every changed path must be one of:
 
@@ -519,8 +453,8 @@ For affected proof, use the lowest sufficient layer while preserving stricter re
 
 Current-candidate /green, mergeability and head-matching merge protection still require fresh verification.
 A base-only move also requires assessing the changed context and complete-diff size.
-Do not infer readiness from a stale CI result or unresolved conflict. Batch related fixes before
-expensive proof, and never weaken assertions or waive quorum to make an old approval appear valid.
+Do not infer readiness from a stale CI result or unresolved conflict. Never weaken assertions or
+waive quorum to make an old approval appear valid.
 
 Behavior-blocking findings must be fixed and reverified; style, nit and documentation feedback may be tracked as follow-ups.
 
@@ -542,7 +476,7 @@ where applicable until approved. No cycle-count limit substitutes for finishing;
 stop only for a genuine blocker/decision or the governing autonomy deadline.
 Report READY only after applicable closing verdicts and current readiness checks
 pass. PARTIAL, FAIL, INCONCLUSIVE, WITHHELD, or an unavailable required reviewer
-leaves its gate open. READY never supplies merge authorization. Earlier-SHA review applicability for readiness does not satisfy a stricter exact-head condition on any separately authorized automatic-merge route. Preserve that governing merge condition unless the human explicitly changes it; do not infer a new automatic-merge permission from this policy.
+leaves its gate open. READY never supplies merge authorization (§ Merge authorization).
 
 ## Review records in the PR description
 
@@ -555,15 +489,14 @@ context SHA does not turn document approval into code approval.
 
 For evidence-gate compatibility, keep one current marker in the PR body:
 `**Evidence**: <gist-url> (head <sha>)`, pointing to the authorized sanitized
-evidence-review receipt for current applicability (under the one-liner fast path it may
-point to the PR-body before/after section or diff URL instead). Update that index only;
+evidence-review receipt for current applicability (one-liner fast-path exception:
+§ Proportional exceptions and fast paths). Update that index only;
 preserve the historical ledger, receipt URLs, and original capture SHAs.
 Underlying raw artifacts may remain private. Missing publication authority or
 an inaccessible receipt leaves this marker incomplete; never fabricate its URL.
 
 Publish each completed review's sanitized receipt as a gist only within the
-approved disclosure scope (a one-liner fast-path `/es` receipt lives in the PR body
-instead; see § Proportional exceptions and fast paths). A gist is link-accessible, not private storage; omit
+approved disclosure scope (one-liner fast-path exception: § Proportional exceptions and fast paths). A gist is link-accessible, not private storage; omit
 credentials, private source, personal communications, and sensitive artifacts
 unless separately authorized. Verify the gist URL and intended reviewer access
 before calling publication complete. If tools or permissions prevent publishing,
@@ -586,22 +519,14 @@ retrying. Optional/skipped reviews are recorded honestly without fabricated gist
 
 Documentation-only changes use the CI exception immediately; the ten-minute threshold below applies only to changes that require CI.
 
-**CI that does not exist is not CI to wait on.** Apply the canonical
-`../pr-green-definition/SKILL.md` § No-CI exception only after
-recording the bounded workflow/path applicability or eligible-runner-capacity
-evidence it requires. If that evidence cannot establish a qualifying
-exception, leave Gate 1 unproven. For a qualifying exception, record
-`Gate 1: CI NOT APPLICABLE — <reason>` with the proving command/output and
-run the documented bounded local equivalent when one exists; otherwise leave
-the result unproven. Never replace this with `sleep N` + `gh pr checks`, and
-never call unrun CI passed.
+**CI that does not exist is not CI to wait on.** Follow `../pr-green-definition/SKILL.md` § No-CI exception, including its evidence preconditions and the `Gate 1: CI NOT APPLICABLE — <reason>` record; if that evidence cannot establish a qualifying exception, leave Gate 1 unproven. Never replace this with `sleep N` + `gh pr checks`, and never call unrun CI passed.
 
-For checks queued/pending more than 10 minutes, follow the local-equivalent exception in `../pr-green-definition/SKILL.md`: run the workflow's actual command and post current-head proof. Passing local equivalents satisfy Gate 1 for backlogged checks; remote completion is not required for those checks. Failed checks, no-conflict verification, and merge authorization remain separate requirements.
+For checks queued/pending more than 10 minutes, follow the local-equivalent exception in `../pr-green-definition/SKILL.md` § Backlogged CI: run the workflow's actual command and post current-head proof. Failed checks, no-conflict verification, and merge authorization remain separate requirements.
 
 ## CodeRabbit/Bugbot — optional advisory reviewers
 
-Neither draft-phase gate above nor `/green` includes CodeRabbit or Bugbot approval. **CodeRabbit/Bugbot: optional advisory reviewers** — read their feedback, take what's useful; never a gate, never a wait, at any phase.
+**CodeRabbit/Bugbot: optional advisory reviewers** — read their feedback, take what's useful; never a draft-phase gate, never part of `/green`, never a wait, at any phase.
 
 ## Merge authorization
 
-Merge authorization follows the shared size-tiered rule in `~/.codex/AGENTS.md` § Merge safety and any explicit target-repository contract. This skill does not require or waive a human `MERGE APPROVED` phrase where the governing rule does not; explicit local approval requirements remain in force.
+Merge authorization follows the shared size-tiered rule in `~/.codex/AGENTS.md` § Merge safety and any explicit target-repository contract. This skill does not require or waive a human `MERGE APPROVED` phrase where the governing rule does not; explicit local approval requirements remain in force. Earlier-SHA review applicability for readiness does not satisfy a stricter exact-head condition on any separately authorized automatic-merge route. Preserve that governing merge condition unless the human explicitly changes it; do not infer a new automatic-merge permission from this policy.

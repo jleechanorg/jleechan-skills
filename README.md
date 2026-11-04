@@ -47,8 +47,9 @@ Start with [PR Workflow Manager](.claude/skills/pr-workflow-manager/SKILL.md)
 when opening or driving a PR. It discovers repository-specific instructions,
 verifies source ownership and the branch, and uses
 [PR Lifecycle](.claude/skills/pr-lifecycle/SKILL.md) as the shared contract rather
-than duplicating its rules. The existing
-[`pr-workflow` alias](.claude/skills/pr-workflow/SKILL.md) points to this entry point.
+than duplicating its rules. The [`prw`](.claude/skills/prw/SKILL.md) and
+[`pr-workflow`](.claude/skills/pr-workflow/SKILL.md) aliases read PR Lifecycle
+first and name this entry point for discovery.
 
 The manager links useful highlighted skills to the problems they help solve;
 they are not an extra mandatory checklist. Install the PR workflow together

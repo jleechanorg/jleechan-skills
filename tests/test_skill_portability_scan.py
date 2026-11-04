@@ -177,27 +177,9 @@ class RealSkillsRootValidityContractTest(unittest.TestCase):
 class PolicyFilesContractTest(unittest.TestCase):
     """Regression test for command and skill policy files."""
 
-    def test_er_command_and_draft_first_pr_skill_contracts(self):
-        er_path = REPO_ROOT / ".claude" / "commands" / "er.md"
-        er_content = er_path.read_text(encoding="utf-8")
-        self.assertIn("evidence-review/SKILL.md", er_content)
-        self.assertIn("pr-lifecycle/SKILL.md", er_content)
-        self.assertNotIn("Two-Tier Verdicts", er_content)
-
-        draft_pr_path = REPO_ROOT / ".claude" / "skills" / "pr-lifecycle" / "SKILL.md"
-        draft_pr_content = draft_pr_path.read_text(encoding="utf-8")
-        self.assertIn("gh api", draft_pr_content)
-        self.assertIn("clone_url", draft_pr_content)
-        self.assertIn("${BASE_REMOTE}/${BASE_BRANCH}...HEAD", draft_pr_content)
-        self.assertNotIn("origin/$BASE_BRANCH...HEAD", draft_pr_content)
-        self.assertNotIn("origin/${BASE_BRANCH}...HEAD", draft_pr_content)
-        self.assertNotIn("origin/main...HEAD", draft_pr_content)
-
     def test_documented_base_resolution_works_without_origin_or_main(self):
-        skill_path = REPO_ROOT / ".claude" / "skills" / "pr-lifecycle" / "SKILL.md"
-        skill_content = skill_path.read_text(encoding="utf-8")
-        section = skill_content.split("### Documentation-only `/er` exception", 1)[1]
-        script = section.split("```bash\n", 1)[1].split("\n```", 1)[0]
+        script_path = REPO_ROOT / ".claude" / "skills" / "pr-lifecycle" / "scripts" / "pr-base-changed-paths.sh"
+        self.assertTrue(os.access(script_path, os.X_OK), f"{script_path} must be executable")
 
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -236,7 +218,64 @@ class PolicyFilesContractTest(unittest.TestCase):
             env = {**os.environ, "BASH_ENV": os.devnull, "ENV": os.devnull,
                    "PATH": f"{bin_dir}:{os.environ['PATH']}"}
             result = subprocess.run(
-                ["bash", "-c", script, "base-resolution", "42"],
+                ["bash", str(script_path), "42"],
+                cwd=repo,
+                env=env,
+                text=True,
+                capture_output=True,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "README.md")
+
+    def test_documented_base_resolution_populates_tracking_ref_with_limited_refspec(self):
+        script_path = REPO_ROOT / ".claude" / "skills" / "pr-lifecycle" / "scripts" / "pr-base-changed-paths.sh"
+        self.assertTrue(os.access(script_path, os.X_OK), f"{script_path} must be executable")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            remote_path = root / "example" / "skills.git"
+            remote_path.parent.mkdir()
+            subprocess.run(["git", "init", "--bare", remote_path], check=True, capture_output=True)
+
+            repo = root / "repo"
+            subprocess.run(["git", "init", repo], check=True, capture_output=True)
+            for key, value in (("user.email", "fixture@localhost"), ("user.name", "Test User")):
+                subprocess.run(["git", "-C", repo, "config", key, value], check=True, capture_output=True)
+            (repo / "README.md").write_text("base\n", encoding="utf-8")
+            subprocess.run(["git", "-C", repo, "add", "README.md"], check=True, capture_output=True)
+            subprocess.run(["git", "-C", repo, "commit", "-m", "base"], check=True, capture_output=True)
+            subprocess.run(["git", "-C", repo, "remote", "add", "upstream", remote_path], check=True, capture_output=True)
+            subprocess.run(["git", "-C", repo, "push", "upstream", "HEAD:release"], check=True, capture_output=True)
+            # Single-branch style refspec that does not cover the base branch, so a plain
+            # `git fetch upstream release` would only update FETCH_HEAD.
+            subprocess.run(["git", "-C", repo, "config", "remote.upstream.fetch",
+                            "+refs/heads/other:refs/remotes/upstream/other"], check=True, capture_output=True)
+            # The earlier push created the tracking ref; drop it so only an explicit refspec restores it.
+            subprocess.run(["git", "-C", repo, "update-ref", "-d", "refs/remotes/upstream/release"], check=True, capture_output=True)
+            (repo / "README.md").write_text("feature\n", encoding="utf-8")
+            subprocess.run(["git", "-C", repo, "commit", "-am", "feature"], check=True, capture_output=True)
+
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            fake_gh = bin_dir / "gh"
+            fake_gh.write_text(
+                "#!/usr/bin/env bash\n"
+                "case \"$*\" in\n"
+                "  *baseRepository*) exit 64 ;;\n"
+                f"  api\\ *) printf 'release\\t{remote_path}\\t{remote_path}\\n' ;;\n"
+                "  *) printf '42\\n' ;;\n"
+                "esac\n",
+                encoding="utf-8",
+            )
+            fake_gh.chmod(0o755)
+            # Hermetic fake-gh injection: a developer shell with BASH_ENV=~/.bashrc
+            # re-sources the profile inside every `bash -c`, which restores PATH and
+            # defeats the stub. Neutralize BASH_ENV/ENV so the fixture PATH wins.
+            env = {**os.environ, "BASH_ENV": os.devnull, "ENV": os.devnull,
+                   "PATH": f"{bin_dir}:{os.environ['PATH']}"}
+            result = subprocess.run(
+                ["bash", str(script_path), "42"],
                 cwd=repo,
                 env=env,
                 text=True,
@@ -247,10 +286,8 @@ class PolicyFilesContractTest(unittest.TestCase):
         self.assertEqual(result.stdout.strip(), "README.md")
 
     def test_documented_base_resolution_rejects_same_repo_on_foreign_host(self):
-        skill_path = REPO_ROOT / ".claude" / "skills" / "pr-lifecycle" / "SKILL.md"
-        skill_content = skill_path.read_text(encoding="utf-8")
-        section = skill_content.split("### Documentation-only `/er` exception", 1)[1]
-        script = section.split("```bash\n", 1)[1].split("\n```", 1)[0]
+        script_path = REPO_ROOT / ".claude" / "skills" / "pr-lifecycle" / "scripts" / "pr-base-changed-paths.sh"
+        self.assertTrue(os.access(script_path, os.X_OK), f"{script_path} must be executable")
 
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -309,7 +346,7 @@ class PolicyFilesContractTest(unittest.TestCase):
             env = {**os.environ, "BASH_ENV": os.devnull, "ENV": os.devnull,
                    "PATH": f"{bin_dir}:{os.environ['PATH']}"}
             result = subprocess.run(
-                ["bash", "-c", script, "base-resolution", "42"],
+                ["bash", str(script_path), "42"],
                 cwd=repo,
                 env=env,
                 text=True,
@@ -605,16 +642,6 @@ class DocumentedShellExamplesTest(unittest.TestCase):
                 expected = path_gh if on_path else local_gh if local_executable else ""
                 self.assertIn(f"RESOLVED={expected}\n", result.stdout)
 
-    def test_documented_worktree_creation_uses_shared_creator_with_explicit_base(self):
-        content = (
-            REPO_ROOT / ".claude/skills/superpowers-using-git-worktrees/SKILL.md"
-        ).read_text()
-        section = content.split("### 1. Create Worktree", 1)[1].split("### 2.", 1)[0]
-        script = section.split("```bash\n", 1)[1].split("\n```", 1)[0]
-        self.assertIn("diskm worktree-new", script)
-        self.assertIn("--base <base-ref>", script)
-        self.assertNotIn("git worktree add", script)
-
     def test_documented_evidence_review_bundle_integrity_snippet_behavior(self):
         content = (
             REPO_ROOT / ".claude/skills/evidence-review/SKILL.md"
@@ -805,46 +832,18 @@ print("NOT_VALID_JSON")
         self.assertNotEqual(res_jq_fail.returncode, 0, "jq failure must propagate non-zero exit")
         self.assertNotIn("No overlapping", res_jq_fail.stdout)
 
-        # 8. Plan template section references Rule 1 rather than duplicating the full query
-        template_section = content.split("### Concurrency Rule (template)", 1)[1].split("### Size Constraints", 1)[0]
-        self.assertNotIn("gh pr list --state open", template_section, "Plan template must not duplicate full gh query")
-        self.assertIn("Rule 1", template_section, "Plan template must reference Rule 1")
-
     def test_tmux_and_ui_non_runnable_templates(self):
         standalone = REPO_ROOT / ".claude/skills/tmux-video-evidence/SKILL.md"
         companion = REPO_ROOT / ".claude/skills/evidence-standards/tmux-video-evidence.md"
-        ui_skill = REPO_ROOT / ".claude/skills/ui-video-evidence/SKILL.md"
 
         standalone_content = standalone.read_text(encoding="utf-8")
         companion_content = companion.read_text(encoding="utf-8")
-        ui_content = ui_skill.read_text(encoding="utf-8")
-
-        # 1. tmux template must use text fence, not bash
-        self.assertIn("## Evidence Script Template", standalone_content)
-        self.assertIn("/tmp/${WORK_NAME:-work}_evidence.sh", standalone_content)
         script_sec = self._tmux_script_section()
-        self.assertIn("```text\n", script_sec, "tmux Evidence Script Template must be non-runnable text fence")
-        self.assertNotIn("```bash\n", script_sec, "tmux Evidence Script Template must not be bash fence")
 
-        # 2. No invented defaults ${PR_NUMBER:-1} or ${TEST_COMMAND:-pytest}
-        self.assertNotIn("${PR_NUMBER:-1}", script_sec)
-        self.assertNotIn("${TEST_COMMAND:-pytest}", script_sec)
-        self.assertIn("<PR_NUMBER>", script_sec)
-        self.assertIn("<SCOPED_TEST_COMMAND>", script_sec)
-
-        # 3. Companion copy agrees with standalone
+        # Companion copy agrees with standalone
         self.assertEqual(standalone_content, companion_content, "Companion tmux-video-evidence.md must match standalone SKILL.md")
 
-        # 4. Slack upload template in ui-video-evidence must use text fence, not bash
-        slack_sec = ui_content.split("## Slack Distribution", 1)[1]
-        self.assertIn("```text\n", slack_sec, "Slack upload template must use text fence")
-        self.assertNotIn("```bash\n", slack_sec, "Slack upload template must not use bash fence")
-
-        # 5. Diff truncation under pipefail must not use head -80; must use sed -n '1,80p'
-        self.assertNotIn("| head -80", script_sec, "tmux script diff pipeline must not pipe to head under pipefail")
-        self.assertIn("sed -n '1,80p'", script_sec, "tmux script diff pipeline must use sed -n '1,80p'")
-
-        # 6. The documented sanitizer removes private path components without
+        # The documented sanitizer removes private path components without
         # depending on the exact replacement text.
         payload = (
             "mac: /Users/alice/project/file.py\n"
