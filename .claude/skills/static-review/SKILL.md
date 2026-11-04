@@ -1,11 +1,17 @@
 ---
 name: static-review
-description: Use when dispatching any independent reviewer (CLI, coordinator ask or static-review subagent); owns the cold start, the verbatim prompt templates, per-channel preambles, receipts and identity rules.
+description: Use when dispatching an independent code/advice/static revision reviewer (CLI, coordinator ask or static-review subagent); owns the cold start, the verbatim prompt templates, per-channel preambles, receipts and identity rules.
 ---
 
 # /static-review — cold, verbatim reviewer input
 
-This skill owns what every reviewer receives and what its receipt proves.
+This skill owns what code/advice/static revision reviewers receive and what
+their receipts prove. Evidence-only `/er` reviews use the canonical
+[evidence-review](../evidence-review/SKILL.md) and
+[evidence-standards](../evidence-standards/SKILL.md) owners instead; they do not
+inherit a full-code coverage requirement just because a coordinator dispatches
+them. A separately requested source-correctness approval still needs the full
+cold, pinned scope below and does not replace evidence approval.
 The `advice` skill owns when reviewers run, the quorum and the
 substitution rules; pr-lifecycle owns publication.
 
@@ -51,7 +57,15 @@ alternates, each `<review request>`, and the stdin of forms without one, is
 exactly the preamble plus the template.
 
 Coordinator ask (for example a Dot reviewer channel): the configured account
-mentions, then `Advice vote requested.` on its own line, then the template.
+mentions, then `Advice vote requested.` on its own line, then this fixed
+read-only preamble, then the template:
+
+```text
+Remain read-only. Do not mutate source, evidence, checkout, refs, config or hooks.
+Do not post, push, update branches, or change PR bodies, labels or stages.
+Return findings only; a review request grants no repair or merge authority.
+```
+
 Send it to each configured coordinator account in rotation.
 
 The revision and document-only preambles below apply to **every** CLI reviewer seat - Codex, Opus, the Claude
@@ -70,7 +84,8 @@ changed. Never work in the original checkout or in a donor repository. Leave the
 clone in place - the orchestrator verifies it and removes it after your process
 exits. Use the GitHub token already present in your environment and
 never print it. Do not modify the original checkout, refs, config or hooks. Do
-not post anything; return your review as your final output.
+not post anything, push, update branches, or change PR bodies, labels or stages.
+Do not modify source or evidence; return your review as your final output.
 ```
 
 Document-only preamble for every CLI seat and for static reviewers (verbatim):
@@ -78,7 +93,8 @@ Document-only preamble for every CLI seat and for static reviewers (verbatim):
 ```text
 Read only the named saved files in the given packet, checking each against its
 recorded SHA256. Do not clone or review code. Do not modify any checkout, refs,
-config or hooks. Do not post anything; return your review as your final output.
+config or hooks. Do not post anything, push, update branches, or change PR bodies, labels or stages.
+Do not modify source or evidence; return your review as your final output.
 ```
 
 ## 4. Identity

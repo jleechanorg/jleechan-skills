@@ -24,9 +24,45 @@ independent authorized work, but leave any dependent readiness or plan-approval 
 
 **Standards source**: `evidence-standards` skill (`/es`). When in doubt about a requirement, read the standards first.
 
-**Repo overlay (always check)**: this is the **user-scope (global)** `/er` policy — the floor. Before judging, look for repo-level versions and read them too: `<repo>/.claude/skills/evidence-review/SKILL.md` and `<repo>/.claude/skills/evidence-standards/SKILL.md` add domain-specific proof (e.g. worldarchitect.ai adds BQ/streaming/dice modes). For lifecycle stages, generic review routing, proportionality and SHA reuse, the shared [pr-lifecycle precedence rule](../pr-lifecycle/SKILL.md#precedence-and-scope) governs conflicting copies. Domain proof, security and separate merge authority remain intact.
+**Repo overlay (always check)**: this is the **user-scope (global)** `/er` policy — the floor. Before judging, look for repo-level versions and read them too: `<repo>/.claude/skills/evidence-review/SKILL.md` and the evidence-standards overlay resolved from repo instructions/catalog (`<repo>/.claude/skills/evidence-standards.md` or `<repo>/.claude/skills/evidence-standards/SKILL.md`; inspect both if present) add domain-specific proof (e.g. worldarchitect.ai adds BQ/streaming/dice modes). For lifecycle stages, generic review routing, proportionality and SHA reuse, the shared [pr-lifecycle precedence rule](../pr-lifecycle/SKILL.md#precedence-and-scope) governs conflicting copies. Domain proof, security and separate merge authority remain intact.
 
 ---
+
+## Evidence-only scope and read-only dispatch
+
+`/er` approves evidence for the actual claims, not full source correctness or an
+`/advice` vote. Read the complete base-to-head diff to derive the claim map,
+including unstated changed behavior, and inspect the source and provenance needed
+to judge those claims. Require complete changed-path content at both revisions
+when source correctness approval is separately requested; do not impose that
+full-code packet contract on an evidence-only invocation. If claim-relevant
+source is missing, withhold the affected evidence claim rather than guessing.
+
+Completeness means every artifact needed for the actual claims and applicable
+owner requirements, not a whole-repository semantic dump to restamp unchanged
+proof. This scope boundary does not waive real-service, auth, provider, BQ,
+source/provenance, visual or integrity gates, independent code/advice quorum, or
+separate user/merge authority. An observed acceptance violation remains FAIL,
+never a limitation or nonblocking P1.
+
+Every review dispatch, including coordinator asks, must explicitly say: remain
+read-only; do not mutate source/evidence, post, push, update branches, or change
+PR metadata/stages. Return findings only. Do not regenerate evidence or write a
+verification report into the producer bundle. Frame extraction may use unique
+review scratch without changing original media. The separately authorized owner
+handles fixes and publication; a review invocation does not authorize them.
+
+### Frozen-bundle preflight
+
+Before formal review, the producer inventories and freezes the complete bundle:
+claim map, raw artifacts, source/runtime identities, required media, reproduction
+commands/results and checksum coverage. Use existing producer and sealing
+utilities, not a new packaging framework. Map a canonical producer's existing
+files explicitly to `/es` responsibilities; do not demand duplicate stdout logs
+when the actual command evidence is already in its artifact. A reviewer verifies
+that mapping and raw bytes, not the producer's assertion that preflight passed.
+Missing required proof remains non-approving. Batch fixes before dispatch, and
+apply Phase 0 for later deltas rather than silently relabelling old evidence.
 
 ## Verdict Rubric
 
@@ -68,6 +104,12 @@ itself remains the separate two-gate check defined by `pr-green-definition`.
 
 ### 1. Bundle integrity
 
+The example below handles the default manifest and sibling modes. If the
+canonical producer uses another aggregate filename, explicitly record its mapping
+to the same complete coverage contract and verify it with the existing producer
+verification utility or `sha256sum -c <mapped-manifest>` instead. A filename
+difference is not missing integrity; absent coverage or mismatching bytes is.
+
 ```bash
 (
   bundle_dir='<bundle_dir>'
@@ -106,7 +148,7 @@ itself remains the separate two-gate check defined by `pr-green-definition`.
 - If no top-level checksum exists, verify every per-file `*.sha256` file.
 - Any checksum mismatch → **FAIL** (not just PARTIAL — the bundle is tampered/stale)
 - No checksum files → **INCONCLUSIVE** for integrity; do not award PASS.
-- Check manifest has entries for every file listed in the claim map and every file covered by either `checksums.sha256` or the discovered per-file `*.sha256` files, resolving per-file checksum entries relative to each `.sha256` file's directory.
+- Independently inventory every substantive bundle artifact, including every claim-map artifact, and reconcile it against checksum coverage. A complete aggregate `checksums.sha256` manifest OR per-file `.sha256` siblings is sufficient; do not demand both. Resolve manifest paths from the bundle root and sibling entries from their own directory. Missing coverage or a listed-but-missing artifact is an integrity **FAIL**. A successful `sha256sum -c` checks listed bytes only and does not establish inventory completeness.
 
 **Checksums establish integrity, not provenance.** A matching digest proves only
 that the reviewed bytes match the manifest; it does not prove where they came
