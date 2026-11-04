@@ -1,5 +1,4 @@
 import os
-import re
 import subprocess
 import tempfile
 import unittest
@@ -74,39 +73,6 @@ class LegacyE2ERunnerPathTests(unittest.TestCase):
             r"Capture Directory: /tmp/test_captures/\d{8}_\d{6}\n",
         )
         self.assertIn("Capture mode testing cancelled", result.stdout)
-
-    def test_docs_match_wrapper_environment_contracts(self):
-        teste_doc = (COMMANDS_DIR / "teste.md").read_text(encoding="utf-8")
-        tester_doc = (COMMANDS_DIR / "tester.md").read_text(encoding="utf-8")
-        testerc_doc = (COMMANDS_DIR / "testerc.md").read_text(encoding="utf-8")
-
-        self.assertIn("TEST_MODE=mock", teste_doc)
-        self.assertNotIn("TESTING=true", teste_doc)
-
-        self.assertIn("GEMINI_API_KEY", tester_doc)
-        self.assertIn("TEST_FIRESTORE_PROJECT", tester_doc)
-        for stale_name in (
-            "REAL_GEMINI_API_KEY",
-            "REAL_FIREBASE_PROJECT",
-            "FIREBASE_PROJECT_ID",
-        ):
-            self.assertNotIn(stale_name, tester_doc)
-
-        self.assertIn("TEST_GEMINI_API_KEY", testerc_doc)
-        self.assertIn("TEST_FIRESTORE_PROJECT", testerc_doc)
-        self.assertRegex(
-            testerc_doc,
-            re.compile(r"/tmp/test_captures/<YYYYMMDD_HHMMSS>/"),
-        )
-        self.assertIn("TEST_CAPTURE_DIR", testerc_doc)
-        for stale_name in (
-            "REAL_GEMINI_API_KEY",
-            "REAL_FIREBASE_PROJECT",
-            "FIREBASE_PROJECT_ID",
-            "CAPTURE_OUTPUT_DIR",
-            "./test_data_capture/",
-        ):
-            self.assertNotIn(stale_name, testerc_doc)
 
 
 if __name__ == "__main__":

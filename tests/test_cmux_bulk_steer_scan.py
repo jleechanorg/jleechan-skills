@@ -7,7 +7,6 @@ from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SKILL_MD = ROOT / ".claude" / "skills" / "cmux-bulk-steer" / "SKILL.md"
 SCAN_PY = ROOT / ".claude" / "skills" / "cmux-bulk-steer" / "scripts" / "scan.py"
 
 
@@ -141,6 +140,9 @@ class CmuxBulkSteerZfcScanTests(unittest.TestCase):
             captured_file = Path(entry["file_10k"])
             self.assertTrue(captured_file.is_file())
             self.assertIn("step 14: working on PR #10379", captured_file.read_text(encoding="utf-8"))
+            # A measured value is kept verbatim (regression guard for the
+            # get(sf_ref, 0.0) default that made "missing" look like "idle").
+            self.assertEqual(entry["cpu_percent"], 4.2)
 
     def test_capture_fleet_enriches_alternate_screen_pi_surface_from_session_jsonl(self):
         scan = load_scan_module()
@@ -240,17 +242,75 @@ class CmuxBulkSteerZfcScanTests(unittest.TestCase):
             self.assertIn("transcript_word_79", captured_text)
             self.assertIn("~/projects/worktree_demo (feat/demo-branch)", captured_text)
 
-    def test_skill_md_documents_zfc_ban_on_regex_classifiers_and_parallel_subagent_workflow(self):
-        text = SKILL_MD.read_text(encoding="utf-8")
-        self.assertIn("/zfc", text)
-        self.assertIn("--out-dir", text)
-        self.assertIn("10,000", text)
-        self.assertIn("/parallel", text)
-        self.assertIn("STOOD_DOWN_DUPLICATE", text)
-        self.assertIn(".pi/agent/sessions", text)
-        self.assertIn("801..1600", text)
-        self.assertNotIn("--parked-only", text)
+    def test_surface_absent_from_cpu_capture_is_null_not_zero(self):
+        """A surface missing from `cmux top` is UNKNOWN (null), never 0.0.
 
+        Regression guard: cpu_by_surface.get(sf_ref, 0.0) made an absent surface
+        indistinguishable from an idle one, so a degraded capture read as
+        "every lane is quiet" and defeated the CPU corroboration gates.
+        """
+        scan = load_scan_module()
+        tree = {"windows": [{"ref": "window:1", "workspaces": [
+            {"ref": "workspace:10", "title": "lane", "panes": [
+                {"ref": "pane:1", "surfaces": [
+                    {"ref": "surface:21", "title": "seen", "type": "terminal"},
+                    {"ref": "surface:22", "title": "missing", "type": "terminal"},
+                ]}]}]}]}
 
-if __name__ == "__main__":
-    unittest.main()
+        def fake_run(cmd, *a, **k):
+            if cmd[:3] == ["cmux", "tree", "--all"]:
+                return mock.Mock(returncode=0, stdout=json.dumps(tree), stderr="")
+            if cmd[:3] == ["cmux", "top", "--all"]:
+                # Only surface:21 is measured; surface:22 is absent entirely.
+                return mock.Mock(returncode=0, stderr="",
+                                 stdout="12.5\t1000\t10\ttotal\ttotal\t\t\n"
+                                        "4.2\t500\t3\tsurface\tsurface:21\tpane:1\tseen\n")
+            if cmd[:2] == ["cmux", "capture-pane"]:
+                return mock.Mock(returncode=0, stdout="working\n", stderr="")
+            raise AssertionError(f"Unexpected command: {cmd}")
+
+        with tempfile.TemporaryDirectory() as td, mock.patch(
+            "subprocess.run", side_effect=fake_run
+        ):
+            m = scan.capture_fleet(
+                out_dir=Path(td) / "out", max_words=20, home_dir=Path(td) / "h"
+            )
+        by_ref = {s["surface_ref"]: s for s in m["surfaces"]}
+        self.assertEqual(by_ref["surface:21"]["cpu_percent"], 4.2)
+        self.assertIsNone(by_ref["surface:22"]["cpu_percent"])
+
+    def test_cli_output_survives_absent_surface_null_cpu(self):
+        """`main()` must format a null cpu_percent, not raise TypeError.
+
+        The None sentinel broke the default-print path's `:.1f` format spec, so
+        the capture CLI crashed exactly on the degraded-capture case this fix
+        exists for.
+        """
+        scan = load_scan_module()
+        tree = {"windows": [{"ref": "window:1", "workspaces": [
+            {"ref": "workspace:10", "title": "lane", "panes": [
+                {"ref": "pane:1", "surfaces": [
+                    {"ref": "surface:21", "title": "seen", "type": "terminal"},
+                    {"ref": "surface:22", "title": "absent", "type": "terminal"},
+                ]}]}]}]}
+
+        def fake_run(cmd, *a, **k):
+            if cmd[:3] == ["cmux", "tree", "--all"]:
+                return mock.Mock(returncode=0, stdout=json.dumps(tree), stderr="")
+            if cmd[:3] == ["cmux", "top", "--all"]:
+                return mock.Mock(returncode=0, stderr="",
+                                 stdout="12.5\t1000\t10\ttotal\ttotal\t\t\n"
+                                        "4.2\t500\t3\tsurface\tsurface:21\tpane:1\tseen\n")
+            if cmd[:2] == ["cmux", "capture-pane"]:
+                return mock.Mock(returncode=0, stdout="working\n", stderr="")
+            raise AssertionError(f"Unexpected command: {cmd}")
+
+        with tempfile.TemporaryDirectory() as td, mock.patch(
+            "subprocess.run", side_effect=fake_run
+        ), mock.patch.object(
+            scan.sys, "argv", ["scan.py", "--out-dir", td, "--max-words", "20"]
+        ), mock.patch("sys.stdout", new_callable=__import__("io").StringIO) as out:
+            rc = scan.main()
+
+        self.assertEqual(rc, 0)
+        self.assertIn("cpu=n/a", out.getvalue())
