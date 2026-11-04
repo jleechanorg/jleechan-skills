@@ -61,6 +61,23 @@ class PrLifecycleAnchorResolution(unittest.TestCase):
         self.assertEqual(missing, {}, f"unresolved pr-lifecycle anchors: {missing}")
 
 
+class PrLifecycleSectionReferences(unittest.TestCase):
+    """Every in-file `§ Heading` reference in pr-lifecycle names a real heading."""
+
+    def test_self_section_references_resolve(self):
+        text = (SKILLS / "pr-lifecycle" / "SKILL.md").read_text(encoding="utf-8")
+        headings = [line.lstrip("#").strip() for line in text.splitlines() if line.startswith("#")]
+        unresolved = []
+        for match in re.finditer(r"§ ([A-Z][^.;:,()`\n]*)", text):
+            line_prefix = text[: match.start()].rsplit("\n", 1)[-1][-90:]
+            if "SKILL.md" in line_prefix or "AGENTS.md" in line_prefix:
+                continue  # reference into another file
+            ref = match.group(1).strip()
+            if not any(ref == h or ref.startswith(h + " ") or h.startswith(ref) for h in headings):
+                unresolved.append(ref)
+        self.assertEqual(unresolved, [], f"unresolved § references: {unresolved}")
+
+
 if __name__ == "__main__":
     unittest.main()
 
