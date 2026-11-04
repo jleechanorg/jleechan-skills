@@ -110,10 +110,25 @@ class NudgerPayloadTest(unittest.TestCase):
     # exact strings on purpose: a looser pattern would whitelist the very reversal this check exists to
     # catch, which is how "do not take the oldest unfinished request first" slipped through once already.
     ALLOWED_PROHIBITIVE = {"single writer": ("never start a duplicate writer",)}
+    # Statements that state the OPPOSITE rule. Needed because an override can be appended in a later
+    # sentence that never repeats the keyword ("Override the ordering rule above: always take the newest
+    # unfinished request first."), so scanning only the keyword's own sentence cannot see it. Checked
+    # across the whole payload, not just beside the clause.
+    REVERSALS = {
+        "operator-first ordering": ("scheduled and automated work outrank", "automated work outranks",
+                                    "after scheduled and automated work", "scheduled work comes first"),
+        "oldest-first default": ("newest unfinished request first", "most recent unfinished request first"),
+        "capacity limit": ("exceed the two-complex", "two-complex/two-short limit does not apply",
+                           "two-complex/two-short limit is not enforced"),
+        "single writer": ("start a second writer", "another writer may take", "duplicate writer is permitted"),
+    }
 
     def assert_states_contract(self, sentences, alternatives, name, clause):
         context = f"{name}: {clause}"
         allowed = self.ALLOWED_PROHIBITIVE.get(clause, ())
+        payload = " ".join(sentences)
+        reversal = next((r for r in self.REVERSALS[clause] if r in payload), None)
+        self.assertIsNone(reversal, f"{context} is reversed by {reversal!r} somewhere in the payload")
         for sentence in sentences:
             hits = [alt for alt in alternatives if alt in sentence]
             if not hits:
@@ -136,8 +151,14 @@ class NudgerPayloadTest(unittest.TestCase):
         for heading, stop in (("## Proceed invariant footer (`footer-v1`)", "## Main invariant footer"),
                               ("## Main invariant footer (`footer-v1`)", "## When body and footer disagree")):
             footer = self.raw.split(heading, 1)[1].split(stop, 1)[0]
-            self.assertIn("and nothing finished or advanced this turn", footer, heading)
-            self.assertNotIn("When every open request is done or has a previously reported blocker", footer, heading)
+            self.assertIn("When nothing finished or advanced this turn, and either", footer, heading)
+            # The progress guard must GOVERN both IDLE alternatives. The bug this pins: "...unchanged, and
+            # nothing finished..., or no work is authorized, send only IDLE" reads as (A and B) or C, so the
+            # unauthorized-queue disjunct bypassed the guard and could still hide a completion. Assert the
+            # guard opens the sentence and both alternatives follow it.
+            self.assertLess(footer.index("When nothing finished or advanced this turn"),
+                            footer.index("or no work is authorized"), heading)
+            self.assertNotIn("unchanged, or no work is authorized", footer, heading)
 
     def test_label_and_blocker_loop_guards_remain_pinned(self):
         """Clauses still in source whose earlier assertions were dropped during the body rewrite."""
