@@ -54,6 +54,24 @@ every session, or when the operator passes `--global`.
    machine's home; if a rule is non-machine-specific, sync the same
    ownership structure through `/mac` or `/linux`. Report unreachable hosts.
 
+## Reusable skill source and Linux sync
+
+For every change to a reusable skill in the shared catalog, make the change in
+the `jleechanorg/jleechan-skills` repository and publish it through an
+independent PR. Include skill files, their helpers, and dispatchers governed by
+the skill. Do not treat a live `~/.claude/skills/` edit as the final source.
+After preparing the PR, propagate the same scoped files to `jeff-ubuntu` with
+the canonical `sync-live-config` workflow; the PR does not need to be merged
+before this explicitly requested host sync.
+
+Run `sync-live-config`'s read-only report first and inspect repo-wide working
+tree state plus per-file repo/live diffs for every destination. Apply only the
+reviewed paths with the workflow's per-path `apply` command. Preserve unrelated
+dirty files and live-only changes; if a scoped file has substantive divergent
+edits, leave that path untouched and report the conflict. Verify the resulting
+bytes on Linux. If the host or a scoped path is unavailable, report the exact
+failed route and leave the PR intact.
+
 ## Repo-Markdown catalog (default surfaces)
 
 | Repo surface | When |
