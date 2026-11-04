@@ -143,6 +143,9 @@ config or hooks. Do not post anything; return your review as your final output.
 - Two reviewers that both leave their model unreported count as one vote, and so do two where one is unreported
   and their type or harness match. At most one counted static reviewer may leave its model unreported, and it must differ from the other by
   subagent type and harness.
+- Two counted static reviewers must run on different models (for example Opus and Sonnet). Two on the same model,
+  differing only by sub-agent type, count as two votes only when the environment genuinely offers no second model,
+  such as a cloud coding session with a single model family; record that limitation in both receipts.
 - Static reviewers run in separate contexts and do not read each other's output first.
 - Each static reviewer has a 600-second end-to-end deadline from launch, replacing the `advice` skill's 1800-second
   default for static reviewers only. The orchestrator, not the reviewer, timestamps launch and return.
