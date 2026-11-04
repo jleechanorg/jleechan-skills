@@ -69,11 +69,14 @@ class NudgerPayloadTest(unittest.TestCase):
         self.assertIn("they never outrank a live operator instruction", dot)
 
     def test_every_payload_shares_ordering_capacity_and_single_writer(self):
-        """Spec acceptance 3: main, proceed and the built-in fallback share one ordering and capacity contract.
+        """Spec acceptance 3: main, proceed and the built-in fallback each state the ordering and capacity contract.
 
-        Deliberately stricter than phrase presence: each clause must appear in a sentence that is neither negated nor
-        overridden, so prose such as "do not take the oldest unfinished request first" or "you may start a duplicate
-        writer" fails instead of passing on the keyword alone.
+        SCOPE, stated precisely because this test was over-claimed six times during review: it checks required
+        wording and the known contradictory formulations collected in REVERSALS, NEGATOR_TAIL and EXCEPTION_TAIL.
+        It is a finite regression pin, NOT a semantic equivalence proof and NOT evidence of live agent behavior.
+        A novel paraphrase that neither matches the required phrasing nor the known reversal vocabulary will pass.
+        Any change to the payload text still needs independent human/agent review; do not treat a green run here
+        as proof the contract holds.
         """
         fallback = next(line[2:] for line in self.raw.splitlines()
                         if line.startswith("> Review the last 24 hours of this conversation"))
@@ -96,18 +99,18 @@ class NudgerPayloadTest(unittest.TestCase):
                     patterns = (pattern,) if isinstance(pattern, str) else pattern
                     self.assert_contract_affirmed(body, patterns, name, clause)
 
-    # Positive-form matching plus two anchored guards, rather than keyword presence with negation sniffing.
-    # Four earlier heuristic versions were each defeated by a fresh counterexample, because detecting
-    # negation/exception/reversal is an open-ended problem. Requiring the affirmative clause AND that it is
-    # neither preceded by a negator nor trailed by an exception is closed-ended: every attack observed so far
-    # ("do not take the oldest...", "except when another owner looks idle", "... is not required", quoting the
-    # prohibition in order to reject it) breaks exactly one of these two guards or the phrase itself.
+    # Positive-form matching plus anchored guards and a reversal vocabulary. History matters here: five earlier
+    # designs of this check were each defeated by a fresh counterexample, because detecting negation, exception,
+    # reversal and quoting in arbitrary prose is an open-ended problem. This version catches the nine regressions
+    # we actually collected. It does not enumerate all possible contradictory prose, and a sixth design should be
+    # expected if a new form appears rather than assumed unnecessary.
     NEGATOR_TAIL = ("do not ", "don't ", "not ", "n't ", "never ", "no longer ", "cannot ", "must not ",
                     "forbidden", "do not follow", "not required")
     EXCEPTION_TAIL = ("except", "unless", "is optional", "may start", "may exceed", "may ignore",
                       "instead of", "does not apply", "is not enforced", "is not required")
-    # A reversal can also be stated far from the clause, in its own sentence that never repeats the keyword
-    # ("...reverse that ordering and process the most recently received request ahead of every older one").
+    # A reversal can be stated far from the clause, in its own sentence that never repeats the keyword
+    # ("...reverse that ordering and process the most recently received request ahead of every older one"), so
+    # this is matched anywhere in the payload rather than near the clause. Finite list, not a grammar.
     # Proximity windows cannot see that, so the payload is also scanned for reversal language anywhere.
     REVERSALS = ("reverse that ordering", "reverse the ordering", "reverse this ordering",
                  "newest unfinished request first", "newest request first", "newest request instead",
