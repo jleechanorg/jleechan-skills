@@ -25,8 +25,6 @@ defaults for lifecycle, visible stages/title prefixes and suffixes/labels, speci
 routes and reasoned evidence/approval applicability wherever local instructions are silent. This entry point
 owns practical discovery, branch verification and publication steps. No dated design document is required.
 
-Keep these two skills in sync: a lifecycle or stage change updates the shared contract and checks this
-entry point and repository adapters for conflicts. Link to the contract instead of copying its rules.
 Preserve repository-specific evidence, safety, native and merge requirements and separate permissions.
 
 ## Find the skills before inventing a workflow
@@ -110,17 +108,16 @@ Do not execute a missing, unverified or incompatible helper just because old gui
 
 ## Stage changes and evidence
 
-For opted-in repositories, apply [stage transitions](../pr-lifecycle/SKILL.md#stage-title-and-labels), [default PR route and lighter non-production path](../pr-lifecycle/SKILL.md#default-pr-route--prw), and [evidence applicability](../pr-lifecycle/SKILL.md#sha-binding-rule-critical--applies-to-every-gate-in-this-chain). Title/label changes are not execution proof, review approval or merge authority.
+The [compact risk-based route](../pr-lifecycle/SKILL.md#compact-risk-based-route) skips intermediate stage-title/label ceremony only; do not skip its required checks or Stage 5 closure. For opted-in repositories, apply [stage transitions](../pr-lifecycle/SKILL.md#stage-title-and-labels), [default PR route and lighter non-production path](../pr-lifecycle/SKILL.md#default-pr-route--prw), and [evidence applicability](../pr-lifecycle/SKILL.md#sha-binding-rule-critical--applies-to-every-gate-in-this-chain). Title/label changes are not execution proof, review approval or merge authority.
 
 After each push, inspect applicable latest checks and review findings. Diagnose original logs before a
 targeted fix/retry, preserve assertions, and follow the canonical ready/final phases. Waiting/blocked is not
 Working. Do not call a PR ready from badges, skipped tests, an assignment or a pending review.
-Before promoting a user-visible change (other than a one-liner fast-path change; see
+Before promoting a user-visible change that is outside the compact risk-based route (and other than a one-liner fast-path change; see
 [proportional exceptions](../pr-lifecycle/SKILL.md#proportional-exceptions-and-fast-paths)) to `stage:5-final-approval`, apply the
 [canonical visual-approval contract](../pr-lifecycle/SKILL.md#review-routes-for-opted-in-repositories)
-and [draft-phase visual gate](../pr-lifecycle/SKILL.md#draft-phase-final-acceptance-gates-in-order),
-including independent reviewers, claim-by-claim before/after findings, artifact links,
-`VISUAL APPROVED at <40-char-sha>` and reasoned earlier-SHA applicability.
+and [draft-phase visual gate](../pr-lifecycle/SKILL.md#draft-phase-final-acceptance-gates-in-order):
+an independent reviewer's `VISUAL APPROVED at <40-char-sha>` with its required findings.
 `/dot: REQUESTED, pending`, author inspection and link checks do not satisfy approval.
 
 ## PR description and reporting
@@ -137,7 +134,4 @@ personal communications may be published outside their authorized destination.
 Creating or updating a PR does not authorize merge, deployment, credential changes, new quota,
 native/account operations, schedule changes or another owner's source work.
 Merge authority remains repository/user-specific and must be satisfied separately.
-
-## Stage evidence publication
-
-Apply [pr-lifecycle's stage-exit receipt contract](../pr-lifecycle/SKILL.md#evidence-attached-to-every-stage-exit), including PR-description URLs, applicable inline media, access verification and reasoned exemptions. That contract is the single owner; do not duplicate it here.
+Stage-exit receipts follow [pr-lifecycle's stage-exit receipt contract](../pr-lifecycle/SKILL.md#evidence-attached-to-every-stage-exit); that contract is the single owner.
