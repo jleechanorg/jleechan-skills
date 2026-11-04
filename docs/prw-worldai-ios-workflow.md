@@ -12,7 +12,7 @@ The [Develop with idea velocity presentation](https://docs.google.com/presentati
 
 ## Start with a difference you can see immediately
 
-**Mobile web, not native iOS:** [frontend PR #459](https://github.com/jleechanorg/worldai_frontend/pull/459) changes the artwork in the invitation to install the iOS app. This is the clearest matched pair: the same signed-out page, invitation, text and buttons stay visible while the header changes.
+**Mobile web, not native iOS:** [merged frontend PR #459](https://github.com/jleechanorg/worldai_frontend/pull/459) changes the artwork in the invitation to install the iOS app. This is the clearest matched pair: the same signed-out page, invitation, text and buttons stay visible while the header changes.
 
 | Before: tightly cropped character portrait | After: twin dragons and a central figure |
 | --- | --- |
@@ -38,23 +38,35 @@ The original PR records Chromium mobile emulation at 393 × 852 CSS pixels and 2
 
 Both originals were downloaded, visually inspected and matched to the [published checksums](https://gist.githubusercontent.com/jleechan2015/7e38c650a5062b04df8c8c2bb6933976/raw/316c11b66179c41091a5cb69f32ad7b7b58f13ed/checksums.sha256). Before SHA256: `7f9cbaf019061566709fc21d6b06ff7ef4c8687c9d27274d9fa3be50ccd5cbff`. After SHA256: `b7a72e31cf4b49694a9f1bd72373ec90c7e55c2e2f894baa634354f5ab9e2e88`. This proves the observed completed-response layout, not streaming, native iOS, unbreakable strings, fenced code blocks or production deployment.
 
-## See a native bug that screenshots actually catch
+## Compare the whole avatar screen
 
-A clearer native example is the Settings label repair from [WorldAI frontend PR #439](https://github.com/jleechanorg/worldai_frontend/pull/439#native-settings-label-repair--e397-red-to-02ea-green). Look at **Background Theme → Embers** in these historical iOS simulator screenshots: the same Night Settings screen and selected option make the defect easy to compare.
+**Mobile web, not native iOS:** [merged frontend PR #295](https://github.com/jleechanorg/worldai_frontend/pull/295) removes an extra confirmation for a free initial portrait that replaces no player choice. The full wizard screen makes the consequence visible beside the launch action.
 
-| Before: the label splits midword | After: the whole label fits |
+| Before: preview waits for Use | After: portrait attached, with Remove near launch |
 | --- | --- |
-| ![Native Night Settings before: selected background label wraps as Ember on one line and s below](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/pr439-native-pill-02ea1446-20261102/comparison/e397-night-default-red.png) | ![Native Night Settings after: selected background label reads Embers on one line](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/pr439-native-pill-02ea1446-20261102/screenshots/393-night-default.png) |
+| ![Avatar wizard before: generated preview with a green Use this portrait button](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/pr295-current-612-20261026/baseline-preview.png) | ![Avatar wizard after: Portrait attached and Remove avatar directly beneath Enter the World](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/pr295-current-612-20261026/portrait-attached-undo.png) |
 
-**What to inspect:** before, the selected button reads `Ember` / `s`, making the whole option row taller. After, `Embers` stays on one line alongside Stars, Aurora and None; the Display section below moves upward. The surrounding Settings content, Night theme and selected option are visibly comparable. The status-bar clock differs, so these are separate captures, not an identical-state pixel diff.
+This is a workflow change, not a wholesale visual redesign: the surrounding dark wizard stays familiar. The baseline Use button was already visible. The after screen demonstrates automatic attachment and the visible Remove affordance, not a completed removal, persistence after launch, or recovery from every failure.
 
-**Why this demonstrates the workflow:** a source diff or passing component test cannot show this native text wrap. The pair exposes a specific failure and a visible repair at the affected control. It also makes the claim falsifiable: the reviewer can read the word itself rather than infer success from a green test or a caption.
+The captures use the same 393 × 852 CSS viewport, but the original before PNG is 786 × 1704 and the after PNG is 393 × 852. Their generated faces and description text differ; do not attribute those content differences or image density to the UI fix. Both show the completed portrait-generation stage of the Custom wizard, rather than identical generated content.
 
-**Provenance and limits:** the [published packet](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/pr439-native-pill-02ea1446-20261102/evidence.md) retains the earlier RED screenshot; the linked PR identifies its source as `e39768d8ed503eed9dbe1c97aca410800022e366`. The after screenshot is the 393-point, default-text-size capture at `02ea14465f6d04b86dc13b74d4f6b6dd57031014`. The [source receipt](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/pr439-native-pill-02ea1446-20261102/provenance/source-receipt.json) records candidate source and matching built/installed bundle hashes for the 393- and 375-point simulators. That receipt binds the candidate; it does not supply equivalent installed-bundle provenance for the older RED image. Retain that asymmetry rather than claiming both builds were independently reproduced.
+Baseline source is `36ec31987e851327bf5df9659d6ef86210a97b26`; after capture is `612b6e58ac88bf8f1813031038c66ec7bbdf8b4f`. The PR records source applicability to merged head `19b2063c287f4ed8e8c54fa62f9ac1fe4178500b`: the intervening changes do not alter portrait runtime. This is historical capture applicability, not a fresh merged-head run. The [runtime receipt](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/pr295-current-612-20261026/runtime-receipt.json) and [manifest](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/pr295-current-612-20261026/manifest.json) document real Firebase SDK sign-in and a real local development backend. The broader video includes a labelled injected suggestion-transport failure; these two stills show the successful preview/attached states. Native behavior and larger text remain outside this proof.
 
-Both PNGs were downloaded, decoded and visually inspected for this guide update; their bytes match the [published manifest](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/pr439-native-pill-02ea1446-20261102/manifest.tsv). Before SHA256: `bcaf0656e56585ea8fe1e928aeadb723d15a793920ea8b315f8f054b6bc925cb`. After SHA256: `2bdbfa59d9d96fa2632ce4e92508200029c60f243285f22fb8fca19021d9abfa`.
+Both original images were visually inspected and matched the [published checksums](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/pr295-current-612-20261026/checksums.sha256). Before SHA256: `ec78d09b3fe619c03ae14ff07ca955fef98ebc0bb49d4e06008541e9579db78f`. After SHA256: `914fae4efe51887df51942ca0fad33cfcaf51eff03de5c245e097794a27fbce8`.
 
-These stills support the narrow whole-label layout claim, not tapping, settings persistence, every accessibility size, a physical iPhone, or release acceptance. The source PR's broader visual review remained **PARTIAL / REQUEST CHANGES** for uncovered consumers; this useful screenshot pair is not a blanket approval of that PR. No new app run or capture was made for this guide.
+## Show a substantial panel reorganization
+
+**Mobile web, not native iOS:** [merged frontend PR #281](https://github.com/jleechanorg/worldai_frontend/pull/281) turns the Equipment panel's dense bullet summary into structured rows with slot labels, prominent item names, subdued attributes and dividers.
+
+| Before: dense equipment bullets | After: structured equipment rows |
+| --- | --- |
+| ![Equipment before: armor, weapons and tools in a dense bullet summary](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/pr281/ebc636a1-20261028T1610Z/canonical-v3/normal/before-equipment-still.png) | ![Equipment after: item rows with Main Hand, Off Hand, Armor and other slot labels](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/pr281/ebc636a1-20261028T1610Z/canonical-v3/normal/after-equipment-still.png) |
+
+The same campaign and equipment-response hash anchor the comparison. This is a real layout change, not different fixture content dressed up as a before/after. The taller structured presentation requires scrolling; the after still does not show the entire inventory. The original annotated stills retain large source/redaction overlays above the panel rather than presenting a cleaned-up mockup.
+
+Captured baseline: `740d2a1b3a0839b4ecc7dc18a0aa7f1955fd26a7`; after: `ebc636a15d45a4ff695f09340c01b47ccedf2d06`, the final PR head. The baseline is the recorded comparison source, not a claim that it equals the merge base. The [evidence index](https://gist.github.com/jleechan2015/4df616bff04dba11d0b534dc2fce55b2) records Chromium mobile web at 393 × 852, genuine SDK sign-in, authenticated panel reads, unchanged backend and matching response hashes. The published annotated PNGs are 786 × 1930. They do not establish native scrolling, Dynamic Type, lifecycle, physical-device behavior or deployment.
+
+Both originals were downloaded and visually inspected against their published hashes. Before SHA256: `03b35e5b1b9ed2e8b83e7a55593bb4005bf0210630952203b65de286bfe9b0eb`. After SHA256: `e03bdbcbfbf37fbaac2973eff550d1d57df067a51878fdb05953efe4fda3dc2a`. No new capture or image alteration was made for either added example.
 
 ## Watch a real captioned comparison
 
