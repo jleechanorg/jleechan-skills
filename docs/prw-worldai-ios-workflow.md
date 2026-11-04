@@ -84,6 +84,16 @@ Both originals were downloaded and visually inspected against their published ha
 
 ## Watch a real captioned comparison
 
+**Shared mobile web, not native iOS:** two separately captioned videos from [merged frontend PR #257](https://github.com/jleechanorg/worldai_frontend/pull/257) make the problem and repair easier to inspect:
+
+| Before: the page enlarges, then the viewer closes | After: inspect the scene inside the open viewer |
+| --- | --- |
+| [Watch the before video on YouTube (7.72 seconds)](https://youtube.com/shorts/M8GIVzHrVb0) | [Watch the after video on YouTube (10.88 seconds)](https://youtube.com/shorts/PMU5T7wQsB0) |
+
+These unlisted videos are captioned derivatives of the [original before clip](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/pr257-mobile-zoomin-cde4015-20261024-v4/media/baseline-full.mp4) (1.72 seconds) and [original after clip](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/pr257-mobile-zoomin-cde4015-20261024-v4/media/candidate-full.mp4) (4.88 seconds). Every original frame remains in order at normal speed. Each derivative adds three-second first- and final-frame holds labelled **PAUSED**, replaces only the original editorial caption band, and scales the picture 2× to 784 × 1704. The holds are presentation pauses, not additional observed runtime. No new app capture or generated scene was used.
+
+The uploaded before file's SHA256 is `12680938d96d2bcc184ac4b27ae3fc319ca753769219a5324ec7abd862e74ce7`; the after file's is `b1500c2e08a9b8ec72001bc1b33f0fe802e4d7dd33b28a5e0646b6086514c830`. These identify the uploaded files, not YouTube's transcoded streams. The source revisions and proof limits below apply to both.
+
 **Shared mobile-web example, not native iOS:** [watch the 6.6-second image-zoom comparison](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/pr257-mobile-zoomin-cde4015-20261024-v4/media/comparison-baseline-then-green.mp4).
 
 [![Six frames from the captioned before/after zoom comparison](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/pr257-mobile-zoomin-cde4015-20261024-v4/contact-sheet.png)](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/pr257-mobile-zoomin-cde4015-20261024-v4/media/comparison-baseline-then-green.mp4)
