@@ -181,9 +181,10 @@ receipts there.
 
 ## Evidence rules
 
-- Every open / active ledger row comes from a live `gh pr view` at write time. Never
-  carry a state, head, or delta forward from prose, a prior board, or another agent's
-  report.
+- Verify every open / active ledger row and every move to the merged appendix with
+  a live `gh pr view` at write time. Never carry merge state, head, or delta forward
+  from prose, a prior board, or another agent's report. Keep historical receipts
+  bound to their original dates and SHAs in the appendix.
 - For PR file counts or changed-file claims, resolve the actual current base-branch
   tip SHA and PR head SHA, then compute additions, deletions, and changed paths from
   `git diff <base-tip>...<head>` or a paginated REST compare bound to those SHAs. Do
