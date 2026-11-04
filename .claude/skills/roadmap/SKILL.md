@@ -73,12 +73,17 @@ Required structure, in this order:
    time (e.g. `_Measured Thu Oct 29, 2026, 9:49 PM PDT_`); never a 24-hour clock or
    a UTC timestamp in that line. Then open with a short overview of stage counts, human-only
    blockers, stale/unowned work and total line delta; name the biggest deltas.
-   Then give **every in-scope PR 1–2 plain-language sentences**, with its linked PR
-   number visible: what changes for the user, which requested fix it addresses,
-   and what is done versus still unproven. Put requested feature/fix PRs first and
-   supporting tests, tooling and docs afterward. Include already-merged fixes when
-   they answer a current request; distinguish implemented, merged, deployed and
-   accepted. A stage number or generic label such as “sharing” is not a description.
+   Immediately follow that overview with a **User-facing work and stages** table:
+   `| Work item | What changes for the user | PR | Stage and state | Done / remaining |`.
+   Give each requested outcome a concrete plain-language description; every
+   in-scope PR must appear with its linked number and its own explicit stage.
+   A PR covering several outcomes may have several rows, but each repeats that
+   PR's stage. State what works now and what remains unproven; stage numbers,
+   “green”, internal subsystem names and PR titles alone are not descriptions.
+   Put requested feature/fix work first; label supporting tests, tooling and docs
+   as having no direct app change and put them last. Include merged fixes when
+   they answer the request, distinguishing implemented, merged, deployed and
+   accepted. Summary stages must match the ledger below, including MISMATCH.
 2. **PR ledger table**, one row per PR:
    `| PR | Title | Repo | Stage | State | Head | Δ (lines) | Next | Brief |`
    - `PR` links to the full GitHub URL (number visible in the link text).
