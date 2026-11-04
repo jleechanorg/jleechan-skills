@@ -121,7 +121,7 @@ For each applicable video requirement, verify:
 - The caption identifies the test/action, observed result and tested SHA.
 - UI footage visibly shows the relevant element and before/action/after behavior.
 - Terminal footage, when required, shows the command and relevant result.
-- The mpdecimate retained-frame count and nominal count are reported with the fail-closed probe in `../ui-video-evidence/SKILL.md`; `kept < 10` or `kept/nominal < 5%` is **INSUFFICIENT** unless the caption names the action and after-state frame timestamps and they show the claim.
+- The mpdecimate retained-frame count and nominal count are reported with the fail-closed probe in `../ui-video-evidence/SKILL.md`; `kept < 10` or `kept/nominal < 5%` is **FAIL** unless the caption names the action and after-state frame timestamps and they show the claim.
 - Each clip includes the user action (e.g. the Send tap) plus the before state; a window anchored only to completion that omits the action fails. If the observable has no user action, record N/A with the reason and require a before-state → after-state transition clip.
 - Before/after clips come from fresh runs of each build; any re-cut or reused baseline is labeled `derived` with its source.
 - This `/er` verdict (and any `/advice` on the evidence) comes from a different agent/lane than the one that produced the evidence, and the verdict names that lane (lanes may share one GitHub account).
@@ -130,28 +130,18 @@ A missing applicable artifact yields **PARTIAL**. Record inapplicable formats as
 
 **Video acceptance needs an independent content review.** When a video backs an acceptance claim, an independent AI reviewer (not the author or orchestrator) extracts frames from the published video itself (not the capture's own screenshots) and returns PASS/FAIL per acceptance step with the timestamp where it is visible. Privacy masking, decode/playback, upload read-back, captions, and turn-record or coverage-judge JSON are separate checks and never substitute. No content review → **PARTIAL**; a step the frames contradict → **FAIL**.
 
-**Mandatory AI Visual Inspection (`VISUAL APPROVED at <40-char-sha>`):** applicability, record contents and SHA binding are owned by [pr-lifecycle's visual-approval contract](../pr-lifecycle/SKILL.md#review-routes-for-opted-in-repositories). For any user-visible change outside the documented exemptions, `/er` (or an independent `/advice` visual lane or `/dot` supplying the approval under that contract) MUST download and visually inspect the actual rendered image or extracted video frames, never just URL status or checksums, and record `VISUAL APPROVED at <40-char-sha>` (or `VISUAL REJECTED at <40-char-sha>`) with the per-claim findings that contract requires. A link-existence check or pending request (e.g. `/dot: REQUESTED, pending`) is NEVER a visual approval PASS: it caps `/er` at **PARTIAL** and blocks `stage:5-final-approval` and merge readiness.
+**Mandatory AI Visual Inspection (`VISUAL APPROVED at <40-char-sha>`):** applicability, record contents and SHA binding are owned by [pr-lifecycle's visual-approval contract](../pr-lifecycle/SKILL.md#review-routes-for-opted-in-repositories). For any user-visible change outside the documented exemptions, the approving seat (an `/advice` visual lane, `/dot`, or an `/er` visual lane run by a seat other than the one that produced or reviewed the evidence, as that contract requires) MUST download and visually inspect the actual rendered image or extracted video frames, never just URL status or checksums, and record `VISUAL APPROVED at <40-char-sha>` (or `VISUAL REJECTED at <40-char-sha>`) with the per-claim findings that contract requires. A link-existence check or pending request (e.g. `/dot: REQUESTED, pending`) is NEVER a visual approval PASS: it caps `/er` at **PARTIAL** and blocks `stage:5-final-approval` and merge readiness.
 
-### 5. Public-URL hosting check
+### 5. Media hosting check
 
-Apply this check when public or inline video rendering is claimed or required; it does not by itself require publishing an otherwise private evidence bundle.
+Apply this check when inline or linked media backs a claim; it does not by itself require publishing an otherwise private evidence bundle. Evidence classes and hosting rules are owned by evidence-standards (§ Visual Evidence & Mandatory Inline Rendering in PRs); this check applies them and adds no stricter hosting rule.
 
-GIFs and MP4s must be on a **public** repository: private repo release assets return 404 for anonymous viewers and do NOT render inline in PR descriptions.
+- GCS is the default host; a GitHub attachment or any other host the task authorizes is also acceptable.
+- Authorized private hosting is acceptable when the intended reviewer can open and play the media; record the access mode.
+- Never make evidence public, or change bucket access, merely to pass a link check.
+- A `github.com/.../releases/download/untagged-*` link is a red flag: the release is a draft and the asset is not reliably reachable.
 
-```bash
-# For each <owner>/<repo> hosting a video asset:
-gh api 'repos/<owner>/<repo>' --jq '.private'
-# Must be: false
-```
-
-```bash
-# And verify the asset itself is uploaded and accessible:
-gh api 'repos/<owner>/<repo>/releases/tags/<tag>' \
-  --jq '.assets[] | {name: .name, state: .state}'
-# All states must be "uploaded"
-```
-
-Private repo assets = **PARTIAL / FAIL** for inline rendering.
+Media the intended reviewer cannot open or play in the form section 4 requires = **PARTIAL**.
 
 ### 6. Self-contained / clean-computer reproducibility
 
@@ -292,7 +282,7 @@ Produce output in this format:
 - **Self-referencing claims**: `evidence.md` cites itself instead of raw artifacts → WEAK
 - **Circular provenance**: the bypass gate reads the reference file it's supposed to match against → artifact INVALID, overall FAIL
 - **Reproduction directions missing or inaccessible**: no accessible link or inline directions meeting section 6 → PARTIAL, even if evidence files were committed.
-- **Private repo release as inline image**: GitHub won't proxy it → broken GIF → PARTIAL
+- **Inline media the reviewer cannot open**: e.g. a private-repo release asset GitHub won't proxy, or an `untagged-*` release link → broken GIF → PARTIAL (see check 5)
 - **Required media inaccessible**: an attachment or hosted artifact cannot be accessed in the form required by section 4 → PARTIAL. Verify access rather than inferring failure from the attachment method.
 - **Static screenshot offered as required flow video**: it does not show before/action/after behavior → FAIL for that flow claim.
 - **`echo "PASS"` in terminal video instead of real test runner output**: hard block → FAIL
@@ -330,5 +320,5 @@ Produce output in this format:
 
 ## Historical Lessons (keep the bar high)
 
-- **2026-04-11 PR #6161**: GIFs hosted on private `your-project.com` release returned 404. Moved to public `agent-orchestrator` release. → Added mandatory check 5.
+- **2026-04-11 PR #6161**: GIFs hosted on private `your-project.com` release returned 404. Moved to public `agent-orchestrator` release. → Added mandatory check 5 (now deferring to evidence-standards hosting rules, with GCS as the default host).
 - **Pre-existing**: dirty GREEN captures (working tree dirty during the run that produced the artifact) require explicit exception in `verification_report.json` with rationale; a WARN/PARTIAL report stays a ceiling under check 2.

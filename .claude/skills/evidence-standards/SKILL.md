@@ -83,7 +83,7 @@ Before producing evidence for a claim over a **set** (all 14 agents, every mode,
 3. **Cost to expand** — what it takes to reach more of the set.
 4. **Accept** the envelope before doing the work.
 
-Reachability is **computed, never a hardcoded list** (a frozen "X is unreachable" verdict is itself a ZFC violation): state it as the observed union of real routing plus the named structural exclusion. **Never manufacture breadth via a non-production path** (direct SDK, mock, reconstructed input); fake-complete is INSUFFICIENT, and honest-partial plus envelope wins.
+Reachability is **computed, never a hardcoded list** (a frozen "X is unreachable" verdict is itself a ZFC violation): state it as the observed union of real routing plus the named structural exclusion. **Never manufacture breadth via a non-production path** (direct SDK, mock, reconstructed input); fake-complete is FAIL, and honest-partial plus envelope wins.
 
 **No silent partial — lead with the gap.** The FIRST line of breadth evidence MUST be **"DELIVERED X of N; DID NOT DELIVER N−X (reason)"**, before any "✓"; burying the shortfall is a silent partial failure, worse than refusing. In that line, separate **gate-excluded** (true impossibility; name the gate) from **not-yet-driven** (reachable, no scenario built yet). Never report "undriven" as "impossible."
 
@@ -151,7 +151,7 @@ Mocks at the **in-process function boundary are not mocks at an external API bou
 - `[Layer 2 real-LLM]` — real callstack, real provider POST, real response streamed
 - `[Layer 2 real-BQ]` — real callstack, real BigQuery HTTP insert
 
-A claim mixing Layer 2 (real BQ) with Layer 1 (synthetic LLM) is **not** Layer 2 proof for its LLM-behavior part: the /er verdict for that claim must be **PARTIAL** or **INSUFFICIENT**, not **PASS**. A claim without a layer label is non-compliant and its verdict is downgraded to PARTIAL.
+A claim mixing Layer 2 (real BQ) with Layer 1 (synthetic LLM) is **not** Layer 2 proof for its LLM-behavior part: the /er verdict for that claim must be **PARTIAL** or **FAIL**, not **PASS**. A claim without a layer label is non-compliant and its verdict is downgraded to PARTIAL.
 
 ## Evidence access and publication
 
@@ -221,7 +221,7 @@ The layer labels stop a real-LLM claim from being silently downgraded to a synth
 
 UI claims need a captioned `.mp4`/`.gif`/`.cast` produced by the test pipeline; `ui-video-evidence.md` and `tmux-video-evidence.md` in this directory hold the recording rules. Docs-only / test-only PRs use `N/A - no UI behavior changed`.
 
-**The video must show the element under test changing in the pixels, not in a caption.** A captioned clip that frames only page chrome while the element is below the fold does NOT prove the change: the caption is harness-authored text from the test's own DOM reads, so it asserts the state rather than demonstrating it. The recording must `scrollIntoView` the specific control/field and settle so its before→after change is visible in the frames. When reviewing UI video (`/er`), **extract frames and look** (`ffmpeg -i <video> -vf fps=1 /tmp/frames/f_%02d.png`); if the element is never in frame, or the only on-screen evidence is a caption overlay, the UI evidence is INSUFFICIENT even if the video exists, is captioned and the test passed. Acceptance by video also requires an independent AI content review (not the author or orchestrator) of the published video's frames per acceptance step (`evidence-review` check 4); privacy, playback and turn-record reviews do not count.
+**The video must show the element under test changing in the pixels, not in a caption.** A captioned clip that frames only page chrome while the element is below the fold does NOT prove the change: the caption is harness-authored text from the test's own DOM reads, so it asserts the state rather than demonstrating it. The recording must `scrollIntoView` the specific control/field and settle so its before→after change is visible in the frames. When reviewing UI video (`/er`), **extract frames and look** (`ffmpeg -i <video> -vf fps=1 /tmp/frames/f_%02d.png`); if the element is never in frame, or the only on-screen evidence is a caption overlay, the UI evidence is FAIL even if the video exists, is captioned and the test passed. Acceptance by video also requires an independent AI content review (not the author or orchestrator) of the published video's frames per acceptance step (`evidence-review` check 4); privacy, playback and turn-record reviews do not count.
 
 ## Visual Evidence & Mandatory Inline Rendering in PRs
 

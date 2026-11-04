@@ -52,8 +52,9 @@ current diff/PR):
    in review-only mode. Each lane returns PASS with file/line evidence or FAIL
    with the exact location and required fix; rationalizations are not evidence.
 5. **Reconcile** the lane results into the report format below.
-6. **Do not mark any lane skipped** outside the explicit `smoke-test` mode
-   below.
+6. **Do not skip a lane** outside the explicit `smoke-test` mode below. A
+   lane whose row allows `N-A` may report it only with a one-line reason in
+   the Evidence column.
 
 ## Report format
 
@@ -66,8 +67,8 @@ current diff/PR):
 
 ## Smoke-test mode
 
-If the argument contains `smoke-test`, do not dispatch review lanes and do
-not edit files. Instead, report:
+If the argument is exactly `smoke-test` (not a substring match), do not
+dispatch review lanes and do not edit files. Instead, report:
 
 - that the command file loaded,
 - the command file path (`${CLAUDE_HOME:-$HOME/.claude}/commands/code-standards.md`),
