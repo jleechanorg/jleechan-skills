@@ -10,6 +10,34 @@ This page explains the technique for other developers. It is a case-study guide,
 
 The [Develop with idea velocity presentation](https://docs.google.com/presentation/d/1qLdMzZaIuP9IdpTBomuOGJTAspCEJo6Esu10zWFrhm4/edit?slide=id.iosNov2026#slide=id.iosNov2026) gives the broader iOS development context.
 
+## Start with a difference you can see immediately
+
+**Mobile web, not native iOS:** [frontend PR #459](https://github.com/jleechanorg/worldai_frontend/pull/459) changes the artwork in the invitation to install the iOS app. This is the clearest matched pair: the same signed-out page, invitation, text and buttons stay visible while the header changes.
+
+| Before: tightly cropped character portrait | After: twin dragons and a central figure |
+| --- | --- |
+| ![Mobile-web iOS invitation before: a tightly cropped blond face fills the header](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/ios-pr459-route-marker-corrective-2026-11-02/baseline-main/mobile-screen.png) | ![Mobile-web iOS invitation after: two dragons flank a central figure above the same controls](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/ios-pr459-route-marker-corrective-2026-11-02/candidate-e5/mobile-screen.png) |
+
+The change is obvious without reading the diff, and the unchanged controls give the reviewer a useful comparison. The gold dragon's head is still partly cropped: the screenshot reveals that limitation instead of hiding it. These stills demonstrate the artwork and layout, not that Install, Continue or Open app works.
+
+Both captures used signed-out Chromium with an iPhone user agent at 390 × 844 CSS pixels, the same committed capture driver and a real development backend. Captured baseline: `1fcd6ba3bf035547875f8325d81dafed6bea706c`; candidate: `e5f1459f49fe50faaf95e59e7bad3a13f7d6f24d`. The [original reproduction record](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/ios-pr459-route-marker-corrective-2026-11-02/REPRODUCE.md) retains the source, route and process context; this is not Safari, native-app or production-deployment proof.
+
+Both original PNGs were downloaded and visually inspected, and their hashes matched the [published manifest](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/ios-pr459-route-marker-corrective-2026-11-02/DELIVERY-SHA256SUMS). Before SHA256: `1db5131dba850389b4be4f2a3906e306a494d9e47c05a92cbd3ceafb2fa94ebe`. After SHA256: `ed066536188eae901962911da46247ef9cbe2c8d4a9284f11bbdd5674322ba06`.
+
+## Compare a complete screen redesign
+
+**Mobile web, not native iOS:** [frontend PR #446](https://github.com/jleechanorg/worldai_frontend/pull/446) provides a larger transformation. An admin who enabled Journal and then signed out previously saw the dragon-card Welcome; afterward, the same flow shows the cream Journal Welcome.
+
+| Before: dragon artwork, top bar and translucent card | After: flat Journal page, serif text and outlined sign-in |
+| --- | --- |
+| ![Mobile-web Welcome before: dragon background, navigation bar and translucent sign-in card](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/vn-welcome-journal-20261101-fe22009f/screens/before-base-welcome-light.png) | ![Mobile-web Welcome after: cream Journal page with serif heading and outlined Google sign-in](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/vn-welcome-journal-20261101-fe22009f/screens/welcome-admin-signedout-light-email.png) |
+
+These are actual running-build screenshots, not the proposed mock. They make the changed hierarchy, spacing, typography and controls inspectable across the whole screen. They do not establish that every visitor receives this design: the scenario depends on a saved admin Journal opt-in.
+
+The [original provenance](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/vn-welcome-journal-20261101-fe22009f/provenance.txt) identifies Chromium at 393 × 852 CSS pixels, 2× scale, baseline `fc1399b1becf257efe8634f729fc10174ec39511` and captured candidate `fe22009f`. The [capture notes](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/vn-welcome-journal-20261101-fe22009f/README.md) disclose that email-on captures patch the `email_accounts` rollout flag because the development response was unstable. Treat this as layout evidence under that controlled flag, not unmodified rollout, native-iOS, shared-device or deployment acceptance. The historical capture is not relabeled as a run of the later merged head.
+
+Both original PNGs were downloaded and visually inspected, and their hashes matched the [published checksums](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/vn-welcome-journal-20261101-fe22009f/SHA256SUMS). Before SHA256: `57cea6424dab2fe66691f3ba551adfceb523e944abce043fea1ed26de7db5f67`. After SHA256: `466c0ec41e86737cee633b0c68c1f842944d4f1fd29293496dee6aa89fbaa09c`. No new capture or image generation was needed for either example.
+
 ## See a native bug that screenshots actually catch
 
 A clearer native example is the Settings label repair from [WorldAI frontend PR #439](https://github.com/jleechanorg/worldai_frontend/pull/439#native-settings-label-repair--e397-red-to-02ea-green). Look at **Background Theme → Embers** in these historical iOS simulator screenshots: the same Night Settings screen and selected option make the defect easy to compare.
