@@ -205,7 +205,8 @@ PY
 SOURCE_FINGERPRINT_BEFORE="$(source_fingerprint)" \
     || fail "Cannot fingerprint canonical Beads sources."
 
-SCRATCH_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/beads-export.XXXXXX")"
+SCRATCH_TMP_BASE="$("${HOME}/.claude/skills/scratch-space/scripts/scratch-dir.sh" tmp 2>/dev/null || printf '%s' /tmp)"
+SCRATCH_ROOT="$(mktemp -d "$SCRATCH_TMP_BASE/beads-export.XXXXXX")"
 cleanup() {
     rm -rf "$SCRATCH_ROOT"
 }
