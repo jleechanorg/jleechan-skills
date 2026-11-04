@@ -106,9 +106,21 @@ class NudgerPayloadTest(unittest.TestCase):
                     "forbidden", "do not follow", "not required")
     EXCEPTION_TAIL = ("except", "unless", "is optional", "may start", "may exceed", "may ignore",
                       "instead of", "does not apply", "is not enforced", "is not required")
+    # A reversal can also be stated far from the clause, in its own sentence that never repeats the keyword
+    # ("...reverse that ordering and process the most recently received request ahead of every older one").
+    # Proximity windows cannot see that, so the payload is also scanned for reversal language anywhere.
+    REVERSALS = ("reverse that ordering", "reverse the ordering", "reverse this ordering",
+                 "newest unfinished request first", "newest request first", "newest request instead",
+                 "most recent request ahead", "most recent request first", "most recently received request",
+                 "scheduled and automated work outrank", "after scheduled and automated work",
+                 "exceed the two-complex", "limit does not apply", "limit is not enforced",
+                 "start a second writer", "start another writer", "duplicate writer is permitted",
+                 "second writer is allowed")
 
     def assert_contract_affirmed(self, body, patterns, name, clause):
         context = f"{name}: {clause}"
+        reversal = next((r for r in self.REVERSALS if r in body), None)
+        self.assertIsNone(reversal, f"{context} is reversed somewhere in the payload via {reversal!r}")
         for pattern in patterns:
             for match in re.finditer(pattern, body):
                 before = body[max(0, match.start() - 40):match.start()]
