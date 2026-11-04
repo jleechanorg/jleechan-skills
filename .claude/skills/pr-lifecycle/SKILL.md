@@ -379,7 +379,7 @@ Documentation-only changes, including instruction/skill documentation, do not re
 
 After `/es`, classify the complete changed-path set against the PR's true base. An owner/repository suffix alone is ambiguous across hosts, so the base must be resolved through the API, not guessed from a remote name.
 
-Run `scripts/pr-base-changed-paths.sh <N>` (relative to this skill directory) from the PR checkout. It resolves the base through `gh api` on the pulls endpoint (`clone_url` and `ssh_url`), requires exactly one local remote matching the full host and repository path, and prints `git diff --name-only ${BASE_REMOTE}/${BASE_BRANCH}...HEAD`. Inspect its output; a resolution error leaves the exemption unproven.
+From the PR checkout, run `"${CLAUDE_HOME:-$HOME/.claude}/skills/pr-lifecycle/scripts/pr-base-changed-paths.sh" <N>` (the helper ships inside this skill directory; keep the PR checkout as the working directory). It resolves the base through `gh api` on the pulls endpoint (`clone_url` and `ssh_url`), requires exactly one local remote matching the full host and repository path, and prints `git diff --name-only ${BASE_REMOTE}/${BASE_BRANCH}...HEAD`. Inspect its output; a resolution error leaves the exemption unproven.
 
 For this `/er` exemption, every changed path must be one of:
 

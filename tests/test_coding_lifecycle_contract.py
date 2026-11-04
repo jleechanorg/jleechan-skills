@@ -54,7 +54,7 @@ class PrLifecycleAnchorResolution(unittest.TestCase):
         headings = self._heading_anchors(owner)
         links = {}
         for path in SKILLS.rglob("SKILL.md"):
-            for match in re.finditer(r"pr-lifecycle/SKILL\.md#([a-z0-9-]+)", path.read_text(encoding="utf-8")):
+            for match in re.finditer(r"pr-lifecycle/SKILL\.md#([^)\s\"'>`]+)", path.read_text(encoding="utf-8")):
                 links.setdefault(match.group(1), set()).add(path.relative_to(SKILLS).as_posix())
         self.assertGreater(len(links), 0)
         missing = {slug: sorted(src) for slug, src in links.items() if slug not in headings}
