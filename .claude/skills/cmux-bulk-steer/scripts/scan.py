@@ -16,11 +16,8 @@ from __future__ import annotations
 import argparse
 from datetime import datetime
 import json
-import os
 from pathlib import Path
 import subprocess
-import sys
-import tempfile
 import sys
 from typing import Any
 
@@ -90,59 +87,8 @@ def list_terminal_surfaces(tree_data: dict[str, Any]) -> list[dict[str, str]]:
     return out
 
 
-def cpu_capture_is_discriminating(cpu_by_surface: dict[str, float]) -> bool:
-    """Return False when the CPU capture carries no signal.
-
-    `cmux top --all --flat` has been observed returning 0.0 for every surface
-    (including the `total` row, which read 208% in `top --processes`), so an
-    all-zero map is a broken capture, not evidence that every lane is idle.
-    """
-    return any(value > 0.0 for value in cpu_by_surface.values())
-
-
-def collect_cpu_via_workspace_processes(ws_refs: list[str]) -> dict[str, float]:
-    """Per-surface CPU% from `cmux top --workspace <ws> --processes`.
-
-    Fallback for builds where `--flat` reports 0.0 everywhere. The per-workspace
-    view still reports a real CPU total and per-surface rows. Note it can also
-    regress to 0.0 on some builds, in which case callers should mark the CPU
-    column unavailable rather than report false idleness.
-    """
-    cpu_by_surface: dict[str, float] = {}
-    for ws_ref in ws_refs:
-        proc = subprocess.run(
-            ["cmux", "top", "--workspace", ws_ref, "--processes"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        for raw_line in (proc.stdout or "").splitlines():
-            # Rows look like: "  22.0%  794.7 MB  1  surface surface:1000… [terminal] …"
-            cols = raw_line.split()
-            if "surface" not in cols:
-                continue
-            idx = cols.index("surface")
-            if idx + 1 >= len(cols):
-                continue
-            sf_ref = cols[idx + 1]
-            if not sf_ref.startswith("surface:"):
-                continue
-            try:
-                cpu_by_surface[sf_ref] = float(cols[0].rstrip("%"))
-            except (ValueError, IndexError):
-                continue
-    return cpu_by_surface
-
-
 def parse_top_cpu_by_surface(top_output: str) -> dict[str, float]:
-    """Extract deterministic CPU% per surface ref from `cmux top --all --flat`.
-
-    Known-broken on current builds: `--flat` can report 0.0 for every row,
-    including the `total` row, so every surface comes back as 0.0 and the
-    mechanical CPU gate stops discriminating busy from idle. Callers must treat
-    an all-zero result as unavailable rather than as evidence of idleness; see
-    cpu_capture_is_discriminating().
-    """
+    """Extract deterministic CPU% per surface ref from `cmux top --all --flat`."""
     cpu_by_surface: dict[str, float] = {}
     for raw_line in top_output.splitlines():
         parts = raw_line.split("\t")
@@ -279,18 +225,6 @@ def capture_fleet(
     )
     (out_dir / "top_flat.tsv").write_text(top_proc.stdout or "", encoding="utf-8")
     cpu_by_surface = parse_top_cpu_by_surface(top_proc.stdout or "")
-    cpu_source = "top-flat"
-    if not cpu_capture_is_discriminating(cpu_by_surface):
-        # `cmux top --all --flat` collapsed to 0.0 for every surface. Fall back to
-        # per-workspace `top --processes`, which still reports a real total, so the
-        # CPU column means something instead of silently reading as "all idle".
-        ws_refs = sorted({item["workspace_ref"] for item in list_terminal_surfaces(tree_data)})
-        fallback = collect_cpu_via_workspace_processes(ws_refs)
-        if fallback:
-            cpu_by_surface.update(fallback)
-            cpu_source = "top-processes-fallback"
-        else:
-            cpu_source = "unavailable"
 
     surfaces_manifest: list[dict[str, Any]] = []
     for item in list_terminal_surfaces(tree_data):
@@ -362,11 +296,7 @@ def capture_fleet(
                 "surface": sf_ref,
                 "surface_ref": sf_ref,
                 "surface_title": item["surface_title"],
-                "cpu_percent": (
-                    cpu_by_surface.get(sf_ref)
-                    if cpu_source != "unavailable"
-                    else None
-                ),
+                "cpu_percent": cpu_by_surface.get(sf_ref, 0.0),
                 "file_10k": str(file_10k.resolve()),
                 "pi_session_jsonl": pi_session_jsonl,
                 "total_words": total_words,
@@ -405,7 +335,6 @@ def capture_fleet(
         "scrollback_lines": scrollback_lines,
         "max_words": max_words,
         "surface_count": len(surfaces_manifest),
-        "cpu_source": cpu_source,
         "gh_prs_file": gh_prs_file,
         "surfaces": surfaces_manifest,
     }
@@ -413,38 +342,6 @@ def capture_fleet(
         json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
     )
     return manifest
-
-
-def _scratch_root() -> str:
-    """Resolve a writable scratch root portably. Never hardcode a personal home path.
-
-    Order: $DISKM_SCRATCH, then the repo's own resolver when present, then the
-    well-known volume mount-point, then the platform temp dir.
-    """
-    env_root = os.environ.get("DISKM_SCRATCH")
-    if env_root and os.path.isdir(env_root) and os.access(env_root, os.W_OK):
-        return env_root
-    for base in (os.environ.get("CLAUDE_HOME"), os.path.expanduser("~/.claude")):
-        if not base:
-            continue
-        resolver = Path(base) / "skills" / "scratch-space" / "scripts" / "scratch-dir.sh"
-        if resolver.is_file():
-            try:
-                resolved = subprocess.run(
-                    ["bash", str(resolver), "cmux-bulk-steer"],
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                    timeout=10,
-                ).stdout.strip()
-            except (OSError, subprocess.SubprocessError):
-                resolved = ""
-            if resolved and os.path.isdir(resolved) and os.access(resolved, os.W_OK):
-                return resolved
-    volume_root = "/Volumes/diskm-scratch"
-    if os.path.isdir(volume_root) and os.access(volume_root, os.W_OK):
-        return volume_root
-    return tempfile.gettempdir()
 
 
 def main() -> int:
@@ -457,7 +354,7 @@ def main() -> int:
         dest="out_dir",
         type=Path,
         default=None,
-        help="Output directory for ws_*_sf_*.txt and manifest.json (default: <scratch>/cmux_fleet_<HHMMSS>).",
+        help="Output directory for ws_*_sf_*.txt and manifest.json (default: /tmp/cmux_fleet_<HHMMSS>).",
     )
     parser.add_argument(
         "--max-words",
@@ -494,7 +391,7 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    out_dir = args.out_dir or Path(f"{_scratch_root()}/cmux_fleet_{datetime.now().strftime('%H%M%S')}")
+    out_dir = args.out_dir or Path(f"/tmp/cmux_fleet_{datetime.now().strftime('%H%M%S')}")
     manifest = capture_fleet(
         out_dir=out_dir,
         max_words=args.max_words,
@@ -513,15 +410,10 @@ def main() -> int:
     )
     for row in manifest["surfaces"]:
         last_line = row["tail_lines"][-1][:90] if row["tail_lines"] else "<empty>"
-        cpu_display = (
-            "n/a"
-            if row["cpu_percent"] is None
-            else f"{row['cpu_percent']:.1f}%"
-        )
         print(
             f"  [{row['workspace']} | {row['workspace_ref']} / {row['surface_ref']}] "
             f"words={row['captured_words']}/{row['total_words']} "
-            f"lines={row['lines_read']} cpu={cpu_display} "
+            f"lines={row['lines_read']} cpu={row['cpu_percent']:.1f}% "
             f"file={row['file_10k']} | tail={last_line}"
         )
     return 0
