@@ -3,6 +3,7 @@
 Instruction-only change: these tests pin the shipped defaults and the contract text. Selection behaviour is proven by
 a live run report naming the resolved path and its SHA256, not here.
 """
+import re
 import unittest
 from pathlib import Path
 
@@ -68,7 +69,12 @@ class NudgerPayloadTest(unittest.TestCase):
         self.assertIn("they never outrank a live operator instruction", dot)
 
     def test_every_payload_shares_ordering_capacity_and_single_writer(self):
-        """Spec acceptance 3: main, proceed and the built-in fallback share one ordering and capacity contract."""
+        """Spec acceptance 3: main, proceed and the built-in fallback share one ordering and capacity contract.
+
+        Deliberately stricter than phrase presence: each clause must appear in a sentence that is neither negated nor
+        overridden, so prose such as "do not take the oldest unfinished request first" or "you may start a duplicate
+        writer" fails instead of passing on the keyword alone.
+        """
         fallback = next(line[2:] for line in self.raw.splitlines()
                         if line.startswith("> Review the last 24 hours of this conversation"))
         payloads = {
@@ -76,13 +82,37 @@ class NudgerPayloadTest(unittest.TestCase):
             "proceed": (REMINDERS / "proceed.md").read_text(encoding="utf-8"),
             "fallback": fallback,
         }
+        required = {
+            "operator-first ordering": ("outrank scheduled", "before scheduled and automated work"),
+            "oldest-first default": ("oldest unfinished request first",),
+            "capacity limit": ("two-complex/two-short limit",),
+            "single writer": ("duplicate writer",),
+        }
         for name, raw in payloads.items():
-            body = " ".join(raw.split()).lower()
-            with self.subTest(payload=name):
-                self.assertTrue("outrank scheduled" in body or "before scheduled and automated work" in body, name)
-                self.assertIn("oldest unfinished request first", body)
-                self.assertIn("two-complex/two-short limit", body)
-                self.assertIn("duplicate writer", body)
+            sentences = self.sentences(raw)
+            for clause, alternatives in required.items():
+                with self.subTest(payload=name, clause=clause):
+                    self.assert_states_contract(sentences, alternatives, f"{name}: {clause}")
+
+    @staticmethod
+    def sentences(raw):
+        return [s.strip().lower() for s in re.split(r"(?<=[.!?])\s+", " ".join(raw.split())) if s.strip()]
+
+    # The prohibitive form is the CORRECT phrasing ("never start a duplicate writer", "do not exceed the
+    # limit"), so a blanket negation filter is wrong. What defeats the contract is an exception bolted onto
+    # the clause's own sentence, which keeps the keyword while permitting the forbidden act.
+    EXCEPTION_MARKERS = ("except", "unless", "is allowed", "is optional", "may start", "may exceed",
+                         "may ignore", "may skip", "if another", "if a slot")
+
+    def assert_states_contract(self, sentences, alternatives, context):
+        for sentence in sentences:
+            if not any(alt in sentence for alt in alternatives):
+                continue
+            marker = next((m for m in self.EXCEPTION_MARKERS if m in sentence), None)
+            self.assertIsNone(marker, f"{context} granted an exception via {marker!r}")
+            return
+        self.fail(f"no sentence states {context}")
+
 
     def test_label_and_blocker_loop_guards_remain_pinned(self):
         """Clauses still in source whose earlier assertions were dropped during the body rewrite."""
