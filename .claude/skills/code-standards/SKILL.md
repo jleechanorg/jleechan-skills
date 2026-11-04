@@ -5,10 +5,9 @@ description: User-scope code/diff/PR review against the user-wide standards — 
 
 # Code Standards Dispatch
 
-Reviews code, diffs, PRs, or proposed implementations against four
-independent, user-wide standards. This skill is the source of truth for the
-four-lane workflow; `${CLAUDE_HOME:-$HOME/.claude}/commands/code-standards.md` is a thin
-dispatcher that points here.
+Reviews code, diffs, PRs or proposed implementations against four independent,
+user-wide standards. This skill is the source of truth for the four-lane
+workflow; `${CLAUDE_HOME:-$HOME/.claude}/commands/code-standards.md` is a thin dispatcher.
 
 ## Source skills (loaded by this workflow)
 
@@ -25,10 +24,9 @@ The same skill is mirrored at `~/.codex/skills/ponytail/SKILL.md` for Codex.
 
 ## Lanes dispatched
 
-1. **Ponytail** — the lazy-senior-dev seven-rung ladder. Stops you from
-   writing code that already exists in-tree, from adding a new dependency
-   when stdlib or installed packages cover it, and from chasing abstractions
-   that weren't requested. Mark intentional simplifications with a
+1. **Ponytail** — the lazy-senior-dev seven-rung ladder: no rewriting code that
+   exists in-tree, no new dependency when stdlib or installed packages cover
+   it, no unrequested abstractions. Mark intentional simplifications with a
    `ponytail:` comment.
 2. **ZFC** — no keyword/regex/heuristic routing in application code. Delegate
    semantic decisions to a model.
@@ -44,26 +42,20 @@ The same skill is mirrored at `~/.codex/skills/ponytail/SKILL.md` for Codex.
 When invoked as `/code-standards <scope>` (or with no argument, against the
 current diff/PR):
 
-1. **Load ponytail first.** It is the *do* discipline. Read it, apply the
-   seven-rung ladder to the proposed diff before any of the *check* lanes
-   run.
+1. **Load ponytail first.** It is the *do* discipline: apply its seven-rung
+   ladder to the proposed diff before any *check* lane runs.
 2. **Define the review scope** from the command argument, or use the current
    diff / active PR context if no argument was supplied.
 3. **Load the four source skills** by path and treat them as authoritative.
-   Do not duplicate the standards into the command file — this skill file is
-   the only place the standards content should live.
-4. **Dispatch or emulate the four independent review lanes.** Invoke the
-   root-cause-first lane in review-only mode. Each lane must return either PASS
-   with file/line evidence or FAIL with the exact location and required fix.
-   Rationalizations are not evidence.
+   Never duplicate the standards into the command file; they live only here.
+4. **Dispatch or emulate the four independent review lanes**, root-cause-first
+   in review-only mode. Each lane returns PASS with file/line evidence or FAIL
+   with the exact location and required fix; rationalizations are not evidence.
 5. **Reconcile** the lane results into the report format below.
-6. **Do not mark any lane skipped** unless this is the explicit `smoke-test`
-   mode (see below). A repo-local command may add its own `smoke-test`
-   argument that proves the command file loaded without dispatching reviews.
+6. **Do not mark any lane skipped** outside the explicit `smoke-test` mode
+   below.
 
 ## Report format
-
-Reconcile the four lanes into one report:
 
 | Lane | Verdict | Evidence (file:line) | Required fix |
 |---|---|---|---|
@@ -83,25 +75,22 @@ not edit files. Instead, report:
 - the ponytail skill path (`${CLAUDE_HOME:-$HOME/.claude}/skills/ponytail/SKILL.md`),
 - the marker for this revision.
 
-This is the same convention used by repo-local `.claude/commands/code-standards.md`
-files (e.g. `CODEX_CODE_STANDARDS_COMMAND_V1`). It lets a runner confirm the
-command is on PATH and loadable without paying for a real review.
+Repo-local `.claude/commands/code-standards.md` files use the same convention
+(e.g. `CODEX_CODE_STANDARDS_COMMAND_V1`), so a runner can confirm the command
+is on PATH and loadable without paying for a real review.
 
 ## Bidirectional pointer contract
 
 The user-scope command at `${CLAUDE_HOME:-$HOME/.claude}/commands/code-standards.md` is
-**project-agnostic**: it applies to every repo, including ones without a
-repo-local `.claude/commands/code-standards.md`. Any repo-local
+**project-agnostic** and applies to every repo. Any repo-local
 `.claude/commands/code-standards.md` (for example at
 `$GITHUB_REPOSITORY/.claude/commands/code-standards.md`) MUST:
 
-1. **Load BOTH files.** State that the user-scope command at
-   `${CLAUDE_HOME:-$HOME/.claude}/commands/code-standards.md` / this skill are the source of
-   truth for the four-lane workflow (ponytail, ZFC, ZFC leveling,
+1. **Load BOTH files**, stating that the user-scope command / this skill are the
+   source of truth for the four-lane workflow (ponytail, ZFC, ZFC leveling,
    root-cause-first).
 2. **Always reference `${CLAUDE_HOME:-$HOME/.claude}/skills/ponytail/SKILL.md`** so the
-   lazy-senior-dev ladder is always part of the review, not a per-repo
-   choice.
+   ladder is never a per-repo choice.
 3. **Define repo-specific behavior** (e.g. an extra `/thermo` lane, a
    `/es` evidence rule, or a `smoke-test` marker like
    `WORLDARCHITECT_CODE_STANDARDS_COMMAND_V1`) WITHOUT forking the four
@@ -112,14 +101,11 @@ repo-local `.claude/commands/code-standards.md`. Any repo-local
    bidirectional pointer back to `${CLAUDE_HOME:-$HOME/.claude}/commands/code-standards.md`
    and document which lanes are added vs. inherited.
 
-When invoked inside a repo with a local copy, both files load. When invoked
-inside a repo without a local copy, the user-scope file is the complete
-implementation. The two are intentionally designed to co-exist; do not
-delete either one.
+With a repo-local copy, both files load; without one, the user-scope file is
+the complete implementation. They are designed to co-exist; delete neither.
 
 ## For Codex callers
 
-`~/.codex/commands/code-standards.md` is a thin Codex-side dispatcher that
-references the same four user-scope source skills. If a repo-local
-`.codex/commands/code-standards.md` exists, prefer it; otherwise the
-`~/.codex` copy is the entry point.
+`~/.codex/commands/code-standards.md` is a thin Codex-side dispatcher to the
+same four source skills. Prefer a repo-local `.codex/commands/code-standards.md`
+when one exists; otherwise the `~/.codex` copy is the entry point.
