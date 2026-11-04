@@ -13,7 +13,7 @@ Retain the existing conversation and incumbent work owner. Do not start duplicat
 - Resolve Hermes from a verified conversation/profile and read the connected sender profile. Never guess accounts or hardcode personal names, emails, workspace IDs or channel IDs.
 - When the current task authorizes acting as the owner, use the connected owner-identity Slack connector for the existing Hermes DM. Do not ask again for clearly granted authorization covering that sender, recipient and bounded task.
 - This skill itself grants no standing permission or new access. Keep private source/review packets and campaign diagnostics in authorized private destinations. Finding another channel does not silently authorize wider disclosure.
-- Carve-out: when the machine-local `ADVICE_HERMES_CHANNEL` opt-in names a Slack channel, that channel is an authorized destination for advice vote requests and their replies, one thread per Hermes instance. It authorizes nothing else there.
+- Carve-out: when the advice Hermes route is authorized and the machine-local `ADVICE_HERMES_CHANNEL` opt-in names a Slack channel available to the sending identity, that channel is an authorized destination for advice vote requests and their replies, one thread per Hermes instance. It authorizes nothing else there.
 
 ## Send and verify
 
