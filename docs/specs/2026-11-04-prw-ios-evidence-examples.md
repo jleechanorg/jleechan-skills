@@ -1,13 +1,13 @@
 # iOS workflow evidence examples
 
 ## Outcome
-Make the iOS workflow guide's before/after evidence useful by showing obvious, real changes from merged frontend PRs: invitation artwork, response readability, portrait attachment and structured equipment.
+Make the iOS workflow guide's before/after evidence useful by showing obvious, real changes from merged frontend PRs: invitation artwork, response readability, portrait attachment, pending description-generation progress and structured equipment.
 
 ## Non-goals
 No app changes, new captures, generated screenshots, paper/Journal redesign, native claims for web captures, deployment or changes to the canonical workflow policy.
 
 ## Acceptance
-Keep the approved invitation and readability examples. Add portrait and equipment pairs. Remove the open-PR Settings example. Every selected PR is merged; every image has an accessible original, verified hash, inspected pixels, source revision and explicit platform/scope limits. Preserve the older zoom and native iPad examples.
+Keep the approved invitation and readability examples. Add portrait and equipment pairs, plus the portrait-description loading example. Remove the open-PR Settings example. Every selected PR is merged; every image has an accessible original, verified hash, inspected pixels, source revision and explicit platform/scope limits. Preserve the older zoom and native iPad examples.
 
 ## User story
 A developer reading the guide can compare the affected surface before and after, see why screenshots add information beyond tests, and distinguish the demonstrated improvement from untested behavior.
