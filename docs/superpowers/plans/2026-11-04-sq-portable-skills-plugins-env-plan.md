@@ -38,8 +38,8 @@ Verification: `python3 -m pytest -q tests` failure set equals the baseline.
 
 TDD: N/A — documentation. Verification: `python3 -m pytest -q tests/test_skill_export_no_personal_paths.py`
 passes; `grep -nE '/(Users|home)/[a-z]' docs/portability-env-vars.md` prints nothing; and grepping the
-three new documents for every personal host alias, personal name and personal path listed in the audit
-records (kept outside the repository) prints nothing.
+three new documents with `grep -n -F -f "${XDG_CONFIG_HOME:-$HOME/.config}/jleechan-skills/personal-tokens.txt"`
+(the operator's machine-local list of personal host aliases, names and paths; never committed) prints nothing.
 
 Commit, push, open draft PR 1.
 
@@ -96,6 +96,11 @@ class PluginFoldersTest(unittest.TestCase):
                 with self.subTest(skill=str(skill)):
                     self.assertEqual(frontmatter_name((skill / "SKILL.md").read_text()), skill.name)
 
+    def test_plugins_have_skills(self):
+        self.assertTrue(PLUGINS.is_dir(), "plugins/ missing")
+        for d in plugin_dirs():
+            self.assertTrue(skill_dirs(d), f"{d.name} has no skills")
+
     def test_no_name_in_both_export_and_plugin(self):
         self.assertTrue(PLUGINS.is_dir(), "plugins/ missing")
         export = {p.name for p in (ROOT / ".claude" / "skills").iterdir() if p.is_dir()}
@@ -115,21 +120,21 @@ class PluginFoldersTest(unittest.TestCase):
 
 Run: `python3 -m pytest -q tests/test_plugin_folders.py`
 Expected RED: `test_expected_plugins_registered` fails (set difference lists all three);
-`test_plugin_manifests_and_skills` and `test_no_name_in_both_export_and_plugin` fail with
-`plugins/ missing`; `test_marketplace_sources_exist` and `test_relative_links_stay_inside_plugin`
+`test_plugin_manifests_and_skills`, `test_plugins_have_skills` and
+`test_no_name_in_both_export_and_plugin` fail with `plugins/ missing`; `test_marketplace_sources_exist` and `test_relative_links_stay_inside_plugin`
 pass vacuously until plugins exist.
 
 ### Task 2.2: Scaffold plugins and marketplace (GREEN for registration)
 
 **Files:** Create `plugins/{worldarchitect,ai-universe,self-hosted-runners}/.claude-plugin/plugin.json`
 (`name`, `description`, `version: "0.1.0"`, `author` copied from the root plugin.json,
-`"skills": ["./skills/"]`; Task 2.3 adds `"commands": ["./commands/"]` when it creates a commands dir),
+no `skills` or `commands` fields, because Claude Code discovers the default folders),
 `plugins/<name>/README.md` (purpose, `/plugin install <name>@jleechan-skills`, the env vars
 from the registry it needs). Modify `.claude-plugin/marketplace.json`: append three
 `plugins[]` entries with `"source": "./plugins/<name>"`.
 
 Run: `python3 -m pytest -q tests/test_plugin_folders.py` → `test_expected_plugins_registered`
-and `test_marketplace_sources_exist` PASS; the manifest test still fails until skills exist.
+and `test_marketplace_sources_exist` PASS; `test_plugins_have_skills` still fails until skills move.
 
 ### Task 2.3: Move skills (`git mv`)
 
@@ -187,7 +192,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 SCAN = (ROOT / ".claude" / "skills", ROOT / ".claude" / "commands")
 ALLOW = ROOT / "tests" / "fixtures" / "product_token_allowlist.txt"
-TOKENS = re.compile(r"worldarchitect|worldai|mvp_site|your-project\.com|testing_mcp", re.I)
+TOKENS = re.compile(r"worldarchitect|worldai|mvp_site|your-project\.com|testing_mcp|ai[-_]universe|ezgha", re.I)
 
 def offenders():
     out = set()
@@ -209,7 +214,7 @@ class ProductTokenRatchetTest(unittest.TestCase):
 Step 1: write the test with an empty allowlist (header comment only).
 Run: `python3 -m pytest -q tests/test_product_token_ratchet.py` → RED listing remaining offenders.
 Step 2: generate the allowlist from the post-move tree, overwriting it:
-`{ echo '# Files allowed to contain product tokens; may only shrink.'; python3 -c "import sys; sys.path.insert(0,'tests'); import test_product_token_ratchet as t; print('\n'.join(sorted(t.offenders())))" | sort -u; } > tests/fixtures/product_token_allowlist.txt`.
+`{ echo '# Files allowed to contain product tokens; may only shrink.'; python3 -c "import sys; sys.path.insert(0,'tests'); import test_product_token_ratchet as t; print('\n'.join(sorted(t.offenders())))" | LC_ALL=C sort -u; } > tests/fixtures/product_token_allowlist.txt`.
 Run again → PASS. Step 3: prove it bites: create a temporary `.claude/skills/zz-ratchet-probe/SKILL.md`
 containing `mvp_site` (confirmed absent from the allowlist), run → FAIL naming it, delete the probe
 directory, run → PASS.
@@ -243,8 +248,8 @@ depend on the surrounding checkout. Add any new variable to `docs/portability-en
 
 TDD: N/A — Markdown wording. Replace each audited literal with the registry variable or
 placeholder; delete personal-only reference files (`plan-micro/references/*` private baseline
-and TSV). Verification: grepping these skills for `~/projects/`, `projects_other`, `/opt/homebrew`
-and each personal host alias, name and wiki path listed in the audit records prints only intentional
+and TSV). Verification: grepping these skills for `~/projects/`, `projects_other` and `/opt/homebrew`, and with
+`grep -F -f` against the machine-local `personal-tokens.txt` list above, prints only intentional
 `command -v` fallbacks; `python3 -m pytest -q tests` → baseline.
 
 Commit, push, open draft PR 3.
@@ -267,7 +272,7 @@ credential-discipline, write-goal, goalexec, gmail (account part).
 `ci-queue-trim` with `GITHUB_REPOSITORY=acme/widgets` targets `acme/widgets`; with it unset
 and no `gh` repo, exits non-zero naming `GITHUB_REPOSITORY`). Each such test runs in a temporary
 non-git working directory with a stub `gh` on a temporary `PATH` that exits non-zero.
-Run → RED; implement; run → GREEN. Add new variables (DM-channel rename, luna scratch folder,
+Run → RED; implement; run → GREEN. Add new variables (DM-channel rename with no legacy fallback, luna scratch folder,
 command-research prefixes) to `docs/portability-env-vars.md`. Update `tests/test_luna_report_containment.py` expectations
 to the derived scratch folder.
 
@@ -305,8 +310,8 @@ RED (hardcoded product probe), implement, GREEN. Register `BROWSERCLAW_PROBE_END
 
 TDD: N/A — Markdown moves. Verification: `python3 -m pytest -q tests/test_plugin_folders.py tests/test_product_token_ratchet.py`
 PASS; then copy the allowlist to a scratch file, regenerate it with the overwrite command in
-Task 2.5 Step 2, and confirm it only shrank: `comm -13 <old> tests/fixtures/product_token_allowlist.txt`
-prints nothing. List any remaining entries with a reason in the PR body; full suite → baseline.
+Task 2.5 Step 2, and confirm it only shrank:
+`LC_ALL=C comm -13 <(grep -v '^#' <old>) <(grep -v '^#' tests/fixtures/product_token_allowlist.txt)` prints nothing. List any remaining entries with a reason in the PR body; full suite → baseline.
 
 Commit, push, open draft PR 5.
 

@@ -78,7 +78,9 @@ plugins/
 
 - Each `plugin.json` has `name`, `description`, `version`, and `author`. The
   author is the repository's existing team identity, the same one the root
-  plugin uses. Each also lists `skills`, plus `commands` when present.
+  plugin uses. It omits `skills` and `commands`: Claude Code discovers the
+  default `skills/` and `commands/` folders, and listing them again can load
+  them twice.
 - `.claude-plugin/marketplace.json` gets one `plugins[]` entry per folder, with
   `"source": "./plugins/<name>"`. Install with
   `/plugin marketplace add jleechanorg/jleechan-skills` and then
@@ -169,7 +171,8 @@ asserts every relative Markdown link inside `plugins/<name>/` resolves within it
 - **Plugin structure test** (`tests/test_plugin_folders.py`). Every marketplace
   source exists. Every `plugins/*/.claude-plugin/plugin.json` parses and its name
   matches the folder. Every plugin skill directory has frontmatter whose `name`
-  matches it. No name exists in both `.claude/skills/` and a plugin. Every relative
+  matches it. Every plugin has at least one skill. No name exists in both
+  `.claude/skills/` and a plugin. Every relative
   Markdown link inside a plugin resolves within that plugin. Non-directory entries
   are ignored, and a missing `plugins/` is a clean assertion failure.
 - **Privacy scans cover plugins.** `tests/test_skill_export_no_personal_paths.py`
@@ -177,8 +180,9 @@ asserts every relative Markdown link inside `plugins/<name>/` resolves within it
   roots, so moving a skill never removes it from zero-PII enforcement. A planted
   fake identifier proves each scan fails, then passes after revert.
 - **Product-token ratchet** (`tests/test_product_token_ratchet.py`). It scans
-  `.claude/skills/**` and `.claude/commands/**` for
-  `worldarchitect|worldai|mvp_site|your-project\.com|testing_mcp`. Any file that
+  `.claude/skills/**` and `.claude/commands/**`, case-insensitively, for the
+  product tokens of all three plugins:
+  `worldarchitect|worldai|mvp_site|your-project\.com|testing_mcp|ai[-_]universe|ezgha`. Any file that
   matches must appear in `tests/fixtures/product_token_allowlist.txt`, generated
   (overwrite, sorted, de-duplicated) from the post-move tree. Cleaned files may stay
   listed until a regeneration, because parallel PRs clean files independently; PR 5
@@ -211,7 +215,7 @@ Each PR adds any new variable it reads to `docs/portability-env-vars.md`.
 | Q3 | Delete personal identifiers in plugins too? | Yes | The zero-PII invariant covers the whole repository, not just the default export |
 | Q4 | Default for host aliases? | None: required, with a "not configured" failure | A default host is a machine assumption. The existing cross-machine-ssh-tier placeholders (`mymac`, `mylinux`) stay as examples only |
 | Q5 | Default for `~/projects`-style checkouts? | Derive from `git rev-parse --show-toplevel` or a required var; no `~/projects` default | A checkout location is a personal convention |
-| Q6 | Keep the legacy personal-named DM-channel variable? | Rename to `SLACK_OPERATOR_DM_CHANNEL`; scripts read the legacy name only as a commented deprecated fallback, removed in the next minor release; skill prose never names it | Avoids breaking the author's live setup while removing the personal name from docs |
+| Q6 | Keep the legacy personal-named DM-channel variable? | No. Rename to `SLACK_OPERATOR_DM_CHANNEL` with no fallback; the PR description tells existing users to rename the export in their own shell profile | A fallback would ship the personal name in exported scripts, which the zero-PII rule forbids |
 | Q7 | Change the bash installer? | No; use native plugin install | Least risk; the installer has extensive tests |
 | Q8 | Where do the design documents live? | `docs/superpowers/{specs,plans}/` in this repository | `~/roadmap` does not exist in this ephemeral container. The repository already keeps `/sq` documents in this folder |
 | Q9 | Use one PR or several? | Five, as in D5 | The request says "PRs". Splitting by concern keeps each PR reviewable |

@@ -26,6 +26,10 @@ but never writes.
   . "${XDG_CONFIG_HOME:-$HOME/.config}/jleechan-skills/env"
 ```
 
+An operator who wants to scan for their own leaks keeps a never-committed list of personal
+host aliases, names and paths at `${XDG_CONFIG_HOME:-$HOME/.config}/jleechan-skills/personal-tokens.txt`
+(one fixed string per line) and runs `grep -rn -F -f <that file> <paths>`.
+
 ## Repository and workspace
 
 | Variable | Meaning | Derived from | Default |
@@ -51,27 +55,27 @@ but never writes.
 
 ## Agent tooling
 
-| Variable | Meaning | Default |
-|---|---|---|
-| `HERMES_HOME` | Hermes agent home | `$HOME/.hermes` if it exists; otherwise skip Hermes steps |
-| `AO_CONFIG_PATH` | Agent Orchestrator config file | `${HERMES_HOME:-$HOME/.hermes}/agent-orchestrator.yaml` when it exists, else required |
-| `AO_REPO_ROOT` | Local Agent Orchestrator checkout | required where used |
-| `AO_GITHUB_REPO` | GitHub `owner/repo` of Agent Orchestrator | required where used |
-| `AO_PROJECT` | AO project name for `ao spawn --project` | required where used |
-| `AO_NPM_PACKAGE` | AO CLI npm package | the tool's published package name |
-| `AO_AGENT_GH_LOGIN` | GitHub login used by AO workers/bots | required where used |
-| `OPERATOR_GH_LOGIN` | GitHub login of the human operator; derived from `gh api user -q .login` | — |
-| `DARK_FACTORY_HOME` / `DARK_FACTORY_HOLDOUTS` | dark-factory checkout / holdouts checkout | required where used |
-| `DARK_FACTORY_REPO_URL` | Clone URL for dark-factory | required for install steps |
-| `DARK_FACTORY_LOG_DIR` | dark-factory log directory | `${XDG_STATE_HOME:-$HOME/.local/state}/dark-factory` |
-| `MEM0_HOOKS_DIR` / `MEM0_PYTHON` | mem0 hook directory / interpreter | unset: skip mem0 steps / `python3` |
-| `COMFYUI_HOME` | ComfyUI install | required where used |
+| Variable | Meaning | Derived from | Default |
+|---|---|---|---|
+| `HERMES_HOME` | Hermes agent home | — | `$HOME/.hermes` if it exists; otherwise skip Hermes steps |
+| `AO_CONFIG_PATH` | Agent Orchestrator config file | — | `${HERMES_HOME:-$HOME/.hermes}/agent-orchestrator.yaml` when it exists, else required |
+| `AO_REPO_ROOT` | Local Agent Orchestrator checkout | — | required where used |
+| `AO_GITHUB_REPO` | GitHub `owner/repo` of Agent Orchestrator | — | required where used |
+| `AO_PROJECT` | AO project name for `ao spawn --project` | — | required where used |
+| `AO_NPM_PACKAGE` | AO CLI npm package | — | the tool's published package name |
+| `AO_AGENT_GH_LOGIN` | GitHub login used by AO workers/bots | — | required where used |
+| `OPERATOR_GH_LOGIN` | GitHub login of the human operator | `gh api user -q .login` | — |
+| `DARK_FACTORY_HOME` / `DARK_FACTORY_HOLDOUTS` | dark-factory checkout / holdouts checkout | — | required where used |
+| `DARK_FACTORY_REPO_URL` | Clone URL for dark-factory | — | required for install steps |
+| `DARK_FACTORY_LOG_DIR` | dark-factory log directory | — | `${XDG_STATE_HOME:-$HOME/.local/state}/dark-factory` |
+| `MEM0_HOOKS_DIR` / `MEM0_PYTHON` | mem0 hook directory / interpreter | — | unset: skip mem0 steps / `python3` |
+| `COMFYUI_HOME` | ComfyUI install | — | required where used |
 
 ## Messaging and accounts
 
 | Variable | Meaning | Default |
 |---|---|---|
-| `SLACK_OPERATOR_DM_CHANNEL` | Slack DM channel ID for operator notifications. Scripts may read one legacy personal-named alias as a commented, deprecated fallback until the next minor release; skill prose never names it | required where used |
+| `SLACK_OPERATOR_DM_CHANNEL` | Slack DM channel ID for operator notifications (replaces an older personal-named variable; no fallback is read) | required where used |
 | `SLACK_TEST_CHANNEL` | Slack channel for test posts | required where used |
 | `SLACK_AUDIT_CHANNELS` | Comma-separated channel IDs `slack-audit` reads | required |
 | `SLACK_WORKSPACE_DOMAIN` | Workspace domain for permalinks (prefer `chat.getPermalink`) | unset |
@@ -81,12 +85,12 @@ but never writes.
 
 ## Cloud projects (plugin skills only)
 
-| Variable | Meaning | Default |
-|---|---|---|
-| `GCP_PROJECT_ID` | Google Cloud project; derived from `gcloud config get-value project` | — |
-| `FIREBASE_PROJECT_ID` | Firebase project | `GCP_PROJECT_ID` |
-| `LLM_FORENSICS_DATASET` | BigQuery dataset for LLM request logs | required |
-| `AI_UNIVERSE_MCP_URL` | AI Universe MCP server URL | required |
+| Variable | Meaning | Derived from | Default |
+|---|---|---|---|
+| `GCP_PROJECT_ID` | Google Cloud project | `gcloud config get-value project` | — |
+| `FIREBASE_PROJECT_ID` | Firebase project | — | `GCP_PROJECT_ID` |
+| `LLM_FORENSICS_DATASET` | BigQuery dataset for LLM request logs | — | required |
+| `AI_UNIVERSE_MCP_URL` | AI Universe MCP server URL | — | required |
 
 ## Self-hosted runners (plugin `self-hosted-runners`)
 
