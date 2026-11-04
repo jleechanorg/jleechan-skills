@@ -16,8 +16,9 @@ context, summary or framing of the change. Every reviewer's entire input,
 whether a CLI reviewer, the coordinator ask or a static-review subagent, is
 one fixed channel preamble below followed by one template below. Fill exactly the fields that the `advice` skill's §4
 table lists for the seat's `isolation:` record - `<PR URL>` `<SHA>` `<BASE SHA>` `<SCRATCH PATH>` for
-`isolation: orchestrator-clone`, `<PACKET PATH>` `<BUNDLE HASH>` for `isolation: none` - and use that record's
-preamble and template. The orchestrator writes nothing else.
+`isolation: orchestrator-clone`, `<PR URL>` `<SHA>` `<BASE SHA>` for `isolation: remote`, `<PR URL>` `<SHA>`
+`<BASE SHA>` `<PACKET PATH>` `<BUNDLE HASH>` for `isolation: packet`, `<PACKET PATH>` `<BUNDLE HASH>` for
+`isolation: none` - and use that record's preamble and template. The orchestrator writes nothing else.
 
 ## 2. Templates
 
@@ -28,6 +29,32 @@ Review <PR URL> at head <SHA> (base <BASE SHA>, work only in <SCRATCH PATH>). En
 evidence review before approval. Report P0/P1/P2 with file:line and a
 COVERAGE: line naming the files and diff you read; approve only with no P0/P1
 and full coverage; end with exactly one line:
+VERDICT: APPROVED|NOT APPROVED|WITHHELD at <SHA> (WITHHELD with a reason).
+```
+
+Remote review prompt, for `isolation: remote` outside reviewers such as a Dot
+or Hermes (skill-owned, verbatim):
+
+```text
+Review <PR URL> at head <SHA> (base <BASE SHA>) in your own fresh checkout of
+exactly <SHA>. Ensure it follows the /prw stages and focus on evidence review
+before approval. Report P0/P1/P2 with file:line, a MODEL: line naming the model
+and account you reviewed with, and a COVERAGE: line naming the files and diff
+you read; approve only with no P0/P1 and full coverage; end with exactly one
+line: VERDICT: APPROVED|NOT APPROVED|WITHHELD at <SHA> (WITHHELD with a reason).
+```
+
+Revision packet prompt, for `isolation: packet` web-provider seats
+(skill-owned, verbatim):
+
+```text
+Review the attached change packet for <PR URL> at head <SHA> (base <BASE SHA>),
+saved as <PACKET PATH>, bundle sha256:<BUNDLE HASH>. It holds the complete diff
+and the full post-change content of every changed file. Ensure it follows the
+/prw stages and focus on evidence review before approval. Report P0/P1/P2 with
+file:line, a MODEL: line naming the model you are, and a COVERAGE: line naming
+every packet file you read; if any file was truncated or unreadable, say so and
+do not approve; end with exactly one line:
 VERDICT: APPROVED|NOT APPROVED|WITHHELD at <SHA> (WITHHELD with a reason).
 ```
 
@@ -50,9 +77,19 @@ seat, and the packet must contain exactly the filled template. The orchestrator 
 alternates, each `<review request>`, and the stdin of forms without one, is
 exactly the preamble plus the template.
 
-Coordinator ask (for example a Dot reviewer channel): the configured account
-mentions, then `Advice vote requested.` on its own line, then the template.
-Send it to each configured coordinator account in rotation.
+Coordinator ask (a Dot account or a Hermes instance): the transport's required
+sender line, if its owning skill mandates one (for example the Dot `From ...:`
+prefix), then the configured account mentions, then `Advice vote requested.` on
+its own line, then the remote review prompt (revision) or the document-only
+review prompt (document-only). Send it to each configured Dot account in
+rotation and to each configured Hermes instance. The sender line and mentions
+are recorded in the receipt and are the only bytes allowed before the
+template.
+
+Web-provider ask (`/wa` seats): `Advice vote requested.` on its own line, then
+either the revision packet prompt (revision) or the document-only preamble below
+followed by the document-only review prompt (document-only), with the packet
+files attached as uploads.
 
 The revision and document-only preambles below apply to **every** CLI reviewer seat - Codex, Opus, the Claude
 alternates, Cursor, AGY and any `ADVICE_EXTRA_CLIS` seat - and to static reviewers. They replace the header the

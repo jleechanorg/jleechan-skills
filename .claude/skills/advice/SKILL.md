@@ -55,22 +55,72 @@ The orchestrator's synthesis and
 research-only output are not approval reviewers. `/research` is nonvoting and
 only for material unanswered questions. One competent objection may block.
 
+### Quota walls fail fast
+
+A CLI seat that answers with a usage limit, quota exhaustion, an exhausted 429
+retry, "rate limit reached", an expired plan or an equivalent account-level
+refusal is `UNAVAILABLE` at once with reason `quota` (plus the reset time when
+the CLI prints one). Do not wait out its §3 budget, do not retry the same
+account within the attempt, and do not switch its model to dodge the wall. A
+different account (for example a `claudewa`-style alternate) is a different
+seat and is still tried. The seat is ended for the ladder below as soon as the
+wall is observed.
+
+### Outside-reviewer ladder (CLI seats exhausted)
+
+As soon as the remaining CLI candidates in the ordered preference below can no
+longer fill every open vote slot - typically every CLI seat is quota-walled,
+missing or void - the orchestrator immediately and **concurrently** dispatches
+every configured outside route below. It does not serialize them, does not
+wait for a static reviewer first, and does not ask the user to pick one. Each
+outside route that returns an eligible verdict is a full outside vote; two
+outside votes from distinct identities satisfy the quorum on their own.
+
+| Outside route | How | Distinct seats |
+|---|---|---|
+| Dot | the [`/dot` skill](../dot/SKILL.md), each Dot account in its configured `rotation` (the same Dots that [dot-coordinator](../dot-coordinator/SKILL.md) is configured for), using the static-review coordinator ask | one per Dot account; a busy, limited or blocked composer moves to the next account per `/dot` |
+| Hermes | the [`/hermes` skill](../hermes/SKILL.md) Slack-only transport, using the static-review coordinator ask | one per configured Hermes instance - for example the primary Hermes and the `hermes-pc` Hermes - each resolved from that machine's Hermes configuration, never hardcoded here |
+| Web advice | [`/web-advice`](../web-advice/SKILL.md) (user shorthand `wa`), each authenticated web provider seat it can reach, using the revision-packet or document-only template | one per provider and account |
+
+- **Identity still rules.** Each outside route must report the model and
+  account it actually reviewed with (an `attested.` value). A route whose
+  reviewer used an account that another counted seat already used - for
+  example a Dot or Hermes coder running the same Codex account that just hit
+  its quota wall - is the same identity and is one vote at most; if that
+  account is quota-walled, that route is `UNAVAILABLE` too.
+- **Same template, same receipts.** The prompt is the static-review channel
+  preamble plus the template for the route's §4 row; it never carries the
+  user's question or a summary. Dot and Hermes use `isolation: remote`; `/web-advice`
+  uses `isolation: packet` (revision) or `isolation: none` (document-only).
+- **A reply is not a vote** until it contains `COVERAGE:` naming the whole
+  scope and the SHA-bound `VERDICT:` line. A Dot or Hermes acknowledgement,
+  "on it", a reaction or a delegated-coder promise is `SENT`/`ACKNOWLEDGED`
+  per `/hermes`, not a verdict. Read the verdict back at the source.
+- **Missing transports are recorded, not invented.** No Slack connector, no
+  authenticated Dot profile, no reachable browser, or no configured Hermes
+  instance makes that route `UNAVAILABLE` with the exact blocker. Do not
+  substitute a gateway, terminal input or another messaging route that the
+  owning skill forbids.
+
 Static-review fallback. This is an owner-authorized exception, chosen by the
-repository owner on 2026-10-29. When the orchestrator also has an external
-review coordinator (for example a Dot reviewer), it sends the static-review
-coordinator ask and, in parallel, launches static reviewers. With no
-coordinator configured, it launches static reviewers in parallel with the CLI
-attempts, and the trigger below counts only those CLI attempts. A static reviewer
-fills only a vote slot still unfilled after the primary and every alternate CLI
-attempt in the table below, and every configured coordinator account, have
-ended under their §3 attempt deadlines and each attempt or skip, including
-unsupported or unconfigured routes, is recorded in the `UNAVAILABLE` format
-below with the user told. Any outside full-coverage vote fills a
-slot first; one outside vote pairs with one static reviewer. Identity, cold
-start and receipts follow [static-review](../static-review/SKILL.md); the
-deadline, isolation, full coverage, SHA binding and §5 rules still apply. A
-late objection blocks until resolved and reopens the affected stage per
-pr-lifecycle.
+repository owner on 2026-10-29. Static reviewers are the last rung: launch
+them in parallel with the outside-reviewer ladder (or, with no outside route
+configured, in parallel with the CLI attempts), but a static reviewer fills
+only a vote slot still unfilled after the primary and every alternate CLI
+attempt in the table below, and every outside route and account in the ladder,
+have ended under their §3 attempt deadlines (a quota wall ends a seat at once)
+and each attempt or skip, including unsupported or unconfigured routes, is
+recorded in the `UNAVAILABLE` format below with the user told. Any outside
+full-coverage vote fills a slot first; one outside vote pairs with one static
+reviewer. Identity, cold start and receipts follow
+[static-review](../static-review/SKILL.md); the deadline, isolation, full
+coverage, SHA binding and §5 rules still apply. A late objection blocks until
+resolved and reopens the affected stage per pr-lifecycle.
+
+When no CLI seat, no outside route and fewer than the needed static reviewers
+produce eligible votes, the result is `VERDICT: WITHHELD` with every
+`UNAVAILABLE` line listed and the earliest known quota reset time named, so
+the user knows when a CLI retry becomes possible.
 
 No double substitution: when a coordinator verdict is itself being substituted
 by `/er` plus two `/advice` votes under pr-lifecycle, static reviewers cannot
@@ -112,7 +162,7 @@ resolved that way, or whose route cannot produce a full receipt, is `UNAVAILABLE
 every alternative path in this instruction file is deliberate: the slimming decision for this skill is *markdown
 only, zero runner code*, so a machine-local capability must never require a Python change to this repository.
 
-**Machine-specific configuration never lives in this repository.****Machine-specific configuration never lives in this repository.** A credential store directory, a
+**Machine-specific configuration never lives in this repository.** A credential store directory, a
 profile directory, a per-host wrapper path, a host-specific model alias or an account identifier belongs in
 that machine's `~/.bashrc` as an exported `ADVICE_*` value, never in a skill file, a PR or a document. This
 file may name the shape of a runner (for example `claudewa`-style wrapper that selects another credential
@@ -209,6 +259,11 @@ Capture both values together on the caller host. The seat must run on that same 
 timestamps are host-local; retain the UTC epoch only for audit, and never compare monotonic values across hosts. If
 the boundary cannot be captured, mark that attempt `UNAVAILABLE` instead of launching it.
 
+Outside routes (Dot, Hermes, `/web-advice`) run on another host or in a browser, so the orchestrator takes both the queue
+boundary and the reply-observed time on its own host and bounds its own send, poll and readback by the absolute
+deadline; the remote side's timestamps are only `attested.` audit values. There is no local process to time out, so
+`C` covers only the orchestrator's readback and receipt writing. A verdict first observed after the deadline is late.
+
 For every seat, derive the effective reviewer-attempt budget `B` (the user's explicit limit when supplied,
 otherwise 1800 seconds), a positive cleanup reserve `C`, and a positive timeout-grace `G`. **`C` and `G` must both
 fit inside `B`, otherwise the seat is `UNAVAILABLE`** - never launch an attempt whose setup and cleanup cannot fit
@@ -235,6 +290,8 @@ derived from the same row, so the two skills cannot drift apart.
 | `pin` (internal; never sent to a seat, never a seat's working directory) | orchestrator: clone the original checkout into allocated scratch with `--no-local`, check out `<SHA>`, fetch the base-branch tip from the PR remote | `donor_path`; `review_sha` = donor `HEAD`; `base_sha` = `git merge-base <SHA> <fetched base tip>`; `--git-common-dir` = `--git-dir`; `donor_removed` = `test ! -e <donor path>` | orchestrator | orchestrator, after the last seat clone is gone | none |
 | `isolation: orchestrator-clone` | orchestrator: clone the donor into `<SCRATCH PATH>`, then `git remote remove origin` | `clone_path` = `<SCRATCH PATH>`; `cwd: set` or `attested.cwd: instructed`; at launch **and again after the seat process is gone**: `--git-common-dir` = `--git-dir`, `HEAD` = `review_sha`, `git merge-base --is-ancestor <BASE SHA> HEAD` exits 0, `git remote` is empty; then `clone_removed` = `test ! -e <SCRATCH PATH>` | orchestrator, every key except any `attested.` one | orchestrator, whatever the seat's outcome | `<PR URL>` `<SHA>` `<BASE SHA>` `<SCRATCH PATH>` |
 | `isolation: none` | nobody | `packet_path`; per-file SHA-256; `bundle_sha256`; `clone_path: none`; `clone_removed: n/a` | orchestrator | nobody; the packet is kept as evidence | `<PACKET PATH>` `<BUNDLE HASH>` |
+| `isolation: remote` (Dot, Hermes) | the outside reviewer, on its own host; the orchestrator clones nothing for it | `<SHA>` is reachable on the PR remote (`git ls-remote` or the PR API) both at send and at reply readback; route and message reference/permalink; the returned `VERDICT:` line names `<SHA>`; `attested.model`; `attested.account`; `attested.clone_path`; `clone_path: remote`; `clone_removed: n/a` | orchestrator, every key except any `attested.` one | the outside reviewer; never claimed | `<PR URL>` `<SHA>` `<BASE SHA>` |
+| `isolation: packet` (`/web-advice` revision review) | nobody; the orchestrator writes a packet of the complete `git diff <BASE SHA>..<SHA>` plus the full post-change content of every changed file, from the `pin` donor | `packet_path`; per-file SHA-256; `bundle_sha256`; every file delivered as an upload, not pasted inline; provider shows no truncation; `COVERAGE:` names every packet file; `clone_path: none`; `clone_removed: n/a` | orchestrator | nobody; the packet is kept as evidence | `<PR URL>` `<SHA>` `<BASE SHA>` `<PACKET PATH>` `<BUNDLE HASH>` |
 
 - **Seats never clone, never delete and never attest.** The orchestrator creates every copy, verifies every key it can
   measure, and removes every copy after the seat process is confirmed gone - approval, crash, timeout or missing
@@ -249,8 +306,12 @@ derived from the same row, so the two skills cannot drift apart.
   `attested.` key never satisfies a cell whose verifier is the orchestrator.
 - **Unpushed SHAs work**, because seat clones come from the local donor. If `<SHA>` is absent from the original
   checkout, `pin` fails and revision mode is `UNAVAILABLE` with that condition named.
-- **No matching row - document-only only.** A route that cannot be given a path on this host, such as a remote
-  coordinator ask, is `UNAVAILABLE` for revision mode and may use `none`.
+- **Remote and packet rows.** A route that cannot be given a path on this host reviews a revision only through
+  `isolation: remote` (Dot, Hermes: needs `<SHA>` pushed and reachable on the PR remote; an unpushed SHA makes the
+  route `UNAVAILABLE` for revision mode) or `isolation: packet` (`/web-advice`). The remote reviewer fetches the PR itself on
+  its own host, so the orchestrator's checks there are reachability of `<SHA>` and the SHA in the returned verdict;
+  a verdict naming another SHA, or a PR whose head moved off `<SHA>` without `<SHA>` staying reachable, voids the
+  vote. For document-only review every outside route uses `none`.
 - **Host guards.** Clones live only in an allocated scratch directory, never `/tmp`, because the scratch-routing guard
   refuses `/tmp` workspaces; deletion always names the literal absolute path, never a computed `rm -rf "$VAR"`, because
   the destructive-path guard refuses that form.
@@ -279,7 +340,9 @@ with partial coverage; partial coverage never supplies an approval. Use
 reviewers or per the static-review fallback, are unavailable. A vote also
 requires receipt evidence of zero exit, no original checkout mutation, no
 surviving reviewer process, and no cleanup failure; a static-review receipt
-replaces only the seat-exit field. For every launched seat, also require a zero
+replaces only the seat-exit field, and an outside-route receipt (`remote` or
+`packet` row) replaces the seat-exit and surviving-process fields with that
+row's evidence. For every launched seat, also require a zero
 result, a present and parseable receipt, and a nonempty VERDICT line. Ignore the entire receipt when the seat
 returns nonzero; a failed late-receipt rewrite can leave an older success-looking receipt. If clone setup times out,
 directory-removal evidence does not prove setup descendants exited; record that
