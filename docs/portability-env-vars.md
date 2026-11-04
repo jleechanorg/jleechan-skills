@@ -88,7 +88,7 @@ host aliases, names and paths at `${XDG_CONFIG_HOME:-$HOME/.config}/jleechan-ski
 | Variable | Meaning | Derived from | Default |
 |---|---|---|---|
 | `GCP_PROJECT_ID` | Google Cloud project | `gcloud config get-value project` | — |
-| `FIREBASE_PROJECT_ID` | Firebase project | — | `GCP_PROJECT_ID` |
+| `FIREBASE_PROJECT_ID` | Firebase project. Required, never derived: skills that touch production data must not pick up whatever project gcloud has active | — | required |
 | `LLM_FORENSICS_DATASET` | BigQuery dataset for LLM request logs | — | required |
 | `AI_UNIVERSE_MCP_URL` | AI Universe MCP server URL | — | required |
 

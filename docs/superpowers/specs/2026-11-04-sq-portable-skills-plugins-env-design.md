@@ -14,13 +14,13 @@ that bar:
 |---|---|---|
 | Product-only | 29 | The skill only makes sense inside one product: WorldArchitect.AI, AI Universe, or the author's self-hosted runner fleet |
 | Parameterize | 81 | A generic skill that hardcodes a machine, checkout path, repository, Slack/GCP identifier, personal name, or product example |
+| Clean | 6 | Matches were placeholders only |
 
 Mapping to PRs: 29 skills move (27 of the audit's product-only skills plus two
 siblings it named, `ai-universe-httpie` and `secondo-dependencies`). The other
 two product-only skills, `testing-layers` and `smoke`, are split in PR 5 instead.
 The 81 parameterize skills divide into PR 3 (33), PR 4 (25 plus `gmail`, which is
 shared with PR 3 by line) and PR 5 (5 splits plus 18 example edits): 33 + 25 + 5 + 18 = 81.
-| Clean | 6 | Matches were placeholders only |
 
 The per-leak audit records (file, line, text, kind, proposed replacement) are
 inputs to the implementation, not shipped artifacts.
@@ -96,10 +96,11 @@ plugins/
   variables (`FIREBASE_PROJECT_ID`, `GCP_PROJECT_ID`, `AI_UNIVERSE_MCP_URL`).
   Moving a skill to a plugin does not license keeping secrets or personal data.
 
-**What moves.** A skill moves wholesale when its purpose is product-only and it has
-no generic callers and no install-profile entry. A generic-sounding name alone does
-not force a split; profile or retain-list entries that name a moved skill are
-removed in the same change:
+**What moves.** A skill moves wholesale when its purpose is product-only, no generic
+skill depends on it, and no curated install profile in `shared/install-profiles.json`
+selects it. A generic-sounding name alone does not force a split. Other mentions of a
+moved skill (`closure_excluded`, `shared/retain-local.json`, references) are removed or
+reworded in the same change:
 
 - **worldarchitect:** agents (renamed `worldai-agent-routing` so it no longer
   collides with `.claude/agents/`), bq-evidence-reading,
@@ -198,7 +199,9 @@ asserts every relative Markdown link inside `plugins/<name>/` resolves within it
   matches must appear in `tests/fixtures/product_token_allowlist.txt`, generated
   (overwrite, sorted, de-duplicated) from the post-move tree. Cleaned files may stay
   listed until a regeneration, because parallel PRs clean files independently; PR 5
-  regenerates the list and checks the new list is a subset of the old one. The
+  regenerates the list and checks the new list is a subset of the old one. PR 5
+  merges last; if PR 3 or PR 4 merges after it, a final one-commit PR repeats that
+  shrink-only regeneration on `main`. The
   ratchet is per file, so a listed file can gain tokens; review covers that residual
   gap until the list is empty. This is the zero-PII scan category `AGENTS.md`
   permits; it pins no prose.

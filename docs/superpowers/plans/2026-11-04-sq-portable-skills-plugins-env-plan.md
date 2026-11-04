@@ -42,7 +42,10 @@ Verification: `python3 -m pytest -q tests` failure set equals the baseline.
 TDD: N/A — documentation. Verification: `python3 -m pytest -q tests/test_skill_export_no_personal_paths.py`
 passes; `grep -nE '/(Users|home)/[a-z]' docs/portability-env-vars.md` prints nothing; and grepping the
 three new documents with `grep -n -F -f "${XDG_CONFIG_HOME:-$HOME/.config}/jleechan-skills/personal-tokens.txt"`
-(the operator's machine-local list of personal host aliases, names and paths; never committed) prints nothing.
+(the operator's machine-local list of personal host aliases, names and paths; never committed) exits 1
+(no match). Before running it, assert the list exists and is non-empty (`test -s <file>`); a missing or
+empty list, or grep exit 2, is a failed check, not a pass. Where no such list exists (an ephemeral
+container), the orchestrator writes one from the session-local audit records first.
 
 Commit, push, open draft PR 1.
 
@@ -65,7 +68,7 @@ EXPECTED = {"worldarchitect", "ai-universe", "self-hosted-runners"}
 LINK = re.compile(r"\]\(([^)#\s]+)(?:#[^)]*)?\)")
 
 def frontmatter_name(text):
-    m = re.match(r"---\n(.*?)\n---\n", text, re.S)
+    m = re.match(r"---\n(.*?)\n---\n", text.replace("\r\n", "\n"), re.S)
     if not m:
         return None
     for line in m.group(1).splitlines():
@@ -150,7 +153,8 @@ rename `agents` → `plugins/worldarchitect/skills/worldai-agent-routing` and up
 `.claude/scripts/auth-worldai.mjs` into `plugins/worldarchitect/skills/worldai-auth/scripts/` and
 reference it relative to the skill's base directory (`<this skill's directory>/scripts/auth-worldai.mjs`),
 not through `${CLAUDE_PLUGIN_ROOT}`, which is not guaranteed to expand in SKILL.md text. In every moved file, grep for
-`\.\./`, `scripts/`, `shared/` and `\.claude/`: address plugin-local files via `${CLAUDE_PLUGIN_ROOT}`,
+`\.\./`, `scripts/`, `shared/` and `\.claude/`: address plugin-local files relative to the skill's base
+directory (never `${CLAUDE_PLUGIN_ROOT}` in SKILL.md text),
 name generic skills instead of linking them, and copy any needed repository script into the plugin. Move commands whose only target moved
 (`.claude/commands/levelup.md`, `extended-library/generatetest.md`, `extended-library/repro_copy.md`,
 `extended-library/smoke-local.md`, `extended-library/bq.md`, `extended-library/second_opinion.md`
@@ -166,7 +170,8 @@ Run: `python3 -m pytest -q tests/test_plugin_folders.py` → all PASS, including
 
 **Files:** Modify `tests/test_skill_export_no_personal_paths.py` (scanned roots) and
 `tests/test_skill_personal_identifiers.py` (`SKILL_ROOTS`) to include `plugins`.
-Step 1: plant `/home/alice/x` in a moved plugin skill file; run
+Step 1: plant a fake home path (`/home/` followed by a made-up, non-placeholder user name) in a moved
+plugin skill file; run
 `python3 -m pytest -q tests/test_skill_export_no_personal_paths.py` → FAIL naming that file.
 Step 2: revert the plant → PASS. If real leaks in moved files fail the scan, scrub them.
 Step 3: put a synthetic identifier that `find_personal_identifiers` detects (for example the
@@ -258,7 +263,8 @@ depend on the surrounding checkout. Add any new variable to `docs/portability-en
 TDD: N/A — Markdown wording. Replace each audited literal with the registry variable or
 placeholder; delete personal-only reference files (`plan-micro/references/*` private baseline
 and TSV). Verification: grepping these skills for `~/projects/`, `projects_other` and `/opt/homebrew`, and with
-`grep -F -f` against the machine-local `personal-tokens.txt` list above, prints only intentional
+`grep -F -f` against the machine-local `personal-tokens.txt` list above (same `test -s` and exit-code
+rules), prints only intentional
 `command -v` fallbacks; `python3 -m pytest -q tests` → baseline.
 
 Commit, push, open draft PR 3.
@@ -322,7 +328,8 @@ PASS; then copy the allowlist to a scratch file, regenerate it with the overwrit
 Task 2.5 Step 2, and confirm it only shrank:
 `LC_ALL=C comm -13 <(grep -v '^#' <old>) <(grep -v '^#' tests/fixtures/product_token_allowlist.txt)` prints nothing. List any remaining entries with a reason in the PR body; full suite → baseline.
 
-Commit, push, open draft PR 5.
+Commit, push, open draft PR 5. Merge order: PR 1, then PRs 2–4, then PR 5 last. If PR 3 or PR 4
+merges after PR 5, open a one-commit follow-up that repeats this shrink-only regeneration on `main`.
 
 ---
 
