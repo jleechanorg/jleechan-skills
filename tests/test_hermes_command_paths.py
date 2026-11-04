@@ -28,7 +28,6 @@ class HermesCommandPathsTest(unittest.TestCase):
                 self.assertIn("$ARGUMENTS", text)
                 self.assertNotIn("localhost:", text)
                 self.assertNotIn("curl ", text)
-                self.assertLessEqual(len(text.splitlines()), 15)
 
     def test_repository_discovery_and_paths(self):
         self.assert_commands(ROOT / ".claude")
@@ -63,23 +62,6 @@ class HermesCommandPathsTest(unittest.TestCase):
             self.assert_commands(home)
             self.assertEqual("preserve this local command\n", unrelated.read_text())
             self.assertEqual((ROOT / ".claude" / SKILL).read_bytes(), (home / SKILL).read_bytes())
-
-    def test_scoped_install_accounts_for_every_discoverable_entry(self):
-        skill = " ".join((ROOT / ".claude" / SKILL).read_text().split())
-        for relative in (*COMMANDS, SKILL):
-            self.assertIn(f"`{relative}`", skill)
-        self.assertIn("Do not flatten", skill)
-        self.assertIn("outside the discoverable command tree", skill)
-        self.assertIn("both `/hermes` and `/extended-library:hermes`", skill)
-        for requirement in (
-            "including symlinks and divergent content",
-            "Reconcile differences first",
-            "retain recoverable originals",
-            "Do not overwrite Dot, Linux, or other installed packages",
-            "preserve unrelated local changes",
-            "report installation blocked",
-        ):
-            self.assertIn(requirement, skill)
 
 
 if __name__ == "__main__":

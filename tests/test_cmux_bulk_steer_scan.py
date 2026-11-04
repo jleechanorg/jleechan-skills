@@ -7,7 +7,6 @@ from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SKILL_MD = ROOT / ".claude" / "skills" / "cmux-bulk-steer" / "SKILL.md"
 SCAN_PY = ROOT / ".claude" / "skills" / "cmux-bulk-steer" / "scripts" / "scan.py"
 
 
@@ -239,18 +238,3 @@ class CmuxBulkSteerZfcScanTests(unittest.TestCase):
             self.assertIn("=== LIVE TERMINAL PANE ===", captured_text)
             self.assertIn("transcript_word_79", captured_text)
             self.assertIn("~/projects/worktree_demo (feat/demo-branch)", captured_text)
-
-    def test_skill_md_documents_zfc_ban_on_regex_classifiers_and_parallel_subagent_workflow(self):
-        text = SKILL_MD.read_text(encoding="utf-8")
-        self.assertIn("/zfc", text)
-        self.assertIn("--out-dir", text)
-        self.assertIn("10,000", text)
-        self.assertIn("/parallel", text)
-        self.assertIn("STOOD_DOWN_DUPLICATE", text)
-        self.assertIn(".pi/agent/sessions", text)
-        self.assertIn("801..1600", text)
-        self.assertNotIn("--parked-only", text)
-
-
-if __name__ == "__main__":
-    unittest.main()

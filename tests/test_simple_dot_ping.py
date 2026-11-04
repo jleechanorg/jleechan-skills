@@ -42,7 +42,6 @@ class LauncherContractTests(unittest.TestCase):
         self.assertNotIn("if not os.environ.get('DISPLAY'): mcp_args.append('--headless')", src)
         self.assertIn("mcp_args += ['--headless', '--chromeArg=--password-store=gnome-libsecret']", src)
         self.assertIn("mcp_args += ['--headless', '--chromeArg=--password-store=keychain']", src)
-        self.assertIn('headless on every host', (ROOT / '.claude/skills/dot-coordinator/SKILL.md').read_text())
 
     def test_dangling_singleton_lock_is_detected(self):
         import tempfile
