@@ -18,49 +18,27 @@ import tarfile
 from typing import Iterable
 
 
-PROFILE_CLAUDE_FABLE_VS_CODEX = {
-    "incident": "claude-fable-adversarial-review-codex-plan-miss",
-    "claim": (
-        "Claude fable ran a 53-agent adversarial review that confirmed current-state findings "
-        "but missed plan-level hazards; a later Codex review with three subagents caught ordering, "
-        "watchdog-metric, canary-overclaim, and self-reference issues already latent in the prior context."
-    ),
-    "incident_commit": "00005ddd8f971eb5852a174773da850134386d61",
-    "artifact_commit": "enclosing Git commit containing artifacts/repro-developer/claude-fable-adversarial-review-codex-plan-miss",
-    "claude_sessions": [
-        "/home/$USER/.claude/projects/-home-$USER-projects-dark-factory/61098aae-66af-474b-a488-1a47f9e8b66d.jsonl",
-    ],
-    "claude_session_dirs": [
-        "/home/$USER/.claude/projects/-home-$USER-projects-dark-factory/61098aae-66af-474b-a488-1a47f9e8b66d",
-    ],
-    "codex_sessions": [
-        "/home/$USER/.codex/sessions/2026/07/06/rollout-2026-07-06T20-38-21-019f3aa7-c615-74a0-8d41-d643dd48a804.jsonl",
-        "/home/$USER/.codex/sessions/2026/07/06/rollout-2026-07-06T20-58-08-019f3ab9-e056-7540-ba77-72d4712ad4ba.jsonl",
-        "/home/$USER/.codex/sessions/2026/07/06/rollout-2026-07-06T20-58-14-019f3ab9-f9b6-7852-99e0-d2eba90a498d.jsonl",
-        "/home/$USER/.codex/sessions/2026/07/06/rollout-2026-07-06T20-58-18-019f3aba-09dd-72b2-b064-c55a372397dc.jsonl",
-    ],
-    "repo_files": [
-        "docs/factory-goal-gap-review-2026-07-06.md",
-        "docs/adversarial-review-miss-retrospective-2026-07-06.md",
-        "docs/setup-agent-hooks-review-2026-07-06.md",
-        "roadmap/nextsteps-2026-07-06-gap-review.md",
-        ".beads/issues.jsonl",
-        ".beads/config.yaml",
-        ".beads/metadata.json",
-    ],
-    "beads": [
-        "$USER-niq",
-        "$USER-ron",
-        "$USER-qdw",
-        "$USER-1m4",
-        "$USER-gib",
-        "$USER-g1k",
-        "$USER-qqq",
-        "$USER-240",
-        "$USER-3ff",
-        "$USER-w7bv",
-    ],
+PROFILE_LIST_KEYS = {
+    "claude_sessions": "claude_session",
+    "claude_session_dirs": "claude_session_dir",
+    "codex_sessions": "codex_session",
+    "repo_files": "repo_file",
+    "beads": "bead",
 }
+PROFILE_TEXT_KEYS = ("incident", "claim", "incident_commit", "artifact_commit")
+
+
+def expand_path(raw: str) -> pathlib.Path:
+    """Expand $VARS and ~ the way a shell would, so profiles and args can say $CLAUDE_HOME."""
+    return pathlib.Path(os.path.expanduser(os.path.expandvars(raw)))
+
+
+def load_profile(path_s: str) -> dict[str, object]:
+    """Read an incident profile JSON (keys: PROFILE_TEXT_KEYS plus PROFILE_LIST_KEYS)."""
+    profile = json.loads(expand_path(path_s).read_text(encoding="utf-8"))
+    if not isinstance(profile, dict):
+        raise SystemExit(f"--incident-profile {path_s}: expected a JSON object")
+    return profile
 
 
 def run(cmd: list[str], cwd: pathlib.Path | None = None) -> dict[str, object]:
@@ -311,18 +289,25 @@ REDACTIONS: list[tuple[re.Pattern[str], str]] = [
         r"\1[REDACTED_BEARER]",
     ),
     (
-        re.compile(
-            r"(/home/$USER/projects/dark-factory-holdouts|~/projects/dark-factory-holdouts|"
-            r"projects/dark-factory-holdouts|dark-factory-holdouts|"
-            r"\$DARK_FACTORY_HOLDOUTS|DARK_FACTORY_HOLDOUTS)"
-        ),
+        re.compile(r"(dark-factory-holdouts|\$DARK_FACTORY_HOLDOUTS|DARK_FACTORY_HOLDOUTS)"),
         "[REDACTED_HOLDOUT_PATH]",
     ),
 ]
 
 
+def holdout_path_redactions() -> list[tuple[re.Pattern[str], str]]:
+    """Redact the configured sealed-holdouts checkout, wherever it lives."""
+    configured = os.environ.get("DARK_FACTORY_HOLDOUTS", "").strip()
+    if not configured:
+        return []
+    forms = {configured, str(expand_path(configured))}
+    forms.discard("")
+    alternation = "|".join(re.escape(f) for f in sorted(forms, key=len, reverse=True))
+    return [(re.compile(alternation), "[REDACTED_HOLDOUT_PATH]")]
+
+
 def sanitize_text(text: str) -> str:
-    for pattern, repl in REDACTIONS:
+    for pattern, repl in holdout_path_redactions() + REDACTIONS:
         text = pattern.sub(repl, text)
     return text
 
@@ -451,7 +436,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo", default=os.getcwd())
     parser.add_argument("--incident", default="")
-    parser.add_argument("--incident-profile", choices=["claude-fable-vs-codex-2026-07-06"], default="")
+    parser.add_argument(
+        "--incident-profile",
+        default="",
+        help="JSON file with incident, claim, commits, and session/repo-file/bead lists; paths may use $VARS and ~",
+    )
     parser.add_argument("--out", default="/tmp")
     parser.add_argument("--claim", default="")
     parser.add_argument("--incident-commit", default="")
@@ -473,33 +462,29 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.incident_profile:
-        profile = PROFILE_CLAUDE_FABLE_VS_CODEX
-        args.incident = args.incident or str(profile["incident"])
-        args.claim = args.claim or str(profile["claim"])
-        args.incident_commit = args.incident_commit or str(profile["incident_commit"])
-        args.artifact_commit = args.artifact_commit or str(profile["artifact_commit"])
-        args.claude_session.extend(profile["claude_sessions"])
-        args.claude_session_dir.extend(profile["claude_session_dirs"])
-        args.codex_session.extend(profile["codex_sessions"])
-        args.repo_file.extend(profile["repo_files"])
-        args.bead.extend(profile["beads"])
+        profile = load_profile(args.incident_profile)
+        for key in PROFILE_TEXT_KEYS:
+            if not getattr(args, key) and profile.get(key):
+                setattr(args, key, str(profile[key]))
+        for key, dest in PROFILE_LIST_KEYS.items():
+            getattr(args, dest).extend(str(v) for v in profile.get(key, []))
         args.include_dirty_diff = True
         args.include_beads_jsonl = True
         args.write_env_report = True
         args.verify = True
 
     if not args.incident:
-        parser.error("--incident is required unless --incident-profile is used")
+        parser.error("--incident is required unless the --incident-profile file sets it")
 
-    repo = pathlib.Path(args.repo).expanduser().resolve()
+    repo = expand_path(args.repo).resolve()
     stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    bundle_dir = pathlib.Path(args.out).expanduser().resolve() / f"repro-developer-{args.incident}-{stamp}"
+    bundle_dir = expand_path(args.out).resolve() / f"repro-developer-{args.incident}-{stamp}"
     bundle_dir.mkdir(parents=True, exist_ok=False)
 
     copied: list[dict[str, object]] = []
 
     for session_dir_s in args.claude_session_dir:
-        session_dir = pathlib.Path(session_dir_s).expanduser().resolve()
+        session_dir = expand_path(session_dir_s).resolve()
         if session_dir.exists():
             for src in iter_session_files(session_dir):
                 copy_file(src, bundle_dir, "raw/claude/session_dirs", copied)
@@ -507,19 +492,19 @@ def main() -> int:
             copied.append({"source": str(session_dir), "missing": True, "prefix": "raw/claude/session_dirs"})
 
     for src_s in args.claude_session:
-        copy_file(pathlib.Path(src_s).expanduser().resolve(), bundle_dir, "raw/claude/sessions", copied)
+        copy_file(expand_path(src_s).resolve(), bundle_dir, "raw/claude/sessions", copied)
 
     for src_s in args.codex_session:
-        copy_file(pathlib.Path(src_s).expanduser().resolve(), bundle_dir, "raw/codex/sessions", copied)
+        copy_file(expand_path(src_s).resolve(), bundle_dir, "raw/codex/sessions", copied)
 
     for rel_s in args.repo_file:
-        src = pathlib.Path(rel_s)
+        src = expand_path(rel_s)
         if not src.is_absolute():
             src = repo / src
         copy_file(src.resolve(), bundle_dir, "repo/files", copied)
 
     for src_s in args.extra:
-        copy_file(pathlib.Path(src_s).expanduser().resolve(), bundle_dir, "extra", copied)
+        copy_file(expand_path(src_s).resolve(), bundle_dir, "extra", copied)
 
     if args.include_beads_jsonl:
         copy_file(repo / ".beads" / "issues.jsonl", bundle_dir, "repo/beads", copied)
@@ -548,6 +533,12 @@ def main() -> int:
 
     script_path = pathlib.Path(__file__).resolve()
 
+    reading_order = [
+        f"{n}. `{entry['bundle_path']}` - copied from `{entry['source']}`"
+        for n, entry in enumerate((e for e in copied if "bundle_path" in e), start=1)
+        if n <= 20
+    ]
+
     replay = [
         f"# Developer Repro: {args.incident}",
         "",
@@ -568,16 +559,8 @@ def main() -> int:
         "",
         "## Suggested Reading Order",
         "",
-        "1. `repo/files/home/$USER/projects/dark-factory/docs/factory-goal-gap-review-2026-07-06.md` - original 53-agent gap review and ranked plan.",
-        "2. `raw/claude/sessions/home/$USER/.claude/projects/-home-$USER-projects-dark-factory/61098aae-66af-474b-a488-1a47f9e8b66d.jsonl` - Claude parent transcript.",
-        "3. `raw/claude/session_dirs/home/$USER/.claude/projects/-home-$USER-projects-dark-factory/61098aae-66af-474b-a488-1a47f9e8b66d/workflows/wf_ed5df387-52c.json` - Claude subagent workflow state.",
-        "4. `raw/claude/session_dirs/home/$USER/.claude/projects/-home-$USER-projects-dark-factory/61098aae-66af-474b-a488-1a47f9e8b66d/subagents/` - Claude subagent JSONL/meta state.",
-        "5. `raw/codex/sessions/home/$USER/.codex/sessions/2026/07/06/rollout-2026-07-06T20-38-21-019f3aa7-c615-74a0-8d41-d643dd48a804.jsonl` - Codex parent session that requested subagent review.",
-        "6. `raw/codex/sessions/home/$USER/.codex/sessions/2026/07/06/rollout-2026-07-06T20-58-08-019f3ab9-e056-7540-ba77-72d4712ad4ba.jsonl` - Codex architecture review subagent.",
-        "7. `raw/codex/sessions/home/$USER/.codex/sessions/2026/07/06/rollout-2026-07-06T20-58-14-019f3ab9-f9b6-7852-99e0-d2eba90a498d.jsonl` - Codex ops/reliability review subagent.",
-        "8. `raw/codex/sessions/home/$USER/.codex/sessions/2026/07/06/rollout-2026-07-06T20-58-18-019f3aba-09dd-72b2-b064-c55a372397dc.jsonl` - Codex adversarial policy review subagent.",
-        "9. `repo/files/home/$USER/projects/dark-factory/docs/adversarial-review-miss-retrospective-2026-07-06.md` - retrospective explaining the missed plan-level flaws.",
-        "10. `repo/command_outputs.json`, `repo/environment.json`, `repo/dirty-state/`, `repo/beads/`, `manifest.json`, and `checksums.sha256` - captured repo state and integrity metadata.",
+        *reading_order,
+        f"{len(reading_order) + 1}. `repo/command_outputs.json`, `repo/environment.json`, `repo/dirty-state/`, `repo/beads/`, `manifest.json`, and `checksums.sha256` - captured repo state and integrity metadata.",
         "",
         "## Notes",
         "",
@@ -653,6 +636,9 @@ def main() -> int:
         if not publish_dir.is_absolute():
             publish_dir = repo / publish_dir
         publish_dir.mkdir(parents=True, exist_ok=True)
+        origin = run(["git", "remote", "get-url", "origin"], repo)
+        clone_url = str(origin.get("stdout") or "").strip() or "<repo-clone-url>"
+        clone_dir = clone_url.rstrip("/").rsplit("/", 1)[-1].removesuffix(".git") or repo.name
         if sanitized_archive:
             shutil.copy2(sanitized_archive, publish_dir / sanitized_archive.name)
         if encrypted_archive:
@@ -667,8 +653,8 @@ def main() -> int:
             "- Do not commit the passphrase file. Share the passphrase only out of band with the intended engineer.\n\n"
             "## Reproduce\n\n"
             "```bash\n"
-            "git clone https://github.com/jleechanorg/dark-factory.git\n"
-            "cd dark-factory\n"
+            f"git clone {clone_url}\n"
+            f"cd {clone_dir}\n"
             "git checkout main  # or the specific commit containing this artifact directory\n"
             "git lfs pull\n"
             "mkdir -p /tmp/df-repro\n"

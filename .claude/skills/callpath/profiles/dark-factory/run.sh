@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
 # dark-factory profile (callpath run dark-factory) — read-only auto-factory call-path health probe.
-# Works from any cwd; resolves DARK_FACTORY_HOME (default ~/projects/dark-factory).
+# Works from any cwd; requires DARK_FACTORY_HOME (path to your dark-factory checkout).
 # Does NOT require factory-lite-harness.sh (decommissioned); overlay reads use sqlite.
 set -euo pipefail
 
-DF_HOME="${DARK_FACTORY_HOME:-$HOME/projects/dark-factory}"
-export BR_DB="${BR_DB:-$DF_HOME/.beads/beads.db}"
+DF_HOME="${DARK_FACTORY_HOME:-}"
+export BR_DB="${BR_DB:-${DF_HOME:+$DF_HOME/.beads/beads.db}}"
 br() { command br --db "$BR_DB" "$@"; }
 OVERLAY_DB="${DAEMON_CXDB:-$HOME/.dark-factory/daemon-cxdb.sqlite}"
-LOG_DIR="${HOME}/Library/Logs/dark-factory"
+if [[ -n "${DARK_FACTORY_LOG_DIR:-}" ]]; then LOG_DIR="$DARK_FACTORY_LOG_DIR"
+elif [[ "$(uname -s)" == "Darwin" && -d "$HOME/Library/Logs/dark-factory" ]]; then LOG_DIR="$HOME/Library/Logs/dark-factory"
+else LOG_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/dark-factory"
+fi
 INTAKE="${DF_HOME}/daemon/factory-intake-from-gh.sh"
 OVERLAY="${DF_HOME}/daemon/factory-overlay.sh"
 RUST_RELEASE="${DF_HOME}/daemon/target/release/daemon"
@@ -26,12 +29,17 @@ while [[ $# -gt 0 ]]; do
     --issue) ISSUES="${ISSUES} $2"; shift 2 ;;
     -h|--help)
       echo "Usage: callpath.sh [--prs N,N,...]"
-      echo "Read-only factory call-path health (DARK_FACTORY_HOME=${DF_HOME})"
+      echo "Read-only factory call-path health (DARK_FACTORY_HOME=${DF_HOME:-<not configured>})"
       exit 0
       ;;
     *) echo "Unknown: $1" >&2; exit 2 ;;
   esac
 done
+
+if [[ -z "$DF_HOME" ]]; then
+  echo "DARK_FACTORY_HOME not configured: path to your dark-factory checkout. Example: export DARK_FACTORY_HOME=\$HOME/src/dark-factory" >&2
+  exit 2
+fi
 
 now_utc="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 worst="GREEN"
@@ -113,7 +121,7 @@ else:
 PY
 }
 
-TARGET_REPO="$(read_config target_repo "$GITHUB_REPOSITORY")"
+TARGET_REPO="$(read_config target_repo "${GITHUB_REPOSITORY:-}")"
 STAGE="$(read_config stage "?")"
 FACTORY_LABEL="${FACTORY_LABEL:-factory}"
 
