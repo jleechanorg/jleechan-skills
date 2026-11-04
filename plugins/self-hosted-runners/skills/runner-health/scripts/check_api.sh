@@ -6,7 +6,11 @@
 set -uo pipefail
 
 TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-ORG="${GH_ORG:-jleechanorg}"
+ORG="${GH_ORG:-${GITHUB_ORG:-${GITHUB_REPOSITORY%%/*}}}"
+if [[ -z "$ORG" ]]; then
+  echo '{"timestamp":"'"$TS"'","host":"local","org":null,"error":"GH_ORG not configured: GitHub org that owns the runners. Example: export GH_ORG=<org>","runners":null,"rate_limit":null}' >&2
+  exit 2
+fi
 
 if ! command -v gh >/dev/null 2>&1; then
   echo '{"timestamp":"'$TS'","host":"mac","org":"'$ORG'","error":"gh CLI not installed","runners":null,"rate_limit":null}' >&2
@@ -22,7 +26,8 @@ fi
 
 # In-flight jobs (per-repo aggregate)
 IN_FLIGHT=0
-for repo in $GITHUB_REPOSITORY jleechanorg/jleechanclaw jleechanorg/agent-orchestrator; do
+# Extra repositories to include are space-separated owner/repo values.
+for repo in ${GITHUB_REPOSITORY:-} ${RUNNER_HEALTH_EXTRA_REPOS:-}; do
   N=$(gh api "repos/${repo}/actions/runs?status=in_progress&per_page=10" --jq '.total_count' 2>/dev/null || echo "0")
   IN_FLIGHT=$((IN_FLIGHT + N))
 done

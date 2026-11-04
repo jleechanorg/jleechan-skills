@@ -7,18 +7,33 @@ description: Pre-flight checklist for self-hosted runner failures. Use when inve
 
 ## When to use this skill
 - User says "runner is offline", "runner missing", "CI failed low_disk_space", "Green Gate stuck"
-- `gh api orgs/jleechanorg/actions/runners` shows fewer than 22 runners
+- `gh api "orgs/$GITHUB_ORG/actions/runners"` shows fewer than the expected count
+  (`$RUNNER_EXPECTED_LINUX` + `$RUNNER_EXPECTED_MAC`)
 - A workflow run has been "in_progress" on Green Gate >30 minutes
+
+## Configuration
+
+Read these from the environment (see the plugin README); when one is unset, report
+`<VAR> not configured` and stop rather than guessing a host or path.
+
+| Variable | Meaning |
+|---|---|
+| `GITHUB_ORG` | Org that owns the runners (default: `${GITHUB_REPOSITORY%%/*}`) |
+| `RUNNER_HOST` | SSH alias of the Linux runner host |
+| `RUNNER_HOST_DOCKER_SOCK` | Docker socket on that host (default `unix:///var/run/docker.sock`) |
+| `RUNNER_COMPOSE_DIR` | docker-compose directory for the Linux runners on that host |
+| `RUNNER_INSTALL_DIR` | Local runner install root (default `${XDG_DATA_HOME:-$HOME/.local/share}/self-hosted-runners`) |
+| `RUNNER_EXPECTED_LINUX` / `RUNNER_EXPECTED_MAC` | Expected online runner counts |
 
 ## The 5-questions pre-flight (MANDATORY before any fix)
 
 For each failure class, answer BEFORE proposing a fix:
 
 1. **What does GitHub say?**
-   `gh api orgs/jleechanorg/actions/runners?per_page=100 --jq '.runners[] | {name,status,busy}'`
+   `gh api "orgs/$GITHUB_ORG/actions/runners?per_page=100" --jq '.runners[] | {name,status,busy}'`
 2. **What does the host actually have?**
    - mac: `docker ps --format "{{.Names}}\t{{.Status}}" | grep org-runner-mac-`
-   - jeff-ubuntu: `ssh jeff-ubuntu "DOCKER_HOST=unix:///home/$USER/.lima/colima/sock/docker.sock docker ps --format '{{.Names}}\t{{.Status}}' | grep org-runner-"`
+   - Linux host: `ssh "$RUNNER_HOST" "DOCKER_HOST=${RUNNER_HOST_DOCKER_SOCK:-unix:///var/run/docker.sock} docker ps --format '{{.Names}}\t{{.Status}}' | grep org-runner-"`
 3. **What does the disk look like inside the container?**
    `docker exec <name> df -Pk /` — needs >=1GB free for preflight to pass.
 4. **Is the runner in restart loop?**
@@ -67,14 +82,14 @@ authority. Existing task-specific holds override any legacy recipe below.
   ```
 - Set `DISK_MIN_KB=5242880` (5GB, 5x the preflight threshold).
 - Belt-and-suspenders: add a periodic launchd script (`mac-runner-disk-cleanup.sh` style).
-- Deploy: `bash self-hosted-oss/install.sh` syncs to `~/.local/share/worldarchitect-runners/pre-job-hook.sh` (bind-mounted live — no restart needed).
+- Deploy: `bash self-hosted-oss/install.sh` syncs to `$RUNNER_INSTALL_DIR/pre-job-hook.sh` (bind-mounted live — no restart needed).
 - VERIFY: `docker exec <runner> bash -c 'pgrep Runner.Worker'` returns empty (idle), then `df -Pk /` shows >=5GB.
 
 ### Class B: missing runner (compose defines N but only N-1 containers exist)
-- mac (ARM64): `RUNNER_COUNT=<N> bash ~/.local/share/worldarchitect-runners/start-runner.sh start`
-- jeff-ubuntu (X64):
-  `ssh jeff-ubuntu "cd ~/projects/worktree_runner/self-hosted-colima && DOCKER_HOST=unix:///home/$USER/.lima/colima/sock/docker.sock docker compose up -d runner-<N>"`
-- Then verify: `docker ps | grep runner-<N>` and `gh api orgs/jleechanorg/actions/runners --jq '.runners[].name' | grep runner-<N>`
+- mac (ARM64): `RUNNER_COUNT=<N> bash "$RUNNER_INSTALL_DIR/start-runner.sh" start`
+- Linux host (X64):
+  `ssh "$RUNNER_HOST" "cd \"$RUNNER_COMPOSE_DIR\" && DOCKER_HOST=${RUNNER_HOST_DOCKER_SOCK:-unix:///var/run/docker.sock} docker compose up -d runner-<N>"`
+- Then verify: `docker ps | grep runner-<N>` and `gh api "orgs/$GITHUB_ORG/actions/runners" --jq '.runners[].name' | grep runner-<N>`
 
 ### Class C: Green Gate stuck on gate 8 (smoke)
 - Compare `SKEPTIC_GATE_TRIGGER` SHA pinned in PR comments to `gh pr view <N> --json headRefOid`.
@@ -89,41 +104,41 @@ authority. Existing task-specific holds override any legacy recipe below.
 ### Class D: token returns 403 from inside container
 - Confirm token length: `docker exec <name> bash -c 'echo ${#ACCESS_TOKEN}'` (should be ~40).
 - Test directly:
-  `docker exec <name> curl -X POST -H "Authorization: token $ACCESS_TOKEN" -H "Accept: application/vnd.github+json" https://api.github.com/orgs/jleechanorg/actions/runners/registration-token`
+  `docker exec <name> curl -X POST -H "Authorization: token $ACCESS_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/orgs/$GITHUB_ORG/actions/runners/registration-token"`
 - 201 → token fine, timing issue (config.sh ran before API ready), re-run start-runner.
 - 401/403 → token bad/expired, rotate `gh auth token` and re-deploy.
 
-### Class E: jeff-ubuntu host fully unreachable ("host dark")
+### Class E: Linux runner host (`$RUNNER_HOST`) fully unreachable ("host dark")
 
 **Distinct from Class B/D.** Those assume the runner *process* is broken and a
 docker-level fix (restart, token rotate) will work. Class E is for when the
 **entire physical host** is unreachable — no SSH, no API response, nothing to
 restart, and (per standing org policy) no smart-plug/IPMI remote-power path to
-even attempt a hard reset. jeff-ubuntu is on-prem with zero remote-power
+even attempt a hard reset. This class assumes an on-prem host with zero remote-power
 access; this is a known, accepted limitation, not a gap to fix here.
 
 **Two-signal confirmation (MANDATORY before declaring "host dark")** — a
 single failed signal is not sufficient; the skill's own wifi/subnet caveat
 (see `runner-health` SKILL.md) means SSH timeout alone is frequently a false
-positive when the operator is on a different network than jeff-ubuntu:
+positive when the operator is on a different network than the runner host:
 
-1. **Signal 1 — direct reachability from the local Mac:**
+1. **Signal 1 — direct reachability from the operator's machine:**
    ```bash
-   ssh -o ConnectTimeout=5 -o BatchMode=yes jeff-ubuntu true; echo "ssh_exit=$?"
-   ping -c 2 -W 2 jeff-ubuntu; echo "ping_exit=$?"
+   ssh -o ConnectTimeout=5 -o BatchMode=yes "$RUNNER_HOST" true; echo "ssh_exit=$?"
+   ping -c 2 -W 2 "$RUNNER_HOST"; echo "ping_exit=$?"
    ```
    A non-zero exit on both is necessary but NOT sufficient on its own (could
    be local wifi/subnet routing, not a dead host).
 
-2. **Signal 2 — GitHub API shows ALL jeff-ubuntu runners idle simultaneously:**
+2. **Signal 2 — GitHub API shows ALL Linux-host runners idle simultaneously:**
    ```bash
-   gh api orgs/jleechanorg/actions/runners?per_page=100 \
+   gh api "orgs/$GITHUB_ORG/actions/runners?per_page=100" \
      --jq '.runners[] | select(.name | startswith("org-runner-")) | select(.name | test("mac") | not) | {name,status,busy}'
    ```
    If EVERY Linux (non-mac) runner shows `status:"online", busy:false` (or
    `offline`) with none in-flight, combined with Signal 1's timeout, that is
    the confirmed two-signal "host dark" verdict. (A prior incident also saw
-   `dig jeff-ubuntu` / `host jeff-ubuntu` return NXDOMAIN — a bonus third
+   `dig "$RUNNER_HOST"` / `host "$RUNNER_HOST"` return NXDOMAIN — a bonus third
    signal when local DNS is involved, but not required for the verdict.)
 
    **Do NOT declare host-dark from Signal 1 alone.** If Signal 2 shows any
@@ -136,13 +151,12 @@ positive when the operator is on a different network than jeff-ubuntu:
   been separately designed and merged; check for a GitHub-hosted-failover
   design before assuming one is live — this preflight skill does not
   implement that lane itself).
-- **Do:** log the recurrence as a comment on bead `rev-runn001` ("Jeff-Ubuntu
-  host freezes") — this is a known, tracked incident class open since
-  2026-04-28. Do NOT open a new bead per recurrence; add evidence (date,
+- **Do:** log the recurrence as a comment on the fleet's tracked host-freeze bead
+  (`<host-freeze-bead-id>`, if your fleet tracks one). Do NOT open a new bead per recurrence; add evidence (date,
   two-signal output) as a comment so the P1 stays a single source of truth.
-  `br comments add --actor <you> rev-runn001 -- "<date>: host dark, ssh+api both confirmed..."`
+  `br comments add --actor <you> <host-freeze-bead-id> -- "<date>: host dark, ssh+api both confirmed..."`
 - **Don't:** retry SSH in a tight loop hoping it comes back — the host has no
-  remote-power path, so nothing you run from the Mac will bring it back.
+  remote-power path, so nothing you run remotely will bring it back.
   Wasted retries burn time that should go to capacity triage instead.
 - **Don't:** attempt any smart-plug/IPMI/remote-power action — explicitly
   deprioritized; this is a documentation/triage gap, not a hardware-control
@@ -157,8 +171,8 @@ positive when the operator is on a different network than jeff-ubuntu:
 - Proposing "schedule a cron to clean up" as the primary fix (use per-job hook).
 - Re-dispatching Green Gate without first dispatching smoke (gate 8 polls forever).
 - Restarting the container while a job is running (always check `pgrep Runner.Worker` first).
-- Editing the runtime mirror directly (`~/.local/share/worldarchitect-runners/`) — edit `self-hosted-oss/`, then `bash install.sh` to sync.
+- Editing the runtime mirror directly (`$RUNNER_INSTALL_DIR/`) — edit `self-hosted-oss/`, then `bash install.sh` to sync.
 - Declaring "host dark" (Class E) from a single SSH/ping timeout — always confirm with the GitHub API signal too; SSH-only failure is frequently a wifi/subnet false positive.
-- Retrying SSH to a confirmed-dark host in a tight loop — there is no remote-power path, so it will not come back on its own; spend the time on capacity triage and the `rev-runn001` bead comment instead.
-- Opening a new bead for each jeff-ubuntu-dark recurrence — this incident class is tracked on `rev-runn001` (open since 2026-04-28); add a comment with the new date + two-signal evidence instead.
+- Retrying SSH to a confirmed-dark host in a tight loop — there is no remote-power path, so it will not come back on its own; spend the time on capacity triage and the host-freeze bead comment instead.
+- Opening a new bead for each host-dark recurrence — track the incident class on one bead and add a comment with the new date + two-signal evidence instead.
 

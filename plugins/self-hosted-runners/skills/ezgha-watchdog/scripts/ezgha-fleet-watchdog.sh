@@ -10,8 +10,8 @@
 #
 # Usage:
 #   bash ezgha-fleet-watchdog.sh                  # check both hosts, alert if below target
-#   bash ezgha-fleet-watchdog.sh --host mac       # only MacBook
-#   bash ezgha-fleet-watchdog.sh --host linux     # only jeff-ubuntu
+#   bash ezgha-fleet-watchdog.sh --host mac       # only the local Mac host
+#   bash ezgha-fleet-watchdog.sh --host linux     # only the Linux runner host ($RUNNER_HOST)
 #   bash ezgha-fleet-watchdog.sh --dry-run        # report only, never restart even if opted in
 #
 # Env:
@@ -28,7 +28,10 @@
 
 set -uo pipefail
 
-EZGHA="${EZGHA_BIN:-$HOME/.cargo/bin/ezgha}"
+EZGHA="${EZGHA_BIN:-$(command -v ezgha || true)}"
+LINUX_HOST="${RUNNER_HOST:-}"
+MAC_LABEL="${RUNNER_LAUNCHD_LABEL:-}"
+LINUX_UNIT="${RUNNER_SYSTEMD_UNIT:-ezgha}"
 LOG="/tmp/ezgha-watchdog.log"
 TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 DRY_RUN=0
@@ -133,7 +136,7 @@ if type(count) is int and count >= 0:
 
 
 ensure_colima_running() {
-  # MacBook uses colima as the Docker backend. If colima VM is stopped,
+  # The Mac host uses colima as the Docker backend. If colima VM is stopped,
   # ezgha serve refuses to spawn runners (fail-closed on policy.minimum_isolation=vm).
   # Detect and auto-start before declaring fleet state.
   local lima_state
@@ -187,7 +190,11 @@ check_mac() {
     if [[ "$consecutive" -gt "$HYSTERESIS_THRESHOLD" ]]; then
       if [[ "$DRY_RUN" -eq 0 && "$ALLOW_RESTART" -eq 1 ]]; then
         log "MAC: consecutive shortfall exceeds $HYSTERESIS_THRESHOLD cycles — restarting ezgha serve via launchctl"
-        launchctl kickstart -k "gui/$(id -u)/org.jleechanorg.ezgha" 2>&1 | tee -a "$LOG"
+        if [[ -z "$MAC_LABEL" ]]; then
+          log "MAC: RUNNER_LAUNCHD_LABEL not configured: launchd label of ezgha serve; skipping restart"
+        else
+          launchctl kickstart -k "gui/$(id -u)/$MAC_LABEL" 2>&1 | tee -a "$LOG"
+        fi
       else
         log "MAC: consecutive shortfall exceeds $HYSTERESIS_THRESHOLD cycles — restart SKIPPED (fail-closed default; set EZGHA_WATCHDOG_ALLOW_RESTART=1 to enable, only after confirming a live-deployed non-destructive recovery path)"
       fi
@@ -203,11 +210,15 @@ check_mac() {
 check_linux() {
   if [[ -n "$HOST_FILTER" && "$HOST_FILTER" != "linux" ]]; then return 0; fi
   local configured actual
-  configured=$(ssh -o ConnectTimeout=5 jeff-ubuntu 'cat ~/.config/ezgha/config.toml 2>/dev/null' 2>/dev/null | read_configured_count)
-  actual=$(ssh -o ConnectTimeout=5 jeff-ubuntu '$HOME/.cargo/bin/ezgha status 2>/dev/null | grep -oE "managed containers: [0-9]+" | grep -oE "[0-9]+"' 2>/dev/null)
+  if [[ -z "$LINUX_HOST" ]]; then
+    log "LINUX: RUNNER_HOST not configured: SSH alias of the Linux runner host; skipping"
+    return 0
+  fi
+  configured=$(ssh -o ConnectTimeout=5 "$LINUX_HOST" 'cat ~/.config/ezgha/config.toml 2>/dev/null' 2>/dev/null | read_configured_count)
+  actual=$(ssh -o ConnectTimeout=5 "$LINUX_HOST" 'ezgha status 2>/dev/null | grep -oE "managed containers: [0-9]+" | grep -oE "[0-9]+"' 2>/dev/null)
 
   if [[ -z "$configured" || -z "$actual" ]]; then
-    log "LINUX: cannot read state from jeff-ubuntu (ssh timeout or ezgha missing)"
+    log "LINUX: cannot read state from $LINUX_HOST (ssh timeout or ezgha missing)"
     return 2
   fi
 
@@ -222,7 +233,7 @@ check_linux() {
     if [[ "$consecutive" -gt "$HYSTERESIS_THRESHOLD" ]]; then
       if [[ "$DRY_RUN" -eq 0 && "$ALLOW_RESTART" -eq 1 ]]; then
         log "LINUX: consecutive shortfall exceeds $HYSTERESIS_THRESHOLD cycles — restarting ezgha.service via systemd"
-        ssh -o ConnectTimeout=5 jeff-ubuntu "systemctl --user restart ezgha" 2>&1 | tee -a "$LOG"
+        ssh -o ConnectTimeout=5 "$LINUX_HOST" "systemctl --user restart $LINUX_UNIT" 2>&1 | tee -a "$LOG"
       else
         log "LINUX: consecutive shortfall exceeds $HYSTERESIS_THRESHOLD cycles — restart SKIPPED (fail-closed default; set EZGHA_WATCHDOG_ALLOW_RESTART=1 to enable, only after confirming a live-deployed non-destructive recovery path)"
       fi

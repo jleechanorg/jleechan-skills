@@ -99,9 +99,12 @@ chmod +x "$FAKEBIN/ssh"
 PATH="$FAKEBIN:$PATH"
 export PATH
 SSH_TIMEOUT=1
-JEFF_UBUNTU_TIMEOUT=1
-JEFF_UBUNTU_HOST=jeff-ubuntu
-export SSH_TIMEOUT JEFF_UBUNTU_TIMEOUT JEFF_UBUNTU_HOST
+RUNNER_HOST_TIMEOUT=1
+RUNNER_HOST=mylinux
+GH_ORG=example-org
+RUNNER_EXPECTED_LINUX=16
+RUNNER_EXPECTED_MAC=6
+export SSH_TIMEOUT RUNNER_HOST_TIMEOUT RUNNER_HOST GH_ORG RUNNER_EXPECTED_LINUX RUNNER_EXPECTED_MAC
 FAKE_SSH_LOG="$TESTDIR/ssh.log"
 PWNED_FILE="$TESTDIR/pwned"
 export FAKE_SSH_LOG PWNED_FILE
@@ -178,7 +181,7 @@ if [[ $RC -eq 0 ]]; then echo "PASS: exit 0"; else echo "FAIL: expected exit 0, 
 check_field "$OUT" "d['session_conflicts']" "['ez-runner-c-5']" "Linux runner flagged as session_conflict via SSH"
 
 echo ""
-echo "=== Scenario 5: Linux runner offline, jeff-ubuntu unreachable over SSH ==="
+echo "=== Scenario 5: Linux runner offline, the runner host unreachable over SSH ==="
 OUT="$(FAKE_GH_MODE=linux_offline FAKE_SSH_RC=255 bash "$SCRIPT")"
 RC=$?
 if [[ $RC -eq 0 ]]; then echo "PASS: exit 0"; else echo "FAIL: expected exit 0, got $RC"; FAIL=1; fi
@@ -210,9 +213,9 @@ echo ""
 echo "=== Scenario 9: detector error blocks healthy GREEN verdict ==="
 API_JSON='{"runners":{"online":22,"busy":22,"by_arch":{"linux_x64":{"online":16,"busy":16},"mac_arm64":{"online":6,"busy":6}}}}'
 DOCKER_JSON='{"error":null,"containers":{"restarting":0}}'
-JEFF_JSON='{"reachable":true}'
+HOST_JSON='{"reachable":true}'
 SESSION_CONFLICT_JSON='{"error":"api unavailable","session_conflicts":[]}'
-OUT="$(python3 "$PARSER" verdict "$API_JSON" "$DOCKER_JSON" "$JEFF_JSON" "$SESSION_CONFLICT_JSON")"
+OUT="$(python3 "$PARSER" verdict "$API_JSON" "$DOCKER_JSON" "$HOST_JSON" "$SESSION_CONFLICT_JSON")"
 check_equals "${OUT%%|*}" "AMBER" "session-conflict detector error is not GREEN"
 case "$OUT" in
   *"Session-conflict check unavailable"*) echo "PASS: verdict names detector error" ;;
@@ -233,7 +236,7 @@ case "$LINE" in
   *"invalid runner name"*) echo "PASS: console line names rejected metadata" ;;
   *) echo "FAIL: console line hides rejected metadata: '$LINE'"; FAIL=1 ;;
 esac
-OUT="$(python3 "$PARSER" verdict "$API_JSON" "$DOCKER_JSON" "$JEFF_JSON" "$OUT")"
+OUT="$(python3 "$PARSER" verdict "$API_JSON" "$DOCKER_JSON" "$HOST_JSON" "$OUT")"
 check_equals "${OUT%%|*}" "AMBER" "invalid runner metadata cannot produce GREEN"
 case "$OUT" in
   *"invalid runner name"*) echo "PASS: verdict names invalid metadata" ;;
@@ -253,7 +256,7 @@ case "$LINE" in
   *"unverified"*) echo "PASS: console line identifies unverified runner" ;;
   *) echo "FAIL: console line falsely classifies unverified runner: '$LINE'"; FAIL=1 ;;
 esac
-OUT="$(python3 "$PARSER" verdict "$API_JSON" "$DOCKER_JSON" "$JEFF_JSON" "$OUT")"
+OUT="$(python3 "$PARSER" verdict "$API_JSON" "$DOCKER_JSON" "$HOST_JSON" "$OUT")"
 check_equals "${OUT%%|*}" "AMBER" "unverified runner cannot produce GREEN"
 case "$OUT" in
   *"could not inspect"*) echo "PASS: verdict names inspection gap" ;;

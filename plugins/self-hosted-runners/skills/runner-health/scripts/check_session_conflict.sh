@@ -18,11 +18,11 @@
 #   - session_conflict   : GitHub offline, container running     -> manual heal (delete GH registration + restart container)
 #   - runner_offline      : GitHub offline, container not running -> ezgha serve / ezgha-watchdog will respawn it
 #   - docker_unavailable  : GitHub offline, local Docker daemon unreachable (mac fleet)
-#   - ssh_unreachable     : GitHub offline, jeff-ubuntu unreachable over SSH (Linux fleet)
+#   - ssh_unreachable     : GitHub offline, the Linux runner host ($RUNNER_HOST) unreachable over SSH (Linux fleet)
 #
 # Runner naming (ezgha, since 2026-07-06): ez-mac-runner-<gen>-N (mac,
 # local docker) and ez-runner-<gen>-N / ez-canary-runner-<gen>-N (Linux, via
-# SSH to jeff-ubuntu). ezgha rotates the <gen> letter on supervisor restart
+# SSH to the Linux runner host ($RUNNER_HOST)). ezgha rotates the <gen> letter on supervisor restart
 # (observed live: "b" -> "c"), so match on the stable prefix only, never a
 # hardcoded generation letter.
 #
@@ -31,10 +31,15 @@
 set -uo pipefail
 
 TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-ORG="${GH_ORG:-jleechanorg}"
-HEALTH_TARGET="${JEFF_UBUNTU_HOST:-jeff-ubuntu}"
-SSH_TIMEOUT="${JEFF_UBUNTU_TIMEOUT:-5}"
-DOCKER_SOCK_PATH="${JEFF_UBUNTU_DOCKER_SOCK:-unix:///home/$USER/.lima/colima/sock/docker.sock}"
+ORG="${GH_ORG:-${GITHUB_ORG:-${GITHUB_REPOSITORY%%/*}}}"
+HEALTH_TARGET="${RUNNER_HOST:-}"
+SSH_TIMEOUT="${RUNNER_HOST_TIMEOUT:-5}"
+DOCKER_SOCK_PATH="${RUNNER_HOST_DOCKER_SOCK:-unix:///var/run/docker.sock}"
+
+if [[ -z "$ORG" ]]; then
+  echo '{"timestamp":"'"$TS"'","org":null,"error":"GH_ORG not configured: GitHub org that owns the runners","offline_count":null,"session_conflicts":[],"runner_offline":[],"docker_unavailable":[],"ssh_unreachable":[],"invalid_names":[]}'
+  exit 2
+fi
 
 if ! command -v gh >/dev/null 2>&1; then
   echo '{"timestamp":"'"$TS"'","org":"'"$ORG"'","error":"gh CLI not installed","offline_count":null,"session_conflicts":[],"runner_offline":[],"docker_unavailable":[],"ssh_unreachable":[],"invalid_names":[]}'
@@ -43,14 +48,14 @@ fi
 
 # Resolve a runner's container status, branching by fleet.
 #   ez-mac-runner-*                    -> local docker daemon (runs on this host)
-#   ez-runner-*, ez-canary-runner-*, …  -> Lima on jeff-ubuntu (checked over SSH)
+#   ez-runner-*, ez-canary-runner-*, …  -> Lima on the Linux runner host ($RUNNER_HOST) (checked over SSH)
 # ezgha rotates a generation letter suffix on restart (observed live:
 # ez-runner-b-N became ez-runner-c-N), so match on the stable "ez-mac-runner-"
 # / "ez-" prefixes only — never hardcode the generation letter.
 # Echoes the docker State string ("running", "exited", ...), the literal
 # "missing" when the container is absent, "docker_unavailable" when the local
 # Docker daemon can't be probed, or "ssh_unreachable" when the Linux check
-# can't reach jeff-ubuntu.
+# can't reach the Linux runner host ($RUNNER_HOST).
 container_status_for() {
   local name="$1"
 

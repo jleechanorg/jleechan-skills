@@ -12,7 +12,7 @@
 # contradicting the doc's fail-closed policy. Found by a real
 # /advice pass on PR #8393, 2026-07-16.
 #
-# Usage: bash .claude/skills/ezgha-watchdog/scripts/test_restart_gate.sh
+# Usage: bash <skill-dir>/scripts/test_restart_gate.sh
 # Exit 0 on PASS, non-zero on FAIL.
 set -uo pipefail
 
@@ -67,6 +67,7 @@ run_to_threshold() {
     HOME="$test_home" \
       PATH="$test_home/bin:$PATH" \
       EZGHA_BIN="$test_home/bin/ezgha" \
+      RUNNER_LAUNCHD_LABEL="example.ezgha" \
       EZGHA_WATCHDOG_STATE_DIR="$test_home/state" \
       EZGHA_WATCHDOG_ALLOW_RESTART="$allow_restart" \
       bash "$WATCHDOG" --host mac >/dev/null 2>&1

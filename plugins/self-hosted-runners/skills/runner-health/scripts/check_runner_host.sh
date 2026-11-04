@@ -1,14 +1,21 @@
 #!/usr/bin/env bash
-# check_jeff_ubuntu.sh — ssh into jeff-ubuntu Lima VM (graceful on unreachable)
+# check_runner_host.sh — ssh into the Linux runner host (graceful on unreachable)
+# Requires RUNNER_HOST (SSH alias). Optional: RUNNER_HOST_IP (fallback address),
+# RUNNER_HOST_DOCKER_SOCK (default unix:///var/run/docker.sock), RUNNER_HOST_TIMEOUT.
 # Outputs JSON to stdout. exit 0 = success (even if host unreachable; JSON shows reachable=false).
 # exit 1 = ssh not available, exit 2 = script bug.
 set -uo pipefail
 
 TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-HOST="${JEFF_UBUNTU_HOST:-jeff-ubuntu}"
-SSH_TIMEOUT="${JEFF_UBUNTU_TIMEOUT:-5}"
-IP_FALLBACK="${JEFF_UBUNTU_IP:-192.168.254.128}"
-DOCKER_SOCK_PATH="${JEFF_UBUNTU_DOCKER_SOCK:-unix:///home/$USER/.lima/colima/sock/docker.sock}"
+HOST="${RUNNER_HOST:-}"
+SSH_TIMEOUT="${RUNNER_HOST_TIMEOUT:-5}"
+IP_FALLBACK="${RUNNER_HOST_IP:-}"
+DOCKER_SOCK_PATH="${RUNNER_HOST_DOCKER_SOCK:-unix:///var/run/docker.sock}"
+
+if [[ -z "$HOST" ]]; then
+  echo '{"timestamp":"'"$TS"'","host":null,"reachable":null,"error":"RUNNER_HOST not configured: SSH alias of the Linux runner host. Example: export RUNNER_HOST=mylinux","uptime":null,"load1":null,"disk_free_gb":null,"memory_avail_gb":null,"docker_containers":null,"note":null}'
+  exit 3
+fi
 
 if ! command -v ssh >/dev/null 2>&1; then
   cat <<EOF
@@ -47,7 +54,7 @@ if [[ $SSH_RC -ne 0 ]]; then
   fi
 
   # Try IP fallback if hostname failed
-  if [[ "$SSH_ERROR" == "timeout" || "$SSH_ERROR" == "dns_unresolvable" ]]; then
+  if [[ -n "$IP_FALLBACK" && ( "$SSH_ERROR" == "timeout" || "$SSH_ERROR" == "dns_unresolvable" ) ]]; then
     IP_OUTPUT=$(ssh -o ConnectTimeout="$SSH_TIMEOUT" -o StrictHostKeyChecking=no "$IP_FALLBACK" 'echo OK; uptime' 2>&1)
     IP_RC=$?
     if [[ $IP_RC -eq 0 ]]; then

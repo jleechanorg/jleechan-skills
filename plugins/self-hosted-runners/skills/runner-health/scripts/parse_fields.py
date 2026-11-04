@@ -6,11 +6,16 @@ Usage:
   python3 parse_fields.py docker "$JSON"    # extract docker line
   python3 parse_fields.py lima "$JSON"      # extract lima line
   python3 parse_fields.py session_conflict "$JSON"  # extract session-conflict line
-  python3 parse_fields.py verdict "$API" "$DOCKER" "$JEFF" ["$SESSION_CONFLICT"]  # compute verdict
+  python3 parse_fields.py host "$JSON"      # extract runner-host line
+  python3 parse_fields.py verdict "$API" "$DOCKER" "$HOST" ["$SESSION_CONFLICT"]  # compute verdict
+
+Expected fleet size comes from RUNNER_EXPECTED_LINUX and RUNNER_EXPECTED_MAC.
+Restart hints name RUNNER_SYSTEMD_UNIT (Linux) and RUNNER_LAUNCHD_LABEL (Mac).
 
 Reads JSON from argv[2], outputs formatted text to stdout.
 """
 import json
+import os
 import sys
 
 
@@ -22,7 +27,7 @@ def _safe_json_loads(raw: str) -> dict:
     check — every caller here must treat "" and "{}" identically, and a
     top-level JSON array must not propagate into `.get()` calls that
     assume a dict (see rev-1jtb5: PR #8193 round 3 only hardened this for
-    the api/docker/jeff verdict path, not the display-line functions below
+    the api/docker/host verdict path, not the display-line functions below
     or general non-dict JSON shapes).
 
     An empty string is the expected, silent "check reported nothing" case
@@ -77,8 +82,10 @@ def lima_line(lima_json: str) -> str:
     return f"{len(i)} instance(s) — {parts}"
 
 
-def jeff_line(jeff_json: str) -> str:
-    d = _safe_json_loads(jeff_json)
+def host_line(host_json: str) -> str:
+    d = _safe_json_loads(host_json)
+    if d.get("error"):
+        return f"error: {d['error']}"
     r = d.get("reachable", "?")
     if r is True:
         return "reachable"
@@ -141,17 +148,22 @@ def _session_conflict_verdict(session_conflict: dict) -> str | None:
     return None
 
 
-def compute_verdict(api_json: str, docker_json: str, jeff_json: str, session_conflict_json: str = "{}") -> str:
-    """Verdict for an ezgha-managed fleet: 16 Linux + 6 Mac = 22 total expected.
+def _expected(var: str):
+    raw = os.environ.get(var, "").strip()
+    return int(raw) if raw.isdigit() else None
 
-    Healthy floor (allowing ~2 churn slots in transient deregister window):
-      Linux >= 14, Mac >= 5, total online >= 19
-    Critical floor (ezgha serve stuck, restart needed):
-      Linux < 10 OR Mac < 4
+
+def compute_verdict(api_json: str, docker_json: str, host_json: str, session_conflict_json: str = "{}") -> str:
+    """Verdict for an ezgha-managed fleet of RUNNER_EXPECTED_LINUX + RUNNER_EXPECTED_MAC runners.
+
+    Healthy floor (allowing churn slots in the transient deregister window):
+      Linux >= expected - 2, Mac >= expected - 1
+    Critical floor (ezgha serve stuck, restart needed): about 5/8 of expected
+      (16 Linux -> 10, 6 Mac -> 4).
 
     Verdict logic is split per-arch so the reason names the failing host —
-    fixes become obvious: restart launchctl org.jleechanorg.ezgha on Mac,
-    or `systemctl --user restart ezgha` on jeff-ubuntu.
+    fixes become obvious: kickstart the launchd label on Mac, or restart the
+    systemd user unit on the Linux runner host.
     """
     # Defense-in-depth: an upstream capture failure (e.g. runner-health.sh
     # reading an empty stdout file from a crashed/errored check script) can
@@ -161,7 +173,7 @@ def compute_verdict(api_json: str, docker_json: str, jeff_json: str, session_con
     # expects, instead of crashing the whole verdict call.
     api = _safe_json_loads(api_json)
     docker = _safe_json_loads(docker_json)
-    jeff = _safe_json_loads(jeff_json)
+    host = _safe_json_loads(host_json)
     session_conflict = _safe_json_loads(session_conflict_json)
 
     session_conflict_verdict = _session_conflict_verdict(session_conflict)
@@ -196,17 +208,25 @@ def compute_verdict(api_json: str, docker_json: str, jeff_json: str, session_con
     total_online = runners.get("online", 0)
     total_busy = runners.get("busy", 0)
     de = docker.get("error") or ""
-    jr = jeff.get("reachable", "?")
+    jr = host.get("reachable", "?")
     restarting = docker.get("containers", {}).get("restarting", 0)
 
-    expected_linux = 16
-    expected_mac = 6
-    healthy_floor_linux = 14  # 2 churn slots allowed
-    healthy_floor_mac = 5     # 1 churn slot allowed
-    critical_floor_linux = 10
-    critical_floor_mac = 4
+    expected_linux = _expected("RUNNER_EXPECTED_LINUX")
+    expected_mac = _expected("RUNNER_EXPECTED_MAC")
+    if expected_linux is None or expected_mac is None:
+        return (
+            "AMBER|RUNNER_EXPECTED_LINUX / RUNNER_EXPECTED_MAC not configured: expected "
+            "online runner counts; thresholds cannot be computed"
+        )
+    healthy_floor_linux = max(expected_linux - 2, 0)  # 2 churn slots allowed
+    healthy_floor_mac = max(expected_mac - 1, 0)      # 1 churn slot allowed
+    critical_floor_linux = (expected_linux * 5 + 7) // 8
+    critical_floor_mac = (expected_mac * 5 + 7) // 8
+    expected_total = expected_linux + expected_mac
+    linux_unit = os.environ.get("RUNNER_SYSTEMD_UNIT") or "<RUNNER_SYSTEMD_UNIT>"
+    mac_label = os.environ.get("RUNNER_LAUNCHD_LABEL") or "<RUNNER_LAUNCHD_LABEL>"
 
-    # CRITICAL: jeff-ubuntu host dark — Linux fleet offline + SSH unreachable.
+    # CRITICAL: Linux runner host dark — Linux fleet offline + SSH unreachable.
     # Three-signal confirmation: 0 busy alone is not enough — a fully
     # healthy-but-idle fleet (overnight/weekend, no active CI jobs) combined
     # with an operator on a different wifi (SSH commonly unreachable, on its
@@ -219,19 +239,19 @@ def compute_verdict(api_json: str, docker_json: str, jeff_json: str, session_con
         and linux_busy == 0
         and (not isinstance(linux_online, int) or linux_online < critical_floor_linux)
     ):
-        result = "RED|jeff-ubuntu host dark — 0 Linux runners busy + SSH unreachable (do NOT restart containers, wait for host)"
+        result = "RED|Linux runner host dark — 0 Linux runners busy + SSH unreachable (do NOT restart containers, wait for host)"
 
     # CRITICAL: severe shortage (supervisor stuck on one or both hosts).
     elif isinstance(linux_online, int) and linux_online < critical_floor_linux:
-        result = f"RED|Linux fleet critically low: {linux_online}/{expected_linux} online — `systemctl --user restart ezgha` on jeff-ubuntu"
+        result = f"RED|Linux fleet critically low: {linux_online}/{expected_linux} online — `systemctl --user restart {linux_unit}` on the Linux runner host"
     elif isinstance(mac_online, int) and mac_online < critical_floor_mac:
-        result = f"RED|Mac fleet critically low: {mac_online}/{expected_mac} online — `launchctl kickstart -k gui/$(id -u)/org.jleechanorg.ezgha`"
+        result = f"RED|Mac fleet critically low: {mac_online}/{expected_mac} online — `launchctl kickstart -k gui/$(id -u)/{mac_label}`"
 
     # AMBER: minor shortage — likely ezgha serve stuck, needs restart.
     elif isinstance(linux_online, int) and linux_online < healthy_floor_linux:
-        result = f"AMBER|Linux fleet short: {linux_online}/{expected_linux} online (ezgha serve likely stuck — restart ezgha.service on jeff-ubuntu)"
+        result = f"AMBER|Linux fleet short: {linux_online}/{expected_linux} online (ezgha serve likely stuck — restart {linux_unit} on the Linux runner host)"
     elif isinstance(mac_online, int) and mac_online < healthy_floor_mac:
-        result = f"AMBER|Mac fleet short: {mac_online}/{expected_mac} online (ezgha serve likely stuck — `launchctl kickstart -k gui/$(id -u)/org.jleechanorg.ezgha`)"
+        result = f"AMBER|Mac fleet short: {mac_online}/{expected_mac} online (ezgha serve likely stuck — `launchctl kickstart -k gui/$(id -u)/{mac_label}`)"
 
     # AMBER: docker restart loops indicate container-level crashes.
     elif restarting and restarting > 0:
@@ -247,7 +267,7 @@ def compute_verdict(api_json: str, docker_json: str, jeff_json: str, session_con
 
     # GREEN: full or near-full fleet, all online are busy.
     else:
-        result = f"GREEN|{total_online}/22 online ({linux_online}/{expected_linux} Linux + {mac_online}/{expected_mac} Mac), {total_busy}/{total_online} busy ({linux_busy} Linux + {mac_busy} Mac busy)"
+        result = f"GREEN|{total_online}/{expected_total} online ({linux_online}/{expected_linux} Linux + {mac_online}/{expected_mac} Mac), {total_busy}/{total_online} busy ({linux_busy} Linux + {mac_busy} Mac busy)"
 
     session_conflict_error = session_conflict.get("error")
     if session_conflict_error and not result.startswith("RED|"):
@@ -278,7 +298,7 @@ def compute_verdict(api_json: str, docker_json: str, jeff_json: str, session_con
 def main():
     if len(sys.argv) < 2:
         print(
-            "usage: parse_fields.py {api|docker|lima|jeff|session_conflict|verdict} <json> [more json]",
+            "usage: parse_fields.py {api|docker|lima|host|session_conflict|verdict} <json> [more json]",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -289,8 +309,8 @@ def main():
         print(docker_line(sys.argv[2]))
     elif cmd == "lima":
         print(lima_line(sys.argv[2]))
-    elif cmd == "jeff":
-        print(jeff_line(sys.argv[2]))
+    elif cmd == "host":
+        print(host_line(sys.argv[2]))
     elif cmd == "session_conflict":
         print(session_conflict_line(sys.argv[2]))
     elif cmd == "verdict":

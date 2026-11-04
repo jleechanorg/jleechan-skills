@@ -3,7 +3,7 @@ name: ezgha-watchdog
 description: >-
   Read-only fleet-size consumer for the 6 mac + 16 linux ezgha runner
   invariant. Restart-only remediation is UNAVAILABLE (fail-closed) pending
-  jleechanorg/ez-gh-actions PR 67 (dual-Lima convergence) and PR 70/issue 60
+  the ezgha upstream repository (`$EZGHA_UPSTREAM_REPO`) PR 67 (dual-Lima convergence) and PR 70/issue 60
   (recovery controller) merging AND being proven live-deployed — a
   2026-07-09..11 audit found restarts can kill active jobs, create
   offline-busy 422 registrations, and cannot repair a dead/wrong-namespace
@@ -27,8 +27,8 @@ allowed-tools:
 context:
   - "ezgha serve is a long-running supervisor that respawns runner containers as jobs complete (one job per container, then exit). It replaces churned slots but does NOT aggressively top-up to N when below configured count — if a slot stays deregistered for any reason (rate limit, crash, race), serve won't refill it on its own loop. That part of the diagnosis is still true."
   - "What is NO LONGER true: treating a restart as the normal/expected fix, or treating 5/6 mac or 14/16 linux as unremarkable churn. A 2026-07-09..11 audit (bead rev-ft3i8, GH issue #8329) proved restarts can kill ACTIVE jobs mid-run, can create offline-busy 422 runner registrations that neither `ezgha status` nor the GitHub API auto-cleans, and CANNOT repair a dead or wrong-namespace backend (e.g. a Lima VM pointing at the wrong Docker context) — a restart just respawns containers against the same broken backend, looking 'recovered' while masking the real defect."
-  - "Runtime recovery logic (graceful drain, backend health verification, safe respawn ordering) belongs in jleechanorg/ez-gh-actions, not your-project.com. This repo's skills/scripts are READ-ONLY CONSUMERS of that repo's health contract (doctor-runner, ezgha status, GitHub runner API) — do not add backend-recovery mutation logic here."
-  - "Expected fleet: 6 mac (`ez-mac-runner-b-1..6` on MacBook via `~/.config/ezgha/config.toml` `count=6`) + 16 linux (`ez-runner-b-1..16` on jeff-ubuntu via SSH `~/.config/ezgha/config.toml` `count=16`) = 22 total."
+  - "Runtime recovery logic (graceful drain, backend health verification, safe respawn ordering) belongs in the ezgha upstream repository (`$EZGHA_UPSTREAM_REPO`), not this skills repository. This repo's skills/scripts are READ-ONLY CONSUMERS of that repo's health contract (doctor-runner, ezgha status, GitHub runner API) — do not add backend-recovery mutation logic here."
+  - "Expected fleet: the `count=` value in each host's `~/.config/ezgha/config.toml` (Mac host: local; Linux host: $RUNNER_HOST over SSH). Set EZGHA_UPSTREAM_REPO to the ezgha upstream owner/repo for the PR-state gates below."
   - "A shortfall (N/M below configured count) is a DIAGNOSTIC PROMPT, not a threshold to dismiss. Run `doctor-runner` (see below) before deciding anything is 'expected'. Never lower `count` or the alert threshold to make a shortfall look normal — that hides the same defect the audit found."
 ---
 
@@ -56,20 +56,20 @@ BOTH must be independently confirmed merged in git AND proven live-deployed
 on the Mac/Linux hosts (a git merge alone is not activation — see "MANDATORY:
 post-merge activation check" below):
 
-1. jleechanorg/ez-gh-actions **PR #67** — dual-Lima convergence to a single
+1. the ezgha upstream repository (`$EZGHA_UPSTREAM_REPO`) **PR #67** — dual-Lima convergence to a single
    canonical Docker backend (bead `ez-gh-actions-apye`). Verify current
    status with:
    ```bash
-   gh api repos/jleechanorg/ez-gh-actions/pulls/67 --jq '{state,merged,merged_at}'
+   gh api repos/$EZGHA_UPSTREAM_REPO/pulls/67 --jq '{state,merged,merged_at}'
    ```
    Status as of 2026-07-13: `{"state":"open","merged":false,"merged_at":null}`
    — **NOT merged**.
-2. jleechanorg/ez-gh-actions **PR #70** — singleton backend-aware recovery
+2. the ezgha upstream repository (`$EZGHA_UPSTREAM_REPO`) **PR #70** — singleton backend-aware recovery
    controller for Mac+Linux (bead `ez-gh-actions-ghd2.7`, tracking issue
-   [ez-gh-actions#60](https://github.com/jleechanorg/ez-gh-actions/issues/60)).
+   [ez-gh-actions#60](https://github.com/${EZGHA_UPSTREAM_REPO}/issues/60)).
    Verify current status with:
    ```bash
-   gh api repos/jleechanorg/ez-gh-actions/pulls/70 --jq '{state,merged,merged_at}'
+   gh api repos/$EZGHA_UPSTREAM_REPO/pulls/70 --jq '{state,merged,merged_at}'
    ```
    Status as of 2026-07-13: `{"state":"open","merged":false,"merged_at":null}`
    — **NOT merged**.
@@ -100,7 +100,7 @@ activity-truth model):
 
 ```bash
 # From an ez-gh-actions checkout (clone a scratch copy if you don't have one):
-git clone https://github.com/jleechanorg/ez-gh-actions.git /tmp/ez-gh-actions-check
+git clone https://github.com/${EZGHA_UPSTREAM_REPO}.git /tmp/ez-gh-actions-check
 cd /tmp/ez-gh-actions-check
 
 ./doctor-runner            # health gate: exit 0 = healthy, real per-slot state
@@ -161,15 +161,15 @@ against a dead/wrong backend. Anything short of both (1) and (2) above is a
 tool-layer claim ("container started", "`systemctl restart` exit 0"), not an
 end-state recovery claim.
 
-## your-project.com scope: read-only consumer only
+## this skills repository scope: read-only consumer only
 
-This repo (`.claude/skills/ezgha-watchdog/`) must only:
+This repo (this skill's directory) must only:
 
 - **Read** fleet state (`ezgha status`, `docker ps`, the GitHub runner API,
   `/runner-health` output) to report AMBER/RED verdicts.
 - **Surface** the diagnose-first `doctor-runner` command to the operator.
 - **Never** implement its own backend recovery/drain/respawn-ordering logic.
-  That responsibility lives in jleechanorg/ez-gh-actions (PR #67, PR #70).
+  That responsibility lives in the ezgha upstream repository (`$EZGHA_UPSTREAM_REPO`) (PR #67, PR #70).
   Any future change to this repo that adds new autonomous mutation logic
   beyond a human-approved, last-resort restart is out of scope here and
   should be redirected upstream to ez-gh-actions instead.
@@ -180,8 +180,8 @@ This repo (`.claude/skills/ezgha-watchdog/`) must only:
 |---|---|---|
 | `scripts/ezgha-fleet-watchdog.sh` | both | Check + restart logic; restart itself gated fail-closed behind `EZGHA_WATCHDOG_ALLOW_RESTART=1` (see "Restart gate" above, bead `rev-5rqci`) |
 | `scripts/test_restart_gate.sh` | both | Regression test proving the restart gate is fail-closed by default and opt-in works |
-| `~/Library/LaunchAgents/org.jleechanorg.ezgha-watchdog.plist` | MacBook | launchd job, runs every 120s |
-| `~/.config/systemd/user/ezgha-watchdog.{service,timer}` | jeff-ubuntu | systemd --user timer, runs every 120s |
+| `a `~/Library/LaunchAgents/<label>.ezgha-watchdog.plist`` | Mac host | launchd job, runs every 120s |
+| `~/.config/systemd/user/ezgha-watchdog.{service,timer}` | the Linux runner host | systemd --user timer, runs every 120s |
 | `/tmp/ezgha-watchdog.log` | both | Append-only log of check + restart actions |
 | `$HOME/.cache/ezgha-watchdog/{mac,linux}.consecutive` | both | Hysteresis counters — consecutive below-target samples per arch, persisted across invocations since each 120s tick is a fresh process, not a long-lived loop |
 
@@ -223,9 +223,9 @@ output, not just "PR merged":**
 launchctl list | grep ezgha-watchdog        # must show a PID or "-" (loaded), NOT empty
 tail -5 /tmp/ezgha-watchdog.log             # must show a recent timestamp (<5 min old)
 
-# jeff-ubuntu (Linux)
-ssh jeff-ubuntu 'systemctl --user list-timers ezgha-watchdog*'   # must show a NEXT/LAST fire time
-ssh jeff-ubuntu 'tail -5 /tmp/ezgha-watchdog.log'
+# the Linux runner host (Linux)
+ssh "$RUNNER_HOST" 'systemctl --user list-timers ezgha-watchdog*'   # must show a NEXT/LAST fire time
+ssh "$RUNNER_HOST" 'tail -5 /tmp/ezgha-watchdog.log'
 ```
 
 If either check comes back empty, install using the "Install on a new host"
@@ -236,7 +236,7 @@ this being active.
 
 ```bash
 # Both hosts, fix if needed
-bash .claude/skills/ezgha-watchdog/scripts/ezgha-fleet-watchdog.sh
+bash <skill-dir>/scripts/ezgha-fleet-watchdog.sh
 
 # Only one host
 bash .../ezgha-fleet-watchdog.sh --host mac
@@ -265,12 +265,12 @@ template exists in this repository, so there is no `install/` directory to
 copy from. Create the job by hand and keep it on `--dry-run` until the
 restart gate above is lifted:
 
-- macOS: write a `~/Library/LaunchAgents/org.jleechanorg.ezgha-watchdog.plist`
-  that runs `bash <repo>/.claude/skills/ezgha-watchdog/scripts/ezgha-fleet-watchdog.sh --dry-run`
+- macOS: write a `a `~/Library/LaunchAgents/<label>.ezgha-watchdog.plist``
+  that runs `bash <repo>/<skill-dir>/scripts/ezgha-fleet-watchdog.sh --dry-run`
   every 2 minutes and logs to `/tmp/ezgha-watchdog.log`; follow the
   `launchd-plist-template` skill (template in the repo that owns the job,
   `@HOME@` placeholders), then `launchctl load` it.
-- Linux (jeff-ubuntu): write an `ezgha-watchdog.service` (same command) and an
+- Linux (the Linux runner host): write an `ezgha-watchdog.service` (same command) and an
   `ezgha-watchdog.timer` (`OnUnitActiveSec=2min`) under `~/.config/systemd/user/`,
   then `systemctl --user daemon-reload && systemctl --user enable --now ezgha-watchdog.timer`.
 
@@ -283,7 +283,7 @@ Confirm with the two live checks in the close-out checklist above.
 | Watchdog keeps restarting serve every 2 min | Supervisor fundamentally broken, or backend is dead/wrong-namespace (restart cannot fix this — see STATUS above) | Run `doctor-runner` first; check `/tmp/ezgha-launchd-stderr.log` (Mac) or `journalctl --user -u ezgha` (Linux); check Docker identity (`docker context show`) before assuming another restart will help |
 | `managed=0` for >5 min | Docker daemon dead OR container image missing | `docker info` + `docker images \| grep ezgha-runner` |
 | `configured=N` missing in log | Config file unreadable | `cat ~/.config/ezgha/config.toml` — should have `count = N` under `[runner]` |
-| Linux check returns "cannot read state" | SSH key / alias broken | `ssh -o ConnectTimeout=5 jeff-ubuntu 'echo ok'` |
+| Linux check returns "cannot read state" | SSH key / alias broken | `ssh -o ConnectTimeout=5 "$RUNNER_HOST" 'echo ok'` |
 
 ## Anti-patterns
 
@@ -300,5 +300,5 @@ Confirm with the two live checks in the close-out checklist above.
 - Do NOT add a separate alerting Slack channel — `/runner-health` AMBER/RED
   already names the failing arch with the diagnostic command inline.
 - Do NOT add backend recovery/drain/respawn logic to this repo — that
-  belongs in jleechanorg/ez-gh-actions (PR #67, PR #70). your-project.com
+  belongs in the ezgha upstream repository (`$EZGHA_UPSTREAM_REPO`) (PR #67, PR #70). this skills repository
   stays a read-only consumer of its health contract.

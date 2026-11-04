@@ -1,21 +1,20 @@
 ---
 name: runner-health
 description: >
-  Operational health snapshot for the jleechanorg self-hosted runner fleet.
-  Use when user says "check runners", "are runners up", "is jeff-ubuntu down", "diagnose runner health",
+  Operational health snapshot for the self-hosted runner fleet of org $GH_ORG.
+  Use when user says "check runners", "are runners up", "is the runner host down", "diagnose runner health",
   or before/after runner operations. Produces a structured Markdown report at
   /tmp/runner-health-<ts>.md with multi-method checks (GitHub API + local Docker
-  + Lima VM + jeff-ubuntu ssh + optional hermes-pc cross-check). Works when jeff-ubuntu
+  + Lima VM + Linux runner host ssh + optional Slack cross-check). Works when the Linux runner host
   is unreachable (key insight: busy=true on runners is itself proof of liveness even
   when ssh fails).
 type: skill
 scope: repo
-owner: $USER
 version: 1.0.0
 triggers:
   - "check runners"
   - "are runners up"
-  - "is jeff-ubuntu down"
+  - "is the runner host down"
   - "diagnose runner health"
   - "runner status snapshot"
   - "fleet health"
@@ -27,19 +26,19 @@ allowed-tools:
   - Skill (memory-search, history-search)
 context:
   - "GitHub /actions/runners org endpoint shows status (online/offline) and busy (true/false) only — no last_active field. busy=true IS the live-heartbeat proof: a runner can only be busy if it actively polled GitHub and accepted a job."
-  - "Fleet is **ezgha-managed** (since 2026-07-06, replacing legacy org-runner): 16 Linux (`ez-runner-b-1..16` on jeff-ubuntu) + 6 mac (`ez-mac-runner-b-1..6` on local Mac) = 22 total expected. Ephemeral by design — each runner runs 1 job then exits, supervisor respawns. Online count fluctuates 19-22 normally; 22/22 steady state is impossible."
-  - "When user is on a different wifi than jeff-ubuntu, ssh/ping from local host to jeff-ubuntu fails (different L3 subnet) but the runners themselves are still up if busy=true. Do NOT misdiagnose this as 'host down' — it's 'host unreachable from this network'."
-  - "hermes-pc (Slack user U0BC138QXUJ / #hermes-pc channel) is on a separate network (172.20.5.90/19). Use as cross-check when local signals are ambiguous."
+  - "Fleet is **ezgha-managed**: Linux runners (`ez-runner-<gen>-N`) on the Linux runner host ($RUNNER_HOST) + mac runners (`ez-mac-runner-<gen>-N`) on the Mac host. Expected counts come from $RUNNER_EXPECTED_LINUX / $RUNNER_EXPECTED_MAC (no default; report not configured). Ephemeral by design — each runner runs 1 job then exits, supervisor respawns, so the online count fluctuates a few below the expected total."
+  - "When user is on a different wifi than the Linux runner host, ssh/ping from local host to the Linux runner host fails (different L3 subnet) but the runners themselves are still up if busy=true. Do NOT misdiagnose this as 'host down' — it's 'host unreachable from this network'."
+  - "Optional cross-check agent on a separate network: Slack channel $RUNNER_CROSSCHECK_SLACK_CHANNEL_ID / user $RUNNER_CROSSCHECK_SLACK_USER_ID (skip when unset). Use when local signals are ambiguous."
   - "Self-hosted-runner-preflight skill already exists for FIX-ORIENTED checks. This skill is different: it's an OPERATIONAL health snapshot (no fix proposed). Use this BEFORE preflight."
-  - "MacBook: `ezgha serve` runs as launchd daemon `org.jleechanorg.ezgha` (plist at `~/Library/LaunchAgents/org.jleechanorg.ezgha.plist`, binary at `~/.cargo/bin/ezgha`). Restart: `launchctl kickstart -k gui/$(id -u)/org.jleechanorg.ezgha`."
-  - "jeff-ubuntu: `ezgha serve` runs as `systemd --user` unit `ezgha.service` (config at `~/.config/ezgha/config.toml`, count=16). Restart: `systemctl --user restart ezgha`."
+  - "Mac host: `ezgha serve` runs as a launchd daemon labelled $RUNNER_LAUNCHD_LABEL (binary: `command -v ezgha`). Restart: `launchctl kickstart -k gui/$(id -u)/$RUNNER_LAUNCHD_LABEL`."
+  - "Linux runner host: `ezgha serve` runs as the `systemd --user` unit $RUNNER_SYSTEMD_UNIT (config at `~/.config/ezgha/config.toml`). Restart: `systemctl --user restart $RUNNER_SYSTEMD_UNIT`."
 ---
 
 # /runner-health — Operational Health Snapshot
 
 ## When to use this skill
 
-- User asks "are the runners up?", "is jeff-ubuntu down?", "show me runner health", "fleet health", "diagnose runners"
+- User asks "are the runners up?", "is the Linux runner host down?", "show me runner health", "fleet health", "diagnose runners"
 - Before any operation that depends on the fleet being healthy (e.g., before a `/green` drive)
 - After a long gap (wifi change, host reboot) to verify reconnect
 - Anytime a user reports "all alerts are noise" or "transient alerts" — this skill gives the ground truth
@@ -56,17 +55,17 @@ Each is a standalone bash script in `scripts/` that outputs structured JSON to s
 
 | # | Script | What it checks | Failure mode (graceful) |
 |---|---|---|---|
-| 1 | `check_api.sh` | `gh api orgs/jleechanorg/actions/runners` — 22-runner snapshot + busy count + in-flight jobs (per-repo) + rate limit | exits non-zero on API error; runner fleet unreadable |
+| 1 | `check_api.sh` | `gh api orgs/$GH_ORG/actions/runners` — 22-runner snapshot + busy count + in-flight jobs (per-repo) + rate limit | exits non-zero on API error; runner fleet unreadable |
 | 2 | `check_docker.sh` | local `docker ps` for mac-side runners + AO auxiliaries | exits non-zero if Docker daemon is down |
 | 3 | `check_lima.sh` | `limactl list` — colima VM status, SSH port, resources | exits non-zero if limactl missing |
-| 4 | `check_jeff_ubuntu.sh` | `ssh -o ConnectTimeout=5 jeff-ubuntu 'uptime; df -h /home; free -h; DOCKER_HOST=... docker ps | wc -l'` | exits non-zero on SSH timeout — but script still produces JSON with `reachable: false` |
+| 4 | `check_runner_host.sh` | `ssh -o ConnectTimeout=5 "$RUNNER_HOST" 'uptime; df -h /home; free -h; DOCKER_HOST=$RUNNER_HOST_DOCKER_SOCK docker ps | wc -l'` | exits non-zero on SSH timeout — but script still produces JSON with `reachable: false` |
 | 5 | `check_session_conflict.sh` | For every GitHub-`offline` ezgha runner (mac or Linux fleet), cross-checks the local/SSH container state to distinguish **session conflict** (container `Up`, GitHub `offline` — stale registration lock; neither `ezgha serve` nor `ezgha-watchdog` detects this, since both only compare local managed-container counts) from ordinary `runner_offline` (container also down — ezgha will respawn it). Ported from closed PR #8033's `check_github_session_state()` / `container_status_for()` (bead rev-ws17d). | exits non-zero on `gh api` failure; JSON still emitted with `error` set |
-| 6 | `cross_check_hermes.sh` | Posts thread to `#hermes-pc` and polls for reply (configurable wait) | exits non-zero if Slack MCP unavailable |
+| 6 | `cross_check_hermes.sh` | Posts thread to `the cross-check channel` and polls for reply (configurable wait) | exits non-zero if Slack MCP unavailable |
 
 ### Session-conflict triage (check 5)
 
 A runner container can show `Up X minutes` in `docker ps` (or over SSH into
-jeff-ubuntu) while GitHub's API reports `status:"offline"`. This divergence
+the Linux runner host) while GitHub's API reports `status:"offline"`. This divergence
 is a **triage signal, not a confirmed diagnosis** — `check_session_conflict.sh`
 proves the two states disagree (GitHub-offline + container-running), but it
 never reads the container's `Runner.Listener` log, so it cannot itself
@@ -88,12 +87,12 @@ runner is safe to bounce) before running any of this by hand:
 
 ```bash
 # Identify the conflicted runner (check_session_conflict.sh JSON: session_conflicts[])
-RUNNER_ID=$(gh api orgs/jleechanorg/actions/runners --jq '.runners[] | select(.name=="<name>") | .id')
-gh api -X DELETE orgs/jleechanorg/actions/runners/$RUNNER_ID
+RUNNER_ID=$(gh api orgs/$GH_ORG/actions/runners --jq '.runners[] | select(.name=="<name>") | .id')
+gh api -X DELETE orgs/$GH_ORG/actions/runners/$RUNNER_ID
 # Mac fleet (ez-mac-runner-*): docker restart <name>
-# Linux fleet (ez-runner-*/ez-canary-runner-*): ssh jeff-ubuntu "DOCKER_HOST=unix:///home/$USER/.lima/colima/sock/docker.sock docker restart <name>"
+# Linux fleet (ez-runner-*/ez-canary-runner-*): ssh "$RUNNER_HOST" "DOCKER_HOST=${RUNNER_HOST_DOCKER_SOCK:-unix:///var/run/docker.sock} docker restart <name>"
 sleep 15
-gh api orgs/jleechanorg/actions/runners --jq '.runners[] | select(.name=="<name>") | {name, status, busy}'
+gh api orgs/$GH_ORG/actions/runners --jq '.runners[] | select(.name=="<name>") | {name, status, busy}'
 ```
 
 A `RED|SESSION CONFLICT: ...` verdict from `runner-health.sh` takes priority
@@ -109,9 +108,9 @@ so `check_session_conflict.sh` matches on the stable `ez-mac-runner-` /
 
 ```bash
 # Basic (no cross-check)
-bash .claude/skills/runner-health/scripts/runner-health.sh
+bash <skill-dir>/scripts/runner-health.sh
 
-# With hermes-pc cross-check, 1 call
+# With cross-check agent cross-check, 1 call
 bash .../runner-health.sh --cross-check 1
 
 # Cross-check max 3 calls (deep investigation)
@@ -125,17 +124,17 @@ Output: console table + Markdown file at `/tmp/runner-health-<ts>.md`.
 User runs `/runner-health` (or natural-language equivalent like "check runners"). The LLM:
 
 1. **Phase 1 — load context** (optional but recommended):
-   - Invoke `memory-search` skill with query "self-hosted runner jeff-ubuntu health check transient"
+   - Invoke `memory-search` skill with query "self-hosted runner the Linux runner host health check transient"
    - Invoke `history-search` skill to find any prior runner-health invocations in the last 30 days
    - Note any prior transient-pattern memory entries that should bias the verdict
 
 2. **Phase 2 — run all 5 local checks in parallel** (subagents or sequential bash):
    ```bash
-   bash .claude/skills/runner-health/scripts/check_api.sh
-   bash .claude/skills/runner-health/scripts/check_docker.sh
-   bash .claude/skills/runner-health/scripts/check_lima.sh
-   bash .claude/skills/runner-health/scripts/check_jeff_ubuntu.sh
-   bash .claude/skills/runner-health/scripts/check_session_conflict.sh
+   bash <skill-dir>/scripts/check_api.sh
+   bash <skill-dir>/scripts/check_docker.sh
+   bash <skill-dir>/scripts/check_lima.sh
+   bash <skill-dir>/scripts/check_runner_host.sh
+   bash <skill-dir>/scripts/check_session_conflict.sh
    ```
    Each produces JSON. The LLM parses + aggregates.
 
@@ -148,8 +147,8 @@ User runs `/runner-health` (or natural-language equivalent like "check runners")
    `ezgha-watchdog` cannot fix this class.
 
    **Fleet shape (ezgha-managed, since 2026-07-06):**
-   - 16 Linux runners (`ez-runner-b-1..16`) on jeff-ubuntu — managed by `ezgha serve` via `systemd --user`
-   - 6 mac runners (`ez-mac-runner-b-1..6`) on local MacBook — managed by `ezgha serve` via `launchd`
+   - 16 Linux runners (`ez-runner-b-1..16`) on the Linux runner host — managed by `ezgha serve` via `systemd --user`
+   - 6 mac runners (`ez-mac-runner-b-1..6`) on the Mac host — managed by `ezgha serve` via `launchd`
    - **Total expected = 22** (16 Linux + 6 mac), but ephemeral by design (each runner exits after 1 job, then re-spawns)
    - Total online count fluctuates 19-22 normally; a 22/22 steady state is impossible by design
 
@@ -160,12 +159,12 @@ User runs `/runner-health` (or natural-language equivalent like "check runners")
    | **GREEN** | ≥14 (healthy floor) | ≥5 (healthy floor) | Both hosts near full, no Docker restarts, all online runners busy=true |
    | **AMBER** | 10–13 (supervisor stuck) | 4 (supervisor stuck) | One or both `ezgha serve` supervisors not replenishing — needs `systemctl --user restart ezgha` on Linux OR `launchctl kickstart -k` on Mac |
    | **AMBER** | any | any | Docker restart loops detected |
-   | **RED** | <10 | any | `ezgha serve` on jeff-ubuntu critically stuck — restart required |
+   | **RED** | <10 | any | `ezgha serve` on the Linux runner host critically stuck — restart required |
    | **RED** | any | <4 | `ezgha serve` on Mac critically stuck — restart required |
-   | **RED** | <10 online + 0 busy | n/a | jeff-ubuntu host dark (three-signal: 0 Linux busy + linux_online <10 + SSH unreachable) — DO NOT restart containers, wait for host |
+   | **RED** | <10 online + 0 busy | n/a | the Linux runner host host dark (three-signal: 0 Linux busy + linux_online <10 + SSH unreachable) — DO NOT restart containers, wait for host |
 
    **CRITICAL preflight rules:**
-   - If jeff-ubuntu SSH is unreachable AND Linux busy=0 AND Linux online is also critically low (<10) → it's the **host dark** class, not a container-level problem. Do NOT restart containers, do NOT spawn new ones. Wait for the host to come back. Log to `rev-runn001` for tracking. A high `linux_online` (e.g. 16/16) with 0 busy + unreachable SSH is a healthy-but-idle fleet on a different wifi subnet, NOT host-dark — it falls through to the GREEN/AMBER verdict below.
+   - If the Linux runner host SSH is unreachable AND Linux busy=0 AND Linux online is also critically low (<10) → it's the **host dark** class, not a container-level problem. Do NOT restart containers, do NOT spawn new ones. Wait for the host to come back. Log to the fleet's host-freeze bead for tracking. A high `linux_online` (e.g. 16/16) with 0 busy + unreachable SSH is a healthy-but-idle fleet on a different wifi subnet, NOT host-dark — it falls through to the GREEN/AMBER verdict below.
    - If online < expected but `ezgha serve` is alive (PID exists) and supervisor is just slow → AMBER, not RED. Restart supervisor to force-refill.
    - Always cross-check by inspecting `ezgha status` output on the suspect host BEFORE classifying as supervisor-stuck vs host-dark.
 
@@ -179,7 +178,7 @@ User runs `/runner-health` (or natural-language equivalent like "check runners")
    ```bash
    bash .../cross_check_hermes.sh <0|1|2|3>
    ```
-   Posts to `#hermes-pc` thread ts (use existing thread or new one), polls for reply, parses response.
+   Posts to `the cross-check channel` thread ts (use existing thread or new one), polls for reply, parses response.
 
 5. **Phase 5 — write Markdown report**:
    - `bash .../runner-health.sh --write-report` (or include in the master script by default)
@@ -199,8 +198,8 @@ User runs `/runner-health` (or natural-language equivalent like "check runners")
 GitHub API:   22/22 runners online, 11/22 busy (8 Linux, 3 mac)
 Docker:       6/6 mac Up, 0 stuck
 Lima:         colima running, 4GiB mem, 100GiB disk
-jeff-ubuntu:  unreachable from this host (different wifi subnet)
-hermes-pc:    cross-checked — 14/22 busy confirmed independently
+the Linux runner host:  unreachable from this host (different wifi subnet)
+cross-check agent:    cross-checked — 14/22 busy confirmed independently
 
 VERDICT: GREEN — runners healthy, host just on different subnet
 ```
@@ -209,13 +208,13 @@ Host-dark example (two-signal confirmed, see preflight Class E):
 
 ```
 === runner-health @ 2026-07-02 09:10 PDT ===
-GitHub API:   6/22 runners online (all 6 mac), 16/16 jeff-ubuntu Linux runners online=0/busy=0
+GitHub API:   6/22 runners online (all 6 mac), 16/16 the Linux runner host Linux runners online=0/busy=0
 Docker:       6/6 mac Up, 0 stuck
 Lima:         colima running, 4GiB mem, 100GiB disk
-jeff-ubuntu:  ssh timeout + ping timeout — both signals confirm host dark
+the Linux runner host:  ssh timeout + ping timeout — both signals confirm host dark
 
-VERDICT: RED — jeff-ubuntu host dark (16/16 Linux runners offline + SSH/ping timeout confirmed).
-NOT a generic <22/22 — this is a single-host outage. See rev-runn001 for tracking; do not open a new bead.
+VERDICT: RED — the Linux runner host host dark (16/16 Linux runners offline + SSH/ping timeout confirmed).
+NOT a generic <22/22 — this is a single-host outage. See the fleet's host-freeze bead for tracking; do not open a new bead.
 ```
 
 ### Markdown file (`/tmp/runner-health-<ts>.md`)
@@ -250,11 +249,11 @@ NOT a generic <22/22 — this is a single-host outage. See rev-runn001 for track
 | Memory | 4GiB |
 | Disk | 100GiB |
 
-## Check 4: jeff-ubuntu
+## Check 4: the Linux runner host
 | Field | Value |
 |---|---|
 | Reachable | No (different wifi) |
-| Subnet | 192.168.x.x (prior) |
+| Subnet | <runner-host-subnet> |
 | Recommendation | Check router DHCP lease for new IP |
 
 ## Check 5: Session conflict (GitHub offline vs container Up)
@@ -263,7 +262,7 @@ NOT a generic <22/22 — this is a single-host outage. See rev-runn001 for track
 | Offline count | 0 |
 | Session conflicts | none |
 
-## Check 6: hermes-pc cross-check
+## Check 6: cross-check agent cross-check
 (only if invoked)
 
 ## Notes

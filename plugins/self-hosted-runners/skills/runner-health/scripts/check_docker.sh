@@ -29,8 +29,8 @@ UP=$(docker ps --format '{{.Names}}' 2>/dev/null | wc -l | tr -d ' ')
 RESTARTING=$(docker ps -a --format '{{.Status}}' 2>/dev/null | grep -c "Restarting" || true)
 MAC_UP=$(docker ps --format '{{.Names}}' 2>/dev/null | grep -cE "^org-runner-mac-" || true)
 MAC_TOTAL=$(docker ps -a --format '{{.Names}}' 2>/dev/null | grep -cE "^org-runner-mac-" || true)
-AO_RESTARTING=$(docker ps -a --format '{{.Names}}\t{{.Status}}' 2>/dev/null | grep -E "ao-runner-jleechanorg--" | grep -c "Restarting" || true)
-AO_TOTAL=$(docker ps -a --format '{{.Names}}' 2>/dev/null | grep -cE "^ao-runner-jleechanorg--" || true)
+AO_RESTARTING=$(docker ps -a --format '{{.Names}}\t{{.Status}}' 2>/dev/null | grep -E "ao-runner-${GH_ORG:-${GITHUB_ORG:-${GITHUB_REPOSITORY%%/*}}}--" | grep -c "Restarting" || true)
+AO_TOTAL=$(docker ps -a --format '{{.Names}}' 2>/dev/null | grep -cE "^ao-runner-${GH_ORG:-${GITHUB_ORG:-${GITHUB_REPOSITORY%%/*}}}--" || true)
 
 emit "null" "$TOTAL" "$UP" "$RESTARTING" "$MAC_UP" "$MAC_TOTAL" "$AO_RESTARTING" "$AO_TOTAL"
 exit 0

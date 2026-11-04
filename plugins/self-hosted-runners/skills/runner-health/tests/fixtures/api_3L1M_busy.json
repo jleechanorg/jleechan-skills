@@ -8,6 +8,6 @@
     {"name": "org-runner-mac-1", "status": "online", "busy": true,  "labels": [{"name": "ARM64"}]},
     {"name": "org-runner-mac-2", "status": "online", "busy": false, "labels": [{"name": "ARM64"}]},
     {"name": "org-runner-mac-3", "status": "offline", "busy": false, "labels": [{"name": "ARM64"}]},
-    {"name": "ao-runner-jleechanorg--test", "status": "online", "busy": false, "labels": [{"name": "self-hosted"}, {"name": "repo"}]}
+    {"name": "ao-runner-example-org--test", "status": "online", "busy": false, "labels": [{"name": "self-hosted"}, {"name": "repo"}]}
   ]
 }

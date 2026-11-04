@@ -20,7 +20,7 @@ if [[ ! -f "$FIXTURE" ]]; then
 fi
 
 # Run the parser logic with the fixture
-RESULT=$(RUNNERS_JSON="$(cat "$FIXTURE")" RL_JSON='{}' TS="2026-06-29T00:00:00Z" ORG="jleechanorg" IN_FLIGHT=0 python3 <<'PYEOF'
+RESULT=$(RUNNERS_JSON="$(cat "$FIXTURE")" RL_JSON='{}' TS="2026-06-29T00:00:00Z" ORG="example-org" IN_FLIGHT=0 python3 <<'PYEOF'
 import json, os
 runners_data = json.loads(os.environ["RUNNERS_JSON"])
 runners = runners_data.get("runners", [])

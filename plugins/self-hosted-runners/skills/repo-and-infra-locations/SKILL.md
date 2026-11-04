@@ -1,58 +1,99 @@
 ---
 name: repo-and-infra-locations
-description: Key repository locations, ao CLI build paths, AO YAML config rules, port assignments, and ~/.hermes/ edit rules
+description: Template for looking up this machine's repository checkouts, ao CLI build path, AO YAML config rules, port assignments, and Hermes edit rules from machine-local configuration
 type: reference
 ---
 
-# Repository and Infrastructure Locations
+# Repository and Infrastructure Locations (machine-local template)
+
+This skill does not ship anyone's inventory. Each operator records their own
+locations in machine-local configuration, and the agent reads them at run time.
+When a value is missing, report `<VAR> not configured` and stop; never guess a
+path, host, or repository.
+
+## Where the values come from
+
+1. Environment variables from the shell profile, or from the optional user-owned
+   file `${XDG_CONFIG_HOME:-$HOME/.config}/jleechan-skills/env` (source it if present;
+   never write it):
+
+   ```bash
+   [ -f "${XDG_CONFIG_HOME:-$HOME/.config}/jleechan-skills/env" ] &&
+     . "${XDG_CONFIG_HOME:-$HOME/.config}/jleechan-skills/env"
+   ```
+
+2. Values derived from the current repository (`git rev-parse --show-toplevel`,
+   `gh repo view --json nameWithOwner -q .nameWithOwner`).
+
+| Variable | Meaning | If unset |
+|---|---|---|
+| `AO_REPO_ROOT` | Local Agent Orchestrator checkout used to build `ao` | stop: `AO_REPO_ROOT not configured` |
+| `AO_GITHUB_REPO` | GitHub `owner/repo` that `AO_REPO_ROOT`'s `origin` must match | stop |
+| `AO_CONFIG_PATH` | Agent Orchestrator YAML | `${HERMES_HOME:-$HOME/.hermes}/agent-orchestrator.yaml` when it exists |
+| `HERMES_HOME` | Hermes agent home (a live git checkout) | `$HOME/.hermes`; skip Hermes steps when absent |
+| `CLAUDE_HOME` / `CODEX_HOME` | Agent homes | `$HOME/.claude` / `$HOME/.codex` |
 
 ## Key repositories
 
-| Repo | Local path | origin | upstream |
-|---|---|---|---|
-| jleechanorg/agent-orchestrator-ts (agento fork) | `$HOME/project_agento/agent-orchestrator-ts` | `jleechanorg/agent-orchestrator-ts` | `ComposioHQ/agent-orchestrator` |
-| jleechanorg/jleechanclaw (orchestration) | `~/.hermes` | `jleechanorg/jleechanclaw` | — |
+Verify a checkout before using it, rather than trusting a remembered path:
 
-**Worktrees for agento**: create from `$HOME/project_agento/agent-orchestrator-ts`, reset to `origin/main` before use.
-**Do NOT use** `~/projects/agent-orchestrator` — its `origin` points to ComposioHQ directly (wrong for agent work).
+```bash
+: "${AO_REPO_ROOT:?AO_REPO_ROOT not configured: path to your Agent Orchestrator checkout}"
+: "${AO_GITHUB_REPO:?AO_GITHUB_REPO not configured: owner/repo of that checkout}"
+git -C "$AO_REPO_ROOT" remote get-url origin   # must point at $AO_GITHUB_REPO
+```
 
-## ao CLI — always from jleechanorg/agent-orchestrator-ts
+- Create Agent Orchestrator worktrees from `$AO_REPO_ROOT` and reset them to
+  `origin/main` before use.
+- Do not use a clone whose `origin` points at a different owner than
+  `AO_GITHUB_REPO` (for example a direct upstream clone) for agent work.
 
-The `ao` binary is built from `jleechanorg/agent-orchestrator-ts` — NOT from any ComposioHQ npm package.
+## ao CLI
 
-- **Binary**: `$HOME/bin/ao` → `packages/cli/dist/index.js`
-- **Repo**: `$HOME/project_agento/agent-orchestrator-ts` (origin: `jleechanorg/agent-orchestrator-ts`)
-- **Package namespace**: `@jleechanorg/ao-core` — NOT `@composio/*`
-- **Rebuild after updates**: `cd $HOME/project_agento/agent-orchestrator-ts && npm run build`
-- **If broken with `ERR_MODULE_NOT_FOUND @composio/ao-core`**: stale dist/; fix with `npm run build`
-- **NEVER install from npm** (`npm i -g @composio/agent-orchestrator`) — always build from the local jleechanorg fork
+- **Binary**: resolve with `command -v ao`; it should point at
+  `$AO_REPO_ROOT/packages/cli/dist/index.js` when you build from source.
+- **Rebuild after updates**: `cd "$AO_REPO_ROOT" && npm run build`.
+- **If broken with `ERR_MODULE_NOT_FOUND`** for an `ao-core` package: stale `dist/`;
+  rebuild with `npm run build`.
+- Install from npm only if your setup documents that package (`AO_NPM_PACKAGE`);
+  otherwise build from `$AO_REPO_ROOT`.
 
 ## AO YAML config — no shell-style env var syntax
 
-AO's YAML loader does **not** expand `${VAR:-default}` shell syntax. Config files must contain literal values.
+AO's YAML loader does **not** expand `${VAR:-default}` shell syntax. Config files
+must contain literal values. Before editing the AO config, check for `${` patterns
+and replace them with actual values:
 
-**Before editing `~/.agent-orchestrator.yaml` or any `agent-orchestrator.yaml`**: check for `${` patterns and replace with actual values:
 ```bash
-grep '\${' ~/.agent-orchestrator.yaml   # any hits = broken config
-grep '\${' ~/.hermes/agent-orchestrator.yaml
+AO_CONFIG="${AO_CONFIG_PATH:-${HERMES_HOME:-$HOME/.hermes}/agent-orchestrator.yaml}"
+[ -f "$AO_CONFIG" ] || { echo "AO_CONFIG_PATH not configured: AO YAML not found at $AO_CONFIG" >&2; exit 2; }
+grep -n '\${' "$AO_CONFIG"   # any hit = broken config
 ```
 
-## Port assignments — NEVER pick random ports
+## Port assignments — never pick random ports
 
-All local dev server ports are documented in `~/.bashrc` under `# PORT DOCUMENTATION`. Before choosing a port:
-1. Read `~/.bashrc` to find the assigned port or available range
-2. Use the env var if one exists (e.g., `WORLDCLAW_PORT=9400`, `REDIS_PORT=6379`)
-3. If unassigned, pick from an unallocated range and add the assignment to `~/.bashrc`
-4. **Never hardcode 3000, 8080, or other common defaults** — they collide
+Keep your port map in one machine-local place (for example a commented
+`# PORT DOCUMENTATION` block in your shell profile, or a file under
+`${XDG_CONFIG_HOME:-$HOME/.config}/`). Before choosing a port:
 
-Key: 2000 (AI Universe), 3000-3099 (AI Universe frontend), 6000-6101 (Conversation MCP), 8080 (Firestore emulator), 8765 (MCP Agent Mail), 9010 (Mission Control), 9400-9499 (WorldAI Claw), 10000-11000 (Codex proxy), 45000 (FastMCP).
+1. Read that port map and use the assigned port or range.
+2. Prefer an existing `<SERVICE>_PORT` environment variable when one is set.
+3. If the service has no assignment, pick from an unallocated range and record it
+   in the same machine-local map.
+4. Never hardcode common defaults such as 3000 or 8080; they collide.
 
-## ~/.hermes/ is a live repo — no direct edits (PR required)
+If no port map exists on this machine, say so and ask the operator before
+binding a port.
 
-**Do NOT directly edit files in `~/.hermes/`**. Edit in worktree → commit → PR → merge → `git pull`. Exceptions: `config.yaml` (via `hermes config set`), `cron/jobs.json` (live job mgmt), emergency hot-fixes.
+## `$HERMES_HOME` is a live repository — no direct edits
+
+When `$HERMES_HOME` is a git checkout, do not edit its tracked files in place.
+Edit in a worktree, commit, open a PR, merge, then `git -C "$HERMES_HOME" pull`.
+Exceptions: settings changed through `hermes config set`, live scheduler state,
+and emergency hot-fixes the operator explicitly approves.
 
 ## Config file locations
 
-- **Claude Code global config**: `~/.claude/CLAUDE.md`
-- **Codex global config**: `~/.codex/AGENTS.md`
-- **Hermes agent model config**: the `hermes-models` skill
+- **Claude Code global config**: `${CLAUDE_HOME:-$HOME/.claude}/CLAUDE.md`
+- **Codex global config**: `${CODEX_HOME:-$HOME/.codex}/AGENTS.md`
+- **Hermes agent model config**: the `hermes-models` skill, if installed

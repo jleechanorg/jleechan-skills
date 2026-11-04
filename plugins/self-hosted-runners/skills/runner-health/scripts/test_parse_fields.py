@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """test_parse_fields.py — unit tests for parse_fields.py's JSON-hardening.
 
-Bead rev-1jtb5: PR #8193 round 3 hardened compute_verdict()'s api/docker/jeff
+Bead rev-1jtb5: PR #8193 round 3 hardened compute_verdict()'s api/docker/host
 json.loads() calls against empty-string input, but api_fields()/docker_line()/
-lima_line()/jeff_line() (the display-line functions used directly by
+lima_line()/host_line() (the display-line functions used directly by
 runner-health.sh) had no such guard, and no isinstance(dict) check existed
 against a top-level JSON array. These tests exercise every function against:
 empty string, invalid JSON, and a non-dict top-level value (a JSON array) --
@@ -14,12 +14,16 @@ Usage: python3 test_parse_fields.py
 """
 import contextlib
 import io
+import os
 import sys
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 import parse_fields  # noqa: E402
+
+os.environ.setdefault("RUNNER_EXPECTED_LINUX", "16")
+os.environ.setdefault("RUNNER_EXPECTED_MAC", "6")
 
 MALFORMED_INPUTS = ["", "not json", "[]", "[1, 2, 3]", "null", "42", '"a string"']
 # Non-empty malformed inputs are expected to warn to stderr (an empty string
@@ -86,10 +90,10 @@ class TestDisplayFunctionsAgainstMalformedInput(unittest.TestCase):
                 result = parse_fields.lima_line(raw)
                 self.assertEqual(result, "(no instances)")
 
-    def test_jeff_line_never_raises(self):
+    def test_host_line_never_raises(self):
         for raw in MALFORMED_INPUTS:
             with self.subTest(raw=raw):
-                result = parse_fields.jeff_line(raw)
+                result = parse_fields.host_line(raw)
                 self.assertEqual(result, "?")
 
     def test_session_conflict_line_never_raises(self):
@@ -106,7 +110,7 @@ class TestComputeVerdictAgainstMalformedInput(unittest.TestCase):
                 result = parse_fields.compute_verdict(raw, "{}", "{}")
                 self.assertTrue(result.startswith("AMBER|API data unavailable"))
 
-    def test_verdict_survives_malformed_docker_and_jeff_with_valid_api(self):
+    def test_verdict_survives_malformed_docker_and_host_with_valid_api(self):
         valid_api = (
             '{"runners":{"online":22,"busy":10,'
             '"by_arch":{"linux_x64":{"online":16,"busy":8},'
@@ -114,7 +118,7 @@ class TestComputeVerdictAgainstMalformedInput(unittest.TestCase):
         )
         for raw in MALFORMED_INPUTS:
             with self.subTest(raw=raw):
-                # Must not raise; docker/jeff degrade to {} and the verdict
+                # Must not raise; docker/host degrade to {} and the verdict
                 # still resolves off the valid api payload.
                 result = parse_fields.compute_verdict(valid_api, raw, raw)
                 self.assertTrue(result.startswith(("GREEN|", "AMBER|")))

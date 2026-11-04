@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # runner-health.sh — master wrapper: runs all 4 checks in parallel, writes Markdown report
 # Usage: bash runner-health.sh [--cross-check N] [--no-report]
-#   --cross-check N: invoke hermes-pc cross-check (N=1..3). Default 0.
+#   --cross-check N: invoke the optional Slack cross-check (N=1..3). Default 0.
 #   --no-report: skip writing the Markdown file (console only).
 #
 # Exit codes:
@@ -36,14 +36,14 @@ bash "$SCRIPT_DIR/check_docker.sh" > "$TMPDIR/docker.json" 2> "$TMPDIR/docker.er
 PIDS+=($!)
 bash "$SCRIPT_DIR/check_lima.sh" > "$TMPDIR/lima.json" 2> "$TMPDIR/lima.err" &
 PIDS+=($!)
-bash "$SCRIPT_DIR/check_jeff_ubuntu.sh" > "$TMPDIR/jeff_ubuntu.json" 2> "$TMPDIR/jeff_ubuntu.err" &
+bash "$SCRIPT_DIR/check_runner_host.sh" > "$TMPDIR/runner_host.json" 2> "$TMPDIR/runner_host.err" &
 PIDS+=($!)
 bash "$SCRIPT_DIR/check_session_conflict.sh" > "$TMPDIR/session_conflict.json" 2> "$TMPDIR/session_conflict.err" &
 PIDS+=($!)
 
 # Optional cross-check
 if [[ "$CROSS_CHECK" -gt 0 ]]; then
-  bash "$SCRIPT_DIR/cross_check_hermes.sh" "$CROSS_CHECK" "Please verify runner health on your side. (gh api orgs/jleechanorg/actions/runners — are 22/22 online, how many busy?)" > "$TMPDIR/hermes.json" 2> "$TMPDIR/hermes.err" &
+  bash "$SCRIPT_DIR/cross_check_hermes.sh" "$CROSS_CHECK" "Please verify runner health on your side. (gh api orgs/${GH_ORG:-${GITHUB_ORG:-<org>}}/actions/runners — how many online, how many busy?)" > "$TMPDIR/hermes.json" 2> "$TMPDIR/hermes.err" &
   PIDS+=($!)
 fi
 
@@ -78,7 +78,7 @@ read_json_or_default() {
 API_JSON=$(read_json_or_default "$TMPDIR/api.json")
 DOCKER_JSON=$(read_json_or_default "$TMPDIR/docker.json")
 LIMA_JSON=$(read_json_or_default "$TMPDIR/lima.json")
-JEFF_JSON=$(read_json_or_default "$TMPDIR/jeff_ubuntu.json")
+HOST_JSON=$(read_json_or_default "$TMPDIR/runner_host.json")
 HERMES_JSON=$(read_json_or_default "$TMPDIR/hermes.json")
 SESSION_CONFLICT_JSON=$(read_json_or_default "$TMPDIR/session_conflict.json")
 
@@ -88,13 +88,13 @@ PARSER="$SCRIPT_DIR/parse_fields.py"
 read -r ONLINE BUSY LINUX_BUSY MAC_BUSY LINUX_ONLINE MAC_ONLINE <<<"$(python3 "$PARSER" api "$API_JSON")"
 DOCKER_LINE=$(python3 "$PARSER" docker "$DOCKER_JSON")
 LIMA_LINE=$(python3 "$PARSER" lima "$LIMA_JSON")
-JEFF_LINE=$(python3 "$PARSER" jeff "$JEFF_JSON")
+HOST_LINE=$(python3 "$PARSER" host "$HOST_JSON")
 SESSION_CONFLICT_LINE=$(python3 "$PARSER" session_conflict "$SESSION_CONFLICT_JSON")
 
 # Verdict via helper (lima state is shown separately, not used in verdict
 # math; session-conflict divergence — see check_session_conflict.sh /
 # bead rev-ws17d — overrides the generic per-arch online-count verdict)
-VERDICT_RESULT=$(python3 "$PARSER" verdict "$API_JSON" "$DOCKER_JSON" "$JEFF_JSON" "$SESSION_CONFLICT_JSON")
+VERDICT_RESULT=$(python3 "$PARSER" verdict "$API_JSON" "$DOCKER_JSON" "$HOST_JSON" "$SESSION_CONFLICT_JSON")
 VERDICT="${VERDICT_RESULT%%|*}"
 REASON="${VERDICT_RESULT#*|}"
 
@@ -105,12 +105,12 @@ else
 fi
 
 echo "=== runner-health @ $TS ==="
-echo "GitHub API:       $ONLINE/22 online ($LINUX_ONLINE Linux + $MAC_ONLINE Mac), $BUSY/$ONLINE busy ($LINUX_BUSY Linux + $MAC_BUSY Mac busy)"
+echo "GitHub API:       $ONLINE/$(( ${RUNNER_EXPECTED_LINUX:-0} + ${RUNNER_EXPECTED_MAC:-0} )) online ($LINUX_ONLINE Linux + $MAC_ONLINE Mac), $BUSY/$ONLINE busy ($LINUX_BUSY Linux + $MAC_BUSY Mac busy)"
 echo "Docker:           $DOCKER_LINE"
 echo "Lima:             $LIMA_LINE"
-echo "jeff-ubuntu:      $JEFF_LINE"
+echo "Runner host:      $HOST_LINE"
 echo "Session conflict: $SESSION_CONFLICT_LINE"
-echo "hermes-pc:        $HERMES_LINE"
+echo "Cross-check:      $HERMES_LINE"
 echo ""
 echo "VERDICT: $VERDICT${REASON:+ — $REASON}"
 echo ""
@@ -139,9 +139,9 @@ $DOCKER_JSON
 $LIMA_JSON
 \`\`\`
 
-## Check 4: jeff-ubuntu
+## Check 4: Linux runner host
 \`\`\`json
-$JEFF_JSON
+$HOST_JSON
 \`\`\`
 
 ## Check 5: Session conflict (GitHub offline vs container Up)
@@ -149,9 +149,9 @@ $JEFF_JSON
 $SESSION_CONFLICT_JSON
 \`\`\`
 
-## Check 6: hermes-pc cross-check
+## Check 6: Slack cross-check
 $(if [[ "$CROSS_CHECK" -gt 0 ]]; then
-  echo "Cross-check invoked (depth=$CROSS_CHECK). LLM agent posts question to #hermes-pc and parses reply."
+  echo "Cross-check invoked (depth=$CROSS_CHECK). LLM agent posts the question to the configured cross-check channel and parses the reply."
   echo ""
   echo "\`\`\`json"
   echo "$HERMES_JSON"
@@ -164,7 +164,7 @@ fi)
 
 - All scripts are deterministic bash. Re-run any check standalone: \`bash $SCRIPT_DIR/check_<name>.sh\`
 - Report regenerated on each invocation; persistent by user copy.
-- Per /runner-health SKILL.md: GREEN = 22/22 + ≥1 busy + no restart loops; AMBER = local signal ambiguous; RED = <22 or all idle
+- Per /runner-health SKILL.md: GREEN = near expected count + ≥1 busy + no restart loops; AMBER = local signal ambiguous; RED = critically below expected or host dark
 - Related skills: \`self-hosted-runner-preflight\` (fix-oriented), \`org-runner-audit\` (read-only list)
 MDEOF
   echo "Report written: $REPORT_FILE"
