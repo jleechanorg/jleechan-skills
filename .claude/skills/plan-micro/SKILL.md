@@ -176,7 +176,8 @@ Rules the bead table must satisfy:
 2. **Name who re-executes each proof**: never the implementer and never the
    plan author. The orchestrator that wrote the plan is an author and may not
    close its own beads; use a cross-model reviewer or CI.
-3. **Atomize in the script, not in the bead count.** Past roughly 10–20 beads,
+3. **Atomize in the script, not in the bead count.** Do not create one bead per
+   falsifiable number: past roughly 10–20 beads,
    implementers stop reading contracts and the gate loses force. Keep one bead
    per reviewable deliverable (each still with its own TEST and IMPL bead) and
    put the individual assertions inside its proof script or test file: one
@@ -185,7 +186,8 @@ Rules the bead table must satisfy:
    moves, staleness follows ironclad's Materiality rule.
 5. **Name the applicable tool traps in the bead** (`gh pr checks` hides
    SKIPPED/NEUTRAL; empty git output renders as `ok` in the Claude Code harness,
-   other harnesses differ; a published artifact drifts from its source). A bead
+   other harnesses differ, so use the canonical self-grading forms; a published
+   artifact drifts from its source). A bead
    that reports CI state, tree state, or publishes an artifact states which trap
    it guards against and how.
 
