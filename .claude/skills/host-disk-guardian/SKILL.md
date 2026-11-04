@@ -13,7 +13,7 @@ allowed-tools:
   - Bash
   - Read
 context:
-  - "Disk Magician is the operational owner. Route by request: quick capacity or plain reclaim (including 'check host free space') -> the zero-du triage in ~/.claude/skills/disk-audit/SKILL.md; root-cause investigation, cleanup decisions, and scheduled maintenance -> ~/.claude/skills/disk-root-cause/SKILL.md and ~/projects_other/disk_magician/CLAUDE.md. Use the CLI named there."
+  - "Disk Magician is the operational owner. Route by request: quick capacity or plain reclaim (including 'check host free space') -> the zero-du triage in ~/.claude/skills/disk-audit/SKILL.md; root-cause investigation, cleanup decisions, and scheduled maintenance -> ~/.claude/skills/disk-root-cause/SKILL.md and, when a Disk Magician checkout is available, its CLAUDE.md (locate the CLI with `command -v diskm`). Use the CLI named there."
   - "Scripts are implementation helpers, not separate operator entry points. This skill does not authorize direct cleanup or launchd installation."
 ---
 
@@ -29,7 +29,8 @@ full audit walk for these. If the precomputed ledger or snapshots are missing or
 - **Root-cause investigation, choosing a cleanup target, and scheduled maintenance**
 ("why is the host full", "what grew", "what should I clean up", "which of these should I
 delete") -> follow
-`~/.claude/skills/disk-root-cause/SKILL.md` and `~/projects_other/disk_magician/CLAUDE.md`.
+`~/.claude/skills/disk-root-cause/SKILL.md` and, when a Disk Magician checkout is available, its `CLAUDE.md`
+(locate the CLI with `command -v diskm`; if it is absent, report the missing prerequisite).
 
 Use the current CLI entry point named there; Disk Magician scripts are internal
 helpers, not additional operator interfaces.

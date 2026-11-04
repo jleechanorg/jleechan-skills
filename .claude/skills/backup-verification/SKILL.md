@@ -8,7 +8,7 @@ description: Use whenever asked whether "the backup" is working, or after invoki
 ## Rule
 After ANY invocation of a multi-target backup script (git + dropbox, git + s3, etc.), do NOT trust the script's overall exit status as proof of backup health. ALWAYS independently verify each target. This applies to:
 
-- After every invocation of `scripts/backup-home.sh` (user-scope repo)
+- After every invocation of `scripts/backup-home.sh` (in your user-scope checkout, `$USER_SCOPE_ROOT`)
 - After every launchd `org.$USER.user-scope-backup` tick (every 2 h, scheduled)
 - Before any report, claim, or PR whose correctness depends on backup state
 - When answering "is the backup working?" in any form
@@ -54,14 +54,16 @@ Override per-row via `_PER_SOURCE_TIMEOUT_OVERRIDES` associative array in `scrip
 
 ## When NOT to use this skill
 
-- If the user is asking about a non-`backup-home` script (e.g. worldarchitect deploys), do not mechanically apply this — adapt to that script's per-target report format.
+- If the user is asking about a non-`backup-home` script (e.g. deploy scripts), do not mechanically apply this — adapt to that script's per-target report format.
 - If the report file genuinely doesn't exist or is truncated mid-write (very rare; would indicate a launchd SIGKILL during finalize_backup_report), say so explicitly and route to manual investigation rather than guessing.
 
 ## Companion files
 
-- Script: `$HOME/projects/user_scope/scripts/backup-home.sh`
+Paths below are the script's macOS defaults; on another platform read the report path the script prints.
+
+- Script: `$USER_SCOPE_ROOT/scripts/backup-home.sh` (stop with "USER_SCOPE_ROOT not configured" if unset)
 - Schedule: `~/Library/LaunchAgents/org.$USER.user-scope-backup.plist`
-- Plist template: `$HOME/projects/user_scope/dotfiles/launchd/org.$USER.user-scope-backup.plist`
+- Plist template: `$USER_SCOPE_ROOT/dotfiles/launchd/org.$USER.user-scope-backup.plist`
 - Companion cleanup job: `~/Library/LaunchAgents/org.$USER.backup-dropbox-orphan-cleanup.plist` (template in same dir)
 - Persistent log: `~/Library/Logs/backup-home-status.log`
 - Per-target report: `~/Library/Logs/home-backup.latest.report.txt`

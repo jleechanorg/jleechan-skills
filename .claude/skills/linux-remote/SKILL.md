@@ -1,9 +1,9 @@
 ---
 name: linux-remote
-description: "Steering work on $USER's Ubuntu machine (jeff-ubuntu) via SSH. Use when asked to run commands, install software, check services, or manage files on the Ubuntu box."
+description: "Steering work on a remote Linux host ($LINUX_REMOTE_HOST) via SSH. Use when asked to run commands, install software, check services, or manage files on that Linux host."
 ---
 
-# Linux Remote — jeff-ubuntu SSH Steering
+# Linux Remote — Linux SSH Steering
 
 ## Retained review integrations
 
@@ -12,27 +12,33 @@ The shared catalog preserves host-installed `/advice` and `/web-advice` integrat
 
 ## Connection
 
+This skill targets the Linux host named by `LINUX_REMOTE_HOST` (an SSH alias
+from `~/.ssh/config`; examples use `mylinux`). There is no default host; stop
+if it is unset:
+
 ```bash
-ssh jeff-ubuntu          # alias in ~/.ssh/config → $USER@<ubuntu-lan-ip>
+: "${LINUX_REMOTE_HOST:?LINUX_REMOTE_HOST not configured: SSH alias of your Linux host. Example: export LINUX_REMOTE_HOST=mylinux}"
+LINUX_TS="${LINUX_REMOTE_HOST_TS:-$LINUX_REMOTE_HOST}"   # optional tailnet alias
+ssh "$LINUX_REMOTE_HOST"     # alias in ~/.ssh/config → <linux-user>@<linux-lan-ip>
 ```
 
-- **Host:** `jeff-ubuntu` / `<ubuntu-lan-ip>` (LAN only)
-- **User:** `$USER`
-- **Key:** `~/.ssh/<ubuntu-key>` (passwordless, no `-i` flag needed via alias)
-- **OS:** Ubuntu 24.04, kernel 6.17, x86_64
+- **Host:** `$LINUX_REMOTE_HOST` / `<linux-lan-ip>` (LAN)
+- **User:** `<linux-user>`
+- **Key:** `~/.ssh/<linux-key>` (passwordless, no `-i` flag needed via alias)
+- **OS:** check with `ssh "$LINUX_REMOTE_HOST" 'uname -a; cat /etc/os-release'`
 - **sudo:** use the interactive SSH prompt shown below; never embed a password in a command
 
 ## Off-LAN fallback: Tailscale, then Slack
 
-If `ssh jeff-ubuntu` times out or is refused (off home LAN, traveling, or the LAN link is just down — happens occasionally even at home), use the dedicated Tailscale alias instead — proven working 2026-09-16/17, including with the LAN link fully down:
+If `ssh "$LINUX_REMOTE_HOST"` times out or is refused (off the LAN, traveling, or the LAN link is down), use the tailnet alias instead when one is configured:
 
 ```bash
-ssh jeff-ubuntu-ts '<command>'
+ssh "$LINUX_TS" '<command>'
 ```
 
-`jeff-ubuntu-ts` is a real `~/.ssh/config` stanza (same `IdentityFile` as the LAN alias) — no manual `-i`/IP lookup needed, it just works as a drop-in replacement for `jeff-ubuntu` in every command in this skill. `ssh jeff-ubuntu` does **not** fail over to it automatically; try the LAN alias first (fast when it works), fall to `-ts` on failure. Re-verify the IP with `tailscale status | grep ubuntu` if it ever seems dead — Tailscale IPs are stable per-device but not guaranteed forever.
+`LINUX_REMOTE_HOST_TS` names a real `~/.ssh/config` stanza (same `IdentityFile` as the LAN alias), so it works as a drop-in replacement for `$LINUX_REMOTE_HOST` in every command in this skill. `ssh` does **not** fail over to it automatically; try the LAN alias first (fast when it works), then fall back to the tailnet alias. Re-verify the IP with `tailscale status` if it ever seems dead — Tailscale IPs are stable per-device but not guaranteed forever.
 
-If both the LAN alias and `jeff-ubuntu-ts` fail, see [cross-machine-ssh-tier](../cross-machine-ssh-tier/SKILL.md) for the Tier 3 messaging-gateway fallback and its debugging caveats (OAuth-scope-vs-connection, bot-message filtering) — that skill is the shared source of truth for this whole ladder, used identically by `mac-remote`, `linux-mirror`, and `mac-mirror`.
+If both aliases fail, see [cross-machine-ssh-tier](../cross-machine-ssh-tier/SKILL.md) for the Tier 3 messaging-gateway fallback and its debugging caveats (OAuth-scope-vs-connection, bot-message filtering) — that skill is the shared source of truth for this whole ladder, used identically by `mac-remote`, `linux-mirror`, and `mac-mirror`.
 
 ## Cloud capability gaps
 
@@ -40,18 +46,18 @@ For a missing tool, login or permission on Dot's cloud computer, follow the `/do
 
 ## How to run commands
 
-Always use `ssh jeff-ubuntu '<command>'` for one-liners:
+Always use `ssh "$LINUX_REMOTE_HOST" '<command>'` for one-liners:
 
 ```bash
-ssh jeff-ubuntu 'sudo apt update && sudo apt install -y <pkg>'
-ssh jeff-ubuntu 'systemctl status <service>'
-ssh jeff-ubuntu 'cat /var/log/syslog | tail -50'
+ssh "$LINUX_REMOTE_HOST" 'sudo apt update && sudo apt install -y <pkg>'
+ssh "$LINUX_REMOTE_HOST" 'systemctl status <service>'
+ssh "$LINUX_REMOTE_HOST" 'cat /var/log/syslog | tail -50'
 ```
 
 For multi-line scripts, pipe via heredoc:
 
 ```bash
-ssh jeff-ubuntu 'bash -s' << 'EOF'
+ssh "$LINUX_REMOTE_HOST" 'bash -s' << 'EOF'
 sudo apt update
 sudo apt install -y openssh-server
 sudo systemctl enable --now ssh
@@ -126,7 +132,7 @@ This contract applies through SSH, tmux, cmux, and terminals such as Warp.
 ## sudo over SSH
 
 ```bash
-ssh -t jeff-ubuntu 'sudo -- id -u'
+ssh -t "$LINUX_REMOTE_HOST" 'sudo -- id -u'
 ```
 
 Let `sudo` prompt in the interactive SSH session. Replace `id -u` with the
@@ -135,32 +141,32 @@ required command. Never embed a password in a command, script, or stdin stream.
 ## File transfer
 
 ```bash
-scp /local/file jeff-ubuntu:/remote/path      # local → remote
-scp jeff-ubuntu:/remote/file /local/path      # remote → local
-rsync -avz /local/ jeff-ubuntu:/remote/       # sync directory
+scp /local/file "$LINUX_REMOTE_HOST":/remote/path   # local → remote
+scp "$LINUX_REMOTE_HOST":/remote/file /local/path   # remote → local
+rsync -avz /local/ "$LINUX_REMOTE_HOST":/remote/    # sync directory
 ```
 
 ## Common tasks
 
 | Task | Command |
 |------|---------|
-| Check disk | `ssh jeff-ubuntu 'df -h'` |
-| Running services | `ssh jeff-ubuntu 'systemctl list-units --state=running'` |
-| Installed packages | `ssh jeff-ubuntu 'dpkg -l \| grep <pkg>'` |
-| Tail a log | `ssh jeff-ubuntu 'sudo journalctl -fu <service>'` |
-| Advice Review | `ssh jeff-ubuntu '~/.claude/commands/advice.md'` (or execute `~/.claude/skills/advice/SKILL.md`) |
-| Web Advice Review | `ssh jeff-ubuntu '~/.claude/commands/web-advice.md'` (or execute `~/.claude/skills/web-advice/SKILL.md`) |
-| Allocate Scratch dir | `ssh jeff-ubuntu 'diskm scratch-new <repo-path> <purpose> --kind build\|evidence'` |
-| Reboot | `ssh jeff-ubuntu 'sudo reboot'` (warn user first) |
+| Check disk | `ssh "$LINUX_REMOTE_HOST" 'df -h'` |
+| Running services | `ssh "$LINUX_REMOTE_HOST" 'systemctl list-units --state=running'` |
+| Installed packages | `ssh "$LINUX_REMOTE_HOST" 'dpkg -l \| grep <pkg>'` |
+| Tail a log | `ssh "$LINUX_REMOTE_HOST" 'sudo journalctl -fu <service>'` |
+| Advice Review | `ssh "$LINUX_REMOTE_HOST" '~/.claude/commands/advice.md'` (or execute `~/.claude/skills/advice/SKILL.md`) |
+| Web Advice Review | `ssh "$LINUX_REMOTE_HOST" '~/.claude/commands/web-advice.md'` (or execute `~/.claude/skills/web-advice/SKILL.md`) |
+| Allocate Scratch dir | `ssh "$LINUX_REMOTE_HOST" 'diskm scratch-new <repo-path> <purpose> --kind build\|evidence'` |
+| Reboot | `ssh "$LINUX_REMOTE_HOST" 'sudo reboot'` (warn user first) |
 
 ## Scratch and worktree placement (Mac and Linux)
 
-- **Scratch and evidence placement**: Follow the canonical scratch skill [`~/.claude/skills/scratch-space/SKILL.md`](../scratch-space/SKILL.md) for disposable build output, test scratch, ephemeral review workspaces, and evidence bundles across Mac and Linux (`jeff-ubuntu`). Allocate managed directories via `diskm scratch-new <repo-path> <purpose> --kind build|evidence` or resolve ad-hoc scratch via `~/.claude/skills/scratch-space/scripts/scratch-dir.sh [subpath]`.
+- **Scratch and evidence placement**: Follow the canonical scratch skill [`~/.claude/skills/scratch-space/SKILL.md`](../scratch-space/SKILL.md) for disposable build output, test scratch, ephemeral review workspaces, and evidence bundles across Mac and Linux hosts. Allocate managed directories via `diskm scratch-new <repo-path> <purpose> --kind build|evidence` or resolve ad-hoc scratch via `~/.claude/skills/scratch-space/scripts/scratch-dir.sh [subpath]`.
 - **Git worktrees**: Create git worktrees only under `~/.worktrees/<repo>/<name>` via `diskm worktree-new <repo-path> <branch>`, never in `$HOME`, repo trees, or `/tmp`.
 
 ## Caveats
 
-- Machine is LAN-only (<lan-subnet>) — not reachable when off same network; use the Tailscale fallback above when off-LAN
-- If SSH fails, check if machine is on via `ping <ubuntu-lan-ip>`, then try Tailscale before assuming it's down
+- The host may be LAN-only (<lan-subnet>) — not reachable when off the same network; use the Tailscale fallback above when off-LAN
+- If SSH fails, check if the machine is on via `ping <linux-lan-ip>`, then try Tailscale before assuming it's down
 - RustDesk (peer ID in machine-local config) is the fallback for GUI access if SSH is down
 - Always prefer SSH over RustDesk for CLI work — RustDesk CLI steering is not possible headlessly on macOS without Accessibility permission

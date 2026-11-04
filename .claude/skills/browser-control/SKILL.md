@@ -177,7 +177,7 @@ if [ ! -f "$SOURCE_DB" ]; then
   source_status=11
 else
   env -i HOME="$HOME" \
-    PATH="$HOME/.local/orch-venv/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
+    PATH="$(dirname "$(command -v browserclaw)"):/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
     browserclaw cookies decrypt --db "$SOURCE_DB" \
       --output "$TMP_COOKIES" \
       --keychain-service "$SOURCE_KEYCHAIN_SERVICE" \
@@ -205,7 +205,7 @@ fi
 #    Do not write a screenshot by default; capture one only when the user
 #    explicitly requested visual evidence AND the page is known not to
 #    display secrets.
-env -i HOME="$HOME" PATH="$HOME/.local/orch-venv/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
+env -i HOME="$HOME" PATH="$(dirname "$(command -v browserclaw)"):/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
   browserclaw cookies inject \
     --cookies "$TMP_COOKIES" \
     --goto "<full-authenticated-url>" \
@@ -292,7 +292,7 @@ if [ ! -f "$SOURCE_DB" ]; then
   source_status=11
 else
   env -i HOME="$HOME" \
-    PATH="$HOME/.local/orch-venv/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
+    PATH="$(dirname "$(command -v browserclaw)"):/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
     browserclaw cookies decrypt --db "$SOURCE_DB" \
       --output "$TMP_COOKIES" \
       --keychain-service "$SOURCE_KEYCHAIN_SERVICE" \
@@ -320,7 +320,8 @@ fi
 # reverse, persisted DOM, screenshots. The URL is defined on its own
 # line so `set -u` does not trip when we expand it on the next.
 BROWSE_TARGET_URL="<full-secret-bearing-url>"
-"$HOME/.local/orch-venv/bin/python" - "$TMP_COOKIES" "$BROWSE_TARGET_URL" <<'PY'
+# Requires a python3 with Playwright installed first on PATH (activate its venv).
+python3 - "$TMP_COOKIES" "$BROWSE_TARGET_URL" <<'PY'
 import json, sys
 from playwright.sync_api import sync_playwright
 

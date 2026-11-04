@@ -227,7 +227,7 @@ class ExtractedRecipeExecutionTest(unittest.TestCase):
             out.append(line)
         branch = "\n".join(out)
         branch = branch.replace(
-            '"$HOME/.local/orch-venv/bin/python" - "$TMP_COOKIES" "$BROWSE_TARGET_URL" <<\'PY\'',
+            'python3 - "$TMP_COOKIES" "$BROWSE_TARGET_URL" <<\'PY\'',
             '/usr/bin/python3 - "$TMP_COOKIES" "http://stub" <<\'PY\'',
         )
         return branch
