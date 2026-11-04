@@ -47,7 +47,7 @@ act*, never *depth of review*.
 **Allowed commands (the complete list).** `cmux tree --all --json`, `cmux list-workspaces`, `cmux top --all
 [--flat]`, `cmux top --workspace <ws> --processes`, `cmux capture-pane --workspace <ws> --surface <sf>
 --scrollback --lines <n>` (the only read path), read-only `gh pr view|list --json`, read-only `gh api` GET on a
-pull's reviews/commits/checks, read-only `git log|status|rev-list|rev-parse` inside a surface's worktree, read-only
+pull's reviews/commits/checks, read-only `git log|status|rev-list|rev-parse` inside a surface's worktree, read-only `wc -l` on piped output of those commands, a single read-only route probe (one cheap call to the reviewer CLI, e.g. `--version`/`-p` on a fixed no-op prompt) to establish liveness, read-only
 `ps` / `lsof -p <pid>`, and reads of the `/tmp` capture files. The `git` and `gh api` reads exist so the
 `ENDLESS_REVIEW` measurements can be taken in the same pass; neither mutates a repo or a PR. Nothing else.
 
@@ -142,6 +142,13 @@ Live evidence (2026-10-19): a single sweep resumed 8 such lanes (`iOS`, `lvl up`
 
 ### Endless-review loop — a live timer is not progress
 
+> **Reconciliation with the shared full-buffer rule.** `AGENTS.md` says "Screen changed => `WORKING`, stop", and
+> that rule stands for *idleness* questions: a changing screen still means the lane is not idle, and this section
+> never reclassifies it as stalled, dead, or quota-blocked. `ENDLESS_REVIEW` answers a **different** question -
+> whether a lane that is unquestionably running is *producing anything* - so it does not weaken the shared rule
+> and must not be applied as a substitute for it. Apply the shared rule first; classify `ENDLESS_REVIEW` only
+> after it returns "working".
+
 A lane can be genuinely `WORKING` by every existing gate — live timer, changing screen, real tool calls — and still be
 producing **zero** deliverable. Review work is the usual cause: `/er`, `/es`, `/advice`, re-reviews, dot sends, and
 evidence re-publishes are all *activity*, so they defeat the two-sample check that exists to catch idleness. The
@@ -169,10 +176,13 @@ gh api repos/<org>/<repo>/pulls/<N>/reviews \
 **Flag `ENDLESS_REVIEW` when all three hold:**
 1. The lane's own timer is long (**>= 2 h**) while `git log -1` shows the last commit was **>= 2 h ago** and
    `status --porcelain` is empty with `rev-list --count HEAD --not --remotes` = 0 — nothing produced, nothing pending.
-2. Three or more **distinct review attempts** converge on the **same head SHA**, or the same evidence bundle is
-   re-published more than once at one head. A "distinct attempt" is one reviewer pass, not one API record: some
-   bots post a separate review record per finding, so raw record count is not evidence of repeated rounds. If
-   every record at that head came from one reviewer within a few minutes, treat it as **one** attempt.
+2. The lane shows **three or more distinct review attempts at the same head**, taken from the lane's own
+   transcript (each `/er`, `/es`, `/advice`, or dot send it issued), *not* from the GitHub review-record count.
+   API records cannot establish attempts: one reviewer pass can post many records (a bot posting per finding, as
+   in the #494 burst: 24 records from two accounts in 74 s = effectively **one** pass), and one reviewer can also
+   pass several times. Use step 3 only to detect that *something* is repeating at one head, then confirm the
+   attempt count from the lane's transcript; if the transcript is not available, record the attempt count as
+   UNVERIFIED and do not flag on this condition alone.
 3. The gate it waits on **structurally cannot close**, proven from **current** route evidence — the reviewer
    route is dead by quota/capacity (`usage limit`, `at capacity`, `RESOURCE_EXHAUSTED`, `429`) *now*, not from an
    old banner in scrollback. The stale-footer rule below applies in full: probe the route (one cheap call) or read
