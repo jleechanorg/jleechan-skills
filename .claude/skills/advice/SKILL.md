@@ -72,20 +72,21 @@ those seats are genuinely exhausted.
 ### Rung 2: outside routes
 
 As soon as the remaining CLI seats cannot fill every open slot (typically all are quota-walled, missing or void),
-dispatch every configured outside route at once, without waiting for static reviewers or asking the user to choose.
+dispatch every configured outside route at once (accounts within one route follow that route's order), without waiting for static reviewers or asking the user to choose.
 Two outside votes from distinct identities are a full quorum.
 
-The repository owner authorized these routes as `/advice` fallbacks on 2026-11-04, including `/web-advice` uploads
-and the `#dot-coordination` channel. That is the standing authorization pr-lifecycle's optional-`/wa` rule and
+The repository owner authorized these routes as `/advice` fallbacks on 2026-11-04 ("when all cli reviewers out of
+quota ... it should try to use /wa and ask hermes hermes pc and the dots in dot coordination for a review"), including
+`/web-advice` uploads and the `#dot-coordination` channel. That is the standing authorization pr-lifecycle's optional-`/wa` rule and
 `/hermes`'s disclosure rule require. It does not override a narrower rule: when the user, task or repository
 restricts external disclosure of the reviewed content, or the content holds secrets, the affected route is
 `UNAVAILABLE — disclosure not authorized`.
 
 | Route | Transport | Seats |
 |---|---|---|
-| Dot | the [`/dot` skill](../dot/SKILL.md), coordinator ask, `isolation: remote` | one per Dot account in its `rotation` (the Dots [dot-coordinator](../dot-coordinator/SKILL.md) is configured for), each addressed explicitly with `--account <name>`, never by automatic rotation; a busy, limited or blocked account is recorded `UNAVAILABLE` and the next account is its own seat; revision review only |
+| Dot | the [`/dot` skill](../dot/SKILL.md), coordinator ask, `isolation: remote` | one Dot account at a time, in its configured `rotation` order (the Dots [dot-coordinator](../dot-coordinator/SKILL.md) is configured for), each addressed explicitly with `--account <name>`, never by automatic rotation; only when an account is busy, limited, blocked or timed out is it recorded `UNAVAILABLE` and the next account asked, matching pr-lifecycle's `/dot` rotation; the Dot route still runs concurrently with the other routes; revision review only |
 | Hermes | the `/hermes` skill's Slack-only transport (host-installed; absent means `UNAVAILABLE`), coordinator ask, `isolation: remote`. **If the `#dot-coordination` Slack channel is available to the sending identity, post there, one thread per Hermes instance;** otherwise use the conversation `/hermes` resolves | one per configured Hermes instance, for example the primary Hermes and `hermes-pc`, resolved from machine-local configuration; revision review only |
-| Web advice | [`/web-advice`](../web-advice/SKILL.md) (user shorthand `wa`), `isolation: packet` for revisions, `none` for documents | one per authenticated provider and account |
+| Web advice | [`/web-advice`](../web-advice/SKILL.md) (user shorthand `wa`), `isolation: packet` for revisions, `none` for documents | one per authenticated provider and account; the orchestrator records the signed-in account from the web session as `attested.account` |
 
 A reply is a vote only once it carries full-scope `COVERAGE:` and the SHA-bound `VERDICT:` line, read back at the
 source. An acknowledgement, "on it", a reaction or a delegated-coder promise is `SENT`/`ACKNOWLEDGED` (per
@@ -120,12 +121,12 @@ Mac or Ubuntu machine); try or record each host separately. When no rung yields 
 
 ## 3. Enforce the attempt deadline
 
-- **Budget `B`.** Each attempt gets 1800 seconds end to end unless the user set a limit, shorter or longer, before
-  dispatch. A user instruction to await a named reviewer, given before dispatch, sets `B` for that attempt to the wait the
-  user named or, without a duration, to a cap recorded in the receipt before dispatch.
-  A running attempt is never extended: if such an instruction arrives later, let the attempt expire, record it
-  `TIMED_OUT`, record the requested wait route as `UNAVAILABLE`, and leave the gate open unless another supported
-  route satisfies it. Never preempt a valid in-deadline result, count late output, claim a wait that did not
+- **Budget `B`.** Each attempt gets 1800 seconds end to end (static reviewers: 600 seconds, per static-review) unless the user set a limit, shorter or longer, before
+  dispatch. A specific user instruction to await a named reviewer overrides that attempt's deadline, even without
+  a duration, per pr-lifecycle § Reviewer timeout and completion; record the instruction and the wait actually
+  honoured in the receipt. A CLI attempt already running under a native timeout cannot have that timeout
+  lengthened: when it expires, record it `TIMED_OUT` and keep the gate open for that reviewer instead of counting
+  late output. Never preempt a valid in-deadline result, count late output, claim a wait that did not
   happen, or issue a duplicate review. Status updates never pause or reset the clock.
 - **Clock.** Shared, immutable packet preparation may happen first. Immediately before dispatch, capture the queue
   boundary on the host that launches the seat:

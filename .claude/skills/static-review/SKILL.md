@@ -83,11 +83,13 @@ seat, the `<review request>` argument (or stdin, for forms without one) is exact
 Coordinator ask (each Dot account in rotation and each configured Hermes instance): the sender line its owning
 skill requires, if any (for example the Dot `From ...:` prefix), then the configured mentions, then
 `Advice vote requested.` on its own line, then the remote preamble, then the remote review prompt. Coordinator asks are revision-only: a remote reviewer
-cannot read a local packet. The sender line and mentions are recorded in the receipt and are the only bytes
-allowed before the template.
+cannot read a local packet. Exactly these four parts, in this order, may precede the template: the sender line,
+the mentions, `Advice vote requested.` and the remote preamble; record the sender line and mentions in the
+receipt. A vote request is not a `/hermes` task handoff: it carries no task marker, owner or acceptance fields,
+because the template's PR URL and SHA already bind it.
 
-Web-provider ask (web-advice seats): `Advice vote requested.` on its own line, then the revision packet prompt
-(revision) or the document-only preamble plus the document-only review prompt, with the packet files uploaded as
+Web-provider ask (web-advice seats): the channel preamble is `Advice vote requested.` on its own line, followed
+by the revision packet prompt (revision), or by the document-only preamble plus the document-only review prompt, with the packet files uploaded as
 attachments.
 
 Every CLI seat (Codex, Opus, the Claude alternates, Cursor, AGY, any `ADVICE_EXTRA_CLIS` seat) and every static
