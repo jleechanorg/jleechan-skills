@@ -160,9 +160,19 @@ Different problem: the process is gone, so there is nothing to ctrl-c. Recreate 
    `cmux send` refuses without `--force` — so your exit *and* your `codexc` both vanish with no error.
    Send `esc --force` first, then use `--force` on the exit and restart keys. Verified live: without it,
    a lane sat on its interrupt menu through three ctrl+c attempts and a codexc.
-2. **Stale banners are history, not state.** A lane can display `You've hit your usage limit` in
-   scrollback while working perfectly. Prove it by sending one real prompt; do not declare a lane dead
-   from a banner that sits above the current composer.
+2. **Stale banners are history, not state — and a pane banner is NOT a quota reading.** A lane can display
+   `You've hit your usage limit ... try again at <date>` while working perfectly. Never accept the banner,
+   and never accept the *date in the banner*, as the fleet's quota state: on 2026-11-04 six panes still read
+   "try again Nov 9th / Nov 10th" while quota had already reset.
+   **Decide quota from the account, not from the pane.** Run three cheap non-interactive probes and count
+   successes; a single failure is not a wall (it can be a transient):
+   ```bash
+   for i in 1 2 3; do codex exec --skip-git-repo-check "reply P$i" 2>&1 | grep -oE "P$i|usage limit|try again at.*"; done
+   ```
+   Three clean replies ⇒ quota is available ⇒ every banner naming a future date is stale, and the lanes are
+   **recoverable** — proceed with the restart. Three failures carrying a limit message ⇒ a genuine
+   account-level wall; a restart only re-hits it, so stop and report the reset time instead.
+   Do not dispatch one `codex exec` fan-out per lane to test this; one probe answers it fleet-wide.
 3. **CSI-u garbage.** See step 3. Symptom: `bash: 9: command not found`, `bash: 5ucodexc: command not
    found`. The cause is the terminal still encoding keys as `ESC [ code ; mods u`; `ctrl+c` on the
    shell line is the cheap fix, `printf '\x1b[<u'` pops the mode, and `reset` is the sledgehammer.
@@ -183,6 +193,18 @@ Different problem: the process is gone, so there is nothing to ctrl-c. Recreate 
 10. **Delegation is invisible from the footer line.** `? for shortcuts · 1 subagent(s)`, or a
     `● Agent(self: …) Generating · 19m7s` line, means the lane IS working while its composer sits empty. Grep for
     `subagent(s)` and `● Agent(` before labelling a quiet pane idle.
+11. **`codexc` / `claudec` are shell ALIASES, not executables — they do not exist in a script.** Both are
+    defined in `~/.bashrc` (`alias codexc='codex resume --last'`), so a Bash tool call, a cron job, or any
+    non-interactive shell reports "command not found" (or silently does nothing). Inside `cmux send` the target
+    is an interactive login shell so the alias resolves, but never rely on it from a script: dispatch
+    `codex resume <uuid>` / `claude --resume <uuid>` explicitly. This is also why the explicit-id rule above
+    matters — the alias additionally hardcodes `--last`, which is the wrong conversation wherever lanes share a
+    directory.
+12. **Enumerate workspaces fresh every session; do not reuse refs.** cmux workspace and surface refs are
+    session-scoped and are **re-numbered** on restart. After one restart the same lane moved from
+    `workspace:1000250001` to `workspace:1000260001`. Re-run `cmux list-workspaces` and `cmux list-panels` and
+    re-derive the surface list, or a steer lands on an unrelated lane. Record the batch in a scratch dir so the
+    capture, the decision and the verification all reference the same generation.
 
 ## Automation
 
@@ -200,3 +222,21 @@ The script does not do step 2's live-state check (full scrollback plus two captu
 
 The script refuses to type into a surface whose prompt line still contains CSI-u residue, and it
 verifies the restart at the process level before reporting success.
+
+### Fleet recovery (many wedged lanes at once) — measured on 14 lanes, 2026-11-04
+
+Recovering a fleet is the same steps per lane, run in parallel, with two fleet-level additions:
+**settle quota once, and verify with a diff rather than a timer.**
+
+1. **Settle quota first** (trap 2): three probes. Do not touch 14 lanes on a wall a restart cannot clear.
+2. **Enumerate generations fresh** (trap 12), capture every surface's CLI from its own pane, and select only
+   lanes that actually carry the limit text. Classification must come from the capture, never the footer.
+3. **Per lane:** `ctrl+c` x2 -> read that pane's own `codex resume <uuid>` hint -> dispatch `codex resume <uuid>`
+   explicitly (never the `codexc` alias, trap 11) -> wait for the TUI -> send `continue`.
+4. **Verify with a two-sample capture 20-30 s apart.** A resumed lane may still print the old wall banner, so
+   the timer or banner is not the verdict - a **changed screen** is. On the 2026-11-04 run all 14 changed and 0
+   showed wall text in the current tail; that pair of facts is the proof.
+5. Report per lane: resumed UUID, busy state, and whether wall text survives in the *current* tail.
+
+A resumed lane that immediately re-prints the wall on its next long turn is a genuine wall, not a bad resume:
+stop that lane and report the reset time rather than looping the restart.
