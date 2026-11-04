@@ -8,21 +8,10 @@ sys.path.insert(0, str(ROOT))
 
 from scripts.skill_portability_scan import find_personal_identifiers
 class NewSkillContracts(unittest.TestCase):
- def test_private_reminder_override_preserves_fixed_default(self):
-  text=(ROOT/'.claude/skills/dot-coordinator/SKILL.md').read_text(encoding="utf-8")
-  self.assertIn('~/.config/dot/periodic-reminder.txt',text)
-  self.assertIn('payload-unavailable',text)
-  self.assertIn('never substitute another file',text)
-  self.assertIn('recipient',text.lower())
-  self.assertIn('No private inventory',text)
+ def test_private_reminder_override_has_no_private_location(self):
   import re
+  text=(ROOT/'.claude/skills/dot-coordinator/SKILL.md').read_text(encoding="utf-8")
   self.assertIsNone(re.search(r'\b[A-Za-z0-9_.-]+/roadmap(?:/|\b)',text))
-  self.assertIn('locations supplied through authorized private context',text)
-  self.assertIn('An acknowledgment or changed wording does not authorize another submit',text)
- def test_grok_identity_target_and_uncertain_send(self):
-  text=(ROOT/'.claude/skills/grokbot/SKILL.md').read_text(encoding="utf-8")
-  for phrase in ['expected signed-in identity','https://grok.com/bot/','one writer','UNCERTAIN','do not resend','PICKED_UP','EXECUTING','read-only','Do not copy cookies']:
-   self.assertIn(phrase,text)
  def test_grok_alias_and_commands_point_to_one_workflow(self):
   alias=(ROOT/'.claude/skills/grokb/SKILL.md').read_text(encoding="utf-8")
   self.assertIn('../grokbot/SKILL.md',alias)

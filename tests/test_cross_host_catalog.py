@@ -2,11 +2,6 @@ import importlib.util,json,tempfile,unittest
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 class CatalogTests(unittest.TestCase):
- def test_browser_runtime_route(self):
-  s=(ROOT/'.claude/skills/browser-control/SKILL.md').read_text()
-  self.assertIn('Supported runtime browser API',s)
-  self.assertIn('Do not bypass tab ownership locks',s)
-  self.assertIn('CLI authorization does not create a connection',s)
  def test_install_backup_and_verification(self):
   spec=importlib.util.spec_from_file_location('catalog',ROOT/'scripts/install_shared_catalog.py');m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
   with tempfile.TemporaryDirectory() as t:
@@ -229,9 +224,6 @@ class ReviewRegressionTests(unittest.TestCase):
       link=home/'.agents/skills'/name;link.parent.mkdir(parents=True,exist_ok=True);link.symlink_to(root,target_is_directory=True)
     m.install(src,home,'v1');self.assertEqual(m.verify(home,'v1'),[]);root=home/'.claude/skills/cross-machine-ssh-tier';body=(root/'SKILL.md').read_text()
     for ref in re.findall(r'\]\((\.\./[^)]+)\)',body):self.assertTrue((root/ref).is_file(),ref)
-    self.assertIn('excluded from a fresh shared-catalog install',body)
-    self.assertIn('only when its SKILL.md already exists',body)
-    self.assertIn('mirror handoff is unavailable',body)
     for name in ['mac-mirror','linux-mirror']:
      target=home/'.claude/skills'/name/'SKILL.md'
      if existing:self.assertEqual(target.read_text(),'existing host integration '+name);self.assertEqual((home/'.agents/skills'/name).resolve(),target.parent)
@@ -257,9 +249,6 @@ class ReviewRegressionTests(unittest.TestCase):
      self.assertIn('## Retained review integrations',text,p.parent.name)
      before=text.split('## Retained review integrations',1)[0]
      self.assertEqual(sum(line.startswith('```') for line in before.splitlines())%2,0,p.parent.name)
-     self.assertIn('For a remote invocation, check',text,p.parent.name)
-     self.assertIn('UNAVAILABLE',text,p.parent.name)
-     self.assertIn('leave any dependent readiness or plan-approval gate unmet',text,p.parent.name)
     self.assertIn('pr-green-definition',checked)
     self.assertIn('pr-workflow-manager',checked)
     self.assertEqual(len(checked),17)

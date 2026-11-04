@@ -28,9 +28,7 @@ Use the newest check-run attempt per name; REST when GraphQL quota is low:
    behavioral change or a changed assertion/driver requires a fresh run.
 3. **/advice** — when `pr-lifecycle` § Advice applicability
    requires it, at least two independent full-coverage approval reviewers
-   from the canonical `advice/SKILL.md` approval lanes provide approvals whose coverage applies to the candidate. Resolve every REQUEST_CHANGES finding and obtain any missing affected review; a SHA change alone does not require recalling both voters. Research and the orchestrating agent do not vote. One approval
-   can block but cannot approve; unavailable or partial-coverage reviewers do
-   not satisfy the approval quorum. The same delta-based reaffirmation
+   from the canonical `advice/SKILL.md` approval lanes provide approvals whose coverage applies to the candidate. Resolve every REQUEST_CHANGES finding and obtain any missing affected review; a SHA change alone does not require recalling both voters. Voter eligibility and blocking rules are owned by `advice/SKILL.md`. The same delta-based reaffirmation
    applies here (full original coverage plus the small reviewed delta,
    documented at the new SHA) — it never reduces the two-reviewer quorum or the
    named-reviewer requirement in `advice/SKILL.md`; changing that requirement

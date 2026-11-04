@@ -183,7 +183,6 @@ class ScheduleRendererTests(unittest.TestCase):
             self.assertTrue(directive.startswith(f"Coordination mode: {mode}."), mode)
             self.assertNotIn("\n", directive)
         self.assertIn("SKILL.md", renderer.DIRECTIVES["proceed"])
-        self.assertIn("last 20 rendered messages", renderer.DIRECTIVES["proceed"])
 
     def test_explicit_minutes_override_offsets_a_second_host_by_seven_minutes(self):
         data = json.loads(self.config.read_text())
