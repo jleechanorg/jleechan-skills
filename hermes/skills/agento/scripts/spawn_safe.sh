@@ -22,7 +22,7 @@ gh auth status 2>&1 | head -2
 for pr in $PRS; do
   echo "[$PROJECT] starting PR #$pr at $(date +%H:%M:%S)"
   ~/bin/ao spawn -p "$PROJECT" --claim-pr "$pr" \
-    "drive PR #$pr to /green + /er via auto-factory batch — push to existing branch only, do not open new PR, do not merge" \
+    "drive PR #$pr to /green + /er — push to existing branch only, do not open new PR, do not merge" \
     2>&1 | tail -3
   echo "[$PROJECT] PR #$pr done at $(date +%H:%M:%S)"
   sleep 5

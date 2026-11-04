@@ -33,7 +33,7 @@ The reply MUST be one Slack message with these blocks in this order:
 ```bash
 # 1. Cross-repo PR inventory (replaces the broken `--json repository` pattern)
 # Run per fleet repo. Iterate `gh repo list jleechanorg --limit 50 --json nameWithOwner`
-for repo in $GITHUB_REPOSITORY jleechanorg/jleechanclaw jleechanorg/dark-factory \
+for repo in $GITHUB_REPOSITORY jleechanorg/jleechanclaw \
             jleechanorg/.github jleechanorg/agent-orchestrator-ts \
             jleechanorg/ai_universe_frontend jleechanorg/browserclaw; do
   gh pr list --author @me --state open --repo "$repo" \

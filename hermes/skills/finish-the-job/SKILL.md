@@ -1,8 +1,8 @@
 ---
 name: finish-the-job
 version: 1.8.0
-description: "End-to-end finish protocol for any Slack thread, CLI invocation, or cron task where the user has handed off a goal. Routes to /fs (spec gen) → /f (Dark Factory loop) → drives to a verifiable conclusion (green PR with non-unit-test evidence, finished code change, or dry-run to local machine state). Never stops halfway. Loads automatically when the SOUL.md `finish-the-job` commit fires."
-tags: ["autonomy", "finish", "dark-factory", "dispatch", "pr", "evidence", "anti-stop-halfway", "wrong-target-disambiguation", "research-then-do"]
+description: "End-to-end finish protocol for any Slack thread, CLI invocation, or cron task where the user has handed off a goal. Routes to a `write-goal` spec → dispatch or inline execution → drives to a verifiable conclusion (green PR with non-unit-test evidence, finished code change, or dry-run to local machine state). Never stops halfway. Loads automatically when the SOUL.md `finish-the-job` commit fires."
+tags: ["autonomy", "finish", "dispatch", "pr", "evidence", "anti-stop-halfway", "wrong-target-disambiguation", "research-then-do"]
 category: workflow
 triggers:
   - finish the job
@@ -79,7 +79,7 @@ triggers:
   - "1.1.0 (2026-07-08): Initial fix(watchdog) version."
   - "1.0.0 (2026-06-19: Initial skill — end-state evidence stack, phases 0-4, anti-patterns."
 related_skills:
-  - dark-factory
+  - write-goal
   - drive-pr-to-green
   - always-pr-never-local-edit
   - ao-babysit
@@ -94,7 +94,7 @@ related_skills:
 
 # finish-the-job
 
-**The hands-off finish protocol.** When a user hands you a goal — in Slack, in a CLI turn, or via a cron task that wasn't finished — this skill is the *single* pipeline that drives it to a verifiable conclusion. It composes existing primitives (`/fs`, `/f`, `workflow/drive-pr-to-green`, `workflow/always-pr-never-local-edit`) so the assistant stops halfway **never**.
+**The hands-off finish protocol.** When a user hands you a goal — in Slack, in a CLI turn, or via a cron task that wasn't finished — this skill is the *single* pipeline that drives it to a verifiable conclusion. It composes existing primitives (`write-goal`, `dispatch-task`, `workflow/drive-pr-to-green`, `workflow/always-pr-never-local-edit`) so the assistant stops halfway **never**.
 
 ## Why this skill exists
 
@@ -247,7 +247,7 @@ Classify the user's goal into ONE of:
 | Goal shape | Examples | Routing |
 |---|---|---|
 | **PR fix** | "fix the CI on PR #N", "/green this PR", "address CodeRabbit on PR #N" | `workflow/drive-pr-to-green` |
-| **New code / new feature** | "add X to the repo", "implement Y", "build a Z" | `/fs` then `/f` (feature-mode) |
+| **New code / new feature** | "add X to the repo", "implement Y", "build a Z" | `write-goal` spec, then `dispatch-task` (Phase 2) |
 | **New PR for existing work** | "open a PR for my branch", "ship my changes", "merge my draft" | `workflow/always-pr-never-local-edit` |
 | **Investigation / read-only** | "find out which key leaked", "what does X do", "review my plan" | Inline research → answer with **proof artifact** (file:line + quoted text + reproducible command) |
 | **Ops / config / infra** | "rotate the key", "bump the Cloud Run memory", "fix the daily cron" | Inline gcloud/kubectl/etc. with output captured; if a code PR is also needed, file as follow-up |
@@ -258,18 +258,18 @@ Classify the user's goal into ONE of:
 
 **If the classification is ambiguous after 30 seconds, ASK ONE QUESTION** (the only question in this whole pipeline). The user is willing to invest up-front in Q&A specifically to avoid mid-stream steering. Use `clarify`.
 
-### Phase 1 — `/fs` first if the goal is non-trivial
+### Phase 1 — Spec first (`write-goal`) if the goal is non-trivial
 
-**Trigger `/fs` if ANY of these are true:**
+**Write a spec if ANY of these are true:**
 
 - Goal is a new feature or non-trivial refactor (not a 1-line fix)
 - Goal mentions multiple components, files, or repos
 - Goal has ambiguous wording that the agent could misinterpret in 2+ ways
 - Goal is a design task the user wants reviewed
 
-`/fs` produces `spec.md` + `attractor_spec.md`, both codex-cold-reviewed, before any code is written. The user's up-front Q&A investment pays off here — by the time the worker starts, the spec is unambiguous.
+`write-goal` produces `.converge/goal.md` with binary exit criteria before any code is written. The user's up-front Q&A investment pays off here — by the time the worker starts, the spec is unambiguous.
 
-**Skip `/fs` if:**
+**Skip the spec if:**
 
 - Goal is a PR fix on an existing branch (the PR diff IS the spec)
 - Goal is <50 lines of mechanical change
@@ -403,7 +403,7 @@ If items 1-7 land in the same turn as the rollout and 8-9 land within the next d
 
 ## Related skills — load order when this fires
 
-1. `dark-factory` (always — for the `/f` and `/fs` definitions)
+1. `write-goal` (only if Phase 1 needs a spec)
 2. `drive-pr-to-green` (only if goal shape is PR-fix)
 3. `always-pr-never-local-edit` (only if goal shape is new-PR or local-changes-exist)
 4. `dispatch-task` (only if Phase 2 decides to dispatch via `ao spawn`)
@@ -438,7 +438,7 @@ User said: *"Look at the last week of slack threads with work that started but d
 
 Phase 0 classified: meta / about-Hermes (`skillify` skill).
 
-Phase 1: `/fs` was unnecessary — the request itself is a skillify task, not a feature implementation.
+Phase 1: a spec was unnecessary — the request itself is a skillify task, not a feature implementation.
 
 Phase 2: Inline execution (single-session skillify pass). No dispatch needed.
 
@@ -480,7 +480,7 @@ User typed (Slack thread C0BDEAJH8PK/ts 1784076729.482879): *"lets /green this P
 
 Phase 0 classified: PR-fix (existing branch `fix/testing-harness-followups`).
 
-Phase 1: Skipped `/fs` — the PR diff IS the spec.
+Phase 1: Skipped the spec — the PR diff IS the spec.
 
 Phase 2: `ao spawn --task "..."` failed → PROMPT_TOO_LONG (brief 11252 bytes). Trimmed and retried → INTERNAL_ERROR on requests 000324, 000340, 000344, 000348. Daemon log showed `signal: killed` at 60s timeout on `git -C $HOME/projects/your-project.com worktree list --porcelain` (project root misconfigured, hundreds of zombie worktrees). `ao doctor` reported `github-token rejected (HTTP 403)`. Per `references/ao-spawn-internal-error-pivot-2026-07-12.md`, pivoted to inline execution in the AO-managed worktree at `$HOME/.ao/data/worktrees/worldarchitect/worldarchitect-57` (the only place on the correct branch, since session cwd `feat/code-standards-worldai-only` is locked).
 

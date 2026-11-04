@@ -68,8 +68,8 @@ triggers:
   - "merge approved if green"
   - "three-way approval conditional"
   - "default-deny on missing verdicts"
-  - "dark-factory /er verdict"
-  - "dark-factory /advice verdict"
+  - "/er verdict"
+  - "/advice verdict"
   - "/er FAIL"
   - "/er PASS"
   - "no /er comment"
@@ -824,12 +824,12 @@ ao spawn --project <project> --claim-pr <M> --no-takeover --harness agy --prompt
 | Signal | What it is | Where to find it | Pass pattern |
 |---|---|---|---|
 | `/green` | 7-green gate (7 conditions in SOUL.md) | `gh pr view <N> --json statusCheckRollup` + reviews + comments | All 7 conditions green, no failing check, last CodeRabbit state = `APPROVED`, no unresolved CR comments, evidence-review-bot PASS, github-actions[bot] `VERDICT: PASS` |
-| `/er` | dark-factory evidence-review verdict | PR comments, posted by `jleechan2015` as a comment starting `🤖 **[dark-factory /er]**` | Body contains `Evidence review verdict: /er PASS` (or `/er FAIL <reason>` when failing) |
-| `/advice` | dark-factory docs-accuracy second-opinion | PR comments, posted by `jleechan2015` as a comment starting `🤖 **[dark-factory /advice]**` (or similar marker) | Body contains explicit "approve"/"LGTM" signal from dark-factory — note: when no advice comment exists yet, `/advice` is **not approved** (default-deny) |
+| `/er` | evidence-review verdict | PR comments, posted by `jleechan2015` by the evidence-review run | Body contains `Evidence review verdict: /er PASS` (or `/er FAIL <reason>` when failing) |
+| `/advice` | docs-accuracy second-opinion | PR comments, posted by `jleechan2015` by the advice run | Body contains an explicit "approve"/"LGTM" signal — note: when no advice comment exists yet, `/advice` is **not approved** (default-deny) |
 
 **Critical pitfalls:**
 
-1. **`/er` and `/advice` are NOT user-invocable Hermes slash commands** in the way `/simplify` or `/er` (if it exists as a skill) would be. They are **dark-factory auto-posted PR comments** that the user invokes separately (likely via the dark-factory skill or `/dark-factory /er <PR>`). When the user says "/er and /advice approved", they mean: *look up those comments on the PR — if both are present and both say PASS, the conditional is met*. If either is missing or says FAIL, the conditional is NOT met, regardless of what `/green` says.
+1. **`/er` and `/advice` are NOT user-invocable Hermes slash commands** in the way `/simplify` or `/er` (if it exists as a skill) would be. They are **PR-comment verdicts** posted by evidence-review and advice runs that the user invokes separately. When the user says "/er and /advice approved", they mean: *look up those comments on the PR — if both are present and both say PASS, the conditional is met*. If either is missing or says FAIL, the conditional is NOT met, regardless of what `/green` says.
 
 2. **Default-deny on missing verdicts.** A PR with no `/er` comment at all is `/er: NOT APPROVED` (not "neutral", not "pending"). A PR with no `/advice` comment is `/advice: NOT APPROVED`. Don't merge on absence of verdict; the user is asking you to verify the verdict exists.
 
@@ -848,7 +848,7 @@ gh api repos/$GITHUB_REPOSITORY/issues/<N>/comments --jq \
 
 # /advice verdict on PR #N
 gh api repos/$GITHUB_REPOSITORY/issues/<N>/comments --jq \
-  '[.[] | select(.body | test("dark-factory.*advice|/advice ")) | {user: .user.login, created_at, body}] | .[-1]'
+  '[.[] | select(.body | test("/advice ")) | {user: .user.login, created_at, body}] | .[-1]'
 # If empty: /advice was never run → not approved.
 
 # Underlying CI checks (the truth under Green Gate aggregator)
