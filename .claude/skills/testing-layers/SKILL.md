@@ -7,7 +7,7 @@ description: Select the correct WorldArchitect.AI testing layer and understand i
 
 ## Purpose
 
-This skill defines the **concrete test directory structure** for Your Project, the **decision principles** for choosing the right testing layer, and the **evidence implications** of each layer. Use this when creating new tests, reviewing test coverage, or evaluating `/es` evidence completeness.
+Directory map, layer-selection principles and evidence value of each test layer for Your Project. Use it when creating tests, reviewing coverage, or judging `/es` evidence completeness.
 
 ## Directory Map
 
@@ -42,20 +42,18 @@ This skill defines the **concrete test directory structure** for Your Project, t
 ## Claim boundary
 
 Follow `pr-lifecycle` § Change-impact review and test depth and
-`evidence-standards` § Unit proof and claim boundaries. Unit proof can establish
-self-contained deterministic behavior, but not model compliance, auth,
-persistence races, or browser behavior. `/es` classification is independent of
-whether a real LLM or browser run is necessary. Non-production labels, one file,
-or a small line count cannot replace inspecting the actual claim and risk.
-The real-service-only directory rules above remain mandatory.
+`evidence-standards` § Unit proof and claim boundaries: unit proof can establish
+self-contained deterministic behavior, not model compliance, auth, persistence
+races or browser behavior. `/es` classification is independent of whether a real
+LLM or browser run is necessary. Non-production labels, one file or a small line
+count never replace inspecting the actual claim and risk, and the
+real-service-only directory rules above stay mandatory.
 
 ## Decision Principles — Which Layer to Test At
 
 ### Principle 1: Does the LLM's judgment affect the outcome?
 
-If the behavior under test is **deterministic server code** that runs the same way regardless of what the LLM said, a **unit test** is the correct tier. The LLM is just a trigger — you can simulate it with a dict.
-
-Use a unit test when an isolated deterministic test proves the claim. Use a higher layer when the claim crosses a service or integration boundary that the unit test cannot exercise. Do not require E2E work solely because a change spans multiple functions or files.
+If the behavior under test is **deterministic server code** that runs the same way whatever the LLM said, a **unit test** is the correct tier: the LLM is only a trigger, simulated with a dict. Move to a higher layer only when the claim crosses a service or integration boundary the unit test cannot exercise.
 
 - ✅ Unit: `dict.pop("level")` works identically whether the dict came from Gemini or a test fixture
 - ✅ Unit: Boolean functions checking two dicts (`is_level_up_active()`)
@@ -79,19 +77,20 @@ Streaming, parsing, Firestore persistence, DOM rendering — bugs live in the gl
 
 ### Principle 4: Is it a multi-function or multi-file flow of execution?
 
-If the claim spans multiple functions or files, choose an integration layer only when that boundary is material to the claim. A deterministic composed test outside `testing_mcp/` and `testing_ui/` may use mocks; retain a unit test when it is sufficient for the actual behavior.
+Spanning multiple functions or files is not by itself a reason for E2E: choose an integration layer only when the path between components is material to the claim. A deterministic composed test outside `testing_mcp/` and `testing_ui/` may use mocks; keep a unit test when it suffices for the actual behavior.
 
 - ✅ Layer 2 E2E: Routing a user input through the API, checking if the correct agent is selected, and verifying the mock LLM output updates the database correctly.
 - ❌ Not Layer 2: Verifying if Gemini actually hallucinates a specific value (use Layer 3/5).
 
-Select tests from the changed claims and affected boundaries, not a file-count
-threshold. Exercise the changed path at the lowest sufficient layer and add an
-integration test when a unit test would miss a material seam. State a concrete
-reason when no application-level path can exercise a claim.
+Select tests from the changed claims and affected boundaries, never a
+production-file-count threshold. Exercise the changed path at the lowest
+sufficient layer, add an integration test when a unit test would miss a material
+seam, and state a concrete reason when no application-level path can exercise a
+claim.
 
 ### Principle 5: Is the cost proportional to the risk?
 
-A Gemini call costs time and tokens. A unit test costs milliseconds. If the logic is a 5-line dict operation with no ambiguity, the risk of a failure that manifests only under LLM pressure is near zero.
+A Gemini call costs time and tokens; a unit test costs milliseconds. For a 5-line unambiguous dict operation, the risk of a failure that appears only under LLM pressure is near zero.
 
 - ✅ Unit: `block_unauthorized_level_mutations()` — deterministic `.pop()` on dict keys
 - ✅ Unit: Schema validation, field normalization, boolean flag checks
@@ -99,7 +98,7 @@ A Gemini call costs time and tokens. A unit test costs milliseconds. If the logi
 
 ### Principle 6: Can the test pass vacuously?
 
-If a real-LLM test can pass **without the guard ever firing** (because the LLM didn't cooperate with the diagnostic prompt), it's not actually testing what it claims.
+A real-LLM test that can pass **without the guard ever firing** (because the LLM ignored the diagnostic prompt) does not test what it claims.
 
 - **Mitigation**: Check server logs for the guard log line (e.g., `UNAUTHORIZED_LEVEL_UP_PENDING_CCS_MUTATION`)
 - **Mitigation**: Verify the raw LLM response attempted the mutation before asserting the block
@@ -145,13 +144,6 @@ If a real-LLM test can pass **without the guard ever firing** (because the LLM d
 3. **Choose the lowest sufficient layer** for the claim. Don't use Browser when MCP suffices, and don't use MCP when an offline deterministic test proves the bounded claim.
 4. **Verify non-vacuous**: If using Layer 3+, ensure the test can detect when the target path was NOT exercised.
 5. **Emit evidence**: Layer 3+ tests must produce `/es`-compliant bundles. Use `MCPTestBase` or `BrowserTestBase`.
-
-### Multi-file changes
-
-For a multi-file change, inspect the changed claims and material boundaries. A
-deterministic unit test may prove an isolated behavior; use a composed or real
-integration test when the claim depends on the path between components. Do not
-require a blanket E2E tier solely from the number of production files changed.
 
 ## References
 
