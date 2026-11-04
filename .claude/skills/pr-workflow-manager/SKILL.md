@@ -112,8 +112,22 @@ Do not execute a missing, unverified or incompatible helper just because old gui
 
 For opted-in repositories, apply [stage transitions](../pr-lifecycle/SKILL.md#stage-title-and-labels), [default PR route and lighter non-production path](../pr-lifecycle/SKILL.md#default-pr-route--prw), and [evidence applicability](../pr-lifecycle/SKILL.md#sha-binding-rule-critical--applies-to-every-gate-in-this-chain). Title/label changes are not execution proof, review approval or merge authority.
 
-After each push, inspect applicable latest checks and review findings. Diagnose original logs before a
-targeted fix/retry, preserve assertions, and follow the canonical ready/final phases. Waiting/blocked is not
+At start, after each push, and on a new failure, refresh the current head, latest failing checks and open
+review findings. Use the existing PR body/task record for the requested endpoint, real blockers (separate
+required gates/P0 from P1/P2), owner, next action and exact clearance evidence.
+
+Before expensive work, read existing results and assess the delta from their recorded SHA; resolve relevant cheap
+blocking failures first. Before review dispatch, confirm cited required artifacts exist, are readable and
+hash-bound, then select an available eligible model and declare required coverage. Before counting a vote,
+verify the execution record's actual model and coverage match that selection, and its receipt SHA is bound.
+Tie new conditions to the user request or intake contract; identify new behavior or scope separately and do
+not silently make it a readiness gate.
+
+If a same-cause probe or review will neither clear a named blocker nor reduce uncertainty, use its failure
+evidence to change approach while safe independent work continues. Continue through the requested endpoint;
+do not add cycle/time caps or invented user-approval stops.
+
+Diagnose original logs before a targeted fix/retry, preserve assertions, and follow the canonical ready/final phases. Waiting/blocked is not
 Working. Do not call a PR ready from badges, skipped tests, an assignment or a pending review.
 Before promoting a user-visible change (other than a one-liner fast-path change; see
 [proportional exceptions](../pr-lifecycle/SKILL.md#proportional-exceptions-and-fast-paths)) to `stage:5-final-approval`, apply the
