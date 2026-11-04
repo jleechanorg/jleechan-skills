@@ -7,7 +7,7 @@ description: Enforcement rules for reviewing evidence artifacts against the evid
 
 ## Claim-proportionate evidence and publication
 
-For claim-proportionate proof, follow [pr-lifecycle](../pr-lifecycle/SKILL.md#proportional-exceptions-and-fast-paths); for PR publication, use its [stage-exit receipt contract](../pr-lifecycle/SKILL.md#evidence-attached-to-every-stage-exit). Evidence content and integrity remain governed by [evidence-standards](../evidence-standards/SKILL.md).
+For claim-proportionate proof, follow [pr-lifecycle](../pr-lifecycle/exceptions.md#proportional-exceptions-and-fast-paths); for PR publication, use its [stage-exit receipt contract](../pr-lifecycle/six-stage.md#evidence-attached-to-every-stage-exit). Evidence content and integrity remain governed by [evidence-standards](../evidence-standards/SKILL.md).
 
 ## Retained review integrations
 
@@ -130,7 +130,7 @@ A missing applicable artifact yields **PARTIAL**. Record inapplicable formats as
 
 **Video acceptance needs an independent content review.** When a video backs an acceptance claim, an independent AI reviewer (not the author or orchestrator) extracts frames from the published video itself (not the capture's own screenshots) and returns PASS/FAIL per acceptance step with the timestamp where it is visible. Privacy masking, decode/playback, upload read-back, captions, and turn-record or coverage-judge JSON are separate checks and never substitute. No content review → **PARTIAL**; a step the frames contradict → **FAIL**.
 
-**Mandatory AI Visual Inspection (`VISUAL APPROVED at <40-char-sha>`):** applicability, record contents and SHA binding are owned by [pr-lifecycle's visual-approval contract](../pr-lifecycle/SKILL.md#review-routes-for-opted-in-repositories). For any user-visible change outside the documented exemptions, the approving seat (an `/advice` visual lane, `/dot`, or an `/er` visual lane run by a seat other than the one that produced or reviewed the evidence, as that contract requires) MUST download and visually inspect the actual rendered image or extracted video frames, never just URL status or checksums, and record `VISUAL APPROVED at <40-char-sha>` (or `VISUAL REJECTED at <40-char-sha>`) with the per-claim findings that contract requires. A link-existence check or pending request (e.g. `/dot: REQUESTED, pending`) is NEVER a visual approval PASS: it caps `/er` at **PARTIAL** and blocks `stage:5-final-approval` and merge readiness.
+**Mandatory AI Visual Inspection (`VISUAL APPROVED at <40-char-sha>`):** applicability, record contents and SHA binding are owned by [pr-lifecycle's visual-approval contract](../pr-lifecycle/six-stage.md#review-routes-for-opted-in-repositories). For any user-visible change outside the documented exemptions, the approving seat (an `/advice` visual lane, `/dot`, or an `/er` visual lane run by a seat other than the one that produced or reviewed the evidence, as that contract requires) MUST download and visually inspect the actual rendered image or extracted video frames, never just URL status or checksums, and record `VISUAL APPROVED at <40-char-sha>` (or `VISUAL REJECTED at <40-char-sha>`) with the per-claim findings that contract requires. A link-existence check or pending request (e.g. `/dot: REQUESTED, pending`) is NEVER a visual approval PASS: it caps `/er` at **PARTIAL** and blocks `stage:5-final-approval` and merge readiness.
 
 ### 5. Media hosting check
 

@@ -7,7 +7,7 @@ description: Drive PR(s) to merge-ready — /es, plus /er and /advice where pr-l
 
 ## Retained review integrations
 
-Use [pr-lifecycle](../pr-lifecycle/SKILL.md) for review integrations (including `UNAVAILABLE` handling on a remote host), applicability and evidence reuse; never fabricate approval. Its [opt-in review routes](../pr-lifecycle/SKILL.md#review-routes-for-opted-in-repositories), including any applicable independent /dot obligation, remain part of readiness.
+Use [pr-lifecycle](../pr-lifecycle/SKILL.md) for review integrations (including `UNAVAILABLE` handling on a remote host), applicability and evidence reuse; never fabricate approval. Its [opt-in review routes](../pr-lifecycle/six-stage.md#review-routes-for-opted-in-repositories), including any applicable independent /dot obligation, remain part of readiness.
 
 Keep drafts draft until applicable draft gates pass; never convert an already non-draft PR back to draft. Follow [review sequencing](../pr-lifecycle/SKILL.md#draft-phase-final-acceptance-gates-in-order): code review and cheap checks early, expensive evidence after stabilization. Undrafting begins ready work, not completed readiness.
 
@@ -46,8 +46,8 @@ Use the newest check-run attempt per name; REST when GraphQL quota is low:
    rebase.
 6. **Cross-thread regression check** — inspect OPEN beads from this and concurrent investigations for shared root causes or touched files. Surface any confirmed regression to the user for a blocking-or-not decision before merging; do not bypass it by filing a separate bead.
 
-After readiness work stabilizes, satisfy the [final review obligations](../pr-lifecycle/SKILL.md#ready-phase--finish-ready-then-final-reviews) (applicable final `/er`, then final `/advice`, by documented delta/phase applicability rather than automatic reruns). Fix failing lanes, refresh affected proof and current-head checks, publish reviews under the [review-record contract](../pr-lifecycle/SKILL.md#review-records-in-the-pr-description), and re-verify before reporting READY. Reviews, ledger entries and READY never supply separate live merge authorization.
+After readiness work stabilizes, satisfy the [final review obligations](../pr-lifecycle/SKILL.md#ready-phase--finish-ready-then-final-reviews) (applicable final `/er`, then final `/advice`, by documented delta/phase applicability rather than automatic reruns). Fix failing lanes, refresh affected proof and current-head checks, publish reviews under the [review-record contract](../pr-lifecycle/review-records.md#review-records-in-the-pr-description), and re-verify before reporting READY. Reviews, ledger entries and READY never supply separate live merge authorization.
 
 ## Stage evidence publication
 
-Apply [pr-lifecycle's stage-exit receipt contract](../pr-lifecycle/SKILL.md#evidence-attached-to-every-stage-exit), the single owner of PR-description URLs, applicable inline media, access verification and reasoned exemptions.
+Apply [pr-lifecycle's stage-exit receipt contract](../pr-lifecycle/six-stage.md#evidence-attached-to-every-stage-exit), the single owner of PR-description URLs, applicable inline media, access verification and reasoned exemptions.

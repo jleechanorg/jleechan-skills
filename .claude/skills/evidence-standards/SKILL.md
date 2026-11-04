@@ -8,7 +8,7 @@ when-to-use: Before /er, /green, gate fixes, or AO worker dispatch on a PR that 
 
 ## Claim-proportionate evidence and publication
 
-For proportional evidence classes, follow [pr-lifecycle](../pr-lifecycle/SKILL.md#proportional-exceptions-and-fast-paths). For PR-description publication, follow its [stage-exit receipt contract](../pr-lifecycle/SKILL.md#evidence-attached-to-every-stage-exit). This skill owns evidence content and integrity, not a second lifecycle policy.
+For proportional evidence classes, follow [pr-lifecycle](../pr-lifecycle/exceptions.md#proportional-exceptions-and-fast-paths). For PR-description publication, follow its [stage-exit receipt contract](../pr-lifecycle/six-stage.md#evidence-attached-to-every-stage-exit). This skill owns evidence content and integrity, not a second lifecycle policy.
 
 Compact proof keeps primary artifacts, source provenance and hashes; mark irrelevant server/PID/provider fields N/A with reasons instead of inventing runtime metadata. Source hashes alone do not prove execution.
 
