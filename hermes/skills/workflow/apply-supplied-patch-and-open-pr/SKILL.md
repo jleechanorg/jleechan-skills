@@ -1,6 +1,6 @@
 ---
 name: apply-supplied-patch-and-open-pr
-version: 1.3.0
+version: 1.3.1
 description: |
   When a user (often via Slack, GitHub, or email) sends a pre-built patch + a
   structured instructions file (UPSTREAM-PROMPT.md style) and asks you to open
@@ -17,7 +17,7 @@ description: |
   restore). Verified case #3 (2026-07-21, dark-factory PR #407 skeptic-
   gate deletion + receipt-gate-reviewer follow-up commit).
 
-  v1.3.0 adds Pitfall P11 (a verified patch bundle whose base has drifted
+  v1.3.1 adds Pitfall P14 (a verified patch bundle whose base has drifted
   must be re-derived on current main, not replayed; includes the
   content-multiset preservation proof and the draft-PR baseline probe for
   inherited CI failures). Verified case 2026-11-04, jleechan-skills
@@ -750,7 +750,7 @@ in <2s). The user explicitly stated the new patch supersedes the old — the
 - ❌ Forgetting to mention the prior PR in the new PR body — CodeRabbit
   reviewers will see two PRs for the same feature and ask which is canonical
 
-## P11 — A verified bundle whose base has drifted must be re-derived, not replayed
+### P14 — A verified bundle whose base has drifted must be re-derived, not replayed
 
 A bundle can be internally perfect and still be wrong to land: the patch series reproduces a pinned
 tree hash, but `origin/main` moved past it. Verified case 2026-11-04 (jleechanorg/jleechan-skills):
@@ -773,7 +773,10 @@ Diagnose before you resolve:
    side is only cosmetic reflow, take the bundle side.
 4. **Re-derive on current `main` instead of replaying.** For a split/compaction bundle the mechanical
    form works well: parse `main`'s file by heading, move each block **verbatim** into its new part,
-   and leave a one-line pointer where it was. No prose rewriting, so no semantics to re-review.
+   and leave a one-line pointer where it was. Moving text verbatim still changes *which instructions an
+   agent loads and in what order*, so the resulting instruction paths need the same independent
+   review an agent-policy change always needs — the mechanical move removes prose-editing risk, not
+   the review.
 5. **Prove content preservation, not just test green** — compare the non-empty-line multiset of the
    original file against the union of the new files. Expect `missing == 0`; the only extra lines should
    be the pointers and part intros. Report both counts.
@@ -784,9 +787,10 @@ When only part of the bundle survives, land each surviving part as its own PR (s
 the superseded remainder as a decision, not as a silent drop.
 
 Corollary for CI: if a bundle's PR inherits failures the environment produces, prove it with a
-throwaway branch from the PR's exact base, open it as a **draft** PR whose only diff is a comment,
-compare the `FAILED tests/...` name sets, then close it and delete the branch. That is the cheapest
-honest same-SHA baseline when the workflow has no `workflow_dispatch` trigger.
+throwaway branch from the PR's exact base, open it as a **draft** PR, compare the `FAILED tests/...`
+name sets, then close it and delete the branch. State the limits honestly: the probe is a different
+SHA, and a workflow with `paths:` filters may not trigger at all for a comment-only diff — so also
+record which jobs ran and which filters should have fired before treating the match as a baseline.
 
 ## Verified case
 
