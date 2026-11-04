@@ -7,6 +7,13 @@ summary: Local shim for the canonical Hermes social-poster skill.
 
 # Social Poster
 
+## Runtime routing
+
+- **Inside Aside with runtime-provided browser/tools:** follow [Social Aside](../social-aside/SKILL.md), applying [Social common policy](../social/SKILL.md#common-editorial-policy). Do not enter the Claude/Hermes route below.
+- **Other supported runtimes:** retain the existing Claude/Hermes workflow below.
+
+## Claude/Hermes route
+
 This is the local Claude skill entrypoint for social-post drafting, staging, and explicitly approved publishing.
 
 Canonical implementation:
@@ -29,7 +36,7 @@ When this skill is invoked:
 3. Before declaring a platform blocked, check for one-click auth continuations such as:
    - Google account chooser
    - Continue with Instagram
-   - Continue as Jeffrey / existing-account OAuth buttons
+   - Continue as the expected account / existing-account OAuth buttons
 4. For LinkedIn-source posts, extract and use the canonical outbound asset URL in drafts when possible instead of reposting LinkedIn shortlinks.
 5. When the creative is already known, carry the asset explicitly through the workflow:
    - canonical source-post URL
