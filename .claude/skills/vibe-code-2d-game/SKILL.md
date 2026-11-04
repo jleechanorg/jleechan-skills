@@ -53,14 +53,15 @@ Ship 2D games fast using LLM assistance. "Vibe coding" = rapid prototyping, iter
 python3 -m http.server 8765
 
 # ComfyUI generation
-python3 ~/ComfyUI/venv/bin/python3 main.py --force-fp16 --cuda-device 0
+cd "${COMFYUI_HOME:?COMFYUI_HOME not configured: your ComfyUI install. Example: export COMFYUI_HOME=$HOME/ComfyUI}" &&
+  ./venv/bin/python main.py --force-fp16 --cuda-device 0
 
 # Pollinations sprite
 curl -o /tmp/sprite.png "https://image.pollinations.ai/prompt/[prompt]?width=256&height=256"
 ```
 
-## Sprite Locations (worldai_claw)
-- LPC: `assets/sprite_packs/lpc_entry/png/slash/`
-- Cordon: `assets/cordon/temp_cordon/sprites/`
+## Sprite Locations (example project layout)
+- LPC: `<project>/assets/sprites/lpc/`
+- Cordon: `<project>/assets/sprites/cordon/`
 - Generated: `/tmp/sprites_batch/`, `assets/generated/`
 - Demos: `lpc_character_demo.html`, `game_demo.html`, `cordon_level_demo.html`

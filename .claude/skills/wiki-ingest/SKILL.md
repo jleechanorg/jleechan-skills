@@ -12,7 +12,7 @@ description: Ingest a file into the local LLM wiki and update source/entity/conc
 
 Ingest a source document into the wiki. Creates a source page, extracts entities and concepts, updates the index.
 
-`--wiki <wiki_dir>` overrides the default wiki location (`~/llm_wiki/wiki`). The `raw/` directory is derived as the sibling of the wiki dir: `$(dirname <wiki_dir>)/raw`.
+`--wiki <wiki_dir>` overrides the configured wiki location (`.wiki-default`, then `~/.wiki-default`, then `$WIKI_ROOT/wiki`; with none set, stop with "WIKI_ROOT not configured"). The `raw/` directory is derived as the sibling of the wiki dir: `$(dirname <wiki_dir>)/raw`.
 
 ## Execution
 
@@ -24,13 +24,17 @@ if [ -f ".wiki-default" ]; then
   WIKI=$(cat .wiki-default)
 elif [ -f "$HOME/.wiki-default" ]; then
   WIKI=$(cat "$HOME/.wiki-default")
-else
-  WIKI="$HOME/llm_wiki/wiki"
+elif [ -n "${WIKI_ROOT:-}" ]; then
+  WIKI="$WIKI_ROOT/wiki"
 fi
 FILE_ARG="<first positional arg>"
 # --wiki flag always wins over .wiki-default
 if args contain "--wiki <path>"; then
   WIKI="<path>"
+fi
+if [ -z "${WIKI:-}" ]; then
+  echo "WIKI_ROOT not configured: your wiki checkout (contains wiki/ and raw/). Example: export WIKI_ROOT=\$HOME/llm_wiki (or pass --wiki <wiki_dir>)" >&2
+  exit 1
 fi
 
 WIKI_ROOT=$(dirname "$WIKI")
@@ -111,7 +115,7 @@ source_file: <relative path>
 Add entry to `wiki/index.md` under Sources section.
 
 ### Phase 6: Oracle impact check
-Check if new content affects [[jeffrey-oracle]]. If so, append to `wiki/log.md`.
+If the wiki has an owner/oracle synthesis page (`wiki/syntheses/*-oracle.md`), check whether new content affects it. If so, append to `wiki/log.md`.
 
 ### Phase 7: Entity & concept extraction
 Create entity pages for key people, companies, projects.
@@ -186,25 +190,25 @@ When a ported-source page will be published to GitHub (gist, repo, or any non-Ob
    ## Table of Contents
 
    1. [Setup & Cast](#setup--cast)
-   2. [Beat 1 — The Rat Summoning](#beat-1--the-rat-summoning)
+   2. [Beat 1 — Example Scene](#beat-1--example-scene)
    ...
    ```
 
 2. **Convert all `[[WikiLinks]]` to standard `[label](url)` markdown links** pointing to the canonical GitHub raw URL for the target page. Slug → URL map should be built up front based on the page tree under `wiki/`. Example:
    ```python
-   wiki_url = "https://github.com/jleechanorg/llm-wiki/blob/main"
+   # Derive from the wiki checkout: git -C "$WIKI_ROOT" remote get-url origin (https form)
+   wiki_url = "https://github.com/<owner>/<wiki-repo>/blob/main"
    wiki_link_map = {
-       "HestiaRegistrar":  f"{wiki_url}/wiki/entities/hestia-registrar.md",
-       "VerminCommander":  f"{wiki_url}/wiki/concepts/vermin-commander.md",
-       "VoyagePlatform":   f"{wiki_url}/wiki/concepts/voyage-platform.md",
+       "ExampleEntity":   f"{wiki_url}/wiki/entities/example-entity.md",
+       "ExampleConcept":  f"{wiki_url}/wiki/concepts/example-concept.md",
    }
    new_text = re.sub(r"\[\[([^\]]+)\]\]",
        lambda m: f"[{m.group(1).split('|')[-1]}]({wiki_link_map.get(m.group(1).split('|')[0], f'{wiki_url}/wiki/{m.group(1)}.md')})",
        src)
    ```
 
-3. **Preserve `[[WikiLinks]]` in the Obsidian-side copies** (the `~/llm_wiki/wiki/sources/...` page) so they still work in Obsidian/Logseq — only the gist/published GitHub version converts them.
+3. **Preserve `[[WikiLinks]]` in the Obsidian-side copies** (the `$WIKI_ROOT/wiki/sources/...` page) so they still work in Obsidian/Logseq — only the gist/published GitHub version converts them.
 
 4. **Header metadata block** should include clickable links to the source transcript and the wiki source page when the document is going to a gist or remote repo.
 
-This rule was added 2026-06-13 after the Voyage first-dev-playthrough gist had `[[WikiLinks]]` that didn't render on github.com. Apply by default to any future ported-source ingest.
+This rule was added 2026-06-13 after a published playthrough gist had `[[WikiLinks]]` that didn't render on github.com. Apply by default to any future ported-source ingest.

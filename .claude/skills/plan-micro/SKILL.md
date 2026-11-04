@@ -6,7 +6,7 @@ description: Create or revise an executable engineering plan by writing one full
 # Plan micro
 
 Turn the current goal into a dependency-ordered bead plan and a durable
-`~/roadmap/` handoff. Plan only. Do not implement the code. Use `/e` for execution only when authorized.
+`${ROADMAP_DIR:-$HOME/roadmap}/` handoff (skip the handoff and say so when that directory is absent). Plan only. Do not implement the code. Use `/e` for execution only when authorized.
 
 ## Timeline, parallel lanes, and milestones (mandatory)
 
@@ -49,7 +49,7 @@ when it is capable of the bounded task. Gather these lanes in parallel:
 
 1. Read repo instructions, the active goal, recent commits, changed files, and
    open PRs.
-2. Search relevant chat or memory history and the newest `~/roadmap/` plans.
+2. Search relevant chat or memory history and the newest `${ROADMAP_DIR:-$HOME/roadmap}/` plans.
 3. List open beads and inspect each candidate bead's full description and
    dependencies.
 4. Trace the real code path and existing test entry points. Prefer an existing
@@ -122,7 +122,7 @@ not finished.
 2. Write the dedicated document where the repository keeps plans (for example
    `docs/superpowers/plans/ironclad/<bead-id>-goal-ironclad-<PST-date>.md` on
    the PR branch) and leave a pointer at
-   `~/roadmap/<project-slug>/ironclad/<bead-id>-goal-ironclad-<PST-date>.md`.
+   `$ROADMAP_DIR/<project-slug>/ironclad/<bead-id>-goal-ironclad-<PST-date>.md`.
    When the repository has no such convention, the roadmap path is canonical.
 3. Persist the resulting full contract in that bead's description and link the
    dedicated document. Preserve
@@ -203,7 +203,7 @@ Rules the bead table must satisfy:
 ## Write and sync the plan
 
 Prefer updating the newest relevant plan. Otherwise write
-`~/roadmap/YYYY-MM-DD-<scope>-plan-micro.md` with:
+`$ROADMAP_DIR/YYYY-MM-DD-<scope>-plan-micro.md` with:
 
 1. Goal, recommended decision, assumptions, and non-goals.
 2. Current branch, PR, and bead state.
@@ -243,5 +243,6 @@ per-bead contracts, and weak-executor readiness as `N/N beads at zero GUESS
 on readback`, naming the executor tier and the verifier tier per bead. Name the nextsteps doc that was updated. List only true
 blockers that require human authority.
 
-The three-day baseline that informed these rules is in
-[references/history-baseline-2026-08-04-06.md](references/history-baseline-2026-08-04-06.md).
+These rules came from a three-day baseline of one roadmap: about half (48%) of the
+Markdown additions were executable planning artifacts, while 15 of 16 sampled formal
+plans met the six-field granularity rubric.

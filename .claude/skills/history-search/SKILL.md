@@ -23,7 +23,7 @@ Searches Claude Code JSONL, Codex SQLite threads, Hermes messages (FTS5), and An
 | Claude Code | JSONL per session | `~/.claude/projects/*/*.jsonl` |
 | Codex | SQLite threads + first message | `~/.codex/state_5.sqlite` |
 | Hermes | Messages with FTS5 | `~/.hermes/state.db` |
-| Antigravity | Markdown exports | `~/Library/CloudStorage/Dropbox/conversation-backups/antigravity/` |
+| Antigravity | Markdown exports | `$ANTIGRAVITY_EXPORT_DIR` (skip this source when unset) |
 | OpenCode | Session diff JSON | `~/.local/share/opencode/storage/session_diff/` |
 | Cursor | Prompt history + chats | `~/.cursor/prompt_history.json`, `~/.cursor/chats/` |
 
@@ -167,8 +167,10 @@ con.close()
 import os, glob, re
 
 query = "<QUERY>"
-antigrav_dir = os.path.expanduser("~/Library/CloudStorage/Dropbox/conversation-backups/antigravity/")
-if not os.path.exists(antigrav_dir):
+antigrav_dir = os.path.expanduser(os.environ.get("ANTIGRAVITY_EXPORT_DIR", ""))
+if not antigrav_dir:
+    print("[Antigravity] ANTIGRAVITY_EXPORT_DIR not configured: skipped")
+elif not os.path.exists(antigrav_dir):
     print("[Antigravity] No exports found")
 else:
     results = []
@@ -283,11 +285,11 @@ After collecting results from all parallel blocks, display as:
 === History Search: "<query>" ===
 
 📁 Claude Code  (N matches)
-  2026-05-14 | -Users-$USER-worldarchitect | user | "text snippet..."
+  2026-05-14 | -Users-$USER-<project> | user | "text snippet..."
   ...
 
 🤖 Codex  (N matches)
-  2026-05-10 | worldarchitect | main | "thread title" | "first message..."
+  2026-05-10 | <project> | main | "thread title" | "first message..."
   ...
 
 ⚡ Hermes  (N matches)

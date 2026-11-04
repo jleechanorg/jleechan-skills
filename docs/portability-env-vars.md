@@ -37,6 +37,7 @@ but never writes.
 | `ROADMAP_GITHUB_REPO` | GitHub `owner/repo` of `ROADMAP_DIR` | `gh repo view` inside `ROADMAP_DIR` | — |
 | `WIKI_ROOT` | Personal knowledge wiki checkout | — | unset: skip wiki steps |
 | `PROJECTS_DIR` | Parent directory scanned for multiple checkouts (history search only) | — | unset: scan only `PROJECT_ROOT` |
+| `ANTIGRAVITY_EXPORT_DIR` | Folder of exported Antigravity conversations (history search only) | — | unset: skip that source |
 | `USER_SCOPE_ROOT` | User dotfiles / user-scope checkout | — | required where used |
 
 ## Hosts and remote machines

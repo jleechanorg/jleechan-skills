@@ -47,8 +47,8 @@ Do **not** use this skill for one-off size queries — `du -sh <path>` answers t
 
 1. **Never delete anything without explicit user OK.** Every deletion goes through `./disk_magician.sh <script> --clean`, `cleanup-ao-sessions.sh --drop-bak --days N`, etc. — never `rm -rf` directly. The repo's scripts encode mtime filters and the never-delete list.
 2. **Never-delete list** (hard-stop): `~/.codex/sessions*`, `~/.codex/state*.sqlite`, `~/.codex/log`, `~/.claude/projects`. Probe these paths only via `du -sh`, never with destructive verbs.
-3. **Symlink gotcha — always realpath-verify:** `~/.hermes_prod` and `~/.openclaw.bak` are symlinks to `~/.hermes`; `/tmp`, `/var`, `/etc` are volume-root symlinks to `/private/*`. Naive `du` over args triples-counts them. Use `du -P` (no-follow) and dedup by realpath when comparing totals.
-4. **No VACATE-without-name.** When a user says "vacate / pause / stop the CI runners", there is **no** `ez-mac-runner` launchd job on this host — `ez-mac-runner-b-{1,2,3}` are GitHub Actions runner **processes** under `~/actions-runner/`. Stopping the wrong thing (e.g. `com.jleechanorg.disk-root-cause`) is harmless but accomplishes nothing; stopping the GH Actions runners pauses live CI. Always `launchctl list | grep <hint>` and `ps aux | grep <hint>` before any destructive action, and report the candidate names back to the user verbatim.
+3. **Symlink gotcha — always realpath-verify:** agent-home aliases (for example backup or prod copies of `${HERMES_HOME:-$HOME/.hermes}`) are often symlinks to the live home; `/tmp`, `/var`, `/etc` are volume-root symlinks to `/private/*`. Naive `du` over args triples-counts them. Use `du -P` (no-follow) and dedup by realpath when comparing totals.
+4. **No VACATE-without-name.** When a user says "vacate / pause / stop the CI runners", verify the runners' actual supervisor first — self-hosted GitHub Actions runners are often plain **processes** under their install directory, not a launchd job. Stopping the wrong thing (e.g. an unrelated launchd job) is harmless but accomplishes nothing; stopping the GH Actions runners pauses live CI. Always `launchctl list | grep <hint>` and `ps aux | grep <hint>` before any destructive action, and report the candidate names back to the user verbatim.
 5. **Read-first, deduce-later.** Do not assert "X grew 5 GB" from one `du`; cross-check against snapshot history (a committed git repo on disk) and the live `df -k /System/Volumes/Data`. If two sources disagree, attribute honestly.
 6. **Scope expansions are user-OK gates.** Tools like `bobthecow` style auto-remediators are NOT enabled. The skill recommends; the human runs.
 7. **Honest attribution in final report.** If disk improved mid-analysis for reasons outside this session (concurrent sweepers, OS reclaims), say so explicitly. Never claim a delta whose source you didn't observe.
@@ -88,7 +88,7 @@ delta_used = used_now − used_min
 delta_free = free_min − free_now
 ```
 
-Per-directory delta: for each key in `directories`, `git show <floor-sha>` and `git show HEAD` give values in KB; decompress into attributable buckets (colima, /tmp, AO sessions, ~/projects, ~/projects_other, ~/.gemini, ~/.codex, ~/Library subdirs, etc.). For null keys under disk pressure (the `timeout_keys` field), substitute live `du -sk` and label as "live-measured substitute".
+Per-directory delta: for each key in `directories`, `git show <floor-sha>` and `git show HEAD` give values in KB; decompress into attributable buckets (colima, /tmp, AO sessions, checkout roots, ~/.gemini, ~/.codex, ~/Library subdirs, etc.). For null keys under disk pressure (the `timeout_keys` field), substitute live `du -sk` and label as "live-measured substitute".
 
 **Coverage caveat:** the `topdown_coverage` field (schema_version 2) embeds the frontier scanner's `~/.disk_magician_state/frontier_last.json` summary if <36h old — use `frontier_unfinished_count` and `residual_kb` to flag the unmapped tail and surface it honestly. Days where `snapshot_coverage_pct < 70%` get `WARNING: low_coverage`; treat those deltas as directional, not exact.
 
@@ -119,7 +119,7 @@ Fan-out rule: **single-writer per file**, `grep -n "agent(" <swarm-script>` cost
   - colima: +X (sawtooth Y; what range over time)
   - /tmp: +X
   - AO sessions: +X (post-.bak-drop, mostly live)
-  - ~/projects: +X
+  - checkout roots: +X
   - residual (unaccounted): X (frontalier scanner names these within 36h of first nightly run)
 ↘ Safe-cleanup recommendations (require explicit OK):
   - run A: cleanup_tmp.sh --clean (~X GB, low risk)
@@ -143,11 +143,11 @@ Fan-out rule: **single-writer per file**, `grep -n "agent(" <swarm-script>` cost
 
 ## Known traps (read this before answering)
 
-1. **Snapshot coverage collapses under disk pressure** — biggest dirs go `null` (timeout). Plug with live `du -sk`. Cite both. (bead `$USER-wsbk`.)
-2. **`discover` times out at 120s with zero output** — fixed in v2 by mtime cache. Don't repeat the test; use `disk_frontier_scan.py --output-default` instead. (bead `$USER-igr8`)
+1. **Snapshot coverage collapses under disk pressure** — biggest dirs go `null` (timeout). Plug with live `du -sk`. Cite both.
+2. **`discover` times out at 120s with zero output** — fixed in v2 by mtime cache. Don't repeat the test; use `disk_frontier_scan.py --output-default` instead.
 3. **`cleanup_tmp.sh` defaults to DRY-RUN despite header claiming otherwise** — header was fixed in v0.2.0 (commit `5341a6f`); callers still must pass `--clean`.
 4. **Colima wedges with I/O errors when host disk hits 100%** — fstrim can't run; **must** `colima stop && colima start` first. 49.6→6.8 GB recovery verified live.
-5. **No `ez-mac-runner` launchd job exists** — confirms via `launchctl list | grep ez` before any VACATE-style directive. (bead `feedback_2026-07-12_no_ez_mac_runner_launchd_job`)
+5. **Confirm the runner supervisor** — `launchctl list | grep -i runner` and `ps aux | grep -i runner` before any VACATE-style directive.
 6. **`backup/Mac/` was a stale host profile** — removed in v0.2.1 commit.
 
 ## Anti-patterns to flag in code review
