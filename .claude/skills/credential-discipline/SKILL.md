@@ -38,11 +38,13 @@ grep -rnE 'AIza[A-Za-z0-9_-]{35}' examples/ 2>&1
 if [ -s "$BLOCKLIST" ]; then
   grep -rnF -f "$BLOCKLIST" examples/ 2>&1
 else
-  echo "CREDENTIAL_BLOCKLIST_FILE not configured: file of real identifiers to block, one per line. Example: export CREDENTIAL_BLOCKLIST_FILE=$HOME/.config/jleechan-skills/credential-blocklist.txt" >&2
+  echo "WARNING: CREDENTIAL_BLOCKLIST_FILE not configured: $BLOCKLIST is missing or empty, so the blocklist check did NOT run." >&2
+  echo "  Create it with one real identifier per line (never commit it): mkdir -p \"\$(dirname \"$BLOCKLIST\")\" && \${EDITOR:-vi} \"$BLOCKLIST\"" >&2
 fi
 ```
 
-Any match is a leak to replace with a placeholder before committing.
+Any match is a leak to replace with a placeholder before committing. A missing or
+empty blocklist is a skipped check, never a pass: report the warning.
 
 ### Enforcement
 

@@ -55,7 +55,10 @@ class StubGhMixin:
         gh.chmod(0o755)
         self.env = {
             k: v for k, v in os.environ.items()
-            if k not in {"GITHUB_REPOSITORY", "STUB_GH_REPO", "GIT_DIR", "GIT_WORK_TREE"}
+            if k not in {
+                "GITHUB_REPOSITORY", "GITHUB_ORG", "PROJECT_ROOT", "REPO_ROOT",
+                "STUB_GH_REPO", "GIT_DIR", "GIT_WORK_TREE",
+            }
         }
         self.env["PATH"] = f"{bindir}{os.pathsep}{self.env.get('PATH', '')}"
         self.env["GIT_CEILING_DIRECTORIES"] = str(self.tmp)
