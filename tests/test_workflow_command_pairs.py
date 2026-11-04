@@ -393,5 +393,12 @@ class WorkflowCommandPairTest(unittest.TestCase):
                 )
 
 
+class ParallelCommandPointerTest(unittest.TestCase):
+    def test_parallel_command_dispatches_to_parallelize_to_ceiling_skill(self):
+        parallel = (COMMANDS / "extended-library" / "parallel.md").read_text(encoding="utf-8")
+        self.assertIn("${CLAUDE_HOME:-$HOME/.claude}/skills/parallelize-to-ceiling/SKILL.md", parallel)
+        self.assertTrue((SKILLS / "parallelize-to-ceiling" / "SKILL.md").is_file())
+
+
 if __name__ == "__main__":
     unittest.main()
