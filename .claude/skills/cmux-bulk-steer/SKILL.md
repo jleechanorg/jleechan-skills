@@ -47,9 +47,9 @@ act*, never *depth of review*.
 **Allowed commands (the complete list).** `cmux tree --all --json`, `cmux list-workspaces`, `cmux top --all
 [--flat]`, `cmux top --workspace <ws> --processes`, `cmux capture-pane --workspace <ws> --surface <sf>
 --scrollback --lines <n>` (the only read path), read-only `gh pr view|list --json`, read-only `gh api` GET on a
-pull's reviews/commits/checks, read-only `git log|status|rev-list|rev-parse` inside a surface's worktree, read-only `wc -l` on piped output of those commands, a single read-only route probe (one cheap call to the reviewer CLI, e.g. `--version`/`-p` on a fixed no-op prompt) to establish liveness, read-only
+pull's reviews/commits/checks, read-only `git log|status|rev-list|rev-parse` inside a surface's worktree, read-only `wc -l` on piped output of those commands, read-only `date` (needed to compute commit age), one read-only route probe to establish whether a reviewer CLI can still answer — a `--version` shows the binary exists but NOT that the route is available, so the probe must be a minimal real request (`-p` on a fixed no-op prompt) whose 429/quota response is the evidence, read-only
 `ps` / `lsof -p <pid>`, and reads of the `/tmp` capture files. The `git` and `gh api` reads exist so the
-`ENDLESS_REVIEW` measurements can be taken in the same pass; neither mutates a repo or a PR. Nothing else.
+`review-churn` measurements can be taken in the same pass; neither mutates a repo or a PR. Nothing else.
 
 **Forbidden in read-only mode** — every operation that changes a surface or the operator's desktop: `cmux send`,
 `cmux send-key` (including `--force`), the socket `surface.send_text` call, `cmux new-workspace` / `new-surface` /
@@ -144,10 +144,10 @@ Live evidence (2026-10-19): a single sweep resumed 8 such lanes (`iOS`, `lvl up`
 
 > **Reconciliation with the shared full-buffer rule.** `AGENTS.md` says "Screen changed => `WORKING`, stop", and
 > that rule stands for *idleness* questions: a changing screen still means the lane is not idle, and this section
-> never reclassifies it as stalled, dead, or quota-blocked. `ENDLESS_REVIEW` answers a **different** question -
+> never reclassifies it as stalled, dead, or quota-blocked. The `review-churn` qualifier answers a **different** question -
 > whether a lane that is unquestionably running is *producing anything* - so it does not weaken the shared rule
-> and must not be applied as a substitute for it. Apply the shared rule first; classify `ENDLESS_REVIEW` only
-> after it returns "working".
+> and must not be applied as a substitute for it. Apply the shared rule first; the lane stays `WORKING`, and the
+> qualifier is reported alongside it as `WORKING (review-churn)`.
 
 A lane can be genuinely `WORKING` by every existing gate — live timer, changing screen, real tool calls — and still be
 producing **zero** deliverable. Review work is the usual cause: `/er`, `/es`, `/advice`, re-reviews, dot sends, and
@@ -173,7 +173,7 @@ gh api repos/<org>/<repo>/pulls/<N>/reviews \
   --jq '[.[] | {head: .commit_id[0:8], who: .user.login}] | group_by(.head) | .[] | "\(.[0].head) \(length) records, \(map(.who)|unique|length) distinct reviewers"'
 ```
 
-**Flag `ENDLESS_REVIEW` when all three hold:**
+**Add the `review-churn` qualifier when all three hold** (the lane stays `WORKING`):
 1. The lane's own timer is long (**>= 2 h**) while `git log -1` shows the last commit was **>= 2 h ago** and
    `status --porcelain` is empty with `rev-list --count HEAD --not --remotes` = 0 — nothing produced, nothing pending.
 2. The lane shows **three or more distinct review attempts at the same head**, taken from the lane's own
@@ -230,7 +230,7 @@ judging churn, and treat a sub-minute burst at one SHA as posting granularity, n
 the absence of post-footer output, live timer growth, and CPU: `IDLE_NEEDS_STEER`, `IDLE_COMPLETE`,
 `PARKED_OPERATOR`, `DIALOG_BLOCKED`, `MALFORMED_TOOL_CALL`, `QUOTA_BLOCKED`. `STOOD_DOWN_DUPLICATE` (a duplicate
 writer can be actively churning), `WEDGED_PROCESS` (proved from the process tree, not the screen), and
-`ENDLESS_REVIEW` (which positively *requires* a changing screen — see § Endless-review loop) are
+the `review-churn` qualifier on `WORKING` (which *requires* a changing screen — see § Endless-review loop) are
 **independent of this gate**. For the gated verdicts, confirm all of:
 1. **No activity after the footer.** Look for tool-call lines, assistant text, or user input lines that appear *below* the quota footer in the buffer. Any post-footer activity means the wall is not current.
 2. **No live progress label.** A `Working (1h33m)` / `Pursuing goal (…)` label with a timer longer than the footer's age is proof the lane is running.
@@ -276,9 +276,9 @@ done
 ```
 
 **Phase 2 must read `$OUT_DIR/working_surfaces.txt` and `closed_surfaces.txt` before classifying any surface.** A
-surface in `working_surfaces.txt` is `WORKING` unless it is `STOOD_DOWN_DUPLICATE`, `WEDGED_PROCESS`, or
-`ENDLESS_REVIEW` (see § Endless-review loop — the one case where a changing screen is itself the symptom), and may
-otherwise receive no other label. A surface in `closed_surfaces.txt` was captured once, not twice, and is not
+surface in `working_surfaces.txt` is `WORKING` unless it is `STOOD_DOWN_DUPLICATE` or `WEDGED_PROCESS`, and may
+otherwise receive no other label. A `WORKING` surface may additionally carry the **qualifier** `review-churn`
+(see § Endless-review loop) — a modifier on `WORKING`, not a competing label. A surface in `closed_surfaces.txt` was captured once, not twice, and is not
 classifiable from this sweep.
 
 What `scripts/scan.py` writes to `$OUT_DIR`:
@@ -312,7 +312,7 @@ The same line means different things per CLI, so each subagent names the surface
 - `MALFORMED_TOOL_CALL`: Agent emitted raw tool-call XML/JSON (e.g. `<parameter name="bash">`) as plain text and stalled at the prompt.
 - `QUOTA_BLOCKED`: Current turn is genuinely blocked by an active, unexpired quota/rate-limit wall at the bottom of the buffer. The wall must be the *current* state — a `Goal hit usage limits (/goal resume)` footer left in scrollback after a reset is stale; apply the Stale footer rule before using this category.
 - `STOOD_DOWN_DUPLICATE`: Another active surface is the canonical owner of the same PR/branch/worktree.
-- `ENDLESS_REVIEW`: The lane is objectively `WORKING` (live timer, real tool calls) but producing no deliverable: the head SHA and edited-source set are frozen while review events repeat, and the gate it waits on cannot close because the reviewer route is dead by quota/capacity. **Independent of the `screen_changed` gate** — this failure mode *requires* a changing screen, which is exactly why the two-sample check alone cannot see it. Requires all three measurements in § Endless-review loop (frozen artifacts vs moving clock, >=3 rounds at one head, unclosable gate); a moving head or a commit inside the window disqualifies it.
+- `WORKING` + `review-churn` **qualifier** (never a separate label): the lane is objectively `WORKING` — live timer, real tool calls, changing screen — and the shared rule stands: it is **not** idle, stalled, or quota-blocked. The qualifier records only that it is producing no deliverable: the head SHA and edited-source set are frozen while review attempts repeat, and the gate cannot close because the reviewer route is dead by quota/capacity. Report it as `WORKING (review-churn)`. Requires all three conditions in § Endless-review loop; a moving head or a commit inside the window disqualifies it. It never downgrades the lane's `WORKING` status.
 - `WEDGED_PROCESS`: Process tree (`cmux top --workspace <ws> --processes` / `ps` / `lsof -p <pid>`) shows a hung child or busy-wait loop with a frozen screen.
 - `SHELL`: Session exited to a plain shell prompt (`zsh`/`bash`).
 
