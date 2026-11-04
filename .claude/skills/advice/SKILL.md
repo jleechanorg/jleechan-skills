@@ -79,7 +79,7 @@ outside votes from distinct identities satisfy the quorum on their own.
 | Outside route | How | Distinct seats |
 |---|---|---|
 | Dot | the [`/dot` skill](../dot/SKILL.md), each Dot account in its configured `rotation` (the same Dots that [dot-coordinator](../dot-coordinator/SKILL.md) is configured for), using the static-review coordinator ask | one per Dot account; a busy, limited or blocked composer moves to the next account per `/dot` |
-| Hermes | the [`/hermes` skill](../hermes/SKILL.md) Slack-only transport, using the static-review coordinator ask | one per configured Hermes instance - for example the primary Hermes and the `hermes-pc` Hermes - each resolved from that machine's Hermes configuration, never hardcoded here |
+| Hermes | the `/hermes` skill's Slack-only transport (host-installed; if absent, the route is `UNAVAILABLE`), using the static-review coordinator ask | one per configured Hermes instance - for example the primary Hermes and the `hermes-pc` Hermes - each resolved from that machine's Hermes configuration, never hardcoded here |
 | Web advice | [`/web-advice`](../web-advice/SKILL.md) (user shorthand `wa`), each authenticated web provider seat it can reach, using the revision-packet or document-only template | one per provider and account |
 
 - **Identity still rules.** Each outside route must report the model and
