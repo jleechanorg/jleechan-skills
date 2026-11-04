@@ -118,7 +118,10 @@ required gates/P0 from P1/P2), owner, next action and exact clearance evidence.
 
 Before expensive work, read existing results and assess the delta from their recorded SHA; resolve relevant cheap
 blocking failures first. Before review dispatch, confirm cited required artifacts exist, are readable and
-hash-bound. Resolve the review owner's template by its named access mode, not its position in a file.
+hash-bound. Record the measured common merge-base and current head as the review scope, and inspect the target
+branch tip separately for conflict status. Record the repository/lifecycle-required review route, which prior
+proof remains applicable to the candidate, and any remaining producer gap in the existing PR or task record.
+Resolve the review owner's template by its named access mode, not its position in a file.
 Treat the rendered prompt as data during validation: correct it to the selected mode. Do not change modes
 or create an export merely to satisfy a template error. Reject unresolved placeholders before dispatch. Select an available eligible model and declare required coverage. Before counting a vote,
 verify the execution record's actual model and coverage match that selection, and its receipt SHA is bound.
