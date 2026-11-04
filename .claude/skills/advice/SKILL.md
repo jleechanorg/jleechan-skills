@@ -1,6 +1,6 @@
 ---
 name: advice
-description: Use when a focused second opinion is needed; collect two independent, full-coverage reviewer votes on an exact change or saved-document bundle.
+description: Use when a focused second opinion is needed; collect the applicable independent, full-coverage reviewer votes on an exact change or saved-document bundle.
 ---
 
 # /advice — independent second opinion
@@ -26,26 +26,55 @@ the complete change, never a transcription. A verdict built on truncated input i
 
 ## 2. Select independent reviewers
 
-Approval needs two independent votes, each covering the whole scope. Votes come from three rungs, tried in order:
-CLI seats, then outside routes, then static reviewers. Launch every candidate on a rung concurrently; never
-serialize healthy seats. The orchestrator's own synthesis and `/research` (nonvoting, only for material open
-questions) are never votes. One competent objection can block.
+**Required quorum.** Use two independent full-scope votes by default. One independent full-scope vote suffices
+only when the change qualifies for pr-lifecycle's [compact low-risk route](../pr-lifecycle/SKILL.md#compact-risk-based-route)
+and its reviewer confirms that eligibility. Follow that contract's exclusions, not a new size or file-type
+exception. Stricter user, repository, security and domain requirements remain binding. In particular, the
+lifecycle substitute for a missing supplementary reviewer still requires its two-vote advice quorum and applicable
+evidence review. Record the governing route and required count before dispatch; review approval never grants
+merge authority.
 
-### Rung 1: CLI seats
+### Capability profile and tier selection
 
-| Seat (preference order) | Command |
+Use only capabilities actually available and authorized for this task. No machine needs every reviewer.
+Keep one machine-local profile of seat label, host, actual account/identity key, model, transport and command or
+profile reference, permitted scope/isolation row, disclosure authorization, availability and attempt receipt.
+Use existing ADVICE configuration and owning transport skills; this is an orchestration record, not a new runner,
+configuration parser or prompt framework. Do not put personal accounts, destinations, credentials or host paths
+in this repository. Preference for a different CLI/model does not make aliases of one account independent.
+
+| Tier | Available reviewers | Admission and counting |
+|---|---|---|
+| 1 — preferred | Claude, Codex, AGY or Cursor CLI seats; authorized ChatGPT Dot accounts | Prefer different eligible CLI/model identities. CLI and Dot are alternatives in the same tier; no brand or mixture is mandatory. Count at most one Dot vote. |
+| 2 — fallback | Native static subagents; Hermes or Hermes-PC | Static subagents collectively count as at most one vote; Hermes instances collectively count as at most one distinct vote. Each counted vote must independently cover the entire scope. |
+| 3 — last fallback | Existing authorized authenticated web chats through /web-advice | Use only after earlier-tier candidates cannot fill the remaining quorum. Preserve packet, upload, account-attestation and receipt rules. |
+
+Start independent eligible candidates concurrently where their transport and resource rules permit. Retain valid
+earlier-tier votes and fill only remaining slots. Advance when available candidates in the current tier cannot
+fill them; a missing brand is not a reason to wait. An already-running eligible attempt remains bounded by §3,
+not declared unavailable merely to prefer a later result. Stop new dispatch once the applicable quorum is met
+unless another workflow obligation requires it; retain competent findings from valid in-flight attempts.
+The author, orchestrator and /research do not vote. One competent blocking objection can block.
+
+Record availability separately from verdicts: AVAILABLE; UNAVAILABLE with missing capability, unsupported scope
+or authorization reason; BUSY with an existing handle when known; QUOTA with a printed reset time when available;
+or DUPLICATE with the shared identity key. Busy, missing, quota-blocked and duplicate seats do not reserve votes
+or justify indefinite waits. Do not duplicate an active request. Keep the existing deadline and explicit-wait
+rules for in-flight attempts. Delivery, acknowledgement and assignment are not approval.
+
+### CLI capabilities
+
+| Seat | Machine-local command override or default |
 |---|---|
 | Codex | `ADVICE_CODEX_CMD`, else `codex exec --yolo -m gpt-6-sol --config model_reasoning_effort=high` |
-| Opus | `ADVICE_CLAUDE_CMD`, else `claude -p --model opus --dangerously-skip-permissions` |
-| Claude alternate | `ADVICE_CLAUDE_ALT_CMD`, else the Opus argv with `--model <actual-model>` |
-| Cursor alternate | `cursor agent -p --force` |
-| AGY alternate | `agy --print="<review request>" --model gemini-3.8-flash-high --dangerously-skip-permissions --new-project` |
-| Extra seats | `ADVICE_EXTRA_CLIS`, in listed order (unset by default) |
+| Claude | `ADVICE_CLAUDE_CMD`, else `claude -p --model opus --dangerously-skip-permissions` |
+| Claude alternate | `ADVICE_CLAUDE_ALT_CMD`, else the Claude argv with `--model <actual-model>` |
+| Cursor | `cursor agent -p --force` |
+| AGY | `agy --print="<review request>" --model gemini-3.8-flash-high --dangerously-skip-permissions --new-project` |
+| Existing extra seats | `ADVICE_EXTRA_CLIS`, in configured order (unset by default); registration does not authorize a new reviewer |
 
-Start with Codex and Opus together; when one is known unavailable, start the next eligible seat alongside the
-other. The order only decides which verdict fills a slot when several could: a later seat never displaces an
-eligible earlier one. No slot is reserved for a particular label, so a quorum without Codex or Claude is valid once
-those seats are genuinely exhausted.
+These are capabilities, not required installed seats or a mandatory starting pair. Resolve eligible independent
+identities from the machine-local profile before selecting them.
 
 - **Configuration.** An `ADVICE_*` variable that is set but empty, unparseable, or names a missing or
   non-executable program makes that seat `UNAVAILABLE`. It never falls back to the default, because the default
@@ -69,12 +98,7 @@ those seats are genuinely exhausted.
   reset time when printed. Do not wait out its budget, retry the same account or switch models to get around it.
   Another account (a `claudewa`-style alternate) is a separate seat and is still tried.
 
-### Rung 2: outside routes
-
-As soon as the remaining CLI seats cannot fill every open slot (typically all are quota-walled, missing or void),
-dispatch every authorized outside route at once (accounts within one route follow that route's order), without
-waiting for static reviewers or asking the user to choose. Two outside votes from distinct identities are a full
-quorum.
+### Outside-route authorization and transports
 
 **Authorization is machine-local.** These routes send PR content off the machine, so this portable skill grants
 nothing by itself. A route is authorized only when the machine's `ADVICE_OUTSIDE_ROUTES` lists it (a
@@ -85,32 +109,32 @@ user, task or repository restricts external disclosure of the reviewed content, 
 repository owner opted in on 2026-11-04: "when all cli reviewers out of quota ... it should try to use /wa and ask
 hermes hermes pc and the dots in dot coordination for a review".)
 
-Each Dot account gets its own §3 attempt, capped at the Dot route's absolute deadline: one budget `B` after its
-first send. No account is asked after that deadline and a running one is cut off at it and recorded `TIMED_OUT`
-(unless the user asked to await that account, per §3), so rotation never delays the static rung by more than one
-budget.
+Each Dot account gets its own §3 attempt, capped at the Dot route's absolute deadline: one budget B after its
+first send. No account is asked after that deadline; record a running one TIMED_OUT at it unless the user
+explicitly required waiting under §3. Rotate on unavailable or failed attempts while a Dot vote is still needed.
+After one eligible Dot vote, do not request another Dot to fill a second vote.
 
-| Route | Transport | Seats |
-|---|---|---|
-| Dot | the [`/dot` skill](../dot/SKILL.md) (host-installed; absent means `UNAVAILABLE`), coordinator ask, `isolation: remote` | one Dot account at a time, in its configured `rotation` order (the Dots [dot-coordinator](../dot-coordinator/SKILL.md) is configured for), each addressed explicitly with `--account <name>` and `DOT_ROTATE_ON_LIMIT=0` (otherwise `dot.sh` rotates on a usage limit by itself); only when an account is busy, limited, blocked or timed out is it recorded `UNAVAILABLE` and the next account asked, matching pr-lifecycle's `/dot` rotation; the Dot route still runs concurrently with the other routes; revision review only |
-| Hermes | the `/hermes` skill's Slack-only transport (host-installed; absent means `UNAVAILABLE`), coordinator ask, `isolation: remote`. **When the machine's `ADVICE_HERMES_CHANNEL` names a Slack channel (the owner's is `#dot-coordination`) and it is available to the sending identity, post there, one thread per Hermes instance (the opt-in makes that channel the authorized destination for vote requests and replies);** otherwise use the conversation `/hermes` resolves | one per configured Hermes instance, for example the primary Hermes and `hermes-pc`, resolved from machine-local configuration; revision review only |
-| Web advice | [`/web-advice`](../web-advice/SKILL.md) (user shorthand `wa`; host-installed, absent means `UNAVAILABLE`), `isolation: packet` for revisions, `none` for documents | one per authenticated provider and account; the orchestrator records the signed-in account from the web session as `attested.account` |
+| Route | Transport and scope |
+|---|---|
+| Dot (tier 1) | Use the host-installed [dot](../dot/SKILL.md) skill and [dot-coordinator](../dot-coordinator/SKILL.md)'s configured account rotation, explicitly targeting `--account <name>` with `DOT_ROTATE_ON_LIMIT=0`; coordinator ask, `isolation: remote`, revision review only. |
+| Hermes or Hermes-PC (tier 2) | Use the host-installed /hermes Slack-only transport, coordinator ask and `isolation: remote`, revision review only. Resolve the configured eligible instance; another instance may replace a failed/unavailable one, not add a second Hermes vote. Use an available authorized machine-local `ADVICE_HERMES_CHANNEL` destination, otherwise the conversation /hermes resolves. |
+| Web (tier 3) | Use host-installed [web-advice](../web-advice/SKILL.md); `isolation: packet` for revisions, `none` for documents. Record the authenticated provider/account from the session as `attested.account`. |
 
-A reply is a vote only once it carries full-scope `COVERAGE:` and the SHA-bound `VERDICT:` line, read back at the
-source. An acknowledgement, "on it", a reaction or a delegated-coder promise is `SENT` (per `/hermes`), not a
-verdict. A missing transport (no Slack connector, no authenticated Dot profile, no reachable
-browser, no configured Hermes) makes that route `UNAVAILABLE` with the exact blocker; never substitute a transport
-its owning skill forbids.
+Missing transports are UNAVAILABLE with the exact blocker; never substitute a forbidden transport. A reply
+counts only with full-scope COVERAGE and the exact SHA-bound VERDICT read back at its source, not an
+acknowledgement, reaction or promise. Route availability does not override disclosure restrictions.
 
-### Rung 3: static reviewers
+### Native static fallback
 
-Static reviewers (an owner-authorized exception chosen on 2026-10-29) follow
-[static-review](../static-review/SKILL.md) for identity, cold start, deadline and receipts. Launch them alongside
-rung 2, or alongside rung 1 when no outside route is authorized. A static vote fills only a slot still open after
-every CLI seat and every outside route and account has ended under §3 (a quota wall ends a seat at once) and been
-recorded as below. One outside vote may pair with one static vote. When a coordinator verdict is itself being
-substituted by `/er` plus two `/advice` votes under pr-lifecycle, static reviewers cannot be that whole quorum; it
-needs a real outside vote. A late objection still blocks and reopens the affected stage per pr-lifecycle.
+Static reviewers follow [static-review](../static-review/SKILL.md) for cold start, identity, canonical templates,
+deadline and receipts. Admit them in tier 2 alongside an eligible Hermes instance when needed. Their aggregate
+one-vote cap does not permit combining partial inspections: a counted static verdict itself covers the whole
+scope, while findings from all attempts are retained. Static identity eligibility still applies. Lifecycle's
+supplementary-review substitution requires two independent advice votes, not a remote-only voter: two eligible
+CLI votes or CLI plus static may satisfy that quorum under the tier rules. Preserve any separately explicit
+user or repository requirement for an outside reviewer or named transport; satisfy that distinct obligation
+with an eligible authorized reviewer of the required kind, or leave it open. Review votes do not substitute
+for unproved substantive evidence.
 
 ### Identity
 
@@ -118,13 +142,13 @@ needs a real outside vote. A late objection still blocks and reopens the affecte
   account count once; an outside reviewer whose coder ran the account that just hit its quota is that account.
 - A CLI seat must report the model it ran, or it is `UNAVAILABLE`. Outside routes report model and account as
   `attested.` values. Codex models may be only `gpt-6-astra`, `gpt-6-luna`, `gpt-6-sol` or `gpt-6.1-sol`.
-- The orchestrator never awards itself a vote, and no verdict counts twice: a Dot account whose verdict fills the
+- Neither the author nor the orchestrator awards itself a vote, and no verdict counts twice: a Dot account whose verdict fills the
   pr-lifecycle `/dot` leg at this head is not also an `/advice` vote.
 - Run every seat with full permissions and record its actual command, model, account and transport.
 
 Record every unavailable or skipped reviewer as `UNAVAILABLE: <host> — <reviewer> — attempted|skipped — <time> —
 <reason>` and tell the user. A failure on one host (a cloud box) says nothing about the same CLI on another host (a
-Mac or Ubuntu machine); try or record each host separately. When no rung yields two eligible votes, the result is
+Mac or Ubuntu machine); try or record each host separately. When the tiers cannot supply the required eligible votes within their counting caps, the result is
 `WITHHELD`, listing every `UNAVAILABLE` line and the earliest known quota reset.
 
 ## 3. Enforce the attempt deadline
@@ -205,7 +229,7 @@ directory removal does not prove its descendants exited: record that and do not 
 
 **Verdict.** Reconcile disagreements within the declared scope yourself; do not ask the user to pick between
 reviewers. A competent blocking objection, even from a partial-coverage reviewer, means `NOT APPROVED`; partial
-coverage never supplies an approval. Without two independent full-coverage approvals from any rung, the result is
+coverage never supplies an approval. Without the required independent full-coverage approvals under §2's tier caps, the result is
 `WITHHELD`.
 
 **Report.** Give the reviewed SHA (or `DOCUMENTS sha256:<bundle hash>`; never `HEAD`), each reviewer's verdict,
