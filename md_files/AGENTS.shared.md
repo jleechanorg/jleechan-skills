@@ -332,13 +332,10 @@ leave the profile alone.
 
 MCP server registration is per runtime and the destinations are not interchangeable: Claude Code MCP servers belong in `~/.claude.json`, never `~/.claude/settings.json`; Codex MCP servers belong in the active `CODEX_HOME/config.toml`. Stable user-scope MCP installs use `npm -g` or `uvx`; never repo, worktree, or temp paths. Register HTTP MCPs in `~/.config/mcp-daemon/start-mcp-daemons.sh`. Launchd plist template ownership remains with `~/.claude/skills/launchd-plist-template/SKILL.md`. Before replacing a service, verify old processes are gone and prevent duplicate credential-sharing connections. Do not write `wiki/` except through `/wiki-ingest`.
 
-## Goals, slash commands, /af, and directory safety
+## Goals, slash commands, and directory safety
 
 Goal setting and hardening: `~/.claude/skills/cmux-goal/SKILL.md` and `~/.claude/skills/ironclad/SKILL.md`; never clear a user goal without explicit request. Slash-command resolution: `~/.claude/skills/slash-command-translation/SKILL.md`. Directory replacement safety: `~/.claude/skills/cwd-safety/SKILL.md`.
 
-`/f` and `/factory` are identical Dark Factory entry points: load and follow `~/.claude/skills/dark-factory/SKILL.md` and invoke its real binary workflow; never substitute ad hoc `codex review` or a prose-only review.
-
-When `/af` or `/auto-factory` is invoked, keep all coding LLM work inside the task-scoped workflow: `~/.claude/skills/auto-factory/SKILL.md`.
 
 
 

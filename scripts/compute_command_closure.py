@@ -44,12 +44,12 @@ def extract_references_from_text(text: str) -> set[str]:
         word = _get_containing_word(text, match.start(), match.end())
 
         # R1: word contains a file extension
-        # -> real case: .claude/commands/f.md:22 `./install.sh` yields phantom /install
+        # -> e.g. `./install.sh` in a prerequisite line yields phantom /install
         if FILE_EXT_RE.search(word):
             continue
 
         # R2: word contains 2 or more "/" characters (path or URL, not a command)
-        # -> real case: .claude/commands/f.md:227 `evidence/<run-id>/reviewer-calibration/` yields phantom /reviewer
+        # -> e.g. `evidence/<run-id>/reviewer/` yields phantom /reviewer
         if word.count("/") >= 2:
             continue
 

@@ -655,14 +655,14 @@ class InstallerIntegrationTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             temp_dir = Path(directory)
             fixture = self.make_fixture(temp_dir)
-            nested_source = fixture / ".claude/commands/extended-library/factory-spec.md"
+            nested_source = fixture / ".claude/commands/extended-library/retired-spec.md"
             nested_source.parent.mkdir(parents=True)
             nested_source.write_text("source spec\n", encoding="utf-8")
             target = temp_dir / "claude-home"
             self.assertEqual(self.run_installer(fixture, target).returncode, 0)
-            nested = target / "commands/extended-library/factory-spec.md"
+            nested = target / "commands/extended-library/retired-spec.md"
             nested.write_text("local spec\n", encoding="utf-8")
-            (target / ".jleechan-skills-protected").write_text("factory-spec\n", encoding="utf-8")
+            (target / ".jleechan-skills-protected").write_text("retired-spec\n", encoding="utf-8")
 
             kept = self.run_installer(fixture, target, "--merge")
 
@@ -681,7 +681,7 @@ class InstallerIntegrationTest(unittest.TestCase):
             backups = list(temp_dir.glob("claude-home.merge-backup-*"))
             self.assertEqual(len(backups), 1, backups)
             self.assertEqual(
-                (backups[0] / "commands/extended-library/factory-spec.md").read_text(encoding="utf-8"),
+                (backups[0] / "commands/extended-library/retired-spec.md").read_text(encoding="utf-8"),
                 "local spec\n",
             )
 
@@ -1276,20 +1276,20 @@ class InstallerIntegrationTest(unittest.TestCase):
             target = temp_dir / "claude-home"
             target.mkdir()
 
-            external_repo = temp_dir / "external-repo" / "dark-factory"
+            external_repo = temp_dir / "external-repo" / "external-skill"
             external_repo.mkdir(parents=True)
             external_skill = external_repo / "SKILL.md"
-            external_bytes = b"# External Dark Factory Skill\n"
+            external_bytes = b"# External Skill\n"
             external_skill.write_bytes(external_bytes)
 
             skills_target = target / "skills"
             skills_target.mkdir()
-            linked_skill = skills_target / "dark-factory"
+            linked_skill = skills_target / "external-skill"
             linked_skill.symlink_to(external_repo)
 
-            fixture_dark = fixture / ".claude/skills/dark-factory"
-            fixture_dark.mkdir(parents=True)
-            (fixture_dark / "SKILL.md").write_text("# Repo Managed Dark Factory\n")
+            fixture_external = fixture / ".claude/skills/external-skill"
+            fixture_external.mkdir(parents=True)
+            (fixture_external / "SKILL.md").write_text("# Repo Managed External Skill\n")
 
             # Also check source symlink entries copy appropriately
             source_symlink = fixture / ".claude/skills/example/source-symlink.txt"

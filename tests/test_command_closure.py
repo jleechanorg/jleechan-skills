@@ -39,17 +39,17 @@ GENUINE_SEED = "advice"
 GENUINE_TARGET = "research"
 NAMESPACED_TARGET = "extended-library:secondo"
 
-# Fixture B (FALSE POSITIVES), real content of .claude/commands/f.md, whose
-# phantom slash tokens are what this fixture exercises.
-#   line 22:  **Prerequisite:** `./install.sh` once; ...
-#   line 220: - a delegated reviewer/subagent outcome when available ...
-# Both match a naive single-segment slash-token regex. Neither is a command:
-# `/install` is a path fragment of `./install.sh`, `/reviewer` is `/` used as
-# an "or" separator. Neither has a file under .claude/commands/.
-PHANTOM_SEED = "f"
+# Fixture B (FALSE POSITIVES), real content of .claude/commands/ablation.md:
+#   Read `${CLAUDE_HOME:-$HOME/.claude}/skills/ablation/SKILL.md` completely ...
+# `/skills` there is a path segment, not a command. `/install` (from
+# `./install.sh`) and `/reviewer` (from `reviewer/subagent`) are the classic
+# phantom tokens; the inline-text assertion below exercises them directly.
+# None of them has a file under .claude/commands/.
+PHANTOM_SEED = "ablation"
 PHANTOM_TOKENS = {
     "install": "path fragment of `./install.sh`, not a delegation",
     "reviewer": "`/` as or-separator in `reviewer/subagent`, not a delegation",
+    "skills": "path segment of `.../skills/ablation/SKILL.md`, not a delegation",
 }
 
 
@@ -66,7 +66,7 @@ class CommandClosureTest(unittest.TestCase):
         # lines are gone, this test must fail loudly rather than assert against
         # content that no longer exists.
         self.assertIn("/research", self.seed_text[GENUINE_SEED])
-        self.assertIn("/skills/dark-factory/SKILL.md", self.seed_text[PHANTOM_SEED])
+        self.assertIn("/skills/ablation/SKILL.md", self.seed_text[PHANTOM_SEED])
         candidates = extract_references_from_text(
             "Prerequisite: `./install.sh`; delegated reviewer/subagent outcome."
         )

@@ -83,7 +83,7 @@ Named profiles select other sets:
 | `--profile prw` | the PR workflow set: `prw`, `pr-workflow`, `pr-workflow-manager`, `draft-first-pr`, `pr-lifecycle`, `pr-green-definition`, `ready`, `advice`, `evidence-standards`, `evidence-review`, `testing-layers`, `code-standards` (12 named), and `/es`, `/er`, `/green`, `/cs` | 25 / 11 / 1 |
 | `--profile web` | opt-in browser review: `advice`, `web-advice`, `browser-control`, `aside-browser-default`, `browser-testing` (5 named) | 20 / 5 / 1 |
 | `--with SKILL` | adds one named skill, its dependencies and aliases to the chosen profile (repeatable) | varies |
-| `--all` | the full library, which was the installer's previous default | 277 / 248 / 45 |
+| `--all` | the full library, which was the installer's previous default | 272 / 240 / 45 |
 
 Dependency closure never adds browser, cookie or personal-infrastructure
 skills (`dot`, `web-advice`, `browser-control`, `browser-testing`, `slack-media-upload`, and the
@@ -165,7 +165,6 @@ pointers and are intentionally not the documentation target.
 | `/research` | [`research`](.claude/skills/research/SKILL.md) | Use when a decision depends on facts rather than recollection. Ask a focused question; a background agent gathers primary sources and writes a cited Markdown finding in the repo’s established notes location. |
 | `/memory-search` (`/ms`) | [`memory-search`](.claude/skills/memory-search/SKILL.md) | Use to recover prior work, decisions, or incidents. Ask a specific query; it searches the configured roadmap, Beads, local memories, history, wiki, and Slack in parallel, then returns merged, cacheable leads. |
 | `/evidence-review` (`/er`) | [`evidence-review`](.claude/skills/evidence-review/SKILL.md) | Use after collecting evidence for a claim or PR, especially production behavior. Supply the bundle or subject; it checks integrity and provenance, maps artifacts to claims, and returns `PASS`, `PARTIAL`, `FAIL`, or `INCONCLUSIVE`. |
-| `/factory` (`/f`) | [`dark-factory`](.claude/skills/dark-factory/SKILL.md) | Use when you want a replayable external pipeline rather than an in-chat agent loop. Give it a concrete goal on a machine with Dark Factory installed; it records the graph run and evaluates against sealed holdouts. |
 | `/es` | [`evidence-standards`](.claude/skills/evidence-standards/SKILL.md) | Use before claiming a production behavior is fixed or before asking for `/er`. State the claim and its scope; it tells you which real-path artifacts are needed and what those artifacts can, and cannot, prove. |
 | `/web-advice` (`/webadvice`) | [`web-advice`](.claude/skills/web-advice/SKILL.md) | Use for an independent external perspective on code, plans, documents, designs, or decisions. Provide the review scope and relevant links/material; authenticated web models are compared with declared coverage and any unavailable-model gap is disclosed. |
 | `/browser` | [`browser-control`](.claude/skills/browser-control/SKILL.md) | Use to inspect or complete an approved live-browser task. Name the site, target state, and allowed side effect; it selects the right browser tool, works from current page state, and confirms the resulting UI state. |
@@ -231,14 +230,6 @@ Use this after evidence has been captured, not as a substitute for capturing it.
 
 ```bash
 /evidence-review docs/evidence/checkout-latency-fix/
-```
-
-### [`dark-factory`](.claude/skills/dark-factory/SKILL.md) — `/factory` (`/f`)
-
-Runs a goal through the real external `dark-factory` binary and `.dot`-graph pipeline runner (StrongDM's Attractor pattern), recording every step in a SQLite CXDB rather than a conversation transcript, and grading against sealed holdout scenarios in a separate repo the agent is never allowed to read. It trades interactive in-session flexibility for replayability and a hard separation between the coding agent and adversarial evaluator, while generally reducing session-context cost to one CLI call per node.
-
-```bash
-/factory "Implement idempotent webhook signature validation with HMAC-SHA256"
 ```
 
 ### [`evidence-standards`](.claude/skills/evidence-standards/SKILL.md) — `/es`
