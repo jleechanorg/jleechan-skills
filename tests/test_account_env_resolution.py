@@ -41,17 +41,21 @@ class StubGhMixin:
         bindir = self.tmp / "bin"
         bindir.mkdir()
         gh = bindir / "gh"
-        # `gh repo view` fails (no derivable repo); list calls return [].
+        # `gh repo view` prints $STUB_GH_REPO, or exits non-zero when it is
+        # unset (no derivable repo); list calls return [].
         gh.write_text(
             "#!/bin/sh\n"
             f'printf "%s\\n" "$*" >> "{self.log}"\n'
-            'if [ "$1" = repo ]; then exit 1; fi\n'
+            'if [ "$1" = repo ]; then\n'
+            '  [ -n "$STUB_GH_REPO" ] || exit 1\n'
+            '  echo "$STUB_GH_REPO"; exit 0\n'
+            'fi\n'
             "echo '[]'\n"
         )
         gh.chmod(0o755)
         self.env = {
             k: v for k, v in os.environ.items()
-            if k not in {"GITHUB_REPOSITORY", "GIT_DIR", "GIT_WORK_TREE"}
+            if k not in {"GITHUB_REPOSITORY", "STUB_GH_REPO", "GIT_DIR", "GIT_WORK_TREE"}
         }
         self.env["PATH"] = f"{bindir}{os.pathsep}{self.env.get('PATH', '')}"
         self.env["GIT_CEILING_DIRECTORIES"] = str(self.tmp)
@@ -71,10 +75,18 @@ class StubGhMixin:
 
 
 class CiQueueTrimRepoTest(StubGhMixin, unittest.TestCase):
-    def test_github_repository_is_targeted(self):
-        result = self.run_script(CI_QUEUE_TRIM, GITHUB_REPOSITORY="acme/widgets")
+    def test_github_repository_wins_over_derived_repo(self):
+        result = self.run_script(
+            CI_QUEUE_TRIM, GITHUB_REPOSITORY="acme/widgets", STUB_GH_REPO="other/derived"
+        )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("--repo acme/widgets", self.gh_calls())
+        self.assertNotIn("other/derived", self.gh_calls())
+
+    def test_unset_repository_is_derived_from_gh(self):
+        result = self.run_script(CI_QUEUE_TRIM, STUB_GH_REPO="other/derived")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--repo other/derived", self.gh_calls())
 
     def test_unconfigured_repo_exits_naming_variable(self):
         result = self.run_script(CI_QUEUE_TRIM)
@@ -84,10 +96,18 @@ class CiQueueTrimRepoTest(StubGhMixin, unittest.TestCase):
 
 
 class LunaRepoTest(StubGhMixin, unittest.TestCase):
-    def test_github_repository_is_targeted(self):
-        result = self.run_script(LUNA, GITHUB_REPOSITORY="acme/widgets")
+    def test_github_repository_wins_over_derived_repo(self):
+        result = self.run_script(
+            LUNA, GITHUB_REPOSITORY="acme/widgets", STUB_GH_REPO="other/derived"
+        )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("--repo acme/widgets", self.gh_calls())
+        self.assertNotIn("other/derived", self.gh_calls())
+
+    def test_unset_repository_is_derived_from_gh(self):
+        result = self.run_script(LUNA, STUB_GH_REPO="other/derived")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--repo other/derived", self.gh_calls())
 
     def test_unconfigured_repo_exits_naming_variable(self):
         result = self.run_script(LUNA)
