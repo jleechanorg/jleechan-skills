@@ -218,7 +218,85 @@ def sha256_of(path: Path) -> str | None:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+_LAST_COMMIT_CACHE: dict[str, "dict | None"] = {}
+_PRIMED_LIVE_REPOS: set[str] = set()
+
+
+def live_repo_last_commit(enclosing: Path, rel_path: str) -> dict | None:
+    """`last_commit` against an ENCLOSING live repo, batched once per repo.
+
+    Some live roots are themselves git repos (`~/.hermes` is
+    `jleechanorg/jleechanclaw`), so every file under them needs a commit lookup in
+    THAT repo. Doing it per file spawned one `git log` per path -- the dominant
+    cost of `report --full`, minutes for a few thousand files. Prime the whole
+    repo once on first use, then serve every later path from the cache.
+    """
+    key = str(enclosing)
+    if key not in _PRIMED_LIVE_REPOS:
+        _PRIMED_LIVE_REPOS.add(key)
+        try:
+            out = subprocess.run(
+                ["git", "ls-files"], cwd=enclosing, capture_output=True, text=True,
+            )
+            tracked = out.stdout.splitlines() if out.returncode == 0 else []
+        except OSError:
+            tracked = []
+        # Prime only paths we could plausibly ask about; unbounded priming of a
+        # huge live repo would just move the cost, not remove it.
+        prime_last_commit_cache(enclosing, tracked)
+    return last_commit(enclosing, rel_path)
+
+
+
+
+
+def prime_last_commit_cache(cwd: Path, rel_paths: list[str]) -> None:
+    """Fill the last_commit cache for many paths with ONE git invocation.
+
+    `last_commit` spawns a `git log` per path, which is fine for the ~29-file core
+    scope but pathological for --full: 3531 tracked files x ~0.1 s each is ~6
+    minutes of pure subprocess overhead, and the report never finished. One
+    `git log --name-only` pass over the whole set costs about as much as a single
+    call, so a full report becomes seconds instead of minutes.
+
+    Only the FIRST (most recent) commit touching each path is kept, which is
+    exactly what the per-path `git log -1` produced.
+    """
+    if not rel_paths:
+        return
+    wanted = {f"{cwd}\x00{r}" for r in rel_paths}
+    key_prefix = str(cwd)
+    fmt = "%H%x1f%aI%x1f%an%x1f%s"
+    try:
+        out = subprocess.run(
+            ["git", "log", "--format=@@%x1f" + fmt, "--name-only", "--no-renames", "--", "."],
+            cwd=cwd, capture_output=True, text=True,
+        )
+    except OSError:
+        return
+    if out.returncode != 0:
+        return
+    current: dict | None = None
+    for raw in out.stdout.splitlines():
+        if raw.startswith("@@"):
+            fields = raw[2:].split("\x1f", 3)
+            if len(fields) == 4:
+                sha, date, author, subject = fields
+                current = {"sha": sha[:12], "date": date, "author": author, "subject": subject}
+            else:
+                current = None
+            continue
+        if not raw or current is None:
+            continue
+        cache_key = f"{key_prefix}\x00{raw}"
+        if cache_key in wanted and cache_key not in _LAST_COMMIT_CACHE:
+            _LAST_COMMIT_CACHE[cache_key] = current
+
+
 def last_commit(cwd: Path, rel_path: str) -> dict | None:
+    cache_key = f"{cwd}\x00{rel_path}"
+    if cache_key in _LAST_COMMIT_CACHE:
+        return _LAST_COMMIT_CACHE[cache_key]
     out = subprocess.run(
         ["git", "log", "-1", "--format=%H%x1f%aI%x1f%an%x1f%s", "--", rel_path],
         cwd=cwd, capture_output=True, text=True,
@@ -306,6 +384,8 @@ class FileEvidence:
 def evidence_local(root: Path, files: list[str], home: Path, full: bool) -> list[FileEvidence]:
     out = []
     seen_live_rel = set()
+    # One batched git pass instead of a `git log` subprocess per tracked file.
+    prime_last_commit_cache(root, files)
     for f in files:
         live_rel = live_rel_for(f)
         seen_live_rel.add(live_rel)
@@ -333,11 +413,15 @@ def evidence_local(root: Path, files: list[str], home: Path, full: bool) -> list
             if enclosing is not None and enclosing != root:
                 rel_in_that_repo = str(live_abs.relative_to(enclosing))
                 ev.live_repo_root = str(enclosing)
-                ev.live_last_commit = last_commit(enclosing, rel_in_that_repo)
+                ev.live_last_commit = live_repo_last_commit(enclosing, rel_in_that_repo)
             if status == "modified":
                 ev.diff_snippet = unified_diff_snippet(repo_abs, live_abs)
         out.append(ev)
 
+    # Discover the walk's files first so every enclosing live repo can be primed
+    # ONCE with a real path list; priming with an empty list (an earlier mistake
+    # here) fills nothing and silently leaves every path on the per-file subprocess
+    # path, which is exactly the slowness this batching exists to remove.
     for live_root_rel in scope_live_roots(files, full):
         live_root_abs = home / live_root_rel
         if not live_root_abs.is_dir():
@@ -363,7 +447,7 @@ def evidence_local(root: Path, files: list[str], home: Path, full: bool) -> list
             enclosing = find_enclosing_git_repo(f, home)
             if enclosing is not None and enclosing != root:
                 ev.live_repo_root = str(enclosing)
-                ev.live_last_commit = last_commit(enclosing, str(f.relative_to(enclosing)))
+                ev.live_last_commit = live_repo_last_commit(enclosing, str(f.relative_to(enclosing)))
             out.append(ev)
     return out
 
