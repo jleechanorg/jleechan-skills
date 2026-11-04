@@ -76,23 +76,26 @@ Required structure, in this order:
    `| Work item | Before → after / user benefit | PR or bead | Status / stage | Done / remaining |`.
    Repeat a PR’s actual stage when it covers several work items; keep summary
    stages consistent with the detailed ledger, including marker mismatches.
-   Put requested user-facing features
-   and fixes first, then assigned work items that do not yet have a PR; list
-   supporting tests, tooling and docs afterward. For each item, use a visible PR
-   number or bead link and state its actual status (`planned`, `implemented`,
-   `merged`, `deployed`, or `unproven`). Explain the concrete before-and-after
-   experience and the user benefit. For merged fixes, say whether deployment
-   is also verified. A PR title, stage, or opaque label such as “transport,”
+   Include only requested user-facing features and fixes that remain open or
+   active, then assigned work items that do not yet have a PR; list supporting
+   tests, tooling and docs afterward. For each item, use a visible open PR number
+   or bead link and state its current status (`planned`, `implemented`, or
+   `unproven`). Explain the concrete before-and-after experience and user benefit.
+   Do not name or narrate merged/completed PRs here, even when they answer the
+   current request; put their records only in the final `Appendix — Merged work`.
+   A PR title, stage, or opaque label such as “transport,”
    “harness,” or “sharing” does not explain the change. If no requested
    user-facing work is in scope, say so in this section.
 
-   Only after this user-first list, give a short engineering overview of stage
-   counts, human-only blockers, stale or unowned work, total line delta and the
-   biggest deltas. Then give every remaining in-scope PR one or two plain-language
-   sentences with its linked PR number visible, what is done and what remains
-   unproven. Include merged fixes when they answer a current request, and put
-   supporting tests, tooling and docs after requested feature or fix work.
-2. **PR ledger table**, one row per PR:
+   Only after this active-work list, give a short engineering overview of open /
+   active stage counts, human-only blockers, stale or unowned work, total line
+   delta and the biggest deltas. Then give every remaining in-scope open or active
+   PR one or two plain-language sentences with its linked PR number visible, what
+   is done and what remains unproven. Put supporting tests, tooling and docs after
+   requested feature or fix work. Keep merged/completed PR names, rows, completion
+   narratives and receipts out of the top section; include them only in the final
+   `Appendix — Merged work`.
+2. **Open / active PR ledger table**, one row per in-scope open or active PR:
    `| PR | Title | Repo | Stage | State | Head | Δ (lines) | Next | Brief |`
    - `PR` links to the full GitHub URL (number visible in the link text).
    - `Stage` = the explicit pr-lifecycle stage. Follow the manager's [Find the skills before inventing
@@ -128,8 +131,8 @@ Required structure, in this order:
      able to recognise which PR this row is without opening GitHub.
    - `Brief` = ONE sentence stating what the PR changes and whether it is prod or
      test-only. No changelog.
-3. **Group the ledger by merge-readiness, not just by stage.** Use these headings in
-   this order, omitting any that is empty:
+3. **Group open / active ledger rows by merge-readiness, not just by stage.** Use
+   these headings in this order, omitting any that is empty:
    - `### Merge-safe now` — every gate receipt binds to the current head, or its
      intervening delta has been read and recorded as applicable under
      `~/.claude/skills/pr-lifecycle/SKILL.md` § SHA-binding rule. For each, the
@@ -138,35 +141,49 @@ Required structure, in this order:
      re-run, one failing check, one `hold:` release). For each, the `Brief` must say
      what the PR does **and** the single thing standing between it and merge.
    - `### Not mergeable` — failing checks, conflicting, or unapproved work.
-   A stage label alone never earns a place in `Merge-safe now`; a green check alone
-   never does either. Explain what each listed PR does in plain language — a stage
-   number, a label, or the PR title repeated is not an explanation.
+   Closed PRs never appear in these groups. A stage label alone never earns a place
+   in `Merge-safe now`; a green check alone never does either. Explain what each
+   listed PR does in plain language — a stage number, a label, or the PR title
+   repeated is not an explanation.
 4. **Not yet a PR** — items with an owner but no branch/PR yet.
-5. **Human actions outstanding** — only actions that meet the shared human-only
-   boundary. For each, state `Why the LLM cannot execute this next step now:`
+5. **Human actions outstanding** — only actions on open / active work that meet the
+   shared human-only boundary. For each, state `Why the LLM cannot execute this next step now:`
    with the exact authority, physical dependency or essential unresolved decision.
    Undrafting, evidence review, checks and authorized deployments are not human
    actions merely because they remain undone. Execute available authorized work
    in the caller's scope before ending; preserve a planning/status-only scope.
-6. **Owners (cmux surfaces)** — lane → workspace › surface title → PRs covered.
-7. **Later** — which PRs will need a `/pr-summary` (architecture diagram, Why It Is
-   Needed, How It Works, prod vs non-prod deltas) and the condition for writing it.
+6. **Owners (cmux surfaces)** — lane → workspace › surface title → open / active PRs covered.
+7. **Later** — which open / active PRs will need a `/pr-summary` (architecture
+   diagram, Why It Is Needed, How It Works, prod vs non-prod deltas) and the
+   condition for writing it.
+8. **Appendix — Merged work** — the final section, containing all merged or otherwise
+   completed PR records and no active work. Preserve each record's historical stage,
+   head SHA, deployment claim, and evidence/review receipts with their dates or source
+   references. Do not promote historical claims to current status. Never put a
+   merged PR name, ledger row, completion narrative, or its receipts elsewhere in
+   the board. If none are in scope, state that here.
 
 Every `/roadmap` report, including a concise chat or status reply, must start with
 a named `What changes for the user` section before engineering counts or the
-stage table. Order requested user-facing work first, followed by assigned
-not-yet-PR items and then supporting tests, tooling and docs. Link each item to
-its PR or bead, state the actual status, and describe the concrete before-and-after
-experience and user benefit; do not substitute a title or opaque task label.
-After that section, every report must include the stage table. A compact reply may
-shorten surrounding prose, but it must retain one row per in-scope PR with the
-`Stage`, `State`, `Head`, `Next`, and exact marker status; a prose-only status is
-incomplete.
+stage table. Cover open / active requested user-facing work first, followed by
+assigned not-yet-PR items and then supporting tests, tooling and docs. Link each
+item to its open PR or bead, state the actual status, and describe the concrete
+before-and-after experience and user benefit; do not substitute a title or opaque
+task label. Do not list or narrate merged/completed PRs in this section or in the
+top-level engineering overview. After that section, every report must include the
+open / active stage table. A compact reply may shorten surrounding prose, but it
+must retain one row per in-scope open / active PR with the `Stage`, `State`, `Head`,
+`Next`, and exact marker status; a prose-only status is incomplete. If there is no
+open / active PR, say so and omit an empty ledger. Put all merged/completed PR
+records only in the final `Appendix — Merged work`, including when they answer the
+current request; preserve their historical stage, head, deployment claim and
+receipts there.
 
 ## Evidence rules
 
-- Every row comes from a live `gh pr view` at write time. Never carry a state, head, or
-  delta forward from prose, a prior board, or another agent's report.
+- Every open / active ledger row comes from a live `gh pr view` at write time. Never
+  carry a state, head, or delta forward from prose, a prior board, or another agent's
+  report.
 - For PR file counts or changed-file claims, resolve the actual current base-branch
   tip SHA and PR head SHA, then compute additions, deletions, and changed paths from
   `git diff <base-tip>...<head>` or a paginated REST compare bound to those SHAs. Do
