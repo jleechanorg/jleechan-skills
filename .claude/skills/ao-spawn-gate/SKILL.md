@@ -25,8 +25,8 @@ ao session ls
 
 ```bash
 # Verify there is a concrete task / PR / issue context
-~/bin/ao status --project agent-orchestrator
-~/bin/ao session ls
+ao status --project "$AO_PROJECT"
+ao session ls
 ```
 
 ## Thresholds / gate rules
@@ -50,15 +50,15 @@ ao session ls
 ```bash
 # Create PR — only when the current task explicitly authorizes PR creation.
 # Resolve existing state before retrying an uncertain mutation.
-gh api repos/jleechanorg/agent-orchestrator-ts/pulls --method POST \
+gh api "repos/${AO_GITHUB_REPO:?set AO_GITHUB_REPO=owner/repo}/pulls" --method POST \
   -f title='[agento] ...' -f head='branch-name' -f base='main' -f body='...'
 
 # Comment on PR — only when the current task explicitly authorizes sending it.
-gh api repos/jleechanorg/agent-orchestrator-ts/issues/<PR_NUMBER>/comments --method POST \
+gh api "repos/${AO_GITHUB_REPO:?set AO_GITHUB_REPO=owner/repo}/issues/<PR_NUMBER>/comments" --method POST \
   -f body='...'
 
 # Get PR details
-gh api repos/jleechanorg/agent-orchestrator-ts/pulls/<PR_NUMBER>
+gh api "repos/${AO_GITHUB_REPO:?set AO_GITHUB_REPO=owner/repo}/pulls/<PR_NUMBER>"
 ```
 
 ## Approval output format
