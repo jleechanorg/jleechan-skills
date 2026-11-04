@@ -85,18 +85,18 @@ user, task or repository restricts external disclosure of the reviewed content, 
 repository owner opted in on 2026-11-04: "when all cli reviewers out of quota ... it should try to use /wa and ask
 hermes hermes pc and the dots in dot coordination for a review".)
 
-The Dot route as a whole shares one §3 budget across its accounts, so trying accounts one at a time never delays the
-static-reviewer rung by more than one budget.
+Each Dot account gets its own §3 attempt, but the Dot route stops asking new accounts once one budget `B` has
+passed since its first send, so rotation never delays the static rung by more than one budget.
 
 | Route | Transport | Seats |
 |---|---|---|
 | Dot | the [`/dot` skill](../dot/SKILL.md), coordinator ask, `isolation: remote` | one Dot account at a time, in its configured `rotation` order (the Dots [dot-coordinator](../dot-coordinator/SKILL.md) is configured for), each addressed explicitly with `--account <name>`, never by automatic rotation; only when an account is busy, limited, blocked or timed out is it recorded `UNAVAILABLE` and the next account asked, matching pr-lifecycle's `/dot` rotation; the Dot route still runs concurrently with the other routes; revision review only |
-| Hermes | the `/hermes` skill's Slack-only transport (host-installed; absent means `UNAVAILABLE`), coordinator ask, `isolation: remote`. **When the machine's `ADVICE_HERMES_CHANNEL` names a Slack channel (the owner's is `#dot-coordination`) and it is available to the sending identity, post there, one thread per Hermes instance;** otherwise use the conversation `/hermes` resolves | one per configured Hermes instance, for example the primary Hermes and `hermes-pc`, resolved from machine-local configuration; revision review only |
+| Hermes | the `/hermes` skill's Slack-only transport (host-installed; absent means `UNAVAILABLE`), coordinator ask, `isolation: remote`. **When the machine's `ADVICE_HERMES_CHANNEL` names a Slack channel (the owner's is `#dot-coordination`) and it is available to the sending identity, post there, one thread per Hermes instance (the opt-in makes that channel the authorized destination for vote requests and replies);** otherwise use the conversation `/hermes` resolves | one per configured Hermes instance, for example the primary Hermes and `hermes-pc`, resolved from machine-local configuration; revision review only |
 | Web advice | [`/web-advice`](../web-advice/SKILL.md) (user shorthand `wa`), `isolation: packet` for revisions, `none` for documents | one per authenticated provider and account; the orchestrator records the signed-in account from the web session as `attested.account` |
 
 A reply is a vote only once it carries full-scope `COVERAGE:` and the SHA-bound `VERDICT:` line, read back at the
-source. An acknowledgement, "on it", a reaction or a delegated-coder promise is `SENT`/`ACKNOWLEDGED` (per
-`/hermes`), not a verdict. A missing transport (no Slack connector, no authenticated Dot profile, no reachable
+source. An acknowledgement, "on it", a reaction or a delegated-coder promise is `SENT` (per `/hermes`), not a
+verdict. A missing transport (no Slack connector, no authenticated Dot profile, no reachable
 browser, no configured Hermes) makes that route `UNAVAILABLE` with the exact blocker; never substitute a transport
 its owning skill forbids.
 
@@ -104,7 +104,7 @@ its owning skill forbids.
 
 Static reviewers (an owner-authorized exception chosen on 2026-10-29) follow
 [static-review](../static-review/SKILL.md) for identity, cold start, deadline and receipts. Launch them alongside
-rung 2, or alongside rung 1 when no outside route is configured. A static vote fills only a slot still open after
+rung 2, or alongside rung 1 when no outside route is authorized. A static vote fills only a slot still open after
 every CLI seat and every outside route and account has ended under §3 (a quota wall ends a seat at once) and been
 recorded as below. One outside vote may pair with one static vote. When a coordinator verdict is itself being
 substituted by `/er` plus two `/advice` votes under pr-lifecycle, static reviewers cannot be that whole quorum; it
@@ -127,12 +127,12 @@ Mac or Ubuntu machine); try or record each host separately. When no rung yields 
 
 ## 3. Enforce the attempt deadline
 
-- **Budget `B`.** Each attempt gets 1800 seconds end to end (static reviewers: 600 seconds, per static-review) unless the user set a limit, shorter or longer, before
-  dispatch. A specific user instruction to await a named reviewer overrides that attempt's deadline, even without
+- **Budget `B`.** Each attempt gets 1800 seconds end to end (static reviewers: 600 seconds, per static-review) unless the user set a limit, shorter or longer,
+  which governs that attempt. A specific user instruction to await a named reviewer overrides that attempt's deadline, even without
   a duration, per pr-lifecycle § Reviewer timeout and completion; record the instruction and the wait actually
   honoured in the receipt. A CLI attempt already running under a native timeout cannot have that timeout
-  lengthened: when it expires, record it `TIMED_OUT` and keep the gate open for that reviewer instead of counting
-  late output. Never preempt a valid in-deadline result, count late output, claim a wait that did not
+  lengthened: when it expires, record it `TIMED_OUT`, mark the requested wait route `UNAVAILABLE`, and keep the gate open
+  for that reviewer instead of counting late output. Never preempt a valid in-deadline result, count late output, claim a wait that did not
   happen, or issue a duplicate review. Status updates never pause or reset the clock.
 - **Clock.** Shared, immutable packet preparation may happen first. Immediately before dispatch, capture the queue
   boundary on the host that launches the seat:
@@ -154,8 +154,8 @@ Mac or Ubuntu machine); try or record each host separately. When no rung yields 
 - **Outcome.** Setup, delivery, review, output capture, receipt writing and cleanup all count against `B`. The
   deadline decides eligibility; it is not a real-time guarantee. A cleanup or receipt write that overruns makes the
   attempt nonzero and voids its vote. A late, incomplete, failed or timed-out result is not an approval: keep its
-  partial findings, record cleanup status, and use another eligible reviewer. Never reuse a resource whose process
-  or cleanup state is unresolved, and never claim cleanup without receipt evidence.
+  partial findings, record cleanup status, and use another eligible reviewer. Do not keep waiting for unresolved cleanup or
+  reuse a resource whose process or cleanup state is unresolved, and never claim cleanup without receipt evidence.
 
 ## 4. Isolate review copies
 

@@ -5,7 +5,7 @@
   2026-11-04: "when all cli reviewers out of quota ... it should try to use /wa and ask hermes hermes pc and the dots
   in dot coordination for a review and use /dot", and, in a PR review comment, to "explicitly say if available use
   #dot-coordination slack to ask hermes for reviews". `advice` and `static-review` also lose duplicated text
-  (`advice/SKILL.md` goes from 3,232 to under 2,900 words) without changing their other rules.
+  (`advice/SKILL.md` stays below its 3,232-word base, about 3,000, even after adding the fallback ladder) without changing their other rules.
 - **Non-goals:** changing the quorum size, the CLI seat list or defaults, the Codex model allowlist, pr-lifecycle's
   applicability thresholds, or the 2026-10-29 static-review exception (including whether two same-model sub-agents
   are two votes); adding runner code, tests or new markdown links that change install-profile closures; editing the

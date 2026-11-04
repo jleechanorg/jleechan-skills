@@ -88,7 +88,9 @@ the mentions, `Advice vote requested.` and the remote preamble; record the sende
 receipt. A vote request is not a `/hermes` task handoff: it carries no task marker, owner or acceptance fields,
 because the template's PR URL and SHA already bind it.
 
-Web-provider ask (web-advice seats): the channel preamble is `Advice vote requested.` on its own line, followed
+Web-provider ask (web-advice seats): the channel preamble is the `/web-advice` titling line
+`[web advice] Advice vote at <SHA>` (or `<BUNDLE HASH>` for documents, which also asks the model to title the chat
+that way), then `Advice vote requested.` on its own line, followed
 by the revision packet prompt (revision), or by the document-only preamble plus the document-only review prompt, with the packet files uploaded as
 attachments.
 
