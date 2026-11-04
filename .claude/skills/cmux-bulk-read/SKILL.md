@@ -21,8 +21,11 @@ all apply at 100%.
 
 **Allowed:** `cmux tree --all --json`, `cmux workspace list [--json]`, `cmux top --all [--flat]`,
 `cmux top --workspace <ws> --processes`, `cmux capture-pane --workspace <ws> --surface <sf> --scrollback --lines <n>`
-(the only read path), read-only `gh pr view|list --json`, read-only `ps` / `lsof -p <pid>`, and reads of the `/tmp`
-capture files. Nothing else.
+(the only read path), read-only `gh pr view|list --json`, read-only `gh api` GET on a pull's
+reviews/commits/checks, read-only `git log|status|rev-list|rev-parse` inside a surface's worktree, read-only
+`wc -l` on piped output of those commands, read-only `date` (needed to compute commit age), and reads of the `/tmp`
+capture files. The `git` and `gh api` reads exist so the `review-churn` qualifier's measurements can be taken in
+the same pass; none of them mutates a repo or a PR. Nothing else.
 
 **Forbidden:** `cmux send`, `cmux send-key` (including `--force`), the socket `surface.send_text` call, `cmux
 new-workspace` / `new-surface` / `close-workspace` / `close-surface`, `select-workspace` / `focus` /
@@ -113,14 +116,20 @@ Every child brief must carry, verbatim, the following contract (children do not 
    sections; never read another shard's files. Full-buffer rule owner: `~/.codex/AGENTS.md` § "Reading a cmux
    terminal before deciding".
 3. **Two-sample gate** — in `working_surfaces.txt` ⇒ screen changed ⇒ `WORKING`, and nothing in the buffer may
-   override it (only `STOOD_DOWN_DUPLICATE` / `WEDGED_PROCESS` proved from the process tree may). In
+   override it (only `STOOD_DOWN_DUPLICATE` / `WEDGED_PROCESS` proved from the process tree may). A `WORKING`
+   surface may additionally carry the **`review-churn` qualifier** — reported as `WORKING (review-churn)` — when
+   the frozen-artifacts-vs-moving-clock evidence in `cmux-bulk-steer` § Endless-review loop holds. That is a
+   modifier on `WORKING`, never a downgrade: the surface stays `WORKING`, and the shared full-buffer rule still
+   applies first. Take the measurements with the read-only `git`/`gh api`/`date` commands in the contract above;
+   if the lane's transcript is unavailable, report the attempt count as UNVERIFIED rather than qualifying it. In
    `closed_surfaces.txt` ⇒ `UNCLASSIFIED_CLOSED`. Identical screens ⇒ an idle-class label additionally requires the
    three checks in § The three idle-gate checks.
 4. **CLI identification before judging the tail** — `pi` TUI (`π`, state lives in the prepended transcript), Codex
    (goal-status line), Claude Code, `agy`, or plain shell. A `Goal …` footer belongs only to a Codex/`pi` goal lane;
    a bare `❯` under a shell footer is a `SHELL`, not an idle agent.
 5. **Finding labels** — `WORKING`, `IDLE_NEEDS_STEER`, `IDLE_COMPLETE`, `PARKED_OPERATOR`, `DIALOG_BLOCKED`,
-   `MALFORMED_TOOL_CALL`, `QUOTA_BLOCKED`, `STOOD_DOWN_DUPLICATE`, `WEDGED_PROCESS`, `SHELL`.
+   `MALFORMED_TOOL_CALL`, `QUOTA_BLOCKED`, `STOOD_DOWN_DUPLICATE`, `WEDGED_PROCESS`, `SHELL`. `WORKING` may carry
+   the `review-churn` qualifier; there is no separate label for it.
 6. **What to extract** — open PR numbers + titles, branch, worktree/cwd from the footer, repo, the assigned task,
    whether it duplicates another surface's PR/branch, and the last substantive activity with recency evidence.
 7. **Output shape** — one block per surface: workspace › surface title (CLI), file + lines_read/total, two-sample
