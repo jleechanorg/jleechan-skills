@@ -136,7 +136,7 @@ gh api "repos/<OWNER>/<REPO>/branches?per_page=100" \
 | Finding | Action |
 |---|---|
 | Auth OK, repo exists, HEAD matches the patch's base SHA exactly (`git log --oneline origin/main -1` returns the SHA named in the patch message) | Proceed — `git am` will apply cleanly |
-| Auth OK, repo exists, HEAD differs from the patch base SHA | Try `git am`; on conflict, abort and use `git apply --3way <patch>`, resolve, then commit. Expected conflict points per the instructions file (e.g. `pyproject.toml` version bump, `CLAUDE.md` append) |
+| Auth OK, repo exists, HEAD differs from the patch base SHA | **Decide first whether the bundle is still valid** — run the drift check in Pitfall P14. If the newer commits only reflow the same prose, `git am`, abort on conflict and use `git apply --3way <patch>`, resolve, then commit. If the newer commits carry policy the bundle predates (new routing tables, gates or helper scripts), do **not** replay: re-derive on current `main` per P14. Expected cosmetic conflict points are `pyproject.toml` version bump and a `CLAUDE.md` append |
 | Auth OK, repo exists, but PR for this branch/topic already exists | STOP. Confirm with the user — do NOT push onto a non-owned PR head (see `pr-cleanup-replay` skill, Phase -1). Either push to the existing branch and comment on the PR, OR close the existing PR and open a fresh one. |
 | **A prior-session PR for the SAME topic is OPEN but the new patch is a "refreshed/supersedes" version** (new instructions file says "REFRESHED … supersedes the YYYY-MM-DD patch", OR the existing PR's base SHA is N commits behind current `origin/main`) | This is the **supersede pattern** — see Pitfall P7. Open a NEW branch from current `origin/main` (e.g. `<branch>-v2`), apply the refreshed patch, open a NEW PR, then **close the prior PR with a "superseded by #N" comment** linking to the new PR. Do NOT rebase the prior PR; do NOT push onto its branch head. The new PR is the source of truth. |
 | A related branch exists with the same topic but not yet PR'd | Inspect it: `gh api .../compare/<patch-base-sha>...heads/<related-branch>` — if `ahead_by > 0` and the topic matches, consider whether to push onto that branch instead of opening a parallel one |
@@ -787,10 +787,12 @@ When only part of the bundle survives, land each surviving part as its own PR (s
 the superseded remainder as a decision, not as a silent drop.
 
 Corollary for CI: if a bundle's PR inherits failures the environment produces, prove it with a
-throwaway branch from the PR's exact base, open it as a **draft** PR, compare the `FAILED tests/...`
-name sets, then close it and delete the branch. State the limits honestly: the probe is a different
-SHA, and a workflow with `paths:` filters may not trigger at all for a comment-only diff — so also
-record which jobs ran and which filters should have fired before treating the match as a baseline.
+throwaway branch from the PR's exact base, open it as a **draft** PR, then compare **failure signatures,
+not test names**: the same test can fail for a different reason on each side, so require matching
+assertion/error text and cause for every failure before calling it inherited. State the limits honestly:
+the probe is a different SHA, and a workflow with `paths:` filters may not trigger at all for a
+comment-only diff — record which jobs ran and which filters should have fired. A name-only match clears
+nothing.
 
 ## Verified case
 
