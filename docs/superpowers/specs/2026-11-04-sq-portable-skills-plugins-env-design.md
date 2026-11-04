@@ -1,7 +1,7 @@
 # Portable skills: plugin folders and environment variables (design)
 
-Status: approved by `/sq` auto-pick (2026-11-04). Implementation authorized by the
-live request ("make PRs to fix").
+Status: proposed (2026-11-04); design choices auto-picked by `/sq`, pending `/advice`
+document review. Implementation authorized by the live request ("make PRs to fix").
 
 ## Problem
 
@@ -21,10 +21,10 @@ inputs to the implementation, not shipped artifacts.
 
 Typical leaks:
 
-- **Machine.** Host aliases such as `jeff-ubuntu`; `~/projects/<repo>` and
+- **Machine.** Personal SSH host aliases for companion machines; `~/projects/<repo>` and
   `~/projects_other/...` checkouts; `/opt/homebrew`, `~/.local/bin/<tool>`,
   pinned nvm paths; macOS `~/Library/Logs` paths inside Linux units.
-- **Account.** `--repo jleechanorg/worldarchitect.ai` defaults; Slack channel,
+- **Account.** `--repo <owner>/<product-repo>` defaults; Slack channel,
   user, and bot IDs; GCP project ids and numbers; Firebase UIDs and campaign
   IDs; personal names.
 - **Product.** `mvp_site/`, `testing_mcp`, D&D level-up rules, and Firestore
@@ -33,7 +33,10 @@ Typical leaks:
 ## Goals
 
 1. `.claude/skills/` (the default export and `--all` install) contains no
-   product-only skills and no hardcoded machine, account, or product values.
+   product-only skills and no hardcoded machine or account values. Product
+   examples in generic skills shrink to zero: the ratchet allowlist (D4) may only
+   shrink, and PR 5 ends by regenerating it; any entry left after PR 5 is listed in
+   that PR with a reason.
 2. Product-only skills stay available as opt-in Claude Code plugins in
    `plugins/<name>/`, installable through the existing marketplace.
 3. Machine and account values come from one documented set of environment
@@ -113,12 +116,21 @@ product content becomes a plugin companion named `worldai-<skill>`:
 | harness-guardrails, evidence-review, evidence-standards, ui-video-evidence, llm-testing | Several generic callers | Each skill's product section moves to one `worldai-<skill>` companion |
 
 **References.** Generic skills never link to plugin files by relative path,
-because the plugin may not be installed. They name the companion by convention,
-for example: "if a `worldai-*` or repo-local `user-story-*` skill is installed,
-read it." Commands whose only target moved go with the skill into
-`plugins/<name>/commands/`. Tests, `shared/install-profiles.json`, and
-`shared/retain-local.json` entries that named a moved skill get updated in the
-same change.
+because the plugin may not be installed, and their pointer wording names no product
+(so it passes the D4 ratchet): "if an installed product plugin provides a companion
+for this skill, read it", or "if a repo-local `user-story-*` skill exists, read it".
+Before rewording, list every command whose only skill target moved and move it with
+the skill into `plugins/<name>/commands/`. Tests, `shared/install-profiles.json`, and
+`shared/retain-local.json` entries that named a moved skill get updated in the same
+change.
+
+**Outbound references from plugins.** An installed plugin is copied out of this
+repository, so a plugin file must not point outside its own folder (`../<skill>/`,
+repository-root `scripts/` or `shared/`, `.claude/...`). Plugin-local files are
+addressed as `${CLAUDE_PLUGIN_ROOT}/...` (for example
+`node "${CLAUDE_PLUGIN_ROOT}/scripts/auth-worldai.mjs"`); generic skills are named,
+not linked; a needed repository script is copied into the plugin. A structure test
+asserts every relative Markdown link inside `plugins/<name>/` resolves within it.
 
 ### D2. Environment variable registry
 
@@ -155,15 +167,25 @@ same change.
 - **Rules.** `AGENTS.md` states the fresh-machine, any-developer invariant;
   `CLAUDE.md` points to it.
 - **Plugin structure test** (`tests/test_plugin_folders.py`). Every marketplace
-  source exists. Every `plugins/*/.claude-plugin/plugin.json` parses and its
-  name matches the folder. Every plugin skill has frontmatter whose `name`
-  matches its folder. No name exists in both `.claude/skills/` and a plugin.
-- **Product-token ratchet** (`tests/test_product_token_ratchet.py`). This scans
-  `.claude/skills/**` for `worldarchitect|worldai|mvp_site|your-project\.com|testing_mcp`.
-  Any file that matches must appear in `tests/fixtures/product_token_allowlist.txt`,
-  which is generated once from the post-move tree. Files may drop off the list;
-  new files fail. This follows the zero-PII scan category that `AGENTS.md`
-  permits, and it pins no prose.
+  source exists. Every `plugins/*/.claude-plugin/plugin.json` parses and its name
+  matches the folder. Every plugin skill directory has frontmatter whose `name`
+  matches it. No name exists in both `.claude/skills/` and a plugin. Every relative
+  Markdown link inside a plugin resolves within that plugin. Non-directory entries
+  are ignored, and a missing `plugins/` is a clean assertion failure.
+- **Privacy scans cover plugins.** `tests/test_skill_export_no_personal_paths.py`
+  and `tests/test_skill_personal_identifiers.py` add `plugins/` to their scanned
+  roots, so moving a skill never removes it from zero-PII enforcement. A planted
+  fake identifier proves each scan fails, then passes after revert.
+- **Product-token ratchet** (`tests/test_product_token_ratchet.py`). It scans
+  `.claude/skills/**` and `.claude/commands/**` for
+  `worldarchitect|worldai|mvp_site|your-project\.com|testing_mcp`. Any file that
+  matches must appear in `tests/fixtures/product_token_allowlist.txt`, generated
+  (overwrite, sorted, de-duplicated) from the post-move tree. Cleaned files may stay
+  listed until a regeneration, because parallel PRs clean files independently; PR 5
+  regenerates the list and checks the new list is a subset of the old one. The
+  ratchet is per file, so a listed file can gain tokens; review covers that residual
+  gap until the list is empty. This is the zero-PII scan category `AGENTS.md`
+  permits; it pins no prose.
 
 ### D5. Delivery as PRs
 
@@ -175,8 +197,10 @@ same change.
 | 4 | `claude/elegant-einstein-gfcch1-env-accounts` | PR 1 | GitHub repo and org, Slack, AO, bot logins, personal names, credential blocklist |
 | 5 | `claude/elegant-einstein-gfcch1-product-examples` | PR 2 | D1 splits and product examples in generic skills |
 
-PRs 3 and 4 touch disjoint skill sets. PR 2 edits only the reference lines that
-name moved skills, so text merges with PRs 3, 4, and 5 resolve hunk by hunk.
+PRs 3 and 4 touch disjoint skill sets except `gmail`, which they split by line
+(PR 3: host and tool paths; PR 4: account). PR 2 edits only the reference lines
+that name moved skills, so text merges with PRs 3, 4, and 5 resolve hunk by hunk.
+Each PR adds any new variable it reads to `docs/portability-env-vars.md`.
 
 ## Assumptions and Recommended Defaults
 
@@ -187,13 +211,15 @@ name moved skills, so text merges with PRs 3, 4, and 5 resolve hunk by hunk.
 | Q3 | Delete personal identifiers in plugins too? | Yes | The zero-PII invariant covers the whole repository, not just the default export |
 | Q4 | Default for host aliases? | None: required, with a "not configured" failure | A default host is a machine assumption. The existing cross-machine-ssh-tier placeholders (`mymac`, `mylinux`) stay as examples only |
 | Q5 | Default for `~/projects`-style checkouts? | Derive from `git rev-parse --show-toplevel` or a required var; no `~/projects` default | A checkout location is a personal convention |
-| Q6 | Keep `JLEECHAN_DM_CHANNEL`? | Rename to `SLACK_OPERATOR_DM_CHANNEL`; scripts read the old name as a deprecated fallback for one release | Avoids breaking the author's live setup while removing the personal name from docs |
+| Q6 | Keep the legacy personal-named DM-channel variable? | Rename to `SLACK_OPERATOR_DM_CHANNEL`; scripts read the legacy name only as a commented deprecated fallback, removed in the next minor release; skill prose never names it | Avoids breaking the author's live setup while removing the personal name from docs |
 | Q7 | Change the bash installer? | No; use native plugin install | Least risk; the installer has extensive tests |
 | Q8 | Where do the design documents live? | `docs/superpowers/{specs,plans}/` in this repository | `~/roadmap` does not exist in this ephemeral container. The repository already keeps `/sq` documents in this folder |
 | Q9 | Use one PR or several? | Five, as in D5 | The request says "PRs". Splitting by concern keeps each PR reviewable |
 | Q10 | Use a wording-pin test to prevent regressions? | No; a token ratchet over files instead | The AGENTS.md testing policy allows portability scans and forbids prose pins |
 | Q11 | Move generic-named skills (testing-layers, smoke)? | Split instead (generic stays, product goes to a companion) | They have profile and skill callers, and moving them would break the `prw` profile |
-| Q12 | `@jleechanorg/ao-cli` npm package name? | Keep it | It is the tool's real published package name, not a personal assumption. An `AO_NPM_PACKAGE` override is allowed |
+| Q12 | The AO CLI's published npm package name? | Keep it | It is the tool's real published package name, not a personal assumption. An `AO_NPM_PACKAGE` override is allowed |
+| Q13 | Conventional locations such as `$HOME/roadmap` or `$HOME/.hermes` as defaults? | Allowed only when probed for existence and skipped gracefully when absent | Matches existing `${ROADMAP_DIR:-$HOME/roadmap}` usage without breaking a fresh machine |
+| Q14 | Keep literal personal tokens in grep checks inside shipped docs? | No; checks reference the audit records or a machine-local blocklist | The docs themselves are exported and fall under zero-PII |
 
 ## Error handling
 
@@ -205,7 +231,8 @@ name moved skills, so text merges with PRs 3, 4, and 5 resolve hunk by hunk.
 
 ## Testing
 
-- The plugin structure test and the product-token ratchet (D4).
+- The plugin structure test, the plugin-inclusive privacy scans, and the
+  product-token ratchet (D4), each proved to fail on a planted violation.
 - The existing suites that must stay green, or differ from the base only by
   their pre-existing failures: `test_skill_export_no_personal_paths.py`,
   `test_skill_personal_identifiers.py`, the `test_skill_portability_*` tests,

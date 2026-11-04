@@ -11,6 +11,8 @@ same change that first reads them.
 2. **Derived value** from the current repository or tool (column "Derived from").
 3. **Documented default**, only where one is listed. A default must be valid on a fresh
    machine for any developer; personal hosts, checkout paths, and accounts are never defaults.
+   A conventional tool location (`$HOME/.hermes`, `$HOME/roadmap`) may be a default only when
+   the skill checks that it exists and skips the dependent steps when it does not.
 4. Otherwise stop with: `<VAR> not configured: <meaning>. Example: export <VAR>=<example>`.
    Never guess a host, path, repository, or account.
 
@@ -33,7 +35,7 @@ but never writes.
 | `GITHUB_ORG` | GitHub org/owner for org-wide queries | `${GITHUB_REPOSITORY%%/*}` | — |
 | `CLAUDE_HOME` | Claude Code home | — | `$HOME/.claude` |
 | `CODEX_HOME` | Codex home | — | `$HOME/.codex` |
-| `ROADMAP_DIR` | Durable planning/report repository | — | `$HOME/roadmap` (skip when absent) |
+| `ROADMAP_DIR` | Durable planning/report repository | — | `$HOME/roadmap` if it exists and is a git repository; otherwise skip roadmap steps |
 | `ROADMAP_GITHUB_REPO` | GitHub `owner/repo` of `ROADMAP_DIR` | `gh repo view` inside `ROADMAP_DIR` | — |
 | `WIKI_ROOT` | Personal knowledge wiki checkout | — | unset: skip wiki steps |
 | `PROJECTS_DIR` | Parent directory scanned for multiple checkouts (history search only) | — | unset: scan only `PROJECT_ROOT` |
@@ -51,14 +53,14 @@ but never writes.
 
 | Variable | Meaning | Default |
 |---|---|---|
-| `HERMES_HOME` | Hermes agent home | `$HOME/.hermes` (skip Hermes steps when absent) |
+| `HERMES_HOME` | Hermes agent home | `$HOME/.hermes` if it exists; otherwise skip Hermes steps |
 | `AO_CONFIG_PATH` | Agent Orchestrator config file | `${HERMES_HOME:-$HOME/.hermes}/agent-orchestrator.yaml` when it exists, else required |
 | `AO_REPO_ROOT` | Local Agent Orchestrator checkout | required where used |
 | `AO_GITHUB_REPO` | GitHub `owner/repo` of Agent Orchestrator | required where used |
 | `AO_PROJECT` | AO project name for `ao spawn --project` | required where used |
 | `AO_NPM_PACKAGE` | AO CLI npm package | the tool's published package name |
 | `AO_AGENT_GH_LOGIN` | GitHub login used by AO workers/bots | required where used |
-| `OPERATOR_GH_LOGIN` | GitHub login of the human operator | `gh api user -q .login` |
+| `OPERATOR_GH_LOGIN` | GitHub login of the human operator; derived from `gh api user -q .login` | — |
 | `DARK_FACTORY_HOME` / `DARK_FACTORY_HOLDOUTS` | dark-factory checkout / holdouts checkout | required where used |
 | `DARK_FACTORY_REPO_URL` | Clone URL for dark-factory | required for install steps |
 | `DARK_FACTORY_LOG_DIR` | dark-factory log directory | `${XDG_STATE_HOME:-$HOME/.local/state}/dark-factory` |
@@ -69,7 +71,7 @@ but never writes.
 
 | Variable | Meaning | Default |
 |---|---|---|
-| `SLACK_OPERATOR_DM_CHANNEL` | Slack DM channel ID for operator notifications (scripts also read the deprecated legacy name for one release) | required where used |
+| `SLACK_OPERATOR_DM_CHANNEL` | Slack DM channel ID for operator notifications. Scripts may read one legacy personal-named alias as a commented, deprecated fallback until the next minor release; skill prose never names it | required where used |
 | `SLACK_TEST_CHANNEL` | Slack channel for test posts | required where used |
 | `SLACK_AUDIT_CHANNELS` | Comma-separated channel IDs `slack-audit` reads | required |
 | `SLACK_WORKSPACE_DOMAIN` | Workspace domain for permalinks (prefer `chat.getPermalink`) | unset |
@@ -81,7 +83,7 @@ but never writes.
 
 | Variable | Meaning | Default |
 |---|---|---|
-| `GCP_PROJECT_ID` | Google Cloud project | `gcloud config get-value project` |
+| `GCP_PROJECT_ID` | Google Cloud project; derived from `gcloud config get-value project` | — |
 | `FIREBASE_PROJECT_ID` | Firebase project | `GCP_PROJECT_ID` |
 | `LLM_FORENSICS_DATASET` | BigQuery dataset for LLM request logs | required |
 | `AI_UNIVERSE_MCP_URL` | AI Universe MCP server URL | required |

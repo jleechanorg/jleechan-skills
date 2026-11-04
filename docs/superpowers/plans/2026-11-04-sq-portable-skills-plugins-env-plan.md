@@ -1,6 +1,6 @@
 # Portable skills: plugin folders and env vars — Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+> Execute task by task with one implementation subagent per PR, reviewing between PRs.
 
 **Goal:** Remove machine-, account-, and product-specific content from the generic
 `.claude/skills/` export by moving product-only skills into opt-in plugin folders and
@@ -37,7 +37,9 @@ Verification: `python3 -m pytest -q tests` failure set equals the baseline.
 **Files:** Create the spec, this plan, `docs/portability-env-vars.md`.
 
 TDD: N/A — documentation. Verification: `python3 -m pytest -q tests/test_skill_export_no_personal_paths.py`
-passes; `grep -nE '/(Users|home)/[a-z]' docs/portability-env-vars.md` prints nothing.
+passes; `grep -nE '/(Users|home)/[a-z]' docs/portability-env-vars.md` prints nothing; and grepping the
+three new documents for every personal host alias, personal name and personal path listed in the audit
+records (kept outside the repository) prints nothing.
 
 Commit, push, open draft PR 1.
 
@@ -57,6 +59,7 @@ ROOT = Path(__file__).resolve().parent.parent
 MARKET = ROOT / ".claude-plugin" / "marketplace.json"
 PLUGINS = ROOT / "plugins"
 EXPECTED = {"worldarchitect", "ai-universe", "self-hosted-runners"}
+LINK = re.compile(r"\]\(([^)#\s]+)(?:#[^)]*)?\)")
 
 def frontmatter_name(text):
     m = re.match(r"---\n(.*?)\n---\n", text, re.S)
@@ -67,41 +70,60 @@ def frontmatter_name(text):
             return line.split(":", 1)[1].strip().strip("'\"")
     return None
 
+def plugin_dirs():
+    return sorted(p for p in PLUGINS.iterdir() if p.is_dir()) if PLUGINS.is_dir() else []
+
+def skill_dirs(plugin):
+    skills = plugin / "skills"
+    return sorted(p for p in skills.iterdir() if p.is_dir()) if skills.is_dir() else []
+
 class PluginFoldersTest(unittest.TestCase):
     def test_marketplace_sources_exist(self):
         for p in json.loads(MARKET.read_text())["plugins"]:
-            src = p["source"]
-            if isinstance(src, str):
-                self.assertTrue((ROOT / src).is_dir(), src)
+            if isinstance(p["source"], str):
+                self.assertTrue((ROOT / p["source"]).is_dir(), p["source"])
 
     def test_expected_plugins_registered(self):
         names = {p["name"] for p in json.loads(MARKET.read_text())["plugins"]}
         self.assertTrue(EXPECTED <= names, EXPECTED - names)
 
     def test_plugin_manifests_and_skills(self):
-        for d in sorted(p for p in PLUGINS.iterdir() if p.is_dir()):
+        self.assertTrue(PLUGINS.is_dir(), "plugins/ missing")
+        for d in plugin_dirs():
             manifest = json.loads((d / ".claude-plugin" / "plugin.json").read_text())
             self.assertEqual(manifest["name"], d.name)
-            for skill in (d / "skills").iterdir():
+            for skill in skill_dirs(d):
                 with self.subTest(skill=str(skill)):
                     self.assertEqual(frontmatter_name((skill / "SKILL.md").read_text()), skill.name)
 
     def test_no_name_in_both_export_and_plugin(self):
+        self.assertTrue(PLUGINS.is_dir(), "plugins/ missing")
         export = {p.name for p in (ROOT / ".claude" / "skills").iterdir() if p.is_dir()}
-        for d in PLUGINS.iterdir():
-            if (d / "skills").is_dir():
-                self.assertFalse(export & {p.name for p in (d / "skills").iterdir()}, d.name)
+        for d in plugin_dirs():
+            self.assertFalse(export & {p.name for p in skill_dirs(d)}, d.name)
+
+    def test_relative_links_stay_inside_plugin(self):
+        for d in plugin_dirs():
+            for md in d.rglob("*.md"):
+                for target in LINK.findall(md.read_text(encoding="utf-8")):
+                    if "://" in target or target.startswith(("mailto:", "$")):
+                        continue
+                    resolved = (md.parent / target).resolve()
+                    with self.subTest(file=str(md), link=target):
+                        self.assertTrue(resolved.is_relative_to(d.resolve()) and resolved.exists())
 ```
 
 Run: `python3 -m pytest -q tests/test_plugin_folders.py`
-Expected RED: `test_expected_plugins_registered` fails (set difference lists all three) and
-`test_plugin_manifests_and_skills` errors with `FileNotFoundError: .../plugins`.
+Expected RED: `test_expected_plugins_registered` fails (set difference lists all three);
+`test_plugin_manifests_and_skills` and `test_no_name_in_both_export_and_plugin` fail with
+`plugins/ missing`; `test_marketplace_sources_exist` and `test_relative_links_stay_inside_plugin`
+pass vacuously until plugins exist.
 
 ### Task 2.2: Scaffold plugins and marketplace (GREEN for registration)
 
 **Files:** Create `plugins/{worldarchitect,ai-universe,self-hosted-runners}/.claude-plugin/plugin.json`
 (`name`, `description`, `version: "0.1.0"`, `author` copied from the root plugin.json,
-`"skills": ["./skills/"]`, `"commands": ["./commands/"]` only when a commands dir exists),
+`"skills": ["./skills/"]`; Task 2.3 adds `"commands": ["./commands/"]` when it creates a commands dir),
 `plugins/<name>/README.md` (purpose, `/plugin install <name>@jleechan-skills`, the env vars
 from the registry it needs). Modify `.claude-plugin/marketplace.json`: append three
 `plugins[]` entries with `"source": "./plugins/<name>"`.
@@ -111,10 +133,15 @@ and `test_marketplace_sources_exist` PASS; the manifest test still fails until s
 
 ### Task 2.3: Move skills (`git mv`)
 
+First list every command whose only skill target moves: for each moved name,
+`grep -rlE 'skills/<name>/SKILL\.md' .claude/commands`. Those commands move with their skills.
+
 Move each skill directory listed in spec D1 "What moves" with `git mv .claude/skills/<s> plugins/<plugin>/skills/<s>`;
 rename `agents` → `plugins/worldarchitect/skills/worldai-agent-routing` and update its frontmatter
-`name`. Move `.claude/scripts/auth-worldai.mjs` to `plugins/worldarchitect/scripts/` and fix its
-reference in `worldai-auth`. Move commands whose only target moved
+`name`. Move `.claude/scripts/auth-worldai.mjs` to `plugins/worldarchitect/scripts/` and reference it
+as `node "${CLAUDE_PLUGIN_ROOT}/scripts/auth-worldai.mjs"`. In every moved file, grep for
+`\.\./`, `scripts/`, `shared/` and `\.claude/`: address plugin-local files via `${CLAUDE_PLUGIN_ROOT}`,
+name generic skills instead of linking them, and copy any needed repository script into the plugin. Move commands whose only target moved
 (`.claude/commands/levelup.md`, `extended-library/generatetest.md`, `extended-library/repro_copy.md`,
 `extended-library/smoke-local.md`, `extended-library/bq.md`, `extended-library/second_opinion.md`
 — verify each target with `grep -n 'skills/' <cmd>` first) to `plugins/<plugin>/commands/`.
@@ -122,13 +149,23 @@ reference in `worldai-auth`. Move commands whose only target moved
 Inside moved files: replace real UIDs, campaign IDs, project numbers, Slack IDs, prod URLs
 and personal hosts/paths with registry variables or placeholders (audit records list each).
 
-Run: `python3 -m pytest -q tests/test_plugin_folders.py` → all PASS.
+Run: `python3 -m pytest -q tests/test_plugin_folders.py` → all PASS, including
+`test_relative_links_stay_inside_plugin`.
+
+### Task 2.3b: Privacy scans cover plugins (RED → GREEN)
+
+**Files:** Modify `tests/test_skill_export_no_personal_paths.py` (scanned roots) and
+`tests/test_skill_personal_identifiers.py` (`SKILL_ROOTS`) to include `plugins`.
+Step 1: plant `/home/alice/x` in a moved plugin skill file; run
+`python3 -m pytest -q tests/test_skill_export_no_personal_paths.py` → FAIL naming that file.
+Step 2: revert the plant → PASS. If real leaks in moved files fail the scan, scrub them.
 
 ### Task 2.4: Repair references to moved skills
 
-**Files:** every hit of `grep -rlnE '(\.\./|skills/)(<moved-names-regex>)/' .claude shared tests scripts`
-and backticked names in generic skills. Replace relative links with convention wording
-("if the `worldarchitect` plugin is installed, read its `<skill>` skill"). Update
+**Files:** every hit of `grep -rlE '(\.\./|skills/)(<moved-names-regex>)/' .claude shared tests scripts .claude-plugin .agents docs install-claude-commands.sh *.md`
+and backticked names in generic skills. Replace relative links with product-neutral convention
+wording ("if an installed product plugin provides a companion for this skill, read it"), so the
+new text passes the ratchet. Update
 `shared/install-profiles.json` / `shared/retain-local.json` entries naming moved skills.
 For tests that pin a moved skill's path (`test_skill_portability_batch1..4.py`,
 `test_failure_boundary_skill_contract.py`, `test_workflow_command_pairs.py`, others found
@@ -148,13 +185,13 @@ import re, unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SKILLS = ROOT / ".claude" / "skills"
+SCAN = (ROOT / ".claude" / "skills", ROOT / ".claude" / "commands")
 ALLOW = ROOT / "tests" / "fixtures" / "product_token_allowlist.txt"
 TOKENS = re.compile(r"worldarchitect|worldai|mvp_site|your-project\.com|testing_mcp", re.I)
 
 def offenders():
     out = set()
-    for f in SKILLS.rglob("*"):
+    for f in (f for root in SCAN for f in root.rglob("*")):
         if f.is_file() and "__pycache__" not in f.parts:
             try:
                 if TOKENS.search(f.read_text(encoding="utf-8")):
@@ -171,11 +208,11 @@ class ProductTokenRatchetTest(unittest.TestCase):
 
 Step 1: write the test with an empty allowlist (header comment only).
 Run: `python3 -m pytest -q tests/test_product_token_ratchet.py` → RED listing remaining offenders.
-Step 2: generate the allowlist from the post-move tree:
-`python3 -c "import sys; sys.path.insert(0,'tests'); import test_product_token_ratchet as t; print('\n'.join(sorted(t.offenders())))" >> tests/fixtures/product_token_allowlist.txt`.
-Run again → PASS. Step 3: prove it bites: append `mvp_site` to a scratch copy of a clean skill
-in a temp checkout, or temporarily add the word to `.claude/skills/scratch-space/SKILL.md`, run → FAIL,
-revert the edit, run → PASS.
+Step 2: generate the allowlist from the post-move tree, overwriting it:
+`{ echo '# Files allowed to contain product tokens; may only shrink.'; python3 -c "import sys; sys.path.insert(0,'tests'); import test_product_token_ratchet as t; print('\n'.join(sorted(t.offenders())))" | sort -u; } > tests/fixtures/product_token_allowlist.txt`.
+Run again → PASS. Step 3: prove it bites: create a temporary `.claude/skills/zz-ratchet-probe/SKILL.md`
+containing `mvp_site` (confirmed absent from the allowlist), run → FAIL naming it, delete the probe
+directory, run → PASS.
 
 Commit, push, open draft PR 2.
 
@@ -199,13 +236,16 @@ with a temp `HOME` and the variable unset, asserting either the documented deriv
 non-zero exit whose stderr names the variable.
 Run: `python3 -m pytest -q tests/test_<skill>_env_defaults.py` → RED (old hardcoded default used).
 Implement the registry resolution. Run → GREEN, then `python3 -m pytest -q tests` → baseline.
+Each test runs in a temporary non-git working directory with a controlled `PATH`, so results do not
+depend on the surrounding checkout. Add any new variable to `docs/portability-env-vars.md`.
 
 ### Task 3.2: Prose and snippet edits
 
 TDD: N/A — Markdown wording. Replace each audited literal with the registry variable or
 placeholder; delete personal-only reference files (`plan-micro/references/*` private baseline
-and TSV). Verification: `grep -rnE 'jeff-ubuntu|~/projects/|projects_other|/opt/homebrew|jleechan_llm_wiki|jeffrey' .claude/skills/<these skills>`
-prints only intentional `command -v` fallbacks, and `python3 -m pytest -q tests` → baseline.
+and TSV). Verification: grepping these skills for `~/projects/`, `projects_other`, `/opt/homebrew`
+and each personal host alias, name and wiki path listed in the audit records prints only intentional
+`command -v` fallbacks; `python3 -m pytest -q tests` → baseline.
 
 Commit, push, open draft PR 3.
 
@@ -225,8 +265,10 @@ credential-discipline, write-goal, goalexec, gmail (account part).
 (DM channel env name), `command-research` (stop-list prefixes), `credential-discipline`
 (blocklist file). For each: failing test asserting the env/derived resolution (e.g.
 `ci-queue-trim` with `GITHUB_REPOSITORY=acme/widgets` targets `acme/widgets`; with it unset
-and no `gh` repo, exits non-zero naming `GITHUB_REPOSITORY`).
-Run → RED; implement; run → GREEN. Update `tests/test_luna_report_containment.py` expectations
+and no `gh` repo, exits non-zero naming `GITHUB_REPOSITORY`). Each such test runs in a temporary
+non-git working directory with a stub `gh` on a temporary `PATH` that exits non-zero.
+Run → RED; implement; run → GREEN. Add new variables (DM-channel rename, luna scratch folder,
+command-research prefixes) to `docs/portability-env-vars.md`. Update `tests/test_luna_report_containment.py` expectations
 to the derived scratch folder.
 
 ### Task 4.2: Prose edits
@@ -256,13 +298,15 @@ web-advice, experiment, sidekick, code-standards, agy-dot-coordinator.
 
 Failing test `tests/test_browserclaw_probes.py`: importing `capture.py`'s probe list with
 `BROWSERCLAW_PROBE_ENDPOINTS` unset yields `[]`; with `"/api/a,/api/b"` yields both.
-RED (hardcoded `/api/campaigns`), implement, GREEN.
+RED (hardcoded product probe), implement, GREEN. Register `BROWSERCLAW_PROBE_ENDPOINTS` in
+`docs/portability-env-vars.md`.
 
 ### Task 5.2: Companion skills and edits
 
 TDD: N/A — Markdown moves. Verification: `python3 -m pytest -q tests/test_plugin_folders.py tests/test_product_token_ratchet.py`
-PASS; then shrink `tests/fixtures/product_token_allowlist.txt` by regenerating it (Task 2.5 Step 2)
-and confirm it only shrank (`git diff --stat` shows deletions only for that file); full suite → baseline.
+PASS; then copy the allowlist to a scratch file, regenerate it with the overwrite command in
+Task 2.5 Step 2, and confirm it only shrank: `comm -13 <old> tests/fixtures/product_token_allowlist.txt`
+prints nothing. List any remaining entries with a reason in the PR body; full suite → baseline.
 
 Commit, push, open draft PR 5.
 
@@ -273,15 +317,16 @@ Commit, push, open draft PR 5.
 | Task | Behavior change? | Checked sequence |
 |---|---|---|
 | 1.1, 1.2 | No | TDD: N/A — prose/docs; verified by suite baseline + path grep |
-| 2.1–2.3 | Yes (repository structure consumed by Claude Code) | RED: 2.1 test fails on missing plugins → minimal scaffold 2.2 → moves 2.3 → GREEN → commit |
+| 2.1–2.3 | Yes (repository structure consumed by Claude Code) | RED: 2.1 test fails on missing plugins → minimal scaffold 2.2 → moves 2.3 → GREEN (including link containment) → commit |
+| 2.3b | Yes (scan scope) | Plant fake path in plugin → FAIL → revert → PASS |
 | 2.4 | Yes (references, profiles) | Existing suite is the RED/GREEN oracle; moved paths fail tests until repointed; run full suite → baseline |
-| 2.5 | Yes (new guard) | RED with empty allowlist → generate allowlist → GREEN → bite check FAIL → revert → PASS |
+| 2.5 | Yes (new guard) | RED with empty allowlist → generate (overwrite) allowlist → GREEN → probe skill FAIL → delete probe → PASS |
 | 3.1 | Yes (script defaults) | Per-script failing env-default test → implement → GREEN → full suite |
 | 3.2 | No | TDD: N/A — wording; verified by targeted grep + suite baseline |
 | 4.1 | Yes (script defaults) | Per-script failing test → implement → GREEN → luna test updated |
 | 4.2 | No | TDD: N/A — wording; verified by `--check-personal` + suite |
 | 5.1 | Yes (probe config) | RED on hardcoded probes → env-driven → GREEN |
-| 5.2 | No (content relocation) | TDD: N/A — verified by plugin/ratchet tests + allowlist shrink-only diff |
+| 5.2 | No (content relocation) | TDD: N/A — verified by plugin/ratchet tests + `comm -13` shrink-only check |
 
 ## Implementation Preconditions
 
