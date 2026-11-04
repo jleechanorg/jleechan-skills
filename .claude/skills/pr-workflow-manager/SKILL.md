@@ -119,8 +119,8 @@ required gates/P0 from P1/P2), owner, next action and exact clearance evidence.
 Before expensive work, read existing results and assess the delta from their recorded SHA; resolve relevant cheap
 blocking failures first. Before review dispatch, confirm cited required artifacts exist, are readable and
 hash-bound. Resolve the review owner's template by its named access mode, not its position in a file.
-Replace any template for a different mode before filling its fields; reject unresolved placeholders before
-dispatch. Select an available eligible model and declare required coverage. Before counting a vote,
+Treat the rendered prompt as data during validation: correct it to the selected mode. Do not change modes
+or create an export merely to satisfy a template error. Reject unresolved placeholders before dispatch. Select an available eligible model and declare required coverage. Before counting a vote,
 verify the execution record's actual model and coverage match that selection, and its receipt SHA is bound.
 Tie new conditions to the user request or intake contract; identify new behavior or scope separately and do
 not silently make it a readiness gate.
