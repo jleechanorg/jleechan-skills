@@ -62,7 +62,7 @@ host aliases, names and paths at `${XDG_CONFIG_HOME:-$HOME/.config}/jleechan-ski
 | `AO_REPO_ROOT` | Local Agent Orchestrator checkout | — | required where used |
 | `AO_GITHUB_REPO` | GitHub `owner/repo` of Agent Orchestrator | — | required where used |
 | `AO_PROJECT` | AO project name for `ao spawn --project` | — | required where used |
-| `AO_NPM_PACKAGE` | AO CLI npm package | — | the tool's published package name |
+| `AO_NPM_PACKAGE` | AO CLI npm package | — | `@jleechanorg/ao-cli` (the tool's published package) |
 | `AO_AGENT_GH_LOGIN` | GitHub login used by AO workers/bots | — | required where used |
 | `OPERATOR_GH_LOGIN` | GitHub login of the human operator | `gh api user -q .login` | — |
 | `DARK_FACTORY_HOME` / `DARK_FACTORY_HOLDOUTS` | dark-factory checkout / holdouts checkout | — | required where used |

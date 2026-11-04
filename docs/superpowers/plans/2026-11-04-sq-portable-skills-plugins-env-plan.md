@@ -160,7 +160,10 @@ name generic skills instead of linking them, and copy any needed repository scri
 `extended-library/smoke-local.md`, `extended-library/bq.md`, `extended-library/second_opinion.md`
 — verify each target with `grep -n 'skills/' <cmd>` first) to `plugins/<plugin>/commands/`.
 
-Inside moved files: replace real UIDs, campaign IDs, project numbers, Slack IDs, prod URLs
+Rewrite `repo-and-infra-locations` as a template: its body explains how to record forks, checkout
+paths, ports and service names in a machine-local file
+(`${XDG_CONFIG_HOME:-$HOME/.config}/jleechan-skills/infra-locations.md`) and read it, and ships no
+real inventory. Inside moved files: replace real UIDs, campaign IDs, project numbers, Slack IDs, prod URLs
 and personal hosts/paths with registry variables or placeholders (audit records list each).
 
 Run: `python3 -m pytest -q tests/test_plugin_folders.py` → all PASS, including
@@ -175,13 +178,14 @@ plugin skill file; run
 `python3 -m pytest -q tests/test_skill_export_no_personal_paths.py` → FAIL naming that file.
 Step 2: revert the plant → PASS. If real leaks in moved files fail the scan, scrub them.
 Step 3: put a synthetic identifier that `find_personal_identifiers` detects (for example the
-fake Slack-style ID `C0ABCDEFGHJ`) in a plugin skill file, call `scan_personal([that file])`
+fake Slack-style ID built from `C0` plus nine made-up uppercase characters) in a plugin skill file, call `scan_personal([that file])`
 (or run `tests/test_skill_personal_identifiers.py`) → it reports the file; revert → clean.
 
 ### Task 2.4: Repair references to moved skills
 
 **Files:** every hit of `grep -rlE '(\.\./|skills/)(<moved-names-regex>)/' .claude shared tests scripts .claude-plugin .agents docs install-claude-commands.sh *.md`
-and backticked names in generic skills. Replace relative links with product-neutral convention
+and backticked names in generic skills. Because `agents` is renamed, exclude the legitimate
+`.claude/agents/` and `../agents/` subagent references from the hits. Replace relative links with product-neutral convention
 wording ("if an installed product plugin provides a companion for this skill, read it"), so the
 new text passes the ratchet. Update
 `shared/install-profiles.json` / `shared/retain-local.json` entries naming moved skills.
@@ -251,8 +255,10 @@ For each script under these skills whose default changes (`host-disk-guardian` d
 `repro-developer/collect_repro.py` `"/home/$USER"` literals, `history-search` `$HOME/projects`
 default), write a failing test in `tests/test_<skill>_env_defaults.py` that runs the script
 with a temp `HOME` and the variable unset, and asserts the one behavior the registry documents for
-that variable: the derived value where the registry lists a derivation, otherwise a non-zero exit
-whose stderr names the variable. A second case sets the variable and asserts it wins.
+that variable, in rule order: the derived value where the registry lists a derivation, else the
+documented default (for example `PROJECTS_DIR` unset scans only `PROJECT_ROOT`), else a non-zero exit
+whose stderr names the variable. A git-derived case runs in a temporary `git init` directory; the
+failure case runs in a temporary non-git directory. A second case sets the variable and asserts it wins.
 Run: `python3 -m pytest -q tests/test_<skill>_env_defaults.py` → RED (old hardcoded default used).
 Implement the registry resolution. Run → GREEN, then `python3 -m pytest -q tests` → baseline.
 Each test runs in a temporary non-git working directory with a controlled `PATH`, so results do not

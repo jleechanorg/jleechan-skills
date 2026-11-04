@@ -17,7 +17,8 @@ that bar:
 | Clean | 6 | Matches were placeholders only |
 
 Mapping to PRs: 29 skills move (27 of the audit's product-only skills plus two
-siblings it named, `ai-universe-httpie` and `secondo-dependencies`). The other
+siblings the audit named that its grep had not matched, so they sit outside the
+116: `ai-universe-httpie` and `secondo-dependencies`). The other
 two product-only skills, `testing-layers` and `smoke`, are split in PR 5 instead.
 The 81 parameterize skills divide into PR 3 (33), PR 4 (25 plus `gmail`, which is
 shared with PR 3 by line) and PR 5 (5 splits plus 18 example edits): 33 + 25 + 5 + 18 = 81.
@@ -40,9 +41,9 @@ Typical leaks:
 
 1. `.claude/skills/` (the default export and `--all` install) contains no
    product-only skills and no hardcoded machine or account values. Product
-   examples in generic skills shrink to zero: the ratchet allowlist (D4) may only
-   shrink, and PR 5 ends by regenerating it; any entry left after PR 5 is listed in
-   that PR with a reason.
+   examples in generic skills shrink toward zero: the ratchet allowlist (D4) may only
+   shrink, and PR 5 ends by regenerating it. Any entry left after PR 5 is a
+   justified residual, listed in that PR with its reason.
 2. Product-only skills stay available as opt-in Claude Code plugins in
    `plugins/<name>/`, installable through the existing marketplace.
 3. Machine and account values come from one documented set of environment
@@ -89,7 +90,8 @@ plugins/
   them twice.
 - `.claude-plugin/marketplace.json` gets one `plugins[]` entry per folder, with
   `"source": "./plugins/<name>"`. Install with
-  `/plugin marketplace add jleechanorg/jleechan-skills` and then
+  `/plugin marketplace add jleechanorg/jleechan-skills` (this repository's own
+  public location, the one allowed account name: users need it to install) and then
   `/plugin install <name>@jleechan-skills`.
 - Plugin skills follow the same zero-PII rules as the main export. Real UIDs,
   campaign IDs, project numbers, and Slack IDs become placeholders or plugin
