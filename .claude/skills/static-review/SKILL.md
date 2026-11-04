@@ -22,7 +22,8 @@ table lists for the seat's `isolation:` record - `<PR URL>` `<SHA>` `<BASE SHA>`
 
 ## 2. Templates
 
-Static review prompt (skill-owned, verbatim):
+Clone review prompt, for `isolation: orchestrator-clone` CLI seats and static
+reviewers (skill-owned, verbatim):
 
 ```text
 Review <PR URL> at head <SHA> (base <BASE SHA>, work only in <SCRATCH PATH>). Ensure it follows the /prw stages and focus on
@@ -80,21 +81,20 @@ exactly the preamble plus the template.
 Coordinator ask (a Dot account or a Hermes instance): the transport's required
 sender line, if its owning skill mandates one (for example the Dot `From ...:`
 prefix), then the configured account mentions, then `Advice vote requested.` on
-its own line, then the remote review prompt (revision) or the document-only
-review prompt (document-only). Send it to each configured Dot account in
+its own line, then the remote preamble below, then the remote review prompt
+(revision) or the document-only review prompt (document-only). Send it to each configured Dot account in
 rotation and to each configured Hermes instance. The sender line and mentions
 are recorded in the receipt and are the only bytes allowed before the
 template.
 
-Web-provider ask (`/wa` seats): `Advice vote requested.` on its own line, then
+Web-provider ask (web-advice seats): `Advice vote requested.` on its own line, then
 either the revision packet prompt (revision) or the document-only preamble below
 followed by the document-only review prompt (document-only), with the packet
 files attached as uploads.
 
 The revision and document-only preambles below apply to **every** CLI reviewer seat - Codex, Opus, the Claude
-alternates, Cursor, AGY and any `ADVICE_EXTRA_CLIS` seat - and to static reviewers. They replace the header the
-deleted helper used to inject; there is no other header to match, so a seat launched without one
-cannot produce a byte-identical prompt and its vote is void.
+alternates, Cursor, AGY and any `ADVICE_EXTRA_CLIS` seat - and to static reviewers. There is no other header to
+match, so a seat launched without one cannot produce a byte-identical prompt and its vote is void.
 
 Revision preamble for every CLI seat and for static reviewers (verbatim):
 
@@ -108,6 +108,15 @@ clone in place - the orchestrator verifies it and removes it after your process
 exits. Use the GitHub token already present in your environment and
 never print it. Do not modify the original checkout, refs, config or hooks. Do
 not post anything; return your review as your final output.
+```
+
+Remote preamble for every coordinator ask (verbatim):
+
+```text
+Review only; this is a vote request, not a task. Do not push, commit, comment
+on, label, approve or otherwise change the PR or its branch, and do not hand the
+review to another account. Return your review in this conversation as your
+final reply.
 ```
 
 Document-only preamble for every CLI seat and for static reviewers (verbatim):
@@ -127,7 +136,8 @@ at most one counted static reviewer may have an unreported model, and it must
 differ from the other by subagent type and harness. Same-identity reviewers are
 one vote. Static
 reviewers run in separate contexts and do not read each other's output first.
-Each has one 600-second end-to-end acceptance deadline from launch; the
+Each static reviewer has one 600-second end-to-end acceptance deadline from launch, which replaces the
+`advice` skill's 1800-second default for static reviewers only (CLI seats and outside routes keep that default); the
 orchestrator, not the reviewer, timestamps launch and return. Reviewers do not
 post; the orchestrator publishes verdicts through pr-lifecycle.
 
@@ -141,7 +151,11 @@ there), and a read-only check that the original checkout,
 refs, local config and hooks are unchanged. The orchestrator also verifies and
 records that no reviewer process survives and that clone cleanup succeeded. For
 a static-review subagent this receipt replaces only the seat-exit field of the
-seat receipt. When publishing a receipt outside the authorized
+seat receipt. For an outside route (`isolation: remote` or `isolation: packet`)
+there is no local reviewer process or clone: record the route, the message
+reference or permalink read back at the source, the reviewer's `MODEL:` line as
+`attested.model`, and the row's evidence from the `advice` skill's §4 table in
+place of the process and clone-cleanup fields. When publishing a receipt outside the authorized
 workspace, publish only the prompt's SHA256 and template name if any filled
 field (PR URL, packet path) or other content could carry private paths, hosts,
 repository names or tokens; otherwise remove those values before publishing.
