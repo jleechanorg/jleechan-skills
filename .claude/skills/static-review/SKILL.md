@@ -37,8 +37,10 @@ Remote review prompt, for `isolation: remote` outside reviewers such as a Dot
 or Hermes (skill-owned, verbatim):
 
 ```text
-Review <PR URL> at head <SHA> (base <BASE SHA>) in your own fresh checkout of
-exactly <SHA>. Ensure it follows the /prw stages and focus on evidence review
+Review <PR URL> at head <SHA> (base <BASE SHA>) using a checkout you already
+have; do not make a new clone. Fetch <SHA> if it is missing and read it with
+git diff <BASE SHA>..<SHA> and git show <SHA>:<path>, without switching that
+checkout's branch or touching its working tree. Ensure it follows the /prw stages and focus on evidence review
 before approval. Report P0/P1/P2 with file:line, a MODEL: line naming the model
 and account you reviewed with, and a COVERAGE: line naming the files and diff
 you read; approve only with no P0/P1 and full coverage; end with exactly one
