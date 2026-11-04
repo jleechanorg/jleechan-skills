@@ -56,7 +56,7 @@ every session, or when the operator passes `--global`.
 
 ## Reusable skill source and Linux sync
 
-For every change to a reusable skill in the shared catalog, make the change in
+For every skill change in the shared catalog, make the change in
 the `jleechanorg/jleechan-skills` repository and publish it through an
 independent PR. Include skill files, their helpers, and dispatchers governed by
 the skill. Do not treat a live `~/.claude/skills/` edit as the final source.
