@@ -509,10 +509,11 @@ permissions prevent publishing a required receipt, record `PUBLICATION BLOCKED`
 with the exact reason and local receipt location; never invent a gist URL or
 passing verdict, and do not claim the record complete.
 When the session has no authorized gist-creation tool (for example a cloud
-session whose GitHub access excludes gists), publish the same sanitized receipt
-as a dated, SHA-bound section of the PR body and use that section's anchor
-wherever a gist URL is required, recording `receipt: PR body (no gist tool)`.
-Only the hosting changes; content, sanitization and disclosure scope do not.
+session whose GitHub access excludes gists), and the PR's audience is within
+the approved disclosure scope, publish the same sanitized receipt as a dated,
+SHA-bound section of the PR body and cite that section's anchor where a gist
+URL is required, recording `receipt: PR body (no gist tool)`; the anchor is not
+a gist URL. Otherwise record `PUBLICATION BLOCKED`.
 
 Keep `PENDING`, `UNAVAILABLE`, `FAILED`, and `SUPERSEDED` results visible as well
 as approvals. Read the current body before updating it. Use the idempotency key
