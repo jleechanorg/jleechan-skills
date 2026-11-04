@@ -57,10 +57,10 @@ Stop and re-aim.
   cheaper AND closer to the symptom than any new generation campaign. Cost it
   first.
 
-Recurrence log: 2026-08-16 (research fanout instead of ablation), 2026-08-18
-(ranked a 4-6% lever while a 58% one sat unranked), 2026-09-07 (360 real Gemini
-calls proving schema conformance while the reported ~75% memory miss went
-unmeasured; a zero-LLM-call forensics pass that day found both real root causes).
+Recurrences: 2026-08-16 (research fanout instead of ablation), 2026-08-18
+(ranked a 4-6% lever over an unranked 58% one), 2026-09-07 (360 real Gemini
+calls proved schema conformance while the reported ~75% memory miss went
+unmeasured; zero-LLM-call forensics found both root causes).
 
 ## Derived-artifact rule: a number in prose must exist in an artifact
 
@@ -80,10 +80,10 @@ from the prose asserting it.
 - Before publishing, recompute every headline figure from the raw rows, not
   from your own summary; summaries inherit their bugs silently.
 
-Observed 2026-09-07: a bundle claimed `fisher_exact_greater()` "reproduces both
-values" while the committed filter used a different cohort (n=70 vs n=50) and
-returned different p-values, and claimed `summary.json` "now carries the data"
-while its hash was unchanged. Review caught both; self-check did not.
+Observed 2026-09-07: a committed `fisher_exact_greater()` "reproducing both
+values" used a different cohort (n=70 vs n=50) and returned different p-values,
+and `summary.json` "now carries the data" had an unchanged hash. Review caught
+both; self-check did not.
 
 ## Core principle: raw req/resp > unit tests > nothing
 
@@ -170,14 +170,13 @@ HEAD and no assertion or driver backing it changed, the proof is byte-valid at H
 3. If **every** content diff leaves the reviewed claims, assertions, and drivers intact,
    evidence remains valid; record the reviewed delta, relevant checks, and current applicability.
 4. Never classify from file names alone; a comment edit and a behavior edit look identical in a
-   name list. Path category is a starting hint only: a test, evidence driver/capture, prompt,
-   contract, schema, or `.claude/`/`.codex/`/`.cursor/` skill or agent file whose assertion,
-   driver, or executable instruction changed can invalidate the proof it supports.
+   name list, so path category is only a starting hint.
 
 A docs typo, comment, type-hint, or lint-only commit usually needs no fresh run.
 **Fresh evidence IS required when the delta changes production behavior or
-anything a claim depends on:** a test assertion, evidence driver/capture,
-prompt, contract, or executable instruction backing the claim; production code
+anything a claim depends on:** a changed assertion, driver, or executable
+instruction in a test, evidence driver/capture, prompt, contract, schema, or
+`.claude/`/`.codex/`/`.cursor/` skill or agent file backing the claim; production code
 (the repo's source tree excluding its test dirs, **including** prompt/template
 surfaces — the repo-level /es file names the exact paths); API/endpoints/game
 logic/agent routing; runtime config (env vars, feature flags); DB
@@ -207,9 +206,8 @@ evidence (real-server + real-LLM runs, packaged RED/GREEN comparisons,
 browser/video capture, bundle assembly) runs ONCE, at the END: only after code
 is complete — all review findings resolved or explicitly deferred, focused
 tests green, no known remaining code work. Freeze the HEAD, then run the
-expensive stack against it. Mid-iteration expensive evidence is voided by the
-next fix (PR #9604/#9640, 2026-09-01: ~40 of 50 commits were evidence churn;
-the RED/GREEN pair and bundle needed a full rerun anyway). The final comparison
+expensive stack against it; mid-iteration runs are voided by the next fix
+(PR #9604/#9640: ~40 of 50 commits were evidence churn). The final comparison
 may replay the preserved baseline alongside the completed candidate;
 scheduling that package last does not defer the initial failure reproduction
 until after the behavior fix.
@@ -233,17 +231,16 @@ invocation before provider calls; confirm behavior work is settled for FINAL.
 Reviewers must reuse the exact capsule. Setup failures remain setup failures
 until raw provider proof supports a product or auth diagnosis.
 
-**Preflight the producer.** Before expensive capture, verify the actual
-producer identity and provider, downstream logging target, and readiness in
-the child that will run it. Confirm canonical control IDs and the observed
+**Preflight the producer.** Before expensive capture, verify in the child that
+will run it the actual producer identity and provider, downstream logging
+target, and readiness. Confirm canonical control IDs and the observed
 terminal envelope; an absent optional success field does not mean `false`.
 Reuse the existing pipeline; do not add mocks or retry loops. If a harness
 fails after controlled state was persisted, resume it through the real SDK only
 when readback proves its preconditions, and record the resume source and
 limits. Complete published PR-body media (including the GIF derivative
-manifest) and direct raw RED/GREEN delivery before starting the final `/er`
-evidence review. This sequencing does not delay cheap code or advice review,
-which may run earlier or concurrently.
+manifest) and direct raw RED/GREEN delivery before the final `/er` evidence
+review. Cheap code or advice review may run earlier or concurrently.
 
 ## Evidence class table
 
@@ -304,12 +301,11 @@ verdict to PARTIAL.
 
 ## Evidence access and publication
 
-Keep the original evidence and its provenance intact. Give the intended
-reviewer accessible reproduction directions and artifact links in the PR, a
-checked-in document, an access-controlled receipt/store, or an authorized gist,
-including the reviewed/tested SHA, dependencies, exact commands and expected
-results required for the applicable evidence class. These underlying artifacts
-may remain in authorized private hosting. The separate sanitized review receipt
+Keep original evidence and provenance intact. Give the intended reviewer
+accessible reproduction directions and artifact links (PR, checked-in document,
+access-controlled receipt/store, or authorized gist) with the reviewed/tested
+SHA, dependencies, exact commands and expected results the evidence class
+requires. Underlying artifacts may stay in authorized private hosting. The separate sanitized review receipt
 follows `pr-lifecycle` § Review records in the PR description, including its
 gist URL (or, for a one-liner fast-path `/es` record, the PR-body section),
 exact reviewed SHA, and `PUBLICATION BLOCKED` state when publication cannot
@@ -346,8 +342,7 @@ produces on the dedicated Scratch volume, resolved dynamically via
 
 ## UI video evidence
 
-JSONL capture shapes live in `bundle-anatomy.md`. For a UI claim, the PR
-description links the evidence bundle (resolved per § Bundle anatomy), a
+For a UI claim, the PR description links the evidence bundle (resolved per § Bundle anatomy), a
 playable video on an authorized host (e.g.
 `https://storage.googleapis.com/<bucket>/agent-evidence/<repo>/<pr>-<topic>/attack-roll.mp4`;
 a `github.com/.../releases/download/untagged-*` URL is a red flag), and a paired
@@ -360,11 +355,9 @@ a manual screen recording; see `ui-video-evidence.md` and `tmux-video-evidence.m
 directory for the recording rules. Docs-only / test-only PRs use
 `N/A - no UI behavior changed`.
 
-**The video must visually show the element under test changing, in the pixels —
-not a caption.** A caption is text the test wrote from its own DOM reads
-(harness-authored), so it asserts the state rather than demonstrating it; a
-clip framing only page chrome while the element sits below the fold proves
-nothing. The recording must `scrollIntoView` the specific control/field and
+**The video must show the element under test changing in the pixels, not in a
+caption.** A caption is harness-authored text from the test's own DOM reads: it
+asserts the state rather than demonstrating it. The recording must `scrollIntoView` the specific control/field and
 settle so its before→after change is visible in the frames. When reviewing UI
 video (`/er`), **extract frames and look**
 (`ffmpeg -i <video> -vf fps=1 /tmp/frames/f_%02d.png`); if the element is never
@@ -377,8 +370,7 @@ the author or orchestrator) of the published video's frames per acceptance step
 ## Visual Evidence & Mandatory Inline Rendering in PRs
 
 Visual comparisons under `## Visual Evidence` in PR descriptions must render
-**directly inline** on GitHub so reviewers can inspect them without clicking
-away:
+**directly inline** on GitHub:
 
 1. **Inline image tags.** `[screenshot](https://...)` renders only as clickable
    text and fails visual review. Use HTML `<img src="..." width="..." alt="...">`
@@ -413,14 +405,14 @@ away:
 4. **Media hosting (Google Cloud Storage is the default host)**:
    - Upload to the authorized evidence bucket (e.g. `gs://<evidence-bucket>/agent-evidence/<repo>/<pr>-<topic>-<date>/`) and link as `https://storage.googleapis.com/<evidence-bucket>/<object>`. That URL grants no access by itself: browser playback works only for objects already authorized for the intended reviewers (e.g. public-read).
    - A GitHub attachment is also acceptable — for video it is the only form GitHub plays inline — as is any other host the current task authorizes. Media that must stay private stays in authorized private hosting; never make evidence public, or change bucket access, merely to satisfy a link check. Never acceptable: a URL the intended reviewer cannot open and play, `gs://…` (not clickable), or `https://storage.cloud.google.com/…` (redirects to a Google login).
-   - An external mp4 renders only as a link, so every video gets an **inline GIF** of the same run (`ffmpeg -i in.webm -vf "fps=6,scale=300:-1:flags=lanczos" out.gif`) next to a **playable mp4 link**. Prefer MP4/H.264 (`-c:v libx264 -pix_fmt yuv420p`) for broadest compatibility; WebM may be added but never replaces the MP4/H.264 variant.
+   - GitHub renders an external mp4 only as a link, so every video gets an **inline GIF** of the same run (`ffmpeg -i in.webm -vf "fps=6,scale=300:-1:flags=lanczos" out.gif`) next to a **playable mp4 link**. Prefer MP4/H.264 (`-c:v libx264 -pix_fmt yuv420p`) for broadest compatibility; WebM may be added but never replaces the MP4/H.264 variant.
    - Screenshots are inline `<img>` from an authorized host that renders for the intended reviewer, showing the real captured pixels of the claimed state — not placeholders, crops that hide the changed element, or icons.
    - Verify before claiming the stage exit:
      - Every URL resolves with the expected `content-type` (`video/mp4`, `image/gif`, `image/png`) **for the intended reviewer**: `curl -sI <url>` for a public object, or the reviewer's own authorized access when the media stays private. Record which access mode applies instead of forcing public access to prove reachability.
      - Every inline GIF and screenshot appears in the **rendered** PR body *and is the right image*: compare GitHub's original-URL attributes with the media the receipt declares (`gh api repos/<owner>/<repo>/pulls/<n> -H "Accept: application/vnd.github.html+json" --jq .body_html | grep -o 'data-canonical-src="[^"]*"'`). A bare image count is not acceptable: `grep -c` counts matching *lines* (one line holding two images reports `1`), and an aggregate can be matched by unrelated images.
      - The sanitized gist receipt lists the same media with sha256 hashes and access mode. Redact bearer, signed-query and other credential-bearing URL components — record the protected location plus hash instead of the token, since a gist is link-accessible.
 
-5. **Reject in review** (beyond the violations above): raw uncaptioned image
+5. **Also reject in review**: raw uncaptioned image
    dumps with no Before/After table; desktop-only testing that skips mobile
    (375×812); heavy image binaries committed to git (use authorized storage or
    unlisted gists); a video only as a text link with no inline GIF; media only
@@ -429,12 +421,12 @@ away:
 
 ## Cross-references
 
-This is the **user-scope (global)** `/es` policy. For complete evidence
-standards, always read both this skill and the relevant repo-level file:
+This is the **user-scope (global)** `/es` policy; always also read the relevant
+repo-level file.
 
 1. **Master policy** — `~/.claude/CLAUDE.md` § "Evidence — match proof to the claim"
-   and § Unit proof and claim boundaries above. Use the current claim-based rule,
-   not obsolete blanket production/size-only exceptions. Preserve UI-video and
+   and § Unit proof and claim boundaries above; use the claim-based rule, not
+   obsolete blanket production/size-only exceptions. Preserve UI-video and
    risk-specific requirements; the repo overlay names its triggers.
 2. **Repo-level /es** — `<repo>/.claude/skills/evidence-standards/SKILL.md`, or
    in flat repos `evidence-standards.md` under `<repo>/.claude/skills/`, adds
