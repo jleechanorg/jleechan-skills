@@ -254,8 +254,8 @@ review. Cheap code or advice review may run earlier or concurrently.
 
 ## Unit proof and claim boundaries
 
-Choose sufficient evidence with `pr-lifecycle` § Change-impact review and test
-depth, `/4layer`, and `testing-layers`, not by line count alone. `/es` remains
+Choose sufficient evidence with `pr-lifecycle` § Change-impact review and test depth,
+`/4layer`, and `testing-layers`, not by line count alone. `/es` remains
 the evidence-classification gate; it does not force every production edit
 through live LLM or browser capture.
 
