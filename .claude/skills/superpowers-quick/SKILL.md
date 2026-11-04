@@ -10,7 +10,6 @@ disable-model-invocation: false
 
 The shared catalog preserves host-installed `/advice` and `/web-advice` integrations instead of installing them. Before invoking either, resolve its `../advice/SKILL.md` or `../web-advice/SKILL.md` relative to this package and read the existing skill. For a remote invocation, check the corresponding skill on the target host. If absent, report that integration as `UNAVAILABLE` and identify the missing package; do not invent a replacement runner, claim an approval, or treat a required gate as passed. Continue independent authorized work, but leave any dependent readiness or plan-approval gate unmet. Existing review quorum, external-disclosure authorization, and optional-review rules still apply.
 
-
 ## Contract
 
 Run the full design-to-plan workflow autonomously. The invocation is the user's explicit authorization to select every recommended option and approve each recommended design and specification checkpoint for this invocation only.
@@ -23,7 +22,7 @@ For this invocation only, use the installed `superpowers:brainstorming` and `sup
 
 Do not pause for user review, approval, clarification, or checkpoint responses. Select and record recommended defaults as specified below. Do not offer the visual companion, open it, or wait for a response. Do not commit or push as an automatic planning side effect. Documents may be committed, staged, modified, or untracked: `/sq` has no commit-state prerequisite. Never ask the user to commit, uncommit, stash, or clean unrelated work merely to run planning or document review.
 
-Complete the required architectural design, specification self-review, implementation plan, and plan self-review. For a planning-only invocation, skip its execution handoff and do not invoke implementation or execution skills; finish by reporting the two document paths, questions asked and answers auto-picked, and advice status. If implementation was already authorized by the live request or ongoing workflow, return to that caller workflow after the planning report and continue under the existing authorization without requesting it again.
+Complete the required architectural design, specification self-review, implementation plan, and plan self-review. For a planning-only invocation, skip its execution handoff and do not invoke implementation or execution skills; see `Terminal Condition`.
 
 ## Workflow
 
@@ -63,9 +62,9 @@ Complete the required architectural design, specification self-review, implement
      context only; bind the document verdict to the recorded hashes and never claim PR/code approval from it. Do
      not use revision mode for this handoff, and do not invoke a bundled runner - `/advice` ships instructions
      only.
-   - Run `/advice` on both the design specification and implementation plan. Run `/web-advice` for the `/sq` plan review under standing authorization unless the current request explicitly prohibits external submissions. (`/web-advice` is not an `/advice` lane; A1/A2/B/C are the lanes.) If `/advice` already submitted these exact document hashes and returned a verdict covering both, reuse it rather than submitting the same bytes again. When a document changes, bind any required new review to its new hash. Record `/web-advice` execution and verdict separately.
+   - Run `/advice` on both the design specification and implementation plan. Run `/web-advice` for the `/sq` plan review under standing authorization unless the current request explicitly prohibits external submissions. (`/web-advice` is not an `/advice` lane; A1/A2/B/C are the lanes.) If `/advice` already made a submission of these exact document hashes whose verdict covers both, reuse it rather than submitting the same bytes again; otherwise run `/web-advice`. When a document changes, bind any required new review to its new hash.
    - Follow the active `/advice` owner for reviewer failures and recovery. Preserve completed votes and receipts; use another eligible independent reviewer when required, and do not count failed, late, incomplete, or partial-coverage results as approvals. Do not impose a wrapper attempt cap or restart completed reviews. Record every attempt and exact verdict. Continue authorized remediation and review until the required outcome or a genuine authority, capability, user-stop, or time-box gate applies.
-   - Follow the active `/web-advice` owner for browser-seat retries, transport fallbacks, and unavailable results. Preserve completed seat results; retry or route only failed or unavailable seats as that owner allows, and never duplicate a completed verdict for the same exact document hashes. When a document changes, bind any required new review to its new hash. The `/sq` plan review requires its applicable `/web-advice` result under standing authorization unless the current request explicitly prohibits that external submission. If `/advice` already made a browser submission whose verdict covers both exact hashes, reuse it; otherwise run `/web-advice`. Do not impose a wrapper-wide one-attempt limit.
+   - Follow the active `/web-advice` owner for browser-seat retries, transport fallbacks, and unavailable results. Preserve completed seat results; retry or route only failed or unavailable seats as that owner allows, and never duplicate a completed verdict for the same exact document hashes. Do not impose a wrapper-wide one-attempt limit.
    - If all applicable browser routes and owner-defined recovery are unavailable, record `/web-advice` as `UNAVAILABLE` and continue independent caller work. Do not pause or ask the user to log in. Record `SKIPPED` only when the current request explicitly prohibits the external submission or the workflow does not call for `/web-advice`.
    - Record `/advice` and `/web-advice` execution states and verdicts separately.
 7. **Report to user:** In the final response, you MUST always include:
@@ -74,12 +73,12 @@ Complete the required architectural design, specification self-review, implement
    - **Advice status:** Two separate entries using these exact state sets:
      - `/advice`: `RAN | FAILED` — exact verdict or failure reason.
      - `/web-advice`: `RAN | SKIPPED | UNAVAILABLE | FAILED` — exact verdict or reason, and whether the result came from a submission during `/advice` or a standalone review.
-Do not begin implementation from a planning-only invocation or ask which execution mode to use. If implementation was already authorized, continue in the calling workflow as stated under `Terminal Condition`.
+Do not ask which execution mode to use.
 
 ## Terminal Condition
 
-This skill is planning-only: it never starts implementation. If implementation was already authorized by the user, the calling workflow must continue explicitly after this report (per `pr-lifecycle` § Coding lifecycle); do not treat the report as the end of that work.
+This skill is planning-only: it never starts implementation. If implementation was already authorized by the live request or ongoing workflow, return to that caller workflow after this report and continue under the existing authorization without requesting it again (per `pr-lifecycle` § Coding lifecycle); do not treat the report as the end of that work.
 
-Finish only when both documents exist, cover the requested outcome, pass their respective self-reviews, the TDD plan step check is complete, contain no `TBD`, `TODO`, or deferred decision, and the advice attempts and required status records are complete. The final response must include both absolute document paths, the questions and auto-picked answers with rationale, and the two separate advice status entries.
+Finish only when both documents exist, cover the requested outcome, pass their respective self-reviews, the TDD plan step check is complete, contain no `TBD`, `TODO`, or deferred decision, the advice attempts and required status records are complete, and the step 7 report is delivered.
 
 If implementation would require unavailable user-specific information or new authority, still write and self-review both documents. Record the exact unmet precondition under `Implementation Preconditions`, make every affected implementation step conditional on it, and do not treat the planning invocation as authorization to satisfy it. Ordinary ambiguity, an unseen design, or the normal brainstorming approval checkpoints never justify stopping before both documents exist.

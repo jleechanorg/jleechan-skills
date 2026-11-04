@@ -15,22 +15,7 @@ QUICK_SKILLS = (
 
 
 class SqTddPlanContractTest(unittest.TestCase):
-    def test_sq_advice_uses_roadmap_repository_relative_documents(self):
-        text = QUICK_SKILLS[0].read_text()
-
-        self.assertIn(
-            'if ! ROADMAP_REPO="$(git -C "$HOME/roadmap" rev-parse --show-toplevel)" ||',
-            text,
-        )
-        self.assertIn('[ -z "$ROADMAP_REPO" ]', text)
-        self.assertIn('case "$SPEC_PATH" in', text)
-        self.assertIn('SPEC_DOCUMENT="${SPEC_PATH#"$ROADMAP_REPO"/}"', text)
-        self.assertIn('case "$PLAN_PATH" in', text)
-        self.assertIn('PLAN_DOCUMENT="${PLAN_PATH#"$ROADMAP_REPO"/}"', text)
-        self.assertNotIn('--document "$SPEC_PATH"', text)
-        self.assertNotIn('--document "$PLAN_PATH"', text)
-
-    def test_sq_advice_setup_rejects_a_missing_git_roadmap(self):
+    def _run_setup(self, home, spec, plan, tail=""):
         text = QUICK_SKILLS[0].read_text()
         marker = "Resolve and validate the roadmap repository"
         start = text.index("```bash", text.index(marker)) + len("```bash\n")
@@ -39,27 +24,32 @@ class SqTddPlanContractTest(unittest.TestCase):
             line[5:] if line.startswith("     ") else line
             for line in text[start:end].splitlines()
         )
+        env = {**os.environ, "HOME": str(home), "SPEC_PATH": str(spec), "PLAN_PATH": str(plan)}
+        return subprocess.run(
+            ["/bin/bash", "-c", setup + tail],
+            cwd=home, env=env, capture_output=True, text=True, check=False,
+        )
 
+    def test_sq_advice_setup_rejects_a_missing_git_roadmap(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             home = Path(temp_dir)
             (home / "roadmap").mkdir()
-            env = {
-                **os.environ,
-                "HOME": str(home),
-                "SPEC_PATH": str(home / "roadmap" / "design.md"),
-                "PLAN_PATH": str(home / "roadmap" / "plan.md"),
-            }
-            result = subprocess.run(
-                ["/bin/bash", "-c", setup],
-                cwd=home,
-                env=env,
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-
+            result = self._run_setup(home, home / "roadmap/design.md", home / "roadmap/plan.md")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("not a Git repository", result.stderr)
+
+    def test_sq_advice_setup_yields_repository_relative_documents(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            home = Path(temp_dir).resolve()
+            roadmap = home / "roadmap"
+            roadmap.mkdir()
+            subprocess.run(["git", "init", "-q", str(roadmap)], check=True)
+            tail = '\nprintf "%s|%s" "$SPEC_DOCUMENT" "$PLAN_DOCUMENT"'
+            ok = self._run_setup(home, roadmap / "d/design.md", roadmap / "plan.md", tail)
+            outside = self._run_setup(home, home / "design.md", roadmap / "plan.md", tail)
+        self.assertEqual(ok.returncode, 0, ok.stderr)
+        self.assertEqual(ok.stdout, "d/design.md|plan.md")
+        self.assertNotEqual(outside.returncode, 0)
 
 
 if __name__ == "__main__":
