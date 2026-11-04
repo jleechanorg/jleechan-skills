@@ -15,7 +15,7 @@ When a mistake or failure pattern is identified, analyze whether the root cause 
 
 - **User scope (general)**: `~/.claude/commands/harness.md` and this skill apply to **any** repo unless a project overrides them.
 - **Repository overlay**: Some projects ship `.claude/commands/harness.md` and/or `.claude/skills/<name>/SKILL.md` that **extend** user-scope rules (for example gateway operations). When both exist, **read the repo-local file** for project-specific failure modes. **Collision:** workspace-local `.claude/commands/` overrides the same-named global command in that workspace.
-- **jleechanclaw / `~/.openclaw`**: Use the **`openclaw-harness`** skill in that repo for gateway, canary, deploy, and lane-backlog triage. Tracked user-scope copies for drift control live under **`docs/harness/`** in [jleechanclaw](https://github.com/jleechanorg/jleechanclaw).
+- **Gateway / orchestrator repositories**: if the repository ships its own `<name>-harness` skill (for gateway, canary, deploy, or lane-backlog triage), use it. Tracked user-scope copies for drift control may live under that repository's `docs/harness/`.
 
 ## Harness Layers (ordered by durability)
 
@@ -219,7 +219,7 @@ After user approval (or if invoked with `--fix`):
 → Failure class: LLM path error — wrong abstraction level (agent acted at "spawn worker" level without verifying branch isolation)
 → 5 Whys technical: `ao spawn` reuses existing worktrees → `--claim-pr` only adds dashboard tracking → no clone created → worker lands on original branch → pushes commits directly to live PR
 → 5 Whys agent: request said "spawn for PR 6198" → agent assumed `ao spawn` would create isolation → flag name implies PR association but not branch isolation → no skill/instruction to redirect to clone-before-spawn → harness had no rule for this failure class
-→ Fix: add clone-before-spawn rule to jleechanclaw CLAUDE.md, add verification to team-mini.md, add failure class to harness.md, save feedback memory
+→ Fix: add clone-before-spawn rule to the orchestrator repository's CLAUDE.md, add verification to team-mini.md, add failure class to harness.md, save feedback memory
 
 **General principle — tool semantic mismatch**: many tool names imply
 capabilities they don't actually provide (`ao spawn --claim-pr` implies PR

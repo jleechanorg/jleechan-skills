@@ -5,18 +5,21 @@ description: Run PR automation jobs with the MiniMax API provider.
 
 # MiniMax Automation Runner
 
-**Usage**: Run jleechanorg-pr-monitor automation jobs using MiniMax API provider.
+**Usage**: Run the installed PR automation package's jobs using the MiniMax API
+provider. `<pr-automation-cmd>` below stands for that package's command; resolve
+it from the package's own documentation or your scheduler entries
+(see `automation-run`), not from this file.
 
 ## Quick Start
 
 Run fixpr automation with minimax:
 ```bash
-jleechanorg-pr-monitor --fixpr --max-prs 10 --cli-agent minimax
+<pr-automation-cmd> --fixpr --max-prs 10 --cli-agent minimax
 ```
 
 Run fix-comment with minimax:
 ```bash
-jleechanorg-pr-monitor --fix-comment --cli-agent minimax --max-prs 3
+<pr-automation-cmd> --fix-comment --cli-agent minimax --max-prs 3
 ```
 
 ## How MiniMax Works in Automation
@@ -47,13 +50,13 @@ preflight during a real automation run or count a skipped check as validation.
 
 ## Cron Jobs Using MiniMax
 
-From crontab:
+Inspect your own scheduler for the live entries. A typical schedule looks like:
 ```bash
 # Fix-comment every hour at :45
-45 * * * * jleechanorg-pr-monitor --fix-comment --cli-agent minimax --max-prs 3
+45 * * * * <pr-automation-cmd> --fix-comment --cli-agent minimax --max-prs 3
 
 # Fixpr every 30 minutes
-*/30 * * * * jleechanorg-pr-monitor --fixpr --max-prs 10 --cli-agent minimax
+*/30 * * * * <pr-automation-cmd> --fixpr --max-prs 10 --cli-agent minimax
 ```
 
 ## Troubleshooting
@@ -65,4 +68,4 @@ From crontab:
 
 **API errors**:
 - Check presence without printing the value: `test -n "${MINIMAX_API_KEY:-}" && echo "MINIMAX_API_KEY is set"`
-- Check orchestration package is up to date: `pip show jleechanorg-orchestration`
+- Check orchestration package is up to date: `pip show <automation-package>` (the package that provides `<pr-automation-cmd>`)

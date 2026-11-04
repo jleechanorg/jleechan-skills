@@ -87,6 +87,5 @@ python3 .claude/skills/command-research/scripts/count_command_usage_unified.py -
 ---
 
 ## Reference Lineage
-- Provenance: `jleechan-q0w` / `jleechan-thin-skill-migration-emu` (2026-07-12)
-- Lessons: `~/llm_wiki/raw/feedback_2026-07-12_usage-signal-substring-count-invalid.md`
-- Wire Verification: `~/projects_other/claude_llm_proxy` system prompt captures
+- Provenance: 2026-07-12 investigation showing that raw substring counts are not a valid usage signal.
+- Wire Verification: system prompts captured through a local LLM proxy.

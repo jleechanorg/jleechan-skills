@@ -334,13 +334,16 @@ fi
 # gateway is already connected to Slack via Socket Mode; we hand the task
 # to it through a channel message and watch the thread for the ack.
 #
-# Channel + bot ID are env-overridable; defaults match the live deployment.
-CLAW_CHANNEL="${CLAW_CHANNEL:-C0B9W8D609M}"   # #claw-dispatch
-CLAW_BOT_ID="${CLAW_BOT_ID:-U0AEZC7RX1Q}"     # @hermes bot user_id
+# Channel + bot user ID come from the environment; there is no default.
+if [ -z "${CLAW_CHANNEL:-}" ] || [ -z "${CLAW_BOT_ID:-}" ]; then
+  echo "❌ CLAW_CHANNEL / CLAW_BOT_ID not configured: Slack channel ID for /claw dispatch and the Hermes bot user ID."
+  echo "   Example: export CLAW_CHANNEL=C0123ABCD CLAW_BOT_ID=U0123ABCD"
+  exit 1
+fi
 CLAW_TOKEN="${SLACK_MCP_XOXP_TOKEN:-${HERMES_SLACK_USER_TOKEN:-}}"
 if [ -z "$CLAW_TOKEN" ]; then
   echo "❌ No Slack user token (SLACK_MCP_XOXP_TOKEN) available — cannot dispatch via Slack."
-  echo "   Set SLACK_MCP_XOXP_TOKEN (xoxp user token for $USER) in env or launchd plist."
+  echo "   Set SLACK_MCP_XOXP_TOKEN (the operator's xoxp user token) in env or launchd plist."
   exit 1
 fi
 
@@ -368,18 +371,21 @@ if [ "$OK" != "True" ]; then
   exit 1
 fi
 
-# Extract ts + construct thread URL (Slack archives URL pattern drops the dot)
-THREAD_URL=$(python3 -c "
-import json
-d = json.load(open('$POST_LOG'))
-ts = d.get('ts', '').replace('.', '')
-ch = d.get('channel', '')
-print(f'https://jleechanai.slack.com/archives/{ch}/p{ts}')
-")
+# Extract ts + ask Slack for the thread permalink. SLACK_WORKSPACE_DOMAIN
+# (e.g. myteam.slack.com) is only a fallback when chat.getPermalink fails.
 MSG_TS=$(python3 -c "import json; print(json.load(open('$POST_LOG')).get('ts', ''))")
+POST_CH=$(python3 -c "import json; print(json.load(open('$POST_LOG')).get('channel', ''))")
+THREAD_URL=$(curl -sS -m 10 -G -H "Authorization: Bearer $CLAW_TOKEN" \
+  --data-urlencode "channel=$POST_CH" --data-urlencode "message_ts=$MSG_TS" \
+  "https://slack.com/api/chat.getPermalink" 2>/dev/null |
+  python3 -c "import json,sys; print(json.load(sys.stdin).get('permalink', ''))" 2>/dev/null)
+if [ -z "$THREAD_URL" ] && [ -n "${SLACK_WORKSPACE_DOMAIN:-}" ]; then
+  THREAD_URL="https://${SLACK_WORKSPACE_DOMAIN}/archives/${POST_CH}/p${MSG_TS//./}"
+fi
+[ -n "$THREAD_URL" ] || THREAD_URL="(channel $POST_CH, ts $MSG_TS)"
 
 echo "✅ Dispatched to Hermes via Slack"
-echo "   channel: #claw-dispatch"
+echo "   channel: $CLAW_CHANNEL"
 echo "   thread:  $THREAD_URL"
 echo "   message_ts: $MSG_TS"
 
@@ -426,9 +432,9 @@ fi
 
 echo ""
 echo "✅ Dispatched to Hermes via Slack"
-echo "   Channel:  #claw-dispatch"
+echo "   Channel:  $CLAW_CHANNEL"
 echo "   Thread:   $THREAD_URL"
-echo "   Hermes:   U0AEZC7RX1Q (@hermes)"
+echo "   Hermes:   $CLAW_BOT_ID"
 echo "   Monitor:  open the thread URL above; Hermes acks within ~30s, then works the task in thread"
 echo "   Re-check: /claw --status <logfile>"
 ```
@@ -459,9 +465,9 @@ Always emit the exact logfile path so the user can monitor or kill.
 ### Slack path
 ```
 ✅ Dispatched to Hermes via Slack
-   Channel:  #claw-dispatch
+   Channel:  <CLAW_CHANNEL>
    Thread:   <thread_url>
-   Hermes:   U0AEZC7RX1Q (@hermes)
+   Hermes:   <CLAW_BOT_ID>
    Monitor:  open the thread URL above; Hermes acks within ~30s, then works the task in thread
    Re-check: /claw --status <logfile>
 ```
