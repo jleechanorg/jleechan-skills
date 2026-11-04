@@ -160,4 +160,3 @@ If the daemon is unhealthy, run the recovery block above BEFORE the spawn.
 ## See also
 
 - `codex-path-deletion-guard` — PreToolUse hook schema gotchas
-- `babysit-ao-pr-loop` — running the spawned worker to merge

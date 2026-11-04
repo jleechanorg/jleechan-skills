@@ -86,5 +86,4 @@ The regression test under `tests/test_report_routing_defaults.py` must encode th
 - Umbrella: §"Plist templates that exist but aren't wired into `install-hermes-scheduled-jobs.sh` are silent orphans" (which templates need re-install after edits)
 - SOUL.md `## COMMIT: slack-channel-routing-policy` (destination gate policy)
 - SOUL.md `## COMMIT: dropped-thread-jeffrey-only-default-removed` (related channel-routing correction)
-- Skill `babysit-ao-pr-loop` (the five-minute progress cron pattern used here)
 - Skill `slack-thread-routing-investigation` (5a-5g sub-classes of the same routing-lapse class)
