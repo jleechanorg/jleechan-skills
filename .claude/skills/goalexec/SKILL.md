@@ -119,7 +119,7 @@ recurring=true
 scripts/goalexec-loop-cmux.sh --install --goal "<goal text>" --interval 5m
 ```
 
-This is the same pattern as `scripts/monitoring/worldarchitect-ao-eloop.sh`:
+This pattern:
 1. Detects cmux socket and coder pane UUID
 2. Saves target to `~/.goalexec-loop/cmux-target.env`
 3. Installs a launchd LaunchAgent that fires every N seconds

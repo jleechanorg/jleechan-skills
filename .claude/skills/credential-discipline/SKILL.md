@@ -12,29 +12,46 @@ Or filename contains: `example`, `seed`, `fixture`, `mock`, or `sample`
 
 ### Required placeholder scheme
 
-| Real | Placeholder |
+| Real value | Placeholder |
 |---|---|
-| `AIzaSy...` (Firebase API key) | `<your-firebase-api-key>` |
-| `cntvDfj7cGUhUFkxcmV3` (campaign ID) | `<your-campaign-id>` |
-| `0wf6sCREyLcgynidU5LjyZEfm7D2` (Firebase UID) | `<your-firebase-uid>` |
-| `<your-email@gmail.com>` (test email) | `<your-test-user>@example.com` |
-| `worldarchitecture-ai` (GCP project) | `<your-firebase-project-id>` |
+| `AIzaSy...` (Firebase / Google API key) | `<your-firebase-api-key>` |
+| Record or document ID (e.g. a campaign ID) | `<your-record-id>` |
+| Auth user UID | `<your-firebase-uid>` |
+| Real person's email (test account) | `<your-test-user>@example.com` |
+| GCP / Firebase project ID or number | `<your-firebase-project-id>` |
 | Any other identifier | `<your-<descriptor>>` |
+
+### Machine-local blocklist
+
+Never write the real values you must not paste into a skill, test, or commit.
+Keep them, one fixed string per line, in a machine-local file that is never
+committed: `$CREDENTIAL_BLOCKLIST_FILE`, default
+`${XDG_CONFIG_HOME:-$HOME/.config}/jleechan-skills/credential-blocklist.txt`.
+Typical entries are your own project IDs, project numbers, test-account UIDs,
+record IDs from production data, and personal email addresses.
 
 ### Before-commit checklist
 
 ```bash
-grep -rnE 'AIza[A-Za-z0-9_-]{35}|cntvDfj7cGUhUFkxcmV3|L5iB5eWq8TyzQW3qFDDv|z7eDk3NzY1mB6BTm23yu|Z2sEA1hQW3YJbyQHvvt6|XHWCpllzfKNgwf6o1Jvc|zheWLda5wsDVQTdXrRFm|0wf6sCREyLcgynidU5LjyZEfm7D2|<your-email@gmail.com>|worldarchitecture-ai|worldai-prod-c4977' examples/ 2>&1
+BLOCKLIST="${CREDENTIAL_BLOCKLIST_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/jleechan-skills/credential-blocklist.txt}"
+grep -rnE 'AIza[A-Za-z0-9_-]{35}' examples/ 2>&1
+if [ -s "$BLOCKLIST" ]; then
+  grep -rnF -f "$BLOCKLIST" examples/ 2>&1
+else
+  echo "CREDENTIAL_BLOCKLIST_FILE not configured: file of real identifiers to block, one per line. Example: export CREDENTIAL_BLOCKLIST_FILE=$HOME/.config/jleechan-skills/credential-blocklist.txt" >&2
+fi
 ```
+
+Any match is a leak to replace with a placeholder before committing.
 
 ### Enforcement
 
 - **Pre-commit hook:** `~/.claude/hooks/pre-commit-git-identity-example-com-guard.sh` blocks commits by `@example.com`.
-- **Per-repo test:** `tests/test_example_placeholder_discipline.sh` in CI for browserclaw and jleechanclaw.
+- **Per-repo test:** `tests/test_example_placeholder_discipline.sh` in CI for each repository that ships examples.
 - **Per-repo hook:** `.githooks/pre-commit` chains identity guard + discipline test on staged `examples/**`.
 
 ### Why
 
-3 real production credential leaks landed in public repos between 2026-02 and 2026-04 (commits `3aac8fe8`, `45836c8`). `.gitleaksignore` is suppression, not a fix — rotate keys + rewrite history.
+3 real production credential leaks landed in public repos between 2026-02 and 2026-04. `.gitleaksignore` is suppression, not a fix — rotate keys + rewrite history.
 
 **If example needs real credential:** move to private repo, parameterize via env var, or use Firebase Emulator.
