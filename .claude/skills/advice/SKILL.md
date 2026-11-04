@@ -85,14 +85,15 @@ user, task or repository restricts external disclosure of the reviewed content, 
 repository owner opted in on 2026-11-04: "when all cli reviewers out of quota ... it should try to use /wa and ask
 hermes hermes pc and the dots in dot coordination for a review".)
 
-Each Dot account gets its own §3 attempt, but the Dot route stops asking new accounts once one budget `B` has
-passed since its first send, so rotation never delays the static rung by more than one budget.
+Each Dot account gets its own §3 attempt, capped at the Dot route's absolute deadline: one budget `B` after its
+first send. No account is asked after that deadline and a running one is cut off at it, so rotation never delays
+the static rung by more than one budget.
 
 | Route | Transport | Seats |
 |---|---|---|
-| Dot | the [`/dot` skill](../dot/SKILL.md), coordinator ask, `isolation: remote` | one Dot account at a time, in its configured `rotation` order (the Dots [dot-coordinator](../dot-coordinator/SKILL.md) is configured for), each addressed explicitly with `--account <name>` and `DOT_ROTATE_ON_LIMIT=0` (otherwise `dot.sh` rotates on a usage limit by itself); only when an account is busy, limited, blocked or timed out is it recorded `UNAVAILABLE` and the next account asked, matching pr-lifecycle's `/dot` rotation; the Dot route still runs concurrently with the other routes; revision review only |
+| Dot | the [`/dot` skill](../dot/SKILL.md) (host-installed; absent means `UNAVAILABLE`), coordinator ask, `isolation: remote` | one Dot account at a time, in its configured `rotation` order (the Dots [dot-coordinator](../dot-coordinator/SKILL.md) is configured for), each addressed explicitly with `--account <name>` and `DOT_ROTATE_ON_LIMIT=0` (otherwise `dot.sh` rotates on a usage limit by itself); only when an account is busy, limited, blocked or timed out is it recorded `UNAVAILABLE` and the next account asked, matching pr-lifecycle's `/dot` rotation; the Dot route still runs concurrently with the other routes; revision review only |
 | Hermes | the `/hermes` skill's Slack-only transport (host-installed; absent means `UNAVAILABLE`), coordinator ask, `isolation: remote`. **When the machine's `ADVICE_HERMES_CHANNEL` names a Slack channel (the owner's is `#dot-coordination`) and it is available to the sending identity, post there, one thread per Hermes instance (the opt-in makes that channel the authorized destination for vote requests and replies);** otherwise use the conversation `/hermes` resolves | one per configured Hermes instance, for example the primary Hermes and `hermes-pc`, resolved from machine-local configuration; revision review only |
-| Web advice | [`/web-advice`](../web-advice/SKILL.md) (user shorthand `wa`), `isolation: packet` for revisions, `none` for documents | one per authenticated provider and account; the orchestrator records the signed-in account from the web session as `attested.account` |
+| Web advice | [`/web-advice`](../web-advice/SKILL.md) (user shorthand `wa`; host-installed, absent means `UNAVAILABLE`), `isolation: packet` for revisions, `none` for documents | one per authenticated provider and account; the orchestrator records the signed-in account from the web session as `attested.account` |
 
 A reply is a vote only once it carries full-scope `COVERAGE:` and the SHA-bound `VERDICT:` line, read back at the
 source. An acknowledgement, "on it", a reaction or a delegated-coder promise is `SENT` (per `/hermes`), not a
@@ -168,7 +169,7 @@ derived from the same row, so the two skills cannot drift apart.
 | `isolation: orchestrator-clone` | orchestrator: clone the donor into `<SCRATCH PATH>`, then `git remote remove origin` | `clone_path` = `<SCRATCH PATH>`; `cwd: set` or `attested.cwd: instructed`; at launch **and again after the seat process is gone**: `--git-common-dir` = `--git-dir`, `HEAD` = `review_sha`, `git merge-base --is-ancestor <BASE SHA> HEAD` exits 0, `git remote` is empty; then `clone_removed` = `test ! -e <SCRATCH PATH>` | orchestrator, every key except any `attested.` one | orchestrator, whatever the seat's outcome | `<PR URL>` `<SHA>` `<BASE SHA>` `<SCRATCH PATH>` |
 | `isolation: none` | nobody | `packet_path`; per-file SHA-256; `bundle_sha256`; `clone_path: none`; `clone_removed: n/a` | orchestrator | nobody; the packet is kept as evidence | `<PACKET PATH>` `<BUNDLE HASH>` |
 | `isolation: remote` (Dot, Hermes) | nobody: the outside reviewer reads `<SHA>` from a checkout it already has (fetching only the missing objects, no new clone, no branch switch); the orchestrator clones nothing for it | `<SHA>` is reachable on the PR remote (`git ls-remote` or the PR API) both at send and at reply readback; route and message reference/permalink; the returned `VERDICT:` line names `<SHA>`; `attested.model`; `attested.account`; `attested.clone_path`; `clone_path: remote`; `clone_removed: n/a` | orchestrator, every key except any `attested.` one | the outside reviewer; never claimed | `<PR URL>` `<SHA>` `<BASE SHA>` |
-| `isolation: packet` (`/web-advice` revision review) | nobody; the orchestrator writes a packet of the complete `git diff <BASE SHA>..<SHA>` plus the full post-change content of every changed file, from the `pin` donor, in place of `/web-advice`'s own `origin/main...HEAD` packet | `packet_path`; per-file SHA-256; `bundle_sha256`; every file delivered as an upload, not pasted inline; provider shows no truncation; `COVERAGE:` names every packet file; `clone_path: none`; `clone_removed: n/a` | orchestrator | nobody; the packet is kept as evidence | `<PR URL>` `<SHA>` `<BASE SHA>` `<PACKET PATH>` `<BUNDLE HASH>` |
+| `isolation: packet` (`/web-advice` revision review) | nobody; the orchestrator writes a packet of the complete `git diff <BASE SHA>..<SHA>` plus the full post-change content of every changed file, from the `pin` donor, in place of `/web-advice`'s own `origin/main...HEAD` packet | `packet_path` (kept locally, never sent to the provider); per-file SHA-256; `bundle_sha256`; every file delivered as an upload, not pasted inline; provider shows no truncation; `COVERAGE:` names every packet file; `clone_path: none`; `clone_removed: n/a` | orchestrator | nobody; the packet is kept as evidence | `<PR URL>` `<SHA>` `<BASE SHA>` `<PACKET PATH>` `<BUNDLE HASH>` |
 
 - **The orchestrator owns every copy.** Seats never clone, delete or attest. The orchestrator creates each copy,
   verifies every key it can measure, and removes the copy once the seat process is confirmed gone, whatever the
@@ -210,7 +211,8 @@ coverage never supplies an approval. Without two independent full-coverage appro
 coverage, reasoning, risk and findings, the question's answer, and every `UNAVAILABLE` line. Keep a receipt per
 attempt: identity, actual CLI, account and model, start and completion times, exit or timeout, the exact prompt
 (any deviation voids the vote, per static-review), complete output, coverage and cleanup result. End with exactly
-one line: `VERDICT: APPROVED at <SHA>`, `VERDICT: NOT APPROVED at <SHA>`, or `VERDICT: WITHHELD at <SHA> — <reason>`.
+one line: `VERDICT: APPROVED at <SHA>`, `VERDICT: NOT APPROVED at <SHA>`, or `VERDICT: WITHHELD at <SHA> — <reason>`;
+for document-only review, `DOCUMENTS sha256:<bundle hash>` takes the place of `<SHA>`.
 
 **Applicability.** Keep the original reviewers and reviewed SHAs. Before relying on them at a later head, inspect
 the complete delta, claims, evidence and phase; applicability is not a new vote, and material uncovered changes
