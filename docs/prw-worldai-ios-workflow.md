@@ -10,6 +10,24 @@ This page explains the technique for other developers. It is a case-study guide,
 
 The [Develop with idea velocity presentation](https://docs.google.com/presentation/d/1qLdMzZaIuP9IdpTBomuOGJTAspCEJo6Esu10zWFrhm4/edit?slide=id.iosNov2026#slide=id.iosNov2026) gives the broader iOS development context.
 
+## See a native bug that screenshots actually catch
+
+A clearer native example is the Settings label repair from [WorldAI frontend PR #439](https://github.com/jleechanorg/worldai_frontend/pull/439#native-settings-label-repair--e397-red-to-02ea-green). Look at **Background Theme → Embers** in these historical iOS simulator screenshots: the same Night Settings screen and selected option make the defect easy to compare.
+
+| Before: the label splits midword | After: the whole label fits |
+| --- | --- |
+| ![Native Night Settings before: selected background label wraps as Ember on one line and s below](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/pr439-native-pill-02ea1446-20261102/comparison/e397-night-default-red.png) | ![Native Night Settings after: selected background label reads Embers on one line](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/pr439-native-pill-02ea1446-20261102/screenshots/393-night-default.png) |
+
+**What to inspect:** before, the selected button reads `Ember` / `s`, making the whole option row taller. After, `Embers` stays on one line alongside Stars, Aurora and None; the Display section below moves upward. The surrounding Settings content, Night theme and selected option are visibly comparable. The status-bar clock differs, so these are separate captures, not an identical-state pixel diff.
+
+**Why this demonstrates the workflow:** a source diff or passing component test cannot show this native text wrap. The pair exposes a specific failure and a visible repair at the affected control. It also makes the claim falsifiable: the reviewer can read the word itself rather than infer success from a green test or a caption.
+
+**Provenance and limits:** the [published packet](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/pr439-native-pill-02ea1446-20261102/evidence.md) retains the earlier RED screenshot; the linked PR identifies its source as `e39768d8ed503eed9dbe1c97aca410800022e366`. The after screenshot is the 393-point, default-text-size capture at `02ea14465f6d04b86dc13b74d4f6b6dd57031014`. The [source receipt](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/pr439-native-pill-02ea1446-20261102/provenance/source-receipt.json) records candidate source and matching built/installed bundle hashes for the 393- and 375-point simulators. That receipt binds the candidate; it does not supply equivalent installed-bundle provenance for the older RED image. Retain that asymmetry rather than claiming both builds were independently reproduced.
+
+Both PNGs were downloaded, decoded and visually inspected for this guide update; their bytes match the [published manifest](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/pr439-native-pill-02ea1446-20261102/manifest.tsv). Before SHA256: `bcaf0656e56585ea8fe1e928aeadb723d15a793920ea8b315f8f054b6bc925cb`. After SHA256: `2bdbfa59d9d96fa2632ce4e92508200029c60f243285f22fb8fca19021d9abfa`.
+
+These stills support the narrow whole-label layout claim, not tapping, settings persistence, every accessibility size, a physical iPhone, or release acceptance. The source PR's broader visual review remained **PARTIAL / REQUEST CHANGES** for uncovered consumers; this useful screenshot pair is not a blanket approval of that PR. No new app run or capture was made for this guide.
+
 ## Watch a real captioned comparison
 
 **Shared mobile-web example, not native iOS:** [watch the 6.6-second image-zoom comparison](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/pr257-mobile-zoomin-cde4015-20261024-v4/media/comparison-baseline-then-green.mp4).
