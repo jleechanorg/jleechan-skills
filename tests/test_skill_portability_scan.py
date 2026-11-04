@@ -251,6 +251,8 @@ class PolicyFilesContractTest(unittest.TestCase):
             # `git fetch upstream release` would only update FETCH_HEAD.
             subprocess.run(["git", "-C", repo, "config", "remote.upstream.fetch",
                             "+refs/heads/other:refs/remotes/upstream/other"], check=True, capture_output=True)
+            # The earlier push created the tracking ref; drop it so only an explicit refspec restores it.
+            subprocess.run(["git", "-C", repo, "update-ref", "-d", "refs/remotes/upstream/release"], check=True, capture_output=True)
             (repo / "README.md").write_text("feature\n", encoding="utf-8")
             subprocess.run(["git", "-C", repo, "commit", "-am", "feature"], check=True, capture_output=True)
 
