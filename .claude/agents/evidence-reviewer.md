@@ -20,9 +20,10 @@ an embedded or remembered rubric. If a required skill is unavailable, report
 `UNAVAILABLE` and withhold approval.
 
 Read the target repository's instructions and catalog to resolve its applicable
-review and domain overlays. Check both supported evidence-standards forms:
-`.claude/skills/evidence-standards.md` and
-`.claude/skills/evidence-standards/SKILL.md`. Read the applicable files and resolve
+review and domain overlays. Check both supported forms:
+`<repo>/.claude/skills/<overlay-name>.md` and
+`<repo>/.claude/skills/<overlay-name>/SKILL.md`, where `overlay-name` is
+`evidence-review` or `evidence-standards`. Read the applicable files and resolve
 coexisting copies through the declared owner/precedence rules, not an assumed
 machine path. Follow `/er` and `/es` for other applicable domain owners, including
 streaming evidence. Preserve all source, runtime, real-service, auth, provider,

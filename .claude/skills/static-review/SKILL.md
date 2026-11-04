@@ -1,11 +1,11 @@
 ---
 name: static-review
-description: Use when dispatching an independent code/advice/static revision reviewer (CLI, coordinator ask or static-review subagent); owns the cold start, the verbatim prompt templates, per-channel preambles, receipts and identity rules.
+description: Use when dispatching an independent code, advice and static revision reviewer (CLI, coordinator ask or static-review subagent); owns the cold start, the verbatim prompt templates, per-channel preambles, receipts and identity rules.
 ---
 
 # /static-review — cold, verbatim reviewer input
 
-This skill owns what code/advice/static revision reviewers receive and what
+This skill owns what code, advice and static revision reviewers receive and what
 their receipts prove. Evidence-only `/er` reviews use the canonical
 [evidence-review](../evidence-review/SKILL.md) and
 [evidence-standards](../evidence-standards/SKILL.md) owners instead; they do not
