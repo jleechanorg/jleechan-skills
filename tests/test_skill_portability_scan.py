@@ -228,6 +228,61 @@ class PolicyFilesContractTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), "README.md")
 
+    def test_documented_base_resolution_populates_tracking_ref_with_limited_refspec(self):
+        script_path = REPO_ROOT / ".claude" / "skills" / "pr-lifecycle" / "scripts" / "pr-base-changed-paths.sh"
+        self.assertTrue(os.access(script_path, os.X_OK), f"{script_path} must be executable")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            remote_path = root / "example" / "skills.git"
+            remote_path.parent.mkdir()
+            subprocess.run(["git", "init", "--bare", remote_path], check=True, capture_output=True)
+
+            repo = root / "repo"
+            subprocess.run(["git", "init", repo], check=True, capture_output=True)
+            for key, value in (("user.email", "fixture@localhost"), ("user.name", "Test User")):
+                subprocess.run(["git", "-C", repo, "config", key, value], check=True, capture_output=True)
+            (repo / "README.md").write_text("base\n", encoding="utf-8")
+            subprocess.run(["git", "-C", repo, "add", "README.md"], check=True, capture_output=True)
+            subprocess.run(["git", "-C", repo, "commit", "-m", "base"], check=True, capture_output=True)
+            subprocess.run(["git", "-C", repo, "remote", "add", "upstream", remote_path], check=True, capture_output=True)
+            subprocess.run(["git", "-C", repo, "push", "upstream", "HEAD:release"], check=True, capture_output=True)
+            # Single-branch style refspec that does not cover the base branch, so a plain
+            # `git fetch upstream release` would only update FETCH_HEAD.
+            subprocess.run(["git", "-C", repo, "config", "remote.upstream.fetch",
+                            "+refs/heads/other:refs/remotes/upstream/other"], check=True, capture_output=True)
+            (repo / "README.md").write_text("feature\n", encoding="utf-8")
+            subprocess.run(["git", "-C", repo, "commit", "-am", "feature"], check=True, capture_output=True)
+
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            fake_gh = bin_dir / "gh"
+            fake_gh.write_text(
+                "#!/usr/bin/env bash\n"
+                "case \"$*\" in\n"
+                "  *baseRepository*) exit 64 ;;\n"
+                f"  api\\ *) printf 'release\\t{remote_path}\\t{remote_path}\\n' ;;\n"
+                "  *) printf '42\\n' ;;\n"
+                "esac\n",
+                encoding="utf-8",
+            )
+            fake_gh.chmod(0o755)
+            # Hermetic fake-gh injection: a developer shell with BASH_ENV=~/.bashrc
+            # re-sources the profile inside every `bash -c`, which restores PATH and
+            # defeats the stub. Neutralize BASH_ENV/ENV so the fixture PATH wins.
+            env = {**os.environ, "BASH_ENV": os.devnull, "ENV": os.devnull,
+                   "PATH": f"{bin_dir}:{os.environ['PATH']}"}
+            result = subprocess.run(
+                ["bash", str(script_path), "42"],
+                cwd=repo,
+                env=env,
+                text=True,
+                capture_output=True,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "README.md")
+
     def test_documented_base_resolution_rejects_same_repo_on_foreign_host(self):
         script_path = REPO_ROOT / ".claude" / "skills" / "pr-lifecycle" / "scripts" / "pr-base-changed-paths.sh"
         self.assertTrue(os.access(script_path, os.X_OK), f"{script_path} must be executable")

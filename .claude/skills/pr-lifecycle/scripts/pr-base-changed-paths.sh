@@ -64,5 +64,5 @@ if [[ ${#MATCHING_REMOTES[@]} -ne 1 ]]; then
 fi
 BASE_REMOTE=${MATCHING_REMOTES[0]}
 
-git fetch "$BASE_REMOTE" "$BASE_BRANCH"
+git fetch "$BASE_REMOTE" "+refs/heads/${BASE_BRANCH}:refs/remotes/${BASE_REMOTE}/${BASE_BRANCH}"
 git diff --name-only "${BASE_REMOTE}/${BASE_BRANCH}...HEAD"
