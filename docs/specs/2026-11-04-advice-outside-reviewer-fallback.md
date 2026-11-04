@@ -6,8 +6,8 @@
 - **Non-goals:** changing the default two-vote quorum, CLI seats, model allowlist, lifecycle applicability,
   conditional static-model independence, disclosure permissions, or mandatory separate review gates; adding
   runner code, wording-pin tests or account configuration. The overlapping record-only exemption in PR #696
-  remains separate. PR #692's existing PR-body receipt proposal is preserved, not accepted or installed by this
-  routing change; its publication-policy reconciliation and independent review remain open.
+  remains separate. Withdraw the unapproved PR-body receipt proposal from active policy; the existing gist
+  receipt requirement remains unchanged, with the earlier proposal retained only in PR history.
 - **Acceptance:**
   - Quota, usage-limit or exhausted-429 replies make a CLI seat unavailable immediately, with no same-account retry.
   - When CLI seats cannot fill open slots, authorized Dot rotation and web review start together. Each distinct
