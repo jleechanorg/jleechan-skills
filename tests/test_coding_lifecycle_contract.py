@@ -1,4 +1,4 @@
-"""Contract tests: pr-lifecycle owns the coding lifecycle and sibling skills agree."""
+"""Structural guards for pr-lifecycle: frontmatter name, linked anchors and in-file section references."""
 
 import re
 import unittest
@@ -73,7 +73,7 @@ class PrLifecycleSectionReferences(unittest.TestCase):
             if "SKILL.md" in line_prefix or "AGENTS.md" in line_prefix:
                 continue  # reference into another file
             ref = match.group(1).strip()
-            if not any(ref == h or ref.startswith(h + " ") or h.startswith(ref) for h in headings):
+            if not any(ref == h or ref.startswith(h + " ") or h.startswith(ref + " (") for h in headings):
                 unresolved.append(ref)
         self.assertEqual(unresolved, [], f"unresolved § references: {unresolved}")
 

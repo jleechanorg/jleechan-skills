@@ -204,6 +204,12 @@ class ApprovalContractsTest(unittest.TestCase):
             self.assertIn("zero returned hits", partial)
 
 
+class WorkspaceSpecificIdentifierTest(unittest.TestCase):
+    def test_agento_report_has_no_workspace_specific_slack_channel(self):
+        report = (SKILLS / "agento-report" / "SKILL.md").read_text(encoding="utf-8")
+        self.assertNotIn("#ai-slack-test", report)
+
+
 if __name__ == "__main__":
     unittest.main()
 
