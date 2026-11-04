@@ -152,6 +152,8 @@ Missing, inaccessible or unauthorized publication is `PUBLICATION BLOCKED`: cont
 
 ## Default PR route — `/prw`
 
+An unqualified `/prw` invocation defaults to completing all applicable Stage 5 gates unless the caller explicitly requests an earlier endpoint; merging remains separately authorized.
+
 Drive every PR through `/prw` (`/pr-workflow`) by default, using this generic lifecycle unless the repository opted into the visible six-stage workflow. UI and other user-facing changes always use `/prw` unless a human explicitly overrides it for that PR. A lighter path is allowed only for:
 
 - documentation-only changes;
