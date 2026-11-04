@@ -15,11 +15,20 @@ description: "Hermes wrapper for the `/advice` token-efficient second-opinion sl
 
 ## Static review (synced 2026-10-29)
 
-The canonical `/advice` now delegates reviewer input to `~/.claude/skills/static-review/SKILL.md`: every reviewer (CLI, coordinator ask, static-review subagent) gets the cold, verbatim template with only the PR URL and SHA filled (for document-only review, only the packet path and bundle hash), plus the fixed per-channel preamble. The receipt records the exact prompt; any deviation voids the vote. Canonical `/advice` §2 owns dispatch order, Dot-account rotation, static eligibility and final Hermes fallback; this overlay never reorders them. One outside vote can pair with one eligible static vote under its substitution rules. Record unavailable seats as `<host> — <CLI or static reviewer> — attempted|skipped — <attempt time> — <reason>` and tell the user. A cloud-only failure does not make Mac or Ubuntu CLIs unavailable.
+The canonical `/advice` now delegates reviewer input to `~/.claude/skills/static-review/SKILL.md`: every reviewer (CLI, coordinator ask, static-review subagent) gets the cold, verbatim template with only the PR URL and SHA filled (for document-only review, only the packet path and bundle hash), plus the fixed per-channel preamble. The receipt records the exact prompt; any deviation voids the vote. Canonical `/advice` §2 owns capability tiers, at-most-one-Dot counting, aggregate static/Hermes caps and web-last fallback; this overlay never reorders them. Retain eligible earlier-tier votes under its lifecycle-selected quorum, independence and substitution rules. Record unavailable seats as `<host> — <CLI or static reviewer> — attempted|skipped — <attempt time> — <reason>` and tell the user. A cloud-only failure does not make Mac or Ubuntu CLIs unavailable.
 
 ## When to use
 
 User says `/advice [optional question]`, or you reach a decision point that needs a second opinion without shipping the full conversation uncached.
+
+## Historical notes — not review-dispatch instructions
+
+The legacy examples, templates, seat-availability claims and fanout recommendations below are preserved as
+historical context only. They do not authorize dispatch, establish current machine capability, supply a review
+prompt or override the canonical advice/static-review owners. For every live review, resolve current local
+capabilities, quorum and tiers from the canonical skills above and use only static-review's current templates
+and transport preambles. Do not execute a historical command or request a named seat merely because it appears
+below.
 
 ## Review types (added 2026-07-06)
 
