@@ -86,8 +86,9 @@ repository owner opted in on 2026-11-04: "when all cli reviewers out of quota ..
 hermes hermes pc and the dots in dot coordination for a review".)
 
 Each Dot account gets its own §3 attempt, capped at the Dot route's absolute deadline: one budget `B` after its
-first send. No account is asked after that deadline and a running one is cut off at it, so rotation never delays
-the static rung by more than one budget.
+first send. No account is asked after that deadline and a running one is cut off at it and recorded `TIMED_OUT`
+(unless the user asked to await that account, per §3), so rotation never delays the static rung by more than one
+budget.
 
 | Route | Transport | Seats |
 |---|---|---|
