@@ -312,7 +312,8 @@ owned through its result; use the existing async-handle, handback and
 independent-work rules in `parallelize-to-ceiling`, then integrate and verify
 the returned artifact. Stop only at the requested endpoint, a user scope
 change/stop, or a genuine scoped blocker or required user-only decision under
-the applicable authority rules. Batch findings and fixes per § Draft-phase final acceptance gates and § SHA-binding rule.
+the applicable authority rules. Batch findings and fixes per § Draft-phase final acceptance gates; assess the actual
+delta and rerun only affected proof and review.
 
 ## Draft-phase final acceptance gates (in order)
 
@@ -488,7 +489,8 @@ context SHA does not turn document approval into code approval.
 
 For evidence-gate compatibility, keep one current marker in the PR body:
 `**Evidence**: <gist-url> (head <sha>)`, pointing to the authorized sanitized
-evidence-review receipt for current applicability. Update that index only;
+evidence-review receipt for current applicability (one-liner fast-path exception:
+§ Proportional exceptions and fast paths). Update that index only;
 preserve the historical ledger, receipt URLs, and original capture SHAs.
 Underlying raw artifacts may remain private. Missing publication authority or
 an inaccessible receipt leaves this marker incomplete; never fabricate its URL.
