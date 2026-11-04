@@ -139,6 +139,10 @@ config or hooks. Do not post anything; return your review as your final output.
 
 ## 4. Identity
 
+These identity rules establish eligibility, not a workflow's required count. For `/advice`, native static
+subagents collectively supply at most one counted vote under its tier policy; two eligible static identities do
+not create two advice votes. Never combine partial coverage into a full-scope vote.
+
 - A static reviewer reports its actual model. Same identity (type, harness and model) means one vote.
 - Two reviewers that both leave their model unreported count as one vote, and so do two where one is unreported
   and their type or harness match. At most one counted static reviewer may leave its model unreported, and it must differ from the other by
