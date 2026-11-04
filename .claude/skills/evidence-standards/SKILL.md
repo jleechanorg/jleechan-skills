@@ -157,11 +157,10 @@ Reachability is **computed, never a hardcoded list** (a frozen "X is unreachable
 
 **A moving HEAD does NOT invalidate evidence by itself.** Evidence captured at a
 prior SHA stays valid at HEAD as long as the delta between the evidence SHA and
-HEAD leaves every claim it backs intact. Flagging evidence "stale" because the
-SHA moved, without checking *what* moved, is an over-correction. Rerunning
-real-server + real-LLM evidence for a docs typo or test rename burns hours of
-LLM time for zero added confidence: if the behavior's code is byte-identical at
-HEAD and no assertion or driver backing it changed, the proof is byte-valid at HEAD.
+HEAD leaves every claim it backs intact; flagging it "stale" without checking
+*what* moved is an over-correction that burns hours of real-server + real-LLM
+time for zero added confidence. If the behavior's code is byte-identical at HEAD
+and no assertion or driver backing it changed, the proof is byte-valid at HEAD.
 
 **The check is a diff, not a SHA comparison:**
 
