@@ -126,19 +126,48 @@ def live_abs_for(repo_rel: str, home: Path) -> Path:
     return candidate
 
 
+_GIT_TRACKED_CACHE: dict[str, set[str]] = {}
+
+
+def _is_git_tracked(root: Path, repo_rel: str) -> bool:
+    """True when `repo_rel` is a path git actually tracks in `root`.
+
+    One `git ls-files` per repo, cached: this runs on a hot path in --full.
+    """
+    key = str(root)
+    if key not in _GIT_TRACKED_CACHE:
+        try:
+            out = subprocess.run(
+                ["git", "ls-files", "--", ".claude/", ".codex/hooks/", "hermes/"],
+                cwd=root, capture_output=True, text=True,
+            )
+            _GIT_TRACKED_CACHE[key] = set(out.stdout.splitlines()) if out.returncode == 0 else set()
+        except OSError:
+            _GIT_TRACKED_CACHE[key] = set()
+    return repo_rel in _GIT_TRACKED_CACHE[key]
+
+
 def repo_abs_for(root: Path, repo_rel: str) -> Path:
     """Resolve repo_rel to an absolute repo path, contained within its specific
     mapped root (same reasoning as live_abs_for)."""
     prefix, _ = _matched_top_level(repo_rel)
     allowed_root = (root / prefix).resolve()
     candidate = root / repo_rel
-    # A path that IS a symlink is tracked CONTENT (e.g. hermes/skills/<name> ->
-    # ../../.claude/skills/<name>), not an escape attempt. Resolving it would fail
-    # containment against its own mapped root and abort `--full` outright. Keep the
-    # link path itself: callers hash/compare the link target string, and the
-    # containment question only applies to paths we are about to FOLLOW.
     if candidate.is_symlink():
-        return candidate
+        # A symlink that is TRACKED IN GIT is intentional repo content (e.g.
+        # hermes/skills/<name> -> ../../.claude/skills/<name>), and resolving it
+        # would fail containment against its own mapped root and abort `--full`.
+        # Return the link path: callers compare/hash the link itself.
+        #
+        # Anything else is an untracked symlink and stays a hard error. Without
+        # this distinction, a symlink planted in .claude/ pointing at another
+        # top-level directory (.git/, a sibling secret file) would sail through —
+        # removing that guard is exactly what the containment test forbids.
+        if _is_git_tracked(root, repo_rel):
+            return candidate
+        raise ValueError(
+            f"untracked symlink in an allowed root (refusing to follow): {candidate}"
+        )
     candidate = candidate.resolve()
     if not candidate.is_relative_to(allowed_root):
         raise ValueError(f"resolved repo path escapes its allowed root {allowed_root}: {candidate}")
