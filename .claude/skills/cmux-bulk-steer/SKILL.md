@@ -141,7 +141,7 @@ writer can be actively churning) and `WEDGED_PROCESS` (proved from the process t
 1. **No activity after the footer.** Look for tool-call lines, assistant text, or user input lines that appear *below* the quota footer in the buffer. Any post-footer activity means the wall is not current.
 2. **No live progress label.** A `Working (1h33m)` / `Pursuing goal (…)` label with a timer longer than the footer's age is proof the lane is running.
 3. **Not just a scrolled artifact.** The quota line must be the last substantive line, not one of several historical occurrences deeper in the buffer.
-4. **Corroborate from outside the pane.** Check `top_flat.tsv` CPU for the surface and any provider meter (weekly/5h percentage) visible on a sibling surface or the operator's quota line. A healthy meter (e.g. 49% on a fresh window) falsifies `QUOTA_BLOCKED` outright; a meter at/near 100% corroborates it.
+4. **Corroborate from outside the pane.** Check the surface's `cpu_percent` in `manifest.json` (and `top_flat.tsv` raw) and any provider meter (weekly/5h percentage) visible on a sibling surface or the operator's quota line. A healthy meter (e.g. 49% on a fresh window) falsifies `QUOTA_BLOCKED` outright; a meter at/near 100% corroborates it.
 
 If the checks disagree, prefer the fresher signal: post-footer activity and a healthy meter beat a stale paragraph.
 
@@ -191,6 +191,9 @@ What `scripts/scan.py` writes to `$OUT_DIR`:
 - `ws_<ws_id>_sf_<sf_id>.txt`: up to `10,000` trailing words of scrollback per terminal surface. For alternate-screen `pi` (`π`) TUI panes (where `cmux capture-pane` only sees the `35`-row TUI screen), `scan.py` automatically matches the pane's `cwd` footer to the newest session file in `~/.pi/agent/sessions/*/*.jsonl` and prepends `=== PI SESSION TRANSCRIPT (<jsonl_path>) ===` ahead of `=== LIVE TERMINAL PANE ===` so every `pi` surface also receives a full `10,000`-word capture.
 - The 10,000-word cap is only a collector limit. If `total_words > captured_words`, capture the full available history for both time-separated samples with `cmux capture-pane --workspace <ws> --surface <sf> --scrollback --lines 1500` (or the deepest supported scrollback) into unique `/tmp` paths and read all of it. If that cannot be done, mark the surface UNVERIFIED and do not classify or steer it.
 - `top_flat.tsv`: raw `cmux top --all --flat` output (`CPU%`, memory, process count per workspace/pane/surface).
+- `manifest.json` `cpu_percent` is `null` when the surface was absent from the capture, and `cpu_source`
+  reads `unavailable` when the whole capture was empty/all-zero. **Treat `null` or `unavailable` as
+  UNVERIFIED, never as idle** — a degraded `cmux top` must not read as "every lane is quiet".
 - `gh_prs.json` (when `--with-gh` is passed): live open PR metadata.
 
 Rules:
