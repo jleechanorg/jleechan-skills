@@ -128,7 +128,7 @@ python3 testing_ui/test_smoke_fantasy.py
 | Issue | Solution |
 |-------|---------|
 | Port in use | Inspect the listener; stop only this task's server or use an available port |
-| Missing API keys | Ensure `gcloud` is configured with `worldarchitecture-ai` project |
+| Missing API keys | Ensure `gcloud` is configured with the `$GCP_PROJECT_ID` project |
 | Venv setup fails | Inspect the environment path or shared-venv symlink and use the documented bootstrap; preserve shared environments |
 | CSS changes not showing | Server serves from cache-bust temp dir; either hot-swap or restart |
 | Smoke test hangs on live server | Use direct Playwright script instead (theme detection race condition) |

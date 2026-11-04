@@ -18,7 +18,7 @@ verdict labels:
   means the browser returns from Google to the app and remains unauthenticated
   on the welcome/sign-in surface.
 - `RELATED_REDIRECT_BOUNDARY_REACHED`: the flow reaches a related boundary such
-  as `worldarchitecture-ai.firebaseapp.com/__/auth/handler` or
+  as `<firebase-project-id>.firebaseapp.com/__/auth/handler` or
   `accounts.google.com`, but does not prove the user-visible failure.
 - `RELATED_SILENT_NULL_SIGNATURE`: `getRedirectResult()` resolves without an
   error and without a user, e.g. `{resolved: true, hasUser: false, error: null}`.

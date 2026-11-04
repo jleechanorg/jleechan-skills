@@ -11,7 +11,7 @@ Reference for the rotating preview server pool used to deploy PR branches.
 
 - **Pool size**: 10 servers (`mvp-site-app-s1` through `mvp-site-app-s10`)
 - **Service prefix**: `mvp-site-app`
-- **GCP project**: `worldarchitecture-ai`
+- **GCP project**: `$GCP_PROJECT_ID`
 - **Region**: `us-central1`
 - **Trigger**: Any PR push to `$PROJECT_ROOT/**`, `Dockerfile`, `requirements.txt`, etc.
 - **Workflow**: `.github/workflows/pr-preview.yml`
@@ -38,7 +38,7 @@ Look for the bot comment that says "Preview deployed to: `https://...`"
 **From Cloud Run directly:**
 ```bash
 gcloud run services describe mvp-site-app-s{N} \
-  --project=worldarchitecture-ai \
+  --project="$GCP_PROJECT_ID" \
   --region=us-central1 \
   --format='value(status.url)'
 ```

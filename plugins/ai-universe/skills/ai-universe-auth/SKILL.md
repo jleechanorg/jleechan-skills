@@ -37,15 +37,15 @@ Use this same verified `AUTH_NODE` executable for every command below.
 |----------|-------------|------------------|
 | `scripts/auth-cli.mjs` | Project-local (recommended) | Needs parent project |
 | `${CLAUDE_HOME:-$HOME/.claude}/scripts/auth-cli.mjs` | User-global fallback | Yes (if installed) |
-| `~/projects/ai_universe/scripts/auth-cli.mjs` | Source of truth | Yes |
+| `$AI_UNIVERSE_ROOT/scripts/auth-cli.mjs` | Source of truth (set `AI_UNIVERSE_ROOT` to your AI Universe checkout) | Yes |
 
 **To run the script**, use a directory that has `node_modules` with `express` installed:
 
 ```bash
-# From ai_universe project (always works)
-cd ~/projects/ai_universe && "$AUTH_NODE" scripts/auth-cli.mjs status
+# From the AI Universe checkout (always works)
+cd "${AI_UNIVERSE_ROOT:?AI_UNIVERSE_ROOT not configured: path to the AI Universe checkout}" && "$AUTH_NODE" scripts/auth-cli.mjs status
 
-# Or from ~/.claude if deps installed
+# Or from ${CLAUDE_HOME:-$HOME/.claude} if deps installed
 "$AUTH_NODE" ${CLAUDE_HOME:-$HOME/.claude}/scripts/auth-cli.mjs status
 ```
 
@@ -55,12 +55,12 @@ The script supports **two Firebase projects**. Use the correct one for your use 
 
 | Project | Firebase ID | Use Case | Command |
 |---------|-------------|----------|---------|
-| **AI Universe** | `ai-universe-b3551` | `/secondo`, multi-model synthesis | `"$AUTH_NODE" scripts/auth-cli.mjs token` (default) |
-| **WorldAI** | `worldarchitecture-ai` | Your Project app auth | `"$AUTH_NODE" scripts/auth-cli.mjs token --project worldarchitecture-ai` |
+| **AI Universe** | auth-cli.mjs default project | `/secondo`, multi-model synthesis | `"$AUTH_NODE" scripts/auth-cli.mjs token` (default) |
+| **Another Firebase app** | `<firebase-project-id>` | That app's auth | `"$AUTH_NODE" scripts/auth-cli.mjs token --project <firebase-project-id>` |
 
 ### When to Use Each Project
 
-#### AI Universe (`ai-universe-b3551`) - DEFAULT
+#### AI Universe (default project) - DEFAULT
 - `/secondo` command for multi-model second opinions
 - AI Universe MCP server calls
 - Multi-model synthesis API
@@ -71,14 +71,13 @@ The script supports **two Firebase projects**. Use the correct one for your use 
 TOKEN=$("$AUTH_NODE" scripts/auth-cli.mjs token)
 ```
 
-#### WorldAI (`worldarchitecture-ai`)
-- Your Project application authentication
-- Firebase auth for the RPG game platform
-- Direct WorldAI API calls
+#### Another Firebase app (`<firebase-project-id>`)
+- Authentication for another Firebase-backed application that auth-cli.mjs knows
+- For the WorldAI app, prefer the `worldai-auth` skill from the `worldarchitect` plugin
 
 ```bash
 # Use an existing verified token or supported silent refresh immediately.
-TOKEN=$("$AUTH_NODE" scripts/auth-cli.mjs token --project worldarchitecture-ai)
+TOKEN=$("$AUTH_NODE" scripts/auth-cli.mjs token --project <firebase-project-id>)
 ```
 
 ## Prerequisites
@@ -101,8 +100,8 @@ starting login.
 # AI Universe (default) - for /secondo
 "$AUTH_NODE" scripts/auth-cli.mjs login
 
-# WorldAI - for Your Project
-"$AUTH_NODE" scripts/auth-cli.mjs login --project worldarchitecture-ai
+# Another Firebase app
+"$AUTH_NODE" scripts/auth-cli.mjs login --project <firebase-project-id>
 ```
 
 **What happens:**
@@ -133,8 +132,8 @@ starting login.
 TOKEN=$("$AUTH_NODE" scripts/auth-cli.mjs token)
 test -n "$TOKEN" && printf 'Token available\n'
 
-# For WorldAI project
-TOKEN=$("$AUTH_NODE" scripts/auth-cli.mjs token --project worldarchitecture-ai)
+# For another Firebase app
+TOKEN=$("$AUTH_NODE" scripts/auth-cli.mjs token --project <firebase-project-id>)
 ```
 
 **Token Behavior:**
@@ -167,14 +166,14 @@ This enables seamless 30+ day sessions.
 ### Script Not Found or Missing Dependencies
 
 ```bash
-# Option 1: Run from ai_universe project
-cd ~/projects/ai_universe && "$AUTH_NODE" scripts/auth-cli.mjs status
+# Option 1: Run from the AI Universe checkout
+cd "$AI_UNIVERSE_ROOT" && "$AUTH_NODE" scripts/auth-cli.mjs status
 
-# Option 2: Install deps in ~/.claude
-cd ~/.claude && npm install express
+# Option 2: Install deps in ${CLAUDE_HOME:-$HOME/.claude}
+cd "${CLAUDE_HOME:-$HOME/.claude}" && npm install express
 
 # Option 3: Copy working script
-cp ~/projects/ai_universe/scripts/auth-cli.mjs ${CLAUDE_HOME:-$HOME/.claude}/scripts/
+cp "$AI_UNIVERSE_ROOT/scripts/auth-cli.mjs" ${CLAUDE_HOME:-$HOME/.claude}/scripts/
 ```
 
 ### PROJECT_NUMBER_MISMATCH Error
@@ -193,7 +192,7 @@ This means the token was created for a different Firebase project than you're tr
 # and a verified task-owned isolated browser, never personal Chrome.
 # Then, if authorized, log in for the correct project:
 "$AUTH_NODE" scripts/auth-cli.mjs login                              # AI Universe
-"$AUTH_NODE" scripts/auth-cli.mjs login --project worldarchitecture-ai  # WorldAI
+"$AUTH_NODE" scripts/auth-cli.mjs login --project <firebase-project-id>  # Another Firebase app
 ```
 
 ### Port 9005 Already in Use
@@ -233,19 +232,19 @@ TOKEN=$("$AUTH_NODE" scripts/auth-cli.mjs token)
 | Command | Project | Authentication |
 |---------|---------|----------------|
 | `/secondo` | AI Universe | `"$AUTH_NODE" scripts/auth-cli.mjs token` (default) |
-| WorldAI API | WorldAI | `"$AUTH_NODE" scripts/auth-cli.mjs token --project worldarchitecture-ai` |
+| Another app's API | `<firebase-project-id>` | `"$AUTH_NODE" scripts/auth-cli.mjs token --project <firebase-project-id>` |
 
 ## Keeping Scripts in Sync
 
-The source of truth for `auth-cli.mjs` is `~/projects/ai_universe/scripts/auth-cli.mjs`.
+The source of truth for `auth-cli.mjs` is `$AI_UNIVERSE_ROOT/scripts/auth-cli.mjs`.
 
 To sync to other locations:
 ```bash
 # Sync to project .claude/scripts/
-cp ~/projects/ai_universe/scripts/auth-cli.mjs .claude/scripts/
+cp "$AI_UNIVERSE_ROOT/scripts/auth-cli.mjs" .claude/scripts/
 
 # Sync to user ${CLAUDE_HOME:-$HOME/.claude}/scripts/
-cp ~/projects/ai_universe/scripts/auth-cli.mjs ${CLAUDE_HOME:-$HOME/.claude}/scripts/
+cp "$AI_UNIVERSE_ROOT/scripts/auth-cli.mjs" ${CLAUDE_HOME:-$HOME/.claude}/scripts/
 ```
 
 ## Related Skills

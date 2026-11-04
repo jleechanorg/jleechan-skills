@@ -62,7 +62,7 @@ Use this same verified `AUTH_NODE` executable for every command below.
 | --- | --- |
 | Quick question (when SlashCommand is working) | `/secondo "Should I use Redis or in-memory caching?"` |
 | Build MCP request with PR context | `python3 skills/second_opinion_workflow/scripts/build_second_opinion_request.py "$REQUEST_FILE" "QUESTION" 3 origin/main` |
-| Call MCP via HTTPie | `http POST https://ai-universe-backend-dev-114133832173.us-central1.run.app/mcp "Authorization:Bearer $TOKEN" < "$REQUEST_FILE" --timeout=180 --print=b` |
+| Call MCP via HTTPie | `http POST "$AI_UNIVERSE_MCP_URL" "Authorization:Bearer $TOKEN" < "$REQUEST_FILE" --timeout=180 --print=b` |
 | Parse embedded JSON response | `jq -r '.result.content[0].text' "$RESPONSE_FILE" > "$PARSED_FILE"` |
 | Summarize models/costs | `python3 skills/second_opinion_workflow/scripts/parse_second_opinion.py "$PARSED_FILE"` |
 | End-to-end helper | `skills/second_opinion_workflow/scripts/request_second_opinion.sh "QUESTION" [MAX_OPINIONS]` |
@@ -89,7 +89,7 @@ Use this same verified `AUTH_NODE` executable for every command below.
    ```
 4. **Send request** (allowing up to 180s for cold starts):
    ```bash
-   http POST https://ai-universe-backend-dev-114133832173.us-central1.run.app/mcp \
+   http POST "$AI_UNIVERSE_MCP_URL" \
      "Accept:application/json, text/event-stream" \
      "Authorization:Bearer $TOKEN" \
      < "$REQUEST_FILE" \
@@ -97,7 +97,7 @@ Use this same verified `AUTH_NODE` executable for every command below.
      --print=b > "$RESPONSE_FILE"
    ```
 5. **Parse embedded JSON** and display the summary with the parser tracked in
-   the `worldarchitect.ai` repository. Run this workflow from that repository's
+   the repository that ships `skills/second_opinion_workflow/scripts/`. Run this workflow from that repository's
    root so the relative path resolves:
    ```bash
    jq -r '.result.content[0].text' "$RESPONSE_FILE" > "$PARSED_FILE"

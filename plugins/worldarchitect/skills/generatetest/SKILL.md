@@ -771,5 +771,5 @@ LOW: Documentation, edge cases
   policy (layers, evidence class table, unit-test exceptions, bundle anatomy).
   This skill's evidence bundle format is a concrete implementation of that policy
   for `testing_mcp/` E2E tests.
-- Repo-level the `evidence-standards` skill — your-project.com-specific
+- The repo-level `evidence-standards` skill — your-project.com-specific
   extensions (dice-claim, campaign-isolation, BigQuery, Gemini specifics).

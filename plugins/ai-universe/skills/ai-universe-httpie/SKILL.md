@@ -42,7 +42,7 @@ export TOKEN=$(node scripts/auth-cli.mjs token)
 ### MCP Server Configuration
 
 ```bash
-MCP_URL="https://ai-universe-backend-dev-114133832173.us-central1.run.app/mcp"
+MCP_URL="${AI_UNIVERSE_MCP_URL:?AI_UNIVERSE_MCP_URL not configured: AI Universe MCP endpoint, e.g. https://<ai-universe-host>/mcp}"
 ```
 
 ## Example: Second Opinion Request
@@ -281,7 +281,7 @@ RESPONSE=$(echo "{
     }
   },
   \"id\": 1
-}" | http POST "https://ai-universe-backend-dev-114133832173.us-central1.run.app/mcp" \
+}" | http POST "$AI_UNIVERSE_MCP_URL" \
   Accept:'application/json, text/event-stream' \
   Authorization:"Bearer $TOKEN" \
   --timeout=180 \

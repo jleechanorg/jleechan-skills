@@ -167,7 +167,7 @@ The statuses and implementation notes below are a snapshot from [source commit `
 | M2 | 🟡 Near Complete | Legacy resolver deletion done; formatter narrowing partially done |
 | M3 | 🟢 Partially Started | Snapshot reported CI grep gates active via `design-doc-gate.yml` (8 gates reported enforced) |
 
-### M2 Work Reported Complete at Snapshot (via [PR #6641](https://github.com/jleechanorg/worldarchitect.ai/pull/6641))
+### M2 Work Reported Complete at Snapshot (via product-repository PR #6641)
 - ✅ `game_state.py` — all legacy resolvers and dataclasses deleted (422 LOC)
 - ✅ `world_logic.py` — `build_level_up_rewards_box()` deleted, all `resolve_level_progression()` calls removed
 - ✅ `agents.py` — `_is_stale_level_up_pending()` deleted, all routing uses `is_level_up_active()`
