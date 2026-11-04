@@ -13,7 +13,7 @@ that do not invoke `/af` follow the normal coding workflow.
 ## Target contract
 
 1. Resolve the exact target repository from the supplied issue/PR URL or the
-   current repository. Never default to `your-project.com`, and never match a
+   current repository. Never default to a previously used or hardcoded repository, and never match a
    same-number issue or PR in another repository.
 2. For an existing PR, add or preserve its `factory` label in that repository.
    For a new goal, create or update a factory-labeled GitHub issue or local bead
@@ -39,6 +39,6 @@ that do not invoke `/af` follow the normal coding workflow.
 ## Monitoring
 
 Use the platform supervisor (`launchctl` on macOS, `systemctl --user` on Linux),
-the daemon JSONL telemetry under `~/Library/Logs/dark-factory/`, and the exact
+the daemon JSONL telemetry under `$DARK_FACTORY_LOG_DIR` (default `${XDG_STATE_HOME:-$HOME/.local/state}/dark-factory`; macOS installs may log to `~/Library/Logs/dark-factory/`), and the exact
 worker session output. Report the target artifact URL, factory state, current
 head SHA, gates, and any actionable blocker.

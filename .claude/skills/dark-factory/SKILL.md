@@ -8,7 +8,7 @@ description: "Run the Dark Factory DOT pipeline runner against a goal. Slash com
 ## Purpose
 
 Run a goal through the Dark Factory `.dot` pipeline runner at
-`~/projects/dark-factory/`. The runner is the Python implementation of
+`$DARK_FACTORY_HOME` (resolved by `resolve_dark_factory_home` below). The runner is the Python implementation of
 StrongDM's Attractor pattern (cf. brynary/attractor, strongdm/attractor).
 
 Versus an in-Claude goal harness:
@@ -49,9 +49,9 @@ echoed in the run evidence.
 
 ## Repos
 
-- `~/projects/dark-factory/` — the runner (factory code; agent can see this)
-- `~/projects/dark-factory-holdouts/` — sealed scenarios (agent must NEVER read)
-- Pushed: `https://github.com/jleechanorg/dark-factory` + `dark-factory-holdouts`
+- `$DARK_FACTORY_HOME` — the runner checkout (factory code; agent can see this)
+- `$DARK_FACTORY_HOLDOUTS` — sealed scenarios checkout (agent must NEVER read)
+- Upstream: `$DARK_FACTORY_REPO_URL` (required for install steps); keep holdouts in a private repository you control
 
 ## Available pipelines
 
@@ -118,7 +118,7 @@ task, not a deterministic rule table (no `if is_draft then X`, no
    parent task under active repository role and execution constraints.
    Do not force a pipeline run before it is ready); holdout
    eligibility (pass `--feature <name>` only if
-   `~/projects/dark-factory-holdouts/holdouts/<feature>/` actually
+   `$DARK_FACTORY_HOLDOUTS/holdouts/<feature>/` actually
    exists — never invent one); and what evidence mix (`/es` + `/er` +
    `/code_standards` minimum, `holdout_eval` for behavior-grade) the
    pipeline needs to deliver without over-running.
@@ -244,7 +244,7 @@ Honor these flags inside `$ARGUMENTS`:
   retired; the slim two-node shape is the new default across the board.
 - `--feature <name>` — holdout feature. Required when the pipeline includes a
   `holdout_eval` node, but never default it blindly: pass it only after
-  confirming `~/projects/dark-factory-holdouts/holdouts/<name>/` actually
+  confirming `$DARK_FACTORY_HOLDOUTS/holdouts/<name>/` actually
   exists (`hello` is a real, feature-agnostic holdout and a reasonable choice
   when the goal has no more specific holdout, but confirm the directory
   exists before passing it rather than defaulting unconditionally — see
@@ -304,7 +304,7 @@ resolve_dark_factory_home() {
 2. **Environment**:
    ```bash
    resolve_dark_factory_home || exit 1
-   export DARK_FACTORY_HOLDOUTS="${DARK_FACTORY_HOLDOUTS:-$HOME/projects/dark-factory-holdouts}"
+   export DARK_FACTORY_HOLDOUTS="${DARK_FACTORY_HOLDOUTS:?DARK_FACTORY_HOLDOUTS not configured: your sealed holdouts checkout. Example: export DARK_FACTORY_HOLDOUTS=$HOME/src/dark-factory-holdouts}"
    export PATH="$HOME/.local/bin:$PATH"
    ```
 
@@ -336,7 +336,7 @@ resolve_dark_factory_home() {
 
 6. **Sealed holdouts reminder**. If the run included a `holdout_eval` node,
    remind the user that you (and any subagent) did NOT see the scenarios at
-   `~/projects/dark-factory-holdouts/holdouts/<feature>/` — only the
+   `$DARK_FACTORY_HOLDOUTS/holdouts/<feature>/` — only the
    PASS/FAIL verdict per scenario name leaked back.
 
 ## Reviewer calibration (default on)
@@ -419,7 +419,7 @@ For executed pipeline runs, provide this proof block:
 # CLI backend: <detected-or-override> (source: <BASH_FUNC_X%%|explicit --backend|default>)
 # Literal command run:
 cd /path/to/<target-repo>
-DARK_FACTORY_HOLDOUTS=~/projects/dark-factory-holdouts \
+DARK_FACTORY_HOLDOUTS="$DARK_FACTORY_HOLDOUTS" \
 PATH="$HOME/.local/bin:$PATH" \
 dark-factory \
   --pipeline <chosen-or-generated-dot> \
@@ -443,9 +443,9 @@ Plus the per-node trace and, on failure, the Healer report.
 
 To add a new sealed-holdout feature `foo`:
 
-1. Write `~/projects/dark-factory/specs/foo.md` (agent-visible).
-2. Write `~/projects/dark-factory/prompts/foo/{plan,implement,fix}.md`.
-3. Write `~/projects/dark-factory-holdouts/holdouts/foo/scenarios.yaml`
+1. Write `$DARK_FACTORY_HOME/specs/foo.md` (agent-visible).
+2. Write `$DARK_FACTORY_HOME/prompts/foo/{plan,implement,fix}.md`.
+3. Write `$DARK_FACTORY_HOLDOUTS/holdouts/foo/scenarios.yaml`
    in the sealed repo (the implementing agent must never read this).
 4. Either reuse `pipelines/factory/hello.dot` (which is feature-agnostic) by
    passing `--feature foo`, or write `pipelines/factory/foo.dot` with custom
@@ -489,7 +489,7 @@ Whenever `dark-factory review` completes, the agent MUST immediately report:
 - Never rewrite or summarize a failed review (`verdict: fail`, exit code 2) as a success, pass, or confirmation.
 - Never claim a PR is `/ready`, `/green`, or "All gates passing" when the review verdict is `fail` or when CI checks are pending/failing.
 - Never claim a holdout passed if you read the scenarios — that breaks the
-  adversarial guarantee. If you read `~/projects/dark-factory-holdouts/`,
+  adversarial guarantee. If you read `$DARK_FACTORY_HOLDOUTS/`,
   declare the run **invalid** and rerun the pipeline.
 - If `--backend echo` was used, label the run as a wiring smoke, not a real
   validation.
@@ -508,7 +508,7 @@ Whenever `dark-factory review` completes, the agent MUST immediately report:
   requested method needs authorization; do not silently substitute a
   holdout-bearing pipeline.
 - Do not invent `--feature` values. If there's no holdout directory at
-  `~/projects/dark-factory-holdouts/holdouts/<feature>/`, don't pass `--feature`.
+  `$DARK_FACTORY_HOLDOUTS/holdouts/<feature>/`, don't pass `--feature`.
 - When the goal is unrelated to the open PR (Step 0a), **ask the user** which
   mode they meant. Do not silently route to PR-mode for unrelated work.
 - When the fix loop exhausts (3 attempts), surface its failure diagnosis and

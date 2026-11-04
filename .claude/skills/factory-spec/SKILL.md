@@ -11,8 +11,8 @@ Dark Factory runs via the **`dark-factory` binary**, not `python -m runner` from
 a raw checkout:
 
 ```bash
-~/projects/dark-factory/install.sh
-export DARK_FACTORY_HOME=~/projects/dark-factory
+export DARK_FACTORY_HOME="${DARK_FACTORY_HOME:?DARK_FACTORY_HOME not configured: your dark-factory checkout. Example: export DARK_FACTORY_HOME=$HOME/src/dark-factory}"
+"$DARK_FACTORY_HOME"/install.sh
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
@@ -48,7 +48,7 @@ adversarial codex reviewer signs off on **both** before exit. Pass
 4. Run the spec-generation pipeline from the target project's cwd:
 
    ```bash
-   export DARK_FACTORY_HOME=~/projects/dark-factory
+   export DARK_FACTORY_HOME="${DARK_FACTORY_HOME:?DARK_FACTORY_HOME not configured}"
    export PATH="$HOME/.local/bin:$PATH"
    dark-factory --pipeline slim/spec_gen.dot --goal "<Step-0 context + description>"
    ```
@@ -102,8 +102,8 @@ required line means the run is unproven:
 ```bash
 # Literal command run:
 cd /path/to/<target-repo>
-DARK_FACTORY_HOME=~/projects/dark-factory \
-DARK_FACTORY_HOLDOUTS=~/projects/dark-factory-holdouts \
+DARK_FACTORY_HOME="$DARK_FACTORY_HOME" \
+DARK_FACTORY_HOLDOUTS="$DARK_FACTORY_HOLDOUTS" \
 PATH="$HOME/.local/bin:$PATH" \
 dark-factory \
   --pipeline pipelines/slim/spec_gen.dot \
@@ -163,7 +163,7 @@ Short names for `--pipeline`: `two_node`, `spec_gen`, `gates`, `hello`, `pr_gate
 **Repo-specific pipelines (target-repo subdir convention):** graphs that
 hardcode the target repo's own slash commands or repo-specific review
 lanes belong at `<target_repo>/dark-factory/pipelines/<name>.dot`, not
-in `~/projects/dark-factory/pipelines/`. The runner resolves bare
+in `$DARK_FACTORY_HOME/pipelines/`. The runner resolves bare
 filenames against `<workdir>/dark-factory/pipelines/` **before** falling
 through to `$DARK_FACTORY_HOME/pipelines/`, so an operator in the target
 repo can pass `--pipeline my_repo_lane.dot` and the runner finds it

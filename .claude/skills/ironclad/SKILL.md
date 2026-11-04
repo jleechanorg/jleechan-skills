@@ -12,7 +12,7 @@ The shared catalog preserves host-installed `/advice` and `/web-advice` integrat
 
 **Provenance of the standard** (mined via /ms + /history, week of 2026-07-05..12):
 - User, 2026-07-12 (session 40c1f666): *"whenever i do /goal i want the llm to brainstorm some ironclad exit criteria **better than what i asked for** and then run it"* → became the `~/.claude/hooks/goal-exit-criteria.sh` UserPromptSubmit hook (criteria count per Scope and process ceiling below; the literal condition is the floor).
-- User, 2026-07-10 (worldai-2d /goal): *"make ironclad exit criteria and **iterate until the game truly working**"* → ironclad implies an iterate-until-verified loop, not a one-shot checklist.
+- User, 2026-07-10 (/goal on a game project): *"make ironclad exit criteria and **iterate until the game truly working**"* → ironclad implies an iterate-until-verified loop, not a one-shot checklist.
 - Exit-criteria charter (dark-factory `cutover-exit-criteria.md`, R1–R6 + X1–X10; adopted by the spec-design-docs skill): binary, executable, externally anchored; implementer-authored artifacts are corroborating, never sufficient; the verifier **reproduces** rather than inspects; satisfied-via-mock/dry-run = FAIL; default verdict is FAIL.
 - Live validation (DK2D mission, 2026-07-12): iterate-until blocked premature closure, and independent verification caught a stale-bundle over-claim.
 
@@ -35,7 +35,7 @@ Reuse the active tracker and goal state. Create a new bead, roadmap file, STATE 
 
 ## Derived, not asserted (binds every agent, including the orchestrator)
 
-Measured 2026-09-06 across one mission (`~/roadmap/STATE-pr9739-honest-evidence-2026-09-06.md`): the orchestrator (Opus) produced 5 wrong claims of this class, Sonnet lanes 1–2, Gemini flash 2. The class is model-agnostic and the agent writing the contract is not exempt from it. These rules govern *how* a claim is made, not how many claims a task needs — criteria count still follows Proportionality below. Every count, SHA, path, ID, and state named in a criterion or a completion report is **derived at the moment of claiming**, never recalled from an earlier step, a prior report, or a lossy tool summary.
+Measured 2026-09-06 across one mission (an internal mission state doc): the orchestrator (Opus) produced 5 wrong claims of this class, Sonnet lanes 1–2, Gemini flash 2. The class is model-agnostic and the agent writing the contract is not exempt from it. These rules govern *how* a claim is made, not how many claims a task needs — criteria count still follows Proportionality below. Every count, SHA, path, ID, and state named in a criterion or a completion report is **derived at the moment of claiming**, never recalled from an earlier step, a prior report, or a lossy tool summary.
 
 - **Verify against a committed SHA, never an intermediate tree.** Editor diagnostics and a dirty worktree reflect whatever is open, not what was committed. Confirm a defect exists at `git show <sha>:<path>` before reporting it.
 - **Never cite the `gh pr checks` summary.** It prints only `Passed: N / Failed: 0` and structurally omits SKIPPED and NEUTRAL, so `N/N PASS` is a natural misreading. Use `gh pr view --json statusCheckRollup` grouped by `(.conclusion // .state)` and report every bucket. Skipped is not passed. Neutral is not passed.
@@ -150,14 +150,14 @@ empty `git log` still yields one line). Strip ANSI before grepping tool output.
 Filled example (one step of a docs bead):
 
 ```
-Steps:       1. grep -q "test_core_memory_prompt_arm_real_e2e" testing_mcp/CLAUDE.md
+Steps:       1. grep -q "test_feature_real_e2e" tests/CLAUDE.md
                 && echo PASS D1 || { echo FAIL D1; exit 1; }
-             2. In testing_mcp/CLAUDE.md, directly after the table row beginning
-                "| `testing_mcp/core/test_level_up_organic.py` |", insert the row:
-                | `testing_mcp/core/test_core_memory_prompt_arm_real_e2e.py` | Direct Gemini SDK only: ... |
+             2. In tests/CLAUDE.md, directly after the table row beginning
+                "| `tests/core/test_existing_feature.py` |", insert the row:
+                | `tests/core/test_feature_real_e2e.py` | Real provider SDK only: ... |
 RED:         step 1 before the edit → FAIL D1
 GREEN:       step 1 after the edit → PASS D1
-Report:      br --no-auto-flush comments add rev-1bjrp.2.4 "<paste the PASS/FAIL lines of steps 1 and 3>"
+Report:      br --no-auto-flush comments add <bead-id> "<paste the PASS/FAIL lines of steps 1 and 3>"
 ```
 
 ## Termination and proportionality
@@ -199,4 +199,4 @@ Before launching any long-running cleanup / reclaim / sustain loop, ask:
 
 Measure the *rate*, not the *level*: if the fill rate exceeds the reclaim rate, the goal is unreachable without addressing the producer, no matter how many reclaim passes you run.
 
-**Incident (2026-07-23):** an agent spent 25+ minutes grinding cache reclaims on `<operator-host>` while AO created `/private/tmp/your-project.com` scratch at ~3 GB/min. "Free ≥ 100 GB sustained 60 min" was structurally unreachable until AGY was paused, but the agent kept reclaiming because the user had said "do all the work i asked". A user instruction to be thorough is not a reason to pursue a structurally impossible goal — surface the blocker instead. Memory: `feedback_2026-07-23_ao_respawner_blocks_disk_reclaim.md`.
+**Incident (2026-07-23):** an agent spent 25+ minutes grinding cache reclaims on `<operator-host>` while AO created `/private/tmp/<repo>` scratch at ~3 GB/min. "Free ≥ 100 GB sustained 60 min" was structurally unreachable until AGY was paused, but the agent kept reclaiming because the user had said "do all the work i asked". A user instruction to be thorough is not a reason to pursue a structurally impossible goal — surface the blocker instead. Memory: `feedback_2026-07-23_ao_respawner_blocks_disk_reclaim.md`.

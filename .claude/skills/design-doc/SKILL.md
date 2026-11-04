@@ -28,7 +28,7 @@ When invoked, execute these steps immediately. This is NOT documentation — the
    - **Binary**: pass/fail, no partial credit
    - **Executable**: a stated command or observable check
    - **Externally anchored**: verified at the layer users experience — real system-of-record state, not implementer-authored logs/telemetry
-3. **Ground rules** (per `~/projects/dark-factory/docs/cutover-exit-criteria.md`, R1–R6 + X1–X10 charter, hardened 2026-07-04 by a 3-reviewer adversarial pass): implementer-authored artifacts are corroborating, never sufficient; the verifier reproduces rather than inspects; satisfied-via-mock/dry-run = FAIL; default verdict is FAIL.
+3. **Ground rules** (per the dark-factory cutover exit-criteria charter, `$DARK_FACTORY_HOME/docs/cutover-exit-criteria.md` when that checkout is configured, R1–R6 + X1–X10, hardened 2026-07-04 by a 3-reviewer adversarial pass): implementer-authored artifacts are corroborating, never sufficient; the verifier reproduces rather than inspects; satisfied-via-mock/dry-run = FAIL; default verdict is FAIL.
 
 ### Phase 0.5: Multi-Perspective Analysis
 
@@ -411,7 +411,7 @@ Before coding:
 → [feature]_eng_design.md
 → [feature]_implementation_plan.md
 
-/design multiplayer-campaigns --type=feature
+/design multiplayer-sessions --type=feature
 → Full 3-doc suite
 
 /design fix-login-bug --type=bugfix
@@ -432,7 +432,7 @@ The `/design` command succeeds when:
 
 ## Source
 
-Generalized from `your-project.com/.claude/commands/design.md` (1140 lines, 35KB).
+Generalized from a product repository's design command (1140 lines, 35KB).
 Original repo-specific backup is preserved in the repository archive at
 `.claude/skills_archive/2026-08-27-historical-zero-use/design-doc-backup-worldarchitect/SKILL.md`;
 clean installs intentionally omit it.
@@ -456,7 +456,7 @@ with the older flow above, THIS section wins** — run Phase 0 first, batch-deci
   questioning; one consolidated review checkpoint; then proceed.
 - Write exit criteria as the FIRST spec section: binary, executable, externally anchored (real
   system-of-record state, never implementer-authored logs). Mock/dry-run satisfaction = FAIL;
-  default verdict is FAIL. (Charter: ~/projects/dark-factory/docs/cutover-exit-criteria.md R1-R6+X1-X10.)
+  default verdict is FAIL. (Charter: `$DARK_FACTORY_HOME/docs/cutover-exit-criteria.md` R1-R6+X1-X10.)
 - Run an adversarial review (pass|warn|fail, fix all P0/P1) between spec→design and design→plan.
 
 ### Optional HTML+MD output mode (from the retired `design` skill)

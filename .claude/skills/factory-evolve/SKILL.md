@@ -118,7 +118,7 @@ Aggregate Phase 1 (history) + Phase 2 (subagent findings) + Phase 3 (structural)
 # Factory-Evolve Proposals — YYYY-MM-DD
 
 **Window:** last Nh (YYYY-MM-DD → YYYY-MM-DD UTC)
-**Repo:** `jleechanorg/<repo>` at main `<sha>`
+**Repo:** `$GITHUB_REPOSITORY` at main `<sha>`
 **Tool:** `/fe` — `<flags>`
 **Search:** `/history` (multi-source) → <count> factory invocations, <count> cold-review catches
 
@@ -158,7 +158,7 @@ Aggregate Phase 1 (history) + Phase 2 (subagent findings) + Phase 3 (structural)
 4. **Write tests** (unit + count-pinning per the `~/.claude/CLAUDE.md` "Count-pinning tests" memory entry).
 5. **Verify locally**: `.venv/bin/python -m pytest tests/` (full suite must be green).
 6. **Push the branch**: `git push -u origin <branch>`. **Verify pre-push target matches intended PR branch** per the pre-push check rule.
-7. **Open the PR**: `gh pr create --repo jleechanorg/<repo> --draft --base main --head <branch>` with a body following `~/.codex/AGENTS.md` § PR descriptions (canonical owner), plus the target repository's `AGENTS.md`/`CLAUDE.md` and PR template when present.
+7. **Open the PR**: `gh pr create --repo "$GITHUB_REPOSITORY" --draft --base main --head <branch>` with a body following `~/.codex/AGENTS.md` § PR descriptions (canonical owner), plus the target repository's `AGENTS.md`/`CLAUDE.md` and PR template when present.
 
 The draft body is complete when the draft opens; draft status does not defer
 the description contract. Write the body to a temporary file and pass it with
