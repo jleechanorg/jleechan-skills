@@ -62,20 +62,80 @@ class PrLifecycleAnchorResolution(unittest.TestCase):
 
 
 class PrLifecycleSectionReferences(unittest.TestCase):
-    """Every in-file `§ Heading` reference in pr-lifecycle names a real heading."""
+    """Every `§ Heading` reference to pr-lifecycle, in-file or from another skill, names a real heading.
 
-    def test_self_section_references_resolve(self):
+    A reference resolves when a leading run of its words equals a heading, or the part of a heading
+    before its parenthetical or em-dash subtitle, and the remaining words (if any) follow a comma or start with a
+    sentence joiner or dash. Bare prefixes such as `§ Merge` do not resolve.
+    """
+
+    REF = re.compile(r"§\s*[\"`]?([A-Z][^§.;:()`\"\n]*)")
+    JOINERS = {"or", "and", "in", "for", "takes", "to", "still", "governs", "instead", "before",
+               "after", "including", "applies", "with", "that", "is", "are", "owns", "below", "above",
+               "\u2014", "-"}
+
+    @classmethod
+    def _headings(cls):
         text = (SKILLS / "pr-lifecycle" / "SKILL.md").read_text(encoding="utf-8")
-        headings = [line.lstrip("#").strip() for line in text.splitlines() if line.startswith("#")]
-        unresolved = []
-        for match in re.finditer(r"§ ([A-Z][^.;:,()`\n]*)", text):
-            line_prefix = text[: match.start()].rsplit("\n", 1)[-1][-90:]
-            if "SKILL.md" in line_prefix or "AGENTS.md" in line_prefix:
-                continue  # reference into another file
-            ref = match.group(1).strip()
-            if not any(ref == h or ref.startswith(h + " ") or h.startswith(ref + " (") for h in headings):
-                unresolved.append(ref)
-        self.assertEqual(unresolved, [], f"unresolved § references: {unresolved}")
+        heads, fenced = [], False
+        for line in text.splitlines():
+            if line.lstrip().startswith("```"):
+                fenced = not fenced
+            elif not fenced and line.startswith("#"):
+                heads.append(line.lstrip("#").strip())
+        return heads
+
+    @classmethod
+    def _resolves(cls, ref, heads):
+        words = ref.strip().split()
+        for k in range(len(words), 0, -1):
+            cand = " ".join(words[:k]).rstrip(",")
+            rest = words[k:]
+            ends_clause = words[k - 1].endswith(",")
+            if rest and not ends_clause and rest[0].lower() not in cls.JOINERS:
+                continue
+            for h in heads:
+                if cand == h or h.startswith(cand + " (") or h.startswith(cand + " \u2014"):
+                    return True
+        return False
+
+    @classmethod
+    def _references(cls):
+        refs = []
+        own = (SKILLS / "pr-lifecycle" / "SKILL.md").read_text(encoding="utf-8")
+        for n, line in enumerate(own.splitlines(), 1):
+            for m in cls.REF.finditer(line):
+                before = line[: m.start()][-90:]
+                if "SKILL.md" in before or "AGENTS.md" in before or "pr-green-definition" in before:
+                    continue  # points into another file
+                refs.append((f"pr-lifecycle:{n}", m.group(1)))
+        for path in sorted(SKILLS.rglob("SKILL.md")):
+            if path.parent.name == "pr-lifecycle":
+                continue
+            for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                for m in cls.REF.finditer(line):
+                    before = line[: m.start()]
+                    k = before.rfind("pr-lifecycle")
+                    if k < 0:
+                        continue
+                    between = before[k + len("pr-lifecycle"):]
+                    if len(between) > 60 or re.search(r"[a-z0-9]+-[a-z0-9-]+(/SKILL\.md)?`", between):
+                        continue  # the reference belongs to a different skill named later
+                    refs.append((f"{path.parent.name}:{n}", m.group(1)))
+        return refs
+
+    def test_section_references_resolve(self):
+        heads = self._headings()
+        refs = self._references()
+        self.assertGreater(len(refs), 10)
+        unresolved = [(where, ref.strip()) for where, ref in refs if not self._resolves(ref, heads)]
+        self.assertEqual(unresolved, [], f"unresolved pr-lifecycle section references: {unresolved}")
+
+    def test_bare_prefix_and_unknown_references_do_not_resolve(self):
+        heads = self._headings()
+        for bad in ("Merge", "Merge for details", "Review", "Coding", "Nonexistent section"):
+            with self.subTest(bad=bad):
+                self.assertFalse(self._resolves(bad, heads))
 
 
 if __name__ == "__main__":
