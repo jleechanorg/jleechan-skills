@@ -106,3 +106,6 @@ backup/
 
 # Beads
 .doctor/
+
+# Installer staging debris left by failed test runs
+.staging.*/
