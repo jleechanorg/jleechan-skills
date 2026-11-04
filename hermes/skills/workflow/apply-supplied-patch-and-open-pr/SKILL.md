@@ -1,6 +1,6 @@
 ---
 name: apply-supplied-patch-and-open-pr
-version: 1.1.0
+version: 1.3.0
 description: |
   When a user (often via Slack, GitHub, or email) sends a pre-built patch + a
   structured instructions file (UPSTREAM-PROMPT.md style) and asks you to open
@@ -16,6 +16,12 @@ description: |
   type), and P10 (pre-existing test-failure attribution via stash/reset/
   restore). Verified case #3 (2026-07-21, dark-factory PR #407 skeptic-
   gate deletion + receipt-gate-reviewer follow-up commit).
+
+  v1.3.0 adds Pitfall P11 (a verified patch bundle whose base has drifted
+  must be re-derived on current main, not replayed; includes the
+  content-multiset preservation proof and the draft-PR baseline probe for
+  inherited CI failures). Verified case 2026-11-04, jleechan-skills
+  pr-lifecycle compaction bundle.
 
 when_to_use: |
   - User message has an attached `.patch`/`.diff` file AND a text description
@@ -743,6 +749,44 @@ in <2s). The user explicitly stated the new patch supersedes the old — the
 - ❌ Deleting the prior branch — leaves no diff trail if the new PR is reverted
 - ❌ Forgetting to mention the prior PR in the new PR body — CodeRabbit
   reviewers will see two PRs for the same feature and ask which is canonical
+
+## P11 — A verified bundle whose base has drifted must be re-derived, not replayed
+
+A bundle can be internally perfect and still be wrong to land: the patch series reproduces a pinned
+tree hash, but `origin/main` moved past it. Verified case 2026-11-04 (jleechanorg/jleechan-skills):
+a 34-patch `pr-lifecycle` compaction series verified `git rev-parse HEAD^{tree}` ==
+`deb7d05f5297…` at its stated base, and `main` had moved 21 commits since — including the review-routing
+policy (`#667`, `#673`, `#675`) the series predated. Replaying it forced 35 conflict hunks in 10 files
+whose "ours" side would have reverted table-selected source review.
+
+Diagnose before you resolve:
+
+1. **Confirm the bundle is intact** — `git am --3way` at the stated base, then compare
+   `git rev-parse HEAD^{tree}` to the hash in the handoff README. A mismatch means the bundle is
+   corrupt; stop.
+2. **Measure drift** — `git rev-list --count <base>..origin/main` and
+   `git diff --name-only <base>..origin/main`. Intersect that with the patch series's own file list.
+   Zero drift → normal `git am`. Non-zero → step 3.
+3. **Classify each conflict, do not merge it** — if the "theirs" side carries *policy* the bundle
+   predates (new routing tables, new gates, new helper scripts), the bundle is superseded. A merge
+   commit here silently reverts policy while looking like a clean conflict resolution. If the other
+   side is only cosmetic reflow, take the bundle side.
+4. **Re-derive on current `main` instead of replaying.** For a split/compaction bundle the mechanical
+   form works well: parse `main`'s file by heading, move each block **verbatim** into its new part,
+   and leave a one-line pointer where it was. No prose rewriting, so no semantics to re-review.
+5. **Prove content preservation, not just test green** — compare the non-empty-line multiset of the
+   original file against the union of the new files. Expect `missing == 0`; the only extra lines should
+   be the pointers and part intros. Report both counts.
+6. **Say in the PR body why the bundle was not replayed**, naming the commits that superseded it. The
+   reviewer will otherwise ask for the 34-commit history.
+
+When only part of the bundle survives, land each surviving part as its own PR (scope split) and report
+the superseded remainder as a decision, not as a silent drop.
+
+Corollary for CI: if a bundle's PR inherits failures the environment produces, prove it with a
+throwaway branch from the PR's exact base, open it as a **draft** PR whose only diff is a comment,
+compare the `FAILED tests/...` name sets, then close it and delete the branch. That is the cheapest
+honest same-SHA baseline when the workflow has no `workflow_dispatch` trigger.
 
 ## Verified case
 
