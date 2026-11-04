@@ -13,7 +13,7 @@ The shared catalog preserves host-installed `/advice` and `/web-advice` integrat
 **Provenance of the standard** (mined via /ms + /history, week of 2026-07-05..12):
 - User, 2026-07-12 (session 40c1f666): *"whenever i do /goal i want the llm to brainstorm some ironclad exit criteria **better than what i asked for** and then run it"* → became the `~/.claude/hooks/goal-exit-criteria.sh` UserPromptSubmit hook (criteria count per Scope and process ceiling below; the literal condition is the floor).
 - User, 2026-07-10 (worldai-2d /goal): *"make ironclad exit criteria and **iterate until the game truly working**"* → ironclad implies an iterate-until-verified loop, not a one-shot checklist.
-- Exit-criteria charter (dark-factory `cutover-exit-criteria.md`, R1–R6 + X1–X10; adopted by the spec-design-docs skill): binary, executable, externally anchored; implementer-authored artifacts are corroborating, never sufficient; the verifier **reproduces** rather than inspects; satisfied-via-mock/dry-run = FAIL; default verdict is FAIL.
+- Exit-criteria charter (R1–R6 + X1–X10, adopted by the spec-design-docs skill): binary, executable, externally anchored; implementer-authored artifacts are corroborating, never sufficient; the verifier **reproduces** rather than inspects; satisfied-via-mock/dry-run = FAIL; default verdict is FAIL.
 - Live validation (DK2D mission, 2026-07-12): iterate-until blocked premature closure, and independent verification caught a stale-bundle over-claim.
 
 ## Scope and process ceiling

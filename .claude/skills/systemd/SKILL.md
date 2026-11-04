@@ -9,14 +9,14 @@ description: "Linux systemd Job Installation Standards — create, install, and 
 
 Linux sibling of `/launchd` (macOS-only). Defines the canonical standards
 for creating, installing, and managing background systemd **user-mode**
-units + timers on Linux. User mode is the right scope for hermes/dark-factory
-jobs because it needs no root, runs in the user's session, and persists
+units + timers on Linux. User mode is the right scope for hermes and other
+operator jobs because it needs no root, runs in the user's session, and persists
 across logout/reboot when `loginctl enable-linger` is on.
 
 > Cross-platform note: a job that must run on BOTH macOS and Linux ships
-> paired plist + unit templates (see `daemon/launchd/ai.dark-factory.af-tick.plist.template`
-> and `daemon/systemd/ai.dark-factory.daemon.service.template` as the
-> precedent). Pick whichever host matches the operator's machine; do not
+> paired plist + unit templates in its owning repo (for example
+> `daemon/launchd/ai.example.<job>.plist.template` beside
+> `daemon/systemd/ai.example.daemon.service.template`). Pick whichever host matches the operator's machine; do not
 > introduce a third abstraction layer.
 
 ---
@@ -89,10 +89,10 @@ so a script that runs under one scheduler runs identically under the other:
 
 ```bash
 #!/usr/bin/env bash
-# systemd-wrapper.sh — bridge script for dark-factory systemd user units.
+# systemd-wrapper.sh — bridge script for systemd user units.
 #
 # systemd --user services run with a minimal PATH (/usr/bin:/bin) and no
-# sourced shell init. dark-factory tick + audit scripts depend on
+# sourced shell init. Typical tick + audit scripts depend on
 # homebrew/conda tooling (br, gh, sqlite3, python3, callpath, jq) and on
 # the user's git/SSH configuration. This wrapper sources the user's
 # interactive login environment (with set +u / -u guards around the source
@@ -165,8 +165,8 @@ directory, the wrapper script, and logging targets — never inline secrets:
 
 ```ini
 [Unit]
-Description=Dark Factory <job-name>
-Documentation=https://github.com/jleechanorg/dark-factory
+Description=<owning-repo> <job-name>
+Documentation=https://github.com/<owner>/<owning-repo>
 After=network-online.target
 Wants=network-online.target
 
@@ -185,15 +185,15 @@ TimeoutStartSec=600
 # on its own cadence. Restart=on-failure would re-run inside the same
 # OnCalendar slot, violating the launchd ThrottleInterval contract that
 # the macOS twin plist already documents.
-StandardOutput=append:@HOME@/Library/Logs/dark-factory/<job>.log
-StandardError=append:@HOME@/Library/Logs/dark-factory/<job>.err.log
+StandardOutput=append:@HOME@/Library/Logs/<owning-repo>/<job>.log
+StandardError=append:@HOME@/Library/Logs/<owning-repo>/<job>.err.log
 
 [Install]
 WantedBy=default.target
 ```
 
-For **long-running services** (not timer-fired oneshots) — the precedent is
-`daemon/systemd/ai.dark-factory.daemon.service.template`:
+For **long-running services** (not timer-fired oneshots), use a template
+such as `daemon/systemd/ai.example.daemon.service.template`:
 
 ```ini
 [Service]
@@ -208,8 +208,8 @@ KillSignal=SIGINT
 TimeoutStopSec=30s
 Environment=HOME=@HOME@
 Environment=PATH=@HOME@/.local/bin:@HOME@/.cargo/bin:/usr/bin:/bin
-StandardOutput=append:@HOME@/Library/Logs/dark-factory/rust-daemon.out.log
-StandardError=append:@HOME@/Library/Logs/dark-factory/rust-daemon.err.log
+StandardOutput=append:@HOME@/Library/Logs/<owning-repo>/rust-daemon.out.log
+StandardError=append:@HOME@/Library/Logs/<owning-repo>/rust-daemon.err.log
 ```
 
 ---
@@ -224,7 +224,7 @@ timer:
 ```ini
 [Unit]
 Description=Schedule <job-name>.service daily at 03:00 local
-# Mirrors the launchd plist `ai.dark-factory.<job>` cadence. 03:00 chosen
+# Mirrors the launchd plist `ai.example.<job>` cadence. 03:00 chosen
 # because it's a maintenance window, not urgent.
 
 [Timer]
@@ -271,7 +271,7 @@ OnUnitActiveSec=60
 1. Write the target script (the worker) under `daemon/scripts/<job>.sh` and ensure it is executable (`chmod 0755 daemon/scripts/<job>.sh`).
 2. Write the sourced wrapper script (`systemd-wrapper.sh`) to
    `~/.hermes/scripts/systemd-wrapper.sh` and `chmod 0755` it.
-3. Ensure the log directory exists: `mkdir -p "$HOME/Library/Logs/dark-factory"`.
+3. Ensure the log directory exists: `mkdir -p "$HOME/Library/Logs/<owning-repo>"`.
 4. Write the minimal unit template files using `@HOME@` / `@REPO@`
    placeholders (not hardcoded paths), commit them under
    `daemon/systemd/<unit>.service.template` and
@@ -299,8 +299,8 @@ OnUnitActiveSec=60
 | Pattern | Precedent | Notes |
 |---|---|---|
 | Daily 03:00 audit timer | `~/.config/systemd/user/jleechanclaw-slack-thread-auto-park.{timer,service}` | Best template for a G10–G13 audit timer |
-| Sub-minute polling | `~/.config/systemd/user/dark-factory-merge-guard.{timer,service}` | `OnUnitActiveSec=60s` for the 60s merge-guard sweep |
-| Long-running daemon | `daemon/systemd/ai.dark-factory.daemon.service.template` | `Type=notify` + `WatchdogSec=7200` — the right shape when the job isn't timer-fired |
+| Sub-minute polling | `~/.config/systemd/user/<job>.{timer,service}` | `OnUnitActiveSec=60s` for a 60s sweep |
+| Long-running daemon | `daemon/systemd/ai.example.daemon.service.template` | `Type=notify` + `WatchdogSec=7200` — the right shape when the job isn't timer-fired |
 | Installer | `daemon/systemd/install-systemd-user.sh` | `--dry-run`, `--render-only`, `--uninstall` flags; expands `@HOME@`/`@REPO@`; verifies linger |
 | Wrapper | `daemon/launchd/launchd-wrapper.sh` | Linux twin lives at `~/.hermes/scripts/systemd-wrapper.sh` |
 
@@ -310,7 +310,7 @@ OnUnitActiveSec=60
 
 - **Forgot `--user`**: `systemctl enable foo.service` without `--user`
   tries to write to `/etc/systemd/system/` and fails on a non-root shell.
-  Always `systemctl --user` for hermes/dark-factory jobs.
+  Always `systemctl --user` for hermes and other operator jobs.
 - **Forgetting `daemon-reload`**: editing a unit file and re-enabling
   without `daemon-reload` keeps the old unit in effect. Always reload
   between edits.
@@ -356,9 +356,9 @@ journalctl --user -u <job>.service -n 50
 ## Related
 
 - `/launchd` — macOS twin; same tenets, different scheduler
-- `daemon/systemd/install-systemd-user.sh` — canonical installer for the
-  dark-factory daemon service; pair it with sibling templates when adding
-  new units (e.g. `ai.dark-factory.fe-audit.{service,timer}.template`)
+- `daemon/systemd/install-systemd-user.sh` — the owning repo's installer;
+  pair it with sibling templates when adding new units (e.g.
+  `ai.example.<job>.{service,timer}.template`)
 - `~/.claude/CLAUDE.md` "Credentials and authentication" — never store
   tokens in `.env`; `EnvironmentFile=` pointing at 0600 files outside the
   repo is the Linux equivalent

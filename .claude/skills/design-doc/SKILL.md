@@ -28,7 +28,7 @@ When invoked, execute these steps immediately. This is NOT documentation — the
    - **Binary**: pass/fail, no partial credit
    - **Executable**: a stated command or observable check
    - **Externally anchored**: verified at the layer users experience — real system-of-record state, not implementer-authored logs/telemetry
-3. **Ground rules** (per `~/projects/dark-factory/docs/cutover-exit-criteria.md`, R1–R6 + X1–X10 charter, hardened 2026-07-04 by a 3-reviewer adversarial pass): implementer-authored artifacts are corroborating, never sufficient; the verifier reproduces rather than inspects; satisfied-via-mock/dry-run = FAIL; default verdict is FAIL.
+3. **Ground rules** (R1–R6 + X1–X10 exit-criteria charter, hardened 2026-07-04 by a 3-reviewer adversarial pass): implementer-authored artifacts are corroborating, never sufficient; the verifier reproduces rather than inspects; satisfied-via-mock/dry-run = FAIL; default verdict is FAIL.
 
 ### Phase 0.5: Multi-Perspective Analysis
 
@@ -456,7 +456,7 @@ with the older flow above, THIS section wins** — run Phase 0 first, batch-deci
   questioning; one consolidated review checkpoint; then proceed.
 - Write exit criteria as the FIRST spec section: binary, executable, externally anchored (real
   system-of-record state, never implementer-authored logs). Mock/dry-run satisfaction = FAIL;
-  default verdict is FAIL. (Charter: ~/projects/dark-factory/docs/cutover-exit-criteria.md R1-R6+X1-X10.)
+  default verdict is FAIL. (Charter: R1-R6+X1-X10 exit-criteria rules as stated here.)
 - Run an adversarial review (pass|warn|fail, fix all P0/P1) between spec→design and design→plan.
 
 ### Optional HTML+MD output mode (from the retired `design` skill)
