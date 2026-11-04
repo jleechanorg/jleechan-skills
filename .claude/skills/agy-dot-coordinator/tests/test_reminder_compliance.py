@@ -53,6 +53,12 @@ check("body starts with the mandated inventory sentence",
       m.REMINDER_BODY.startswith(m.REMINDER_OPENING))
 check("body mandates the reply labels",
       all(label in m.REMINDER_BODY for label in ('STATUS:', 'ACTIONS + PROOF:', 'BLOCKERS:', 'NEXT:')))
+check("body states standing authorization",
+      'standing owner-authorized scope' in m.REMINDER_BODY)
+check("body preserves the load-bearing original imperatives",
+      all(text in m.REMINDER_BODY for text in (
+          'resume authorized requests', 'avoid duplicate writers',
+          'Six useful tasks is a target', 'Wait quietly only when all work is blocked')))
 check("delivered message stays within the repo's 1,200-byte contract",
       all(len(m.delivery_message(pv, m.REMINDER_BODY).encode()) <= 1200
           for pv in ('agy', 'codex', 'haiku', 'luna', 'minimax', 'gemini')))
@@ -329,8 +335,11 @@ try:
 finally:
     m.generate = orig_generate
 
-check("escalation body mandates the reply labels",
-      all(label in m.ESCALATION_BODY for label in ('STATUS:', 'ACTIONS + PROOF:', 'BLOCKERS:', 'NEXT:')))
+check("escalation body forbids reactions, covers idle status, and preserves standing-authority contract",
+      'Do not reply with an emoji' in m.ESCALATION_BODY
+      and 'idle status without checking feasible work' in m.ESCALATION_BODY
+      and 'standing owner-authorized scope' in m.ESCALATION_BODY
+      and all(label in m.ESCALATION_BODY for label in ('STATUS:', 'ACTIONS + PROOF:', 'BLOCKERS:', 'NEXT:')))
 
 
 # --- escalation path (deterministic, fake dot transport + hermetic LLM stub) ---
@@ -363,6 +372,8 @@ with tempfile.TemporaryDirectory() as workdir:
         recorded = json.loads(state_file.read_text())
         check("reaction-only reply escalates", verdict == 'reaction_only')
         check("escalation was actually sent", capture.exists())
+        check("escalation demands the contract in text",
+              capture.exists() and 'Do not reply with an emoji' in capture.read_text())
         check("state records the non-compliance, escalation, and resets classification failures",
               recorded.get('last_response_status') == 'reaction_only'
               and recorded.get('escalation_verified') is True

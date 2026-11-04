@@ -6,6 +6,7 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+COMMANDS_DIR = REPO_ROOT / ".claude" / "commands" / "extended-library"
 SCRIPTS_DIR = REPO_ROOT / ".claude" / "scripts"
 LEGACY_DIR = REPO_ROOT / "claude_command_scripts"
 
@@ -15,10 +16,13 @@ class LegacyE2ERunnerPathTests(unittest.TestCase):
         for command in ("teste", "tester", "testerc"):
             installed_script = SCRIPTS_DIR / f"{command}.sh"
             legacy_script = LEGACY_DIR / f"{command}.sh"
+            command_doc = (COMMANDS_DIR / f"{command}.md").read_text(encoding="utf-8")
 
             self.assertTrue(installed_script.is_file(), installed_script)
             self.assertTrue(os.access(installed_script, os.X_OK), installed_script)
             self.assertFalse(legacy_script.exists(), legacy_script)
+            self.assertIn(f".claude/scripts/{command}.sh", command_doc)
+            self.assertNotIn(f"claude_command_scripts/{command}.sh", command_doc)
 
     def test_real_wrappers_fail_before_prompt_when_required_key_is_missing(self):
         cases = (

@@ -28,6 +28,7 @@ class HermesCommandPathsTest(unittest.TestCase):
                 self.assertIn("$ARGUMENTS", text)
                 self.assertNotIn("localhost:", text)
                 self.assertNotIn("curl ", text)
+                self.assertLessEqual(len(text.splitlines()), 15)
 
     def test_repository_discovery_and_paths(self):
         self.assert_commands(ROOT / ".claude")

@@ -11,9 +11,99 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BROWSER_SKILL = REPO_ROOT / ".claude" / "skills" / "browser-control" / "SKILL.md"
+GEMINI_REF = REPO_ROOT / "hermes" / "skills" / "browserclaw" / "references" / "gemini-share-link-as-user.md"
+MULTI_REF = REPO_ROOT / "hermes" / "skills" / "browserclaw" / "references" / "multi-profile-cookie-scan.md"
+
+UNSAFE_FIXED_TMP_PATHS = [
+    (r"/tmp/google-cookies\.json", "fixed /tmp/google-cookies.json leaks across processes"),
+    (r"/tmp/share_page\.txt", "fixed /tmp/share_page.txt leaks across processes"),
+    (r"/tmp/share_full\.txt", "fixed /tmp/share_full.txt leaks across processes"),
+    (r"/tmp/share_authed\.png", "fixed /tmp/share_authed.png leaks screenshots"),
+    (r"/tmp/\$\{prof// /}-cookies\.json", "fixed per-profile /tmp/-cookies.json leaks across processes"),
+    (r'/tmp/\${name}-cookies\.json', "fixed per-browser /tmp/-cookies.json leaks across processes"),
+    (r"/tmp/venmo\.csv", "fixed /tmp/venmo.csv leaks downloaded attachments"),
+]
 
 def read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
+
+
+class BrowserSkillStaticSafetyTest(unittest.TestCase):
+    """Static safety checks over executable shell code in the browser-control skill."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        assert BROWSER_SKILL.is_file(), f"browser-control SKILL.md missing at {BROWSER_SKILL}"
+        cls.skill_text = read(BROWSER_SKILL)
+
+    def test_traps_armed_before_allocations(self) -> None:
+        canonical_block = self.skill_text.split(
+            "## Authorized credential reuse", 1)[1].split(
+            "## Fingerprint-sensitive", 1)[0]
+        canonical_trap = canonical_block.find("trap 'exit_on_signal TERM' TERM")
+        canonical_mktemp = canonical_block.find("mktemp -t")
+        self.assertNotEqual(canonical_trap, -1, "Canonical recipe missing TERM trap")
+        self.assertNotEqual(canonical_mktemp, -1, "Canonical recipe missing mktemp")
+        self.assertLess(
+            canonical_trap,
+            canonical_mktemp,
+            "Canonical recipe must arm signal traps BEFORE allocating temp files",
+        )
+
+        secret_block = self.skill_text.split(
+            "**Secret-bearing page branch:**", 1)[1].split(
+            "**Safeguards**", 1)[0]
+        secret_trap = secret_block.find("trap 'exit_on_signal TERM' TERM")
+        secret_mktemp = secret_block.find("mktemp -t")
+        self.assertNotEqual(secret_trap, -1, "Secret-bearing branch missing TERM trap")
+        self.assertNotEqual(secret_mktemp, -1, "Secret-bearing branch missing mktemp")
+        self.assertLess(
+            secret_trap,
+            secret_mktemp,
+            "Secret-bearing branch must arm signal traps BEFORE allocating temp files",
+        )
+
+    def test_no_screenshot_in_any_documented_bash_block(self) -> None:
+        blocks = re.findall(r"```bash\n(.*?)\n```", self.skill_text, re.DOTALL)
+        self.assertGreater(len(blocks), 0, "Skill must contain documented bash blocks")
+        for i, block in enumerate(blocks):
+            active = [
+                line for line in block.splitlines()
+                if not line.lstrip().startswith("#")
+                and ("--screenshot" in line or "--capture-har" in line)
+            ]
+            self.assertEqual(
+                active,
+                [],
+                f"Bash block #{i} must not contain an active --screenshot or --capture-har; found: {active!r}",
+            )
+
+    def test_secret_page_branch_has_no_bare_write_text(self) -> None:
+        section = self.skill_text.split("**Secret-bearing page branch:**", 1)[1].split("**Safeguards**", 1)[0]
+        bare_write_text_calls = [
+            line for line in section.splitlines()
+            if not line.lstrip().startswith("#") and ".write_text(" in line
+        ]
+        self.assertEqual(bare_write_text_calls, [])
+
+
+class BrowserclawReferenceSafetyTest(unittest.TestCase):
+    """Browserclaw reference recipes MUST NOT use fixed /tmp paths."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        assert GEMINI_REF.is_file(), f"gemini reference missing at {GEMINI_REF}"
+        assert MULTI_REF.is_file(), f"multi-profile reference missing at {MULTI_REF}"
+        cls.gemini_text = read(GEMINI_REF)
+        cls.multi_text = read(MULTI_REF)
+
+    def test_gemini_reference_no_fixed_tmp_paths(self) -> None:
+        for pat, msg in UNSAFE_FIXED_TMP_PATHS:
+            self.assertFalse(re.search(pat, self.gemini_text), f"gemini ref has unsafe path: {msg}")
+
+    def test_multi_profile_reference_no_fixed_tmp_paths(self) -> None:
+        for pat, msg in UNSAFE_FIXED_TMP_PATHS:
+            self.assertFalse(re.search(pat, self.multi_text), f"multi ref has unsafe path: {msg}")
 
 
 class ShellLifecycleSimulationTest(unittest.TestCase):

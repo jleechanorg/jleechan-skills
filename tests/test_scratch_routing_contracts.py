@@ -173,7 +173,12 @@ class ScratchRoutingContracts(unittest.TestCase):
             self.assertTrue(str(fetcher.cache_dir).startswith(str(root)))
             self.assertFalse(str(fetcher.cache_dir).startswith("/tmp/"))
 
-    def test_comment_docs_use_the_producer_path_and_response_filename(self):
+    def test_commentfetch_copilot_dir_resolves_from_scratch_producer(self):
+        reply_doc = (ROOT / ".claude/skills/commentreply/SKILL.md").read_text()
+        self.assertIn("responses.json", reply_doc)
+        self.assertNotIn("replies.json", reply_doc)
+        self.assertIn("/{repo}/{branch}/copilot/comments.json", reply_doc)
+        self.assertIn("/{repo}/{branch}/copilot/responses.json", reply_doc)
         with tempfile.TemporaryDirectory(dir="/var/tmp") as directory:
             fixture = Path(directory).resolve()
             home = fixture / "home"
