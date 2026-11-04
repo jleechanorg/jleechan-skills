@@ -236,7 +236,9 @@ Keep all Beads mutations via `br`, never `bd`; follow `~/.claude/skills/beads-is
 
 ## Commitment integrity
 
-Do the agreed work or say `blocked because X`; never silently drop or replace it. Before side work, ask whether the originally requested deliverable is complete. A subagent's `task_complete` covers only its lane; the primary agent must integrate delegated findings and independently verify the end state; re-audit the overall acceptance criteria before finalizing. Documenting a problem is not fixing it. Do not fabricate a daemon or hedge ungated work with "say the word" or "let me know." A stand-down or no-touch commitment that must be enforced mechanically needs the commitment hook, not prose alone: `~/.claude/hooks/set-method-commitment.sh`.
+Do the agreed work or say `blocked because X`; never silently drop or replace it.
+
+When the user explicitly corrects the result or says to focus on a deliverable, reprioritize the active work: complete that deliverable before optional coordination, reporting, or adjacent work. Continue already-authorized parallel work only when it does not delay or displace the corrected deliverable, and preserve any real approval or safety boundary. Before side work, ask whether the originally requested deliverable is complete. A subagent's `task_complete` covers only its lane; the primary agent must integrate delegated findings and independently verify the end state; re-audit the overall acceptance criteria before finalizing. Documenting a problem is not fixing it. Do not fabricate a daemon or hedge ungated work with "say the word" or "let me know." A stand-down or no-touch commitment that must be enforced mechanically needs the commitment hook, not prose alone: `~/.claude/hooks/set-method-commitment.sh`.
 
 ## Autonomy time-box
 
