@@ -54,6 +54,20 @@ Baseline source is `36ec31987e851327bf5df9659d6ef86210a97b26`; after capture is 
 
 Both original images were visually inspected and matched the [published checksums](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/pr295-current-612-20261026/checksums.sha256). Before SHA256: `ec78d09b3fe619c03ae14ff07ca955fef98ebc0bb49d4e06008541e9579db78f`. After SHA256: `914fae4efe51887df51942ca0fad33cfcaf51eff03de5c245e097794a27fbce8`.
 
+## Make text-generation waiting visible
+
+**Mobile web, not native iOS:** [merged frontend PR #189](https://github.com/jleechanorg/worldai_frontend/pull/189) shows the portrait editor while it is generating a suggested character description, before portrait-image generation.
+
+| Before: loading status below the controls | After: progress beside the description field |
+| --- | --- |
+| ![Portrait editor before: Writing description indicator and Loading suggested description status below Generate portrait](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/pr189-mobile-web-71b8a44b/packaged/01-baseline-pending.png) | ![Portrait editor after: Writing description indicator plus Preparing suggested description above the editable text field](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/pr189-mobile-web-71b8a44b/packaged/02-candidate-pending.png) |
+
+Both screenshots retain the central loading indicator and **Writing description…** label. The change is not the introduction of that indicator: the candidate puts **Preparing suggested description…** next to the text field and allows typing while the request is pending. A still shows the waiting state, not spinner motion or editability by itself; the [original 19.6-second comparison](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/pr189-mobile-web-71b8a44b/packaged/07-pr189-mobile-web-comparison.mp4) and [candidate run record](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/pr189-mobile-web-71b8a44b/candidate/result.json) carry the interaction evidence.
+
+Baseline source: `5fdbd38cb09a6a80bff0d2ed8f73e7a61899a4ea`; candidate and merged PR head: `71b8a44b505b3ad38b870756969dfdb6ebb11afd`. Both used a 393 × 852 mobile-web viewport, real backend and genuine Firebase SDK sign-in. These are natural pending requests, not mocked or intercepted responses. The baseline ends while pending; the candidate record separately shows a typed edit surviving the real response. No portrait-image generation request occurred. This example proves neither native behavior nor image generation, save, persistence or model quality.
+
+The original captioned PNGs are 393 × 968, including their evidence bands; some long caption text is clipped. Both were downloaded and visually inspected against [published checksums](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/pr189-mobile-web-71b8a44b/SHA256SUMS). Before SHA256: `1f46e33c1ad9b9f35672d2e4d2157effbce6f8d07ad9471fa6708efa9cb87e1b`. After SHA256: `d958b6ef7e6f8540a04d59ca45f6342d176df008da3a2861f5c9a1e4001f739f`. [Bundle provenance](https://storage.googleapis.com/wa-test-evidence/agent-evidence/worldai_frontend/pr189-mobile-web-71b8a44b/bundle-manifest.json) preserves the original capture records. No new capture was made for this guide.
+
 ## Show a substantial panel reorganization
 
 **Mobile web, not native iOS:** [merged frontend PR #281](https://github.com/jleechanorg/worldai_frontend/pull/281) turns the Equipment panel's dense bullet summary into structured rows with slot labels, prominent item names, subdued attributes and dividers.
