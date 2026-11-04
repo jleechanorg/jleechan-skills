@@ -1,6 +1,6 @@
 ---
 name: static-review
-description: Use when dispatching any independent reviewer (CLI, coordinator ask or static-review subagent); owns the cold start, the verbatim prompt templates, per-channel preambles, receipts and identity rules.
+description: Use when dispatching any independent reviewer (CLI, coordinator ask, web-provider ask or static-review subagent); owns the cold start, the verbatim prompt templates, per-channel preambles, receipts and identity rules.
 ---
 
 # /static-review — cold, verbatim reviewer input
@@ -18,7 +18,7 @@ only the fields the `advice` skill's §4 table lists for the seat's `isolation:`
 |---|---|---|
 | `orchestrator-clone` | clone review | `<PR URL>` `<SHA>` `<BASE SHA>` `<SCRATCH PATH>` |
 | `remote` | remote review | `<PR URL>` `<SHA>` `<BASE SHA>` |
-| `packet` | revision packet | `<PR URL>` `<SHA>` `<BASE SHA>` `<PACKET PATH>` `<BUNDLE HASH>` |
+| `packet` | revision packet | `<PR URL>` `<SHA>` `<BASE SHA>` `<BUNDLE HASH>` |
 | `none` | document-only | `<PACKET PATH>` `<BUNDLE HASH>` |
 
 The orchestrator writes nothing else.
@@ -55,7 +55,7 @@ Revision packet prompt, for `isolation: packet` web-provider seats
 
 ```text
 Review the attached change packet for <PR URL> at head <SHA> (base <BASE SHA>),
-saved as <PACKET PATH>, bundle sha256:<BUNDLE HASH>. It holds the complete diff
+bundle sha256:<BUNDLE HASH>. It holds the complete diff
 and the full post-change content of every changed file. Ensure it follows the
 /prw stages and focus on evidence review before approval. Report P0/P1/P2 with
 file:line, a MODEL: line naming the model you are, and a COVERAGE: line naming
@@ -88,11 +88,10 @@ the mentions, `Advice vote requested.` and the remote preamble; record the sende
 receipt. A vote request is not a `/hermes` task handoff: it carries no task marker, owner or acceptance fields,
 because the template's PR URL and SHA already bind it.
 
-Web-provider ask (web-advice seats): the channel preamble is the `/web-advice` titling line
-`[web advice] Advice vote at <SHA>` (or `<BUNDLE HASH>` for documents, which also asks the model to title the chat
-that way), then `Advice vote requested.` on its own line, followed
-by the revision packet prompt (revision), or by the document-only preamble plus the document-only review prompt, with the packet files uploaded as
-attachments.
+Web-provider ask (web-advice seats): the web titling preamble below, which carries the `/web-advice` titling
+prefix and the instruction to title the conversation, followed by the revision packet prompt (revision), or by the
+document-only preamble plus the document-only review prompt, with the packet files uploaded as attachments. Nothing
+else is sent.
 
 Every CLI seat (Codex, Opus, the Claude alternates, Cursor, AGY, any `ADVICE_EXTRA_CLIS` seat) and every static
 reviewer gets the revision or document-only preamble below. A seat launched without one cannot produce a
@@ -119,6 +118,14 @@ Review only; this is a vote request, not a task. Do not push, commit, comment
 on, label, approve or otherwise change the PR or its branch, and do not hand the
 review to another account. Return your review in this conversation as your
 final reply.
+```
+
+Web titling preamble for every web-provider ask (verbatim; for documents, replace both `<SHA>` with
+`DOCUMENTS sha256:<BUNDLE HASH>`):
+
+```text
+[web advice] Advice vote at <SHA>. Title this conversation starting with "[web advice] Advice vote at <SHA>".
+Advice vote requested.
 ```
 
 Document-only preamble for every CLI seat and for static reviewers (verbatim):
