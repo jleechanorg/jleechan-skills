@@ -8,13 +8,17 @@ scope: global
 # Gmail Access via gog CLI
 
 **Tool**: `gog` — Google CLI with Gmail/Calendar/Drive/Sheets support  
-**Binary**: `/opt/homebrew/bin/gog`  
-**Auth**: macOS keychain (persistent, no re-auth needed)  
+**Binary**: whatever `command -v gog` finds on PATH. If nothing, stop with `gog not installed: install the gog CLI and authenticate it for $GMAIL_ACCOUNT`  
+**Auth**: gog's own credential store (on macOS, the login keychain; other platforms use gog's platform store). Run gog's auth flow once per machine  
 **Account**: `$GMAIL_ACCOUNT` (required; e.g. `<you>@gmail.com`. If unset, stop with `GMAIL_ACCOUNT not configured: Gmail address for gog. Example: export GMAIL_ACCOUNT=<you>@gmail.com`)
 
 ## Core Commands
 
 ```bash
+# Preflight
+command -v gog >/dev/null || { echo "gog not installed: install the gog CLI first" >&2; exit 1; }
+[ -n "${GMAIL_ACCOUNT:-}" ] || { echo "GMAIL_ACCOUNT not configured: Gmail address for gog. Example: export GMAIL_ACCOUNT=<you>@gmail.com" >&2; exit 1; }
+
 # Search (Gmail query syntax)
 gog gmail search -a "$GMAIL_ACCOUNT" "<query>" --limit 10
 
@@ -43,7 +47,7 @@ has:attachment                     # messages with attachments
 
 ```
 ID                DATE              FROM                    SUBJECT                LABELS
-19e656a13d3ad37d  2026-05-26 10:51  AI Universe Contact...  [Consulting] New...    INBOX
+<message-id>      2026-05-26 10:51  Example Sender...       [Consulting] New...    INBOX
 ```
 
 Use the ID with `gog gmail get` to read the full body.
