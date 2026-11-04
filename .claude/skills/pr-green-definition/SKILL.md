@@ -16,7 +16,7 @@ metadata:
 
 **Nothing else gates `/green`.** Inline-comment resolution (`resolveReviewThread`), the evidence-link gate, the PR-description gate, and the old "6-green" numbering are **not** `/green` gates anymore (operator directive, 2026-07-28). Those quality checks follow the canonical **draft and ready/final phases** in `~/.claude/skills/pr-lifecycle/SKILL.md`; green alone does not establish READY. Apply that owner's applicability (including when `/er` is required by that lifecycle), final `/er` and `/advice` closure, and SHA-binding rule, including justified delta-based reaffirmation — do not restate that chain here, just apply it. Recheck `/green` at the live head and base before stating its verdict.
 
-**CodeRabbit/Bugbot: optional advisory reviewers** — read their feedback, take what's useful; never a gate, never a wait, at any phase of the PR lifecycle.
+**CodeRabbit/Bugbot: optional advisory reviewers** — read their feedback, take what's useful; never a gate, never a wait, at any phase.
 
 Merge authorization is separate from `/green`: follow `~/.codex/AGENTS.md` § Merge safety and the target repository's explicit merge contract. `/green` alone is not merge authorization.
 

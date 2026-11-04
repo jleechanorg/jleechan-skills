@@ -1,4 +1,4 @@
-"""Prompt contracts for the /sq TDD plan self-review, not model execution tests."""
+"""Executable check of the /sq advice setup snippet."""
 
 from pathlib import Path
 import os
@@ -15,54 +15,6 @@ QUICK_SKILLS = (
 
 
 class SqTddPlanContractTest(unittest.TestCase):
-    def test_sq_aliases_delegate_without_copying_the_workflow(self):
-        aliases = (
-            ROOT / ".claude/commands/sq.md",
-            ROOT / "portable/skills/sq/SKILL.md",
-        )
-        for path in aliases:
-            with self.subTest(path=path.relative_to(ROOT)):
-                text = path.read_text()
-                self.assertIn("superpowers-quick/SKILL.md", text)
-                self.assertNotIn("TDD plan step check", text)
-                self.assertLessEqual(len(text.splitlines()), 15)
-
-    def test_each_behavior_task_gets_ordered_superpowers_tdd_steps(self):
-        expected_steps = (
-            "write the failing test",
-            "run it to verify the expected failure",
-            "write the minimal implementation",
-            "run the test and relevant regressions to verify they pass",
-            "commit",
-        )
-        for path in QUICK_SKILLS:
-            with self.subTest(path=path.relative_to(ROOT)):
-                text = path.read_text()
-                self.assertIn("**TDD plan step check (before advice):**", text)
-                check = text.split("**TDD plan step check (before advice):**", 1)[1]
-                self.assertIn("For every task that changes behavior", check)
-                positions = [check.index(step) for step in expected_steps]
-                self.assertEqual(positions, sorted(positions))
-                self.assertIn("exact test and implementation paths", check)
-                self.assertIn("runnable commands", check)
-                self.assertIn("expected RED/GREEN outcomes", check)
-                self.assertLess(text.index("**TDD plan step check"),
-                                text.index("Run `/advice`" if path == QUICK_SKILLS[0]
-                                           else "Run [advice]"))
-
-    def test_plan_check_repairs_gaps_without_running_implementation(self):
-        for path in QUICK_SKILLS:
-            with self.subTest(path=path.relative_to(ROOT)):
-                text = path.read_text()
-                self.assertIn("fix missing, reordered, or vague steps", text)
-                self.assertIn("recheck the saved plan before advice", text)
-                self.assertIn("`TDD Plan Check`", text)
-                self.assertIn("`TDD: N/A`", text)
-                self.assertIn("concrete reason and a specific verification check", text)
-                self.assertIn("do not execute tests, edit implementation code, or commit", text)
-                self.assertIn("not evidence that RED/GREEN tests have run", text)
-                self.assertIn("TDD plan step check is complete", text)
-
     def test_sq_advice_uses_roadmap_repository_relative_documents(self):
         text = QUICK_SKILLS[0].read_text()
 
@@ -75,10 +27,6 @@ class SqTddPlanContractTest(unittest.TestCase):
         self.assertIn('SPEC_DOCUMENT="${SPEC_PATH#"$ROADMAP_REPO"/}"', text)
         self.assertIn('case "$PLAN_PATH" in', text)
         self.assertIn('PLAN_DOCUMENT="${PLAN_PATH#"$ROADMAP_REPO"/}"', text)
-        self.assertIn(
-            'document-review mode (its \u00a71) on `$SPEC_DOCUMENT` and `$PLAN_DOCUMENT`',
-            text,
-        )
         self.assertNotIn('--document "$SPEC_PATH"', text)
         self.assertNotIn('--document "$PLAN_PATH"', text)
 

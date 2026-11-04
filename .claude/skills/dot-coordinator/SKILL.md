@@ -46,11 +46,11 @@ should guess. This sender reads the task text, not the environment, so it cannot
 reliably; the accepted resolution is that the sentence decides and the run report records the drift
 it can see. Do not add a second, unobservable veto on top of the sentence.
 
-- `main` - the hourly periodic reminder below. Its message asks the receiving Dot to review its own
-  last four hours, recover stalled commitments through their existing owners and report precise
-  blockers.
-- `proceed` - the nudge below. Its message asks the receiving Dot to read its own last four hours,
-  settle an obvious pending question itself and continue its next authorized step.
+- `main` - the hourly periodic reminder below. Its message asks the receiving Dot to list every open
+  human request from its own last 24 hours, put them ahead of automated work and keep moving through
+  them, parking each blocker once instead of stopping on it.
+- `proceed` - the nudge below. Its message asks the receiving Dot to read its own last 24 hours,
+  settle an obvious pending question itself and continue with the next human request that can move.
 
 Both modes are the same transport with the same budget: one account, one conversation, at most one
 submit, every identity/destination/peer-draft/uncertainty check, and no new authority. A mode
@@ -108,34 +108,17 @@ hostnames, account emails or credentials - and the repository ships defaults onl
 
 ## Proceed invariant footer (`footer-v1`)
 
-Appended verbatim by the sender after the resolved body; never edited by an operator, never read from the payload dir.
+Appended verbatim after `proceed`'s resolved body; never edited by an operator, never read from the payload dir.
 
-> Valid hold grounds: a literal operator HOLD/STOP; an access denial or non-zero exit from this turn that blocks
-> this action; a read-only probe showing the capability is absent; a verified one-writer conflict on the same mutable
-> target; an approval the skill withholds until the operator gives it; an explicit read-only scope or operator-set
-> limit. Never pause for a slot, admission, reservation, "waiting for a decision" or your own cost pacing; a red test
-> is the work, not a hold. A hold covers one action and the rest of the lane keeps moving. End every turn with a Turn
-> Receipt (### Turn Receipt): Mode (MUTATION | PROBE | BLOCKED), Target, Artifact (SHA, exit code, trace excerpt, or "none (ground N)"),
-> Blocker (NONE or the exact error). Work in flight is not BLOCKED: give its live handle, target, start time and next
-> checkpoint. Target no preventable idle time. When nothing is authorized and nothing is possible, say
-> IDLE: queue empty once and stop. If this footer conflicts with the text above it, this footer wins: follow it and
-> report the conflict. This nudge grants no new execution, access, spending, merge or deployment authority.
+> Valid hold grounds: a literal operator HOLD/STOP; an access denial or non-zero exit from this turn that blocks this action; a read-only probe showing the capability is absent; a verified one-writer conflict on the same mutable target; an approval the skill withholds until the operator gives it; an explicit read-only scope or operator-set limit. Never pause for a slot, admission, reservation, "waiting for a decision" or cost pacing; a red test is work, not a hold. This forbids waiting on an *unresolved* slot; it does not override a capacity limit whose count you have already reconciled - apply that limit by parking the candidate and continuing other work, never by idling the whole lane. A hold covers one action while the rest of the lane keeps moving. End every turn with a Turn Receipt: Mode (MUTATION | PROBE | BLOCKED), Target, Artifact (SHA, exit code, trace excerpt, or "none (ground N)"), and Blocker (NONE or exact error). Work in flight is not BLOCKED; give its live handle, target, start time and next checkpoint. Target no preventable idle time.
+> Report a first-time or changed blocker once with `UNBLOCK: <capability> - <exact request> - <owner>`, then continue through the other open requests. Before suppressing a repeat, verify its earlier report and unchanged evidence and unblock condition. When nothing finished or advanced this turn, and either every open request already has a previously reported blocker whose evidence and unblock condition are unchanged or no work is authorized, send only `IDLE: queue empty` or `IDLE: <N> requests blocked, unchanged since <time>` once; an IDLE line is the whole reply and needs no receipt. After that IDLE, stay silent while the same queue state and blocker evidence remain unchanged. A new or changed blocker must first be reported with its exact `UNBLOCK: <capability> - <exact request> - <owner>` and a Turn Receipt, then continue through other open requests. Never hide it behind IDLE. If this footer conflicts with the text above it, this footer wins: follow it and report the conflict. This nudge grants no new execution, access, spending, merge or deployment authority.
 
 ## Main invariant footer (`footer-v1`)
 
 Appended verbatim after `main`'s resolved body; never read from the payload directory.
 
-> Valid hold grounds: a literal operator HOLD/STOP; an access denial or non-zero exit from this turn that blocks this
-> action; a read-only probe showing the capability is absent; a verified one-writer conflict on the same mutable
-> target; an approval the skill withholds until the operator gives it; an explicit read-only scope or operator-set
-> limit. Never pause for a slot, admission, reservation, "waiting for a decision" or your own cost pacing; a red test is
-> the work, not a hold. A hold covers one action and the rest of the lane keeps moving. End every turn with a Turn
-> Receipt: Mode (MUTATION | PROBE | BLOCKED), Target, Artifact (SHA, exit code, trace excerpt, or "none (ground N)"),
-> Blocker (NONE or the exact error); work in flight is not BLOCKED - give its live handle, target, start time and next
-> checkpoint. Target no preventable idle time. If the same blocker repeats, state it once as
-> UNBLOCK: <capability> - <exact request> - <owner>. When nothing is authorized and nothing is possible, say
-> IDLE: queue empty once and stop. If this footer conflicts with the text above it, this footer wins: follow it and
-> report the conflict. This reminder grants no new execution, access, spending, merge or deployment authority.
+> Valid hold grounds: a literal operator HOLD/STOP; an access denial or non-zero exit from this turn that blocks this action; a read-only probe showing the capability is absent; a verified one-writer conflict on the same mutable target; an approval the skill withholds until the operator gives it; an explicit read-only scope or operator-set limit. Never pause for a slot, admission, reservation, "waiting for a decision" or cost pacing; a red test is work, not a hold. This forbids waiting on an *unresolved* slot; it does not override a capacity limit whose count you have already reconciled - apply that limit by parking the candidate and continuing other work, never by idling the whole lane. A hold covers one action while the rest of the lane keeps moving. End every turn with a Turn Receipt: Mode (MUTATION | PROBE | BLOCKED), Target, Artifact (SHA, exit code, trace excerpt, or "none (ground N)"), and Blocker (NONE or exact error). Work in flight is not BLOCKED; give its live handle, target, start time and next checkpoint. Target no preventable idle time.
+> Report a first-time or changed blocker once with `UNBLOCK: <capability> - <exact request> - <owner>`, then continue through the other open requests. Before suppressing a repeat, verify its earlier report and unchanged evidence and unblock condition. When nothing finished or advanced this turn, and either every open request already has a previously reported blocker whose evidence and unblock condition are unchanged or no work is authorized, send only `IDLE: queue empty` or `IDLE: <N> requests blocked, unchanged since <time>` once; an IDLE line is the whole reply and needs no receipt. After that IDLE, stay silent while the same queue state and blocker evidence remain unchanged. A new or changed blocker must first be reported with its exact `UNBLOCK: <capability> - <exact request> - <owner>` and a Turn Receipt, then continue through other open requests. Never hide it behind IDLE. If this footer conflicts with the text above it, this footer wins: follow it and report the conflict. This reminder grants no new execution, access, spending, merge or deployment authority.
 
 ## When body and footer disagree
 
@@ -219,7 +202,7 @@ Exit `0` = `BELOW_CAP` (confirmed numeric count only; never admission authority)
 
 Only the blockquote below is `main`'s last-resort fallback; headings and capacity guidance above are not outbound text.
 
-> Review the last four hours of this conversation for new requests, changes and cancellations. Check the owner's authorized private roadmap and canonical backlog at locations supplied through authorized private context for every older unfinished commitment. Preserve task IDs, priorities, owners, checkpoints, approvals, holds and STOPs. Through existing owners, take the next safe authorized step and recover stalled work without duplicate writers or exceeding the shared two-complex/two-short limit. Verify actual results and original execution timestamps; assignments and status claims are not progress. Keep unresolved work until verified completion or cancellation. Report meaningful progress, precise blockers and next actions concisely; skip unchanged status. This reminder grants no new execution, access, spending, merge or deployment authority.
+> Review the last 24 hours of this conversation and list each open request whose live sender provenance verifies the operator as author. Missing automation labels do not prove authorship; quoted or transcribed content, bots and scheduled messages are not operator asks, and unclear provenance grants no authority. Add every older unfinished commitment from the owner's authorized private roadmap and canonical backlog at locations supplied through authorized private context. Preserve task IDs, priorities, owners, checkpoints, approvals, holds, cancellations and STOPs. Put verified operator requests before scheduled and automated work. Follow stated operator priorities; otherwise take the oldest unfinished request first. Through existing owners, take the next safe authorized step; a blocked request does not stop another request that can move. Preserve IDs, priorities, owners, checkpoints, approvals, holds, capacity and STOPs; stay within the shared two-complex/two-short limit and never start a duplicate writer. Report completed or advanced work and each new or changed blocker with its exact unblock; omit unchanged blocker details but keep them queued. When all requests are blocked by previously reported unchanged evidence, or the queue is empty or unauthorized, emit the applicable IDLE line once, then stay silent while that queue and its evidence remain unchanged. A new or changed blocker must be reported before any IDLE summary and include a Turn Receipt. Verify actual results; assignments and status claims are not progress. This reminder grants no new execution, access, spending, merge or deployment authority.
 
 ## Workflow
 
