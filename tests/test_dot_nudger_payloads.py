@@ -92,24 +92,40 @@ class NudgerPayloadTest(unittest.TestCase):
             sentences = self.sentences(raw)
             for clause, alternatives in required.items():
                 with self.subTest(payload=name, clause=clause):
-                    self.assert_states_contract(sentences, alternatives, f"{name}: {clause}")
+                    self.assert_states_contract(sentences, alternatives, name, clause)
 
     @staticmethod
     def sentences(raw):
         return [s.strip().lower() for s in re.split(r"(?<=[.!?])\s+", " ".join(raw.split())) if s.strip()]
 
-    # The prohibitive form is the CORRECT phrasing ("never start a duplicate writer", "do not exceed the
-    # limit"), so a blanket negation filter is wrong. What defeats the contract is an exception bolted onto
-    # the clause's own sentence, which keeps the keyword while permitting the forbidden act.
+    # Two independent ways the keyword survives while the contract is gone: an exception bolted onto the
+    # clause's sentence, and the keyword negated in place ("do not take the oldest unfinished request
+    # first"). The second is why a plain substring assertion is unsafe. Prohibitions are legitimate
+    # phrasing for some clauses, so negation is checked against the clause's own governed phrase, with the
+    # correct prohibitive forms allowed explicitly rather than by blanket amnesty.
     EXCEPTION_MARKERS = ("except", "unless", "is allowed", "is optional", "may start", "may exceed",
                          "may ignore", "may skip", "if another", "if a slot")
+    NEGATORS = ("do not", "don't", "not ", "n't ", "never", "no longer", "cannot", "can not", "must not")
+    # Literal prohibitions that are CORRECT and legitimately place a negator before their keyword. Kept to
+    # exact strings on purpose: a looser pattern would whitelist the very reversal this check exists to
+    # catch, which is how "do not take the oldest unfinished request first" slipped through once already.
+    ALLOWED_PROHIBITIVE = {"single writer": ("never start a duplicate writer",)}
 
-    def assert_states_contract(self, sentences, alternatives, context):
+    def assert_states_contract(self, sentences, alternatives, name, clause):
+        context = f"{name}: {clause}"
+        allowed = self.ALLOWED_PROHIBITIVE.get(clause, ())
         for sentence in sentences:
-            if not any(alt in sentence for alt in alternatives):
+            hits = [alt for alt in alternatives if alt in sentence]
+            if not hits:
                 continue
             marker = next((m for m in self.EXCEPTION_MARKERS if m in sentence), None)
             self.assertIsNone(marker, f"{context} granted an exception via {marker!r}")
+            if any(literal in sentence for literal in allowed):
+                return
+            for keyword in hits:
+                window = sentence[:sentence.index(keyword) + len(keyword)]
+                negator = next((n for n in self.NEGATORS if n in window), None)
+                self.assertIsNone(negator, f"{context}: {keyword!r} negated by {negator!r} in {sentence!r}")
             return
         self.fail(f"no sentence states {context}")
 
