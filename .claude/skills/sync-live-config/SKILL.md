@@ -24,9 +24,8 @@ has two subcommands:
   a **`live_only`** status: files present live but absent from the repo's
   tracked scope, which a repo-only file scan would otherwise never see (this
   is the exact shape of the `hermes/skills` rename/delete drift below). Remote
-  targets get the same per-file commit/diff enrichment as local, but **not**
-  the `live_only` directory walk yet — see "Remote targets" below for the
-  exact gap. A remote path with a symlinked component anywhere in it (leaf
+  targets get the same per-file commit/diff enrichment as local **and** the
+  same `live_only` directory walk. A remote path with a symlinked component anywhere in it (leaf
   or parent directory) reports status **`symlink`** instead, with hash/size/
   commit/diff all withheld — see "Remote targets" for why.
 - `apply --direction {repo-to-live,live-to-repo} --paths PATH [PATH ...] [--remote HOST]`
@@ -130,13 +129,18 @@ has two subcommands:
 batched script over SSH that returns, per path, its hash, enclosing-repo last
 commit, and (for files under the diff-snippet size cap) base64 content so a
 real unified diff can be computed locally — the per-file judgment inputs
-match local. **One real gap remains:** the `live_only` directory walk (files
-present live but never repo-tracked) only runs against the local machine
-today; a remote target does not yet get that scan, so a remote-side rename/
-delete drift (the `hermes/skills` incident shape) would currently be invisible
-to `report --remote`. Treat a clean `report --remote` result as "no drift in
-the tracked-file scope," not as "definitely no drift at all," until that gap
-is closed. `apply --remote HOST` transfers only the files you named:
+match local, including the `live_only` directory walk (files present live but
+never repo-tracked), which now runs against the remote host too — so a
+remote-side rename/delete drift (the `hermes/skills` incident shape) is
+visible on a remote target, not just locally. The remote walk honours the same
+noise filters and reports a symlinked path as `symlink` with all metadata
+withheld, exactly like the tracked-file pass.
+
+If that walk fails on a host, `report` prints a `warning: remote live_only scan
+incomplete on <host>` line to stderr and still returns the tracked-file
+results. A bare clean remote result therefore means "no drift in the
+tracked-file scope"; check for that warning before reading it as "no drift at
+all." `apply --remote HOST` transfers only the files you named:
 `tar`+`scp`+remote-extract for repo-to-live, or a guard-checked remote `cat`
 for live-to-repo (see below — this is not a bare `ssh ... cat`).
 Destination paths are always fully resolved in Python before being sent to

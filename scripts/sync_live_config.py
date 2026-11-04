@@ -473,6 +473,72 @@ def evidence_remote(root: Path, files: list[str], host: str) -> list[FileEvidenc
     return results
 
 
+def evidence_remote_live_only(root: Path, files: list[str], host: str, full: bool,
+                             exclude: set[str]) -> list[FileEvidence]:
+    """Files present on the REMOTE host but absent from the repo's tracked scope.
+
+    `evidence_remote` only inspects the tracked file list, so a remote-side rename
+    or delete drift (a file that exists live but was never repo-tracked) was
+    invisible -- the exact shape of the hermes/skills incident. This mirrors the
+    local walk in `evidence_local`, including the same noise filters and the same
+    symlink refusal, so remote and local results mean the same thing.
+
+    Symlinks are reported as `symlink` with all metadata withheld, matching the
+    remote policy: an exact hash/size for a symlinked path is a confirmation
+    oracle for an arbitrary file elsewhere on the host.
+    """
+    remote_home = _remote_home(host)
+    roots = scope_live_roots(files, full)
+    if not roots:
+        return []
+    # Emit one record per candidate path from a `find` walk, then decide locally.
+    # Deliberately does NOT follow symlinks (`find` without -L): a followed link
+    # would enumerate files outside the mapped root.
+    quoted_roots = " ".join(shlex.quote(root) for root in roots)
+    script = _SYMLINK_GUARD_FN + f"""set -e
+REMOTE_HOME={shlex.quote(remote_home)}
+# Record/field separator bytes must be declared in THIS script too: they live in
+# _REMOTE_BATCH_SCRIPT, which the live_only walk does not reuse. Omitting them
+# made every printf emit the literal text "$FS"/"$RS", so every record parsed as
+# one un-splittable blob and the scan silently reported zero drift.
+RS=$'\\x1e'
+FS=$'\\x1f'
+for rel in {quoted_roots}; do
+  base="$REMOTE_HOME/$rel"
+  [ -d "$base" ] || continue
+  [ -L "$base" ] && {{ printf 'SYMLINK%s%s%s' "$FS" "$rel" "$RS"; continue; }}
+  find "$base" -mindepth 1 ! -type d -print 2>/dev/null | while IFS= read -r path; do
+    case "$path" in
+      */__pycache__/*|*/.pytest_cache/*|*/.mypy_cache/*|*/.ruff_cache/*) continue ;;
+      *.pyc|*.pyo) continue ;;
+      */.DS_Store) continue ;;
+    esac
+    if [ -L "$path" ]; then
+      printf 'SYMLINK%s%s%s' "$FS" "${{path#"$REMOTE_HOME"/}}" "$RS"
+    else
+      printf 'FILE%s%s%s' "$FS" "${{path#"$REMOTE_HOME"/}}" "$RS"
+    fi
+  done
+done
+"""
+    proc = subprocess.run(
+        ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host, "bash", "-s"],
+        input=script, capture_output=True, text=True,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(f"remote live_only scan failed on {host}: {proc.stderr.strip()}")
+    out: list[FileEvidence] = []
+    for record in proc.stdout.split(RS):
+        if not record.strip():
+            continue
+        kind, _, live_rel = record.partition(FS)
+        if not live_rel or live_rel in exclude:
+            continue
+        status = "symlink" if kind == "SYMLINK" else "live_only"
+        out.append(FileEvidence(repo_rel="(not in repo)", live_rel=live_rel, status=status))
+    return out
+
+
 def cmd_report(args: argparse.Namespace) -> int:
     root = repo_root()
     home = Path(args.home).expanduser() if args.home else Path.home()
@@ -488,7 +554,19 @@ def cmd_report(args: argparse.Namespace) -> int:
     if not args.remote_only:
         targets["local"] = evidence_local(root, files, home, args.full)
     for host in args.remote:
-        targets[f"remote:{host}"] = evidence_remote(root, files, host)
+        remote_evs = evidence_remote(root, files, host)
+        # Tracked paths are already represented above; the walk adds only what the
+        # tracked-file scan structurally cannot see (remote-side renames/deletes).
+        already = {e.live_rel for e in remote_evs}
+        try:
+            remote_evs = remote_evs + evidence_remote_live_only(
+                root, files, host, args.full, already
+            )
+        except (RuntimeError, subprocess.CalledProcessError) as exc:
+            # A failed walk must not silently look like "no drift": say so, and keep
+            # the tracked-file results that did succeed.
+            print(f"warning: remote live_only scan incomplete on {host}: {exc}", file=sys.stderr)
+        targets[f"remote:{host}"] = remote_evs
 
     if args.json:
         print(json.dumps({
