@@ -31,10 +31,10 @@ PATH_PREFIXES = {
     "/etc", "/var", "/usr", "/opt", "/home", "/root", "/proc", "/sys",
     "/boot", "/projects", "/backend", "/frontend", "/tests", "/test",
     "/docs", "/scripts", "/config", "/utils", "/services", "/agents",
-    "/models", "/tools", "/hooks", "/commands", "/github", "/mvp_site",
+    "/models", "/tools", "/hooks", "/commands", "/github",
     "/site-packages", "/localhost", "/www", "/auth", "/oauth2", "/repos",
     "/pulls", "/issues", "/v1", "/v2", "/venv", "/python3", "/json",
-    "/design", "/jleechan", "/jleechanorg", "/worldarchitect", "/firebase",
+    "/design", "/firebase",
 }
 
 FILE_SUFFIXES = (
