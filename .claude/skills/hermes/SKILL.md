@@ -58,7 +58,8 @@ machine access beyond the current user's authorization.
 - Before retrying an uncertain send, read the intended thread to determine
   whether it arrived. Never duplicate an already delivered or queued request.
 ## Request, acknowledgment, execution
-Send a bounded handoff: task/goal, existing owner, repository and branch/head,
+A vote request from the advice skill is not a task handoff: send it exactly as the static-review skill specifies, and track
+only SENT and its verdict reply. For every other task, send a bounded handoff: task/goal, existing owner, repository and branch/head,
 acceptance checks, evidence already available, permitted next step, holds, and
 a unique task marker, and the originating Dot account/conversation reference
 when Dot is the caller. Bind that origin to the verified calling account and exact

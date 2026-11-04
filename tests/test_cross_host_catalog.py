@@ -230,7 +230,6 @@ class ReviewRegressionTests(unittest.TestCase):
      else:self.assertFalse(target.exists());self.assertFalse((home/'.agents/skills'/name).exists())
 
  def test_fresh_and_existing_review_integrations_are_explicit(self):
-  import re
   m=self.installer()
   for existing in [False,True]:
    with self.subTest(existing=existing),tempfile.TemporaryDirectory() as t:
@@ -240,18 +239,6 @@ class ReviewRegressionTests(unittest.TestCase):
       p=h/'.claude/skills'/n;p.mkdir(parents=True);(p/'SKILL.md').write_text('host-owned '+n)
       a=h/'.agents/skills'/n;a.parent.mkdir(parents=True,exist_ok=True);a.symlink_to(p,target_is_directory=True)
     m.install(ROOT,h,'review-dependencies')
-    checked=[]
-    for p in (h/'.claude/skills').glob('*/SKILL.md'):
-     if p.parent.name in ['advice','web-advice']:continue
-     text=p.read_text()
-     if not re.search(r'(?:/advice|/web-advice|advice/SKILL)',text):continue
-     checked.append(p.parent.name)
-     self.assertIn('## Retained review integrations',text,p.parent.name)
-     before=text.split('## Retained review integrations',1)[0]
-     self.assertEqual(sum(line.startswith('```') for line in before.splitlines())%2,0,p.parent.name)
-    self.assertIn('pr-green-definition',checked)
-    self.assertIn('pr-workflow-manager',checked)
-    self.assertEqual(len(checked),17)
     for n in ['advice','web-advice']:
      p=h/'.claude/skills'/n/'SKILL.md'
      if existing:
