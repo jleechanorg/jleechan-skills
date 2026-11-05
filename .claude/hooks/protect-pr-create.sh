@@ -232,31 +232,42 @@ def tokenize_shell(command: str):
 
 def child_shell_tokens(command_tokens, depth=0):
     if depth >= 8:
-        return []
-    nested_tokens = []
-    for index, token in enumerate(command_tokens):
+        return command_tokens
+    ordered_tokens = []
+    index = 0
+    while index < len(command_tokens):
+        token = command_tokens[index]
         if not is_command_position(index, command_tokens):
+            ordered_tokens.append(token)
+            index += 1
             continue
         if token.rsplit("/", 1)[-1] not in ("bash", "sh"):
+            ordered_tokens.append(token)
+            index += 1
             continue
         end = index + 1
         while end < len(command_tokens) and not is_separator(command_tokens[end]):
             end += 1
         args = command_tokens[index + 1 : end]
+        child_tokens = []
         for option_index, option in enumerate(args[:-1]):
             if option != "-c":
                 continue
             try:
-                child_tokens = tokenize_shell(args[option_index + 1])
+                child_tokens = child_shell_tokens(
+                    tokenize_shell(args[option_index + 1]), depth + 1
+                )
             except Exception:
-                break
-            nested_tokens.extend([";"] + child_tokens)
-            nested_tokens.extend(child_shell_tokens(child_tokens, depth + 1))
+                child_tokens = []
             break
-    return nested_tokens
+        ordered_tokens.extend(command_tokens[index:end])
+        if child_tokens:
+            ordered_tokens.extend([";"] + child_tokens)
+        index = end
+    return ordered_tokens
 
 
-tokens.extend(child_shell_tokens(tokens))
+tokens = child_shell_tokens(tokens)
 
 
 def is_pr_create(i: int) -> bool:

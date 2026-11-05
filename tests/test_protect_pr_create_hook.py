@@ -268,6 +268,68 @@ EOF"""
         self.assert_mocked_github()
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_projected_caps_preserve_order_across_supported_shell_contexts(self):
+        split_rows = [open_pr(i, f"split/widget/{i}") for i in range(4)]
+        stack_rows = [open_pr(i, base="parent") for i in range(8)]
+        split_child = (
+            "bash -c 'ALLOW_PR_STACK_OVERRIDE=1 gh pr create "
+            "--head split/widget/first --base main'; "
+            "gh pr create --head split/widget/second --base main"
+        )
+        stack_child = (
+            "bash -c 'ALLOW_PR_STACK_OVERRIDE=1 gh pr create "
+            "--head first --base parent'; gh pr create --head second --base parent"
+        )
+        split_nested = (
+            "bash -c 'sh -c \"ALLOW_PR_STACK_OVERRIDE=1 gh pr create "
+            "--head split/widget/first --base main\"'; "
+            "gh pr create --head split/widget/second --base main"
+        )
+        stack_nested = (
+            "bash -c 'sh -c \"ALLOW_PR_STACK_OVERRIDE=1 gh pr create "
+            "--head first --base parent\"'; gh pr create --head second --base parent"
+        )
+        split_late_child = (
+            "ALLOW_PR_STACK_OVERRIDE=1 gh pr create --head split/widget/first "
+            "--base main; bash -c 'gh pr create --head split/widget/second --base main'"
+        )
+        stack_late_nested = (
+            "ALLOW_PR_STACK_OVERRIDE=1 gh pr create --head first --base parent; "
+            "bash -c 'sh -c \"gh pr create --head second --base parent\"'"
+        )
+        split_late_substitution = (
+            "ALLOW_PR_STACK_OVERRIDE=1 gh pr create --head split/widget/first "
+            '--base main; url="$(gh pr create --head split/widget/second --base main)"'
+        )
+        stack_late_heredoc = (
+            "ALLOW_PR_STACK_OVERRIDE=1 gh pr create --head first --base parent; "
+            "cat <<EOF\n$(gh pr create --head second --base parent)\nEOF"
+        )
+        cases = [
+            ("split child override before direct", split_child, split_rows,
+             "split PR quantity cap"),
+            ("stack child override before direct", stack_child, stack_rows,
+             "stacked PR ceiling"),
+            ("split nested override before direct", split_nested, split_rows,
+             "split PR quantity cap"),
+            ("stack nested override before direct", stack_nested, stack_rows,
+             "stacked PR ceiling"),
+            ("split child after direct override", split_late_child, split_rows,
+             "split PR quantity cap"),
+            ("stack nested after direct override", stack_late_nested, stack_rows,
+             "stacked PR ceiling"),
+            ("split substitution after direct override", split_late_substitution,
+             split_rows, "split PR quantity cap"),
+            ("stack heredoc after direct override", stack_late_heredoc, stack_rows,
+             "stacked PR ceiling"),
+        ]
+        for name, command, existing, message in cases:
+            with self.subTest(scenario=name):
+                result = self.run_hook(command, existing)
+                self.assert_mocked_github()
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn(message, result.stderr)
+
     def test_main_target_does_not_enforce_stack_caps(self):
         result = self.run_hook("gh pr create --head feature --base main", [])
         self.assert_mocked_github()
