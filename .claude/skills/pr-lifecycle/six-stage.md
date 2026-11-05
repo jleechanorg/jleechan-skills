@@ -7,7 +7,7 @@ Repositories that explicitly adopt this section use these complete stage rules; 
 
 ### Specification and artifact
 
-Outside the compact risk-based route, every specification records seven elements: outcome, non-goals, acceptance, user stories (or an explicit no-user-facing-change reason), proof plan, mock (or justified exemption), and risk. Keep the specification and implementation in the same PR. For the complete actual-base...head diff, counted as in § Advice applicability:
+The Markdown instruction-only route in section Review obligations by changed claim and risk is independent of the compact risk-based route and replaces this seven-element specification requirement with its pinned source/scenario receipt; do not fall through to the requirements below. Outside the compact route and that Markdown route, every required specification records seven elements: outcome, non-goals, acceptance, user stories (or an explicit no-user-facing-change reason), proof plan, mock (or justified exemption), and risk. Keep the specification and implementation in the same PR. For the complete actual-base...head diff, counted as in § Advice applicability:
 - Under 50 total additions+deletions: use PR-body `## Specification`, including for high-risk small changes.
 - 50 or more, or an incomplete, uncountable or binary diff: commit the seven-element specification in the same PR.
 - Crossing that boundary without the committed specification returns to Stage 0.

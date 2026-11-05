@@ -98,9 +98,9 @@ No bundled creation script is assumed. Use an optional helper only if it exists,
 preserves the applicable creation state, ownership and expected-head requirements; never run a missing,
 unverified or incompatible helper because old guidance names one.
 
-## Stage changes and evidence
+## Route selection and evidence
 
-Select class, risk, changed claims, proof and source-review count from [the lifecycle obligation table](../pr-lifecycle/SKILL.md#review-obligations-by-changed-claim-and-risk). Record the selected row and its positive eligibility evidence in the existing PR/task record. This entry point performs operational preflight; it does not add a second routing table, provider ladder or source-vote requirement.
+Select the applicable route from [pr-lifecycle's review-obligation table](../pr-lifecycle/SKILL.md#review-obligations-by-changed-claim-and-risk), applying the target repository's override first. That contract is the sole owner of risk, claim, threshold, reviewer, evidence and visual/runtime applicability; this entry point adds no second routing table, provider ladder or source-vote requirement.
 
 The [compact risk-based route](../pr-lifecycle/SKILL.md#compact-risk-based-route) may skip intermediate stage-title/label ceremony and the separate seven-element committed specification only where repository instructions permit the compact exception. It does not skip required checks or Stage 5 closure. For opted-in repositories, apply [stage transitions](../pr-lifecycle/six-stage.md#stage-title-and-labels), [default PR route and lighter non-production path](../pr-lifecycle/SKILL.md#default-pr-route--prw), and [evidence applicability](../pr-lifecycle/SKILL.md#sha-binding-rule-critical--applies-to-every-gate-in-this-chain). Title/label changes are not execution proof, review approval or merge authority.
 
@@ -119,12 +119,7 @@ When required, record `VISUAL APPROVED at <40-char-sha>` with the required findi
 
 ## PR description and reporting
 
-Use the repository's actual template and authoritative description requirements.
-Record scope and non-goals, full production/non-production deltas, original execution evidence,
-review coverage/applicability, current stage, owner, blockers and next action.
-Keep receipts and prior verdict attribution; verify the rendered body and reviewer access.
-Report partial publication or an uncertain result before retrying. No private source, credentials or
-personal communications may be published outside their authorized destination.
+Use the repository's actual template and [pr-lifecycle's review-record contract](../pr-lifecycle/SKILL.md#review-records-in-the-pr-description). Report scope, current stage/head, owner, blockers, next action and exact evidence; preserve original receipt attribution and disclose partial or uncertain publication. Never publish private source, credentials or personal communications outside their authorized destination.
 
 ## Boundaries
 
