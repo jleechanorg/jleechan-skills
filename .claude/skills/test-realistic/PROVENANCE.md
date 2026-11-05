@@ -4,14 +4,14 @@ This package is a portable generalized `test-realistic` skill. Its installed-run
 
 A historical Linux sync record attributes the design to `worldarchitect.ai/testing_ui/realistic` and `docs/plans/2026-08-09-test-realistic-generalization-design.md`. Preserve these as historical design references only. They do not prove that the imported runtime came from that repository or document, or establish byte-for-byte runtime Git history.
 
-The package carries no project-specific names, paths, credentials, or personal identifiers. Update this record only when a versioned source verifies the runtime lineage.
+Executable defaults contain no project-specific configuration or credentials. The historical references above are attribution only. Update the runtime lineage only when a versioned source verifies it.
 
 ## Seven-element specification
 
-1. **Outcome:** Preserve the historical design attribution while distinguishing it from the unknown byte-level Git lineage of the imported runtime.
-2. **Non-goals:** Do not identify a definitive runtime source commit or repository, remove the historical design reference, or add personal data or unrelated behavior.
-3. **Acceptance:** The two historical references above are explicitly design-only; runtime Git ancestry is explicitly unknown; no stronger byte-level source claim is made beyond the imported baseline comparison.
-4. **User stories:** No user-facing change — this provenance record does not change the player or browser experience.
-5. **Proof plan:** Compare this record with the scoped sync audit and source record. No runtime test, model, browser, or native run is needed for this documentation statement.
-6. **Mock scope:** Not applicable; this documentation neither claims mock evidence nor changes the real-browser and real-model boundary.
-7. **Risk:** Treating the historical design pointer as runtime ancestry would mislead maintainers; deleting it would erase useful attribution. Keep both the reference and its stated limit.
+1. **Outcome:** Version the installed portable runtime and prevent incomplete player captures or failed adapters from producing a coverage pass; bind PR scenario context to immutable comparison revisions.
+2. **Non-goals:** No player-facing application change, project-specific adapter implementation, synthetic acceptance evidence, definitive upstream runtime ancestry, or model-error fallback.
+3. **Acceptance:** Every emitted actor has a parsed nonempty object capture before judgment; malformed/missing/empty evidence and nonzero dispatch fail; valid complete pools retain their behavior. PR context uses the observed repository/base/head; probe and scenario pools preserve the same actor fixtures. Historical design references remain distinct from unknown runtime Git ancestry.
+4. **User stories:** No player-facing change. A maintainer receives an explicit failure for incomplete testing instead of a misleading pass, while project adapters may exercise real browsers or native clients with truthful runtime provenance.
+5. **Proof plan:** Reproduce the capture and adapter defects offline, run the package regression tests, check the actual GitHub metadata/immutable diff command, verify the installer includes all runtime resources, and compare scoped Mac/Linux bytes. Real application behavior requires a separate real-client/provider run; unit and installation checks make no such claim.
+6. **Mock:** Visual mock exempt: no application UI changes. Offline tests use explicit fake dispatcher/model seams only to prove harness mechanics; they are not real-service acceptance evidence.
+7. **Risk:** Existing runtime ancestry is unknown; large PR context is explicitly bounded and actor/persona pairing preserves its existing shortest-list behavior. Source review, evidence review and host sync must retain their exact tested/reviewed revisions. No native app or physical-device result follows from these harness changes alone.
