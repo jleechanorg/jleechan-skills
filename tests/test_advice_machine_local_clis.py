@@ -21,14 +21,15 @@ class AdviceMachineLocalCliTest(unittest.TestCase):
 
 
 class MarkdownOnlyDecisionTest(unittest.TestCase):
-    """The slimming decision: this skill stays markdown-first with no new runner code."""
+    """The quota cache is the only small helper permitted by the explicit operator request."""
 
-    def test_the_skill_ships_no_runner_code(self):
+    def test_the_skill_ships_only_the_requested_quota_cache_helper(self):
         scripts = ROOT / ".claude/skills/advice/scripts"
         self.assertFalse((scripts / "run_primary_pair.py").exists(),
                          "the slimming decision removed the bundled runner")
         remaining = sorted(p.name for p in scripts.glob("*.py")) if scripts.is_dir() else []
-        self.assertEqual(remaining, [], f"no runner code may return: {remaining}")
+        self.assertEqual(remaining, ["quota_cache.py"],
+                         f"keep the advice helper narrowly scoped: {remaining}")
 
 
 if __name__ == "__main__":

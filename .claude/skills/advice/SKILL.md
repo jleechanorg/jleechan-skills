@@ -99,6 +99,26 @@ identities from the machine-local profile before selecting them.
 - **Quota walls fail fast.** A usage limit, quota exhaustion, exhausted 429 retry, rate limit, expired plan or similar
   account refusal makes the seat `UNAVAILABLE` with reason `quota` and the printed reset time. Do not wait, retry the
   same account or switch models around it; a separate account remains eligible.
+- **Remember only confirmed quota windows.** Before launching each CLI seat, check the short-lived quota record:
+  ```bash
+  python3 .claude/skills/advice/scripts/quota_cache.py check --provider <verified-provider-seat> --identity <stable-account-seat>
+  ```
+  `ELIGIBLE` permits the normal launch. `QUOTA_BLOCKED` means skip that exact account until its printed UTC reset
+  time and continue the fallback route. Choose a stable, nonsecret seat label that distinguishes accounts (for
+  example, `claude-team-slot-a`); never pass an email, token, credential path or raw provider identity. Model names
+  alone do not distinguish accounts. The cache key combines the verified provider and account-seat labels. Cache only an explicit provider quota response and reset time:
+  ```bash
+  python3 .claude/skills/advice/scripts/quota_cache.py record --identity <stable-seat> --provider <provider> --model <actual-model> --reset-at <provider-reported-ISO-8601-reset>
+  ```
+  The record includes its observation time and is stored with private permissions under `/tmp`; it contains only a
+  hash of the seat label plus provider, model and UTC times, never credentials or raw error text. No printed reset
+  means no cache entry. A fresh successful probe clears an earlier record before the new attempt:
+  ```bash
+  python3 .claude/skills/advice/scripts/quota_cache.py clear --provider <verified-provider-seat> --identity <stable-account-seat>
+  ```
+  Expired records clear themselves. Invalid/unavailable cache storage fails open and must not deny an authorized
+  attempt. The cache is a scheduling hint, not a second quota detector: record only a quota error actually observed
+  from that exact seat; transport timeouts, unrelated tool errors and missing authentication are not quota signals.
 
 ### Outside-route authorization and transports
 
