@@ -2285,9 +2285,6 @@ class InstallerRealProfileTest(unittest.TestCase):
             helper = target / "skills" / "pr-lifecycle" / "scripts" / "pr-base-changed-paths.sh"
             self.assertTrue(helper.is_file(), "pr-lifecycle helper script must ship with the prw profile")
             self.assertTrue(os.access(helper, os.X_OK), "pr-lifecycle helper script must stay executable")
-            docs_helper = target / "skills" / "pr-lifecycle" / "scripts" / "docs-only-paths.sh"
-            self.assertTrue(docs_helper.is_file(), "docs-only helper script must ship with the prw profile")
-            self.assertTrue(os.access(docs_helper, os.X_OK), "docs-only helper script must stay executable")
             for part in ("six-stage.md", "exceptions.md", "review-records.md"):
                 self.assertTrue((target / "skills" / "pr-lifecycle" / part).is_file(),
                                 f"pr-lifecycle on-demand part {part} must ship with the prw profile")

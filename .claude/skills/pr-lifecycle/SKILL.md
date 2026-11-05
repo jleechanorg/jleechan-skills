@@ -174,8 +174,8 @@ Only after every applicable gate is satisfied **for the candidate**, with origin
 ### Documentation-only exceptions
 
 For a diff that may be documentation-only, load [exceptions.md](exceptions.md#documentation-only-ci-exception): it owns the
-CI exception and the narrow `/er` allowlist. Compute the changed paths with
-[scripts/docs-only-paths.sh](scripts/docs-only-paths.sh) rather than by eye.
+CI exception and the narrow `/er` allowlist. Use its existing
+[canonical changed-path helper](scripts/pr-base-changed-paths.sh) rather than by eye.
 
 ## Change-impact review and test depth
 
