@@ -44,7 +44,6 @@ class ProtectPrCreateHookTest(unittest.TestCase):
         open_prs,
         *,
         override_env=False,
-        extra_env=None,
         cwd=None,
     ):
         environment = dict(os.environ)
@@ -56,8 +55,6 @@ class ProtectPrCreateHookTest(unittest.TestCase):
             environment["ALLOW_PR_STACK_OVERRIDE"] = "1"
         else:
             environment.pop("ALLOW_PR_STACK_OVERRIDE", None)
-        if extra_env:
-            environment.update(extra_env)
         working_directory = cwd or REPO
         payload = {
             "tool_name": "Bash",
@@ -207,20 +204,30 @@ class ProtectPrCreateHookTest(unittest.TestCase):
         self.assertIn("stacked PR ceiling", result.stderr)
 
     def test_configured_merge_base_applies_when_base_is_omitted(self):
-        branch = subprocess.run(
-            ["git", "-C", str(REPO), "branch", "--show-current"],
+        git_repo = self.temp_dir / "configured-base"
+        git_repo.mkdir()
+        git_environment = dict(os.environ, BASH_ENV="/dev/null", PATH=self.path)
+        subprocess.run(
+            ["git", "init", "--quiet", "--initial-branch=topic"],
+            cwd=git_repo,
+            env=git_environment,
             text=True,
             capture_output=True,
             check=True,
-        ).stdout.strip()
+            timeout=10,
+        )
+        subprocess.run(
+            ["git", "config", "branch.topic.gh-merge-base", "parent"],
+            cwd=git_repo,
+            env=git_environment,
+            text=True,
+            capture_output=True,
+            check=True,
+            timeout=10,
+        )
         existing = [open_pr(i, base="parent") for i in range(9)]
-        environment = {
-            "GIT_CONFIG_COUNT": "1",
-            "GIT_CONFIG_KEY_0": f"branch.{branch}.gh-merge-base",
-            "GIT_CONFIG_VALUE_0": "parent",
-        }
         result = self.run_hook(
-            "gh pr create", existing, extra_env=environment
+            "gh pr create", existing, cwd=git_repo
         )
         self.assert_mocked_github()
         self.assertEqual(result.returncode, 2)
