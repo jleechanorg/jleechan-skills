@@ -77,7 +77,7 @@ linked dependencies.
 Named profiles select other sets:
 
 | Flag | Named set (plus linked dependencies) |
-|---|---|---|
+|---|---|
 | *(none)* or `--profile highlights` | `highlights`: the six highlighted skills above (6 named) |
 | `--profile highlights-prw` | `highlights` plus `prw` |
 | `--profile prw` | the PR workflow set: `prw`, `pr-workflow`, `pr-workflow-manager`, `draft-first-pr`, `pr-lifecycle`, `pr-green-definition`, `ready`, `advice`, `evidence-standards`, `evidence-review`, `testing-layers`, `code-standards` (12 named), and `/es`, `/er`, `/green`, `/cs` |
