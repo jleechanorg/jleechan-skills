@@ -25,8 +25,8 @@ The full state machine. Other files (`pr-green-definition`, `/green`, `CLAUDE.md
 
 ```
 DRAFT
-  → /es PASS @ SHA
-  → /er PASS @ SHA (unless the narrow /er documentation allowlist, explicit trivial-change exception, compact-route review coverage accepted by local policy, or another repo-exempted class applies)
+  → /es PASS @ SHA (unless the Markdown instruction-only route below applies)
+  → /er PASS @ SHA (unless the narrow /er documentation allowlist, explicit trivial-change exception, compact-route review coverage accepted by local policy, Markdown instruction-only route below, or another repo-exempted class applies)
   → table-selected independent source review PASS @ SHA when required
   → /visual-verification PASS @ SHA when gate 4 applies and the one-liner fast path does not (media published, or a rendered/displayed-data claim)
   → mark ready-for-review (gh pr ready <N>)
@@ -49,6 +49,18 @@ This table is the single shared-default routing decision for both generic and op
 
 A changed boundary means the diff alters its contract, execution or claimed outcome. Merely using an existing service, shipping to a deployed environment, holding test credentials or having an unchanged downstream UI does not create a changed service/gameplay claim. Conversely, a local label or mock test cannot erase an actual boundary change. Size admits a candidate; it never proves safety.
 
+### Markdown instruction-only route
+
+Apply this route before the general compact route and size-based /advice default. The diff must change agent or operator guidance in Markdown; it may also include human-readable Markdown specifications, records, and conflict notes that accompany or document that work. Those supporting documents count toward size but do not defeat eligibility. No changed path may add scripts or helpers, tests, CI, configuration, machine-readable schemas, production prompts, or an actual runtime/service contract. Mixed changes and prompt/schema/runtime-contract changes use the ordinary rows below.
+
+Count additions plus deletions across the full PR diff at its actual base and current head, including supporting Markdown. For an ordinary, low-risk instruction change at or below 150 changed lines, one cold independent AI reviewer reads the complete diff and checks the changed rules against relevant before/after scenarios. Above 150 changed lines, use two independent full-scope reviewers. Sensitive changes use two at any size, including security, permission, credential, destructive, deployment or release operations; evidence requirements or policy; and approval, review, or merge rules. A reviewer confirms route eligibility from the diff; a label or the author’s classification cannot qualify it. Reviewer identity, independence, tier and class-count caps follow [advice](../advice/SKILL.md). Each static reviewer follows [static-review](../static-review/SKILL.md) for cold input and complete base/head changed-file coverage. Do not count separate processes or subagents as separate votes; follow advice’s reviewer-class caps. Do not combine partial coverage.
+
+For this route, the required proof is the pinned source diff, relevant link/frontmatter or Markdown-structure checks, and the reviewer’s scenario-based receipt on the PR. Do not add a seven-element spec, separate /es or /er adjudication, evidence bundle/publication, runtime test, model/provider run, browser journey, or visual capture solely because the change is a skill or exceeds a size threshold. Reuse a complete reviewer receipt at later phases when the SHA delta leaves its claims and scenarios applicable; a phase label alone does not call for another model review. Specific evidence needed to verify a changed example or runtime claim remains required. Repository-specific gates and explicit user-requested proof still apply.
+
+For eligible Markdown instruction changes, this subsection controls reviewer count and proof in place of the generic Agent instructions/policy row, compact route, and default size-based advice rule. It does not override the high-risk row, stricter repository requirements, or explicit user-requested proof.
+
+This route cannot exempt itself from its sensitive-review rule. Changes that modify review policy use two independent full-scope reviews and all separately required repository or user gates.
+
 | Class / risk | Admission and exclusions | Required proof | Independent review for readiness |
 |---|---|---|---|
 | Editorial / minimal | Typo, link or wording only; no policy, contract, legal/security meaning, behavior or new correctness claim. | Diff, relevant link/Markdown checks; no unrelated runtime test. | Existing trivial-doc exception where eligible; otherwise one cold static reviewer of changed text. Explicitly requested reviews still run. |
@@ -67,6 +79,8 @@ For the positively qualified one-vote rows, dispatch directly through [static-re
 
 Proof follows **changed claims**. Use the lowest sufficient layer, retaining real boundary, native and rendered proof where claimed. For example, an App Store icon/splash presentation change needs its rendered surface; a copy/attribution/link change needs literal, attribution or destination proof as claimed; reuse of an existing Apple-logo asset needs provenance and relevant presentation proof. None implies a new gameplay journey when gameplay is unchanged. Signing, release, legal meaning, interaction or trust changes reclassify the affected scope.
 
+Visual evidence follows the changed claim: backend-only changes with no rendered, displayed-data, or interaction claim need no visual proof. Changes that do alter a rendered surface or interaction retain the applicable real visual or browser proof. This rule applies across implementation types and does not waive service-boundary proof.
+
 Reuse valid proof and independent coverage across draft/final phases under § SHA-binding rule. A phase label alone does not demand another model call. Changed source, evidence or interpretation gets affected independent review; unchanged historical claims retain original status and SHA. An early source vote may pass source correctness while evidence/readiness remains open: a reviewer must not withhold that source vote merely because a later approval does not yet exist. Final readiness still requires every applicable gate.
 
 ### Advice applicability
@@ -83,7 +97,7 @@ A timed-out `/dot`, requested `/wa` or other non-`/advice` supplementary reviewe
 
 If an `/er` reviewer times out, record `TIMED_OUT` and continue independent work, but keep the evidence-review gate open until an eligible replacement completes `/er` with an applicable PASS. `/advice` or another supplementary review is not proof that the evidence was reviewed.
 
-`/advice` keeps its applicable two-independent-reviewer quorum. Replace a failed or timed-out seat with another eligible independent reviewer, and keep replacing until quorum is reached or no eligible attempt remains; record each seat and outcome. Below quorum the result is `WITHHELD`, not approval. A late substantive `/advice` finding is still assessed after a replacement has voted.
+The Markdown instruction-only route above owns its one-or-two reviewer count and bypasses this section’s generic 50-line /advice threshold. Outside that route, /advice uses one independent full-scope reviewer only for an eligible compact low-risk route under the obligation table; otherwise it keeps its two-independent-reviewer quorum. Stricter governing requirements and the mandatory two-vote supplementary-review substitution above remain in force. Apply [advice](../advice/SKILL.md)'s identity, independence, tier and reviewer-class counting caps. Replace a failed or timed-out seat with another eligible independent reviewer, and keep replacing until quorum is reached or no eligible attempt remains; record each seat and outcome. Below quorum the result is `WITHHELD`, not approval. A late substantive `/advice` finding is still assessed after a replacement has voted.
 
 `/wa` (`/web-advice`) is optional, never an implicit lifecycle gate: run it only when requested or separately authorized, and keep its real verdict if it runs. Existing standing authorization and any governing workflow that requires /wa still apply. Neither optional review permits ignoring a known correctness or safety blocker.
 
@@ -93,7 +107,7 @@ Repositories that explicitly adopt this section use these complete stage rules; 
 
 ### Specification and artifact
 
-Outside the compact risk-based route, every specification records seven elements: outcome, non-goals, acceptance, user stories (or an explicit no-user-facing-change reason), proof plan, mock (or justified exemption), and risk. Keep the specification and implementation in the same PR. For the complete actual-base...head diff, counted as in § Advice applicability:
+The Markdown instruction-only route in § Review obligations by changed claim and risk is independent of the compact risk-based route and replaces this seven-element specification requirement with its pinned source/scenario receipt; do not fall through to the requirements below. Outside the compact route and that Markdown route, every required specification records seven elements: outcome, non-goals, acceptance, user stories (or an explicit no-user-facing-change reason), proof plan, mock (or justified exemption), and risk. Keep the specification and implementation in the same PR. For the complete actual-base...head diff, counted as in § Advice applicability:
 - Under 50 total additions+deletions: use PR-body `## Specification`, including for high-risk small changes.
 - 50 or more, or an incomplete, uncountable or binary diff: commit the seven-element specification in the same PR.
 - Crossing that boundary without the committed specification returns to Stage 0.
@@ -142,7 +156,7 @@ When changing stage names, title suffixes, labels, review routes or applicabilit
 
 ### Evidence attached to every stage exit
 
-Outside the compact route, attach evidence to the PR description as retrievable artifact URLs plus a sanitized gist receipt URL; under the one-liner fast path the PR-body before/after quote plus current-head CI is the receipt and no gist is needed. Proof only in a comment, local path, chat or promised upload is insufficient. Every completed stage 0–5 has an appropriate receipt; specification proof does not need future runtime evidence. Stage 2 produces the acceptance-evidence package, not the first evidence of any kind: earlier stages publish their own specification or focused-check receipts. One version-pinned gist may hold distinct stage/event anchors without ceremonial duplicate uploads.
+Outside the canonical Markdown instruction-only route (§ Markdown instruction-only route), the compact route and the one-liner fast path, attach evidence to the PR description as retrievable artifact URLs plus a sanitized gist receipt URL; under the one-liner fast path the PR-body before/after quote plus current-head CI is the receipt and no gist is needed. Proof only in a comment, local path, chat or promised upload is insufficient. Every completed stage 0–5 has an appropriate receipt; specification proof does not need future runtime evidence. Stage 2 produces the acceptance-evidence package, not the first evidence of any kind: earlier stages publish their own specification or focused-check receipts. One version-pinned gist may hold distinct stage/event anchors without ceremonial duplicate uploads.
 
 Compact PRs record the outcome, focused commands and results, tested or reviewed SHA, limitations and independent reviewer in the PR body, adding artifact links only when needed to substantiate the claim. Other PRs use the full evidence index: stage, disposition (`COMPLETE`, `NOT REQUIRED`, `REUSED` or `BLOCKED`), candidate head/base, full diff classification, original tested/reviewed SHAs and execution timestamps, applicable commands/environment/results, artifact hashes, reviewer and coverage, limitations, and exemption or reuse rationale. Keep original receipts and append superseding events instead of restamping evidence.
 
@@ -297,7 +311,7 @@ If a final review requires a fix, batch fixes, rerun affected checks/evidence, r
 
 For every review type that runs, including `/es`, `/er`, `/advice`, `/wa`, `/cs`, other named lanes and native reviews, record in the PR body the exact reviewed SHA, review type/phase, verdict or status, timestamp, and reviewer/coverage. Document reviews also retain document hashes; their context SHA does not turn document approval into code approval.
 
-Outside the compact route and the one-liner fast path (§ Proportional exceptions and fast paths), publish each completed review's sanitized receipt as a gist within the approved disclosure scope, and keep one current marker in the PR body for evidence-gate compatibility: `**Evidence**: <gist-url> (head <sha>)`, pointing to the authorized sanitized evidence-review receipt for current applicability. Compact PRs use the outcome/checks/SHA/limitations/reviewer summary described above, linking an artifact only when needed to substantiate the claim; the one-liner fast-path `/es` record uses its before/after section. Update only that index; keep the historical ledger, receipt URLs and original capture SHAs. Underlying raw artifacts may stay private. Missing publication authority or an inaccessible required receipt leaves the marker incomplete; never fabricate its URL.
+Outside the canonical Markdown instruction-only route (§ Markdown instruction-only route), the compact route and the one-liner fast path (§ Proportional exceptions and fast paths), publish each completed review's sanitized receipt as a gist within the approved disclosure scope, and keep one current marker in the PR body for evidence-gate compatibility: `**Evidence**: <gist-url> (head <sha>)`, pointing to the authorized sanitized evidence-review receipt for current applicability. Compact PRs use the outcome/checks/SHA/limitations/reviewer summary described above, linking an artifact only when needed to substantiate the claim; the one-liner fast-path `/es` record uses its before/after section. Update only that index; keep the historical ledger, receipt URLs and original capture SHAs. Underlying raw artifacts may stay private. Missing publication authority or an inaccessible required receipt leaves the marker incomplete; never fabricate its URL.
 
 A gist is link-accessible, not private storage: omit credentials, private source, personal communications and sensitive artifacts unless separately authorized. Verify the gist URL and intended reviewer access before calling publication complete. If tools or permissions prevent publishing a required receipt, record `PUBLICATION BLOCKED` with the exact reason and local receipt location; never invent a gist URL or passing verdict, and do not claim the record complete.
 
