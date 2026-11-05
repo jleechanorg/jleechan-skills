@@ -172,11 +172,33 @@ The canonical bundle is the iteration directory the project's evidence harness p
 - `evidence.md` — human summary + **Claim → Artifact Map** (required)
 - `methodology.md` — env, commands, pass criteria, threshold values used
 - `README.md` — package manifest (test name, run id, branch, commit)
-- `*.sha256` sibling files for every substantive file (use **local basename** so `sha256sum -c` works)
+- A complete aggregate manifest named `checksums.sha256` OR per-file `*.sha256` siblings covering every substantive file, including every claim-map artifact (aggregate paths are bundle-relative; sibling entries use **local basename** so `sha256sum -c` works)
 - `artifacts/` — server.log, lsof/ps output, optional browser recordings
 - Trace JSONL captures when the harness emits them: `request_responses.jsonl` (MCP), `llm_request_responses.jsonl` (LLM), `http_request_responses.jsonl` (HTTP+SSE)
 
-`evidence.md` MUST include a **Claim → Artifact Map** (claim → file → key field) and a **"What This Evidence Does NOT Prove"** section.
+Use the canonical producer's existing format with an explicit mapping from its
+actual artifact paths/fields to the responsibilities above. Equivalent filenames
+or structured command records do not require duplicate files or a reconstructed
+stdout collection log. For example, a producer's `manifest.json` may carry the
+package inventory and provenance, while a run receipt carries commands, exits
+and raw-output paths; identify those exact fields rather than asserting generic
+compliance. Keep all applicable raw data and owner-required fields/media; this
+mapping is not an exemption for absent proof.
+
+Reconcile an independent artifact inventory against checksum coverage. Verify
+every digest; a mismatch, missing listed file, or uncovered substantive/claim-map
+artifact is an integrity failure under `/er`, not a warning. Checksums do not
+hash themselves; integrity coverage concerns the substantive artifacts they
+index. No checksums means integrity is unverified and approval is withheld.
+Other existing producer manifest names remain valid when explicitly identified
+and mapped to the same complete aggregate contract; `checksums.sha256` is the
+recognized default, not a demand to recreate a producer's inventory as stdout.
+Preflight and freeze the complete bundle with existing producer/sealing utilities
+before formal review. Reviewers inspect it read-only; corrections belong to the
+producer and require an explicit updated identity and applicable delta review.
+
+`evidence.md` MUST include a **Claim → Artifact Map** (claim → file →
+key field) and a **"What This Evidence Does NOT Prove"** section.
 
 ## Examples (3 short ones)
 
