@@ -9,7 +9,7 @@ This describes artifacts produced under a typical path on the dedicated Scratch 
 `<scratch-root>/your-project.com/<branch-alias>/<test_name>/iteration_NNN/`
 (resolved dynamically via `diskm scratch-new` or `~/.claude/skills/scratch-space/scripts/scratch-dir.sh`)
 
-and the [`latest`](https://github.com/$GITHUB_REPOSITORY/blob/main/testing_mcp/lib/evidence_utils.py#L1878) symlink (points at the newest `iteration_*`; see [`create_evidence_bundle()`](https://github.com/$GITHUB_REPOSITORY/blob/main/testing_mcp/lib/evidence_utils.py#L1833)). **Normative process rules** (video, hosted URLs, mock vs real) live in [SKILL.md](./SKILL.md) in this directory; this doc is **structural**.
+and the [`latest`](https://github.com/$GITHUB_REPOSITORY/blob/main/testing_mcp/lib/evidence_utils.py#L1878) symlink (points at the newest `iteration_*`; see [`create_evidence_bundle()`](https://github.com/$GITHUB_REPOSITORY/blob/main/testing_mcp/lib/evidence_utils.py#L1833)). **Normative process rules** (proof layers, video, hosted URLs, mock vs real, provenance and SHA applicability) live in [SKILL.md](./SKILL.md) and the canonical lifecycle; this doc is **structural**. Apply this bundle, manifest and media contract when claiming actual test, runtime or artifact proof. Source-only skill guidance follows the lifecycle's Markdown instruction-only route and does not automatically require a separate bundle or campaign.
 
 ## Core documentation
 
@@ -17,7 +17,7 @@ and the [`latest`](https://github.com/$GITHUB_REPOSITORY/blob/main/testing_mcp/l
 |------|---------|
 | **README.md** | Package manifest: test name, run id, how to interpret the bundle. |
 | **methodology.md** | How the run was executed (env, commands, pass criteria). |
-| **evidence.md** | Human summary + **Claim → Artifact Map** (required by standards). |
+| **evidence.md** | Human summary + **Claim → Artifact Map** and **What This Evidence Does NOT Prove** section (required by standards). |
 | **notes.md** | Follow-ups, warnings, optional narrative. |
 
 ## Machine-readable results

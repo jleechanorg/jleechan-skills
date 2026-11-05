@@ -39,18 +39,22 @@ merely because it is independent. Advice §4 is the sole mode/field table.
 A revision verdict binds the verified head, comparison base and declared scope.
 A document verdict binds only the named documents and bundle hash. A hash
 establishes integrity, not immutable storage or correct contents.
+An independent source/document verdict does not wait for prior approval or a
+completed review; report readiness, quorum and evidence gaps separately.
 
 ## 2. Templates
 
 Shared revision template for clone, export, read-only and remote modes:
 
 ```text
-Review <PR URL> at head <SHA> (base <BASE SHA>). Ensure it follows the /prw stages and assess
-the evidence for the changed claims. Read the complete base-to-head diff and full
+Review <PR URL> at head <SHA> (base <BASE SHA>). Assess the changed claims under
+the /prw stages; prior approval or a completed review is not a prerequisite. Read
+the complete base-to-head diff and full
 content of every changed path at both revisions, or verify its absence, including
 binary, mode, symlink, submodule and LFS payloads. If required content cannot be
 retrieved completely, report incomplete COVERAGE and withhold.
-Report P0/P1/P2 with file:line, a MODEL: line reporting what is actually exposed,
+Report P0/P1/P2 with file:line, a MODEL: line naming the actual exposed runtime
+identity, not a description of the source,
 and a COVERAGE: line naming all files and the diff read. Approve source only with
 no P0 and full coverage; P1/P2 are nonblocking. Report separate readiness/evidence
 gaps without presenting this source vote as quorum or merge authority. End with exactly one line:
@@ -63,9 +67,11 @@ Revision packet template for web-provider seats:
 Review the attached change packet for <PR URL> at head <SHA> (base <BASE SHA>),
 bundle sha256:<BUNDLE HASH>. Read its complete diff and full changed-path content
 at both revisions, or verified absence, including special-object payloads.
-Ensure it follows /prw and assess the evidence for the changed claims.
+Assess the changed claims under /prw; prior approval or a completed review is not
+a prerequisite.
 If required content is missing, truncated or unreadable, report incomplete
-COVERAGE and withhold. Report P0/P1/P2 with file:line, MODEL: for what is exposed,
+COVERAGE and withhold. Report P0/P1/P2 with file:line, MODEL: for the actual
+exposed runtime identity, not a source description,
 and COVERAGE: naming every file and diff actually read. Approve source only with
 no P0 and full coverage; P1/P2 are nonblocking. Keep readiness, quorum and merge
 authority separate. End with exactly one line:
@@ -76,12 +82,14 @@ Saved-material template for named documents or a revision-bound packet:
 
 ```text
 Review the saved material in <PACKET PATH>, bundle sha256:<BUNDLE HASH>,
-for <REVIEW TARGET>. Read all complete declared files and evidence. If the
+for <REVIEW TARGET>. Read only the complete declared files and evidence; prior
+approval or a completed review is not a prerequisite. If the
 packet claims revision binding, also read its complete base-to-head diff and
 changed-path content at both revisions, including special objects or verified
 absence. Missing or truncated required content means incomplete COVERAGE and
-WITHHELD. Report P0/P1/P2 with file:line, MODEL: for what is exposed, and COVERAGE:
-naming the files and diff actually read. Approve only with no P0 and full coverage;
+WITHHELD. Report P0/P1/P2 with file:line, MODEL: for the actual exposed runtime
+identity, not a source description, and COVERAGE: naming the files and diff
+actually read. Approve only with no P0 and full coverage;
 P1/P2 are nonblocking. Bind revision approval only to verified revision metadata;
 otherwise approve only the named documents, never code or HEAD. End with exactly one line:
 VERDICT: APPROVED|NOT APPROVED|WITHHELD at <REVIEW TARGET> (WITHHELD with a reason).
@@ -129,7 +137,8 @@ Saved-material preamble:
 
 ```text
 Read only the named saved files and evidence in the packet, checking their
-recorded hashes and revision binding. Do not modify source, evidence, checkouts,
+recorded hashes and revision binding. Adjacent runtime, attempt or sibling-review
+logs/files are out of scope unless explicitly named. Do not modify source, evidence, checkouts,
 refs, config or hooks; do not post, push or change PR metadata. Never print
 credentials. Return your independent review as final output.
 ```
