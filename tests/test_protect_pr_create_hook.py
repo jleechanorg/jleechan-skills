@@ -38,7 +38,15 @@ class ProtectPrCreateHookTest(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
-    def run_hook(self, command, open_prs, *, override_env=False):
+    def run_hook(
+        self,
+        command,
+        open_prs,
+        *,
+        override_env=False,
+        extra_env=None,
+        cwd=None,
+    ):
         environment = dict(os.environ)
         environment["PROTECT_PR_CREATE_MOCK_JSON"] = json.dumps(open_prs)
         environment["BASH_ENV"] = "/dev/null"
@@ -48,17 +56,20 @@ class ProtectPrCreateHookTest(unittest.TestCase):
             environment["ALLOW_PR_STACK_OVERRIDE"] = "1"
         else:
             environment.pop("ALLOW_PR_STACK_OVERRIDE", None)
+        if extra_env:
+            environment.update(extra_env)
+        working_directory = cwd or REPO
         payload = {
             "tool_name": "Bash",
             "tool_input": {"command": command},
-            "cwd": str(REPO),
+            "cwd": str(working_directory),
         }
         return subprocess.run(
             [str(HOOK)],
             input=json.dumps(payload),
             text=True,
             capture_output=True,
-            cwd=REPO,
+            cwd=working_directory,
             env=environment,
             timeout=5,
             check=False,
@@ -111,9 +122,12 @@ class ProtectPrCreateHookTest(unittest.TestCase):
 
     def test_inline_override_allows_authorized_split(self):
         existing = [open_pr(i, f"split/widget/{i}") for i in range(5)]
+        command = (
+            "ALLOW_PR_STACK_OVERRIDE=1 "
+            "gh pr create --head split/widget/new --base main"
+        )
         result = self.run_hook(
-            "ALLOW_PR_STACK_OVERRIDE=1 gh pr create --head split/widget/new --base main",
-            existing,
+            command, existing
         )
         self.assert_mocked_github()
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -137,13 +151,85 @@ class ProtectPrCreateHookTest(unittest.TestCase):
 
     def test_text_mention_does_not_authorize_override(self):
         existing = [open_pr(i, f"split/widget/{i}") for i in range(5)]
+        command = (
+            "echo ALLOW_PR_STACK_OVERRIDE=1 && "
+            "gh pr create --head split/widget/new --base main"
+        )
         result = self.run_hook(
-            "echo ALLOW_PR_STACK_OVERRIDE=1 && gh pr create --head split/widget/new --base main",
-            existing,
+            command, existing
         )
         self.assert_mocked_github()
         self.assertEqual(result.returncode, 2)
         self.assertIn("split PR quantity cap", result.stderr)
+
+    def test_attached_repo_short_option_does_not_hide_pr_create(self):
+        existing = [open_pr(i, base="parent") for i in range(9)]
+        result = self.run_hook(
+            "gh -Rowner/repo pr create --head feature --base parent", existing
+        )
+        self.assert_mocked_github()
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("stacked PR ceiling", result.stderr)
+
+    def test_comment_line_does_not_hide_following_pr_create(self):
+        existing = [open_pr(i, base="parent") for i in range(9)]
+        command = (
+            "echo preparing\n# Create the PR\n"
+            "gh pr create --head feature --base parent"
+        )
+        result = self.run_hook(
+            command, existing
+        )
+        self.assert_mocked_github()
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("stacked PR ceiling", result.stderr)
+
+    def test_later_main_invocation_does_not_override_stacked_invocation(self):
+        existing = [open_pr(i, base="parent") for i in range(9)]
+        command = (
+            "gh pr create --head feature --base parent; "
+            "gh pr create --head feature --base main"
+        )
+        result = self.run_hook(command, existing)
+        self.assert_mocked_github()
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("stacked PR ceiling", result.stderr)
+
+    def test_override_on_later_invocation_does_not_authorize_prior_request(self):
+        existing = [open_pr(i, base="parent") for i in range(9)]
+        command = (
+            "gh pr create --head feature --base parent; "
+            "ALLOW_PR_STACK_OVERRIDE=1 gh pr create --head feature --base parent"
+        )
+        result = self.run_hook(command, existing)
+        self.assert_mocked_github()
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("stacked PR ceiling", result.stderr)
+
+    def test_configured_merge_base_applies_when_base_is_omitted(self):
+        branch = subprocess.run(
+            ["git", "-C", str(REPO), "branch", "--show-current"],
+            text=True,
+            capture_output=True,
+            check=True,
+        ).stdout.strip()
+        existing = [open_pr(i, base="parent") for i in range(9)]
+        environment = {
+            "GIT_CONFIG_COUNT": "1",
+            "GIT_CONFIG_KEY_0": f"branch.{branch}.gh-merge-base",
+            "GIT_CONFIG_VALUE_0": "parent",
+        }
+        result = self.run_hook(
+            "gh pr create", existing, extra_env=environment
+        )
+        self.assert_mocked_github()
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("stacked PR ceiling", result.stderr)
+
+    def test_quoted_hash_does_not_start_comment(self):
+        result = self.run_hook('echo "# still a string"', [])
+        self.assert_mocked_github()
+        self.assertEqual(result.returncode, 0, result.stderr)
 
 
 if __name__ == "__main__":

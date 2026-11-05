@@ -130,7 +130,7 @@ For each file you plan to modify, check the table above:
 - [ ] Am I adding unrelated features to this PR? → Open a separate PR.
 
 ### 5. PR hygiene check
-- [ ] Does an open PR already cover this scope? → Fix that PR instead of creating a new one (see `~/.claude/skills/pr-quantity-control/SKILL.md`).
+- [ ] Does an open PR already cover this scope? → Fix that PR instead of creating a new one (see `${CLAUDE_HOME:-$HOME/.claude}/skills/pr-quantity-control/SKILL.md`).
 
 ---
 

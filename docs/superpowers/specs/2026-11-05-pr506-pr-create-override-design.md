@@ -21,6 +21,10 @@ environment or as an assignment prefix to `gh pr create`.
   continues to allow the explicitly authorized operation.
 - Existing below-cap requests pass; requests at the existing split and stacked
   caps block without an override.
+- Comments and later commands cannot hide a stacked PR creation or change its
+  parsed flags. Attached `-Rowner/repo` is still recognized.
+- When `--base` is omitted, the current branch's configured
+  `gh-merge-base` determines whether the request is stacked.
 
 ## User story
 
@@ -31,9 +35,10 @@ the override cannot silently bypass the cap.
 ## Proof plan
 
 Run the focused executable hook checks against the published source to establish
-the false-override failure, then rerun them after the parser change. Keep PR-list
-data mocked and use a local `gh` stub so checks cannot reach GitHub. Also run the
-repository's focused Markdown/link checks and `git diff --check` for the merge.
+the false-override and parser failures, then rerun them after the parser change.
+Keep PR-list data mocked and use a local `gh` stub so checks cannot reach GitHub.
+Also run focused installer/portability checks, source-link checks, and
+`git diff --check` for the merge.
 
 ## Mock or exemption
 

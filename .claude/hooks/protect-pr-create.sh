@@ -60,29 +60,91 @@ def strip_heredocs(s: str) -> str:
         s = new_s
 
 
-stripped = strip_heredocs(cmd)
+def normalize_shell_command(command: str) -> str:
+    output = []
+    quote = ""
+    escaped = False
+    comment = False
+    i = 0
+    while i < len(command):
+        char = command[i]
+        if comment:
+            if char == "\n":
+                output.append(";")
+                comment = False
+            i += 1
+            continue
+        if escaped:
+            output.append(char)
+            escaped = False
+            i += 1
+            continue
+        if char == "\\" and quote != "'":
+            if i + 1 < len(command) and command[i + 1] == "\n":
+                i += 2
+                continue
+            output.append(char)
+            escaped = True
+            i += 1
+            continue
+        if quote:
+            if char == quote:
+                quote = ""
+            output.append(char)
+        elif char in ("'", '"'):
+            quote = char
+            output.append(char)
+        elif char == "#" and (
+            not output
+            or output[-1].isspace()
+            or output[-1] in ";&|()<>"
+        ):
+            comment = True
+        elif char == "\n":
+            output.append(";")
+        else:
+            output.append(char)
+        i += 1
+    return "".join(output)
+
+
+stripped = normalize_shell_command(strip_heredocs(cmd))
 
 # Match a real `gh ... pr create` invocation in command position; quoted
 # strings and shell comments are single tokens or dropped by the lexer.
 try:
-    lexer = shlex.shlex(stripped.replace("\n", " ; "), posix=True, punctuation_chars=True)
+    lexer = shlex.shlex(stripped, posix=True, punctuation_chars=True)
     lexer.whitespace_split = True
+    lexer.commenters = ""
     tokens = list(lexer)
 except Exception:
     sys.exit(0)
 
 SEPARATORS = {";", "&&", "||", "|", "&", "(", ")", "\n"}
+SEPARATOR_CHARACTERS = ";&|()<>"
+
+
+def is_separator(token: str) -> bool:
+    return token in SEPARATORS or (
+        bool(token) and all(char in SEPARATOR_CHARACTERS for char in token)
+    )
 
 
 def is_pr_create(i: int) -> bool:
     j = i - 1
-    while j >= 0 and (re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", tokens[j]) or tokens[j] == "env"):
+    while j >= 0 and (
+        re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", tokens[j]) or tokens[j] == "env"
+    ):
         j -= 1
-    if j >= 0 and tokens[j] not in SEPARATORS:
+    if j >= 0 and not is_separator(tokens[j]):
         return False
     k = i + 1
     while k < len(tokens) and tokens[k].startswith("-"):
-        k += 1 if "=" in tokens[k] else 2
+        token = tokens[k]
+        attached_short_value = (
+            not token.startswith("--") and len(token) > 2
+        )
+        k += 1 if "=" in token or attached_short_value else 2
     return tokens[k : k + 2] == ["pr", "create"]
 
 
@@ -106,59 +168,75 @@ def has_inline_override(i: int) -> bool:
     return False
 
 
-if os.environ.get("ALLOW_PR_STACK_OVERRIDE") == "1" or any(
-    has_inline_override(i) for i in gh_create_indices
-):
-    sys.exit(0)
-
-head_branch = ""
-base_branch = "main"
-repo_slug = ""
-
-# Locate the `pr` -> `create` token pair
-for idx in range(len(tokens) - 1):
-    if tokens[idx] == "pr" and tokens[idx + 1] == "create":
-        # Scan surrounding tokens for --head/-H, --base/-B, --repo/-R
-        j = 0
-        while j < len(tokens):
-            tok = tokens[j]
-            if tok in ("--head", "-H") and j + 1 < len(tokens):
-                head_branch = tokens[j + 1]
-                j += 2
-                continue
-            if tok.startswith("--head="):
-                head_branch = tok.split("=", 1)[1]
-            elif tok in ("--base", "-B") and j + 1 < len(tokens):
-                base_branch = tokens[j + 1]
-                j += 2
-                continue
-            elif tok.startswith("--base="):
-                base_branch = tok.split("=", 1)[1]
-            elif tok in ("--repo", "-R") and j + 1 < len(tokens):
-                repo_slug = tokens[j + 1]
-                j += 2
-                continue
-            elif tok.startswith("--repo="):
-                repo_slug = tok.split("=", 1)[1]
-            j += 1
-        break
-
-if ":" in head_branch:
-    head_branch = head_branch.split(":", 1)[1]
-
-if not head_branch:
+def get_current_branch():
     try:
-        head_branch = (
-            subprocess.check_output(
-                ["git", "-C", cwd, "branch", "--show-current"],
-                stderr=subprocess.DEVNULL,
-                text=True,
-                timeout=3,
-            ).strip()
-        )
+        return subprocess.check_output(
+            ["git", "-C", cwd, "branch", "--show-current"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=3,
+        ).strip()
     except Exception:
-        head_branch = ""
+        return ""
 
+
+def get_configured_merge_base(branch):
+    if not branch:
+        return ""
+    try:
+        return subprocess.check_output(
+            ["git", "-C", cwd, "config", "--get", f"branch.{branch}.gh-merge-base"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=3,
+        ).strip()
+    except Exception:
+        return ""
+
+
+def get_invocation_flags(i):
+    end = i + 1
+    while end < len(tokens) and not is_separator(tokens[end]):
+        end += 1
+
+    head_branch = ""
+    base_branch = None
+    repo_slug = ""
+    j = i + 1
+    while j < end:
+        token = tokens[j]
+        if token == "--":
+            break
+        if token in ("--head", "-H") and j + 1 < end:
+            head_branch = tokens[j + 1]
+            j += 2
+            continue
+        if token.startswith("--head="):
+            head_branch = token.split("=", 1)[1]
+        elif token.startswith("-H") and len(token) > 2:
+            head_branch = token[2:]
+        elif token in ("--base", "-B") and j + 1 < end:
+            base_branch = tokens[j + 1]
+            j += 2
+            continue
+        elif token.startswith("--base="):
+            base_branch = token.split("=", 1)[1]
+        elif token.startswith("-B") and len(token) > 2:
+            base_branch = token[2:]
+        elif token in ("--repo", "-R") and j + 1 < end:
+            repo_slug = tokens[j + 1]
+            j += 2
+            continue
+        elif token.startswith("--repo="):
+            repo_slug = token.split("=", 1)[1]
+        elif token.startswith("-R") and len(token) > 2:
+            repo_slug = token[2:]
+        j += 1
+    return head_branch, base_branch, repo_slug
+
+
+if os.environ.get("ALLOW_PR_STACK_OVERRIDE") == "1":
+    sys.exit(0)
 
 def compute_split_prefix(branch: str) -> str:
     if not branch.startswith("split/"):
@@ -173,20 +251,14 @@ def compute_split_prefix(branch: str) -> str:
     return "split/"
 
 
-split_prefix = compute_split_prefix(head_branch)
-is_stacked = base_branch not in ("main", "master", "")
+def query_open_prs(repo_slug: str):
+    mock_json = os.environ.get("PROTECT_PR_CREATE_MOCK_JSON", "")
+    if mock_json:
+        try:
+            return json.loads(mock_json)
+        except Exception:
+            return None
 
-# Only query GitHub if we are either on a split/* branch or targeting a non-main base branch
-if not split_prefix and not is_stacked:
-    sys.exit(0)
-
-mock_json = os.environ.get("PROTECT_PR_CREATE_MOCK_JSON", "")
-if mock_json:
-    try:
-        open_prs = json.loads(mock_json)
-    except Exception:
-        sys.exit(0)
-else:
     gh_cmd = [
         "gh",
         "pr",
@@ -214,49 +286,71 @@ else:
             timeout=10,
         )
         if proc.returncode != 0:
-            sys.exit(0)
-        open_prs = json.loads(proc.stdout or "[]")
+            return None
+        return json.loads(proc.stdout or "[]")
     except Exception:
-        # Fail-open on timeout or offline
+        return None
+
+
+for gh_index in gh_create_indices:
+    if has_inline_override(gh_index):
+        continue
+
+    head_branch, base_branch, repo_slug = get_invocation_flags(gh_index)
+    current_branch = ""
+    if not head_branch or base_branch is None:
+        current_branch = get_current_branch()
+    if not head_branch:
+        head_branch = current_branch
+    if ":" in head_branch:
+        head_branch = head_branch.split(":", 1)[1]
+    if base_branch is None:
+        base_branch = get_configured_merge_base(current_branch) or "main"
+
+    split_prefix = compute_split_prefix(head_branch)
+    is_stacked = base_branch not in ("main", "master", "")
+    if not split_prefix and not is_stacked:
+        continue
+
+    open_prs = query_open_prs(repo_slug)
+    if open_prs is None:
         sys.exit(0)
 
-# Rule 1: Split-prefix ceiling (<= 5 open PRs under the same split/<feature>/ prefix)
-if split_prefix:
-    matching_split_prs = [
-        p
-        for p in open_prs
-        if (p.get("headRefName") or "").startswith(split_prefix)
-    ]
-    if len(matching_split_prs) >= 5:
-        nums = ", ".join(f"#{p.get('number')}" for p in matching_split_prs[:10])
-        sys.stderr.write(
-            f"BLOCKED by protect-pr-create.sh: split PR quantity cap exceeded for prefix '{split_prefix}'.\n"
-            f"Found {len(matching_split_prs)} open PRs already matching '{split_prefix}*' ({nums}); ceiling is <= 5.\n"
-            f"Do NOT atomize features into unbounded micro-PRs. Consolidate into an existing PR or a single unified PR targeting 'main'.\n"
-            f"If the human operator explicitly authorized >5 split PRs, set ALLOW_PR_STACK_OVERRIDE=1.\n"
-        )
-        sys.exit(2)
+    if split_prefix:
+        matching_split_prs = [
+            p
+            for p in open_prs
+            if (p.get("headRefName") or "").startswith(split_prefix)
+        ]
+        if len(matching_split_prs) >= 5:
+            nums = ", ".join(f"#{p.get('number')}" for p in matching_split_prs[:10])
+            sys.stderr.write(
+                f"BLOCKED by protect-pr-create.sh: split PR quantity cap exceeded for prefix '{split_prefix}'.\n"
+                f"Found {len(matching_split_prs)} open PRs already matching '{split_prefix}*' ({nums}); ceiling is <= 5.\n"
+                f"Do NOT atomize features into unbounded micro-PRs. Consolidate into an existing PR or a single unified PR targeting 'main'.\n"
+                f"If the human operator explicitly authorized >5 split PRs, set ALLOW_PR_STACK_OVERRIDE=1.\n"
+            )
+            sys.exit(2)
 
-# Rule 2: Stacked PR ceiling (< 10 open non-main-base PRs in the active 100-PR window)
-if is_stacked:
-    stacked_prs = [
-        p
-        for p in open_prs
-        if (p.get("baseRefName") or "main") not in ("main", "master")
-    ]
-    if len(stacked_prs) >= 9:
-        nums = ", ".join(
-            f"#{p.get('number')} (base={p.get('baseRefName')})"
-            for p in stacked_prs[:10]
-        )
-        sys.stderr.write(
-            f"BLOCKED by protect-pr-create.sh: stacked PR ceiling (< 10) reached.\n"
-            f"Attempted to create a stacked PR with --base '{base_branch}', but {len(stacked_prs)} open stacked PRs "
-            f"(baseRefName != main) already exist ({nums}).\n"
-            f"Target 'main' directly (--base main) or fold this change into an existing open PR.\n"
-            f"If the human operator explicitly authorized this stack, set ALLOW_PR_STACK_OVERRIDE=1.\n"
-        )
-        sys.exit(2)
+    if is_stacked:
+        stacked_prs = [
+            p
+            for p in open_prs
+            if (p.get("baseRefName") or "main") not in ("main", "master")
+        ]
+        if len(stacked_prs) >= 9:
+            nums = ", ".join(
+                f"#{p.get('number')} (base={p.get('baseRefName')})"
+                for p in stacked_prs[:10]
+            )
+            sys.stderr.write(
+                f"BLOCKED by protect-pr-create.sh: stacked PR ceiling (< 10) reached.\n"
+                f"Attempted to create a stacked PR with --base '{base_branch}', but {len(stacked_prs)} open stacked PRs "
+                f"(baseRefName != main) already exist ({nums}).\n"
+                f"Target 'main' directly (--base main) or fold this change into an existing open PR.\n"
+                f"If the human operator explicitly authorized this stack, set ALLOW_PR_STACK_OVERRIDE=1.\n"
+            )
+            sys.exit(2)
 
 sys.exit(0)
 PYEOF
