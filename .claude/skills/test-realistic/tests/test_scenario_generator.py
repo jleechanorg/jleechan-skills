@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 from config import ProjectConfig
+import scenario_generator
 from scenario_generator import (
     ScenarioGenerationError,
     _gather_raw_context,
@@ -60,12 +61,20 @@ class TestTargetShapeDetection:
                             "body": "Details",
                             "headRefName": "feature",
                             "headRefOid": "abc123",
+                            "baseRefOid": "base456",
+                            "repository": {"nameWithOwner": "example/project"},
                             "files": [{"path": "app.py", "additions": 2, "deletions": 1}],
                         }
                     ),
                     stderr="",
                 )
-            assert cmd == ["gh", "pr", "diff", "42", "--patch"]
+            assert cmd == [
+                "gh",
+                "api",
+                "repos/example/project/compare/base456...abc123",
+                "--header",
+                "Accept: application/vnd.github.diff",
+            ]
             return subprocess.CompletedProcess(
                 cmd, returncode=0, stdout="diff --git a/app.py b/app.py\n+real change\n", stderr=""
             )
@@ -77,8 +86,14 @@ class TestTargetShapeDetection:
         assert context["head_sha"] == "abc123"
         assert "+real change" in context["pr_diff"]
         assert calls == [
-            ["gh", "pr", "view", "42", "--json", "title,body,headRefName,headRefOid,files"],
-            ["gh", "pr", "diff", "42", "--patch"],
+            ["gh", "pr", "view", "42", "--json", "title,body,headRefName,headRefOid,baseRefOid,files,repository"],
+            [
+                "gh",
+                "api",
+                "repos/example/project/compare/base456...abc123",
+                "--header",
+                "Accept: application/vnd.github.diff",
+            ],
         ]
 
     def test_pr_context_without_patch_fails_honestly(self, monkeypatch):
@@ -87,7 +102,13 @@ class TestTargetShapeDetection:
                 return subprocess.CompletedProcess(
                     cmd,
                     returncode=0,
-                    stdout=json.dumps({"headRefOid": "abc123"}),
+                    stdout=json.dumps(
+                        {
+                            "headRefOid": "abc123",
+                            "baseRefOid": "base456",
+                            "repository": {"nameWithOwner": "example/project"},
+                        }
+                    ),
                     stderr="",
                 )
             return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
@@ -101,12 +122,26 @@ class TestTargetShapeDetection:
         ctx = _gather_raw_context("Preview the banner in 3 modes")
         assert ctx["candidate_type"] == "prompt"
 
-    def test_bare_number_is_pr_shaped(self):
-        # We don't actually call gh here -- this just confirms _gather_raw_context
-        # ATTEMPTS the pr path (it will raise since gh isn't mocked and "999999999"
-        # is not a real PR, proving the shape-routing works without a stub).
-        with pytest.raises(ScenarioGenerationError):
-            _gather_raw_context("999999999")
+    def test_bare_number_is_pr_shaped(self, monkeypatch):
+        calls = []
+
+        def fail_if_called(cmd, **kwargs):
+            calls.append(cmd)
+            if cmd[:3] == ["gh", "pr", "view"]:
+                raise OSError("offline test seam")
+            return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr(scenario_generator.subprocess, "run", fail_if_called)
+        _gather_raw_context("999999999")
+        assert calls[0] == [
+            "gh",
+            "pr",
+            "view",
+            "999999999",
+            "--json",
+            "title,body,headRefName,headRefOid,baseRefOid,files,repository",
+        ]
+        assert calls[1] == ["git", "show", "--stat", "--oneline", "999999999"]
 
     def test_prompt_starting_with_pr_word_but_not_pr_shaped_stays_prompt(self):
         """Round-1 regression guard: 'Probe 5 flows' must never be routed to gh."""

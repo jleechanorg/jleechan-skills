@@ -124,8 +124,11 @@ def _format_pr_context_extras(context: dict) -> str:
         parts.append(diff_note)
     pr_diff = context.get("pr_diff")
     if pr_diff:
+        base_sha = context.get("base_sha", "<unknown>")
         head_sha = context.get("head_sha", "<unknown>")
-        parts.append("PR patch pinned at head " + head_sha + ":\n" + pr_diff)
+        parts.append(
+            f"PR patch pinned at base {base_sha} and head {head_sha}:\n{pr_diff}"
+        )
     return ("\n".join(parts) + "\n") if parts else ""
 
 
@@ -139,7 +142,7 @@ def fetch_raw_pr_context(pr_num: str) -> dict:
                 "view",
                 pr_num,
                 "--json",
-                "title,body,headRefName,headRefOid,files",
+                "title,body,headRefName,headRefOid,baseRefOid,files,repository",
             ],
             capture_output=True,
             text=True,
@@ -157,15 +160,34 @@ def fetch_raw_pr_context(pr_num: str) -> dict:
         raise ScenarioGenerationError(
             f"gh pr view returned no pinned headRefOid for PR #{pr_num}"
         )
+    base_sha = data.get("baseRefOid")
+    repository = data.get("repository")
+    repo_name = repository.get("nameWithOwner") if isinstance(repository, dict) else None
+    if not isinstance(base_sha, str) or not base_sha.strip():
+        raise ScenarioGenerationError(
+            f"gh pr view returned no pinned baseRefOid for PR #{pr_num}"
+        )
+    if not isinstance(repo_name, str) or not repo_name.strip():
+        raise ScenarioGenerationError(
+            f"gh pr view returned no repository name for PR #{pr_num}"
+        )
     try:
         diff_res = subprocess.run(
-            ["gh", "pr", "diff", pr_num, "--patch"],
+            [
+                "gh",
+                "api",
+                f"repos/{repo_name}/compare/{base_sha}...{head_sha}",
+                "--header",
+                "Accept: application/vnd.github.diff",
+            ],
             capture_output=True,
             text=True,
             check=True,
         )
     except (subprocess.CalledProcessError, OSError) as exc:
-        raise ScenarioGenerationError(f"gh pr diff failed for PR #{pr_num}: {exc}") from exc
+        raise ScenarioGenerationError(
+            f"gh compare diff failed for PR #{pr_num} at {base_sha}...{head_sha}: {exc}"
+        ) from exc
     pr_diff = diff_res.stdout
     if not pr_diff.strip():
         raise ScenarioGenerationError(f"gh pr diff returned no patch for PR #{pr_num}")
@@ -187,7 +209,7 @@ def fetch_raw_pr_context(pr_num: str) -> dict:
         pr_diff = pr_diff[:_PR_DIFF_MAX_CHARS]
         truncation_note = (
             f"(PR patch truncated to {_PR_DIFF_MAX_CHARS} characters; "
-            "head remains pinned by headRefOid)"
+            f"compare remains pinned by base {base_sha} and head {head_sha})"
         )
         diff_note = (
             diff_note + "\n" + truncation_note if diff_note else truncation_note
@@ -197,6 +219,7 @@ def fetch_raw_pr_context(pr_num: str) -> dict:
         "body": data.get("body", ""),
         "files": files,
         "head_ref": data.get("headRefName", ""),
+        "base_sha": base_sha,
         "head_sha": head_sha,
         "pr_diff": pr_diff,
         "diff_summary": diff_summary,

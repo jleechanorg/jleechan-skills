@@ -65,6 +65,12 @@ def _write_capture(holder: dict, content: str) -> None:
     (agent_dir / "capture.jsonl").write_text(content)
 
 
+def _write_agent_capture(holder: dict, agent_id: str, content: str) -> None:
+    agent_dir = holder["output_root"] / f"agent-{agent_id}"
+    agent_dir.mkdir(parents=True, exist_ok=True)
+    (agent_dir / "capture.jsonl").write_text(content)
+
+
 class TestVerifyAdapterGreen:
     def test_fixture_pool_preserves_actor_shape(self, tmp_path):
         import yaml
@@ -139,7 +145,7 @@ class TestVerifyAdapterRed:
             _write_capture(holder, "{not valid json\n")
             return subprocess.CompletedProcess(cmd, returncode=0)
 
-        with pytest.raises(AdapterVerificationError, match="not valid JSON"):
+        with pytest.raises(AdapterVerificationError, match="malformed capture line"):
             verify_adapter(_minimal_config(tmp_path), subprocess_runner=runner)
 
     def test_non_dict_turn_raises(self, tmp_path, monkeypatch):
@@ -162,4 +168,16 @@ class TestVerifyAdapterRed:
             return subprocess.CompletedProcess(cmd, returncode=0)
 
         with pytest.raises(AdapterVerificationError, match="all 2 captured turn"):
+            verify_adapter(_minimal_config(tmp_path), subprocess_runner=runner)
+
+    def test_each_matched_capture_must_have_nonempty_object(self, tmp_path, monkeypatch):
+        holder: dict = {}
+        _spy_on_output_root(monkeypatch, holder)
+
+        def runner(cmd, check=False, cwd=None):
+            _write_agent_capture(holder, "0", '{"turn": 1}\n')
+            _write_agent_capture(holder, "1", '{}\n')
+            return subprocess.CompletedProcess(cmd, returncode=0)
+
+        with pytest.raises(AdapterVerificationError, match="agent-1/capture.jsonl"):
             verify_adapter(_minimal_config(tmp_path), subprocess_runner=runner)

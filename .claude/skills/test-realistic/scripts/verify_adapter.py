@@ -16,10 +16,8 @@ feature_coverage_judge.py and target_scoped_run.py's own code, not assumed):
      require specific keys like "turn"/"action_taken" -- a project is free
      to name its own fields however it likes (e.g. turn_index/action_text
      is equally valid) as long as each line is a non-empty JSON object.
-  4. At least one turn's dict is non-empty (an all-empty-dict capture is a
-     dispatcher that ran but captured nothing meaningful -- a red flag
-     worth surfacing at onboarding time, before it's mistaken for a working
-     integration).
+  4. Every matched capture has at least one non-empty dict (a capture made
+     entirely of empty objects did not record meaningful output).
 
 This is intentionally NOT a full scenario/coverage-judge run -- it never
 calls the coverage judge itself. The configured dispatch command is still the
@@ -32,14 +30,17 @@ that real dispatch exits non-zero.
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 import tempfile
 from pathlib import Path
 
 from config import ProjectConfig, find_config_path, load_config
 from scenario_generator import build_pool_agents
-from target_scoped_run import build_dispatch_command, collect_capture_paths
+from target_scoped_run import (
+    build_dispatch_command,
+    collect_capture_paths,
+    load_capture_turns,
+)
 
 
 class AdapterVerificationError(RuntimeError):
@@ -111,36 +112,28 @@ def verify_adapter(
         total_turns = 0
         non_empty_turns = 0
         for capture_path in capture_paths:
-            for line_no, line in enumerate(capture_path.read_text().splitlines(), start=1):
-                if not line.strip():
-                    continue
-                try:
-                    parsed = json.loads(line)
-                except json.JSONDecodeError as exc:
-                    raise AdapterVerificationError(
-                        f"{capture_path}:{line_no} is not valid JSON: {exc}"
-                    ) from exc
-                if not isinstance(parsed, dict):
-                    raise AdapterVerificationError(
-                        f"{capture_path}:{line_no} parsed to a {type(parsed).__name__}, "
-                        "not a JSON object -- every turn record must be a dict "
-                        "(feature_coverage_judge.py requires list[dict])"
-                    )
-                total_turns += 1
-                if parsed:
-                    non_empty_turns += 1
+            try:
+                turns_loaded = load_capture_turns(capture_path)
+            except ValueError as exc:
+                raise AdapterVerificationError(str(exc)) from exc
+            if not turns_loaded:
+                raise AdapterVerificationError(
+                    f"capture {capture_path} contained zero parseable turn lines"
+                )
+            non_empty_capture_turns = sum(bool(turn) for turn in turns_loaded)
+            if non_empty_capture_turns == 0:
+                raise AdapterVerificationError(
+                    f"all {len(turns_loaded)} captured turn(s) in {capture_path} "
+                    "were empty dicts ({}); every matched capture must contain "
+                    "at least one non-empty JSON object"
+                )
+            total_turns += len(turns_loaded)
+            non_empty_turns += non_empty_capture_turns
 
         if total_turns == 0:
             raise AdapterVerificationError(
                 f"capture file(s) matched but contained zero parseable turn lines: {capture_paths}"
             )
-        if non_empty_turns == 0:
-            raise AdapterVerificationError(
-                f"all {total_turns} captured turn(s) were empty dicts ({{}}) -- the dispatcher "
-                "ran and wrote output, but captured no actual content. Check that your adapter "
-                "is really reading rendered state, not writing placeholder records."
-            )
-
         return {
             "dispatch_returncode": proc.returncode,
             "capture_files": [str(p) for p in capture_paths],
