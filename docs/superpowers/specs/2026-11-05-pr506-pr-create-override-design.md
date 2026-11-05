@@ -32,9 +32,10 @@ authoritative.
   unrelated `split/<other>/*` rows are counted separately.
 - Comments and later commands cannot hide a stacked PR creation or change its
   parsed flags. Attached `-Rowner/repo` is still recognized.
-- The scan recognizes command substitutions, expansions in unquoted heredocs,
+- The scan recognizes `$()` command substitutions, expansions in unquoted heredocs,
   and explicit `bash -c` / `sh -c` programs, including nested child shells.
   Quoted heredoc contents and ordinary quoted mentions remain literal.
+- Legacy backtick command substitutions are outside this best-effort scan.
 - An invocation-local prefix override authorizes only that create; its
   projected creation still counts when evaluating later unoverridden creates.
 - When `--base` is omitted, the current branch's configured
@@ -66,5 +67,6 @@ test-only environment bypass, and the tests make no live network calls.
 The existing hook fails open when GitHub cannot be queried. This change does not
 alter that behavior or the existing hard caps. It narrows only what counts as an
 explicit override, preventing an incidental command-string mention from
-disabling the existing check. Dynamically computed executables and aliases are
-outside the best-effort command scan; operator policy remains authoritative.
+disabling the existing check. Legacy backticks, dynamically computed
+executables, and aliases are outside the best-effort command scan; operator
+policy remains authoritative.

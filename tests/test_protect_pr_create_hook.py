@@ -269,60 +269,59 @@ EOF"""
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_projected_caps_preserve_order_across_supported_shell_contexts(self):
-        split_rows = [open_pr(i, f"split/widget/{i}") for i in range(4)]
-        stack_rows = [open_pr(i, base="parent") for i in range(8)]
-        split_child = (
-            "bash -c 'ALLOW_PR_STACK_OVERRIDE=1 gh pr create "
-            "--head split/widget/first --base main'; "
-            "gh pr create --head split/widget/second --base main"
-        )
-        stack_child = (
-            "bash -c 'ALLOW_PR_STACK_OVERRIDE=1 gh pr create "
-            "--head first --base parent'; gh pr create --head second --base parent"
-        )
-        split_nested = (
-            "bash -c 'sh -c \"ALLOW_PR_STACK_OVERRIDE=1 gh pr create "
-            "--head split/widget/first --base main\"'; "
-            "gh pr create --head split/widget/second --base main"
-        )
-        stack_nested = (
-            "bash -c 'sh -c \"ALLOW_PR_STACK_OVERRIDE=1 gh pr create "
-            "--head first --base parent\"'; gh pr create --head second --base parent"
-        )
-        split_late_child = (
-            "ALLOW_PR_STACK_OVERRIDE=1 gh pr create --head split/widget/first "
-            "--base main; bash -c 'gh pr create --head split/widget/second --base main'"
-        )
-        stack_late_nested = (
-            "ALLOW_PR_STACK_OVERRIDE=1 gh pr create --head first --base parent; "
-            "bash -c 'sh -c \"gh pr create --head second --base parent\"'"
-        )
-        split_late_substitution = (
-            "ALLOW_PR_STACK_OVERRIDE=1 gh pr create --head split/widget/first "
-            '--base main; url="$(gh pr create --head split/widget/second --base main)"'
-        )
-        stack_late_heredoc = (
-            "ALLOW_PR_STACK_OVERRIDE=1 gh pr create --head first --base parent; "
-            "cat <<EOF\n$(gh pr create --head second --base parent)\nEOF"
-        )
-        cases = [
-            ("split child override before direct", split_child, split_rows,
-             "split PR quantity cap"),
-            ("stack child override before direct", stack_child, stack_rows,
-             "stacked PR ceiling"),
-            ("split nested override before direct", split_nested, split_rows,
-             "split PR quantity cap"),
-            ("stack nested override before direct", stack_nested, stack_rows,
-             "stacked PR ceiling"),
-            ("split child after direct override", split_late_child, split_rows,
-             "split PR quantity cap"),
-            ("stack nested after direct override", stack_late_nested, stack_rows,
-             "stacked PR ceiling"),
-            ("split substitution after direct override", split_late_substitution,
-             split_rows, "split PR quantity cap"),
-            ("stack heredoc after direct override", stack_late_heredoc, stack_rows,
-             "stacked PR ceiling"),
-        ]
+        def invocation(cap, position, override):
+            if cap == "split":
+                head = f"split/widget/{position}"
+                base = "main"
+            else:
+                head = position
+                base = "parent"
+            command = f"gh pr create --head {head} --base {base}"
+            return f"ALLOW_PR_STACK_OVERRIDE=1 {command}" if override else command
+
+        def in_context(command, context):
+            if context == "direct":
+                return command
+            if context == "child":
+                return f"bash -c '{command}'"
+            if context == "nested child":
+                return f"bash -c 'sh -c \"{command}\"'"
+            if context == "substitution":
+                return f'url="$({command})"'
+            return f"cat <<EOF\n$({command})\nEOF"
+
+        contexts = ("direct", "child", "nested child", "substitution", "heredoc")
+        cases = []
+        for cap in ("split", "stacked"):
+            rows = (
+                [open_pr(i, f"split/widget/{i}") for i in range(4)]
+                if cap == "split"
+                else [open_pr(i, base="parent") for i in range(8)]
+            )
+            message = (
+                "split PR quantity cap" if cap == "split" else "stacked PR ceiling"
+            )
+            for context in contexts:
+                first = in_context(invocation(cap, "first", True), context)
+                second = invocation(cap, "second", False)
+                cases.append(
+                    (
+                        f"{cap}: {context} before direct",
+                        f"{first}; {second}",
+                        rows,
+                        message,
+                    )
+                )
+                first = invocation(cap, "first", True)
+                second = in_context(invocation(cap, "second", False), context)
+                cases.append(
+                    (
+                        f"{cap}: direct before {context}",
+                        f"{first}; {second}",
+                        rows,
+                        message,
+                    )
+                )
         for name, command, existing, message in cases:
             with self.subTest(scenario=name):
                 result = self.run_hook(command, existing)

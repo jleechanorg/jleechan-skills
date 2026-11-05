@@ -13,9 +13,9 @@
 # rule owned by the pr-quantity-control skill. This hook only blocks at the hard cap
 # (>= 5 open split/* PRs, >= 9 open stacked PRs).
 #
-# Supported parsing includes direct calls, command substitutions, unquoted
-# heredoc expansions, and explicit `bash -c`/`sh -c` programs. Dynamically
-# computed executables and aliases are outside this best-effort scan.
+# Supported parsing includes direct calls, `$()` command substitutions,
+# unquoted heredoc expansions, and explicit `bash -c`/`sh -c` programs. Legacy
+# backticks, computed executables, and aliases are outside this best-effort scan.
 # Escape hatch: prefix the command with `ALLOW_PR_STACK_OVERRIDE=1` when explicitly authorized by the user.
 # Fail-open on offline/timeout so routine work never hangs if GitHub API is unreachable.
 
@@ -122,7 +122,9 @@ def normalize_shell_command(command: str) -> str:
     return "".join(output)
 
 
-def command_substitutions(command: str, *, ignore_outer_quotes: bool = False):
+def command_substitution_spans(
+    command: str, *, ignore_outer_quotes: bool = False
+):
     substitutions = []
     quote = ""
     escaped = False
@@ -156,6 +158,7 @@ def command_substitutions(command: str, *, ignore_outer_quotes: bool = False):
             i += 1
             continue
 
+        substitution_start = i
         start = i + 2
         depth = 1
         inner_quote = ""
@@ -178,30 +181,24 @@ def command_substitutions(command: str, *, ignore_outer_quotes: bool = False):
                 depth -= 1
             i += 1
         if depth == 0:
-            substitutions.append(command[start : i - 1])
+            substitutions.append(
+                (substitution_start, i, command[start : i - 1])
+            )
         else:
             break
     return substitutions
 
 
+def command_substitutions(command: str, *, ignore_outer_quotes: bool = False):
+    return [
+        body
+        for _, _, body in command_substitution_spans(
+            command, ignore_outer_quotes=ignore_outer_quotes
+        )
+    ]
+
+
 stripped = normalize_shell_command(strip_heredocs(cmd))
-
-try:
-    lexer = shlex.shlex(stripped, posix=True, punctuation_chars=True)
-    lexer.whitespace_split = True
-    lexer.commenters = ""
-    tokens = list(lexer)
-except Exception:
-    sys.exit(0)
-
-for substitution in command_substitutions(stripped):
-    try:
-        nested = shlex.shlex(substitution, posix=True, punctuation_chars=True)
-        nested.whitespace_split = True
-        nested.commenters = ""
-        tokens.extend([";"] + list(nested))
-    except Exception:
-        continue
 
 SEPARATORS = {";", "&&", "||", "|", "&", "(", ")", "\n"}
 SEPARATOR_CHARACTERS = ";&|()<>"
@@ -221,6 +218,25 @@ def is_command_position(index: int, command_tokens) -> bool:
     ):
         j -= 1
     return j < 0 or is_separator(command_tokens[j])
+
+
+def is_pr_create(index: int, command_tokens) -> bool:
+    if not is_command_position(index, command_tokens):
+        return False
+    k = index + 1
+    while k < len(command_tokens) and command_tokens[k].startswith("-"):
+        token = command_tokens[k]
+        attached_short_value = not token.startswith("--") and len(token) > 2
+        k += 1 if "=" in token or attached_short_value else 2
+    return command_tokens[k : k + 2] == ["pr", "create"]
+
+
+def contains_pr_create(command_tokens) -> bool:
+    return any(
+        (token == "gh" or token.endswith("/gh"))
+        and is_pr_create(index, command_tokens)
+        for index, token in enumerate(command_tokens)
+    )
 
 
 def tokenize_shell(command: str):
@@ -254,8 +270,8 @@ def child_shell_tokens(command_tokens, depth=0):
             if option != "-c":
                 continue
             try:
-                child_tokens = child_shell_tokens(
-                    tokenize_shell(args[option_index + 1]), depth + 1
+                child_tokens = ordered_shell_tokens(
+                    args[option_index + 1], depth + 1
                 )
             except Exception:
                 child_tokens = []
@@ -267,26 +283,72 @@ def child_shell_tokens(command_tokens, depth=0):
     return ordered_tokens
 
 
-tokens = child_shell_tokens(tokens)
+def ordered_shell_tokens(command: str, depth=0):
+    if depth >= 8:
+        return tokenize_shell(command)
+    spans = command_substitution_spans(command)
+    if not spans:
+        return child_shell_tokens(tokenize_shell(command), depth)
 
-
-def is_pr_create(i: int) -> bool:
-    if not is_command_position(i, tokens):
-        return False
-    k = i + 1
-    while k < len(tokens) and tokens[k].startswith("-"):
-        token = tokens[k]
-        attached_short_value = (
-            not token.startswith("--") and len(token) > 2
+    substitutions = []
+    marked_command = command
+    for index, (start, end, body) in reversed(list(enumerate(spans))):
+        placeholder = f"__PR_CREATE_SUBST_{index}__"
+        while placeholder in command:
+            placeholder += "_"
+        substitutions.insert(0, (placeholder, body))
+        marked_command = (
+            marked_command[:start] + placeholder + marked_command[end:]
         )
-        k += 1 if "=" in token or attached_short_value else 2
-    return tokens[k : k + 2] == ["pr", "create"]
+
+    command_tokens = tokenize_shell(marked_command)
+    ordered_tokens = []
+    index = 0
+    while index < len(command_tokens):
+        if is_separator(command_tokens[index]):
+            ordered_tokens.append(command_tokens[index])
+            index += 1
+            continue
+        end = index + 1
+        while end < len(command_tokens) and not is_separator(command_tokens[end]):
+            end += 1
+        segment = command_tokens[index:end]
+        active = [
+            (placeholder, body)
+            for placeholder, body in substitutions
+            if any(placeholder in token for token in segment)
+        ]
+        values = list(segment)
+        nested_calls = []
+        for placeholder, body in active:
+            values = [
+                token.replace(placeholder, "__PR_CREATE_SUBST_VALUE__")
+                for token in values
+            ]
+            nested = ordered_shell_tokens(body, depth + 1)
+            if contains_pr_create(nested):
+                if nested_calls:
+                    nested_calls.append(";")
+                nested_calls.extend(nested)
+        if nested_calls and contains_pr_create(values):
+            ordered_tokens.extend([";"] + nested_calls + [";"])
+        ordered_tokens.extend(values)
+        if nested_calls and not contains_pr_create(values):
+            ordered_tokens.extend([";"] + nested_calls + [";"])
+        index = end
+    return child_shell_tokens(ordered_tokens, depth)
+
+
+try:
+    tokens = ordered_shell_tokens(stripped)
+except Exception:
+    sys.exit(0)
 
 
 gh_create_indices = [
     i
     for i, token in enumerate(tokens)
-    if (token == "gh" or token.endswith("/gh")) and is_pr_create(i)
+    if (token == "gh" or token.endswith("/gh")) and is_pr_create(i, tokens)
 ]
 if not gh_create_indices:
     sys.exit(0)
