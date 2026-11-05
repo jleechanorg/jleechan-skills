@@ -18,6 +18,7 @@ VERSION = 1
 ROOT = Path("/tmp") / f"advice-quota-{os.getuid()}"
 LABEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
+EVENT_PRIORITY = {"expired": 0, "quota": 1, "success": 2}
 DIR = getattr(os, "O_DIRECTORY", 0)
 NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
 
@@ -116,6 +117,17 @@ def write_entry(directory_fd, name, entry):
             pass
 
 
+def is_stale_event(current, observed_at, event_type):
+    """Resolve out-of-order writes using provider-response time and safe tie priority."""
+    if current is None:
+        return False
+    if observed_at < current[1]:
+        return True
+    if observed_at > current[1]:
+        return False
+    return EVENT_PRIORITY[event_type] <= EVENT_PRIORITY[current[0]["event_type"]]
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=("check", "record", "clear"))
@@ -150,8 +162,7 @@ def main(argv=None):
             current = read_entry(directory_fd, name, digest, args.provider)
             if args.command == "clear":
                 observed = args.observed_at
-                if current and (observed < current[1]
-                                or (observed == current[1] and current[0]["event_type"] == "success")):
+                if is_stale_event(current, observed, "success"):
                     print("STALE_SUCCESS_IGNORED")
                 else:
                     write_entry(directory_fd, name, {
@@ -162,21 +173,19 @@ def main(argv=None):
                     print("CLEARED")
             elif args.command == "record":
                 observed = args.observed_at
-                event_type = "quota" if args.reset_at > now else "success"
-                event_time = max(observed, args.reset_at) if event_type == "success" else observed
+                event_type = "quota" if args.reset_at > now else "expired"
                 # Order competing observations by when the provider response was
                 # received. A late write of an already-expired old quota must not
                 # use its reset time to outrank a newer active quota.
-                if (current and (observed < current[1]
-                                 or (observed == current[1] and current[0]["event_type"] == "success"))):
+                if is_stale_event(current, observed, event_type):
                     print("STALE_QUOTA_IGNORED")
-                elif event_type == "success":
+                elif event_type == "expired":
                     write_entry(directory_fd, name, {
                         "version": VERSION, "identity_sha256": digest,
-                        "provider": args.provider, "event_type": "success",
-                        "observed_at_utc": event_time.isoformat(),
+                        "provider": args.provider, "event_type": "expired",
+                        "observed_at_utc": observed.isoformat(),
                     })
-                    print("RESET_ALREADY_PASSED; cleared stale quota")
+                    print("RESET_ALREADY_PASSED; quota is expired")
                 else:
                     write_entry(directory_fd, name, {
                         "version": VERSION, "identity_sha256": digest,

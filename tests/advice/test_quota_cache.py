@@ -120,6 +120,18 @@ class AdviceQuotaCacheTests(unittest.TestCase):
                                  "--now", "2029-12-31T11:01:00Z", expected=10)
         self.assertIn("reset_at=2029-12-31T20:00:00+00:00", blocked.stdout)
 
+    def test_expired_quota_record_without_prior_state_uses_observation_time(self):
+        self.record(observed="2029-12-31T01:00:00Z", reset="2029-12-31T10:00:00Z",
+                    now="2029-12-31T11:00:00Z")
+        state = json.loads(next(self.cache.glob("*.json")).read_text())
+        self.assertEqual("expired", state["event_type"])
+        self.assertEqual("2029-12-31T01:00:00+00:00", state["observed_at_utc"])
+        self.record(observed="2029-12-31T05:00:00Z", reset="2029-12-31T20:00:00Z",
+                    now="2029-12-31T11:00:00Z")
+        blocked = self.run_cache("check", "--provider", "claude", "--identity-sha256", CLAUDE_PRIMARY,
+                                 "--now", "2029-12-31T11:00:00Z", expected=10)
+        self.assertIn("reset_at=2029-12-31T20:00:00+00:00", blocked.stdout)
+
     def test_expired_delayed_quota_cannot_clear_newer_active_quota(self):
         self.record(observed="2029-12-31T05:00:00Z", reset="2029-12-31T20:00:00Z")
         delayed = self.run_cache(
@@ -153,7 +165,7 @@ class AdviceQuotaCacheTests(unittest.TestCase):
         )
         self.assertIn("RESET_ALREADY_PASSED", result.stdout)
         state = json.loads(next(self.cache.glob("*.json")).read_text())
-        self.assertEqual("success", state["event_type"])
+        self.assertEqual("expired", state["event_type"])
         self.assertEqual("ELIGIBLE\n", self.run_cache(
             "check", "--provider", "agy", "--identity-sha256", AGY_PRIMARY,
             "--now", "2029-12-31T00:00:00Z").stdout)
