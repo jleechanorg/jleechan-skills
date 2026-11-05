@@ -45,6 +45,21 @@ passes; use the target repository's instructions and the testing-layers owner
 3. MCP/HTTP API
 4. Browser
 
+## Layer dispositions
+
+In the final report, give every layer one disposition:
+
+- `PASS`: executed and did not reproduce the blocker.
+- `FAIL`: executed and reproduced the blocker; record the failure signature
+  and identify the first conclusive reproduction.
+- `UNSUPPORTED`: a required runner, fixture, credential, or tool is unavailable;
+  report `UNSUPPORTED ENVIRONMENT / NO REPRO` and the checked paths. This is not
+  a pass.
+- `NOT RUN`: not executed; state why. For example, stop after a lower layer
+  reproduces the blocker and mark each higher layer `NOT RUN`.
+
+Do not omit a layer from the report or describe an unexecuted layer as passed.
+
 ## Execution Rules
 
 1. Identify the blocker and target only relevant, minimal tests.

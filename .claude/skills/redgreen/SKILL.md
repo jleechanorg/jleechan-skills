@@ -50,11 +50,17 @@ commands and evidence as you go.
    environment. Distinguish passed, failed, skipped, unsupported, and not-run
    checks; do not claim broader coverage than the evidence supports.
 
+## CONSENSUS — mandatory Phase 4
+
+After GREEN, run `/consensus` for every invocation. It checks that RED was a
+fresh run before changes, CODE addressed the root cause with a minimal change,
+GREEN reran the same test with relevant regressions, and the recorded evidence
+supports the complete flow. Record the consensus result and any findings before
+declaring the fix complete. Follow the active
+[consensus](../consensus/SKILL.md) skill for its review procedure.
+
 ## Review and naming
 
-- If the invoking workflow requires an independent process review, use the
-  canonical [consensus](../consensus/SKILL.md) skill after RED, CODE, and
-  GREEN. Review does not replace fresh RED or same-test GREEN evidence.
 - Name a newly required regression test
   `test_regression_<issue-id>_<behavior>()` only when that convention fits the
   repository; do not add a duplicate test.
