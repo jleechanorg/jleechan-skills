@@ -176,7 +176,7 @@ A missing applicable artifact yields **PARTIAL**. Record inapplicable formats as
 
 ### 5. Media hosting check
 
-Apply this check when inline or linked media backs a claim; it does not by itself require publishing an otherwise private evidence bundle. Evidence classes and hosting rules are owned by evidence-standards (§ Visual Evidence & Mandatory Inline Rendering in PRs); this check applies them and adds no stricter hosting rule.
+Apply this check when inline or linked media backs a claim; it does not by itself require publishing an otherwise private evidence bundle. Evidence classes and hosting rules are owned by evidence-standards (§ UI/media proof); this check applies them and adds no stricter hosting rule.
 
 - GCS is the default host; a GitHub attachment or any other host the task authorizes is also acceptable.
 - Authorized private hosting is acceptable when the intended reviewer can open and play the media; record the access mode.
@@ -344,10 +344,7 @@ Produce output in this format:
 
 **Skill-load guard is mandatory.** Before any review, resolve this skill's path (user-scope `~/.claude/skills/evidence-review/SKILL.md` takes priority over any repo-scope copy). If the file cannot be found, **abort and report the error**; never proceed with an inline or paraphrased methodology. A subagent invoked as a fallback reviewer loads this file itself rather than having the methodology inlined into its prompt.
 
-**Review and standards coverage:** Use a supported reviewer that loads this skill
-and reports artifact-level findings. Apply applicable user-scope and repository
-`evidence-standards` requirements as part of the verdict. The lifecycle owns
-quorum, stage coverage, and receipt reuse.
+**Review and standards coverage:** Select one available independent evidence reviewer through [advice's capability profiles and tiers](../advice/SKILL.md#capability-profile-and-tier-selection), using the first authorized tier that can cover the complete scope; no fixed CLI, model or machine dependency applies. The selected reviewer loads this skill and the applicable user-scope and repository `evidence-standards` requirements, then reports artifact-level findings. Evidence adjudication is separate from the `/advice` source-vote quorum: this reviewer supplies the evidence verdict, not a source-review vote. The lifecycle owns quorum, stage coverage, and receipt reuse.
 
 **Verdict synthesis.** Combine this skill's evidence findings with the
 applicable evidence-standards compliance result into one raw overall verdict.

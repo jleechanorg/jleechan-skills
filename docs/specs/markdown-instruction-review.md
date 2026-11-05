@@ -6,7 +6,7 @@ Route Markdown skill, slash-command, and operator-guidance changes by the full c
 
 ## Non-goals
 
-No changes to executable helpers, tests, CI, configuration, production prompts or schemas, service contracts, evidence publication systems, reviewer transport, or merge authorization. This policy change does not qualify for its own route and retains the existing full review requirements.
+No changes to executable helpers, installer behavior, CI, configuration, production prompts or schemas, service contracts, evidence publication systems, reviewer transport, or merge authorization. The PR removes obsolete README/INSTALL documentation-count pins from the installer test while preserving executable installer behavior coverage. This policy change does not qualify for its own route and retains the existing full review requirements.
 
 ## Acceptance
 
