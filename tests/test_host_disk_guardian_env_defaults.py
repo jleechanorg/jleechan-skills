@@ -36,6 +36,9 @@ class HostDiskGuardianEnvDefaultsTests(unittest.TestCase):
         for name, body in stubs.items():
             (stub_bin / name).write_text(f"#!/bin/sh\n{body}\n")
             (stub_bin / name).chmod(0o755)
+        self.bash = shutil.which("bash")
+        if self.bash is None:
+            self.skipTest("bash is required to exercise host-disk-guardian.sh")
         self.env = {
             "HOME": str(self.home),
             "PATH": str(stub_bin),
@@ -45,7 +48,7 @@ class HostDiskGuardianEnvDefaultsTests(unittest.TestCase):
 
     def run_guardian(self, **extra):
         return subprocess.run(
-            ["bash", str(SCRIPT), "--dry-run"],
+            [self.bash, str(SCRIPT), "--dry-run"],
             cwd=self.cwd,
             env={**self.env, **extra},
             capture_output=True,
