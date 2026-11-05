@@ -15,4 +15,4 @@ After the selected work stabilizes, finish [the lifecycle ready phase](../pr-lif
 
 ## Stage evidence publication
 
-Apply [pr-lifecycle's stage-exit receipt contract](../pr-lifecycle/SKILL.md#evidence-attached-to-every-stage-exit), the single owner of PR-description URLs, applicable inline media, access verification and reasoned exemptions.
+Apply [pr-lifecycle's stage-exit receipt contract](../pr-lifecycle/six-stage.md#evidence-attached-to-every-stage-exit), the single owner of PR-description URLs, applicable inline media, access verification and reasoned exemptions.

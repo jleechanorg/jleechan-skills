@@ -102,9 +102,20 @@ unverified or incompatible helper because old guidance names one.
 
 Select the applicable route from [pr-lifecycle's review-obligation table](../pr-lifecycle/SKILL.md#review-obligations-by-changed-claim-and-risk), applying the target repository's override first. That contract is the sole owner of risk, claim, threshold, reviewer, evidence and visual/runtime applicability; this entry point adds no second routing table, provider ladder or source-vote requirement.
 
-For opted-in repositories, follow [the lifecycle's stage transitions](../pr-lifecycle/SKILL.md#stage-title-and-labels), [default PR route](../pr-lifecycle/SKILL.md#default-pr-route--prw) and [SHA-binding rule](../pr-lifecycle/SKILL.md#sha-binding-rule-critical--applies-to-every-gate-in-this-chain). Title or label changes are not execution proof, review approval or merge authority. Before review dispatch or publication, verify the candidate head/base, selected route, readable hash-bound artifacts and any prior-proof applicability.
+The [compact risk-based route](../pr-lifecycle/SKILL.md#compact-risk-based-route) may skip intermediate stage-title/label ceremony and the separate seven-element committed specification only where repository instructions permit the compact exception. It does not skip required checks or Stage 5 closure. For opted-in repositories, apply [stage transitions](../pr-lifecycle/six-stage.md#stage-title-and-labels), [default PR route and lighter non-production path](../pr-lifecycle/SKILL.md#default-pr-route--prw), and [evidence applicability](../pr-lifecycle/SKILL.md#sha-binding-rule-critical--applies-to-every-gate-in-this-chain). Title/label changes are not execution proof, review approval or merge authority.
 
-At start, after each push and on a new failure, refresh the current head, applicable checks and findings. Record the requested endpoint, actual blockers, executing owner, next action and clearance evidence in the existing PR/task record. Continue through the requested endpoint without invented approval stops; diagnose original failures before a targeted fix or retry and preserve assertions.
+At start, after each push and on a new failure, refresh head, applicable checks and findings. Record the requested endpoint, actual blockers (required gates/P0 versus nonblocking findings), executing owner, next action and clearance evidence in the existing PR/task record.
+
+Before expensive work, assess existing results against their recorded SHA and clear cheap relevant failures. Before review dispatch, verify required artifacts are readable and hash-bound; record measured merge-base/head scope, target-tip conflict status, selected route, prior-proof applicability and producer gaps. Resolve templates by the owner's named access mode, not file position: validate the rendered prompt as data, correct it to that mode, reject unresolved placeholders, and do not switch modes or export merely to satisfy a template error. Select an eligible available model and coverage; count a vote only when actual model, complete coverage and receipt SHA match. New conditions must trace to the user/intake contract; identify new scope instead of silently gating readiness on it.
+
+A same-cause probe/review that clears no blocker and reduces no uncertainty calls for a changed approach while independent work continues. Continue through the requested endpoint without invented approval stops or cycle/time caps. Diagnose original logs before a targeted fix/retry, preserve assertions, and follow canonical ready/final phases. Waiting or blocked is not Working; badges, skipped tests, assignment and pending review never establish readiness.
+Before promoting a user-visible change to `stage:5-final-approval`, apply the
+[canonical visual-approval contract](../pr-lifecycle/six-stage.md#review-routes-for-opted-in-repositories)
+and [draft-phase visual gate](../pr-lifecycle/SKILL.md#draft-phase-final-acceptance-gates-in-order).
+The compact route does not itself waive an applicable visual receipt: follow the lifecycle's
+claim/risk table and preserve its explicit one-liner and bounded nonvisual/source-only exceptions.
+When required, record `VISUAL APPROVED at <40-char-sha>` with the required findings.
+`/dot: REQUESTED, pending`, author inspection, and link checks do not satisfy that receipt.
 
 ## PR description and reporting
 
@@ -115,4 +126,4 @@ Use the repository's actual template and [pr-lifecycle's review-record contract]
 Creating or updating a PR does not authorize merge, deployment, credential changes, new quota,
 native/account operations, schedule changes or another owner's source work.
 Merge authority remains repository/user-specific and must be satisfied separately.
-Stage-exit receipts follow [pr-lifecycle's stage-exit receipt contract](../pr-lifecycle/SKILL.md#evidence-attached-to-every-stage-exit); that contract is the single owner.
+Stage-exit receipts follow [pr-lifecycle's stage-exit receipt contract](../pr-lifecycle/six-stage.md#evidence-attached-to-every-stage-exit); that contract is the single owner.

@@ -8,12 +8,11 @@ when-to-use: Before /er, /green, gate fixes, or AO worker dispatch on a PR that 
 
 ## Claim-proportionate evidence and publication
 
-For proportional evidence classes, follow [pr-lifecycle](../pr-lifecycle/SKILL.md#proportional-exceptions-and-fast-paths). For PR-description publication, follow its [stage-exit receipt contract](../pr-lifecycle/SKILL.md#evidence-attached-to-every-stage-exit). This skill owns evidence content and integrity, not lifecycle routing.
+For proportional evidence classes, follow [pr-lifecycle](../pr-lifecycle/exceptions.md#proportional-exceptions-and-fast-paths). For PR-description publication, follow its [stage-exit receipt contract](../pr-lifecycle/six-stage.md#evidence-attached-to-every-stage-exit). This skill owns evidence content and integrity, not a second lifecycle policy.
 
 Bundle, manifest and media rules below apply when a claim relies on actual test,
-runtime or artifact proof. Source-only skill guidance follows the lifecycle's
-[Markdown instruction-only route](../pr-lifecycle/SKILL.md#markdown-instruction-only-route)
-and its one/two independent source-reviewer rule; it does not automatically start
+runtime or artifact proof. Source-only skill guidance follows the lifecycle
+[Markdown instruction-only route](../pr-lifecycle/SKILL.md#markdown-instruction-only-route) and its one or two independent source-reviewer rule; it does not automatically start
 an evidence campaign. This scope clarification does not waive named domain proof
 or grant approval or merge authority.
 
