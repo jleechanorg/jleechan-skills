@@ -28,9 +28,10 @@ An author updating a small safe skill can obtain one complete independent AI rev
 
 - Run git diff --check and the existing portable-skill verifier.
 - Check Markdown links/frontmatter or other structure affected by the diff.
+
 | Scenario | Route / reviewers | Proof and visual applicability |
 |---|---|---|
-| 75-line low-risk skill update | Markdown instruction route; one cold full-scope reviewer | Source diff and before/after rule scenarios; no separate /es, /er, bundle or runtime proof solely for size/path |
+| 75-line low-risk skill with accompanying human-readable spec, record, or conflict note (total diff <=150 lines) | Markdown instruction route; one cold full-scope reviewer | All Markdown paths count toward size; support documents do not defeat eligibility. No separate /es, /er, bundle or runtime proof solely for size/path |
 | 400-line low-risk operator manual | Markdown instruction route; two independent full-scope reviewers | Same bounded source/scenario proof; no automatic /cs or runtime proof solely for size |
 | 12-line security instruction | Sensitive route; two independent full-scope reviewers | Relevant threat/permission scenario proof; any named domain check remains |
 | 40-line internal backend change, no UI or changed service boundary | Normal code route; apply deterministic risk row | Focused behavior proof; no visual evidence because no rendered/displayed/interaction claim changed |
@@ -40,6 +41,13 @@ An author updating a small safe skill can obtain one complete independent AI rev
 | Metadata-only later phase; no changed scope or claim | Reuse the prior exact-SHA review if delta assessment confirms applicability | No duplicate reviewer call because the phase changed; current checks and separate merge authority still apply |
 
 Inspect the complete final diff and confirm current advice-tier identity/counting and merge-authority rules remain unchanged.
+
+## Operator-behavior canaries
+
+- When an authorized, obviously implied read-only validation is available, the agent runs it and reports the result without asking the user for routine permission; unresolved merge, destructive, credential, or other named approval gates remain intact.
+- Before claiming a current PR head or check is green, the agent re-reads the live head and check source and cites those receipts; a prior report or stale prose cannot establish current status.
+
+These are semantic before/after policy reviews, not phrase assertions or provider campaigns.
 
 ## Mock
 
