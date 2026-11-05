@@ -131,17 +131,21 @@ def protect_quoted_operator_words(command: str) -> str:
 
 def strip_heredocs(s: str) -> str:
     pattern = re.compile(
-        r"<<-?\s*(['\"]?)([A-Za-z0-9_]+)\1[^\n]*\n(.*?)\n[ \t]*\2\b",
+        r"<<-?\s*(['\"]?)([A-Za-z0-9_]+)\1([^\n]*)\n(.*?)\n[ \t]*\2\b",
         re.DOTALL,
     )
 
     def replace(match):
+        suffix = match.group(3)
         if match.group(1):
-            return ""
+            return suffix
         substitutions = command_substitutions(
-            match.group(3), ignore_outer_quotes=True
+            match.group(4), ignore_outer_quotes=True
         )
-        return " ; ".join(f"$({substitution})" for substitution in substitutions)
+        expansions = " ; ".join(f"$({substitution})" for substitution in substitutions)
+        if suffix and expansions:
+            return f" ; {expansions}{suffix}"
+        return expansions + suffix
 
     while True:
         new_s, count = pattern.subn(replace, s)

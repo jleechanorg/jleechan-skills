@@ -227,6 +227,25 @@ EOF"""
         self.assert_mocked_github()
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_quoted_heredoc_keeps_pipeline_tail_pr_creation(self):
+        command = (
+            'cat <<"EOF" | gh pr create --title Fixture --head feature '
+            "--base parent --body-file -\nfixture body\nEOF"
+        )
+        result = self.run_hook(command, [open_pr(i, base="parent") for i in range(9)])
+        self.assert_mocked_github()
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("stacked PR ceiling", result.stderr)
+
+    def test_unquoted_heredoc_keeps_and_tail_pr_creation(self):
+        command = """cat <<EOF && gh pr create --head feature --base parent
+fixture body
+EOF"""
+        result = self.run_hook(command, [open_pr(i, base="parent") for i in range(9)])
+        self.assert_mocked_github()
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("stacked PR ceiling", result.stderr)
+
     def test_child_shell_pr_create_is_checked(self):
         result = self.run_hook(
             "bash -c 'gh pr create --head feature --base parent'",
