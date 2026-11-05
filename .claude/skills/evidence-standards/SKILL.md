@@ -27,6 +27,12 @@ Evidence must **prove what you claim**. The strongest evidence is a raw request/
 
 **After any evidence-gathering pass, you MUST reconfirm** what the evidence proves and what it does NOT prove, in your response to the user as well as in the bundle's "What This Evidence Does NOT Prove" section. That section lists untested scope only: observed behavior that the user's acceptance or the UI's own disclosure forbids is a FAIL, never a limit or follow-up (`evidence-review` check 9).
 
+## Continuous video only — slideshows are forbidden
+
+When a claim asks for video, the artifact MUST come from a genuine continuous browser, screen, or terminal capture (including a continuous `.cast` or native event timeline) that preserves the real timeline across the applicable before→after transition and, when a user action exists, from before that action through the resulting state. Never create, deliver, attach, or approve slideshow output, even when labeled sampled, selected-frame, summary footage, or “not video”: screenshot-concat files, sampled or selected-frame montages, repeated-still padding, and still-image sequences encoded as MP4 are forbidden even when they have captions, real pixels, a normal frame rate, valid H.264 metadata, or a successful decode. A contact sheet, screenshot, or diagnostic frame extraction is allowed only as a static diagnostic and never substitutes for video evidence.
+
+Check the producer and publisher, not only the output container: trace the artifact to the continuous recorder, its raw timeline, and the applicable before-to-after transition, including the action and resulting state when a user action exists. Decode and checksum probes establish file integrity only; they do not establish continuity. A real capture may contain unchanged waiting intervals, but a derived caption, transcode, redaction, or authorized trim is valid only when it preserves the timeline of an actual continuous source. If only a slideshow exists, the video claim FAILS and the evidence is undelivered; do not relabel it as a limitation, N/A, or PASS because transport, tests, or metadata succeeded.
+
 ## Aiming gate — run BEFORE spending on an evidence campaign
 
 Before the first expensive call (real-LLM batch, browser run, replay sweep), write one sentence:
