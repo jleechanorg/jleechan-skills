@@ -12,6 +12,7 @@ The cache does not detect quota errors, infer reset times, store provider output
 
 - Cache keys distinguish the provider and a SHA-256 digest of the account identity obtained from an existing verified seat binding, not just the model.
 - Only an explicitly observed quota result with an explicit reset time is recorded; missing or already-passed reset times create no block.
+- Quota and successful-probe events carry their actual observation time; stale delayed writes cannot override a newer event, and success wins an equal-time tie.
 - A live, unexpired record returns `QUOTA_BLOCKED`; its reported reset makes the seat eligible and clears the record.
 - Checking cached status makes no provider call. A fresh successful probe from the normal advice flow can explicitly clear an earlier record.
 - Cache files and lock are owner-only, symlink-safe, atomically written and safe under concurrent calls. Raw identities, errors and credentials never enter the cache.

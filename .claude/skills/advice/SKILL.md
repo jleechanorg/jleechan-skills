@@ -113,14 +113,16 @@ identities from the machine-local profile before selecting them.
   path; do not use the cache to skip a reviewer. The cache key combines the verified provider and account-identity
   digest. Cache only an explicit provider quota response and reset time:
   ```bash
-  python3 "$HOME/.claude/skills/advice/scripts/quota_cache.py" record --provider <verified-provider> --identity-sha256 <verified-account-identity-sha256> --model <actual-model> --reset-at <provider-reported-ISO-8601-reset>
+  python3 "$HOME/.claude/skills/advice/scripts/quota_cache.py" record --provider <verified-provider> --identity-sha256 <verified-account-identity-sha256> --model <actual-model> --observed-at <quota-response-observation-time> --reset-at <provider-reported-ISO-8601-reset>
   ```
   The record includes its observation time and is stored with private permissions under `/tmp`; it contains only a
   keyed hash of the provider/account digest plus provider, model and UTC times, never credentials, raw identity or raw error text. No printed reset
-  means no cache entry. A fresh successful probe performed by the normal review path clears an earlier record before
-  counting that seat as available:
+  means no cache entry. Record the timestamp from when the provider response was observed, not when the record
+  command happens to run. The cache orders quota and success events by that timestamp, so a delayed quota write
+  cannot re-block a seat after a later successful probe. A fresh successful probe performed by the normal review
+  path clears an earlier record before counting that seat as available:
   ```bash
-  python3 "$HOME/.claude/skills/advice/scripts/quota_cache.py" clear --provider <verified-provider> --identity-sha256 <verified-account-identity-sha256>
+  python3 "$HOME/.claude/skills/advice/scripts/quota_cache.py" clear --provider <verified-provider> --identity-sha256 <verified-account-identity-sha256> --observed-at <successful-probe-observation-time>
   ```
   Expired records clear themselves. Invalid/unavailable cache storage fails open and must not deny an authorized
   attempt. The cache is a scheduling hint, not a second quota detector: record only a quota error actually observed

@@ -38,11 +38,12 @@ class AdviceQuotaCacheTests(unittest.TestCase):
         self.assertEqual(result.returncode, expected, result.stderr + result.stdout)
         return result
 
-    def record(self, identity=CLAUDE_PRIMARY, reset="2030-01-01T00:00:00Z", provider="claude"):
+    def record(self, identity=CLAUDE_PRIMARY, reset="2030-01-01T00:00:00Z", provider="claude",
+               observed="2029-12-31T00:00:00Z"):
         return self.run_cache(
             "record", "--identity-sha256", identity, "--provider", provider,
             "--model", "opus", "--reset-at", reset,
-            "--now", "2029-12-31T00:00:00Z",
+            "--observed-at", observed, "--now", "2029-12-31T00:00:00Z",
         )
 
     def test_quota_blocks_only_same_seat_until_reported_reset(self):
@@ -62,16 +63,43 @@ class AdviceQuotaCacheTests(unittest.TestCase):
             self.run_cache("check", "--provider", "claude", "--identity-sha256", CLAUDE_PRIMARY,
                            "--now", "2030-01-01T00:00:00Z").stdout,
         )
-        self.assertEqual([], list(self.cache.glob("*.json")))
+        state = json.loads(next(self.cache.glob("*.json")).read_text())
+        self.assertEqual("success", state["event_type"])
 
     def test_successful_fresh_probe_clears_cached_quota(self):
         self.record()
-        self.run_cache("clear", "--provider", "claude", "--identity-sha256", CLAUDE_PRIMARY)
+        self.run_cache("clear", "--provider", "claude", "--identity-sha256", CLAUDE_PRIMARY,
+                       "--observed-at", "2029-12-31T00:05:00Z")
         self.assertEqual(
             "ELIGIBLE\n",
             self.run_cache("check", "--provider", "claude", "--identity-sha256", CLAUDE_PRIMARY,
                            "--now", "2029-12-31T12:00:00Z").stdout,
         )
+
+    def test_delayed_quota_record_cannot_override_newer_successful_probe(self):
+        # Quota output was observed first but its receipt was persisted late.
+        self.record(observed="2029-12-31T00:00:00Z")
+        self.run_cache("clear", "--provider", "claude", "--identity-sha256", CLAUDE_PRIMARY,
+                       "--observed-at", "2029-12-31T00:05:00Z")
+        delayed = self.run_cache(
+            "record", "--identity-sha256", CLAUDE_PRIMARY, "--provider", "claude",
+            "--model", "opus", "--reset-at", "2030-01-01T00:00:00Z",
+            "--observed-at", "2029-12-31T00:00:00Z", "--now", "2029-12-31T00:06:00Z",
+        )
+        self.assertIn("STALE_QUOTA_IGNORED", delayed.stdout)
+        self.assertEqual(
+            "ELIGIBLE\n",
+            self.run_cache("check", "--provider", "claude", "--identity-sha256", CLAUDE_PRIMARY,
+                           "--now", "2029-12-31T00:06:00Z").stdout,
+        )
+
+    def test_newer_quota_observation_supersedes_an_older_success(self):
+        self.run_cache("clear", "--provider", "claude", "--identity-sha256", CLAUDE_PRIMARY,
+                       "--observed-at", "2029-12-31T00:00:00Z")
+        self.record(observed="2029-12-31T00:05:00Z")
+        blocked = self.run_cache("check", "--provider", "claude", "--identity-sha256", CLAUDE_PRIMARY,
+                                 "--now", "2029-12-31T00:06:00Z", expected=10)
+        self.assertIn("QUOTA_BLOCKED", blocked.stdout)
 
     def test_provider_scopes_the_same_account_seat_separately(self):
         self.record(identity=AGY_PRIMARY, provider="agy")
@@ -83,18 +111,24 @@ class AdviceQuotaCacheTests(unittest.TestCase):
         result = self.run_cache(
             "record", "--identity-sha256", AGY_PRIMARY, "--provider", "agy",
             "--model", "gemini-3.8-flash-high", "--reset-at", "2029-12-30T00:00:00Z",
-            "--now", "2029-12-31T00:00:00Z",
+            "--observed-at", "2029-12-29T00:00:00Z", "--now", "2029-12-31T00:00:00Z",
         )
         self.assertIn("RESET_ALREADY_PASSED", result.stdout)
-        self.assertFalse(self.cache.exists() and list(self.cache.glob("*.json")))
+        state = json.loads(next(self.cache.glob("*.json")).read_text())
+        self.assertEqual("success", state["event_type"])
+        self.assertEqual("ELIGIBLE\n", self.run_cache(
+            "check", "--provider", "agy", "--identity-sha256", AGY_PRIMARY,
+            "--now", "2029-12-31T00:00:00Z").stdout)
+        prior_entry = next(self.cache.glob("*.json")).read_bytes()
         result = subprocess.run(
             [sys.executable, str(TOOL), "record", "--identity-sha256", CLAUDE_PRIMARY,
-             "--provider", "claude", "--model", "opus", "--cache-root", str(self.cache)],
+             "--provider", "claude", "--model", "opus", "--observed-at", "2029-12-31T00:00:00Z",
+             "--cache-root", str(self.cache)],
             capture_output=True, text=True,
             env={**os.environ, "ADVICE_QUOTA_CACHE_TESTING": "1"}, timeout=10,
         )
         self.assertEqual(2, result.returncode)
-        self.assertFalse(self.cache.exists() and list(self.cache.glob("*.json")))
+        self.assertEqual(prior_entry, next(self.cache.glob("*.json")).read_bytes())
 
     def test_corrupt_entry_is_removed_and_does_not_block(self):
         self.record()
@@ -178,7 +212,8 @@ class AdviceQuotaCacheTests(unittest.TestCase):
         for reset in ("2030-01-01T00:00:00Z", "2030-01-02T00:00:00Z"):
             commands.append([sys.executable, str(TOOL), "record", "--provider", "claude",
                 "--identity-sha256", CLAUDE_PRIMARY, "--model", "opus",
-                "--reset-at", reset, "--now", "2029-12-31T00:00:00Z",
+                "--reset-at", reset, "--observed-at", "2029-12-31T00:00:00Z",
+                "--now", "2029-12-31T00:00:00Z",
                 "--cache-root", str(self.cache)])
         env = {**os.environ, "ADVICE_QUOTA_CACHE_TESTING": "1"}
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
