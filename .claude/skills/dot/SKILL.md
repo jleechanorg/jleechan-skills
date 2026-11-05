@@ -44,12 +44,14 @@ normal implementation policy for work that is not assigned to Dot.
 
 For visual or document review, attach the actual requested material in the
 intended Dot conversation before asking for judgment. Verify every expected
-filename on the submitted message. A local path, URL, upload response, or
+filename after upload completes, then verify each name again on the submitted
+message. A local path, URL, upload response, or
 acknowledgement alone does not prove Dot can access the material.
 
-If using a linked bundle instead, have Dot confirm it opened the bundle and
-identify the documents/images and relevant content it actually reviewed;
-acknowledgement is not review coverage. If access fails, retry through an
+Use a linked bundle only after Dot confirms it can open the bundle and read
+every required document and image. Have Dot identify the documents/images and
+relevant content it actually reviewed; acknowledgement is not review coverage.
+If access fails, retry through an
 authorized attachment route already available to the agent. If no supported
 route works, report that delivery gap once. Do not ask the operator to upload
 material the agent holds, repeat an inaccessible link, or claim a review
