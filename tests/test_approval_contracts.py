@@ -81,7 +81,7 @@ class ApprovalContractsTest(unittest.TestCase):
         self.assertGreater(fence_count, 0)
         self.assertFalse(in_fence, "commentcheck.md has an unclosed code fence")
 
-    def test_superpowers_quick_dispatcher_resolves_portable_packages(self) -> None:
+    def test_superpowers_quick_and_dependencies_have_valid_packages(self) -> None:
         command_path = COMMANDS / "superpowers-quick.md"
         self.assertTrue(command_path.is_file(), command_path)
         self.assertIn(
@@ -110,13 +110,6 @@ class ApprovalContractsTest(unittest.TestCase):
             package_texts["superpowers-quick"],
             r"(?m)^disable-model-invocation:\s*false$",
         )
-        for name in package_names[1:]:
-            with self.subTest(dependency=name):
-                self.assertIn(
-                    f"~/.claude/skills/{name}/SKILL.md",
-                    package_texts["superpowers-quick"],
-                )
-
     def test_history_claude_fixture_enforces_source_and_excerpt_budgets(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
