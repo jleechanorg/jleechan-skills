@@ -51,15 +51,21 @@ dispatch exit under conditions YOUR project defines -- see
 
 Your dispatcher is responsible for ALL of the app-specific plumbing: booting
 or connecting to your real local server, driving a REAL browser (Playwright,
-Aside, or your own), making REAL LLM calls to decide what a player-persona
+Aside, or your own) or a project-configured REAL native app client, making
+REAL LLM calls to decide what a player-persona
 does at each turn, and writing one capture file per agent under
 `--output-root` matching `config.capture_glob` (default
 `agent-*/capture.jsonl`), one JSON turn-record per line, each line a JSON
 object (no required key names -- `feature_coverage_judge.py` accepts any
 dict shape). This skill never inspects HOW you did that -- only that
-captures exist afterward. No mocks anywhere in this chain: a capture file
-produced without a real browser and a real model call is not evidence, it's
+captures exist afterward and each matched capture contains at least one
+non-empty JSON object. No mocks anywhere in this chain: a capture file
+produced without a real browser or native client and a real model call is not evidence, it's
 theater, and the coverage judge downstream will have nothing real to grade.
+Native adapters must label Simulator versus physical-device evidence and
+separately record runtime/build evidence from driver-source evidence. Browser
+emulation must not be presented as native, and offline or synthetic state is
+not primary evidence. This shared skill does not implement native clients.
 
 ### Onboarding a new project: verify your adapter first
 
@@ -69,9 +75,10 @@ actually satisfies the contract above:
 python3 "${CLAUDE_HOME:-$HOME/.claude}/skills/test-realistic/scripts/verify_adapter.py" --config <path/to/.test-realistic.toml>
 ```
 This dispatches your configured command against a trivial fixture pool/scenario
-and checks: at least one file matches `capture_glob`, every line parses as
-JSON, every parsed line is a non-empty object. The configured command may hit
-the project's real services, browser, and model; this check itself never calls
+and checks: the dispatch exits zero, at least one file matches
+`capture_glob`, every non-blank line parses as a JSON object, and every
+matched capture contains at least one non-empty object. The configured command
+may hit the project's real services, browser, and model; this check itself never calls
 `feature_coverage_judge`. It catches a broken adapter (non-zero dispatch,
 wrong output path, empty captures, malformed JSON) before spending a real
 coverage-judge model call diagnosing the same problem indirectly.
@@ -141,6 +148,7 @@ python3 target_scoped_run.py \
 Refuses to run over a reused `--output-root` that already has captures or a
 prior verdict in it (never grades a stale run's leftovers). Dispatches
 `config.dispatch_command`, collects every `config.capture_glob` match,
+rejects a missing or empty-only actor capture before judging,
 judges coverage with a real model call
 (`feature_coverage_judge.judge_feature_exercised` -- batches turns by prompt
 size, labels every turn with its true GLOBAL capture index so a model can

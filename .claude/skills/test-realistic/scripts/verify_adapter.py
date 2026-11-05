@@ -38,6 +38,7 @@ import tempfile
 from pathlib import Path
 
 from config import ProjectConfig, find_config_path, load_config
+from scenario_generator import build_pool_agents
 from target_scoped_run import build_dispatch_command, collect_capture_paths
 
 
@@ -59,7 +60,7 @@ def _write_fixture_pool_and_scenario(tmp_dir: Path, config: ProjectConfig) -> tu
     )
     pool_path = tmp_dir / "fixture_pool.yaml"
     pool_path.write_text(
-        yaml.safe_dump({"agents": [{"persona": p} for p in config.personas[:1]]})
+        yaml.safe_dump({"agents": build_pool_agents(config, scenario_path, limit=1)})
     )
     return pool_path, scenario_path
 
@@ -151,7 +152,8 @@ def verify_adapter(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Onboarding conformance check for a project's dispatch_command adapter "
-        "(argv in, capture.jsonl out) -- no real model call, no coverage judgment."
+        "(argv in, capture.jsonl out) -- no coverage-judge call; configured dispatch "
+        "may invoke real services, browsers, and models."
     )
     parser.add_argument("--config", type=Path, default=None)
     parser.add_argument("--turns", type=int, default=1)

@@ -15,7 +15,11 @@ from pathlib import Path
 import pytest
 import verify_adapter as va_module
 from config import ProjectConfig
-from verify_adapter import AdapterVerificationError, verify_adapter
+from verify_adapter import (
+    AdapterVerificationError,
+    _write_fixture_pool_and_scenario,
+    verify_adapter,
+)
 
 VOCAB = ("rendered.body_text",)
 
@@ -62,6 +66,25 @@ def _write_capture(holder: dict, content: str) -> None:
 
 
 class TestVerifyAdapterGreen:
+    def test_fixture_pool_preserves_actor_shape(self, tmp_path):
+        import yaml
+
+        config = _minimal_config(
+            tmp_path,
+            personas=("persona-a",),
+            actor_fixtures=("actor-a",),
+        )
+        pool_path, scenario_path = _write_fixture_pool_and_scenario(tmp_path, config)
+
+        agents = yaml.safe_load(pool_path.read_text())["agents"]
+        assert agents == [
+            {
+                "actor": "actor-a",
+                "persona": "persona-a",
+                "scenario": str(scenario_path),
+            }
+        ]
+
     def test_well_formed_captures_pass(self, tmp_path, monkeypatch):
         holder: dict = {}
         _spy_on_output_root(monkeypatch, holder)

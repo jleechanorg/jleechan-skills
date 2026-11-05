@@ -8,6 +8,8 @@ invocation happens in these tests either).
 
 from __future__ import annotations
 
+import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -18,6 +20,7 @@ from scenario_generator import (
     _validate_authored_steps,
     _validate_classification,
     build_classify_schema,
+    fetch_raw_pr_context,
     generate_scenario_files,
     is_doc_target,
     resolve_target_info,
@@ -42,6 +45,58 @@ def _minimal_config(tmp_path, **overrides: object) -> ProjectConfig:
 
 
 class TestTargetShapeDetection:
+    def test_pr_context_includes_pinned_patch(self, monkeypatch):
+        calls = []
+
+        def fake_run(cmd, **kwargs):
+            calls.append(cmd)
+            if cmd[:3] == ["gh", "pr", "view"]:
+                return subprocess.CompletedProcess(
+                    cmd,
+                    returncode=0,
+                    stdout=json.dumps(
+                        {
+                            "title": "A real change",
+                            "body": "Details",
+                            "headRefName": "feature",
+                            "headRefOid": "abc123",
+                            "files": [{"path": "app.py", "additions": 2, "deletions": 1}],
+                        }
+                    ),
+                    stderr="",
+                )
+            assert cmd == ["gh", "pr", "diff", "42", "--patch"]
+            return subprocess.CompletedProcess(
+                cmd, returncode=0, stdout="diff --git a/app.py b/app.py\n+real change\n", stderr=""
+            )
+
+        monkeypatch.setattr("scenario_generator.subprocess.run", fake_run)
+
+        context = fetch_raw_pr_context("42")
+
+        assert context["head_sha"] == "abc123"
+        assert "+real change" in context["pr_diff"]
+        assert calls == [
+            ["gh", "pr", "view", "42", "--json", "title,body,headRefName,headRefOid,files"],
+            ["gh", "pr", "diff", "42", "--patch"],
+        ]
+
+    def test_pr_context_without_patch_fails_honestly(self, monkeypatch):
+        def fake_run(cmd, **kwargs):
+            if cmd[:3] == ["gh", "pr", "view"]:
+                return subprocess.CompletedProcess(
+                    cmd,
+                    returncode=0,
+                    stdout=json.dumps({"headRefOid": "abc123"}),
+                    stderr="",
+                )
+            return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr("scenario_generator.subprocess.run", fake_run)
+
+        with pytest.raises(ScenarioGenerationError, match="no patch"):
+            fetch_raw_pr_context("42")
+
     def test_freeform_prompt_never_hits_gh_or_git(self):
         ctx = _gather_raw_context("Preview the banner in 3 modes")
         assert ctx["candidate_type"] == "prompt"

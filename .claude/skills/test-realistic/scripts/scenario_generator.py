@@ -67,6 +67,7 @@ _COMMIT_TARGET_SHAPE_RE = re.compile(r"^[0-9a-f]{7,40}$")
 
 _PR_DIFF_SUMMARY_MAX_CHARS = 4000
 _PR_FILES_LIST_MAX = 50
+_PR_DIFF_MAX_CHARS = 20000
 
 
 @dataclass
@@ -121,14 +122,25 @@ def _format_pr_context_extras(context: dict) -> str:
     diff_note = context.get("diff_note")
     if diff_note:
         parts.append(diff_note)
+    pr_diff = context.get("pr_diff")
+    if pr_diff:
+        head_sha = context.get("head_sha", "<unknown>")
+        parts.append("PR patch pinned at head " + head_sha + ":\n" + pr_diff)
     return ("\n".join(parts) + "\n") if parts else ""
 
 
 def fetch_raw_pr_context(pr_num: str) -> dict:
-    """Fetch raw PR context using gh. Fails loud -- no local-diff fallback."""
+    """Fetch metadata and the pinned PR patch using gh, failing loud on gaps."""
     try:
         res = subprocess.run(
-            ["gh", "pr", "view", pr_num, "--json", "title,body,headRefName,files"],
+            [
+                "gh",
+                "pr",
+                "view",
+                pr_num,
+                "--json",
+                "title,body,headRefName,headRefOid,files",
+            ],
             capture_output=True,
             text=True,
             check=True,
@@ -136,6 +148,28 @@ def fetch_raw_pr_context(pr_num: str) -> dict:
         data = json.loads(res.stdout)
     except (subprocess.CalledProcessError, OSError, json.JSONDecodeError) as exc:
         raise ScenarioGenerationError(f"gh pr view failed for PR #{pr_num}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ScenarioGenerationError(
+            f"gh pr view returned a non-object response for PR #{pr_num}"
+        )
+    head_sha = data.get("headRefOid")
+    if not isinstance(head_sha, str) or not head_sha.strip():
+        raise ScenarioGenerationError(
+            f"gh pr view returned no pinned headRefOid for PR #{pr_num}"
+        )
+    try:
+        diff_res = subprocess.run(
+            ["gh", "pr", "diff", pr_num, "--patch"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except (subprocess.CalledProcessError, OSError) as exc:
+        raise ScenarioGenerationError(f"gh pr diff failed for PR #{pr_num}: {exc}") from exc
+    pr_diff = diff_res.stdout
+    if not pr_diff.strip():
+        raise ScenarioGenerationError(f"gh pr diff returned no patch for PR #{pr_num}")
+    diff_note = None
     raw_files = data.get("files", [])
     files = (
         [
@@ -146,12 +180,25 @@ def fetch_raw_pr_context(pr_num: str) -> dict:
         if isinstance(raw_files, list)
         else []
     )
-    diff_summary, diff_note = _summarize_pr_diff(raw_files)
+    diff_summary, files_note = _summarize_pr_diff(raw_files)
+    if files_note:
+        diff_note = files_note
+    if len(pr_diff) > _PR_DIFF_MAX_CHARS:
+        pr_diff = pr_diff[:_PR_DIFF_MAX_CHARS]
+        truncation_note = (
+            f"(PR patch truncated to {_PR_DIFF_MAX_CHARS} characters; "
+            "head remains pinned by headRefOid)"
+        )
+        diff_note = (
+            diff_note + "\n" + truncation_note if diff_note else truncation_note
+        )
     return {
         "title": data.get("title", f"PR #{pr_num}"),
         "body": data.get("body", ""),
         "files": files,
         "head_ref": data.get("headRefName", ""),
+        "head_sha": head_sha,
+        "pr_diff": pr_diff,
         "diff_summary": diff_summary,
         "diff_note": diff_note,
     }
@@ -540,6 +587,31 @@ def _escape_for_generated_docstring(value: str) -> str:
     return value.replace('"""', '\\"\\"\\"')
 
 
+def build_pool_agents(
+    config: ProjectConfig, scenario_path: Path, *, limit: int | None = None
+) -> list[dict]:
+    """Build the generic pool shape shared by generation and adapter probing."""
+    personas = list(config.personas)
+    actor_fixtures = list(config.actor_fixtures)
+
+    agents = []
+    if actor_fixtures:
+        # Actor fixtures and personas are paired only where both are present.
+        # The generalized contract has no policy for synthesizing an actor or
+        # persona when the configured lists differ, so the existing zip
+        # shortest-sequence behavior is intentionally retained. The emitted
+        # pool is authoritative for expected-agent completeness checks.
+        for actor, persona in zip(actor_fixtures, personas):
+            agents.append({"actor": actor, "scenario": str(scenario_path), "persona": persona})
+    else:
+        # No actor fixtures configured -- an app without a "character"
+        # concept still gets one agent per persona, scenario-only.
+        for persona in personas:
+            agents.append({"scenario": str(scenario_path), "persona": persona})
+
+    return agents[:limit] if limit is not None else agents
+
+
 def generate_scenario_files(
     target_info: TargetInfo, config: ProjectConfig, output_dir: Path
 ) -> tuple[Path, Path]:
@@ -581,24 +653,7 @@ PREDICATE_DECISION = {target_info.predicate_decision!r}
     scenario_path.write_text(scenario_code)
 
     pool_path = output_dir / f"generated_pool_{slug}.yaml"
-    personas = list(config.personas)
-    actor_fixtures = list(config.actor_fixtures)
-
-    agents = []
-    if actor_fixtures:
-        # Actor fixtures and personas are paired only where both are present.
-        # The generalized contract has no policy for synthesizing an actor or
-        # persona when the configured lists differ, so the existing zip
-        # shortest-sequence behavior is intentionally retained. The emitted
-        # pool is authoritative for expected-agent completeness checks.
-        for actor, persona in zip(actor_fixtures, personas):
-            agents.append({"actor": actor, "scenario": str(scenario_path), "persona": persona})
-    else:
-        # No actor fixtures configured -- an app without a "character"
-        # concept (e.g. no player-selectable roster) still gets one agent
-        # per persona, scenario-only.
-        for persona in personas:
-            agents.append({"scenario": str(scenario_path), "persona": persona})
+    agents = build_pool_agents(config, scenario_path)
 
     import yaml
 

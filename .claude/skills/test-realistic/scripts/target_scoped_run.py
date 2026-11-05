@@ -175,9 +175,15 @@ def load_capture_turns(capture_path: Path) -> list[dict]:
         if not line.strip():
             continue
         try:
-            turns.append(json.loads(line))
+            parsed = json.loads(line)
         except json.JSONDecodeError as exc:
             raise ValueError(f"malformed capture line in {capture_path}:{line_no}: {exc}") from exc
+        if not isinstance(parsed, dict):
+            raise ValueError(
+                f"capture line in {capture_path}:{line_no} is not a JSON object "
+                f"(got {type(parsed).__name__})"
+            )
+        turns.append(parsed)
     return turns
 
 
@@ -341,6 +347,14 @@ def main(
     try:
         for capture_path in capture_paths:
             turns_loaded = load_capture_turns(capture_path)
+            if not any(turns_loaded):
+                print(
+                    f"ERROR: capture {capture_path} contains no non-empty JSON "
+                    "object; refusing to invoke the coverage judge",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                return 1
             capture_records.append({"path": str(capture_path), "turn_count": len(turns_loaded)})
             all_turns.extend(turns_loaded)
     except ValueError as exc:

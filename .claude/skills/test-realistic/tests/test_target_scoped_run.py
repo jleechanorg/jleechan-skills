@@ -128,6 +128,27 @@ class TestMainRed:
         )
         assert rc == 1
 
+    def test_non_object_capture_fails_before_coverage_judge(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        _setup_project(tmp_path)
+        pool_path = _write_pool(tmp_path)
+        scenario_path = _write_scenario(tmp_path)
+        output_root = tmp_path / "out-non-object"
+
+        def fake_dispatch(cmd, check=False, cwd=None):
+            agent_dir = output_root / "agent-0"
+            agent_dir.mkdir(parents=True, exist_ok=True)
+            (agent_dir / "capture.jsonl").write_text("[1]\n")
+            return subprocess.CompletedProcess(cmd, returncode=0)
+
+        rc = main(
+            ["--pool", str(pool_path), "--scenario", str(scenario_path), "--output-root", str(output_root)],
+            subprocess_runner=fake_dispatch,
+            judge_fn=lambda *a, **k: pytest.fail("must not judge malformed capture"),
+        )
+
+        assert rc == 1
+
     def test_coverage_judge_unavailable_is_hard_failure(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         _setup_project(tmp_path)
@@ -163,6 +184,41 @@ class TestMainGreen:
 
         def fake_dispatch(cmd, check=False, cwd=None):
             _write_capture(output_root, "0", [{"rendered": {"body_text": "hi"}}])
+            return subprocess.CompletedProcess(cmd, returncode=0)
+
+        def passing_judge(feature_summary, turns) -> CoverageVerdict:
+            nonlocal judge_called
+            judge_called = True
+            return {"exercised": True, "evidence_turn_indices": [0], "rationale": "seen"}
+
+        rc = main(
+            [
+                "--pool",
+                str(pool_path),
+                "--scenario",
+                str(scenario_path),
+                "--output-root",
+                str(output_root),
+            ],
+            subprocess_runner=fake_dispatch,
+            judge_fn=passing_judge,
+        )
+
+        assert rc == 1
+        assert judge_called is False
+
+    def test_empty_actor_captures_fail_before_coverage_judge(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        _setup_project(tmp_path)
+        pool_path = _write_pool(tmp_path, n_agents=3)
+        scenario_path = _write_scenario(tmp_path)
+        output_root = tmp_path / "out-empty-actors"
+        judge_called = False
+
+        def fake_dispatch(cmd, check=False, cwd=None):
+            _write_capture(output_root, "0", [{"rendered": {"body_text": "hi"}}])
+            _write_capture(output_root, "1", [])
+            _write_capture(output_root, "2", [])
             return subprocess.CompletedProcess(cmd, returncode=0)
 
         def passing_judge(feature_summary, turns) -> CoverageVerdict:
