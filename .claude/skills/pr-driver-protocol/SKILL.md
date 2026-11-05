@@ -57,7 +57,7 @@ Run the local equivalent of each failing gate **before** pushing:
 | Gate | Local verification |
 |---|---|
 | Green Gate (CI) | the repository's test command (and the relevant package test) |
-| Evidence | Open the PR description: are all claims backed by a gist or media link? |
+| Evidence | Verify only the applicable proof for each changed claim under [PR lifecycle](../pr-lifecycle/SKILL.md) and [evidence standards](../evidence-standards/SKILL.md). |
 | Inline threads | `gh api graphql ... isResolved` — every thread resolved? |
 
 If verification fails, **do not push**. Go back to step 3 with the new failures added to the list.
@@ -67,7 +67,7 @@ If verification fails, **do not push**. Go back to step 3 with the new failures 
 One commit, one push, then immediately back to step 1 (the loop continues). While CI is running, **pre-diagnose the next likely failure** by reading:
 
 - The previous run's tail (often the next failure is in the same area)
-- Any CodeRabbit comments not yet addressed
+- Optional CodeRabbit or Bugbot feedback, when available, may inform diagnosis; it is advisory only and never a gate or a wait
 
 ## Worked example
 

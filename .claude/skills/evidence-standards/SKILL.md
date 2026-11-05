@@ -8,14 +8,22 @@ when-to-use: Before /er, /green, gate fixes, or AO worker dispatch on a PR that 
 
 ## Claim-proportionate evidence and publication
 
-For proportional evidence classes, follow [pr-lifecycle](../pr-lifecycle/SKILL.md#proportional-exceptions-and-fast-paths). For PR-description publication, follow its [stage-exit receipt contract](../pr-lifecycle/SKILL.md#evidence-attached-to-every-stage-exit). This skill owns evidence content and integrity, not a second lifecycle policy.
+For proportional evidence classes, follow [pr-lifecycle](../pr-lifecycle/SKILL.md#proportional-exceptions-and-fast-paths). For PR-description publication, follow its [stage-exit receipt contract](../pr-lifecycle/SKILL.md#evidence-attached-to-every-stage-exit). This skill owns evidence content and integrity, not lifecycle routing.
+
+Bundle, manifest and media rules below apply when a claim relies on actual test,
+runtime or artifact proof. Source-only skill guidance follows the lifecycle's
+[Markdown instruction-only route](../pr-lifecycle/SKILL.md#markdown-instruction-only-route)
+and its one/two independent source-reviewer rule; it does not automatically start
+an evidence campaign. This scope clarification does not waive named domain proof
+or grant approval or merge authority.
 
 Compact proof keeps primary artifacts, source provenance and hashes; mark irrelevant server/PID/provider fields N/A with reasons instead of inventing runtime metadata. Source hashes alone do not prove execution.
 
 ## Summary
 
 Evidence must **prove what you claim**. The strongest evidence is a raw request/response capture from the real production code path; a unit test in isolation proves only its bounded deterministic claim, not a live boundary. Match proof to the claim, label every claim with its evidence layer, and never substitute a green test suite for proof of integration correctness. This file is the policy; the companion files (see § Cross-references) cover structure and recording.
-- **Diff-Derived Claim Coverage (Including Platform-Divergent Paths)**: Evidence must cover every user-visible behavior the diff adds or changes, not only the PR's stated claims; build the claim list from the diff itself (see `evidence-coverage`). On the pr-lifecycle one-liner fast path (literal-text-only change), that behavior is the literal text, and the PR-body before/after quote (plus its pinning assertion where a test already covers the text) is the evidence. Code that runs on only one platform (`Platform.OS` branches, `*.web.*`/`*.native.*` files, `window`/`document`/`history` listeners, native-only modules) must be listed path by path, with its user-visible behavior proved on the platform where it executes.
+
+- **Diff-Derived Claim Coverage (Including Platform-Divergent Paths):** Evidence must cover every user-visible behavior the diff adds or changes, not only the PR's stated claims; build the claim list from the diff itself (see `evidence-coverage`). On the pr-lifecycle one-liner fast path (literal-text-only change), that behavior is the literal text, and the PR-body before/after quote (plus its pinning assertion where a test already covers the text) is the evidence. Code that runs on only one platform (`Platform.OS` branches, `*.web.*`/`*.native.*` files, `window`/`document`/`history` listeners, native-only modules) must be listed path by path, with its user-visible behavior proved on the platform where it executes.
 
 **After any evidence-gathering pass, you MUST reconfirm** what the evidence proves and what it does NOT prove, in your response to the user as well as in the bundle's "What This Evidence Does NOT Prove" section. That section lists untested scope only: observed behavior that the user's acceptance or the UI's own disclosure forbids is a FAIL, never a limit or follow-up (`evidence-review` check 9).
 
@@ -87,7 +95,7 @@ Reachability is **computed, never a hardcoded list** (a frozen "X is unreachable
 
 **No silent partial — lead with the gap.** The FIRST line of breadth evidence MUST be **"DELIVERED X of N; DID NOT DELIVER N−X (reason)"**, before any "✓"; burying the shortfall is a silent partial failure, worse than refusing. In that line, separate **gate-excluded** (true impossibility; name the gate) from **not-yet-driven** (reachable, no scenario built yet). Never report "undriven" as "impossible."
 
-**Generate the report from a per-item ledger, not free narration.** One row per requested element: `item | status (DELIVERED / GATE-EXCLUDED / NOT-YET-DRIVEN / UNDETERMINED) | reason | artifact`. Compute counts from the ledger so no item is dropped and no cause is applied to a group without a per-row reason. **Before writing GATE-EXCLUDED, confirm the gate is intrinsic to the item, not to a turn/run type**: a gate on "turns emitting tool_requests" excludes turns, not agents, so a tool-capable agent is NOT-YET-DRIVEN/UNDETERMINED, never statically impossible. A static "impossible list" that is really a per-run property is a ZFC violation.
+**Generate the report from a per-item ledger, not free narration.** One row per requested element: `item | status (DELIVERED / GATE-EXCLUDED / NOT-YET-DRIVEN / UNDETERMINED) | reason | artifact`. Compute counts from the ledger so no item is dropped and no cause is applied to a group without a per-row reason. Before writing GATE-EXCLUDED, confirm the gate is intrinsic to the item, not to a turn/run type: a gate on "turns emitting tool_requests" excludes turns, not agents, so a tool-capable agent is NOT-YET-DRIVEN/UNDETERMINED, never statically impossible. A static "impossible list" that is really a per-run property is a ZFC violation.
 
 ## Evidence Staleness Tolerance — the delta and the claim decide, not the path
 
@@ -95,12 +103,12 @@ Reachability is **computed, never a hardcoded list** (a frozen "X is unreachable
 
 **The check is a diff, not a SHA comparison:**
 
-1. Determine the evidence SHA (from `metadata.json.provenance.git_head` or the bundle README).
+1. Determine the evidence SHA (the **original tested SHA**, from `metadata.json.provenance.git_head` or the bundle README).
 2. `git diff <evidence-sha> HEAD` — read every changed file's content diff against the claims it could affect.
-3. If **every** content diff leaves the reviewed claims, assertions and drivers intact, the evidence remains valid; record the reviewed delta, relevant checks and current applicability. Path category is only a starting hint: a test, evidence driver/capture, prompt, contract, schema, or `.claude/`/`.codex/`/`.cursor/` skill or agent file whose assertion, driver or executable instruction changed can invalidate the proof it supports.
+3. If **every** content diff leaves the reviewed claims, assertions and drivers intact, the evidence remains valid; record the original tested SHA, reviewed delta and current applicability. Path category is only a starting hint: a test, evidence driver/capture, prompt, contract, schema, or `.claude/`/`.codex/`/`.cursor/` skill or agent file whose assertion, driver or executable instruction changed can invalidate the proof it supports.
 4. Never classify from file names alone; a comment edit and a behavior edit look identical in a name list.
 
-**Fresh evidence IS required when the delta changes production behavior or anything a claim depends on:** a test assertion, evidence driver/capture or executable instruction backing the claim; production code (the repo's source tree excluding its test dirs, **including** prompt/template surfaces; the repo-level /es file names the exact paths); API/endpoints/game logic/agent routing; runtime config (env vars, feature flags); DB schema/migrations; or a deploy/preview workflow. For a mixed diff, rerun only the proof its behavior or claim-dependent changes affect.
+**Fresh evidence IS required when the delta changes production behavior or anything a claim depends on:** a test assertion, evidence driver/capture or executable instruction backing the claim; production code (the repo's source tree excluding its test dirs, **including prompt/template surfaces**; the repo-level /es file names the exact paths); API/endpoints/game logic/agent routing; runtime config (env vars, feature flags); DB schema/migrations; or a deploy/preview workflow. For a mixed diff, rerun only the proof its behavior or claim-dependent changes affect.
 
 **Rationale:** rerunning real-server + real-LLM evidence for a docs typo or test rename burns hours for zero added confidence. If the behavior's code is byte-identical at HEAD and no assertion or driver backing it changed, the proof is valid at HEAD. Repo-level files may add project-specific context (e.g. the worldarchitect.ai overlay: `evidence-standards.md` under `<repo>/.claude/skills/` § "Claim-scoped evidence revalidation"). Shared [pr-lifecycle precedence](../pr-lifecycle/SKILL.md#precedence-and-scope) governs conflicting lifecycle copies; domain-specific proof and separate safety/merge restrictions remain. Repo overlays cannot waive the delta-and-claim test above.
 
@@ -163,145 +171,54 @@ In authorized evidence, redact authentication tokens, including bearer, access, 
 
 Follow any actual repository gate requiring particular in-tree evidence paths.
 
-## Bundle anatomy (minimal)
+## Bundle anatomy
 
-The canonical bundle is the iteration directory the project's evidence harness produces on the dedicated Scratch volume, resolved dynamically via `~/.claude/skills/scratch-space/SKILL.md` (`diskm scratch-new <repo-path> <purpose> --kind evidence`, or `$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh "<repo>/evidence/<date>-<slug>")`). For the WorldArchitect MCP harness, see `bundle-anatomy.md` in this directory. At minimum, a bundle contains:
-
-- `metadata.json` — git provenance (`git_head`, `merge_base`, `commits_ahead_of_main`, `diff_stat_vs_main`), server runtime (PID, port, cmdline, env vars), `bundle_version`, `run_id`, `iteration`, `bundle_timestamp`
-- `run.json` — `scenarios[]` array (each with `name`, `errors`, `campaign_id` if any)
-- `evidence.md` — human summary + **Claim → Artifact Map** (required)
-- `methodology.md` — env, commands, pass criteria, threshold values used
-- `README.md` — package manifest (test name, run id, branch, commit)
-- A complete aggregate manifest named `checksums.sha256` OR per-file `*.sha256` siblings covering every substantive file, including every claim-map artifact (aggregate paths are bundle-relative; sibling entries use **local basename** so `sha256sum -c` works)
-- `artifacts/` — server.log, lsof/ps output, optional browser recordings
-- Trace JSONL captures when the harness emits them: `request_responses.jsonl` (MCP), `llm_request_responses.jsonl` (LLM), `http_request_responses.jsonl` (HTTP+SSE)
-
-Use the canonical producer's existing format with an explicit mapping from its
-actual artifact paths/fields to the responsibilities above. Equivalent filenames
-or structured command records do not require duplicate files or a reconstructed
-stdout collection log. For example, a producer's `manifest.json` may carry the
-package inventory and provenance, while a run receipt carries commands, exits
-and raw-output paths; identify those exact fields rather than asserting generic
-compliance. Keep all applicable raw data and owner-required fields/media; this
-mapping is not an exemption for absent proof.
-
-Reconcile an independent artifact inventory against checksum coverage. Verify
-every digest; a mismatch, missing listed file, or uncovered substantive/claim-map
-artifact is an integrity failure under `/er`, not a warning. Checksums do not
-hash themselves; integrity coverage concerns the substantive artifacts they
-index. No checksums means integrity is unverified and approval is withheld.
-Other existing producer manifest names remain valid when explicitly identified
-and mapped to the same complete aggregate contract; `checksums.sha256` is the
-recognized default, not a demand to recreate a producer's inventory as stdout.
+For the producer-owned bundle layout, inventory, trace paths, manifest/checksum
+coverage, and the required Claim → Artifact Map plus **What This Evidence Does
+NOT Prove** disclosure, see [bundle-anatomy.md](./bundle-anatomy.md). Use the
+producer's actual format and map its fields/paths explicitly; do not recreate
+stdout or invent sidecars. Keep all applicable raw proof, provenance and
+owner-required media. A complete checksum set proves integrity only; it does not
+prove execution or replace the layer and SHA-applicability rules above.
 Preflight and freeze the complete bundle with existing producer/sealing utilities
-before formal review. Reviewers inspect it read-only; corrections belong to the
-producer and require an explicit updated identity and applicable delta review.
+before formal review; corrections belong to the producer and require an updated
+identity and applicable delta review.
 
-`evidence.md` MUST include a **Claim → Artifact Map** (claim → file →
-key field) and a **"What This Evidence Does NOT Prove"** section.
+Worked request/response, model, and video examples are intentionally omitted:
+the layer table above, the producer contract, [ui-video-evidence](../ui-video-evidence/SKILL.md),
+and [pr-lifecycle](../pr-lifecycle/SKILL.md) are the maintained sources.
 
-## Examples (3 short ones)
+## UI/media proof
 
-### Example 1 — Raw HTTP request/response (the dominant case)
+For UI claims, use a real running server rendering real backend responses and
+follow [ui-video-evidence](../ui-video-evidence/SKILL.md) plus the lifecycle's
+visual gate. Mocks, DOM injection and hand-crafted browser data can support unit
+claims but never prove UI integration. Unless an explicit lifecycle exception
+applies, capture comparable BEFORE/AFTER implementations; use desktop 1440×900
+and mobile 375×812 coverage where applicable. Interaction, navigation, streaming,
+animation and timing claims require captioned video; a simple static visual may
+use paired screenshots with the reason recorded.
 
-```text
-# artifacts/scenario_03_capture.jsonl
-{"type":"request","method":"POST","path":"/interaction/stream","body":{"campaign_id":"abc123","action":"attack","target_ac":13}}
-{"type":"response","status":200,"stream_chunks":[
-  {"event":"tool_call","name":"roll_dice","args":{"formula":"1d20+5"}},
-  {"event":"tool_result","value":18,"die":"d20","modifier":5,"total":23},
-  {"event":"narration","text":"Your blade finds the gap in the ogre's guard."}
-]}
-```
+Bind each capture to the served app/build SHA, capture-driver revision, dirty
+diff/hash, exact commands, original UTC time, environment and raw artifact
+paths/hashes. Preserve raw media and map every derivative to its source hash and
+transformation command. A candidate pre/post journey is not a pre-change
+baseline; if no applicable baseline can safely be captured or recovered, record
+`BEFORE: WITHHELD — <reason>` and withhold the comparison claim.
 
-Proves: real callstack, real dice RNG, and a real LLM (or recorded response) reached the wire in the right order. Strongest evidence for "the server behaves like X."
-
-### Example 2 — Real LLM call with layer label
-
-```text
-# Claim: "real Gemini response is logged verbatim with DC set before roll"
-- Claim Y: real Gemini response is logged verbatim → [Layer 2 real-LLM, Layer 2 real-BQ]
-- evidence: artifacts/llm_request_responses.jsonl contains a `type:response`
-  entry with `model: gemini-3.8-flash`, a real `https://generativelanguage.googleapis.com/...`
-  POST in the wire log, and a `dc_reasoning` field set before the `random.randint()` call.
-```
-
-The layer labels stop a real-LLM claim from being silently downgraded to a synthetic-LLM one.
-
-### Example 3 — Video / cast evidence (UI behavior)
-
-```text
-# PR description includes:
-- Evidence bundle: <scratch-root>/your-project.com/fix-attack-roll/iteration_001/ (resolved as in § Bundle anatomy)
-- Video: https://storage.googleapis.com/<bucket>/agent-evidence/<repo>/<pr>-<topic>/attack-roll.mp4
-  (or another host the current task authorizes; NOT github.com/.../releases/download/untagged-* — that is a red flag)
-- Paired inline GIF of the same run, embedded in the PR body (see § Visual Evidence)
-- metadata.json contains browser_origin, gateway_url, server.pid, artifact_manifest
-- Video is pipeline output (asciinema .cast in bundle, converted to mp4
-  for hosting), not a manual screen recording
-```
-
-UI claims need a captioned `.mp4`/`.gif`/`.cast` produced by the test pipeline; `ui-video-evidence.md` and `tmux-video-evidence.md` in this directory hold the recording rules. Docs-only / test-only PRs use `N/A - no UI behavior changed`.
-
-**The video must show the element under test changing in the pixels, not in a caption.** A captioned clip that frames only page chrome while the element is below the fold does NOT prove the change: the caption is harness-authored text from the test's own DOM reads, so it asserts the state rather than demonstrating it. The recording must `scrollIntoView` the specific control/field and settle so its before→after change is visible in the frames. When reviewing UI video (`/er`), **extract frames and look** (`ffmpeg -i <video> -vf fps=1 /tmp/frames/f_%02d.png`); if the element is never in frame, or the only on-screen evidence is a caption overlay, the UI evidence is FAIL even if the video exists, is captioned and the test passed. Acceptance by video also requires an independent AI content review (not the author or orchestrator) of the published video's frames per acceptance step (`evidence-review` check 4); privacy, playback and turn-record reviews do not count.
-
-## Visual Evidence & Mandatory Inline Rendering in PRs
-
-Visual comparisons under `## Visual Evidence` in PR descriptions must render **directly inline** on GitHub, so reviewers can inspect differences without clicking away:
-
-1. **Inline Image Tags (`<img>` or `![]()`)**:
-   - Markdown `[screenshot](https://...)` renders only as a text link, so the reviewer cannot see the image in the PR conversation; it fails visual review.
-   - Use HTML `<img src="..." width="..." alt="...">` (strongly preferred in tables, where it controls width so images do not distort or overflow columns) or markdown `![alt](url)`.
-
-2. **Standard Viewport Widths for Tables**:
-   - **Desktop screenshots** (in 2-column Before/After tables): `width="450"` (or `width="400"`)
-   - **Mobile screenshots** (375×812 in 2-column Before/After tables): `width="360"` (or `width="300"`)
-   - **Side-by-side comparison slides**: `width="800"`
-
-3. **Standard PR Table Format**:
-   ```markdown
-   ## Visual Evidence
-
-   ### Desktop (1440×900) Comparison
-
-   | Before (baseline `<before_sha>`) | After (candidate `<after_sha>`) |
-   | :---: | :---: |
-   | <img src="<before_desktop_url>" width="450" alt="Before Desktop"> | <img src="<after_desktop_url>" width="450" alt="After Desktop"> |
-
-   ### Mobile (375×812) Comparison
-
-   | Before (baseline `<before_sha>`) | After (candidate `<after_sha>`) |
-   | :---: | :---: |
-   | <img src="<before_mobile_url>" width="360" alt="Before Mobile"> | <img src="<after_mobile_url>" width="360" alt="After Mobile"> |
-
-   ### Walkthrough Video
-
-   | Before | After |
-   | :---: | :---: |
-   | <img src="https://storage.googleapis.com/<bucket>/<path>/before.gif" width="300" alt="Before walkthrough"> | <img src="https://storage.googleapis.com/<bucket>/<path>/after.gif" width="300" alt="After walkthrough"> |
-   | [▶ before.mp4](https://storage.googleapis.com/<bucket>/<path>/before.mp4) (SHA256: `<sha256>`) | [▶ after.mp4](https://storage.googleapis.com/<bucket>/<path>/after.mp4) (SHA256: `<sha256>`) |
-   ```
-
-4. **Google Cloud Storage media (default host)**:
-   - **Default host.** Upload media to the authorized evidence bucket (for example `gs://<evidence-bucket>/agent-evidence/<repo>/<pr>-<topic>-<date>/`) and link it as `https://storage.googleapis.com/<evidence-bucket>/<object>`. That URL grants no access by itself: browser playback works only for objects already authorized for the intended reviewers (public-read, for example).
-   - A GitHub attachment is also acceptable (for video, the only form GitHub plays inline), as is any other host the current task authorizes. Media that must stay private stays in authorized private hosting; never make evidence public merely to satisfy a link check. A URL the intended reviewer cannot open and play is never acceptable.
-   - Never link `gs://…` (not clickable) or `https://storage.cloud.google.com/…`, which redirects reviewers to a Google login.
-   - GitHub plays inline only videos uploaded as GitHub attachments, so an external mp4 renders as a link. Every video therefore gets an **inline GIF** of the same run (`ffmpeg -i in.webm -vf "fps=6,scale=300:-1:flags=lanczos" out.gif`) next to a **playable mp4 link**. Prefer MP4/H.264 (`-c:v libx264 -pix_fmt yuv420p`) for the broadest player compatibility; WebM may be added but never replaces the required MP4/H.264 variant.
-   - Screenshots are inline `<img>` from an authorized host that renders for the intended reviewer, showing the real captured pixels of the claimed state, not placeholders, crops that hide the changed element, or icons.
-   - Verify before claiming the stage exit:
-     - Every URL resolves with the expected `content-type` (`video/mp4`, `image/gif`, `image/png`) **for the intended reviewer**: `curl -sI <url>` for a public object, or the reviewer's own authorized access when the media stays private. Record which access mode applies instead of forcing public access to prove reachability.
-     - Every inline GIF and screenshot appears in the **rendered** PR body *and is the right image*. GitHub exposes each rendered image's original URL; compare those with the media this receipt declares: `gh api repos/<owner>/<repo>/pulls/<n> -H "Accept: application/vnd.github.html+json" --jq .body_html | grep -o 'data-canonical-src="[^"]*"'`. A bare image count is not acceptable: `grep -c` counts matching *lines* (one line holding two images reports `1`), and unrelated images can match an aggregate number.
-     - The sanitized gist receipt lists the same media with their sha256 hashes and access mode. Redact bearer, signed-query and other credential-bearing URL components; record the protected location plus hash instead of the token, since a gist is link-accessible.
-
-5. **Anti-Patterns (Reject in Review)**:
-   - ❌ `| [screenshot](url) | [screenshot](url) |` (text link only — fails inline rendering)
-   - ❌ Raw uncaptioned image dumps with no Before/After comparison table
-   - ❌ Testing only desktop and skipping mobile (375×812)
-   - ❌ Committing heavy image binaries directly into the git repository (use authorized storage or unlisted gists)
-   - ❌ A video only as a text link, with no inline GIF of the same run
-   - ❌ `gs://` or `storage.cloud.google.com` media links, or webm as the only playable form with no MP4/H.264 variant
-   - ❌ Making private evidence public, or changing bucket access, only to satisfy a reachability check
-   - ❌ Media only in a gist, a comment or a bundle README instead of inline in the PR description
+Published screenshots must render inline (not text-only links); use width `450`
+for desktop and `360` for mobile comparison tables (`800` for a side-by-side
+comparison slide). Video publications retain an inline GIF from the same run
+beside a playable MP4/H.264 link unless the authorized destination supplies an
+equivalent inline form. The element under test must change in the pixels, not only
+in a caption; below-fold or caption-only video does not prove the claim, and an
+independent reviewer must decode the relevant frames. Verify the intended
+reviewer's access, media content type and rendered PR-body URLs; use clickable
+authorized hosts rather than `gs://` or `storage.cloud.google.com/` links. The
+sanitized receipt lists the same media hashes and access mode. Never make private
+media public merely to satisfy reachability, use placeholders/crops that hide the
+changed element, fabricate a baseline, or leave required media only in a
+gist/comment.
 
 ## Cross-references
 
