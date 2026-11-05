@@ -26,12 +26,12 @@ Follow [pr-lifecycle's retained review integrations](../pr-lifecycle/SKILL.md#re
 ## Evidence-only scope and read-only dispatch
 
 `/er` approves evidence for the actual claims, not full source correctness or an
-`/advice` vote. Read the complete base-to-head diff to derive the claim map,
-including unstated changed behavior, and inspect the source and provenance needed
-to judge those claims. Require complete changed-path content at both revisions
-when source correctness approval is separately requested; do not impose that
-full-code packet contract on an evidence-only invocation. If claim-relevant
-source is missing, withhold the affected evidence claim rather than guessing.
+`/advice` vote. `/er` is not source approval and does not count toward source-review
+quorum. Read the complete base-to-head diff to derive explicit and implicit claims,
+then inspect claim-relevant source, artifacts, and provenance. Do not require prior
+source approval or an adjacent, undeclared source-review log. If claim-relevant
+source or provenance is missing, withhold the affected evidence claim rather than
+guessing.
 
 Completeness means every artifact needed for the actual claims and applicable
 owner requirements, not a whole-repository semantic dump to restamp unchanged
@@ -47,17 +47,16 @@ verification report into the producer bundle. Frame extraction may use unique
 review scratch without changing original media. The separately authorized owner
 handles fixes and publication; a review invocation does not authorize them.
 
-### Frozen-bundle preflight
+### Claim and artifact preflight
 
-Before formal review, the producer inventories and freezes the complete bundle:
-claim map, raw artifacts, source/runtime identities, required media, reproduction
-commands/results and checksum coverage. Use existing producer and sealing
-utilities, not a new packaging framework. Map a canonical producer's existing
-files explicitly to `/es` responsibilities; do not demand duplicate stdout logs
-when the actual command evidence is already in its artifact. A reviewer verifies
-that mapping and raw bytes, not the producer's assertion that preflight passed.
-Missing required proof remains non-approving. Batch fixes before dispatch, and
-apply Phase 0 for later deltas rather than silently relabelling old evidence.
+Inventory claimed artifacts and reconcile raw bytes, provenance, and checksum
+coverage with existing utilities. Map canonical producer files to `/es` duties;
+do not demand duplicate logs. Independently verify coverage and bytes, and
+reproduce each applicable documented check. Runtime claims require actual
+runtime/provider provenance. Missing claim-required proof is non-approving.
+Source-only Markdown changes do not trigger an artifact campaign; runtime or
+artifact claims retain named domain proof. Batch fixes before dispatch; use
+Phase 0 for later deltas rather than relabeling old evidence.
 
 ## Verdict Rubric
 
@@ -68,15 +67,14 @@ apply Phase 0 for later deltas rather than silently relabelling old evidence.
 | **FAIL** | A claim is contradicted by an artifact, or integrity is broken (sha256 mismatch, dirty capture producing the claim, scope exclusion). |
 | **INCONCLUSIVE** | Not enough artifact data exists to decide. Request more. |
 
-## Draft-lifecycle integration
+## Lifecycle applicability
 
-The canonical lifecycle, its documentation-only `/er` allowlist and the SHA-binding rule live in `pr-lifecycle`; apply them, including the staleness-tolerance diff test (`evidence-standards` § "Evidence Staleness Tolerance"), before invoking this skill. On a HEAD move that test classifies as non-behavioral, do not run a fresh pass; re-affirm the prior verdict at the new SHA (see `evidence-standards` § "Evidence Sequencing").
-
-- **Documentation-only exception**: when the complete PR diff matches the exact documentation allowlist in `pr-lifecycle`, `/er` is not run. Record `/er: NOT REQUIRED — documentation-only (<changed paths>)` at the reviewed SHA. Other diffs follow the normal gate unless the entire diff qualifies for the explicit trivial-change exception in pr-lifecycle.
-
-Every other PR, outside the canonical trivial-change exception and any low-risk class the repo's own instructions exempt per `pr-lifecycle`, needs `/er` = **PASS** applicable to the candidate before `/advice`, keeping the original reviewed SHA and the documented delta assessment when they differ. PARTIAL, FAIL or INCONCLUSIVE is informative but does not satisfy the gate.
-
-When `/er` is required and invoked via `gh pr comment N --body "/er"`, the evidence-review-bot returns one of the four verdicts as a structured comment. Evidence review is a draft-phase quality gate; `/green` remains the separate two-gate check in `pr-green-definition`.
+The [canonical pr-lifecycle contract](../pr-lifecycle/SKILL.md) owns `/er`
+applicability, phase, and SHA-bound reuse or delta review. Resolve that route
+before invoking this skill; do not restate or expand its exceptions. Preserve
+original tested/reviewed SHAs and explain candidate applicability under its
+delta rule. Follow the lifecycle and domain owners for any separate review,
+runtime-proof, or publication requirements.
 
 ---
 
@@ -179,7 +177,7 @@ A missing applicable artifact yields **PARTIAL**. Record inapplicable formats as
 
 ### 5. Media hosting check
 
-Apply this check when inline or linked media backs a claim; it does not by itself require publishing an otherwise private evidence bundle. Evidence classes and hosting rules are owned by evidence-standards (§ Visual Evidence & Mandatory Inline Rendering in PRs); this check applies them and adds no stricter hosting rule.
+Apply this check when inline or linked media backs a claim; it does not by itself require publishing an otherwise private evidence bundle. Evidence classes and hosting rules are owned by evidence-standards (§ UI/media proof); this check applies them and adds no stricter hosting rule.
 
 - GCS is the default host; a GitHub attachment or any other host the task authorizes is also acceptable.
 - Authorized private hosting is acceptable when the intended reviewer can open and play the media; record the access mode.
@@ -253,7 +251,13 @@ Example: if a warm-up request fires while consent is off under a dialog saying "
 
 ### Phase 0 — Staleness gate (run before anything else)
 
-Resolve the last posted `ER-VERDICT:` and its original HEAD, base, evidence, claims and review phase. Apply [pr-lifecycle's SHA-binding rule](../pr-lifecycle/SKILL.md#sha-binding-rule-critical--applies-to-every-gate-in-this-chain) before reusing it: a matching HEAD alone does not establish unchanged evidence, base, scope or final-phase coverage. Record applicability without restamping the original verdict. A delta that changes production behavior, or any assertion, driver or executable instruction a claim depends on, needs fresh affected proof and independent review, and so does uncertain coverage; keep unaffected claims and fully rerun only when impact cannot be bounded. Never rerun once per finding: while fixes are still landing, wait until they are batched into one new SHA (`evidence-standards` § "Evidence Sequencing") before spending a full pass.
+Resolve the last `ER-VERDICT:` and its original HEAD, base, claims, evidence, and
+phase. Apply [pr-lifecycle's SHA-binding rule](../pr-lifecycle/SKILL.md#sha-binding-rule-critical--applies-to-every-gate-in-this-chain):
+a matching HEAD alone does not establish unchanged scope or coverage. Record
+candidate applicability without restamping the original verdict. Recheck claims
+affected by changes to behavior or to a dependent assertion, driver, or
+executable instruction, using the review coverage the lifecycle requires.
+If impact cannot be bounded, rerun the affected review; batch fixes first.
 
 Continue necessary review and already-authorized fixes within the task scope and autonomy deadline. A review-only invocation reports findings without editing the reviewed source or evidence; fixes use write authority the parent task already holds. Review count alone does not require escalation; ask only for missing authority or an unresolved decision that blocks the affected action.
 
@@ -341,12 +345,11 @@ Produce output in this format:
 
 **Skill-load guard is mandatory.** Before any review, resolve this skill's path (user-scope `~/.claude/skills/evidence-review/SKILL.md` takes priority over any repo-scope copy). If the file cannot be found, **abort and report the error**; never proceed with an inline or paraphrased methodology. A subagent invoked as a fallback reviewer loads this file itself rather than having the methodology inlined into its prompt.
 
-**Dispatch order:**
-1. Attempt codex dispatch first (`ai_orch run --agent-cli codex "<review prompt>"`) and, on success, read the resulting log for findings.
-2. On codex failure or no log, fall back to the `evidence-reviewer` subagent, which loads this skill file itself (per the guard above).
-3. Whichever path produced the evidence-review result, then run a separate manual `evidence-standards` compliance pass (read the user-scope and any repo-scope `evidence-standards` skill and judge the collected evidence against them). It is never skipped because codex succeeded. This two-pass cost is paid ONCE per Phase-0-cleared SHA, never per push; a Phase 0 re-affirmation does not re-trigger it.
+**Review and standards coverage:** Select one available independent evidence reviewer through [advice's capability profiles and tiers](../advice/SKILL.md#capability-profile-and-tier-selection), using the first authorized tier that can cover the complete scope; no fixed CLI, model or machine dependency applies. The selected reviewer loads this skill and the applicable user-scope and repository `evidence-standards` requirements, then reports artifact-level findings. Evidence adjudication is separate from the `/advice` source-vote quorum: this reviewer supplies the evidence verdict, not a source-review vote. The lifecycle owns quorum, stage coverage, and receipt reuse.
 
-**Two-source verdict synthesis.** `/er` combines this skill's evidence-review verdict with the evidence-standards compliance verdict into one raw overall verdict and returns it unnormalized. Goal-driving harnesses own final normalization (collapsing PARTIAL/INCONCLUSIVE to FAIL and WARN to PASS, per their own convergence policy):
+**Verdict synthesis.** Combine this skill's evidence findings with the
+applicable evidence-standards compliance result into one raw overall verdict.
+Goal-driving harnesses own any further normalization under their own policy:
 
 | ER verdict | ES verdict | Raw overall verdict | Harness-normalized |
 |-----------|-----------|---------------------|--------------------|

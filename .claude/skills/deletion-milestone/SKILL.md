@@ -107,7 +107,7 @@ If these don't exist, the deletion is unproven. A PR that deletes without tests 
 
 | Skill | What it provides |
 |-------|-----------------|
-| `pr-workflow-manager.md` | General PR lifecycle (upstream, conflict resolution) |
+| `pr-workflow-manager/SKILL.md` | General PR lifecycle (upstream, conflict resolution) |
 | `harness-engineering/SKILL.md` | General failure pattern analysis + CI gate design |
 | `evidence-standards.md` | Real-model evidence requirements |
 | Project-specific `*-zfc/SKILL.md` | Project-specific phase checklists (M0/M1/M2/M3) |
