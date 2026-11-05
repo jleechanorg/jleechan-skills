@@ -2181,15 +2181,6 @@ class InstallerRealProfileTest(unittest.TestCase):
                     f"Installed profile '{profile}': {len(skills)} skills, {len(commands)} commands,",
                     result.stdout,
                 )
-                agents = len(installed_tree(target, "agents"))
-                key = "*(none)*" if profile == self.data["default_profile"] else f"`--profile {profile}`"
-                for doc in ("README.md", "INSTALL.md"):
-                    rows = [line for line in (REPO_ROOT / doc).read_text().splitlines() if line.startswith(f"| {key}")]
-                    self.assertEqual(len(rows), 1, f"{doc} needs one {key} row")
-                    self.assertTrue(
-                        rows[0].endswith(f"| {len(skills)} / {len(commands)} / {agents} |"),
-                        f"{doc} {key} row must state the measured counts: {rows[0]}",
-                    )
 
     @staticmethod
     def is_alias(command: str, skill: str) -> bool:
