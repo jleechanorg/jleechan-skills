@@ -120,13 +120,13 @@ Before expensive capture, verify the actual producer identity and provider, down
 
 ## Evidence class table
 
-| Class | Description | Claim label | Acceptable for production claim? |
+| Class | Description | Layer | Acceptable for production claim? |
 |---|---|---|---|
-| **real-callstack + real-LLM** | Real provider POST (e.g. `https://generativelanguage.googleapis.com/...`), real response streamed | `[Layer 2 real-LLM]` | **Yes** (required for LLM-behavior claims) |
-| **real-callstack + mock-at-network** | Real callstack, HTTP boundary mocked with recorded body | `[Layer 2 mock-at-network]` | Yes, for non-LLM claims |
-| **real-callstack + real-BQ/HTTP** | Real BigQuery / Firestore / HTTP insert | `[Layer 2 real-BQ]` | Yes |
-| **real-callstack + in-process SDK mock** | `gemini_provider.get_client = lambda: _FakeClient()` — SDK short-circuited | `[Layer 1 synthetic-LLM]` | **No** (named anti-pattern, below) |
-| **unit test** | Isolated deterministic execution, monkeypatched, no real callstack | `[Layer 1 unit]` | Bounded deterministic claims only; never live-boundary proof |
+| **real-callstack + real-LLM** | Real `https://generativelanguage.googleapis.com/...` POST, real response streamed | Layer 2 | **Yes** (required for LLM-behavior claims) |
+| **real-callstack + mock-at-network** | Real callstack, HTTP boundary mocked with recorded body | Layer 2 | Yes, for non-LLM claims |
+| **real-callstack + real-BQ/HTTP** | Real BigQuery / Firestore / HTTP insert | Layer 2 | Yes |
+| **real-callstack + in-process SDK mock** | `gemini_provider.get_client = lambda: _FakeClient()` — SDK short-circuited | Layer 1 synthetic-LLM | **No** (named anti-pattern, see below) |
+| **unit test** | Isolated deterministic execution | Layer 1 | Bounded deterministic claims only; never live-boundary proof |
 | **none** | No artifact, just assertion | — | No |
 
 ## Unit proof and claim boundaries
@@ -143,7 +143,13 @@ Mocks at the **in-process function boundary are not mocks at an external API bou
 
 **Detection signal:** the verify script imports the production module AND overrides any function in that module's call-graph that talks to the SDK. If the SDK constructor itself is reachable, the LLM is real; if the SDK is short-circuited, the LLM is synthetic regardless of what else is real.
 
-**Per-claim layer label is mandatory.** Every /er verdict claim ends with its `[Layer N source]` label from the evidence class table above.
+**Per-claim layer label is mandatory.** Every /er verdict claim ends with `[Layer N source]`:
+
+- `[Layer 1 unit]` — monkeypatched, no real callstack
+- `[Layer 1 synthetic-LLM]` — real callstack but in-process SDK mock
+- `[Layer 2 mock-at-network]` — real callstack, HTTP boundary mocked with recorded body
+- `[Layer 2 real-LLM]` — real callstack, real provider POST, real response streamed
+- `[Layer 2 real-BQ]` — real callstack, real BigQuery HTTP insert
 
 A claim mixing Layer 2 (real BQ) with Layer 1 (synthetic LLM) is **not** Layer 2 proof for its LLM-behavior part: the /er verdict for that claim must be **PARTIAL** or **FAIL**, not **PASS**. A claim without a layer label is non-compliant and its verdict is downgraded to PARTIAL.
 
@@ -163,16 +169,79 @@ The canonical bundle is the iteration directory the project's evidence harness p
 
 - `metadata.json` — git provenance (`git_head`, `merge_base`, `commits_ahead_of_main`, `diff_stat_vs_main`), server runtime (PID, port, cmdline, env vars), `bundle_version`, `run_id`, `iteration`, `bundle_timestamp`
 - `run.json` — `scenarios[]` array (each with `name`, `errors`, `campaign_id` if any)
-- `evidence.md` — human summary, **Claim → Artifact Map** (claim → file → key field), and **"What This Evidence Does NOT Prove"** section (both required)
+- `evidence.md` — human summary + **Claim → Artifact Map** (required)
 - `methodology.md` — env, commands, pass criteria, threshold values used
 - `README.md` — package manifest (test name, run id, branch, commit)
-- `*.sha256` sibling files for every substantive file (use **local basename** so `sha256sum -c` works)
+- A complete aggregate manifest named `checksums.sha256` OR per-file `*.sha256` siblings covering every substantive file, including every claim-map artifact (aggregate paths are bundle-relative; sibling entries use **local basename** so `sha256sum -c` works)
 - `artifacts/` — server.log, lsof/ps output, optional browser recordings
 - Trace JSONL captures when the harness emits them: `request_responses.jsonl` (MCP), `llm_request_responses.jsonl` (LLM), `http_request_responses.jsonl` (HTTP+SSE)
 
-## UI video evidence
+Use the canonical producer's existing format with an explicit mapping from its
+actual artifact paths/fields to the responsibilities above. Equivalent filenames
+or structured command records do not require duplicate files or a reconstructed
+stdout collection log. For example, a producer's `manifest.json` may carry the
+package inventory and provenance, while a run receipt carries commands, exits
+and raw-output paths; identify those exact fields rather than asserting generic
+compliance. Keep all applicable raw data and owner-required fields/media; this
+mapping is not an exemption for absent proof.
 
-For video-backed UI claims, the PR description links the evidence bundle (resolved per § Bundle anatomy), a playable video on an authorized host (e.g. `https://storage.googleapis.com/<bucket>/agent-evidence/<repo>/<pr>-<topic>/attack-roll.mp4`; a `github.com/.../releases/download/untagged-*` URL is a red flag), and a paired inline GIF of the same run (§ Visual Evidence). The bundle's `metadata.json` carries `browser_origin`, `gateway_url`, `server.pid`, and `artifact_manifest`. Video is pipeline output, not a manual screen recording.
+Reconcile an independent artifact inventory against checksum coverage. Verify
+every digest; a mismatch, missing listed file, or uncovered substantive/claim-map
+artifact is an integrity failure under `/er`, not a warning. Checksums do not
+hash themselves; integrity coverage concerns the substantive artifacts they
+index. No checksums means integrity is unverified and approval is withheld.
+Other existing producer manifest names remain valid when explicitly identified
+and mapped to the same complete aggregate contract; `checksums.sha256` is the
+recognized default, not a demand to recreate a producer's inventory as stdout.
+Preflight and freeze the complete bundle with existing producer/sealing utilities
+before formal review. Reviewers inspect it read-only; corrections belong to the
+producer and require an explicit updated identity and applicable delta review.
+
+`evidence.md` MUST include a **Claim → Artifact Map** (claim → file →
+key field) and a **"What This Evidence Does NOT Prove"** section.
+
+## Examples (3 short ones)
+
+### Example 1 — Raw HTTP request/response (the dominant case)
+
+```text
+# artifacts/scenario_03_capture.jsonl
+{"type":"request","method":"POST","path":"/interaction/stream","body":{"campaign_id":"abc123","action":"attack","target_ac":13}}
+{"type":"response","status":200,"stream_chunks":[
+  {"event":"tool_call","name":"roll_dice","args":{"formula":"1d20+5"}},
+  {"event":"tool_result","value":18,"die":"d20","modifier":5,"total":23},
+  {"event":"narration","text":"Your blade finds the gap in the ogre's guard."}
+]}
+```
+
+Proves: real callstack, real dice RNG, and a real LLM (or recorded response) reached the wire in the right order. Strongest evidence for "the server behaves like X."
+
+### Example 2 — Real LLM call with layer label
+
+```text
+# Claim: "real Gemini response is logged verbatim with DC set before roll"
+- Claim Y: real Gemini response is logged verbatim → [Layer 2 real-LLM, Layer 2 real-BQ]
+- evidence: artifacts/llm_request_responses.jsonl contains a `type:response`
+  entry with `model: gemini-3.8-flash`, a real `https://generativelanguage.googleapis.com/...`
+  POST in the wire log, and a `dc_reasoning` field set before the `random.randint()` call.
+```
+
+The layer labels stop a real-LLM claim from being silently downgraded to a synthetic-LLM one.
+
+### Example 3 — Video / cast evidence (UI behavior)
+
+```text
+# PR description includes:
+- Evidence bundle: <scratch-root>/your-project.com/fix-attack-roll/iteration_001/ (resolved as in § Bundle anatomy)
+- Video: https://storage.googleapis.com/<bucket>/agent-evidence/<repo>/<pr>-<topic>/attack-roll.mp4
+  (or another host the current task authorizes; NOT github.com/.../releases/download/untagged-* — that is a red flag)
+- Paired inline GIF of the same run, embedded in the PR body (see § Visual Evidence)
+- metadata.json contains browser_origin, gateway_url, server.pid, artifact_manifest
+- Video is pipeline output (asciinema .cast in bundle, converted to mp4
+  for hosting), not a manual screen recording
+```
+
+## UI video evidence
 
 UI claims need a captioned `.mp4`/`.gif`/`.cast` produced by the test pipeline; `ui-video-evidence.md` and `tmux-video-evidence.md` in this directory hold the recording rules. Docs-only / test-only PRs use `N/A - no UI behavior changed`.
 
