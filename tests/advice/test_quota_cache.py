@@ -41,11 +41,11 @@ class AdviceQuotaCacheTests(unittest.TestCase):
         return result
 
     def record(self, identity=CLAUDE_PRIMARY, reset="2030-01-01T00:00:00Z", provider="claude",
-               observed="2029-12-31T00:00:00Z"):
+               observed="2029-12-31T00:00:00Z", now="2029-12-31T00:00:00Z"):
         return self.run_cache(
             "record", "--identity-sha256", identity, "--provider", provider,
             "--model", "opus", "--reset-at", reset,
-            "--observed-at", observed, "--now", "2029-12-31T00:00:00Z",
+            "--observed-at", observed, "--now", now,
         )
 
     def test_quota_blocks_only_same_seat_until_reported_reset(self):
@@ -66,7 +66,7 @@ class AdviceQuotaCacheTests(unittest.TestCase):
                            "--now", "2030-01-01T00:00:00Z").stdout,
         )
         state = json.loads(next(self.cache.glob("*.json")).read_text())
-        self.assertEqual("success", state["event_type"])
+        self.assertEqual("expired", state["event_type"])
 
     def test_successful_fresh_probe_clears_cached_quota(self):
         self.record()
@@ -102,6 +102,23 @@ class AdviceQuotaCacheTests(unittest.TestCase):
         blocked = self.run_cache("check", "--provider", "claude", "--identity-sha256", CLAUDE_PRIMARY,
                                  "--now", "2029-12-31T00:06:00Z", expected=10)
         self.assertIn("QUOTA_BLOCKED", blocked.stdout)
+
+    def test_expiry_watermark_does_not_hide_newer_active_quota_written_late(self):
+        self.record(observed="2029-12-31T01:00:00Z", reset="2029-12-31T10:00:00Z")
+        self.assertEqual("ELIGIBLE\n", self.run_cache(
+            "check", "--provider", "claude", "--identity-sha256", CLAUDE_PRIMARY,
+            "--now", "2029-12-31T11:00:00Z").stdout)
+        state = json.loads(next(self.cache.glob("*.json")).read_text())
+        self.assertEqual("expired", state["event_type"])
+        self.assertEqual("2029-12-31T01:00:00+00:00", state["observed_at_utc"])
+        self.assertNotIn("reset_at_utc", state)
+
+        # This response was observed later but written after the old expiry cleanup.
+        self.record(observed="2029-12-31T05:00:00Z", reset="2029-12-31T20:00:00Z",
+                    now="2029-12-31T11:00:00Z")
+        blocked = self.run_cache("check", "--provider", "claude", "--identity-sha256", CLAUDE_PRIMARY,
+                                 "--now", "2029-12-31T11:01:00Z", expected=10)
+        self.assertIn("reset_at=2029-12-31T20:00:00+00:00", blocked.stdout)
 
     def test_expired_delayed_quota_cannot_clear_newer_active_quota(self):
         self.record(observed="2029-12-31T05:00:00Z", reset="2029-12-31T20:00:00Z")

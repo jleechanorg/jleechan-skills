@@ -83,13 +83,13 @@ def read_entry(directory_fd, name, digest, provider):
             entry = json.load(stream)
         event_time = parse_time(entry["observed_at_utc"])
         event_type = entry["event_type"]
-        if event_type not in {"quota", "success"}:
+        if event_type not in {"quota", "success", "expired"}:
             raise ValueError
         reset = parse_time(entry["reset_at_utc"]) if event_type == "quota" else None
         if (entry.get("version") != VERSION or entry.get("identity_sha256") != digest
                 or entry.get("provider") != provider
                 or (event_type == "quota" and reset is None)
-                or (event_type == "success" and "reset_at_utc" in entry)):
+                or (event_type != "quota" and "reset_at_utc" in entry)):
             raise ValueError
         return entry, event_time, reset
     except (OSError, ValueError, KeyError, TypeError, argparse.ArgumentTypeError):
@@ -186,18 +186,19 @@ def main(argv=None):
                     })
                     print(f"RECORDED provider={args.provider} reset_at={args.reset_at.isoformat()}")
             else:
-                if current and current[0]["event_type"] == "success":
+                if current and current[0]["event_type"] in {"success", "expired"}:
                     print("ELIGIBLE")
                 elif current and current[2] > now:
                     print(f"QUOTA_BLOCKED provider={args.provider} reset_at={current[2].isoformat()}")
                     return 10
                 elif current:
-                    # Retain a watermark at the reset so a delayed pre-reset quota
-                    # response cannot recreate the block after expiry.
+                    # Expire the block while preserving the actual quota observation
+                    # time. Using the reset time here could hide a newer quota result
+                    # that was delayed in transit but observed before this old reset.
                     write_entry(directory_fd, name, {
                         "version": VERSION, "identity_sha256": digest,
-                        "provider": args.provider, "event_type": "success",
-                        "observed_at_utc": max(current[1], current[2]).isoformat(),
+                        "provider": args.provider, "event_type": "expired",
+                        "observed_at_utc": current[1].isoformat(),
                     })
                     print("ELIGIBLE")
                 else:
