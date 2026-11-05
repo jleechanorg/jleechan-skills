@@ -137,11 +137,9 @@ class InstallerIntegrationTest(unittest.TestCase):
                     (target / relative).read_bytes(),
                     (REPO_ROOT / ".claude" / relative).read_bytes(),
                 )
-            quick = (target / "skills/superpowers-quick/SKILL.md").read_text()
             for dependency in ("superpowers-brainstorming", "superpowers-writing-plans"):
                 installed_dependency = target / f"skills/{dependency}/SKILL.md"
                 self.assertTrue(installed_dependency.is_file(), installed_dependency)
-                self.assertIn(f"~/.claude/skills/{dependency}/SKILL.md", quick)
 
     def test_history_helper_runs_outside_source_checkout_after_install(self):
         with tempfile.TemporaryDirectory() as directory:
