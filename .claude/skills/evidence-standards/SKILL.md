@@ -15,9 +15,16 @@ Compact proof keeps primary artifacts, source provenance and hashes; mark irrele
 ## Summary
 
 Evidence must **prove what you claim**. The strongest evidence is a raw request/response capture from the real production code path; a unit test in isolation proves only its bounded deterministic claim, not a live boundary. Match proof to the claim, label every claim with its evidence layer, and never substitute a green test suite for proof of integration correctness. This file is the policy; the companion files (see § Cross-references) cover structure and recording.
+
 - **Diff-Derived Claim Coverage (Including Platform-Divergent Paths)**: Evidence must cover every user-visible behavior the diff adds or changes, not only the PR's stated claims; build the claim list from the diff itself (see `evidence-coverage`). On the pr-lifecycle one-liner fast path (literal-text-only change), that behavior is the literal text, and the PR-body before/after quote (plus its pinning assertion where a test already covers the text) is the evidence. Code that runs on only one platform (`Platform.OS` branches, `*.web.*`/`*.native.*` files, `window`/`document`/`history` listeners, native-only modules) must be listed path by path, with its user-visible behavior proved on the platform where it executes.
 
 **After any evidence-gathering pass, you MUST reconfirm** what the evidence proves and what it does NOT prove, in your response to the user as well as in the bundle's "What This Evidence Does NOT Prove" section. That section lists untested scope only: observed behavior that the user's acceptance or the UI's own disclosure forbids is a FAIL, never a limit or follow-up (`evidence-review` check 9).
+
+## Continuous video only — slideshows are forbidden
+
+When a claim asks for video, the artifact MUST come from a native continuous browser or screen capture that preserves the real timeline from before the action through the resulting state. Never create, deliver, attach, or approve a slideshow as video: screenshot-concat files, sampled or selected-frame montages, repeated-still padding, and still-image sequences encoded as MP4 are forbidden even when they have captions, real pixels, a normal frame rate, valid H.264 metadata, or a successful decode. A contact sheet, screenshot, or diagnostic frame extraction is not video evidence.
+
+Check the producer and publisher, not only the output container: trace the artifact to the continuous recorder, its raw timeline, and the capture window containing the action and resulting state. Decode and checksum probes establish file integrity only; they do not establish continuity. A real capture may contain unchanged waiting intervals, but a derived caption, transcode, redaction, or authorized trim is valid only when it preserves the timeline of an actual continuous source. If only a slideshow exists, the video claim FAILS and the evidence is undelivered; do not relabel it as a limitation, N/A, or PASS because transport, tests, or metadata succeeded.
 
 ## Aiming gate — run BEFORE spending on an evidence campaign
 

@@ -9,6 +9,8 @@ description: Record captioned browser/UI evidence videos and link sanitized arti
 
 Prove user-visible behavior in a way reviewers and agents can verify quickly from the PR conversation.
 
+Before producing or reviewing any video, apply the canonical [`evidence-standards` continuous-video rule](../evidence-standards/SKILL.md#continuous-video-only--slideshows-are-forbidden). Screenshot sequences and slideshow MP4s never satisfy video evidence.
+
 ## When UI Video Is Required
 
 Apply the narrow proportional exceptions in [pr-lifecycle](../pr-lifecycle/SKILL.md) first. Source-only harmless display-copy may justify media N/A; a bounded static-copy rendering claim may use an actual screenshot. Other UI/browser video is mandatory for user-facing behavior, including:
@@ -479,6 +481,8 @@ Rules:
 
 ## Frozen-frame and slideshow detection (MANDATORY)
 
+The canonical continuous-video prohibition is in [`evidence-standards`](../evidence-standards/SKILL.md#continuous-video-only--slideshows-are-forbidden). It is absolute: the motion probe below is diagnostic evidence, never permission to accept a screenshot sequence, and captions or named action frames never waive the prohibition.
+
 Report the mpdecimate **retained-frame count** (kept) and the nominal frame
 count for every clip. The probe must fail closed: a failed decode or empty count
 is an error, never "zero frames".
@@ -493,13 +497,11 @@ nominal=$(ffprobe -v error -count_frames -select_streams v:0 \
 echo "kept=$kept nominal=$nominal"
 ```
 
-A clip is **INSUFFICIENT** (slideshow or frozen frame padded to length) when
-`kept < 10` **or** `kept/nominal < 5%`, unless the caption names the specific
-timestamps of the frames carrying the claim (the action frame and the DONE or
-after-state frame) and a reviewer confirms those frames show it. Mostly static
-app screens legitimately sit around 5-10%; a blinking caret or spinner can
-inflate `kept`, so the named action/state-change frame must be present in
-every case.
+A low retained-frame count triggers provenance and timeline review; it is not
+standalone proof of a slideshow and is not an automatic rejection of legitimate
+continuous footage with an idle interval. A constructed still-image sequence
+always fails under the canonical rule regardless of its retained-frame count,
+caption, or successful decode.
 
 ## Action must be in the window (MANDATORY)
 
