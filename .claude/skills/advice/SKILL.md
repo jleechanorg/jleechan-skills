@@ -1,400 +1,247 @@
 ---
 name: advice
-description: Use when a focused second opinion is needed; collect two independent, full-coverage reviewer votes on an exact change or saved-content packet.
+description: Use when a focused second opinion is needed; collect the applicable independent, full-coverage reviewer votes on an exact change or saved-document bundle.
 ---
 
 # /advice — independent second opinion
 
-Use `/advice [question]` instead of `advisor()`. This skill owns reviewer
-orchestration. The `pr-lifecycle` owner has the
-[Advice applicability](../pr-lifecycle/SKILL.md#advice-applicability) section;
-it owns phases, thresholds, applicability, and review publication. The
-evidence-standards skill owns evidence classes and publication rules. Do not
-duplicate those procedures here.
+Use `/advice [question]` instead of `advisor()`. This skill owns reviewer orchestration: selection, quorum, deadlines,
+isolation and receipts. [static-review](../static-review/SKILL.md) owns reviewer input. pr-lifecycle's [Advice
+applicability](../pr-lifecycle/SKILL.md#advice-applicability) section owns phases, thresholds, applicability and
+publication; evidence-standards owns evidence classes. Do not restate those here.
 
 ## 1. Pin the question and complete scope
 
-**Pointer**: Send the pointer, not a transcription.
-A verdict built on a truncated inline artifact may not be `APPROVED`.
+Every reviewer gets only the static-review channel preamble plus its template: no question, summary, excerpt or
+framing. The user's `[question]` stays with the orchestrator, which records it in the §5 report and answers it from
+the reviewers' findings; if the template cannot surface what the question needs, report that gap. Send a pointer to
+the complete change, never a transcription. A verdict built on truncated input is never `APPROVED`.
 
-Give every reviewer (CLI primary and alternates, the coordinator ask, and
-static reviewers) only the cold, verbatim input owned by
-[static-review](../static-review/SKILL.md): its channel preamble plus its
-template, with no question, summary or framing. Its receipt and deviation rules
-apply to every vote. The user's `[question]` is never sent to reviewers: the
-orchestrator records it in the §5 report and answers it in its own synthesis
-from the reviewers' findings; if the template cannot surface what the question
-needs, report that gap rather than adding framing. The pointer must reach the complete change; a summary or
-excerpt never replaces the source.
-
-For revision review, pin the requested commit and use read-only GitHub/API
-access, an existing checkout, a verified saved-content packet, or an isolated
-copy when execution requires one. A clone, export or Scratch allocation is not
-a prerequisite for read-only approval of code, a PR or an exact head.
-For saved material, use an existing CLI input path to give each reviewer
-identical complete bytes for explicitly named, non-ignored, non-symlink files
-and evidence, committed or not.
-Keep a temporary packet of the named files and record per-file and bundle
-SHA256 hashes. Byte checks verify integrity, not filesystem immutability. This
-Markdown skill does not require a particular runner; do not add a wrapper or
-runtime mechanism to deliver files.
-
-For a saved-content review, `<REVIEW TARGET>` is exactly a full 40-hex head
-SHA when the packet has a verified PR URL, base/head SHAs and complete
-revision-bound coverage. Otherwise use exactly `DOCUMENTS sha256:<BUNDLE HASH>`
-for a bundle-only review. Never use an abbreviated SHA or mutable `HEAD`.
-
-“Static review” means a fixed reviewer prompt, not limited approval authority.
-A review may approve code, a PR or an exact head when the complete scope and
-revision binding are verified. Saved content without a verified PR/base/head
-binding approves only its named bundle; incomplete scope cannot approve unseen
-code or a different revision. Each
-reviewer must independently read the entire declared scope.
-The combined scope covers the whole declared change
-only when each approver reads it in full. Partial coverage cannot be combined
-across reviewers to approve.
+- **Revision review** covers exactly the pinned commit.
+- **Document-only review** covers explicitly named, non-ignored, non-symlink Markdown files, committed or not. Give
+  every reviewer identical complete bytes (an existing CLI input path, or an upload for web seats), keep the packet, and record per-file
+  and bundle SHA256 hashes (integrity, not immutability). It never approves code, `HEAD` or dirty state.
+- Revision-bound saved-content review uses the full 40-hex head SHA only when the PR URL, base/head SHAs, and complete
+  revision-bound coverage are verified. A complete unbound packet uses exactly `DOCUMENTS sha256:<BUNDLE HASH>` and approves
+  only that bundle. Incomplete claimed revision binding means `WITHHELD`; never use an abbreviated SHA or mutable `HEAD`.
+- Each approver reads the whole declared scope. Partial coverage is never combined across reviewers into an
+  approval.
 
 ## 2. Select independent reviewers
 
-Approval requires two independent votes, each covering the whole scope, from
-two eligible CLI reviewers or per the static-review fallback
-below. Use Codex
-and Opus concurrently when both are viable; pair a healthy CLI vote with a
-distinct eligible alternate when needed. If Opus is known unavailable, launch
-Codex and an eligible alternate concurrently; do not serialize healthy seats.
-The orchestrator's synthesis and
-research-only output are not approval reviewers. `/research` is nonvoting and
-only for material unanswered questions. A substantiated P0 finding blocks approval; P1/P2 findings are nonblocking.
+**Required quorum.** Use two independent full-scope source votes by default.
+Use one only when pr-lifecycle positively selects a one-source-review route and
+the reviewer confirms its eligibility; preserve that route rather than starting
+extra advice seats. An explicitly requested advice invocation follows the same
+qualified count. Archive-integrity review is not source approval.
+Stricter user, repository, security and domain requirements remain binding. The
+mandatory supplementary-review substitution still needs two eligible advice
+votes and applicable evidence review. Record the route/count before dispatch;
+neither one-vote readiness nor advice approval changes merge authority.
 
-Static-review fallback. This is an owner-authorized exception, chosen by the
-repository owner on 2026-10-29. When the orchestrator also has an external
-review coordinator (for example a Dot reviewer), it sends the static-review
-coordinator ask and, in parallel, launches static reviewers. With no
-coordinator configured, it launches static reviewers in parallel with the CLI
-attempts, and the trigger below counts only those CLI attempts. A static reviewer
-fills only a vote slot still unfilled after the primary and every alternate CLI
-attempt in the table below, and every configured coordinator account, have
-ended under their §3 attempt deadlines and each attempt or skip, including
-unsupported or unconfigured routes, is recorded in the `UNAVAILABLE` format
-below with the user told. Any outside full-coverage vote fills a
-slot first; one outside vote pairs with one static reviewer. Identity, cold
-start and receipts follow [static-review](../static-review/SKILL.md); the
-deadline, isolation, full coverage, SHA binding and §5 rules still apply. A
-late objection blocks until resolved and reopens the affected stage per
-pr-lifecycle.
+### Capability profile and tier selection
 
-No double substitution: when a coordinator verdict is itself being substituted
-by `/er` plus two `/advice` votes under pr-lifecycle, static reviewers cannot
-also be that whole quorum; that case requires a real outside vote. Consistent
-with pr-lifecycle, the orchestrator never self-awards a vote, and one
-reviewer's verdict is never counted twice.
+Use only capabilities actually available and authorized. Keep one machine-local profile of seat label, host, actual
+account/identity key, model, transport and command or profile reference, permitted scope/isolation row, disclosure
+authorization, availability and attempt receipt. Use existing ADVICE configuration and owning transport skills; this
+is an orchestration record, not a new runner, configuration parser or prompt framework. Do not put personal accounts,
+destinations, credentials or host paths in this repository. Preference for a different CLI/model does not make aliases
+of one account independent.
 
-Record every unavailable or skipped reviewer in the §5 report as `UNAVAILABLE:
-<host> — <CLI or static reviewer> — attempted|skipped — <attempt time> —
-<reason>`, and tell the user which reviewers were unavailable. A failure on one
-host (for example a cloud box) does not make the same CLI unavailable on
-another host (for example a Mac or Ubuntu machine); try or record each host
-separately.
+| Tier | Available reviewers | Admission and counting |
+|---|---|---|
+| 1 — preferred | Available authorized CLI seats, including configured extra CLIs; authorized ChatGPT Dot accounts | Prefer different eligible CLI/model identities. CLI and Dot are alternatives in the same tier; no brand or mixture is mandatory. Count at most one Dot vote. |
+| 2 — fallback | Native static subagents; Hermes or Hermes-PC | Static subagents collectively count as at most one vote; Hermes instances collectively count as at most one distinct vote. Each counted vote must independently cover the entire scope. |
+| 3 — last fallback | Existing authorized authenticated web chats through /web-advice | Use only after earlier-tier candidates cannot fill the remaining quorum. Preserve packet, upload, account-attestation and receipt rules. |
 
-Preserve full-permission reviewer execution and declare the actual command,
-model, account or reviewer identity, and transport for every attempt.
+Start independent eligible candidates concurrently where transport and resource rules permit. Retain valid earlier-tier
+votes and fill only remaining slots. Advance when the current tier cannot fill them; a missing brand is not a reason to
+wait. An eligible in-flight attempt remains bounded by §3, not declared unavailable merely to prefer a later result.
+Stop new dispatch once quorum is met unless another workflow obligation requires it; retain competent findings from
+valid in-flight attempts.
+The author, orchestrator and /research do not vote. One competent blocking objection can block.
 
-### Portable defaults, machine-local overrides
+Record availability separately from verdicts: AVAILABLE; UNAVAILABLE with missing capability, unsupported scope
+or authorization reason; BUSY with an existing handle when known; QUOTA with a printed reset time when available;
+or DUPLICATE with the shared identity key. Busy, missing, quota-blocked and duplicate seats do not reserve votes
+or justify indefinite waits. Do not duplicate an active request. Keep the existing deadline and explicit-wait
+rules for in-flight attempts. Delivery, acknowledgement and assignment are not approval.
 
-This repository ships **defaults only**. Every seat resolves its command from an environment variable and
-falls back to the default below when the variable is unset, so a bare machine still works. For any of these
-variables, a value that is set but empty, unparseable, or names a program that is missing or not executable
-makes **that seat `UNAVAILABLE`**; it never falls back to the default, because the fallback would run as the
-default identity and let one account vote twice.
+### CLI capabilities
 
-| Reviewer | Resolution |
+| Seat | Machine-local command override or default |
 |---|---|
-| Codex | `ADVICE_CODEX_CMD` → `codex exec --yolo -m gpt-6-sol --config model_reasoning_effort=high` |
-| Opus | `ADVICE_CLAUDE_CMD` → `claude -p --model opus --dangerously-skip-permissions` |
-| Claude alternate | `ADVICE_CLAUDE_ALT_CMD` → the same default argv as Opus, with `--model <actual-model>` |
-| Extra CLIs | `ADVICE_EXTRA_CLIS` (unset by default) |
-| Cursor alternate | `cursor agent -p --force` |
-| AGY alternate | `agy --print="<review request>" --model gemini-3.8-flash-high --dangerously-skip-permissions --new-project` |
+| Codex | `ADVICE_CODEX_CMD`, else `codex exec --yolo -m gpt-6-sol --config model_reasoning_effort=high` |
+| Claude | `ADVICE_CLAUDE_CMD`, else `claude -p --model opus --dangerously-skip-permissions` |
+| Claude alternate | `ADVICE_CLAUDE_ALT_CMD`, else the Claude argv with `--model <actual-model>` |
+| Cursor | `cursor agent -p --force` |
+| AGY | `agy --print="<review request>" --model gemini-3.8-flash-high --dangerously-skip-permissions --new-project` |
+| Existing extra seats | `ADVICE_EXTRA_CLIS`, in configured order (unset by default); registration does not authorize a new reviewer |
 
-There is **no bundled runner**. This skill ships instructions only: the orchestrator launches each seat
-itself - directly, in parallel - under the bounded-attempt, independence and receipt rules below, and records the
-resolved command, model and credential-store label in that attempt's receipt. A seat whose command cannot be
-resolved that way, or whose route cannot produce a full receipt, is `UNAVAILABLE` rather than a vote. Keeping
-every alternative path in this instruction file is deliberate: the slimming decision for this skill is *markdown
-only, zero runner code*, so a machine-local capability must never require a Python change to this repository.
+These are capabilities, not required installed seats or a mandatory starting pair. Resolve eligible independent
+identities from the machine-local profile before selecting them.
 
-**Machine-specific configuration never lives in this repository.****Machine-specific configuration never lives in this repository.** A credential store directory, a
-profile directory, a per-host wrapper path, a host-specific model alias or an account identifier belongs in
-that machine's `~/.bashrc` as an exported `ADVICE_*` value, never in a skill file, a PR or a document. This
-file may name the shape of a runner (for example `claudewa`-style wrapper that selects another credential
-store and records its model) but never a concrete path, digest or profile of any machine.
+- **Configuration.** An `ADVICE_*` variable that is set but empty, unparseable, or names a missing or
+  non-executable program makes that seat `UNAVAILABLE`. It never falls back to the default, because the default
+  would run as another seat's identity. Machine-specific values (credential-store or profile directories, per-host
+  wrapper paths, model aliases, account identifiers) live only in that machine's `~/.bashrc` as exported `ADVICE_*`
+  values, never in this repository; this file may name a wrapper's shape (a `claudewa`-style wrapper that selects
+  another credential store) but never a concrete path, digest or profile.
+- **`ADVICE_EXTRA_CLIS`** registers more seats as `label=executable args`, separated by `|`, for example
+  `ADVICE_EXTRA_CLIS='gemini-cli=gemini --approval-mode yolo -p|local-qwen=qwen -p'`. Parse it with shell-style
+  quoting: `|` and the first `=` separate only outside quotes, then `shlex` the right-hand side into literal
+  arguments, with no shell evaluation, globbing, command substitution or `~` expansion. Each `{prompt}`, as a whole
+  token or inside one (`--print={prompt}`), is replaced by the request; with none, the request is appended as the
+  last argument. An empty label or command, a duplicate label, an unparseable entry or a missing program makes that
+  seat `UNAVAILABLE`.
+- **No runner.** This skill ships instructions only; the orchestrator launches each seat under §3. A capability it
+  cannot bound end to end or cannot produce a receipt for is `UNAVAILABLE`; do not add a runner, wrapper, watchdog or timer.
+- **Quota walls fail fast.** A usage limit, quota exhaustion, exhausted 429 retry, rate limit, expired plan or similar
+  account refusal makes the seat `UNAVAILABLE` with reason `quota` and the printed reset time. Do not wait, retry the
+  same account or switch models around it; a separate account remains eligible.
 
-A label is not an identity: two seats whose resolved command reaches the same account are one vote, and a seat
-whose model the CLI does not report is `UNAVAILABLE` rather than an unlabelled vote. A wrapper, alias, retry, or
-duplicate reviewer identity is not another vote. Codex models may be only
-`gpt-6-astra`, `gpt-6-luna`, `gpt-6-sol`, or `gpt-6.1-sol`; 5.6 and unknown IDs are not eligible. A wrapper
-such as `claudewa` counts only when it resolves to a distinct reviewer identity and the attempt records the
-actual model it ran. Each alternate needs a supported invocation the orchestrator can bound end to end - the orchestrator's own
-bounded tool call, which records the queue boundary, the absolute deadline, the exit and the cleanup, is that
-mechanism; a bare per-process timeout with no receipt is insufficient. If no eligible path can meet the full
-bound, record it as `UNAVAILABLE`. Do not add a particular runner, wrapper, watchdog, or runtime
-mechanism.
+### Outside-route authorization and transports
 
-### `ADVICE_EXTRA_CLIS`
+**Authorization is machine-local.** These routes send PR content off the machine, so this portable skill grants
+nothing by itself. A route is authorized only when `ADVICE_OUTSIDE_ROUTES` lists it (comma-separated `dot,hermes,web`)
+in that machine's `~/.bashrc`, or the current task explicitly authorizes it. That opt-in is the standing authorization
+required by pr-lifecycle's optional-`/wa` rule and `/hermes`'s disclosure rule. Unlisted routes are `UNAVAILABLE —
+disclosure not authorized`, as are routes restricted by the user, task or repository, or content holding secrets. (The
+repository owner opted in on 2026-11-04: "when all cli reviewers out of quota ... it should try to use /wa and ask
+hermes hermes pc and the dots in dot coordination for a review".)
 
-Registers additional reviewer CLIs without editing this file. Format: seats separated by `|`, each
-`<label>=<executable and literal arguments>`.
+Each Dot account gets its own §3 attempt, capped at the Dot route's absolute deadline: one budget B after its
+first send. No account is asked after that deadline; record a running one TIMED_OUT at it unless the user
+explicitly required waiting under §3. Rotate on unavailable or failed attempts while a Dot vote is still needed.
+After one eligible Dot vote, do not request another Dot to fill a second vote.
 
-```
-ADVICE_EXTRA_CLIS='gemini-cli=gemini --approval-mode yolo -p|local-qwen=qwen -p'
-```
+| Route | Transport and scope |
+|---|---|
+| Dot (tier 1) | Use the host-installed [dot](../dot/SKILL.md) skill and [dot-coordinator](../dot-coordinator/SKILL.md)'s configured account rotation, explicitly targeting `--account <name>` with `DOT_ROTATE_ON_LIMIT=0`; coordinator ask, `isolation: remote`, revision review only. |
+| Hermes or Hermes-PC (tier 2) | Use the host-installed /hermes Slack-only transport, coordinator ask and `isolation: remote`, revision review only. Resolve the configured eligible instance; another instance may replace a failed/unavailable one, not add a second Hermes vote. Use an available authorized machine-local `ADVICE_HERMES_CHANNEL` destination, otherwise the conversation /hermes resolves. |
+| Web (tier 3) | Use host-installed [web-advice](../web-advice/SKILL.md); `isolation: packet` for revisions, `none` for documents. Record the authenticated provider/account from the session as `attested.account`. |
 
-Rules:
-- Seat separation is honoured **outside quotes**: scan the value with shell-style quoting, treat `|` as a separator
-  only when it is not inside quotes, then for each seat take everything before the first unquoted `=` as the label
-  and `shlex` the remainder as the executable plus literal arguments. A quoted argument may therefore contain `|` or
-  `=` without breaking the parse.
-- No shell evaluation, glob expansion, command substitution or `~` expansion beyond what the process
-  environment already provides; quotes group one literal argument.
-- `{prompt}` may appear as a whole token or inside a token (for example `--print={prompt}`); each occurrence is
-  replaced by the request text, and only when no occurrence exists is the request appended as one final argument.
-- An entry with an empty label, an empty right-hand side, a duplicate label, an unparseable remainder, or a missing
-  or non-executable program makes **that seat `UNAVAILABLE`**. It never silently falls back to another seat and never
-  becomes a second vote from the same identity another seat already used.
+Missing transports are UNAVAILABLE with the exact blocker; never substitute a forbidden transport. A reply
+counts only with full-scope COVERAGE and the exact SHA-bound VERDICT read back at its source, not an
+acknowledgement, reaction or promise. Route availability does not override disclosure restrictions.
 
-**Ordered preference per vote slot.** This order decides *which* seat fills a slot, never *when* it is launched:
-§2 still requires launching the eligible candidates concurrently, and this list only resolves which candidate fills
-the slot when more than one could. Fill each required slot from this order and stop at the first seat that produces
-an eligible verdict: **Codex → Opus → Claude alternate → Cursor → AGY → `ADVICE_EXTRA_CLIS` in listed
-order.** An extra seat is reached only when every earlier candidate for that slot is `UNAVAILABLE` or its verdict is
-void; it never displaces a successful seat and never supplies the second vote for an identity another seat used.
+### Native static fallback
 
-The extra seats obey the same independence, deadline, evidence and receipt rules as the built-in ones, and the
-ordering above governs them. No seat is "the required Codex vote" or "the required Opus vote" by label: what a vote
-slot requires is one independent, eligible identity that covers the whole scope, so a quorum reached without a Claude
-or Codex seat is valid when the ordering genuinely exhausted those candidates.
+Static reviewers follow [static-review](../static-review/SKILL.md) for cold input, full coverage, identity, deadlines
+and receipts. Admit them in tier 2 with an eligible Hermes instance when needed; §2's aggregate caps still apply
+(static reviewers collectively at most one vote, Hermes instances collectively at most one), and each counted verdict
+covers the whole scope. Eligible CLI pairs, CLI plus static, or eligible outside combinations may supply the quorum.
+There is no generic remote minimum or remote-only prohibition; preserve any separately explicit outside-review
+obligation. Review votes never replace missing substantive evidence.
+
+### Identity
+
+- One account is one vote, whatever its label, wrapper, alias or retry; seats reaching the same account count once,
+  including an outside reviewer whose coder used the account that hit quota.
+- A CLI seat needs its actual model from reliable CLI/runtime metadata, or it is `UNAVAILABLE`. Outside routes record
+  exposed model/account fields as `attested.` values; never invent a hidden runtime SKU. A verified Dot account is its
+  own CLI/model identity under the one-Dot cap. Missing public fields do not invalidate a privately verified session;
+  an actually unverified account is unavailable. Keep its frozen expected binding, positive identity probe and source-
+  author independence proof. Codex models may be only `gpt-6-astra`, `gpt-6-luna`, `gpt-6-sol` or `gpt-6.1-sol`.
+- Neither the author nor the orchestrator awards itself a vote, and no verdict counts twice: a Dot account whose verdict fills the
+  pr-lifecycle `/dot` leg at this head is not also an `/advice` vote.
+- Run every seat with full permissions and record its actual command, model, account and transport.
+
+Record every unavailable or skipped reviewer as `UNAVAILABLE: <host> — <reviewer> — attempted|skipped — <time> —
+<reason>` and tell the user. A failure on one host (a cloud box) says nothing about the same CLI on another host (a
+Mac or Ubuntu machine); try or record each host separately. When the tiers cannot supply the required eligible votes within their counting caps, the result is
+`WITHHELD`, listing every `UNAVAILABLE` line and the earliest known quota reset.
 
 ## 3. Enforce the attempt deadline
 
-Each reviewer attempt has one default 1800-second (30-minute) end-to-end budget
-beginning when that request is queued or sent. Record the start time. An
-explicit user-specified limit governs that requested attempt, whether shorter or
-longer; otherwise the 30-minute default applies. A later specific user
-instruction to await a named reviewer overrides this deadline for that
-requested attempt, even without a numeric duration. Shared immutable packet
-preparation may precede the clock; review-specific setup, queueing, delivery,
-dispatch, review, output capture, receipt writing, and cleanup all consume the
-same budget. The deadline decides vote eligibility; it is not a hard real-time
-guarantee that the process returns within the budget. Bound supported
-subprocesses and waits by the remaining time. Filesystem cleanup and receipt
-writes may overrun if the operating system blocks; when they return, the orchestrator
-must record the overrun, report a nonzero attempt result, and invalidate every vote. A missing or
-unparseable receipt, or any nonzero seat result, makes the attempt unavailable.
-Routine status updates do not pause or reset the deadline. Apart from an
-explicit user-specified limit or the named-review wait instruction above, do
-not pause, reset, or extend it. Use existing CLI timeouts with native tool
-deadlines and cancellation. If the supported route cannot enforce the complete
-attempt and produce its receipt, mark it `UNAVAILABLE`; do not build timer
-machinery.
+- **Budget `B`.** Each attempt gets 1800 seconds end to end (static reviewers: 600 seconds, per static-review) unless
+  the user sets a limit. A specific user instruction to await a named reviewer overrides that attempt's deadline, even
+  without a duration, per pr-lifecycle § Reviewer timeout and completion; record the instruction and actual wait. A CLI
+  attempt already under native timeout cannot be lengthened: on expiry record `TIMED_OUT`, mark that route
+  `UNAVAILABLE`, and keep the gate open rather than counting late output. Never preempt a valid result, count late
+  output, claim a wait that did not happen, or issue a duplicate review. Status updates do not reset the clock.
+- **Clock.** Shared, immutable packet preparation may happen first. Immediately before dispatch, capture the queue
+  boundary on the host that launches the seat:
 
-The later named-review instruction remains controlling. The orchestrator computes one absolute deadline per
-attempt from its own queued monotonic timestamp and records that deadline in the seat's receipt (never in the prompt, which must
-stay byte-identical to preamble plus template); there is no
-interface for extending an already-running attempt. A result completed with verified cleanup before that deadline
-remains eligible. If a later user instruction would require waiting beyond it, the orchestrator cannot extend
-that attempt: on actual expiry record it `TIMED_OUT` and non-approving, record cleanup, mark the requested wait
-route `UNAVAILABLE`, and leave the applicable review gate open unless another already-supported route honours it.
-Do not preempt a valid within-deadline result, reinterpret the instruction as a shorter limit, count late output,
-claim a wait that did not happen, or issue a duplicate review.
+  ```bash
+  read -r QUEUED_AT_EPOCH_NS QUEUED_AT_MONOTONIC_NS <<< "$(
+    python3 -c 'import time; print(time.time_ns(), time.monotonic_ns())'
+  )"
+  ```
 
-Immediately before dispatch, once the shared review packet is ready, capture the queue boundary on the host that
-will launch the seat, and record both timestamps in that seat's receipt:
+  Monotonic values are host- and boot-local, so a CLI seat runs on that same host and the epoch value is audit-only.
+  Outside routes take both the send and the reply-observed times on the orchestrator's host; the remote side's
+  timestamps are `attested.` audit values. If the boundary cannot be captured, the seat is `UNAVAILABLE`.
+- **Bound.** Choose positive cleanup reserve `C` and wait grace `G` inside `B`, or the seat is `UNAVAILABLE`. Launch
+  with native timeout `B - C` from the queue boundary, reclaim cleanup inside `C`, and bound the wait by the same
+  deadline. For outside routes, `C` covers only readback and receipt writing. Record queue boundary, deadline and
+  actual exit in the receipt, never the prompt; the orchestrator's bounded tool call is the mechanism.
+- **Outcome.** Setup, delivery, review, capture, receipt writing and cleanup all count against `B`; the deadline
+  decides eligibility, not a real-time guarantee. Cleanup or receipt overrun makes the attempt nonzero and voids its
+  vote. A late, incomplete, failed or timed-out result is not approval: keep partial findings and cleanup status, then
+  use another eligible reviewer. Do not wait on unresolved cleanup, reuse an unresolved resource, or claim cleanup
+  without receipt evidence.
 
-```bash
-read -r QUEUED_AT_EPOCH_NS QUEUED_AT_MONOTONIC_NS <<< "$(
-  python3 -c 'import time; print(time.time_ns(), time.monotonic_ns())'
-)"
-```
+## 4. Review access modes and isolation
 
-Capture both values together on the caller host. The seat must run on that same host and boot, because monotonic
-timestamps are host-local; retain the UTC epoch only for audit, and never compare monotonic values across hosts. If
-the boundary cannot be captured, mark that attempt `UNAVAILABLE` instead of launching it.
+Select the cheapest complete access before dispatch. Read-only API or existing
+checkout access needs no donor, clone or export. Use a copy only when object
+access or mutation isolation requires it. Shared immutable preparation may
+precede the attempt; per-seat setup, capture, technical receipt and cleanup
+remain inside §3's bound. This table owns mode names, template fields and checks;
+static-review owns the actual templates and per-channel preambles.
 
-For every seat, derive the effective reviewer-attempt budget `B` (the user's explicit limit when supplied,
-otherwise 1800 seconds), a positive cleanup reserve `C`, and a positive timeout-grace `G`. **`C` and `G` must both
-fit inside `B`, otherwise the seat is `UNAVAILABLE`** - never launch an attempt whose setup and cleanup cannot fit
-its own budget. Launch the seat with a native timeout of `B - C` measured from the queue boundary, not from launch,
-so setup time is already spent; reclaim cleanup inside `C`; and bound the wait by the same absolute deadline, so
-`G` is the grace the wait itself may consume. Record the queue boundary, the absolute deadline and the actual exit
-in the receipt. No timer machinery
-is added to this repository; the orchestrator's own bounded tool call is the mechanism.
+| Mode | Access and template | Required receipt and checks | Fields |
+|---|---|---|---|
+| pin (internal) | Resolve review SHA and true comparison merge-base against the fetched target tip using an existing checkout/API. For clone seats only, prepare one standalone --no-local donor pinned at that SHA. Never send it as a seat cwd. | Original/donor references, immutable head/base and object inventory. For a donor, git-common-dir equals git-dir; remove it after all seat clones are gone. | none |
+| orchestrator-clone | Orchestrator clones donor into allocated Scratch and removes origin; shared revision template. | Before launch and after process exit: standalone Git, exact head, base ancestor, no remotes; original checkout/refs/config/hooks unchanged. Confirm no reviewer process remains, then remove this owned clone and record absence. | `<PR URL>` `<SHA>` `<BASE SHA>` `<SCRATCH PATH>` |
+| orchestrator-export | Orchestrator supplies a complete pinned export in Scratch, with full diff, base/head snapshots or absence, object inventory and hashes; shared revision template. | No .git or new repository. Verify all exported bytes and original checkout state before/after; confirm process completion, then remove this owned export. Missing required objects must be retrieved read-only at the pin or withheld. | `<PR URL>` `<SHA>` `<BASE SHA>` `<SCRATCH PATH>` |
+| read-only | GitHub/API or existing checkout; shared revision template. No new copy, fetch or branch switch. | Complete immutable objects/diff and requested SHA, API no-truncation/retrieval proof or existing-checkout before/after state. clone_path:none, clone_removed:n/a. A managed native completion replaces a CLI exit/process check only when there is no CLI process. | `<PR URL>` `<SHA>` `<BASE SHA>` |
+| remote (Dot/Hermes) | Configured coordinator ask; shared revision template. Existing checkout or pinned API access; only missing objects may be fetched, without changing branch refs/working tree. No new clone. | Requested SHA reachable at send and reply readback; verified route/account binding, message reference, exact-SHA verdict and complete coverage. Record exposed fields as attested, not invented. API-only access has no checkout path to attest; existing-path details may remain private. clone_path:remote, clone_removed:n/a. | `<PR URL>` `<SHA>` `<BASE SHA>` |
+| packet (web revision) | Orchestrator uploads the complete pinned diff, changed-path base/head content or verified absence, all special objects and relevant evidence; revision packet template. | Bundle/per-file hashes, actual attachment delivery, authenticated provider/account, full-file no-truncation and returned coverage/verdict at the SHA. Never substitute a summary, bare private URL or function-only excerpt for required full scope. clone_path:none, clone_removed:n/a. | `<PR URL>` `<SHA>` `<BASE SHA>` `<BUNDLE HASH>` |
+| none (saved material) | Named complete documents, or a fully revision-bound saved packet; saved-material template. Web gets actual uploads and the attached-files path, never a local private path. | Per-file and bundle hashes, complete scope, and revision metadata/diff/base/head objects when revision approval is requested. Without verified revision binding approve only named documents, never code/HEAD. Keep this packet as evidence; no clone or cleanup claim. Dot/Hermes cannot use an inaccessible local packet. | `<PACKET PATH>` `<BUNDLE HASH>` `<REVIEW TARGET>` |
 
-A late, incomplete, failed, or timed-out result is not an approval. Preserve
-partial output and findings, record cleanup status, and use another independent
-eligible reviewer when needed. Do not keep waiting for unresolved cleanup or
-reuse a resource whose prior process or cleanup state is unresolved; continue
-with another safe independent path when available. Never claim cleanup
-succeeded without receipt evidence.
+The orchestrator owns copies and verifies measurable cells; remote facts are
+`attested.` and never proof of an orchestrator-verified cell. Do not claim a
+copy or cleanup for a mode that created none. Compute base once; later clone
+checks test ancestor/head and never replace it with a moving branch tip. Source
+approval covers complete objects at both pins, including binary/mode/symlink/
+gitlink/LFS content. Verified identical spans may be reused; partial readers
+cannot be combined. Unpushed revisions need local access; remote routes need
+reachable objects.
 
-## 4. Review access modes
-
-Choose the least costly sufficient access mode. Read-only revision review is
-the default when GitHub/API or an existing checkout supplies the complete pinned
-diff, files and supporting evidence. A disk-admission failure for a new copy
-does not block this route. Create an isolated copy only when required for
-execution or unavailable context; the copy-specific rules below apply only
-when that mode is selected.
-
-The contract is one table. A receipt records exactly the row's `isolation:` value, and the review template's fields are
-derived from the same row, so the two skills cannot drift apart.
-
-| record | who creates a copy | what the receipt must prove | who verifies | cleanup | template fields |
-|---|---|---|---|---|---|
-| `pin` (internal; never sent to a seat, never a seat's working directory) | orchestrator: clone the original checkout into allocated scratch with `--no-local`, check out `<SHA>`, fetch the base-branch tip from the PR remote | `donor_path`; `review_sha` = donor `HEAD`; `base_sha` = `git merge-base <SHA> <fetched base tip>`; `--git-common-dir` = `--git-dir`; `donor_removed` = `test ! -e <donor path>` | orchestrator | orchestrator, after the last seat clone is gone | none |
-| `isolation: orchestrator-export` | orchestrator: `git -C <donor> archive --format=tar <SHA> \| tar -x -C <SCRATCH PATH>/tree` (with `set -o pipefail`), plus `base.diff` and `manifest.expected` written from the donor | `copy_mode` = `export`; `has_dot_git` = `false`; `manifest_match` per path against `ls-tree -r <SHA>` **at launch AND again after the seat process is gone**; `cwd: set`; then `copy_removed` = `test ! -e <SCRATCH PATH>` | orchestrator, every key except any `attested.` one | orchestrator, whatever the seat's outcome | `<PR URL>` `<SHA>` `<BASE SHA>` `<SCRATCH PATH>` |
-| `isolation: orchestrator-clone` (ESCALATION only) | orchestrator: shallow-clone the donor **at `<SHA>`** (`git clone --no-local --depth 1 --single-branch --no-checkout`, `fetch --depth 1 origin <SHA>`, `checkout --detach <SHA>`, bounded `fetch --deepen 2`), then `git remote remove origin` | `copy_mode` = `shallow-clone`; `has_dot_git` = `true`; `--git-common-dir` = `--git-dir`; `HEAD` = `review_sha`; `git merge-base --is-ancestor <BASE SHA> HEAD` exits 0 **after** deepening; `git remote` empty; no `objects/info/alternates`; then `clone_removed` = `test ! -e <SCRATCH PATH>` | orchestrator, every key except any `attested.` one | orchestrator, whatever the seat's outcome | `<PR URL>` `<SHA>` `<BASE SHA>` `<SCRATCH PATH>` |
-| `isolation: read-only` (DEFAULT) | nobody | pinned PR URL, base/head SHAs; complete diff and changed-file coverage; full content of changed paths at both revisions; source URLs/paths and hashes; unchanged checkout state if used; `clone_path: none`; `copy_removed: n/a` | orchestrator | no copy exists | `<PR URL>` `<SHA>` `<BASE SHA>` |
-| `isolation: none` | nobody | `packet_path`; per-file SHA-256; `bundle_sha256`; complete scope and revision binding when claimed; `clone_path: none`; `copy_removed: n/a` | orchestrator | nobody; packet retained as evidence | `<PACKET PATH>` `<BUNDLE HASH>` `<REVIEW TARGET>` |
-
-**Complete revision coverage applies to every revision-bound access mode.** Each reviewer reads
-the complete exact base-to-head diff and the full content of every changed path
-at both revisions (or verifies its absence on one side). If any required
-base/head object or content cannot be retrieved, mark coverage incomplete and
-return `WITHHELD`; do not use `N/A` or infer missing content. Use another access
-mode if it can supply the missing object or payload. Bundle-only saved-content
-reviews cover every complete declared file and evidence item; they do not require
-unrepresented base/head revisions or a diff.
-
-- **Diff plus a file list is not full coverage by itself.** Account for deleted and base-only files, renames,
-  binary content, file modes, symlink targets, submodules and LFS in both revisions.
-- **LFS and submodules must be detected and verified on both sides of the diff, or the vote is withheld.** A
-  per-path blob hash matches an LFS pointer file, so hash equality can pass while the reviewer never sees the
-  asset it stands for. Detect LFS pointers and submodule gitlinks in the pinned head and base trees. An asset
-  changed or deleted between base and head may leave only its pointer or gitlink in a text diff. Supply and
-  verify the actual payload/target content for every affected path; withhold if any required content is missing.
-
-The following copy safeguards apply only to clone/export modes. Read-only and saved-content modes use their own
-receipt checks above.
-
-- **Prefer the cheapest copy that is still structurally isolated.** A full clone costs gigabytes *per seat* to
-  read one SHA - measured on `worldarchitect.ai`: **6,214 MB** of `.git` for 14,241 commits, versus **209 MB** for
-  `--depth 1` and **324 MB** for a `git archive` export at the same SHA. Two seats therefore burned ~12 GB per
-  review, and concurrent reviews filled a 200 GiB Scratch volume to 100% (`advice-*` workspaces held 48.7 GB; one
-  held 13 reviewer clones at 22.0 GB for **18 MB** of review output). Depth is irrelevant to *content* coverage - a seat pins one SHA and reads the whole tree there - though not to
-  history-dependent questions such as blame, rename detection or base context, which is exactly why Tier 1 exists.
-  - **Tier 0 (default when an isolated copy is required) - archive export.** No `.git` at all, so a seat cannot write to the donor's git state because
-    there is no git metadata to write to. `git archive` honours `export-ignore` and `export-subst`, so fidelity is
-    **asserted, not assumed**: compare the export against the `ls-tree -r <SHA>` manifest *per path* - entry type,
-    executable bit, content hash - never by file count, which cannot detect one omitted file plus one added file, a
-    changed byte, or a lost `100755` bit. Verified on this repository: exec mode is preserved, `export-subst`
-    rewrites content, and an escaping symlink (`ln -s ../escape`) survives into the export - reject absolute targets
-    and any target escaping the export root before dispatch. Use `set -o pipefail`: a successful `tar` must never
-    mask a failed `git archive`.
-  - **Tier 1 (escalation) - shallow clone**, only when a seat declares it needs live `git` for blame, rename
-    detection or history. `--depth 1` alone **fails** the `merge-base --is-ancestor` check above; `--deepen 2` is the
-    measured fix but a floor, not a proof, so deepen under a bounded policy and **withhold the vote** if ancestry or
-    required objects cannot be proven. A missing object or shallow-boundary error must never become "not ancestor",
-    `N/A`, or a pass.
-  - **Forbidden per seat:** a full-history clone of the donor for a seat's own copy (no review benefit; the
-  orchestrator's internal donor copy in the `pin` row is separate and unaffected by this ban) and
-  `git worktree add`. A worktree's `.git` is a pointer into the
-    donor, so `objects` **and** `config` are shared: a seat running `git config` inside a worktree writes straight
-    into the real repository's `.git/config` (verified by injection). A worktree is a convenience, not an isolation
-    boundary.
-  - **`base.diff` must be bound, not merely present.** Write it for the exact pinned range
-  `git diff <BASE SHA>..<SHA>`, record that range and a SHA256 of the diff in the receipt, and validate it before
-  the vote counts; a wrong-range, truncated or regenerated diff cannot support full coverage.
-- **The receipt digest is what lives outside the seat's writable area; `base.diff` itself is readable by the seat.**
-  A seat can edit its own export and can read - but must not trust - `<SCRATCH PATH>/base.diff`. The launch
-  manifest, the post-exit revalidation and the `base.diff` digest are written to the orchestrator's receipt, which lies
-  outside the seat's *instructed* workspace (an instruction, not an OS sandbox). Post-exit revalidation detects a *lasting* alteration of the export; it does not detect an
-  edit the seat restores before exiting. A seat that alters its export, or a missing post-exit revalidation, voids
-  the vote; a verdict that depends on bytes the seat itself modified is not evidence.
-- **Every seat must have seen the actual code.** A seat that could not fetch the change - including a
-  browser/ChatGPT seat handed a summary instead of a fetchable pointer - has not reviewed it. Give every seat
-  something it can open: a PR URL, a `base...head` ref, or the complete bytes at full length. When a seat reports it
-  could not read the subject (NOT_FOUND, BLOCKED, "reviewed your summary"), record `REVIEWED: none` and `WITHHELD`
-  for that seat; it does not count toward the two-reviewer quorum and its comments are advisory only. Never let a
-  seat that did not see the code be the reason a gate closed.
-- **Seats never clone, never delete and never attest.** The orchestrator creates every copy, verifies every key it can
-  measure, and removes every copy after the seat process is confirmed gone - approval, crash, timeout or missing
-  receipt alike. A failed check or a failed removal voids that vote.
-- **Clone ancestry.** `<BASE SHA>` is computed once, in the `pin` row. A clone must pass
-  `git merge-base --is-ancestor <BASE SHA> HEAD`; nothing recomputes it or compares branch tips. An export has no
-  Git metadata; its base range is verified by the pinned `base.diff` digest and export manifest above.
-- **No seat receives a remote URL.** The PR remote is used only by the orchestrator, in the `pin` row, to fetch the base
-  tip. A seat is told to stay in `<SCRATCH PATH>`, add no remote and create no other copy; that is an instruction, not a
-  sandbox (see the copy-isolation caveat below), so the orchestrator's post-return checks are what actually detect a
-  clone whose `HEAD` or remote changed, and a mismatch voids the vote.
-- **Self-attested evidence.** Any receipt key the orchestrator did not measure is written `attested.<key>`, and an
-  `attested.` key never satisfies a cell whose verifier is the orchestrator.
-- **Unpushed SHAs require a local access mode.** An existing checkout, a saved-content packet, or a
-  donor-backed copy can supply the unpushed commit's objects; read-only GitHub/API access requires remotely retrievable objects.
-  If the chosen route cannot retrieve a required base/head object, use another access mode or withhold the vote.
-- **Remote read-only access.** A route without a local path may use `read-only`
-  if it can retrieve the complete pinned diff, files and evidence. If it cannot
-  read that scope, withhold its vote; a summary alone is insufficient.
-- **Host guards.** Clones live only in an allocated scratch directory, never `/tmp`, because the scratch-routing guard
-  refuses `/tmp` workspaces; deletion always names the literal absolute path, never a computed `rm -rf "$VAR"`, because
-  the destructive-path guard refuses that form.
-
-**Saved-content mode.** No donor and no clone: supply the complete declared
-files and evidence as saved bytes with per-file and bundle SHA256 hashes. For a
-revision-bound packet, also supply the exact base-to-head diff and required
-content from both revisions. Set `<REVIEW TARGET>` per §1. A complete unbound
-packet can approve only its named bundle; it does not need a fictional
-base/head binding. An incomplete packet or one missing required declared
-content is `WITHHELD`, including for its bundle. Never use an abbreviated or
-mutable `HEAD` label.
-Record `none` for the clone path and `n/a` for copy cleanup. Never claim a copy
-was created or cleaned up. Unrelated code stays outside the declared scope.
-
-Copy isolation protects Git
-metadata and review state, not the host: it is not an OS sandbox and does not
-restrict network, environment, or process creation. Full-permission execution
-preserves the requested reviewer transport; it does not authorize unrelated
-destructive actions, credential changes, or publication. Before and after each
-attempt, use the available receipt or read-only checks to verify the original
-checkout, refs, local config, and hooks are unchanged; any detected mutation
-invalidates that vote.
+Reviewers remain read-only; full permissions do not authorize repairs, external
+writes, credential changes or unrelated destructive actions. Original state must
+remain unchanged. Failed copy checks or unresolved cleanup make an attempt
+non-countable, while findings are retained. Copies live in configured Scratch,
+never a code/home tree or new `/tmp` clone; remove only exact owned copies after
+process exit, preserving source and private receipts. Technical receipt and
+cleanup complete within the attempt budget; later publication is separate and
+retains the original clocks.
 
 ## 5. Reconcile and report
 
-Require each counted reviewer to return a nonempty `VERDICT:` and explicit
-full-scope `COVERAGE`. Reconcile disagreements within the declared scope; do
-not ask the user to choose between reviewer axes. A substantiated P0
-objection means `NOT APPROVED`, including a P0 objection from a reviewer with
-partial coverage. P1/P2 findings are nonblocking and retained as follow-ups;
-partial coverage never supplies an approval. Use
-`WITHHELD` when two independent full-coverage approvals, from eligible CLI
-reviewers or per the static-review fallback, are unavailable. Copy cleanup is not applicable when no copy was created. API-only reviews record
-checkout mutation checks as not used. A vote also
-requires receipt evidence of zero exit, no original checkout mutation when a
-checkout was used, no
-surviving reviewer process, and no cleanup failure; a static-review receipt
-replaces only the seat-exit field. For every launched seat, also require a zero
-result, a present and parseable receipt, and a nonempty VERDICT line. Ignore the entire receipt when the seat
-returns nonzero; a failed late-receipt rewrite can leave an older success-looking receipt. If clone setup times out,
-directory-removal evidence does not prove setup descendants exited; record that
-uncertainty and do not count the attempt.
+**Counting a vote.** A counted reviewer returns full-scope `COVERAGE:` and a nonempty `VERDICT:`. Its receipt shows
+a zero exit, a present and parseable receipt, no mutation of the original checkout, no surviving reviewer process,
+and no cleanup failure. A static-review receipt replaces only the exit field; an outside-route receipt (`remote` or
+`packet`) replaces the exit, process and cleanup fields with that row's evidence. When a seat returns nonzero, ignore its
+whole receipt, since a failed late rewrite can leave an older success-looking one. If clone setup timed out,
+directory removal does not prove its descendants exited: record that and do not count the attempt.
 
-Report the exact reviewed SHA for revision-bound review or
-`DOCUMENTS sha256:<bundle hash>` for bundle-only review, with verdict, coverage,
-concise reasoning, risk, and findings. Incomplete or missing-content packets
-are `WITHHELD`. Require
-`COVERAGE: <files/diff scope actually read>`. End with
-exactly one SHA-bound line: `VERDICT: APPROVED at <SHA>`,
-`VERDICT: NOT APPROVED at <SHA>`, or `VERDICT: WITHHELD at <SHA> — <reason>`.
-For unbound saved material, use `DOCUMENTS sha256:<bundle hash>` in place of
-`<SHA>`. For a verified revision-bound packet, use the exact reviewed SHA, never
-a mutable `HEAD` label. Preserve a receipt for every attempt: reviewer
-identity, actual CLI, account and model, start/completion times, exit or timeout
-status, exact prompt sent (any deviation voids the vote, per static-review),
-complete output, coverage, and cleanup result.
-Preserve the original reviewers and reviewed SHAs.
-Before applicability, inspect the complete actual delta, claims, evidence and phase.
-Applicability is not a new independent vote.
-Material uncovered changes require affected independent review.
-Classify instruction changes by behavior and contract effect, never by directory or
-path alone. Do not claim approval,
-applicability, or publication without its supporting receipt.
+**Verdict.** Reconcile disagreements within the declared scope yourself; do not ask the user to pick between
+reviewers. A competent blocking objection, even from a partial-coverage reviewer, means `NOT APPROVED`; partial
+coverage never supplies an approval. Without the required independent full-coverage approvals under §2's tier caps, the result is
+`WITHHELD`.
+
+**Report.** Give the full 40-hex reviewed SHA for revision-bound review or `DOCUMENTS sha256:<bundle hash>` for a
+complete bundle-only review; never use an abbreviated SHA or mutable `HEAD`. Each reviewer's verdict,
+coverage, reasoning, risk and findings, the question's answer, and every `UNAVAILABLE` line. Keep a receipt per
+attempt: identity, actual CLI, account and model, start and completion times, exit or timeout, the exact prompt
+(any deviation voids the vote, per static-review), complete output, coverage and cleanup result. End with exactly
+one line: `VERDICT: APPROVED at `<SHA>``, `VERDICT: NOT APPROVED at `<SHA>``, or `VERDICT: WITHHELD at `<SHA>` — <reason>`;
+for bundle-only saved-content review, `DOCUMENTS sha256:<bundle hash>` takes the place of ``<SHA>``.
+
+**Applicability.** Keep the original reviewers and reviewed SHAs. Before relying on them at a later head, inspect
+the complete delta, claims, evidence and phase; applicability is not a new vote, and material uncovered changes
+need affected independent review. Classify instruction changes by behaviour and contract effect, never by path.
+Never claim approval, applicability or publication without its receipt.

@@ -1,176 +1,218 @@
 ---
 name: static-review
-description: Use when dispatching any independent reviewer (CLI, coordinator ask or static-review subagent); owns the cold start, the verbatim prompt templates, per-channel preambles, receipts and identity rules.
+description: Use for independent code, advice or static revision review; owns cold prompts, complete source coverage, access-mode preambles and receipts. Evidence-only review follows evidence-review.
 ---
 
-# /static-review — cold, verbatim reviewer input
+# /static-review — cold, complete-source review
 
-This skill owns what every reviewer receives and what its receipt proves.
-“Static” means the reviewer prompt is fixed, not that approval is restricted.
-Static reviewers may approve code, a PR, an exact head SHA, or saved material
-when they independently review the complete declared scope and required evidence.
-Read-only review through GitHub/API or an existing checkout needs no new clone,
-export, or Scratch workspace. Approval remains bound to the reviewed scope;
-reviewer approval is not permission to merge.
-The `advice` skill owns when reviewers run, the quorum and the
-substitution rules; pr-lifecycle owns publication.
+This skill owns reviewer input and coverage. [advice](../advice/SKILL.md) owns
+selection, quorum, identity deduplication, deadlines and the access-mode table;
+pr-lifecycle owns applicability and publication.
 
-## 1. Cold start
+## Scope
 
-A static reviewer starts cold and blank, like a fresh terminal: no parent
-context, summary or framing of the change. Every reviewer's entire input,
-whether a CLI reviewer, the coordinator ask or a static-review subagent, is
-one fixed channel preamble below followed by one template below. Fill exactly the fields that the `advice` skill's §4
-table lists for the seat's `isolation:` record - `<PR URL>` `<SHA>` `<BASE SHA>` `<SCRATCH PATH>` for
-`isolation: orchestrator-clone`, `<PR URL>` `<SHA>` `<BASE SHA>` `<SCRATCH PATH>` for
-`isolation: orchestrator-export`, `<PR URL>` `<SHA>` `<BASE SHA>` for `isolation: read-only`,
-`<PACKET PATH>` `<BUNDLE HASH>` `<REVIEW TARGET>` for `isolation: none` - and use that record's
-preamble **and** template. The orchestrator writes nothing else.
+Evidence-only /er follows [evidence-review](../evidence-review/SKILL.md) and
+[evidence-standards](../evidence-standards/SKILL.md). Derive its claim map from
+the complete diff and inspect claim-relevant source and artifacts. Do not impose
+this full-code contract on evidence-only work or count an evidence verdict as a
+source/advice vote. Separately requested source correctness uses this contract.
 
-The export record uses the **shared revision template** in §2 unchanged (it names `<PR URL>`, `<SHA>` and
-`<BASE SHA>`, all of which the export supplies); only the preamble differs. Choose exactly one preamble per
-seat - the revision preamble for `orchestrator-clone`, the export preamble for `orchestrator-export`,
-the read-only preamble for `read-only`, or the saved-content preamble for `none`.
-Preambles are alternatives, never concatenated.
+Each source approver reads the complete pinned diff and every changed path at
+both revisions, or verifies absence. Include binary, mode, symlink, submodule
+and LFS payloads. Verify unchanged spans before reusing a fully read version;
+changed hunks with small context do not establish full-file coverage. Missing
+or truncated required content means WITHHELD. Never combine partial reviewers
+into one complete vote.
+
+## 1. Cold input and access mode
+
+Start a fresh reviewer context without parent history, findings, question,
+summary or framing. The orchestrator keeps the user's question and answers it
+from the findings. Send exactly one channel preamble below plus one filled
+template. Fill only fields declared by advice §4 for that access mode.
+
+Prefer read-only GitHub/API or an existing checkout when it supplies complete
+pinned objects. Use an export, saved revision packet or isolated clone when
+needed for complete access or isolation; a review does not require a new copy
+merely because it is independent. Advice §4 is the sole mode/field table.
+
+A revision verdict binds the verified head, comparison base and declared scope.
+A document verdict binds only the named documents and bundle hash. A hash
+establishes integrity, not immutable storage or correct contents.
+An independent source/document verdict does not wait for prior approval or a
+completed review; report readiness, quorum and evidence gaps separately.
 
 ## 2. Templates
 
-Static review prompt (skill-owned, verbatim):
+Shared revision template for clone, export, read-only and remote modes:
 
 ```text
-Review <PR URL> at head <SHA> (base <BASE SHA>). Ensure it follows the /prw stages and focus on
-evidence review before approval. Read the complete base-to-head diff and full
-content of every changed path at both revisions (or verify its absence on one
-side), including binary, mode,
-symlink, submodule and LFS content. If any required object or payload cannot be
-retrieved, report incomplete COVERAGE and withhold. Report P0/P1/P2 with
-file:line and a COVERAGE: line naming the files and diff you read; approve only
-with no P0 and full coverage; report P1/P2 as nonblocking findings; end with exactly one line:
+Review <PR URL> at head <SHA> (base <BASE SHA>). Assess the changed claims under
+the /prw stages; prior approval or a completed review is not a prerequisite. Read
+the complete base-to-head diff and full
+content of every changed path at both revisions, or verify its absence, including
+binary, mode, symlink, submodule and LFS payloads. If required content cannot be
+retrieved completely, report incomplete COVERAGE and withhold.
+Report P0/P1/P2 with file:line and MODEL: for the reviewer's actual
+runtime/model when exposed, or `unreported` when hidden. Never name the
+reviewed system or scope as the model. Add COVERAGE: naming all files and the diff read. Approve source only with
+no P0 and full coverage; P1/P2 are nonblocking. Report separate readiness/evidence
+gaps without presenting this source vote as quorum or merge authority. End with exactly one line:
 VERDICT: APPROVED|NOT APPROVED|WITHHELD at <SHA> (WITHHELD with a reason).
 ```
 
-Saved-content review prompt (skill-owned, verbatim):
+Revision packet template for web-provider seats:
+
+```text
+Review the attached change packet for <PR URL> at head <SHA> (base <BASE SHA>),
+bundle sha256:<BUNDLE HASH>. Read its complete diff and full changed-path content
+at both revisions, or verified absence, including special-object payloads.
+Assess the changed claims under /prw; prior approval or a completed review is not
+a prerequisite.
+If required content is missing, truncated or unreadable, report incomplete
+COVERAGE and withhold. Report P0/P1/P2 with file:line and MODEL: for the reviewer's actual
+runtime/model when exposed, or `unreported` when hidden. Never name the
+reviewed system or scope as the model. Add COVERAGE: naming every file and diff actually read. Approve source only with
+no P0 and full coverage; P1/P2 are nonblocking. Keep readiness, quorum and merge
+authority separate. End with exactly one line:
+VERDICT: APPROVED|NOT APPROVED|WITHHELD at <SHA> (WITHHELD with a reason).
+```
+
+Saved-material template for named documents or a revision-bound packet:
 
 ```text
 Review the saved material in <PACKET PATH>, bundle sha256:<BUNDLE HASH>,
-for <REVIEW TARGET>. Read all complete declared files and evidence. If the
+for <REVIEW TARGET>. Use the full 40-hex head SHA only when the PR URL,
+base/head SHAs and complete revision-bound coverage are verified. A complete
+unbound packet uses exactly `DOCUMENTS sha256:<BUNDLE HASH>` and approves only
+its declared bundle. Incomplete claimed revision binding means WITHHELD; never
+use an abbreviated SHA or mutable HEAD. Read only the complete declared files and evidence; prior
+approval or a completed review is not a prerequisite. If the
 packet claims revision binding, also read its complete base-to-head diff and
-changed-path content at both revisions. If any declared or required content is
-missing, report incomplete COVERAGE and withhold.
-Report P0/P1/P2 with file:line and a COVERAGE: line naming the files and diff
-you read; approve only with no P0 and full coverage; report P1/P2 as nonblocking
-findings. Bind revision approval
-to the packet's verified PR URL, base and head; otherwise approve only the
-named bundle. If any required file, object or payload is missing, report
-incomplete COVERAGE and withhold. End with exactly one line:
+changed-path content at both revisions, including special objects or verified
+absence. Missing or truncated required content means incomplete COVERAGE and
+WITHHELD. Report P0/P1/P2 with file:line and MODEL: for the reviewer's actual
+runtime/model when exposed, or `unreported` when hidden. Never name the reviewed
+system or scope as the model. Add COVERAGE: naming the files and diff actually read.
+Approve only with no P0 and full coverage;
+P1/P2 are nonblocking. Bind revision approval only to verified revision metadata;
+otherwise approve only the named documents, never code or HEAD. End with exactly one line:
 VERDICT: APPROVED|NOT APPROVED|WITHHELD at <REVIEW TARGET> (WITHHELD with a reason).
 ```
 
 ## 3. Channel preambles
 
-Each channel's preamble is the exact-SHA or saved-content header the orchestrator adds when it launches that
-seat, and the packet must contain exactly the filled template. The orchestrator records the exact prompt in
-`receipt.json` as `prompt` and `prompt_sha256`. For CLI
-alternates, each `<review request>`, and the stdin of forms without one, is
-exactly the preamble plus the template.
+Every CLI and native static seat receives its access-mode preamble followed by
+the selected template. Record the complete actual prompt and SHA256 privately.
 
-Coordinator ask (for example a Dot reviewer channel): the configured account
-mentions, then `Advice vote requested.` on its own line, then the template.
-Send it to each configured coordinator account in rotation.
-
-The clone, export, read-only and saved-content preambles below apply to **every** CLI reviewer seat - Codex, Opus, the Claude
-alternates, Cursor, AGY and any `ADVICE_EXTRA_CLIS` seat - and to static reviewers. They replace the header the
-deleted helper used to inject; there is no other header to match, so a seat launched without one
-cannot produce a byte-identical prompt and its vote is void.
-
-Revision preamble for every CLI seat and for static reviewers (verbatim):
+Clone preamble:
 
 ```text
-Work only in the isolated clone at <SCRATCH PATH>; if your working
-directory was set to it, stay there. Do not clone, fetch, check out another
-commit, add a remote, or create any other copy - these are instructions, and the
-orchestrator's post-return checks are what detect a clone whose HEAD or remote
-changed. Never work in the original checkout or in a donor repository. Leave the
-clone in place - the orchestrator verifies it and removes it after your process
-exits. Use the GitHub token already present in your environment and
-never print it. Do not modify the original checkout, refs, config or hooks. Do
-not post anything; return your review as your final output.
+Work only in the isolated clone at <SCRATCH PATH>. Do not clone, fetch, check out
+another commit, add a remote or make another copy. Never work in the original
+checkout or donor. Leave this clone for the orchestrator's post-return checks
+and cleanup. Remain read-only: do not modify source, evidence, refs, config or
+hooks, and do not post, push or change PR metadata. Never print credentials.
+Return your independent review as final output.
 ```
 
-Export preamble for every CLI seat and for static reviewers (verbatim):
+Export preamble:
 
 ```text
-Work only in the exported tree at <SCRATCH PATH>; if your working
-directory was set to it, stay there. The export contains no .git: it is a
-snapshot of <SHA>, not a repository, so there is no history, no remote and
-nothing to commit. Do not clone, fetch, add a remote, or create any other copy,
-and do not run git commands that expect a repository. Your coverage depends on
-reading both the tree and the change: read <SCRATCH PATH>/base.diff, the complete
-`git diff <BASE SHA>..<SHA>` of the pinned change, and state in your COVERAGE line
-that you read it. Retrieve any required base-side files, binary/LFS payloads or
-submodule content missing from the export through read-only GitHub/API access at
-the pinned revisions. A review that covers only the head snapshot is incomplete;
-withhold if any required content cannot be retrieved. Never work in the original checkout or in a donor repository.
-Leave the export in place - the orchestrator verifies it against the pinned tree
-after your process exits and removes it afterwards. Use the GitHub token already
-present in your environment and never print it. Do not modify any checkout, refs,
-config or hooks. Do not post anything; return your review as your final output.
+Work only in the exported tree at <SCRATCH PATH>. It has no .git. Read base.diff,
+the complete pinned diff, and its full base/head snapshots and object manifest.
+Do not clone, fetch, create a repository or make another copy. Obtain any missing
+required objects only through read-only pinned GitHub/API access, or withhold.
+Do not modify source, evidence, checkouts, refs, config or hooks; do not post,
+push or change PR metadata. Never print credentials. Leave the export for the
+orchestrator's verification and cleanup. Return your independent review.
 ```
 
-Read-only revision preamble for every CLI seat and for static reviewers (verbatim):
+Read-only preamble:
 
 ```text
-Review read-only through GitHub/API or an existing checkout. Read the complete
-pinned base-to-head diff, changed files and relevant supporting evidence.
-Resolve mutable PR references to the requested SHA before reviewing; do not
-substitute a later head or a truncated diff. No clone or export is required.
-Do not modify any checkout, refs, config or hooks. Do not post anything;
-return your review as your final output. Never print credentials.
+Review read-only through GitHub/API or an existing checkout. Resolve mutable PR
+references to the requested SHA and retrieve complete pinned source and evidence.
+Do not clone, export, fetch, switch branches or modify any checkout, refs, config
+or hooks. Do not post, push or change PR metadata. Never print credentials.
+Return your independent review as final output.
 ```
 
-Saved-content preamble for every CLI seat and for static reviewers (verbatim):
+Saved-material preamble:
 
 ```text
-Read only the named saved files and evidence in the given packet, checking each
-against its recorded SHA256 and any declared revision binding. Do not modify any checkout, refs,
-config or hooks. Do not post anything; return your review as your final output.
+Read only the named saved files and evidence in the packet, checking their
+recorded hashes and revision binding. Adjacent runtime, attempt or sibling-review
+logs/files are out of scope unless explicitly named. Do not modify source, evidence, checkouts,
+refs, config or hooks; do not post, push or change PR metadata. Never print
+credentials. Return your independent review as final output.
 ```
 
-## 4. Identity
+Coordinator asks to Dot or Hermes use: the sender line required by the transport
+owner, configured mentions, `Advice vote requested.`, then the remote preamble
+and shared revision template. Record sender/mentions in the receipt. This is a
+vote request, not a new task handoff: the PR URL and SHA already bind it.
 
-Each static reviewer is a distinct reviewer identity and reports its actual
-model. Two reviewers whose models are both unreported, or where either model is
-unreported and type or harness match, are not distinct and count as one vote;
-at most one counted static reviewer may have an unreported model, and it must
-differ from the other by subagent type and harness. Same-identity reviewers are
-one vote. Static
-reviewers run in separate contexts and do not read each other's output first.
-Each has one 600-second end-to-end acceptance deadline from launch; the
-orchestrator, not the reviewer, timestamps launch and return. Reviewers do not
-post; the orchestrator publishes verdicts through pr-lifecycle.
+Remote preamble:
 
-## 5. Receipt
+```text
+Review only. Use pinned GitHub/API objects or a checkout you already have; do not
+make a new clone or switch branches. Fetch only missing immutable objects when
+necessary, without changing branch refs or working-tree contents. Do not
+implement fixes, mutate evidence/config/hooks, post, push, change PR metadata
+or delegate the review to another account. Return findings in this conversation.
+```
 
-Every reviewer receipt records the reviewer identity (type, harness and model),
-the exact SHA or bundle hash, orchestrator launch and return times, the exact
-prompt sent, a `COVERAGE:` statement, the `VERDICT:` line, the actual clone path whenever one exists, or the export path for orchestrator-export
-whenever one exists (read-only and saved-content review need no copy, so record `none`
-there). Record full diff/file coverage, source URLs or paths, hashes and any PR/base/head
-binding. Check checkout, refs, local config and hooks when a checkout was used;
-record `not used` for an API-only review instead of inventing a filesystem check.
-The orchestrator also verifies and
-records that no reviewer process survives and that copy cleanup succeeded (clone or
-export removal, per the seat's `isolation:` record); copy cleanup is `n/a` when
-no copy was created, never an allocation requirement. For
-a static-review subagent this receipt replaces only the seat-exit field of the
-seat receipt. When publishing a receipt outside the authorized
-workspace, publish only the prompt's SHA256 and template name if any filled
-field (PR URL, packet path) or other content could carry private paths, hosts,
-repository names or tokens; otherwise remove those values before publishing.
-Keeping the template name plus filled fields is not redaction.
+Web seats use the web preamble followed by the revision packet template, or by
+the saved-material preamble and template for documents. Upload complete files;
+never send a private local path as a provider field. For web documents,
+`<PACKET PATH>` is `the attached files`.
 
-## 6. Deviation voids the vote
+```text
+[web advice] Advice vote at <SUBJECT>
+Title this conversation "[web advice] Advice vote at <SUBJECT>".
+Advice vote requested.
+```
 
-Check the recorded prompt byte for byte against the channel preamble plus the
-filled template. Any deviation, including added context, summary or framing,
-voids that vote.
+Set `<SUBJECT>` to the revision SHA or `DOCUMENTS sha256:<BUNDLE HASH>`.
+
+## 4. Identity and deadlines
+
+Advice owns required count and reviewer-class caps. Native static subagents
+collectively supply at most one advice vote, even when their models differ.
+Identity eligibility never creates an extra vote or combines partial coverage.
+
+Report the actual model from reliable runtime metadata when exposed. A CLI seat
+without a verified actual model is unavailable. Outside interfaces may leave the
+underlying runtime model unreported; never invent a SKU. The orchestrator still
+verifies the configured account/session and independence privately. Missing
+public fields are not evidence of an unverified account. Dot is its own
+CLI/model identity under the at-most-one-Dot cap; aliases of one account remain
+one account. Static identity is its type, harness and actual model; preserve
+any stronger user/repository requirement.
+
+Static attempts have a 600-second end-to-end deadline; other advice attempts
+use advice §3. The orchestrator records queue/return and cleanup, not the model.
+Reuse completed coverage only under pr-lifecycle's claim/delta/phase rule;
+reaffirmation is not another vote. Preserve WITHHELD, failed and partial
+attempts rather than relabeling them.
+
+## 5. Receipt and publication
+
+Keep the exact prompt/hash, scope and revision/bundle, actual identity,
+queue/return, native exit/completion, coverage, verdict and the advice §4
+mode-specific checks. A managed native completion replaces a CLI exit; never
+demand a clone path or process cleanup for a mode that created neither.
+Original checkouts, refs, local config and hooks must remain unchanged.
+
+Capture the private technical receipt and required cleanup within the attempt
+deadline. Later sanitized publication is a separate lifecycle step, preserving
+original times and hashes. Publish final review and technical receipts; exclude
+private reasoning, secrets and credentials. If a filled prompt contains private
+paths/hosts, publish only its hash and template name outside the authorized
+workspace; retain the exact original privately.
+
+Check actual input byte-for-byte against the selected preamble and filled
+template. Added code framing or summaries invalidate the cold vote. Evidence-only
+/er retains its own claim/artifact dispatch contract and never supplies an
+unseen-code approval.

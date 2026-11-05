@@ -47,8 +47,9 @@ Start with [PR Workflow Manager](.claude/skills/pr-workflow-manager/SKILL.md)
 when opening or driving a PR. It discovers repository-specific instructions,
 verifies source ownership and the branch, and uses
 [PR Lifecycle](.claude/skills/pr-lifecycle/SKILL.md) as the shared contract rather
-than duplicating its rules. The existing
-[`pr-workflow` alias](.claude/skills/pr-workflow/SKILL.md) points to this entry point.
+than duplicating its rules. The [`prw`](.claude/skills/prw/SKILL.md) and
+[`pr-workflow`](.claude/skills/pr-workflow/SKILL.md) aliases read PR Lifecycle
+first and name this entry point for discovery.
 
 The manager links useful highlighted skills to the problems they help solve;
 they are not an extra mandatory checklist. Install the PR workflow together
@@ -72,17 +73,17 @@ command aliases for the named skills (with any helper file they run; an alias
 is a command named after the skill, described as an alias, or at most 15
 lines long), and the
 agents and scripts those files use. Every profile installs its named set plus
-linked dependencies; the counts below were measured from a scratch install.
+linked dependencies.
 Named profiles select other sets:
 
-| Flag | Named set (plus linked dependencies) | Measured skills / commands / agents |
-|---|---|---|
-| *(none)* or `--profile highlights` | `highlights`: the six highlighted skills above (6 named) | 21 / 11 / 1 |
-| `--profile highlights-prw` | `highlights` plus `prw` | 31 / 18 / 1 |
-| `--profile prw` | the PR workflow set: `prw`, `pr-workflow`, `pr-workflow-manager`, `draft-first-pr`, `pr-lifecycle`, `pr-green-definition`, `ready`, `advice`, `evidence-standards`, `evidence-review`, `testing-layers`, `code-standards` (12 named), and `/es`, `/er`, `/green`, `/cs` | 25 / 11 / 1 |
-| `--profile web` | opt-in browser review: `advice`, `web-advice`, `browser-control`, `aside-browser-default`, `browser-testing` (5 named) | 20 / 5 / 1 |
-| `--with SKILL` | adds one named skill, its dependencies and aliases to the chosen profile (repeatable) | varies |
-| `--all` | the full library, which was the installer's previous default | 277 / 248 / 45 |
+| Flag | Named set (plus linked dependencies) |
+|---|---|
+| *(none)* or `--profile highlights` | `highlights`: the six highlighted skills above (6 named) |
+| `--profile highlights-prw` | `highlights` plus `prw` |
+| `--profile prw` | the PR workflow set: `prw`, `pr-workflow`, `pr-workflow-manager`, `draft-first-pr`, `pr-lifecycle`, `pr-green-definition`, `ready`, `advice`, `evidence-standards`, `evidence-review`, `testing-layers`, `code-standards` (12 named), and `/es`, `/er`, `/green`, `/cs` |
+| `--profile web` | opt-in browser review: `advice`, `web-advice`, `browser-control`, `aside-browser-default`, `browser-testing` (5 named) |
+| `--with SKILL` | adds one named skill, its dependencies and aliases to the chosen profile (repeatable) |
+| `--all` | the full library, which was the installer's previous default |
 
 Dependency closure never adds browser, cookie or personal-infrastructure
 skills (`dot`, `web-advice`, `browser-control`, `browser-testing`, `slack-media-upload`, and the

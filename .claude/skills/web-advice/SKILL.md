@@ -5,7 +5,7 @@ description: Browser-based multi-model advice and review using ChatGPT, Gemini, 
 
 # /web-advice — Multi-Model Browser Review
 
-`/web-advice` queries independent web LLMs (ChatGPT, Gemini, and Perplexity when available) through their web UIs in an authorized, task-owned browser context, then synthesizes their advice. It can review or advise on any user-supplied subject: code and PRs, designs, documents, plans, decisions, research questions, UX, and operational proposals. This is **different from `/advice`**, which is in-session and uses two independent CLI reviewers (normally Codex and Opus), with /research nonvoting.
+`/web-advice` queries independent web LLMs (ChatGPT, Gemini, and Perplexity when available) through their web UIs in an authorized, task-owned browser context, then synthesizes their advice. It can review or advise on any user-supplied subject: code and PRs, designs, documents, plans, decisions, research questions, UX, and operational proposals. This is **different from `/advice`**, which collects two independent reviewer votes (normally the Codex and Opus CLIs, with Dot, Hermes, web-advice and static-reviewer fallbacks), with /research nonvoting.
 
 | Skill | Mechanism | When to use |
 |---|---|---|

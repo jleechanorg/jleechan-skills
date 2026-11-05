@@ -71,14 +71,27 @@ Required structure, in this order:
 1. **TLDR at the very top.** Directly under the `## TLDR` heading, put one line
    `_Measured <Weekday> <Mon> <D>, <YYYY>, <h:mm AM/PM> PT_` in 12-hour Pacific
    time (e.g. `_Measured Thu Oct 29, 2026, 9:49 PM PDT_`); never a 24-hour clock or
-   a UTC timestamp in that line. Then open with a short overview of stage counts, human-only
-   blockers, stale/unowned work and total line delta; name the biggest deltas.
-   Then give **every in-scope PR 1–2 plain-language sentences**, with its linked PR
-   number visible: what changes for the user, which requested fix it addresses,
-   and what is done versus still unproven. Put requested feature/fix PRs first and
-   supporting tests, tooling and docs afterward. Include already-merged fixes when
-   they answer a current request; distinguish implemented, merged, deployed and
-   accepted. A stage number or generic label such as “sharing” is not a description.
+   a UTC timestamp in that line. Immediately after it, add a named
+   `### What changes for the user` section with a table:
+   `| Work item | Before → after / user benefit | PR or bead | Status / stage | Done / remaining |`.
+   Repeat a PR’s actual stage when it covers several work items; keep summary
+   stages consistent with the detailed ledger, including marker mismatches.
+   Put requested user-facing features
+   and fixes first, then assigned work items that do not yet have a PR; list
+   supporting tests, tooling and docs afterward. For each item, use a visible PR
+   number or bead link and state its actual status (`planned`, `implemented`,
+   `merged`, `deployed`, or `unproven`). Explain the concrete before-and-after
+   experience and the user benefit. For merged fixes, say whether deployment
+   is also verified. A PR title, stage, or opaque label such as “transport,”
+   “harness,” or “sharing” does not explain the change. If no requested
+   user-facing work is in scope, say so in this section.
+
+   Only after this user-first list, give a short engineering overview of stage
+   counts, human-only blockers, stale or unowned work, total line delta and the
+   biggest deltas. Then give every remaining in-scope PR one or two plain-language
+   sentences with its linked PR number visible, what is done and what remains
+   unproven. Include merged fixes when they answer a current request, and put
+   supporting tests, tooling and docs after requested feature or fix work.
 2. **PR ledger table**, one row per PR:
    `| PR | Title | Repo | Stage | State | Head | Δ (lines) | Next | Brief |`
    - `PR` links to the full GitHub URL (number visible in the link text).
@@ -139,10 +152,16 @@ Required structure, in this order:
 7. **Later** — which PRs will need a `/pr-summary` (architecture diagram, Why It Is
    Needed, How It Works, prod vs non-prod deltas) and the condition for writing it.
 
-Every `/roadmap` report, including a concise chat or status reply, must include a
-stage table. A compact reply may shorten the surrounding prose, but it must retain
-one row per in-scope PR with the `Stage`, `State`, `Head`, `Next`, and exact marker
-status; a prose-only status is incomplete.
+Every `/roadmap` report, including a concise chat or status reply, must start with
+a named `What changes for the user` section before engineering counts or the
+stage table. Order requested user-facing work first, followed by assigned
+not-yet-PR items and then supporting tests, tooling and docs. Link each item to
+its PR or bead, state the actual status, and describe the concrete before-and-after
+experience and user benefit; do not substitute a title or opaque task label.
+After that section, every report must include the stage table. A compact reply may
+shorten surrounding prose, but it must retain one row per in-scope PR with the
+`Stage`, `State`, `Head`, `Next`, and exact marker status; a prose-only status is
+incomplete.
 
 ## Evidence rules
 

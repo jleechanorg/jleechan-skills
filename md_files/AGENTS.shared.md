@@ -425,8 +425,12 @@ Resolve skills through the active catalog and inspect the selected definition. `
 Never write skill content into a projection root, and never let a generator drop a `SKILL.md` inside another skill's package: discovery is recursive, so a nested `SKILL.md` silently registers as a second, unreviewed top-level skill.
 
 **Skill sync is diff-first.** Before copying a skill between the catalog and a live root, diff all copies
-(repo-wide `git status --porcelain`, repo-vs-Mac, repo-vs-`ssh jeff-ubuntu cat … | diff -`). Never absorb a change
-you did not make. Stage skill files by explicit path, never a directory glob.
+(repo-wide `git status --porcelain`, repo-vs-Mac, and any authorized remote-peer
+comparison selected by the existing sync owner). Never absorb a change you did
+not make. Stage skill files by explicit path, never a directory glob.
+
+For the cross-session skill source and scoped host-propagation contract, follow
+[`/up`'s reusable skill source and scoped host sync section](../.claude/skills/up/SKILL.md#reusable-skill-source-and-scoped-host-sync).
 
 - When the user invokes a slash command, resolve its real definition from `~/.claude/commands/<name>.md` and load any referenced canonical skill under `~/.claude/skills/`, then execute the complete workflow; never substitute the apparent plain-language action (for example, `/ready` is not merely `gh pr ready`). Do not use `~/.codex/commands` as a command catalog; it is not a canonical Codex discovery surface. Treat command availability as cross-directory behavior, and do not infer model unavailability from a missing path in one directory.
 
