@@ -36,6 +36,11 @@ Record the chosen architecture, boundaries, and non-goals in a short decision re
 
 ## Decompose into micro-beads
 
+> **PR mapping:** Treat TEST/IMPL micro-beads as task and commit checkpoints on
+> one shared feature branch and PR; never create one PR per micro-bead or a
+> TEST-only PR separate from its IMPL. Follow [PR quantity control](../pr-quantity-control/SKILL.md)
+> for any coarse stage-PR limits.
+
 Create a bead DAG. Every row includes bead ID, exact goal, owned files or narrowly named area, acceptance criteria, dependencies, proof command, and expected changed-line budget. Invariants:
 
 1. Never mix tests and non-test code in one bead. Every change to non-test code gets a test bead followed by an implementation bead that depends on it.

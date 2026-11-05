@@ -100,5 +100,19 @@
       "Bash(rm -rf ~:*)",
       "Bash(rm -rf $HOME:*)"
     ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "description": "Enforce existing PR quantity ceilings before Bash PR creation.",
+            "command": "bash -c 'PROJECT=${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}; exec bash \"$PROJECT/.claude/hooks/protect-pr-create.sh\"'"
+          }
+        ]
+      }
+    ]
   }
 }
