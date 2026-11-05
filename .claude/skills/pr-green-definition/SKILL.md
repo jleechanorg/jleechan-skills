@@ -7,12 +7,22 @@ metadata:
 
 # PR "Green" Definition (2-Gate, canonical 2026-07-28)
 
-`/green` has exactly two gates, both bound to the PR's current `headRefOid`:
+`/green` has exactly two gates, both bound to the PR's current `headRefOid`.
+
+## Mandatory PR state and head check
+
+Before choosing a Gate 1 validation route or evaluating either gate, read the current PR state, merge status and head together:
+
+```bash
+gh api repos/OWNER/REPO/pulls/N --jq '{state, merged, head: .head.sha}'
+```
+
+`state` must be `open` and `merged` must be `false`. For a closed or merged PR, stop and report its terminal state without evaluating Gate 1 or Gate 2. Any other state is unproven; do not continue. Pin the returned `head` for both gates. If a later read finds a different head, restart from this check before selecting a route or evaluating a gate.
 
 | # | Gate | Verification |
 |---|---|---|
 | 1 | **Applicable validation** | Documentation-only: `CI NOT REQUIRED` with proportionate local validation. Otherwise every required check passes at HEAD through CI, a documented `CI NOT APPLICABLE` exception, or the local-equivalent exception for backlogged checks. |
-| 2 | **No merge conflicts** | `mergeable == MERGEABLE` (`UNKNOWN` may be re-polled; `CONFLICTING` is a hard FAIL). |
+| 2 | **No merge conflicts** | `mergeable == MERGEABLE` (`UNKNOWN` may be re-polled only while the PR remains open and unmerged; `CONFLICTING` is a hard FAIL). |
 
 Nothing else gates `/green`: inline-comment, evidence-link and PR-description checks, old "6-green" numbering, CodeRabbit and Bugbot are not gates or waits. Stages, reviewer routes/quorum, evidence applicability/publication, SHA reuse, and runtime/visual/bundle requirements belong to [`pr-lifecycle`](../pr-lifecycle/SKILL.md); follow its claim/risk applicability instead of duplicating those manuals here. Pure instruction Markdown is not automatically runtime/visual/bundle-required or exempt solely by line count. Known relevant mechanical failures remain failures; skipped or neutral checks never become passes. Green alone does not establish READY.
 
@@ -24,7 +34,7 @@ Follow [pr-lifecycle's retained review integrations](../pr-lifecycle/SKILL.md#re
 
 ## Documentation-only CI exception
 
-Classify the complete current-head diff by actual effects, not file extension or line count. Instruction/skill documentation, documentation-only pointer maintenance, and files including `AGENTS.md`, `CLAUDE.md` and `SKILL.md` qualify only when no executable or application-runtime behavior changes; they need no CI trigger/retry, runner wait or backlog threshold. Embedded code, automation, prompts, workflows, schemas, runtime configuration and mixed diffs do not qualify merely because they are Markdown. Run proportionate local checks (diff hygiene, link/pointer resolution or metadata validation) and record `Gate 1: CI NOT REQUIRED — documentation-only` with SHA, scope, commands and results. Never call skipped/unrun CI passed; Gate 2, lifecycle review/evidence requirements and merge authorization remain separate.
+Classify the complete current-head diff by actual effects, not file extension or line count. Instruction/skill documentation, documentation-only pointer maintenance, and files including `AGENTS.md`, `CLAUDE.md` and `SKILL.md` qualify only when no executable or application-runtime behavior changes; they need no CI trigger/retry, runner wait or backlog threshold. Embedded code, automation, prompts, workflows, schemas, runtime configuration and mixed diffs do not qualify merely because they are Markdown. This exception selects Gate 1's result only; it never bypasses the mandatory open-state/head check or Gate 2. Run proportionate local checks (diff hygiene, link/pointer resolution or metadata validation) and record `Gate 1: CI NOT REQUIRED — documentation-only` with SHA, scope, commands and results. Never call skipped/unrun CI passed; Gate 2, lifecycle review/evidence requirements and merge authorization remain separate.
 
 ## No-CI exception — a check that cannot run is not a check to wait on
 
@@ -43,13 +53,13 @@ Never call unrun CI passed, disable/cancel jobs or touch branch protection, and 
 
 ## Gate 1 — CI verification at the fresh head
 
-Check close/merge state first (`gh api repos/OWNER/REPO/pulls/N --jq '{state, merged}'`), then read the current head and complete `statusCheckRollup`; `gh pr checks` is only a summary, never proof. The rollup includes legacy `StatusContext` and Actions `CheckRun` rows:
+After the mandatory state/head check above, read the complete `statusCheckRollup`; `gh pr checks` is only a summary, never proof. The rollup includes legacy `StatusContext` and Actions `CheckRun` rows:
 
 ```bash
 gh pr view N --json headRefOid,statusCheckRollup --jq '[.statusCheckRollup[] | if .__typename == "StatusContext" then {name:(.context // ""), kind:"legacy-context", state:(.state // "" | ascii_upcase), conclusion:null} elif .__typename == "CheckRun" then {name:(.name // ""), kind:"check-run", state:(.status // "" | ascii_upcase), conclusion:(.conclusion // "" | ascii_upcase)} else {name:"", kind:(.__typename // ""), state:"", conclusion:""} end]'
 ```
 
-`StatusContext` is the legacy context shape; `CheckRun` uses `status` and `conclusion`. Bucket required results as `PASS` only for legacy `SUCCESS` or completed `CheckRun`/`SUCCESS`; `PENDING` while incomplete; `FAIL` for a completed non-success; and `UNPROVEN` for missing/unknown or non-applicable evidence. Skipped or neutral results are never `PASS`, including optional checks; CodeRabbit/Bugbot never gate. Fix known required mechanical failures. Re-read the current head for every verdict; raw check-run reads use that SHA, the current run's jobs and pagination, with REST/GraphQL fallback per `../github-cli-reference/SKILL.md` before claiming unavailable.
+Require `headRefOid` to equal the pinned `head` from the mandatory state/head check; if it differs, restart from that check. `StatusContext` is the legacy context shape; `CheckRun` uses `status` and `conclusion`. Bucket required results as `PASS` only for legacy `SUCCESS` or completed `CheckRun`/`SUCCESS`; `PENDING` while incomplete; `FAIL` for a completed non-success; and `UNPROVEN` for missing/unknown or non-applicable evidence. Skipped or neutral results are never `PASS`, including optional checks; CodeRabbit/Bugbot never gate. Fix known required mechanical failures. Re-read the current head for every verdict; raw check-run reads use that SHA, the current run's jobs and pagination, with REST/GraphQL fallback per `../github-cli-reference/SKILL.md` before claiming unavailable.
 
 ## Gate 2 — no merge conflicts at that same head
 
@@ -57,7 +67,7 @@ gh pr view N --json headRefOid,statusCheckRollup --jq '[.statusCheckRollup[] | i
 gh pr view N --json headRefOid,mergeable,mergeStateStatus --jq '.'
 ```
 
-`mergeable` must be `MERGEABLE`; re-poll `UNKNOWN` and resolve `CONFLICTING`. `mergeStateStatus` is informational (`DIRTY` corroborates conflict; other non-`CLEAN` values can reflect CI). Re-check whenever stating a verdict because base-branch changes can recompute mergeability.
+Require `headRefOid` to equal the pinned `head` from the mandatory state/head check; if it differs, restart from that check. `mergeable` must be `MERGEABLE`; re-poll `UNKNOWN` only after repeating the state/head check and confirming the same PR is still `open` and unmerged. Stop and report if it is closed or merged. Resolve `CONFLICTING`. `mergeStateStatus` is informational (`DIRTY` corroborates conflict; other non-`CLEAN` values can reflect CI). Re-check whenever stating a verdict because base-branch changes can recompute mergeability.
 
 ## Backlogged CI — local-equivalent Gate 1 evidence
 
