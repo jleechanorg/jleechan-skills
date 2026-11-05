@@ -12,7 +12,7 @@ No changes to executable helpers, tests, CI, configuration, production prompts o
 
 - Pure Markdown instruction changes at or below 150 total added plus deleted lines use one cold independent full-scope AI reviewer when low-risk.
 - Pure Markdown instruction changes above 150 total added plus deleted lines use two independent full-scope AI reviewers.
-- Sensitive instruction changes use two independent reviewers at every size. Sensitive includes security, permissions, credentials, destructive operations, production evidence, and approval, review, or merge rules.
+- Sensitive instruction changes use two independent reviewers at every size. Sensitive includes security, permissions, credentials, destructive, deployment, or release operations; evidence requirements or policy; and approval, review, or merge rules.
 - Each reviewer receipt records the exact SHA, complete diff coverage, route and risk assessment, relevant before/after scenarios, findings, and verdict. Partial coverage cannot be combined.
 - Pure Markdown instruction changes do not require a seven-element PR spec, separate /es or /er adjudication, evidence bundle/publication, runtime or provider test, browser journey, or visual evidence solely due to their file type or size.
 - Changed executable examples and claims retain the smallest proof needed to establish them. Mixed Markdown/code PRs, actual production prompt/schema/runtime contract changes, and stricter repository requirements use their applicable routes.
