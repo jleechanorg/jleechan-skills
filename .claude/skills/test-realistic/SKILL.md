@@ -36,7 +36,9 @@ Required fields (fails loud with `ConfigError` if any is missing):
 
 Optional fields (see `scripts/config.py` for full validation and defaults):
 `backend_url`, `personas` (defaults to 5 generic QA archetypes), `actor_fixtures`
-(your project's equivalent of selectable player characters, if any),
+(your project's equivalent of selectable player characters, if any; when
+configured, existing 1:1 pairing uses the shortest configured sequence because
+this generalized contract does not synthesize unmatched actors or personas),
 `capture_glob` (default `agent-*/capture.jsonl`), `output_root_default`,
 `doc_target_patterns` + `doc_dispatch_command` (if your project has its own
 docs-to-invariants-style generator for a documentation-driven target class),
@@ -62,17 +64,17 @@ theater, and the coverage judge downstream will have nothing real to grade.
 ### Onboarding a new project: verify your adapter first
 
 Before your first real scenario run, sanity-check that `dispatch_command`
-actually satisfies the contract above -- no real model call, just "argv in,
-capture.jsonl out":
+actually satisfies the contract above:
 ```bash
 python3 "${CLAUDE_HOME:-$HOME/.claude}/skills/test-realistic/scripts/verify_adapter.py" --config <path/to/.test-realistic.toml>
 ```
-This dispatches your real command against a trivial fixture pool/scenario
+This dispatches your configured command against a trivial fixture pool/scenario
 and checks: at least one file matches `capture_glob`, every line parses as
-JSON, every parsed line is a non-empty object. It never calls
-`feature_coverage_judge`, so it's a fast, cheap way to catch a broken
-adapter (wrong output path, empty captures, malformed JSON) before spending
-a real coverage-judge model call diagnosing the same problem indirectly.
+JSON, every parsed line is a non-empty object. The configured command may hit
+the project's real services, browser, and model; this check itself never calls
+`feature_coverage_judge`. It catches a broken adapter (non-zero dispatch,
+wrong output path, empty captures, malformed JSON) before spending a real
+coverage-judge model call diagnosing the same problem indirectly.
 
 ## Who does what (model vs. code) -- unchanged from the source design
 
@@ -82,7 +84,7 @@ a real coverage-judge model call diagnosing the same problem indirectly.
 | Target-type disambiguation among PR # / commit SHA / freeform prompt | **MODEL** (call #1, `classify_and_summarize`) | Genuinely ambiguous judgment -- a bare number could be a PR # or an unrelated mention. |
 | Fetching raw context (`gh pr view`, `git show --stat`) | **CODE** | Shape/existence checks select WHICH fetcher to try -- mechanics, not meaning classification. Works against any `gh`/`git`-hosted repo, unchanged. |
 | Scenario step authoring (3-5 `user_action`/`expected_render` beats) | **MODEL** (call #2, `author_scenario_steps`) | Must be grounded in the raw diff/prompt text just fetched. |
-| `feature_summary` derivation | **MODEL**, its own call, NEVER supplied via `--from-json` | Must be independent of any later self-grading -- the coverage judge compares captured turns against this exact string. |
+| `feature_summary` derivation | **MODEL**, returned by the classification+summary call, NEVER supplied via `--from-json` | Must be independent of any later self-grading -- the coverage judge compares captured turns against this exact string. |
 | Predicate reuse-vs-author decision | **MODEL**, recorded on the generated scenario's `PREDICATE_DECISION` | Correctness signal; non-blocking in v1 (matches source design). |
 | Schema/structural validation of authored JSON | **CODE** | Pure shape conformance. |
 | `relevant_surfaces` membership check | **CODE**, against `config.feature_surface_vocabulary` | Set-membership, enforced both in the JSON-schema `enum` and an explicit check. |
@@ -100,7 +102,7 @@ The model seam (`llm_callable`) is stubbed in every unit test. This proves
 the harness's own mechanics (batching, retry, validation, verdict
 aggregation) without spending a real model call.
 
-### Step 2: Generate (model-delegated, three real model calls)
+### Step 2: Generate (model-delegated, two real model calls; one with --from-json)
 ```bash
 python3 "${CLAUDE_HOME:-$HOME/.claude}/skills/test-realistic/scripts/scenario_generator.py" "<TARGET>" --output-dir <path> [--config <path/to/.test-realistic.toml>]
 ```
@@ -121,7 +123,9 @@ python3 scenario_generator.py "<TARGET>" --from-json <payload.json> --output-dir
 ```
 This performs zero subprocess calls for step authoring, but STILL makes one
 fresh model call to derive `feature_summary` -- any `feature_summary` key in
-the payload is discarded. This anti-self-grading exemption exists so the
+the payload is discarded. Normal generation makes two calls total
+(classification+summary, then steps); `--from-json` makes one
+(classification+summary). This anti-self-grading exemption exists so the
 downstream coverage judge is never compared against the same session's own
 paraphrase of what it did.
 
