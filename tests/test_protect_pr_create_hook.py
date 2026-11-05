@@ -163,6 +163,27 @@ class ProtectPrCreateHookTest(unittest.TestCase):
                     self.assertEqual(result.returncode, 2, result.stderr)
                     self.assertIn("split PR quantity cap", result.stderr)
 
+    def test_valid_shell_words_keep_space_and_escaped_operator_boundaries(self):
+        existing = [open_pr(i, f"split/widget/{i}") for i in range(5)]
+        shell_words = (
+            ("quoted space", '"Foo Bar"'),
+            ("escaped space", r"Foo\ Bar"),
+            ("double-quoted concatenation", 'Foo" Bar"'),
+            ("single-quoted concatenation", "Foo' Bar'"),
+            ("escaped operator", r"Foo\;Bar"),
+        )
+        for flag in ("--title", "--body"):
+            for name, word in shell_words:
+                with self.subTest(flag=flag, shell_word=name):
+                    command = (
+                        f"gh pr create {flag} {word} "
+                        "--head split/widget/new --base main"
+                    )
+                    result = self.run_hook(command, existing)
+                    self.assert_mocked_github()
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertIn("split PR quantity cap", result.stderr)
+
     def test_legacy_mock_environment_variable_does_not_replace_gh_results(self):
         existing = [open_pr(i, base="parent") for i in range(9)]
         result = self.run_hook(

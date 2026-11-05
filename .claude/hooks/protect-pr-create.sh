@@ -52,6 +52,82 @@ cwd = payload.get("cwd") or os.getcwd()
 if not cmd:
     sys.exit(0)
 
+SHELL_OPERATOR_CHARACTERS = ";&|()<>"
+QUOTED_OPERATOR_DATA = {
+    char: f"\x00{code}"
+    for char, code in zip(SHELL_OPERATOR_CHARACTERS, "sampiro")
+}
+
+
+def protect_quoted_operator_words(command: str) -> str:
+    spans = []
+    word_characters = []
+    word_start = None
+    word_is_protected = False
+    quote = ""
+    escaped = False
+    i = 0
+
+    def finish_word(end):
+        nonlocal word_characters, word_start, word_is_protected
+        if (
+            word_start is not None
+            and word_is_protected
+            and word_characters
+            and all(char in SHELL_OPERATOR_CHARACTERS for char in word_characters)
+        ):
+            encoded = "".join(QUOTED_OPERATOR_DATA[char] for char in word_characters)
+            spans.append((word_start, end, encoded))
+        word_characters = []
+        word_start = None
+        word_is_protected = False
+
+    while i < len(command):
+        char = command[i]
+        if escaped:
+            word_characters.append(char)
+            escaped = False
+            i += 1
+            continue
+        if char == "\\" and quote != "'":
+            if word_start is None:
+                word_start = i
+            if quote:
+                word_characters.append(char)
+            else:
+                word_is_protected = True
+            escaped = True
+            i += 1
+            continue
+        if quote:
+            if char == quote:
+                quote = ""
+            else:
+                word_characters.append(char)
+                if char in SHELL_OPERATOR_CHARACTERS:
+                    word_is_protected = True
+            i += 1
+            continue
+        if char in ("'", '"'):
+            if word_start is None:
+                word_start = i
+            quote = char
+            word_is_protected = True
+            i += 1
+            continue
+        if char.isspace() or char in SHELL_OPERATOR_CHARACTERS:
+            finish_word(i)
+            i += 1
+            continue
+        if word_start is None:
+            word_start = i
+        word_characters.append(char)
+        i += 1
+    finish_word(len(command))
+    for start, end, encoded in reversed(spans):
+        command = command[:start] + encoded + command[end:]
+    return command
+
 
 def strip_heredocs(s: str) -> str:
     pattern = re.compile(
@@ -201,18 +277,17 @@ def command_substitutions(command: str, *, ignore_outer_quotes: bool = False):
 stripped = normalize_shell_command(strip_heredocs(cmd))
 
 SEPARATORS = {";", "&&", "||", "|", "&", "(", ")", "\n"}
-SEPARATOR_CHARACTERS = ";&|()<>"
-QUOTED_OPERATOR_MARKER = "\x00"
+SEPARATOR_CHARACTERS = SHELL_OPERATOR_CHARACTERS
 
 
 def token_value(token: str) -> str:
-    if token.startswith(QUOTED_OPERATOR_MARKER):
-        return token[1:]
+    for operator, encoded in QUOTED_OPERATOR_DATA.items():
+        token = token.replace(encoded, operator)
     return token
 
 
 def is_separator(token: str) -> bool:
-    if token.startswith(QUOTED_OPERATOR_MARKER):
+    if any(encoded in token for encoded in QUOTED_OPERATOR_DATA.values()):
         return False
     return token in SEPARATORS or (
         bool(token) and all(char in SEPARATOR_CHARACTERS for char in token)
@@ -252,24 +327,12 @@ def contains_pr_create(command_tokens) -> bool:
 
 
 def tokenize_shell(command: str):
-    lexer = shlex.shlex(command, posix=False, punctuation_chars=True)
+    lexer = shlex.shlex(
+        protect_quoted_operator_words(command), posix=True, punctuation_chars=True
+    )
     lexer.whitespace_split = True
     lexer.commenters = ""
-    tokens = []
-    for raw_token in lexer:
-        value_lexer = shlex.shlex(raw_token, posix=True)
-        value_lexer.whitespace_split = True
-        value_lexer.commenters = ""
-        values = list(value_lexer)
-        for value in values:
-            if (
-                raw_token != value
-                and value
-                and all(char in SEPARATOR_CHARACTERS for char in value)
-            ):
-                value = QUOTED_OPERATOR_MARKER + value
-            tokens.append(value)
-    return tokens
+    return list(lexer)
 
 
 def child_shell_tokens(command_tokens, depth=0):
