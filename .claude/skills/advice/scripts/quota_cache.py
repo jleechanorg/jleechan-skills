@@ -28,6 +28,8 @@ class UnsafeCache(Exception):
 
 
 def parse_time(value):
+    if not isinstance(value, str):
+        raise argparse.ArgumentTypeError("expected ISO-8601 time")
     try:
         result = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
@@ -71,7 +73,9 @@ def locked(path):
 
 def read_entry(directory_fd, name, digest, provider):
     try:
-        fd = os.open(name, os.O_RDONLY | NOFOLLOW, dir_fd=directory_fd)
+        # A substituted FIFO must not block the caller before fstat can reject it.
+        fd = os.open(name, os.O_RDONLY | NOFOLLOW | getattr(os, "O_NONBLOCK", 0),
+                     dir_fd=directory_fd)
     except FileNotFoundError:
         return None
     info = os.fstat(fd)

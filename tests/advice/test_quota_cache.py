@@ -28,14 +28,14 @@ class AdviceQuotaCacheTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.cache = Path(self.temp.name) / "cache"
 
-    def run_cache(self, *args, expected=0):
+    def run_cache(self, *args, expected=0, timeout=10):
         env = {**os.environ, "ADVICE_QUOTA_CACHE_TESTING": "1"}
         result = subprocess.run(
             [sys.executable, str(TOOL), *args, "--cache-root", str(self.cache)],
             capture_output=True,
             text=True,
             env=env,
-            timeout=10,
+            timeout=timeout,
         )
         self.assertEqual(result.returncode, expected, result.stderr + result.stdout)
         return result
@@ -199,6 +199,41 @@ class AdviceQuotaCacheTests(unittest.TestCase):
                                 "--now", "2029-12-31T12:00:00Z")
         self.assertEqual("ELIGIBLE\n", result.stdout)
         self.assertFalse(entry.exists())
+
+    def test_malformed_cached_timestamp_types_are_removed_and_fail_open(self):
+        self.record()
+        entry = next(self.cache.glob("*.json"))
+        original = json.loads(entry.read_text())
+        for field, bad_value in (("observed_at_utc", None), ("observed_at_utc", 17),
+                                 ("observed_at_utc", []), ("reset_at_utc", None),
+                                 ("reset_at_utc", 17), ("reset_at_utc", [])):
+            with self.subTest(field=field, bad_value=bad_value):
+                malformed = dict(original)
+                malformed[field] = bad_value
+                entry.write_text(json.dumps(malformed))
+                result = self.run_cache(
+                    "check", "--provider", "claude", "--identity-sha256", CLAUDE_PRIMARY,
+                    "--now", "2029-12-31T12:00:00Z",
+                )
+                self.assertEqual("ELIGIBLE\n", result.stdout)
+                self.assertFalse(entry.exists())
+                # Restore a valid entry for the next malformed-field case.
+                self.record()
+
+    def test_fifo_entry_fails_open_without_waiting_for_a_writer(self):
+        self.record()
+        entry = next(self.cache.glob("*.json"))
+        entry.unlink()
+        os.mkfifo(entry, 0o600)
+        started = time.monotonic()
+        result = self.run_cache(
+            "check", "--provider", "claude", "--identity-sha256", CLAUDE_PRIMARY,
+            timeout=2,
+        )
+        self.assertLess(time.monotonic() - started, 1)
+        self.assertEqual("ELIGIBLE\n", result.stdout)
+        self.assertIn("CACHE_UNAVAILABLE", result.stderr)
+        self.assertTrue(entry.is_fifo())
 
     def test_cached_entry_never_contains_raw_provider_error(self):
         self.record()
