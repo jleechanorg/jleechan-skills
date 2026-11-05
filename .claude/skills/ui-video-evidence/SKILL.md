@@ -503,17 +503,17 @@ continuous footage with an idle interval. A constructed still-image sequence
 always fails under the canonical rule regardless of its retained-frame count,
 caption, or successful decode.
 
-## Action or transition must be in the window (MANDATORY)
+## Action must be in the window (MANDATORY)
 
-When a user action exists, each clip must include the action under test (for
-example the Send tap) and the before state that precedes it. A capture window
-anchored only to completion (e.g. trimmed to the DONE state) that omits the
-action fails. When no user action exists, each clip must show the applicable
-before→after transition instead.
+When a user action exists, each clip must include the user action under test
+(for example the Send tap) and the before state that precedes it. A capture
+window anchored only to completion (e.g. trimmed to the DONE state) that omits
+the action fails.
 
 When the change's observable has no user action (first paint, an error state
-rendered on load, a theme token applied at mount), document that fact and use
-the before-state→after-state transition as the required window.
+rendered on load, a theme token applied at mount), record this rule as N/A with
+the reason and instead provide a state-transition clip showing the before-state
+frame and the after-state frame.
 
 ## Provenance of before/after clips (MANDATORY)
 
