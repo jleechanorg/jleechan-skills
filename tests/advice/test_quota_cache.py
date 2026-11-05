@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 import concurrent.futures
+import importlib.util
 import subprocess
 import sys
 import tempfile
@@ -11,6 +12,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 TOOL = ROOT / ".claude/skills/advice/scripts/quota_cache.py"
+SPEC = importlib.util.spec_from_file_location("quota_cache", TOOL)
+quota_cache = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(quota_cache)
 CLAUDE_PRIMARY = hashlib.sha256(b"verified claude primary account id").hexdigest()
 CLAUDE_ALT = hashlib.sha256(b"verified claude alternate account id").hexdigest()
 AGY_PRIMARY = hashlib.sha256(b"verified agy primary account id").hexdigest()
@@ -151,6 +155,23 @@ class AdviceQuotaCacheTests(unittest.TestCase):
                                 "--identity-sha256", CLAUDE_PRIMARY)
         self.assertEqual("ELIGIBLE\n", result.stdout)
         self.assertEqual("do not read", target.read_text())
+
+    def test_swapping_cache_directory_name_after_open_cannot_redirect_write(self):
+        root = Path(self.temp.name) / "cache"
+        victim = Path(self.temp.name) / "victim"
+        victim.mkdir()
+        identity = hashlib.sha256(b"verified claude primary account id").hexdigest()
+        digest = hashlib.sha256(f"claude\0{identity}".encode()).hexdigest()
+        entry = {"version": 1, "identity_sha256": digest, "provider": "claude",
+                 "model": "opus", "reason": "quota", "observed_at_utc": "2029-12-31T00:00:00+00:00",
+                 "reset_at_utc": "2030-01-01T00:00:00+00:00"}
+        moved = Path(self.temp.name) / "opened-cache"
+        with quota_cache.locked(root) as directory_fd:
+            root.rename(moved)
+            root.symlink_to(victim, target_is_directory=True)
+            quota_cache.write_entry(directory_fd, f"{digest}.json", entry)
+        self.assertTrue((moved / f"{digest}.json").is_file())
+        self.assertFalse(list(victim.iterdir()))
 
     def test_concurrent_records_leave_one_complete_private_record(self):
         commands = []
