@@ -101,20 +101,21 @@ identities from the machine-local profile before selecting them.
   same account or switch models around it; a separate account remains eligible.
 - **Remember only confirmed quota windows.** Before launching each CLI seat, check the short-lived quota record:
   ```bash
-  python3 .claude/skills/advice/scripts/quota_cache.py check --provider <verified-provider-seat> --identity <stable-account-seat>
+  python3 "$HOME/.claude/skills/advice/scripts/quota_cache.py" check --provider <verified-provider> --identity-sha256 <verified-account-identity-sha256>
   ```
   `ELIGIBLE` permits the normal launch. `QUOTA_BLOCKED` means skip that exact account until its printed UTC reset
-  time and continue the fallback route. Choose a stable, nonsecret seat label that distinguishes accounts (for
-  example, `claude-team-slot-a`); never pass an email, token, credential path or raw provider identity. Model names
-  alone do not distinguish accounts. The cache key combines the verified provider and account-seat labels. Cache only an explicit provider quota response and reset time:
+  time and continue the fallback route. Derive the identity digest from the account identity returned by a fresh,
+  successful identity probe; do not use a guessed seat label, email, token, credential path or model name as identity.
+  Pass only this SHA-256 digest, never the raw account identity. The cache key combines the verified provider and
+  account-identity digest. Cache only an explicit provider quota response and reset time:
   ```bash
-  python3 .claude/skills/advice/scripts/quota_cache.py record --identity <stable-seat> --provider <provider> --model <actual-model> --reset-at <provider-reported-ISO-8601-reset>
+  python3 "$HOME/.claude/skills/advice/scripts/quota_cache.py" record --provider <verified-provider> --identity-sha256 <verified-account-identity-sha256> --model <actual-model> --reset-at <provider-reported-ISO-8601-reset>
   ```
   The record includes its observation time and is stored with private permissions under `/tmp`; it contains only a
-  hash of the seat label plus provider, model and UTC times, never credentials or raw error text. No printed reset
+  keyed hash of the provider/account digest plus provider, model and UTC times, never credentials, raw identity or raw error text. No printed reset
   means no cache entry. A fresh successful probe clears an earlier record before the new attempt:
   ```bash
-  python3 .claude/skills/advice/scripts/quota_cache.py clear --provider <verified-provider-seat> --identity <stable-account-seat>
+  python3 "$HOME/.claude/skills/advice/scripts/quota_cache.py" clear --provider <verified-provider> --identity-sha256 <verified-account-identity-sha256>
   ```
   Expired records clear themselves. Invalid/unavailable cache storage fails open and must not deny an authorized
   attempt. The cache is a scheduling hint, not a second quota detector: record only a quota error actually observed

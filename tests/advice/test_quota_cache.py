@@ -1,6 +1,7 @@
 import hashlib
 import json
 import os
+import concurrent.futures
 import subprocess
 import sys
 import tempfile
@@ -10,6 +11,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 TOOL = ROOT / ".claude/skills/advice/scripts/quota_cache.py"
+CLAUDE_PRIMARY = hashlib.sha256(b"verified claude primary account id").hexdigest()
+CLAUDE_ALT = hashlib.sha256(b"verified claude alternate account id").hexdigest()
+AGY_PRIMARY = hashlib.sha256(b"verified agy primary account id").hexdigest()
 
 
 class AdviceQuotaCacheTests(unittest.TestCase):
@@ -30,9 +34,9 @@ class AdviceQuotaCacheTests(unittest.TestCase):
         self.assertEqual(result.returncode, expected, result.stderr + result.stdout)
         return result
 
-    def record(self, identity="primary", reset="2030-01-01T00:00:00Z", provider="claude"):
+    def record(self, identity=CLAUDE_PRIMARY, reset="2030-01-01T00:00:00Z", provider="claude"):
         return self.run_cache(
-            "record", "--identity", identity, "--provider", provider,
+            "record", "--identity-sha256", identity, "--provider", provider,
             "--model", "opus", "--reset-at", reset,
             "--now", "2029-12-31T00:00:00Z",
         )
@@ -40,47 +44,47 @@ class AdviceQuotaCacheTests(unittest.TestCase):
     def test_quota_blocks_only_same_seat_until_reported_reset(self):
         self.record()
         blocked = self.run_cache(
-            "check", "--provider", "claude", "--identity", "primary",
+            "check", "--provider", "claude", "--identity-sha256", CLAUDE_PRIMARY,
             "--now", "2029-12-31T23:59:00Z", expected=10,
         )
         self.assertIn("reset_at=2030-01-01T00:00:00+00:00", blocked.stdout)
         self.assertEqual(
             "ELIGIBLE\n",
-            self.run_cache("check", "--provider", "claude", "--identity", "alternate",
+            self.run_cache("check", "--provider", "claude", "--identity-sha256", CLAUDE_ALT,
                            "--now", "2029-12-31T23:59:00Z").stdout,
         )
         self.assertEqual(
             "ELIGIBLE\n",
-            self.run_cache("check", "--provider", "claude", "--identity", "primary",
+            self.run_cache("check", "--provider", "claude", "--identity-sha256", CLAUDE_PRIMARY,
                            "--now", "2030-01-01T00:00:00Z").stdout,
         )
         self.assertEqual([], list(self.cache.glob("*.json")))
 
     def test_successful_fresh_probe_clears_cached_quota(self):
         self.record()
-        self.run_cache("clear", "--provider", "claude", "--identity", "primary")
+        self.run_cache("clear", "--provider", "claude", "--identity-sha256", CLAUDE_PRIMARY)
         self.assertEqual(
             "ELIGIBLE\n",
-            self.run_cache("check", "--provider", "claude", "--identity", "primary",
+            self.run_cache("check", "--provider", "claude", "--identity-sha256", CLAUDE_PRIMARY,
                            "--now", "2029-12-31T12:00:00Z").stdout,
         )
 
     def test_provider_scopes_the_same_account_seat_separately(self):
-        self.record(identity="account-slot")
-        result = self.run_cache("check", "--provider", "agy", "--identity", "account-slot",
+        self.record(identity=AGY_PRIMARY, provider="agy")
+        result = self.run_cache("check", "--provider", "claude", "--identity-sha256", AGY_PRIMARY,
                                 "--now", "2029-12-31T12:00:00Z")
         self.assertEqual("ELIGIBLE\n", result.stdout)
 
     def test_unknown_or_expired_reset_does_not_create_a_blocking_record(self):
         result = self.run_cache(
-            "record", "--identity", "agy:gemini-flash-high", "--provider", "agy",
+            "record", "--identity-sha256", AGY_PRIMARY, "--provider", "agy",
             "--model", "gemini-3.8-flash-high", "--reset-at", "2029-12-30T00:00:00Z",
             "--now", "2029-12-31T00:00:00Z",
         )
         self.assertIn("RESET_ALREADY_PASSED", result.stdout)
         self.assertFalse(self.cache.exists() and list(self.cache.glob("*.json")))
         result = subprocess.run(
-            [sys.executable, str(TOOL), "record", "--identity", "claude:primary",
+            [sys.executable, str(TOOL), "record", "--identity-sha256", CLAUDE_PRIMARY,
              "--provider", "claude", "--model", "opus", "--cache-root", str(self.cache)],
             capture_output=True, text=True,
             env={**os.environ, "ADVICE_QUOTA_CACHE_TESTING": "1"}, timeout=10,
@@ -92,7 +96,7 @@ class AdviceQuotaCacheTests(unittest.TestCase):
         self.record()
         entry = next(self.cache.glob("*.json"))
         entry.write_text("not json")
-        result = self.run_cache("check", "--provider", "claude", "--identity", "primary",
+        result = self.run_cache("check", "--provider", "claude", "--identity-sha256", CLAUDE_PRIMARY,
                                 "--now", "2029-12-31T12:00:00Z")
         self.assertEqual("ELIGIBLE\n", result.stdout)
         self.assertFalse(entry.exists())
@@ -103,7 +107,7 @@ class AdviceQuotaCacheTests(unittest.TestCase):
         data = json.loads(entry.read_text())
         data["reset_at_utc"] = "not-a-time"
         entry.write_text(json.dumps(data))
-        result = self.run_cache("check", "--provider", "claude", "--identity", "primary",
+        result = self.run_cache("check", "--provider", "claude", "--identity-sha256", CLAUDE_PRIMARY,
                                 "--now", "2029-12-31T12:00:00Z")
         self.assertEqual("ELIGIBLE\n", result.stdout)
         self.assertFalse(entry.exists())
@@ -114,7 +118,7 @@ class AdviceQuotaCacheTests(unittest.TestCase):
         self.assertNotIn("Weekly usage limit reached", entry.read_text())
 
     def test_cache_never_stores_identity_key_or_raw_provider_text(self):
-        identity = "provider-slot-nonsecret-identity"
+        identity = CLAUDE_PRIMARY
         self.record(identity=identity)
         files = list(self.cache.glob("*.json"))
         self.assertEqual(1, len(files))
@@ -126,6 +130,44 @@ class AdviceQuotaCacheTests(unittest.TestCase):
         self.assertNotIn("token", serialized.lower())
         self.assertEqual(0o700, self.cache.stat().st_mode & 0o777)
         self.assertEqual(0o600, files[0].stat().st_mode & 0o777)
+
+    def test_symlinked_cache_root_fails_open_without_touching_target(self):
+        target = Path(self.temp.name) / "target"
+        target.mkdir()
+        self.cache.symlink_to(target, target_is_directory=True)
+        result = self.run_cache("check", "--provider", "claude",
+                                "--identity-sha256", CLAUDE_PRIMARY)
+        self.assertEqual("ELIGIBLE\n", result.stdout)
+        self.assertEqual([], list(target.iterdir()))
+
+    def test_symlinked_entry_cannot_block_or_read_target(self):
+        self.record()
+        entry = next(self.cache.glob("*.json"))
+        entry.unlink()
+        target = Path(self.temp.name) / "private-target"
+        target.write_text("do not read")
+        entry.symlink_to(target)
+        result = self.run_cache("check", "--provider", "claude",
+                                "--identity-sha256", CLAUDE_PRIMARY)
+        self.assertEqual("ELIGIBLE\n", result.stdout)
+        self.assertEqual("do not read", target.read_text())
+
+    def test_concurrent_records_leave_one_complete_private_record(self):
+        commands = []
+        for reset in ("2030-01-01T00:00:00Z", "2030-01-02T00:00:00Z"):
+            commands.append([sys.executable, str(TOOL), "record", "--provider", "claude",
+                "--identity-sha256", CLAUDE_PRIMARY, "--model", "opus",
+                "--reset-at", reset, "--now", "2029-12-31T00:00:00Z",
+                "--cache-root", str(self.cache)])
+        env = {**os.environ, "ADVICE_QUOTA_CACHE_TESTING": "1"}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(lambda argv: subprocess.run(
+                argv, capture_output=True, text=True, env=env, timeout=10), commands))
+        self.assertEqual([0, 0], [result.returncode for result in results])
+        entries = list(self.cache.glob("*.json"))
+        self.assertEqual(1, len(entries))
+        self.assertIn(json.loads(entries[0].read_text())["reset_at_utc"],
+                      {"2030-01-01T00:00:00+00:00", "2030-01-02T00:00:00+00:00"})
 
 
 if __name__ == "__main__":

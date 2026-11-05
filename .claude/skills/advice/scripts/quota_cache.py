@@ -17,6 +17,7 @@ from pathlib import Path
 VERSION = 1
 ROOT = Path("/tmp") / f"advice-quota-{os.getuid()}"
 LABEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
 
 class UnsafeCache(Exception):
@@ -98,8 +99,8 @@ def write_entry(path, entry):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=("check", "record", "clear"))
-    parser.add_argument("--identity", required=True,
-                        help="stable non-secret account seat label, not a model or email")
+    parser.add_argument("--identity-sha256", required=True,
+                        help="SHA-256 of the verified provider account identifier; never a model or guessed label")
     parser.add_argument("--provider", required=True, type=str,
                         help="verified provider/CLI seat label")
     parser.add_argument("--model", default="unknown")
@@ -109,15 +110,15 @@ def main(argv=None):
         parser.add_argument("--cache-root", type=Path, default=ROOT)
         parser.add_argument("--now", type=parse_time)
     args = parser.parse_args(argv)
-    if (not LABEL.fullmatch(args.identity) or not LABEL.fullmatch(args.provider)
+    if (not SHA256.fullmatch(args.identity_sha256) or not LABEL.fullmatch(args.provider)
             or not LABEL.fullmatch(args.model)):
-        parser.error("identity/provider/model must be short non-secret labels")
+        parser.error("identity must be a lowercase SHA-256 digest; provider/model must be non-secret labels")
     if args.command == "record" and (not args.provider or not args.reset_at):
         parser.error("record requires provider and explicit reset time")
     if args.command != "record" and args.reset_at:
         parser.error("reset-at is only valid with record")
 
-    digest = hashlib.sha256(f"{args.provider}\0{args.identity}".encode()).hexdigest()
+    digest = hashlib.sha256(f"{args.provider}\0{args.identity_sha256}".encode()).hexdigest()
     root = getattr(args, "cache_root", ROOT)
     path = root / f"{digest}.json"
     try:
@@ -147,6 +148,10 @@ def main(argv=None):
     except UnsafeCache as error:
         # This cache cannot deny an otherwise authorized reviewer attempt.
         print(f"CACHE_UNAVAILABLE: {error}; do not skip this seat", file=sys.stderr)
+        print("ELIGIBLE")
+    except OSError as error:
+        # Disk, permission or transient filesystem failures are equally fail-open.
+        print(f"CACHE_UNAVAILABLE: {type(error).__name__}; do not skip this seat", file=sys.stderr)
         print("ELIGIBLE")
     return 0
 
