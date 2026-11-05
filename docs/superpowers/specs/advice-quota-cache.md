@@ -10,11 +10,11 @@ The cache does not detect quota errors, infer reset times, store provider output
 
 ## Acceptance
 
-- Cache keys distinguish the provider and stable account-seat label, not just the model.
+- Cache keys distinguish the provider and a SHA-256 digest of the account identity obtained from an existing verified seat binding, not just the model.
 - Only an explicitly observed quota result with an explicit reset time is recorded; missing or already-passed reset times create no block.
 - A live, unexpired record returns `QUOTA_BLOCKED`; its reported reset makes the seat eligible and clears the record.
-- A fresh successful probe can explicitly clear an earlier record.
-- Cache files and lock are owner-only, symlink-safe, atomically written and safe under concurrent calls. Raw errors and credentials never enter the cache.
+- Checking cached status makes no provider call. A fresh successful probe from the normal advice flow can explicitly clear an earlier record.
+- Cache files and lock are owner-only, symlink-safe, atomically written and safe under concurrent calls. Raw identities, errors and credentials never enter the cache.
 - The advice skill checks the record before dispatching a seat and continues the normal fallback path when it is blocked.
 
 ## User story
@@ -23,7 +23,7 @@ When an advice provider says its account is limited until a stated time, a later
 
 ## Proof plan
 
-Unit tests cover account/provider separation, reset expiry, successful-clear behavior, malformed cache recovery, private permissions and absence of raw provider text. Run the advice contract tests and `git diff --check`.
+Unit tests cover account/provider separation, reset expiry, successful-clear behavior, malformed cache recovery, symlink and concurrent directory operations, private permissions and absence of raw provider text. Run the advice contract tests and `git diff --check`.
 
 ## Mock exemption
 
