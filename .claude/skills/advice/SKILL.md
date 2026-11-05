@@ -94,11 +94,39 @@ identities from the machine-local profile before selecting them.
   token or inside one (`--print={prompt}`), is replaced by the request; with none, the request is appended as the
   last argument. An empty label or command, a duplicate label, an unparseable entry or a missing program makes that
   seat `UNAVAILABLE`.
-- **No runner.** This skill ships instructions only; the orchestrator launches each seat under §3. A capability it
-  cannot bound end to end or cannot produce a receipt for is `UNAVAILABLE`; do not add a runner, wrapper, watchdog or timer.
+- **No review-dispatch runner.** The orchestrator still launches each seat under §3 and owns its deadline and receipt.
+  `quota_cache.py` only reads/writes the bounded quota hint; it never invokes a provider or starts/retries a review.
+  A capability the orchestrator cannot bound end to end or cannot receipt is `UNAVAILABLE`; do not add a runner,
+  wrapper, watchdog or timer.
 - **Quota walls fail fast.** A usage limit, quota exhaustion, exhausted 429 retry, rate limit, expired plan or similar
   account refusal makes the seat `UNAVAILABLE` with reason `quota` and the printed reset time. Do not wait, retry the
   same account or switch models around it; a separate account remains eligible.
+- **Remember only confirmed quota windows.** Before launching each CLI seat, check the short-lived quota record:
+  ```bash
+  python3 "$HOME/.claude/skills/advice/scripts/quota_cache.py" check --provider <verified-provider> --identity-sha256 <verified-account-identity-sha256>
+  ```
+  `ELIGIBLE` permits the normal launch. `QUOTA_BLOCKED` means skip that exact account until its printed UTC reset
+  time and continue the fallback route. Derive the identity digest from the account identity in an existing,
+  verified machine-local seat binding; checking the cache must not trigger a new provider request. Do not use a
+  guessed seat label, email, token, credential path or model name as identity. Pass only this SHA-256 digest, never
+  the raw account identity. If no verified account binding is available, fail open and use the normal seat admission
+  path; do not use the cache to skip a reviewer. The cache key combines the verified provider and account-identity
+  digest. Cache only an explicit provider quota response and reset time:
+  ```bash
+  python3 "$HOME/.claude/skills/advice/scripts/quota_cache.py" record --provider <verified-provider> --identity-sha256 <verified-account-identity-sha256> --model <actual-model> --observed-at <quota-response-observation-time> --reset-at <provider-reported-ISO-8601-reset>
+  ```
+  The record includes its observation time and is stored with private permissions under `/tmp`; it contains only a
+  keyed hash of the provider/account digest plus provider, model and UTC times, never credentials, raw identity or raw error text. No printed reset
+  means no cache entry. Record the timestamp from when the provider response was observed, not when the record
+  command happens to run. The cache orders quota and success events by that timestamp, so a delayed quota write
+  cannot re-block a seat after a later successful probe. A fresh successful probe performed by the normal review
+  path clears an earlier record before counting that seat as available:
+  ```bash
+  python3 "$HOME/.claude/skills/advice/scripts/quota_cache.py" clear --provider <verified-provider> --identity-sha256 <verified-account-identity-sha256> --observed-at <successful-probe-observation-time>
+  ```
+  Expired records clear themselves. Cache lock contention, invalid paths, and unavailable storage fail open and must
+  not stall or deny an authorized attempt. The cache is a scheduling hint, not a second quota detector: record only a quota error actually observed
+  from that exact seat; transport timeouts, unrelated tool errors and missing authentication are not quota signals.
 
 ### Outside-route authorization and transports
 
