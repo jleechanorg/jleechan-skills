@@ -176,8 +176,9 @@ subprocess also exited 0 (or was explicitly excused via
 5. `CoverageJudgeUnavailableError` and `ScenarioGenerationError` are hard,
    non-zero-exit failures. No caller in this skill may catch either to
    fabricate a verdict or fall back to a keyword/token heuristic.
-6. A capture produced without a real browser and a real model call is not
-   valid evidence for this pipeline -- there is no mock mode.
+6. Valid captures require a real browser or configured native client, plus a
+   real model call. Offline or synthetic captures are not evidence for this
+   pipeline; there is no mock mode.
 7. `target_pass` proves the feature was exercised, not that it behaved
    correctly. A forbidden-state requirement (e.g. no request while consent is
    off) needs an explicit predicate or an independent check of the raw request
@@ -198,7 +199,7 @@ ${CLAUDE_HOME:-$HOME/.claude}/skills/test-realistic/
     aggregate.py                # target-scoped verdict aggregation
     scenario_generator.py      # model-delegated scenario generation
     target_scoped_run.py       # dispatch + judge + report orchestrator
-    verify_adapter.py          # onboarding conformance self-test (no model call)
+    verify_adapter.py          # onboarding conformance self-test (no coverage-judge call)
   tests/                       # fast, stubbed-model unit tests (pytest)
   examples/
     test-realistic.example.toml  # fully-annotated EXAMPLE config

@@ -236,10 +236,22 @@ def _dispatch_excuse_decision(
     if excuse_fn is None:
         return {"applied": False, "reason": "no runner_excuse_predicate configured"}
     try:
-        applied, reason = excuse_fn(dispatch_returncode, output_root)
+        result = excuse_fn(dispatch_returncode, output_root)
     except Exception as exc:  # noqa: BLE001 -- a broken excuse hook must never silently excuse
         return {"applied": False, "reason": f"runner_excuse_predicate raised: {exc!r}"}
-    return {"applied": bool(applied), "reason": str(reason)}
+    if (
+        not isinstance(result, tuple)
+        or len(result) != 2
+        or type(result[0]) is not bool
+        or not isinstance(result[1], str)
+    ):
+        return {
+            "applied": False,
+            "reason": "runner_excuse_predicate returned an invalid result; "
+            "expected (bool, str)",
+        }
+    applied, reason = result
+    return {"applied": applied, "reason": reason}
 
 
 def main(

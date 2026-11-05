@@ -61,7 +61,10 @@ class ScenarioGenerationError(RuntimeError):
 # Strict, anchored, full-string PR-shape check. This is the ONLY thing that
 # decides whether `gh pr view` is attempted -- it must never match a
 # freeform English prompt like "Preview the banner in 3 modes".
-_PR_TARGET_SHAPE_RE = re.compile(r"^(?:#?\d+|pr[\s#-]*\d+)$", re.IGNORECASE)
+_PR_TARGET_SHAPE_RE = re.compile(
+    r"(?:#?\d+|pr[\s#-]*\d+|https://[^/\s?#]+/[^/\s?#]+/[^/\s?#]+/pull/\d+/?)",
+    re.IGNORECASE,
+)
 
 # Hex-shape SHA check (7-40 hex chars, full string).
 _COMMIT_TARGET_SHAPE_RE = re.compile(r"^[0-9a-f]{7,40}$")
@@ -160,21 +163,28 @@ def _repository_from_pr_url(pr_url: object, pr_num: str) -> str:
     return f"{match.group(1)}/{match.group(2)}"
 
 
-def fetch_raw_pr_context(pr_num: str) -> dict:
+def fetch_raw_pr_context(
+    pr_num: str, repo_root: Path, pr_url: str | None = None
+) -> dict:
     """Fetch metadata and the pinned PR patch using gh, failing loud on gaps."""
+    requested_repo = (
+        _repository_from_pr_url(pr_url, pr_num) if pr_url is not None else None
+    )
+    pr_target = pr_url or pr_num
     try:
         res = subprocess.run(
             [
                 "gh",
                 "pr",
                 "view",
-                pr_num,
+                pr_target,
                 "--json",
                 "title,body,headRefName,headRefOid,baseRefOid,files,url",
             ],
             capture_output=True,
             text=True,
             check=True,
+            cwd=str(repo_root),
         )
         data = json.loads(res.stdout)
     except (subprocess.CalledProcessError, OSError, json.JSONDecodeError) as exc:
@@ -194,6 +204,10 @@ def fetch_raw_pr_context(pr_num: str) -> dict:
             f"gh pr view returned no pinned baseRefOid for PR #{pr_num}"
         )
     repo_name = _repository_from_pr_url(data.get("url"), pr_num)
+    if requested_repo is not None and requested_repo.casefold() != repo_name.casefold():
+        raise ScenarioGenerationError(
+            f"gh pr view resolved PR #{pr_num} to a different repository"
+        )
     try:
         diff_res = subprocess.run(
             [
@@ -206,6 +220,7 @@ def fetch_raw_pr_context(pr_num: str) -> dict:
             capture_output=True,
             text=True,
             check=True,
+            cwd=str(repo_root),
         )
     except (subprocess.CalledProcessError, OSError) as exc:
         raise ScenarioGenerationError(
@@ -250,7 +265,7 @@ def fetch_raw_pr_context(pr_num: str) -> dict:
     }
 
 
-def fetch_raw_commit_context(commit_sha: str) -> dict:
+def fetch_raw_commit_context(commit_sha: str, repo_root: Path) -> dict:
     """Fetch raw commit context using git show. Fails loud."""
     try:
         res = subprocess.run(
@@ -258,6 +273,7 @@ def fetch_raw_commit_context(commit_sha: str) -> dict:
             capture_output=True,
             text=True,
             check=True,
+            cwd=str(repo_root),
         )
     except (subprocess.CalledProcessError, OSError) as exc:
         raise ScenarioGenerationError(f"git show failed for commit {commit_sha}: {exc}") from exc
@@ -266,22 +282,26 @@ def fetch_raw_commit_context(commit_sha: str) -> dict:
     return {"title": first_line, "body": res.stdout[:500]}
 
 
-def _gather_raw_context(target_s: str) -> dict:
+def _gather_raw_context(target_s: str, repo_root: Path) -> dict:
     """Shape-based fetch selection (mechanics, never final target_type judgment)."""
-    pr_shaped = bool(_PR_TARGET_SHAPE_RE.match(target_s))
+    pr_shaped = bool(_PR_TARGET_SHAPE_RE.fullmatch(target_s))
     commit_shaped = bool(_COMMIT_TARGET_SHAPE_RE.match(target_s.lower()))
 
     if pr_shaped:
-        pr_match = re.search(r"\d+", target_s)
-        pr_num = pr_match.group(0) if pr_match else target_s
+        pr_url = target_s if target_s.lower().startswith("https://") else None
+        if pr_url is not None:
+            pr_num = urlparse(pr_url).path.rstrip("/").rsplit("/", 1)[-1]
+        else:
+            pr_match = re.search(r"\d+", target_s)
+            pr_num = pr_match.group(0) if pr_match else target_s
         try:
-            ctx = fetch_raw_pr_context(pr_num)
+            ctx = fetch_raw_pr_context(pr_num, repo_root, pr_url)
             return {**ctx, "candidate_type": "pr", "candidate_id": pr_num}
         except ScenarioGenerationError as pr_exc:
             if not commit_shaped:
                 raise
             try:
-                commit_ctx = fetch_raw_commit_context(target_s)
+                commit_ctx = fetch_raw_commit_context(target_s, repo_root)
                 return {**commit_ctx, "candidate_type": "commit", "candidate_id": target_s}
             except ScenarioGenerationError as commit_exc:
                 raise ScenarioGenerationError(
@@ -291,7 +311,7 @@ def _gather_raw_context(target_s: str) -> dict:
                 ) from commit_exc
 
     if commit_shaped:
-        ctx = fetch_raw_commit_context(target_s)
+        ctx = fetch_raw_commit_context(target_s, repo_root)
         return {**ctx, "candidate_type": "commit", "candidate_id": target_s}
 
     return {
@@ -572,7 +592,7 @@ def resolve_target_info(
                 f"--from-json payload 'steps' failed validation: {exc}"
             ) from exc
 
-        context = _gather_raw_context(target_s)
+        context = _gather_raw_context(target_s, config.repo_root)
         classification = _invoke_with_retry(
             lambda: classify_and_summarize(context, target_s, config, llm_callable),
             lambda r: _validate_classification(r, config),
@@ -589,7 +609,7 @@ def resolve_target_info(
             predicate_decision=payload.get("predicate_decision", {}),
         )
 
-    context = _gather_raw_context(target_s)
+    context = _gather_raw_context(target_s, config.repo_root)
     classification = _invoke_with_retry(
         lambda: classify_and_summarize(context, target_s, config, llm_callable),
         lambda r: _validate_classification(r, config),

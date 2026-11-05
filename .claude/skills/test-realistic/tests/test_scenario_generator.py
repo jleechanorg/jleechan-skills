@@ -22,6 +22,7 @@ from scenario_generator import (
     _validate_authored_steps,
     _validate_classification,
     build_classify_schema,
+    fetch_raw_commit_context,
     fetch_raw_pr_context,
     generate_scenario_files,
     is_doc_target,
@@ -47,7 +48,7 @@ def _minimal_config(tmp_path, **overrides: object) -> ProjectConfig:
 
 
 class TestTargetShapeDetection:
-    def test_pr_context_includes_pinned_patch(self, monkeypatch):
+    def test_pr_context_includes_pinned_patch(self, tmp_path, monkeypatch):
         calls = []
 
         def fake_run(cmd, **kwargs):
@@ -82,7 +83,7 @@ class TestTargetShapeDetection:
 
         monkeypatch.setattr("scenario_generator.subprocess.run", fake_run)
 
-        context = fetch_raw_pr_context("42")
+        context = fetch_raw_pr_context("42", tmp_path)
 
         assert context["head_sha"] == "abc123"
         assert context["base_sha"] == "base456"
@@ -98,7 +99,7 @@ class TestTargetShapeDetection:
             ],
         ]
 
-    def test_pr_context_without_patch_fails_honestly(self, monkeypatch):
+    def test_pr_context_without_patch_fails_honestly(self, tmp_path, monkeypatch):
         def fake_run(cmd, **kwargs):
             if cmd[:3] == ["gh", "pr", "view"]:
                 return subprocess.CompletedProcess(
@@ -118,13 +119,13 @@ class TestTargetShapeDetection:
         monkeypatch.setattr("scenario_generator.subprocess.run", fake_run)
 
         with pytest.raises(ScenarioGenerationError, match="no patch"):
-            fetch_raw_pr_context("42")
+            fetch_raw_pr_context("42", tmp_path)
 
-    def test_freeform_prompt_never_hits_gh_or_git(self):
-        ctx = _gather_raw_context("Preview the banner in 3 modes")
+    def test_freeform_prompt_never_hits_gh_or_git(self, tmp_path):
+        ctx = _gather_raw_context("Preview the banner in 3 modes", tmp_path)
         assert ctx["candidate_type"] == "prompt"
 
-    def test_bare_number_is_pr_shaped(self, monkeypatch):
+    def test_bare_number_is_pr_shaped(self, tmp_path, monkeypatch):
         calls = []
 
         def fail_if_called(cmd, **kwargs):
@@ -134,7 +135,7 @@ class TestTargetShapeDetection:
             return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
 
         monkeypatch.setattr(scenario_generator.subprocess, "run", fail_if_called)
-        _gather_raw_context("999999999")
+        _gather_raw_context("999999999", tmp_path)
         assert calls[0] == [
             "gh",
             "pr",
@@ -151,10 +152,108 @@ class TestTargetShapeDetection:
                 "https://github.com/example/project/pull/41", "42"
             )
 
-    def test_prompt_starting_with_pr_word_but_not_pr_shaped_stays_prompt(self):
+    def test_pr_lookup_uses_configured_repository_root(self, tmp_path, monkeypatch):
+        configured_repo = tmp_path / "configured-repo"
+        caller_repo = tmp_path / "caller-repo"
+        configured_repo.mkdir()
+        caller_repo.mkdir()
+        monkeypatch.chdir(caller_repo)
+        calls = []
+
+        def fake_run(cmd, **kwargs):
+            calls.append((cmd, kwargs.get("cwd")))
+            if kwargs.get("cwd") != str(configured_repo):
+                return subprocess.CompletedProcess(
+                    cmd,
+                    returncode=0,
+                    stdout=json.dumps(
+                        {
+                            "title": "colliding PR from caller repository",
+                            "body": "wrong source",
+                            "headRefOid": "head-b",
+                            "baseRefOid": "base-b",
+                            "url": "https://github.com/org-b/repo-b/pull/42",
+                        }
+                    ),
+                    stderr="",
+                )
+            if cmd[:3] == ["gh", "pr", "view"]:
+                return subprocess.CompletedProcess(
+                    cmd,
+                    returncode=0,
+                    stdout=json.dumps(
+                        {
+                            "title": "configured repository PR",
+                            "body": "configured repository source",
+                            "headRefName": "feature",
+                            "headRefOid": "head-a",
+                            "baseRefOid": "base-a",
+                            "url": "https://github.com/org-a/repo-a/pull/42",
+                            "files": [],
+                        }
+                    ),
+                    stderr="",
+                )
+            return subprocess.CompletedProcess(
+                cmd, returncode=0, stdout="diff --git a/a b/a\n+a\n", stderr=""
+            )
+
+        monkeypatch.setattr("scenario_generator.subprocess.run", fake_run)
+        context = _gather_raw_context("42", configured_repo)
+
+        assert context["title"] == "configured repository PR"
+        assert calls[0][1] == str(configured_repo)
+        assert calls[1][0][2] == "repos/org-a/repo-a/compare/base-a...head-a"
+        assert calls[1][1] == str(configured_repo)
+
+    def test_full_pr_url_is_preserved_for_lookup(self, tmp_path, monkeypatch):
+        target_url = "https://github.com/org-a/repo-a/pull/42"
+        calls = []
+
+        def fake_run(cmd, **kwargs):
+            calls.append(cmd)
+            if cmd[:3] == ["gh", "pr", "view"]:
+                return subprocess.CompletedProcess(
+                    cmd,
+                    returncode=0,
+                    stdout=json.dumps(
+                        {
+                            "headRefOid": "head-a",
+                            "baseRefOid": "base-a",
+                            "url": target_url,
+                        }
+                    ),
+                    stderr="",
+                )
+            return subprocess.CompletedProcess(
+                cmd, returncode=0, stdout="+x\n", stderr=""
+            )
+
+        monkeypatch.setattr("scenario_generator.subprocess.run", fake_run)
+        _gather_raw_context(target_url, tmp_path)
+        assert calls[0][3] == target_url
+
+    def test_prompt_starting_with_pr_word_but_not_pr_shaped_stays_prompt(
+        self, tmp_path
+    ):
         """Round-1 regression guard: 'Probe 5 flows' must never be routed to gh."""
-        ctx = _gather_raw_context("Probe 5 flows in the settings screen")
+        ctx = _gather_raw_context("Probe 5 flows in the settings screen", tmp_path)
         assert ctx["candidate_type"] == "prompt"
+
+    def test_commit_context_uses_configured_repository_root(
+        self, tmp_path, monkeypatch
+    ):
+        calls = []
+
+        def fake_run(cmd, **kwargs):
+            calls.append(kwargs.get("cwd"))
+            return subprocess.CompletedProcess(
+                cmd, returncode=0, stdout="abc123 change\n  file.py | 1 +\n", stderr=""
+            )
+
+        monkeypatch.setattr("scenario_generator.subprocess.run", fake_run)
+        fetch_raw_commit_context("abc123", tmp_path)
+        assert calls == [str(tmp_path)]
 
 
 class TestIsDocTarget:

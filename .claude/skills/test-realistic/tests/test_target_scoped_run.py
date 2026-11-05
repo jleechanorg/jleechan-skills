@@ -10,12 +10,15 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
+import types
 from pathlib import Path
 
 import pytest
 import yaml
 from feature_coverage_judge import CoverageJudgeUnavailableError, CoverageVerdict
 from target_scoped_run import (
+    _dispatch_excuse_decision,
     build_dispatch_command,
     collect_pre_existing_artifacts,
     main,
@@ -30,9 +33,14 @@ dispatch_command = ["python3", "dispatch.py", "--output-root", "{{output_root}}"
 """
 
 
-def _setup_project(tmp_path: Path) -> Path:
+def _setup_project(
+    tmp_path: Path, runner_excuse_predicate: str | None = None
+) -> Path:
     config_path = tmp_path / ".test-realistic.toml"
-    config_path.write_text(CONFIG_TOML.format(repo_root=tmp_path))
+    contents = CONFIG_TOML.format(repo_root=tmp_path)
+    if runner_excuse_predicate:
+        contents += f'\nrunner_excuse_predicate = "{runner_excuse_predicate}"\n'
+    config_path.write_text(contents)
     return config_path
 
 
@@ -340,3 +348,51 @@ class TestMainGreen:
             judge_fn=passing_judge,
         )
         assert rc == 1  # even a passing judge doesn't excuse a crashed dispatcher by default
+
+    def test_string_false_excuse_result_does_not_hide_dispatch_failure(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.chdir(tmp_path)
+        _setup_project(tmp_path, "excuse_fixture:decide")
+        pool_path = _write_pool(tmp_path)
+        scenario_path = _write_scenario(tmp_path)
+        output_root = tmp_path / "out-excuse-string"
+        module = types.ModuleType("excuse_fixture")
+        module.decide = lambda returncode, root: {
+            "applied": "false",
+            "reason": "malformed hook result",
+        }
+        monkeypatch.setitem(sys.modules, "excuse_fixture", module)
+
+        def failed_dispatch(cmd, check=False, cwd=None):
+            _write_capture(output_root, "0", [{"rendered": {"body_text": "hi"}}])
+            return subprocess.CompletedProcess(cmd, returncode=1)
+
+        rc = main(
+            [
+                "--pool",
+                str(pool_path),
+                "--scenario",
+                str(scenario_path),
+                "--output-root",
+                str(output_root),
+                "--allow-dispatch-excuse",
+            ],
+            subprocess_runner=failed_dispatch,
+            judge_fn=lambda summary, turns: {
+                "exercised": True,
+                "evidence_turn_indices": [0],
+                "rationale": "seen",
+            },
+        )
+        assert rc == 1
+
+    def test_excuse_decision_preserves_actual_true_and_false(self, tmp_path):
+        for value in (True, False):
+            decision = _dispatch_excuse_decision(
+                1,
+                True,
+                lambda returncode, root, applied=value: (applied, "typed result"),
+                tmp_path,
+            )
+            assert decision["applied"] is value
