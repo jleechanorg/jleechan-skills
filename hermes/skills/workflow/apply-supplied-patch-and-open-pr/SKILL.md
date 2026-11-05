@@ -1,12 +1,13 @@
 ---
 name: apply-supplied-patch-and-open-pr
-version: 1.3.1
+version: 1.3.2
 description: |
   When a user (often via Slack, GitHub, or email) sends a pre-built patch + a
   structured instructions file (UPSTREAM-PROMPT.md style) and asks you to open
-  the PR — clone the target repo, branch from origin/main, git am the patch,
-  run the user's listed test suites verbatim, push, and open the PR with the
-  title/body the user supplied. Distinct from `always-pr-never-local-edit`
+  the PR — clone the target repo, branch from origin/main, apply the patch
+  only after the fresh base/drift check below, run the user's listed test
+  suites verbatim, push, and open the PR with the title/body the user
+  supplied. Distinct from `always-pr-never-local-edit`
   (which dispatches fix-X work to AO), and from `github-pr-workflow` (general
   PR lifecycle); this is the bounded "land this patch" workflow where the
   intent, title, body, and verification gates are pre-specified.
@@ -21,7 +22,8 @@ description: |
   must be re-derived on current main, not replayed; includes the
   content-multiset preservation proof and the draft-PR baseline probe for
   inherited CI failures). Verified case 2026-11-04, jleechan-skills
-  pr-lifecycle compaction bundle.
+  pr-lifecycle compaction bundle. v1.3.2 makes every replay entry point
+  require a fresh P14 decision and limits the helper to exact-base matches.
 
 when_to_use: |
   - User message has an attached `.patch`/`.diff` file AND a text description
@@ -74,9 +76,12 @@ This is the right skill when ALL of the following hold:
    - The list of test suites to run (e.g. `tests/test_safety_lib.sh`)
    - The PR title + body template
    - Whether to merge or leave for review
-3. The work is **bounded** — pre-specified, not iterate-to-green. If the patch
-   doesn't apply cleanly, fall back to `git apply --3way` per the instructions,
-   then conflict resolution per the recipe below.
+3. The work is **bounded** — pre-specified, not iterate-to-green. Before any
+   replay, freshly compare the supplied patch base with `origin/main` and use
+   Step 1's P14 decision. A failed `git am`, a conflict, or a helper's result
+   does not establish that drift is cosmetic. Use `git apply --3way` only in
+   the manual flow after P14 records cosmetic-only drift as safe to replay;
+   policy or unknown drift requires re-deriving on current `main`.
 
 If ANY of these is missing (no patch, no instructions, OR unclear target),
 this is NOT the right skill — fall back to either:
@@ -136,7 +141,7 @@ gh api "repos/<OWNER>/<REPO>/branches?per_page=100" \
 | Finding | Action |
 |---|---|
 | Auth OK, repo exists, HEAD matches the patch's base SHA exactly (`git log --oneline origin/main -1` returns the SHA named in the patch message) | Proceed — `git am` will apply cleanly |
-| Auth OK, repo exists, HEAD differs from the patch base SHA | **Decide first whether the bundle is still valid** — run the drift check in Pitfall P14. If the newer commits only reflow the same prose, `git am`, abort on conflict and use `git apply --3way <patch>`, resolve, then commit. If the newer commits carry policy the bundle predates (new routing tables, gates or helper scripts), do **not** replay: re-derive on current `main` per P14. Expected cosmetic conflict points are `pyproject.toml` version bump and a `CLAUDE.md` append |
+| Auth OK, repo exists, HEAD differs from the patch base SHA | **Do not invoke a replay command or helper yet.** Run a fresh P14 drift decision first. If drift adds, may add, or cannot be ruled out as carrying newer policy, do **not** replay; re-derive on current `main`. Only after the recorded P14 decision classifies the drift as cosmetic-only may the manual flow replay it. A conflict or successful helper run is not a policy decision. |
 | Auth OK, repo exists, but PR for this branch/topic already exists | STOP. Confirm with the user — do NOT push onto a non-owned PR head (see `pr-cleanup-replay` skill, Phase -1). Either push to the existing branch and comment on the PR, OR close the existing PR and open a fresh one. |
 | **A prior-session PR for the SAME topic is OPEN but the new patch is a "refreshed/supersedes" version** (new instructions file says "REFRESHED … supersedes the YYYY-MM-DD patch", OR the existing PR's base SHA is N commits behind current `origin/main`) | This is the **supersede pattern** — see Pitfall P7. Open a NEW branch from current `origin/main` (e.g. `<branch>-v2`), apply the refreshed patch, open a NEW PR, then **close the prior PR with a "superseded by #N" comment** linking to the new PR. Do NOT rebase the prior PR; do NOT push onto its branch head. The new PR is the source of truth. |
 | A related branch exists with the same topic but not yet PR'd | Inspect it: `gh api .../compare/<patch-base-sha>...heads/<related-branch>` — if `ahead_by > 0` and the topic matches, consider whether to push onto that branch instead of opening a parallel one |
@@ -168,11 +173,15 @@ divergence error. A scratch dir is fully isolated.
 git checkout -B <branch-name> origin/main
 git rev-parse HEAD  # confirm same as origin/main
 
-# Apply the patch (provided the base SHA matches)
+# Apply only after the fresh Step 1/P14 decision: exact base match permits the
+# normal replay; cosmetic-only drift permits manual replay only after that
+# classification is recorded. Policy or unknown drift must be re-derived.
 git am <path-to-patch>
 echo "git am exit: $?"
 
-# If git am fails (HEAD has moved past the patch base):
+# If git am fails, do not infer that the drift is cosmetic and do not fall back
+# automatically. Re-run P14 against freshly fetched origin/main. Use the
+# manual fallback below only when that decision records cosmetic-only drift:
 #   1. git am --abort
 #   2. git apply --3way <patch>
 #   3. Resolve conflicts per the instructions file (often only pyproject.toml
@@ -286,8 +295,11 @@ on a NEW branch from `origin/main`, leaving the existing PR alone.
 
 ### P2 — The instructions file lists "git am" but `git am` fails
 
-The instructions file usually has a section like "If `git am` fails... use
-`git apply --3way`". But the actual conflict resolution is project-specific.
+The instructions file may say "If `git am` fails... use `git apply --3way`".
+Do not follow that fallback automatically: first make a fresh P14 decision.
+Use the manual conflict-resolution flow below only after recording that drift
+is cosmetic-only; policy or unknown drift must be re-derived on current `main`.
+The actual conflict resolution is also project-specific.
 Common conflict points across `jleechanorg/*` repos:
 
 - **`pyproject.toml` version bump** — instructions usually say "take the
@@ -720,8 +732,9 @@ supersedes the 2026-07-15 patch."
    (P1 applies: that branch is owned by the prior session's commit, and
    `git push --force` onto it would rewrite history that other PRs may
    reference).
-2. Apply the refreshed patch on the fresh branch (the new patch's base SHA
-   should match current `origin/main`).
+2. Fetch `origin/main` and verify the refreshed patch's stated base SHA matches
+   it immediately before applying. If it does not, stop and make the fresh
+   Step 1/P14 drift decision; do not infer safety from a clean apply.
 3. Open the NEW PR; in the body, reference the prior PR explicitly:
    `> **Note:** this PR **supersedes** [PR #N](...) — the <date> patch
    against base \`<prior-base-sha>\`. PR #N is now <N> commits behind main;
@@ -761,16 +774,18 @@ whose "ours" side would have reverted table-selected source review.
 
 Diagnose before you resolve:
 
-1. **Confirm the bundle is intact** — `git am --3way` at the stated base, then compare
-   `git rev-parse HEAD^{tree}` to the hash in the handoff README. A mismatch means the bundle is
-   corrupt; stop.
+1. **Confirm the bundle is intact in an isolated checkout of its stated base** —
+   `git am --3way` there, then compare `git rev-parse HEAD^{tree}` to the hash in
+   the handoff README. This checks archive integrity only; it does not authorize
+   replay on current `origin/main`. A mismatch means the bundle is corrupt; stop.
 2. **Measure drift** — `git rev-list --count <base>..origin/main` and
    `git diff --name-only <base>..origin/main`. Intersect that with the patch series's own file list.
    Zero drift → normal `git am`. Non-zero → step 3.
-3. **Classify each conflict, do not merge it** — if the "theirs" side carries *policy* the bundle
-   predates (new routing tables, new gates, new helper scripts), the bundle is superseded. A merge
-   commit here silently reverts policy while looking like a clean conflict resolution. If the other
-   side is only cosmetic reflow, take the bundle side.
+3. **Classify drift before resolving conflicts** — if the newer side carries or may carry *policy* the
+   bundle predates (new routing tables, new gates or helper scripts), or the classification is
+   uncertain, the bundle is superseded. Do not replay or resolve it; re-derive on current `main`. Only
+   when a fresh comparison records cosmetic-only drift as safe may the manual replay/conflict flow
+   continue. A merge commit can silently revert policy while looking like a clean resolution.
 4. **Re-derive on current `main` instead of replaying.** For a split/compaction bundle the mechanical
    form works well: parse `main`'s file by heading, move each block **verbatim** into its new part,
    and leave a one-line pointer where it was. Moving text verbatim still changes *which instructions an
@@ -887,8 +902,12 @@ might already be in progress" + 2 file attachments:
 
 - `scripts/apply_patch_and_open_pr.sh` — end-to-end shell recipe for the
   pre-flight + clone + branch + git am + test + push + pr-create sequence.
-  Re-runnable; takes `<OWNER>/<REPO>` `<branch>` `<patch>` `<instructions>`
-  as positional args.
+  It does not classify whether newer commits carry policy and its exit status
+  is not P14 approval. Invoke it only after freshly verifying that the supplied
+  patch base exactly matches current `origin/main`. Do not invoke it on any
+  drifted base, even for cosmetic-only drift; after a recorded cosmetic-only
+  P14 decision, use the manual flow instead. It takes `<OWNER>/<REPO>`
+  `<branch>` `<patch>` `<instructions>` as positional args.
 - `references/pre-existing-failure-attribution.md` — the 5-step
   stash/reset/restore protocol for machine-checking that a test failure
   is pre-existing on `origin/main` (companion to P10; used to satisfy
