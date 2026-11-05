@@ -35,6 +35,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import urlparse
 
 from config import ProjectConfig
 
@@ -132,6 +133,33 @@ def _format_pr_context_extras(context: dict) -> str:
     return ("\n".join(parts) + "\n") if parts else ""
 
 
+def _repository_from_pr_url(pr_url: object, pr_num: str) -> str:
+    """Extract an owner/repository from a validated GitHub pull request URL."""
+    if not isinstance(pr_url, str):
+        raise ScenarioGenerationError(
+            f"gh pr view returned no PR URL for PR #{pr_num}"
+        )
+    parsed = urlparse(pr_url)
+    match = re.fullmatch(
+        r"/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/pull/(\d+)/?",
+        parsed.path,
+    )
+    if (
+        parsed.scheme != "https"
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+        or match is None
+        or match.group(3) != pr_num
+    ):
+        raise ScenarioGenerationError(
+            f"gh pr view returned an invalid PR URL for PR #{pr_num}"
+        )
+    return f"{match.group(1)}/{match.group(2)}"
+
+
 def fetch_raw_pr_context(pr_num: str) -> dict:
     """Fetch metadata and the pinned PR patch using gh, failing loud on gaps."""
     try:
@@ -142,7 +170,7 @@ def fetch_raw_pr_context(pr_num: str) -> dict:
                 "view",
                 pr_num,
                 "--json",
-                "title,body,headRefName,headRefOid,baseRefOid,files,repository",
+                "title,body,headRefName,headRefOid,baseRefOid,files,url",
             ],
             capture_output=True,
             text=True,
@@ -161,16 +189,11 @@ def fetch_raw_pr_context(pr_num: str) -> dict:
             f"gh pr view returned no pinned headRefOid for PR #{pr_num}"
         )
     base_sha = data.get("baseRefOid")
-    repository = data.get("repository")
-    repo_name = repository.get("nameWithOwner") if isinstance(repository, dict) else None
     if not isinstance(base_sha, str) or not base_sha.strip():
         raise ScenarioGenerationError(
             f"gh pr view returned no pinned baseRefOid for PR #{pr_num}"
         )
-    if not isinstance(repo_name, str) or not repo_name.strip():
-        raise ScenarioGenerationError(
-            f"gh pr view returned no repository name for PR #{pr_num}"
-        )
+    repo_name = _repository_from_pr_url(data.get("url"), pr_num)
     try:
         diff_res = subprocess.run(
             [

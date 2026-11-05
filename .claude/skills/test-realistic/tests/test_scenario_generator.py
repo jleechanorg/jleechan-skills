@@ -18,6 +18,7 @@ import scenario_generator
 from scenario_generator import (
     ScenarioGenerationError,
     _gather_raw_context,
+    _repository_from_pr_url,
     _validate_authored_steps,
     _validate_classification,
     build_classify_schema,
@@ -62,7 +63,7 @@ class TestTargetShapeDetection:
                             "headRefName": "feature",
                             "headRefOid": "abc123",
                             "baseRefOid": "base456",
-                            "repository": {"nameWithOwner": "example/project"},
+                            "url": "https://github.com/example/project/pull/42",
                             "files": [{"path": "app.py", "additions": 2, "deletions": 1}],
                         }
                     ),
@@ -84,9 +85,10 @@ class TestTargetShapeDetection:
         context = fetch_raw_pr_context("42")
 
         assert context["head_sha"] == "abc123"
+        assert context["base_sha"] == "base456"
         assert "+real change" in context["pr_diff"]
         assert calls == [
-            ["gh", "pr", "view", "42", "--json", "title,body,headRefName,headRefOid,baseRefOid,files,repository"],
+            ["gh", "pr", "view", "42", "--json", "title,body,headRefName,headRefOid,baseRefOid,files,url"],
             [
                 "gh",
                 "api",
@@ -106,7 +108,7 @@ class TestTargetShapeDetection:
                         {
                             "headRefOid": "abc123",
                             "baseRefOid": "base456",
-                            "repository": {"nameWithOwner": "example/project"},
+                            "url": "https://github.com/example/project/pull/42",
                         }
                     ),
                     stderr="",
@@ -139,9 +141,15 @@ class TestTargetShapeDetection:
             "view",
             "999999999",
             "--json",
-            "title,body,headRefName,headRefOid,baseRefOid,files,repository",
+            "title,body,headRefName,headRefOid,baseRefOid,files,url",
         ]
         assert calls[1] == ["git", "show", "--stat", "--oneline", "999999999"]
+
+    def test_pr_url_must_match_requested_number(self):
+        with pytest.raises(ScenarioGenerationError, match="invalid PR URL"):
+            _repository_from_pr_url(
+                "https://github.com/example/project/pull/41", "42"
+            )
 
     def test_prompt_starting_with_pr_word_but_not_pr_shaped_stays_prompt(self):
         """Round-1 regression guard: 'Probe 5 flows' must never be routed to gh."""
