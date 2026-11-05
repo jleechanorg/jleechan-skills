@@ -1,6 +1,6 @@
 ---
 name: conversation-history-sparse
-description: Sparse conversation history triage through available conversation connectors and permitted Claude Code, Codex, Hermes, agy CLI, and Cursor sources with strict context budgets. Default for `/history`; report actual source coverage.
+description: Sparse conversation history triage through available conversation connectors and permitted Claude Code, Codex, Hermes, agy CLI, Cursor, and Pi coding-agent sources with strict context budgets. Default for `/history`; report actual source coverage.
 type: analysis
 scope: project
 ---
@@ -46,6 +46,7 @@ Infer the current topic or directory/worktree/branch intent from admitted conver
 - `~/.hermes/state.db`  (Hermes messages, FTS5)
 - `~/.gemini/antigravity-cli/conversation_summaries.db` (agy CLI SQLite summaries + brain logs)
 - `~/.cursor/prompt_history.json` + `~/.cursor/chats/` + `~/.cursor/projects/*/agent-transcripts/` (Cursor)
+- `~/.pi/agent/sessions/--<encoded-cwd>--/*.jsonl` (Pi coding-agent JSONL; `PI_CODING_AGENT_SESSION_DIR` overrides the root)
 
 Use this skill whenever `/history` runs without `--deep`, when you need orientation
 without loading full transcripts, or when you want a quick multi-source sweep.
@@ -61,7 +62,7 @@ plugin/source checkout and use its resolved absolute path; do not assume the
 current repository contains it. If neither is available, continue bounded
 read-only source queries and report the missing helper.
 
-Invoke the helper only after source admission. Its default searches all five
+Invoke the helper only after source admission. Its default searches all six
 local sources and its Codex default includes both active and default homes.
 Use one admitted `--source` per invocation and explicit `--codex-home` values
 for Codex. Do not invoke the default/all-source form unless every reachable
@@ -125,6 +126,7 @@ ANSI = {
     "hermes": "\033[35m",      # magenta
     "agy":    "\033[33m",      # yellow
     "cursor": "\033[32m",      # green
+    "pi":     "\033[95m",      # bright magenta
     "head":   "\033[1;37m",    # bold white
     "match":  "\033[1;33m",    # bold yellow (substring highlight)
     "dim":    "\033[2m",
@@ -154,8 +156,9 @@ def head(text: str) -> str:
 ```
 
 Use `ansify("claude", "...", query)`, `ansify("codex", "...", query)`,
-`ansify("hermes", "...", query)`, `ansify("agy", "...", query)`, and
-`ansify("cursor", "...", query)` for each result line. Wrap section headers in
+`ansify("hermes", "...", query)`, `ansify("agy", "...", query)`,
+`ansify("cursor", "...", query)`, and `ansify("pi", "...", query)` for each
+result line. Wrap section headers in
 `head(...)`. The Query itself is **always** a literal substring highlight (display
 only); it never drives routing or intent — the workflow above decides.
 
@@ -503,7 +506,30 @@ print(ansify("cursor", "source coverage: " + json.dumps(coverage, sort_keys=True
 > zero hits; missing sources and read/parse errors have their own statuses.
 
 
-### 8) Synthesize result
+### 8) Sample Pi coding-agent sessions (sparse JSONL)
+
+Pi stores sessions under `~/.pi/agent/sessions/`, grouped by working directory.
+Each group directory encodes the cwd by removing the leading separator and
+replacing `/`, `\`, and `:` with `-`, wrapped in `--`
+(`/path/to/project` -> `--path-to-project--`). Override the root with
+`PI_CODING_AGENT_SESSION_DIR` or the helper's `--source pi` default. Sessions
+are read-only JSONL; never dump full transcript lines, and never sample system
+prompts, thinking blocks, or tool-result payloads. Wrap every result line with
+`ansify("pi", ..., query)` so the label is bright magenta.
+
+```bash
+python3 "$HISTORY_HELPER" --source pi --limit 5 --max-chars 200 -- "$HIST_QUERY"
+
+# Structured output for an audit (per-match metadata.file/path/model/is_user)
+python3 "$HISTORY_HELPER" --source pi --limit 5 --max-chars 200 --json -- "$HIST_QUERY"
+```
+
+Each match includes `metadata.session_cwd` (decoded from the session header),
+`metadata.model` when an assistant message records one, and `metadata.is_user`.
+The helper cwd-scopes candidates using the encoded directory name, so sessions
+from the current worktree are preferred before other projects.
+
+### 9) Synthesize result
 
 Return:
 - Current task intent, and branch/PR intent from git when available.
@@ -514,6 +540,7 @@ Return:
 - Recent Hermes hits with bounded snippets (200 characters by default).
 - Recent agy conversations (preview/title only).
 - Recent Cursor prompts (one-liner each).
+- Recent Pi prompts (one-liner each; decoded session cwd as the label).
 - One concise statement: "This worktree appears focused on X because Y+Z evidence."
 
 ## Output Template
@@ -547,6 +574,11 @@ Branch/PR:
                                   ↑ green label
                                   "scaffold" highlighted yellow
 
+🧭 Pi (N matches)                ← head() — bold white
+  [Pi] 2026-10-17 | /path/to/project | Add pi history to the sparse search
+                                  ↑ bright-magenta label
+                                  "Pi" highlighted yellow
+
 Inference:
 - ...
 ```
@@ -564,11 +596,11 @@ historical transcripts to make them agree with present policy.
 - Open Hermes DB **and agy conversation_summaries.db** with `mode=ro` URI —
   never write to `~/.hermes/state.db` or `~/.gemini/antigravity-cli/`.
 - Do not modify `~/.claude/projects`, any selected Codex home's sessions, `~/.cursor/chats/`,
-  or `~/.gemini/history.jsonl`.
+  `~/.pi/agent/sessions/`, or `~/.gemini/history.jsonl`.
 - Keep excerpts short to avoid pulling excessive context into the session.
 - ANSI highlighting is **display-only** — never let it influence search/routing.
 - When the user types `/history --deep`, load `history-search` from the live
   skill catalog or its resolved installed path only if available. Keep the same
   source admission and permissions, choose explicit finite larger budgets, and
   report coverage. If unavailable, deepen only admitted connector/local queries
-  with stated budgets; do not assume seven sources or grant new access.
+  with stated budgets; do not assume a fixed source count or grant new access.

@@ -166,6 +166,12 @@ subprocess also exited 0 (or was explicitly excused via
    fabricate a verdict or fall back to a keyword/token heuristic.
 6. A capture produced without a real browser and a real model call is not
    valid evidence for this pipeline -- there is no mock mode.
+7. `target_pass` proves the feature was exercised, not that it behaved
+   correctly. A forbidden-state requirement (e.g. no request while consent is
+   off) needs an explicit predicate or an independent check of the raw request
+   ledger; an empty `predicates` list cannot back it, and an observed violation
+   is a FAIL (`evidence-review` check 9). After a hard judge failure, a
+   separately launched re-judge of the same captures does not make the run pass.
 
 ## Directory layout
 

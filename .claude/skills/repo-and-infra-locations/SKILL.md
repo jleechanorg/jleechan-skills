@@ -55,4 +55,4 @@ Key: 2000 (AI Universe), 3000-3099 (AI Universe frontend), 6000-6101 (Conversati
 
 - **Claude Code global config**: `~/.claude/CLAUDE.md`
 - **Codex global config**: `~/.codex/AGENTS.md`
-- **Hermes agent model config**: `~/.claude/skills/hermes-models.md`
+- **Hermes agent model config**: `~/.claude/skills/hermes-models/SKILL.md`

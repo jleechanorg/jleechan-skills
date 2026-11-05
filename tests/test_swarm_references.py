@@ -90,11 +90,10 @@ NON_COMMAND_TOKENS = {
 }
 
 # Regex: single path segment (no further `/` before or after), starts with a
-# letter, not preceded by a word char or `/` (so it doesn't match mid-path
-# segments like the second `/STATE` in `/tmp/x/STATE.md` — wait, STATE is
-# still isolated by `/` on both sides there, hence NON_COMMAND_TOKENS above).
+# letter, not preceded by a word char or `/`; hyphens are also token
+# boundaries, preventing a match on only the prefix of a longer path segment.
 # Matches both backtick-wrapped (`` `/foo` ``) and bare prose (`/foo`) tokens.
-SLASH_TOKEN_RE = re.compile(r"(?<![\w/])/([A-Za-z][A-Za-z0-9_-]*)(?![\w/])")
+SLASH_TOKEN_RE = re.compile(r"(?<![\w/])/([A-Za-z][A-Za-z0-9_-]*)(?![\w/-])")
 
 
 class SwarmReferencesResolveTest(unittest.TestCase):
@@ -136,6 +135,7 @@ class SwarmReferencesResolveTest(unittest.TestCase):
         )
 
     def test_no_untriaged_slash_tokens(self):
+        self.assertIsNone(SLASH_TOKEN_RE.search("/parallelize-to-ceiling/SKILL.md"))
         found = {f"/{m.group(1)}" for m in SLASH_TOKEN_RE.finditer(self.text)}
         known = set(REFERENCED_COMMANDS) | set(NON_COMMAND_TOKENS)
         untriaged = sorted(found - known)

@@ -155,13 +155,9 @@ else
                     echo "❌ Failed to fetch origin/$REMOTE_BRANCH"
                     exit 1
                 fi
-                if ! git reset --hard "origin/$REMOTE_BRANCH"; then
-                    echo "❌ Failed to reset to remote state"
-                    exit 1
-                fi
-                echo "✅ Content synced to remote state"
-                echo "📍 Stayed on $CURRENT_BRANCH and replaced content from origin/$REMOTE_BRANCH."
-                HEAD_BRANCH="$CURRENT_BRANCH"
+                echo "❌ Target branch is in use and no safe sync checkout could be created."
+                echo "Preserved $CURRENT_BRANCH and its worktree unchanged; retry with an approved isolated worktree."
+                exit 1
             fi
         fi
     else
@@ -173,17 +169,14 @@ else
                 SWITCHED_TO_TARGET=true
             else
                 echo "❌ Failed to create branch $HEAD_BRANCH"
-                echo "🔄 Syncing content on current branch instead..."
+                echo "🔄 Preserving the current branch; will not replace its content..."
                 if ! git fetch origin "$REMOTE_BRANCH"; then
                     echo "❌ Failed to fetch origin/$REMOTE_BRANCH"
                     exit 1
                 fi
-                if ! git reset --hard "origin/$REMOTE_BRANCH"; then
-                    echo "❌ Failed to reset to remote state"
-                    exit 1
-                fi
-                echo "✅ Content synced to remote state"
-                HEAD_BRANCH="$CURRENT_BRANCH"
+                echo "❌ Could not create the target branch safely."
+                echo "Preserved $CURRENT_BRANCH and its worktree unchanged; retry with an approved isolated worktree."
+                exit 1
             fi
         else
             # Edge case: Already on a branch with target name but ref doesn't exist
@@ -194,11 +187,10 @@ else
                 echo "❌ Failed to fetch origin/$REMOTE_BRANCH"
                 exit 1
             fi
-            if ! git reset --hard "origin/$REMOTE_BRANCH"; then
-                echo "❌ Failed to reset to remote state"
+            if ! git merge --ff-only "origin/$REMOTE_BRANCH"; then
+                echo "❌ Fast-forward sync is unavailable; preserved local changes and stopped."
                 exit 1
             fi
-            echo "✅ Content synced to remote state on $CURRENT_BRANCH"
         fi
     fi
 
@@ -210,15 +202,11 @@ else
 
         # Pull latest changes
         echo "⬇️ Pulling latest changes..."
-        if git pull origin "$REMOTE_BRANCH" 2>/dev/null; then
+        if git pull --ff-only origin "$REMOTE_BRANCH" 2>/dev/null; then
             echo "✅ Successfully pulled changes"
         else
-            echo "⚠️ Pull failed, trying to reset to remote state..."
-            if ! git reset --hard origin/"$REMOTE_BRANCH"; then
-                echo "❌ Failed to reset to remote state"
-                exit 1
-            fi
-            echo "✅ Reset to remote state successful"
+            echo "⚠️ Fast-forward pull failed; preserving the worktree and stopping."
+            exit 1
         fi
     else
         echo "⚠️ Skipping upstream tracking (fell back to $HEAD_BRANCH, not target branch)"

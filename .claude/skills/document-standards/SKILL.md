@@ -29,7 +29,7 @@ real, full pass when installed; substitute an equivalent if you have one.
 | Thermo-nuclear code quality | Pattern source for the doc-audit rubric in lane 4 |
 | Writer | Prose-level AI-tell, voice, and rhythm rules (optional polish pass) |
 | gdocs-access | Google Docs tool order and edit-in-place rules |
-| pr-description-sections | Durable-state writing, zero-context reader, section order, User Story requirement |
+| pr-description-sections | Pointer to the shared PR-description owner and target-repository template |
 
 ## Universal lanes
 
@@ -93,8 +93,9 @@ real, full pass when installed; substitute an equivalent if you have one.
      defect.
    - One voice, one tense (present for current state).
    - **PR descriptions**: when the target is a PR description (or the repo's
-     `.github/pull_request_template.md`), the Background/Summary section is
-     followed by a **User Story** stated in plain, non-technical language —
+     `.github/pull_request_template.md`), include a **User Story** in the
+     order required by `~/.codex/AGENTS.md` § PR descriptions and the target
+     repository's template. State it in plain, non-technical language —
      what does the user encounter today (the problem/friction/bug) and what
      changes for them after this PR, with no jargon or internal file/function
      names. An implementation summary ("refactors X to use Y") does not
@@ -107,8 +108,9 @@ real, full pass when installed; substitute an equivalent if you have one.
      link is additional context, not a substitute for the one-sentence
      before/after; a bare link with no sentence does not satisfy this section.
      If the PR introduces new user-facing behavior with none, flag that a
-     story doc should be added. See the `pr-description-sections` skill for
-     the canonical section list.
+     story doc should be added. See `~/.codex/AGENTS.md` § PR descriptions
+     (canonical owner) for the shared structure, and the target repository's
+     instructions and template for local requirements.
    - **Run the AI-tell sub-pass** (catalogue and discriminator below) over the
      doc's own prose. This is a required part of lane 3, not optional polish.
      The `writer` skill's lexicon and rhythm rules, if installed, extend it.
@@ -149,9 +151,11 @@ real, full pass when installed; substitute an equivalent if you have one.
      URL, say so inline ("no tracking issue exists") rather than leaving a bare
      identifier — the absence is itself information. Cross-surface docs link
      *to each other* both ways, so neither is a dead end.
-   - Formatting invariants: times in the reader's local timezone (never UTC
-     unless the audience is global); paths `~/`-relative (never literal home
-     directories); effort as delta LOC/files/PRs, never calendar time.
+   - Use the audience's timezone and the active interface's supported links.
+     Follow the artifact owner's absolute-path requirement in local reports;
+     exported portable instructions use generic paths. Measure scope with line,
+     file and PR deltas; include labeled time estimates when scheduling or the
+     parallel-workflow owner requires them.
    - Surface-render check: before delivery, open the doc in its target surface
      (rendered Markdown, HTML, or Google Doc) and check for escaping artifacts
      (literal `\n`, vertical tabs, eaten line-continuations), broken tables,
@@ -172,7 +176,8 @@ real, full pass when installed; substitute an equivalent if you have one.
    - Multi-surface sync: when the doc exists in N surfaces (local md, gdoc,
      repo mirror), name all N; a revision lands on all of them in the same
      work block or carries an explicit "surfaces pending" note. "Updated"
-     means pushed and URL-verifiable.
+     must distinguish local edits, published artifacts and installed copies.
+     A publication claim requires a successful push and a verified artifact URL.
 
 ## AI-tell sub-pass (runs inside lane 3)
 
@@ -320,4 +325,3 @@ should still run the lanes), do not run lanes and do not edit files. Report:
 `/code-standards` reviews code, diffs, and PRs; `/document-standards` reviews
 prose. When a PR changes both, run both commands against their respective
 surfaces. Neither replaces the other.
-

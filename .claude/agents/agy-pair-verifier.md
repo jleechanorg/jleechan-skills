@@ -43,15 +43,40 @@ if [ -n "$INHERITED_STATUS" ]; then
 fi
 REVISION="<exact git SHA from IMPLEMENTATION_READY>"
 
-# Workspace setup: The caller decides whether to allocate a dedicated detached
+# Workspace setup: The caller decides whether to allocate a dedicated branch
 # worktree or verify directly in the caller's workspace.
-# When worktree isolation is used, pin this verifier attempt to Revision in its
-# own fresh detached worktree:
-VERIFIER_WORKTREE="$(mktemp -d -t agy_verifier_worktree.XXXXXX)"
-if ! git worktree add --detach "$VERIFIER_WORKTREE" "$REVISION"; then
-    echo "Rejecting verifier worktree creation."
+# When worktree isolation is used, choose a new branch absent from local and
+# origin refs and a fresh worktree name, then pin it to Revision:
+VERIFIER_ATTEMPT_ID="<fresh unique attempt identifier>"
+VERIFIER_BRANCH="agy-verifier-$VERIFIER_ATTEMPT_ID"
+VERIFIER_WORKTREE_NAME="agy-verifier-$VERIFIER_ATTEMPT_ID"
+for BRANCH_REF in "refs/heads/$VERIFIER_BRANCH" "refs/remotes/origin/$VERIFIER_BRANCH"; do
+    if git show-ref --verify --quiet "$BRANCH_REF"; then
+        echo "Choose an unused verifier branch." >&2
+        exit 1
+    else
+        REF_STATUS=$?
+        if [ "$REF_STATUS" -ne 1 ]; then
+            echo "Could not inspect verifier branch references." >&2
+            exit 1
+        fi
+    fi
+done
+if ! VERIFIER_WORKTREE="$(diskm worktree-new <repo-path> "$VERIFIER_BRANCH" \
+    --base "$REVISION" --name "$VERIFIER_WORKTREE_NAME")"; then
+    echo "Could not create verifier worktree." >&2
     exit 1
 fi
+if [ -z "$VERIFIER_WORKTREE" ]; then
+    echo "diskm returned no verifier worktree path." >&2
+    exit 1
+fi
+case "$VERIFIER_WORKTREE" in
+    "$HOME"/.worktrees/*) ;;
+    *) echo "Rejecting verifier worktree outside ~/.worktrees." >&2; exit 1 ;;
+esac
+# Use the approved worktree-creation path, never `mktemp -d` plus raw
+# `git worktree add`. Create it at REVISION and verify the returned path is allowed.
 if ! VERIFIER_HEAD="$(git -C "$VERIFIER_WORKTREE" rev-parse HEAD)"; then
     echo "Rejecting verifier worktree without a readable revision."
     exit 1
@@ -68,7 +93,7 @@ if [ -n "$VERIFIER_STATUS" ]; then
     echo "Rejecting dirty verifier worktree."
     exit 1
 fi
-# Enter the fresh worktree (the fresh detached worktree) before reading files
+# Enter the fresh branch worktree before reading files
 # or running checks; it must be disjoint from the other lane and every prior
 # verifier attempt.
 cd "$VERIFIER_WORKTREE"
@@ -115,9 +140,10 @@ Do NOT use `--sandbox` (terminal restrictions break test execution).
 
 1. On IMPLEMENTATION_READY: read the claimed summary, files, tests, exact
    `Revision`, and absolute `Worktree`. Reject dirty inherited state. When
-   worktree isolation is used, create a fresh detached worktree pinned to
-   Revision, verify its `git rev-parse HEAD` must equal `$REVISION`, and
-   confirm `git status --porcelain` is empty before running checks.
+   worktree isolation is used, use a new branch absent from local and origin refs
+   and a fresh worktree name, create it with `--base "$REVISION"`, verify its
+   `git rev-parse HEAD` equals `$REVISION`, and confirm `git status --porcelain`
+   is empty before running checks.
 2. Delegate adversarial verification to agy CLI (above)
 3. Independently run the test suite yourself and diff against the coder's claim
 4. Verdict:
@@ -127,11 +153,60 @@ Do NOT use `--sandbox` (terminal restrictions break test execution).
 
 ### Retry handling
 
-Every verifier retry carries the handed-off `Revision`, verifies that
-checked-out revision (allocating a fresh detached worktree pinned to Revision
-when worktree isolation is used), and reruns focused checks read-only. Never
-modify files or create a commit during verifier retries; only the coder retry
-may commit a revised implementation.
+Every verifier retry carries the handed-off `Revision`. When worktree isolation
+is used, select a new branch absent from local and origin refs and a fresh
+worktree name. Set a fresh `VERIFIER_ATTEMPT_ID` for each retry and derive both:
+
+```bash
+VERIFIER_ATTEMPT_ID="<fresh unique retry identifier>"
+VERIFIER_BRANCH="agy-verifier-$VERIFIER_ATTEMPT_ID"
+VERIFIER_WORKTREE_NAME="agy-verifier-$VERIFIER_ATTEMPT_ID"
+for BRANCH_REF in "refs/heads/$VERIFIER_BRANCH" "refs/remotes/origin/$VERIFIER_BRANCH"; do
+    if git show-ref --verify --quiet "$BRANCH_REF"; then
+        echo "Choose an unused verifier retry branch." >&2
+        exit 1
+    else
+        REF_STATUS=$?
+        if [ "$REF_STATUS" -ne 1 ]; then
+            echo "Could not inspect verifier retry branch references." >&2
+            exit 1
+        fi
+    fi
+done
+if ! VERIFIER_WORKTREE="$(diskm worktree-new <repo-path> "$VERIFIER_BRANCH" \
+    --base "$REVISION" --name "$VERIFIER_WORKTREE_NAME")"; then
+    echo "Could not create verifier retry worktree." >&2
+    exit 1
+fi
+if [ -z "$VERIFIER_WORKTREE" ]; then
+    echo "diskm returned no verifier retry path." >&2
+    exit 1
+fi
+case "$VERIFIER_WORKTREE" in
+    "$HOME"/.worktrees/*) ;;
+    *) echo "Rejecting verifier retry path outside ~/.worktrees." >&2; exit 1 ;;
+esac
+if ! VERIFIER_HEAD="$(git -C "$VERIFIER_WORKTREE" rev-parse HEAD)"; then
+    echo "Verifier retry worktree HEAD is unreadable." >&2
+    exit 1
+fi
+if [ "$VERIFIER_HEAD" != "$REVISION" ]; then
+    echo "Rejecting verifier retry worktree at an unexpected revision." >&2
+    exit 1
+fi
+if ! VERIFIER_STATUS="$(git -C "$VERIFIER_WORKTREE" status --porcelain)"; then
+    echo "Verifier retry worktree status is unreadable." >&2
+    exit 1
+fi
+if [ -n "$VERIFIER_STATUS" ]; then
+    echo "Rejecting dirty verifier retry worktree." >&2
+    exit 1
+fi
+```
+
+Enter the verified retry worktree with `cd "$VERIFIER_WORKTREE"` before
+rerunning focused checks read-only. Never modify files or create a commit during
+verifier retries; only the coder retry may commit a revised implementation.
 
 ## Communication Protocol
 

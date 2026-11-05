@@ -207,7 +207,7 @@ cd <main-checkout>
 br create "<feature title> (PR #<N>)" --type feature --priority 2 \
   --description "<PR scope summary — the same description that ends up in PR body>"
 
-# Step 4: Write the new PR body with the required sections
+# Step 4: Follow the shared PR-description owner and repository template; include this repo-specific Tenets block
 cat > /tmp/pr-<N>-body.md <<'EOF'
 ## Tenets
 

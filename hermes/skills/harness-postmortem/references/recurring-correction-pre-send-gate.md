@@ -82,8 +82,9 @@ recurring class, not a specific missing image.
 
 ### Existing audit
 
-- `evidence-attach-to-slack` skill v1.0–v1.4 existed across all 4
-  incidents. The skill text documented the correct recipe.
+- Earlier versions documented a native upload recipe and a public-Gist
+  fallback. The Gist fallback is retired; consult the current skill for the
+  supported workflow.
 - SOUL.md `## COMMIT: evidence-attach-not-path-cite` existed across
   all 4 incidents. The rule fires after the user complains.
 - Neither layer intercepted the failure before the message was sent.
@@ -101,13 +102,15 @@ OR (b) an absolute filesystem path matching
 "BEFORE", "AFTER", "screenshot", "see attached", "here's what it looks like"
 AND a local path in the same draft.
 
-Action: MANDATORY pre-send sequence:
-1. Load evidence-attach-to-slack skill
-2. Strip MEDIA: tokens from draft
-3. Run scripts/check_token_scopes.py
-4. Run 3-stage upload (or gist fallback)
-5. Verify uploads landed (Pattern A: before summary)
-6. Post summary message as cluster anchor
+Action: Mandatory ordered pre-send sequence:
+1. Load the current `evidence-attach-to-slack` skill.
+2. Strip `MEDIA:` path tokens from the draft.
+3. Use its configured, authorized native Slack attachment workflow. Do not
+   invoke `scripts/check_token_scopes.py`, inspect or alter credentials,
+   reinstall scopes, or use a public-Gist fallback. If Slack returns
+   `missing_scope`, report the exact API error and stop.
+4. Verify the native attachments landed before claiming success.
+5. Post the summary only after successful verification.
 ```
 
 ### Test
@@ -138,7 +141,7 @@ summary-is-last invariant. All green as of 2026-07-14.
 ## Related references
 
 - `~/.hermes/skills/evidence-attach-to-slack/SKILL.md` — v1.6.0 (Pre-Send Gate section at top)
-- `~/.hermes/skills/evidence-attach-to-slack/references/recurring-failure-pattern-2026-07.md` — the full 4-incident chain
+- `~/.hermes/skills/evidence-attach-to-slack/references/recurring-failure-pattern-2026-07.md` — historical summary only; former operational recipes are retired
 - `~/.hermes/workspace/SOUL.md` — `## COMMIT: evidence-attach-presend-gate`
 - `~/.hermes/skills/harness-postmortem/SKILL.md` — Phase 1.5d section (this file)
 - `~/.hermes/skills/evidence-attach-to-slack/tests/test_evidence_attach_presend_contract.py` — 8 contract tests, all green

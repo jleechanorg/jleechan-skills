@@ -5,53 +5,29 @@ description: Properly inspect AO worker tmux sessions to detect working vs idle 
 
 # AO Session Monitor Skill
 
-## How to check if an AO worker session is active
+## How to check an AO worker session
 
-Claude Code renders the `❯` prompt at the bottom of the tmux pane **while the model is thinking above it**. Checking only the last 5-6 lines will produce false "idle" reports.
+The bottom of a Claude Code pane can show a prompt while the model is still
+thinking or while older work is deep in scrollback. A short tail or status
+indicator is never enough to classify the session.
 
-### Correct detection method
+1. Capture the full available history with `tmux capture-pane -t <session> -p -S -`.
+   Read the full capture, then inspect the last 15 lines for current state.
+2. For any idle, stalled, or blocked classification, capture again 20–30 seconds
+   later to a different unique file under `/tmp`. If the screens differ, label
+   the worker `WORKING` and stop classification.
+3. Identical captures are not proof of idleness. Check for post-footer tool
+   calls or assistant text, timer growth, and the worker process tree/CPU. For a
+   `pi` pane, also check growth of the matching session JSONL. If full scrollback
+   or a required independent process check is unavailable, report `UNVERIFIED`.
+4. Treat activity indicators, queued-message text, completed footers, and
+   uncommitted markers as clues inside the full capture, never as state on
+   their own. They may describe earlier turns or quoted text.
 
-1. Capture at least 20 lines: `tmux capture-pane -t <session> -p -S -20`
-2. Look for **Unicode activity indicators**: `✻ ✶ ✳ ✽ ✾` followed by an action word and duration
-   - Examples: `✻ Cascading… (5m 34s · ↓ 3.0k tokens · thinking)`
-   - Examples: `✶ Germinating… (2m 21s · ↓ 1.2k tokens · thought for 7s)`
-3. Look for **tool use in progress**: `Bash(`, `Read(`, `Edit(`, `Write(`, `Grep(`, `Glob(`
-4. Look for **"Running…"** — a Bash command is executing
+The shared full-buffer requirement is in `~/.codex/AGENTS.md` § “Reading a
+cmux terminal before deciding (full-buffer rule)”; cmux-specific capture and
+steering mechanics are owned by `~/.claude/skills/cmux-steer/SKILL.md`.
 
-### State classification
-
-| Indicator | State | Meaning |
-|---|---|---|
-| `✻✶✳✽✾` + duration | **WORKING** | Model is thinking or executing tools |
-| `Running…` or `timeout` | **WORKING** | Shell command in progress |
-| `Baked for Xm` or `Sautéed for Xm` | **COMPLETED** | Finished, went idle |
-| `❯` with no activity indicators in 20 lines | **IDLE** | Actually waiting for input |
-| `Press up to edit queued messages` | **QUEUED** | Has pending message from lifecycle-worker |
-| `+uncommitted` in status bar | **HAS WORK** | Edited files but hasn't committed/pushed |
-
-### Common false positives
-
-- **`❯` visible = idle**: WRONG. The prompt renders below the thinking indicator. Always check 20+ lines.
-- **No `Bash` in last 6 lines = not working**: WRONG. The model may be in a long thinking phase between commands.
-- **Session shows old output = dead**: WRONG. The model may be mid-thought. Check for activity indicators.
-
-### Shell one-liner for monitoring
-
-```bash
-for s in $(tmux list-sessions 2>/dev/null | grep "ao-[0-9]" | cut -d: -f1); do
-  name=${s##*-}
-  last=$(tmux capture-pane -t "$s" -p -S -20 2>/dev/null)
-  pr=$(echo "$last" | grep -oE "PR: #[0-9]+" | head -1)
-  uc=""; echo "$last" | grep -q "uncommitted" && uc="+uc"
-  activity=$(echo "$last" | grep -oE "[✻✶✳✽✾] [A-Za-z]+…[^)]*\)" | tail -1)
-  if [ -n "$activity" ]; then
-    echo "  $name: WORKING $pr $uc ($activity)"
-  elif echo "$last" | grep -qE "Baked|Sautéed"; then
-    echo "  $name: completed $pr"
-  elif echo "$last" | grep -q "queued"; then
-    echo "  $name: QUEUED $pr"
-  else
-    echo "  $name: idle $pr $uc"
-  fi
-done
-```
+Do not use a one-line grep/tail script to assign `IDLE`, `COMPLETED`, or
+`BLOCKED`. Batch capture may collect candidates, but the full-history and
+independent-process checks above determine the state.

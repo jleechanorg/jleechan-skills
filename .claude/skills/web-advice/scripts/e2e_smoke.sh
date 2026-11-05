@@ -26,12 +26,12 @@ echo " No prompt is submitted. Probe aside-mcp and vendor auth separately."
 echo "==============================================================================="
 
 if command -v aside >/dev/null 2>&1; then
+  aside_repl_rc=0
   aside_repl_out="$(
     run_with_timeout 15 aside repl \
       "console.log((await listBrowserTabs()).length)" 2>&1
-  )"
-  aside_repl_rc=$?
-  tab_count="$(printf '%s\n' "$aside_repl_out" | grep -oE '^[0-9]+$' | head -1)"
+  )" || aside_repl_rc=$?
+  tab_count="$(printf '%s\n' "$aside_repl_out" | grep -oE '^[0-9]+$' | head -1)" || tab_count=""
 
   if [ "$aside_repl_rc" -eq 0 ] && [ -n "$tab_count" ]; then
     echo "Aside REPL browser: UP — ${tab_count} tab(s) visible"
@@ -60,19 +60,45 @@ if [ -z "$chrome_bin" ]; then
   exit 1
 fi
 
-chrome_profile_dir="$(mktemp -d "${TMPDIR:-/tmp}/web-advice-chrome-smoke.XXXXXX")"
+scratch_tmp="$("${CLAUDE_HOME:-$HOME/.claude}/skills/scratch-space/scripts/scratch-dir.sh" tmp)" || {
+  resolver_rc=$?
+  echo "Scratch resolver unavailable; refusing host-temp fallback (rc=${resolver_rc})" >&2
+  exit "$resolver_rc"
+}
+if [ -z "$scratch_tmp" ]; then
+  echo "Scratch resolver returned an empty path; refusing host-temp fallback" >&2
+  exit 75
+fi
+chrome_profile_dir="$(mktemp -d "${scratch_tmp}/web-advice-chrome-smoke.XXXXXX")" || {
+  profile_rc=$?
+  echo "Scratch Chrome profile allocation failed; refusing unowned profile (rc=${profile_rc})" >&2
+  exit "$profile_rc"
+}
+case "$chrome_profile_dir" in
+  "$scratch_tmp"/web-advice-chrome-smoke.*)
+    if [ ! -d "$chrome_profile_dir" ]; then
+      echo "Scratch Chrome profile allocation returned a non-directory" >&2
+      exit 75
+    fi
+    ;;
+  *)
+    echo "Scratch Chrome profile escaped the configured Scratch directory" >&2
+    exit 75
+    ;;
+esac
 trap 'rm -rf -- "$chrome_profile_dir"' EXIT
+chrome_rc=0
 chrome_out="$(
   run_with_timeout 15 "$chrome_bin" \
     --headless=new \
     --disable-gpu \
+    --disable-features=MacAppCodeSignClone \
     --no-first-run \
     --no-default-browser-check \
     --user-data-dir="$chrome_profile_dir" \
     --dump-dom \
     https://example.com/ 2>/dev/null
-)"
-chrome_rc=$?
+)" || chrome_rc=$?
 
 if printf '%s' "$chrome_out" | grep -q "Example Domain"; then
   echo "Chrome headless browser: UP — basic render succeeded (rc=${chrome_rc})"

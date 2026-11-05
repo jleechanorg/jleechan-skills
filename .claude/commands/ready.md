@@ -8,6 +8,6 @@ execution_mode: immediate
 
 Load and follow `${CLAUDE_HOME:-$HOME/.claude}/skills/ready/SKILL.md` (Skill tool: `ready`).
 
-PRs should satisfy — or be made to satisfy — ALL of: /es, and /er and /advice
-where `draft-first-pr` (including repo-defined exemptions) requires them, then /green, with all comments and merge conflicts handled, verified
-at the current head with `$ARGUMENTS`.
+Use `draft-first-pr` for applicability, draft-to-ready sequencing, final review
+closure, and review receipts. Apply `$ARGUMENTS`; never equate undrafting with
+completed readiness or merge authorization.

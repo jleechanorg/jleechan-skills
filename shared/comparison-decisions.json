@@ -16760,5 +16760,1188 @@
     ],
     "decision": "preserve-unmanaged-local-package",
     "reason": "Outside maintained public catalog; retain locally rather than publish or overwrite an unreviewed integration."
+  },
+  {
+    "skill": "agent-agent-mistakes",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Cites ~/.hermes/agent-orchestrator paths and Hermes agent names; examples tied to Hermes/AO incident threads. Retained locally rather than published."
+  },
+  {
+    "skill": "agentf",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Dark Factory/cmux/kanban/private-org plumbing; retain locally rather than publish."
+  },
+  {
+    "skill": "always-pr-never-local-edit",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Hermes/Slack/personal-workflow plumbing or personal accounts; retain locally rather than publish."
+  },
+  {
+    "skill": "arxiv",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Hermes-authored (author and metadata name Hermes Agent). Search and metadata lookups use plain curl, but reading abstracts and PDFs uses the Hermes web_extract tool; deferred until reworked to be runtime-neutral."
+  },
+  {
+    "skill": "backend-justified",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "WorldArchitect/project-specific rules or incident notes; retain locally rather than publish."
+  },
+  {
+    "skill": "blocked-source-fallback-research",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Hermes-authored; fallback table depends on Hermes web_extract versus curl behaviour. Retained locally rather than published."
+  },
+  {
+    "skill": "blogwatcher",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "canonical-repository",
+    "reason": "Generic standalone package with helpers copied and portability scan clean."
+  },
+  {
+    "skill": "chroma",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "canonical-repository",
+    "reason": "Generic standalone package with helpers copied and portability scan clean."
+  },
+  {
+    "skill": "claude-design",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Selects among three Hermes skills/creative/ design skills that are not in this catalog. Retained locally rather than published."
+  },
+  {
+    "skill": "cli",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Wraps the inference.sh infsh CLI through the Hermes terminal tool; needs an infsh account and Hermes tool names. Retained locally rather than published."
+  },
+  {
+    "skill": "clip",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "canonical-repository",
+    "reason": "Generic standalone package with helpers copied and portability scan clean."
+  },
+  {
+    "skill": "cmux-find-workspace-by-topic",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Dark Factory/cmux/kanban/private-org plumbing; retain locally rather than publish."
+  },
+  {
+    "skill": "cmux-mcp-server-options",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Dark Factory/cmux/kanban/private-org plumbing; retain locally rather than publish."
+  },
+  {
+    "skill": "cmux-surface-steering",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Dark Factory/cmux/kanban/private-org plumbing; retain locally rather than publish."
+  },
+  {
+    "skill": "codebase-inspection",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "canonical-repository",
+    "reason": "Generic standalone package with helpers copied and portability scan clean."
+  },
+  {
+    "skill": "coding-wave-liveness-check",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Dark Factory/cmux/kanban/private-org plumbing; retain locally rather than publish."
+  },
+  {
+    "skill": "competitor-news-monitor",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Stores watch state in ~/.hermes/competitor-watches and schedules ticks via Hermes cron plus web_extract; overlaps blogwatcher. Retained locally rather than published."
+  },
+  {
+    "skill": "context-token-audit",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Hermes/Slack/personal-workflow plumbing or personal accounts; retain locally rather than publish."
+  },
+  {
+    "skill": "creative-ideation",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Hermes skills/creative skill with Hermes metadata; overlaps superpowers-brainstorming already in the catalog. Retained locally rather than published."
+  },
+  {
+    "skill": "css-variable-coverage-test-strip-comments",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "WorldArchitect/project-specific rules or incident notes; retain locally rather than publish."
+  },
+  {
+    "skill": "dark-factory-bead-protocol",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Dark Factory/cmux/kanban/private-org plumbing; retain locally rather than publish."
+  },
+  {
+    "skill": "dark-factory-outage-triage",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Dark Factory/cmux/kanban/private-org plumbing; retain locally rather than publish."
+  },
+  {
+    "skill": "dark-factory-rate-limit-fallback",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Dark Factory/cmux/kanban/private-org plumbing; retain locally rather than publish."
+  },
+  {
+    "skill": "debugging-hermes-tui-commands",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Hermes/Slack/personal-workflow plumbing or personal accounts; retain locally rather than publish."
+  },
+  {
+    "skill": "document-to-action-items",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Hermes-authored; relies on Hermes read_file/web_extract tools; overlaps catalog document-standards. Retained locally rather than published."
+  },
+  {
+    "skill": "dogfood",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Requires the Hermes browser toolset (browser_navigate/snapshot/vision); overlaps catalog browser-testing. Retained locally rather than published."
+  },
+  {
+    "skill": "dot-portfolio-coordinator",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Hermes/Slack/personal-workflow plumbing or personal accounts; retain locally rather than publish."
+  },
+  {
+    "skill": "duckduckgo-search",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Uses Hermes execute_code and web_extract for the DDGS workflow; web search is already provided by runtime tools. Retained locally rather than published."
+  },
+  {
+    "skill": "email-inbox-triage",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Hermes-authored; assumes a Hermes mail connector and draft tools; overlaps catalog gmail skill. Retained locally rather than published."
+  },
+  {
+    "skill": "external-agent-slack-handoff-reply",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Hermes/Slack/personal-workflow plumbing or personal accounts; retain locally rather than publish."
+  },
+  {
+    "skill": "faiss",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "canonical-repository",
+    "reason": "Generic standalone package with helpers copied and portability scan clean."
+  },
+  {
+    "skill": "feedback-to-design-issues",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Hermes-authored flexible-engine feedback workflow tied to Hermes issue tooling; overlaps github-issues. Retained locally rather than published."
+  },
+  {
+    "skill": "find-nearby",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Hermes-authored; relies on Hermes Telegram location pins and tool names. Retained locally rather than published."
+  },
+  {
+    "skill": "frontend-widget-reinstantiation-leak",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "WorldArchitect/project-specific rules or incident notes; retain locally rather than publish."
+  },
+  {
+    "skill": "gemini-vertex-fallback",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Hardcodes a specific GCP project, a runner service account and an incident-specific key-leak narrative. Retained locally rather than published."
+  },
+  {
+    "skill": "gha-workflow-extraction-drift",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "WorldArchitect/project-specific rules or incident notes; retain locally rather than publish."
+  },
+  {
+    "skill": "github-actions-cost-monitoring",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Reports a specific organization's workflows and depends on a private deploy-pipeline skill and org-specific runner labels. Retained locally rather than published."
+  },
+  {
+    "skill": "github-auth",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Hermes-authored token setup (hermes-agent PAT name, ~/.git-credentials plaintext store); overlaps catalog github-cli-reference. Retained locally rather than published."
+  },
+  {
+    "skill": "github-issue-to-pr",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Hermes-authored issue-to-PR flow using Hermes tooling; overlaps catalog draft-first-pr and pr-workflow-manager. Retained locally rather than published."
+  },
+  {
+    "skill": "github-issues",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Reads GITHUB_TOKEN from $HERMES_HOME/.env; overlaps catalog github-cli-reference. Retained locally rather than published."
+  },
+  {
+    "skill": "github-pr-automation-debug",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Hermes/Slack/personal-workflow plumbing or personal accounts; retain locally rather than publish."
+  },
+  {
+    "skill": "heartmula",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Hermes-authored song-generation skill needing the HeartMuLa model and GPU; no catalog home. Retained locally rather than published."
+  },
+  {
+    "skill": "hermes-agent-skill-authoring",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Hermes/Slack/personal-workflow plumbing or personal accounts; retain locally rather than publish."
+  },
+  {
+    "skill": "hermes-budget-fields",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Hermes/Slack/personal-workflow plumbing or personal accounts; retain locally rather than publish."
+  },
+  {
+    "skill": "hr",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Hermes/Slack/personal-workflow plumbing or personal accounts; retain locally rather than publish."
+  },
+  {
+    "skill": "inline-attach-evidence",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Hermes/Slack/personal-workflow plumbing or personal accounts; retain locally rather than publish."
+  },
+  {
+    "skill": "json-schema-deliverable",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Built around the Hermes write_file rejection and execute_code workaround. Retained locally rather than published."
+  },
+  {
+    "skill": "kanban-orchestrator",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Dark Factory/cmux/kanban/private-org plumbing; retain locally rather than publish."
+  },
+  {
+    "skill": "kanban-worker",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Dark Factory/cmux/kanban/private-org plumbing; retain locally rather than publish."
+  },
+  {
+    "skill": "llava",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "canonical-repository",
+    "reason": "Generic standalone package with helpers copied and portability scan clean."
+  },
+  {
+    "skill": "llm-narration-format-clarifier",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "WorldArchitect/project-specific rules or incident notes; retain locally rather than publish."
+  },
+  {
+    "skill": "llm-narrative-foreshadowing-bounds",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "WorldArchitect/project-specific rules or incident notes; retain locally rather than publish."
+  },
+  {
+    "skill": "llm-wiki",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Hermes WIKI_PATH in ~/.hermes/.env and web_extract ingest; overlaps catalog karpathy-wiki and wiki-ingest. Retained locally rather than published."
+  },
+  {
+    "skill": "local-testable-infra-pattern",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "deferred: unreviewed; portability of its infra-testability pattern not assessed."
+  },
+  {
+    "skill": "luna",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Dark Factory/cmux/kanban/private-org plumbing; retain locally rather than publish."
+  },
+  {
+    "skill": "mcporter",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "canonical-repository",
+    "reason": "Generic standalone package with helpers copied and portability scan clean."
+  },
+  {
+    "skill": "meeting-action-items",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Hermes-authored; overlaps catalog nextsteps and document-standards workflows. Retained locally rather than published."
+  },
+  {
+    "skill": "merge-reconciler",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Hermes/Slack/personal-workflow plumbing or personal accounts; retain locally rather than publish."
+  },
+  {
+    "skill": "minecraft-modpack-server",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "canonical-repository",
+    "reason": "Generic standalone package with helpers copied and portability scan clean."
+  },
+  {
+    "skill": "native-mcp",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Hermes/Slack/personal-workflow plumbing or personal accounts; retain locally rather than publish."
+  },
+  {
+    "skill": "nemo-curator",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "canonical-repository",
+    "reason": "Generic standalone package with helpers copied and portability scan clean."
+  },
+  {
+    "skill": "obsidian",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Vault path resolved via $HERMES_HOME/.env OBSIDIAN_VAULT_PATH; needs a personal vault. Retained locally rather than published."
+  },
+  {
+    "skill": "parallel-cli",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Third-party Parallel CLI that overlaps Hermes native web_search/web_extract; needs a vendor account. Retained locally rather than published."
+  },
+  {
+    "skill": "parallel-investigate-and-dispatch",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Hermes/Slack/personal-workflow plumbing or personal accounts; retain locally rather than publish."
+  },
+  {
+    "skill": "persistent-orchestrator-mode",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Hermes/Slack/personal-workflow plumbing or personal accounts; retain locally rather than publish."
+  },
+  {
+    "skill": "petdex",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Hermes/Slack/personal-workflow plumbing or personal accounts; retain locally rather than publish."
+  },
+  {
+    "skill": "pokemon-player",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "deferred: unreviewed; needs a headless emulator and ROM, portability not assessed."
+  },
+  {
+    "skill": "pr-pinned-aggregate-receipt",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Hermes/Slack/personal-workflow plumbing or personal accounts; retain locally rather than publish."
+  },
+  {
+    "skill": "product-price-monitor",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Hermes-authored; uses Hermes cron and web_extract to poll prices. Retained locally rather than published."
+  },
+  {
+    "skill": "read-grok-shared-link",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Hermes/Slack/personal-workflow plumbing or personal accounts; retain locally rather than publish."
+  },
+  {
+    "skill": "reddit-campaign-posts",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Hermes/Slack/personal-workflow plumbing or personal accounts; retain locally rather than publish."
+  },
+  {
+    "skill": "sdlc-review",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Dark Factory/cmux/kanban/private-org plumbing; retain locally rather than publish."
+  },
+  {
+    "skill": "simplify-code",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Uses Hermes delegate_task batch mode; overlaps the built-in /simplify skill. Retained locally rather than published."
+  },
+  {
+    "skill": "slack-saved-later-triage",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Hermes/Slack/personal-workflow plumbing or personal accounts; retain locally rather than publish."
+  },
+  {
+    "skill": "social-poster-pruned-recovery",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Hermes/Slack/personal-workflow plumbing or personal accounts; retain locally rather than publish."
+  },
+  {
+    "skill": "spotify",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Drives the Hermes Spotify toolset (7 tools) and `hermes auth spotify`. Retained locally rather than published."
+  },
+  {
+    "skill": "streaming-utf8-mojibake",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "WorldArchitect/project-specific rules or incident notes; retain locally rather than publish."
+  },
+  {
+    "skill": "subagent-driven-development",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Uses Hermes delegate_task; overlaps catalog superpowers-subagent-driven-development. Retained locally rather than published."
+  },
+  {
+    "skill": "wa-closed-pr-reship",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "WorldArchitect/project-specific rules or incident notes; retain locally rather than publish."
+  },
+  {
+    "skill": "wa-daily-dice-audit-fix",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "WorldArchitect/project-specific rules or incident notes; retain locally rather than publish."
+  },
+  {
+    "skill": "wa-prompt-only-sanctuary-dialog-opportunities",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "WorldArchitect/project-specific rules or incident notes; retain locally rather than publish."
+  },
+  {
+    "skill": "wa-world-sim-engine",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "WorldArchitect/project-specific rules or incident notes; retain locally rather than publish."
+  },
+  {
+    "skill": "web-page-screenshots",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Falls back to Hermes browser_navigate; overlaps catalog browser-testing and playwright-ui-testing. Retained locally rather than published."
+  },
+  {
+    "skill": "webhook-subscriptions",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Hermes/Slack/personal-workflow plumbing or personal accounts; retain locally rather than publish."
+  },
+  {
+    "skill": "weekly-review-planning",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Hermes-authored; assumes Hermes calendar/memory connectors; overlaps nextsteps. Retained locally rather than published."
+  },
+  {
+    "skill": "whisper",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "canonical-repository",
+    "reason": "Generic standalone package with helpers copied and portability scan clean."
+  },
+  {
+    "skill": "world-sim-e2e-pipeline",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "WorldArchitect/project-specific rules or incident notes; retain locally rather than publish."
+  },
+  {
+    "skill": "writing-plans",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Hermes-authored (hands off to Hermes subagent-driven-development); overlaps catalog superpowers-writing-plans. Retained locally rather than published."
+  },
+  {
+    "skill": "xitter",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Requires upstream x-cli with ~/.config/x-cli/.env X API credentials; overlaps xurl. Retained locally rather than published."
+  },
+  {
+    "skill": "xurl",
+    "sources": [
+      "ubuntu_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "ubuntu_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "Requires xurl CLI with ~/.xurl X OAuth credentials; carries hermes upstream_skill metadata. Retained locally rather than published."
+  },
+  {
+    "skill": "testflight",
+    "sources": [
+      "mac_claude"
+    ],
+    "content_variant_groups": [
+      [
+        "mac_claude"
+      ]
+    ],
+    "decision": "preserve-unmanaged-local-package",
+    "reason": "WorldAI iOS-specific bundle and team identifiers; retain locally rather than publish."
   }
 ]

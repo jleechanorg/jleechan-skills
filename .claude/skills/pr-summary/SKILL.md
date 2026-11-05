@@ -54,11 +54,11 @@ Verify model vs backend ownership:
 - **Anti-Pattern Check**: Verify that no regex parsing, hardcoded gameplay heuristics, procedural game rules, or keyword matching were added to backend code.
 
 #### `### What to Review as a Human`
-Follow `${CLAUDE_HOME:-$HOME/.claude}/skills/human-review-brief/SKILL.md` to emit 3–6 surface-matched human review bullets (visual/UX frames, product constants/prompts, ZFC & scope boundaries, cross-PR/provider/schema limits, cross-host/systemd hazards), plus **What Current Evidence Does NOT Prove** and **Exact Human Decision Needed**.
+Follow `${CLAUDE_HOME:-$HOME/.claude}/skills/human-review-brief/SKILL.md` (canonical owner — never list LLM-verifiable checks; every item requires `Why the LLM cannot do this:`).
 
 ---
 
-- **Persistent Roadmap Document & Push**: Every `/pr-summary` execution MUST persist the complete summary markdown document to `~/roadmap/` named `pr-summary-YYYY-MM-DD-<slug>.md` (or `pr-summary-<pr_number>-<slug>.md` for single PRs), commit it, and push to `origin/main` in the `~/roadmap` repository (`git -C ~/roadmap add . && git -C ~/roadmap commit -m "docs: add PR summary <slug> [cli][model]" && git -C ~/roadmap push origin main`).
+- **Persistent Roadmap Document & PR**: Every `/pr-summary` execution MUST persist the complete summary markdown document to `~/roadmap/` named `pr-summary-YYYY-MM-DD-<slug>.md` (or `pr-summary-<pr_number>-<slug>.md` for single PRs). Version each summary through the roadmap repository's normal PR workflow: create a task-specific branch from the current `origin/main` tip; if the canonical checkout contains unrelated changes, use the repository's isolated worktree workflow. Stage only this summary file by explicit path, commit with the usual CLI/model provenance, push the branch with upstream tracking, and open or update a PR against `main`. Follow the [PR-workflow manager](../pr-workflow-manager/SKILL.md) for branch verification and stage handling. Never stage the whole roadmap tree or push directly to `main`. Follow the existing review and merge authorization gates; persisting a summary does not bypass them.
 - **Required Output Links**: Every `/pr-summary` report MUST explicitly provide:
   - The full clickable GitHub URL for each summarized PR (e.g. `https://github.com/jleechanorg/worldarchitect.ai/pull/10107`).
   - The local file URL with `file:///` scheme (e.g. `[Local Roadmap Doc](file:///$HOME/roadmap/pr-summary-YYYY-MM-DD-<slug>.md)`) AND the unabbreviated plaintext filesystem path (e.g. `$HOME/roadmap/pr-summary-YYYY-MM-DD-<slug>.md`).

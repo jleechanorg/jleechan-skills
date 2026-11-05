@@ -62,12 +62,6 @@ def strip_heredocs(s: str) -> str:
 
 stripped = strip_heredocs(cmd)
 
-# Check if `ALLOW_PR_STACK_OVERRIDE=1` is present in env or command text
-if os.environ.get("ALLOW_PR_STACK_OVERRIDE") == "1" or re.search(
-    r"\bALLOW_PR_STACK_OVERRIDE=1\b", stripped
-):
-    sys.exit(0)
-
 # Match a real `gh ... pr create` invocation in command position; quoted
 # strings and shell comments are single tokens or dropped by the lexer.
 try:
@@ -92,8 +86,28 @@ def is_pr_create(i: int) -> bool:
     return tokens[k : k + 2] == ["pr", "create"]
 
 
-if not any(
-    (t == "gh" or t.endswith("/gh")) and is_pr_create(i) for i, t in enumerate(tokens)
+gh_create_indices = [
+    i
+    for i, token in enumerate(tokens)
+    if (token == "gh" or token.endswith("/gh")) and is_pr_create(i)
+]
+if not gh_create_indices:
+    sys.exit(0)
+
+
+def has_inline_override(i: int) -> bool:
+    j = i - 1
+    while j >= 0 and (
+        re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", tokens[j]) or tokens[j] == "env"
+    ):
+        if tokens[j] == "ALLOW_PR_STACK_OVERRIDE=1":
+            return True
+        j -= 1
+    return False
+
+
+if os.environ.get("ALLOW_PR_STACK_OVERRIDE") == "1" or any(
+    has_inline_override(i) for i in gh_create_indices
 ):
     sys.exit(0)
 

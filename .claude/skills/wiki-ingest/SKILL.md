@@ -37,12 +37,41 @@ WIKI_ROOT=$(dirname "$WIKI")
 RAW_DIR="$WIKI_ROOT/raw"
 SOURCE="$RAW_DIR/$(basename "$FILE_ARG")"
 
-# Copy source to raw/ if not already there
-mkdir -p "$RAW_DIR"
-cp "$FILE_ARG" "$SOURCE" 2>/dev/null || cp "$(pwd)/$FILE_ARG" "$SOURCE"
-
 # Determine slug from filename
 SLUG=$(basename "$FILE_ARG" | sed 's/\.md$//' | sed 's/[^a-zA-Z0-9]/-/g' | tr '[:upper:]' '[:lower:]')
+
+# Create the publish branch FIRST, before anything writes to the worktree. The `cp` below and
+# the Phases 2-8 edits all happen on this branch; a branch cut after them would either abort
+# on local changes or carry them across.
+set -e
+BRANCH="wiki-ingest/$SLUG"
+
+# Refuse a dirty checkout. The precondition above covers concurrent ingests; this covers
+# edits that were already sitting here, which would otherwise ride through the switch and be
+# committed with this ingest's files.
+[ -z "$(git -C "$WIKI_ROOT" status --porcelain)" ] \
+  || { echo "$WIKI_ROOT has uncommitted changes; use a clean checkout for the ingest" >&2; exit 1; }
+
+git -C "$WIKI_ROOT" fetch origin main
+
+# WITH --exit-code, ls-remote returns 2 for "no matching ref" and a different code
+# (128 here) for auth or transport failure. Without the flag a no-match returns 0, so
+# the flag is required for this distinction. Only a genuine 2 means "safe to create".
+set +e
+git -C "$WIKI_ROOT" ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1
+LS_RC=$?
+set -e
+case "$LS_RC" in
+  0) echo "origin/$BRANCH already exists; pick a new slug" >&2; exit 1 ;;
+  2) : ;;  # documented no-match: safe to create
+  *) echo "cannot determine whether origin/$BRANCH exists (ls-remote rc=$LS_RC); aborting" >&2; exit 1 ;;
+esac
+
+git -C "$WIKI_ROOT" switch -c "$BRANCH" origin/main
+
+# Only now copy the source into raw/, on the new branch.
+mkdir -p "$RAW_DIR"
+cp "$FILE_ARG" "$SOURCE" 2>/dev/null || cp "$(pwd)/$FILE_ARG" "$SOURCE"
 ```
 
 ### Phase 2: Read source document
@@ -90,6 +119,61 @@ Create concept pages for key ideas, frameworks, methods.
 
 ### Phase 8: Log
 Append to `wiki/log.md`: `## [YYYY-MM-DD] ingest | <Title>`
+
+### Phase 9: Commit and Push
+
+The publish branch already exists and is checked out (Phase 1), so this phase only
+commits, pushes and opens the PR. Never push `main`.
+
+**Preconditions** — one is an operator responsibility, one is checked mechanically:
+
+- **Operator:** this checkout is not being written by another ingest. `raw/` and
+  `wiki/index.md`/`wiki/log.md` are shared paths, and `git add` takes a file's whole
+  current contents, so two concurrent ingests cannot be separated once their edits are
+  mixed. Nothing in the run can detect another writer. If the checkout is shared, use a
+  separate clone.
+- **Checked in Phase 1:** no pre-existing uncommitted edits are sitting in the checkout,
+  and no branch already exists for this slug. Both are refused before the switch.
+
+The dirty-checkout check is a snapshot at Phase 1, not a lock held for the run.
+
+Stage exactly the paths this run wrote. `SOURCE` keeps the source file's extension while
+`SLUG` strips it, so the raw copy is `$SOURCE`, not `raw/$SLUG`:
+
+```bash
+PATHS=("$SOURCE" "$WIKI_ROOT/wiki/sources/$SLUG.md" \
+       "$WIKI_ROOT/wiki/index.md" "$WIKI_ROOT/wiki/log.md")
+# add each entity/concept page this run wrote
+```
+
+Commit those paths explicitly — `git commit` with no paths commits the *entire* index,
+including anything a previous run left staged:
+
+```bash
+set -e
+git -C "$WIKI_ROOT" add -- "${PATHS[@]}"
+git -C "$WIKI_ROOT" diff --cached --quiet -- "${PATHS[@]}" \
+  && { echo "nothing staged for this ingest" >&2; exit 1; }
+git -C "$WIKI_ROOT" commit -m "<cli>/<model>: docs(wiki): ingest $SLUG" -- "${PATHS[@]}"
+```
+
+Push, verify that exact commit landed, and only then open the PR. Verify before creating
+the PR, and require nonempty values — `test "$A" = "$B"` is true when both are empty,
+which is what a failed push plus a failed lookup produces. `gh` has no `-C` flag:
+
+```bash
+COMMIT="$(git -C "$WIKI_ROOT" rev-parse HEAD)"
+git -C "$WIKI_ROOT" push origin "$BRANCH"
+REMOTE="$(git -C "$WIKI_ROOT" ls-remote origin "refs/heads/$BRANCH" | awk '{print $1}')"
+[ -n "$REMOTE" ] && [ "$REMOTE" = "$COMMIT" ] \
+  || { echo "push did not land $COMMIT (remote='${REMOTE:-none}')" >&2; exit 1; }
+# Open as a DRAFT unless the target repository documents an exception; draft-first is
+# the shared default. Use --web or the repository PR template if one is required.
+(cd "$WIKI_ROOT" && gh pr create --draft --base main --head "$BRANCH" --fill)
+```
+
+Note in the PR body when this run did not update the shared index or log. Leaving the
+checkout on `$BRANCH` is fine; return to the previous branch only if the caller needs it.
 
 ## GitHub-Readable Output — TOC + Standard Markdown Links (default for ported-source branch)
 

@@ -89,3 +89,23 @@ Previous portable adapter SHA256:
 The old portable 4layer body is removed from its manifest, avoiding a second maintained
 implementation. Its existing installed bytes are preserved until reviewed activation.
 The other 29 portable entries remain untouched during this first bounded migration.
+
+## Target distribution architecture + migration gates (2026-10-13)
+
+The repo has five distribution mechanisms. This records the single target and the gates that
+must pass before each retirement. Plan: `docs/superpowers/plans/2026-10-13-skill-distribution-consolidation.md`.
+
+| Concern | Target single survivor | Retirement gate (not yet met) |
+|---|---|---|
+| Bundle manifest | `shared-skills.json` | the portable set must be **reconciled into it** first - see below |
+| Verifier | one verifier over the surviving manifest | retire `scripts/verify_portable_skills.py` only with the portable bundle |
+| Installer | `scripts/install_shared_catalog.py` | confirm no launchd/cron invocation of `install-claude-commands.sh` |
+| Marketplace manifest | one canonical schema | the two manifests encode **different formats** (`github` source vs `./`); validate the `.agents` consumer, then map - **no symlink** |
+| Live discovery tree | `~/.claude/skills` (canonical) | other runtime trees become generated links |
+
+**Critical constraint - the portable tree is NOT a duplicate.** Verified by
+`scripts/report_skill_inventory_divergence.py` (dispositions pinned by
+`tests/test_skill_inventory_dispositions_contract.py`): of the 29 portable skills, **7 exist only
+there**, **20 have divergent bodies**, and only **2 are byte-identical** to `.claude/skills/**`.
+Deleting `portable/**` as "duplicates" would destroy 7 unique skills and choose 20 bodies
+arbitrarily. Per-skill reconciliation must land first.

@@ -6,7 +6,7 @@ description: "Use when fixing broken automation (CI, gates, hooks). A commit is 
 # Fix completion — infrastructure fixes require deployment
 
 
-When fixing broken automation (skeptic gate, CI workflows, lifecycle workers, hooks):
+When fixing broken automation (CI workflows, gates, lifecycle workers, hooks):
 - A commit is NOT a fix. The system is still broken until the fix is deployed (pushed + running).
 - "Fix X" from the user is push authorization for the fix branch/PR. Do not stop at commit and ask "want me to push?"
 - After pushing, verify the fix is active: check that the next cron/workflow run produces a different result.

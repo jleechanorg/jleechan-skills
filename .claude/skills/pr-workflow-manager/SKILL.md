@@ -1,126 +1,118 @@
 ---
 name: pr-workflow-manager
-description: Best practices and automation helpers for creating and maintaining high-quality pull requests
+description: "PR workflow entry point: discover canonical skills, verify source ownership, publish draft PRs, and drive applicable stages."
 type: usage
 scope: project
 ---
 
 # PR Workflow Manager
 
-## Purpose
-Provide Claude with best practices for creating and managing pull requests with proper upstream tracking, ensuring consistent PR workflows and preventing common git configuration issues.
+## One operational contract
+
+Before choosing a branch, worktree, PR stage or gate, inspect the target repository's `AGENTS.md`,
+`CLAUDE.md` and scoped instructions for an explicit PR-workflow contract, adapter or opt-out, and follow it
+for its domain. Never infer an opt-out from the repository's name or apparent purpose; with none declared,
+use the shared defaults below.
+
+Read [pr-lifecycle](../pr-lifecycle/SKILL.md) before creating, staging or driving a PR. Where local
+instructions are silent it supplies the lifecycle, visible stages (title prefixes, suffixes, labels),
+specification placement, review routes and evidence/approval applicability. Its
+[reviewer timeout contract](../pr-lifecycle/SKILL.md#reviewer-timeout-and-completion) owns reviewer
+deadlines, timeout dispositions, fallback routing and advice quorum recovery for `/dot`, `/wa` and other
+reviewer waits; add no separate timer and never treat a timeout as approval. This entry point owns
+practical discovery, branch verification and publication. Preserve repository-specific evidence, safety,
+native and merge requirements and separate permissions.
+
+## Find the skills before inventing a workflow
+
+1. Use an already-known local checkout of the official jleechan-skills repository, or resolve an installed
+   skill's source. Verify its remote and record its commit; preserve local edits.
+2. If no checkout exists, clone the official source to an unused local development directory:
+   `git clone https://github.com/jleechanorg/jleechan-skills.git <unused-directory>`.
+   Never clone over an existing directory, reset a dirty checkout or copy somebody else's credentials.
+3. Read `.claude/skills/pr-lifecycle/SKILL.md` and this skill from that checkout. Read relevant sibling
+   skills for actual review/test execution. Cloning is not installation, host synchronization or permission
+   to run an installer.
+4. If Git access is unavailable or denied, state the exact gap; use an already-authorized read connector
+   only where permitted, preserving the source ref. Do not bypass a denial or invent installed capability.
+5. Existing checkouts are not silently overwritten or auto-updated. Fetch/inspect safely when authorized;
+   report drift and preserve unrelated work before any requested sync.
+
+The repository's AGENTS.md should reference this entry point and the canonical lifecycle. User-level
+agent guidance should provide the same discovery path, not maintain a third lifecycle definition.
+A command named /pr-workflow, if installed, must resolve to this entry point; absence is not permission
+to invent an alias or claim one exists.
 
 ## Activation cues
-- Requests to create a PR, pull request, or merge request
-- Questions about git upstream tracking or remote branch configuration
-- Follow-up after pushing branches or creating PRs
-- Troubleshooting PR-related git issues
-- Team workflow standardization requests
 
-## Primary commands
-| Scenario | Command |
-| --- | --- |
-| Create PR with upstream | `gh pr create && git branch --set-upstream-to=origin/$(git branch --show-current)` |
-| Set upstream for existing PR | `git branch --set-upstream-to=origin/$(git branch --show-current)` |
-| Check upstream status | `git branch -vv` |
-| Create PR from issue | `gh issue develop <number> --checkout && git push -u origin HEAD` |
-| View PR status | `gh pr view` |
-| List all PRs | `gh pr list` |
+Use for opening or driving PRs, post-push follow-through, branch/upstream problems, stage changes,
+CI/conflict diagnosis, and review/readiness coordination.
 
-## Automation helper
-Use the bundled script for complete PR creation with all best practices:
-```bash
-skills/pr-workflow-manager/scripts/create_pr_with_upstream.sh [--title "PR Title"] [--body "PR Description"]
-```
-The script:
-1. Validates current branch is not main/master
-2. Pushes branch with upstream tracking (`-u` flag)
-3. Creates PR using `gh pr create`
-4. Verifies upstream tracking is set
-5. Displays PR URL and branch status
+During an authorized `/prw`, apply [the lifecycle continuation contract](../pr-lifecycle/SKILL.md#continuation-through-the-requested-endpoint) when responding to status or progress interruptions.
 
-## Decision guide
-1. **Creating new PR** → Use automation script OR `git push -u origin HEAD && gh pr create`
-2. **PR already created but no upstream** → `git branch --set-upstream-to=origin/$(git branch --show-current)`
-3. **Fixing PR after comments** → Commit changes, `git push` (upstream already set)
-4. **Checking PR status** → `gh pr view` or `gh pr checks`
-5. **Creating PR from issue** → `gh issue develop <number> --checkout && git push -u origin HEAD && gh pr create`
+## Retained review integrations
 
-## Critical Rules
-- **🚨 ALWAYS set upstream tracking**: Use `git push -u origin HEAD` OR manually set with `git branch --set-upstream-to=origin/BRANCH_NAME`
-- **🚨 NEVER push without `-u` on first push**: Prevents "no tracking information" errors
-- **🚨 CHECK upstream after PR creation**: Run `git branch -vv` to verify tracking is configured
-- **🚨 USE automation script for consistency**: Ensures all steps are followed
+Follow [pr-lifecycle's retained review integrations](../pr-lifecycle/SKILL.md#retained-review-integrations)
+for skill discovery (including on a remote host), `UNAVAILABLE` reporting, quorum and disclosure boundaries.
 
-## Upstream Tracking Benefits
-- ✅ `git push` and `git pull` work without arguments
-- ✅ Git status shows "ahead/behind" information
-- ✅ `gh pr` commands work correctly
-- ✅ Prevents accidental pushes to wrong branch
-- ✅ Enables `git push --force-with-lease` safety
+## Useful highlighted skills
 
-## Common Issues & Solutions
+Pick a helper for the actual question; these links add no gates. pr-lifecycle and the target
+repository still decide which reviews and evidence are required.
 
-### Issue: "fatal: The current branch has no upstream branch"
-**Solution**: `git branch --set-upstream-to=origin/$(git branch --show-current)`
+- [advice](../advice/SKILL.md): obtain independent perspectives on a design or implementation decision; preserve the applicable review quorum.
+- [4layer](../4layer/SKILL.md): locate a failure at the lowest sufficient test layer before escalating to broader or live tests.
+- [evidence-review](../evidence-review/SKILL.md): check that PR claims resolve to real, provenance-backed artifacts and disclose gaps.
 
-### Issue: PR created but git status doesn't show tracking
-**Solution**: Run upstream setup command above, then `git branch -vv` to verify
+## Verify ownership and the exact branch
 
-### Issue: Want to change PR base branch
-**Solution**: `gh pr edit --base new-base-branch`
+- Read repository AGENTS.md/CLAUDE.md, current user scope, existing PR and source-owner/hold records.
+- Verify actual head repository, head branch, head SHA and base from live PR metadata:
+  `gh pr view <N> --json url,headRefName,headRefOid,headRepository,baseRefName`.
+- Inspect local status, remotes and upstream. A similarly named branch or a log grep is not source binding.
+- Fetch the verified branch using the existing authorized remote. Work in the incumbent checkout or an
+  explicitly coordinated isolated worktree; preserve dirty and unrelated changes.
+- Never use a hard reset, force-push, deleted branch or discarded work as routine branch verification.
+  This skill grants none of those actions and no new writer/operator.
+- Re-read the remote head before publication. Unexpected movement requires reconciliation, not overwrite.
 
-### Issue: Multiple commits, want to squash
-**Solution**: `git rebase -i HEAD~N` (where N is number of commits), then `git push --force-with-lease`
+## Shared-default publication
 
-## PR Description Best Practices
-Include in every PR description:
-1. **Summary**: What does this PR do?
-2. **Changes**: Bullet list of specific changes
-3. **Benefits**: Why is this valuable?
-4. **Test Plan**: How was this tested?
-5. **Related Issues**: Link to issues/tickets
+Use these defaults only where the repository's explicit creation and stage instructions are silent and,
+for PR creation, the shared draft default applies. They do not waive security, credential, ownership or
+merge gates.
 
-## Workflow Integration
-This skill integrates with:
-- `/pr` command - Complete PR workflow automation
-- `/push` command - Branch pushing with PR creation
-- `/pushl` command - Push with automatic labeling
-- Build/test/lint autopilot - Pre-PR validation
+| Scenario | Safe ordinary action |
+|---|---|
+| First branch push | Verify target, then `git push -u <verified-remote> HEAD`. |
+| Same-repository PR | Verify head and base repositories are identical, then `gh pr create --repo <verified-base-owner/repo> --draft --base <verified-base> --head <verified-branch>`. |
+| User-owned fork PR | The same explicit `--repo`/`--base` with `--head <verified-head-user>:<verified-branch>`. |
+| Existing PR update | Scoped commit and ordinary push through its sole writer; verify remote SHA. |
+| Missing upstream | Verify remote branch, then `git branch --set-upstream-to=<remote>/<branch>`. |
+| Status | Read PR head/base, all applicable check attempts, reviews and mergeability. |
+| Connector publication | Use its authorized expected-head/non-forced update and exact readback; do not pretend it establishes native Git upstream tracking. |
 
-## PR Branch Verification (MANDATORY)
+The [GitHub CLI manual](https://cli.github.com/manual/gh_pr_create) documents owner-qualified fork heads and an organization-owner limitation. If the tool cannot express the exact head repository, use an already-authorized interface that can, or report the blocker; never guess from a same-named branch. After creation, read back both repository identities, head/base branches and head SHA before updating or claiming the intended PR.
 
-**CRITICAL: Always verify the correct PR remote branch before working on merge conflicts or PR operations.**
+No bundled creation script is assumed. Use an optional helper only if it exists, has been inspected and
+preserves the applicable creation state, ownership and expected-head requirements; never run a missing,
+unverified or incompatible helper because old guidance names one.
 
-### Forbidden Actions
-- Guessing or assuming PR branch names
-- Using branch names that "look like" they match the PR number
-- Working on branches without verifying they're the actual PR branch
+## Route selection and evidence
 
-### Required Steps
-1. **Verify PR branch name**:
-   - `gh pr view <number> --json headRefName`
-   - Or: `git log --oneline --all --grep="<PR-number>"`
-2. **Fetch the correct remote branch**: `git fetch origin <actual-branch-name>`
-3. **Reset to the correct branch**: `git reset --hard origin/<actual-branch-name>`
-4. **Verify before proceeding**: `git log --oneline -5`
+Select the applicable route from [pr-lifecycle's review-obligation table](../pr-lifecycle/SKILL.md#review-obligations-by-changed-claim-and-risk), applying the target repository's override first. That contract is the sole owner of risk, claim, threshold, reviewer, evidence and visual/runtime applicability; this entry point adds no second routing table, provider ladder or source-vote requirement.
 
-### Example
-```bash
-# WRONG - Don't guess
-git fetch origin pull/3096/head:pr-3096
+For opted-in repositories, follow [the lifecycle's stage transitions](../pr-lifecycle/SKILL.md#stage-title-and-labels), [default PR route](../pr-lifecycle/SKILL.md#default-pr-route--prw) and [SHA-binding rule](../pr-lifecycle/SKILL.md#sha-binding-rule-critical--applies-to-every-gate-in-this-chain). Title or label changes are not execution proof, review approval or merge authority. Before review dispatch or publication, verify the candidate head/base, selected route, readable hash-bound artifacts and any prior-proof applicability.
 
-# CORRECT - Verify first
-gh pr view 3096 --json headRefName  # Returns actual branch name
-git fetch origin claude/byok-settings-feature-0WgQP
-git reset --hard origin/claude/byok-settings-feature-0WgQP
-```
+At start, after each push and on a new failure, refresh the current head, applicable checks and findings. Record the requested endpoint, actual blockers, executing owner, next action and clearance evidence in the existing PR/task record. Continue through the requested endpoint without invented approval stops; diagnose original failures before a targeted fix or retry and preserve assertions.
 
-**Root Cause Prevention:** Multiple branches may exist with similar names. Always verify from PR metadata.
+## PR description and reporting
 
-## Reporting expectations
-- Confirm upstream tracking is set: `git branch -vv` output
-- Display PR URL after creation
-- Show current branch status and tracking information
-- Highlight any issues with upstream configuration
-- Provide next steps if PR creation partially fails
+Use the repository's actual template and [pr-lifecycle's review-record contract](../pr-lifecycle/SKILL.md#review-records-in-the-pr-description). Report scope, current stage/head, owner, blockers, next action and exact evidence; preserve original receipt attribution and disclose partial or uncertain publication. Never publish private source, credentials or personal communications outside their authorized destination.
+
+## Boundaries
+
+Creating or updating a PR does not authorize merge, deployment, credential changes, new quota,
+native/account operations, schedule changes or another owner's source work.
+Merge authority remains repository/user-specific and must be satisfied separately.
+Stage-exit receipts follow [pr-lifecycle's stage-exit receipt contract](../pr-lifecycle/SKILL.md#evidence-attached-to-every-stage-exit); that contract is the single owner.

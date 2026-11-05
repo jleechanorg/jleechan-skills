@@ -5,6 +5,14 @@ metadata:
   type: skill
 ---
 
+> **Terminal-reading rule (canonical):** before any classification, assessment, or steer of a
+> cmux surface, read the surface's FULL available history (~10k words when possible;
+> `cmux capture-pane --scrollback --lines 1500`), then the last ~15 lines for current state.
+> Never decide from a short tail. Canonical text: `~/.codex/AGENTS.md` section
+> "Reading a cmux terminal before deciding (full-buffer rule)".
+
+> **No workspace selection (mandatory):** never run `cmux select-workspace`, `workspace.select`, `workspace-action --action focus`, or any command that selects/focuses/switches a workspace or surface — it steals the operator's active window. Read headless with `cmux capture-pane --workspace <ws> --surface <sf> --scrollback --lines <n>`; never `cmux read-screen` (can return the focused surface / steal focus). `cmux send`/`send-key --workspace <ws> --surface <sf>` is allowed and must not select.
+
 ## ⚠️ Submit Discipline (MANDATORY — read this before every cmux steer)
 
 `cmux send` does **NOT** press Enter. This is the #1 recurring cmux failure mode
@@ -42,8 +50,7 @@ cmux capture-pane --workspace workspace:N --surface surface:M --lines 25
 Every reply that reports a `cmux send` action MUST include, in the same reply:
 
 1. **The exact text that was typed** — verbatim copy of the string passed to `cmux send`.
-2. **The cmux terminal response** — verbatim transcript of what `cmux capture-pane` /
-   `cmux read-screen` returned AFTER the `cmux send-key enter` settle window
+2. **The cmux terminal response** — verbatim transcript of what `cmux capture-pane` returned AFTER the `cmux send-key enter` settle window
    (typically 5-15s). Specifically, the agent's first action after absorption.
 3. **Submission status** — explicit verdict: "submitted (churning label X)",
    "not submitted (text still at ❯ prompt)", or "blocked (no churn, retried N times)".
@@ -83,8 +90,7 @@ churning label.
 - "I sent the message" (no Enter proof)
 - "The agent should have received it" (no churning label)
 - `cmux send` with no follow-up `cmux send-key enter`
-- Sending to a surface that hasn't been focused (the global focus may be on a
-  different workspace; use the raw RPC `surface.focus` if needed)
+- Focusing or selecting a surface to send; always target with explicit `--workspace`/`--surface`
 
 ### Worktree-pointer strategy for long briefs
 

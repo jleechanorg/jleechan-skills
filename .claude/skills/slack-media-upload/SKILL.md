@@ -29,7 +29,7 @@ where the deliverable is real, viewable media inside Slack — not a link.
 
 ```bash
 python3 ~/.claude/skills/slack-media-upload/scripts/slack_upload.py \
-  --channel C09GRLXF9GR \
+  --channel <SLACK_ID> \
   --file /path/before.mp4 --title "Before" \
   --file /path/after.mp4  --title "After" \
   --comment "Evidence for PR #1234" \
@@ -51,9 +51,9 @@ entirely (falls back to each file's basename).
 ## Pitfalls (all hit and verified 2026-09-01 — don't rediscover these)
 
 - **`mcp__slack__users_search`'s `DMChannelID` for this operator
-  (`D0A418NEHHC`) returns `channel_not_found`** when posted to via the MCP
+  (`<SLACK_ID>`) returns `channel_not_found`** when posted to via the MCP
   tool or the bot token. The channel that actually works is
-  `$JLEECHAN_DM_CHANNEL` (`D0AFTLEJGJU` at time of writing) — verified live
+  `$JLEECHAN_DM_CHANNEL` (`<SLACK_ID>` at time of writing) — verified live
   with a real `chat.postMessage` call. Always use `--dm` (env-driven), never
   hardcode or re-derive a DM channel ID from `users_search`.
 - **Token choice matters.** `korotovsky/slack-mcp-server` silently prefers
@@ -63,13 +63,12 @@ entirely (falls back to each file's basename).
   independently verified (2026-09-01) to carry `files:write`.
 - **`files:write` scope has regressed before.** The `mcp_agent_mail` Slack
   app lost `files:write` at least 4 times between 2026-07-13 and 2026-07-19
-  (PRs #7953, #8139, #8337, #8455), always via an OAuth reinstall that
-  rotated the bot token without updating all 3 places it lives
-  (`~/.bashrc: HERMES_SLACK_BOT_TOKEN`, `~/.bashrc: SLACK_MCP_XOXB_TOKEN`,
-  `~/.mcp_mail/credentials.json: SLACK_BOT_TOKEN`). If this script starts
-  failing with `missing_scope: files:write`, that's the first thing to check
-  — full recovery transcript in
-  `~/.claude/plugins/marketplaces/claude-commands-marketplace/hermes/skills/devops/slack-mcp-mail-bot-reinstall/references/files-write-scope-reinstall-2026-07-19.md`.
+  (PRs #7953, #8139, #8337, #8455). If this script returns
+  `missing_scope: files:write`, report the exact scope error and stop. Use
+  only an already-authorized connector/uploader with its configured scope; do
+  not access a personal browser profile or cookies, inject credentials, run an
+  OAuth reinstall, or rotate tokens as a workaround. The retired historical
+  transcript is not an operational recovery guide.
 - **Legacy `files.upload` is dead.** Slack sunset it 2025-11-12. Don't use it
   even if a snippet you find online still references it.
 

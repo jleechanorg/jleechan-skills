@@ -1,23 +1,25 @@
 name: Skeptic Cron
 
-# Master logic managed by jleechanorg/agent-orchestrator.
-# Uses @main to auto-track fixes (jq $ anchor fix, evidence gate, etc.)
+# DEPRECATED / RETIRED — no-op stub.
+#
+# The Skeptic gate and its automated auto-merge path are retired. `/green` is
+# exactly TWO gates: CI green + no merge conflicts, verified at the PR's current
+# HEAD SHA. See .claude/skills/pr-green-definition/SKILL.md.
+#
+# Skeptic: REMOVED/not used. CodeRabbit: optional advisory (never a gate).
+# Bugbot: optional advisory (never a gate).
 
 on:
   workflow_dispatch:
 
 permissions:
-  contents: write
-  pull-requests: write
-  issues: write
-  statuses: read
-  checks: read
+  contents: read
 
 jobs:
   skeptic_cron:
-    uses: jleechanorg/agent-orchestrator/.github/workflows/skeptic-cron-reusable.yml@main
-    with:
-      # Default: use self-hosted 'mikey' runner for cron/eval.
-      runner_labels: ${{ vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","self-hosted-mikey"]' }}
-      auto_merge: "false"
-    secrets: inherit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deprecated no-op
+        run: |
+          echo "Skeptic Cron is retired. /green = CI green + no merge conflicts (2 gates)."
+          echo "See .claude/skills/pr-green-definition/SKILL.md."

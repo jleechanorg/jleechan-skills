@@ -1,5 +1,5 @@
 ---
-description: Generate a concise ## What Was Done and ## What to Review as a Human brief grounded in empirical Mac and Linux agent blind spots
+description: Generate ## What Was Done and ## What to Review as a Human (canonical owner: human-review-brief/SKILL.md)
 argument-hint: "[pr-number-or-scope]"
 ---
 

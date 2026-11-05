@@ -1,28 +1,29 @@
 ---
 name: worktree-protection
-description: Worktree safety rules — AO-managed vs human-created worktrees, prune ban, cleanup guard regex
+description: Verify exact worktree ownership, preserved state and cleanup authorization; names and missing sessions are not permission to remove work.
 type: policy
 ---
 
 # Worktree Protection Rules
 
-## AO-managed worktrees
+## Verify ownership and authority
 
-Basename matching `^(ao|jc|wa|cc|ra|wc)-[0-9]+$` — may be removed by agents when the corresponding tmux session is dead.
+A basename pattern or missing tmux session is an inventory hint, not proof that
+a worktree is abandoned or disposable. Resolve the exact registered path,
+branch and owner; inspect dirty files, unpushed commits, active processes and
+the owner's transcript before assessing cleanup. Preserve unrelated work and
+the active worktree.
 
-Before removing an AO worktree, verify its tmux session is dead:
-```bash
-tmux has-session -t <session-name> 2>/dev/null  # must fail
-```
-
-## Human-created worktrees
-
-Any name NOT matching the AO pattern (e.g., `worktree_worker5`, `review_api_prs`) — **OFF-LIMITS**. Only a human may remove them.
+Removal requires existing authorization for that exact target under shared
+destructive-action policy. Neither an AO-looking name nor a merged PR supplies
+that authorization. Conversely, an explicitly authorized target does not need
+an AO-style name. Use the owning cleanup procedure and prefer recoverable
+operations; report what was removed and how it can be recovered.
 
 ## Hard rules
 
 - **NEVER run `git worktree prune`** — it indiscriminately removes all dead worktrees including human ones
-- When writing cleanup scripts, ALWAYS guard:
-  ```bash
-  if [[ ! "$name" =~ ^(ao|jc|wa|cc|ra|wc)-[0-9]+$ ]]; then echo "SKIP: $name"; continue; fi
-  ```
+- Never use name matching as the cleanup safety gate or recursively remove a
+  computed target. Follow the shared destructive-path guard.
+- Create worktrees with `diskm worktree-new` under `~/.worktrees/<repo>/<name>`
+  unless an explicit applicable allowlist permits another root.

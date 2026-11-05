@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Sparse conversation history search across Claude, Codex, Hermes, agy CLI, and Cursor.
+"""Sparse conversation history search across Claude, Codex, Hermes, agy CLI, Cursor, and Pi.
 
 Extracts high-signal snippets within strict context budgets.
 Gracefully handles absent databases, missing files, and malformed JSON.
@@ -45,6 +45,7 @@ ANSI = {
     "hermes": "\033[35m",    # magenta
     "agy":    "\033[33m",    # yellow
     "cursor": "\033[32m",    # green
+    "pi":     "\033[95m",    # bright magenta
     "head":   "\033[1;37m",  # bold white
     "match":  "\033[1;33m",  # bold yellow
     "dim":    "\033[2m",
@@ -86,6 +87,33 @@ def _clean_snippet(text: str, max_chars: int = 200) -> str:
         return ""
     cleaned = re.sub(r"\s+", " ", text).strip()
     return cleaned[:max_chars]
+
+
+def _extract_pi_content(msg_obj: Any) -> str:
+    """Extract only text blocks from a Pi message.
+
+    Strict allowlist: system prompts, thinking blocks, and tool payloads must
+    never leak, even when a noncanonical block carries its payload under a
+    `content` key instead of `text`. Only blocks whose declared type is a text
+    type (or plain strings) contribute.
+    """
+    if isinstance(msg_obj, str):
+        return msg_obj
+    if isinstance(msg_obj, list):
+        parts = []
+        for part in msg_obj:
+            if isinstance(part, str):
+                parts.append(part)
+            elif isinstance(part, dict):
+                if part.get("type") in ("text", "input_text", "output_text") and part.get("text"):
+                    parts.append(str(part["text"]))
+        return " ".join(parts)
+    if isinstance(msg_obj, dict):
+        if msg_obj.get("type") in ("text", "input_text", "output_text") and msg_obj.get("text"):
+            return str(msg_obj["text"])
+        if "type" not in msg_obj and isinstance(msg_obj.get("content"), (str, list)):
+            return _extract_pi_content(msg_obj["content"])
+    return ""
 
 
 def _extract_claude_content(msg_obj: Any) -> str:
@@ -227,6 +255,228 @@ def search_claude(
                             label=proj_name,
                             snippet=snippet,
                             metadata={"file": file_path.name, "path": str(file_path), "is_user": is_user},
+                        )
+                    )
+                    file_hits += 1
+                    if file_hits >= max_per_file or len(results) >= limit:
+                        break
+        except Exception:
+            continue
+
+    return results[:limit]
+
+
+def search_pi(
+    query: str = "",
+    cwd: str = "",
+    limit: int = 3,
+    max_per_file: int = 3,
+    max_chars: int = 200,
+    sessions_dir: Optional[Path | str] = None,
+) -> list[HistoryEntry]:
+    """Search Pi coding agent sessions (~/.pi/agent/sessions/--<cwd>--/*.jsonl).
+
+    Pi groups sessions by working directory using an encoded directory name
+    (leading separator removed; `/`, `\\`, and `:` replaced with `-`), then
+    wraps that key in `--`, e.g. `/Users/me/proj` -> `--Users-me-proj--`.
+    """
+    results: list[HistoryEntry] = []
+    if sessions_dir is not None:
+        base_dir = Path(sessions_dir)
+    else:
+        env_dir = os.environ.get("PI_CODING_AGENT_SESSION_DIR", "").strip()
+        base_dir = Path(env_dir) if env_dir else Path.home() / ".pi" / "agent" / "sessions"
+    if not base_dir.is_dir():
+        return results
+
+    cwd_path = os.path.normpath(cwd or os.getcwd())
+    cwd_project_key = (
+        cwd_path.lstrip("/\\").replace("/", "-").replace("\\", "-").replace(":", "-")
+    )
+    # Pi names each cwd group exactly `--<encoded-cwd>--`. Match that name
+    # exactly so `/work/target-old` is not mistaken for `/work/target`.
+    expected_project_dir = f"--{cwd_project_key}--" if cwd_project_key else ""
+
+    try:
+        proj_entries = [e for e in os.scandir(base_dir) if e.is_dir() and not e.name.startswith('.')]
+    except Exception:
+        return results
+
+    def safe_mtime(entry: os.DirEntry) -> float:
+        try:
+            return entry.stat().st_mtime
+        except Exception:
+            return 0.0
+
+    cwd_matches: list[os.DirEntry] = []
+    other_entries: list[os.DirEntry] = []
+
+    for pe in proj_entries:
+        if expected_project_dir and pe.name == expected_project_dir:
+            cwd_matches.append(pe)
+        else:
+            other_entries.append(pe)
+
+    cwd_matches.sort(key=safe_mtime, reverse=True)
+    other_entries.sort(key=safe_mtime, reverse=True)
+
+    query_lower = query.lower() if query else ""
+
+    def file_mtime(p: Path) -> float:
+        try:
+            return p.stat().st_mtime
+        except Exception:
+            return 0.0
+
+    def _session_header_cwd(path: Path) -> str:
+        """Recorded cwd from a session file's header, or "" if unreadable."""
+        try:
+            with open(path, "r", encoding="utf-8", errors="ignore") as fh:
+                for index, raw in enumerate(fh):
+                    if index > 20:
+                        break
+                    raw = raw.strip()
+                    if not raw:
+                        continue
+                    try:
+                        obj = json.loads(raw)
+                    except Exception:
+                        continue
+                    if isinstance(obj, dict) and obj.get("type") == "session":
+                        return str(obj.get("cwd") or "")
+        except Exception:
+            return ""
+        return ""
+
+    requested_cwd = os.path.normpath(cwd_path) if cwd_path else ""
+
+    def recorded_cwd_matches(path: Path) -> bool:
+        """Whether a session file's recorded header cwd equals the requested cwd."""
+        session_cwd = _session_header_cwd(path)
+        return bool(session_cwd and requested_cwd and os.path.normpath(session_cwd) == requested_cwd)
+
+    def collect_project_files(entries: list[os.DirEntry], budget: int) -> list[Path]:
+        """Files for each project directory, newest-first, keeping cwd priority.
+
+        A pi group directory name is a lossy cwd encoding (`/work/a-b` and
+        `/work/a/b` both map to `--work-a-b--`), so when a group can hold
+        multiple real projects, files whose recorded header cwd matches the
+        request are prioritized within the group before mtime ordering.
+        """
+        files: list[Path] = []
+        for pe in entries[:budget]:
+            proj_files: list[Path] = []
+            try:
+                for fe in os.scandir(pe.path):
+                    if fe.is_file() and fe.name.endswith(".jsonl"):
+                        proj_files.append(Path(fe.path))
+            except Exception:
+                continue
+            if requested_cwd:
+                proj_files.sort(key=lambda p: (0 if recorded_cwd_matches(p) else 1, -file_mtime(p)))
+            else:
+                proj_files.sort(key=file_mtime, reverse=True)
+            files.extend(proj_files)
+        return files
+
+    # Flat JSONL files directly under the session root (explicit session-dir override).
+    flat_files: list[Path] = []
+    try:
+        for fe in os.scandir(base_dir):
+            if fe.is_file() and fe.name.endswith(".jsonl"):
+                flat_files.append(Path(fe.path))
+    except Exception:
+        flat_files = []
+
+    def _flat_priority(path: Path) -> tuple[int, float]:
+        """Sort key: recorded-cwd match first, then newest mtime."""
+        # A flat session whose recorded cwd matches the request outranks an
+        # unrelated (newer) flat session in the same shared directory. Compare
+        # normalized real paths, not the lossy encoded group name, so
+        # `/work/a-b` and `/work/a/b` do not collide.
+        matched = 0 if recorded_cwd_matches(path) else 1
+        return (matched, -file_mtime(path))
+
+    flat_files.sort(key=_flat_priority)
+
+    # Preserve cwd priority: requested-project files first, then flat files, then
+    # other projects. A global mtime sort here would let a newer unrelated
+    # project displace the requested project's results.
+    candidate_files: list[Path] = (
+        collect_project_files(cwd_matches, 10)
+        + flat_files
+        + collect_project_files(other_entries, 10)
+    )
+
+    for file_path in candidate_files:
+        if len(results) >= limit:
+            break
+        proj_name = file_path.parent.name
+        session_cwd = ""
+        file_hits = 0
+
+        try:
+            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        obj = json.loads(line)
+                    except Exception:
+                        continue
+                    if not isinstance(obj, dict):
+                        continue
+
+                    entry_type = obj.get("type")
+                    if entry_type == "session":
+                        session_cwd = str(obj.get("cwd") or session_cwd)
+                        continue
+                    if entry_type != "message":
+                        continue
+                    msg = obj.get("message", {})
+                    if not isinstance(msg, dict):
+                        continue
+
+                    role = msg.get("role", "")
+                    # System prompts and tool results/payloads are never sampled.
+                    is_user = role == "user"
+                    if role not in ("user", "assistant"):
+                        continue
+
+                    content = _extract_pi_content(msg.get("content"))
+                    if not content:
+                        continue
+
+                    # If query is empty, restrict to user prompts only.
+                    if not query_lower and not is_user:
+                        continue
+
+                    if query_lower and query_lower not in content.lower():
+                        continue
+
+                    snippet = _clean_snippet(content, max_chars=max_chars)
+                    if not snippet:
+                        continue
+
+                    ts = str(obj.get("timestamp") or "")[:16]
+                    metadata: dict[str, Any] = {
+                        "file": file_path.name,
+                        "path": str(file_path),
+                        "is_user": is_user,
+                    }
+                    if session_cwd:
+                        metadata["session_cwd"] = session_cwd
+                    model = msg.get("model")
+                    if model:
+                        metadata["model"] = model
+                    results.append(
+                        HistoryEntry(
+                            source="pi",
+                            timestamp=ts,
+                            label=session_cwd or proj_name,
+                            snippet=snippet,
+                            metadata=metadata,
                         )
                     )
                     file_hits += 1
@@ -1023,7 +1273,7 @@ def search_cursor(
     return results[:limit]
 
 
-ALL_SOURCES = ("claude", "codex", "hermes", "agy", "cursor")
+ALL_SOURCES = ("claude", "codex", "hermes", "agy", "cursor", "pi")
 
 
 def search_history(
@@ -1084,6 +1334,14 @@ def search_history(
             chats_dir=kwargs.get("cursor_chats_dir"),
             projects_dir=kwargs.get("cursor_projects_dir"),
         )
+    if "pi" in selected_sources:
+        results["pi"] = search_pi(
+            query=query,
+            cwd=cwd,
+            limit=limit,
+            max_chars=max_chars,
+            sessions_dir=kwargs.get("pi_sessions_dir"),
+        )
 
     return results
 
@@ -1094,6 +1352,7 @@ SOURCE_EMOJIS = {
     "hermes": "⚡ Hermes",
     "agy": "🌐 agy CLI",
     "cursor": "🖥️  Cursor",
+    "pi": "🧭 Pi",
 }
 
 
@@ -1132,7 +1391,7 @@ def format_results(
 
 def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Sparse conversation history search across Claude, Codex, Hermes, agy, and Cursor."
+        description="Sparse conversation history search across Claude, Codex, Hermes, agy, Cursor, and Pi."
     )
     parser.add_argument("query", nargs="?", default=os.environ.get("HIST_QUERY", ""), help="Search query string")
     parser.add_argument("-q", "--query-flag", dest="explicit_query", default="", help="Explicit query flag")

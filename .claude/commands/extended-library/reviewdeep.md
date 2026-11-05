@@ -21,10 +21,10 @@ execution_mode: immediate
                                      - Multi-agent agreement using 4 parallel agents
                                      - Quick architectural and correctness validation
                                      - Early identification of critical issues
-                                     - 3-round maximum with early termination
+                                     - Continue through required fixes and re-review until acceptance or a verified blocker/deadline
 2. /guidelines                       # Centralized mistake prevention consultation
 3. Evaluate consensus result:
-   - If **CONSENSUS_REWORK**: Summarize blockers, halt here, and request fixes before deep review.
+   - If **CONSENSUS_REWORK**: Implement authorized fixes, then repeat affected review and evidence until PASS or a verified blocker/deadline; do not ask the operator to do routine fixes.
    - If **MIXED_SIGNALS**: Proceed to Stage 2 with targeted focus areas provided by consensus agents.
    - If **CONSENSUS_PASS**: Proceed to full Stage 2 execution.
 4. When Stage 2 runs, launch PARALLEL EXECUTION:
@@ -129,9 +129,9 @@ Each command is executed with the same target parameter passed to `/reviewdeep`.
 
 ## Command Composition
 
-**`/reviewdeep` = Parallel execution of Technical Track (`/cerebras` analysis) + Strategic Track (`/arch` + Claude synthesis) + `/reviewe` + MCP integrations + SOLO DEVELOPER SECURITY FILTERING**
+**`/reviewdeep` = Parallel execution of Technical Track (`/cerebras` analysis) + Strategic Track (`/arch` + Claude synthesis) + `/reviewe` + MCP integrations.**
 
-The command executes dual parallel review tracks by default with mandatory MCP integration for comprehensive analysis with significant speed improvement (2.4x overall). **Solo developer security focus**: Filters out enterprise paranoia, focuses on real exploitable vulnerabilities, and includes trusted source detection. Speed is always prioritized.
+The command executes independent review tracks with evidence and repository security requirements. Do not dismiss a finding based on launch status, user count, or a rollback path.
 
 ### 1. `/reviewe` - Enhanced Review with Official Integration
 
@@ -144,6 +144,7 @@ The command executes dual parallel review tracks by default with mandatory MCP i
 - **Performance Review**: N+1 queries, inefficient algorithms, memory leaks
 - **Context7 Integration**: Up-to-date API documentation and framework best practices
 - **ALWAYS POSTS** expert categorized comments (🔴 Critical, 🟡 Important, 🔵 Suggestion, 🟢 Nitpick)
+- For PRs, only a concrete acceptance-blocking defect is P0; every nonblocking finding is P1 or lower. A P0 must state the concrete failure, violated acceptance requirement, and verification needed to clear it.
 - **ALWAYS POSTS** comprehensive security and quality assessment summary
 - Provides actionable feedback with specific line references and fix recommendations
 

@@ -44,17 +44,13 @@ python3 -m pytest $PROJECT_ROOT/tests/test_[relevant].py -q
 python3 -m pytest $PROJECT_ROOT/tests/test_end2end/test_[feature]_end2end.py -q
 ```
 
-3. MCP/HTTP API tests (`testing_mcp/`)
-
-```bash
-python3 testing_mcp/[domain]/test_[feature]_real.py
-```
-
-4. Browser tests (`testing_ui/`)
-
-```bash
-python3 testing_ui/[domain]/test_[feature]_browser.py
-```
+3. MCP/HTTP API tests (`testing_mcp/`): follow the target repository's
+   `testing_mcp/CLAUDE.md` for the exact real-service invocation, environment,
+   and explicit `PYTHONPATH`. Do not use `vpython`, pytest collection, mocks,
+   or the unfiltered suite when that contract forbids them.
+4. Browser tests (`testing_ui/`): follow the target repository's
+   `testing_ui/CLAUDE.md` for the exact server, account, service, and runner
+   requirements; do not substitute a synthetic or bypass-auth route.
 
 ## Execution Rules
 
@@ -68,7 +64,20 @@ python3 testing_ui/[domain]/test_[feature]_browser.py
 
 After each test run, capture:
 
-- Full absolute evidence directory path (for example `/tmp/worldarchitectai/<branch>/<test>/latest/`).
+- Full absolute evidence directory path under a unique run directory. Resolve the
+  scratch root, refuse a `/tmp` result, then create a fresh directory beneath it —
+  `scratch-dir.sh` returns a stable root, not a per-run path, and it exits 0 even
+  when it falls back to `/tmp`:
+  ```bash
+  # Call the resolver with NO subpath: given one, it runs mkdir -p on the target
+  # before returning, so a tmp fallback would already be created before any check.
+  SCRATCH_ROOT="$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh)" || exit 1
+  case "$SCRATCH_ROOT" in
+    /tmp|/tmp/*) echo "scratch volume not configured; refusing a tmp workspace" >&2; exit 1 ;;
+  esac
+  EVIDENCE_DIR="$(mktemp -d "$SCRATCH_ROOT/evidence-run.XXXXXX")" || exit 1
+  ```
+  See `../scratch-space/SKILL.md` for why `/tmp` workspaces are prohibited.
 - Signature failure lines with context (`rg`/`grep` output).
 - Screenshot + server log consistency checks where applicable.
 - Final decision notes mapping blocker layer to component class:
@@ -84,10 +93,12 @@ After each test run, capture:
 
 ## Integration claim gate
 
-For ANY integration claim, provide all three: configuration evidence that enables the
-feature, trigger evidence showing automatic activation, and timestamped log evidence
-from an automatic (not manual) execution. Manual test output cannot substitute for
-automatic-run logs. If any evidence is missing, the integration is NOT verified.
+For claims that a feature is enabled by standard startup or activates
+automatically, provide configuration evidence, trigger evidence, and a
+timestamped log from that automatic execution. A manual test does not establish
+automatic activation. For manual integration claims, use the lowest sufficient
+real-service layer and report exactly what was exercised; do not require
+automatic-run evidence unless the claim is about automatic activation.
 
 ## Shared runtime boundary
 

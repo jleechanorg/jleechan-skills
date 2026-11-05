@@ -1,0 +1,364 @@
+{
+  "format": "jleechan-skill-dispositions-v1",
+  "generated_from": {
+    "manifest": "portable/manifest.json",
+    "tool": "scripts/report_skill_inventory_divergence.py"
+  },
+  "allowed_dispositions": [
+    "keep-claude",
+    "keep-portable",
+    "merge",
+    "drop"
+  ],
+  "entries": [
+    {
+      "name": "advice",
+      "evidence": {
+        "status": "divergent",
+        "changed_files": [
+          "SKILL.md",
+          "scripts/run_primary_pair.py"
+        ]
+      },
+      "disposition": null,
+      "reason": null,
+      "resolved": false
+    },
+    {
+      "name": "backend-first",
+      "evidence": {
+        "status": "identical",
+        "changed_files": []
+      },
+      "disposition": null,
+      "reason": null,
+      "resolved": false
+    },
+    {
+      "name": "cmux-backup",
+      "evidence": {
+        "status": "divergent",
+        "changed_files": [
+          "SKILL.md"
+        ]
+      },
+      "disposition": null,
+      "reason": null,
+      "resolved": false
+    },
+    {
+      "name": "cmux-goal",
+      "evidence": {
+        "status": "divergent",
+        "changed_files": [
+          "SKILL.md",
+          "bin/resolve_caller_target.sh",
+          "tests/test_caller_targeting.sh"
+        ]
+      },
+      "disposition": null,
+      "reason": null,
+      "resolved": false
+    },
+    {
+      "name": "cmux-restore",
+      "evidence": {
+        "status": "portable-only",
+        "changed_files": []
+      },
+      "disposition": null,
+      "reason": null,
+      "resolved": false
+    },
+    {
+      "name": "cmux-steer",
+      "evidence": {
+        "status": "divergent",
+        "changed_files": [
+          "SKILL.md"
+        ]
+      },
+      "disposition": null,
+      "reason": null,
+      "resolved": false
+    },
+    {
+      "name": "conversation-history-sparse",
+      "evidence": {
+        "status": "divergent",
+        "changed_files": [
+          "SKILL.md"
+        ]
+      },
+      "disposition": null,
+      "reason": null,
+      "resolved": false
+    },
+    {
+      "name": "diagnosing-bugs",
+      "evidence": {
+        "status": "portable-only",
+        "changed_files": []
+      },
+      "disposition": null,
+      "reason": null,
+      "resolved": false
+    },
+    {
+      "name": "er",
+      "evidence": {
+        "status": "portable-only",
+        "changed_files": []
+      },
+      "disposition": null,
+      "reason": null,
+      "resolved": false
+    },
+    {
+      "name": "es",
+      "evidence": {
+        "status": "portable-only",
+        "changed_files": []
+      },
+      "disposition": null,
+      "reason": null,
+      "resolved": false
+    },
+    {
+      "name": "evidence-review",
+      "evidence": {
+        "status": "divergent",
+        "changed_files": [
+          "SKILL.md"
+        ]
+      },
+      "disposition": null,
+      "reason": null,
+      "resolved": false
+    },
+    {
+      "name": "evidence-standards",
+      "evidence": {
+        "status": "divergent",
+        "changed_files": [
+          "SKILL.md",
+          "bundle-anatomy.md",
+          "tmux-video-evidence.md",
+          "ui-video-evidence.md"
+        ]
+      },
+      "disposition": null,
+      "reason": null,
+      "resolved": false
+    },
+    {
+      "name": "harness",
+      "evidence": {
+        "status": "portable-only",
+        "changed_files": []
+      },
+      "disposition": null,
+      "reason": null,
+      "resolved": false
+    },
+    {
+      "name": "harness-engineering",
+      "evidence": {
+        "status": "divergent",
+        "changed_files": [
+          "SKILL.md"
+        ]
+      },
+      "disposition": null,
+      "reason": null,
+      "resolved": false
+    },
+    {
+      "name": "history",
+      "evidence": {
+        "status": "divergent",
+        "changed_files": [
+          "SKILL.md"
+        ]
+      },
+      "disposition": null,
+      "reason": null,
+      "resolved": false
+    },
+    {
+      "name": "llm-first",
+      "evidence": {
+        "status": "divergent",
+        "changed_files": [
+          "agents/openai.yaml"
+        ]
+      },
+      "disposition": null,
+      "reason": null,
+      "resolved": false
+    },
+    {
+      "name": "memory-search",
+      "evidence": {
+        "status": "divergent",
+        "changed_files": [
+          "SKILL.md"
+        ]
+      },
+      "disposition": null,
+      "reason": null,
+      "resolved": false
+    },
+    {
+      "name": "ms",
+      "evidence": {
+        "status": "divergent",
+        "changed_files": [
+          "SKILL.md"
+        ]
+      },
+      "disposition": null,
+      "reason": null,
+      "resolved": false
+    },
+    {
+      "name": "nextsteps",
+      "evidence": {
+        "status": "divergent",
+        "changed_files": [
+          "SKILL.md"
+        ]
+      },
+      "disposition": null,
+      "reason": null,
+      "resolved": false
+    },
+    {
+      "name": "p",
+      "evidence": {
+        "status": "portable-only",
+        "changed_files": []
+      },
+      "disposition": null,
+      "reason": null,
+      "resolved": false
+    },
+    {
+      "name": "parallel",
+      "evidence": {
+        "status": "divergent",
+        "changed_files": [
+          "SKILL.md"
+        ]
+      },
+      "disposition": null,
+      "reason": null,
+      "resolved": false
+    },
+    {
+      "name": "parallelize-to-ceiling",
+      "evidence": {
+        "status": "divergent",
+        "changed_files": [
+          "SKILL.md",
+          "references/timeline-milestones.md"
+        ]
+      },
+      "disposition": null,
+      "reason": null,
+      "resolved": false
+    },
+    {
+      "name": "ready",
+      "evidence": {
+        "status": "divergent",
+        "changed_files": [
+          "SKILL.md"
+        ]
+      },
+      "disposition": null,
+      "reason": null,
+      "resolved": false
+    },
+    {
+      "name": "redgreen",
+      "evidence": {
+        "status": "divergent",
+        "changed_files": [
+          "SKILL.md"
+        ]
+      },
+      "disposition": null,
+      "reason": null,
+      "resolved": false
+    },
+    {
+      "name": "research",
+      "evidence": {
+        "status": "divergent",
+        "changed_files": [
+          "SKILL.md"
+        ]
+      },
+      "disposition": null,
+      "reason": null,
+      "resolved": false
+    },
+    {
+      "name": "root-cause-first",
+      "evidence": {
+        "status": "identical",
+        "changed_files": []
+      },
+      "disposition": null,
+      "reason": null,
+      "resolved": false
+    },
+    {
+      "name": "sq",
+      "evidence": {
+        "status": "portable-only",
+        "changed_files": []
+      },
+      "disposition": null,
+      "reason": null,
+      "resolved": false
+    },
+    {
+      "name": "superpowers-quick",
+      "evidence": {
+        "status": "divergent",
+        "changed_files": [
+          "SKILL.md"
+        ]
+      },
+      "disposition": null,
+      "reason": null,
+      "resolved": false
+    },
+    {
+      "name": "web-advice",
+      "evidence": {
+        "status": "divergent",
+        "changed_files": [
+          ".gitignore",
+          "RESOLVER.md",
+          "SKILL.md",
+          "evals/test_resolver_trigger.py",
+          "evals/web_advice_evals.md",
+          "references/browser-transports.md",
+          "scripts/build_review_packets.py",
+          "scripts/e2e_smoke.sh",
+          "scripts/playwright_cookie_driver.py",
+          "scripts/test_build_review_packets.py",
+          "scripts/test_playwright_cookie_driver.py",
+          "scripts/test_web_advice_transport.py",
+          "scripts/web_advice_transport.py"
+        ]
+      },
+      "disposition": null,
+      "reason": null,
+      "resolved": false
+    }
+  ]
+}

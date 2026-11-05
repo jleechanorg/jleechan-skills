@@ -27,13 +27,64 @@ You are an **agy CLI Coder Agent** that delegates implementation to the agy CLI 
 
 **Direct CLI (primary)**
 ```bash
-# Workspace setup: The caller decides whether to allocate a fresh detached
+# Workspace setup: The caller decides whether to allocate a fresh branch
 # worktree or run directly in the caller's workspace. When a dedicated worktree
-# is used, allocate a fresh worktree for this coder attempt disjoint from the
-# other lane (the verifier) and every prior attempt, and enter the fresh
-# worktree before creating or changing any implementation files:
-#   CODER_WORKTREE="$(mktemp -d -t agy_coder_worktree.XXXXXX)"
-#   git worktree add --detach "$CODER_WORKTREE" HEAD
+# is used, choose a new branch absent from local and origin refs and a fresh
+# worktree name for this attempt. Keep it disjoint from the other lane (the
+# verifier) and all prior attempts; enter it before creating or changing files:
+#   ATTEMPT_ID="<fresh unique attempt identifier>"
+#   ATTEMPT_BRANCH="agy-coder-$ATTEMPT_ID"
+#   ATTEMPT_NAME="agy-coder-$ATTEMPT_ID"
+#   if ! BASE_REVISION="$(git rev-parse HEAD)" ||
+#       ! CALLER_STATUS="$(git status --porcelain)"; then
+#     echo "Rejecting unreadable caller revision or status." >&2
+#     exit 1
+#   fi
+#   if [ -n "$CALLER_STATUS" ]; then
+#     echo "Rejecting dirty caller; the new worktree carries committed files only."
+#     exit 1
+#   fi
+#   for BRANCH_REF in "refs/heads/$ATTEMPT_BRANCH" "refs/remotes/origin/$ATTEMPT_BRANCH"; do
+#     if git show-ref --verify --quiet "$BRANCH_REF"; then
+#       echo "Choose an unused coder branch." >&2
+#       exit 1
+#     else
+#       REF_STATUS=$?
+#       if [ "$REF_STATUS" -ne 1 ]; then
+#         echo "Could not inspect coder branch references." >&2
+#         exit 1
+#       fi
+#     fi
+#   done
+#   if ! CODER_WORKTREE="$(diskm worktree-new <repo-path> "$ATTEMPT_BRANCH" \
+#       --base "$BASE_REVISION" --name "$ATTEMPT_NAME")"; then
+#     echo "Could not create coder worktree." >&2
+#     exit 1
+#   fi
+#   if [ -z "$CODER_WORKTREE" ]; then
+#     echo "diskm returned no coder worktree path." >&2
+#     exit 1
+#   fi
+#   case "$CODER_WORKTREE" in
+#     "$HOME"/.worktrees/*) ;;
+#     *) echo "Rejecting coder worktree outside ~/.worktrees." >&2; exit 1 ;;
+#   esac
+#   if ! CODER_HEAD="$(git -C "$CODER_WORKTREE" rev-parse HEAD)"; then
+#     echo "Coder worktree HEAD is unreadable." >&2
+#     exit 1
+#   fi
+#   if [ "$CODER_HEAD" != "$BASE_REVISION" ]; then
+#     echo "Rejecting coder worktree at an unexpected revision." >&2
+#     exit 1
+#   fi
+#   if ! CODER_STATUS="$(git -C "$CODER_WORKTREE" status --porcelain)"; then
+#     echo "Coder worktree status is unreadable." >&2
+#     exit 1
+#   fi
+#   if [ -n "$CODER_STATUS" ]; then
+#     echo "Rejecting dirty coder worktree." >&2
+#     exit 1
+#   fi
 #   cd "$CODER_WORKTREE"
 # Otherwise, verify cwd is clean before starting.
 
@@ -51,17 +102,12 @@ PROMPT_EOF
 # MANDATORY (crash 2026-08-30): NEVER run this as a foreground Bash call —
 # a foreground fork of a multi-minute agy run killed the parent harness
 # under memory pressure. Run it via the Bash tool's run_in_background with
-# an output file, then poll the file; and pre-check resources first:
-# defer if swap >80% used or memory pressure >=2 (WARNING). The pre-check
-# must branch on OS so the gate works on Linux too:
-#   macOS: `sysctl vm.swapusage` + `sysctl kern.memorystatus_vm_pressure_level`
-#   Linux: `free` (swap used %) + `/proc/pressure/memory` PSI `some` line (avg10)
-# Cross-platform one-liner:
-#   case "$(uname -s)" in
-#     Darwin) sysctl vm.swapusage; sysctl kern.memorystatus_vm_pressure_level ;;
-#     Linux)  free | awk '/^Swap/{ if ($2==0) print "swap used=0%"; else printf "swap used=%.0f%%\n", $3/$2*100 }'; \
-#             awk '{print $2}' /proc/pressure/memory 2>/dev/null || true ;;
-#   esac
+# an output file, then poll the file. Before spawning, follow the active
+# `parallelize-to-ceiling` resource-admission gate: measure available RAM and
+# top RSS, and do not gate on a static swap used/total ratio. Normal admission
+# requires >8GB available and, on macOS, pressure <=2; reduce concurrency at
+# 4-8GB available or macOS pressure 3; defer only below 4GB or at macOS
+# pressure 4. Use the canonical gate's per-host commands for each measurement.
 
 # Allocate BOTH $AGY_OUT and $PROMPT_FILE in the INVOKING shell BEFORE the
 # background call, then ECHO their literal paths so the agent's next Bash
@@ -159,10 +205,58 @@ If verifier sends VERIFICATION_FAILED:
 2. Record the exact prior `Revision` from the preceding IMPLEMENTATION_READY as
    `PRIOR_REVISION`. When worktree isolation is used, allocate a new path and
    enter a fresh worktree pinned to it:
-   `CODER_WORKTREE="$(mktemp -d -t agy_coder_retry_worktree.XXXXXX)"`
-   `if ! git worktree add --detach "$CODER_WORKTREE" "$PRIOR_REVISION"; then`
-   `  echo "Rejecting coder retry worktree." >&2; exit 1`
-   `fi`
+   Choose a new retry branch absent from local and origin refs and a fresh
+   worktree name; never reuse either name from the prior attempt. Set
+   `RETRY_ATTEMPT_ID` to a fresh unique identifier, then use it for both:
+   ```bash
+   RETRY_ATTEMPT_ID="<fresh unique retry identifier>"
+   RETRY_BRANCH="agy-coder-$RETRY_ATTEMPT_ID"
+   RETRY_WORKTREE_NAME="agy-coder-$RETRY_ATTEMPT_ID"
+   for BRANCH_REF in "refs/heads/$RETRY_BRANCH" "refs/remotes/origin/$RETRY_BRANCH"; do
+     if git show-ref --verify --quiet "$BRANCH_REF"; then
+       echo "Choose an unused retry branch." >&2
+       exit 1
+     else
+       REF_STATUS=$?
+       if [ "$REF_STATUS" -ne 1 ]; then
+         echo "Could not inspect coder retry branch references." >&2
+         exit 1
+       fi
+     fi
+   done
+   if ! CODER_WORKTREE="$(diskm worktree-new <repo-path> "$RETRY_BRANCH" \
+       --base "$PRIOR_REVISION" --name "$RETRY_WORKTREE_NAME")"; then
+     echo "Could not create coder retry worktree." >&2
+     exit 1
+   fi
+   if [ -z "$CODER_WORKTREE" ]; then
+     echo "diskm returned no coder retry path." >&2
+     exit 1
+   fi
+   case "$CODER_WORKTREE" in
+     "$HOME"/.worktrees/*) ;;
+     *) echo "Rejecting coder retry path outside ~/.worktrees." >&2; exit 1 ;;
+   esac
+   if ! CODER_HEAD="$(git -C "$CODER_WORKTREE" rev-parse HEAD)"; then
+     echo "Coder retry worktree HEAD is unreadable." >&2
+     exit 1
+   fi
+   if [ "$CODER_HEAD" != "$PRIOR_REVISION" ]; then
+     echo "Rejecting coder retry worktree at an unexpected revision." >&2
+     exit 1
+   fi
+   if ! CODER_STATUS="$(git -C "$CODER_WORKTREE" status --porcelain)"; then
+     echo "Coder retry worktree status is unreadable." >&2
+     exit 1
+   fi
+   if [ -n "$CODER_STATUS" ]; then
+     echo "Rejecting dirty coder retry worktree." >&2
+     exit 1
+   fi
+   ```
+   Use the approved worktree-creation path (never `mktemp -d` plus raw
+   `git worktree add`); confirm the returned path is permitted before use.
+   Create the retry checkout at `PRIOR_REVISION` with `--base` before changing files.
    `cd "$CODER_WORKTREE"`. Verify `git -C "$CODER_WORKTREE" rev-parse HEAD`
    equals `PRIOR_REVISION` before changing files; fail closed if it does not.
    Otherwise, if running in the caller workspace, ensure the workspace is

@@ -237,7 +237,7 @@ jobs:
             "You can view the design doc here:" \
             "\`docs/design/pr-designs/pr-${PR_NUM}.md\`" \
             "" \
-            "_The Skeptic agent will review this PR against the design doc as part of the skeptic gate._" \
+            "_Reviewers can use this design doc as additional context._" \
             > "$BODY_FILE"
           gh pr comment "$PR_NUM" \
             --repo "${{ github.repository }}" \

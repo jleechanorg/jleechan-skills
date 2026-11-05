@@ -19,8 +19,8 @@ Based on the command arguments, resolve to appropriate test specification:
 1. `integration` → `testing_mcp/test_create_continue_mcp.md` (comprehensive integration test)
 2. `performance` → Run `testing_mcp/run_mcp_tests.sh performance` via `/testllm`
 3. `unit` → Run `testing_mcp/run_mcp_tests.sh unit` via `/testllm`
-4. `mock` → Run `testing_mcp/run_mcp_tests.sh mock` via `/testllm`
-5. `all` or no args → Run `testing_mcp/run_mcp_tests.sh all` via `/testllm`
+4. `mock` → Do not run a mocked `testing_mcp` test. Every test in `testing_mcp/` uses a real running application server and real services; use only an explicitly allow-listed direct-provider schema probe when applicable.
+5. `all` or no args → Use focused local coverage for the requested behavior; CI owns the unfiltered full suite. Never run an unfiltered full suite locally.
 6. Specific `.md` file → Direct execution of test specification via `/testllm`
 
 ### Phase 2: Step 2: /testllm Delegation
@@ -99,7 +99,6 @@ Execute MCP (Model Context Protocol) test specifications using the comprehensive
 /testmcp integration
 /testmcp performance
 /testmcp unit
-/testmcp mock
 
 # Run with verification (dual-agent mode)
 
@@ -142,8 +141,8 @@ This command delegates to `/testllm` for intelligent test orchestration of MCP t
 ### Shell Script Test Suite
 
 **File**: `testing_mcp/run_mcp_tests.sh`
-- **Test Types**: unit, integration, performance, mock, all, docker
-- **Features**: Mock services, real API modes, Docker containerization, comprehensive reporting
+- **Test Types**: unit, integration, performance, all, docker (use only modes that honor the real-service contract)
+- **Features**: Real-service testing and comprehensive reporting
 - **Timeout**: Configurable (default 300 seconds)
 - **Output**: JUnit XML results, HTML reports, detailed logging
 
@@ -160,12 +159,9 @@ When `/testmcp` is executed, it follows this systematic protocol:
 - **APIs**: Real Firebase Firestore and Gemini API integration
 - **Browser**: Playwright MCP for headless browser automation
 
-### Mock Mode Testing (Alternative)
-
-- **Mock Services**: Automated mock server startup via `run_mcp_tests.sh`
-- **Simulated APIs**: Mock Firebase and Gemini responses
-- **Faster Execution**: Reduced test duration for rapid feedback
-- **Development**: Suitable for development workflow validation
+Do not run `testing_mcp/` in mock mode. Every test in that directory must use
+a real running application server and real services, except explicitly
+allow-listed direct-provider schema probes.
 
 ## Success Criteria
 
@@ -237,17 +233,10 @@ This command leverages the complete `/testllm` infrastructure:
 ```
 **Result**: Dual-agent performance benchmark execution with independent validation
 
-### Mock Mode Testing
-
-```bash
-/testmcp mock
-```
-**Result**: Fast execution with mock services for development workflow validation
-
 ## Anti-Patterns to Avoid
 
 - ❌ **Bypassing /testllm**: Never implement test execution logic directly
-- ❌ **Mock Mode for Production**: Use real APIs for production readiness validation
+- ❌ **Mocked `testing_mcp/` runs**: Use deterministic unit tests outside `testing_mcp/` when mocks are needed
 - ❌ **Incomplete Evidence**: Must capture screenshots and logs for all test steps
 - ❌ **Manual Assumptions**: All test results require specific evidence backing
 - ❌ **Single-Pass Testing**: Must test both success and failure scenarios
