@@ -248,7 +248,7 @@ def compute_split_prefix(branch: str) -> str:
     if "-" in rest:
         feature = rest.split("-", 1)[0]
         return f"split/{feature}-"
-    return "split/"
+    return ""
 
 
 def query_open_prs(repo_slug: str):

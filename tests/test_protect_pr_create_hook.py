@@ -91,6 +91,14 @@ class ProtectPrCreateHookTest(unittest.TestCase):
         self.assert_mocked_github()
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_bare_split_feature_does_not_count_other_prefixes(self):
+        existing = [open_pr(i, f"split/other/{i}") for i in range(5)]
+        result = self.run_hook(
+            "gh pr create --head split/auth --base main", existing
+        )
+        self.assert_mocked_github()
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_split_at_cap_is_blocked(self):
         existing = [open_pr(i, f"split/widget/{i}") for i in range(5)]
         result = self.run_hook(

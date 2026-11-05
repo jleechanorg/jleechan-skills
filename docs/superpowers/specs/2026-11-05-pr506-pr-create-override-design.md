@@ -21,6 +21,8 @@ environment or as an assignment prefix to `gh pr create`.
   continues to allow the explicitly authorized operation.
 - Existing below-cap requests pass; requests at the existing split and stacked
   caps block without an override.
+- A bare `split/<feature>` branch does not consume the per-series split cap;
+  unrelated `split/<other>/*` rows are counted separately.
 - Comments and later commands cannot hide a stacked PR creation or change its
   parsed flags. Attached `-Rowner/repo` is still recognized.
 - When `--base` is omitted, the current branch's configured
