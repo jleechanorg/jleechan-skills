@@ -36,7 +36,10 @@ def parse_time(value):
         raise argparse.ArgumentTypeError("expected ISO-8601 time") from None
     if result.tzinfo is None or result.utcoffset() is None:
         raise argparse.ArgumentTypeError("timestamp must include a timezone")
-    return result.astimezone(timezone.utc)
+    try:
+        return result.astimezone(timezone.utc)
+    except OverflowError:
+        raise argparse.ArgumentTypeError("timestamp is outside the UTC-supported range") from None
 
 
 @contextmanager

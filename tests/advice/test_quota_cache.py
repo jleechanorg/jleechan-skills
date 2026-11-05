@@ -205,8 +205,11 @@ class AdviceQuotaCacheTests(unittest.TestCase):
         entry = next(self.cache.glob("*.json"))
         original = json.loads(entry.read_text())
         for field, bad_value in (("observed_at_utc", None), ("observed_at_utc", 17),
-                                 ("observed_at_utc", []), ("reset_at_utc", None),
-                                 ("reset_at_utc", 17), ("reset_at_utc", [])):
+                                 ("observed_at_utc", []),
+                                 ("observed_at_utc", "0001-01-01T00:00:00+14:00"),
+                                 ("reset_at_utc", None), ("reset_at_utc", 17),
+                                 ("reset_at_utc", []),
+                                 ("reset_at_utc", "0001-01-01T00:00:00+14:00")):
             with self.subTest(field=field, bad_value=bad_value):
                 malformed = dict(original)
                 malformed[field] = bad_value
