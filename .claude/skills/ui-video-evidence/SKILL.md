@@ -429,7 +429,7 @@ Behavior:
 
 Reject these:
 - URL bar cropped out
-- Success-only clip (no before/action)
+- Success-only clip with no applicable before→after transition or, when a user action exists, no before/action flow
 - No git SHA linkage
 - Missing captions
 - Screenshot-only evidence for flow claims
@@ -466,12 +466,12 @@ Rules:
 1. Video is linked from the review receipt at an authorized, reviewer-accessible destination
 2. Any publication follows the authorized destination and applicable automation workflow
 3. Captions are present
-4. Pre-action/action/post-action flow is visible on both compared implementations
+4. When a user action exists, the pre-action/action/post-action flow is visible on both compared implementations; otherwise the applicable before→after transition is visible
 5. URL and route match claim
 6. Actual baseline and candidate source linkage is verified, not inferred from captions
 7. The reviewed evidence receipt includes matching metadata/caption artifacts
-8. mpdecimate retained-frame count reported as kept/nominal (see Frozen-frame detection); clips under the threshold are INSUFFICIENT
-9. Each clip contains the user action itself plus the before state
+8. mpdecimate retained-frame count reported as kept/nominal (see Frozen-frame detection); a low count triggers provenance/timeline review, while a constructed slideshow always fails under the canonical rule
+9. When a user action exists, each clip contains the action itself plus the before state; otherwise each clip contains the applicable before→after transition
 10. Before/after provenance is fresh runs of each build, or labeled `derived` with source
 11. `/er` and second-opinion (`advice` skill) verdicts come from a different agent/lane than the evidence producer, and name that lane
 12. An independent AI reviewer (not the author or orchestrator) judged frames extracted from the
@@ -503,16 +503,17 @@ continuous footage with an idle interval. A constructed still-image sequence
 always fails under the canonical rule regardless of its retained-frame count,
 caption, or successful decode.
 
-## Action must be in the window (MANDATORY)
+## Action or transition must be in the window (MANDATORY)
 
-Each clip must include the user action under test (for example the Send tap)
-and the before state that precedes it. A capture window anchored only to
-completion (e.g. trimmed to the DONE state) that omits the action fails.
+When a user action exists, each clip must include the action under test (for
+example the Send tap) and the before state that precedes it. A capture window
+anchored only to completion (e.g. trimmed to the DONE state) that omits the
+action fails. When no user action exists, each clip must show the applicable
+before→after transition instead.
 
 When the change's observable has no user action (first paint, an error state
-rendered on load, a theme token applied at mount), record this rule as N/A with
-the reason and instead provide a state-transition clip showing the before-state
-frame and the after-state frame.
+rendered on load, a theme token applied at mount), document that fact and use
+the before-state→after-state transition as the required window.
 
 ## Provenance of before/after clips (MANDATORY)
 

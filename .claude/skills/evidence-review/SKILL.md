@@ -164,10 +164,10 @@ For each applicable video requirement, verify:
 - The required format is present and accessible, including any inline GIF or downloadable MP4 the PR claims to provide.
 - The caption identifies the test/action, observed result and tested SHA.
 - Apply the canonical [`evidence-standards` continuous-video rule](../evidence-standards/SKILL.md#continuous-video-only--slideshows-are-forbidden). A slideshow remains **FAIL** even when transport and file-integrity checks pass.
-- UI footage visibly shows the relevant element and before/action/after behavior.
+- UI footage visibly shows the relevant element and the applicable before→after behavior; when a user action exists, it also shows the before/action/after flow.
 - Terminal footage, when required, shows the command and relevant result.
 - The mpdecimate retained-frame count and nominal count are reported with the fail-closed probe in `../ui-video-evidence/SKILL.md`; a low count is diagnostic evidence of a possible slideshow or frozen capture, while the canonical continuous-capture provenance rule remains mandatory.
-- Each clip includes the user action (e.g. the Send tap) plus the before state; a window anchored only to completion that omits the action fails. If the observable has no user action, record N/A with the reason and require a before-state → after-state transition clip.
+- When a user action exists, each clip includes the action (e.g. the Send tap) plus the before state; a window anchored only to completion that omits the action fails. If the observable has no user action, record N/A with the reason and require a before-state → after-state transition clip.
 - Before/after clips come from fresh runs of each build; any re-cut or reused baseline is labeled `derived` with its source.
 - This `/er` verdict (and any `/advice` on the evidence) comes from a different agent/lane than the one that produced the evidence, and the verdict names that lane (lanes may share one GitHub account).
 
