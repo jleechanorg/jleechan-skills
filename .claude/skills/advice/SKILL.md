@@ -21,6 +21,9 @@ the complete change, never a transcription. A verdict built on truncated input i
 - **Document-only review** covers explicitly named, non-ignored, non-symlink Markdown files, committed or not. Give
   every reviewer identical complete bytes (an existing CLI input path, or an upload for web seats), keep the packet, and record per-file
   and bundle SHA256 hashes (integrity, not immutability). It never approves code, `HEAD` or dirty state.
+- Revision-bound saved-content review uses the full 40-hex head SHA only when the PR URL, base/head SHAs, and complete
+  revision-bound coverage are verified. A complete unbound packet uses exactly `DOCUMENTS sha256:<BUNDLE HASH>` and approves
+  only that bundle. Incomplete claimed revision binding means `WITHHELD`; never use an abbreviated SHA or mutable `HEAD`.
 - Each approver reads the whole declared scope. Partial coverage is never combined across reviewers into an
   approval.
 
@@ -230,12 +233,13 @@ reviewers. A competent blocking objection, even from a partial-coverage reviewer
 coverage never supplies an approval. Without the required independent full-coverage approvals under §2's tier caps, the result is
 `WITHHELD`.
 
-**Report.** Give the reviewed SHA (or `DOCUMENTS sha256:<bundle hash>`; never `HEAD`), each reviewer's verdict,
+**Report.** Give the full 40-hex reviewed SHA for revision-bound review or `DOCUMENTS sha256:<bundle hash>` for a
+complete bundle-only review; never use an abbreviated SHA or mutable `HEAD`. Each reviewer's verdict,
 coverage, reasoning, risk and findings, the question's answer, and every `UNAVAILABLE` line. Keep a receipt per
 attempt: identity, actual CLI, account and model, start and completion times, exit or timeout, the exact prompt
 (any deviation voids the vote, per static-review), complete output, coverage and cleanup result. End with exactly
 one line: `VERDICT: APPROVED at `<SHA>``, `VERDICT: NOT APPROVED at `<SHA>``, or `VERDICT: WITHHELD at `<SHA>` — <reason>`;
-for document-only review, `DOCUMENTS sha256:<bundle hash>` takes the place of ``<SHA>``.
+for bundle-only saved-content review, `DOCUMENTS sha256:<bundle hash>` takes the place of ``<SHA>``.
 
 **Applicability.** Keep the original reviewers and reviewed SHAs. Before relying on them at a later head, inspect
 the complete delta, claims, evidence and phase; applicability is not a new vote, and material uncovered changes

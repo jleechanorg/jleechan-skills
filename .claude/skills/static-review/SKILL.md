@@ -53,9 +53,9 @@ the complete base-to-head diff and full
 content of every changed path at both revisions, or verify its absence, including
 binary, mode, symlink, submodule and LFS payloads. If required content cannot be
 retrieved completely, report incomplete COVERAGE and withhold.
-Report P0/P1/P2 with file:line, a MODEL: line naming the actual exposed runtime
-identity, not a description of the source,
-and a COVERAGE: line naming all files and the diff read. Approve source only with
+Report P0/P1/P2 with file:line and MODEL: for the reviewer's actual
+runtime/model when exposed, or `unreported` when hidden. Never name the
+reviewed system or scope as the model. Add COVERAGE: naming all files and the diff read. Approve source only with
 no P0 and full coverage; P1/P2 are nonblocking. Report separate readiness/evidence
 gaps without presenting this source vote as quorum or merge authority. End with exactly one line:
 VERDICT: APPROVED|NOT APPROVED|WITHHELD at <SHA> (WITHHELD with a reason).
@@ -70,9 +70,9 @@ at both revisions, or verified absence, including special-object payloads.
 Assess the changed claims under /prw; prior approval or a completed review is not
 a prerequisite.
 If required content is missing, truncated or unreadable, report incomplete
-COVERAGE and withhold. Report P0/P1/P2 with file:line, MODEL: for the actual
-exposed runtime identity, not a source description,
-and COVERAGE: naming every file and diff actually read. Approve source only with
+COVERAGE and withhold. Report P0/P1/P2 with file:line and MODEL: for the reviewer's actual
+runtime/model when exposed, or `unreported` when hidden. Never name the
+reviewed system or scope as the model. Add COVERAGE: naming every file and diff actually read. Approve source only with
 no P0 and full coverage; P1/P2 are nonblocking. Keep readiness, quorum and merge
 authority separate. End with exactly one line:
 VERDICT: APPROVED|NOT APPROVED|WITHHELD at <SHA> (WITHHELD with a reason).
@@ -82,14 +82,19 @@ Saved-material template for named documents or a revision-bound packet:
 
 ```text
 Review the saved material in <PACKET PATH>, bundle sha256:<BUNDLE HASH>,
-for <REVIEW TARGET>. Read only the complete declared files and evidence; prior
+for <REVIEW TARGET>. Use the full 40-hex head SHA only when the PR URL,
+base/head SHAs and complete revision-bound coverage are verified. A complete
+unbound packet uses exactly `DOCUMENTS sha256:<BUNDLE HASH>` and approves only
+its declared bundle. Incomplete claimed revision binding means WITHHELD; never
+use an abbreviated SHA or mutable HEAD. Read only the complete declared files and evidence; prior
 approval or a completed review is not a prerequisite. If the
 packet claims revision binding, also read its complete base-to-head diff and
 changed-path content at both revisions, including special objects or verified
 absence. Missing or truncated required content means incomplete COVERAGE and
-WITHHELD. Report P0/P1/P2 with file:line, MODEL: for the actual exposed runtime
-identity, not a source description, and COVERAGE: naming the files and diff
-actually read. Approve only with no P0 and full coverage;
+WITHHELD. Report P0/P1/P2 with file:line and MODEL: for the reviewer's actual
+runtime/model when exposed, or `unreported` when hidden. Never name the reviewed
+system or scope as the model. Add COVERAGE: naming the files and diff actually read.
+Approve only with no P0 and full coverage;
 P1/P2 are nonblocking. Bind revision approval only to verified revision metadata;
 otherwise approve only the named documents, never code or HEAD. End with exactly one line:
 VERDICT: APPROVED|NOT APPROVED|WITHHELD at <REVIEW TARGET> (WITHHELD with a reason).
