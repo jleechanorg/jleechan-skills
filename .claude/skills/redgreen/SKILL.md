@@ -20,15 +20,17 @@ commands and evidence as you go.
    layer; do not duplicate coverage.
 2. Run the test against the unfixed code. RED must be a fresh, real test
    execution in this session, before the production change, that fails on the
-   expected behavioral assertion. An import, setup, fixture, tool, provider, or
-   environment failure is not RED.
+   expected behavioral assertion or matches the reported runtime/provider error
+   signature. An unrelated import, setup, fixture, tool, provider, or environment
+   failure is not RED.
 3. If no existing test catches the report, add or update one minimal
    public-interface test. Ground its assertion in the requirement or an
    independent example; never weaken it or manufacture a failure.
 4. Record the exact command, working directory, current git SHA, relevant
    environment/provider/model, timestamp, and concise failure signature/output.
-5. If a genuine behavioral RED cannot be produced, stop before changing
-   production code and report the missing proof as the blocker.
+5. If neither the behavioral assertion failure nor the reported error signature
+   can be reproduced, stop before changing production code and report the
+   missing proof as the blocker.
 
 ## CODE — smallest root-cause fix
 
@@ -41,8 +43,9 @@ commands and evidence as you go.
 ## GREEN — same test and relevant regressions
 
 1. Run the exact RED test and command again after the fix. It must pass on the
-   intended behavioral assertion and demonstrate that the original failure is
-   resolved; do not rewrite the expectation to obtain GREEN.
+   intended behavioral assertion or stop producing the reported error signature,
+   demonstrating that the original failure is resolved; do not rewrite the
+   expectation to obtain GREEN.
 2. Run the relevant regression checks selected by the repository's testing-layer
    owner, plus the original scenario when it is distinct. Do not run an
    unfiltered local suite when project policy assigns it elsewhere.
@@ -65,7 +68,7 @@ declaring the fix complete. Follow the active
   `test_regression_<issue-id>_<behavior>()` only when that convention fits the
   repository; do not add a duplicate test.
 
-The non-negotiable loop is: fresh behavioral RED before the fix → smallest
-implementation → the same test GREEN → relevant regression evidence. Historical
-reports, old CI results, logs, stack traces, plans, and observations are context,
-not RED proof.
+The non-negotiable loop is: fresh failure on the behavioral assertion or
+reported error signature before the fix → smallest implementation → the same
+test GREEN → relevant regression evidence. Historical reports, old CI results,
+logs, stack traces, plans, and observations are context, not RED proof.
