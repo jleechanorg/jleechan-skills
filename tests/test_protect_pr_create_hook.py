@@ -149,6 +149,20 @@ class ProtectPrCreateHookTest(unittest.TestCase):
                         "pr list", self.gh_call_marker.read_text(encoding="utf-8")
                     )
 
+    def test_quoted_punctuation_flag_values_do_not_split_pr_invocation(self):
+        existing = [open_pr(i, f"split/widget/{i}") for i in range(5)]
+        for flag in ("--title", "--body"):
+            for value in (";", "&&", "|", "(", ")", ">"):
+                with self.subTest(flag=flag, value=value):
+                    command = (
+                        f'gh pr create {flag} "{value}" '
+                        "--head split/widget/new --base main"
+                    )
+                    result = self.run_hook(command, existing)
+                    self.assert_mocked_github()
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertIn("split PR quantity cap", result.stderr)
+
     def test_legacy_mock_environment_variable_does_not_replace_gh_results(self):
         existing = [open_pr(i, base="parent") for i in range(9)]
         result = self.run_hook(

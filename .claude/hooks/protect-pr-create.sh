@@ -202,9 +202,18 @@ stripped = normalize_shell_command(strip_heredocs(cmd))
 
 SEPARATORS = {";", "&&", "||", "|", "&", "(", ")", "\n"}
 SEPARATOR_CHARACTERS = ";&|()<>"
+QUOTED_OPERATOR_MARKER = "\x00"
+
+
+def token_value(token: str) -> str:
+    if token.startswith(QUOTED_OPERATOR_MARKER):
+        return token[1:]
+    return token
 
 
 def is_separator(token: str) -> bool:
+    if token.startswith(QUOTED_OPERATOR_MARKER):
+        return False
     return token in SEPARATORS or (
         bool(token) and all(char in SEPARATOR_CHARACTERS for char in token)
     )
@@ -213,8 +222,8 @@ def is_separator(token: str) -> bool:
 def is_command_position(index: int, command_tokens) -> bool:
     j = index - 1
     while j >= 0 and (
-        re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", command_tokens[j])
-        or command_tokens[j] in ("env", "command")
+        re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", token_value(command_tokens[j]))
+        or token_value(command_tokens[j]) in ("env", "command")
     ):
         j -= 1
     return j < 0 or is_separator(command_tokens[j])
@@ -224,26 +233,43 @@ def is_pr_create(index: int, command_tokens) -> bool:
     if not is_command_position(index, command_tokens):
         return False
     k = index + 1
-    while k < len(command_tokens) and command_tokens[k].startswith("-"):
-        token = command_tokens[k]
+    while k < len(command_tokens) and token_value(command_tokens[k]).startswith("-"):
+        token = token_value(command_tokens[k])
         attached_short_value = not token.startswith("--") and len(token) > 2
         k += 1 if "=" in token or attached_short_value else 2
-    return command_tokens[k : k + 2] == ["pr", "create"]
+    return [token_value(token) for token in command_tokens[k : k + 2]] == [
+        "pr",
+        "create",
+    ]
 
 
 def contains_pr_create(command_tokens) -> bool:
     return any(
-        (token == "gh" or token.endswith("/gh"))
+        (token_value(token) == "gh" or token_value(token).endswith("/gh"))
         and is_pr_create(index, command_tokens)
         for index, token in enumerate(command_tokens)
     )
 
 
 def tokenize_shell(command: str):
-    lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
+    lexer = shlex.shlex(command, posix=False, punctuation_chars=True)
     lexer.whitespace_split = True
     lexer.commenters = ""
-    return list(lexer)
+    tokens = []
+    for raw_token in lexer:
+        value_lexer = shlex.shlex(raw_token, posix=True)
+        value_lexer.whitespace_split = True
+        value_lexer.commenters = ""
+        values = list(value_lexer)
+        for value in values:
+            if (
+                raw_token != value
+                and value
+                and all(char in SEPARATOR_CHARACTERS for char in value)
+            ):
+                value = QUOTED_OPERATOR_MARKER + value
+            tokens.append(value)
+    return tokens
 
 
 def child_shell_tokens(command_tokens, depth=0):
@@ -257,7 +283,7 @@ def child_shell_tokens(command_tokens, depth=0):
             ordered_tokens.append(token)
             index += 1
             continue
-        if token.rsplit("/", 1)[-1] not in ("bash", "sh"):
+        if token_value(token).rsplit("/", 1)[-1] not in ("bash", "sh"):
             ordered_tokens.append(token)
             index += 1
             continue
@@ -267,11 +293,12 @@ def child_shell_tokens(command_tokens, depth=0):
         args = command_tokens[index + 1 : end]
         child_tokens = []
         for option_index, option in enumerate(args[:-1]):
+            option = token_value(option)
             if option != "-c":
                 continue
             try:
                 child_tokens = ordered_shell_tokens(
-                    args[option_index + 1], depth + 1
+                    token_value(args[option_index + 1]), depth + 1
                 )
             except Exception:
                 child_tokens = []
@@ -348,7 +375,8 @@ except Exception:
 gh_create_indices = [
     i
     for i, token in enumerate(tokens)
-    if (token == "gh" or token.endswith("/gh")) and is_pr_create(i, tokens)
+    if (token_value(token) == "gh" or token_value(token).endswith("/gh"))
+    and is_pr_create(i, tokens)
 ]
 if not gh_create_indices:
     sys.exit(0)
@@ -357,10 +385,10 @@ if not gh_create_indices:
 def has_inline_override(i: int) -> bool:
     j = i - 1
     while j >= 0 and (
-        re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", tokens[j])
-        or tokens[j] in ("env", "command")
+        re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", token_value(tokens[j]))
+        or token_value(tokens[j]) in ("env", "command")
     ):
-        if tokens[j] == "ALLOW_PR_STACK_OVERRIDE=1":
+        if token_value(tokens[j]) == "ALLOW_PR_STACK_OVERRIDE=1":
             return True
         j -= 1
     return False
@@ -402,11 +430,11 @@ def get_invocation_flags(i):
     repo_slug = ""
     j = i + 1
     while j < end:
-        token = tokens[j]
+        token = token_value(tokens[j])
         if token == "--":
             break
         if token in ("--head", "-H") and j + 1 < end:
-            head_branch = tokens[j + 1]
+            head_branch = token_value(tokens[j + 1])
             j += 2
             continue
         if token.startswith("--head="):
@@ -414,7 +442,7 @@ def get_invocation_flags(i):
         elif token.startswith("-H") and len(token) > 2:
             head_branch = token[2:]
         elif token in ("--base", "-B") and j + 1 < end:
-            base_branch = tokens[j + 1]
+            base_branch = token_value(tokens[j + 1])
             j += 2
             continue
         elif token.startswith("--base="):
@@ -422,7 +450,7 @@ def get_invocation_flags(i):
         elif token.startswith("-B") and len(token) > 2:
             base_branch = token[2:]
         elif token in ("--repo", "-R") and j + 1 < end:
-            repo_slug = tokens[j + 1]
+            repo_slug = token_value(tokens[j + 1])
             j += 2
             continue
         elif token.startswith("--repo="):
