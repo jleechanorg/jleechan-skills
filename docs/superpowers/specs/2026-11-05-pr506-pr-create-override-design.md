@@ -2,7 +2,7 @@
 
 ## Outcome
 
-The existing PR quantity hook enforces its documented split and stacked-PR
+The checked-in Bash `PreToolUse` hook enforces the existing split and stacked-PR
 ceilings while honoring an explicit override supplied through the process
 environment or as an assignment prefix to `gh pr create`.
 
@@ -10,7 +10,8 @@ environment or as an assignment prefix to `gh pr create`.
 
 - Do not add, change, or widen a PR quantity ceiling.
 - Do not change the hook's existing fail-open behavior or GitHub query.
-- Do not install or activate the hook on a host.
+- Do not install or update the user-level global hook; register only the
+  project-scoped hook in checked-in settings.
 
 ## Acceptance
 
@@ -19,6 +20,8 @@ environment or as an assignment prefix to `gh pr create`.
 - An actual `ALLOW_PR_STACK_OVERRIDE=1` assignment immediately before the
   matching `gh pr create`, an `env` assignment prefix, or the process environment
   continues to allow the explicitly authorized operation.
+- The checked-in `.claude/settings.json` registers the hook for Bash
+  `PreToolUse`, and an integration test invokes that configured command.
 - Existing below-cap requests pass; requests at the existing split and stacked
   caps block without an override.
 - A bare `split/<feature>` branch does not consume the per-series split cap;
@@ -38,15 +41,16 @@ the override cannot silently bypass the cap.
 
 Run the focused executable hook checks against the published source to establish
 the false-override and parser failures, then rerun them after the parser change.
-Keep PR-list data mocked and use a local `gh` stub so checks cannot reach GitHub.
-Also run focused installer/portability checks, source-link checks, and
+Run the registered Bash `PreToolUse` command against the same local fixture.
+Keep PR-list data in a test-only `gh` stub so checks cannot reach GitHub. Also
+run focused installer/portability checks, source-link checks, and
 `git diff --check` for the merge.
 
 ## Mock or exemption
 
-Use the hook's existing `PROTECT_PR_CREATE_MOCK_JSON` fixture to supply open PR
-rows. A `gh` stub in a temporary test directory fails if the hook bypasses the
-fixture; no live network or PR mutation is needed.
+Tests place a local `gh` stub first on `PATH`; it returns fixture rows for
+`gh pr list` and fails for other commands. The production hook has no
+test-only environment bypass, and the tests make no live network calls.
 
 ## Risk
 

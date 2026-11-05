@@ -26,9 +26,16 @@ class ProtectPrCreateHookTest(unittest.TestCase):
         self.gh_stub_dir = self.temp_dir / "bin"
         self.gh_stub_dir.mkdir()
         self.gh_call_marker = self.temp_dir / "gh-called"
+        self.gh_fixture = self.temp_dir / "open-prs.json"
         gh_stub = self.gh_stub_dir / "gh"
         gh_stub.write_text(
-            "#!/bin/sh\nprintf called > \"$GH_CALL_MARKER\"\nexit 91\n"
+            "#!/bin/sh\n"
+            "printf '%s\\n' \"$*\" >> \"$GH_CALL_MARKER\"\n"
+            "if [ \"$1\" = pr ] && [ \"$2\" = list ]; then\n"
+            "  cat \"$GH_STUB_JSON\"\n"
+            "  exit 0\n"
+            "fi\n"
+            "exit 91\n"
         )
         gh_stub.chmod(0o755)
         self.path = os.pathsep.join(
@@ -38,16 +45,12 @@ class ProtectPrCreateHookTest(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
-    def run_hook(
-        self,
-        command,
-        open_prs,
-        *,
-        override_env=False,
-        cwd=None,
-    ):
+    def hook_environment(self, open_prs, *, override_env=False, extra_env=None):
+        self.gh_fixture.write_text(json.dumps(open_prs), encoding="utf-8")
         environment = dict(os.environ)
-        environment["PROTECT_PR_CREATE_MOCK_JSON"] = json.dumps(open_prs)
+        environment.pop("PROTECT_PR_CREATE_MOCK_JSON", None)
+        environment.pop("CLAUDE_PROJECT_DIR", None)
+        environment["GH_STUB_JSON"] = str(self.gh_fixture)
         environment["BASH_ENV"] = "/dev/null"
         environment["PATH"] = self.path
         environment["GH_CALL_MARKER"] = str(self.gh_call_marker)
@@ -55,6 +58,22 @@ class ProtectPrCreateHookTest(unittest.TestCase):
             environment["ALLOW_PR_STACK_OVERRIDE"] = "1"
         else:
             environment.pop("ALLOW_PR_STACK_OVERRIDE", None)
+        if extra_env:
+            environment.update(extra_env)
+        return environment
+
+    def run_hook(
+        self,
+        command,
+        open_prs,
+        *,
+        override_env=False,
+        extra_env=None,
+        cwd=None,
+    ):
+        environment = self.hook_environment(
+            open_prs, override_env=override_env, extra_env=extra_env
+        )
         working_directory = cwd or REPO
         payload = {
             "tool_name": "Bash",
@@ -73,10 +92,110 @@ class ProtectPrCreateHookTest(unittest.TestCase):
         )
 
     def assert_mocked_github(self):
-        self.assertFalse(
-            self.gh_call_marker.exists(),
-            "the hook bypassed its fixture and attempted a GitHub call",
+        if self.gh_call_marker.exists():
+            calls = self.gh_call_marker.read_text(encoding="utf-8").splitlines()
+            self.assertTrue(calls)
+            self.assertTrue(all(call.startswith("pr list ") for call in calls), calls)
+
+    def test_registered_project_hook_invokes_pr_create_guard(self):
+        settings = json.loads((REPO / ".claude/settings.json").read_text())
+        pre_tool_use = settings.get("hooks", {}).get("PreToolUse", [])
+        matches = [entry for entry in pre_tool_use if entry.get("matcher") == "Bash"]
+        self.assertEqual(len(matches), 1)
+        command = matches[0]["hooks"][0]["command"]
+
+        scenarios = [
+            ("plain", "gh pr create --head feature --base parent", 9),
+            (
+                "command-substitution",
+                'url="$(gh pr create --head feature --base parent)"',
+                9,
+            ),
+            (
+                "compound-calls",
+                "gh pr create --head first --base parent; "
+                "gh pr create --head second --base parent",
+                8,
+            ),
+        ]
+        for project_dir in (str(REPO), None):
+            for name, command_text, count in scenarios:
+                with self.subTest(project_dir=project_dir, scenario=name):
+                    self.gh_call_marker.unlink(missing_ok=True)
+                    payload = {
+                        "tool_name": "Bash",
+                        "tool_input": {"command": command_text},
+                        "cwd": str(REPO),
+                    }
+                    extra_env = (
+                        {"CLAUDE_PROJECT_DIR": project_dir}
+                        if project_dir is not None
+                        else None
+                    )
+                    existing = [open_pr(i, base="parent") for i in range(count)]
+                    result = subprocess.run(
+                        ["bash", "-c", command],
+                        input=json.dumps(payload),
+                        text=True,
+                        capture_output=True,
+                        cwd=REPO,
+                        env=self.hook_environment(existing, extra_env=extra_env),
+                        timeout=5,
+                        check=False,
+                    )
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertIn("stacked PR ceiling", result.stderr)
+                    self.assertIn(
+                        "pr list", self.gh_call_marker.read_text(encoding="utf-8")
+                    )
+
+    def test_legacy_mock_environment_variable_does_not_replace_gh_results(self):
+        existing = [open_pr(i, base="parent") for i in range(9)]
+        result = self.run_hook(
+            "gh pr create --head feature --base parent",
+            existing,
+            extra_env={"PROTECT_PR_CREATE_MOCK_JSON": "[]"},
         )
+        self.assert_mocked_github()
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("stacked PR ceiling", result.stderr)
+
+    def test_command_substitution_executes_pr_create(self):
+        existing = [open_pr(i, base="parent") for i in range(9)]
+        result = self.run_hook(
+            'url="$(gh pr create --head feature --base parent)"', existing
+        )
+        self.assert_mocked_github()
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("stacked PR ceiling", result.stderr)
+
+    def test_single_quoted_command_substitution_text_is_not_executed(self):
+        command = "printf '%s\\n' '$(gh pr create --head feature --base parent)'"
+        result = self.run_hook(command, [])
+        self.assert_mocked_github()
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_compound_stacked_creates_project_the_open_pr_count(self):
+        existing = [open_pr(i, base="parent") for i in range(8)]
+        command = (
+            "gh pr create --head first --base parent; "
+            "gh pr create --head second --base parent"
+        )
+        result = self.run_hook(command, existing)
+        self.assert_mocked_github()
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("stacked PR ceiling", result.stderr)
+
+    def test_compound_split_creates_project_the_open_pr_count(self):
+        existing = [open_pr(i, f"split/widget/{i}") for i in range(4)]
+        command = (
+            "gh pr create --head split/widget/first --base main; "
+            "gh pr create --head split/widget/second --base main"
+        )
+        result = self.run_hook(command, existing)
+        self.assert_mocked_github()
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("split PR quantity cap", result.stderr)
 
     def test_main_target_does_not_enforce_stack_caps(self):
         result = self.run_hook("gh pr create --head feature --base main", [])
@@ -171,6 +290,24 @@ class ProtectPrCreateHookTest(unittest.TestCase):
         existing = [open_pr(i, base="parent") for i in range(9)]
         result = self.run_hook(
             "gh -Rowner/repo pr create --head feature --base parent", existing
+        )
+        self.assert_mocked_github()
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("stacked PR ceiling", result.stderr)
+
+    def test_command_prefix_does_not_hide_split_create(self):
+        existing = [open_pr(i, f"split/widget/{i}") for i in range(5)]
+        result = self.run_hook(
+            "command gh pr create --head split/widget/new --base main", existing
+        )
+        self.assert_mocked_github()
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("split PR quantity cap", result.stderr)
+
+    def test_command_prefix_does_not_hide_stacked_create(self):
+        existing = [open_pr(i, base="parent") for i in range(9)]
+        result = self.run_hook(
+            "command gh pr create --head feature --base parent", existing
         )
         self.assert_mocked_github()
         self.assertEqual(result.returncode, 2)

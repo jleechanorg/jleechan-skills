@@ -120,6 +120,77 @@ try:
 except Exception:
     sys.exit(0)
 
+
+def command_substitutions(command: str):
+    substitutions = []
+    quote = ""
+    escaped = False
+    i = 0
+    while i + 1 < len(command):
+        char = command[i]
+        if escaped:
+            escaped = False
+            i += 1
+            continue
+        if char == "\\" and quote != "'":
+            escaped = True
+            i += 1
+            continue
+        if quote == "'":
+            if char == quote:
+                quote = ""
+            i += 1
+            continue
+        if quote == '"' and command[i : i + 2] != "$(":
+            if char == quote:
+                quote = ""
+            i += 1
+            continue
+        if char in ("'", '"'):
+            quote = char
+            i += 1
+            continue
+        if command[i : i + 2] != "$(":
+            i += 1
+            continue
+
+        start = i + 2
+        depth = 1
+        inner_quote = ""
+        inner_escaped = False
+        i = start
+        while i < len(command) and depth:
+            char = command[i]
+            if inner_escaped:
+                inner_escaped = False
+            elif char == "\\" and inner_quote != "'":
+                inner_escaped = True
+            elif inner_quote:
+                if char == inner_quote:
+                    inner_quote = ""
+            elif char in ("'", '"'):
+                inner_quote = char
+            elif char == "(":
+                depth += 1
+            elif char == ")":
+                depth -= 1
+            i += 1
+        if depth == 0:
+            substitutions.append(command[start : i - 1])
+        else:
+            break
+    return substitutions
+
+
+for substitution in command_substitutions(stripped):
+    try:
+        nested = shlex.shlex(substitution, posix=True, punctuation_chars=True)
+        nested.whitespace_split = True
+        nested.commenters = ""
+        tokens.extend([";"] + list(nested))
+    except Exception:
+        continue
+
 SEPARATORS = {";", "&&", "||", "|", "&", "(", ")", "\n"}
 SEPARATOR_CHARACTERS = ";&|()<>"
 
@@ -133,7 +204,8 @@ def is_separator(token: str) -> bool:
 def is_pr_create(i: int) -> bool:
     j = i - 1
     while j >= 0 and (
-        re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", tokens[j]) or tokens[j] == "env"
+        re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", tokens[j])
+        or tokens[j] in ("env", "command")
     ):
         j -= 1
     if j >= 0 and not is_separator(tokens[j]):
@@ -160,7 +232,8 @@ if not gh_create_indices:
 def has_inline_override(i: int) -> bool:
     j = i - 1
     while j >= 0 and (
-        re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", tokens[j]) or tokens[j] == "env"
+        re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", tokens[j])
+        or tokens[j] in ("env", "command")
     ):
         if tokens[j] == "ALLOW_PR_STACK_OVERRIDE=1":
             return True
@@ -252,13 +325,6 @@ def compute_split_prefix(branch: str) -> str:
 
 
 def query_open_prs(repo_slug: str):
-    mock_json = os.environ.get("PROTECT_PR_CREATE_MOCK_JSON", "")
-    if mock_json:
-        try:
-            return json.loads(mock_json)
-        except Exception:
-            return None
-
     gh_cmd = [
         "gh",
         "pr",
@@ -292,10 +358,8 @@ def query_open_prs(repo_slug: str):
         return None
 
 
+invocations = []
 for gh_index in gh_create_indices:
-    if has_inline_override(gh_index):
-        continue
-
     head_branch, base_branch, repo_slug = get_invocation_flags(gh_index)
     current_branch = ""
     if not head_branch or base_branch is None:
@@ -306,8 +370,13 @@ for gh_index in gh_create_indices:
         head_branch = head_branch.split(":", 1)[1]
     if base_branch is None:
         base_branch = get_configured_merge_base(current_branch) or "main"
+    invocations.append(
+        (gh_index, head_branch, base_branch, repo_slug, compute_split_prefix(head_branch))
+    )
 
-    split_prefix = compute_split_prefix(head_branch)
+for gh_index, head_branch, base_branch, repo_slug, split_prefix in invocations:
+    if has_inline_override(gh_index):
+        continue
     is_stacked = base_branch not in ("main", "master", "")
     if not split_prefix and not is_stacked:
         continue
@@ -317,12 +386,17 @@ for gh_index in gh_create_indices:
         sys.exit(0)
 
     if split_prefix:
+        projected_creates = sum(
+            1
+            for item in invocations
+            if item[4] == split_prefix and not has_inline_override(item[0])
+        )
         matching_split_prs = [
             p
             for p in open_prs
             if (p.get("headRefName") or "").startswith(split_prefix)
         ]
-        if len(matching_split_prs) >= 5:
+        if len(matching_split_prs) + projected_creates > 5:
             nums = ", ".join(f"#{p.get('number')}" for p in matching_split_prs[:10])
             sys.stderr.write(
                 f"BLOCKED by protect-pr-create.sh: split PR quantity cap exceeded for prefix '{split_prefix}'.\n"
@@ -333,12 +407,18 @@ for gh_index in gh_create_indices:
             sys.exit(2)
 
     if is_stacked:
+        projected_creates = sum(
+            1
+            for item in invocations
+            if item[2] not in ("main", "master", "")
+            and not has_inline_override(item[0])
+        )
         stacked_prs = [
             p
             for p in open_prs
             if (p.get("baseRefName") or "main") not in ("main", "master")
         ]
-        if len(stacked_prs) >= 9:
+        if len(stacked_prs) + projected_creates >= 10:
             nums = ", ".join(
                 f"#{p.get('number')} (base={p.get('baseRefName')})"
                 for p in stacked_prs[:10]
