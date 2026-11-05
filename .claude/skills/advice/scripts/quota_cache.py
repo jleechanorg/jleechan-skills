@@ -57,7 +57,8 @@ def locked(path):
         if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
                 or stat.S_IMODE(info.st_mode) & 0o077):
             raise UnsafeCache("cache lock is not private and user-owned")
-        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        # A stale or stuck caller must never stall an advice review indefinitely.
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         yield cache_fd
     except OSError as error:
         raise UnsafeCache(type(error).__name__) from None

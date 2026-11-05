@@ -124,8 +124,8 @@ identities from the machine-local profile before selecting them.
   ```bash
   python3 "$HOME/.claude/skills/advice/scripts/quota_cache.py" clear --provider <verified-provider> --identity-sha256 <verified-account-identity-sha256> --observed-at <successful-probe-observation-time>
   ```
-  Expired records clear themselves. Invalid/unavailable cache storage fails open and must not deny an authorized
-  attempt. The cache is a scheduling hint, not a second quota detector: record only a quota error actually observed
+  Expired records clear themselves. Cache lock contention, invalid paths, and unavailable storage fail open and must
+  not stall or deny an authorized attempt. The cache is a scheduling hint, not a second quota detector: record only a quota error actually observed
   from that exact seat; transport timeouts, unrelated tool errors and missing authentication are not quota signals.
 
 ### Outside-route authorization and transports

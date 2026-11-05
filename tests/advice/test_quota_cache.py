@@ -2,10 +2,12 @@ import hashlib
 import json
 import os
 import concurrent.futures
+import fcntl
 import importlib.util
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -224,6 +226,36 @@ class AdviceQuotaCacheTests(unittest.TestCase):
         self.assertEqual(1, len(entries))
         self.assertIn(json.loads(entries[0].read_text())["reset_at_utc"],
                       {"2030-01-01T00:00:00+00:00", "2030-01-02T00:00:00+00:00"})
+
+    def test_lock_held_by_another_process_fails_open_without_waiting(self):
+        self.cache.mkdir(mode=0o700)
+        lock_path = self.cache / ".lock"
+        lock_path.touch(mode=0o600)
+        ready = Path(self.temp.name) / "lock-held"
+        code = (
+            "import fcntl,os,sys,pathlib; "
+            "fd=os.open(sys.argv[1], os.O_RDWR); fcntl.flock(fd, fcntl.LOCK_EX); "
+            "pathlib.Path(sys.argv[2]).touch(); sys.stdin.read()"
+        )
+        holder = subprocess.Popen([sys.executable, "-c", code, str(lock_path), str(ready)],
+                                  stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+                                  stderr=subprocess.DEVNULL, text=True)
+        try:
+            deadline = time.monotonic() + 3
+            while not ready.exists() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertTrue(ready.exists(), "test lock holder failed to acquire lock")
+            started = time.monotonic()
+            result = self.run_cache("check", "--provider", "claude",
+                                    "--identity-sha256", CLAUDE_PRIMARY)
+            self.assertLess(time.monotonic() - started, 1)
+            self.assertEqual("ELIGIBLE\n", result.stdout)
+            self.assertIn("CACHE_UNAVAILABLE", result.stderr)
+        finally:
+            holder.terminate()
+            holder.wait(timeout=3)
+            if holder.stdin:
+                holder.stdin.close()
 
 
 if __name__ == "__main__":

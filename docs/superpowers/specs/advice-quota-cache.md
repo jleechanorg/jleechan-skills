@@ -15,7 +15,7 @@ The cache does not detect quota errors, infer reset times, store provider output
 - Quota and successful-probe events carry their actual observation time; stale delayed writes cannot override a newer event, and success wins an equal-time tie.
 - A live, unexpired record returns `QUOTA_BLOCKED`; its reported reset makes the seat eligible and clears the record.
 - Checking cached status makes no provider call. A fresh successful probe from the normal advice flow can explicitly clear an earlier record.
-- Cache files and lock are owner-only, symlink-safe, atomically written and safe under concurrent calls. Raw identities, errors and credentials never enter the cache.
+- Cache files and lock are owner-only, symlink-safe, atomically written and safe under concurrent calls. Held locks, unsafe paths and filesystem errors fail open immediately. Raw identities, errors and credentials never enter the cache.
 - The advice skill checks the record before dispatching a seat and continues the normal fallback path when it is blocked.
 
 ## User story
