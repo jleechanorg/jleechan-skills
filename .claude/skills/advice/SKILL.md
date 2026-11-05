@@ -26,13 +26,16 @@ the complete change, never a transcription. A verdict built on truncated input i
 
 ## 2. Select independent reviewers
 
-**Required quorum.** Use two independent full-scope votes by default. One independent full-scope vote suffices
-only when the change qualifies for pr-lifecycle's [compact low-risk route](../pr-lifecycle/SKILL.md#compact-risk-based-route)
-and its reviewer confirms that eligibility. Follow that contract's exclusions, not a new size or file-type
-exception. Stricter user, repository, security and domain requirements remain binding. In particular, the
-lifecycle substitute for a missing supplementary reviewer still requires its two-vote advice quorum and applicable
-evidence review. Record the governing route and required count before dispatch; review approval never grants
-merge authority.
+**Required quorum.** Use two independent full-scope source votes by default.
+Use one only when pr-lifecycle positively selects a one-source-review route and
+the reviewer confirms its eligibility; preserve that route rather than starting
+extra advice seats. An explicitly requested advice invocation follows the same
+qualified count. Archive-integrity review is not source approval, and a local
+record-only exemption must not cite an absent governing rule.
+Stricter user, repository, security and domain requirements remain binding.
+The mandatory supplementary-review substitution still needs two eligible advice
+votes and applicable evidence review. Record the route/count before dispatch;
+neither one-vote readiness nor advice approval changes merge authority.
 
 ### Capability profile and tier selection
 
@@ -45,7 +48,7 @@ in this repository. Preference for a different CLI/model does not make aliases o
 
 | Tier | Available reviewers | Admission and counting |
 |---|---|---|
-| 1 — preferred | Claude, Codex, AGY or Cursor CLI seats; authorized ChatGPT Dot accounts | Prefer different eligible CLI/model identities. CLI and Dot are alternatives in the same tier; no brand or mixture is mandatory. Count at most one Dot vote. |
+| 1 — preferred | Available authorized CLI seats, including configured extra CLIs; authorized ChatGPT Dot accounts | Prefer different eligible CLI/model identities. CLI and Dot are alternatives in the same tier; no brand or mixture is mandatory. Count at most one Dot vote. |
 | 2 — fallback | Native static subagents; Hermes or Hermes-PC | Static subagents collectively count as at most one vote; Hermes instances collectively count as at most one distinct vote. Each counted vote must independently cover the entire scope. |
 | 3 — last fallback | Existing authorized authenticated web chats through /web-advice | Use only after earlier-tier candidates cannot fill the remaining quorum. Preserve packet, upload, account-attestation and receipt rules. |
 
@@ -126,22 +129,26 @@ acknowledgement, reaction or promise. Route availability does not override discl
 
 ### Native static fallback
 
-Static reviewers follow [static-review](../static-review/SKILL.md) for cold start, identity, canonical templates,
-deadline and receipts. Admit them in tier 2 alongside an eligible Hermes instance when needed. Their aggregate
-one-vote cap does not permit combining partial inspections: a counted static verdict itself covers the whole
-scope, while findings from all attempts are retained. Static identity eligibility still applies. Lifecycle's
-supplementary-review substitution requires two independent advice votes, not a remote-only voter: two eligible
-CLI votes or CLI plus static may satisfy that quorum under the tier rules. Preserve any separately explicit
-user or repository requirement for an outside reviewer or named transport; satisfy that distinct obligation
-with an eligible authorized reviewer of the required kind, or leave it open. Review votes do not substitute
-for unproved substantive evidence.
+Static reviewers follow [static-review](../static-review/SKILL.md) for cold input,
+full coverage, identity, deadlines and receipts. Admit them in tier2 alongside
+an eligible Hermes instance when needed; together they do not reserve slots or
+override the aggregate caps. Each counted verdict itself covers the whole scope.
+The supplementary-review fallback still requires two independent advice votes.
+Apply the same tiers/caps: eligible CLI pairs, CLI plus static, or eligible
+outside combinations may supply them. There is no generic remote minimum or
+remote-only prohibition. Preserve any separately explicit user/repository
+outside-review requirement as a distinct obligation, or leave that obligation
+open. Review votes never replace missing substantive evidence.
 
 ### Identity
 
 - One account is one vote, whatever its label, wrapper, alias or retry. Two seats whose commands reach the same
   account count once; an outside reviewer whose coder ran the account that just hit its quota is that account.
-- A CLI seat must report the model it ran, or it is `UNAVAILABLE`. Outside routes report model and account as
-  `attested.` values. Codex models may be only `gpt-6-astra`, `gpt-6-luna`, `gpt-6-sol` or `gpt-6.1-sol`.
+- A CLI seat needs its actual model from reliable CLI/runtime metadata, or it is `UNAVAILABLE`.
+  Outside routes record exposed model/account fields as `attested.` values; never invent a hidden runtime SKU.
+  A verified configured Dot account is its own CLI/model identity under the one-Dot cap. An unreported public
+  model/account field does not invalidate a privately verified session; an actually unverified account remains
+  unavailable. Keep its frozen expected binding, positive identity probe and source-author independence proof. Codex models may be only `gpt-6-astra`, `gpt-6-luna`, `gpt-6-sol` or `gpt-6.1-sol`.
 - Neither the author nor the orchestrator awards itself a vote, and no verdict counts twice: a Dot account whose verdict fills the
   pr-lifecycle `/dot` leg at this head is not also an `/advice` vote.
 - Run every seat with full permissions and record its actual command, model, account and transport.
@@ -183,40 +190,50 @@ Mac or Ubuntu machine); try or record each host separately. When the tiers canno
   partial findings, record cleanup status, and use another eligible reviewer. Do not keep waiting for unresolved cleanup or
   reuse a resource whose process or cleanup state is unresolved, and never claim cleanup without receipt evidence.
 
-## 4. Isolate review copies
+## 4. Review access modes and isolation
 
-The contract is one table. A receipt records exactly the row's `isolation:` value, and the review template's fields are
-derived from the same row, so the two skills cannot drift apart.
+Select the cheapest complete access before dispatch. Read-only API or existing
+checkout access needs no donor, clone or export. Use a copy only when object
+access or mutation isolation requires it. Shared immutable preparation may
+precede the attempt; per-seat setup, capture, technical receipt and cleanup
+remain inside §3's bound. This table owns mode names, template fields and checks;
+static-review owns the actual templates and per-channel preambles.
 
-| record | who clones | what the receipt must prove | who verifies | who deletes | template fields |
-|---|---|---|---|---|---|
-| `pin` (internal; never sent to a seat, never a seat's working directory) | orchestrator: clone the original checkout into allocated scratch with `--no-local`, check out `<SHA>`, fetch the base-branch tip from the PR remote | `donor_path`; `review_sha` = donor `HEAD`; `base_sha` = `git merge-base <SHA> <fetched base tip>`; `--git-common-dir` = `--git-dir`; `donor_removed` = `test ! -e <donor path>` | orchestrator | orchestrator, after the last seat clone is gone | none |
-| `isolation: orchestrator-clone` | orchestrator: clone the donor into `<SCRATCH PATH>`, then `git remote remove origin` | `clone_path` = `<SCRATCH PATH>`; `cwd: set` or `attested.cwd: instructed`; at launch **and again after the seat process is gone**: `--git-common-dir` = `--git-dir`, `HEAD` = `review_sha`, `git merge-base --is-ancestor <BASE SHA> HEAD` exits 0, `git remote` is empty; then `clone_removed` = `test ! -e <SCRATCH PATH>` | orchestrator, every key except any `attested.` one | orchestrator, whatever the seat's outcome | `<PR URL>` `<SHA>` `<BASE SHA>` `<SCRATCH PATH>` |
-| `isolation: none` | nobody | `packet_path`; per-file SHA-256; `bundle_sha256`; `clone_path: none`; `clone_removed: n/a` | orchestrator | nobody; the packet is kept as evidence | `<PACKET PATH>` `<BUNDLE HASH>` |
-| `isolation: remote` (Dot, Hermes) | nobody: the outside reviewer reads `<SHA>` from a checkout it already has (fetching only the missing objects, no new clone, no branch switch); the orchestrator clones nothing for it | `<SHA>` is reachable on the PR remote (`git ls-remote` or the PR API) both at send and at reply readback; route and message reference/permalink; the returned `VERDICT:` line names `<SHA>`; `attested.model`; `attested.account`; `attested.clone_path`; `clone_path: remote`; `clone_removed: n/a` | orchestrator, every key except any `attested.` one | the outside reviewer; never claimed | `<PR URL>` `<SHA>` `<BASE SHA>` |
-| `isolation: packet` (`/web-advice` revision review) | nobody; the orchestrator writes a packet of the complete `git diff <BASE SHA>..<SHA>` plus the full post-change content of every changed file, from the `pin` donor, in place of `/web-advice`'s own `origin/main...HEAD` packet | `packet_path` (kept locally, never sent to the provider); per-file SHA-256; `bundle_sha256`; every file delivered as an upload, not pasted inline; provider shows no truncation; `COVERAGE:` names every packet file; `clone_path: none`; `clone_removed: n/a` | orchestrator | nobody; the packet is kept as evidence | `<PR URL>` `<SHA>` `<BASE SHA>` `<BUNDLE HASH>` |
+| Mode | Access and template | Required receipt and checks | Fields |
+|---|---|---|---|
+| pin (internal) | Resolve review SHA and true comparison merge-base against the fetched target tip using an existing checkout/API. For clone seats only, prepare one standalone --no-local donor pinned at that SHA. Never send it as a seat cwd. | Original/donor references, immutable head/base and object inventory. For a donor, git-common-dir equals git-dir; remove it after all seat clones are gone. | none |
+| orchestrator-clone | Orchestrator clones donor into allocated Scratch and removes origin; shared revision template. | Before launch and after process exit: standalone Git, exact head, base ancestor, no remotes; original checkout/refs/config/hooks unchanged. Confirm no reviewer process remains, then remove this owned clone and record absence. | `<PR URL>` `<SHA>` `<BASE SHA>` `<SCRATCH PATH>` |
+| orchestrator-export | Orchestrator supplies a complete pinned export in Scratch, with full diff, base/head snapshots or absence, object inventory and hashes; shared revision template. | No .git or new repository. Verify all exported bytes and original checkout state before/after; confirm process completion, then remove this owned export. Missing required objects must be retrieved read-only at the pin or withheld. | `<PR URL>` `<SHA>` `<BASE SHA>` `<SCRATCH PATH>` |
+| read-only | GitHub/API or existing checkout; shared revision template. No new copy, fetch or branch switch. | Complete immutable objects/diff and requested SHA, API no-truncation/retrieval proof or existing-checkout before/after state. clone_path:none, clone_removed:n/a. A managed native completion replaces a CLI exit/process check only when there is no CLI process. | `<PR URL>` `<SHA>` `<BASE SHA>` |
+| remote (Dot/Hermes) | Configured coordinator ask; shared revision template. Existing checkout or pinned API access; only missing objects may be fetched, without changing branch refs/working tree. No new clone. | Requested SHA reachable at send and reply readback; verified route/account binding, message reference, exact-SHA verdict and complete coverage. Record exposed fields as attested, not invented. API-only access has no checkout path to attest; existing-path details may remain private. clone_path:remote, clone_removed:n/a. | `<PR URL>` `<SHA>` `<BASE SHA>` |
+| packet (web revision) | Orchestrator uploads the complete pinned diff, changed-path base/head content or verified absence, all special objects and relevant evidence; revision packet template. | Bundle/per-file hashes, actual attachment delivery, authenticated provider/account, full-file no-truncation and returned coverage/verdict at the SHA. Never substitute a summary, bare private URL or function-only excerpt for required full scope. clone_path:none, clone_removed:n/a. | `<PR URL>` `<SHA>` `<BASE SHA>` `<BUNDLE HASH>` |
+| none (saved material) | Named complete documents, or a fully revision-bound saved packet; saved-material template. Web gets actual uploads and the attached-files path, never a local private path. | Per-file and bundle hashes, complete scope, and revision metadata/diff/base/head objects when revision approval is requested. Without verified revision binding approve only named documents, never code/HEAD. Keep this packet as evidence; no clone or cleanup claim. Dot/Hermes cannot use an inaccessible local packet. | `<PACKET PATH>` `<BUNDLE HASH>` `<REVIEW TARGET>` |
 
-- **The orchestrator owns every copy.** Seats never clone, delete or attest. The orchestrator creates each copy,
-  verifies every key it can measure, and removes the copy once the seat process is confirmed gone, whatever the
-  outcome. A failed check or failed removal voids that vote. A key it could not measure is written `attested.<key>`
-  and never satisfies an orchestrator-verified cell.
-- **Base.** `<BASE SHA>` is computed once, in `pin`; later checks use `git merge-base --is-ancestor <BASE SHA>
-  HEAD` and never compare branch tips.
-- **No seat gets a git remote.** Only `pin` uses the PR remote. Staying in `<SCRATCH PATH>` is an instruction, not
-  a sandbox; the post-return checks detect a changed `HEAD` or remote and void the vote.
-- **Unpushed SHAs** work for clone seats, which come from the local donor; if `<SHA>` is missing from the original
-  checkout, `pin` fails and revision mode is `UNAVAILABLE`. Remote seats need `<SHA>` pushed and reachable: a
-  verdict naming another SHA, or `<SHA>` becoming unreachable, voids the vote.
-- **Document-only review** has no donor or clone: CLI, web and static seats use `none` (Dot and Hermes cannot
-  read a local packet and are `UNAVAILABLE`), record `clone_path: none`, and never
-  claims a clone or cleanup.
-- **Host guards.** Clones live only in an allocated scratch directory, never `/tmp` (the scratch-routing guard
-  refuses it), and deletion names the literal absolute path, never `rm -rf "$VAR"` (the destructive-path guard
-  refuses it).
-- **Not a sandbox.** Copy isolation protects Git metadata and review state, not the host's network, environment or
-  processes. Full permissions do not authorize unrelated destructive actions, credential changes or publication.
-  Before and after each attempt, check read-only that the original checkout, refs, local config and hooks are
-  unchanged; any mutation voids that vote.
+The orchestrator owns copies and verifies every measurable cell. A reviewer
+does not clone/delete its own isolation copy or attest facts the orchestrator
+can measure. Label genuinely remote facts attested; never use that label as
+proof for an orchestrator-verified cell. Do not claim a copy or cleanup for a
+mode that created none.
+
+Base is computed once for the attempt. Later clone checks test ancestor/head
+and never replace it with a moving branch tip. Source approval always covers
+complete required objects at both pins, including binary/mode/symlink/gitlink/LFS
+content. Verified identical spans can be reused; partial readers cannot be
+combined. Unpushed revisions need complete local access; remote routes require
+reachable objects.
+
+Full permissions do not authorize repairs, external writes, credential changes
+or unrelated destructive actions. Reviewers remain read-only. Original state
+must be unchanged after each attempt. Preserve actual process/native completion
+and mode-specific post-checks; a failed copy check or unresolved required cleanup
+makes that attempt non-countable, while its findings are retained.
+
+Copies live in configured Scratch, never a code/home tree or a new /tmp clone.
+Remove only exact owned copies after their processes exit, preserving original
+source and private receipts. The private technical receipt and required cleanup
+complete inside the attempt budget. Later sanitized publication is a separate
+lifecycle event: retain original review/capture clocks rather than extending or
+restamping them.
 
 ## 5. Reconcile and report
 
@@ -236,8 +253,8 @@ coverage never supplies an approval. Without the required independent full-cover
 coverage, reasoning, risk and findings, the question's answer, and every `UNAVAILABLE` line. Keep a receipt per
 attempt: identity, actual CLI, account and model, start and completion times, exit or timeout, the exact prompt
 (any deviation voids the vote, per static-review), complete output, coverage and cleanup result. End with exactly
-one line: `VERDICT: APPROVED at <SHA>`, `VERDICT: NOT APPROVED at <SHA>`, or `VERDICT: WITHHELD at <SHA> — <reason>`;
-for document-only review, `DOCUMENTS sha256:<bundle hash>` takes the place of `<SHA>`.
+one line: `VERDICT: APPROVED at `<SHA>``, `VERDICT: NOT APPROVED at `<SHA>``, or `VERDICT: WITHHELD at `<SHA>` — <reason>`;
+for document-only review, `DOCUMENTS sha256:<bundle hash>` takes the place of ``<SHA>``.
 
 **Applicability.** Keep the original reviewers and reviewed SHAs. Before relying on them at a later head, inspect
 the complete delta, claims, evidence and phase; applicability is not a new vote, and material uncovered changes

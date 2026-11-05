@@ -1,7 +1,7 @@
 ---
 name: advice
 version: 1.5.0
-description: "Hermes wrapper for the `/advice` token-efficient second-opinion slash command. Canonical source is `~/.claude/skills/advice/SKILL.md`. Adds docs-accuracy review template, patch-review template, and three operator-correction pitfalls verified 2026-07-30: #14 'I don't care about X' = indifferent mechanism, not a ban; #15 gateway re-injection = break the echo chain on turn 2; #16 env-driven configuration preference."
+description: "Hermes entry point for canonical advice and static-review: capability tiers, qualified quorum and complete revision-bound review."
 ---
 
 # /advice — Token-Efficient Second Opinion (Hermes overlay)
@@ -13,9 +13,18 @@ description: "Hermes wrapper for the `/advice` token-efficient second-opinion sl
 1. `skill_view(name='advice')` works from the Hermes session (the canonical Claude skill is not registered in the Hermes skill registry).
 2. Future agents learn to **search both `~/.hermes/skills/` AND `~/.claude/skills/`** when a user invokes a `/slash` command — slash commands are not Hermes-native; they are Claude Code constructs.
 
-## Static review (synced 2026-10-29)
+## Canonical reviewer contract
 
-The canonical `/advice` now delegates reviewer input to `~/.claude/skills/static-review/SKILL.md`: every reviewer (CLI, coordinator ask, static-review subagent) gets the cold, verbatim template with only the PR URL and SHA filled (for document-only review, only the packet path and bundle hash), plus the fixed per-channel preamble. The receipt records the exact prompt; any deviation voids the vote. Canonical `/advice` §2 owns capability tiers, at-most-one-Dot counting, aggregate static/Hermes caps and web-last fallback; this overlay never reorders them. Retain eligible earlier-tier votes under its lifecycle-selected quorum, independence and substitution rules. Record unavailable seats as `<host> — <CLI or static reviewer> — attempted|skipped — <attempt time> — <reason>` and tell the user. A cloud-only failure does not make Mac or Ubuntu CLIs unavailable.
+The canonical advice skill owns reviewer capabilities, risk-selected count,
+tier order and class caps. Static-review owns cold prompts, access-mode
+preambles, full pinned source coverage and receipts. Load both current owners;
+fill exactly the fields of advice §4's selected mode rather than assuming only
+a URL/SHA pair. This overlay supplies no separate prompt or dispatch policy.
+Use actual authorized accounts/capabilities on the current host; preserve
+complete coverage, deadlines, identity deduplication and explicit outside
+requirements. Missing an integration means UNAVAILABLE, not an improvised
+review or approval.
+
 
 ## When to use
 
