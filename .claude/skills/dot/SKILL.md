@@ -21,6 +21,27 @@ and all separate merge, destructive-action, credential, publication, and
 permission boundaries. A reversible action is not automatically authorized
 just because Dot requests it.
 
+### Deliver review artifacts to the recipient
+
+For visual or document review, attach the actual documents and images in the
+target Dot conversation before requesting judgment. Verify every expected
+filename after upload completes and again on the submitted message. URLs and
+local paths are references, not proof of delivery; a sender-side HTTP 200 does
+not establish access from Dot's environment.
+
+An accessible evidence bundle is an alternative only after Dot confirms it can
+open the bundle and read every required document and image. Require the reply
+to name the material actually inspected; acknowledgement is not visual coverage.
+
+When Dot cannot open linked material, repair the handoff with those attachments
+or a recipient-verified bundle. Do not ask the operator to upload files the
+agent already holds. Use existing authorized upload capabilities and preserve
+Dot profile exclusivity, browser isolation and credential rules. If no supported
+upload or recipient-access route works, report that specific delivery gap once;
+do not repeat the inaccessible links or claim a review occurred.
+
+For nonblocking feedback, keep the primary task moving while repairing delivery.
+
 ### Small fixes do not need Dot unless requested
 
 When deciding whether to involve Dot without an explicit user request, do not
