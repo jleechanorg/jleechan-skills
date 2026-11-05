@@ -75,7 +75,24 @@ Exported campaign story + game state JSON (when local export runs). Supports per
 
 ## Integrity
 
-Every substantive file should have a sibling **`.sha256`** whose line uses the **local basename** (`sha256sum -c` from the iteration directory).
+Use either a complete aggregate **`checksums.sha256`** manifest OR per-file
+**`.sha256`** siblings, not both as a universal requirement. Cover every
+substantive artifact, including every artifact referenced by the claim map.
+Aggregate entries resolve relative to the bundle root; sibling entries use the
+**local basename** and are checked from that sibling's directory.
+
+A canonical producer's different manifest filename is valid when explicitly
+mapped to this same aggregate coverage contract under [SKILL.md](./SKILL.md).
+Reconcile the actual artifact inventory against coverage and recompute every
+digest. Any mismatch, missing listed file, or uncovered substantive/claim-map
+artifact is an integrity failure under `/er`; absent checksums leave integrity
+unverified and approval withheld. A successful check of listed entries alone
+does not establish complete coverage. Checksum manifests do not hash themselves.
+
+Keep the producer's actual inventory and command evidence in its existing
+artifacts, with explicit path/field mapping; do not reconstruct stdout or invent
+extra sidecars. This changes packaging equivalence only: all required raw proof,
+provenance and applicable owner requirements remain binding.
 
 ## Mental model
 

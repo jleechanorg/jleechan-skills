@@ -205,7 +205,14 @@ PY
 SOURCE_FINGERPRINT_BEFORE="$(source_fingerprint)" \
     || fail "Cannot fingerprint canonical Beads sources."
 
-SCRATCH_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/beads-export.XXXXXX")"
+SCRATCH_TMP_BASE="$("${HOME}/.claude/skills/scratch-space/scripts/scratch-dir.sh" tmp)" \
+    || fail "Cannot resolve the canonical Scratch temporary directory."
+if [ -z "$SCRATCH_TMP_BASE" ] || [ "$SCRATCH_TMP_BASE" = "/" ] \
+    || [ ! -d "$SCRATCH_TMP_BASE" ]; then
+    fail "Scratch resolver returned an invalid temporary directory."
+fi
+SCRATCH_ROOT="$(mktemp -d "$SCRATCH_TMP_BASE/beads-export.XXXXXX")" \
+    || fail "Cannot create the isolated Beads export workspace."
 cleanup() {
     rm -rf "$SCRATCH_ROOT"
 }
