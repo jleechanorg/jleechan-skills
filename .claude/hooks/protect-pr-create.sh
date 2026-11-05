@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # protect-pr-create.sh — PreToolUse(Bash) guard against unbounded PR splitting and deep PR stacks.
 #
-# Enforces the HARD CAPS only, two mechanical caps when `gh pr create` is invoked:
+# Best-effort guard for observable `gh pr create` forms; operator policy remains
+# authoritative and this parser is not a shell security boundary. It enforces
+# two existing hard caps when `gh pr create` is invoked:
 #   1. Split-prefix cap (<= 5): If the head branch matches `split/<feature>/*` (or `split/<feature>-*`),
 #      blocks creation when >= 5 open PRs already exist under that same split prefix.
 #   2. Stacked-PR cap (< 10): If `--base` is not `main`/`master`, blocks creation when >= 9 open
@@ -11,6 +13,9 @@
 # rule owned by the pr-quantity-control skill. This hook only blocks at the hard cap
 # (>= 5 open split/* PRs, >= 9 open stacked PRs).
 #
+# Supported parsing includes direct calls, command substitutions, unquoted
+# heredoc expansions, and explicit `bash -c`/`sh -c` programs. Dynamically
+# computed executables and aliases are outside this best-effort scan.
 # Escape hatch: prefix the command with `ALLOW_PR_STACK_OVERRIDE=1` when explicitly authorized by the user.
 # Fail-open on offline/timeout so routine work never hangs if GitHub API is unreachable.
 
@@ -50,11 +55,20 @@ if not cmd:
 
 def strip_heredocs(s: str) -> str:
     pattern = re.compile(
-        r"<<-?\s*['\"]?([A-Za-z0-9_]+)['\"]?[^\n]*\n.*?\n\1\b",
+        r"<<-?\s*(['\"]?)([A-Za-z0-9_]+)\1[^\n]*\n(.*?)\n[ \t]*\2\b",
         re.DOTALL,
     )
+
+    def replace(match):
+        if match.group(1):
+            return ""
+        substitutions = command_substitutions(
+            match.group(3), ignore_outer_quotes=True
+        )
+        return " ; ".join(f"$({substitution})" for substitution in substitutions)
+
     while True:
-        new_s, count = pattern.subn("", s)
+        new_s, count = pattern.subn(replace, s)
         if count == 0:
             return s
         s = new_s
@@ -108,20 +122,7 @@ def normalize_shell_command(command: str) -> str:
     return "".join(output)
 
 
-stripped = normalize_shell_command(strip_heredocs(cmd))
-
-# Match a real `gh ... pr create` invocation in command position; quoted
-# strings and shell comments are single tokens or dropped by the lexer.
-try:
-    lexer = shlex.shlex(stripped, posix=True, punctuation_chars=True)
-    lexer.whitespace_split = True
-    lexer.commenters = ""
-    tokens = list(lexer)
-except Exception:
-    sys.exit(0)
-
-
-def command_substitutions(command: str):
+def command_substitutions(command: str, *, ignore_outer_quotes: bool = False):
     substitutions = []
     quote = ""
     escaped = False
@@ -136,20 +137,21 @@ def command_substitutions(command: str):
             escaped = True
             i += 1
             continue
-        if quote == "'":
-            if char == quote:
-                quote = ""
-            i += 1
-            continue
-        if quote == '"' and command[i : i + 2] != "$(":
-            if char == quote:
-                quote = ""
-            i += 1
-            continue
-        if char in ("'", '"'):
-            quote = char
-            i += 1
-            continue
+        if not ignore_outer_quotes:
+            if quote == "'":
+                if char == quote:
+                    quote = ""
+                i += 1
+                continue
+            if quote == '"' and command[i : i + 2] != "$(":
+                if char == quote:
+                    quote = ""
+                i += 1
+                continue
+            if char in ("'", '"'):
+                quote = char
+                i += 1
+                continue
         if command[i : i + 2] != "$(":
             i += 1
             continue
@@ -182,6 +184,16 @@ def command_substitutions(command: str):
     return substitutions
 
 
+stripped = normalize_shell_command(strip_heredocs(cmd))
+
+try:
+    lexer = shlex.shlex(stripped, posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    tokens = list(lexer)
+except Exception:
+    sys.exit(0)
+
 for substitution in command_substitutions(stripped):
     try:
         nested = shlex.shlex(substitution, posix=True, punctuation_chars=True)
@@ -201,14 +213,54 @@ def is_separator(token: str) -> bool:
     )
 
 
-def is_pr_create(i: int) -> bool:
-    j = i - 1
+def is_command_position(index: int, command_tokens) -> bool:
+    j = index - 1
     while j >= 0 and (
-        re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", tokens[j])
-        or tokens[j] in ("env", "command")
+        re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", command_tokens[j])
+        or command_tokens[j] in ("env", "command")
     ):
         j -= 1
-    if j >= 0 and not is_separator(tokens[j]):
+    return j < 0 or is_separator(command_tokens[j])
+
+
+def tokenize_shell(command: str):
+    lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    return list(lexer)
+
+
+def child_shell_tokens(command_tokens, depth=0):
+    if depth >= 8:
+        return []
+    nested_tokens = []
+    for index, token in enumerate(command_tokens):
+        if not is_command_position(index, command_tokens):
+            continue
+        if token.rsplit("/", 1)[-1] not in ("bash", "sh"):
+            continue
+        end = index + 1
+        while end < len(command_tokens) and not is_separator(command_tokens[end]):
+            end += 1
+        args = command_tokens[index + 1 : end]
+        for option_index, option in enumerate(args[:-1]):
+            if option != "-c":
+                continue
+            try:
+                child_tokens = tokenize_shell(args[option_index + 1])
+            except Exception:
+                break
+            nested_tokens.extend([";"] + child_tokens)
+            nested_tokens.extend(child_shell_tokens(child_tokens, depth + 1))
+            break
+    return nested_tokens
+
+
+tokens.extend(child_shell_tokens(tokens))
+
+
+def is_pr_create(i: int) -> bool:
+    if not is_command_position(i, tokens):
         return False
     k = i + 1
     while k < len(tokens) and tokens[k].startswith("-"):
@@ -389,7 +441,7 @@ for gh_index, head_branch, base_branch, repo_slug, split_prefix in invocations:
         projected_creates = sum(
             1
             for item in invocations
-            if item[4] == split_prefix and not has_inline_override(item[0])
+            if item[0] <= gh_index and item[4] == split_prefix
         )
         matching_split_prs = [
             p
@@ -410,8 +462,8 @@ for gh_index, head_branch, base_branch, repo_slug, split_prefix in invocations:
         projected_creates = sum(
             1
             for item in invocations
+            if item[0] <= gh_index
             if item[2] not in ("main", "master", "")
-            and not has_inline_override(item[0])
         )
         stacked_prs = [
             p

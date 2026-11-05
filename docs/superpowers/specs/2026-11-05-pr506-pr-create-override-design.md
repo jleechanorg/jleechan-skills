@@ -6,6 +6,10 @@ The checked-in Bash `PreToolUse` hook enforces the existing split and stacked-PR
 ceilings while honoring an explicit override supplied through the process
 environment or as an assignment prefix to `gh pr create`.
 
+The command scan is best-effort for the supported observable forms below; it is
+not a shell security boundary. The operator's PR hard-cap policy remains
+authoritative.
+
 ## Non-goals
 
 - Do not add, change, or widen a PR quantity ceiling.
@@ -28,6 +32,11 @@ environment or as an assignment prefix to `gh pr create`.
   unrelated `split/<other>/*` rows are counted separately.
 - Comments and later commands cannot hide a stacked PR creation or change its
   parsed flags. Attached `-Rowner/repo` is still recognized.
+- The scan recognizes command substitutions, expansions in unquoted heredocs,
+  and explicit `bash -c` / `sh -c` programs, including nested child shells.
+  Quoted heredoc contents and ordinary quoted mentions remain literal.
+- An invocation-local prefix override authorizes only that create; its
+  projected creation still counts when evaluating later unoverridden creates.
 - When `--base` is omitted, the current branch's configured
   `gh-merge-base` determines whether the request is stacked.
 
@@ -57,4 +66,5 @@ test-only environment bypass, and the tests make no live network calls.
 The existing hook fails open when GitHub cannot be queried. This change does not
 alter that behavior or the existing hard caps. It narrows only what counts as an
 explicit override, preventing an incidental command-string mention from
-disabling the existing check.
+disabling the existing check. Dynamically computed executables and aliases are
+outside the best-effort command scan; operator policy remains authoritative.

@@ -175,6 +175,45 @@ class ProtectPrCreateHookTest(unittest.TestCase):
         self.assert_mocked_github()
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_unquoted_heredoc_command_substitution_executes_pr_create(self):
+        command = """cat <<EOF
+$(gh pr create --head feature --base parent)
+EOF"""
+        result = self.run_hook(command, [open_pr(i, base="parent") for i in range(9)])
+        self.assert_mocked_github()
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("stacked PR ceiling", result.stderr)
+
+    def test_quoted_heredoc_command_substitution_text_is_literal(self):
+        command = """cat <<'EOF'
+$(gh pr create --head feature --base parent)
+EOF"""
+        result = self.run_hook(command, [])
+        self.assert_mocked_github()
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_child_shell_pr_create_is_checked(self):
+        result = self.run_hook(
+            "bash -c 'gh pr create --head feature --base parent'",
+            [open_pr(i, base="parent") for i in range(9)],
+        )
+        self.assert_mocked_github()
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("stacked PR ceiling", result.stderr)
+
+    def test_nested_child_shell_pr_create_is_checked(self):
+        command = "bash -c 'sh -c \"gh pr create --head feature --base parent\"'"
+        result = self.run_hook(command, [open_pr(i, base="parent") for i in range(9)])
+        self.assert_mocked_github()
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("stacked PR ceiling", result.stderr)
+
+    def test_child_shell_quoted_command_mention_is_not_executed(self):
+        command = "bash -c 'printf \"%s\\n\" \"gh pr create --base parent\"'"
+        result = self.run_hook(command, [])
+        self.assert_mocked_github()
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_compound_stacked_creates_project_the_open_pr_count(self):
         existing = [open_pr(i, base="parent") for i in range(8)]
         command = (
@@ -196,6 +235,38 @@ class ProtectPrCreateHookTest(unittest.TestCase):
         self.assert_mocked_github()
         self.assertEqual(result.returncode, 2)
         self.assertIn("split PR quantity cap", result.stderr)
+
+    def test_earlier_overridden_split_create_counts_for_later_create(self):
+        existing = [open_pr(i, f"split/widget/{i}") for i in range(4)]
+        command = (
+            "ALLOW_PR_STACK_OVERRIDE=1 gh pr create --head split/widget/first --base main; "
+            "gh pr create --head split/widget/second --base main"
+        )
+        result = self.run_hook(command, existing)
+        self.assert_mocked_github()
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("split PR quantity cap", result.stderr)
+
+    def test_earlier_overridden_stacked_create_counts_for_later_create(self):
+        existing = [open_pr(i, base="parent") for i in range(8)]
+        command = (
+            "ALLOW_PR_STACK_OVERRIDE=1 gh pr create --head first --base parent; "
+            "gh pr create --head second --base parent"
+        )
+        result = self.run_hook(command, existing)
+        self.assert_mocked_github()
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("stacked PR ceiling", result.stderr)
+
+    def test_later_overridden_split_create_does_not_block_earlier_create(self):
+        existing = [open_pr(i, f"split/widget/{i}") for i in range(4)]
+        command = (
+            "gh pr create --head split/widget/first --base main; "
+            "ALLOW_PR_STACK_OVERRIDE=1 gh pr create --head split/widget/second --base main"
+        )
+        result = self.run_hook(command, existing)
+        self.assert_mocked_github()
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_main_target_does_not_enforce_stack_caps(self):
         result = self.run_hook("gh pr create --head feature --base main", [])
