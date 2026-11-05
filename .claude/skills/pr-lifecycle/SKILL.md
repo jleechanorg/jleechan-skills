@@ -26,7 +26,7 @@ The full state machine. Other files (`pr-green-definition`, `/green`, `CLAUDE.md
 ```
 DRAFT
   → /es PASS @ SHA (unless the Markdown instruction-only route below applies)
-  → /er PASS @ SHA (unless the narrow /er documentation allowlist, explicit trivial-change exception, Markdown instruction-only route below, or another repo-exempted class applies)
+  → /er PASS @ SHA (unless the narrow /er documentation allowlist, explicit trivial-change exception, compact-route review coverage accepted by local policy, Markdown instruction-only route below, or another repo-exempted class applies)
   → table-selected independent source review PASS @ SHA when required
   → /visual-verification PASS @ SHA when gate 4 applies and the one-liner fast path does not (media published, or a rendered/displayed-data claim)
   → mark ready-for-review (gh pr ready <N>)
@@ -57,8 +57,6 @@ Count additions plus deletions across the full PR diff at its actual base and cu
 
 For this route, the required proof is the pinned source diff, relevant link/frontmatter or Markdown-structure checks, and the reviewer’s scenario-based receipt on the PR. Do not add a seven-element spec, separate /es or /er adjudication, evidence bundle/publication, runtime test, model/provider run, browser journey, or visual capture solely because the change is a skill or exceeds a size threshold. Reuse a complete reviewer receipt at later phases when the SHA delta leaves its claims and scenarios applicable; a phase label alone does not call for another model review. Specific evidence needed to verify a changed example or runtime claim remains required. Repository-specific gates and explicit user-requested proof still apply.
 
-Visual evidence follows the changed claim: backend-only changes with no rendered, displayed-data, or interaction claim need no visual proof. Changes that do alter a rendered surface or interaction retain the applicable real visual or browser proof. This rule applies across implementation types and does not waive service-boundary proof.
-
 For eligible Markdown instruction changes, this subsection controls reviewer count and proof in place of the generic Agent instructions/policy row, compact route, and default size-based advice rule. It does not override the high-risk row, stricter repository requirements, or explicit user-requested proof.
 
 This route cannot exempt itself from its sensitive-review rule. Changes that modify review policy use two independent full-scope reviews and all separately required repository or user gates.
@@ -80,6 +78,8 @@ This route cannot exempt itself from its sensitive-review rule. Changes that mod
 For the positively qualified one-vote rows, dispatch directly through [static-review](../static-review/SKILL.md): one cold reviewer independent of the author/orchestrator, complete actual diff and applicable proof, exact reviewed SHA, eligibility finding and retrievable receipt. Do not start `/advice`, Dot rotation or a provider fallback ladder merely because the total diff exceeds 50 lines. A specifically requested workflow or stricter repository route still runs. A full-coverage reviewer may cover source and evidence only where the evidence owner accepts that combined coverage; preserve any explicitly separate evidence seat. Source vote count does not waive `/es`, `/er` or publication requirements.
 
 Proof follows **changed claims**. Use the lowest sufficient layer, retaining real boundary, native and rendered proof where claimed. For example, an App Store icon/splash presentation change needs its rendered surface; a copy/attribution/link change needs literal, attribution or destination proof as claimed; reuse of an existing Apple-logo asset needs provenance and relevant presentation proof. None implies a new gameplay journey when gameplay is unchanged. Signing, release, legal meaning, interaction or trust changes reclassify the affected scope.
+
+Visual evidence follows the changed claim: backend-only changes with no rendered, displayed-data, or interaction claim need no visual proof. Changes that do alter a rendered surface or interaction retain the applicable real visual or browser proof. This rule applies across implementation types and does not waive service-boundary proof.
 
 Reuse valid proof and independent coverage across draft/final phases under § SHA-binding rule. A phase label alone does not demand another model call. Changed source, evidence or interpretation gets affected independent review; unchanged historical claims retain original status and SHA. An early source vote may pass source correctness while evidence/readiness remains open: a reviewer must not withhold that source vote merely because a later approval does not yet exist. Final readiness still requires every applicable gate.
 
