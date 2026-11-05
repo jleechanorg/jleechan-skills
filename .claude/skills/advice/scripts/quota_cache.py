@@ -164,8 +164,11 @@ def main(argv=None):
                 observed = args.observed_at
                 event_type = "quota" if args.reset_at > now else "success"
                 event_time = max(observed, args.reset_at) if event_type == "success" else observed
-                if (current and (event_time < current[1]
-                                 or (event_time == current[1] and current[0]["event_type"] == "success"))):
+                # Order competing observations by when the provider response was
+                # received. A late write of an already-expired old quota must not
+                # use its reset time to outrank a newer active quota.
+                if (current and (observed < current[1]
+                                 or (observed == current[1] and current[0]["event_type"] == "success"))):
                     print("STALE_QUOTA_IGNORED")
                 elif event_type == "success":
                     write_entry(directory_fd, name, {

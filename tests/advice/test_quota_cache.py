@@ -103,6 +103,25 @@ class AdviceQuotaCacheTests(unittest.TestCase):
                                  "--now", "2029-12-31T00:06:00Z", expected=10)
         self.assertIn("QUOTA_BLOCKED", blocked.stdout)
 
+    def test_expired_delayed_quota_cannot_clear_newer_active_quota(self):
+        self.record(observed="2029-12-31T05:00:00Z", reset="2029-12-31T20:00:00Z")
+        delayed = self.run_cache(
+            "record", "--identity-sha256", CLAUDE_PRIMARY, "--provider", "claude",
+            "--model", "opus", "--reset-at", "2029-12-31T10:00:00Z",
+            "--observed-at", "2029-12-31T01:00:00Z", "--now", "2029-12-31T11:00:00Z",
+        )
+        self.assertIn("STALE_QUOTA_IGNORED", delayed.stdout)
+        blocked = self.run_cache(
+            "check", "--provider", "claude", "--identity-sha256", CLAUDE_PRIMARY,
+            "--now", "2029-12-31T11:00:00Z", expected=10,
+        )
+        self.assertIn("reset_at=2029-12-31T20:00:00+00:00", blocked.stdout)
+        self.assertEqual(
+            "ELIGIBLE\n",
+            self.run_cache("check", "--provider", "claude", "--identity-sha256", CLAUDE_PRIMARY,
+                           "--now", "2029-12-31T20:00:00Z").stdout,
+        )
+
     def test_provider_scopes_the_same_account_seat_separately(self):
         self.record(identity=AGY_PRIMARY, provider="agy")
         result = self.run_cache("check", "--provider", "claude", "--identity-sha256", AGY_PRIMARY,
