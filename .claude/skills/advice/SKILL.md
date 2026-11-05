@@ -5,10 +5,10 @@ description: Use when a focused second opinion is needed; collect the applicable
 
 # /advice — independent second opinion
 
-Use `/advice [question]` instead of `advisor()`. This skill owns reviewer orchestration: which reviewers run, the
-quorum, deadlines, isolation and receipts. [static-review](../static-review/SKILL.md) owns what each reviewer
-receives. pr-lifecycle's [Advice applicability](../pr-lifecycle/SKILL.md#advice-applicability) section owns phases,
-thresholds, applicability and publication; evidence-standards owns evidence classes. Do not restate those here.
+Use `/advice [question]` instead of `advisor()`. This skill owns reviewer orchestration: selection, quorum, deadlines,
+isolation and receipts. [static-review](../static-review/SKILL.md) owns reviewer input. pr-lifecycle's [Advice
+applicability](../pr-lifecycle/SKILL.md#advice-applicability) section owns phases, thresholds, applicability and
+publication; evidence-standards owns evidence classes. Do not restate those here.
 
 ## 1. Pin the question and complete scope
 
@@ -30,21 +30,20 @@ the complete change, never a transcription. A verdict built on truncated input i
 Use one only when pr-lifecycle positively selects a one-source-review route and
 the reviewer confirms its eligibility; preserve that route rather than starting
 extra advice seats. An explicitly requested advice invocation follows the same
-qualified count. Archive-integrity review is not source approval, and a local
-record-only exemption must not cite an absent governing rule.
-Stricter user, repository, security and domain requirements remain binding.
-The mandatory supplementary-review substitution still needs two eligible advice
+qualified count. Archive-integrity review is not source approval.
+Stricter user, repository, security and domain requirements remain binding. The
+mandatory supplementary-review substitution still needs two eligible advice
 votes and applicable evidence review. Record the route/count before dispatch;
 neither one-vote readiness nor advice approval changes merge authority.
 
 ### Capability profile and tier selection
 
-Use only capabilities actually available and authorized for this task. No machine needs every reviewer.
-Keep one machine-local profile of seat label, host, actual account/identity key, model, transport and command or
-profile reference, permitted scope/isolation row, disclosure authorization, availability and attempt receipt.
-Use existing ADVICE configuration and owning transport skills; this is an orchestration record, not a new runner,
-configuration parser or prompt framework. Do not put personal accounts, destinations, credentials or host paths
-in this repository. Preference for a different CLI/model does not make aliases of one account independent.
+Use only capabilities actually available and authorized. Keep one machine-local profile of seat label, host, actual
+account/identity key, model, transport and command or profile reference, permitted scope/isolation row, disclosure
+authorization, availability and attempt receipt. Use existing ADVICE configuration and owning transport skills; this
+is an orchestration record, not a new runner, configuration parser or prompt framework. Do not put personal accounts,
+destinations, credentials or host paths in this repository. Preference for a different CLI/model does not make aliases
+of one account independent.
 
 | Tier | Available reviewers | Admission and counting |
 |---|---|---|
@@ -52,11 +51,11 @@ in this repository. Preference for a different CLI/model does not make aliases o
 | 2 — fallback | Native static subagents; Hermes or Hermes-PC | Static subagents collectively count as at most one vote; Hermes instances collectively count as at most one distinct vote. Each counted vote must independently cover the entire scope. |
 | 3 — last fallback | Existing authorized authenticated web chats through /web-advice | Use only after earlier-tier candidates cannot fill the remaining quorum. Preserve packet, upload, account-attestation and receipt rules. |
 
-Start independent eligible candidates concurrently where their transport and resource rules permit. Retain valid
-earlier-tier votes and fill only remaining slots. Advance when available candidates in the current tier cannot
-fill them; a missing brand is not a reason to wait. An already-running eligible attempt remains bounded by §3,
-not declared unavailable merely to prefer a later result. Stop new dispatch once the applicable quorum is met
-unless another workflow obligation requires it; retain competent findings from valid in-flight attempts.
+Start independent eligible candidates concurrently where transport and resource rules permit. Retain valid earlier-tier
+votes and fill only remaining slots. Advance when the current tier cannot fill them; a missing brand is not a reason to
+wait. An eligible in-flight attempt remains bounded by §3, not declared unavailable merely to prefer a later result.
+Stop new dispatch once quorum is met unless another workflow obligation requires it; retain competent findings from
+valid in-flight attempts.
 The author, orchestrator and /research do not vote. One competent blocking objection can block.
 
 Record availability separately from verdicts: AVAILABLE; UNAVAILABLE with missing capability, unsupported scope
@@ -92,23 +91,19 @@ identities from the machine-local profile before selecting them.
   token or inside one (`--print={prompt}`), is replaced by the request; with none, the request is appended as the
   last argument. An empty label or command, a duplicate label, an unparseable entry or a missing program makes that
   seat `UNAVAILABLE`.
-- **No runner.** This skill ships instructions only (the owner's *markdown only, zero runner code* decision). The
-  orchestrator launches each seat itself under §3, and a machine-local capability never requires code in this
-  repository. A seat the orchestrator cannot bound end to end, or cannot produce a receipt for, is `UNAVAILABLE`; do not add a runner,
-  wrapper, watchdog or timer.
-- **Quota walls fail fast.** A usage limit, quota exhaustion, an exhausted 429 retry, "rate limit reached", an
-  expired plan or a similar account-level refusal makes the seat `UNAVAILABLE` at once with reason `quota` and the
-  reset time when printed. Do not wait out its budget, retry the same account or switch models to get around it.
-  Another account (a `claudewa`-style alternate) is a separate seat and is still tried.
+- **No runner.** This skill ships instructions only; the orchestrator launches each seat under §3. A capability it
+  cannot bound end to end or cannot produce a receipt for is `UNAVAILABLE`; do not add a runner, wrapper, watchdog or timer.
+- **Quota walls fail fast.** A usage limit, quota exhaustion, exhausted 429 retry, rate limit, expired plan or similar
+  account refusal makes the seat `UNAVAILABLE` with reason `quota` and the printed reset time. Do not wait, retry the
+  same account or switch models around it; a separate account remains eligible.
 
 ### Outside-route authorization and transports
 
 **Authorization is machine-local.** These routes send PR content off the machine, so this portable skill grants
-nothing by itself. A route is authorized only when the machine's `ADVICE_OUTSIDE_ROUTES` lists it (a
-comma-separated subset of `dot,hermes,web`, exported in that machine's `~/.bashrc`) or the current task explicitly
-authorizes it. That opt-in is the standing authorization pr-lifecycle's optional-`/wa` rule and `/hermes`'s
-disclosure rule require. Unlisted routes are `UNAVAILABLE — disclosure not authorized`, and so is any route when the
-user, task or repository restricts external disclosure of the reviewed content, or the content holds secrets. (The
+nothing by itself. A route is authorized only when `ADVICE_OUTSIDE_ROUTES` lists it (comma-separated `dot,hermes,web`)
+in that machine's `~/.bashrc`, or the current task explicitly authorizes it. That opt-in is the standing authorization
+required by pr-lifecycle's optional-`/wa` rule and `/hermes`'s disclosure rule. Unlisted routes are `UNAVAILABLE —
+disclosure not authorized`, as are routes restricted by the user, task or repository, or content holding secrets. (The
 repository owner opted in on 2026-11-04: "when all cli reviewers out of quota ... it should try to use /wa and ask
 hermes hermes pc and the dots in dot coordination for a review".)
 
@@ -129,26 +124,22 @@ acknowledgement, reaction or promise. Route availability does not override discl
 
 ### Native static fallback
 
-Static reviewers follow [static-review](../static-review/SKILL.md) for cold input,
-full coverage, identity, deadlines and receipts. Admit them in tier2 alongside
-an eligible Hermes instance when needed; together they do not reserve slots or
-override the aggregate caps. Each counted verdict itself covers the whole scope.
-The supplementary-review fallback still requires two independent advice votes.
-Apply the same tiers/caps: eligible CLI pairs, CLI plus static, or eligible
-outside combinations may supply them. There is no generic remote minimum or
-remote-only prohibition. Preserve any separately explicit user/repository
-outside-review requirement as a distinct obligation, or leave that obligation
-open. Review votes never replace missing substantive evidence.
+Static reviewers follow [static-review](../static-review/SKILL.md) for cold input, full coverage, identity, deadlines
+and receipts. Admit them in tier 2 with an eligible Hermes instance when needed; §2's aggregate caps still apply
+(static reviewers collectively at most one vote, Hermes instances collectively at most one), and each counted verdict
+covers the whole scope. Eligible CLI pairs, CLI plus static, or eligible outside combinations may supply the quorum.
+There is no generic remote minimum or remote-only prohibition; preserve any separately explicit outside-review
+obligation. Review votes never replace missing substantive evidence.
 
 ### Identity
 
-- One account is one vote, whatever its label, wrapper, alias or retry. Two seats whose commands reach the same
-  account count once; an outside reviewer whose coder ran the account that just hit its quota is that account.
-- A CLI seat needs its actual model from reliable CLI/runtime metadata, or it is `UNAVAILABLE`.
-  Outside routes record exposed model/account fields as `attested.` values; never invent a hidden runtime SKU.
-  A verified configured Dot account is its own CLI/model identity under the one-Dot cap. An unreported public
-  model/account field does not invalidate a privately verified session; an actually unverified account remains
-  unavailable. Keep its frozen expected binding, positive identity probe and source-author independence proof. Codex models may be only `gpt-6-astra`, `gpt-6-luna`, `gpt-6-sol` or `gpt-6.1-sol`.
+- One account is one vote, whatever its label, wrapper, alias or retry; seats reaching the same account count once,
+  including an outside reviewer whose coder used the account that hit quota.
+- A CLI seat needs its actual model from reliable CLI/runtime metadata, or it is `UNAVAILABLE`. Outside routes record
+  exposed model/account fields as `attested.` values; never invent a hidden runtime SKU. A verified Dot account is its
+  own CLI/model identity under the one-Dot cap. Missing public fields do not invalidate a privately verified session;
+  an actually unverified account is unavailable. Keep its frozen expected binding, positive identity probe and source-
+  author independence proof. Codex models may be only `gpt-6-astra`, `gpt-6-luna`, `gpt-6-sol` or `gpt-6.1-sol`.
 - Neither the author nor the orchestrator awards itself a vote, and no verdict counts twice: a Dot account whose verdict fills the
   pr-lifecycle `/dot` leg at this head is not also an `/advice` vote.
 - Run every seat with full permissions and record its actual command, model, account and transport.
@@ -160,13 +151,12 @@ Mac or Ubuntu machine); try or record each host separately. When the tiers canno
 
 ## 3. Enforce the attempt deadline
 
-- **Budget `B`.** Each attempt gets 1800 seconds end to end (static reviewers: 600 seconds, per static-review) unless the user set a limit, shorter or longer,
-  which governs that attempt. A specific user instruction to await a named reviewer overrides that attempt's deadline, even without
-  a duration, per pr-lifecycle § Reviewer timeout and completion; record the instruction and the wait actually
-  honoured in the receipt. A CLI attempt already running under a native timeout cannot have that timeout
-  lengthened: when it expires, record it `TIMED_OUT`, mark the requested wait route `UNAVAILABLE`, and keep the gate open
-  for that reviewer instead of counting late output. Never preempt a valid in-deadline result, count late output, claim a wait that did not
-  happen, or issue a duplicate review. Status updates never pause or reset the clock.
+- **Budget `B`.** Each attempt gets 1800 seconds end to end (static reviewers: 600 seconds, per static-review) unless
+  the user sets a limit. A specific user instruction to await a named reviewer overrides that attempt's deadline, even
+  without a duration, per pr-lifecycle § Reviewer timeout and completion; record the instruction and actual wait. A CLI
+  attempt already under native timeout cannot be lengthened: on expiry record `TIMED_OUT`, mark that route
+  `UNAVAILABLE`, and keep the gate open rather than counting late output. Never preempt a valid result, count late
+  output, claim a wait that did not happen, or issue a duplicate review. Status updates do not reset the clock.
 - **Clock.** Shared, immutable packet preparation may happen first. Immediately before dispatch, capture the queue
   boundary on the host that launches the seat:
 
@@ -179,16 +169,15 @@ Mac or Ubuntu machine); try or record each host separately. When the tiers canno
   Monotonic values are host- and boot-local, so a CLI seat runs on that same host and the epoch value is audit-only.
   Outside routes take both the send and the reply-observed times on the orchestrator's host; the remote side's
   timestamps are `attested.` audit values. If the boundary cannot be captured, the seat is `UNAVAILABLE`.
-- **Bound.** Choose a positive cleanup reserve `C` and wait grace `G`, both inside `B`, or the seat is `UNAVAILABLE`.
-  Launch with a native timeout of `B - C` measured from the queue boundary, reclaim cleanup inside `C`, and bound
-  the wait by the same absolute deadline. For outside routes, `C` covers only readback and receipt writing. Record
-  the queue boundary, absolute deadline and actual exit in the receipt, never in the prompt. The orchestrator's own
-  bounded tool call is the mechanism.
-- **Outcome.** Setup, delivery, review, output capture, receipt writing and cleanup all count against `B`. The
-  deadline decides eligibility; it is not a real-time guarantee. A cleanup or receipt write that overruns makes the
-  attempt nonzero and voids its vote. A late, incomplete, failed or timed-out result is not an approval: keep its
-  partial findings, record cleanup status, and use another eligible reviewer. Do not keep waiting for unresolved cleanup or
-  reuse a resource whose process or cleanup state is unresolved, and never claim cleanup without receipt evidence.
+- **Bound.** Choose positive cleanup reserve `C` and wait grace `G` inside `B`, or the seat is `UNAVAILABLE`. Launch
+  with native timeout `B - C` from the queue boundary, reclaim cleanup inside `C`, and bound the wait by the same
+  deadline. For outside routes, `C` covers only readback and receipt writing. Record queue boundary, deadline and
+  actual exit in the receipt, never the prompt; the orchestrator's bounded tool call is the mechanism.
+- **Outcome.** Setup, delivery, review, capture, receipt writing and cleanup all count against `B`; the deadline
+  decides eligibility, not a real-time guarantee. Cleanup or receipt overrun makes the attempt nonzero and voids its
+  vote. A late, incomplete, failed or timed-out result is not approval: keep partial findings and cleanup status, then
+  use another eligible reviewer. Do not wait on unresolved cleanup, reuse an unresolved resource, or claim cleanup
+  without receipt evidence.
 
 ## 4. Review access modes and isolation
 
@@ -209,31 +198,23 @@ static-review owns the actual templates and per-channel preambles.
 | packet (web revision) | Orchestrator uploads the complete pinned diff, changed-path base/head content or verified absence, all special objects and relevant evidence; revision packet template. | Bundle/per-file hashes, actual attachment delivery, authenticated provider/account, full-file no-truncation and returned coverage/verdict at the SHA. Never substitute a summary, bare private URL or function-only excerpt for required full scope. clone_path:none, clone_removed:n/a. | `<PR URL>` `<SHA>` `<BASE SHA>` `<BUNDLE HASH>` |
 | none (saved material) | Named complete documents, or a fully revision-bound saved packet; saved-material template. Web gets actual uploads and the attached-files path, never a local private path. | Per-file and bundle hashes, complete scope, and revision metadata/diff/base/head objects when revision approval is requested. Without verified revision binding approve only named documents, never code/HEAD. Keep this packet as evidence; no clone or cleanup claim. Dot/Hermes cannot use an inaccessible local packet. | `<PACKET PATH>` `<BUNDLE HASH>` `<REVIEW TARGET>` |
 
-The orchestrator owns copies and verifies every measurable cell. A reviewer
-does not clone/delete its own isolation copy or attest facts the orchestrator
-can measure. Label genuinely remote facts attested; never use that label as
-proof for an orchestrator-verified cell. Do not claim a copy or cleanup for a
-mode that created none.
-
-Base is computed once for the attempt. Later clone checks test ancestor/head
-and never replace it with a moving branch tip. Source approval always covers
-complete required objects at both pins, including binary/mode/symlink/gitlink/LFS
-content. Verified identical spans can be reused; partial readers cannot be
-combined. Unpushed revisions need complete local access; remote routes require
+The orchestrator owns copies and verifies measurable cells; remote facts are
+`attested.` and never proof of an orchestrator-verified cell. Do not claim a
+copy or cleanup for a mode that created none. Compute base once; later clone
+checks test ancestor/head and never replace it with a moving branch tip. Source
+approval covers complete objects at both pins, including binary/mode/symlink/
+gitlink/LFS content. Verified identical spans may be reused; partial readers
+cannot be combined. Unpushed revisions need local access; remote routes need
 reachable objects.
 
-Full permissions do not authorize repairs, external writes, credential changes
-or unrelated destructive actions. Reviewers remain read-only. Original state
-must be unchanged after each attempt. Preserve actual process/native completion
-and mode-specific post-checks; a failed copy check or unresolved required cleanup
-makes that attempt non-countable, while its findings are retained.
-
-Copies live in configured Scratch, never a code/home tree or a new /tmp clone.
-Remove only exact owned copies after their processes exit, preserving original
-source and private receipts. The private technical receipt and required cleanup
-complete inside the attempt budget. Later sanitized publication is a separate
-lifecycle event: retain original review/capture clocks rather than extending or
-restamping them.
+Reviewers remain read-only; full permissions do not authorize repairs, external
+writes, credential changes or unrelated destructive actions. Original state must
+remain unchanged. Failed copy checks or unresolved cleanup make an attempt
+non-countable, while findings are retained. Copies live in configured Scratch,
+never a code/home tree or new `/tmp` clone; remove only exact owned copies after
+process exit, preserving source and private receipts. Technical receipt and
+cleanup complete within the attempt budget; later publication is separate and
+retains the original clocks.
 
 ## 5. Reconcile and report
 

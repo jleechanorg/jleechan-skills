@@ -19,16 +19,16 @@ a command counts as an alias only when its name is the skill, its frontmatter
 description says "alias", or it is at most 15 lines; longer workflow commands
 such as `/polish` and `/savetmp` need `--all`. Run
 with `--all` for the old full install. Each profile installs its named set plus
-linked dependencies; counts below are measured from a scratch install.
+linked dependencies.
 
-| Option | Named set (plus linked dependencies) | Skills / commands / agents |
-| --- | --- | --- |
-| *(none)* or `--profile highlights` | the six highlighted skills | 21 / 11 / 1 |
-| `--profile highlights-prw` | `highlights` plus `prw` | 31 / 18 / 1 |
-| `--profile prw` | 12 PR workflow skills plus `/es`, `/er`, `/green`, `/cs` | 25 / 11 / 1 |
-| `--profile web` | `advice`, `web-advice`, `browser-control`, `aside-browser-default`, `browser-testing` | 20 / 5 / 1 |
-| `--with SKILL` | add a named skill to the profile; repeatable | varies |
-| `--all` | every package, as before | 278 / 251 / 45 |
+| Option | Named set (plus linked dependencies) |
+| --- | --- |
+| *(none)* or `--profile highlights` | the six highlighted skills |
+| `--profile highlights-prw` | `highlights` plus `prw` |
+| `--profile prw` | 12 PR workflow skills plus `/es`, `/er`, `/green`, `/cs` |
+| `--profile web` | `advice`, `web-advice`, `browser-control`, `aside-browser-default`, `browser-testing` |
+| `--with SKILL` | add a named skill to the profile; repeatable |
+| `--all` | every package, as before |
 
 Profiles live in `shared/install-profiles.json`; `--help` lists them. Closure
 never adds a skill on that file's `closure_excluded` list (`dot`,
