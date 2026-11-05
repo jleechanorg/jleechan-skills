@@ -22,8 +22,9 @@ description: |
   must be re-derived on current main, not replayed; includes the
   content-multiset preservation proof and the draft-PR baseline probe for
   inherited CI failures). Verified case 2026-11-04, jleechan-skills
-  pr-lifecycle compaction bundle. v1.3.2 makes every replay entry point
-  require a fresh P14 decision and limits the helper to exact-base matches.
+  pr-lifecycle compaction bundle. v1.3.2 documents the manual Step 1/P14-gated
+  recipe as the only supported apply path; the legacy helper does not
+  implement that judgment and is unsupported for this workflow.
 
 when_to_use: |
   - User message has an attached `.patch`/`.diff` file AND a text description
@@ -78,8 +79,8 @@ This is the right skill when ALL of the following hold:
    - Whether to merge or leave for review
 3. The work is **bounded** — pre-specified, not iterate-to-green. Before any
    replay, freshly compare the supplied patch base with `origin/main` and use
-   Step 1's P14 decision. A failed `git am`, a conflict, or a helper's result
-   does not establish that drift is cosmetic. Use `git apply --3way` only in
+   Step 1's P14 decision. A failed `git am` or conflict does not establish
+   that drift is cosmetic. Use `git apply --3way` only in
    the manual flow after P14 records cosmetic-only drift as safe to replay;
    policy or unknown drift requires re-deriving on current `main`.
 
@@ -141,7 +142,7 @@ gh api "repos/<OWNER>/<REPO>/branches?per_page=100" \
 | Finding | Action |
 |---|---|
 | Auth OK, repo exists, HEAD matches the patch's base SHA exactly (`git log --oneline origin/main -1` returns the SHA named in the patch message) | Proceed — `git am` will apply cleanly |
-| Auth OK, repo exists, HEAD differs from the patch base SHA | **Do not invoke a replay command or helper yet.** Run a fresh P14 drift decision first. If drift adds, may add, or cannot be ruled out as carrying newer policy, do **not** replay; re-derive on current `main`. Only after the recorded P14 decision classifies the drift as cosmetic-only may the manual flow replay it. A conflict or successful helper run is not a policy decision. |
+| Auth OK, repo exists, HEAD differs from the patch base SHA | **Do not invoke a replay command yet.** Run a fresh P14 drift decision first. If drift adds, may add, or cannot be ruled out as carrying newer policy, do **not** replay; re-derive on current `main`. Only after the recorded P14 decision classifies the drift as cosmetic-only may the manual flow replay it. |
 | Auth OK, repo exists, but PR for this branch/topic already exists | STOP. Confirm with the user — do NOT push onto a non-owned PR head (see `pr-cleanup-replay` skill, Phase -1). Either push to the existing branch and comment on the PR, OR close the existing PR and open a fresh one. |
 | **A prior-session PR for the SAME topic is OPEN but the new patch is a "refreshed/supersedes" version** (new instructions file says "REFRESHED … supersedes the YYYY-MM-DD patch", OR the existing PR's base SHA is N commits behind current `origin/main`) | This is the **supersede pattern** — see Pitfall P7. Open a NEW branch from current `origin/main` (e.g. `<branch>-v2`), apply the refreshed patch, open a NEW PR, then **close the prior PR with a "superseded by #N" comment** linking to the new PR. Do NOT rebase the prior PR; do NOT push onto its branch head. The new PR is the source of truth. |
 | A related branch exists with the same topic but not yet PR'd | Inspect it: `gh api .../compare/<patch-base-sha>...heads/<related-branch>` — if `ahead_by > 0` and the topic matches, consider whether to push onto that branch instead of opening a parallel one |
@@ -173,9 +174,11 @@ divergence error. A scratch dir is fully isolated.
 git checkout -B <branch-name> origin/main
 git rev-parse HEAD  # confirm same as origin/main
 
-# Apply only after the fresh Step 1/P14 decision: exact base match permits the
-# normal replay; cosmetic-only drift permits manual replay only after that
-# classification is recorded. Policy or unknown drift must be re-derived.
+# This manual recipe is the only supported apply path. Do not invoke the legacy
+# helper: it does not implement Step 1/P14 judgment. Apply only after the fresh
+# decision: exact base match permits replay; cosmetic-only drift permits manual
+# replay only after that classification is recorded. Policy or unknown drift
+# must be re-derived.
 git am <path-to-patch>
 echo "git am exit: $?"
 
@@ -898,16 +901,16 @@ might already be in progress" + 2 file attachments:
   destructive operations require explicit user approval in the current thread
   (`MERGE APPROVED`-style signal).
 
+## Legacy helper — unsupported for this workflow
+
+`~/.hermes/skills/workflow/apply-supplied-patch-and-open-pr/scripts/apply_patch_and_open_pr.sh`
+does not implement Step 1/P14 judgment and is not a supported entrypoint for
+applying supplied patches. Do not invoke it for this workflow. Use only the
+manual Step 1/P14-gated recipe above; this skill makes no claim about helper
+runtime behavior.
+
 ## Support files
 
-- `scripts/apply_patch_and_open_pr.sh` — end-to-end shell recipe for the
-  pre-flight + clone + branch + git am + test + push + pr-create sequence.
-  It does not classify whether newer commits carry policy and its exit status
-  is not P14 approval. Invoke it only after freshly verifying that the supplied
-  patch base exactly matches current `origin/main`. Do not invoke it on any
-  drifted base, even for cosmetic-only drift; after a recorded cosmetic-only
-  P14 decision, use the manual flow instead. It takes `<OWNER>/<REPO>`
-  `<branch>` `<patch>` `<instructions>` as positional args.
 - `references/pre-existing-failure-attribution.md` — the 5-step
   stash/reset/restore protocol for machine-checking that a test failure
   is pre-existing on `origin/main` (companion to P10; used to satisfy
@@ -919,12 +922,10 @@ might already be in progress" + 2 file attachments:
   "refreshed patch supersedes prior-session PR" shape (Pitfall P7); how to
   detect it, what to do, and why this is durable across repos.
 
-**Filesystem layout:**
+**Supported file layout:**
 ```
 ~/.hermes/skills/workflow/apply-supplied-patch-and-open-pr/
 ├── SKILL.md                          (this file)
-├── scripts/
-│   └── apply_patch_and_open_pr.sh    (chmod +x required: `chmod +x scripts/apply_patch_and_open_pr.sh`)
 └── references/
     └── upstream-prompt-format.md
 ```
