@@ -163,7 +163,7 @@ Select video requirements from the user-scope evidence-standards and the reposit
 For each applicable video requirement, verify:
 - The required format is present and accessible, including any inline GIF or downloadable MP4 the PR claims to provide.
 - The caption identifies the test/action, observed result and tested SHA.
-- Apply the canonical [`evidence-standards` continuous-video rule](../evidence-standards/SKILL.md#continuous-video-only--slideshows-are-forbidden): trace the producer and publisher to a native continuous capture with a preserved timeline containing the action and resulting state. A slideshow remains **FAIL** even when transport and file-integrity checks pass.
+- Apply the canonical [`evidence-standards` continuous-video rule](../evidence-standards/SKILL.md#continuous-video-only--slideshows-are-forbidden). A slideshow remains **FAIL** even when transport and file-integrity checks pass.
 - UI footage visibly shows the relevant element and before/action/after behavior.
 - Terminal footage, when required, shows the command and relevant result.
 - The mpdecimate retained-frame count and nominal count are reported with the fail-closed probe in `../ui-video-evidence/SKILL.md`; a low count is diagnostic evidence of a possible slideshow or frozen capture, while the canonical continuous-capture provenance rule remains mandatory.
