@@ -111,6 +111,30 @@ if [ -z "$CONTEXT" ]; then
   exit 1
 fi
 
+# Contain every Git process used by this remote bootstrap. Resolve Git before
+# defining the wrapper, and fail closed unless the user systemd manager and its
+# aggregate agents.slice memory ceiling are available. The scope limits each
+# Git command; agents.slice supplies the finite aggregate ceiling.
+GIT_BIN=$(type -P git) || { echo "FAILED:$REL_PATH — git is unavailable" >&2; exit 75; }
+case "$GIT_BIN" in /*) [ -x "$GIT_BIN" ] || { echo "FAILED:$REL_PATH — resolved git is not executable" >&2; exit 75; } ;; *) echo "FAILED:$REL_PATH — git did not resolve to an executable path" >&2; exit 75 ;; esac
+SYSTEMD_RUN=$(command -v systemd-run) || { echo "FAILED:$REL_PATH — systemd-run is unavailable; refusing uncontained Git" >&2; exit 75; }
+SYSTEMCTL=$(command -v systemctl) || { echo "FAILED:$REL_PATH — systemctl is unavailable; refusing uncontained Git" >&2; exit 75; }
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=$XDG_RUNTIME_DIR/bus}"
+AGENTS_MEMORY_MAX=$("$SYSTEMCTL" --user show agents.slice -p MemoryMax --value 2>/dev/null) || {
+  echo "FAILED:$REL_PATH — user systemd manager or agents.slice is unavailable; refusing uncontained Git" >&2
+  exit 75
+}
+[[ "$AGENTS_MEMORY_MAX" =~ ^[0-9]+$ && ! "$AGENTS_MEMORY_MAX" =~ ^0+$ ]] || {
+  echo "FAILED:$REL_PATH — agents.slice has no finite positive MemoryMax; refusing uncontained Git" >&2
+  exit 75
+}
+git() {
+  "$SYSTEMD_RUN" --user --scope --quiet --slice=agents.slice \
+    -p MemoryHigh=3G -p MemoryMax=4G -p MemorySwapMax=512M \
+    -p TasksMax=256 -p OOMPolicy=kill "$GIT_BIN" "$@" 9>&-
+}
+
 # Scratch is the only mirror destination. `diskm scratch-dir` performs the
 # host-specific volume, availability, and admission checks. Keep the checkout
 # and the agent's generated output in separate paths. A resolver failure is
@@ -439,6 +463,7 @@ If a PR is already open for `$BRANCH`, pushes update that PR's head automaticall
 - Committed-state-only mirror (see "What this carries over" above) — this is the chosen tradeoff over rsyncing the dirty working tree.
 - Source repo must live under `$HOME` (see Setup) — step 1 fails loudly rather than silently mirroring to the wrong place. The target-side checkout and agent output land under the target's configured Scratch root; existing `$HOME/mirror` paths are not reused or modified.
 - Tool-owned auth, transcripts, and tmux state remain in their normal HOME locations; generated agent output and disposable test files use the Scratch output path reported by `READY`/`RESUMED`.
+- Remote Git commands in the step 4 bootstrap run in transient user-systemd scopes under `agents.slice`, with per-command memory, swap, and task limits. The existing finite `agents.slice` `MemoryMax` bounds their aggregate use; bootstrap shell, SSH, tmux, and the launched agent remain outside this Git-only boundary.
 - Step 4 launches the calling CLI (`$AGENT_CLI`, resolved in step 1 — `pi`/`claude`/`codex`/`agy`) as the session's command with `$CONTEXT` passed as its argv (not typed via `send-keys`), but only on a freshly created session. Never assume a `RESUMED` session is idle just because this skill didn't launch anything into it.
 - A bare host alias is typically LAN-only; off-LAN (traveling), target the Tailscale IP + explicit `-i` per Tier 2 — and make sure step 4 actually uses the resolved `$SSH_ARGS`/`$SSH_TARGET` from step 3, not a re-hardcoded alias, or the whole point of the fallback is lost.
 - Never pass unencoded user-controlled values (repo path, branch name, remote URL) as literal SSH command arguments — a branch name is attacker-controllable shell input the moment someone else can push to your fork, and SSH doesn't preserve argv separation across the wire. Base64-encode first (see step 4).
