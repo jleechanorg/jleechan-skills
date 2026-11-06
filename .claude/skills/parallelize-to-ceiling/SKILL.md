@@ -385,7 +385,9 @@ Origin: `${CLAUDE_HOME:-$HOME/.claude}/CLAUDE.md` § Parallel subagents and mode
 there to a pointer 2026-09-06; this section is the full policy).
 
 - Route every independent unit to the **cheapest capable tier** — never
-  silently inherit an expensive session model for delegated work.
+  silently inherit an expensive session model for delegated work. Prefer fast,
+  low-cost subagents for bounded tasks; escalate when capability or a required
+  independent review justifies it.
 - For every lane, name the model explicitly and verify the model that actually
   ran from launch or runtime metadata before relying on its result. If the
   cheapest capable tier cannot do the bounded task, state the concrete failure
@@ -408,6 +410,10 @@ there to a pointer 2026-09-06; this section is the full policy).
   the worker's execution or repeatedly poll while it is progressing; use
   asynchronous completion notifications, continue independent parent work,
   and inspect the supporting artifact on delivery.
+  After an empty wait, do available independent work; if none remains, wait on
+  the existing completion handle until a meaningful deadline instead of chaining
+  short empty waits. Report progress at the runtime cadence. Never call a wait
+  on a finished handle; inspect its delivered result or transcript first.
 - **Gemini Model Invariant**: Never use Gemini 3.1 Pro (or older Gemini Pro models), and never default subagents to `Model: "inherit"` when running in AGY CLI. Always use Gemini 3.8 Flash (`gemini-3.8-flash`, `gemini-3.8-flash-high`, `gemini-3.8-flash-medium`, or `Model: "flash"` in `invoke_subagent`) or later.
 - Top tier (the session's own model): reserve for adversarial judgment, or
   only after a cheaper tier has already failed on that unit.

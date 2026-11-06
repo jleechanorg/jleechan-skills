@@ -98,6 +98,13 @@ identities from the machine-local profile before selecting them.
   `quota_cache.py` only reads/writes the bounded quota hint; it never invokes a provider or starts/retries a review.
   A capability the orchestrator cannot bound end to end or cannot receipt is `UNAVAILABLE`; do not add a runner,
   wrapper, watchdog or timer.
+- **Review readback discipline.** Bind each read to the existing attempt and
+  inspect its complete attributable result once. An identical unchanged read is
+  not a new verdict or progress: use the existing attempt deadline and
+  completion signal, do independent work, and do not loop on the same capture.
+  A completed, timed-out, or unavailable attempt is not polled again; route a
+  missing vote through an eligible independent seat without duplicating work.
+
 - **Quota walls fail fast.** A usage limit, quota exhaustion, exhausted 429 retry, rate limit, expired plan or similar
   account refusal makes the seat `UNAVAILABLE` with reason `quota` and the printed reset time. Do not wait, retry the
   same account or switch models around it; a separate account remains eligible.
