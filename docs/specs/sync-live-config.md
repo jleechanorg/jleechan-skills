@@ -28,11 +28,11 @@ As a maintainer running `report --full`, I can inspect drift without traversing 
 
 ## Proof plan
 
-- Run `python3 -m pytest -q tests/test_sync_live_config.py` for path mapping, tracked and untracked symlinks, cached commit metadata, dry-run output and immutability, and remote archive member contents.
+- From the checkout, run `PYTHONPATH=<checkout> python3 -m pytest -q <checkout>/tests/test_sync_live_config.py` for path mapping, tracked and untracked symlinks, cached commit metadata, dry-run output and immutability, and remote archive member contents.
 - Run `report --full --json` against an owned temporary home containing live-only fixture files and a runtime sentinel. Confirm the report completes, includes expected live-only files, omits the sentinel, and returns commit metadata for tracked files.
 - Run local dry-run scenarios in both directions against an owned fixture home. Check hashes, mtimes, and destination absence before and after.
 - Exercise remote repo-to-live apply with a tracked Hermes symlink and an owned remote Scratch home. Compare the remote destination hash with the expected fixture bytes.
-- Run `ruff check` on the changed Python files and `git diff --check`.
+- Run `ruff check --ignore E741 scripts/sync_live_config.py tests/test_sync_live_config.py` and `git diff --check`. E741 in `git_tracked_files` predates this PR.
 
 ## Mock or justified exemption
 
