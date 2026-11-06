@@ -385,7 +385,9 @@ Origin: `${CLAUDE_HOME:-$HOME/.claude}/CLAUDE.md` § Parallel subagents and mode
 there to a pointer 2026-09-06; this section is the full policy).
 
 - Route every independent unit to the **cheapest capable tier** — never
-  silently inherit an expensive session model for delegated work.
+  silently inherit an expensive session model for delegated work. Prefer fast,
+  low-cost subagents for bounded tasks; escalate when capability or a required
+  independent review justifies it.
 - For every lane, name the model explicitly and verify the model that actually
   ran from launch or runtime metadata before relying on its result. If the
   cheapest capable tier cannot do the bounded task, state the concrete failure
@@ -403,11 +405,19 @@ there to a pointer 2026-09-06; this section is the full policy).
   tests, monitoring, and mechanical follow-through when it costs less than
   keeping that work in the parent session. Give each lane an explicit output
   and completion condition, and let it run asynchronously when supported.
+  For finite operations, retain the yielded session handle and resume that
+  same operation through its exit receipt. For a service meant to stay running,
+  verify readiness and explicitly retain or transfer ownership instead. Empty
+  or partial output is not permission to launch a second copy.
 - A worker owns its assigned checks through completion and reports when done,
   blocked, or awaiting a material decision. The parent should not duplicate
   the worker's execution or repeatedly poll while it is progressing; use
   asynchronous completion notifications, continue independent parent work,
   and inspect the supporting artifact on delivery.
+  After an empty wait, do available independent work; if none remains, wait on
+  the existing completion handle until a meaningful deadline instead of chaining
+  short empty waits. Report progress at the runtime cadence. Never call a wait
+  on a finished handle; inspect its delivered result or transcript first.
 - **Gemini Model Invariant**: Never use Gemini 3.1 Pro (or older Gemini Pro models), and never default subagents to `Model: "inherit"` when running in AGY CLI. Always use Gemini 3.8 Flash (`gemini-3.8-flash`, `gemini-3.8-flash-high`, `gemini-3.8-flash-medium`, or `Model: "flash"` in `invoke_subagent`) or later.
 - Top tier (the session's own model): reserve for adversarial judgment, or
   only after a cheaper tier has already failed on that unit.
@@ -441,6 +451,11 @@ A finished lane is not a delivered lane. Direct result delivery to the parent
 can fail silently: `ListAgents` shows `idle` (its turn ended) and no report
 ever arrives. **`idle` means "finished", not "reported".**
 
+Before dispatching a fan-out, resolve each intended recipient and confirm its
+task prompt and required inputs are present. A successful dispatch call with no
+valid targets or missing task inputs launches no useful work; correct that
+before scaling the fan-out.
+
 The inverse trap is just as real: `running` means "active", not "progressing".
 A lane producing frequent transcript updates, tool calls, or status pings is
 not evidence of progress by itself — only a promised artifact, test result,
@@ -454,8 +469,14 @@ changing what it's being asked to do.
 
 Before re-doing any lane's work yourself:
 
-1. **Ask the lane.** `SendMessage` to it by name re-enters its transcript and it
-   can resend. This is cheap and usually works.
+1. **Check the lane's state and use the current runtime's supported controls.**
+   First inspect the lane and any existing artifact. A message to a running
+   lane can steer it; a message to an idle lane may only queue or deliver text
+   and may not start a new turn. When the lane is idle and the result is still
+   needed, use that runtime's documented start, resume, or follow-up operation
+   to trigger work. Do not assume a message call starts execution. Distinguish
+   a queued or delivered prompt, an acknowledged or started turn, and a
+   completed artifact; tool-call success alone proves only the call succeeded.
 2. **Check the side channels it was told to write.** If lanes were instructed to
    post to beads (`br comments add`), write files, or comment on a PR, read
    those. A lane whose direct message vanished has usually still written its

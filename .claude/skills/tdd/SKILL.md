@@ -5,111 +5,45 @@ description: Develop features and fixes test-first with public-interface tests, 
 
 # Test-Driven Development
 
-Use one behavior at a time: write a meaningful failing test, observe the expected
-failure, then implement only enough to pass. A plan, historical failure, or old CI
-run is not executed RED evidence.
-
-Read the project's instructions, `CONTEXT.md` when present, relevant ADRs, existing
-tests, and documented runner before choosing commands or interfaces. Preserve the
-user's approved plan, constraints, execution method, and requested endpoint.
+Use this workflow for behavior changes. Read the project instructions, `CONTEXT.md` when present, relevant ADRs and tests, and the documented runner before choosing interfaces or commands. Preserve the approved plan, constraints, execution method, and requested endpoint.
 
 ## Required companions
 
-Before preparing a TDD plan or reproducing a blocker, read these definitions fully:
-- [superpowers-writing-plans](../superpowers-writing-plans/SKILL.md): structure and
-  self-check the plan's test-first tasks before implementation.
-- [4layer](../4layer/SKILL.md): select and execute the ordered minimal-repro ladder
-  for a bug or PR blocker, including its own mandatory companions.
+Before preparing a TDD plan or reproducing a blocker, read these definitions completely:
+- [superpowers-writing-plans](../superpowers-writing-plans/SKILL.md)
+- [4layer](../4layer/SKILL.md)
 
-Resolve these paths relative to this skill. In Hermes or a catalog-only runtime,
-resolve the exact registered names `superpowers-writing-plans` and `4layer` and read
-the returned definitions; do not assume a repository-relative path exists in an
-installed home. If a required definition cannot be read, report the missing
-companion and pause dependent planning/reproduction. Do not silently substitute a
-similarly named workflow or claim the gate passed. Independent read-only inspection
-may continue. Loading a skill does not authorize providers, publication, or changes
-to shared state.
+In Hermes or a catalog-only runtime, resolve those exact registered names and read their returned definitions; do not assume repository-relative paths exist. If a definition is missing, report it and pause only dependent planning or reproduction. Independent read-only inspection may continue. Loading a skill does not authorize provider calls, publication, or shared-state changes.
 
-## Superpowers TDD plan
+## Plan and test design
 
-Use an existing approved plan in place. For a new multi-step request, use
-`superpowers-writing-plans` to create the plan; for one small change, the same
-per-task checklist can stay in the working plan without inventing a new document.
-Respect the user's plan location, scope, checkpoints, and execution choice. Do not
-restart brainstorming or replace a plan simply because TDD was invoked.
+Reuse an existing approved plan. For a new multi-step request, use `superpowers-writing-plans`; for one small change, keep its per-task checklist in the working plan instead of creating a document. Respect the requested plan location, scope, checkpoints, and execution choice. Do not restart brainstorming or replace an approved plan merely because TDD was invoked.
 
-Each behavior-changing task must be independently testable and carry this sequence:
-1. Write one failing test through the agreed public interface, with exact test path
-   and assertions grounded in the requirement or independently known example.
-2. Run its exact command and specify the expected behavioral RED result.
-3. Implement the minimum behavior in the named production file/interface.
-4. Rerun the focused test and relevant regressions; specify the GREEN result.
-5. Commit the verified slice when commits are within the authorized endpoint.
+Each behavior-changing task must be independently testable and specify:
+1. One meaningful test through the public interface, with its exact path and requirement-based assertions.
+2. The exact command and the expected behavioral failure.
+3. The minimum implementation and its production interface.
+4. The same test rerun plus relevant regression checks and the expected pass.
+5. A commit for the verified slice when committing is within the requested endpoint.
 
-Self-review the saved task against its requirements, interfaces, and project-wide
-constraints. Repair omitted, reordered, or vague test steps before implementation.
-Identify uncovered high-risk input classes and give each a test in its owning task.
-For a genuinely non-behavioral task, record `TDD: N/A`, the reason, and a concrete
-verification command instead of manufacturing a failure. Planning-only requests end
-with the plan: unchecked steps describe intended work, never tests already run.
+Self-review the saved plan against the requirements, interfaces, and project constraints. Fix missing, reordered, or vague test steps before implementation. Cover high-risk input classes in their owning tasks. Planning-only requests end with the plan; unchecked steps are intended work, not tests already run.
 
-## 4layer reproduction
+Tests should describe observable behavior, use independent expected values, and survive internal refactors. Use public seams; avoid private methods, internal mocks, and database side channels. Read [tests.md](tests.md) and [mocking.md](mocking.md) for design examples. Work one behavior slice at a time; do not demand unrelated valid tests fail or build an exhaustive risk matrix before implementation. Name the public seam under test. An explicit seam in an approved plan is already agreed; ask only when the seam is genuinely ambiguous.
 
-For a bug or blocker, apply the companion's exact order:
-1. Unit tests
-2. End-to-end tests
-3. MCP/HTTP API tests
-4. Browser tests
+## RED, GREEN, and reproduction
 
-Start at Layer 1 and move upward only after the current layer passes. Stop at the
-first layer that conclusively reproduces the blocker and keep the fix/regression
-loop there; do not run unnecessary upper layers. A missing runner, fixture,
-credential, or execution capability is `UNSUPPORTED ENVIRONMENT / NO REPRO`, not a
-pass and not permission to skip a layer. Report checked paths and the blocker.
-Discover project commands instead of copying illustrative runners blindly. Keep
-provider/user isolation and existing spending/access limits. Layer labels are
-triage hints, not proof of root cause. Follow 4layer's integration-claim gate when
-claiming automatic integration, rather than treating a manual run as activation.
+For each behavior slice:
+- **RED:** Write one minimal test and run it against the unfixed behavior. Confirm it fails for the expected assertion, not a typo, import error, or broken fixture. If it already passes, investigate the missing case; never weaken an assertion or change production code to manufacture failure. Historical CI is context, not RED evidence.
+- **GREEN:** Implement only that behavior, rerun the same test, then run relevant regressions. Keep expectations honest; do not rewrite one merely to pass.
+- **Refactor:** Keep unrelated cleanup out of the cycle. Follow the current review-stage refactoring policy, use the available `code-review` skill when that stage requires review, and rerun affected checks after an approved refactor.
 
-## What a good test is
+For a bug or PR blocker, follow [4layer](../4layer/SKILL.md) in order: unit, end-to-end, MCP/HTTP, then browser. Move upward only when the current layer passes; stop at the first conclusive reproduction. Discover the project's runner instead of copying example commands blindly. A missing runner, fixture, credential, or execution capability is `UNSUPPORTED ENVIRONMENT / NO REPRO`, never a pass or permission to skip a layer. Keep provider and user state isolated, respect existing spend/access limits, and treat layer labels as triage hints rather than root-cause proof. Follow the companion's evidence and integration-claim requirements.
 
-Tests verify behavior through public interfaces, not implementation details. A good
-test reads like a specification and survives internal refactors. Before writing it,
-name the production behavior change that would make it fail. Expected values come
-from requirements or independent examples, not a restatement of implementation.
-Read [tests.md](tests.md) for examples and [mocking.md](mocking.md) for boundary mocks.
+## Scope and completion
 
-A **seam** is the public boundary where behavior is observed. Write down the seams
-under test and confirm them with the user before writing tests. An explicit seam in
-an already-approved plan counts as agreement; do not ask again. If it is ambiguous,
-ask which public interface should be tested. Avoid private methods, internal mocks,
-and database side channels that bypass the agreed interface.
+For a genuinely non-behavioral task, record `TDD: N/A`, why, and a concrete verification command; do not manufacture a failing test. Keep checks proportional to the changed behavior. Do not run an unfiltered local suite when repository policy assigns it to CI or prohibits it. Report each attempted check as passed, failed, unsupported, skipped, or not run; include observed failures, including pre-existing ones. Do not fix unrelated failures. A focused pass proves only its stated claim.
 
-## Rules of the loop
-
-- **RED:** Write one minimal test, then run it against the unfixed behavior. Confirm
-  the failure is the expected assertion, not a typo, import error, or broken fixture.
-  If it already passes, investigate the missing case; do not weaken the assertion or
-  change production code just to manufacture RED. Historical CI is context only.
-- **GREEN:** Implement only that behavior, rerun the same test, and verify relevant
-  regressions. Keep tests honest; do not rewrite an expectation merely to pass.
-- **Vertical slices:** One seam, one test, one minimal implementation per cycle.
-  A risk matrix can guide coverage, but do not write an entire speculative matrix
-  before the first implementation or demand that existing valid tests all fail.
-- **Refactoring:** Keep unrelated cleanup out of the implementation cycle. Preserve
-  this workflow's review-stage refactoring policy; use the available `code-review`
-  skill for that stage and rerun tests after any approved refactor.
-- **Completion:** Run the focused test and relevant regression checks selected by
-  the current repository's testing-layer owner. Do not run an unfiltered local
-  full suite when repository policy assigns it to CI or prohibits it. Report
-  observed failures by name, including pre-existing failures, and distinguish
-  failed, unsupported, skipped, and not-run checks. A focused GREEN result proves
-  only its stated claim; use current CI or other required gates for broader
-  regression coverage. Do not fix unrelated failures without scope.
-
-Record revision, command, working directory, environment, and fresh RED/GREEN evidence
-paths. Report each attempted layer's result and leave unexecuted layers as not run.
-Do not claim completion or activation from packaging, planning, or skipped checks.
+Record the revision, command, working directory, environment, and paths to fresh RED/GREEN evidence. State each attempted reproduction layer and leave unexecuted layers explicitly not run. Packaging, planning, or skipped checks alone do not prove completion or activation.
 
 ## Upstream reference
 
@@ -117,5 +51,4 @@ Refreshed against Superpowers v7.0.0 at
 `bb92a77741419a4ab5f06e711a283343f1ada0c3`:
 [writing-plans](https://github.com/obra/superpowers/blob/bb92a77741419a4ab5f06e711a283343f1ada0c3/skills/writing-plans/SKILL.md)
 and [test-driven-development](https://github.com/obra/superpowers/blob/bb92a77741419a4ab5f06e711a283343f1ada0c3/skills/test-driven-development/SKILL.md).
-Use these for provenance and deeper rationale. The local companions and explicit
-user constraints own execution; upstream defaults do not override them.
+These links provide provenance and rationale; local companions and explicit user constraints govern execution.

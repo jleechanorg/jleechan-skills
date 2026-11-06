@@ -9,6 +9,8 @@ description: Record captioned browser/UI evidence videos and link sanitized arti
 
 Prove user-visible behavior in a way reviewers and agents can verify quickly from the PR conversation.
 
+Before producing or reviewing any video, apply the canonical [`evidence-standards` continuous-video rule](../evidence-standards/SKILL.md#continuous-video-only--slideshows-are-forbidden). Screenshot sequences and slideshow MP4s never satisfy video evidence.
+
 ## When UI Video Is Required
 
 Apply the narrow proportional exceptions in [pr-lifecycle](../pr-lifecycle/SKILL.md) first. Source-only harmless display-copy may justify media N/A; a bounded static-copy rendering claim may use an actual screenshot. Other UI/browser video is mandatory for user-facing behavior, including:
@@ -427,7 +429,7 @@ Behavior:
 
 Reject these:
 - URL bar cropped out
-- Success-only clip (no before/action)
+- Success-only clip with no applicable before→after transition or, when a user action exists, no before/action flow
 - No git SHA linkage
 - Missing captions
 - Screenshot-only evidence for flow claims
@@ -464,12 +466,12 @@ Rules:
 1. Video is linked from the review receipt at an authorized, reviewer-accessible destination
 2. Any publication follows the authorized destination and applicable automation workflow
 3. Captions are present
-4. Pre-action/action/post-action flow is visible on both compared implementations
+4. When a user action exists, the pre-action/action/post-action flow is visible on both compared implementations; otherwise the applicable before→after transition is visible
 5. URL and route match claim
 6. Actual baseline and candidate source linkage is verified, not inferred from captions
 7. The reviewed evidence receipt includes matching metadata/caption artifacts
-8. mpdecimate retained-frame count reported as kept/nominal (see Frozen-frame detection); clips under the threshold are INSUFFICIENT
-9. Each clip contains the user action itself plus the before state
+8. mpdecimate retained-frame count reported as kept/nominal (see Frozen-frame detection); a low count triggers provenance/timeline review, while a constructed slideshow always fails under the canonical rule
+9. When a user action exists, each clip contains the action itself plus the before state; otherwise each clip contains the applicable before→after transition
 10. Before/after provenance is fresh runs of each build, or labeled `derived` with source
 11. `/er` and second-opinion (`advice` skill) verdicts come from a different agent/lane than the evidence producer, and name that lane
 12. An independent AI reviewer (not the author or orchestrator) judged frames extracted from the
@@ -478,6 +480,8 @@ Rules:
     (`evidence-review` check 4)
 
 ## Frozen-frame and slideshow detection (MANDATORY)
+
+The canonical continuous-video prohibition is in [`evidence-standards`](../evidence-standards/SKILL.md#continuous-video-only--slideshows-are-forbidden). It is absolute: the motion probe below is diagnostic evidence, never permission to accept a screenshot sequence, and captions or named action frames never waive the prohibition.
 
 Report the mpdecimate **retained-frame count** (kept) and the nominal frame
 count for every clip. The probe must fail closed: a failed decode or empty count
@@ -493,19 +497,18 @@ nominal=$(ffprobe -v error -count_frames -select_streams v:0 \
 echo "kept=$kept nominal=$nominal"
 ```
 
-A clip is **INSUFFICIENT** (slideshow or frozen frame padded to length) when
-`kept < 10` **or** `kept/nominal < 5%`, unless the caption names the specific
-timestamps of the frames carrying the claim (the action frame and the DONE or
-after-state frame) and a reviewer confirms those frames show it. Mostly static
-app screens legitimately sit around 5-10%; a blinking caret or spinner can
-inflate `kept`, so the named action/state-change frame must be present in
-every case.
+A low retained-frame count triggers provenance and timeline review; it is not
+standalone proof of a slideshow and is not an automatic rejection of legitimate
+continuous footage with an idle interval. A constructed still-image sequence
+always fails under the canonical rule regardless of its retained-frame count,
+caption, or successful decode.
 
 ## Action must be in the window (MANDATORY)
 
-Each clip must include the user action under test (for example the Send tap)
-and the before state that precedes it. A capture window anchored only to
-completion (e.g. trimmed to the DONE state) that omits the action fails.
+When a user action exists, each clip must include the user action under test
+(for example the Send tap) and the before state that precedes it. A capture
+window anchored only to completion (e.g. trimmed to the DONE state) that omits
+the action fails.
 
 When the change's observable has no user action (first paint, an error state
 rendered on load, a theme token applied at mount), record this rule as N/A with

@@ -7,6 +7,17 @@ summary: Local shim for the canonical Hermes social-poster skill.
 
 # Social Poster
 
+## Runtime routing
+
+Apply [Social common editorial policy](../social/SKILL.md#common-editorial-policy)
+before selecting either runtime route; read that section without re-entering
+Social's dispatcher.
+
+- **Inside Aside with runtime-provided browser/tools:** follow [Social Aside](../social-aside/SKILL.md), applying [Social common policy](../social/SKILL.md#common-editorial-policy). Do not enter the Claude/Hermes route below.
+- **Other supported runtimes:** retain the existing Claude/Hermes workflow below.
+
+## Claude/Hermes route
+
 This is the local Claude skill entrypoint for social-post drafting, staging, and explicitly approved publishing.
 
 Canonical implementation:
@@ -14,7 +25,7 @@ Canonical implementation:
 
 ## Routing rule
 
-When this skill is invoked:
+Only for non-Aside runtimes, after applying the common policy:
 1. Read and follow `~/.hermes/skills/social-poster/SKILL.md` as the source of truth.
 2. Prefer the skill-defined workflow over re-specifying individual script calls in slash commands.
 3. **Intent and approval:** default discovery/drafting targets Reddit and Twitter/X only, with a separate result for each source URL. LinkedIn, Instagram, Facebook, and Meta Threads require explicit per-request selection. X threads are not Meta Threads. Draft requests never auto-stage; draft/stage requests never publish. An explicit publish/crosspost request authorizes the identified, reviewed content and destination. Follow the canonical publishing workflow and platform allowlist; its legacy `POST APPROVED` token is internal bookkeeping, not an extra user phrase. Preserve any independently required tool/policy confirmation. Requesting `/social`, logging in, or staging is not posting approval.
@@ -29,7 +40,7 @@ When this skill is invoked:
 3. Before declaring a platform blocked, check for one-click auth continuations such as:
    - Google account chooser
    - Continue with Instagram
-   - Continue as Jeffrey / existing-account OAuth buttons
+   - Continue as the expected account / existing-account OAuth buttons
 4. For LinkedIn-source posts, extract and use the canonical outbound asset URL in drafts when possible instead of reposting LinkedIn shortlinks.
 5. When the creative is already known, carry the asset explicitly through the workflow:
    - canonical source-post URL

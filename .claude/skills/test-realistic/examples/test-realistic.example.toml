@@ -1,0 +1,86 @@
+# EXAMPLE .test-realistic.toml -- annotated reference, not read by any code
+# path in this skill. Copy this to <your-repo-root>/.test-realistic.toml and
+# fill in your own real values. Every value below is illustrative/fictional.
+
+# Label used in verdict artifacts. Any string.
+project_name = "example-web-app"
+
+# Absolute path, or a path relative to THIS config file's own directory
+# (never relative to the caller's CWD). Used for gh/git context fetching and
+# for relative-izing artifact paths in generated output.
+repo_root = "."
+
+# The URL surface under test -- your real local dev server.
+base_url = "http://127.0.0.1:3000"
+
+# Optional: a separate backend URL, if your frontend and backend are two
+# processes. Passed through to dispatch_command as {backend_url}.
+backend_url = "http://127.0.0.1:4000"
+
+# REQUIRED, no default: your project's own equivalent of a "renderer field
+# allowlist" -- the real field paths your player-swarm's capture.jsonl turn
+# records actually contain, that the model may cite when classifying which
+# surfaces a target touches. Ground this in a REAL capture from your app,
+# never invent field names that don't exist in your own turn-capture shape.
+feature_surface_vocabulary = [
+  "rendered.body_text",
+  "rendered.page_title",
+  "rendered.nav_menu",
+  "rendered.toast_message",
+  "rendered.error_banner",
+  "parsed.form_state",
+  "parsed.route_name",
+]
+
+# REQUIRED, no default: argv template for YOUR project's real player-swarm
+# dispatcher. This skill invokes this command as a subprocess and expects it
+# to write agent-*/capture.jsonl (or whatever capture_glob below matches)
+# under {output_root} using a REAL browser and REAL model calls -- no mocks.
+# Supported placeholders: {pool} {scenario} {output_root} {mode} {base_url}
+# {turns} {backend_url} {repo_root}
+dispatch_command = [
+  "python3",
+  "scripts/dispatch_player_swarm.py",
+  "--pool", "{pool}",
+  "--scenario", "{scenario}",
+  "--output-root", "{output_root}",
+  "--mode", "{mode}",
+  "--base-url", "{base_url}",
+  "--turns", "{turns}",
+]
+
+# Optional: defaults to 5 generic QA-persona archetypes if omitted.
+personas = ["aggressive_power_user", "story_focused", "completionist", "casual_user", "new_user"]
+
+# Optional: your project's own selectable-actor fixtures (e.g. saved user
+# profiles, character presets), zipped 1:1 with personas above. Omit entirely
+# if your app has no such concept -- each persona still gets its own agent.
+actor_fixtures = []
+
+# Optional: how to find each agent's capture file under --output-root.
+# Defaults to "agent-*/capture.jsonl" if omitted.
+capture_glob = "agent-*/capture.jsonl"
+
+# Optional: default turn count per agent if --turns isn't passed. Default 15.
+turns_default = 10
+
+# Optional: only set these if your project has its own doc-target class
+# (e.g. a user-stories directory with its own generator), mirroring the
+# source design's docs_to_invariants.py dispatch. Omit both to disable this
+# target class entirely -- every target then flows through the normal
+# model-delegated PR/commit/prompt path.
+# doc_target_patterns = ["^US-\\d+$"]
+# doc_dispatch_command = ["python3", "scripts/docs_to_invariants.py", "--generate", "{doc_id}"]
+
+# Optional: example scenarios used as style reference for step authoring
+# (repo-root relative paths). Omit if you have none yet.
+# pattern_scenario_files = ["testing/example_scenarios/checkout_flow.py"]
+
+# Optional: model + timeout for the default agy adapter.
+agy_model = "gemini-3.8-flash-high"
+agy_timeout_seconds = 120
+
+# Optional: "module:function" hook to excuse a non-zero dispatch exit under
+# conditions YOUR project defines. Only consulted when --allow-dispatch-excuse
+# is explicitly passed per run -- never on by default.
+# runner_excuse_predicate = "scripts.excuse_hooks:flaky_network_only"

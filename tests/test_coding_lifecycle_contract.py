@@ -50,14 +50,19 @@ class PrLifecycleAnchorResolution(unittest.TestCase):
         return anchors
 
     def test_every_linked_anchor_resolves_to_a_heading(self):
-        owner = (SKILLS / "pr-lifecycle" / "SKILL.md").read_text(encoding="utf-8")
-        headings = self._heading_anchors(owner)
         links = {}
         for path in SKILLS.rglob("SKILL.md"):
-            for match in re.finditer(r"pr-lifecycle/SKILL\.md#([^)\s\"'>`]+)", path.read_text(encoding="utf-8")):
-                links.setdefault(match.group(1), set()).add(path.relative_to(SKILLS).as_posix())
+            for match in re.finditer(r"pr-lifecycle/([\w.-]+\.md)#([^)\s\"'>`]+)", path.read_text(encoding="utf-8")):
+                links.setdefault((match.group(1), match.group(2)), set()).add(path.relative_to(SKILLS).as_posix())
         self.assertGreater(len(links), 0)
-        missing = {slug: sorted(src) for slug, src in links.items() if slug not in headings}
+        missing = {}
+        for (part, slug), src in links.items():
+            target = SKILLS / "pr-lifecycle" / part
+            if not target.is_file():
+                missing[f"{part}#{slug}"] = sorted(src)
+                continue
+            if slug not in self._heading_anchors(target.read_text(encoding="utf-8")):
+                missing[f"{part}#{slug}"] = sorted(src)
         self.assertEqual(missing, {}, f"unresolved pr-lifecycle anchors: {missing}")
 
 
@@ -76,13 +81,14 @@ class PrLifecycleSectionReferences(unittest.TestCase):
 
     @classmethod
     def _headings(cls):
-        text = (SKILLS / "pr-lifecycle" / "SKILL.md").read_text(encoding="utf-8")
         heads, fenced = [], False
-        for line in text.splitlines():
-            if line.lstrip().startswith("```"):
-                fenced = not fenced
-            elif not fenced and line.startswith("#"):
-                heads.append(line.lstrip("#").strip())
+        # SKILL.md plus its on-demand parts: a `§ Heading` reference resolves anywhere in the skill.
+        for path in sorted((SKILLS / "pr-lifecycle").glob("*.md")):
+            for line in path.read_text(encoding="utf-8").splitlines():
+                if line.lstrip().startswith("```"):
+                    fenced = not fenced
+                elif not fenced and line.startswith("#"):
+                    heads.append(line.lstrip("#").strip())
         return heads
 
     @classmethod

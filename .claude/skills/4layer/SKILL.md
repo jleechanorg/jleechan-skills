@@ -7,110 +7,92 @@ Workflow type: testing. Execution mode: immediate.
 
 ## Purpose
 
-Runs the Four-Layer Minimal Repro ladder to reproduce PR blockers quickly with evidence-backed classification.
+Use this protocol to reproduce a blocker with the lowest sufficient evidence.
+It owns `/4layer` and `four-layer`; command files dispatch to this protocol but
+are not dependencies. Claude, Codex, and cloud sessions use the same workflow.
 
-This skill owns the protocol for `/4layer` and `four-layer`. Command files are
-thin dispatchers, not protocol dependencies; an absent global
-`commands/extended-library/4layer.md` does not require a project overlay.
+Before executing, read these mandatory companions completely, resolving them
+relative to this skill (or by their exact registered names on catalog-only
+runtimes):
 
-Before executing, read both mandatory companions completely, resolving these paths
-relative to this skill (on catalog-only runtimes, resolve each exact companion name
-and read its returned definition):
 - `../pr-blocker-min-repro/SKILL.md`
 - `../integration-verification/SKILL.md`
 
-If either companion is missing, report the missing dependency and do not claim the
-workflow is complete. Discover actual project runners before using companion examples;
-examples do not authorize provider calls or changes to shared state.
+If either companion is missing, report the dependency and do not claim the
+workflow is complete.
+
+## Runner discovery
+
+Read the target repository's instructions and use its documented runner and
+paths before executing. Do not assume a runner, fixture, credential, or
+supported execution tool exists. Show the exact command and working directory;
+examples in the companions are illustrative and do not authorize provider calls
+or shared-state changes.
+
+If a required runner, fixture, credential, or tool is unavailable, report
+`UNSUPPORTED ENVIRONMENT / NO REPRO` with the checked paths. Unsupported is not
+a pass and never justifies skipping an applicable layer.
 
 ## Minimal Repro Ladder
 
-Run tests in this order and stop at the first layer that conclusively reproduces the blocker:
+For applicable layers, run in this order and stop at the first layer that
+conclusively reproduces the blocker. Move upward only after the current layer
+passes; use the target repository's instructions and the testing-layers owner
+(`../testing-layers/SKILL.md`) for the lowest sufficient claim boundary.
 
-First discover the target project's documented test runner (`AGENTS.md`, `README`,
-`package.json`, `pyproject.toml`, or `Makefile`). Do not assume `./vpython` exists.
-If no runnable test command or matching layer fixture exists, report
-`UNSUPPORTED ENVIRONMENT / NO REPRO` with the checked paths instead of inventing one.
+1. Unit
+2. End-to-end
+3. MCP/HTTP API
+4. Browser
 
-1. Unit tests (`$PROJECT_ROOT/tests/`, when present)
+## Layer dispositions
 
-```bash
-python3 -m pytest $PROJECT_ROOT/tests/test_[relevant].py -q
-```
+In the final report, give every layer one disposition:
 
-2. End-to-end tests (`$PROJECT_ROOT/tests/test_end2end/`)
+- `PASS`: executed and did not reproduce the blocker.
+- `FAIL`: executed and reproduced the blocker; record the failure signature
+  and identify the first conclusive reproduction.
+- `UNSUPPORTED`: a required runner, fixture, credential, or tool is unavailable;
+  report `UNSUPPORTED ENVIRONMENT / NO REPRO` and the checked paths. This is not
+  a pass.
+- `NOT RUN`: not executed; state why. For example, stop after a lower layer
+  reproduces the blocker and mark each higher layer `NOT RUN`.
 
-```bash
-python3 -m pytest $PROJECT_ROOT/tests/test_end2end/test_[feature]_end2end.py -q
-```
-
-3. MCP/HTTP API tests (`testing_mcp/`): follow the target repository's
-   `testing_mcp/CLAUDE.md` for the exact real-service invocation, environment,
-   and explicit `PYTHONPATH`. Do not use `vpython`, pytest collection, mocks,
-   or the unfiltered suite when that contract forbids them.
-4. Browser tests (`testing_ui/`): follow the target repository's
-   `testing_ui/CLAUDE.md` for the exact server, account, service, and runner
-   requirements; do not substitute a synthetic or bypass-auth route.
+Do not omit a layer from the report or describe an unexecuted layer as passed.
 
 ## Execution Rules
 
-1. Identify blocker and target only relevant, minimal tests.
-2. Start at Layer 1. Move upward only if the current layer passes.
-3. Keep provider/user isolation so parallel runs do not collide.
-4. Record absolute evidence paths after each executed layer.
-5. Report the first layer that reproduces the issue; do not run unnecessary upper layers.
+1. Identify the blocker and target only relevant, minimal tests.
+2. Require a fresh real failing run for the reported cause; old reports, traces,
+   CI results, or observed symptoms are not causal RED proof.
+3. Do not manufacture RED or use a paid real-model diagnostic loop; use the
+   lowest sufficient deterministic layer before a live provider boundary.
+4. Keep provider and user isolation so parallel runs do not collide.
+5. Record absolute evidence paths after each executed layer.
+6. Report the first conclusive reproduction and do not run unnecessary upper
+   layers.
+7. Inspection and packaging do not authorize provider calls, credential-file
+   reads, shared-state mutations, or external publication.
 
 ## Evidence Requirements
 
-After each test run, capture:
+After each executed layer, record the command, working directory, revision,
+environment, duration, result, absolute evidence path, and failure signature.
+Allocate evidence with `../scratch-space/SKILL.md`; do not hardcode a temporary
+path; follow that owner's resolver and refusal rules. Correlate screenshots and
+server logs to the same run where relevant, and redact secrets and private
+content before authorized sharing.
 
-- Full absolute evidence directory path under a unique run directory. Resolve the
-  scratch root, refuse a `/tmp` result, then create a fresh directory beneath it —
-  `scratch-dir.sh` returns a stable root, not a per-run path, and it exits 0 even
-  when it falls back to `/tmp`:
-  ```bash
-  # Call the resolver with NO subpath: given one, it runs mkdir -p on the target
-  # before returning, so a tmp fallback would already be created before any check.
-  SCRATCH_ROOT="$(~/.claude/skills/scratch-space/scripts/scratch-dir.sh)" || exit 1
-  case "$SCRATCH_ROOT" in
-    /tmp|/tmp/*) echo "scratch volume not configured; refusing a tmp workspace" >&2; exit 1 ;;
-  esac
-  EVIDENCE_DIR="$(mktemp -d "$SCRATCH_ROOT/evidence-run.XXXXXX")" || exit 1
-  ```
-  See `../scratch-space/SKILL.md` for why `/tmp` workspaces are prohibited.
-- Signature failure lines with context (`rg`/`grep` output).
-- Screenshot + server log consistency checks where applicable.
-- Final decision notes mapping blocker layer to component class:
-  - Unit fail → backend logic
-  - End2end fail → integration/API
-  - MCP fail → server protocol
-  - Browser fail → UI/frontend
-
-## References
-
-- `.claude/skills/pr-blocker-min-repro/SKILL.md` for BYOK-specific starter commands and bead note patterns.
-- `.claude/skills/integration-verification/SKILL.md` for minimum evidence completeness.
+Evidence must match the claim boundary: unit and end-to-end results establish
+only deterministic claims, while MCP/HTTP or browser results establish only the
+real service, provider, authentication, or UI behavior they actually exercise.
+Record the final decision mapping the first reproducing layer to its component
+class; layer classification is a triage hint, not root-cause proof.
 
 ## Integration claim gate
 
-For claims that a feature is enabled by standard startup or activates
-automatically, provide configuration evidence, trigger evidence, and a
-timestamped log from that automatic execution. A manual test does not establish
-automatic activation. For manual integration claims, use the lowest sufficient
-real-service layer and report exactly what was exercised; do not require
-automatic-run evidence unless the claim is about automatic activation.
-
-## Shared runtime boundary
-
-Claude, Codex, and cloud sessions use this same protocol. Read the target repository's
-instructions and resolve the documented runner before executing; shell examples are
-illustrative, not universal executable commands. Show the exact command and working
-directory. If a runner, fixture, credential, or supported execution tool is unavailable,
-report `UNSUPPORTED ENVIRONMENT / NO REPRO` with checked paths; do not count a skip as a
-pass or bypass the pass-only ladder. Inspection and packaging do not authorize live
-provider calls, credential-file reads, shared-state mutations, or external publication.
-
-Record command, revision, environment summary, duration, and each layer's
-pass/fail/unsupported/not-run result alongside its evidence. Correlate screenshots and
-logs to the same run, redact secrets and private content before authorized sharing,
-and treat layer classification as a triage hint rather than root-cause proof.
+For an automatic integration claim, follow
+`../integration-verification/SKILL.md` for configuration, trigger, and log
+evidence. A manual test does not prove automatic activation. For a manual
+integration claim, use the lowest sufficient real-service layer and report the
+exact exercised scope.
