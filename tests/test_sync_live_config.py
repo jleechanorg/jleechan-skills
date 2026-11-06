@@ -447,6 +447,7 @@ class ApplyDryRunOutputTest(unittest.TestCase):
                 result.stdout,
             )
             self.assertIn(f"SAME   {same_path}", result.stdout)
+            self.assertIn(f"{same_source} -> {same_dest}", result.stdout)
             same_hash = sha256_of(same_source)
             self.assertIn(f"src={same_hash} dst={same_hash}", result.stdout)
             self.assertIn(f"OVERWRITE {overwrite_path}", result.stdout)
@@ -463,6 +464,60 @@ class ApplyDryRunOutputTest(unittest.TestCase):
             self.assertEqual(
                 (sha256_of(overwrite_dest), overwrite_dest.stat().st_mtime_ns),
                 overwrite_before,
+            )
+
+
+    def test_reports_effective_destination_when_target_is_directory(self):
+        import tempfile
+
+        root = Path(__file__).resolve().parents[1]
+        script = root / "scripts" / "sync_live_config.py"
+        repo_rel = ".claude/commands/advice.md"
+        source = root / repo_rel
+
+        with tempfile.TemporaryDirectory() as home_dir:
+            home = Path(home_dir)
+            destination_dir = home / repo_rel
+            destination_dir.mkdir(parents=True)
+            effective_destination = destination_dir / source.name
+            effective_destination.write_text("directory target fixture")
+            before = (
+                sha256_of(effective_destination),
+                effective_destination.stat().st_mtime_ns,
+            )
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "apply",
+                    "--direction",
+                    "repo-to-live",
+                    "--paths",
+                    repo_rel,
+                    "--dry-run",
+                    "--home",
+                    str(home),
+                ],
+                cwd=root,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn(f"OVERWRITE {repo_rel}", result.stdout)
+            self.assertIn(f"{source}\n      -> {effective_destination}", result.stdout)
+            self.assertIn(
+                f"src={sha256_of(source)} dst={before[0]}",
+                result.stdout,
+            )
+            self.assertEqual(
+                (
+                    sha256_of(effective_destination),
+                    effective_destination.stat().st_mtime_ns,
+                ),
+                before,
             )
 
 

@@ -732,6 +732,8 @@ def _dry_run_local(root: Path, home: Path, paths: list[str], direction: str) -> 
             failing += 1
             continue
         src_hash = sha256_of(src)
+        if dst.is_dir():
+            dst = dst / src.name
         if not dst.exists():
             print(
                 f"  CREATE {p}\n"
@@ -745,6 +747,7 @@ def _dry_run_local(root: Path, home: Path, paths: list[str], direction: str) -> 
         if src_hash == dst_hash:
             print(
                 f"  SAME   {p}\n"
+                f"         {src} -> {dst}\n"
                 f"         already identical, no change\n"
                 f"         src={src_hash} dst={dst_hash}"
             )
