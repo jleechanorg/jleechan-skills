@@ -23,7 +23,7 @@ Diagnose before killing, then terminate only what this session caused:
 
 ```bash
 # 1. Who is asking? List candidate authentication agents; Step 2 checks lineage.
-ps -Ao pid,ppid,stat,etime,args | grep -i '[S]ecurityAgent'
+ps -Ao pid,ppid,stat,etime,args | grep -Ei '[S]ecurityAgent|[U]niversalAccessAuthWarn'
 
 # 2. Only proceed if an authentication agent's parent chain descends from THIS
 #    session (the tmux/launchd/agent process you are working on). Replace
