@@ -12,6 +12,11 @@ publication; evidence-standards owns evidence classes. Do not restate those here
 
 ## 1. Pin the question and complete scope
 
+Before queueing reviewers, inspect existing verdicts under §5 Applicability.
+An eligible approval for unchanged claims needs no phase, format or frozen-head
+restamp. Preserve original eligibility; request only genuinely missing or
+affected independent judgment, or an explicitly requested further review.
+
 Every reviewer gets only the static-review channel preamble plus its template: no question, summary, excerpt or
 framing. The user's `[question]` stays with the orchestrator, which records it in the §5 report and answers it from
 the reviewers' findings; if the template cannot surface what the question needs, report that gap. Send a pointer to
@@ -280,3 +285,8 @@ for bundle-only saved-content review, `DOCUMENTS sha256:<bundle hash>` takes the
 the complete delta, claims, evidence and phase; applicability is not a new vote, and material uncovered changes
 need affected independent review. Classify instruction changes by behaviour and contract effect, never by path.
 Never claim approval, applicability or publication without its receipt.
+
+For visual follow-up, use [visual-verification's reuse and scoped follow-up](../visual-verification/SKILL.md#reuse-and-scoped-follow-up).
+Repair mechanically verifiable receipt fields yourself rather than dispatching a
+reviewer for bookkeeping; preserve §3 eligibility and original clocks. Such a
+repair cannot supply missing coverage, alter a verdict or revive a void vote.
