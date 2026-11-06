@@ -298,8 +298,18 @@ def prime_last_commit_cache(cwd: Path, rel_paths: list[str]) -> None:
     fmt = "%H%x1f%aI%x1f%an%x1f%s"
     try:
         out = subprocess.run(
-            ["git", "log", "--format=@@%x1f" + fmt, "--name-only", "--no-renames", "--", "."],
-            cwd=cwd, capture_output=True, text=True,
+            [
+                "git",
+                "log",
+                "--format=@@" + fmt,
+                "--name-only",
+                "--no-renames",
+                "--",
+                ".",
+            ],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
         )
     except OSError:
         return
@@ -362,7 +372,6 @@ def find_enclosing_git_repo(path: Path, home: Path) -> Path | None:
     if key in _ENCLOSING_GIT_CACHE:
         return _ENCLOSING_GIT_CACHE[key]
     home_r = home.resolve()
-    start = cur
     result: Path | None = None
     while cur.is_relative_to(home_r) or cur == home_r:
         if (cur / ".git").exists():

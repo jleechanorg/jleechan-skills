@@ -19,6 +19,8 @@ from scripts.sync_live_config import (
     find_command_files_for_skill,
     live_abs_for,
     live_rel_for,
+    last_commit,
+    prime_last_commit_cache,
     repo_abs_for,
     scope_live_roots,
     sha256_of,
@@ -205,6 +207,56 @@ class Sha256Test(unittest.TestCase):
             self.assertEqual(len(h1), 64)
         finally:
             path.unlink()
+
+
+class PrimeLastCommitCacheTest(unittest.TestCase):
+    def test_regression_pr711_commit_metadata_cache_preserves_field_alignment(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as root_dir:
+            root = Path(root_dir)
+            subprocess.run(["git", "init"], cwd=root, capture_output=True, check=True)
+            subprocess.run(["git", "config", "user.name", "Probe"], cwd=root, check=True)
+            subprocess.run(
+                ["git", "config", "user.email", "probe@example.invalid"],
+                cwd=root,
+                check=True,
+            )
+            (root / "tracked.md").write_text("fixture\n", encoding="utf-8")
+            subprocess.run(["git", "add", "tracked.md"], cwd=root, check=True)
+            subprocess.run(
+                ["git", "commit", "-m", "known probe commit"],
+                cwd=root,
+                capture_output=True,
+                check=True,
+            )
+            expected_raw = subprocess.run(
+                [
+                    "git",
+                    "log",
+                    "-1",
+                    "--format=%H%x1f%aI%x1f%an%x1f%s",
+                    "--",
+                    "tracked.md",
+                ],
+                cwd=root,
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            sha, date, author, subject = expected_raw.split("\x1f", 3)
+
+            prime_last_commit_cache(root, ["tracked.md"])
+
+            self.assertEqual(
+                last_commit(root, "tracked.md"),
+                {
+                    "sha": sha[:12],
+                    "date": date,
+                    "author": author,
+                    "subject": subject,
+                },
+            )
 
 
 class UnifiedDiffTextTest(unittest.TestCase):
