@@ -149,10 +149,9 @@ def _is_git_tracked(root: Path, repo_rel: str) -> bool:
 
 def repo_abs_for(root: Path, repo_rel: str) -> Path:
     """Resolve repo_rel while keeping its target within a mapped config root."""
-    _matched_top_level(repo_rel)
-    allowed_roots = [
-        (root / prefix).resolve() for prefix in TOP_LEVEL_MAP
-    ]
+    prefix, _ = _matched_top_level(repo_rel)
+    allowed_root = (root / prefix).resolve()
+    claude_skills_root = (root / ".claude" / "skills").resolve()
     candidate = root / repo_rel
     is_symlink = candidate.is_symlink()
     if is_symlink and not _is_git_tracked(root, repo_rel):
@@ -161,12 +160,16 @@ def repo_abs_for(root: Path, repo_rel: str) -> Path:
         )
 
     resolved = candidate.resolve()
-    if not any(resolved.is_relative_to(allowed_root) for allowed_root in allowed_roots):
-        raise ValueError(
-            f"resolved repo path escapes its allowed roots {allowed_roots}: {resolved}"
+    if not resolved.is_relative_to(allowed_root):
+        is_hermes_skill_link = (
+            prefix == "hermes/skills/"
+            and resolved == (claude_skills_root / repo_rel[len(prefix):]).resolve()
         )
-    # Tracked cross-root links such as hermes/skills -> .claude/skills are
-    # intentional, but their resolved target must remain under a mapped root.
+        if not is_hermes_skill_link:
+            raise ValueError(
+                f"resolved repo path escapes its allowed root {allowed_root}: {resolved}"
+            )
+    # The Hermes export contains tracked links to the matching Claude skill.
     return candidate if is_symlink else resolved
 
 

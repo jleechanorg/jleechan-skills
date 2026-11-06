@@ -78,6 +78,22 @@ class ContainmentTest(unittest.TestCase):
     """The core fix for the path-escape finding: resolved paths must stay
     within the intended root even after a symlink or '..' is involved."""
 
+    def _commit_paths(self, root: Path, *paths: str) -> None:
+        subprocess.run(["git", "init"], cwd=root, capture_output=True, check=True)
+        subprocess.run(["git", "config", "user.name", "Probe"], cwd=root, check=True)
+        subprocess.run(
+            ["git", "config", "user.email", "probe@example.invalid"],
+            cwd=root,
+            check=True,
+        )
+        subprocess.run(["git", "add", "--", *paths], cwd=root, check=True)
+        subprocess.run(
+            ["git", "commit", "-m", "symlink fixture"],
+            cwd=root,
+            capture_output=True,
+            check=True,
+        )
+
     def test_live_abs_for_stays_within_home(self, ):
         import tempfile
         with tempfile.TemporaryDirectory() as home_dir:
@@ -153,28 +169,77 @@ class ContainmentTest(unittest.TestCase):
             sensitive.parent.mkdir()
             sensitive.write_text("secret")
             (root / ".claude" / "commands" / "foo.md").symlink_to(sensitive)
-
-            subprocess.run(["git", "init"], cwd=root, capture_output=True, check=True)
-            subprocess.run(["git", "config", "user.name", "Probe"], cwd=root, check=True)
-            subprocess.run(
-                ["git", "config", "user.email", "probe@example.invalid"],
-                cwd=root,
-                check=True,
-            )
-            subprocess.run(
-                ["git", "add", "--", ".claude/commands/foo.md"],
-                cwd=root,
-                check=True,
-            )
-            subprocess.run(
-                ["git", "commit", "-m", "tracked symlink fixture"],
-                cwd=root,
-                capture_output=True,
-                check=True,
-            )
+            self._commit_paths(root, ".claude/commands/foo.md")
 
             with self.assertRaises(ValueError):
                 repo_abs_for(root, ".claude/commands/foo.md")
+
+    def test_repo_abs_for_allows_tracked_symlink_within_mapped_root(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as root_dir:
+            root = Path(root_dir)
+            commands = root / ".claude" / "commands"
+            commands.mkdir(parents=True)
+            target = commands / "target.md"
+            target.write_text("internal fixture")
+            link = commands / "alias.md"
+            link.symlink_to(target)
+            self._commit_paths(
+                root, ".claude/commands/alias.md", ".claude/commands/target.md"
+            )
+
+            self.assertEqual(repo_abs_for(root, ".claude/commands/alias.md"), link)
+
+    def test_repo_abs_for_allows_tracked_hermes_link_to_claude_skill(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as root_dir:
+            root = Path(root_dir)
+            target = root / ".claude" / "skills" / "foo" / "SKILL.md"
+            target.parent.mkdir(parents=True)
+            target.write_text("canonical skill fixture")
+            link = root / "hermes" / "skills" / "foo" / "SKILL.md"
+            link.parent.mkdir(parents=True)
+            link.symlink_to(target)
+            self._commit_paths(root, "hermes/skills/foo/SKILL.md")
+
+            self.assertEqual(repo_abs_for(root, "hermes/skills/foo/SKILL.md"), link)
+
+    def test_repo_abs_for_rejects_tracked_link_to_other_mapped_root(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as root_dir:
+            root = Path(root_dir)
+            commands = root / ".claude" / "commands"
+            hooks = root / ".codex" / "hooks"
+            commands.mkdir(parents=True)
+            hooks.mkdir(parents=True)
+            target = hooks / "target.py"
+            target.write_text("hook fixture")
+            (commands / "foo.md").symlink_to(target)
+            self._commit_paths(root, ".claude/commands/foo.md", ".codex/hooks/target.py")
+
+            with self.assertRaises(ValueError):
+                repo_abs_for(root, ".claude/commands/foo.md")
+
+    def test_repo_abs_for_rejects_cross_root_parent_symlink(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as root_dir:
+            root = Path(root_dir)
+            claude_root = root / ".claude"
+            codex_hooks = root / ".codex" / "hooks"
+            claude_root.mkdir()
+            codex_hooks.mkdir(parents=True)
+            target = codex_hooks / "target.py"
+            target.write_text("hook fixture")
+            (claude_root / "commands").symlink_to(
+                codex_hooks, target_is_directory=True
+            )
+
+            with self.assertRaises(ValueError):
+                repo_abs_for(root, ".claude/commands/target.py")
 
 
 class FindCommandFilesForSkillTest(unittest.TestCase):
