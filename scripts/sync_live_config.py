@@ -148,30 +148,26 @@ def _is_git_tracked(root: Path, repo_rel: str) -> bool:
 
 
 def repo_abs_for(root: Path, repo_rel: str) -> Path:
-    """Resolve repo_rel to an absolute repo path, contained within its specific
-    mapped root (same reasoning as live_abs_for)."""
-    prefix, _ = _matched_top_level(repo_rel)
-    allowed_root = (root / prefix).resolve()
+    """Resolve repo_rel while keeping its target within a mapped config root."""
+    _matched_top_level(repo_rel)
+    allowed_roots = [
+        (root / prefix).resolve() for prefix in TOP_LEVEL_MAP
+    ]
     candidate = root / repo_rel
-    if candidate.is_symlink():
-        # A symlink that is TRACKED IN GIT is intentional repo content (e.g.
-        # hermes/skills/<name> -> ../../.claude/skills/<name>), and resolving it
-        # would fail containment against its own mapped root and abort `--full`.
-        # Return the link path: callers compare/hash the link itself.
-        #
-        # Anything else is an untracked symlink and stays a hard error. Without
-        # this distinction, a symlink planted in .claude/ pointing at another
-        # top-level directory (.git/, a sibling secret file) would sail through —
-        # removing that guard is exactly what the containment test forbids.
-        if _is_git_tracked(root, repo_rel):
-            return candidate
+    is_symlink = candidate.is_symlink()
+    if is_symlink and not _is_git_tracked(root, repo_rel):
         raise ValueError(
             f"untracked symlink in an allowed root (refusing to follow): {candidate}"
         )
-    candidate = candidate.resolve()
-    if not candidate.is_relative_to(allowed_root):
-        raise ValueError(f"resolved repo path escapes its allowed root {allowed_root}: {candidate}")
-    return candidate
+
+    resolved = candidate.resolve()
+    if not any(resolved.is_relative_to(allowed_root) for allowed_root in allowed_roots):
+        raise ValueError(
+            f"resolved repo path escapes its allowed roots {allowed_roots}: {resolved}"
+        )
+    # Tracked cross-root links such as hermes/skills -> .claude/skills are
+    # intentional, but their resolved target must remain under a mapped root.
+    return candidate if is_symlink else resolved
 
 
 def git_tracked_files(root: Path, *paths: str) -> list[str]:

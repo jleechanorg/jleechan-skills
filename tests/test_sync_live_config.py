@@ -143,6 +143,39 @@ class ContainmentTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 repo_abs_for(root, ".claude/commands/foo.md")
 
+    def test_repo_abs_for_rejects_tracked_symlink_to_outside_mapped_roots(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as root_dir:
+            root = Path(root_dir)
+            (root / ".claude" / "commands").mkdir(parents=True)
+            sensitive = root / "other_top_level" / "secret.md"
+            sensitive.parent.mkdir()
+            sensitive.write_text("secret")
+            (root / ".claude" / "commands" / "foo.md").symlink_to(sensitive)
+
+            subprocess.run(["git", "init"], cwd=root, capture_output=True, check=True)
+            subprocess.run(["git", "config", "user.name", "Probe"], cwd=root, check=True)
+            subprocess.run(
+                ["git", "config", "user.email", "probe@example.invalid"],
+                cwd=root,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "add", "--", ".claude/commands/foo.md"],
+                cwd=root,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "commit", "-m", "tracked symlink fixture"],
+                cwd=root,
+                capture_output=True,
+                check=True,
+            )
+
+            with self.assertRaises(ValueError):
+                repo_abs_for(root, ".claude/commands/foo.md")
+
 
 class FindCommandFilesForSkillTest(unittest.TestCase):
     """Regression test for the reviewer-found bug: a bare `name in text`
