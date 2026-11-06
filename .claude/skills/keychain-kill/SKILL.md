@@ -29,12 +29,15 @@ ps -Ao pid,ppid,stat,etime,args | grep -Ei '[S]ecurityAgent|[U]niversalAccessAut
 #    session (the tmux/launchd/agent process you are working on). Replace
 #    <session-pid>. This prints only matching executable names, with PID, PPID,
 #    and the full command line from the same process snapshot.
-ps -Ao pid=,ppid=,comm=,args= | awk -v root="<session-pid>" '
+ps -Ao pid=,ppid=,args= | awk -v root="<session-pid>" '
   { ppid[$1]=$2; executable[$1]=$3; line[$1]=$0 }
   END { for (p in ppid) { q=p; n=0
           while (q!="" && q!=0 && n<40) {
             if (q==root) {
-              if (p!=root && executable[p] ~ /(^|\/)(SecurityAgent|universalAccessAuthWarn)$/) {
+              name=executable[p]
+              sub(/^.*\//, "", name)
+              sub(/^\[/, "", name); sub(/\]$/, "", name)
+              if (p!=root && (name=="SecurityAgent" || name=="universalAccessAuthWarn")) {
                 print line[p]
               }
               break
