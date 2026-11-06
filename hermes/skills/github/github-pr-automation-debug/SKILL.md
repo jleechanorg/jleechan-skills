@@ -42,9 +42,13 @@ own source of PR comments: its comments appear under the operator's username
 with `author_association=MEMBER`, so they look like the operator typed them.
 
 **Why this matters for spam diagnosis:** if a PR has 2,500+ comments that all
-share the same body prefix from one operator account, a daemon is in a feedback
-loop — NOT a hostile bot, NOT a leaked PAT, NOT CodeRabbit spam. The fix lives in
-that daemon's dedup logic, not in GitHub App settings or launchd.
+share the same body prefix from one operator account, a daemon feedback loop is
+one hypothesis to check, not a confirmed attribution. The account and body
+pattern alone do not rule out a leaked PAT or another source. Verify that this
+daemon emitted the comments from its logs or process evidence before changing
+its dedup logic; if attribution is unavailable, keep credential-compromise
+triage in scope. Once attribution confirms this daemon, the fix is in its dedup
+logic, not in GitHub App settings or launchd.
 
 1. Find the loop — pull recent comments and group by body prefix:
    ```bash

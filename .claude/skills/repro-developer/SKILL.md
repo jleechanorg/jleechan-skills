@@ -62,14 +62,12 @@ python3 ~/.claude/skills/repro-developer/scripts/collect_repro.py \
   --bead <bead-id>
 ```
 
-Create git/LFS-ready artifacts by adding:
+Create git/LFS-ready artifacts by adding `--sanitize`,
+`--require-gitleaks-clean`, `--encrypt-raw`, and
+`--publish-dir artifacts/repro-developer/<incident-slug>` to the complete
+`collect_repro.py` command above.
 
 ```bash
-  --sanitize \
-  --require-gitleaks-clean \
-  --encrypt-raw \
-  --publish-dir artifacts/repro-developer/<incident-slug>
-
 git lfs track "artifacts/repro-developer/**"
 git add .gitattributes artifacts/repro-developer/<incident-slug>
 ```
